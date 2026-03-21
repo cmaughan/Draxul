@@ -24,8 +24,8 @@ public:
         int initial_cols = 80, int initial_rows = 24);
     void shutdown();
     bool is_running() const;
-    bool resize(int cols, int rows);
-    bool write(std::string_view text);
+    bool resize(int cols, int rows) const;
+    bool write(std::string_view text) const;
     std::vector<std::string> drain_output();
 
 private:

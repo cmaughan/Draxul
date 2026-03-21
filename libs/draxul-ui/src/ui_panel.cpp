@@ -679,7 +679,7 @@ void UiPanel::on_mouse_move(const MouseMoveEvent& event)
 
     ImGui::SetCurrentContext(impl_->context);
     const float scale = impl_->layout.pixel_scale;
-    ImGui::GetIO().AddMousePosEvent(event.x * scale, event.y * scale);
+    ImGui::GetIO().AddMousePosEvent(static_cast<float>(event.x) * scale, static_cast<float>(event.y) * scale);
 }
 
 void UiPanel::on_mouse_button(const MouseButtonEvent& event)

@@ -29,7 +29,7 @@ struct TextService::Impl
         ligature_analyser.reset_cache();
         ligature_analyser.set_cache_limit(config.font_choice_cache_limit);
 
-        if (!atlas_manager.initialize(resolver.primary().face(), resolver.primary().point_size()))
+        if (!atlas_manager.initialize(resolver.primary().face(), static_cast<int>(resolver.primary().point_size())))
             return false;
 
         return true;
@@ -51,7 +51,7 @@ struct TextService::Impl
         if (!resolver.set_point_size(point_size))
             return false;
 
-        atlas_manager.reset_atlas(resolver.primary().face(), resolver.primary().point_size());
+        atlas_manager.reset_atlas(resolver.primary().face(), static_cast<int>(resolver.primary().point_size()));
         selector.reset_cache();
         ligature_analyser.reset_cache();
         return true;

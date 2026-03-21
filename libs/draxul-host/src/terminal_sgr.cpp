@@ -1,6 +1,7 @@
 #include <draxul/terminal_sgr.h>
 
 #include <algorithm>
+#include <array>
 #include <vector>
 
 namespace draxul
@@ -11,7 +12,7 @@ namespace
 
 Color ansi_color(int index)
 {
-    static const Color palette[] = {
+    static const std::array<Color, 16> palette = { {
         { 0.05f, 0.06f, 0.07f, 1.0f },
         { 0.80f, 0.24f, 0.24f, 1.0f },
         { 0.40f, 0.73f, 0.42f, 1.0f },
@@ -28,7 +29,7 @@ Color ansi_color(int index)
         { 0.81f, 0.55f, 0.88f, 1.0f },
         { 0.48f, 0.86f, 0.93f, 1.0f },
         { 0.97f, 0.98f, 0.98f, 1.0f },
-    };
+    } };
     return palette[std::clamp(index, 0, 15)];
 }
 
@@ -44,13 +45,13 @@ Color xterm_color(int index)
         const int g = (value / 6) % 6;
         const int b = value % 6;
         auto scale = [](int n) {
-            static constexpr int values[] = { 0, 95, 135, 175, 215, 255 };
-            return values[n] / 255.0f;
+            static constexpr std::array<int, 6> values = { 0, 95, 135, 175, 215, 255 };
+            return static_cast<float>(values[n]) / 255.0f;
         };
         return { scale(r), scale(g), scale(b), 1.0f };
     }
 
-    const float gray = static_cast<float>((8 + (index - 232) * 10) / 255.0);
+    const auto gray = static_cast<float>((8 + (index - 232) * 10) / 255.0);
     return { gray, gray, gray, 1.0f };
 }
 

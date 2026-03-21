@@ -278,7 +278,7 @@ bool GlyphCache::rasterize_cluster(const std::string& text, FT_Face face, TextSh
     // font_manager) to snap bbox_right to a whole-cell boundary. HarfBuzz
     // x_advance >> 6 can be 1 px less than max_advance >> 6 due to independent
     // 26.6 truncation, which would leave a 1-pixel gap.
-    const int face_cell_w = static_cast<int>(face->size->metrics.max_advance >> 6);
+    const auto face_cell_w = static_cast<int>(face->size->metrics.max_advance >> 6);
     if (face_cell_w > 0)
     {
         const int n_cells = std::max(1, (pen_x + face_cell_w - 1) / face_cell_w);
@@ -344,11 +344,11 @@ bool GlyphCache::rasterize_cluster(const std::string& text, FT_Face face, TextSh
             (size_t)cluster_width * ATLAS_PIXEL_SIZE);
     }
 
-    float inv_size = 1.0f / atlas_size_;
-    region.u0 = atlas_x * inv_size;
-    region.v0 = atlas_y * inv_size;
-    region.u1 = (atlas_x + cluster_width) * inv_size;
-    region.v1 = (atlas_y + cluster_height) * inv_size;
+    float inv_size = 1.0f / static_cast<float>(atlas_size_);
+    region.u0 = static_cast<float>(atlas_x) * inv_size;
+    region.v0 = static_cast<float>(atlas_y) * inv_size;
+    region.u1 = static_cast<float>(atlas_x + cluster_width) * inv_size;
+    region.v1 = static_cast<float>(atlas_y + cluster_height) * inv_size;
     region.bearing_x = bbox_left;
     region.bearing_y = bbox_top;
     region.width = cluster_width;

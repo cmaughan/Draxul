@@ -131,7 +131,7 @@ bool UnixPtyProcess::is_running() const
     return waitpid(pid_, &status, WNOHANG) == 0;
 }
 
-bool UnixPtyProcess::resize(int cols, int rows)
+bool UnixPtyProcess::resize(int cols, int rows) const
 {
     if (master_fd_ < 0)
         return false;
@@ -141,7 +141,7 @@ bool UnixPtyProcess::resize(int cols, int rows)
     return ioctl(master_fd_, TIOCSWINSZ, &ws) == 0;
 }
 
-bool UnixPtyProcess::write(std::string_view text)
+bool UnixPtyProcess::write(std::string_view text) const
 {
     if (master_fd_ < 0)
         return false;

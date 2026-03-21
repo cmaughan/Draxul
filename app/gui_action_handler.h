@@ -45,7 +45,7 @@ private:
     void copy();
     void paste();
     void toggle_diagnostics();
-    void open_file_dialog();
+    void open_file_dialog() const;
     void change_font_size(float new_size);
 
     Deps deps_;

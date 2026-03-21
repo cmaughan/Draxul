@@ -56,7 +56,7 @@ bool App::initialize()
         const auto t0 = Clock::now();
         const bool ok = fn();
         const double ms = Ms(Clock::now() - t0).count();
-        startup_steps_.push_back({ label, ms });
+        startup_steps_.emplace_back(label, ms);
         startup_total_ms_ += ms;
         return ok;
     };

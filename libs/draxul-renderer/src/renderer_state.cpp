@@ -270,13 +270,13 @@ void RendererState::apply_cursor()
     {
         overlay_cell_.pos_x = cell.pos_x;
         overlay_cell_.pos_y = cell.pos_y;
-        overlay_cell_.size_x = std::max(1.0f, cell.size_x * percentage / 100.0f);
+        overlay_cell_.size_x = std::max(1.0f, cell.size_x * static_cast<float>(percentage) / 100.0f);
         overlay_cell_.size_y = cell.size_y;
     }
     else
     {
         overlay_cell_.pos_x = cell.pos_x;
-        overlay_cell_.size_y = std::max(1.0f, cell.size_y * percentage / 100.0f);
+        overlay_cell_.size_y = std::max(1.0f, cell.size_y * static_cast<float>(percentage) / 100.0f);
         overlay_cell_.pos_y = cell.pos_y + cell.size_y - overlay_cell_.size_y;
         overlay_cell_.size_x = cell.size_x;
     }

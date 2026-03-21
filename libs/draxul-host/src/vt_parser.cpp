@@ -19,7 +19,7 @@ bool has_complete_codepoint(std::string_view text, size_t offset)
 
     for (int i = 1; i < length; ++i)
     {
-        const uint8_t byte = static_cast<uint8_t>(text[offset + static_cast<size_t>(i)]);
+        const auto byte = static_cast<uint8_t>(text[offset + static_cast<size_t>(i)]);
         if ((byte & 0xC0) != 0x80)
             return false;
     }

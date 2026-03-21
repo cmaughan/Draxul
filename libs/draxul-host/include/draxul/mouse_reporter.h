@@ -53,7 +53,7 @@ public:
     void reset();
 
 private:
-    void send_report(int button_code, bool pressed, int col, int row);
+    void send_report(int button_code, bool pressed, int col, int row) const;
 
     WriteFn write_fn_;
     MouseMode mouse_mode_ = MouseMode::None;

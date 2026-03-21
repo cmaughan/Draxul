@@ -59,7 +59,7 @@ public:
     std::string extract_text() const;
 
 private:
-    void update_overlay();
+    void update_overlay() const;
 
     static constexpr int kSelectionMaxCells = 8192;
 

@@ -44,11 +44,8 @@ bool handle_file_dialog_event(const SDL_Event& event,
     if (event.type != file_dialog_event_type)
         return false;
     std::unique_ptr<std::string> path(static_cast<std::string*>(event.user.data1));
-    if (path)
-    {
-        if (on_path)
-            on_path(*path);
-    }
+    if (path && on_path)
+        on_path(*path);
     return true;
 }
 

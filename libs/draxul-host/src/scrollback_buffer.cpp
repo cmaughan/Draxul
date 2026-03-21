@@ -145,7 +145,7 @@ void ScrollbackBuffer::update_display()
         else if (vr < sbsize)
         {
             const auto sb_row = row(vr);
-            const int sb_cols = static_cast<int>(sb_row.size());
+            const auto sb_cols = static_cast<int>(sb_row.size());
             for (int col = 0; col < cols; ++col)
             {
                 if (col < sb_cols)

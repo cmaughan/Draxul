@@ -89,7 +89,7 @@ void GuiActionHandler::toggle_diagnostics()
         deps_.on_panel_toggled();
 }
 
-void GuiActionHandler::open_file_dialog()
+void GuiActionHandler::open_file_dialog() const
 {
     if (deps_.on_open_file_dialog)
         deps_.on_open_file_dialog();

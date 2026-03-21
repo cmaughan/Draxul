@@ -45,19 +45,11 @@ struct CellText
     {
         return len == o.len && std::memcmp(data.data(), o.data.data(), len) == 0;
     }
-    bool operator!=(const CellText& o) const
-    {
-        return !(*this == o);
-    }
 
     // Convenience: compare with string_view or string literals
     bool operator==(std::string_view sv) const
     {
         return view() == sv;
-    }
-    bool operator!=(std::string_view sv) const
-    {
-        return view() != sv;
     }
 };
 

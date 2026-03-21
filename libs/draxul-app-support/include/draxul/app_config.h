@@ -39,7 +39,7 @@ struct AppConfig
     std::string italic_font_path;
     std::string bold_italic_font_path;
     std::vector<std::string> fallback_paths;
-    std::vector<GuiKeybinding> keybindings; // populated by AppConfig()
+    std::vector<GuiKeybinding> keybindings = {}; // populated by AppConfig()
 
     // Parse config from a TOML string. Returns defaults for any missing or invalid keys.
     static AppConfig parse(std::string_view content);

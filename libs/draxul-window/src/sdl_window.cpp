@@ -19,6 +19,10 @@
 namespace draxul
 {
 
+#ifdef __APPLE__
+extern void apply_title_bar_color_macos(SDL_Window*, Color);
+#endif
+
 #if defined(_WIN32) || defined(__APPLE__)
 static void log_display_info(SDL_Window* window)
 {
@@ -53,8 +57,8 @@ static void log_display_info(SDL_Window* window)
     DRAXUL_LOG_DEBUG(LogCategory::Window, "CG physical size: %.1f x %.1f mm", physicalSize.width, physicalSize.height);
     if (physicalSize.width > 0)
     {
-        float ppi_logical = (float)(cgLogicalW / (physicalSize.width / 25.4));
-        float ppi_physical = (float)(cgPhysicalW / (physicalSize.width / 25.4));
+        auto ppi_logical = static_cast<double>(cgLogicalW) / (physicalSize.width / 25.4);
+        auto ppi_physical = static_cast<double>(cgPhysicalW) / (physicalSize.width / 25.4);
         DRAXUL_LOG_DEBUG(LogCategory::Window, "Computed PPI (logical): %.1f", ppi_logical);
         DRAXUL_LOG_DEBUG(LogCategory::Window, "Computed PPI (physical): %.1f", ppi_physical);
     }
@@ -321,6 +325,9 @@ bool SdlWindow::handle_event(const SDL_Event& event)
             if (auto e = sdl::translate_file_drop(event))
                 on_drop_file(*e);
         break;
+
+    default:
+        break;
     }
 
     return true;
@@ -358,7 +365,7 @@ bool SdlWindow::wait_events(int timeout_ms)
     return poll_events();
 }
 
-void SdlWindow::wake()
+void SdlWindow::wake() const
 {
     if (!window_ || wake_event_type_ == 0 || wake_event_type_ == static_cast<Uint32>(-1))
         return;
@@ -434,7 +441,6 @@ void SdlWindow::set_title_bar_color(Color color)
 
 #ifdef __APPLE__
     // Implemented in sdl_window_macos.mm (requires Cocoa/ObjC).
-    extern void apply_title_bar_color_macos(SDL_Window*, Color);
     apply_title_bar_color_macos(window_, color);
 #elif defined(_WIN32)
     HWND hwnd = (HWND)SDL_GetPointerProperty(

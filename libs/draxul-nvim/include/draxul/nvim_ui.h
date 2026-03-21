@@ -116,7 +116,7 @@ public:
 
     void on_key(const KeyEvent& event);
     void on_text_input(const TextInputEvent& event);
-    void on_text_editing(const TextEditingEvent& event);
+    void on_text_editing(const TextEditingEvent& event) const;
     void on_mouse_button(const MouseButtonEvent& event);
     void on_mouse_move(const MouseMoveEvent& event);
     void on_mouse_wheel(const MouseWheelEvent& event);
@@ -124,7 +124,7 @@ public:
 
 private:
     void send_input(const std::string& keys);
-    std::string translate_key(int keycode, ModifierFlags mod);
+    std::string translate_key(int keycode, ModifierFlags mod) const;
     std::string mouse_modifiers(ModifierFlags mod) const;
     // Convert raw pixel coordinates to grid row/col, clamped to grid bounds.
     int pixel_to_col(int x) const;

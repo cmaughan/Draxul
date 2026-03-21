@@ -389,7 +389,7 @@ void TerminalHostBase::csi_margins(bool private_mode, const std::vector<int>& pa
     }
 }
 
-void TerminalHostBase::handle_osc(std::string_view body)
+void TerminalHostBase::handle_osc(std::string_view body) const
 {
     const size_t semi = body.find(';');
     if (semi == std::string_view::npos)

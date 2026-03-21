@@ -24,7 +24,7 @@ public:
     bool poll_events() override;
     bool wait_events(int timeout_ms);
     void activate();
-    void wake();
+    void wake() const;
     void* native_handle() override
     {
         return window_;

@@ -39,7 +39,7 @@ public:
             return region;
 
         // Atlas overflowed — reset and retry once.
-        glyph_cache_.reset(resolver.primary().face(), resolver.primary().point_size());
+        glyph_cache_.reset(resolver.primary().face(), static_cast<int>(resolver.primary().point_size()));
         atlas_reset_pending_ = true;
         atlas_reset_count_++;
         DRAXUL_LOG_WARN(

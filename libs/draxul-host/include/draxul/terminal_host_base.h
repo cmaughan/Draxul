@@ -87,7 +87,7 @@ private:
     void handle_control(char ch);
     void handle_esc(char ch);
     void handle_csi(char final_char, std::string_view body);
-    void handle_osc(std::string_view body);
+    void handle_osc(std::string_view body) const;
 
     // CSI dispatch helpers — each handles one logical group of sequences.
     // Called from handle_csi(); pure behavioral extraction, no logic changes.

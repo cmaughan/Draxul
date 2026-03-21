@@ -31,7 +31,7 @@ std::string NvimInput::mouse_modifiers(ModifierFlags mod) const
     return result;
 }
 
-std::string NvimInput::translate_key(int keycode, ModifierFlags mod)
+std::string NvimInput::translate_key(int keycode, ModifierFlags mod) const
 {
     std::string key;
 
@@ -203,7 +203,7 @@ void NvimInput::on_text_input(const TextInputEvent& event)
     }
 }
 
-void NvimInput::on_text_editing(const TextEditingEvent& event)
+void NvimInput::on_text_editing(const TextEditingEvent& event) const
 {
     (void)event;
 }

@@ -67,7 +67,7 @@ std::filesystem::path config_path()
 
 int parse_window_dimension(const toml::table& document, const char* key, int fallback, int min_value, int max_value)
 {
-    if (auto parsed = toml_support::get_int(document, key))
+    if (auto parsed = toml_support::get_int(document, key); parsed.has_value())
     {
         if (*parsed < min_value || *parsed > max_value)
             return fallback;
@@ -95,7 +95,7 @@ int floor_to_power_of_two(int value)
 
 int parse_atlas_size(const toml::table& document, int fallback)
 {
-    if (auto parsed = toml_support::get_int(document, "atlas_size"))
+    if (auto parsed = toml_support::get_int(document, "atlas_size"); parsed.has_value())
     {
         int clamped = static_cast<int>(std::clamp(*parsed, static_cast<int64_t>(kMinAtlasSize), static_cast<int64_t>(kMaxAtlasSize)));
         return floor_to_power_of_two(clamped);
@@ -226,18 +226,16 @@ const GuiKeybinding* first_binding_for_action(const std::vector<GuiKeybinding>& 
 float parse_font_size(const toml::table& document, float fallback)
 {
     // Accept both integer (font_size = 14) and float (font_size = 14.5) TOML values.
-    if (auto parsed = toml_support::get_double(document, "font_size"))
+    if (auto parsed = toml_support::get_double(document, "font_size"); parsed.has_value())
         return std::clamp(static_cast<float>(*parsed), TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
-    if (auto parsed = toml_support::get_int(document, "font_size"))
+    if (auto parsed = toml_support::get_int(document, "font_size"); parsed.has_value())
         return std::clamp(static_cast<float>(*parsed), TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
     return fallback;
 }
 
 bool parse_enable_ligatures(const toml::table& document, bool fallback)
 {
-    if (auto parsed = toml_support::get_bool(document, "enable_ligatures"))
-        return *parsed;
-    return fallback;
+    return toml_support::get_bool(document, "enable_ligatures").value_or(fallback);
 }
 
 AppConfig config_from_toml(const toml::table& document)
@@ -290,7 +288,7 @@ AppConfig config_from_toml(const toml::table& document)
     config.font_size = parse_font_size(document, config.font_size);
     config.atlas_size = parse_atlas_size(document, config.atlas_size);
     config.enable_ligatures = parse_enable_ligatures(document, config.enable_ligatures);
-    if (auto parsed = toml_support::get_bool(document, "smooth_scroll"))
+    if (auto parsed = toml_support::get_bool(document, "smooth_scroll"); parsed.has_value())
         config.smooth_scroll = *parsed;
 
     if (auto font_path = toml_support::get_string(document, "font_path"))
@@ -310,7 +308,7 @@ AppConfig config_from_toml(const toml::table& document)
             if (!value.is_string())
                 continue;
 
-            std::string action = std::string(action_key.str());
+            auto action = std::string(action_key.str());
             auto combo = value.value<std::string_view>();
             if (!combo)
                 continue;
@@ -350,15 +348,15 @@ AppConfig config_from_toml(const toml::table& document)
 } // namespace
 
 AppConfig::AppConfig()
-    : keybindings{
+{
+    keybindings = {
         { "toggle_diagnostics", static_cast<int32_t>(SDLK_F12), kModNone },
         { "copy", static_cast<int32_t>(SDLK_C), kModCtrl | kModShift },
         { "paste", static_cast<int32_t>(SDLK_V), kModCtrl | kModShift },
         { "font_increase", static_cast<int32_t>(SDLK_EQUALS), kModCtrl },
         { "font_decrease", static_cast<int32_t>(SDLK_MINUS), kModCtrl },
         { "font_reset", static_cast<int32_t>(SDLK_0), kModCtrl },
-    }
-{
+    };
 }
 
 AppConfig AppConfig::parse(std::string_view content)
@@ -498,13 +496,13 @@ std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::
     for (size_t i = 0; i + 1 < parts.size(); ++i)
     {
         auto modifier = parse_modifier_token(parts[i]);
-        if (!modifier)
+        if (!modifier.has_value())
             return std::nullopt;
         modifiers |= *modifier;
     }
 
     auto key = parse_key_token(parts.back());
-    if (!key)
+    if (!key.has_value())
         return std::nullopt;
 
     return GuiKeybinding{ std::string(action), *key, normalize_gui_modifiers(modifiers) };

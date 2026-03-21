@@ -74,7 +74,7 @@ std::string encode_terminal_key(const KeyEvent& event, const VtState& vt)
     // Only applies when a single printable ASCII character would be produced.
     if (alt && event.keycode >= 0x20 && event.keycode <= 0x7E)
     {
-        const char ch = static_cast<char>(event.keycode);
+        const auto ch = static_cast<char>(event.keycode);
         return std::string("\x1B") + ch;
     }
 

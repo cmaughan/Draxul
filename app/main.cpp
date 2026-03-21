@@ -95,7 +95,10 @@ ParsedArgs parse_args(const std::vector<std::string>& args)
         else if (args[i] == "--host" && i + 1 < args.size())
             parsed.host_kind = draxul::parse_host_kind(args[++i]);
         else if (args[i] == "--command" && i + 1 < args.size())
-            parsed.host_command = args[++i];
+        {
+            ++i;
+            parsed.host_command = args[i];
+        }
     }
     return parsed;
 }

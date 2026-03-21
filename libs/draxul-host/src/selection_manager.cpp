@@ -92,7 +92,7 @@ std::string SelectionManager::extract_text() const
     return result;
 }
 
-void SelectionManager::update_overlay()
+void SelectionManager::update_overlay() const
 {
     if (!sel_active_)
     {

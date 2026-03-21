@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <draxul/input_types.h>
+#include <string>
 
 namespace draxul
 {
@@ -104,26 +105,26 @@ void MouseReporter::reset()
     mouse_btn_pressed_ = 0;
 }
 
-void MouseReporter::send_report(int button_code, bool pressed, int col, int row)
+void MouseReporter::send_report(int button_code, bool pressed, int col, int row) const
 {
     if (mouse_sgr_)
     {
-        char seq[32];
-        const int len = snprintf(seq, sizeof(seq), "\x1B[<%d;%d;%d%c",
+        std::string seq(32, '\0');
+        const int len = snprintf(seq.data(), seq.size(), "\x1B[<%d;%d;%d%c",
             button_code, col + 1, row + 1, pressed ? 'M' : 'm');
         if (len > 0)
-            write_fn_(std::string_view(seq, static_cast<size_t>(len)));
+            write_fn_(std::string_view(seq.data(), static_cast<size_t>(len)));
     }
     else if (col < 223 && row < 223)
     {
-        char seq[7];
+        std::string seq(6, '\0');
         seq[0] = '\x1B';
         seq[1] = '[';
         seq[2] = 'M';
         seq[3] = static_cast<char>(button_code + 32);
         seq[4] = static_cast<char>(col + 33);
         seq[5] = static_cast<char>(row + 33);
-        write_fn_(std::string_view(seq, 6));
+        write_fn_(std::string_view(seq.data(), seq.size()));
     }
 }
 
