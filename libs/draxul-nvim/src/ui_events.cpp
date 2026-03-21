@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <draxul/nvim_ui.h>
 #include <draxul/unicode.h>
+#include <memory>
 
 namespace draxul
 {
@@ -89,7 +90,7 @@ const RedrawDispatchEntry* find_redraw_dispatch(std::string_view name)
         [](const RedrawDispatchEntry& entry, std::string_view value) { return entry.name < value; });
     if (it == kRedrawDispatch.end() || it->name != name)
         return nullptr;
-    return &*it;
+    return std::to_address(it);
 }
 
 } // namespace
