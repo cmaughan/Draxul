@@ -7,7 +7,7 @@
 
 ## Problem
 
-`libs/draxul-nvim/src/rpc.cpp:23` accumulates incoming Neovim notifications in a `std::vector<RpcNotification>`. The main thread drains it opportunistically at line ~175 via a swap-under-mutex pattern.
+`libs/draxul-nvim/src/rpc.cpp:24` accumulates incoming Neovim notifications in `std::vector<RpcNotification> notifications_` inside the `Impl` struct. The main thread drains it at line 175 via a swap-under-mutex pattern (`result.swap(impl_->notifications_)`). The reader thread pushes at line 286 (`impl_->notifications_.push_back(...)`) with no capacity check.
 
 Under a burst of Neovim redraw events (large file open, `:%s/…/g` across thousands of lines, `:bufdo`, or a heavy plugin), the reader thread can outpace the main thread. Because the vector has no capacity limit, the queue grows without bound. The design document `belt-and-braces.md` names this as a known risk but no backpressure policy has been implemented.
 

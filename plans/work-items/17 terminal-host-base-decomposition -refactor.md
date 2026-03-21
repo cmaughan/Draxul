@@ -3,26 +3,17 @@
 **Type:** refactor
 **Priority:** 17
 **Raised by:** GPT (#2 bad architecture), Gemini (#3 bad), Claude (agrees)
-**Status:** open
+**Status:** open — partially complete (component extraction done; `LocalTerminalHost` split still pending)
 
 ## Problem
 
-`libs/draxul-host/include/draxul/terminal_host_base.h` is the inheritance root for Neovim, shell, and PowerShell hosts. It currently owns:
-- Alt-screen management (`AltScreenManager`)
-- Scrollback buffer (`ScrollbackBuffer`)
-- Selection management (`SelectionManager`)
-- Mouse reporting (`MouseReporter`)
-- VT state (`VtState`)
-- VT parser callbacks
-- Highlight management
-- Process lifecycle coordination
+`libs/draxul-host/include/draxul/terminal_host_base.h` is the inheritance root for Neovim, shell, and PowerShell hosts. The header is 137 lines; the implementation is 453 lines across two files.
 
-Even after the CSI dispatch was moved out, the base class still aggregates too much policy. This makes:
-- Parallel agent work on shell-vs-Neovim paths prone to merge conflicts
-- Shell crash lifecycle tests difficult (too many subsystems initialised)
-- Scrollback resize tests requiring a full `TerminalHostBase` to be constructed
+**Already done:** All major subsystems are now extracted as separate classes held by value — `AltScreenManager`, `ScrollbackBuffer`, `SelectionManager`, `MouseReporter`, `VtState`, `VtParser`. The CSI dispatch lives in `terminal_host_base_csi.cpp`.
 
-**Consensus: decompose before attempting shell crash or scrollback resize tests.**
+**Still remaining:** The header still owns all these subsystems regardless of host type. A shell/PowerShell host (local terminal) and the Neovim host share the same base class even though Neovim does not use scrollback, selection, or the VT state machine. The split into `LocalTerminalHost` (for PTY/shell) and a leaner `TerminalHostBase` (for Neovim) has not happened.
+
+The practical consequence: shell crash and scrollback resize tests still require constructing a full `TerminalHostBase` with all subsystems live.
 
 ## Affected Files
 
@@ -48,7 +39,7 @@ Even after the CSI dispatch was moved out, the base class still aggregates too m
 ## Dependencies
 
 - **Blocks** (downstream): shell crash lifecycle test, scrollback resize test.
-- Coordinate with work item 14 (megacity removal) if the host interface touches `IRenderer` — megacity removal first simplifies the renderer interface.
+- Work item 14 (megacity removal) is complete — no blocker there.
 
 ## Sub-Agent Suitability
 
