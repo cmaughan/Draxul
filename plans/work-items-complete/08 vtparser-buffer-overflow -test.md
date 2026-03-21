@@ -15,16 +15,16 @@ Even though `vt_parser_fuzz_tests.cpp` exists, there is no deterministic unit te
 
 ## Implementation Plan
 
-- [ ] Read `libs/draxul-host/src/vt_parser.cpp` and `vt_parser_fuzz_tests.cpp` to understand the parser API and existing fuzz entry point.
-- [ ] Write a deterministic test in `tests/vtparser_overflow_tests.cpp`:
+- [x] Read `libs/draxul-host/src/vt_parser.cpp` and `vt_parser_fuzz_tests.cpp` to understand the parser API and existing fuzz entry point.
+- [x] Write a deterministic test in `tests/vtparser_overflow_tests.cpp`:
   - Construct a synthetic stream of `>= kMaxCsiBuffer` bytes of CSI content (e.g., a single CSI sequence with a very long parameter string).
   - Feed to the VtParser.
   - Assert: the `csi_buffer_` size never exceeds `kMaxCsiBuffer`, no OOM, parser state is reset to a known baseline after the overlong sequence.
   - Repeat for OSC: `>= kMaxOscBuffer` bytes in an OSC payload.
   - Repeat for `plain_text_` accumulation.
-- [ ] The test must not OOM itself — generate the stream in a streaming fashion or use a fixed-size buffer.
-- [ ] Add to `tests/CMakeLists.txt`.
-- [ ] Run under ASan: `cmake --preset mac-asan && cmake --build build --target draxul-tests && ctest --test-dir build -R draxul-tests`.
+- [x] The test must not OOM itself — generate the stream in a streaming fashion or use a fixed-size buffer.
+- [x] Add to `tests/CMakeLists.txt`.
+- [x] Run under ASan: `cmake --preset mac-asan && cmake --build build --target draxul-tests && ctest --test-dir build -R draxul-tests`.
 
 ---
 

@@ -19,9 +19,17 @@ namespace draxul
 //   - C0 control characters             → on_control
 //   - CSI sequences (ESC [ … final)     → on_csi
 //   - OSC sequences (ESC ] … BEL/ST)    → on_osc
+//
+// Buffer caps: each accumulation buffer is bounded to prevent OOM from
+// pathological terminal streams.  When a cap is reached the in-progress
+// sequence is dropped and the parser resets to Ground.
 class VtParser
 {
 public:
+    static constexpr size_t kMaxPlainTextBuffer = 64 * 1024; // 64 KiB
+    static constexpr size_t kMaxCsiBuffer = 4096; // 4 KiB
+    static constexpr size_t kMaxOscBuffer = 8192; // 8 KiB
+
     struct Callbacks
     {
         // A complete UTF-8 grapheme cluster ready to be written.

@@ -17,15 +17,15 @@ Note: `mpack-fuzz-test` is complete (MPack fuzzing). VT parser fuzz tests also e
 
 ## Fix Plan
 
-- [ ] Read `libs/draxul-host/src/vt_parser.cpp` in full.
-- [ ] Define constants for maximum buffer sizes (e.g., `kMaxPlainTextBuffer = 64 * 1024`, `kMaxCsiBuffer = 4096`, `kMaxOscBuffer = 8192` — adjust based on realistic terminal output).
-- [ ] Add checks at the point each buffer is appended:
+- [x] Read `libs/draxul-host/src/vt_parser.cpp` in full.
+- [x] Define constants for maximum buffer sizes (e.g., `kMaxPlainTextBuffer = 64 * 1024`, `kMaxCsiBuffer = 4096`, `kMaxOscBuffer = 8192` — adjust based on realistic terminal output).
+- [x] Add checks at the point each buffer is appended:
   - If the buffer would exceed its max, emit a WARN log and either:
     - Flush/reset the buffer (treating it as a truncated sequence), or
     - Drop the incoming byte and mark the sequence as errored.
   - The chosen strategy must not crash or hang.
-- [ ] Ensure the VT parser fuzz tests still pass after the change.
-- [ ] Build and run smoke test + ctest.
+- [x] Ensure the VT parser fuzz tests still pass after the change.
+- [x] Build and run smoke test + ctest.
 
 ---
 

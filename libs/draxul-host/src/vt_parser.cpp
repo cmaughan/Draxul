@@ -1,5 +1,6 @@
 #include <draxul/vt_parser.h>
 
+#include <draxul/log.h>
 #include <draxul/unicode.h>
 
 namespace draxul
@@ -82,6 +83,13 @@ void VtParser::feed(std::string_view bytes)
             }
             else
             {
+                if (plain_text_.size() >= kMaxPlainTextBuffer)
+                {
+                    DRAXUL_LOG_WARN(LogCategory::App,
+                        "vt_parser: plain_text buffer exceeded cap (%zu bytes); flushing",
+                        kMaxPlainTextBuffer);
+                    plain_text_.clear();
+                }
                 plain_text_.push_back(ch);
                 flush_plain_text();
             }
@@ -112,7 +120,18 @@ void VtParser::feed(std::string_view bytes)
             }
             else
             {
-                csi_buffer_.push_back(ch);
+                if (csi_buffer_.size() >= kMaxCsiBuffer)
+                {
+                    DRAXUL_LOG_WARN(LogCategory::App,
+                        "vt_parser: CSI buffer exceeded cap (%zu bytes); dropping sequence",
+                        kMaxCsiBuffer);
+                    csi_buffer_.clear();
+                    state_ = State::Ground;
+                }
+                else
+                {
+                    csi_buffer_.push_back(ch);
+                }
             }
             break;
         case State::Osc:
@@ -127,7 +146,18 @@ void VtParser::feed(std::string_view bytes)
             }
             else
             {
-                osc_buffer_.push_back(ch);
+                if (osc_buffer_.size() >= kMaxOscBuffer)
+                {
+                    DRAXUL_LOG_WARN(LogCategory::App,
+                        "vt_parser: OSC buffer exceeded cap (%zu bytes); dropping sequence",
+                        kMaxOscBuffer);
+                    osc_buffer_.clear();
+                    state_ = State::Ground;
+                }
+                else
+                {
+                    osc_buffer_.push_back(ch);
+                }
             }
             break;
         case State::OscEsc:
