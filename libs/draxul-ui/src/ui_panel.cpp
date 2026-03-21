@@ -157,6 +157,12 @@ bool UiPanel::initialize()
     return true;
 }
 
+void UiPanel::activate_imgui_context()
+{
+    if (impl_->context)
+        ImGui::SetCurrentContext(impl_->context);
+}
+
 void UiPanel::shutdown()
 {
     if (!impl_->context)

@@ -51,18 +51,9 @@ public:
     {
         // MegaCityHost ignores text editing events; the 3D cube demo requires no input handling.
     }
-    void on_mouse_button(const MouseButtonEvent&) override
-    {
-        // MegaCityHost ignores mouse button events; the 3D cube demo requires no input handling.
-    }
-    void on_mouse_move(const MouseMoveEvent&) override
-    {
-        // MegaCityHost ignores mouse move events; the 3D cube demo requires no input handling.
-    }
-    void on_mouse_wheel(const MouseWheelEvent&) override
-    {
-        // MegaCityHost ignores mouse wheel events; the 3D cube demo requires no input handling.
-    }
+    void on_mouse_button(const MouseButtonEvent& event) override;
+    void on_mouse_move(const MouseMoveEvent& event) override;
+    void on_mouse_wheel(const MouseWheelEvent& event) override;
 
     bool dispatch_action(std::string_view action) override;
     void request_close() override;

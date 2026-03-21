@@ -598,7 +598,13 @@ void App::shutdown()
 
     text_service_.shutdown();
     if (renderer_.imgui())
+    {
+        // Ensure UiPanel's context is current so the backend can clean up its
+        // per-context state. MegaCityHost (if active) already shut down its own
+        // context in host_manager_.shutdown(), leaving GImGui null.
+        ui_panel_.activate_imgui_context();
         renderer_.imgui()->shutdown_imgui_backend();
+    }
     ui_panel_.shutdown();
     if (renderer_.grid())
         renderer_.grid()->shutdown();

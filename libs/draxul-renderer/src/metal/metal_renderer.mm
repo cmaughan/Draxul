@@ -359,17 +359,18 @@ bool MetalRenderer::initialize_imgui_backend()
 
 void MetalRenderer::shutdown_imgui_backend()
 {
-    if (!imgui_initialized_)
+    imgui_draw_data_ = nullptr;
+    imgui_initialized_ = false;
+
+    // Guard per-context: only call Shutdown if the current context has a
+    // backend attached. This allows the method to be called once per context
+    // (e.g. MegaCityHost then UiPanel) without double-free or null-deref.
+    if (ImGui::GetCurrentContext() == nullptr)
+        return;
+    if (ImGui::GetIO().BackendRendererUserData == nullptr)
         return;
 
-    // Only call ImGui_ImplMetal_Shutdown() if a context is current. In the
-    // MegaCityHost case the host destroys its own context (and calls this
-    // method) before app-level cleanup runs a second time with no context.
-    if (ImGui::GetCurrentContext() != nullptr)
-        ImGui_ImplMetal_Shutdown();
-
-    imgui_initialized_ = false;
-    imgui_draw_data_ = nullptr;
+    ImGui_ImplMetal_Shutdown();
 }
 
 void MetalRenderer::rebuild_imgui_font_texture()

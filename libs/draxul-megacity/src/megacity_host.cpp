@@ -53,6 +53,48 @@ void MegaCityHost::attach_imgui_host(IImGuiHost& host)
     DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost: ImGui context created and backend initialized");
 }
 
+void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
+{
+    if (!imgui_ctx_)
+        return;
+    ImGui::SetCurrentContext(imgui_ctx_);
+    const float scale = viewport_.pixel_scale;
+    ImGui::GetIO().AddMousePosEvent(
+        static_cast<float>(event.x) * scale, static_cast<float>(event.y) * scale);
+}
+
+void MegaCityHost::on_mouse_button(const MouseButtonEvent& event)
+{
+    if (!imgui_ctx_)
+        return;
+    ImGui::SetCurrentContext(imgui_ctx_);
+    int button = -1;
+    switch (event.button)
+    {
+    case 1:
+        button = 0;
+        break;
+    case 2:
+        button = 2;
+        break;
+    case 3:
+        button = 1;
+        break;
+    default:
+        break;
+    }
+    if (button >= 0)
+        ImGui::GetIO().AddMouseButtonEvent(button, event.pressed);
+}
+
+void MegaCityHost::on_mouse_wheel(const MouseWheelEvent& event)
+{
+    if (!imgui_ctx_)
+        return;
+    ImGui::SetCurrentContext(imgui_ctx_);
+    ImGui::GetIO().AddMouseWheelEvent(event.dx, event.dy);
+}
+
 void MegaCityHost::set_imgui_font(const std::string& path, float size_pixels)
 {
     if (!imgui_ctx_ || !imgui_host_)

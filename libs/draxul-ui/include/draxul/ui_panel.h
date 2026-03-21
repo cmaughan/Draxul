@@ -66,6 +66,7 @@ public:
 
     bool initialize();
     void set_font(const std::string& font_path, float size_pixels);
+    void activate_imgui_context(); // make this panel's ImGui context current (for backend shutdown)
     void shutdown();
 
     void set_visible(bool visible);
