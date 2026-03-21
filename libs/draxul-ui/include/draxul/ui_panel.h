@@ -50,8 +50,8 @@ struct PanelLayout
 
     bool contains_panel_point(int x, int y) const
     {
-        const int px = static_cast<int>(static_cast<float>(x) * pixel_scale);
-        const int py = static_cast<int>(static_cast<float>(y) * pixel_scale);
+        const auto px = static_cast<int>(static_cast<float>(x) * pixel_scale);
+        const auto py = static_cast<int>(static_cast<float>(y) * pixel_scale);
         return visible && px >= 0 && px < window_width && py >= panel_y && py < panel_y + panel_height;
     }
 };

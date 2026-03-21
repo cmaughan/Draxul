@@ -3,6 +3,7 @@
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_scancode.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <imgui.h>
@@ -145,10 +146,10 @@ void render_renderer_sections(const DiagnosticPanelState& state)
     ImGui::SameLine();
     help_marker("How full the glyph atlas is right now. Higher values mean Draxul is closer to a rebuild.");
     {
-        char overlay[32] = {};
-        const float usage = std::clamp(state.atlas_usage_ratio, 0.0f, 1.0f);
-        std::snprintf(overlay, sizeof(overlay), "%.1f%%", usage * 100.0f);
-        ImGui::ProgressBar(usage, ImVec2(-1.0f, 0.0f), overlay);
+        std::array<char, 32> overlay{};
+        const auto usage = std::clamp(state.atlas_usage_ratio, 0.0f, 1.0f);
+        std::snprintf(overlay.data(), overlay.size(), "%.1f%%", usage * 100.0f);
+        ImGui::ProgressBar(usage, ImVec2(-1.0f, 0.0f), overlay.data());
     }
 
     if (begin_metric_table("renderer_atlas"))

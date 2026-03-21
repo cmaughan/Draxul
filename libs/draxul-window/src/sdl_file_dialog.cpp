@@ -15,7 +15,7 @@ void show_open_file_dialog(SDL_Window* window, Uint32 result_event_type)
     auto* ctx = std::make_unique<Ctx>(Ctx{ window, result_event_type }).release();
 
     SDL_ShowOpenFileDialog(
-        [](void* userdata, const char* const* filelist, int /*filter*/) {
+        [](void* userdata, const char* const* filelist, int /*filter*/) { // NOSONAR cpp:S5008
             std::unique_ptr<Ctx> c_owner(static_cast<Ctx*>(userdata));
             auto* c = c_owner.get();
             if (filelist && filelist[0])

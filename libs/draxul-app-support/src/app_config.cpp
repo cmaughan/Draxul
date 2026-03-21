@@ -210,7 +210,7 @@ std::string format_key_token(int32_t key)
 
 void replace_gui_keybinding(std::vector<GuiKeybinding>& bindings, GuiKeybinding binding)
 {
-    std::erase_if(bindings, [&](const GuiKeybinding& existing) { return existing.action == binding.action; });
+    std::erase_if(bindings, [&binding](const GuiKeybinding& existing) { return existing.action == binding.action; });
     bindings.push_back(std::move(binding));
 }
 

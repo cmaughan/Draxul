@@ -174,7 +174,7 @@ const char* to_string(LogCategory category)
     return "app";
 }
 
-void configure_logging(LogOptions options)
+void configure_logging(const LogOptions& options)
 {
     auto& logger_state = state();
     std::lock_guard<std::mutex> lock(logger_state.mutex);

@@ -25,7 +25,7 @@ public:
     bool wait_events(int timeout_ms);
     void activate();
     void wake() const;
-    void* native_handle() override
+    void* native_handle() override // NOSONAR cpp:S5008
     {
         return window_;
     }

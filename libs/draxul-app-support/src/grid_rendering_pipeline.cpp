@@ -110,7 +110,7 @@ void GridRenderingPipeline::flush()
             return;
         }
         if (enable_ligatures_)
-            dirty = expand_dirty_cells_for_ligatures(grid_, std::move(dirty));
+            dirty = expand_dirty_cells_for_ligatures(grid_, dirty);
 
         std::vector<CellUpdate> updates;
         updates.reserve(dirty.size() + dirty.size() / 2);

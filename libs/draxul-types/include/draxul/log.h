@@ -47,7 +47,7 @@ struct LogOptions
 
 using LogSink = std::function<void(const LogRecord&)>;
 
-void configure_logging(LogOptions options = {});
+void configure_logging(const LogOptions& options = {});
 void configure_default_logging(const char* default_file_name = "draxul.log", bool prefer_file_when_no_console = true);
 void shutdown_logging();
 
