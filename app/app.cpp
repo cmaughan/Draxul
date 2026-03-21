@@ -259,6 +259,7 @@ bool App::initialize_host()
     host_deps.config = &config_;
     host_deps.window = &window_;
     host_deps.grid_renderer = renderer_.grid();
+    host_deps.imgui_host = renderer_.imgui();
     host_deps.text_service = &text_service_;
     host_deps.display_ppi = &display_ppi_;
     host_deps.get_viewport = [this]() { return current_host_viewport(); };
@@ -339,7 +340,13 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
             {
                 const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
                 last_panel_frame_time_ = now;
-                if (ui_panel_.visible())
+                auto* h3d = dynamic_cast<I3DHost*>(host_manager_.host());
+                if (h3d && h3d->has_imgui())
+                {
+                    renderer_.imgui()->set_imgui_draw_data(
+                        h3d->render_imgui(delta_seconds));
+                }
+                else if (ui_panel_.visible())
                 {
                     renderer_.imgui()->begin_imgui_frame();
                     ui_panel_.begin_frame(delta_seconds);
@@ -402,7 +409,13 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
                 const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
                 last_panel_frame_time_ = now;
 
-                if (ui_panel_.visible())
+                auto* h3d = dynamic_cast<I3DHost*>(host_manager_.host());
+                if (h3d && h3d->has_imgui())
+                {
+                    renderer_.imgui()->set_imgui_draw_data(
+                        h3d->render_imgui(delta_seconds));
+                }
+                else if (ui_panel_.visible())
                 {
                     renderer_.imgui()->begin_imgui_frame();
                     ui_panel_.begin_frame(delta_seconds);

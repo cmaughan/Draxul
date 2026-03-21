@@ -2,7 +2,10 @@
 
 #include <chrono>
 #include <draxul/host.h>
+#include <draxul/treesitter.h>
 #include <memory>
+
+struct ImGuiContext;
 
 namespace draxul
 {
@@ -70,12 +73,21 @@ public:
     // I3DHost
     void attach_3d_renderer(I3DRenderer& renderer) override;
     void detach_3d_renderer() override;
+    void attach_imgui_host(IImGuiHost& host) override;
+    bool has_imgui() const override
+    {
+        return imgui_ctx_ != nullptr;
+    }
+    ImDrawData* render_imgui(float dt) override;
 
 private:
     HostCallbacks callbacks_;
     HostViewport viewport_;
     std::shared_ptr<CubeRenderPass> cube_pass_;
     I3DRenderer* renderer_3d_ = nullptr;
+    IImGuiHost* imgui_host_ = nullptr;
+    ImGuiContext* imgui_ctx_ = nullptr;
+    CodebaseScanner scanner_;
     float rotation_angle_ = 0.0f;
     int pixel_w_ = 800;
     int pixel_h_ = 600;

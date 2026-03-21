@@ -75,6 +75,8 @@ bool HostManager::create(HostCallbacks callbacks)
     {
         if (deps_.grid_renderer)
             h3d->attach_3d_renderer(*static_cast<I3DRenderer*>(deps_.grid_renderer));
+        if (deps_.imgui_host)
+            h3d->attach_imgui_host(*deps_.imgui_host);
     }
 
     grid_renderer.set_default_background(host_->default_background());

@@ -342,10 +342,11 @@ void MetalRenderer::set_scroll_offset(float px)
 
 bool MetalRenderer::initialize_imgui_backend()
 {
-    if (imgui_initialized_)
+    // Guard per context: ImGui_ImplMetal_Init() stores backend data in the current
+    // context's BackendRendererUserData. If the current context already has it, skip.
+    if (ImGui::GetIO().BackendRendererUserData != nullptr)
         return true;
 
-    ImGui::SetCurrentContext(ImGui::GetCurrentContext());
     if (!ImGui_ImplMetal_Init(device_.get()))
     {
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to initialize ImGui Metal backend");

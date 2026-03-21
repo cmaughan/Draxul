@@ -10,6 +10,7 @@ namespace draxul
 
 class IWindow;
 class IGridRenderer;
+class IImGuiHost;
 class TextService;
 struct AppOptions;
 struct AppConfig;
@@ -26,6 +27,7 @@ public:
         const AppConfig* config = nullptr;
         IWindow* window = nullptr;
         IGridRenderer* grid_renderer = nullptr;
+        IImGuiHost* imgui_host = nullptr;
         TextService* text_service = nullptr;
         const float* display_ppi = nullptr;
 

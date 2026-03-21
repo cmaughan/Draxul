@@ -4,11 +4,13 @@ if(APPLE)
     set(MEGACITY_SOURCES
         src/megacity_host.cpp
         src/megacity_render.mm
+        src/ui_treesitter_panel.cpp
     )
 else()
     set(MEGACITY_SOURCES
         src/megacity_host.cpp
         src/megacity_render_vk.cpp
+        src/ui_treesitter_panel.cpp
     )
 endif()
 
@@ -23,6 +25,13 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-types
     draxul-host
     draxul-renderer
+    draxul-treesitter
+    imgui
+)
+
+# Bake in the source root so the scanner can find the repo at runtime
+target_compile_definitions(draxul-megacity PRIVATE
+    "DRAXUL_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
 )
 
 if(APPLE)

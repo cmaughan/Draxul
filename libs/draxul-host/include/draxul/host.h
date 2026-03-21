@@ -11,11 +11,14 @@
 #include <string_view>
 #include <vector>
 
+struct ImDrawData;
+
 namespace draxul
 {
 
 class IWindow;
 class IGridRenderer;
+class IImGuiHost;
 class TextService;
 class I3DRenderer;
 
@@ -115,6 +118,21 @@ class I3DHost : public IHost
 public:
     virtual void attach_3d_renderer(I3DRenderer& renderer) = 0;
     virtual void detach_3d_renderer() = 0;
+
+    // Optional ImGui overlay. attach_imgui_host() is called by HostManager after
+    // attach_3d_renderer() if an IImGuiHost is available. render_imgui() is called
+    // each frame inside begin_frame()/end_frame(); it must call
+    // imgui_host.begin_imgui_frame() internally before building the frame.
+    // Default implementations are no-ops so existing subclasses need no changes.
+    virtual void attach_imgui_host(IImGuiHost& /*host*/) {}
+    virtual bool has_imgui() const
+    {
+        return false;
+    }
+    virtual ImDrawData* render_imgui(float /*dt*/)
+    {
+        return nullptr;
+    }
 };
 
 // ---------------------------------------------------------------------------

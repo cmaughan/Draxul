@@ -136,7 +136,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-add_library(imgui STATIC
+add_library(imgui SHARED
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
@@ -146,3 +146,39 @@ target_include_directories(imgui PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
+
+# tree-sitter (core parsing library)
+FetchContent_Declare(
+    tree_sitter
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+    GIT_TAG v0.24.4
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(tree_sitter)
+
+add_library(tree_sitter_core STATIC
+    ${tree_sitter_SOURCE_DIR}/lib/src/lib.c
+)
+target_include_directories(tree_sitter_core PUBLIC
+    ${tree_sitter_SOURCE_DIR}/lib/include
+)
+target_compile_options(tree_sitter_core PRIVATE -w)
+
+# tree-sitter-cpp grammar
+FetchContent_Declare(
+    tree_sitter_cpp
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
+    GIT_TAG v0.23.4
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(tree_sitter_cpp)
+
+add_library(tree_sitter_cpp_grammar STATIC
+    ${tree_sitter_cpp_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c
+)
+target_include_directories(tree_sitter_cpp_grammar PRIVATE
+    ${tree_sitter_SOURCE_DIR}/lib/include
+    ${tree_sitter_cpp_SOURCE_DIR}/src
+)
+target_compile_options(tree_sitter_cpp_grammar PRIVATE -w)

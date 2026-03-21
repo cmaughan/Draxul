@@ -1,5 +1,6 @@
 #include <draxul/terminal_host_base.h>
 
+#include <draxul/log.h>
 #include <draxul/terminal_sgr.h>
 
 #include <algorithm>
@@ -40,6 +41,7 @@ void TerminalHostBase::handle_esc(char ch)
     {
         vt_.saved_col = vt_.col;
         vt_.saved_row = vt_.row;
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App, "DECSC save row=%d col=%d", vt_.row, vt_.col);
     }
     else if (ch == '8') // DECRC - Restore Cursor
     {
@@ -47,6 +49,11 @@ void TerminalHostBase::handle_esc(char ch)
         vt_.row = vt_.saved_row;
         vt_.pending_wrap = false;
         set_cursor_position(vt_.col, vt_.row);
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App, "DECRC restore row=%d col=%d", vt_.row, vt_.col);
+    }
+    else
+    {
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App, "ESC unhandled: '%c' (0x%02X)", ch, (unsigned char)ch);
     }
 }
 
@@ -178,6 +185,10 @@ void TerminalHostBase::csi_cursor_move(char final_char, const std::vector<int>& 
             vt_.row = std::clamp(r, 0, std::max(0, grid_rows() - 1));
             vt_.col = std::clamp(c, 0, std::max(0, grid_cols() - 1));
         }
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App,
+            "CUP param(%d,%d) origin=%d stbm=[%d..%d] grid_rows=%d -> row=%d col=%d",
+            r, c, (int)vt_.origin_mode, vt_.scroll_top, vt_.scroll_bottom,
+            grid_rows(), vt_.row, vt_.col);
         vt_.pending_wrap = false;
         break;
     }
@@ -336,6 +347,9 @@ void TerminalHostBase::csi_mode(char final_char, bool private_mode, const std::v
             vt_.row = enable ? vt_.scroll_top : 0;
             vt_.col = 0;
             vt_.pending_wrap = false;
+            DRAXUL_LOG_TRACE(draxul::LogCategory::App,
+                "DECOM %s stbm=[%d..%d] -> row=%d",
+                enable ? "ON" : "OFF", vt_.scroll_top, vt_.scroll_bottom, vt_.row);
             break;
         case 7: // DECAWM - Auto Wrap Mode
             vt_.auto_wrap_mode = enable;
@@ -386,6 +400,10 @@ void TerminalHostBase::csi_margins(bool private_mode, const std::vector<int>& pa
         vt_.row = vt_.origin_mode ? vt_.scroll_top : 0;
         vt_.col = 0;
         vt_.pending_wrap = false;
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App,
+            "DECSTBM params(%d,%d) grid_rows=%d -> stbm=[%d..%d] row=%d origin=%d",
+            param_or(0, 1), param_or(1, grid_rows()), grid_rows(),
+            vt_.scroll_top, vt_.scroll_bottom, vt_.row, (int)vt_.origin_mode);
     }
 }
 
