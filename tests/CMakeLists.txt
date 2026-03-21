@@ -42,6 +42,8 @@ add_executable(draxul-tests
     hlattr_style_flags_tests.cpp
     resize_cascade_tests.cpp
     startup_rollback_tests.cpp
+    startup_config_tests.cpp
+    config_lifecycle_tests.cpp
     powershell_host_tests.cpp
     encode_key_tests.cpp
     attr_id_tests.cpp

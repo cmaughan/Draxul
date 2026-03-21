@@ -196,6 +196,7 @@ bool App::initialize()
     frame_requested_ = false;
     last_panel_frame_time_ = std::chrono::steady_clock::now();
     running_ = true;
+    init_completed_ = true;
     rollback.armed = false;
     return true;
 }
@@ -581,8 +582,9 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 
 void App::shutdown()
 {
-    if (options_.save_user_config)
+    if (options_.save_user_config && init_completed_)
     {
+        init_completed_ = false; // prevent double-save on repeated shutdown() calls
         auto [window_w, window_h] = window_.size_logical();
         if (window_w > 0 && window_h > 0)
         {
