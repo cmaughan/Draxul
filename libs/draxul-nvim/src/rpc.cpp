@@ -36,6 +36,8 @@ struct NvimRpc::Impl
 namespace
 {
 constexpr auto kRequestTimeout = std::chrono::seconds(5);
+static constexpr size_t kMaxNotificationQueueDepth = 4096;
+static constexpr size_t kNotificationQueueWarnDepth = 512;
 } // namespace
 
 void NvimRpc::set_main_thread_id(std::thread::id id)
@@ -180,6 +182,12 @@ std::vector<RpcNotification> NvimRpc::drain_notifications()
     return result;
 }
 
+size_t NvimRpc::notification_queue_depth() const
+{
+    std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+    return impl_->notifications_.size();
+}
+
 void NvimRpc::reader_thread_func()
 {
     std::vector<uint8_t> accum;
@@ -283,6 +291,20 @@ void NvimRpc::reader_thread_func()
 
                     {
                         std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+                        if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
+                        {
+                            // Drop the oldest notification to stay bounded.
+                            impl_->notifications_.erase(impl_->notifications_.begin());
+                            DRAXUL_LOG_WARN(LogCategory::Rpc,
+                                "RPC notification queue at capacity (%zu); dropping oldest",
+                                kMaxNotificationQueueDepth);
+                        }
+                        else if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
+                        {
+                            DRAXUL_LOG_WARN(LogCategory::Rpc,
+                                "RPC notification queue depth reached %zu",
+                                kNotificationQueueWarnDepth);
+                        }
                         impl_->notifications_.push_back(std::move(notif));
                     }
                     if (on_notification_available)

@@ -178,6 +178,10 @@ public:
 
     std::vector<RpcNotification> drain_notifications();
 
+    // Returns the number of notifications currently sitting in the queue.
+    // Thread-safe; acquires the internal notification mutex.
+    size_t notification_queue_depth() const;
+
     // Returns true if the reader thread detected an unexpected pipe close
     // (i.e. nvim exited without us requesting shutdown).
     bool connection_failed() const;
