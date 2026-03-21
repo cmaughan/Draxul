@@ -179,7 +179,7 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - After implementing a user-facing feature or rendering-affecting change, run the render smoke/snapshot suite with `t.bat` or `ctest` and confirm the relevant `draxul-render-*` scenario still passes.
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessligatures`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
-- After every completed work item, run one final `clang-format` pass across all touched source files in a single shot instead of formatting piecemeal during the work.
+- After every completed work item, run one final `clang-format` pass across all touched source files in a single shot instead of formatting piecemeal during the work. Note: the pre-commit hook runs `clang-format` automatically on staged files, so a commit that needs reformatting will be rejected on the first attempt — simply re-stage and retry the commit.
 - When you complete a work item or a concrete subtask from `plans/work-items/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.
 - When a work item from `plans/work-items/*.md` is fully complete, move it to `plans/work-items-complete/` in the same turn and update any index/reference links that still point at the old location.
 
