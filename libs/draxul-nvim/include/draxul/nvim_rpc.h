@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -62,28 +63,24 @@ struct MpackValue
 
     Type type() const
     {
-        // Use std::holds_alternative<T> instead of storage.index() so that the
-        // returned enum value is independent of the variant's declaration order.
-        // Reordering Storage alternatives will not silently remap enum values.
-        if (std::holds_alternative<std::monostate>(storage))
-            return Nil;
-        if (std::holds_alternative<bool>(storage))
-            return Bool;
-        if (std::holds_alternative<int64_t>(storage))
-            return Int;
-        if (std::holds_alternative<uint64_t>(storage))
-            return UInt;
-        if (std::holds_alternative<double>(storage))
-            return Float;
-        if (std::holds_alternative<std::string>(storage))
-            return String;
-        if (std::holds_alternative<ArrayStorage>(storage))
-            return Array;
-        if (std::holds_alternative<MapStorage>(storage))
-            return Map;
-        if (std::holds_alternative<ExtValue>(storage))
-            return Ext;
-        return Nil;
+        // Compile-time map: variant index → MpackType enum.
+        // Matches the declaration order of the variant alternatives above.
+        // static_assert below ensures this stays in sync if alternatives change.
+        using StorageType = decltype(storage);
+        constexpr std::array<Type, std::variant_size_v<StorageType>> kTypeMap = {
+            Nil, // std::monostate
+            Bool, // bool
+            Int, // int64_t
+            UInt, // uint64_t
+            Float, // double
+            String, // std::string
+            Array, // ArrayStorage
+            Map, // MapStorage
+            Ext, // ExtValue
+        };
+        static_assert(kTypeMap.size() == std::variant_size_v<StorageType>,
+            "kTypeMap must have one entry per variant alternative");
+        return kTypeMap[storage.index()];
     }
 
     bool is_nil() const
@@ -193,6 +190,11 @@ public:
     static MpackValue make_map(std::vector<std::pair<MpackValue, MpackValue>> v);
     static MpackValue make_nil();
 
+    // Call once from the main thread after initialization is complete.
+    // Asserts the ID has not been set before, then records it.
+    // After this point NvimRpc::request() will assert it is not called from that thread.
+    void set_main_thread_id(std::thread::id id);
+
     std::function<void()> on_notification_available;
     // Called synchronously from the reader thread when nvim sends an rpcrequest.
     // Must return the result MpackValue; called with write_mutex_ NOT held.
@@ -204,10 +206,7 @@ private:
 
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::thread::id main_thread_id_{};
 };
-
-// Call once from the main thread after initialization is complete.
-// After this point NvimRpc::request() will assert it is not called from that thread.
-void set_main_thread_id(std::thread::id id);
 
 } // namespace draxul

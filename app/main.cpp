@@ -3,7 +3,6 @@
 #include <chrono>
 #include <cstdio>
 #include <draxul/log.h>
-#include <draxul/nvim_rpc.h>
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
 #include <draxul/render_test.h>
 #endif
@@ -11,7 +10,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -200,8 +198,6 @@ int main(int argc, char* argv[])
         draxul::shutdown_logging();
         return 1;
     }
-
-    draxul::set_main_thread_id(std::this_thread::get_id());
 
     int status = 0;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS

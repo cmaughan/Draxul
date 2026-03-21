@@ -36,12 +36,12 @@ struct NvimRpc::Impl
 namespace
 {
 constexpr auto kRequestTimeout = std::chrono::seconds(5);
-std::thread::id g_main_thread_id{};
 } // namespace
 
-void set_main_thread_id(std::thread::id id)
+void NvimRpc::set_main_thread_id(std::thread::id id)
 {
-    g_main_thread_id = id;
+    assert(main_thread_id_ == std::thread::id{} && "set_main_thread_id() must only be called once");
+    main_thread_id_ = id;
 }
 
 NvimRpc::NvimRpc()
@@ -89,9 +89,9 @@ RpcResult NvimRpc::request(const std::string& method, const std::vector<MpackVal
 {
     // Belt-and-suspenders thread guard: assert fires in Debug builds; the runtime
     // check below also fires in Release builds where assert is compiled out.
-    assert((g_main_thread_id == std::thread::id{} || std::this_thread::get_id() != g_main_thread_id)
+    assert((main_thread_id_ == std::thread::id{} || std::this_thread::get_id() != main_thread_id_)
         && "NvimRpc::request() must not be called from the main thread");
-    if (g_main_thread_id != std::thread::id{} && std::this_thread::get_id() == g_main_thread_id)
+    if (main_thread_id_ != std::thread::id{} && std::this_thread::get_id() == main_thread_id_)
     {
         DRAXUL_LOG_ERROR(LogCategory::Rpc,
             "NvimRpc::request() called from main thread — would block render loop");

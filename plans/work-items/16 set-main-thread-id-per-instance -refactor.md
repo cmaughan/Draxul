@@ -27,11 +27,11 @@ void set_main_thread_id(std::thread::id id);
 
 ## Implementation Plan
 
-- [ ] Remove the global `set_main_thread_id` free function and its backing global variable.
-- [ ] Add a `std::thread::id main_thread_id_` member to `NvimRpc` (or its owner).
-- [ ] Add a constructor parameter or an `init(std::thread::id)` method to `NvimRpc` that sets it once (asserting it has not been set before).
-- [ ] Update `NvimRpc::request()` to use the stored member instead of the global.
-- [ ] Update the call site in `app.cpp`/`main.cpp` to pass `std::this_thread::get_id()` at construction or initialization.
+- [x] Remove the global `set_main_thread_id` free function and its backing global variable.
+- [x] Add a `std::thread::id main_thread_id_` member to `NvimRpc` (or its owner).
+- [x] Add a constructor parameter or an `init(std::thread::id)` method to `NvimRpc` that sets it once (asserting it has not been set before).
+- [x] Update `NvimRpc::request()` to use the stored member instead of the global.
+- [x] Update the call site in `app.cpp`/`main.cpp` to pass `std::this_thread::get_id()` at construction or initialization.
 - [ ] Update tests that use `NvimRpc` to pass a thread ID explicitly.
 
 ## Test Plan

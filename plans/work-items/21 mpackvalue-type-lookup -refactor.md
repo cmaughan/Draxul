@@ -17,11 +17,11 @@ A compile-time `std::array` mapping `storage.index()` → `MpackType` enum would
 
 ## Implementation Plan
 
-- [ ] Locate the `type()` implementation.
-- [ ] Define a `constexpr std::array<MpackType, std::variant_size_v<StorageType>>` that maps variant index to enum value. Initialise it in declaration order matching the variant alternatives.
-- [ ] Add a `static_assert` on the array size to enforce that it stays in sync with the variant if alternatives are added or removed.
-- [ ] Replace the 9 `holds_alternative` calls with `kTypeMap[storage.index()]`.
-- [ ] Keep the existing enum values unchanged — this is not a semantic change.
+- [x] Locate the `type()` implementation.
+- [x] Define a `constexpr std::array<MpackType, std::variant_size_v<StorageType>>` that maps variant index to enum value. Initialise it in declaration order matching the variant alternatives.
+- [x] Add a `static_assert` on the array size to enforce that it stays in sync with the variant if alternatives are added or removed.
+- [x] Replace the 9 `holds_alternative` calls with `kTypeMap[storage.index()]`.
+- [x] Keep the existing enum values unchanged — this is not a semantic change.
 - [ ] Run existing msgpack tests to confirm no behaviour change.
 
 ## Test Plan

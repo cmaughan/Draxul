@@ -18,10 +18,10 @@ The result: the feature exists in code but cannot be bound in `config.toml`. Use
 
 ## Implementation Plan
 
-- [ ] Add `"open_file_dialog"` to `kKnownGuiActions` in `app_config.cpp`.
-- [ ] Verify the string matches the action name used in `gui_action_handler.cpp` exactly (case-sensitive).
+- [x] Add `"open_file_dialog"` to `kKnownGuiActions` in `app_config.cpp`.
+- [x] Verify the string matches the action name used in `gui_action_handler.cpp` exactly (case-sensitive).
 - [ ] Confirm that `AppConfig::save()` round-trips a keybinding for `open_file_dialog` correctly.
-- [ ] Check if any other actions handled in `gui_action_handler.cpp` are similarly missing from `kKnownGuiActions` and fix those too.
+- [x] Check if any other actions handled in `gui_action_handler.cpp` are similarly missing from `kKnownGuiActions` and fix those too.
 
 ## Test Plan
 

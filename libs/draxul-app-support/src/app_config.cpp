@@ -24,13 +24,14 @@ constexpr int kMaxWindowHeight = 2160;
 constexpr int kMinAtlasSize = 1024;
 constexpr int kMaxAtlasSize = 8192;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
-constexpr std::array<std::string_view, 6> kKnownGuiActions = {
+constexpr std::array<std::string_view, 7> kKnownGuiActions = {
     "toggle_diagnostics",
     "copy",
     "paste",
     "font_increase",
     "font_decrease",
     "font_reset",
+    "open_file_dialog",
 };
 constexpr std::array<std::string_view, 12> kKnownTopLevelKeys = {
     "window_width",

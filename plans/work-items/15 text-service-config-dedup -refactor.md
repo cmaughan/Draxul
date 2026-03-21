@@ -24,8 +24,8 @@ These two blocks are identical. If a new field is added to `TextServiceConfig`, 
 
 ## Implementation Plan
 
-- [ ] Extract a private helper method `App::make_text_service_config() -> TextServiceConfig` that constructs and returns the config from `config_.*` fields.
-- [ ] Replace both construction blocks in `app.cpp` with calls to `make_text_service_config()`.
+- [x] Extract a private helper method `App::make_text_service_config() -> TextServiceConfig` that constructs and returns the config from `config_.*` fields.
+- [x] Replace both construction blocks in `app.cpp` with calls to `make_text_service_config()`.
 - [ ] If `AppConfig` owns the fields and `TextServiceConfig` maps 1:1, consider adding a conversion constructor or factory function in `AppConfig` itself rather than in `App`.
 - [ ] Run `clang-format` on `app.cpp` after the change.
 

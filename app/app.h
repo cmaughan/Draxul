@@ -47,6 +47,9 @@ private:
     bool initialize_text_service();
     bool initialize_host();
     void wire_window_callbacks();
+    // Returns a TextServiceConfig populated from config_. Used by initialize_text_service() and
+    // on_display_scale_changed() to avoid duplicating the field assignment at both call sites.
+    TextServiceConfig make_text_service_config() const;
     // Applies font metrics from text_service_ to the renderer, UI panel, and host.
     // Called after every TextService reinitialisation (startup, DPI change, size change).
     void apply_font_metrics();

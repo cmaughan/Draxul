@@ -183,10 +183,8 @@ bool App::initialize()
     return true;
 }
 
-bool App::initialize_text_service()
+TextServiceConfig App::make_text_service_config() const
 {
-    display_ppi_ = options_.override_display_ppi.value_or(window_.display_ppi());
-
     TextServiceConfig text_config;
     text_config.font_path = config_.font_path;
     text_config.bold_font_path = config_.bold_font_path;
@@ -194,6 +192,14 @@ bool App::initialize_text_service()
     text_config.bold_italic_font_path = config_.bold_italic_font_path;
     text_config.fallback_paths = config_.fallback_paths;
     text_config.enable_ligatures = config_.enable_ligatures;
+    return text_config;
+}
+
+bool App::initialize_text_service()
+{
+    display_ppi_ = options_.override_display_ppi.value_or(window_.display_ppi());
+
+    const TextServiceConfig text_config = make_text_service_config();
     if (!text_service_.initialize(text_config, config_.font_size, display_ppi_))
     {
         const std::string& attempted = text_config.font_path.empty() ? "(auto-detected)" : text_config.font_path;
@@ -429,13 +435,7 @@ void App::on_display_scale_changed(float new_ppi)
 
     display_ppi_ = new_ppi;
 
-    TextServiceConfig text_config;
-    text_config.font_path = config_.font_path;
-    text_config.bold_font_path = config_.bold_font_path;
-    text_config.italic_font_path = config_.italic_font_path;
-    text_config.bold_italic_font_path = config_.bold_italic_font_path;
-    text_config.fallback_paths = config_.fallback_paths;
-    text_config.enable_ligatures = config_.enable_ligatures;
+    const TextServiceConfig text_config = make_text_service_config();
     if (!text_service_.initialize(text_config, text_service_.point_size(), display_ppi_))
         return;
 

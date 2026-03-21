@@ -3,6 +3,7 @@
 #include <draxul/log.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
+#include <thread>
 
 namespace draxul
 {
@@ -54,6 +55,10 @@ bool NvimHost::initialize_host()
         return false;
     setup_clipboard_provider();
     refresh_cursor_style();
+
+    // All startup requests done — from this point on request() must not be
+    // called from the main thread (it blocks on nvim response).
+    rpc_.set_main_thread_id(std::this_thread::get_id());
     return true;
 }
 
@@ -156,7 +161,9 @@ vim.fn.rpcnotify(ch, 'clipboard_set', '"', lines, regtype)
     if (action.starts_with("open_file:"))
     {
         const std::string path(action.substr(10));
-        rpc_.notify("nvim_command", { NvimRpc::make_str("edit " + path) });
+        rpc_.notify("nvim_exec_lua",
+            { NvimRpc::make_str("vim.cmd.edit(vim.fn.fnameescape(...))"),
+                NvimRpc::make_array({ NvimRpc::make_str(path) }) });
         return true;
     }
 

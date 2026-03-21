@@ -26,10 +26,10 @@ A TODO comment exists at this site but has not been acted on.
 ## Implementation Plan
 
 - [ ] Assess how frequently clusters exceed 32 bytes in practice by adding a temporary `DRAXUL_LOG` at the truncation site and running the VT test suite against real Neovim output.
-- [ ] Option A (minimal): Replace silent truncation with a log warning (`DRAXUL_LOG_WARN`) so the bug is at least visible. Keep the 32-byte buffer for now but emit a diagnostic.
+- [x] Option A (minimal): Replace silent truncation with a log warning (`DRAXUL_LOG_WARN`) so the bug is at least visible. Keep the 32-byte buffer for now but emit a diagnostic.
 - [ ] Option B (correct): Replace the fixed-size `char buf[kMaxLen]` with `std::string` (or `std::array<char, 64>` + a small-string-optimised fallback). Update all callers that take `CellText` by value or compare it.
 - [ ] Option C (hybrid, recommended): Keep `char buf[32]` for the common case (ASCII and most CJK fit) but add an overflow path using `std::string` or a per-cell heap allocation when `sv.size() > kMaxLen`. This preserves cache locality for the 99% case.
-- [ ] Whichever option is chosen: emit a `DRAXUL_LOG_WARN` at the truncation boundary so the bug is visible during development.
+- [x] Whichever option is chosen: emit a `DRAXUL_LOG_WARN` at the truncation boundary so the bug is visible during development.
 - [ ] Update `grid_tests.cpp` with a test that assigns a 40-byte cluster and asserts it survives round-trip correctly.
 
 ## Test Plan

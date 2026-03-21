@@ -4,6 +4,7 @@
 #include <cstring>
 #include <draxul/grid_sink.h>
 #include <draxul/highlight.h>
+#include <draxul/log.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -28,6 +29,9 @@ struct CellText
     void assign(std::string_view sv)
     {
         // TODO: consider std::string for >32-byte clusters
+        if (sv.size() > static_cast<size_t>(kMaxLen))
+            DRAXUL_LOG_WARN(LogCategory::App, "CellText: cluster truncated from %zu to %d bytes",
+                sv.size(), static_cast<int>(kMaxLen));
         len = static_cast<uint8_t>(std::min(sv.size(), static_cast<size_t>(kMaxLen)));
         std::memcpy(data.data(), sv.data(), len);
     }

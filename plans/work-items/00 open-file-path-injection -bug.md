@@ -18,11 +18,11 @@ Paths containing spaces, quotes (`"`), pipe characters (`|`), percent signs (`%`
 
 ## Implementation Plan
 
-- [ ] In `nvim_host.cpp`, replace `nvim_command("edit " + path)` with a Neovim API call via `nvim_buf_call` or `nvim_exec_lua` that passes the path as a Lua string argument (not interpolated into a command string). Example: `nvim_exec_lua("vim.cmd.edit(vim.fn.fnameescape(...))", {path})`
-- [ ] Alternatively use `nvim_command("edit " + fnameescape(path))` where `fnameescape` is called via the Neovim API before building the command string.
-- [ ] Prefer the Lua/API approach as it avoids the escaping problem entirely.
+- [x] In `nvim_host.cpp`, replace `nvim_command("edit " + path)` with a Neovim API call via `nvim_buf_call` or `nvim_exec_lua` that passes the path as a Lua string argument (not interpolated into a command string). Example: `nvim_exec_lua("vim.cmd.edit(vim.fn.fnameescape(...))", {path})`
+- [x] Alternatively use `nvim_command("edit " + fnameescape(path))` where `fnameescape` is called via the Neovim API before building the command string.
+- [x] Prefer the Lua/API approach as it avoids the escaping problem entirely.
 - [ ] Review `input_dispatcher.cpp` for any other sites that construct RPC command strings from user-supplied paths.
-- [ ] Add a `fnameescape` or equivalent helper in `nvim_host.cpp` if the API call approach is not feasible.
+- [x] Add a `fnameescape` or equivalent helper in `nvim_host.cpp` if the API call approach is not feasible.
 
 ## Test Plan
 
