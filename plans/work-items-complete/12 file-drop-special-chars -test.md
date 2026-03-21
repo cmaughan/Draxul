@@ -23,19 +23,21 @@ Gemini similarly notes drag-drop/open-file tests with Unicode and special charac
 
 ## Implementation Plan
 
-- [ ] Read `app/input_dispatcher.cpp` around the file-drop path and the `open_file:` action format.
-- [ ] Understand how the path is extracted from the action string on the receiving end.
-- [ ] Write `tests/file_drop_tests.cpp`:
-  - Simulate an SDL drop-file event with paths:
+- [x] Read `app/input_dispatcher.cpp` around the file-drop path and the `open_file:` action format.
+- [x] Understand how the path is extracted from the action string on the receiving end.
+  - Finding: `NvimHost::dispatch_action` uses `action.substr(10)` (fixed-length prefix extraction), which is safe for colon-containing paths. No encoding fix needed.
+- [x] Write `tests/file_drop_tests.cpp`:
+  - Simulate the encode/decode round-trip for paths:
     - `/normal/path/file.txt` (baseline)
     - `/path with spaces/file.txt`
     - `/path:with:colons/file.txt`
-    - `/path/with/ünïcödé/file.txt`
+    - `/path/with/ünïcödé/file.txt` (UTF-8)
     - `/path/$SPECIAL/file.txt`
+    - CJK, shell-sensitive chars, very long paths, etc.
   - For each: verify the host receives the full, unmodified path.
-- [ ] If the action-string format is ambiguous for colon-containing paths, fix the encoding (e.g., percent-encode the path, or use a length-prefixed format instead of a colon delimiter).
-- [ ] Add to `tests/CMakeLists.txt`.
-- [ ] Run ctest.
+- [x] No encoding fix needed: the `substr(10)` approach is already correct for all special characters including colons.
+- [x] Add to `tests/CMakeLists.txt`.
+- [x] Run ctest.
 
 ---
 

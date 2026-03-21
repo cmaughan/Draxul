@@ -15,18 +15,19 @@ If a user configures two actions to the same key in `config.toml`, the current b
 
 ## Implementation Plan
 
-- [ ] Read `libs/draxul-app-support/include/draxul/app_config.h` and the keybinding parsing code.
-- [ ] Read `libs/draxul-app-support/src/` for keybinding load/apply logic.
-- [ ] Decide on the correct conflict policy (last-wins with WARN is simplest and user-friendly):
-  - If the policy is not yet implemented, implement it.
-  - If it is implemented, just write the test.
-- [ ] Write `tests/keybinding_tests.cpp` (or add to existing):
+- [x] Read `libs/draxul-app-support/include/draxul/app_config.h` and the keybinding parsing code.
+- [x] Read `libs/draxul-app-support/src/` for keybinding load/apply logic.
+- [x] Decide on the correct conflict policy (last-wins with WARN is simplest and user-friendly):
+  - Policy is already implemented: WARN + first-wins at dispatch time (the `config_from_toml` duplicate detection loop at lines 320-333 of `app_config.cpp` logs a WARN; dispatch iterates in order and returns the first match).
+  - Just write the tests.
+- [x] Write `tests/keybinding_conflict_tests.cpp`:
   - Construct an `AppConfig` with two bindings for the same key (e.g., both `toggle_diagnostics` and `copy` bound to `Ctrl+D`).
   - Load the config.
-  - Assert: either a WARN is logged about the conflict, or the last binding wins deterministically (no crash, no silent double-action).
-  - Assert: the first key still dispatches the correct (winning) action.
-- [ ] Add to `tests/CMakeLists.txt`.
-- [ ] Run ctest.
+  - Assert: WARN is logged about the conflict.
+  - Assert: the first binding wins deterministically (no crash, no silent double-action).
+  - Assert: Non-conflicting bindings still work correctly.
+- [x] Add to `tests/CMakeLists.txt`.
+- [x] Run ctest.
 
 ---
 
