@@ -1,6 +1,5 @@
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
-#include "support/test_support.h"
 
 #include <draxul/terminal_host_base.h>
 
@@ -8,6 +7,8 @@
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
+
+#include <catch2/catch_all.hpp>
 
 #include <filesystem>
 #include <string>
@@ -159,176 +160,195 @@ bool has_sgr_report(const std::string& written)
 // Tests
 // ---------------------------------------------------------------------------
 
-void run_terminal_mouse_tests()
+TEST_CASE("mouse: no mode — press produces no output", "[terminal]")
 {
-    // -----------------------------------------------------------------------
-    // No mouse mode: events must NOT produce any output
-    // -----------------------------------------------------------------------
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.press(1, 0, 0);
+    INFO("no output when mouse mode is None");
+    REQUIRE(ts.host.written.empty());
+}
 
-    run_test("mouse: no mode — press produces no output", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.press(1, 0, 0);
-        expect(ts.host.written.empty(), "no output when mouse mode is None");
-    });
+TEST_CASE("mouse: no mode — motion produces no output", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.press(1, 0, 0);
+    ts.move(8, 16);
+    // Only the Draxul selection path is active; that writes nothing.
+    INFO("no output when mouse mode is None");
+    REQUIRE(ts.host.written.empty());
+}
 
-    run_test("mouse: no mode — motion produces no output", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.press(1, 0, 0);
-        ts.move(8, 16);
-        // Only the Draxul selection path is active; that writes nothing.
-        expect(ts.host.written.empty(), "no output when mouse mode is None");
-    });
+TEST_CASE("mouse: no mode — release produces no output", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.press(1, 0, 0);
+    ts.release(1, 0, 0);
+    INFO("no output when mouse mode is None");
+    REQUIRE(ts.host.written.empty());
+}
 
-    run_test("mouse: no mode — release produces no output", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.press(1, 0, 0);
-        ts.release(1, 0, 0);
-        expect(ts.host.written.empty(), "no output when mouse mode is None");
-    });
+TEST_CASE("mouse: DECSET 1000 — button press emits X10 report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1000h"); // enable button tracking
+    ts.press(1, 0, 0);
+    INFO("press should emit a report");
+    REQUIRE(!ts.host.written.empty());
+    INFO("report should be X10 or SGR format");
+    REQUIRE((has_x10_report(ts.host.written) || has_sgr_report(ts.host.written)));
+}
 
-    // -----------------------------------------------------------------------
-    // DECSET 1000 (button tracking): press and release emit events; motion does not
-    // -----------------------------------------------------------------------
+TEST_CASE("mouse: DECSET 1000 — button release emits report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1000h");
+    ts.press(1, 0, 0);
+    ts.host.written.clear();
+    ts.release(1, 0, 0);
+    INFO("release should emit a report");
+    REQUIRE(!ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1000 — button press emits X10 report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1000h"); // enable button tracking
-        ts.press(1, 0, 0);
-        expect(!ts.host.written.empty(), "press should emit a report");
-        expect(has_x10_report(ts.host.written) || has_sgr_report(ts.host.written),
-            "report should be X10 or SGR format");
-    });
+TEST_CASE("mouse: DECSET 1000 — motion produces no report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1000h");
+    ts.press(1, 0, 0);
+    ts.host.written.clear();
+    ts.move(8, 0);
+    // DECSET 1000 (Button mode) does not emit motion events.
+    INFO("motion must not emit in button mode");
+    REQUIRE(ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1000 — button release emits report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1000h");
-        ts.press(1, 0, 0);
-        ts.host.written.clear();
-        ts.release(1, 0, 0);
-        expect(!ts.host.written.empty(), "release should emit a report");
-    });
+TEST_CASE("mouse: DECSET 1002 — press emits report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1002h");
+    ts.press(1, 0, 0);
+    INFO("press emits in drag mode");
+    REQUIRE(!ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1000 — motion produces no report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1000h");
-        ts.press(1, 0, 0);
-        ts.host.written.clear();
-        ts.move(8, 0);
-        // DECSET 1000 (Button mode) does not emit motion events.
-        expect(ts.host.written.empty(), "motion must not emit in button mode");
-    });
+TEST_CASE("mouse: DECSET 1002 — motion without button held produces no output", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1002h");
+    // Do not press any button; just move.
+    ts.move(8, 0);
+    INFO("motion without button held must not emit in drag mode");
+    REQUIRE(ts.host.written.empty());
+}
 
-    // -----------------------------------------------------------------------
-    // DECSET 1002 (drag/button-motion): motion with button held emits; without does not
-    // -----------------------------------------------------------------------
+TEST_CASE("mouse: DECSET 1002 — motion with button held emits report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1002h");
+    ts.press(1, 0, 0);
+    ts.host.written.clear();
+    ts.move(8, 0); // move while button is held
+    INFO("motion while button held must emit in drag mode");
+    REQUIRE(!ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1002 — press emits report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1002h");
-        ts.press(1, 0, 0);
-        expect(!ts.host.written.empty(), "press emits in drag mode");
-    });
+TEST_CASE("mouse: DECSET 1002 — release then motion produces no output", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1002h");
+    ts.press(1, 0, 0);
+    ts.release(1, 0, 0);
+    ts.host.written.clear();
+    ts.move(8, 0);
+    INFO("motion after release must not emit in drag mode");
+    REQUIRE(ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1002 — motion without button held produces no output", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1002h");
-        // Do not press any button; just move.
-        ts.move(8, 0);
-        expect(ts.host.written.empty(), "motion without button held must not emit in drag mode");
-    });
+TEST_CASE("mouse: DECSET 1003 — motion without button emits report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1003h");
+    ts.move(8, 0);
+    INFO("motion without button must emit in any-motion mode");
+    REQUIRE(!ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1002 — motion with button held emits report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1002h");
-        ts.press(1, 0, 0);
-        ts.host.written.clear();
-        ts.move(8, 0); // move while button is held
-        expect(!ts.host.written.empty(), "motion while button held must emit in drag mode");
-    });
+TEST_CASE("mouse: DECSET 1003 — motion with button held emits report", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1003h");
+    ts.press(1, 0, 0);
+    ts.host.written.clear();
+    ts.move(8, 0);
+    INFO("motion with button held must emit in any-motion mode");
+    REQUIRE(!ts.host.written.empty());
+}
 
-    run_test("mouse: DECSET 1002 — release then motion produces no output", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1002h");
-        ts.press(1, 0, 0);
-        ts.release(1, 0, 0);
-        ts.host.written.clear();
-        ts.move(8, 0);
-        expect(ts.host.written.empty(), "motion after release must not emit in drag mode");
-    });
+TEST_CASE("mouse: SGR encoding used when DECSET 1006 is active", "[terminal]")
+{
+    TermSetup ts(80, 30);
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1000h\x1B[?1006h");
+    // Press at a position that would exceed X10 byte encoding limits (col >= 223)
+    // Cell 0 is at pixel 0; with cell width 8, col 240 = pixel 1920.
+    ts.press(1, 1920, 0);
+    INFO("report should use SGR format for large coordinates");
+    REQUIRE(has_sgr_report(ts.host.written));
+}
 
-    // -----------------------------------------------------------------------
-    // DECSET 1003 (any-motion): motion always emits, with or without button
-    // -----------------------------------------------------------------------
+TEST_CASE("mouse: SGR press and release use correct final chars", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1000h\x1B[?1006h");
+    ts.press(1, 0, 0);
+    // SGR press uses 'M' as final char.
+    INFO("SGR press uses 'M'");
+    REQUIRE(ts.host.written.find('M') != std::string::npos);
+    ts.host.written.clear();
+    ts.release(1, 0, 0);
+    // SGR release uses 'm' as final char.
+    INFO("SGR release uses 'm'");
+    REQUIRE(ts.host.written.find('m') != std::string::npos);
+}
 
-    run_test("mouse: DECSET 1003 — motion without button emits report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1003h");
-        ts.move(8, 0);
-        expect(!ts.host.written.empty(), "motion without button must emit in any-motion mode");
-    });
-
-    run_test("mouse: DECSET 1003 — motion with button held emits report", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1003h");
-        ts.press(1, 0, 0);
-        ts.host.written.clear();
-        ts.move(8, 0);
-        expect(!ts.host.written.empty(), "motion with button held must emit in any-motion mode");
-    });
-
-    // -----------------------------------------------------------------------
-    // SGR mouse (DECSET 1006) encoding for large coordinates
-    // -----------------------------------------------------------------------
-
-    run_test("mouse: SGR encoding used when DECSET 1006 is active", []() {
-        TermSetup ts(80, 30);
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1000h\x1B[?1006h");
-        // Press at a position that would exceed X10 byte encoding limits (col >= 223)
-        // Cell 0 is at pixel 0; with cell width 8, col 240 = pixel 1920.
-        ts.press(1, 1920, 0);
-        expect(has_sgr_report(ts.host.written),
-            "report should use SGR format for large coordinates");
-    });
-
-    run_test("mouse: SGR press and release use correct final chars", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1000h\x1B[?1006h");
-        ts.press(1, 0, 0);
-        // SGR press uses 'M' as final char.
-        expect(ts.host.written.find('M') != std::string::npos, "SGR press uses 'M'");
-        ts.host.written.clear();
-        ts.release(1, 0, 0);
-        // SGR release uses 'm' as final char.
-        expect(ts.host.written.find('m') != std::string::npos, "SGR release uses 'm'");
-    });
-
-    // -----------------------------------------------------------------------
-    // Disabling mouse mode restores no-output behaviour
-    // -----------------------------------------------------------------------
-
-    run_test("mouse: disabling DECSET 1003 reverts to no-output on motion", []() {
-        TermSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("\x1B[?1003h");
-        ts.move(8, 0);
-        expect(!ts.host.written.empty(), "motion emits while 1003 active");
-        ts.host.feed("\x1B[?1003l"); // disable
-        ts.host.written.clear();
-        ts.move(16, 0);
-        expect(ts.host.written.empty(), "motion must not emit after 1003 disabled");
-    });
+TEST_CASE("mouse: disabling DECSET 1003 reverts to no-output on motion", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B[?1003h");
+    ts.move(8, 0);
+    INFO("motion emits while 1003 active");
+    REQUIRE(!ts.host.written.empty());
+    ts.host.feed("\x1B[?1003l"); // disable
+    ts.host.written.clear();
+    ts.move(16, 0);
+    INFO("motion must not emit after 1003 disabled");
+    REQUIRE(ts.host.written.empty());
 }

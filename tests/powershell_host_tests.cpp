@@ -1,4 +1,3 @@
-#include "support/test_support.h"
 
 // Internal draxul-host header — added to test include path in CMakeLists.txt.
 #include <draxul/terminal_host_base.h>
@@ -8,13 +7,14 @@
 #include <draxul/text_service.h>
 #include <draxul/window.h>
 
+#include <catch2/catch_all.hpp>
+
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 // ---------------------------------------------------------------------------
 // Minimal fakes (mirrors terminal_vt_tests.cpp setup)
@@ -221,113 +221,123 @@ struct PsSetup
 // Tests
 // ---------------------------------------------------------------------------
 
-void run_powershell_host_tests()
+TEST_CASE("powershell: ESC 7 saves cursor position", "[terminal]")
 {
-    // -----------------------------------------------------------------------
-    // DECSC / DECRC via ESC 7 / ESC 8
-    // -----------------------------------------------------------------------
+    PsSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    // Move cursor to (5, 3) then save with ESC 7.
+    ts.host.feed("\x1B[4;6H"); // CUP row=4, col=6 (1-based → 3, 5)
+    INFO("cursor at col 5 before save");
+    REQUIRE(ts.host.col() == 5);
+    INFO("cursor at row 3 before save");
+    REQUIRE(ts.host.row() == 3);
+    ts.host.feed("\x1B"
+                 "7"); // ESC 7 = DECSC
+    // Move elsewhere.
+    ts.host.feed("\x1B[1;1H");
+    INFO("cursor moved to 0,0");
+    REQUIRE(ts.host.col() == 0);
+    // Restore with ESC 8.
+    ts.host.feed("\x1B"
+                 "8"); // ESC 8 = DECRC
+    INFO("cursor restored to col 5");
+    REQUIRE(ts.host.col() == 5);
+    INFO("cursor restored to row 3");
+    REQUIRE(ts.host.row() == 3);
+}
 
-    run_test("powershell: ESC 7 saves cursor position", []() {
-        PsSetup ts;
-        expect(ts.ok, "host must initialize");
-        // Move cursor to (5, 3) then save with ESC 7.
-        ts.host.feed("\x1B[4;6H"); // CUP row=4, col=6 (1-based → 3, 5)
-        expect_eq(ts.host.col(), 5, "cursor at col 5 before save");
-        expect_eq(ts.host.row(), 3, "cursor at row 3 before save");
-        ts.host.feed("\x1B"
-                     "7"); // ESC 7 = DECSC
-        // Move elsewhere.
-        ts.host.feed("\x1B[1;1H");
-        expect_eq(ts.host.col(), 0, "cursor moved to 0,0");
-        // Restore with ESC 8.
-        ts.host.feed("\x1B"
-                     "8"); // ESC 8 = DECRC
-        expect_eq(ts.host.col(), 5, "cursor restored to col 5");
-        expect_eq(ts.host.row(), 3, "cursor restored to row 3");
-    });
+TEST_CASE("powershell: ESC 7/8 round-trip does not disturb grid content", "[terminal]")
+{
+    PsSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.host.feed("Hello");
+    ts.host.feed("\x1B"
+                 "7"); // save at col 5
+    ts.host.feed("\x1B[1;1H");
+    ts.host.feed("World");
+    ts.host.feed("\x1B"
+                 "8"); // restore to col 5
+    // Cursor back at (5,0); 'H'–'o' at columns 0–4, 'W'–'d' at 0–4 too.
+    INFO("World overwrote Hello at col 0");
+    REQUIRE(ts.host.cell_text(0, 0) == std::string("W"));
+    INFO("cursor restored to col 5");
+    REQUIRE(ts.host.col() == 5);
+}
 
-    run_test("powershell: ESC 7/8 round-trip does not disturb grid content", []() {
-        PsSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.host.feed("Hello");
-        ts.host.feed("\x1B"
-                     "7"); // save at col 5
-        ts.host.feed("\x1B[1;1H");
-        ts.host.feed("World");
-        ts.host.feed("\x1B"
-                     "8"); // restore to col 5
-        // Cursor back at (5,0); 'H'–'o' at columns 0–4, 'W'–'d' at 0–4 too.
-        expect_eq(ts.host.cell_text(0, 0), std::string("W"), "World overwrote Hello at col 0");
-        expect_eq(ts.host.col(), 5, "cursor restored to col 5");
-    });
+TEST_CASE("powershell: PSReadLine bracketed paste wraps clipboard text", "[terminal]")
+{
+    PsSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.window.clipboard_ = "some text";
+    // PSReadLine sends ?2004h to enable bracketed paste.
+    ts.host.feed("\x1B[?2004h");
+    ts.host.written.clear();
+    ts.host.dispatch_action("paste");
+    const std::string& out = ts.host.written;
+    INFO("paste must have opening bracket");
+    REQUIRE(out.find("\x1B[200~") != std::string::npos);
+    INFO("paste must contain clipboard text");
+    REQUIRE(out.find("some text") != std::string::npos);
+    INFO("paste must have closing bracket");
+    REQUIRE(out.find("\x1B[201~") != std::string::npos);
+}
 
-    // -----------------------------------------------------------------------
-    // Bracketed paste mode — PSReadLine enables this at startup
-    // -----------------------------------------------------------------------
+TEST_CASE("powershell: bracketed paste disabled when PSReadLine sends ?2004l", "[terminal]")
+{
+    PsSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    ts.window.clipboard_ = "abc";
+    ts.host.feed("\x1B[?2004h");
+    ts.host.feed("\x1B[?2004l");
+    ts.host.written.clear();
+    ts.host.dispatch_action("paste");
+    const std::string& out = ts.host.written;
+    INFO("brackets must be absent when disabled");
+    REQUIRE(out.find("\x1B[200~") == std::string::npos);
+    INFO("clipboard text must still be pasted");
+    REQUIRE(out.find("abc") != std::string::npos);
+}
 
-    run_test("powershell: PSReadLine bracketed paste wraps clipboard text", []() {
-        PsSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.window.clipboard_ = "some text";
-        // PSReadLine sends ?2004h to enable bracketed paste.
-        ts.host.feed("\x1B[?2004h");
-        ts.host.written.clear();
-        ts.host.dispatch_action("paste");
-        const std::string& out = ts.host.written;
-        expect(out.find("\x1B[200~") != std::string::npos, "paste must have opening bracket");
-        expect(out.find("some text") != std::string::npos, "paste must contain clipboard text");
-        expect(out.find("\x1B[201~") != std::string::npos, "paste must have closing bracket");
-    });
+TEST_CASE("powershell: PSReadLine-style startup sequence renders prompt correctly", "[terminal]")
+{
+    PsSetup ts(80, 24);
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
 
-    run_test("powershell: bracketed paste disabled when PSReadLine sends ?2004l", []() {
-        PsSetup ts;
-        expect(ts.ok, "host must initialize");
-        ts.window.clipboard_ = "abc";
-        ts.host.feed("\x1B[?2004h");
-        ts.host.feed("\x1B[?2004l");
-        ts.host.written.clear();
-        ts.host.dispatch_action("paste");
-        const std::string& out = ts.host.written;
-        expect(out.find("\x1B[200~") == std::string::npos, "brackets must be absent when disabled");
-        expect(out.find("abc") != std::string::npos, "clipboard text must still be pasted");
-    });
+    // Typical PSReadLine preamble:
+    //   hide cursor, go home, enable bracketed paste, save cursor
+    ts.host.feed(
+        "\x1B[?25l" // hide cursor
+        "\x1B[1;1H" // CUP home
+        "\x1B[?2004h" // enable bracketed paste
+        "\x1B"
+        "7" // DECSC - save cursor at (0,0)
+    );
 
-    // -----------------------------------------------------------------------
-    // PSReadLine-style startup sequence
-    // PSReadLine hides cursor, positions it, saves with ESC 7, writes the
-    // coloured prompt, then restores with ESC 8 before accepting input.
-    // -----------------------------------------------------------------------
+    // Write a coloured prompt "PS> " using SGR.
+    ts.host.feed("\x1B[32mPS> \x1B[0m");
 
-    run_test("powershell: PSReadLine-style startup sequence renders prompt correctly", []() {
-        PsSetup ts(80, 24);
-        expect(ts.ok, "host must initialize");
+    // Restore cursor and show it — PSReadLine is now ready for input.
+    ts.host.feed(
+        "\x1B"
+        "8" // DECRC - restore cursor to (0,0)
+        "\x1B[?25h" // show cursor
+    );
 
-        // Typical PSReadLine preamble:
-        //   hide cursor, go home, enable bracketed paste, save cursor
-        ts.host.feed(
-            "\x1B[?25l" // hide cursor
-            "\x1B[1;1H" // CUP home
-            "\x1B[?2004h" // enable bracketed paste
-            "\x1B"
-            "7" // DECSC - save cursor at (0,0)
-        );
-
-        // Write a coloured prompt "PS> " using SGR.
-        ts.host.feed("\x1B[32mPS> \x1B[0m");
-
-        // Restore cursor and show it — PSReadLine is now ready for input.
-        ts.host.feed(
-            "\x1B"
-            "8" // DECRC - restore cursor to (0,0)
-            "\x1B[?25h" // show cursor
-        );
-
-        // Prompt text should be visible on row 0.
-        expect_eq(ts.host.cell_text(0, 0), std::string("P"), "prompt 'P' at col 0");
-        expect_eq(ts.host.cell_text(1, 0), std::string("S"), "prompt 'S' at col 1");
-        expect_eq(ts.host.cell_text(2, 0), std::string(">"), "prompt '>' at col 2");
-        // After ESC 8, cursor is back at (0,0).
-        expect_eq(ts.host.col(), 0, "cursor restored to col 0 after ESC 8");
-        expect_eq(ts.host.row(), 0, "cursor on row 0 after ESC 8");
-    });
+    // Prompt text should be visible on row 0.
+    INFO("prompt 'P' at col 0");
+    REQUIRE(ts.host.cell_text(0, 0) == std::string("P"));
+    INFO("prompt 'S' at col 1");
+    REQUIRE(ts.host.cell_text(1, 0) == std::string("S"));
+    INFO("prompt '>' at col 2");
+    REQUIRE(ts.host.cell_text(2, 0) == std::string(">"));
+    // After ESC 8, cursor is back at (0,0).
+    INFO("cursor restored to col 0 after ESC 8");
+    REQUIRE(ts.host.col() == 0);
+    INFO("cursor on row 0 after ESC 8");
+    REQUIRE(ts.host.row() == 0);
 }

@@ -1,4 +1,5 @@
-#include "support/test_support.h"
+
+#include <catch2/catch_all.hpp>
 
 #include <draxul/log.h>
 #include <draxul/text_service.h>
@@ -7,7 +8,6 @@
 #include <vector>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 namespace
 {
@@ -108,75 +108,75 @@ std::vector<std::string> system_fallback_paths()
 
 } // namespace
 
-void run_font_fallback_corpus_tests(bool run_slow)
+TEST_CASE("font fallback corpus: primary font is present", "[font][slow]")
 {
-    run_test("font fallback corpus: primary font is present", []() {
-        auto font = primary_font_path();
-        expect(std::filesystem::exists(font), "bundled JetBrainsMono NerdFont exists");
-    });
+    auto font = primary_font_path();
+    INFO("bundled JetBrainsMono NerdFont exists");
+    REQUIRE(std::filesystem::exists(font));
+}
 
+TEST_CASE("font fallback corpus: TextService initializes and all script blocks resolve", "[font][slow]")
+{
+    const bool run_slow = std::getenv("DRAXUL_RUN_SLOW_TESTS") != nullptr;
     if (!run_slow)
+        SKIP("slow tests skipped (set DRAXUL_RUN_SLOW_TESTS=1 to enable)");
+
+    auto font = primary_font_path();
+    INFO("bundled font exists");
+    REQUIRE(std::filesystem::exists(font));
+
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = font.string();
+    config.fallback_paths = system_fallback_paths();
+    INFO("text service initializes with fallback chain");
+    REQUIRE(service.initialize(config, 11, 96.0f));
+
+    int resolved_count = 0;
+    int missing_count = 0;
+
+    for (const auto& entry : k_corpus)
     {
-        DRAXUL_LOG_INFO(LogCategory::Test,
-            "[skip] font fallback corpus: slow tests skipped (set DRAXUL_RUN_SLOW_TESTS=1 to enable)");
-        return;
+        // resolve_cluster must not crash or assert — that is the primary guarantee
+        const AtlasRegion region = service.resolve_cluster(entry.text);
+
+        if (region.width > 0)
+        {
+            ++resolved_count;
+            DRAXUL_LOG_INFO(LogCategory::Test, "[corpus] %s: resolved (%dx%d)", entry.script,
+                region.width, region.height);
+        }
+        else
+        {
+            // A zero-width result means no glyph (or whitespace). This is a warning,
+            // not an error — .notdef typically has non-zero dimensions, but some
+            // whitespace-only clusters intentionally produce an empty region.
+            ++missing_count;
+            DRAXUL_LOG_WARN(LogCategory::Test, "[corpus] %s: glyph width is zero (missing or whitespace)",
+                entry.script);
+        }
     }
 
-    run_test("font fallback corpus: TextService initializes and all script blocks resolve", []() {
-        auto font = primary_font_path();
-        expect(std::filesystem::exists(font), "bundled font exists");
+    const int total = static_cast<int>(std::size(k_corpus));
+    DRAXUL_LOG_INFO(LogCategory::Test, "[corpus] %d/%d script blocks produced a visible glyph (%d zero-width)",
+        resolved_count, total, missing_count);
 
-        TextService service;
-        TextServiceConfig config;
-        config.font_path = font.string();
-        config.fallback_paths = system_fallback_paths();
-        expect(service.initialize(config, 11, 96.0f), "text service initializes with fallback chain");
+    // At minimum Latin, Greek, Cyrillic, Math symbols, and Box Drawing must resolve
+    // because those are covered by the primary font (JetBrainsMonoNerdFont).
+    const CorpusEntry* required[] = {
+        &k_corpus[0], // Latin
+        &k_corpus[1], // Greek
+        &k_corpus[2], // Cyrillic
+        &k_corpus[12], // Math Symbols
+        &k_corpus[13], // Box Drawing
+    };
 
-        int resolved_count = 0;
-        int missing_count = 0;
+    for (const auto* req : required)
+    {
+        const AtlasRegion r = service.resolve_cluster(req->text);
+        INFO(std::string(req->script) + " must resolve in primary font (non-zero width)");
+        REQUIRE(r.width > 0);
+    }
 
-        for (const auto& entry : k_corpus)
-        {
-            // resolve_cluster must not crash or assert — that is the primary guarantee
-            const AtlasRegion region = service.resolve_cluster(entry.text);
-
-            if (region.width > 0)
-            {
-                ++resolved_count;
-                DRAXUL_LOG_INFO(LogCategory::Test, "[corpus] %s: resolved (%dx%d)", entry.script,
-                    region.width, region.height);
-            }
-            else
-            {
-                // A zero-width result means no glyph (or whitespace). This is a warning,
-                // not an error — .notdef typically has non-zero dimensions, but some
-                // whitespace-only clusters intentionally produce an empty region.
-                ++missing_count;
-                DRAXUL_LOG_WARN(LogCategory::Test, "[corpus] %s: glyph width is zero (missing or whitespace)",
-                    entry.script);
-            }
-        }
-
-        const int total = static_cast<int>(std::size(k_corpus));
-        DRAXUL_LOG_INFO(LogCategory::Test, "[corpus] %d/%d script blocks produced a visible glyph (%d zero-width)",
-            resolved_count, total, missing_count);
-
-        // At minimum Latin, Greek, Cyrillic, Math symbols, and Box Drawing must resolve
-        // because those are covered by the primary font (JetBrainsMonoNerdFont).
-        const CorpusEntry* required[] = {
-            &k_corpus[0], // Latin
-            &k_corpus[1], // Greek
-            &k_corpus[2], // Cyrillic
-            &k_corpus[12], // Math Symbols
-            &k_corpus[13], // Box Drawing
-        };
-
-        for (const auto* req : required)
-        {
-            const AtlasRegion r = service.resolve_cluster(req->text);
-            expect(r.width > 0, std::string(req->script) + " must resolve in primary font (non-zero width)");
-        }
-
-        service.shutdown();
-    });
+    service.shutdown();
 }

@@ -3,6 +3,7 @@
 #include <draxul/log.h>
 #include <draxul/nvim_rpc.h>
 
+#include <catch2/catch_all.hpp>
 #include <string>
 #include <vector>
 
@@ -35,22 +36,26 @@ bool contains_spawn_error(const std::vector<LogRecord>& records)
 
 } // namespace
 
-void run_nvim_process_tests()
+TEST_CASE("nvim process spawn returns false and logs an error for a bad path", "[nvim]")
 {
-    run_test("nvim process spawn returns false and logs an error for a bad path", []() {
-        ScopedLogCapture capture;
-        NvimProcess process;
+    ScopedLogCapture capture;
+    NvimProcess process;
 
-        expect(!process.spawn(missing_nvim_path()), "spawn should fail for a missing nvim binary");
-        expect(!process.is_running(), "failed spawn should not leave a running process");
-        expect(contains_spawn_error(capture.records), "failed spawn should emit an error log");
-    });
+    INFO("spawn should fail for a missing nvim binary");
+    REQUIRE(!process.spawn(missing_nvim_path()));
+    INFO("failed spawn should not leave a running process");
+    REQUIRE(!process.is_running());
+    INFO("failed spawn should emit an error log");
+    REQUIRE(contains_spawn_error(capture.records));
+}
 
-    run_test("nvim process shutdown is a no-op after spawn failure", []() {
-        NvimProcess process;
+TEST_CASE("nvim process shutdown is a no-op after spawn failure", "[nvim]")
+{
+    NvimProcess process;
 
-        expect(!process.spawn(missing_nvim_path()), "spawn should fail for a missing nvim binary");
-        process.shutdown();
-        expect(!process.is_running(), "shutdown after failed spawn should remain safe");
-    });
+    INFO("spawn should fail for a missing nvim binary");
+    REQUIRE(!process.spawn(missing_nvim_path()));
+    process.shutdown();
+    INFO("shutdown after failed spawn should remain safe");
+    REQUIRE(!process.is_running());
 }

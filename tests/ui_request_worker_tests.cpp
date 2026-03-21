@@ -1,4 +1,3 @@
-#include "support/test_support.h"
 
 #include <draxul/ui_request_worker.h>
 
@@ -9,8 +8,9 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_all.hpp>
+
 using namespace draxul;
-using namespace draxul::tests;
 
 namespace
 {
@@ -94,56 +94,69 @@ public:
 
 } // namespace
 
-void run_ui_request_worker_tests()
+TEST_CASE("ui request worker state coalesces bursts to the latest resize", "[ui]")
 {
-    run_test("ui request worker state coalesces bursts to the latest resize", []() {
-        UiRequestWorkerState state;
-        state.start();
+    UiRequestWorkerState state;
+    state.start();
 
-        for (int i = 0; i < 10; ++i)
-            expect(state.request_resize(80 + i, 24 + i, "burst " + std::to_string(i)),
-                "running state should accept resize requests");
+    for (int i = 0; i < 10; ++i)
+    {
+        INFO("running state should accept resize requests");
+        REQUIRE(state.request_resize(80 + i, 24 + i, "burst " + std::to_string(i)));
+    }
 
-        expect(state.has_pending_request(), "coalesced burst should leave one pending request");
-        auto pending = state.take_pending_request();
-        expect(pending.has_value(), "the coalesced request should be retrievable");
-        expect_eq(pending->cols, 89, "coalescing keeps the latest column count");
-        expect_eq(pending->rows, 33, "coalescing keeps the latest row count");
-        expect_eq(pending->reason, std::string("burst 9"), "coalescing keeps the latest reason");
-        expect(!state.has_pending_request(), "taking the request clears the pending slot");
-    });
+    INFO("coalesced burst should leave one pending request");
+    REQUIRE(state.has_pending_request());
+    auto pending = state.take_pending_request();
+    INFO("the coalesced request should be retrievable");
+    REQUIRE(pending.has_value());
+    INFO("coalescing keeps the latest column count");
+    REQUIRE(pending->cols == 89);
+    INFO("coalescing keeps the latest row count");
+    REQUIRE(pending->rows == 33);
+    INFO("coalescing keeps the latest reason");
+    REQUIRE(pending->reason == std::string("burst 9"));
+    INFO("taking the request clears the pending slot");
+    REQUIRE(!state.has_pending_request());
+}
 
-    run_test("ui request worker stops cleanly after an in-flight resize request", []() {
-        FakeRpcChannel rpc(true);
-        UiRequestWorker worker;
-        worker.start(&rpc);
-        worker.request_resize(120, 40, "shutdown");
+TEST_CASE("ui request worker stops cleanly after an in-flight resize request", "[ui]")
+{
+    FakeRpcChannel rpc(true);
+    UiRequestWorker worker;
+    worker.start(&rpc);
+    worker.request_resize(120, 40, "shutdown");
 
-        expect(rpc.wait_for_in_flight(std::chrono::milliseconds(1000)),
-            "worker should begin the in-flight resize request");
+    INFO("worker should begin the in-flight resize request");
+    REQUIRE(rpc.wait_for_in_flight(std::chrono::milliseconds(1000)));
 
-        auto stop_future = std::async(std::launch::async, [&]() {
-            worker.stop();
-            return true;
-        });
-
-        rpc.release();
-        expect_eq(stop_future.wait_for(std::chrono::milliseconds(1000)),
-            std::future_status::ready, "stop should join once the in-flight request completes");
-        expect_eq(rpc.request_count(), size_t(1), "the worker should issue exactly one RPC request");
-        const auto request = rpc.request_at(0);
-        expect_eq(request.method, std::string("nvim_ui_try_resize"), "worker uses the resize RPC");
-        expect_eq(request.params[0].as_int(), int64_t(120), "worker forwards the requested columns");
-        expect_eq(request.params[1].as_int(), int64_t(40), "worker forwards the requested rows");
-    });
-
-    run_test("ui request worker drops resize requests after stop", []() {
-        FakeRpcChannel rpc;
-        UiRequestWorker worker;
-        worker.start(&rpc);
+    auto stop_future = std::async(std::launch::async, [&]() {
         worker.stop();
-        worker.request_resize(90, 30, "after stop");
-
-        expect_eq(rpc.request_count(), size_t(0), "post-stop requests should be ignored");
+        return true;
     });
+
+    rpc.release();
+    INFO("stop should join once the in-flight request completes");
+    REQUIRE(stop_future.wait_for(std::chrono::milliseconds(1000)) == std::future_status::ready);
+    INFO("the worker should issue exactly one RPC request");
+    REQUIRE(rpc.request_count() == size_t(1));
+    const auto request = rpc.request_at(0);
+    INFO("worker uses the resize RPC");
+    REQUIRE(request.method == std::string("nvim_ui_try_resize"));
+    INFO("worker forwards the requested columns");
+    REQUIRE(request.params[0].as_int() == int64_t(120));
+    INFO("worker forwards the requested rows");
+    REQUIRE(request.params[1].as_int() == int64_t(40));
+}
+
+TEST_CASE("ui request worker drops resize requests after stop", "[ui]")
+{
+    FakeRpcChannel rpc;
+    UiRequestWorker worker;
+    worker.start(&rpc);
+    worker.stop();
+    worker.request_resize(90, 30, "after stop");
+
+    INFO("post-stop requests should be ignored");
+    REQUIRE(rpc.request_count() == size_t(0));
 }

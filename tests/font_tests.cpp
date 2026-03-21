@@ -1,4 +1,5 @@
-#include "support/test_support.h"
+
+#include <catch2/catch_all.hpp>
 
 #include <algorithm>
 #include <array>
@@ -7,7 +8,6 @@
 #include <filesystem>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 namespace
 {
@@ -74,171 +74,201 @@ std::filesystem::path cjk_font_path()
 
 } // namespace
 
-void run_font_tests()
+TEST_CASE("bundled nerd font shapes and rasterizes current lazy icon", "[font]")
 {
-    run_test("bundled nerd font shapes and rasterizes current lazy icon", []() {
-        auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-        expect(std::filesystem::exists(font_path), "bundled font exists");
+    auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    INFO("bundled font exists");
+    REQUIRE(std::filesystem::exists(font_path));
 
-        TextService service;
-        TextServiceConfig config;
-        config.font_path = font_path.string();
-        expect(service.initialize(config, 11, 96.0f), "text service initializes");
-        const std::string lazy_icon = "\xF3\xB0\x92\xB2"; // U+F04B2
-        const auto region = service.resolve_cluster(lazy_icon);
-        expect(region.width > 0, "lazy icon rasterizes");
-        expect(region.height > 0, "lazy icon has height");
-        expect_eq(service.primary_font_path(), font_path.string(), "configured font path is used");
-        service.shutdown();
-    });
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = font_path.string();
+    INFO("text service initializes");
+    REQUIRE(service.initialize(config, 11, 96.0f));
+    const std::string lazy_icon = "\xF3\xB0\x92\xB2"; // U+F04B2
+    const auto region = service.resolve_cluster(lazy_icon);
+    INFO("lazy icon rasterizes");
+    REQUIRE(region.width > 0);
+    INFO("lazy icon has height");
+    REQUIRE(region.height > 0);
+    INFO("configured font path is used");
+    REQUIRE(service.primary_font_path() == font_path.string());
+    service.shutdown();
+}
 
-    run_test("glyph cache dirty rect accumulates newly rasterized glyphs", []() {
-        auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-        expect(std::filesystem::exists(font_path), "bundled font exists");
+TEST_CASE("glyph cache dirty rect accumulates newly rasterized glyphs", "[font]")
+{
+    auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    INFO("bundled font exists");
+    REQUIRE(std::filesystem::exists(font_path));
 
-        TextService service;
-        TextServiceConfig config;
-        config.font_path = font_path.string();
-        expect(service.initialize(config, 11, 96.0f), "text service initializes");
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = font_path.string();
+    INFO("text service initializes");
+    REQUIRE(service.initialize(config, 11, 96.0f));
 
-        const auto region_l = service.resolve_cluster("L");
-        const auto region_a = service.resolve_cluster("a");
-        const auto dirty = service.atlas_dirty_rect();
+    const auto region_l = service.resolve_cluster("L");
+    const auto region_a = service.resolve_cluster("a");
+    const auto dirty = service.atlas_dirty_rect();
 
-        int atlas_width = service.atlas_width();
-        int l_x = static_cast<int>(region_l.u0 * atlas_width);
-        int a_x = static_cast<int>(region_a.u0 * atlas_width);
-        int left = std::min(l_x, a_x);
-        int right = std::max(l_x + region_l.width, a_x + region_a.width);
+    int atlas_width = service.atlas_width();
+    int l_x = static_cast<int>(region_l.u0 * atlas_width);
+    int a_x = static_cast<int>(region_a.u0 * atlas_width);
+    int left = std::min(l_x, a_x);
+    int right = std::max(l_x + region_l.width, a_x + region_a.width);
 
-        expect_eq(dirty.x, left, "dirty rect starts at the leftmost new glyph");
-        expect_eq(dirty.w, right - left, "dirty rect spans all newly rasterized glyphs");
+    INFO("dirty rect starts at the leftmost new glyph");
+    REQUIRE(dirty.x == left);
+    INFO("dirty rect spans all newly rasterized glyphs");
+    REQUIRE(dirty.w == right - left);
 
-        service.clear_atlas_dirty();
-        expect(!service.atlas_dirty(), "clearing dirtiness resets the dirty flag");
-        expect_eq(service.atlas_dirty_rect().w, 0, "clearing dirtiness resets the dirty rect");
-        service.shutdown();
-    });
+    service.clear_atlas_dirty();
+    INFO("clearing dirtiness resets the dirty flag");
+    REQUIRE(!service.atlas_dirty());
+    INFO("clearing dirtiness resets the dirty rect");
+    REQUIRE(service.atlas_dirty_rect().w == 0);
+    service.shutdown();
+}
 
-    run_test("font choice cache stays bounded under many unique clusters", []() {
-        auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-        expect(std::filesystem::exists(font_path), "bundled font exists");
+TEST_CASE("font choice cache stays bounded under many unique clusters", "[font]")
+{
+    auto font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    INFO("bundled font exists");
+    REQUIRE(std::filesystem::exists(font_path));
 
-        TextService service;
-        TextServiceConfig config;
-        config.font_path = font_path.string();
-        config.font_choice_cache_limit = 8;
-        expect(service.initialize(config, 11, 96.0f), "text service initializes");
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = font_path.string();
+    config.font_choice_cache_limit = 8;
+    INFO("text service initializes");
+    REQUIRE(service.initialize(config, 11, 96.0f));
 
-        for (int i = 0; i < 32; ++i)
-        {
-            service.resolve_cluster("cache-entry-" + std::to_string(i));
-            expect(service.font_choice_cache_size() <= config.font_choice_cache_limit,
-                "font choice cache should never exceed its configured limit");
-        }
+    for (int i = 0; i < 32; ++i)
+    {
+        service.resolve_cluster("cache-entry-" + std::to_string(i));
+        INFO("font choice cache should never exceed its configured limit");
+        REQUIRE(service.font_choice_cache_size() <= config.font_choice_cache_limit);
+    }
 
-        service.shutdown();
-    });
+    service.shutdown();
+}
 
-    run_test("emoji fallback preserves color glyph pixels in the atlas", []() {
-        auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-        auto emoji_font_path = color_emoji_font_path();
-        expect(std::filesystem::exists(primary_font_path), "bundled font exists");
-        if (!std::filesystem::exists(emoji_font_path))
-            skip("color emoji font not available on this machine");
+TEST_CASE("emoji fallback preserves color glyph pixels in the atlas", "[font]")
+{
+    auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto emoji_font_path = color_emoji_font_path();
+    INFO("bundled font exists");
+    REQUIRE(std::filesystem::exists(primary_font_path));
+    if (!std::filesystem::exists(emoji_font_path))
+        SKIP("color emoji font not available on this machine");
 
-        TextService service;
-        TextServiceConfig config;
-        config.font_path = primary_font_path.string();
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = primary_font_path.string();
 #ifdef _WIN32
-        const char* windir = std::getenv("WINDIR");
-        auto windows_dir = std::filesystem::path(windir ? windir : "C:\\Windows");
-        auto symbol_font_path = windows_dir / "Fonts" / "seguisym.ttf";
-        if (std::filesystem::exists(symbol_font_path))
-            config.fallback_paths.push_back(symbol_font_path.string());
+    const char* windir = std::getenv("WINDIR");
+    auto windows_dir = std::filesystem::path(windir ? windir : "C:\\Windows");
+    auto symbol_font_path = windows_dir / "Fonts" / "seguisym.ttf";
+    if (std::filesystem::exists(symbol_font_path))
+        config.fallback_paths.push_back(symbol_font_path.string());
 #endif
-        config.fallback_paths.push_back(emoji_font_path.string());
-        expect(service.initialize(config, 11, 96.0f), "text service initializes");
+    config.fallback_paths.push_back(emoji_font_path.string());
+    INFO("text service initializes");
+    REQUIRE(service.initialize(config, 11, 96.0f));
 
-        const std::string sleep_emoji = "\xF0\x9F\x92\xA4"; // U+1F4A4
-        const auto region = service.resolve_cluster(sleep_emoji);
-        expect(region.width > 0, "emoji rasterizes");
-        expect(region.height > 0, "emoji has height");
-        expect(region.is_color, "emoji region is flagged as color");
+    const std::string sleep_emoji = "\xF0\x9F\x92\xA4"; // U+1F4A4
+    const auto region = service.resolve_cluster(sleep_emoji);
+    INFO("emoji rasterizes");
+    REQUIRE(region.width > 0);
+    INFO("emoji has height");
+    REQUIRE(region.height > 0);
+    INFO("emoji region is flagged as color");
+    REQUIRE(region.is_color);
 
-        const auto* atlas = service.atlas_data();
-        const int atlas_width = service.atlas_width();
-        const int atlas_x = static_cast<int>(region.u0 * atlas_width + 0.5f);
-        const int atlas_y = static_cast<int>(region.v0 * atlas_width + 0.5f);
+    const auto* atlas = service.atlas_data();
+    const int atlas_width = service.atlas_width();
+    const int atlas_x = static_cast<int>(region.u0 * atlas_width + 0.5f);
+    const int atlas_y = static_cast<int>(region.v0 * atlas_width + 0.5f);
 
-        bool found_colored_pixel = false;
-        for (int row = 0; row < region.height && !found_colored_pixel; row++)
+    bool found_colored_pixel = false;
+    for (int row = 0; row < region.height && !found_colored_pixel; row++)
+    {
+        for (int col = 0; col < region.width; col++)
         {
-            for (int col = 0; col < region.width; col++)
+            const size_t pixel_index = (((size_t)(atlas_y + row) * atlas_width) + atlas_x + col) * 4;
+            const uint8_t r = atlas[pixel_index + 0];
+            const uint8_t g = atlas[pixel_index + 1];
+            const uint8_t b = atlas[pixel_index + 2];
+            const uint8_t a = atlas[pixel_index + 3];
+            if (a > 0 && !(r == 255 && g == 255 && b == 255))
             {
-                const size_t pixel_index = (((size_t)(atlas_y + row) * atlas_width) + atlas_x + col) * 4;
-                const uint8_t r = atlas[pixel_index + 0];
-                const uint8_t g = atlas[pixel_index + 1];
-                const uint8_t b = atlas[pixel_index + 2];
-                const uint8_t a = atlas[pixel_index + 3];
-                if (a > 0 && !(r == 255 && g == 255 && b == 255))
-                {
-                    found_colored_pixel = true;
-                    break;
-                }
+                found_colored_pixel = true;
+                break;
             }
         }
+    }
 
-        expect(found_colored_pixel, "emoji atlas region contains non-monochrome pixels");
-        service.shutdown();
-    });
+    INFO("emoji atlas region contains non-monochrome pixels");
+    REQUIRE(found_colored_pixel);
+    service.shutdown();
+}
 
-    run_test("wide japanese text resolves through CJK fallback fonts", []() {
-        auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
-        auto cjk_path = cjk_font_path();
-        expect(std::filesystem::exists(primary_font_path), "bundled font exists");
-        if (cjk_path.empty())
-            skip("cjk fallback font not available on this machine");
+TEST_CASE("wide japanese text resolves through CJK fallback fonts", "[font]")
+{
+    auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto cjk_path = cjk_font_path();
+    INFO("bundled font exists");
+    REQUIRE(std::filesystem::exists(primary_font_path));
+    if (cjk_path.empty())
+        SKIP("cjk fallback font not available on this machine");
 
-        TextService service;
-        TextServiceConfig config;
-        config.font_path = primary_font_path.string();
-        config.fallback_paths = { cjk_path.string() };
-        expect(service.initialize(config, 11, 96.0f), "text service initializes");
+    TextService service;
+    TextServiceConfig config;
+    config.font_path = primary_font_path.string();
+    config.fallback_paths = { cjk_path.string() };
+    INFO("text service initializes");
+    REQUIRE(service.initialize(config, 11, 96.0f));
 
-        constexpr char japanese_bytes[] = "\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF";
-        const std::string japanese = japanese_bytes;
-        const auto region = service.resolve_cluster(japanese);
-        expect(region.width > 0, "japanese text rasterizes");
-        expect(region.height > 0, "japanese text has height");
-        service.shutdown();
-    });
+    constexpr char japanese_bytes[] = "\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF";
+    const std::string japanese = japanese_bytes;
+    const auto region = service.resolve_cluster(japanese);
+    INFO("japanese text rasterizes");
+    REQUIRE(region.width > 0);
+    INFO("japanese text has height");
+    REQUIRE(region.height > 0);
+    service.shutdown();
+}
 
-    run_test("ligature shaping can be disabled from text service config", []() {
-        auto font_path = ligature_font_path();
-        expect(std::filesystem::exists(font_path), "ligature font exists");
+TEST_CASE("ligature shaping can be disabled from text service config", "[font]")
+{
+    auto font_path = ligature_font_path();
+    INFO("ligature font exists");
+    REQUIRE(std::filesystem::exists(font_path));
 
-        TextService ligatures_enabled;
-        TextServiceConfig enabled_config;
-        enabled_config.font_path = font_path.string();
-        enabled_config.enable_ligatures = true;
-        expect(ligatures_enabled.initialize(enabled_config, 11, 96.0f), "text service initializes with ligatures enabled");
+    TextService ligatures_enabled;
+    TextServiceConfig enabled_config;
+    enabled_config.font_path = font_path.string();
+    enabled_config.enable_ligatures = true;
+    INFO("text service initializes with ligatures enabled");
+    REQUIRE(ligatures_enabled.initialize(enabled_config, 11, 96.0f));
 
-        const std::string ligature = "->";
-        expect_eq(ligatures_enabled.ligature_cell_span(ligature), 2,
-            "enabled ligatures report the expected two-cell span");
-        const auto ligature_region = ligatures_enabled.resolve_cluster(ligature);
-        expect(ligature_region.width > 0, "expected ligature rasterizes");
+    const std::string ligature = "->";
+    INFO("enabled ligatures report the expected two-cell span");
+    REQUIRE(ligatures_enabled.ligature_cell_span(ligature) == 2);
+    const auto ligature_region = ligatures_enabled.resolve_cluster(ligature);
+    INFO("expected ligature rasterizes");
+    REQUIRE(ligature_region.width > 0);
 
-        TextService ligatures_disabled;
-        TextServiceConfig disabled_config;
-        disabled_config.font_path = font_path.string();
-        disabled_config.enable_ligatures = false;
-        expect(ligatures_disabled.initialize(disabled_config, 11, 96.0f), "text service initializes with ligatures disabled");
-        expect_eq(ligatures_disabled.ligature_cell_span(ligature), 0,
-            "disabled ligatures suppress the same programming ligature");
+    TextService ligatures_disabled;
+    TextServiceConfig disabled_config;
+    disabled_config.font_path = font_path.string();
+    disabled_config.enable_ligatures = false;
+    INFO("text service initializes with ligatures disabled");
+    REQUIRE(ligatures_disabled.initialize(disabled_config, 11, 96.0f));
+    INFO("disabled ligatures suppress the same programming ligature");
+    REQUIRE(ligatures_disabled.ligature_cell_span(ligature) == 0);
 
-        ligatures_disabled.shutdown();
-        ligatures_enabled.shutdown();
-    });
+    ligatures_disabled.shutdown();
+    ligatures_enabled.shutdown();
 }

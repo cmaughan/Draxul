@@ -16,8 +16,6 @@
 // If a future thin ShellHost test interface is added, these SKIPs can be
 // replaced with real ShellHost instantiation.
 
-#include "support/test_support.h"
-
 #include <catch2/catch_test_macros.hpp>
 
 #include <draxul/terminal_host_base.h>
@@ -33,7 +31,6 @@
 #include <vector>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 // ---------------------------------------------------------------------------
 // Minimal fakes

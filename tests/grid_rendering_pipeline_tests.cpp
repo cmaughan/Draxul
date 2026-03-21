@@ -1,4 +1,3 @@
-#include "support/test_support.h"
 
 #include <draxul/grid_rendering_pipeline.h>
 
@@ -10,8 +9,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include <catch2/catch_all.hpp>
+
 using namespace draxul;
-using namespace draxul::tests;
 
 namespace
 {
@@ -196,94 +196,127 @@ Grid make_ligature_grid()
 
 } // namespace
 
-void run_grid_rendering_pipeline_tests()
+TEST_CASE("grid rendering pipeline retries once after an atlas reset", "[grid]")
 {
-    run_test("grid rendering pipeline retries once after an atlas reset", []() {
-        Grid grid = make_grid();
-        HighlightTable highlights;
-        FakeGlyphAtlas atlas(1);
-        FakeRenderer renderer;
-        GridRenderingPipeline pipeline(grid, highlights, atlas);
-        pipeline.set_renderer(&renderer);
+    Grid grid = make_grid();
+    HighlightTable highlights;
+    FakeGlyphAtlas atlas(1);
+    FakeRenderer renderer;
+    GridRenderingPipeline pipeline(grid, highlights, atlas);
+    pipeline.set_renderer(&renderer);
 
-        pipeline.flush();
+    pipeline.flush();
 
-        expect_eq(atlas.resolve_calls, 4, "dirty cells should be replayed after the first atlas reset");
-        expect_eq(static_cast<int>(atlas.resolved_texts.size()), 4, "both glyphs should be resolved twice");
-        expect_eq(atlas.resolved_texts[0], std::string("A"), "first pass keeps the first glyph");
-        expect_eq(atlas.resolved_texts[1], std::string("B"), "first pass keeps the second glyph");
-        expect_eq(atlas.resolved_texts[2], std::string("A"), "retry replays the first glyph");
-        expect_eq(atlas.resolved_texts[3], std::string("B"), "retry replays the second glyph");
-        expect_eq(renderer.full_atlas_uploads, 1, "retry should force one full atlas upload");
-        expect_eq(renderer.region_uploads, 0, "retry should not fall back to a region upload");
-        expect_eq(static_cast<int>(renderer.update_batches.size()), 1, "successful retry should emit one cell update batch");
-        expect_eq(static_cast<int>(renderer.update_batches[0].size()), 2, "both dirty cells should be sent to the renderer");
-        expect_eq(renderer.update_batches[0][0].glyph.width, 7, "first glyph survives the retry");
-        expect_eq(renderer.update_batches[0][1].glyph.width, 8, "second glyph survives the retry");
-        expect_eq(grid.dirty_cell_count(), size_t(0), "successful retry clears the grid dirty set");
-    });
+    INFO("dirty cells should be replayed after the first atlas reset");
+    REQUIRE(atlas.resolve_calls == 4);
+    INFO("both glyphs should be resolved twice");
+    REQUIRE(static_cast<int>(atlas.resolved_texts.size()) == 4);
+    INFO("first pass keeps the first glyph");
+    REQUIRE(atlas.resolved_texts[0] == std::string("A"));
+    INFO("first pass keeps the second glyph");
+    REQUIRE(atlas.resolved_texts[1] == std::string("B"));
+    INFO("retry replays the first glyph");
+    REQUIRE(atlas.resolved_texts[2] == std::string("A"));
+    INFO("retry replays the second glyph");
+    REQUIRE(atlas.resolved_texts[3] == std::string("B"));
+    INFO("retry should force one full atlas upload");
+    REQUIRE(renderer.full_atlas_uploads == 1);
+    INFO("retry should not fall back to a region upload");
+    REQUIRE(renderer.region_uploads == 0);
+    INFO("successful retry should emit one cell update batch");
+    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 1);
+    INFO("both dirty cells should be sent to the renderer");
+    REQUIRE(static_cast<int>(renderer.update_batches[0].size()) == 2);
+    INFO("first glyph survives the retry");
+    REQUIRE(renderer.update_batches[0][0].glyph.width == 7);
+    INFO("second glyph survives the retry");
+    REQUIRE(renderer.update_batches[0][1].glyph.width == 8);
+    INFO("successful retry clears the grid dirty set");
+    REQUIRE(grid.dirty_cell_count() == size_t(0));
+}
 
-    run_test("grid rendering pipeline gives up after a second atlas reset", []() {
-        Grid grid = make_grid();
-        HighlightTable highlights;
-        FakeGlyphAtlas atlas(2);
-        FakeRenderer renderer;
-        GridRenderingPipeline pipeline(grid, highlights, atlas);
-        pipeline.set_renderer(&renderer);
+TEST_CASE("grid rendering pipeline gives up after a second atlas reset", "[grid]")
+{
+    Grid grid = make_grid();
+    HighlightTable highlights;
+    FakeGlyphAtlas atlas(2);
+    FakeRenderer renderer;
+    GridRenderingPipeline pipeline(grid, highlights, atlas);
+    pipeline.set_renderer(&renderer);
 
-        pipeline.flush();
+    pipeline.flush();
 
-        expect_eq(atlas.resolve_calls, 4, "the retry loop should stop after two attempts");
-        expect_eq(static_cast<int>(renderer.update_batches.size()), 0, "double reset should not emit partial cell updates");
-        expect_eq(renderer.full_atlas_uploads, 0, "no atlas upload happens when both attempts reset");
-        expect_eq(grid.dirty_cell_count(), size_t(2), "cells stay dirty so the next flush can retry later");
-    });
+    INFO("the retry loop should stop after two attempts");
+    REQUIRE(atlas.resolve_calls == 4);
+    INFO("double reset should not emit partial cell updates");
+    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 0);
+    INFO("no atlas upload happens when both attempts reset");
+    REQUIRE(renderer.full_atlas_uploads == 0);
+    INFO("cells stay dirty so the next flush can retry later");
+    REQUIRE(grid.dirty_cell_count() == size_t(2));
+}
 
-    run_test("grid rendering pipeline combines two-cell ligatures into a leader and blank continuation", []() {
-        Grid grid = make_ligature_grid();
-        HighlightTable highlights;
-        FakeGlyphAtlas atlas;
-        FakeRenderer renderer;
-        GridRenderingPipeline pipeline(grid, highlights, atlas);
-        pipeline.set_renderer(&renderer);
-        pipeline.set_enable_ligatures(true);
+TEST_CASE("grid rendering pipeline combines two-cell ligatures into a leader and blank continuation", "[grid]")
+{
+    Grid grid = make_ligature_grid();
+    HighlightTable highlights;
+    FakeGlyphAtlas atlas;
+    FakeRenderer renderer;
+    GridRenderingPipeline pipeline(grid, highlights, atlas);
+    pipeline.set_renderer(&renderer);
+    pipeline.set_enable_ligatures(true);
 
-        pipeline.flush();
+    pipeline.flush();
 
-        expect_eq(atlas.resolve_calls, 1, "two-cell ligature should resolve as one combined cluster");
-        expect_eq(static_cast<int>(atlas.resolved_texts.size()), 1, "only the combined ligature text should be resolved");
-        expect_eq(atlas.resolved_texts[0], std::string("->"), "combined ligature text should be shaped");
-        expect_eq(static_cast<int>(renderer.update_batches.size()), 1, "ligature flush emits one update batch");
-        expect_eq(static_cast<int>(renderer.update_batches[0].size()), 2, "leader and continuation cells should both be updated");
-        expect_eq(renderer.update_batches[0][0].glyph.width, 18, "leader cell stores the ligature atlas region");
-        expect_eq(renderer.update_batches[0][1].glyph.width, 0, "continuation cell renders no glyph");
-    });
+    INFO("two-cell ligature should resolve as one combined cluster");
+    REQUIRE(atlas.resolve_calls == 1);
+    INFO("only the combined ligature text should be resolved");
+    REQUIRE(static_cast<int>(atlas.resolved_texts.size()) == 1);
+    INFO("combined ligature text should be shaped");
+    REQUIRE(atlas.resolved_texts[0] == std::string("->"));
+    INFO("ligature flush emits one update batch");
+    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 1);
+    INFO("leader and continuation cells should both be updated");
+    REQUIRE(static_cast<int>(renderer.update_batches[0].size()) == 2);
+    INFO("leader cell stores the ligature atlas region");
+    REQUIRE(renderer.update_batches[0][0].glyph.width == 18);
+    INFO("continuation cell renders no glyph");
+    REQUIRE(renderer.update_batches[0][1].glyph.width == 0);
+}
 
-    run_test("grid rendering pipeline redraws the leader when a continuation change breaks a ligature", []() {
-        Grid grid = make_ligature_grid();
-        HighlightTable highlights;
-        FakeGlyphAtlas atlas;
-        FakeRenderer renderer;
-        GridRenderingPipeline pipeline(grid, highlights, atlas);
-        pipeline.set_renderer(&renderer);
-        pipeline.set_enable_ligatures(true);
+TEST_CASE("grid rendering pipeline redraws the leader when a continuation change breaks a ligature", "[grid]")
+{
+    Grid grid = make_ligature_grid();
+    HighlightTable highlights;
+    FakeGlyphAtlas atlas;
+    FakeRenderer renderer;
+    GridRenderingPipeline pipeline(grid, highlights, atlas);
+    pipeline.set_renderer(&renderer);
+    pipeline.set_enable_ligatures(true);
 
-        pipeline.flush();
+    pipeline.flush();
 
-        atlas.resolve_calls = 0;
-        atlas.resolved_texts.clear();
-        renderer.update_batches.clear();
+    atlas.resolve_calls = 0;
+    atlas.resolved_texts.clear();
+    renderer.update_batches.clear();
 
-        grid.set_cell(1, 0, "X", 0, false);
-        pipeline.flush();
+    grid.set_cell(1, 0, "X", 0, false);
+    pipeline.flush();
 
-        expect_eq(atlas.resolve_calls, 2, "breaking a ligature should redraw both participating cells");
-        expect_eq(static_cast<int>(atlas.resolved_texts.size()), 2, "broken ligature should fall back to per-cell shaping");
-        expect_eq(atlas.resolved_texts[0], std::string("-"), "leader cell is replayed after the ligature breaks");
-        expect_eq(atlas.resolved_texts[1], std::string("X"), "changed continuation cell is shaped normally");
-        expect_eq(static_cast<int>(renderer.update_batches.size()), 1, "fallback draw emits one update batch");
-        expect_eq(static_cast<int>(renderer.update_batches[0].size()), 2, "both cells are updated to clear the old ligature");
-        expect(renderer.update_batches[0][0].glyph.width > 0, "leader redraw restores a standalone glyph");
-        expect(renderer.update_batches[0][1].glyph.width > 0, "changed cell restores its standalone glyph");
-    });
+    INFO("breaking a ligature should redraw both participating cells");
+    REQUIRE(atlas.resolve_calls == 2);
+    INFO("broken ligature should fall back to per-cell shaping");
+    REQUIRE(static_cast<int>(atlas.resolved_texts.size()) == 2);
+    INFO("leader cell is replayed after the ligature breaks");
+    REQUIRE(atlas.resolved_texts[0] == std::string("-"));
+    INFO("changed continuation cell is shaped normally");
+    REQUIRE(atlas.resolved_texts[1] == std::string("X"));
+    INFO("fallback draw emits one update batch");
+    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 1);
+    INFO("both cells are updated to clear the old ligature");
+    REQUIRE(static_cast<int>(renderer.update_batches[0].size()) == 2);
+    INFO("leader redraw restores a standalone glyph");
+    REQUIRE(renderer.update_batches[0][0].glyph.width > 0);
+    INFO("changed cell restores its standalone glyph");
+    REQUIRE(renderer.update_batches[0][1].glyph.width > 0);
 }

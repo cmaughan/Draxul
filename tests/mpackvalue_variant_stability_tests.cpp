@@ -1,9 +1,8 @@
-#include "support/test_support.h"
 
+#include <catch2/catch_all.hpp>
 #include <draxul/nvim_rpc.h>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 // Static assertions pin each variant alternative index to its expected C++ type.
 // If the Storage declaration order is ever changed, these will fail at compile time.
@@ -26,75 +25,98 @@ static_assert(std::is_same_v<std::variant_alternative_t<7, MpackValue::Storage>,
 static_assert(std::is_same_v<std::variant_alternative_t<8, MpackValue::Storage>, MpackValue::ExtValue>,
     "MpackValue::Storage index 8 must be ExtValue");
 
-void run_mpackvalue_variant_stability_tests()
+TEST_CASE("MpackValue default-constructed type() is Nil", "[rpc]")
 {
-    run_test("MpackValue default-constructed type() is Nil", []() {
-        MpackValue val;
-        expect_eq(val.type(), MpackValue::Nil, "default MpackValue reports Nil type");
-    });
+    MpackValue val;
+    INFO("default MpackValue reports Nil type");
+    REQUIRE(val.type() == MpackValue::Nil);
+}
 
-    run_test("MpackValue nil type() is Nil", []() {
-        MpackValue val = NvimRpc::make_nil();
-        expect_eq(val.type(), MpackValue::Nil, "nil MpackValue reports Nil type");
-    });
+TEST_CASE("MpackValue nil type() is Nil", "[rpc]")
+{
+    MpackValue val = NvimRpc::make_nil();
+    INFO("nil MpackValue reports Nil type");
+    REQUIRE(val.type() == MpackValue::Nil);
+}
 
-    run_test("MpackValue bool type() is Bool", []() {
-        MpackValue val_true = NvimRpc::make_bool(true);
-        expect_eq(val_true.type(), MpackValue::Bool, "bool(true) MpackValue reports Bool type");
+TEST_CASE("MpackValue bool type() is Bool", "[rpc]")
+{
+    MpackValue val_true = NvimRpc::make_bool(true);
+    INFO("bool(true) MpackValue reports Bool type");
+    REQUIRE(val_true.type() == MpackValue::Bool);
 
-        MpackValue val_false = NvimRpc::make_bool(false);
-        expect_eq(val_false.type(), MpackValue::Bool, "bool(false) MpackValue reports Bool type");
-    });
+    MpackValue val_false = NvimRpc::make_bool(false);
+    INFO("bool(false) MpackValue reports Bool type");
+    REQUIRE(val_false.type() == MpackValue::Bool);
+}
 
-    run_test("MpackValue int type() is Int", []() {
-        MpackValue val = NvimRpc::make_int(42);
-        expect_eq(val.type(), MpackValue::Int, "int MpackValue reports Int type");
+TEST_CASE("MpackValue int type() is Int", "[rpc]")
+{
+    MpackValue val = NvimRpc::make_int(42);
+    INFO("int MpackValue reports Int type");
+    REQUIRE(val.type() == MpackValue::Int);
 
-        MpackValue val_neg = NvimRpc::make_int(-1);
-        expect_eq(val_neg.type(), MpackValue::Int, "negative int MpackValue reports Int type");
-    });
+    MpackValue val_neg = NvimRpc::make_int(-1);
+    INFO("negative int MpackValue reports Int type");
+    REQUIRE(val_neg.type() == MpackValue::Int);
+}
 
-    run_test("MpackValue uint type() is UInt", []() {
-        MpackValue val = NvimRpc::make_uint(99);
-        expect_eq(val.type(), MpackValue::UInt, "uint MpackValue reports UInt type");
-    });
+TEST_CASE("MpackValue uint type() is UInt", "[rpc]")
+{
+    MpackValue val = NvimRpc::make_uint(99);
+    INFO("uint MpackValue reports UInt type");
+    REQUIRE(val.type() == MpackValue::UInt);
+}
 
-    run_test("MpackValue float type() is Float", []() {
-        MpackValue val;
-        val.storage = 3.14;
-        expect_eq(val.type(), MpackValue::Float, "double MpackValue reports Float type");
-    });
+TEST_CASE("MpackValue float type() is Float", "[rpc]")
+{
+    MpackValue val;
+    val.storage = 3.14;
+    INFO("double MpackValue reports Float type");
+    REQUIRE(val.type() == MpackValue::Float);
+}
 
-    run_test("MpackValue string type() is String", []() {
-        MpackValue val = NvimRpc::make_str("hello");
-        expect_eq(val.type(), MpackValue::String, "string MpackValue reports String type");
-    });
+TEST_CASE("MpackValue string type() is String", "[rpc]")
+{
+    MpackValue val = NvimRpc::make_str("hello");
+    INFO("string MpackValue reports String type");
+    REQUIRE(val.type() == MpackValue::String);
+}
 
-    run_test("MpackValue array type() is Array", []() {
-        MpackValue val = NvimRpc::make_array({ NvimRpc::make_int(1), NvimRpc::make_int(2) });
-        expect_eq(val.type(), MpackValue::Array, "array MpackValue reports Array type");
-    });
+TEST_CASE("MpackValue array type() is Array", "[rpc]")
+{
+    MpackValue val = NvimRpc::make_array({ NvimRpc::make_int(1), NvimRpc::make_int(2) });
+    INFO("array MpackValue reports Array type");
+    REQUIRE(val.type() == MpackValue::Array);
+}
 
-    run_test("MpackValue map type() is Map", []() {
-        MpackValue val = NvimRpc::make_map({ { NvimRpc::make_str("key"), NvimRpc::make_int(1) } });
-        expect_eq(val.type(), MpackValue::Map, "map MpackValue reports Map type");
-    });
+TEST_CASE("MpackValue map type() is Map", "[rpc]")
+{
+    MpackValue val = NvimRpc::make_map({ { NvimRpc::make_str("key"), NvimRpc::make_int(1) } });
+    INFO("map MpackValue reports Map type");
+    REQUIRE(val.type() == MpackValue::Map);
+}
 
-    run_test("MpackValue ext type() is Ext", []() {
-        MpackValue val;
-        val.storage = MpackValue::ExtValue{ 5, 42 };
-        expect_eq(val.type(), MpackValue::Ext, "ext MpackValue reports Ext type");
-    });
+TEST_CASE("MpackValue ext type() is Ext", "[rpc]")
+{
+    MpackValue val;
+    val.storage = MpackValue::ExtValue{ 5, 42 };
+    INFO("ext MpackValue reports Ext type");
+    REQUIRE(val.type() == MpackValue::Ext);
+}
 
-    run_test("MpackValue type() does not conflate Bool with Int", []() {
-        MpackValue bool_val = NvimRpc::make_bool(true);
-        MpackValue int_val = NvimRpc::make_int(1);
-        expect(bool_val.type() != int_val.type(), "Bool and Int types must be distinct");
-    });
+TEST_CASE("MpackValue type() does not conflate Bool with Int", "[rpc]")
+{
+    MpackValue bool_val = NvimRpc::make_bool(true);
+    MpackValue int_val = NvimRpc::make_int(1);
+    INFO("Bool and Int types must be distinct");
+    REQUIRE(bool_val.type() != int_val.type());
+}
 
-    run_test("MpackValue type() does not conflate Int with UInt", []() {
-        MpackValue int_val = NvimRpc::make_int(1);
-        MpackValue uint_val = NvimRpc::make_uint(1);
-        expect(int_val.type() != uint_val.type(), "Int and UInt types must be distinct");
-    });
+TEST_CASE("MpackValue type() does not conflate Int with UInt", "[rpc]")
+{
+    MpackValue int_val = NvimRpc::make_int(1);
+    MpackValue uint_val = NvimRpc::make_uint(1);
+    INFO("Int and UInt types must be distinct");
+    REQUIRE(int_val.type() != uint_val.type());
 }

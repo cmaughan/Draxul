@@ -1,11 +1,9 @@
-#include "support/test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <draxul/highlight.h>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 TEST_CASE("highlight table resolves explicit colors and special color", "[highlight]")
 {

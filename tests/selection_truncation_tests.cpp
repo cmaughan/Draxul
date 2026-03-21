@@ -1,6 +1,5 @@
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
-#include "support/test_support.h"
 
 #include <draxul/terminal_host_base.h>
 
@@ -8,6 +7,8 @@
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
+
+#include <catch2/catch_all.hpp>
 
 #include <filesystem>
 #include <string>
@@ -225,126 +226,120 @@ static bool is_valid_utf8(const std::string& s)
 // Tests
 // ---------------------------------------------------------------------------
 
-void run_selection_truncation_tests()
+TEST_CASE("selection: empty selection produces empty clipboard", "[terminal]")
 {
-    // The limit exposed by TestTerminalHost::kLimit == kSelectionMaxCells.
+    SelSetup ss;
+    INFO("host must initialize");
+    REQUIRE(ss.ok);
+    // Select a zero-area region (same start and end point).
+    ss.host.begin_selection(0, 0, 0, 0);
+    ss.host.dispatch_action("copy");
+    // The clipboard should remain empty (same-point selection is not activated).
+    INFO("empty selection must not set clipboard");
+    REQUIRE(ss.window.clipboard_.empty());
+}
+
+TEST_CASE("selection: small selection copies full content", "[terminal]")
+{
     const int limit = TestTerminalHost::kLimit;
+    SelSetup ss(80, 30);
+    INFO("host must initialize");
+    REQUIRE(ss.ok);
+    ss.fill_grid('X');
+    // Select a single row of 10 cells — well within any limit.
+    const std::string result = ss.select_and_copy(0, 0, 9, 0);
+    INFO("small selection should produce clipboard content");
+    REQUIRE(!result.empty());
+    INFO("small selection must not exceed limit");
+    REQUIRE(static_cast<int>(result.size()) <= limit);
+    INFO("content should be all X");
+    REQUIRE(is_valid_prefix_of(result, 'X', limit));
+}
 
-    // -----------------------------------------------------------------------
-    // Empty selection: no crash, empty result
-    // -----------------------------------------------------------------------
+TEST_CASE("selection: selection at exactly kSelectionMaxCells cells copies without truncation", "[terminal]")
+{
+    const int limit = TestTerminalHost::kLimit;
+    // Use a grid sized so that one full row equals limit/cols rows.
+    // Choose 100 columns so that limit/100 complete rows fills exactly 'limit' cells.
+    const int cols = 100;
+    const int target_cells = limit;
+    const int rows_needed = target_cells / cols + 2; // extra rows for safety
+    SelSetup ss(cols, rows_needed);
+    INFO("host must initialize");
+    REQUIRE(ss.ok);
+    ss.fill_grid('Z');
 
-    run_test("selection: empty selection produces empty clipboard", []() {
-        SelSetup ss;
-        expect(ss.ok, "host must initialize");
-        // Select a zero-area region (same start and end point).
-        ss.host.begin_selection(0, 0, 0, 0);
-        ss.host.dispatch_action("copy");
-        // The clipboard should remain empty (same-point selection is not activated).
-        expect(ss.window.clipboard_.empty(), "empty selection must not set clipboard");
-    });
+    // Select exactly 'target_cells' cells: rows 0..(target_cells/cols - 1), all cols.
+    const int end_row = (target_cells / cols) - 1;
+    const int end_col = cols - 1;
+    const std::string result = ss.select_and_copy(0, 0, end_col, end_row);
+    // Result may trim trailing spaces/newlines, so just check no OOB: size is reasonable.
+    INFO("result size must be bounded near the limit");
+    REQUIRE(static_cast<int>(result.size()) <= limit * 2);
+    INFO("content should be all Z");
+    REQUIRE(is_valid_prefix_of(result, 'Z', limit * 2));
+}
 
-    // -----------------------------------------------------------------------
-    // Selection well within the limit: full content, no truncation
-    // -----------------------------------------------------------------------
+TEST_CASE("selection: selection one cell over limit truncates without crash", "[terminal]")
+{
+    const int limit = TestTerminalHost::kLimit;
+    const int cols = 100;
+    const int over_cells = limit + 1;
+    const int rows_needed = over_cells / cols + 2;
+    SelSetup ss(cols, rows_needed);
+    INFO("host must initialize");
+    REQUIRE(ss.ok);
+    ss.fill_grid('Y');
 
-    run_test("selection: small selection copies full content", [limit]() {
-        SelSetup ss(80, 30);
-        expect(ss.ok, "host must initialize");
-        ss.fill_grid('X');
-        // Select a single row of 10 cells — well within any limit.
-        const std::string result = ss.select_and_copy(0, 0, 9, 0);
-        expect(!result.empty(), "small selection should produce clipboard content");
-        expect(static_cast<int>(result.size()) <= limit, "small selection must not exceed limit");
-        expect(is_valid_prefix_of(result, 'X', limit), "content should be all X");
-    });
+    const int end_row = over_cells / cols;
+    const int end_col = (over_cells % cols == 0) ? cols - 1 : (over_cells % cols) - 1;
+    const std::string result = ss.select_and_copy(0, 0, end_col, end_row);
+    // Must not crash, and result must not exceed the hard limit plus newlines.
+    INFO("result must not exceed limit*2 bytes");
+    REQUIRE(static_cast<int>(result.size()) <= limit * 2);
+    INFO("content should be all Y");
+    REQUIRE(is_valid_prefix_of(result, 'Y', limit * 2));
+}
 
-    // -----------------------------------------------------------------------
-    // Selection at exactly kSelectionMaxCells: no truncation
-    // -----------------------------------------------------------------------
+TEST_CASE("selection: selection far over limit truncates without crash", "[terminal]")
+{
+    const int limit = TestTerminalHost::kLimit;
+    const int cols = 80;
+    const int rows_needed = (limit * 2) / cols + 2;
+    SelSetup ss(cols, rows_needed);
+    INFO("host must initialize");
+    REQUIRE(ss.ok);
+    ss.fill_grid('W');
 
-    run_test("selection: selection at exactly kSelectionMaxCells cells copies without truncation",
-        [limit]() {
-            // Use a grid sized so that one full row equals limit/cols rows.
-            // Choose 100 columns so that limit/100 complete rows fills exactly 'limit' cells.
-            const int cols = 100;
-            const int target_cells = limit;
-            const int rows_needed = target_cells / cols + 2; // extra rows for safety
-            SelSetup ss(cols, rows_needed);
-            expect(ss.ok, "host must initialize");
-            ss.fill_grid('Z');
+    // Select all rows we have.
+    const int end_row = rows_needed - 1;
+    const int end_col = cols - 1;
+    const std::string result = ss.select_and_copy(0, 0, end_col, end_row);
+    INFO("result must not exceed limit*2 bytes");
+    REQUIRE(static_cast<int>(result.size()) <= limit * 2);
+    INFO("content should be all W");
+    REQUIRE(is_valid_prefix_of(result, 'W', limit * 2));
+}
 
-            // Select exactly 'target_cells' cells: rows 0..(target_cells/cols - 1), all cols.
-            const int end_row = (target_cells / cols) - 1;
-            const int end_col = cols - 1;
-            const std::string result = ss.select_and_copy(0, 0, end_col, end_row);
-            // Result may trim trailing spaces/newlines, so just check no OOB: size is reasonable.
-            expect(static_cast<int>(result.size()) <= limit * 2,
-                "result size must be bounded near the limit");
-            expect(is_valid_prefix_of(result, 'Z', limit * 2), "content should be all Z");
-        });
-
-    // -----------------------------------------------------------------------
-    // Selection one cell over the limit: truncates, no OOB
-    // -----------------------------------------------------------------------
-
-    run_test("selection: selection one cell over limit truncates without crash", [limit]() {
-        const int cols = 100;
-        const int over_cells = limit + 1;
-        const int rows_needed = over_cells / cols + 2;
-        SelSetup ss(cols, rows_needed);
-        expect(ss.ok, "host must initialize");
-        ss.fill_grid('Y');
-
-        const int end_row = over_cells / cols;
-        const int end_col = (over_cells % cols == 0) ? cols - 1 : (over_cells % cols) - 1;
-        const std::string result = ss.select_and_copy(0, 0, end_col, end_row);
-        // Must not crash, and result must not exceed the hard limit plus newlines.
-        expect(static_cast<int>(result.size()) <= limit * 2,
-            "result must not exceed limit*2 bytes");
-        expect(is_valid_prefix_of(result, 'Y', limit * 2), "content should be all Y");
-    });
-
-    // -----------------------------------------------------------------------
-    // Selection far over the limit: truncates, no OOB
-    // -----------------------------------------------------------------------
-
-    run_test("selection: selection far over limit truncates without crash", [limit]() {
-        const int cols = 80;
-        const int rows_needed = (limit * 2) / cols + 2;
-        SelSetup ss(cols, rows_needed);
-        expect(ss.ok, "host must initialize");
-        ss.fill_grid('W');
-
-        // Select all rows we have.
-        const int end_row = rows_needed - 1;
-        const int end_col = cols - 1;
-        const std::string result = ss.select_and_copy(0, 0, end_col, end_row);
-        expect(static_cast<int>(result.size()) <= limit * 2,
-            "result must not exceed limit*2 bytes");
-        expect(is_valid_prefix_of(result, 'W', limit * 2), "content should be all W");
-    });
-
-    // -----------------------------------------------------------------------
-    // UTF-8 multibyte at boundary: no partial codepoints in result
-    // -----------------------------------------------------------------------
-
-    run_test("selection: UTF-8 multibyte content produces valid UTF-8 in clipboard", []() {
-        // Use a small terminal and write UTF-8 content (2-byte sequences: U+00E9 = 0xC3 0xA9).
-        SelSetup ss(20, 10);
-        expect(ss.ok, "host must initialize");
-        // Write rows of 'é' (U+00E9, encoded as 0xC3 0xA9 in UTF-8).
-        for (int row = 0; row < 10; ++row)
-        {
-            std::string line;
-            for (int col = 0; col < 20; ++col)
-                line += "\xC3\xA9";
-            line += "\r\n";
-            ss.host.feed(line);
-        }
-        // Select all cells across all rows.
-        const std::string result = ss.select_and_copy(0, 0, 19, 9);
-        expect(!result.empty(), "UTF-8 selection must produce content");
-        expect(is_valid_utf8(result), "clipboard content must be valid UTF-8 (no split codepoints)");
-    });
+TEST_CASE("selection: UTF-8 multibyte content produces valid UTF-8 in clipboard", "[terminal]")
+{
+    // Use a small terminal and write UTF-8 content (2-byte sequences: U+00E9 = 0xC3 0xA9).
+    SelSetup ss(20, 10);
+    INFO("host must initialize");
+    REQUIRE(ss.ok);
+    // Write rows of 'é' (U+00E9, encoded as 0xC3 0xA9 in UTF-8).
+    for (int row = 0; row < 10; ++row)
+    {
+        std::string line;
+        for (int col = 0; col < 20; ++col)
+            line += "\xC3\xA9";
+        line += "\r\n";
+        ss.host.feed(line);
+    }
+    // Select all cells across all rows.
+    const std::string result = ss.select_and_copy(0, 0, 19, 9);
+    INFO("UTF-8 selection must produce content");
+    REQUIRE(!result.empty());
+    INFO("clipboard content must be valid UTF-8 (no split codepoints)");
+    REQUIRE(is_valid_utf8(result));
 }

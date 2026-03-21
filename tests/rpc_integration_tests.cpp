@@ -1,5 +1,6 @@
 #include "support/test_support.h"
 
+#include <catch2/catch_all.hpp>
 #include <chrono>
 #include <cstdlib>
 #include <draxul/log.h>
@@ -80,10 +81,12 @@ RpcResult run_request_with_mode(const char* mode, std::vector<RpcNotification>* 
 {
     ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", mode);
     NvimProcess process;
-    expect(process.spawn(helper_path()), "fake RPC server spawns");
+    INFO("fake RPC server spawns");
+    REQUIRE(process.spawn(helper_path()));
 
     NvimRpc rpc;
-    expect(rpc.initialize(process), "rpc initializes");
+    INFO("rpc initializes");
+    REQUIRE(rpc.initialize(process));
 
     RpcResult result = rpc.request("fake_method", { NvimRpc::make_int(7) });
     if (notifications)
@@ -96,113 +99,146 @@ RpcResult run_request_with_mode(const char* mode, std::vector<RpcNotification>* 
 
 } // namespace
 
-void run_rpc_integration_tests()
+TEST_CASE("nvim rpc returns successful responses from the transport", "[rpc]")
 {
-    run_test("nvim rpc returns successful responses from the transport", []() {
-        RpcResult result = run_request_with_mode("success");
+    RpcResult result = run_request_with_mode("success");
 
-        expect(result.transport_ok, "request reports transport success");
-        expect(result.ok(), "request reports overall success");
-        expect_eq(result.result.as_str(), std::string("ok"), "request result payload survives");
-        expect(result.error.is_nil(), "successful response keeps nil error");
+    INFO("request reports transport success");
+    REQUIRE(result.transport_ok);
+    INFO("request reports overall success");
+    REQUIRE(result.ok());
+    INFO("request result payload survives");
+    REQUIRE(result.result.as_str() == std::string("ok"));
+    INFO("successful response keeps nil error");
+    REQUIRE(result.error.is_nil());
+}
+
+TEST_CASE("nvim rpc surfaces remote errors without losing transport success", "[rpc]")
+{
+    RpcResult result = run_request_with_mode("error");
+
+    INFO("remote error still counts as transport success");
+    REQUIRE(result.transport_ok);
+    INFO("remote error makes the request unsuccessful");
+    REQUIRE(!result.ok());
+    INFO("remote error is surfaced");
+    REQUIRE(result.is_error());
+    INFO("remote error payload survives");
+    REQUIRE(result.error.as_str() == std::string("boom"));
+}
+
+TEST_CASE("nvim rpc aborts cleanly when the child exits without responding", "[rpc]")
+{
+    auto start = std::chrono::steady_clock::now();
+    RpcResult result = run_request_with_mode("abort_after_read");
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    INFO("aborted transport reports failure");
+    REQUIRE(!result.transport_ok);
+    INFO("aborted transport is not successful");
+    REQUIRE(!result.ok());
+    INFO("aborted transport returns promptly without timing out");
+    REQUIRE(elapsed < std::chrono::seconds(2));
+}
+
+TEST_CASE("nvim rpc queues notifications received before the response", "[rpc]")
+{
+    std::vector<RpcNotification> notifications;
+    RpcResult result = run_request_with_mode("notify_then_success", &notifications);
+
+    INFO("request still succeeds when a notification precedes the response");
+    REQUIRE(result.ok());
+    INFO("notification is queued");
+    REQUIRE(static_cast<int>(notifications.size()) == 1);
+    INFO("notification method survives");
+    REQUIRE(notifications[0].method == std::string("redraw"));
+    INFO("notification params survive");
+    REQUIRE(static_cast<int>(notifications[0].params.size()) == 1);
+    INFO("notification param payload survives");
+    REQUIRE(notifications[0].params[0].type() == MpackValue::Array);
+}
+
+TEST_CASE("nvim rpc treats malformed responses as transport failure", "[rpc]")
+{
+    auto start = std::chrono::steady_clock::now();
+    RpcResult result = run_request_with_mode("malformed_response");
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    INFO("malformed response reports transport failure");
+    REQUIRE(!result.transport_ok);
+    INFO("malformed response is not successful");
+    REQUIRE(!result.ok());
+    INFO("malformed response returns promptly without timing out");
+    REQUIRE(elapsed < std::chrono::seconds(2));
+}
+
+TEST_CASE("nvim rpc close() unblocks an in-flight request without waiting for timeout", "[rpc]")
+{
+    ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "hang");
+    NvimProcess process;
+    INFO("fake RPC server spawns");
+    REQUIRE(process.spawn(helper_path()));
+
+    NvimRpc rpc;
+    INFO("rpc initializes");
+    REQUIRE(rpc.initialize(process));
+
+    // Send a request that will block forever (server never responds in hang mode).
+    std::thread requester([&rpc]() {
+        rpc.request("fake_method", { NvimRpc::make_int(7) });
     });
 
-    run_test("nvim rpc surfaces remote errors without losing transport success", []() {
-        RpcResult result = run_request_with_mode("error");
+    // Give the request time to send and block on the response CV.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-        expect(result.transport_ok, "remote error still counts as transport success");
-        expect(!result.ok(), "remote error makes the request unsuccessful");
-        expect(result.is_error(), "remote error is surfaced");
-        expect_eq(result.error.as_str(), std::string("boom"), "remote error payload survives");
+    auto start = std::chrono::steady_clock::now();
+    rpc.close();
+    requester.join();
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    INFO("close() unblocks in-flight request promptly, not after 5s timeout");
+    REQUIRE(elapsed < std::chrono::seconds(2));
+
+    process.shutdown();
+    rpc.shutdown();
+}
+
+TEST_CASE("nvim rpc request from a worker thread completes successfully", "[rpc]")
+{
+    ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "success");
+    NvimProcess process;
+    INFO("fake RPC server spawns");
+    REQUIRE(process.spawn(helper_path()));
+
+    NvimRpc rpc;
+    INFO("rpc initializes");
+    REQUIRE(rpc.initialize(process));
+
+    RpcResult result;
+    std::thread worker([&rpc, &result]() {
+        result = rpc.request("fake_method", { NvimRpc::make_int(7) });
     });
+    worker.join();
 
-    run_test("nvim rpc aborts cleanly when the child exits without responding", []() {
-        auto start = std::chrono::steady_clock::now();
-        RpcResult result = run_request_with_mode("abort_after_read");
-        auto elapsed = std::chrono::steady_clock::now() - start;
+    INFO("worker-thread request reports transport success");
+    REQUIRE(result.transport_ok);
+    INFO("worker-thread request reports overall success");
+    REQUIRE(result.ok());
+    INFO("worker-thread result payload survives");
+    REQUIRE(result.result.as_str() == std::string("ok"));
 
-        expect(!result.transport_ok, "aborted transport reports failure");
-        expect(!result.ok(), "aborted transport is not successful");
-        expect(elapsed < std::chrono::seconds(2), "aborted transport returns promptly without timing out");
-    });
+    rpc.shutdown();
+    process.shutdown();
+}
 
-    run_test("nvim rpc queues notifications received before the response", []() {
-        std::vector<RpcNotification> notifications;
-        RpcResult result = run_request_with_mode("notify_then_success", &notifications);
+TEST_CASE("nvim rpc logs a warning when the transport aborts before a response arrives", "[rpc]")
+{
+    ScopedLogCapture capture;
 
-        expect(result.ok(), "request still succeeds when a notification precedes the response");
-        expect_eq(static_cast<int>(notifications.size()), 1, "notification is queued");
-        expect_eq(notifications[0].method, std::string("redraw"), "notification method survives");
-        expect_eq(static_cast<int>(notifications[0].params.size()), 1, "notification params survive");
-        expect_eq(notifications[0].params[0].type(), MpackValue::Array, "notification param payload survives");
-    });
+    RpcResult result = run_request_with_mode("abort_after_read");
 
-    run_test("nvim rpc treats malformed responses as transport failure", []() {
-        auto start = std::chrono::steady_clock::now();
-        RpcResult result = run_request_with_mode("malformed_response");
-        auto elapsed = std::chrono::steady_clock::now() - start;
-
-        expect(!result.transport_ok, "malformed response reports transport failure");
-        expect(!result.ok(), "malformed response is not successful");
-        expect(elapsed < std::chrono::seconds(2), "malformed response returns promptly without timing out");
-    });
-
-    run_test("nvim rpc close() unblocks an in-flight request without waiting for timeout", []() {
-        ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "hang");
-        NvimProcess process;
-        expect(process.spawn(helper_path()), "fake RPC server spawns");
-
-        NvimRpc rpc;
-        expect(rpc.initialize(process), "rpc initializes");
-
-        // Send a request that will block forever (server never responds in hang mode).
-        std::thread requester([&rpc]() {
-            rpc.request("fake_method", { NvimRpc::make_int(7) });
-        });
-
-        // Give the request time to send and block on the response CV.
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-        auto start = std::chrono::steady_clock::now();
-        rpc.close();
-        requester.join();
-        auto elapsed = std::chrono::steady_clock::now() - start;
-
-        expect(elapsed < std::chrono::seconds(2), "close() unblocks in-flight request promptly, not after 5s timeout");
-
-        process.shutdown();
-        rpc.shutdown();
-    });
-
-    run_test("nvim rpc request from a worker thread completes successfully", []() {
-        ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "success");
-        NvimProcess process;
-        expect(process.spawn(helper_path()), "fake RPC server spawns");
-
-        NvimRpc rpc;
-        expect(rpc.initialize(process), "rpc initializes");
-
-        RpcResult result;
-        std::thread worker([&rpc, &result]() {
-            result = rpc.request("fake_method", { NvimRpc::make_int(7) });
-        });
-        worker.join();
-
-        expect(result.transport_ok, "worker-thread request reports transport success");
-        expect(result.ok(), "worker-thread request reports overall success");
-        expect_eq(result.result.as_str(), std::string("ok"), "worker-thread result payload survives");
-
-        rpc.shutdown();
-        process.shutdown();
-    });
-
-    run_test("nvim rpc logs a warning when the transport aborts before a response arrives", []() {
-        ScopedLogCapture capture;
-
-        RpcResult result = run_request_with_mode("abort_after_read");
-
-        expect(!result.transport_ok, "aborted transport reports failure");
-        expect(has_log_message(capture.records, LogLevel::Warn, LogCategory::Rpc, "Request timed out or aborted: fake_method"),
-            "aborted request should emit an rpc warning");
-    });
+    INFO("aborted transport reports failure");
+    REQUIRE(!result.transport_ok);
+    INFO("aborted request should emit an rpc warning");
+    REQUIRE(has_log_message(capture.records, LogLevel::Warn, LogCategory::Rpc, "Request timed out or aborted: fake_method"));
 }

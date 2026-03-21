@@ -1,11 +1,10 @@
-#include "support/test_support.h"
 
+#include <catch2/catch_all.hpp>
 #include <draxul/nvim.h>
 #include <string>
 #include <vector>
 
 using namespace draxul;
-using namespace draxul::tests;
 
 // These helpers replicate the conversion logic in App::handle_clipboard_set
 // and App::handle_rpc_request("clipboard_get") verbatim so the tests exercise
@@ -73,79 +72,105 @@ std::vector<MpackValue> make_clipboard_set_params(const std::string& reg,
 
 } // namespace
 
-void run_clipboard_tests()
+TEST_CASE("clipboard_set notification stores single-line text", "[nvim]")
 {
-    run_test("clipboard_set notification stores single-line text", []() {
-        auto params = make_clipboard_set_params("+", { "hello world" }, "v");
-        std::string text = clipboard_lines_to_text(params);
-        expect_eq(text, std::string("hello world"), "single line survives clipboard_set");
-    });
+    auto params = make_clipboard_set_params("+", { "hello world" }, "v");
+    std::string text = clipboard_lines_to_text(params);
+    INFO("single line survives clipboard_set");
+    REQUIRE(text == std::string("hello world"));
+}
 
-    run_test("clipboard_get returns single-line text as one-element array", []() {
-        MpackValue response = clipboard_text_to_response("hello world");
-        expect_eq(response.type(), MpackValue::Array, "response is an array");
-        const auto& outer = response.as_array();
-        expect_eq(static_cast<int>(outer.size()), 2, "response has two elements");
-        expect_eq(outer[0].type(), MpackValue::Array, "first element is the lines array");
-        expect_eq(static_cast<int>(outer[0].as_array().size()), 1, "single line produces one element");
-        expect_eq(outer[0].as_array()[0].as_str(), std::string("hello world"), "line text survives");
-        expect_eq(outer[1].as_str(), std::string("v"), "regtype is v");
-    });
+TEST_CASE("clipboard_get returns single-line text as one-element array", "[nvim]")
+{
+    MpackValue response = clipboard_text_to_response("hello world");
+    INFO("response is an array");
+    REQUIRE(response.type() == MpackValue::Array);
+    const auto& outer = response.as_array();
+    INFO("response has two elements");
+    REQUIRE(static_cast<int>(outer.size()) == 2);
+    INFO("first element is the lines array");
+    REQUIRE(outer[0].type() == MpackValue::Array);
+    INFO("single line produces one element");
+    REQUIRE(static_cast<int>(outer[0].as_array().size()) == 1);
+    INFO("line text survives");
+    REQUIRE(outer[0].as_array()[0].as_str() == std::string("hello world"));
+    INFO("regtype is v");
+    REQUIRE(outer[1].as_str() == std::string("v"));
+}
 
-    run_test("clipboard round-trip preserves single-line text", []() {
-        // clipboard_set joins lines, clipboard_get splits them back.
-        auto set_params = make_clipboard_set_params("+", { "hello world" }, "v");
-        std::string stored = clipboard_lines_to_text(set_params);
-        MpackValue response = clipboard_text_to_response(stored);
-        const auto& lines = response.as_array()[0].as_array();
-        expect_eq(static_cast<int>(lines.size()), 1, "round-trip preserves line count");
-        expect_eq(lines[0].as_str(), std::string("hello world"), "round-trip preserves text");
-    });
+TEST_CASE("clipboard round-trip preserves single-line text", "[nvim]")
+{
+    // clipboard_set joins lines, clipboard_get splits them back.
+    auto set_params = make_clipboard_set_params("+", { "hello world" }, "v");
+    std::string stored = clipboard_lines_to_text(set_params);
+    MpackValue response = clipboard_text_to_response(stored);
+    const auto& lines = response.as_array()[0].as_array();
+    INFO("round-trip preserves line count");
+    REQUIRE(static_cast<int>(lines.size()) == 1);
+    INFO("round-trip preserves text");
+    REQUIRE(lines[0].as_str() == std::string("hello world"));
+}
 
-    run_test("clipboard round-trip preserves multi-line text", []() {
-        auto set_params = make_clipboard_set_params("+", { "line one", "line two", "line three" }, "V");
-        std::string stored = clipboard_lines_to_text(set_params);
-        expect_eq(stored, std::string("line one\nline two\nline three"), "lines are joined with newlines");
+TEST_CASE("clipboard round-trip preserves multi-line text", "[nvim]")
+{
+    auto set_params = make_clipboard_set_params("+", { "line one", "line two", "line three" }, "V");
+    std::string stored = clipboard_lines_to_text(set_params);
+    INFO("lines are joined with newlines");
+    REQUIRE(stored == std::string("line one\nline two\nline three"));
 
-        MpackValue response = clipboard_text_to_response(stored);
-        const auto& lines = response.as_array()[0].as_array();
-        expect_eq(static_cast<int>(lines.size()), 3, "multi-line round-trip preserves line count");
-        expect_eq(lines[0].as_str(), std::string("line one"), "first line survives round-trip");
-        expect_eq(lines[1].as_str(), std::string("line two"), "second line survives round-trip");
-        expect_eq(lines[2].as_str(), std::string("line three"), "third line survives round-trip");
-    });
+    MpackValue response = clipboard_text_to_response(stored);
+    const auto& lines = response.as_array()[0].as_array();
+    INFO("multi-line round-trip preserves line count");
+    REQUIRE(static_cast<int>(lines.size()) == 3);
+    INFO("first line survives round-trip");
+    REQUIRE(lines[0].as_str() == std::string("line one"));
+    INFO("second line survives round-trip");
+    REQUIRE(lines[1].as_str() == std::string("line two"));
+    INFO("third line survives round-trip");
+    REQUIRE(lines[2].as_str() == std::string("line three"));
+}
 
-    run_test("clipboard_get on empty text returns one empty-string element", []() {
-        MpackValue response = clipboard_text_to_response("");
-        const auto& lines = response.as_array()[0].as_array();
-        expect_eq(static_cast<int>(lines.size()), 1, "empty text produces one element");
-        expect_eq(lines[0].as_str(), std::string(""), "the element is an empty string");
-    });
+TEST_CASE("clipboard_get on empty text returns one empty-string element", "[nvim]")
+{
+    MpackValue response = clipboard_text_to_response("");
+    const auto& lines = response.as_array()[0].as_array();
+    INFO("empty text produces one element");
+    REQUIRE(static_cast<int>(lines.size()) == 1);
+    INFO("the element is an empty string");
+    REQUIRE(lines[0].as_str() == std::string(""));
+}
 
-    run_test("clipboard_get before any clipboard_set returns sensible default", []() {
-        // Before clipboard_set is ever called the internal text is empty.
-        // clipboard_text_to_response("") must return a valid [[""], "v"] shape,
-        // not nil or a malformed array, so neovim's paste handler does not crash.
-        MpackValue response = clipboard_text_to_response("");
-        expect_eq(response.type(), MpackValue::Array, "response is an array even for empty clipboard");
-        const auto& outer = response.as_array();
-        expect_eq(static_cast<int>(outer.size()), 2, "response has two elements even for empty clipboard");
-        expect_eq(outer[0].type(), MpackValue::Array, "lines element is an array");
-        expect(!outer[0].as_array().empty(), "lines array is never empty");
-    });
+TEST_CASE("clipboard_get before any clipboard_set returns sensible default", "[nvim]")
+{
+    // Before clipboard_set is ever called the internal text is empty.
+    // clipboard_text_to_response("") must return a valid [[""], "v"] shape,
+    // not nil or a malformed array, so neovim's paste handler does not crash.
+    MpackValue response = clipboard_text_to_response("");
+    INFO("response is an array even for empty clipboard");
+    REQUIRE(response.type() == MpackValue::Array);
+    const auto& outer = response.as_array();
+    INFO("response has two elements even for empty clipboard");
+    REQUIRE(static_cast<int>(outer.size()) == 2);
+    INFO("lines element is an array");
+    REQUIRE(outer[0].type() == MpackValue::Array);
+    INFO("lines array is never empty");
+    REQUIRE(!outer[0].as_array().empty());
+}
 
-    run_test("clipboard_set ignores malformed notifications", []() {
-        // Too few params.
-        std::string text = clipboard_lines_to_text({});
-        expect_eq(text, std::string(""), "too few params yields empty string");
+TEST_CASE("clipboard_set ignores malformed notifications", "[nvim]")
+{
+    // Too few params.
+    std::string text = clipboard_lines_to_text({});
+    INFO("too few params yields empty string");
+    REQUIRE(text == std::string(""));
 
-        // Second param is not an array.
-        std::vector<MpackValue> bad_params = {
-            NvimRpc::make_str("+"),
-            NvimRpc::make_str("not-an-array"),
-            NvimRpc::make_str("v"),
-        };
-        text = clipboard_lines_to_text(bad_params);
-        expect_eq(text, std::string(""), "non-array lines param yields empty string");
-    });
+    // Second param is not an array.
+    std::vector<MpackValue> bad_params = {
+        NvimRpc::make_str("+"),
+        NvimRpc::make_str("not-an-array"),
+        NvimRpc::make_str("v"),
+    };
+    text = clipboard_lines_to_text(bad_params);
+    INFO("non-array lines param yields empty string");
+    REQUIRE(text == std::string(""));
 }
