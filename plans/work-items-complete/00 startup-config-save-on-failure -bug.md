@@ -19,14 +19,14 @@ Key locations:
 
 ## Fix Plan
 
-- [ ] Read `app/app.cpp` fully, focusing on `initialize()`, the rollback scope, and `shutdown()`.
-- [ ] Determine where `save_user_config` is set and whether it can be false during a failed init.
-- [ ] Add a guard: config must not be saved if `initialize()` did not complete successfully. Options:
+- [x] Read `app/app.cpp` fully, focusing on `initialize()`, the rollback scope, and `shutdown()`.
+- [x] Determine where `save_user_config` is set and whether it can be false during a failed init.
+- [x] Add a guard: config must not be saved if `initialize()` did not complete successfully. Options:
   - Set a `bool init_completed_` flag; only save in `shutdown()` if true.
   - Or: don't call `save_config()` from inside the rollback path — only call it from a clean-exit path.
-- [ ] Ensure the rollback still tears down GPU/window/process resources correctly (shutdown correctness is orthogonal to config persistence).
-- [ ] Build and run smoke test: `cmake --build build --target draxul draxul-tests && py do.py smoke`.
-- [ ] Run ctest.
+- [x] Ensure the rollback still tears down GPU/window/process resources correctly (shutdown correctness is orthogonal to config persistence).
+- [x] Build and run smoke test: `cmake --build build --target draxul draxul-tests && py do.py smoke`.
+- [x] Run ctest.
 
 ---
 

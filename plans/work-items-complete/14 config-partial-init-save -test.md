@@ -18,14 +18,14 @@ Beyond the single case of "failed startup must not save config" (**06-test**), t
 
 ## Implementation Plan
 
-- [ ] Read `app/app.cpp` `initialize()` in detail, noting each init step and what state is set at each step.
-- [ ] Write `tests/config_lifecycle_tests.cpp`:
+- [x] Read `app/app.cpp` `initialize()` in detail, noting each init step and what state is set at each step.
+- [x] Write `tests/config_lifecycle_tests.cpp`:
   - **Partial-init test**: Use a test hook or config flag to cause failure at each of several init stages (window OK, renderer FAIL; window OK, renderer OK, font FAIL). Assert config unchanged after each failure.
   - **Double-shutdown test**: Call `shutdown()` twice on a properly initialized App (use a headless/stub configuration if available). Assert config is written exactly once, file is not corrupted.
   - **Config mutation + failure test**: Modify an AppConfig value, then trigger an init failure before the config is normally persisted. Assert the disk file still has the old value.
-- [ ] Mock or stub the renderer/font initialisation as needed to inject deliberate failures. Look for existing test seams before adding new ones.
-- [ ] Add to `tests/CMakeLists.txt`.
-- [ ] Run ctest.
+- [x] Mock or stub the renderer/font initialisation as needed to inject deliberate failures. Look for existing test seams before adding new ones.
+- [x] Add to `tests/CMakeLists.txt`.
+- [x] Run ctest.
 
 ---
 

@@ -75,6 +75,7 @@ private:
 
     GuiActionHandler gui_action_handler_{ GuiActionHandler::Deps{} };
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };
+    bool init_completed_ = false;
     bool running_ = false;
     bool pending_window_activation_ = true;
     bool saw_frame_ = false;
