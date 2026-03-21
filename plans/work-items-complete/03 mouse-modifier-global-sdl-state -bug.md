@@ -15,14 +15,12 @@
 
 ## Fix Plan
 
-- [ ] Read `libs/draxul-window/src/sdl_event_translator.cpp` in full.
-- [ ] Identify all sites that call `SDL_GetModState()` during mouse event translation.
-- [ ] Replace those calls with the modifier bits embedded in the event struct itself:
-  - `SDL_MouseButtonEvent.mod` for button events (SDL3 carries this)
-  - `SDL_MouseWheelEvent.mod` for wheel events
-  - `SDL_MouseMotionEvent.mod` for motion/drag events
-  - If SDL3 does not carry all modifier bits in the event, document which ones are unavoidably sampled globally and add a comment explaining the limitation.
-- [ ] Build and run smoke test + ctest.
+- [x] Read `libs/draxul-window/src/sdl_event_translator.cpp` in full.
+- [x] Identify all sites that call `SDL_GetModState()` during mouse event translation.
+- [x] Replace those calls with the modifier bits embedded in the event struct itself:
+  - SDL3's `SDL_MouseButtonEvent`, `SDL_MouseWheelEvent`, and `SDL_MouseMotionEvent` do not carry a `.mod` field (confirmed against SDL 3.2 headers). `SDL_GetModState()` is the only available source of modifier state.
+  - Added explanatory comments at all three call sites documenting this SDL3 API limitation.
+- [x] Build and run smoke test + ctest (new mouse_modifier tests pass; pre-existing RPC/process failures unrelated).
 - [ ] Verify manually: hold Ctrl, click in Neovim, confirm `<C-LeftMouse>` is received correctly.
 
 ---

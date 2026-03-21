@@ -33,6 +33,10 @@ std::optional<MouseButtonEvent> translate_mouse_button(const SDL_Event& event)
 {
     if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
         return std::nullopt;
+    // SDL3's SDL_MouseButtonEvent does not carry a modifier field. We sample the
+    // global keyboard modifier state via SDL_GetModState() as the best available
+    // approximation. Under bursty or delayed input this may not reflect the
+    // modifier state at event-enqueue time, which is a SDL3 API limitation.
     return MouseButtonEvent{
         (int)event.button.button,
         event.type == SDL_EVENT_MOUSE_BUTTON_DOWN,
@@ -46,6 +50,10 @@ std::optional<MouseMoveEvent> translate_mouse_move(const SDL_Event& event)
 {
     if (event.type != SDL_EVENT_MOUSE_MOTION)
         return std::nullopt;
+    // SDL3's SDL_MouseMotionEvent does not carry a modifier field. We sample the
+    // global keyboard modifier state via SDL_GetModState() as the best available
+    // approximation. Under bursty or delayed input this may not reflect the
+    // modifier state at event-enqueue time, which is a SDL3 API limitation.
     return MouseMoveEvent{
         static_cast<ModifierFlags>(SDL_GetModState()),
         (int)event.motion.x,
@@ -57,6 +65,10 @@ std::optional<MouseWheelEvent> translate_mouse_wheel(const SDL_Event& event)
 {
     if (event.type != SDL_EVENT_MOUSE_WHEEL)
         return std::nullopt;
+    // SDL3's SDL_MouseWheelEvent does not carry a modifier field. We sample the
+    // global keyboard modifier state via SDL_GetModState() as the best available
+    // approximation. Under bursty or delayed input this may not reflect the
+    // modifier state at event-enqueue time, which is a SDL3 API limitation.
     return MouseWheelEvent{
         event.wheel.x,
         event.wheel.y,

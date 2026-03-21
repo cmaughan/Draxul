@@ -5,6 +5,7 @@ target_link_libraries(draxul-rpc-fake PRIVATE draxul-nvim)
 
 add_executable(draxul-tests
     test_main.cpp
+    mouse_modifier_tests.cpp
     app_config_tests.cpp
     cursor_blinker_tests.cpp
     log_tests.cpp
@@ -62,8 +63,9 @@ add_executable(draxul-tests
 target_include_directories(draxul-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/support
     ${CMAKE_SOURCE_DIR}/app
+    ${CMAKE_SOURCE_DIR}/libs/draxul-window/src
 )
-target_link_libraries(draxul-tests PRIVATE draxul-app-support draxul-font draxul-grid draxul-host draxul-nvim draxul-renderer draxul-ui Catch2::Catch2)
+target_link_libraries(draxul-tests PRIVATE draxul-app-support draxul-font draxul-grid draxul-host draxul-nvim draxul-renderer draxul-ui draxul-window Catch2::Catch2)
 target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"
     DRAXUL_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
