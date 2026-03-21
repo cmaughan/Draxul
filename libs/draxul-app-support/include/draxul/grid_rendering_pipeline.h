@@ -19,6 +19,10 @@ public:
 
 private:
     void upload_atlas();
+    bool try_shape_ligature(int col, int row, const Cell& cell, bool is_bold, bool is_italic,
+        CellUpdate& update, std::vector<CellUpdate>& updates, bool& atlas_updated);
+    void build_cell_updates(const std::vector<Grid::DirtyCell>& dirty,
+        std::vector<CellUpdate>& updates, bool& atlas_updated);
 
     IGridRenderer* renderer_ = nullptr;
     Grid& grid_;

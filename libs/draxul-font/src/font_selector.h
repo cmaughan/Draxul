@@ -119,66 +119,29 @@ public:
     {
         if (is_bold && is_italic && resolver.has_bold_italic())
         {
-            auto bi_it = bold_italic_cache_.find(text);
-            if (bi_it != bold_italic_cache_.end())
-            {
-                if (bi_it->second < 0)
-                    return { resolver.bold_italic().face(), &resolver.bold_italic_shaper() };
-                auto& fallbacks = resolver.fallbacks();
-                int idx = bi_it->second;
-                if (idx < (int)fallbacks.size())
-                    return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
-            }
-
-            if (can_render_cluster(resolver.bold_italic().face(), resolver.bold_italic_shaper(), text))
-            {
-                store_bold_italic(text, -1);
-                return { resolver.bold_italic().face(), &resolver.bold_italic_shaper() };
-            }
-            // Bold-italic face can't render this cluster — fall through
+            auto sel = try_variant_selection(text, bold_italic_cache_,
+                resolver.bold_italic().face(), resolver.bold_italic_shaper(), resolver,
+                [this](const std::string& t, int i) { store_bold_italic(t, i); });
+            if (sel.face)
+                return sel;
         }
 
         if (is_bold && resolver.has_bold())
         {
-            auto bold_it = bold_cache_.find(text);
-            if (bold_it != bold_cache_.end())
-            {
-                if (bold_it->second < 0)
-                    return { resolver.bold().face(), &resolver.bold_shaper() };
-                // Fall through to regular path for fallback index
-                auto& fallbacks = resolver.fallbacks();
-                int idx = bold_it->second;
-                if (idx < (int)fallbacks.size())
-                    return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
-            }
-
-            if (can_render_cluster(resolver.bold().face(), resolver.bold_shaper(), text))
-            {
-                store_bold(text, -1);
-                return { resolver.bold().face(), &resolver.bold_shaper() };
-            }
-            // Bold face can't render this cluster — fall through to regular path
+            auto sel = try_variant_selection(text, bold_cache_,
+                resolver.bold().face(), resolver.bold_shaper(), resolver,
+                [this](const std::string& t, int i) { store_bold(t, i); });
+            if (sel.face)
+                return sel;
         }
 
         if (is_italic && resolver.has_italic())
         {
-            auto italic_it = italic_cache_.find(text);
-            if (italic_it != italic_cache_.end())
-            {
-                if (italic_it->second < 0)
-                    return { resolver.italic().face(), &resolver.italic_shaper() };
-                auto& fallbacks = resolver.fallbacks();
-                int idx = italic_it->second;
-                if (idx < (int)fallbacks.size())
-                    return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
-            }
-
-            if (can_render_cluster(resolver.italic().face(), resolver.italic_shaper(), text))
-            {
-                store_italic(text, -1);
-                return { resolver.italic().face(), &resolver.italic_shaper() };
-            }
-            // Italic face can't render this cluster — fall through to regular path
+            auto sel = try_variant_selection(text, italic_cache_,
+                resolver.italic().face(), resolver.italic_shaper(), resolver,
+                [this](const std::string& t, int i) { store_italic(t, i); });
+            if (sel.face)
+                return sel;
         }
 
         auto it = cache_.find(text);
@@ -192,28 +155,10 @@ public:
                 return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
         }
 
-        auto& fallbacks = resolver.fallbacks();
-
         if (cluster_prefers_color_font(text))
         {
-            if (font_has_color(resolver.primary().face())
-                && can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
-            {
-                store(text, -1);
-                return { resolver.primary().face(), &resolver.primary_shaper() };
-            }
-
-            for (int i = 0; i < (int)fallbacks.size(); i++)
-            {
-                if (!resolver.ensure_loaded((size_t)i))
-                    continue;
-                auto& fb = fallbacks[(size_t)i];
-                if (font_has_color(fb.font.face()) && can_render_cluster(fb.font.face(), fb.shaper, text))
-                {
-                    store(text, i);
-                    return { fb.font.face(), &fb.shaper };
-                }
-            }
+            if (auto sel = select_color_font(text, resolver))
+                return *sel;
         }
 
         if (can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
@@ -222,17 +167,9 @@ public:
             return { resolver.primary().face(), &resolver.primary_shaper() };
         }
 
-        for (int i = 0; i < (int)fallbacks.size(); i++)
-        {
-            if (!resolver.ensure_loaded((size_t)i))
-                continue;
-            auto& fb = fallbacks[(size_t)i];
-            if (can_render_cluster(fb.font.face(), fb.shaper, text))
-            {
-                store(text, i);
-                return { fb.font.face(), &fb.shaper };
-            }
-        }
+        auto fb = search_fallbacks(text, resolver, /*color_only=*/false);
+        if (fb.face)
+            return fb;
 
         store(text, -1);
         return { resolver.primary().face(), &resolver.primary_shaper() };
@@ -244,6 +181,66 @@ public:
     }
 
 private:
+    // Search fallback fonts for a renderable cluster. If color_only, only color-capable fonts are tried.
+    Selection search_fallbacks(const std::string& text, FontResolver& resolver, bool color_only)
+    {
+        auto& fallbacks = resolver.fallbacks();
+        for (int i = 0; i < (int)fallbacks.size(); i++)
+        {
+            if (!resolver.ensure_loaded((size_t)i))
+                continue;
+            auto& fb = fallbacks[(size_t)i];
+            if (color_only && !font_has_color(fb.font.face()))
+                continue;
+            if (can_render_cluster(fb.font.face(), fb.shaper, text))
+            {
+                store(text, i);
+                return { fb.font.face(), &fb.shaper };
+            }
+        }
+        return {};
+    }
+
+    // Try primary color font then color fallbacks for emoji/color clusters.
+    std::optional<Selection> select_color_font(const std::string& text, FontResolver& resolver)
+    {
+        if (font_has_color(resolver.primary().face())
+            && can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
+        {
+            store(text, -1);
+            return Selection{ resolver.primary().face(), &resolver.primary_shaper() };
+        }
+        auto fb = search_fallbacks(text, resolver, /*color_only=*/true);
+        if (fb.face)
+            return fb;
+        return std::nullopt;
+    }
+
+    // Check cache then try a style-variant face; returns empty Selection on miss.
+    template <typename StoreFn>
+    Selection try_variant_selection(const std::string& text,
+        std::unordered_map<std::string, int>& variant_cache,
+        FT_Face variant_face, TextShaper& variant_shaper,
+        FontResolver& resolver, StoreFn store_fn)
+    {
+        auto it = variant_cache.find(text);
+        if (it != variant_cache.end())
+        {
+            if (it->second < 0)
+                return { variant_face, &variant_shaper };
+            auto& fallbacks = resolver.fallbacks();
+            int idx = it->second;
+            if (idx < (int)fallbacks.size())
+                return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
+        }
+        if (can_render_cluster(variant_face, variant_shaper, text))
+        {
+            store_fn(text, -1);
+            return { variant_face, &variant_shaper };
+        }
+        return {};
+    }
+
     void store(const std::string& text, int idx)
     {
         if (cache_.size() >= cache_limit_)

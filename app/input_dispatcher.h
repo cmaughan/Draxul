@@ -14,6 +14,9 @@ class UiPanel;
 class IHost;
 class SdlWindow;
 struct KeyEvent;
+struct MouseButtonEvent;
+struct MouseMoveEvent;
+struct MouseWheelEvent;
 
 // Wires SDL window input callbacks and routes events:
 //   - Key events: checks GUI keybindings first (via GuiActionHandler), then forwards to
@@ -55,6 +58,11 @@ public:
     }
 
 private:
+    void on_key_event(const KeyEvent& event);
+    void on_mouse_button_event(const MouseButtonEvent& event);
+    void on_mouse_move_event(const MouseMoveEvent& event);
+    void on_mouse_wheel_event(const MouseWheelEvent& event);
+
     Deps deps_;
     float pending_scroll_y_ = 0.0f;
 };

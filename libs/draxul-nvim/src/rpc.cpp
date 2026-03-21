@@ -188,6 +188,82 @@ size_t NvimRpc::notification_queue_depth() const
     return impl_->notifications_.size();
 }
 
+void NvimRpc::dispatch_rpc_response(const std::vector<MpackValue>& msg_array)
+{
+    RpcResponse resp;
+    resp.msgid = (uint32_t)msg_array[1].as_int();
+    resp.error = msg_array[2];
+    resp.result = msg_array[3];
+
+    std::lock_guard<std::mutex> lock(impl_->response_mutex_);
+    impl_->responses_[resp.msgid] = std::move(resp);
+    impl_->response_cv_.notify_all();
+}
+
+void NvimRpc::dispatch_rpc_request(const std::vector<MpackValue>& msg_array)
+{
+    auto req_msgid = (uint32_t)msg_array[1].as_int();
+    std::string method = msg_array[2].as_str();
+    std::vector<MpackValue> params;
+    if (msg_array[3].type() == MpackValue::Array)
+        params = msg_array[3].as_array();
+
+    MpackValue result = NvimRpc::make_nil();
+    MpackValue error = NvimRpc::make_nil();
+    if (on_request)
+        result = on_request(method, params);
+    else
+        error = NvimRpc::make_str("no handler for: " + method);
+
+    reply_to_request(req_msgid, error, result);
+}
+
+void NvimRpc::dispatch_rpc_notification(const std::vector<MpackValue>& msg_array)
+{
+    RpcNotification notif;
+    notif.method = msg_array[1].as_str();
+    if (msg_array[2].type() == MpackValue::Array)
+        notif.params = msg_array[2].as_array();
+
+    {
+        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
+        if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
+        {
+            // Drop the oldest notification to stay bounded.
+            impl_->notifications_.erase(impl_->notifications_.begin());
+            DRAXUL_LOG_WARN(LogCategory::Rpc,
+                "RPC notification queue at capacity (%zu); dropping oldest",
+                kMaxNotificationQueueDepth);
+        }
+        else if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
+        {
+            DRAXUL_LOG_WARN(LogCategory::Rpc,
+                "RPC notification queue depth reached %zu",
+                kNotificationQueueWarnDepth);
+        }
+        impl_->notifications_.push_back(std::move(notif));
+    }
+
+    if (on_notification_available)
+        on_notification_available();
+}
+
+void NvimRpc::dispatch_rpc_message(const MpackValue& msg)
+{
+    if (msg.type() != MpackValue::Array || msg.as_array().size() < 3)
+        return;
+
+    const auto& msg_array = msg.as_array();
+    auto type = (int)msg_array[0].as_int();
+
+    if (type == 1 && msg_array.size() >= 4)
+        dispatch_rpc_response(msg_array);
+    else if (type == 0 && msg_array.size() >= 4)
+        dispatch_rpc_request(msg_array);
+    else if (type == 2 && msg_array.size() >= 3)
+        dispatch_rpc_notification(msg_array);
+}
+
 void NvimRpc::reader_thread_func()
 {
     std::vector<uint8_t> accum;
@@ -232,10 +308,7 @@ void NvimRpc::reader_thread_func()
             MpackValue msg;
             size_t consumed = 0;
             std::span<const uint8_t> remaining(accum.data() + read_pos, accum.size() - read_pos);
-            if (!decode_mpack_value(remaining, msg, &consumed))
-                break;
-
-            if (consumed == 0)
+            if (!decode_mpack_value(remaining, msg, &consumed) || consumed == 0)
                 break;
 
             read_pos += consumed;
@@ -247,70 +320,7 @@ void NvimRpc::reader_thread_func()
                 read_pos = 0;
             }
 
-            if (msg.type() == MpackValue::Array && msg.as_array().size() >= 3)
-            {
-                const auto& msg_array = msg.as_array();
-                auto type = (int)msg_array[0].as_int();
-
-                if (type == 1 && msg_array.size() >= 4)
-                {
-                    RpcResponse resp;
-                    resp.msgid = (uint32_t)msg_array[1].as_int();
-                    resp.error = msg_array[2];
-                    resp.result = msg_array[3];
-
-                    std::lock_guard<std::mutex> lock(impl_->response_mutex_);
-                    impl_->responses_[resp.msgid] = std::move(resp);
-                    impl_->response_cv_.notify_all();
-                }
-                else if (type == 0 && msg_array.size() >= 4)
-                {
-                    auto req_msgid = (uint32_t)msg_array[1].as_int();
-                    std::string method = msg_array[2].as_str();
-                    std::vector<MpackValue> params;
-                    if (msg_array[3].type() == MpackValue::Array)
-                        params = msg_array[3].as_array();
-
-                    MpackValue result = NvimRpc::make_nil();
-                    MpackValue error = NvimRpc::make_nil();
-                    if (on_request)
-                        result = on_request(method, params);
-                    else
-                        error = NvimRpc::make_str("no handler for: " + method);
-
-                    reply_to_request(req_msgid, error, result);
-                }
-                else if (type == 2 && msg_array.size() >= 3)
-                {
-                    RpcNotification notif;
-                    notif.method = msg_array[1].as_str();
-                    if (msg_array[2].type() == MpackValue::Array)
-                    {
-                        notif.params = msg_array[2].as_array();
-                    }
-
-                    {
-                        std::lock_guard<std::mutex> lock(impl_->notif_mutex_);
-                        if (impl_->notifications_.size() >= kMaxNotificationQueueDepth)
-                        {
-                            // Drop the oldest notification to stay bounded.
-                            impl_->notifications_.erase(impl_->notifications_.begin());
-                            DRAXUL_LOG_WARN(LogCategory::Rpc,
-                                "RPC notification queue at capacity (%zu); dropping oldest",
-                                kMaxNotificationQueueDepth);
-                        }
-                        else if (impl_->notifications_.size() == kNotificationQueueWarnDepth)
-                        {
-                            DRAXUL_LOG_WARN(LogCategory::Rpc,
-                                "RPC notification queue depth reached %zu",
-                                kNotificationQueueWarnDepth);
-                        }
-                        impl_->notifications_.push_back(std::move(notif));
-                    }
-                    if (on_notification_available)
-                        on_notification_available();
-                }
-            }
+            dispatch_rpc_message(msg);
         }
     }
 }

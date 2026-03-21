@@ -75,12 +75,18 @@ protected:
     // Hook called by newline() when a line scrolls off the top of the visible
     // area (full-screen scroll region, main screen only). Override in
     // LocalTerminalHost to capture the row into the scrollback buffer.
-    virtual void on_line_scrolled_off(int /*row*/) {}
+    virtual void on_line_scrolled_off(int /*row*/)
+    {
+        // Intentionally empty — LocalTerminalHost overrides to capture rows into scrollback.
+    }
 
     // Hook called by csi_mode() when the terminal process requests a mouse
     // reporting mode change. Override in LocalTerminalHost to forward to the
     // MouseReporter.
-    virtual void on_mouse_mode_changed(int /*mode*/, bool /*enable*/) {}
+    virtual void on_mouse_mode_changed(int /*mode*/, bool /*enable*/)
+    {
+        // Intentionally empty — LocalTerminalHost overrides to forward to MouseReporter.
+    }
 
 private:
     uint16_t attr_id();

@@ -74,12 +74,29 @@ bool App::initialize()
     {
         App* app = nullptr;
         bool armed = true;
+        explicit InitRollback(App* a)
+            : app(a)
+        {
+        }
+        InitRollback(const InitRollback&) = delete;
+        InitRollback& operator=(const InitRollback&) = delete;
+        InitRollback(InitRollback&&) = delete;
+        InitRollback& operator=(InitRollback&&) = delete;
         ~InitRollback()
         {
             if (armed)
-                app->shutdown();
+            {
+                try
+                {
+                    app->shutdown();
+                }
+                catch (...)
+                {
+                    // Swallow: destructors must not propagate exceptions.
+                }
+            }
         }
-    } rollback{ this };
+    } rollback(this);
 
     if (!ok)
         return false;

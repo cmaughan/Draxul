@@ -44,7 +44,7 @@ void UiRequestWorker::thread_main()
 
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            cv_.wait(lock, [&]() { return !state_.running() || state_.has_pending_request(); });
+            cv_.wait(lock, [this]() { return !state_.running() || state_.has_pending_request(); });
             if (!state_.running())
                 break;
 

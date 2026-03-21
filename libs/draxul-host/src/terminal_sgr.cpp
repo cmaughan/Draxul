@@ -55,6 +55,44 @@ Color xterm_color(int index)
     return { gray, gray, gray, 1.0f };
 }
 
+void set_color(HlAttr& attr, bool is_fg, Color color)
+{
+    if (is_fg)
+    {
+        attr.fg = color;
+        attr.has_fg = true;
+    }
+    else
+    {
+        attr.bg = color;
+        attr.has_bg = true;
+    }
+}
+
+// Returns the number of extra parameter slots consumed (0 if not recognised).
+size_t try_apply_extended_color(HlAttr& attr, bool is_fg, const std::vector<int>& values, size_t i)
+{
+    if (i + 1 >= values.size())
+        return 0;
+    if (values[i + 1] == 5 && i + 2 < values.size())
+    {
+        set_color(attr, is_fg, xterm_color(std::clamp(values[i + 2], 0, 255)));
+        return 2;
+    }
+    if (values[i + 1] == 2 && i + 4 < values.size())
+    {
+        const Color color = {
+            std::clamp(values[i + 2], 0, 255) / 255.0f,
+            std::clamp(values[i + 3], 0, 255) / 255.0f,
+            std::clamp(values[i + 4], 0, 255) / 255.0f,
+            1.0f,
+        };
+        set_color(attr, is_fg, color);
+        return 4;
+    }
+    return 0;
+}
+
 } // namespace
 
 void apply_sgr(HlAttr& current_attr, const std::vector<int>& params)
@@ -90,64 +128,15 @@ void apply_sgr(HlAttr& current_attr, const std::vector<int>& params)
         else if (value == 49)
             current_attr.has_bg = false;
         else if (value >= 30 && value <= 37)
-        {
-            current_attr.fg = ansi_color(value - 30);
-            current_attr.has_fg = true;
-        }
+            set_color(current_attr, true, ansi_color(value - 30));
         else if (value >= 40 && value <= 47)
-        {
-            current_attr.bg = ansi_color(value - 40);
-            current_attr.has_bg = true;
-        }
+            set_color(current_attr, false, ansi_color(value - 40));
         else if (value >= 90 && value <= 97)
-        {
-            current_attr.fg = ansi_color(value - 90 + 8);
-            current_attr.has_fg = true;
-        }
+            set_color(current_attr, true, ansi_color(value - 90 + 8));
         else if (value >= 100 && value <= 107)
-        {
-            current_attr.bg = ansi_color(value - 100 + 8);
-            current_attr.has_bg = true;
-        }
-        else if ((value == 38 || value == 48) && i + 1 < values.size())
-        {
-            const bool is_fg = value == 38;
-            if (values[i + 1] == 5 && i + 2 < values.size())
-            {
-                const Color color = xterm_color(std::clamp(values[i + 2], 0, 255));
-                if (is_fg)
-                {
-                    current_attr.fg = color;
-                    current_attr.has_fg = true;
-                }
-                else
-                {
-                    current_attr.bg = color;
-                    current_attr.has_bg = true;
-                }
-                i += 2;
-            }
-            else if (values[i + 1] == 2 && i + 4 < values.size())
-            {
-                const Color color = {
-                    std::clamp(values[i + 2], 0, 255) / 255.0f,
-                    std::clamp(values[i + 3], 0, 255) / 255.0f,
-                    std::clamp(values[i + 4], 0, 255) / 255.0f,
-                    1.0f,
-                };
-                if (is_fg)
-                {
-                    current_attr.fg = color;
-                    current_attr.has_fg = true;
-                }
-                else
-                {
-                    current_attr.bg = color;
-                    current_attr.has_bg = true;
-                }
-                i += 4;
-            }
-        }
+            set_color(current_attr, false, ansi_color(value - 100 + 8));
+        else if (value == 38 || value == 48)
+            i += try_apply_extended_color(current_attr, value == 38, values, i);
     }
 }
 

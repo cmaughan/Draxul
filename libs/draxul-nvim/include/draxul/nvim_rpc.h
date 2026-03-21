@@ -207,6 +207,10 @@ public:
 private:
     void reader_thread_func();
     void reply_to_request(uint32_t msgid, const MpackValue& error, const MpackValue& result);
+    void dispatch_rpc_message(const MpackValue& msg);
+    void dispatch_rpc_response(const std::vector<MpackValue>& msg_array);
+    void dispatch_rpc_request(const std::vector<MpackValue>& msg_array);
+    void dispatch_rpc_notification(const std::vector<MpackValue>& msg_array);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

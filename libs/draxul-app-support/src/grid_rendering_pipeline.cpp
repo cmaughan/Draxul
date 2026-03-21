@@ -89,6 +89,69 @@ void GridRenderingPipeline::set_enable_ligatures(bool enable)
     enable_ligatures_ = enable;
 }
 
+bool GridRenderingPipeline::try_shape_ligature(int col, int row, const Cell& cell, bool is_bold,
+    bool is_italic, CellUpdate& update, std::vector<CellUpdate>& updates, bool& atlas_updated)
+{
+    if (col + 1 >= grid_.cols())
+        return false;
+
+    const auto& next = grid_.get_cell(col + 1, row);
+    if (!can_form_two_cell_ligature(cell, next))
+        return false;
+
+    const std::string combined = std::string(cell.text.view()) + std::string(next.text.view());
+    if (glyph_atlas_.ligature_cell_span(combined, is_bold, is_italic) != 2)
+        return false;
+
+    update.glyph = glyph_atlas_.resolve_cluster(combined, is_bold, is_italic);
+    if (update.glyph.is_color)
+        update.style_flags |= STYLE_FLAG_COLOR_GLYPH;
+    atlas_updated = atlas_updated || glyph_atlas_.atlas_dirty();
+    updates.push_back(update);
+    updates.push_back(make_cell_update(col + 1, row, next, highlights_));
+    return true;
+}
+
+void GridRenderingPipeline::build_cell_updates(const std::vector<Grid::DirtyCell>& dirty,
+    std::vector<CellUpdate>& updates, bool& atlas_updated)
+{
+    bool skip_next_cell = false;
+    Grid::DirtyCell skipped_cell = {};
+
+    for (auto& [col, row] : dirty)
+    {
+        if (skip_next_cell && skipped_cell.col == col && skipped_cell.row == row)
+        {
+            skip_next_cell = false;
+            continue;
+        }
+
+        const auto& cell = grid_.get_cell(col, row);
+        CellUpdate update = make_cell_update(col, row, cell, highlights_);
+
+        const bool is_bold = (update.style_flags & STYLE_FLAG_BOLD) != 0;
+        const bool is_italic = (update.style_flags & STYLE_FLAG_ITALIC) != 0;
+
+        if (enable_ligatures_
+            && try_shape_ligature(col, row, cell, is_bold, is_italic, update, updates, atlas_updated))
+        {
+            skip_next_cell = true;
+            skipped_cell = { col + 1, row };
+            continue;
+        }
+
+        if (should_shape_cell_text(cell))
+        {
+            update.glyph = glyph_atlas_.resolve_cluster(std::string(cell.text.view()), is_bold, is_italic);
+            if (update.glyph.is_color)
+                update.style_flags |= STYLE_FLAG_COLOR_GLYPH;
+            atlas_updated = atlas_updated || glyph_atlas_.atlas_dirty();
+        }
+
+        updates.push_back(update);
+    }
+}
+
 void GridRenderingPipeline::flush()
 {
     if (!renderer_)
@@ -116,54 +179,7 @@ void GridRenderingPipeline::flush()
         updates.reserve(dirty.size() + dirty.size() / 2);
 
         bool atlas_updated = false;
-        bool skip_next_cell = false;
-        Grid::DirtyCell skipped_cell = {};
-
-        for (auto& [col, row] : dirty)
-        {
-            if (skip_next_cell && skipped_cell.col == col && skipped_cell.row == row)
-            {
-                skip_next_cell = false;
-                continue;
-            }
-
-            const auto& cell = grid_.get_cell(col, row);
-            CellUpdate update = make_cell_update(col, row, cell, highlights_);
-
-            const bool is_bold = (update.style_flags & STYLE_FLAG_BOLD) != 0;
-            const bool is_italic = (update.style_flags & STYLE_FLAG_ITALIC) != 0;
-
-            if (enable_ligatures_ && col + 1 < grid_.cols())
-            {
-                const auto& next = grid_.get_cell(col + 1, row);
-                if (can_form_two_cell_ligature(cell, next))
-                {
-                    const std::string combined = std::string(cell.text.view()) + std::string(next.text.view());
-                    if (glyph_atlas_.ligature_cell_span(combined, is_bold, is_italic) == 2)
-                    {
-                        update.glyph = glyph_atlas_.resolve_cluster(combined, is_bold, is_italic);
-                        if (update.glyph.is_color)
-                            update.style_flags |= STYLE_FLAG_COLOR_GLYPH;
-                        atlas_updated = atlas_updated || glyph_atlas_.atlas_dirty();
-                        updates.push_back(update);
-                        updates.push_back(make_cell_update(col + 1, row, next, highlights_));
-                        skip_next_cell = true;
-                        skipped_cell = { col + 1, row };
-                        continue;
-                    }
-                }
-            }
-
-            if (should_shape_cell_text(cell))
-            {
-                update.glyph = glyph_atlas_.resolve_cluster(std::string(cell.text.view()), is_bold, is_italic);
-                if (update.glyph.is_color)
-                    update.style_flags |= STYLE_FLAG_COLOR_GLYPH;
-                atlas_updated = atlas_updated || glyph_atlas_.atlas_dirty();
-            }
-
-            updates.push_back(update);
-        }
+        build_cell_updates(dirty, updates, atlas_updated);
 
         bool atlas_reset = glyph_atlas_.consume_atlas_reset();
         if (atlas_reset)

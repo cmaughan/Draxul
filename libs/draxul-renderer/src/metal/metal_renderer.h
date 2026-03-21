@@ -15,7 +15,7 @@
 @class CAMetalLayer;
 @protocol CAMetalDrawable;
 #else
-typedef void* id;
+typedef void* id; // NOSONAR — forward declaration for ObjC 'id' type in non-ObjC translation units
 #endif
 
 namespace draxul

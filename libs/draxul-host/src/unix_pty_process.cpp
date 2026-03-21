@@ -83,7 +83,7 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
             argv.push_back(a.c_str());
         argv.push_back(nullptr);
 
-        execvp(command.c_str(), const_cast<char**>(argv.data()));
+        execvp(command.c_str(), const_cast<char**>(argv.data())); // NOSONAR — POSIX execvp takes char*const*; argv holds c_str() pointers that are not modified
         _exit(127);
     }
 

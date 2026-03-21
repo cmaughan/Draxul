@@ -20,8 +20,14 @@ public:
     void on_font_metrics_changed() override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
     // I3DHost — grid hosts ignore 3D by default; override to add a background pass.
-    void attach_3d_renderer(I3DRenderer&) override {}
-    void detach_3d_renderer() override {}
+    void attach_3d_renderer(I3DRenderer&) override
+    {
+        // Intentionally empty — grid hosts have no 3D content; MegaCityHost overrides.
+    }
+    void detach_3d_renderer() override
+    {
+        // Intentionally empty — grid hosts have no 3D content; MegaCityHost overrides.
+    }
 
     void on_text_editing(const TextEditingEvent&) override
     {
