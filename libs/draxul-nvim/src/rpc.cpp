@@ -127,7 +127,7 @@ RpcResult NvimRpc::request(const std::string& method, const std::vector<MpackVal
     }
 
     std::unique_lock<std::mutex> lock(impl_->response_mutex_);
-    bool ready = impl_->response_cv_.wait_for(lock, kRequestTimeout, [&]() {
+    bool ready = impl_->response_cv_.wait_for(lock, kRequestTimeout, [this, &msgid]() {
         return impl_->responses_.count(msgid) > 0 || !impl_->running_ || impl_->read_failed_ || (impl_->process_ && !impl_->process_->is_running());
     });
 

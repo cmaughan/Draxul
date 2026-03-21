@@ -35,8 +35,8 @@ class IRenderContext
 {
 public:
     virtual ~IRenderContext() = default;
-    virtual void* native_command_buffer() const = 0;
-    virtual void* native_render_encoder() const = 0;
+    virtual void* native_command_buffer() const = 0; // NOSONAR cpp:S5008
+    virtual void* native_render_encoder() const = 0; // NOSONAR cpp:S5008
     virtual int width() const = 0;
     virtual int height() const = 0;
 };

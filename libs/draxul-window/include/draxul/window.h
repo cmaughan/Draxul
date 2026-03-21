@@ -16,7 +16,7 @@ public:
     virtual bool initialize(const std::string& title, int width, int height) = 0;
     virtual void shutdown() = 0;
     virtual bool poll_events() = 0; // returns false if quit requested
-    virtual void* native_handle() = 0;
+    virtual void* native_handle() = 0; // NOSONAR cpp:S5008
     virtual std::pair<int, int> size_logical() const = 0;
     virtual std::pair<int, int> size_pixels() const = 0;
     virtual float display_ppi() const = 0; // Physical pixels per inch of the display
@@ -30,12 +30,14 @@ public:
     // call is made on cancel). The default implementation does nothing.
     virtual void show_open_file_dialog()
     {
+        // Default no-op; override in platform implementations.
     }
 
     // Tint the OS title bar to match the given background color.
     // Best-effort: silently ignored on platforms/versions that don't support it.
     virtual void set_title_bar_color(Color)
     {
+        // Default no-op; override in platform implementations.
     }
 
     // Callbacks

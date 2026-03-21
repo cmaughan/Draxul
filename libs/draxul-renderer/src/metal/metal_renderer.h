@@ -80,17 +80,17 @@ private:
     ObjCRef<id<MTLBuffer>> capture_buffer_;
     ObjCRef<id<CAMetalDrawable>> current_drawable_;
 #else
-    void* device_ = nullptr;
-    void* command_queue_ = nullptr;
-    void* layer_ = nullptr;
-    void* bg_pipeline_ = nullptr;
-    void* fg_pipeline_ = nullptr;
-    void* grid_buffer_ = nullptr;
-    void* atlas_texture_ = nullptr;
-    void* atlas_sampler_ = nullptr;
-    void* frame_semaphore_ = nullptr;
-    void* capture_buffer_ = nullptr;
-    void* current_drawable_ = nullptr;
+    void* device_ = nullptr; // NOSONAR cpp:S5008
+    void* command_queue_ = nullptr; // NOSONAR cpp:S5008
+    void* layer_ = nullptr; // NOSONAR cpp:S5008
+    void* bg_pipeline_ = nullptr; // NOSONAR cpp:S5008
+    void* fg_pipeline_ = nullptr; // NOSONAR cpp:S5008
+    void* grid_buffer_ = nullptr; // NOSONAR cpp:S5008
+    void* atlas_texture_ = nullptr; // NOSONAR cpp:S5008
+    void* atlas_sampler_ = nullptr; // NOSONAR cpp:S5008
+    void* frame_semaphore_ = nullptr; // NOSONAR cpp:S5008
+    void* capture_buffer_ = nullptr; // NOSONAR cpp:S5008
+    void* current_drawable_ = nullptr; // NOSONAR cpp:S5008
 #endif
 
     int atlas_size_ = kAtlasSize;

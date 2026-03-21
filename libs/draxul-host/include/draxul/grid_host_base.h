@@ -25,15 +25,19 @@ public:
 
     void on_text_editing(const TextEditingEvent&) override
     {
+        // Grid hosts ignore mouse/text-editing events; handled by terminal hosts.
     }
     void on_mouse_button(const MouseButtonEvent&) override
     {
+        // Grid hosts ignore mouse/text-editing events; handled by terminal hosts.
     }
     void on_mouse_move(const MouseMoveEvent&) override
     {
+        // Grid hosts ignore mouse/text-editing events; handled by terminal hosts.
     }
     void on_mouse_wheel(const MouseWheelEvent&) override
     {
+        // Grid hosts ignore mouse/text-editing events; handled by terminal hosts.
     }
     Color default_background() const override;
     HostRuntimeState runtime_state() const override;

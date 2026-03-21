@@ -29,16 +29,37 @@ public:
     std::string init_error() const override;
 
     void set_viewport(const HostViewport& viewport) override;
-    void on_font_metrics_changed() override {}
+    void on_font_metrics_changed() override
+    {
+        // MegaCityHost ignores font metrics changes; it renders 3D geometry, not a text grid.
+    }
     void pump() override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
 
-    void on_key(const KeyEvent&) override {}
-    void on_text_input(const TextInputEvent&) override {}
-    void on_text_editing(const TextEditingEvent&) override {}
-    void on_mouse_button(const MouseButtonEvent&) override {}
-    void on_mouse_move(const MouseMoveEvent&) override {}
-    void on_mouse_wheel(const MouseWheelEvent&) override {}
+    void on_key(const KeyEvent&) override
+    {
+        // MegaCityHost has no key handling; input is not used in the cube demo.
+    }
+    void on_text_input(const TextInputEvent&) override
+    {
+        // MegaCityHost ignores text input events; the 3D cube demo requires no input handling.
+    }
+    void on_text_editing(const TextEditingEvent&) override
+    {
+        // MegaCityHost ignores text editing events; the 3D cube demo requires no input handling.
+    }
+    void on_mouse_button(const MouseButtonEvent&) override
+    {
+        // MegaCityHost ignores mouse button events; the 3D cube demo requires no input handling.
+    }
+    void on_mouse_move(const MouseMoveEvent&) override
+    {
+        // MegaCityHost ignores mouse move events; the 3D cube demo requires no input handling.
+    }
+    void on_mouse_wheel(const MouseWheelEvent&) override
+    {
+        // MegaCityHost ignores mouse wheel events; the 3D cube demo requires no input handling.
+    }
 
     bool dispatch_action(std::string_view action) override;
     void request_close() override;

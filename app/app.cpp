@@ -52,7 +52,7 @@ bool App::initialize()
     startup_total_ms_ = 0.0;
     const auto init_start = Clock::now();
 
-    auto time_step = [&](const char* label, auto fn) -> bool {
+    auto time_step = [this](const char* label, auto fn) -> bool {
         const auto t0 = Clock::now();
         const bool ok = fn();
         const double ms = Ms(Clock::now() - t0).count();
@@ -61,7 +61,7 @@ bool App::initialize()
         return ok;
     };
 
-    bool ok = time_step("Config", [&]() {
+    bool ok = time_step("Config", [this]() {
         if (options_.load_user_config)
             config_ = AppConfig::load();
         else
@@ -84,7 +84,7 @@ bool App::initialize()
     if (!ok)
         return false;
 
-    if (!time_step("Window Create (SDL)", [&]() {
+    if (!time_step("Window Create (SDL)", [this]() {
             window_.set_clamp_to_display(options_.clamp_window_to_display);
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
             window_.set_hidden(options_.render_target_pixel_width > 0 && !options_.show_render_test_window);
@@ -104,7 +104,7 @@ bool App::initialize()
         }))
         return false;
 
-    if (!time_step("Device, Swap, Pipe (GPU)", [&]() {
+    if (!time_step("Device, Swap, Pipe (GPU)", [this]() {
             renderer_ = options_.renderer_create_fn
                 ? options_.renderer_create_fn(config_.atlas_size)
                 : create_renderer(config_.atlas_size);
@@ -121,10 +121,10 @@ bool App::initialize()
         }))
         return false;
 
-    if (!time_step("Font", [&]() { return initialize_text_service(); }))
+    if (!time_step("Font", [this]() { return initialize_text_service(); }))
         return false;
 
-    if (!time_step("ImGui Setup", [&]() {
+    if (!time_step("ImGui Setup", [this]() {
             if (!ui_panel_.initialize())
             {
                 last_init_error_ = "Failed to initialize the diagnostics panel.";
@@ -145,7 +145,7 @@ bool App::initialize()
         }))
         return false;
 
-    if (!time_step("Host", [&]() { return initialize_host(); }))
+    if (!time_step("Host", [this]() { return initialize_host(); }))
         return false;
 
     if (host_manager_.host())
