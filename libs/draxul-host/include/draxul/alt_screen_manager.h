@@ -40,8 +40,9 @@ public:
         int& scroll_top_out, int& scroll_bottom_out, bool& pending_wrap_out);
 
     // Restore the main-screen snapshot.  Sets term_col/term_row to the saved
-    // cursor position.
-    void leave(int& term_col_out, int& term_row_out, bool& pending_wrap_out);
+    // cursor position and restores the saved scroll region.
+    void leave(int& term_col_out, int& term_row_out, bool& pending_wrap_out,
+        int& scroll_top_out, int& scroll_bottom_out);
 
     // Re-dimension the snapshot when the terminal is resized while in alt screen.
     // Must be called before the grid is resized to (new_cols x new_rows);
@@ -60,6 +61,8 @@ private:
         std::vector<Cell> cells;
         int col = 0;
         int row = 0;
+        int scroll_top = 0;
+        int scroll_bottom = 0;
     };
 
     GridAccessors acc_;

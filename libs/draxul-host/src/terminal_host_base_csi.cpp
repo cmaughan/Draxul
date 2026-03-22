@@ -51,6 +51,34 @@ void TerminalHostBase::handle_esc(char ch)
         set_cursor_position(vt_.col, vt_.row);
         DRAXUL_LOG_TRACE(draxul::LogCategory::App, "DECRC restore row=%d col=%d", vt_.row, vt_.col);
     }
+    else if (ch == 'D') // IND - Index: move cursor down, scroll up at scroll_bottom
+    {
+        vt_.pending_wrap = false;
+        if (vt_.row == vt_.scroll_bottom)
+        {
+            grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), 1);
+        }
+        else if (vt_.row < grid_rows() - 1)
+        {
+            ++vt_.row;
+        }
+        set_cursor_position(vt_.col, vt_.row);
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App, "IND row=%d stbm=[%d..%d]", vt_.row, vt_.scroll_top, vt_.scroll_bottom);
+    }
+    else if (ch == 'M') // RI - Reverse Index: move cursor up, scroll down at scroll_top
+    {
+        vt_.pending_wrap = false;
+        if (vt_.row == vt_.scroll_top)
+        {
+            grid().scroll(vt_.scroll_top, vt_.scroll_bottom + 1, 0, grid_cols(), -1);
+        }
+        else if (vt_.row > 0)
+        {
+            --vt_.row;
+        }
+        set_cursor_position(vt_.col, vt_.row);
+        DRAXUL_LOG_TRACE(draxul::LogCategory::App, "RI row=%d stbm=[%d..%d]", vt_.row, vt_.scroll_top, vt_.scroll_bottom);
+    }
     else
     {
         DRAXUL_LOG_TRACE(draxul::LogCategory::App, "ESC unhandled: '%c' (0x%02X)", ch, (unsigned char)ch);

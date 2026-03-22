@@ -186,7 +186,7 @@ void TerminalHostBase::enter_alt_screen()
 
 void TerminalHostBase::leave_alt_screen()
 {
-    alt_screen_.leave(vt_.col, vt_.row, vt_.pending_wrap);
+    alt_screen_.leave(vt_.col, vt_.row, vt_.pending_wrap, vt_.scroll_top, vt_.scroll_bottom);
 }
 
 // ---------------------------------------------------------------------------

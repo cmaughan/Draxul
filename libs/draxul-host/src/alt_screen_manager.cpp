@@ -22,6 +22,8 @@ void AltScreenManager::enter(int term_col, int term_row,
 
     saved_main_.col = term_col;
     saved_main_.row = term_row;
+    saved_main_.scroll_top = scroll_top_out;
+    saved_main_.scroll_bottom = scroll_bottom_out;
     saved_main_.cells.resize((size_t)cols * rows);
     for (int row = 0; row < rows; ++row)
         for (int col = 0; col < cols; ++col)
@@ -34,7 +36,8 @@ void AltScreenManager::enter(int term_col, int term_row,
     pending_wrap_out = false;
 }
 
-void AltScreenManager::leave(int& term_col_out, int& term_row_out, bool& pending_wrap_out)
+void AltScreenManager::leave(int& term_col_out, int& term_row_out, bool& pending_wrap_out,
+    int& scroll_top_out, int& scroll_bottom_out)
 {
     if (!in_alt_screen_)
         return;
@@ -60,6 +63,8 @@ void AltScreenManager::leave(int& term_col_out, int& term_row_out, bool& pending
 
     term_col_out = std::clamp(saved_main_.col, 0, std::max(0, cols - 1));
     term_row_out = std::clamp(saved_main_.row, 0, std::max(0, rows - 1));
+    scroll_top_out = std::clamp(saved_main_.scroll_top, 0, std::max(0, rows - 1));
+    scroll_bottom_out = std::clamp(saved_main_.scroll_bottom, scroll_top_out, std::max(0, rows - 1));
     saved_main_.cells.clear();
     pending_wrap_out = false;
 }
