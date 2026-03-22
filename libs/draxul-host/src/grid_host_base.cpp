@@ -1,6 +1,8 @@
 #include <draxul/grid_host_base.h>
 
 #include <algorithm>
+#include <draxul/log.h>
+#include <draxul/pane_descriptor.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
 #include <memory>
@@ -16,9 +18,17 @@ bool GridHostBase::initialize(const HostContext& context, HostCallbacks callback
     launch_options_ = context.launch_options;
     viewport_ = context.initial_viewport;
     callbacks_ = std::move(callbacks);
+
+    // Create a per-host GPU handle. The handle owns its own buffer and state.
+    grid_handle_ = renderer_->create_grid_handle();
+
+    // Apply the initial viewport as the scissor rect.
+    const auto& vp = context.initial_viewport;
+    grid_handle_->set_viewport(PaneDescriptor{ vp.pixel_x, vp.pixel_y, vp.pixel_width, vp.pixel_height });
+
     grid_pipeline_ = std::make_unique<GridRenderingPipeline>(grid_, highlights_, *text_service_);
     grid_pipeline_->set_renderer(renderer_);
-    grid_pipeline_->set_pane_id(pane_id_);
+    grid_pipeline_->set_grid_handle(grid_handle_.get());
     grid_pipeline_->set_enable_ligatures(launch_options_.enable_ligatures);
     refresh_renderer_metrics();
     on_viewport_changed();
@@ -28,8 +38,22 @@ bool GridHostBase::initialize(const HostContext& context, HostCallbacks callback
 void GridHostBase::set_viewport(const HostViewport& viewport)
 {
     viewport_ = viewport;
+    DRAXUL_LOG_INFO(LogCategory::App,
+        "[%s] set_viewport: px=%d py=%d pw=%d ph=%d cols=%d rows=%d",
+        std::string(host_name()).c_str(),
+        viewport.pixel_x, viewport.pixel_y, viewport.pixel_width, viewport.pixel_height,
+        viewport.cols, viewport.rows);
+    if (grid_handle_)
+        grid_handle_->set_viewport(PaneDescriptor{ viewport.pixel_x, viewport.pixel_y,
+            viewport.pixel_width, viewport.pixel_height });
     on_viewport_changed();
     update_text_input_area();
+}
+
+void GridHostBase::set_scroll_offset(float px)
+{
+    if (grid_handle_)
+        grid_handle_->set_scroll_offset(px);
 }
 
 void GridHostBase::on_font_metrics_changed()
@@ -83,21 +107,17 @@ TextService& GridHostBase::text_service() const
     return *text_service_;
 }
 
-void GridHostBase::set_pane_id(int id)
-{
-    pane_id_ = id;
-    if (grid_pipeline_)
-        grid_pipeline_->set_pane_id(id);
-}
-
 void GridHostBase::apply_grid_size(int cols, int rows)
 {
     cols = std::max(1, cols);
     rows = std::max(1, rows);
+    DRAXUL_LOG_INFO(LogCategory::App, "[%s] apply_grid_size: cols=%d rows=%d",
+        std::string(host_name()).c_str(), cols, rows);
     grid_cols_ = cols;
     grid_rows_ = rows;
     grid_.resize(cols, rows);
-    renderer_->set_grid_size(pane_id_, cols, rows);
+    if (grid_handle_)
+        grid_handle_->set_grid_size(cols, rows);
     grid_pipeline_->force_full_atlas_upload();
     update_text_input_area();
     callbacks_.request_frame();
@@ -116,7 +136,8 @@ void GridHostBase::flush_grid()
     last_activity_time_ = std::chrono::steady_clock::now();
     grid_pipeline_->flush();
     const Color bg = highlights_.default_bg();
-    renderer_->set_default_background(pane_id_, bg);
+    if (grid_handle_)
+        grid_handle_->set_default_background(bg);
     if (bg != last_title_bar_color_)
     {
         last_title_bar_color_ = bg;
@@ -124,6 +145,12 @@ void GridHostBase::flush_grid()
     }
     apply_cursor_visibility();
     callbacks_.request_frame();
+}
+
+void GridHostBase::set_overlay_cells(std::span<const CellUpdate> cells)
+{
+    if (grid_handle_)
+        grid_handle_->set_overlay_cells(cells);
 }
 
 void GridHostBase::mark_activity()
@@ -165,7 +192,8 @@ void GridHostBase::apply_cursor_visibility()
 {
     const int visible_col = cursor_blinker_.visible() ? cursor_col_ : -1;
     const int visible_row = cursor_blinker_.visible() ? cursor_row_ : -1;
-    renderer_->set_cursor(pane_id_, visible_col, visible_row, cursor_style_);
+    if (grid_handle_)
+        grid_handle_->set_cursor(visible_col, visible_row, cursor_style_);
     callbacks_.request_frame();
 }
 

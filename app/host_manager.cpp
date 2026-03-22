@@ -32,10 +32,10 @@ bool HostManager::create(HostCallbacks callbacks)
     launch.enable_ligatures = deps_.config->enable_ligatures;
 
     HostViewport viewport = deps_.get_viewport ? deps_.get_viewport() : HostViewport{};
-    return create_slot(std::move(callbacks), 0, viewport, std::move(launch), true);
+    return create_slot(std::move(callbacks), viewport, std::move(launch), true);
 }
 
-bool HostManager::add_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport)
+bool HostManager::add_slot(HostCallbacks callbacks, HostViewport viewport)
 {
     HostLaunchOptions launch;
     // New panes always open a Zsh shell. A future host-picker UI will allow the user to
@@ -43,10 +43,10 @@ bool HostManager::add_slot(HostCallbacks callbacks, int pane_id, HostViewport vi
     launch.kind = HostKind::Zsh;
     launch.enable_ligatures = deps_.config->enable_ligatures;
 
-    return create_slot(std::move(callbacks), pane_id, viewport, std::move(launch), false);
+    return create_slot(std::move(callbacks), viewport, std::move(launch), false);
 }
 
-bool HostManager::create_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport,
+bool HostManager::create_slot(HostCallbacks callbacks, HostViewport viewport,
     HostLaunchOptions launch, bool is_primary)
 {
     std::unique_ptr<IHost> new_host;
@@ -68,10 +68,6 @@ bool HostManager::create_slot(HostCallbacks callbacks, int pane_id, HostViewport
         error_ = std::string("The selected host is not supported on this platform: ") + to_string(launch.kind);
         return false;
     }
-
-    // Set pane_id on the host if it is a GridHostBase
-    if (auto* ghb = dynamic_cast<GridHostBase*>(new_host.get()))
-        ghb->set_pane_id(pane_id);
 
     IGridRenderer& grid_renderer = *deps_.grid_renderer;
     const float display_ppi = deps_.display_ppi ? *deps_.display_ppi : 96.0f;
@@ -106,7 +102,7 @@ bool HostManager::create_slot(HostCallbacks callbacks, int pane_id, HostViewport
     if (is_primary)
         grid_renderer.set_default_background(new_host->default_background());
 
-    slots_.push_back({ std::move(new_host), pane_id });
+    slots_.push_back({ std::move(new_host) });
     return true;
 }
 
@@ -121,6 +117,18 @@ void HostManager::shutdown()
         }
     }
     slots_.clear();
+}
+
+void HostManager::remove_slot(int index)
+{
+    if (index < 0 || index >= slot_count())
+        return;
+    if (slots_[static_cast<size_t>(index)].host)
+        slots_[static_cast<size_t>(index)].host->shutdown();
+    slots_.erase(slots_.begin() + index);
+    // Keep focused_slot_ valid: if we removed a slot before (or at) the focused one, decrement.
+    if (focused_slot_ > index || focused_slot_ >= slot_count())
+        focused_slot_ = std::max(0, slot_count() - 1);
 }
 
 } // namespace draxul

@@ -108,7 +108,19 @@ int parse_atlas_size(const toml::table& document, int fallback)
 
 ModifierFlags normalize_gui_modifiers(ModifierFlags mod)
 {
-    return mod & kGuiModifierMask;
+    // Collapse each L/R pair: if either Left or Right of a group is set, treat as
+    // the full group mask. This ensures Right Ctrl matches a binding requiring kModCtrl,
+    // Right Shift matches kModShift, etc.
+    ModifierFlags result = kModNone;
+    if (mod & kModShift)
+        result |= kModShift;
+    if (mod & kModCtrl)
+        result |= kModCtrl;
+    if (mod & kModAlt)
+        result |= kModAlt;
+    if (mod & kModSuper)
+        result |= kModSuper;
+    return result;
 }
 
 bool is_known_gui_action(std::string_view action)
@@ -180,6 +192,8 @@ std::optional<int32_t> parse_key_token(std::string_view token)
         return static_cast<int32_t>(SDLK_MINUS);
     if (token == "+" || equals_ignore_case(token, "plus"))
         return static_cast<int32_t>(SDLK_PLUS);
+    if (token == "|" || equals_ignore_case(token, "pipe"))
+        return static_cast<int32_t>(SDLK_PIPE);
 
     std::string name(token);
     if (SDL_Keycode key = SDL_GetKeyFromName(name.c_str()); key != SDLK_UNKNOWN)
@@ -201,6 +215,8 @@ std::string format_key_token(int32_t key)
         return "=";
     case SDLK_MINUS:
         return "-";
+    case SDLK_PIPE:
+        return "|";
     default:
         break;
     }
@@ -390,7 +406,7 @@ AppConfig::AppConfig()
         { "font_decrease", 0, kModNone, static_cast<int32_t>(SDLK_MINUS), kModCtrl },
         { "font_reset", 0, kModNone, static_cast<int32_t>(SDLK_0), kModCtrl },
         // Chord bindings: prefix key Ctrl+S (tmux-style prefix).
-        // split_vertical = Ctrl+S, | (Shift+Backslash on US keyboard)
+        // split_vertical = Ctrl+S, | (Shift+Backslash on US keyboard; SDL3 reports SDLK_BACKSLASH + kModShift)
         { "split_vertical", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_BACKSLASH), kModShift },
     };

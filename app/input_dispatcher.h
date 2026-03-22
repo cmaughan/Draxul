@@ -112,6 +112,9 @@ private:
     // Chord (tmux-style prefix) state: true when a prefix key has been consumed and
     // we are waiting for the second key of a chord binding.
     bool prefix_active_ = false;
+    // Set when a chord action fires; causes the immediately following text-input event
+    // (SDL_EVENT_TEXT_INPUT for the chord's second key) to be suppressed.
+    bool suppress_next_text_input_ = false;
 };
 
 } // namespace draxul

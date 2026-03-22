@@ -83,6 +83,11 @@ void install_macos_menu(GuiActionHandler& handler)
                               handler.execute("toggle_diagnostics");
                           })];
     [viewMenu addItem:[NSMenuItem separatorItem]];
+    [viewMenu addItem:make_item(@"Split Vertical", @"|",
+                          NSEventModifierFlagCommand | NSEventModifierFlagShift, ^{
+                              handler.execute("split_vertical");
+                          })];
+    [viewMenu addItem:[NSMenuItem separatorItem]];
     [viewMenu addItem:make_item(
                           @"Increase Font Size", @"+", NSEventModifierFlagCommand, ^{
                               handler.execute("font_increase");

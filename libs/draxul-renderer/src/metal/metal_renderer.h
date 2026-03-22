@@ -1,5 +1,4 @@
 #pragma once
-#include <draxul/pane_descriptor.h>
 #include <draxul/renderer.h>
 #include <draxul/renderer_state.h>
 #include <optional>
@@ -23,6 +22,9 @@ typedef void* id; // NOSONAR — forward declaration for ObjC 'id' type in non-O
 namespace draxul
 {
 
+// MetalGridHandle is fully defined in metal_renderer.mm (ObjC++ only).
+class MetalGridHandle;
+
 class MetalRenderer : public IRenderer
 {
 public:
@@ -35,12 +37,9 @@ public:
     void shutdown() override;
     bool begin_frame() override;
     void end_frame() override;
-    void set_grid_size(int cols, int rows) override;
-    void update_cells(std::span<const CellUpdate> updates) override;
-    void set_overlay_cells(std::span<const CellUpdate> updates) override;
+    std::unique_ptr<IGridHandle> create_grid_handle() override;
     void set_atlas_texture(const uint8_t* data, int w, int h) override;
     void update_atlas_region(int x, int y, int w, int h, const uint8_t* data) override;
-    void set_cursor(int col, int row, const CursorStyle& style) override;
     void resize(int pixel_w, int pixel_h) override;
     std::pair<int, int> cell_size_pixels() const override;
     void set_cell_size(int w, int h) override;
@@ -57,37 +56,19 @@ public:
         return padding_;
     }
     void set_default_background(Color bg) override;
-    void set_scroll_offset(float px) override;
-
-    // Multi-pane API
-    int alloc_pane() override;
-    void free_pane(int pane_id) override;
-    void set_pane_viewport(int pane_id, const PaneDescriptor& desc) override;
-    void set_grid_size(int pane_id, int cols, int rows) override;
-    void update_cells(int pane_id, std::span<const CellUpdate> updates) override;
-    void set_overlay_cells(int pane_id, std::span<const CellUpdate> updates) override;
-    void set_cursor(int pane_id, int col, int row, const CursorStyle& style) override;
-    void set_default_background(int pane_id, Color bg) override;
-    void set_scroll_offset(int pane_id, float px) override;
 
     // I3DRenderer
     void register_render_pass(std::shared_ptr<IRenderPass> pass) override;
     void unregister_render_pass() override;
 
-    struct PaneEntry
-    {
-        RendererState state;
-        PaneDescriptor descriptor;
-        float scroll_offset_px = 0.f;
-        Color bg_color{};
-        bool active = true;
-    };
-
 private:
+    friend class MetalGridHandle;
+
     void upload_dirty_state();
     bool ensure_capture_buffer(size_t width, size_t height);
-    size_t compute_total_buffer_cells() const;
-    size_t pane_cell_offset(int pane_id) const;
+
+    // Non-owning list of active grid handles; handles register/deregister themselves.
+    std::vector<MetalGridHandle*> grid_handles_;
 
     // Metal object handles — typed under ObjC++ (ARC-managed via ObjCRef),
     // opaque void* in plain C++ translation units.
@@ -97,7 +78,6 @@ private:
     ObjCRef<CAMetalLayer*> layer_;
     ObjCRef<id<MTLRenderPipelineState>> bg_pipeline_;
     ObjCRef<id<MTLRenderPipelineState>> fg_pipeline_;
-    ObjCRef<id<MTLBuffer>> grid_buffer_;
     ObjCRef<id<MTLTexture>> atlas_texture_;
     ObjCRef<id<MTLSamplerState>> atlas_sampler_;
     ObjCRef<dispatch_semaphore_t> frame_semaphore_;
@@ -109,7 +89,6 @@ private:
     void* layer_ = nullptr; // NOSONAR cpp:S5008
     void* bg_pipeline_ = nullptr; // NOSONAR cpp:S5008
     void* fg_pipeline_ = nullptr; // NOSONAR cpp:S5008
-    void* grid_buffer_ = nullptr; // NOSONAR cpp:S5008
     void* atlas_texture_ = nullptr; // NOSONAR cpp:S5008
     void* atlas_sampler_ = nullptr; // NOSONAR cpp:S5008
     void* frame_semaphore_ = nullptr; // NOSONAR cpp:S5008
@@ -128,9 +107,7 @@ private:
     float clear_r_ = 0.1f;
     float clear_g_ = 0.1f;
     float clear_b_ = 0.1f;
-    float scroll_offset_px_ = 0.0f;
 
-    std::vector<PaneEntry> panes_; // pane_id is index; panes_[0] always exists
     bool capture_requested_ = false;
     std::optional<CapturedFrame> captured_frame_;
     size_t capture_buffer_size_ = 0;

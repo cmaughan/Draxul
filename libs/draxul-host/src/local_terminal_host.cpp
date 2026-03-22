@@ -28,7 +28,7 @@ LocalTerminalHost::LocalTerminalHost()
     , selection_([this]() -> SelectionManager::Callbacks {
         SelectionManager::Callbacks cbs;
         cbs.set_overlay_cells = [this](std::vector<CellUpdate> cells) {
-            renderer().set_overlay_cells(pane_id(), cells);
+            set_overlay_cells(cells);
         };
         cbs.get_cell = [this](int col, int row) -> const Cell& {
             return grid().get_cell(col, row);

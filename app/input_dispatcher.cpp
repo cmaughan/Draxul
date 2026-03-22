@@ -52,12 +52,37 @@ IHost* InputDispatcher::host_for_mouse_pos(int px, int py)
     return deps_.host;
 }
 
+static bool is_modifier_only_key(const KeyEvent& event)
+{
+    switch (event.keycode)
+    {
+    case SDLK_LSHIFT:
+    case SDLK_RSHIFT:
+    case SDLK_LCTRL:
+    case SDLK_RCTRL:
+    case SDLK_LALT:
+    case SDLK_RALT:
+    case SDLK_LGUI:
+    case SDLK_RGUI:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void InputDispatcher::on_key_event(const KeyEvent& event)
 {
     if (event.pressed)
     {
         if (prefix_active_)
         {
+            // Modifier-only keys (Shift, Ctrl, Alt, Super) don't cancel prefix mode —
+            // the chord's second key may itself require a modifier (e.g. Shift+\ for |).
+            if (is_modifier_only_key(event))
+            {
+                deps_.ui_panel->on_key(event);
+                return;
+            }
             // We consumed the prefix key; now look for a chord match.
             prefix_active_ = false;
             if (deps_.keybindings && deps_.gui_action_handler)
@@ -66,6 +91,7 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
                 {
                     if (binding.prefix_key != 0 && gui_keybinding_matches(binding, event))
                     {
+                        suppress_next_text_input_ = true;
                         deps_.gui_action_handler->execute(binding.action);
                         return; // chord consumed — do not forward to host
                     }
@@ -191,6 +217,11 @@ void InputDispatcher::connect(SdlWindow& window)
     window.on_key = [this](const KeyEvent& e) { on_key_event(e); };
 
     window.on_text_input = [this](const TextInputEvent& event) {
+        if (suppress_next_text_input_)
+        {
+            suppress_next_text_input_ = false;
+            return;
+        }
         deps_.ui_panel->on_text_input(event);
         if (!deps_.ui_panel->wants_keyboard() && deps_.host)
             deps_.host->on_text_input(event);

@@ -39,7 +39,6 @@ public:
     struct HostSlot
     {
         std::unique_ptr<IHost> host;
-        int pane_id = 0;
     };
 
     explicit HostManager(Deps deps);
@@ -49,12 +48,16 @@ public:
     // keep the lambda captures.
     bool create(HostCallbacks callbacks);
 
-    // Creates and initialises an additional host slot with a specific pane_id and viewport.
+    // Creates and initialises an additional host slot with a specific viewport.
     // Returns false on failure; error() contains the reason.
-    bool add_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport);
+    bool add_slot(HostCallbacks callbacks, HostViewport viewport);
 
     // Shuts down and releases all hosts.
     void shutdown();
+
+    // Shuts down and removes a single slot by index.
+    // Adjusts focused_slot_ so it remains valid after the removal.
+    void remove_slot(int index);
 
     // Returns null before create() succeeds or after shutdown().
     IHost* host() const
@@ -69,16 +72,6 @@ public:
         return slots_[static_cast<size_t>(focused_slot_)].host.get();
     }
 
-    IHost* host_for_pane(int pane_id) const
-    {
-        for (const auto& slot : slots_)
-        {
-            if (slot.pane_id == pane_id && slot.host)
-                return slot.host.get();
-        }
-        return nullptr;
-    }
-
     void set_focused_slot(int index)
     {
         focused_slot_ = index;
@@ -87,13 +80,6 @@ public:
     int focused_slot_index() const
     {
         return focused_slot_;
-    }
-
-    int pane_id_for_slot(int index) const
-    {
-        if (index < 0 || index >= static_cast<int>(slots_.size()))
-            return 0;
-        return slots_[static_cast<size_t>(index)].pane_id;
     }
 
     int slot_count() const
@@ -112,7 +98,7 @@ public:
     void set_host(std::unique_ptr<IHost> h)
     {
         if (slots_.empty())
-            slots_.push_back({ std::move(h), 0 });
+            slots_.push_back({ std::move(h) });
         else
             slots_[static_cast<size_t>(focused_slot_)].host = std::move(h);
     }
@@ -123,7 +109,7 @@ public:
     }
 
 private:
-    bool create_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport,
+    bool create_slot(HostCallbacks callbacks, HostViewport viewport,
         HostLaunchOptions launch, bool is_primary);
 
     Deps deps_;

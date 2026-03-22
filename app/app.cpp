@@ -273,11 +273,9 @@ bool App::initialize_host()
     host_deps.text_service = &text_service_;
     host_deps.display_ppi = &display_ppi_;
 
-    // Initialize the split layout with a single pane
+    // Initialize the split layout with a single pane (slot 0)
     auto [pixel_w, pixel_h] = window_.size_pixels();
-    const int pane0_id = renderer_.grid()->alloc_pane(); // returns 0
-    split_layout_.set_single(pane0_id, pixel_w, pixel_h);
-    renderer_.grid()->set_pane_viewport(pane0_id, split_layout_.panes[0].descriptor);
+    split_layout_.set_single(0, pixel_w, pixel_h);
 
     host_deps.get_viewport = [this]() { return current_host_viewport(); };
     host_manager_ = HostManager(std::move(host_deps));
@@ -421,12 +419,27 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             return false;
         }
 
-        // Check that the focused (primary) host is still running
-        if (!host_manager_.host() || !host_manager_.host()->is_running())
-        {
-            running_ = false;
+        // Close any panes whose hosts have exited. Iterate in reverse so removing
+        // a slot doesn't invalidate the remaining indices. If the last pane exits, stop.
+        auto close_dead_panes = [this]() -> bool {
+            for (int i = host_manager_.slot_count() - 1; i >= 0; --i)
+            {
+                IHost* slot_host = host_manager_.host_at(i);
+                if (slot_host && !slot_host->is_running())
+                {
+                    if (host_manager_.slot_count() == 1)
+                    {
+                        running_ = false;
+                        return false;
+                    }
+                    close_pane(i);
+                }
+            }
+            return host_manager_.host() != nullptr;
+        };
+
+        if (!close_dead_panes())
             return false;
-        }
 
         // Pump all host slots
         for (int i = 0; i < host_manager_.slot_count(); ++i)
@@ -436,19 +449,17 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
                 slot_host->pump();
         }
 
-        // Recheck focused host after pumping
-        if (!host_manager_.host()->is_running())
-        {
-            running_ = false;
+        // Re-check after pumping (hosts can die during pump).
+        if (!close_dead_panes())
             return false;
-        }
 
         if (frame_requested_)
         {
             update_diagnostics_panel();
             {
                 const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
-                renderer_.grid()->set_scroll_offset(input_dispatcher_.scroll_fraction() * static_cast<float>(ch));
+                if (auto* host = host_manager_.focused_host())
+                    host->set_scroll_offset(input_dispatcher_.scroll_fraction() * static_cast<float>(ch));
                 input_dispatcher_.clear_scroll_event();
             }
             auto frame_start = std::chrono::steady_clock::now();
@@ -517,11 +528,10 @@ void App::on_resize(int pixel_w, int pixel_h)
         split_layout_.set_single(split_layout_.panes[0].pane_id, pixel_w, pixel_h);
     }
 
-    // Update renderer pane viewports and host viewports
+    // Update host viewports — each host's set_viewport() also updates its handle's scissor rect
     for (int i = 0; i < static_cast<int>(split_layout_.panes.size()); ++i)
     {
         const auto& sp = split_layout_.panes[static_cast<size_t>(i)];
-        renderer_.grid()->set_pane_viewport(sp.pane_id, sp.descriptor);
         IHost* slot_host = host_manager_.host_at(i);
         if (slot_host)
             slot_host->set_viewport(viewport_for_pane(sp.pane_id));
@@ -690,21 +700,34 @@ HostViewport App::viewport_for_pane(int pane_id) const
 void App::split_vertical()
 {
     auto [pixel_w, pixel_h] = window_.size_pixels();
+    DRAXUL_LOG_INFO(LogCategory::App, "split_vertical: window pixels=%dx%d", pixel_w, pixel_h);
 
-    // Allocate a new pane
-    const int new_pane_id = renderer_.grid()->alloc_pane();
+    // Use slot indices as pane IDs: existing pane is slot 0, new pane is slot 1
+    const int pane0_id = split_layout_.panes.empty() ? 0 : split_layout_.panes[0].pane_id;
+    const int new_pane_id = 1;
 
     // Recompute layout as 2-pane vertical split
-    const int pane0_id = split_layout_.panes.empty() ? 0 : split_layout_.panes[0].pane_id;
     split_layout_.set_vertical_2(pane0_id, new_pane_id, pixel_w, pixel_h);
 
-    // Update renderer pane viewports
-    renderer_.grid()->set_pane_viewport(pane0_id, split_layout_.panes[0].descriptor);
-    renderer_.grid()->set_pane_viewport(new_pane_id, split_layout_.panes[1].descriptor);
+    {
+        const auto& d0 = split_layout_.panes[0].descriptor;
+        const auto& d1 = split_layout_.panes[1].descriptor;
+        DRAXUL_LOG_INFO(LogCategory::App,
+            "split_vertical: pane0 desc={x=%d,y=%d,w=%d,h=%d} pane1 desc={x=%d,y=%d,w=%d,h=%d}",
+            d0.pixel_x, d0.pixel_y, d0.pixel_width, d0.pixel_height,
+            d1.pixel_x, d1.pixel_y, d1.pixel_width, d1.pixel_height);
+    }
 
-    // Resize the existing (pane 0) host to its new half-width viewport
+    // Resize the existing (pane 0) host to its new half-width viewport.
+    // set_viewport() also updates that host's handle scissor rect.
     if (host_manager_.host_at(0))
-        host_manager_.host_at(0)->set_viewport(viewport_for_pane(pane0_id));
+    {
+        const HostViewport vp0 = viewport_for_pane(pane0_id);
+        DRAXUL_LOG_INFO(LogCategory::App,
+            "split_vertical: pane0 viewport px=%d py=%d pw=%d ph=%d cols=%d rows=%d",
+            vp0.pixel_x, vp0.pixel_y, vp0.pixel_width, vp0.pixel_height, vp0.cols, vp0.rows);
+        host_manager_.host_at(0)->set_viewport(vp0);
+    }
 
     // Launch a second host for the right-pane
     HostCallbacks callbacks;
@@ -715,12 +738,15 @@ void App::split_vertical()
     callbacks.set_text_input_area = [this](int x, int y, int w, int h) { window_.set_text_input_area(x, y, w, h); };
 
     const HostViewport right_viewport = viewport_for_pane(new_pane_id);
-    if (!host_manager_.add_slot(std::move(callbacks), new_pane_id, right_viewport))
+    DRAXUL_LOG_INFO(LogCategory::App,
+        "split_vertical: pane1 viewport px=%d py=%d pw=%d ph=%d cols=%d rows=%d",
+        right_viewport.pixel_x, right_viewport.pixel_y,
+        right_viewport.pixel_width, right_viewport.pixel_height,
+        right_viewport.cols, right_viewport.rows);
+    if (!host_manager_.add_slot(std::move(callbacks), right_viewport))
     {
         // Rollback on failure
-        renderer_.grid()->free_pane(new_pane_id);
         split_layout_.set_single(pane0_id, pixel_w, pixel_h);
-        renderer_.grid()->set_pane_viewport(pane0_id, split_layout_.panes[0].descriptor);
         if (host_manager_.host_at(0))
             host_manager_.host_at(0)->set_viewport(current_host_viewport());
         return;
@@ -732,6 +758,32 @@ void App::split_vertical()
     host_manager_.set_focused_slot(new_slot_index);
 
     // Update input dispatcher to focus new host
+    input_dispatcher_.set_host(host_manager_.focused_host());
+
+    request_frame();
+}
+
+void App::close_pane(int slot_index)
+{
+    if (host_manager_.slot_count() <= 1)
+        return; // caller must not call this for the last pane
+
+    DRAXUL_LOG_INFO(LogCategory::App, "close_pane: removing slot %d", slot_index);
+
+    // Remove the slot (shuts down its host internally).
+    host_manager_.remove_slot(slot_index);
+
+    // Back to a single-pane layout. The surviving slot is now at index 0; use pane_id 0.
+    auto [pixel_w, pixel_h] = window_.size_pixels();
+    split_layout_.set_single(0, pixel_w, pixel_h);
+    split_layout_.focused_pane_index = 0;
+
+    // Resize the surviving host to the full window.
+    if (host_manager_.host_at(0))
+        host_manager_.host_at(0)->set_viewport(current_host_viewport());
+
+    // Wire input to the surviving host.
+    host_manager_.set_focused_slot(0);
     input_dispatcher_.set_host(host_manager_.focused_host());
 
     request_frame();

@@ -20,8 +20,8 @@
 
 #include <draxul/terminal_host_base.h>
 
+#include "support/fake_renderer.h"
 #include <draxul/host.h>
-#include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
 
@@ -79,68 +79,7 @@ public:
     void set_text_input_area(int, int, int, int) override {}
 };
 
-class ShCrashFakeRenderer final : public IRenderer
-{
-public:
-    bool initialize(IWindow&) override
-    {
-        return true;
-    }
-    void shutdown() override {}
-    bool begin_frame() override
-    {
-        return true;
-    }
-    void end_frame() override {}
-    void set_grid_size(int, int) override {}
-    void update_cells(std::span<const CellUpdate>) override {}
-    void set_overlay_cells(std::span<const CellUpdate>) override {}
-    void set_atlas_texture(const uint8_t*, int, int) override {}
-    void update_atlas_region(int, int, int, int, const uint8_t*) override {}
-    void set_cursor(int, int, const CursorStyle&) override {}
-    void resize(int, int) override {}
-    std::pair<int, int> cell_size_pixels() const override
-    {
-        return { 8, 16 };
-    }
-    void set_cell_size(int, int) override {}
-    void set_ascender(int) override {}
-    int padding() const override
-    {
-        return 0;
-    }
-    void set_default_background(Color) override {}
-    void set_scroll_offset(float) override {}
-    void register_render_pass(std::shared_ptr<IRenderPass>) override {}
-    void unregister_render_pass() override {}
-    bool initialize_imgui_backend() override
-    {
-        return true;
-    }
-    void shutdown_imgui_backend() override {}
-    void rebuild_imgui_font_texture() override {}
-    void begin_imgui_frame() override {}
-    void set_imgui_draw_data(const ImDrawData*) override {}
-    void request_frame_capture() override {}
-    std::optional<CapturedFrame> take_captured_frame() override
-    {
-        return std::nullopt;
-    }
-
-    // Multi-pane API stubs
-    int alloc_pane() override
-    {
-        return 0;
-    }
-    void free_pane(int) override {}
-    void set_pane_viewport(int, const PaneDescriptor&) override {}
-    void set_grid_size(int, int, int) override {}
-    void update_cells(int, std::span<const CellUpdate>) override {}
-    void set_overlay_cells(int, std::span<const CellUpdate>) override {}
-    void set_cursor(int, int, int, const CursorStyle&) override {}
-    void set_default_background(int, Color) override {}
-    void set_scroll_offset(int, float) override {}
-};
+using ShCrashFakeRenderer = draxul::tests::FakeTermRenderer;
 
 // ---------------------------------------------------------------------------
 // FakeShellHost — simulates a shell host whose process can be marked as

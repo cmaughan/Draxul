@@ -101,6 +101,24 @@ private:
     std::unordered_map<std::string, int> ligature_spans_;
 };
 
+// Fake grid handle that records cell update batches.
+class FakeGridHandle final : public IGridHandle
+{
+public:
+    void set_grid_size(int, int) override {}
+    void update_cells(std::span<const CellUpdate> updates) override
+    {
+        update_batches.emplace_back(updates.begin(), updates.end());
+    }
+    void set_overlay_cells(std::span<const CellUpdate>) override {}
+    void set_cursor(int, int, const CursorStyle&) override {}
+    void set_default_background(Color) override {}
+    void set_scroll_offset(float) override {}
+    void set_viewport(const PaneDescriptor&) override {}
+
+    std::vector<std::vector<CellUpdate>> update_batches;
+};
+
 class FakeRenderer final : public IRenderer
 {
 public:
@@ -115,19 +133,9 @@ public:
         return true;
     }
     void end_frame() override {}
-    void set_grid_size(int, int) override {}
-
-    void update_cells(std::span<const CellUpdate> updates) override
+    std::unique_ptr<IGridHandle> create_grid_handle() override
     {
-        update_batches.emplace_back(updates.begin(), updates.end());
-    }
-
-    void set_overlay_cells(std::span<const CellUpdate>) override {}
-
-    // Multi-pane API stubs — route pane-aware calls back to the recording versions
-    void update_cells(int, std::span<const CellUpdate> updates) override
-    {
-        update_batches.emplace_back(updates.begin(), updates.end());
+        return std::make_unique<FakeGridHandle>();
     }
 
     void set_atlas_texture(const uint8_t*, int, int) override
@@ -140,7 +148,6 @@ public:
         ++region_uploads;
     }
 
-    void set_cursor(int, int, const CursorStyle&) override {}
     void resize(int, int) override {}
 
     std::pair<int, int> cell_size_pixels() const override
@@ -171,26 +178,11 @@ public:
     }
 
     void set_default_background(Color) override {}
-    void set_scroll_offset(float) override {}
     void register_render_pass(std::shared_ptr<IRenderPass>) override {}
     void unregister_render_pass() override {}
 
-    // Multi-pane API stubs
-    int alloc_pane() override
-    {
-        return 0;
-    }
-    void free_pane(int) override {}
-    void set_pane_viewport(int, const PaneDescriptor&) override {}
-    void set_grid_size(int, int, int) override {}
-    void set_overlay_cells(int, std::span<const CellUpdate>) override {}
-    void set_cursor(int, int, int, const CursorStyle&) override {}
-    void set_default_background(int, Color) override {}
-    void set_scroll_offset(int, float) override {}
-
     int full_atlas_uploads = 0;
     int region_uploads = 0;
-    std::vector<std::vector<CellUpdate>> update_batches;
 };
 
 Grid make_grid()
@@ -221,8 +213,10 @@ TEST_CASE("grid rendering pipeline retries once after an atlas reset", "[grid]")
     HighlightTable highlights;
     FakeGlyphAtlas atlas(1);
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
 
     pipeline.flush();
 
@@ -243,13 +237,13 @@ TEST_CASE("grid rendering pipeline retries once after an atlas reset", "[grid]")
     INFO("retry should not fall back to a region upload");
     REQUIRE(renderer.region_uploads == 0);
     INFO("successful retry should emit one cell update batch");
-    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 1);
+    REQUIRE(static_cast<int>(handle.update_batches.size()) == 1);
     INFO("both dirty cells should be sent to the renderer");
-    REQUIRE(static_cast<int>(renderer.update_batches[0].size()) == 2);
+    REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("first glyph survives the retry");
-    REQUIRE(renderer.update_batches[0][0].glyph.width == 7);
+    REQUIRE(handle.update_batches[0][0].glyph.width == 7);
     INFO("second glyph survives the retry");
-    REQUIRE(renderer.update_batches[0][1].glyph.width == 8);
+    REQUIRE(handle.update_batches[0][1].glyph.width == 8);
     INFO("successful retry clears the grid dirty set");
     REQUIRE(grid.dirty_cell_count() == size_t(0));
 }
@@ -260,15 +254,17 @@ TEST_CASE("grid rendering pipeline gives up after a second atlas reset", "[grid]
     HighlightTable highlights;
     FakeGlyphAtlas atlas(2);
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
 
     pipeline.flush();
 
     INFO("the retry loop should stop after two attempts");
     REQUIRE(atlas.resolve_calls == 4);
     INFO("double reset should not emit partial cell updates");
-    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 0);
+    REQUIRE(static_cast<int>(handle.update_batches.size()) == 0);
     INFO("no atlas upload happens when both attempts reset");
     REQUIRE(renderer.full_atlas_uploads == 0);
     INFO("cells stay dirty so the next flush can retry later");
@@ -281,8 +277,10 @@ TEST_CASE("grid rendering pipeline combines two-cell ligatures into a leader and
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
     pipeline.set_enable_ligatures(true);
 
     pipeline.flush();
@@ -294,13 +292,13 @@ TEST_CASE("grid rendering pipeline combines two-cell ligatures into a leader and
     INFO("combined ligature text should be shaped");
     REQUIRE(atlas.resolved_texts[0] == std::string("->"));
     INFO("ligature flush emits one update batch");
-    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 1);
+    REQUIRE(static_cast<int>(handle.update_batches.size()) == 1);
     INFO("leader and continuation cells should both be updated");
-    REQUIRE(static_cast<int>(renderer.update_batches[0].size()) == 2);
+    REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("leader cell stores the ligature atlas region");
-    REQUIRE(renderer.update_batches[0][0].glyph.width == 18);
+    REQUIRE(handle.update_batches[0][0].glyph.width == 18);
     INFO("continuation cell renders no glyph");
-    REQUIRE(renderer.update_batches[0][1].glyph.width == 0);
+    REQUIRE(handle.update_batches[0][1].glyph.width == 0);
 }
 
 TEST_CASE("grid rendering pipeline redraws the leader when a continuation change breaks a ligature", "[grid]")
@@ -309,15 +307,17 @@ TEST_CASE("grid rendering pipeline redraws the leader when a continuation change
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
     pipeline.set_enable_ligatures(true);
 
     pipeline.flush();
 
     atlas.resolve_calls = 0;
     atlas.resolved_texts.clear();
-    renderer.update_batches.clear();
+    handle.update_batches.clear();
 
     grid.set_cell(1, 0, "X", 0, false);
     pipeline.flush();
@@ -331,11 +331,11 @@ TEST_CASE("grid rendering pipeline redraws the leader when a continuation change
     INFO("changed continuation cell is shaped normally");
     REQUIRE(atlas.resolved_texts[1] == std::string("X"));
     INFO("fallback draw emits one update batch");
-    REQUIRE(static_cast<int>(renderer.update_batches.size()) == 1);
+    REQUIRE(static_cast<int>(handle.update_batches.size()) == 1);
     INFO("both cells are updated to clear the old ligature");
-    REQUIRE(static_cast<int>(renderer.update_batches[0].size()) == 2);
+    REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("leader redraw restores a standalone glyph");
-    REQUIRE(renderer.update_batches[0][0].glyph.width > 0);
+    REQUIRE(handle.update_batches[0][0].glyph.width > 0);
     INFO("changed cell restores its standalone glyph");
-    REQUIRE(renderer.update_batches[0][1].glyph.width > 0);
+    REQUIRE(handle.update_batches[0][1].glyph.width > 0);
 }

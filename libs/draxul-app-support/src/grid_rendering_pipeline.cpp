@@ -84,9 +84,9 @@ void GridRenderingPipeline::set_renderer(IGridRenderer* renderer)
     renderer_ = renderer;
 }
 
-void GridRenderingPipeline::set_pane_id(int pane_id)
+void GridRenderingPipeline::set_grid_handle(IGridHandle* handle)
 {
-    pane_id_ = pane_id;
+    grid_handle_ = handle;
 }
 
 void GridRenderingPipeline::set_enable_ligatures(bool enable)
@@ -159,7 +159,7 @@ void GridRenderingPipeline::build_cell_updates(const std::vector<Grid::DirtyCell
 
 void GridRenderingPipeline::flush()
 {
-    if (!renderer_)
+    if (!renderer_ || !grid_handle_)
         return;
 
     for (int attempt = 0; attempt < 2; attempt++)
@@ -193,7 +193,7 @@ void GridRenderingPipeline::flush()
         if (force_full_atlas_upload_ || atlas_updated)
             upload_atlas();
 
-        renderer_->update_cells(pane_id_, updates);
+        grid_handle_->update_cells(updates);
         grid_.clear_dirty();
         return;
     }

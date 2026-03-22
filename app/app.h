@@ -65,6 +65,7 @@ private:
     HostViewport current_host_viewport() const;
     HostViewport viewport_for_pane(int pane_id) const;
     void split_vertical();
+    void close_pane(int slot_index);
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
     double average_frame_ms() const;
 

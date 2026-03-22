@@ -6,6 +6,7 @@
 #include <backends/imgui_impl_metal.h>
 #include <cstring>
 #include <draxul/log.h>
+#include <draxul/pane_descriptor.h>
 #include <draxul/window.h>
 #include <imgui.h>
 
@@ -27,62 +28,137 @@ NSUInteger align_capture_row_bytes(NSUInteger width)
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// MetalGridHandle — per-host grid handle owning GPU buffer + cell state.
+// ---------------------------------------------------------------------------
+class MetalGridHandle final : public IGridHandle
+{
+public:
+    MetalGridHandle(MetalRenderer& renderer, id<MTLDevice> device, int padding)
+        : renderer_(renderer)
+        , padding_(padding)
+    {
+        // Allocate an initial buffer (80x24 cells)
+        const size_t initial_size = 80 * 24 * sizeof(GpuCell);
+        buffer_.reset([device newBufferWithLength:initial_size options:MTLResourceStorageModeShared]);
+        renderer_.grid_handles_.push_back(this);
+    }
+
+    ~MetalGridHandle() override
+    {
+        auto& handles = renderer_.grid_handles_;
+        handles.erase(std::remove(handles.begin(), handles.end(), this), handles.end());
+        // buffer_ released by ObjCRef destructor
+    }
+
+    void set_grid_size(int cols, int rows) override
+    {
+        DRAXUL_LOG_INFO(LogCategory::Renderer,
+            "MetalGridHandle(%p) set_grid_size: cols=%d rows=%d", (void*)this, cols, rows);
+        state_.set_grid_size(cols, rows, padding_);
+
+        // Resize GPU buffer to fit the new cell count
+        const size_t required = state_.buffer_size_bytes();
+        id<MTLBuffer> existing = buffer_.get();
+        if (!existing || [existing length] < required)
+        {
+            buffer_.reset([renderer_.device_.get() newBufferWithLength:required
+                                                               options:MTLResourceStorageModeShared]);
+        }
+        upload_dirty();
+    }
+
+    void update_cells(std::span<const CellUpdate> updates) override
+    {
+        state_.update_cells(updates);
+        upload_dirty();
+    }
+
+    void set_overlay_cells(std::span<const CellUpdate> updates) override
+    {
+        state_.set_overlay_cells(updates);
+        upload_dirty();
+    }
+
+    void set_cursor(int col, int row, const CursorStyle& style) override
+    {
+        state_.set_cursor(col, row, style);
+    }
+
+    void set_default_background(Color bg) override
+    {
+        state_.set_default_background(bg);
+    }
+
+    void set_scroll_offset(float px) override
+    {
+        scroll_offset_px_ = px;
+    }
+
+    void set_viewport(const PaneDescriptor& desc) override
+    {
+        DRAXUL_LOG_INFO(LogCategory::Renderer,
+            "MetalGridHandle(%p) set_viewport: x=%d y=%d w=%d h=%d",
+            (void*)this, desc.pixel_x, desc.pixel_y, desc.pixel_width, desc.pixel_height);
+        descriptor_ = desc;
+    }
+
+    // Internal — called by MetalRenderer frame lifecycle
+    void set_cell_size(int w, int h)
+    {
+        state_.set_cell_size(w, h);
+    }
+    void set_ascender(int a)
+    {
+        state_.set_ascender(a);
+    }
+    void restore_cursor()
+    {
+        state_.restore_cursor();
+    }
+    void apply_cursor()
+    {
+        state_.apply_cursor();
+    }
+    void upload_dirty()
+    {
+        id<MTLBuffer> buf = buffer_.get();
+        if (!buf)
+            return;
+
+        auto* bytes = static_cast<std::byte*>([buf contents]);
+        if (state_.has_dirty_cells())
+            state_.copy_dirty_cells_to(bytes + state_.dirty_cell_offset_bytes());
+        if (state_.overlay_region_dirty())
+            state_.copy_overlay_region_to(bytes + state_.overlay_offset_bytes());
+        state_.clear_dirty();
+    }
+
+    RendererState state_;
+    ObjCRef<id<MTLBuffer>> buffer_;
+    PaneDescriptor descriptor_;
+    float scroll_offset_px_ = 0.f;
+
+private:
+    MetalRenderer& renderer_;
+    int padding_ = 4;
+};
+
+// ---------------------------------------------------------------------------
+// MetalRenderer
+// ---------------------------------------------------------------------------
+
 MetalRenderer::MetalRenderer(int atlas_size)
     : atlas_size_(atlas_size)
 {
-    // Panes are allocated on-demand via alloc_pane(). The first call returns 0,
-    // which matches the hardcoded pane_id=0 used by HostManager::create().
 }
+
 MetalRenderer::~MetalRenderer() = default;
-
-size_t MetalRenderer::compute_total_buffer_cells() const
-{
-    size_t total = 0;
-    for (const auto& pane : panes_)
-    {
-        if (pane.active)
-            total += pane.state.total_cells() + RendererState::OVERLAY_CELL_CAPACITY + 1;
-    }
-    return total;
-}
-
-size_t MetalRenderer::pane_cell_offset(int pane_id) const
-{
-    size_t offset = 0;
-    for (int i = 0; i < pane_id; ++i)
-    {
-        if (panes_[static_cast<size_t>(i)].active)
-            offset += panes_[static_cast<size_t>(i)].state.total_cells() + RendererState::OVERLAY_CELL_CAPACITY + 1;
-    }
-    return offset;
-}
 
 void MetalRenderer::upload_dirty_state()
 {
-    id<MTLBuffer> buf = grid_buffer_.get();
-    if (!buf)
-        return;
-
-    auto* bytes = static_cast<std::byte*>([buf contents]);
-    for (int i = 0; i < static_cast<int>(panes_.size()); ++i)
-    {
-        auto& pane = panes_[static_cast<size_t>(i)];
-        if (!pane.active)
-            continue;
-        const size_t pane_byte_offset = pane_cell_offset(i) * sizeof(GpuCell);
-
-        if (pane.state.has_dirty_cells())
-        {
-            pane.state.copy_dirty_cells_to(bytes + pane_byte_offset + pane.state.dirty_cell_offset_bytes());
-        }
-
-        if (pane.state.overlay_region_dirty())
-        {
-            pane.state.copy_overlay_region_to(bytes + pane_byte_offset + pane.state.overlay_offset_bytes());
-        }
-
-        pane.state.clear_dirty();
-    }
+    for (auto* handle : grid_handles_)
+        handle->upload_dirty();
 }
 
 bool MetalRenderer::ensure_capture_buffer(size_t width, size_t height)
@@ -247,16 +323,7 @@ bool MetalRenderer::initialize(IWindow& window)
         atlas_sampler_.reset([device newSamplerStateWithDescriptor:sampDesc]);
     }
 
-    // Create grid buffer (start with 80x24)
-    {
-        size_t initial_size = 80 * 24 * sizeof(GpuCell);
-        grid_buffer_.reset([device newBufferWithLength:initial_size
-                                               options:MTLResourceStorageModeShared]);
-    }
-
-    // Create frame semaphore for double buffering
-    // Use count of 1 since we have a single shared grid buffer —
-    // must wait for GPU to finish reading before CPU modifies it
+    // Create frame semaphore (count=1 — wait for previous frame's GPU work before writing buffers)
     frame_semaphore_.reset(dispatch_semaphore_create(1));
 
     DRAXUL_LOG_INFO(LogCategory::Renderer, "Metal renderer initialized (%s)", [[device name] UTF8String]);
@@ -274,10 +341,8 @@ void MetalRenderer::shutdown()
     }
 
     // Release Metal objects explicitly in reverse-dependency order.
-    // The ObjCRef destructors handle the actual CFRelease.
     atlas_sampler_.reset();
     atlas_texture_.reset();
-    grid_buffer_.reset();
     capture_buffer_.reset();
     fg_pipeline_.reset();
     bg_pipeline_.reset();
@@ -287,19 +352,9 @@ void MetalRenderer::shutdown()
     device_.reset();
 }
 
-void MetalRenderer::set_grid_size(int cols, int rows)
+std::unique_ptr<IGridHandle> MetalRenderer::create_grid_handle()
 {
-    set_grid_size(0, cols, rows);
-}
-
-void MetalRenderer::update_cells(std::span<const CellUpdate> updates)
-{
-    update_cells(0, updates);
-}
-
-void MetalRenderer::set_overlay_cells(std::span<const CellUpdate> updates)
-{
-    set_overlay_cells(0, updates);
+    return std::make_unique<MetalGridHandle>(*this, device_.get(), padding_);
 }
 
 void MetalRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
@@ -314,11 +369,6 @@ void MetalRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_
     id<MTLTexture> tex = atlas_texture_.get();
     MTLRegion region = MTLRegionMake2D(x, y, w, h);
     [tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:w * 4];
-}
-
-void MetalRenderer::set_cursor(int col, int row, const CursorStyle& style)
-{
-    set_cursor(0, col, row, style);
 }
 
 void MetalRenderer::resize(int pixel_w, int pixel_h)
@@ -337,21 +387,15 @@ void MetalRenderer::set_cell_size(int w, int h)
 {
     cell_w_ = w;
     cell_h_ = h;
-    for (auto& pane : panes_)
-    {
-        if (pane.active)
-            pane.state.set_cell_size(w, h);
-    }
+    for (auto* handle : grid_handles_)
+        handle->set_cell_size(w, h);
 }
 
 void MetalRenderer::set_ascender(int a)
 {
     ascender_ = a;
-    for (auto& pane : panes_)
-    {
-        if (pane.active)
-            pane.state.set_ascender(a);
-    }
+    for (auto* handle : grid_handles_)
+        handle->set_ascender(a);
 }
 
 void MetalRenderer::set_default_background(Color bg)
@@ -359,12 +403,6 @@ void MetalRenderer::set_default_background(Color bg)
     clear_r_ = bg.r;
     clear_g_ = bg.g;
     clear_b_ = bg.b;
-    set_default_background(0, bg);
-}
-
-void MetalRenderer::set_scroll_offset(float px)
-{
-    set_scroll_offset(0, px);
 }
 
 bool MetalRenderer::initialize_imgui_backend()
@@ -389,9 +427,6 @@ void MetalRenderer::shutdown_imgui_backend()
     imgui_draw_data_ = nullptr;
     imgui_initialized_ = false;
 
-    // Guard per-context: only call Shutdown if the current context has a
-    // backend attached. This allows the method to be called once per context
-    // (e.g. MegaCityHost then UiPanel) without double-free or null-deref.
     if (ImGui::GetCurrentContext() == nullptr)
         return;
     if (ImGui::GetIO().BackendRendererUserData == nullptr)
@@ -444,11 +479,8 @@ bool MetalRenderer::begin_frame()
     dispatch_semaphore_t sema = frame_semaphore_.get();
     dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
-    for (auto& pane : panes_)
-    {
-        if (pane.active)
-            pane.state.restore_cursor();
-    }
+    for (auto* handle : grid_handles_)
+        handle->restore_cursor();
     upload_dirty_state();
 
     id<CAMetalDrawable> drawable = [layer_.get() nextDrawable];
@@ -464,11 +496,8 @@ bool MetalRenderer::begin_frame()
 
 void MetalRenderer::end_frame()
 {
-    for (auto& pane : panes_)
-    {
-        if (pane.active)
-            pane.state.apply_cursor();
-    }
+    for (auto* handle : grid_handles_)
+        handle->apply_cursor();
     upload_dirty_state();
 
     id<CAMetalDrawable> drawable = current_drawable_.take();
@@ -484,27 +513,22 @@ void MetalRenderer::end_frame()
 
     id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpDesc];
 
-    id<MTLBuffer> gridBuf = grid_buffer_.get();
     id<MTLTexture> atlasTex = atlas_texture_.get();
     id<MTLSamplerState> sampler = atlas_sampler_.get();
 
-    // Draw each active pane
-    for (int pane_id = 0; pane_id < static_cast<int>(panes_.size()); ++pane_id)
+    // Draw each active grid handle
+    for (auto* handle : grid_handles_)
     {
-        const auto& pane = panes_[static_cast<size_t>(pane_id)];
-        if (!pane.active)
+        id<MTLBuffer> gridBuf = handle->buffer_.get();
+        if (!gridBuf)
             continue;
 
-        const int bg_instances = pane.state.bg_instances();
-        const int fg_instances = pane.state.fg_instances();
+        const int bg_instances = handle->state_.bg_instances();
         if (bg_instances <= 0)
             continue;
 
-        // Compute buffer offset for this pane's cells (in bytes)
-        const NSUInteger pane_offset_bytes = pane_cell_offset(pane_id) * sizeof(GpuCell);
-
-        // Set scissor rect to clip this pane to its screen region
-        const PaneDescriptor& desc = pane.descriptor;
+        // Set scissor rect to clip this host to its screen region
+        const PaneDescriptor& desc = handle->descriptor_;
         if (desc.pixel_width > 0 && desc.pixel_height > 0)
         {
             MTLScissorRect scissor;
@@ -524,14 +548,14 @@ void MetalRenderer::end_frame()
         } push_data = {
             (float)pixel_w_, (float)pixel_h_,
             (float)cell_w_, (float)cell_h_,
-            pane.scroll_offset_px,
+            handle->scroll_offset_px_,
             (float)desc.pixel_x,
             (float)desc.pixel_y
         };
 
-        // Background pass
+        // Background pass (each handle's buffer starts at offset 0)
         [encoder setRenderPipelineState:bg_pipeline_.get()];
-        [encoder setVertexBuffer:gridBuf offset:pane_offset_bytes atIndex:0];
+        [encoder setVertexBuffer:gridBuf offset:0 atIndex:0];
         [encoder setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
@@ -539,8 +563,9 @@ void MetalRenderer::end_frame()
                   instanceCount:bg_instances];
 
         // Foreground pass
+        const int fg_instances = handle->state_.fg_instances();
         [encoder setRenderPipelineState:fg_pipeline_.get()];
-        [encoder setVertexBuffer:gridBuf offset:pane_offset_bytes atIndex:0];
+        [encoder setVertexBuffer:gridBuf offset:0 atIndex:0];
         [encoder setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
         [encoder setFragmentTexture:atlasTex atIndex:0];
         [encoder setFragmentSamplerState:sampler atIndex:0];
@@ -648,110 +673,6 @@ void MetalRenderer::register_render_pass(std::shared_ptr<IRenderPass> pass)
 void MetalRenderer::unregister_render_pass()
 {
     render_pass_.reset();
-}
-
-// ---------------------------------------------------------------------------
-// Multi-pane API
-// ---------------------------------------------------------------------------
-
-int MetalRenderer::alloc_pane()
-{
-    // Look for an inactive slot first
-    for (int i = 0; i < static_cast<int>(panes_.size()); ++i)
-    {
-        if (!panes_[static_cast<size_t>(i)].active)
-        {
-            panes_[static_cast<size_t>(i)] = PaneEntry{};
-            panes_[static_cast<size_t>(i)].active = true;
-            return i;
-        }
-    }
-    panes_.emplace_back();
-    return static_cast<int>(panes_.size()) - 1;
-}
-
-void MetalRenderer::free_pane(int pane_id)
-{
-    if (pane_id == 0)
-        return; // Pane 0 is always active
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].active = false;
-}
-
-void MetalRenderer::set_pane_viewport(int pane_id, const PaneDescriptor& desc)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].descriptor = desc;
-}
-
-void MetalRenderer::set_grid_size(int pane_id, int cols, int rows)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-
-    panes_[static_cast<size_t>(pane_id)].state.set_grid_size(cols, rows, padding_);
-
-    // When a pane is resized its total_cells() changes, which shifts the GPU buffer
-    // offsets for all subsequent panes. Force-dirty all other active panes so their
-    // cells are re-uploaded at their new offsets.
-    for (int i = 0; i < static_cast<int>(panes_.size()); ++i)
-    {
-        if (i != pane_id && panes_[static_cast<size_t>(i)].active)
-            panes_[static_cast<size_t>(i)].state.force_dirty();
-    }
-
-    // Resize the shared GPU buffer to accommodate all panes
-    const size_t total_cells = compute_total_buffer_cells();
-    const size_t required = total_cells * sizeof(GpuCell);
-
-    id<MTLBuffer> existing = grid_buffer_.get();
-    if (!existing || [existing length] < required)
-    {
-        grid_buffer_.reset([device_.get() newBufferWithLength:required
-                                                      options:MTLResourceStorageModeShared]);
-    }
-
-    upload_dirty_state();
-}
-
-void MetalRenderer::update_cells(int pane_id, std::span<const CellUpdate> updates)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].state.update_cells(updates);
-    upload_dirty_state();
-}
-
-void MetalRenderer::set_overlay_cells(int pane_id, std::span<const CellUpdate> updates)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].state.set_overlay_cells(updates);
-    upload_dirty_state();
-}
-
-void MetalRenderer::set_cursor(int pane_id, int col, int row, const CursorStyle& style)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].state.set_cursor(col, row, style);
-}
-
-void MetalRenderer::set_default_background(int pane_id, Color bg)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].bg_color = bg;
-    panes_[static_cast<size_t>(pane_id)].state.set_default_background(bg);
-}
-
-void MetalRenderer::set_scroll_offset(int pane_id, float px)
-{
-    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
-        return;
-    panes_[static_cast<size_t>(pane_id)].scroll_offset_px = px;
 }
 
 } // namespace draxul

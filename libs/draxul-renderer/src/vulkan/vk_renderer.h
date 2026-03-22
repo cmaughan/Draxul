@@ -3,13 +3,15 @@
 #include "vk_buffers.h"
 #include "vk_context.h"
 #include "vk_pipeline.h"
-#include <draxul/pane_descriptor.h>
 #include <draxul/renderer.h>
 #include <draxul/renderer_state.h>
 #include <optional>
 
 namespace draxul
 {
+
+// VkGridHandle is fully defined in vk_renderer.cpp.
+class VkGridHandle;
 
 class VkRenderer : public IRenderer
 {
@@ -22,12 +24,9 @@ public:
     void shutdown() override;
     bool begin_frame() override;
     void end_frame() override;
-    void set_grid_size(int cols, int rows) override;
-    void update_cells(std::span<const CellUpdate> updates) override;
-    void set_overlay_cells(std::span<const CellUpdate> updates) override;
+    std::unique_ptr<IGridHandle> create_grid_handle() override;
     void set_atlas_texture(const uint8_t* data, int w, int h) override;
     void update_atlas_region(int x, int y, int w, int h, const uint8_t* data) override;
-    void set_cursor(int col, int row, const CursorStyle& style) override;
     void resize(int pixel_w, int pixel_h) override;
     std::pair<int, int> cell_size_pixels() const override;
     void set_cell_size(int w, int h) override;
@@ -44,45 +43,21 @@ public:
         return padding_;
     }
     void set_default_background(Color bg) override;
-    void set_scroll_offset(float px) override;
-
-    // Multi-pane API (stub — Vulkan backend is single-pane for now)
-    int alloc_pane() override
-    {
-        return 0;
-    }
-    void free_pane(int /*pane_id*/) override {}
-    void set_pane_viewport(int /*pane_id*/, const PaneDescriptor& /*desc*/) override {}
-    void set_grid_size(int /*pane_id*/, int cols, int rows) override
-    {
-        set_grid_size(cols, rows);
-    }
-    void update_cells(int /*pane_id*/, std::span<const CellUpdate> updates) override
-    {
-        update_cells(updates);
-    }
-    void set_overlay_cells(int /*pane_id*/, std::span<const CellUpdate> updates) override
-    {
-        set_overlay_cells(updates);
-    }
-    void set_cursor(int /*pane_id*/, int col, int row, const CursorStyle& style) override
-    {
-        set_cursor(col, row, style);
-    }
-    void set_default_background(int /*pane_id*/, Color bg) override
-    {
-        set_default_background(bg);
-    }
-    void set_scroll_offset(int /*pane_id*/, float px) override
-    {
-        set_scroll_offset(px);
-    }
 
     // I3DRenderer
     void register_render_pass(std::shared_ptr<IRenderPass> pass) override;
     void unregister_render_pass() override;
 
 private:
+    friend class VkGridHandle;
+
+    // Internal single-pane grid methods (called by VkGridHandle).
+    void set_grid_size(int cols, int rows);
+    void update_cells(std::span<const CellUpdate> updates);
+    void set_overlay_cells(std::span<const CellUpdate> updates);
+    void set_cursor(int col, int row, const CursorStyle& style);
+    void set_state_background(Color bg);
+
     bool create_sync_objects();
     bool create_command_buffers();
     bool create_descriptor_pool(const VkPipelineManager& pipeline, VkDescriptorPool& pool,

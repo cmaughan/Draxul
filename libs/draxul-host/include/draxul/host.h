@@ -104,6 +104,10 @@ public:
     virtual Color default_background() const = 0;
     virtual HostRuntimeState runtime_state() const = 0;
     virtual HostDebugState debug_state() const = 0;
+
+    // Apply a sub-pixel vertical scroll offset to this host's rendered grid.
+    // Grid hosts delegate to their IGridHandle; non-grid hosts ignore this.
+    virtual void set_scroll_offset(float /*px*/) {}
 };
 
 std::unique_ptr<IHost> create_host(HostKind kind);

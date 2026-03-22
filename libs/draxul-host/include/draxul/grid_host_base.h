@@ -7,6 +7,7 @@
 #include <draxul/highlight.h>
 #include <draxul/host.h>
 #include <memory>
+#include <span>
 #include <string_view>
 
 namespace draxul
@@ -18,6 +19,7 @@ public:
     bool initialize(const HostContext& context, HostCallbacks callbacks) override;
     void set_viewport(const HostViewport& viewport) override;
     void on_font_metrics_changed() override;
+    void set_scroll_offset(float px) override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
     // I3DHost — grid hosts ignore 3D by default; override to add a background pass.
     void attach_3d_renderer(I3DRenderer&) override
@@ -48,13 +50,6 @@ public:
     Color default_background() const override;
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;
-
-    // Pane assignment — called by HostManager before initialize().
-    void set_pane_id(int id);
-    int pane_id() const
-    {
-        return pane_id_;
-    }
 
 protected:
     virtual bool initialize_host() = 0;
@@ -113,6 +108,7 @@ protected:
     void apply_grid_size(int cols, int rows);
     void force_full_redraw();
     void flush_grid();
+    void set_overlay_cells(std::span<const CellUpdate> cells);
     void mark_activity();
     bool advance_cursor_blink(std::chrono::steady_clock::time_point now);
     void set_cursor_position(int col, int row);
@@ -132,7 +128,7 @@ private:
     IWindow* window_ = nullptr;
     IGridRenderer* renderer_ = nullptr;
     TextService* text_service_ = nullptr;
-    int pane_id_ = 0;
+    std::unique_ptr<IGridHandle> grid_handle_;
     HostLaunchOptions launch_options_;
     HostViewport viewport_ = {};
     HostCallbacks callbacks_;

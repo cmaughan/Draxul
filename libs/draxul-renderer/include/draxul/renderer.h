@@ -15,43 +15,54 @@ namespace draxul
 class IWindow;
 
 // ---------------------------------------------------------------------------
+// IGridHandle — per-host grid rendering handle.
+// Each host that renders a grid owns one IGridHandle. The handle encapsulates
+// the host's GPU buffer, CPU-side cell state, and screen clip rect
+// (PaneDescriptor). All per-host grid operations go through this handle;
+// the renderer itself is only responsible for the swapchain and global
+// resources (atlas texture, cell metrics, frame lifecycle).
+// ---------------------------------------------------------------------------
+class IGridHandle
+{
+public:
+    virtual ~IGridHandle() = default;
+    virtual void set_grid_size(int cols, int rows) = 0;
+    virtual void update_cells(std::span<const CellUpdate> updates) = 0;
+    virtual void set_overlay_cells(std::span<const CellUpdate> updates) = 0;
+    virtual void set_cursor(int col, int row, const CursorStyle& style) = 0;
+    virtual void set_default_background(Color bg) = 0;
+    virtual void set_scroll_offset(float px) = 0;
+    // Update the screen region (scissor rect) for this host's draw calls.
+    // desc is in physical pixels; pass {0,0,0,0} to use the full window.
+    virtual void set_viewport(const PaneDescriptor& desc) = 0;
+};
+
+// ---------------------------------------------------------------------------
 // IGridRenderer — grid rendering contract, extends I3DRenderer.
 // The renderer hierarchy is: IBaseRenderer → I3DRenderer → IGridRenderer.
 // Concrete backends (MetalRenderer, VkRenderer) implement IGridRenderer,
 // which transitively satisfies both I3DRenderer and IBaseRenderer.
+//
+// Each host calls create_grid_handle() once during initialisation to obtain
+// its own IGridHandle. All per-cell state and GPU memory live in the handle;
+// IGridRenderer exposes only global, shared resources.
 // ---------------------------------------------------------------------------
 class IGridRenderer : public I3DRenderer
 {
 public:
     ~IGridRenderer() override = default;
-    // Single-pane (pane 0) API — kept for backward compatibility.
-    virtual void set_grid_size(int cols, int rows) = 0;
-    virtual void update_cells(std::span<const CellUpdate> updates) = 0;
-    virtual void set_overlay_cells(std::span<const CellUpdate> updates) = 0;
+
+    // Create a per-host grid handle that owns its own GPU buffer and state.
+    // The caller (GridHostBase) owns the returned unique_ptr.
+    virtual std::unique_ptr<IGridHandle> create_grid_handle() = 0;
+
+    // Global (shared across all handles) — atlas texture and cell metrics.
     virtual void set_atlas_texture(const uint8_t* data, int w, int h) = 0;
     virtual void update_atlas_region(int x, int y, int w, int h, const uint8_t* data) = 0;
-    virtual void set_cursor(int col, int row, const CursorStyle& style) = 0;
     virtual std::pair<int, int> cell_size_pixels() const = 0;
     virtual void set_cell_size(int w, int h) = 0;
     virtual void set_ascender(int a) = 0;
     virtual int padding() const = 0;
-    virtual void set_scroll_offset(float px) = 0;
-
-    // Bring single-pane methods into scope explicitly to avoid name hiding
-    // when the pane-aware overloads below share the same method name.
-    using IBaseRenderer::set_default_background;
-
-    // Multi-pane API. pane_id 0 = the default pane (always exists).
-    virtual int alloc_pane() = 0;
-    virtual void free_pane(int pane_id) = 0;
-    virtual void set_pane_viewport(int pane_id, const PaneDescriptor& desc) = 0;
-    // pane-aware overloads (these shadow the single-pane virtuals above via same name)
-    virtual void set_grid_size(int pane_id, int cols, int rows) = 0;
-    virtual void update_cells(int pane_id, std::span<const CellUpdate> updates) = 0;
-    virtual void set_overlay_cells(int pane_id, std::span<const CellUpdate> updates) = 0;
-    virtual void set_cursor(int pane_id, int col, int row, const CursorStyle& style) = 0;
-    virtual void set_default_background(int pane_id, Color bg) = 0;
-    virtual void set_scroll_offset(int pane_id, float px) = 0;
 };
 
 // ---------------------------------------------------------------------------

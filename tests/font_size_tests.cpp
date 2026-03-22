@@ -88,6 +88,18 @@ private:
     std::unordered_map<std::string, AtlasRegion> glyphs_;
 };
 
+class FakeGridHandle final : public IGridHandle
+{
+public:
+    void set_grid_size(int, int) override {}
+    void update_cells(std::span<const CellUpdate>) override {}
+    void set_overlay_cells(std::span<const CellUpdate>) override {}
+    void set_cursor(int, int, const CursorStyle&) override {}
+    void set_default_background(Color) override {}
+    void set_scroll_offset(float) override {}
+    void set_viewport(const PaneDescriptor&) override {}
+};
+
 class FakeRenderer final : public IRenderer
 {
 public:
@@ -105,11 +117,10 @@ public:
 
     void end_frame() override {}
 
-    void set_grid_size(int, int) override {}
-
-    void update_cells(std::span<const CellUpdate>) override {}
-
-    void set_overlay_cells(std::span<const CellUpdate>) override {}
+    std::unique_ptr<IGridHandle> create_grid_handle() override
+    {
+        return std::make_unique<FakeGridHandle>();
+    }
 
     void set_atlas_texture(const uint8_t*, int, int) override
     {
@@ -120,8 +131,6 @@ public:
     {
         ++region_uploads;
     }
-
-    void set_cursor(int, int, const CursorStyle&) override {}
 
     void resize(int, int) override {}
 
@@ -160,23 +169,8 @@ public:
     }
 
     void set_default_background(Color) override {}
-    void set_scroll_offset(float) override {}
     void register_render_pass(std::shared_ptr<IRenderPass>) override {}
     void unregister_render_pass() override {}
-
-    // Multi-pane API stubs
-    int alloc_pane() override
-    {
-        return 0;
-    }
-    void free_pane(int) override {}
-    void set_pane_viewport(int, const PaneDescriptor&) override {}
-    void set_grid_size(int, int, int) override {}
-    void update_cells(int, std::span<const CellUpdate>) override {}
-    void set_overlay_cells(int, std::span<const CellUpdate>) override {}
-    void set_cursor(int, int, int, const CursorStyle&) override {}
-    void set_default_background(int, Color) override {}
-    void set_scroll_offset(int, float) override {}
 
     int full_atlas_uploads = 0;
     int region_uploads = 0;
@@ -245,8 +239,10 @@ TEST_CASE("font size change: force_full_atlas_upload triggers a full atlas textu
     atlas.register_glyph("B", { 0.25f, 0.0f, 0.5f, 0.5f, 2, 3, 8, 10, false });
 
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
 
     // Perform a first flush to settle the baseline state.
     pipeline.flush();
@@ -275,8 +271,10 @@ TEST_CASE("font size change: force_full_atlas_upload with no dirty cells still s
     atlas.register_glyph("B", { 0.25f, 0.0f, 0.5f, 0.5f, 2, 3, 8, 10, false });
 
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
 
     // First flush clears dirty state.
     pipeline.flush();
@@ -376,8 +374,10 @@ TEST_CASE("font size change cascade: dirty grid plus forced atlas upload produce
     atlas.register_glyph("A", { 0.0f, 0.0f, 0.25f, 0.5f, 1, 2, 7, 9, false });
 
     FakeRenderer renderer;
+    FakeGridHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
+    pipeline.set_grid_handle(&handle);
 
     // Baseline flush — clears dirty state, establishes initial uploads.
     pipeline.flush();

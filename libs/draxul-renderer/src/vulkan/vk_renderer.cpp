@@ -6,11 +6,57 @@
 #include <cstdio>
 #include <cstring>
 #include <draxul/log.h>
+#include <draxul/pane_descriptor.h>
 #include <draxul/window.h>
 #include <imgui.h>
 
 namespace draxul
 {
+
+// ---------------------------------------------------------------------------
+// VkGridHandle — single-pane grid handle for the Vulkan backend.
+// Forwards all per-host calls to VkRenderer's internal state.
+// ---------------------------------------------------------------------------
+class VkGridHandle final : public IGridHandle
+{
+public:
+    explicit VkGridHandle(VkRenderer& renderer)
+        : renderer_(renderer)
+    {
+    }
+
+    void set_grid_size(int cols, int rows) override
+    {
+        renderer_.set_grid_size(cols, rows);
+    }
+    void update_cells(std::span<const CellUpdate> updates) override
+    {
+        renderer_.update_cells(updates);
+    }
+    void set_overlay_cells(std::span<const CellUpdate> updates) override
+    {
+        renderer_.set_overlay_cells(updates);
+    }
+    void set_cursor(int col, int row, const CursorStyle& style) override
+    {
+        renderer_.set_cursor(col, row, style);
+    }
+    void set_default_background(Color bg) override
+    {
+        renderer_.set_state_background(bg);
+    }
+    void set_scroll_offset(float px) override
+    {
+        renderer_.scroll_offset_px_ = px;
+    }
+    void set_viewport(const PaneDescriptor& /*desc*/) override
+    {
+        // Vulkan backend is single-pane; the handle always covers the full window.
+    }
+
+private:
+    VkRenderer& renderer_;
+};
 
 namespace
 {
@@ -431,17 +477,21 @@ void VkRenderer::set_ascender(int a)
     state_.set_ascender(a);
 }
 
+std::unique_ptr<IGridHandle> VkRenderer::create_grid_handle()
+{
+    return std::make_unique<VkGridHandle>(*this);
+}
+
 void VkRenderer::set_default_background(Color bg)
 {
     clear_r_ = bg.r;
     clear_g_ = bg.g;
     clear_b_ = bg.b;
-    state_.set_default_background(bg);
 }
 
-void VkRenderer::set_scroll_offset(float px)
+void VkRenderer::set_state_background(Color bg)
 {
-    scroll_offset_px_ = px;
+    state_.set_default_background(bg);
 }
 
 bool VkRenderer::create_imgui_descriptor_pool()

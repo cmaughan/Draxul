@@ -13,7 +13,7 @@ class GridRenderingPipeline
 public:
     GridRenderingPipeline(Grid& grid, HighlightTable& highlights, IGlyphAtlas& glyph_atlas);
     void set_renderer(IGridRenderer* renderer);
-    void set_pane_id(int pane_id);
+    void set_grid_handle(IGridHandle* handle);
     void set_enable_ligatures(bool enable);
     void flush();
     void force_full_atlas_upload();
@@ -26,7 +26,7 @@ private:
         std::vector<CellUpdate>& updates, bool& atlas_updated);
 
     IGridRenderer* renderer_ = nullptr;
-    int pane_id_ = 0;
+    IGridHandle* grid_handle_ = nullptr;
     Grid& grid_;
     HighlightTable& highlights_;
     IGlyphAtlas& glyph_atlas_;
