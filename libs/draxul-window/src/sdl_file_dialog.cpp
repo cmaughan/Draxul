@@ -22,10 +22,11 @@ void show_open_file_dialog(SDL_Window* window, Uint32 result_event_type)
             {
                 // Heap-allocate the path; freed in handle_file_dialog_event().
                 auto* path = std::make_unique<std::string>(filelist[0]).release();
+                SDL_UserEvent user_ev{};
+                user_ev.type = c->event_type;
+                user_ev.data1 = path;
                 SDL_Event ev;
-                ev.user = SDL_UserEvent{}; // make user the active union member
-                ev.user.type = c->event_type;
-                ev.user.data1 = path;
+                ev.user = user_ev;
                 SDL_PushEvent(&ev);
             }
         },

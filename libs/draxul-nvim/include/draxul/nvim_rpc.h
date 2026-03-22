@@ -80,7 +80,7 @@ struct MpackValue
         };
         static_assert(kTypeMap.size() == std::variant_size_v<StorageType>,
             "kTypeMap must have one entry per variant alternative");
-        if (storage.valueless_by_exception())
+        if (storage.valueless_by_exception()) // NOSONAR cpp:S836 — storage always initialized via default member init
             return Nil;
         return kTypeMap[storage.index()];
     }
