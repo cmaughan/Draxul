@@ -2,6 +2,7 @@
 
 #include <draxul/ui_panel.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <imgui.h>

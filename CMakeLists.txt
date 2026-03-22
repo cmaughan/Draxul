@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(draxul VERSION 0.1.0 LANGUAGES CXX C)
 
+# All internal libraries are static; prevent any cached or inherited value from flipping this.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
