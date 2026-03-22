@@ -99,26 +99,36 @@ void UnixPtyProcess::shutdown()
 {
     reader_running_ = false;
 
-    // Kill the entire process group BEFORE closing master_fd_ and joining the
-    // reader thread. On macOS, close(master_fd_) does NOT interrupt a blocking
-    // ::read(master_fd_) in another thread — the kernel holds a reference to
-    // the file description for the duration of the syscall, so close() just
-    // removes the fd-table entry. The read only unblocks when the PTY slave
-    // side closes, which happens when ALL processes in the session exit.
-    // Using -pid_ sends the signal to the entire process group (created by
-    // setsid() in the child), which reaches grandchildren like nvim running
-    // inside a shell.
+    // Kill ALL processes attached to this PTY before closing master_fd_ and
+    // joining the reader thread. On macOS, close(master_fd_) does NOT
+    // interrupt a blocking ::read() in the reader thread — the read only
+    // unblocks when the slave side closes, which requires ALL attached
+    // processes to exit.
+    //
+    // Programs like nvim create their own process group, so kill(-pid_) only
+    // reaches the shell's group. We also query the terminal's foreground
+    // process group via tcgetpgrp() and signal that separately.
     if (pid_ > 0)
     {
         int status = 0;
         if (waitpid(pid_, &status, WNOHANG) == 0)
         {
+            // Capture the foreground PGID before killing anything — it may
+            // differ from pid_ when a child (e.g. nvim) set its own group.
+            pid_t fg_pgid = master_fd_ >= 0 ? tcgetpgrp(master_fd_) : -1;
+
             kill(-pid_, SIGTERM);
+            if (fg_pgid > 0 && fg_pgid != pid_)
+                kill(-fg_pgid, SIGTERM);
+
             for (int i = 0; i < 10 && waitpid(pid_, &status, WNOHANG) == 0; ++i)
                 std::this_thread::sleep_for(std::chrono::microseconds(10000));
+
             if (waitpid(pid_, &status, WNOHANG) == 0)
             {
                 kill(-pid_, SIGKILL);
+                if (fg_pgid > 0 && fg_pgid != pid_)
+                    kill(-fg_pgid, SIGKILL);
                 waitpid(pid_, &status, 0);
             }
         }
