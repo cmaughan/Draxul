@@ -1,8 +1,8 @@
 #include <draxul/treesitter.h>
 
-#include <cstring>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 #include <tree_sitter/api.h>
 
 // Grammar entry point from tree-sitter-cpp
@@ -17,7 +17,7 @@ namespace
 {
 
 // clang-format off
-static const char* kCppQuery = R"(
+static constexpr std::string_view kCppQuery = R"(
 (function_definition
   declarator: (function_declarator
     declarator: [
@@ -126,7 +126,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
     uint32_t error_offset = 0;
     TSQueryError error_type = TSQueryErrorNone;
     TSQuery* query = ts_query_new(
-        lang, kCppQuery, static_cast<uint32_t>(strlen(kCppQuery)),
+        lang, kCppQuery.data(), static_cast<uint32_t>(kCppQuery.size()),
         &error_offset, &error_type);
     // query may be null if the grammar version is incompatible; we continue
     // without symbol extraction but still count errors
