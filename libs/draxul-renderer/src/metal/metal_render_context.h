@@ -14,11 +14,16 @@ namespace draxul
 class MetalRenderContext : public IRenderContext
 {
 public:
-    MetalRenderContext(id<MTLCommandBuffer> cmd, id<MTLRenderCommandEncoder> encoder, int w, int h)
+    MetalRenderContext(id<MTLCommandBuffer> cmd, id<MTLRenderCommandEncoder> encoder,
+        int w, int h, int vx, int vy, int vw, int vh)
         : cmd_(cmd)
         , encoder_(encoder)
         , w_(w)
         , h_(h)
+        , vx_(vx)
+        , vy_(vy)
+        , vw_(vw)
+        , vh_(vh)
     {
     }
 
@@ -38,12 +43,32 @@ public:
     {
         return h_;
     }
+    int viewport_x() const override
+    {
+        return vx_;
+    }
+    int viewport_y() const override
+    {
+        return vy_;
+    }
+    int viewport_w() const override
+    {
+        return vw_;
+    }
+    int viewport_h() const override
+    {
+        return vh_;
+    }
 
 private:
     id<MTLCommandBuffer> cmd_;
     id<MTLRenderCommandEncoder> encoder_;
     int w_;
     int h_;
+    int vx_;
+    int vy_;
+    int vw_;
+    int vh_;
 };
 
 } // namespace draxul

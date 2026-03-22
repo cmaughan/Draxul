@@ -133,6 +133,7 @@ void MegaCityHost::attach_3d_renderer(I3DRenderer& renderer)
 {
     renderer_3d_ = &renderer;
     renderer_3d_->register_render_pass(cube_pass_);
+    renderer_3d_->set_3d_viewport(viewport_.pixel_x, viewport_.pixel_y, pixel_w_, pixel_h_);
     DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost: 3D renderer attached, cube pass registered");
 }
 
@@ -178,6 +179,8 @@ void MegaCityHost::set_viewport(const HostViewport& viewport)
     viewport_ = viewport;
     pixel_w_ = viewport.pixel_width > 0 ? viewport.pixel_width : pixel_w_;
     pixel_h_ = viewport.pixel_height > 0 ? viewport.pixel_height : pixel_h_;
+    if (renderer_3d_)
+        renderer_3d_->set_3d_viewport(viewport_.pixel_x, viewport_.pixel_y, pixel_w_, pixel_h_);
 }
 
 void MegaCityHost::pump()

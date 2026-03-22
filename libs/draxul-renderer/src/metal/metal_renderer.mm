@@ -588,7 +588,11 @@ void MetalRenderer::end_frame()
 
     if (render_pass_)
     {
-        MetalRenderContext ctx(cmdBuf, encoder, pixel_w_, pixel_h_);
+        int vx = viewport3d_x_;
+        int vy = viewport3d_y_;
+        int vw = viewport3d_w_ > 0 ? viewport3d_w_ : pixel_w_;
+        int vh = viewport3d_h_ > 0 ? viewport3d_h_ : pixel_h_;
+        MetalRenderContext ctx(cmdBuf, encoder, pixel_w_, pixel_h_, vx, vy, vw, vh);
         render_pass_->record(ctx);
     }
 
@@ -673,6 +677,14 @@ void MetalRenderer::register_render_pass(std::shared_ptr<IRenderPass> pass)
 void MetalRenderer::unregister_render_pass()
 {
     render_pass_.reset();
+}
+
+void MetalRenderer::set_3d_viewport(int x, int y, int w, int h)
+{
+    viewport3d_x_ = x;
+    viewport3d_y_ = y;
+    viewport3d_w_ = w;
+    viewport3d_h_ = h;
 }
 
 } // namespace draxul

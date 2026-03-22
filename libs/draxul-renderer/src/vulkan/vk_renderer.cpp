@@ -209,6 +209,11 @@ void VkRenderer::unregister_render_pass()
     render_pass_.reset();
 }
 
+void VkRenderer::set_3d_viewport(int /*x*/, int /*y*/, int /*w*/, int /*h*/)
+{
+    // Split-pane viewport confinement is not yet implemented for the Vulkan backend.
+}
+
 void VkRenderer::shutdown()
 {
     if (ctx_.device())

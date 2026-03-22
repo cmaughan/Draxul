@@ -180,6 +180,7 @@ public:
     void set_default_background(Color) override {}
     void register_render_pass(std::shared_ptr<IRenderPass>) override {}
     void unregister_render_pass() override {}
+    void set_3d_viewport(int, int, int, int) override {}
 
     int full_atlas_uploads = 0;
     int region_uploads = 0;

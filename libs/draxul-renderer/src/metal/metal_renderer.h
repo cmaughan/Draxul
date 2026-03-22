@@ -60,6 +60,7 @@ public:
     // I3DRenderer
     void register_render_pass(std::shared_ptr<IRenderPass> pass) override;
     void unregister_render_pass() override;
+    void set_3d_viewport(int x, int y, int w, int h) override;
 
 private:
     friend class MetalGridHandle;
@@ -103,6 +104,12 @@ private:
     int padding_ = 4;
     int pixel_w_ = 0;
     int pixel_h_ = 0;
+
+    // Pane viewport for 3D render passes; (0,0,0,0) means full framebuffer.
+    int viewport3d_x_ = 0;
+    int viewport3d_y_ = 0;
+    int viewport3d_w_ = 0;
+    int viewport3d_h_ = 0;
 
     float clear_r_ = 0.1f;
     float clear_g_ = 0.1f;

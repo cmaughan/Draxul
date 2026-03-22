@@ -47,6 +47,7 @@ public:
     // I3DRenderer
     void register_render_pass(std::shared_ptr<IRenderPass> pass) override;
     void unregister_render_pass() override;
+    void set_3d_viewport(int x, int y, int w, int h) override;
 
 private:
     friend class VkGridHandle;

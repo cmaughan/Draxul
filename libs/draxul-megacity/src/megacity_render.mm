@@ -132,13 +132,32 @@ void CubeRenderPass::record(IRenderContext& ctx)
     if (!state_->init(cmdBuf.device))
         return;
 
-    int w = ctx.width();
-    int h = ctx.height();
-    float aspect = (h > 0) ? (float)w / (float)h : 1.0f;
+    int vx = ctx.viewport_x();
+    int vy = ctx.viewport_y();
+    int vw = ctx.viewport_w();
+    int vh = ctx.viewport_h();
+    float aspect = (vh > 0) ? (float)vw / (float)vh : 1.0f;
     simd_float4x4 proj = make_perspective(0.7854f /* 45 deg */, aspect, 0.1f, 100.0f);
     simd_float4x4 view = make_translation(0.0f, 0.0f, -3.0f);
     simd_float4x4 rot = simd_mul(make_rotation_y(angle_), make_rotation_x(angle_ * 0.4f));
     simd_float4x4 mvp = simd_mul(proj, simd_mul(view, rot));
+
+    // Confine rendering to the pane region within the framebuffer.
+    MTLViewport vp;
+    vp.originX = vx;
+    vp.originY = vy;
+    vp.width = vw;
+    vp.height = vh;
+    vp.znear = 0.0;
+    vp.zfar = 1.0;
+    [encoder setViewport:vp];
+
+    MTLScissorRect scissor;
+    scissor.x = static_cast<NSUInteger>(vx);
+    scissor.y = static_cast<NSUInteger>(vy);
+    scissor.width = static_cast<NSUInteger>(vw);
+    scissor.height = static_cast<NSUInteger>(vh);
+    [encoder setScissorRect:scissor];
 
     [encoder setRenderPipelineState:state_->pipeline];
     [encoder setCullMode:MTLCullModeBack];

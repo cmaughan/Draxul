@@ -39,6 +39,26 @@ public:
     virtual void* native_render_encoder() const = 0; // NOSONAR cpp:S5008
     virtual int width() const = 0;
     virtual int height() const = 0;
+
+    // Pane viewport within the framebuffer. Defaults to the full framebuffer
+    // so existing render passes work unmodified. Override to confine a pass
+    // to a split-pane region.
+    virtual int viewport_x() const
+    {
+        return 0;
+    }
+    virtual int viewport_y() const
+    {
+        return 0;
+    }
+    virtual int viewport_w() const
+    {
+        return width();
+    }
+    virtual int viewport_h() const
+    {
+        return height();
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -62,6 +82,11 @@ class I3DRenderer : public IBaseRenderer
 public:
     virtual void register_render_pass(std::shared_ptr<IRenderPass> pass) = 0;
     virtual void unregister_render_pass() = 0;
+
+    // Restrict subsequent IRenderPass::record() calls to this pane region within
+    // the framebuffer. Defaults to the full framebuffer (called with 0,0,0,0 means
+    // "use full framebuffer"). Propagated to IRenderContext::viewport_x/y/w/h().
+    virtual void set_3d_viewport(int x, int y, int w, int h) = 0;
 };
 
 } // namespace draxul
