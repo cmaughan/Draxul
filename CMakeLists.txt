@@ -144,6 +144,7 @@ add_executable(draxul
     app/input_dispatcher.cpp
     app/host_manager.cpp
     app/split_layout.cpp
+    app/split_tree.cpp
     ${DRAXUL_PLATFORM_SOURCES}
 )
 

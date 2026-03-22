@@ -59,6 +59,7 @@ add_executable(draxul-tests
     renderer_shutdown_tests.cpp
     keybinding_conflict_tests.cpp
     file_drop_tests.cpp
+    split_tree_tests.cpp
     # GuiActionHandler, InputDispatcher, App, and HostManager live in app/ but
     # can be compiled directly into the test binary via the DI seams in AppOptions.
     ${CMAKE_SOURCE_DIR}/app/gui_action_handler.cpp
@@ -66,6 +67,7 @@ add_executable(draxul-tests
     ${CMAKE_SOURCE_DIR}/app/app.cpp
     ${CMAKE_SOURCE_DIR}/app/host_manager.cpp
     ${CMAKE_SOURCE_DIR}/app/split_layout.cpp
+    ${CMAKE_SOURCE_DIR}/app/split_tree.cpp
     $<$<PLATFORM_ID:Darwin>:${CMAKE_SOURCE_DIR}/app/macos_menu.mm>
 )
 
