@@ -317,12 +317,20 @@ void NvimHost::refresh_cursor_style()
         style.cell_percentage = mode_info.cell_percentage;
         if (mode_info.attr_id != 0)
         {
-            Color fg;
-            Color bg;
-            highlights().resolve(highlights().get(static_cast<uint16_t>(mode_info.attr_id)), fg, bg);
-            style.fg = fg;
-            style.bg = bg;
-            style.use_explicit_colors = true;
+            const auto& attr = highlights().get(static_cast<uint16_t>(mode_info.attr_id));
+            // Only use explicit cursor colors when the attribute carries meaningful cursor
+            // styling. An attr with no reverse and no explicit fg/bg resolves to
+            // (default_fg, default_bg) — normal text colors — which would make the cursor
+            // invisible against the background.
+            if (attr.has_fg || attr.has_bg || attr.reverse)
+            {
+                Color fg;
+                Color bg;
+                highlights().resolve(attr, fg, bg);
+                style.fg = fg;
+                style.bg = bg;
+                style.use_explicit_colors = true;
+            }
         }
     }
 

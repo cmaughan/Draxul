@@ -234,24 +234,19 @@ void RendererState::apply_cursor()
 
     if (cursor_style_.shape == CursorShape::Block)
     {
-        if (cursor_style_.use_explicit_colors)
-        {
-            cell.fg_r = cursor_style_.fg.r;
-            cell.fg_g = cursor_style_.fg.g;
-            cell.fg_b = cursor_style_.fg.b;
-            cell.fg_a = cursor_style_.fg.a;
-            cell.bg_r = cursor_style_.bg.r;
-            cell.bg_g = cursor_style_.bg.g;
-            cell.bg_b = cursor_style_.bg.b;
-            cell.bg_a = cursor_style_.bg.a;
-        }
-        else
-        {
-            std::swap(cell.fg_r, cell.bg_r);
-            std::swap(cell.fg_g, cell.bg_g);
-            std::swap(cell.fg_b, cell.bg_b);
-            std::swap(cell.fg_a, cell.bg_a);
-        }
+        // Always use the cursor style colors for a consistent, visible block cursor.
+        // Swapping the cell's fg/bg causes the cursor color to follow the character color
+        // underneath (red cursor on a red keyword, etc.). cursor_style_.bg is guaranteed to
+        // contrast with the background: either a properly-resolved cursor highlight (reverse
+        // or explicit fg/bg), or the default_fg() fallback set in refresh_cursor_style().
+        cell.fg_r = cursor_style_.fg.r;
+        cell.fg_g = cursor_style_.fg.g;
+        cell.fg_b = cursor_style_.fg.b;
+        cell.fg_a = cursor_style_.fg.a;
+        cell.bg_r = cursor_style_.bg.r;
+        cell.bg_g = cursor_style_.bg.g;
+        cell.bg_b = cursor_style_.bg.b;
+        cell.bg_a = cursor_style_.bg.a;
         mark_cell_dirty((size_t)idx);
         return;
     }
