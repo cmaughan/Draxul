@@ -1,4 +1,5 @@
 #include "nvim_host.h"
+#include "clipboard_util.h"
 
 #include <draxul/log.h>
 #include <draxul/text_service.h>
@@ -341,44 +342,14 @@ BlinkTiming NvimHost::current_blink_timing() const
 MpackValue NvimHost::handle_rpc_request(const std::string& method, const std::vector<MpackValue>&) const
 {
     if (method == "clipboard_get")
-    {
-        std::string text = window().clipboard_text();
-        std::vector<MpackValue> lines;
-        std::string::size_type pos = 0;
-        while (pos <= text.size())
-        {
-            auto newline = text.find('\n', pos);
-            if (newline == std::string::npos)
-            {
-                lines.push_back(NvimRpc::make_str(text.substr(pos)));
-                break;
-            }
-            lines.push_back(NvimRpc::make_str(text.substr(pos, newline - pos)));
-            pos = newline + 1;
-        }
-        if (lines.empty())
-            lines.push_back(NvimRpc::make_str(""));
-        return NvimRpc::make_array({ NvimRpc::make_array(std::move(lines)), NvimRpc::make_str("v") });
-    }
+        return clipboard_text_to_response(window().clipboard_text());
 
     return NvimRpc::make_nil();
 }
 
 void NvimHost::handle_clipboard_set(const std::vector<MpackValue>& params) const
 {
-    if (params.size() < 3 || params[1].type() != MpackValue::Array)
-        return;
-
-    const auto& lines = params[1].as_array();
-    std::string text;
-    for (size_t i = 0; i < lines.size(); ++i)
-    {
-        if (i > 0)
-            text += '\n';
-        if (lines[i].type() == MpackValue::String)
-            text += lines[i].as_str();
-    }
-    window().set_clipboard_text(text);
+    window().set_clipboard_text(clipboard_params_to_text(params));
 }
 
 void NvimHost::wire_ui_callbacks()
