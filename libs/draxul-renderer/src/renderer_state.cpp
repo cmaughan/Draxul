@@ -88,6 +88,8 @@ void RendererState::set_grid_size(int cols, int rows, int padding)
 
 void RendererState::set_cell_size(int w, int h)
 {
+    if (w == cell_w_ && h == cell_h_)
+        return;
     cell_w_ = w;
     cell_h_ = h;
     relayout();

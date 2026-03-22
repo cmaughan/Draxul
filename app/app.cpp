@@ -447,6 +447,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         if (!close_dead_panes())
             return false;
+        input_dispatcher_.set_host(host_manager_.focused_host());
 
         // Pump all hosts
         host_manager_.for_each_host([](LeafId, IHost& h) {
@@ -457,6 +458,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // Re-check after pumping (hosts can die during pump).
         if (!close_dead_panes())
             return false;
+        input_dispatcher_.set_host(host_manager_.focused_host());
 
         if (frame_requested_)
         {
