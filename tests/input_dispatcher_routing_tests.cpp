@@ -13,10 +13,10 @@ namespace
 std::vector<GuiKeybinding> make_test_bindings()
 {
     return {
-        { "copy", SDLK_C, kModCtrl | kModShift },
-        { "paste", SDLK_V, kModCtrl | kModShift },
-        { "toggle_diagnostics", SDLK_F12, kModNone },
-        { "font_increase", SDLK_EQUALS, kModCtrl },
+        { "copy", 0, kModNone, SDLK_C, kModCtrl | kModShift },
+        { "paste", 0, kModNone, SDLK_V, kModCtrl | kModShift },
+        { "toggle_diagnostics", 0, kModNone, SDLK_F12, kModNone },
+        { "font_increase", 0, kModNone, SDLK_EQUALS, kModCtrl },
     };
 }
 

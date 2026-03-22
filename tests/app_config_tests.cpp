@@ -76,7 +76,7 @@ TEST_CASE("app config parse returns defaults for empty content", "[config]")
     INFO("default fallback_paths is empty");
     REQUIRE(config.fallback_paths.empty());
     INFO("default GUI keybindings are present");
-    REQUIRE(static_cast<int>(config.keybindings.size()) == 6);
+    REQUIRE(static_cast<int>(config.keybindings.size()) == 7);
 }
 
 TEST_CASE("app config parse reads all fields", "[config]")
@@ -280,12 +280,12 @@ TEST_CASE("app config serialize/parse round-trip preserves custom keybindings", 
 {
     AppConfig original;
     original.keybindings = {
-        { "toggle_diagnostics", static_cast<int32_t>(SDLK_D), kModCtrl },
-        { "copy", static_cast<int32_t>(SDLK_C), kModCtrl | kModAlt },
-        { "paste", static_cast<int32_t>(SDLK_V), kModCtrl | kModAlt },
-        { "font_increase", static_cast<int32_t>(SDLK_EQUALS), kModCtrl },
-        { "font_decrease", static_cast<int32_t>(SDLK_MINUS), kModCtrl },
-        { "font_reset", static_cast<int32_t>(SDLK_0), kModAlt },
+        { "toggle_diagnostics", 0, kModNone, static_cast<int32_t>(SDLK_D), kModCtrl },
+        { "copy", 0, kModNone, static_cast<int32_t>(SDLK_C), kModCtrl | kModAlt },
+        { "paste", 0, kModNone, static_cast<int32_t>(SDLK_V), kModCtrl | kModAlt },
+        { "font_increase", 0, kModNone, static_cast<int32_t>(SDLK_EQUALS), kModCtrl },
+        { "font_decrease", 0, kModNone, static_cast<int32_t>(SDLK_MINUS), kModCtrl },
+        { "font_reset", 0, kModNone, static_cast<int32_t>(SDLK_0), kModAlt },
     };
 
     AppConfig round_tripped = AppConfig::parse(original.serialize());

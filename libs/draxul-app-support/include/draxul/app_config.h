@@ -20,7 +20,12 @@ namespace draxul
 struct GuiKeybinding
 {
     std::string action;
-    int32_t key = 0; // platform-neutral keycode value (SDL_Keycode cast to int32_t at the SDL layer); 0 = unset
+    // Chord prefix key — if non-zero this is a tmux-style chord: the user presses prefix
+    // first (and releases it), then presses `key`. Zero = direct single-key binding.
+    int32_t prefix_key = 0;
+    ModifierFlags prefix_modifiers = kModNone;
+    // The action key (or the sole key for non-chord bindings).
+    int32_t key = 0; // platform-neutral keycode value (SDL_Keycode cast to int32_t); 0 = unset
     ModifierFlags modifiers = kModNone;
 };
 
@@ -55,6 +60,9 @@ struct AppConfig
 
 std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::string_view combo);
 std::string format_gui_keybinding_combo(int32_t key, ModifierFlags modifiers);
+// Returns true if the event matches the *prefix* portion of a chord binding.
+// Only meaningful when binding.prefix_key != 0.
+bool gui_prefix_matches(const GuiKeybinding& binding, const KeyEvent& event);
 bool gui_keybinding_matches(const GuiKeybinding& binding, const KeyEvent& event);
 
 // Overrides for AppConfig fields that can be set at runtime (e.g., from CLI or render-test

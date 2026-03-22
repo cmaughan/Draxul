@@ -24,7 +24,7 @@ constexpr int kMaxWindowHeight = 2160;
 constexpr int kMinAtlasSize = 1024;
 constexpr int kMaxAtlasSize = 8192;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
-constexpr std::array<std::string_view, 7> kKnownGuiActions = {
+constexpr std::array<std::string_view, 8> kKnownGuiActions = {
     "toggle_diagnostics",
     "copy",
     "paste",
@@ -32,6 +32,7 @@ constexpr std::array<std::string_view, 7> kKnownGuiActions = {
     "font_decrease",
     "font_reset",
     "open_file_dialog",
+    "split_vertical",
 };
 constexpr std::array<std::string_view, 13> kKnownTopLevelKeys = {
     "window_width",
@@ -355,7 +356,8 @@ AppConfig config_from_toml(const toml::table& document)
         {
             const auto& a = config.keybindings[i];
             const auto& b = config.keybindings[j];
-            if (a.key == b.key && a.modifiers == b.modifiers)
+            if (a.prefix_key == b.prefix_key && a.prefix_modifiers == b.prefix_modifiers
+                && a.key == b.key && a.modifiers == b.modifiers)
                 DRAXUL_LOG_WARN(LogCategory::App,
                     "[config] Duplicate keybinding: same key+modifier used for '%s' and '%s'; "
                     "'%s' takes precedence (first registered wins)",
@@ -380,12 +382,17 @@ AppConfig config_from_toml(const toml::table& document)
 AppConfig::AppConfig()
 {
     keybindings = {
-        { "toggle_diagnostics", static_cast<int32_t>(SDLK_F12), kModNone },
-        { "copy", static_cast<int32_t>(SDLK_C), kModCtrl | kModShift },
-        { "paste", static_cast<int32_t>(SDLK_V), kModCtrl | kModShift },
-        { "font_increase", static_cast<int32_t>(SDLK_EQUALS), kModCtrl },
-        { "font_decrease", static_cast<int32_t>(SDLK_MINUS), kModCtrl },
-        { "font_reset", static_cast<int32_t>(SDLK_0), kModCtrl },
+        // Single-key bindings (prefix_key=0, prefix_modifiers=kModNone).
+        { "toggle_diagnostics", 0, kModNone, static_cast<int32_t>(SDLK_F12), kModNone },
+        { "copy", 0, kModNone, static_cast<int32_t>(SDLK_C), kModCtrl | kModShift },
+        { "paste", 0, kModNone, static_cast<int32_t>(SDLK_V), kModCtrl | kModShift },
+        { "font_increase", 0, kModNone, static_cast<int32_t>(SDLK_EQUALS), kModCtrl },
+        { "font_decrease", 0, kModNone, static_cast<int32_t>(SDLK_MINUS), kModCtrl },
+        { "font_reset", 0, kModNone, static_cast<int32_t>(SDLK_0), kModCtrl },
+        // Chord bindings: prefix key Ctrl+S (tmux-style prefix).
+        // split_vertical = Ctrl+S, | (Shift+Backslash on US keyboard)
+        { "split_vertical", static_cast<int32_t>(SDLK_S), kModCtrl,
+            static_cast<int32_t>(SDLK_BACKSLASH), kModShift },
     };
 }
 
@@ -427,7 +434,15 @@ std::string AppConfig::serialize() const
     for (std::string_view action : kKnownGuiActions)
     {
         if (const GuiKeybinding* binding = first_binding_for_action(keybindings, action))
-            keybinding_table.insert_or_assign(std::string(action), format_gui_keybinding_combo(binding->key, binding->modifiers));
+        {
+            std::string combo;
+            if (binding->prefix_key != 0)
+                combo = format_gui_keybinding_combo(binding->prefix_key, binding->prefix_modifiers) + ", "
+                    + format_gui_keybinding_combo(binding->key, binding->modifiers);
+            else
+                combo = format_gui_keybinding_combo(binding->key, binding->modifiers);
+            keybinding_table.insert_or_assign(std::string(action), std::move(combo));
+        }
     }
     document.insert_or_assign("keybindings", std::move(keybinding_table));
 
@@ -514,12 +529,17 @@ void apply_overrides(AppConfig& config, const AppConfigOverrides& overrides)
     apply(config.fallback_paths, overrides.fallback_paths);
 }
 
-std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::string_view combo)
+// Parse a single key+modifier half of a combo string (e.g. "ctrl+s" or "|").
+// Returns {key, modifiers} or nullopt on failure.
+static std::optional<std::pair<int32_t, ModifierFlags>> parse_key_half(std::string_view half)
 {
-    if (!is_known_gui_action(action))
-        return std::nullopt;
+    // Trim leading/trailing whitespace.
+    while (!half.empty() && std::isspace(static_cast<unsigned char>(half.front())))
+        half.remove_prefix(1);
+    while (!half.empty() && std::isspace(static_cast<unsigned char>(half.back())))
+        half.remove_suffix(1);
 
-    std::vector<std::string_view> parts = split_key_combo(combo);
+    std::vector<std::string_view> parts = split_key_combo(half);
     if (parts.empty())
         return std::nullopt;
 
@@ -536,7 +556,32 @@ std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::
     if (!key.has_value())
         return std::nullopt;
 
-    return GuiKeybinding{ std::string(action), *key, normalize_gui_modifiers(modifiers) };
+    return std::make_pair(*key, normalize_gui_modifiers(modifiers));
+}
+
+std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::string_view combo)
+{
+    if (!is_known_gui_action(action))
+        return std::nullopt;
+
+    // Chord syntax: "Ctrl+S, |" — split on the first comma.
+    const size_t comma = combo.find(',');
+    if (comma != std::string_view::npos)
+    {
+        const std::string_view prefix_half = combo.substr(0, comma);
+        const std::string_view action_half = combo.substr(comma + 1);
+        auto prefix = parse_key_half(prefix_half);
+        auto act = parse_key_half(action_half);
+        if (!prefix || !act)
+            return std::nullopt;
+        return GuiKeybinding{ std::string(action), prefix->first, prefix->second, act->first, act->second };
+    }
+
+    // Single-key binding (no prefix).
+    auto half = parse_key_half(combo);
+    if (!half)
+        return std::nullopt;
+    return GuiKeybinding{ std::string(action), 0, kModNone, half->first, half->second };
 }
 
 std::string format_gui_keybinding_combo(int32_t key, ModifierFlags modifiers)
@@ -575,6 +620,14 @@ bool gui_keybinding_matches(const GuiKeybinding& binding, const KeyEvent& event)
         && event.keycode == static_cast<int>(SDLK_PLUS)
         && expected_modifiers == kModCtrl
         && event_modifiers == (kModCtrl | kModShift);
+}
+
+bool gui_prefix_matches(const GuiKeybinding& binding, const KeyEvent& event)
+{
+    if (binding.prefix_key == 0)
+        return false;
+    return event.keycode == binding.prefix_key
+        && normalize_gui_modifiers(event.mod) == normalize_gui_modifiers(binding.prefix_modifiers);
 }
 
 } // namespace draxul

@@ -45,9 +45,49 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
 {
     if (event.pressed)
     {
-        if (auto action = gui_action_for_key_event(event);
-            action && deps_.gui_action_handler && deps_.gui_action_handler->execute(*action))
-            return;
+        if (prefix_active_)
+        {
+            // We consumed the prefix key; now look for a chord match.
+            prefix_active_ = false;
+            if (deps_.keybindings && deps_.gui_action_handler)
+            {
+                for (const auto& binding : *deps_.keybindings)
+                {
+                    if (binding.prefix_key != 0 && gui_keybinding_matches(binding, event))
+                    {
+                        deps_.gui_action_handler->execute(binding.action);
+                        return; // chord consumed — do not forward to host
+                    }
+                }
+            }
+            // No chord matched — fall through and forward to host normally.
+        }
+        else
+        {
+            // Check if this key activates a chord prefix.
+            if (deps_.keybindings)
+            {
+                for (const auto& binding : *deps_.keybindings)
+                {
+                    if (gui_prefix_matches(binding, event))
+                    {
+                        prefix_active_ = true;
+                        return; // swallow the prefix key
+                    }
+                }
+            }
+            // Check single-key (non-chord) GUI bindings.
+            if (auto action = gui_action_for_key_event(event);
+                action && deps_.gui_action_handler && deps_.gui_action_handler->execute(*action))
+                return;
+        }
+    }
+    else
+    {
+        // Key release — cancel prefix mode if the prefix key itself was released
+        // (handles the case where the user holds the prefix key without pressing a chord key).
+        // We don't cancel on every key-up, only on explicit Escape-like cancellation via
+        // a future policy. For now just keep prefix_active_ until the next key-down.
     }
     deps_.ui_panel->on_key(event);
     if (!deps_.ui_panel->wants_keyboard() && deps_.host)
@@ -159,6 +199,9 @@ std::optional<std::string_view> InputDispatcher::gui_action_for_key_event(const 
         return std::nullopt;
     for (const auto& binding : *deps_.keybindings)
     {
+        // Skip chord bindings — those are only dispatched from the prefix state machine above.
+        if (binding.prefix_key != 0)
+            continue;
         if (gui_keybinding_matches(binding, event))
             return binding.action;
     }

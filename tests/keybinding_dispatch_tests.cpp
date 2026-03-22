@@ -89,11 +89,11 @@ struct ActionDispatcher
 // Default config has the expected set of bindings
 // -----------------------------------------------------------------------
 
-TEST_CASE("keybinding dispatch: default config has all six known bindings", "[config]")
+TEST_CASE("keybinding dispatch: default config has all known bindings", "[config]")
 {
     AppConfig cfg;
-    INFO("six default bindings");
-    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 6);
+    INFO("seven default bindings");
+    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 7);
     INFO("toggle_diagnostics binding present");
     REQUIRE(find_binding(cfg, "toggle_diagnostics") != nullptr);
     INFO("copy binding present");
@@ -247,8 +247,8 @@ TEST_CASE("keybinding dispatch: overlapping bindings — first match wins", "[co
     // The first one in the vector should win.
     AppConfig cfg;
     cfg.keybindings.clear();
-    cfg.keybindings.push_back({ "copy", SDLK_C, kModCtrl });
-    cfg.keybindings.push_back({ "paste", SDLK_C, kModCtrl }); // same key, different action
+    cfg.keybindings.push_back({ "copy", 0, kModNone, SDLK_C, kModCtrl });
+    cfg.keybindings.push_back({ "paste", 0, kModNone, SDLK_C, kModCtrl }); // same key, different action
 
     KeyEvent evt = make_key_event(SDLK_C, kModCtrl);
     auto action = action_for_event(cfg, evt);
@@ -301,7 +301,7 @@ TEST_CASE("keybinding dispatch: empty keybindings table leaves defaults intact",
 
     // With an empty [keybindings] table the defaults remain unchanged.
     INFO("defaults remain with empty bindings table");
-    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 6);
+    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 7);
 }
 
 TEST_CASE("keybinding dispatch: no bindings configured — no action fires for any key", "[config]")
@@ -412,7 +412,7 @@ TEST_CASE("keybinding dispatch: gui_keybinding_matches ignores irrelevant modifi
 {
     // The matcher normalises modifiers through kGuiModifierMask; CAPSLOCK
     // should not affect matching.
-    const GuiKeybinding binding{ "font_increase", SDLK_EQUALS, kModCtrl };
+    const GuiKeybinding binding{ "font_increase", 0, kModNone, SDLK_EQUALS, kModCtrl };
 
     // Ctrl+= without any extra modifiers: should match.
     INFO("Ctrl+= with no extra mods matches");

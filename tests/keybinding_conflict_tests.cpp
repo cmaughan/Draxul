@@ -69,8 +69,8 @@ TEST_CASE("keybinding conflict: first-wins when two bindings share the same key+
     // The first one registered should win at dispatch time.
     AppConfig cfg;
     cfg.keybindings.clear();
-    cfg.keybindings.push_back({ "toggle_diagnostics", SDLK_D, kModCtrl });
-    cfg.keybindings.push_back({ "copy", SDLK_D, kModCtrl }); // conflict
+    cfg.keybindings.push_back({ "toggle_diagnostics", 0, kModNone, SDLK_D, kModCtrl });
+    cfg.keybindings.push_back({ "copy", 0, kModNone, SDLK_D, kModCtrl }); // conflict
 
     KeyEvent evt{};
     evt.keycode = SDLK_D;
@@ -87,8 +87,8 @@ TEST_CASE("keybinding conflict: second binding for same key is still reachable i
 {
     AppConfig cfg;
     cfg.keybindings.clear();
-    cfg.keybindings.push_back({ "toggle_diagnostics", SDLK_D, kModCtrl });
-    cfg.keybindings.push_back({ "copy", SDLK_D, kModCtrl }); // conflict
+    cfg.keybindings.push_back({ "toggle_diagnostics", 0, kModNone, SDLK_D, kModCtrl });
+    cfg.keybindings.push_back({ "copy", 0, kModNone, SDLK_D, kModCtrl }); // conflict
 
     // Remove first binding — second should now win.
     cfg.keybindings.erase(cfg.keybindings.begin());
@@ -175,10 +175,10 @@ TEST_CASE("keybinding conflict: non-conflicting bindings all dispatch correctly"
     // Use a fresh config with four non-overlapping bindings.
     AppConfig cfg;
     cfg.keybindings.clear();
-    cfg.keybindings.push_back({ "toggle_diagnostics", SDLK_F12, kModNone });
-    cfg.keybindings.push_back({ "copy", SDLK_C, kModCtrl | kModShift });
-    cfg.keybindings.push_back({ "paste", SDLK_V, kModCtrl | kModShift });
-    cfg.keybindings.push_back({ "font_increase", SDLK_EQUALS, kModCtrl });
+    cfg.keybindings.push_back({ "toggle_diagnostics", 0, kModNone, SDLK_F12, kModNone });
+    cfg.keybindings.push_back({ "copy", 0, kModNone, SDLK_C, kModCtrl | kModShift });
+    cfg.keybindings.push_back({ "paste", 0, kModNone, SDLK_V, kModCtrl | kModShift });
+    cfg.keybindings.push_back({ "font_increase", 0, kModNone, SDLK_EQUALS, kModCtrl });
 
     struct TestCase
     {
@@ -238,9 +238,9 @@ TEST_CASE("keybinding conflict: three-way duplicate logs a WARN for each conflic
     // The default config has no binding for F9, so this starts clean.
     AppConfig cfg;
     cfg.keybindings.clear();
-    cfg.keybindings.push_back({ "toggle_diagnostics", SDLK_F9, kModNone });
-    cfg.keybindings.push_back({ "copy", SDLK_F9, kModNone });
-    cfg.keybindings.push_back({ "paste", SDLK_F9, kModNone });
+    cfg.keybindings.push_back({ "toggle_diagnostics", 0, kModNone, SDLK_F9, kModNone });
+    cfg.keybindings.push_back({ "copy", 0, kModNone, SDLK_F9, kModNone });
+    cfg.keybindings.push_back({ "paste", 0, kModNone, SDLK_F9, kModNone });
 
     // config_from_toml's WARN loop runs over the parsed config; here we
     // manually verify that config_from_toml's duplicate detection logic would

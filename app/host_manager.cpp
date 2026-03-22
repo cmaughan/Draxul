@@ -38,11 +38,9 @@ bool HostManager::create(HostCallbacks callbacks)
 bool HostManager::add_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport)
 {
     HostLaunchOptions launch;
-    launch.kind = deps_.options->host_kind;
-    launch.command = deps_.options->host_command;
-    launch.args = deps_.options->host_args;
-    launch.working_dir = deps_.options->host_working_dir;
-    launch.startup_commands = deps_.options->startup_commands;
+    // New panes always open a Zsh shell. A future host-picker UI will allow the user to
+    // choose the host kind at split time.
+    launch.kind = HostKind::Zsh;
     launch.enable_ligatures = deps_.config->enable_ligatures;
 
     return create_slot(std::move(callbacks), pane_id, viewport, std::move(launch), false);

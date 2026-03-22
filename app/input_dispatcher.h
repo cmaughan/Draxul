@@ -97,6 +97,9 @@ private:
     Deps deps_;
     float pending_scroll_y_ = 0.0f;
     bool had_scroll_event_ = false;
+    // Chord (tmux-style prefix) state: true when a prefix key has been consumed and
+    // we are waiting for the second key of a chord binding.
+    bool prefix_active_ = false;
 };
 
 } // namespace draxul
