@@ -196,7 +196,7 @@ public:
                 bold_unligated_shaper_.initialize(bold_.hb_font(), false);
                 bold_loaded_ = true;
                 bold_font_path_ = bold_path;
-                DRAXUL_LOG_INFO(LogCategory::Font, "Bold font loaded: %s", bold_path.c_str());
+                DRAXUL_LOG_DEBUG(LogCategory::Font, "Bold font loaded: %s", bold_path.c_str());
             }
             else
             {
@@ -224,7 +224,7 @@ public:
                 italic_unligated_shaper_.initialize(italic_.hb_font(), false);
                 italic_loaded_ = true;
                 italic_font_path_ = italic_path;
-                DRAXUL_LOG_INFO(LogCategory::Font, "Italic font loaded: %s", italic_path.c_str());
+                DRAXUL_LOG_DEBUG(LogCategory::Font, "Italic font loaded: %s", italic_path.c_str());
             }
             else
             {
@@ -252,7 +252,7 @@ public:
                 bold_italic_unligated_shaper_.initialize(bold_italic_.hb_font(), false);
                 bold_italic_loaded_ = true;
                 bold_italic_font_path_ = bold_italic_path;
-                DRAXUL_LOG_INFO(LogCategory::Font, "Bold-italic font loaded: %s", bold_italic_path.c_str());
+                DRAXUL_LOG_DEBUG(LogCategory::Font, "Bold-italic font loaded: %s", bold_italic_path.c_str());
             }
             else
             {
@@ -406,7 +406,7 @@ public:
         fb.shaper.initialize(fb.font.hb_font(), config_->enable_ligatures);
         fb.unligated_shaper.initialize(fb.font.hb_font(), false);
         fb.loaded = true;
-        DRAXUL_LOG_INFO(LogCategory::Font, "Fallback font loaded (on demand): %s", fb.path.c_str());
+        DRAXUL_LOG_DEBUG(LogCategory::Font, "Fallback font loaded (on demand): %s", fb.path.c_str());
         return true;
     }
 
