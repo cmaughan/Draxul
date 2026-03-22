@@ -54,7 +54,7 @@ void render_stats(const CodebaseSnapshot& snap)
             else if (sym.kind == SymbolKind::Struct)
                 ++st_count;
         }
-        err_count += f.error_count;
+        err_count += f.errors.size();
     }
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
@@ -122,16 +122,51 @@ void render_treesitter_panel(
 
     for (const auto& file : snapshot->files)
     {
+        const bool has_children = !file.symbols.empty() || !file.errors.empty();
         const ImGuiTreeNodeFlags file_flags = ImGuiTreeNodeFlags_SpanAvailWidth
-            | (file.symbols.empty() ? ImGuiTreeNodeFlags_Leaf : 0);
+            | (has_children ? 0 : ImGuiTreeNodeFlags_Leaf);
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
+        // Tint file label red if it has parse errors
+        const ImVec4 file_color = file.errors.empty()
+            ? ImVec4(0.85f, 0.85f, 0.85f, 1.0f)
+            : ImVec4(1.0f, 0.55f, 0.55f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, file_color);
         const bool open = ImGui::TreeNodeEx(
             file.path.c_str(), file_flags, "%s", file.path.c_str());
         ImGui::PopStyleColor();
 
         if (open)
         {
+            // Parse errors sub-node
+            if (!file.errors.empty())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                const bool err_open = ImGui::TreeNodeEx(
+                    "##parse_errors",
+                    ImGuiTreeNodeFlags_SpanAvailWidth,
+                    "Parse errors (%zu)",
+                    file.errors.size());
+                ImGui::PopStyleColor();
+                if (err_open)
+                {
+                    for (const auto& err : file.errors)
+                    {
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Text, ImVec4(1.0f, 0.65f, 0.65f, 1.0f));
+                        ImGui::TreeNodeEx(
+                            (void*)(uintptr_t)(&err),
+                            ImGuiTreeNodeFlags_Leaf
+                                | ImGuiTreeNodeFlags_NoTreePushOnOpen
+                                | ImGuiTreeNodeFlags_SpanAvailWidth,
+                            "line %u  col %u",
+                            err.line,
+                            err.col);
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::TreePop();
+                }
+            }
+
             for (const auto& sym : file.symbols)
             {
                 if (sym.kind == SymbolKind::Include)

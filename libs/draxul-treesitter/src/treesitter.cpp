@@ -83,6 +83,24 @@ std::string read_file(const std::filesystem::path& path)
     return ss.str();
 }
 
+constexpr uint32_t kMaxErrorsPerFile = 50;
+
+// Walk the tree and collect positions of ERROR nodes (up to the cap).
+void collect_errors(TSNode node, std::vector<ParseError>& errors)
+{
+    if (errors.size() >= kMaxErrorsPerFile)
+        return;
+    if (ts_node_is_error(node))
+    {
+        const TSPoint pt = ts_node_start_point(node);
+        errors.push_back({ pt.row + 1, pt.column });
+        return; // don't recurse further into an error node
+    }
+    const uint32_t n = ts_node_child_count(node);
+    for (uint32_t i = 0; i < n && errors.size() < kMaxErrorsPerFile; ++i)
+        collect_errors(ts_node_child(node, i), errors);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -189,9 +207,9 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
 
         const TSNode root_node = ts_tree_root_node(tree);
 
-        // Count parse errors via root node's has-error flag
+        // Collect ERROR node positions for display in the UI.
         if (ts_node_has_error(root_node))
-            file.error_count = 1; // coarse: tree has at least one error
+            collect_errors(root_node, file.errors);
 
         if (query && cursor)
         {
