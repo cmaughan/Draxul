@@ -141,7 +141,9 @@ void CubeRenderPass::record(IRenderContext& ctx)
     if (!state_->ensure(vk_ctx->device(), vk_ctx->render_pass()))
         return;
 
-    float aspect = (ctx.height() > 0) ? (float)ctx.width() / (float)ctx.height() : 1.0f;
+    const int viewport_w = ctx.viewport_w();
+    const int viewport_h = ctx.viewport_h();
+    float aspect = (viewport_h > 0) ? (float)viewport_w / (float)viewport_h : 1.0f;
     Mat4 proj = mat4_perspective(0.7854f /* 45 deg */, aspect, 0.1f, 100.0f);
     Mat4 view = mat4_translation(0.0f, 0.0f, -3.0f);
     Mat4 rot = mat4_mul(mat4_rotation_y(angle_), mat4_rotation_x(angle_ * 0.4f));

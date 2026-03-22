@@ -106,6 +106,10 @@ private:
     int padding_ = 4;
     int pixel_w_ = 0;
     int pixel_h_ = 0;
+    int viewport3d_x_ = 0;
+    int viewport3d_y_ = 0;
+    int viewport3d_w_ = 0;
+    int viewport3d_h_ = 0;
 
     RendererState state_;
     std::vector<PendingAtlasUpload> pending_atlas_uploads_;
@@ -122,6 +126,7 @@ private:
     bool imgui_initialized_ = false;
 
     std::shared_ptr<IRenderPass> render_pass_;
+    std::vector<VkGridHandle*> grid_handles_;
 };
 
 } // namespace draxul

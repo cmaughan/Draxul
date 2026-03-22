@@ -22,6 +22,9 @@ struct AppConfig;
 class HostManager
 {
 public:
+    static HostKind platform_default_split_host_kind();
+    static HostKind split_host_kind_for(HostKind primary_kind);
+
     struct Deps
     {
         const AppOptions* options = nullptr;

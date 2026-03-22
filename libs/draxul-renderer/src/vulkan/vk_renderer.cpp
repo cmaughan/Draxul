@@ -20,42 +20,59 @@ namespace draxul
 class VkGridHandle final : public IGridHandle
 {
 public:
-    explicit VkGridHandle(VkRenderer& renderer)
+    VkGridHandle(VkRenderer& renderer, int padding)
         : renderer_(renderer)
+        , padding_(padding)
     {
+        renderer_.grid_handles_.push_back(this);
+    }
+
+    ~VkGridHandle() override
+    {
+        auto& handles = renderer_.grid_handles_;
+        handles.erase(std::remove(handles.begin(), handles.end(), this), handles.end());
     }
 
     void set_grid_size(int cols, int rows) override
     {
-        renderer_.set_grid_size(cols, rows);
+        state_.set_grid_size(cols, rows, padding_);
+        renderer_.upload_dirty_state();
     }
     void update_cells(std::span<const CellUpdate> updates) override
     {
-        renderer_.update_cells(updates);
+        state_.update_cells(updates);
+        renderer_.upload_dirty_state();
     }
     void set_overlay_cells(std::span<const CellUpdate> updates) override
     {
-        renderer_.set_overlay_cells(updates);
+        state_.set_overlay_cells(updates);
+        renderer_.upload_dirty_state();
     }
     void set_cursor(int col, int row, const CursorStyle& style) override
     {
-        renderer_.set_cursor(col, row, style);
+        state_.set_cursor(col, row, style);
     }
     void set_default_background(Color bg) override
     {
-        renderer_.set_state_background(bg);
+        state_.set_default_background(bg);
+        renderer_.upload_dirty_state();
     }
     void set_scroll_offset(float px) override
     {
-        renderer_.scroll_offset_px_ = px;
+        scroll_offset_px_ = px;
     }
-    void set_viewport(const PaneDescriptor& /*desc*/) override
+    void set_viewport(const PaneDescriptor& desc) override
     {
-        // Vulkan backend is single-pane; the handle always covers the full window.
+        descriptor_ = desc;
     }
+
+    RendererState state_;
+    PaneDescriptor descriptor_;
+    float scroll_offset_px_ = 0.0f;
 
 private:
     VkRenderer& renderer_;
+    int padding_ = 4;
 };
 
 namespace
@@ -89,22 +106,37 @@ VkRenderer::VkRenderer(int atlas_size)
 
 void VkRenderer::upload_dirty_state()
 {
+    size_t total_size = 0;
+    for (auto* handle : grid_handles_)
+        total_size += handle->state_.buffer_size_bytes();
+
+    if (total_size == 0)
+        return;
+
+    const auto resize_result = grid_buffer_.ensure_size(ctx_.allocator(), total_size);
+    if (resize_result == BufferResizeResult::Failed)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to resize Vulkan grid buffer to %zu bytes", total_size);
+        return;
+    }
+    if (resize_result == BufferResizeResult::Resized)
+    {
+        needs_descriptor_update_ = true;
+        desc_update_pending_frames_ = 0;
+    }
+
     auto* mapped = static_cast<std::byte*>(grid_buffer_.mapped());
     if (!mapped)
         return;
 
-    if (state_.has_dirty_cells())
+    size_t byte_offset = 0;
+    for (auto* handle : grid_handles_)
     {
-        state_.copy_dirty_cells_to(mapped + state_.dirty_cell_offset_bytes());
-        grid_buffer_.flush_range(ctx_.allocator(), state_.dirty_cell_offset_bytes(), state_.dirty_cell_size_bytes());
+        handle->state_.copy_to(mapped + byte_offset);
+        handle->state_.clear_dirty();
+        byte_offset += handle->state_.buffer_size_bytes();
     }
-    if (state_.overlay_region_dirty())
-    {
-        state_.copy_overlay_region_to(mapped + state_.overlay_offset_bytes());
-        grid_buffer_.flush_range(ctx_.allocator(), state_.overlay_offset_bytes(), state_.overlay_region_size_bytes());
-    }
-
-    state_.clear_dirty();
+    grid_buffer_.flush_range(ctx_.allocator(), 0, total_size);
 }
 
 bool VkRenderer::ensure_capture_buffer(size_t required_size)
@@ -209,9 +241,12 @@ void VkRenderer::unregister_render_pass()
     render_pass_.reset();
 }
 
-void VkRenderer::set_3d_viewport(int /*x*/, int /*y*/, int /*w*/, int /*h*/)
+void VkRenderer::set_3d_viewport(int x, int y, int w, int h)
 {
-    // Split-pane viewport confinement is not yet implemented for the Vulkan backend.
+    viewport3d_x_ = x;
+    viewport3d_y_ = y;
+    viewport3d_w_ = w;
+    viewport3d_h_ = h;
 }
 
 void VkRenderer::shutdown()
@@ -474,17 +509,23 @@ void VkRenderer::set_cell_size(int w, int h)
     cell_w_ = w;
     cell_h_ = h;
     state_.set_cell_size(w, h);
+    for (auto* handle : grid_handles_)
+        handle->state_.set_cell_size(w, h);
+    upload_dirty_state();
 }
 
 void VkRenderer::set_ascender(int a)
 {
     ascender_ = a;
     state_.set_ascender(a);
+    for (auto* handle : grid_handles_)
+        handle->state_.set_ascender(a);
+    upload_dirty_state();
 }
 
 std::unique_ptr<IGridHandle> VkRenderer::create_grid_handle()
 {
-    return std::make_unique<VkGridHandle>(*this);
+    return std::make_unique<VkGridHandle>(*this, padding_);
 }
 
 void VkRenderer::set_default_background(Color bg)
@@ -625,7 +666,8 @@ bool VkRenderer::begin_frame()
 {
     vkWaitForFences(ctx_.device(), 1, &in_flight_fences_[current_frame_], VK_TRUE, UINT64_MAX);
 
-    state_.restore_cursor();
+    for (auto* handle : grid_handles_)
+        handle->state_.restore_cursor();
     upload_dirty_state();
 
     VkResult result = vkAcquireNextImageKHR(
@@ -698,41 +740,96 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
     scissor.extent = ctx_.swapchain().extent;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    int total_cells = state_.fg_instances();
-    int bg_instances = state_.bg_instances();
-
-    if (bg_instances > 0)
+    uint32_t instance_offset = 0;
+    for (auto* handle : grid_handles_)
     {
-        float push_data[5] = {
+        const int bg_instances = handle->state_.bg_instances();
+        const int fg_instances = handle->state_.fg_instances();
+        const uint32_t handle_span = static_cast<uint32_t>(handle->state_.buffer_size_bytes() / sizeof(GpuCell));
+        if (bg_instances <= 0)
+        {
+            instance_offset += handle_span;
+            continue;
+        }
+
+        const PaneDescriptor& desc = handle->descriptor_;
+        VkRect2D pane_scissor = {};
+        if (desc.pixel_width > 0 && desc.pixel_height > 0)
+        {
+            pane_scissor.offset.x = std::max(0, desc.pixel_x);
+            pane_scissor.offset.y = std::max(0, desc.pixel_y);
+            pane_scissor.extent.width = static_cast<uint32_t>(std::max(0,
+                std::min(desc.pixel_width, pixel_w_ - pane_scissor.offset.x)));
+            pane_scissor.extent.height = static_cast<uint32_t>(std::max(0,
+                std::min(desc.pixel_height, pixel_h_ - pane_scissor.offset.y)));
+        }
+        else
+        {
+            pane_scissor.extent = ctx_.swapchain().extent;
+        }
+        vkCmdSetScissor(cmd, 0, 1, &pane_scissor);
+
+        float push_data[7] = {
             (float)ctx_.swapchain().extent.width,
             (float)ctx_.swapchain().extent.height,
             (float)cell_w_,
             (float)cell_h_,
-            scroll_offset_px_
+            handle->scroll_offset_px_,
+            (float)desc.pixel_x,
+            (float)desc.pixel_y
         };
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_pipeline());
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_layout(),
             0, 1, &bg_desc_sets_[current_frame_], 0, nullptr);
         vkCmdPushConstants(cmd, pipeline_.bg_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), push_data);
-        vkCmdDraw(cmd, 6, bg_instances, 0, 0);
+        vkCmdDraw(cmd, 6, bg_instances, 0, instance_offset);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.fg_pipeline());
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.fg_layout(),
             0, 1, &fg_desc_sets_[current_frame_], 0, nullptr);
         vkCmdPushConstants(cmd, pipeline_.fg_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), push_data);
-        vkCmdDraw(cmd, 6, total_cells, 0, 0);
+        vkCmdDraw(cmd, 6, fg_instances, 0, instance_offset);
+
+        instance_offset += handle_span;
     }
 
     if (render_pass_)
     {
+        const int vx = viewport3d_x_;
+        const int vy = viewport3d_y_;
+        const int vw = viewport3d_w_ > 0 ? viewport3d_w_ : pixel_w_;
+        const int vh = viewport3d_h_ > 0 ? viewport3d_h_ : pixel_h_;
+
+        VkViewport pass_viewport = {};
+        pass_viewport.x = static_cast<float>(vx);
+        pass_viewport.y = static_cast<float>(vy);
+        pass_viewport.width = static_cast<float>(std::max(0, vw));
+        pass_viewport.height = static_cast<float>(std::max(0, vh));
+        pass_viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &pass_viewport);
+
+        VkRect2D pass_scissor = {};
+        pass_scissor.offset.x = std::max(0, vx);
+        pass_scissor.offset.y = std::max(0, vy);
+        pass_scissor.extent.width = static_cast<uint32_t>(std::max(0,
+            std::min(vw, pixel_w_ - pass_scissor.offset.x)));
+        pass_scissor.extent.height = static_cast<uint32_t>(std::max(0,
+            std::min(vh, pixel_h_ - pass_scissor.offset.y)));
+        vkCmdSetScissor(cmd, 0, 1, &pass_scissor);
+
         VkRenderContext ctx(cmd, ctx_.device(), ctx_.render_pass(),
-            (int)ctx_.swapchain().extent.width, (int)ctx_.swapchain().extent.height);
+            (int)ctx_.swapchain().extent.width, (int)ctx_.swapchain().extent.height,
+            vx, vy, vw, vh);
         render_pass_->record(ctx);
     }
 
     if (imgui_initialized_ && imgui_draw_data_)
+    {
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
         ImGui_ImplVulkan_RenderDrawData(const_cast<ImDrawData*>(imgui_draw_data_), cmd);
+    }
 
     vkCmdEndRenderPass(cmd);
     if (capture_requested_)
@@ -786,7 +883,8 @@ bool VkRenderer::flush_pending_atlas_uploads(VkCommandBuffer cmd)
 
 void VkRenderer::end_frame()
 {
-    state_.apply_cursor();
+    for (auto* handle : grid_handles_)
+        handle->state_.apply_cursor();
     upload_dirty_state();
     if (capture_requested_ && !ensure_capture_buffer(static_cast<size_t>(ctx_.swapchain().extent.width) * ctx_.swapchain().extent.height * 4))
     {

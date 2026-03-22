@@ -770,10 +770,14 @@ void App::split_vertical()
         right_viewport.cols, right_viewport.rows);
     if (!host_manager_.add_slot(std::move(callbacks), right_viewport))
     {
+        DRAXUL_LOG_ERROR(LogCategory::App, "split_vertical: failed to create pane host: %s", host_manager_.error().c_str());
         // Rollback on failure
         split_layout_.set_single(pane0_id, pixel_w, pixel_h);
         if (host_manager_.host_at(0))
             host_manager_.host_at(0)->set_viewport(current_host_viewport());
+        host_manager_.set_focused_slot(0);
+        input_dispatcher_.set_host(host_manager_.focused_host());
+        request_frame();
         return;
     }
 

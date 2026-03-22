@@ -18,12 +18,17 @@ namespace draxul
 class VkRenderContext : public IRenderContext
 {
 public:
-    VkRenderContext(VkCommandBuffer cmd, VkDevice device, VkRenderPass render_pass, int w, int h)
+    VkRenderContext(VkCommandBuffer cmd, VkDevice device, VkRenderPass render_pass,
+        int w, int h, int viewport_x = 0, int viewport_y = 0, int viewport_w = 0, int viewport_h = 0)
         : cmd_(cmd)
         , device_(device)
         , render_pass_(render_pass)
         , w_(w)
         , h_(h)
+        , viewport_x_(viewport_x)
+        , viewport_y_(viewport_y)
+        , viewport_w_(viewport_w > 0 ? viewport_w : w)
+        , viewport_h_(viewport_h > 0 ? viewport_h : h)
     {
     }
 
@@ -43,6 +48,22 @@ public:
     {
         return h_;
     }
+    int viewport_x() const override
+    {
+        return viewport_x_;
+    }
+    int viewport_y() const override
+    {
+        return viewport_y_;
+    }
+    int viewport_w() const override
+    {
+        return viewport_w_;
+    }
+    int viewport_h() const override
+    {
+        return viewport_h_;
+    }
 
     // Vulkan-specific extensions — cast from IRenderContext in Vk-specific code
     VkDevice device() const
@@ -60,6 +81,10 @@ private:
     VkRenderPass render_pass_;
     int w_;
     int h_;
+    int viewport_x_;
+    int viewport_y_;
+    int viewport_w_;
+    int viewport_h_;
 };
 
 } // namespace draxul

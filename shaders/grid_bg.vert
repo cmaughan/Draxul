@@ -6,6 +6,8 @@ layout(push_constant) uniform PushConstants {
     float cell_w;
     float cell_h;
     float scroll_offset_px;
+    float viewport_x;
+    float viewport_y;
 } pc;
 
 struct Cell {
@@ -43,6 +45,7 @@ void main() {
     vec2 offset = offsets[gl_VertexIndex];
     vec2 pos = vec2(cell.pos_x, cell.pos_y) + offset * vec2(cell.size_x, cell.size_y);
     pos.y -= pc.scroll_offset_px;
+    pos += vec2(pc.viewport_x, pc.viewport_y);
 
     // Convert to NDC: [0, screen] -> [-1, 1]
     vec2 ndc = (pos / vec2(pc.screen_w, pc.screen_h)) * 2.0 - 1.0;
