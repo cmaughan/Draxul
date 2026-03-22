@@ -1,6 +1,8 @@
 #include "input_dispatcher.h"
 
 #include "gui_action_handler.h"
+#include "host_manager.h"
+#include "split_layout.h"
 #include <cmath>
 #include <draxul/app_config.h>
 #include <draxul/events.h>
@@ -14,6 +16,29 @@ namespace draxul
 InputDispatcher::InputDispatcher(Deps deps)
     : deps_(std::move(deps))
 {
+}
+
+// Returns the host that should receive a mouse event at (px, py).
+// If split_layout + host_manager are available, hit-test to find the pane.
+// Falls back to deps_.host for single-pane or when multi-pane is not wired.
+IHost* InputDispatcher::host_for_mouse_pos(int px, int py)
+{
+    if (deps_.split_layout && deps_.host_manager)
+    {
+        const int pane_index = deps_.split_layout->hit_test(px, py);
+        if (pane_index >= 0)
+        {
+            // Update focus if needed
+            if (pane_index != deps_.split_layout->focused_pane_index)
+            {
+                deps_.split_layout->focused_pane_index = pane_index;
+                if (deps_.on_pane_focus_changed)
+                    deps_.on_pane_focus_changed(pane_index);
+            }
+            return deps_.host_manager->host_at(pane_index);
+        }
+    }
+    return deps_.host;
 }
 
 void InputDispatcher::on_key_event(const KeyEvent& event)
@@ -38,8 +63,9 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
             deps_.request_frame();
         return;
     }
-    if (deps_.host)
-        deps_.host->on_mouse_button(event);
+    IHost* target = host_for_mouse_pos(event.x, event.y);
+    if (target)
+        target->on_mouse_button(event);
 }
 
 void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
@@ -51,8 +77,9 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
             deps_.request_frame();
         return;
     }
-    if (deps_.host)
-        deps_.host->on_mouse_move(event);
+    IHost* target = host_for_mouse_pos(event.x, event.y);
+    if (target)
+        target->on_mouse_move(event);
 }
 
 void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
@@ -64,7 +91,8 @@ void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
             deps_.request_frame();
         return;
     }
-    if (!deps_.host)
+    IHost* wheel_host = host_for_mouse_pos(event.x, event.y);
+    if (!wheel_host)
         return;
 
     if (deps_.smooth_scroll && event.dy != 0.0f)
@@ -77,7 +105,7 @@ void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
         {
             MouseWheelEvent step = event;
             step.dy = sign;
-            deps_.host->on_mouse_wheel(step);
+            wheel_host->on_mouse_wheel(step);
         }
         pending_scroll_y_ = std::fmod(pending_scroll_y_, 1.0f);
         if (deps_.request_frame)
@@ -86,7 +114,7 @@ void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
     else
     {
         pending_scroll_y_ = 0.0f;
-        deps_.host->on_mouse_wheel(event);
+        wheel_host->on_mouse_wheel(event);
     }
 }
 

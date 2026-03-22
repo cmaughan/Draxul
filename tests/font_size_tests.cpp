@@ -164,6 +164,20 @@ public:
     void register_render_pass(std::shared_ptr<IRenderPass>) override {}
     void unregister_render_pass() override {}
 
+    // Multi-pane API stubs
+    int alloc_pane() override
+    {
+        return 0;
+    }
+    void free_pane(int) override {}
+    void set_pane_viewport(int, const PaneDescriptor&) override {}
+    void set_grid_size(int, int, int) override {}
+    void update_cells(int, std::span<const CellUpdate>) override {}
+    void set_overlay_cells(int, std::span<const CellUpdate>) override {}
+    void set_cursor(int, int, int, const CursorStyle&) override {}
+    void set_default_background(int, Color) override {}
+    void set_scroll_offset(int, float) override {}
+
     int full_atlas_uploads = 0;
     int region_uploads = 0;
 };

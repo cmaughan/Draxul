@@ -1,7 +1,9 @@
 #pragma once
+#include <draxul/pane_descriptor.h>
 #include <draxul/renderer.h>
 #include <draxul/renderer_state.h>
 #include <optional>
+#include <vector>
 
 #ifdef __OBJC__
 #include "objc_ref.h"
@@ -57,13 +59,35 @@ public:
     void set_default_background(Color bg) override;
     void set_scroll_offset(float px) override;
 
+    // Multi-pane API
+    int alloc_pane() override;
+    void free_pane(int pane_id) override;
+    void set_pane_viewport(int pane_id, const PaneDescriptor& desc) override;
+    void set_grid_size(int pane_id, int cols, int rows) override;
+    void update_cells(int pane_id, std::span<const CellUpdate> updates) override;
+    void set_overlay_cells(int pane_id, std::span<const CellUpdate> updates) override;
+    void set_cursor(int pane_id, int col, int row, const CursorStyle& style) override;
+    void set_default_background(int pane_id, Color bg) override;
+    void set_scroll_offset(int pane_id, float px) override;
+
     // I3DRenderer
     void register_render_pass(std::shared_ptr<IRenderPass> pass) override;
     void unregister_render_pass() override;
 
+    struct PaneEntry
+    {
+        RendererState state;
+        PaneDescriptor descriptor;
+        float scroll_offset_px = 0.f;
+        Color bg_color{};
+        bool active = true;
+    };
+
 private:
     void upload_dirty_state();
     bool ensure_capture_buffer(size_t width, size_t height);
+    size_t compute_total_buffer_cells() const;
+    size_t pane_cell_offset(int pane_id) const;
 
     // Metal object handles — typed under ObjC++ (ARC-managed via ObjCRef),
     // opaque void* in plain C++ translation units.
@@ -106,7 +130,7 @@ private:
     float clear_b_ = 0.1f;
     float scroll_offset_px_ = 0.0f;
 
-    RendererState state_;
+    std::vector<PaneEntry> panes_; // pane_id is index; panes_[0] always exists
     bool capture_requested_ = false;
     std::optional<CapturedFrame> captured_frame_;
     size_t capture_buffer_size_ = 0;

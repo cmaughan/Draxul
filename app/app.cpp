@@ -6,6 +6,7 @@
 #include "gui_action_handler.h"
 #include "host_manager.h"
 #include "input_dispatcher.h"
+#include "split_layout.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <chrono>
@@ -184,6 +185,7 @@ bool App::initialize()
     // needed here because the font size change does not alter the DPI scaling path.
     gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
     gui_deps.on_open_file_dialog = [this]() { window_.show_open_file_dialog(); };
+    gui_deps.on_split_vertical = [this]() { split_vertical(); };
     gui_deps.on_panel_toggled = [this]() {
         refresh_window_layout();
         if (host_manager_.host())
@@ -270,6 +272,13 @@ bool App::initialize_host()
     host_deps.imgui_host = renderer_.imgui();
     host_deps.text_service = &text_service_;
     host_deps.display_ppi = &display_ppi_;
+
+    // Initialize the split layout with a single pane
+    auto [pixel_w, pixel_h] = window_.size_pixels();
+    const int pane0_id = renderer_.grid()->alloc_pane(); // returns 0
+    split_layout_.set_single(pane0_id, pixel_w, pixel_h);
+    renderer_.grid()->set_pane_viewport(pane0_id, split_layout_.panes[0].descriptor);
+
     host_deps.get_viewport = [this]() { return current_host_viewport(); };
     host_manager_ = HostManager(std::move(host_deps));
 
@@ -306,6 +315,12 @@ void App::wire_window_callbacks()
     disp_deps.gui_action_handler = &gui_action_handler_;
     disp_deps.ui_panel = &ui_panel_;
     disp_deps.host = host_manager_.host();
+    disp_deps.host_manager = &host_manager_;
+    disp_deps.split_layout = &split_layout_;
+    disp_deps.on_pane_focus_changed = [this](int pane_index) {
+        host_manager_.set_focused_slot(pane_index);
+        input_dispatcher_.set_host(host_manager_.focused_host());
+    };
     disp_deps.smooth_scroll = config_.smooth_scroll;
     disp_deps.scroll_speed = config_.scroll_speed;
     disp_deps.request_frame = [this]() { request_frame(); };
@@ -399,13 +414,22 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             return false;
         }
 
+        // Check that the focused (primary) host is still running
         if (!host_manager_.host() || !host_manager_.host()->is_running())
         {
             running_ = false;
             return false;
         }
 
-        host_manager_.host()->pump();
+        // Pump all host slots
+        for (int i = 0; i < host_manager_.slot_count(); ++i)
+        {
+            IHost* slot_host = host_manager_.host_at(i);
+            if (slot_host && slot_host->is_running())
+                slot_host->pump();
+        }
+
+        // Recheck focused host after pumping
         if (!host_manager_.host()->is_running())
         {
             running_ = false;
@@ -472,8 +496,30 @@ void App::on_resize(int pixel_w, int pixel_h)
 {
     renderer_.grid()->resize(pixel_w, pixel_h);
     refresh_window_layout();
-    if (host_manager_.host())
-        host_manager_.host()->set_viewport(current_host_viewport());
+
+    // Recompute split layout with new dimensions
+    if (split_layout_.panes.size() == 2)
+    {
+        split_layout_.set_vertical_2(
+            split_layout_.panes[0].pane_id,
+            split_layout_.panes[1].pane_id,
+            pixel_w, pixel_h);
+    }
+    else if (!split_layout_.panes.empty())
+    {
+        split_layout_.set_single(split_layout_.panes[0].pane_id, pixel_w, pixel_h);
+    }
+
+    // Update renderer pane viewports and host viewports
+    for (int i = 0; i < static_cast<int>(split_layout_.panes.size()); ++i)
+    {
+        const auto& sp = split_layout_.panes[static_cast<size_t>(i)];
+        renderer_.grid()->set_pane_viewport(sp.pane_id, sp.descriptor);
+        IHost* slot_host = host_manager_.host_at(i);
+        if (slot_host)
+            slot_host->set_viewport(viewport_for_pane(sp.pane_id));
+    }
+
     request_frame();
 }
 
@@ -557,6 +603,10 @@ void App::refresh_window_layout()
 
 HostViewport App::current_host_viewport() const
 {
+    // Use pane 0 (focused) for the default host viewport
+    if (!split_layout_.panes.empty())
+        return viewport_for_pane(split_layout_.panes[0].pane_id);
+
     const auto& layout = ui_panel_.layout();
     HostViewport viewport;
     viewport.pixel_x = 0;
@@ -568,6 +618,103 @@ HostViewport App::current_host_viewport() const
     viewport.padding = renderer_.grid()->padding();
     viewport.pixel_scale = layout.pixel_scale;
     return viewport;
+}
+
+HostViewport App::viewport_for_pane(int pane_id) const
+{
+    // Find pane in split layout
+    for (const auto& sp : split_layout_.panes)
+    {
+        if (sp.pane_id != pane_id)
+            continue;
+
+        const auto& desc = sp.descriptor;
+        const auto& layout = ui_panel_.layout();
+        const int padding = renderer_.grid()->padding();
+        const auto [cell_w, cell_h] = renderer_.grid()->cell_size_pixels();
+
+        HostViewport viewport;
+        viewport.pixel_x = desc.pixel_x;
+        viewport.pixel_y = desc.pixel_y;
+        // Reserve space for the UI panel if it occupies horizontal space.
+        // For multi-pane we assign the full descriptor height and adjust panel height
+        // only for the focused pane (simplification for phase 1).
+        const int panel_h = (layout.window_height - layout.terminal_height);
+        viewport.pixel_width = desc.pixel_width;
+        viewport.pixel_height = desc.pixel_height - panel_h;
+        viewport.padding = padding;
+        viewport.pixel_scale = layout.pixel_scale;
+
+        // Compute col/row counts from available pixel area
+        const int usable_w = viewport.pixel_width - 2 * padding;
+        const int usable_h = viewport.pixel_height - 2 * padding;
+        viewport.cols = cell_w > 0 ? std::max(1, usable_w / cell_w) : 1;
+        viewport.rows = cell_h > 0 ? std::max(1, usable_h / cell_h) : 1;
+        return viewport;
+    }
+
+    // Fallback to full-window viewport
+    const auto& layout = ui_panel_.layout();
+    HostViewport viewport;
+    viewport.pixel_x = 0;
+    viewport.pixel_y = 0;
+    viewport.pixel_width = layout.window_width;
+    viewport.pixel_height = layout.terminal_height;
+    viewport.cols = layout.grid_cols;
+    viewport.rows = layout.grid_rows;
+    viewport.padding = renderer_.grid()->padding();
+    viewport.pixel_scale = layout.pixel_scale;
+    return viewport;
+}
+
+void App::split_vertical()
+{
+    auto [pixel_w, pixel_h] = window_.size_pixels();
+
+    // Allocate a new pane
+    const int new_pane_id = renderer_.grid()->alloc_pane();
+
+    // Recompute layout as 2-pane vertical split
+    const int pane0_id = split_layout_.panes.empty() ? 0 : split_layout_.panes[0].pane_id;
+    split_layout_.set_vertical_2(pane0_id, new_pane_id, pixel_w, pixel_h);
+
+    // Update renderer pane viewports
+    renderer_.grid()->set_pane_viewport(pane0_id, split_layout_.panes[0].descriptor);
+    renderer_.grid()->set_pane_viewport(new_pane_id, split_layout_.panes[1].descriptor);
+
+    // Resize the existing (pane 0) host to its new half-width viewport
+    if (host_manager_.host_at(0))
+        host_manager_.host_at(0)->set_viewport(viewport_for_pane(pane0_id));
+
+    // Launch a second host for the right-pane
+    HostCallbacks callbacks;
+    callbacks.request_frame = [this]() { request_frame(); };
+    callbacks.request_quit = [this]() { request_quit(); };
+    callbacks.wake_window = [this]() { window_.wake(); };
+    callbacks.set_window_title = [this](const std::string& title) { window_.set_title(title); };
+    callbacks.set_text_input_area = [this](int x, int y, int w, int h) { window_.set_text_input_area(x, y, w, h); };
+
+    const HostViewport right_viewport = viewport_for_pane(new_pane_id);
+    if (!host_manager_.add_slot(std::move(callbacks), new_pane_id, right_viewport))
+    {
+        // Rollback on failure
+        renderer_.grid()->free_pane(new_pane_id);
+        split_layout_.set_single(pane0_id, pixel_w, pixel_h);
+        renderer_.grid()->set_pane_viewport(pane0_id, split_layout_.panes[0].descriptor);
+        if (host_manager_.host_at(0))
+            host_manager_.host_at(0)->set_viewport(current_host_viewport());
+        return;
+    }
+
+    // Focus the new right pane
+    split_layout_.focused_pane_index = 1;
+    const int new_slot_index = host_manager_.slot_count() - 1;
+    host_manager_.set_focused_slot(new_slot_index);
+
+    // Update input dispatcher to focus new host
+    input_dispatcher_.set_host(host_manager_.focused_host());
+
+    request_frame();
 }
 
 int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const

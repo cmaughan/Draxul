@@ -84,6 +84,11 @@ void GridRenderingPipeline::set_renderer(IGridRenderer* renderer)
     renderer_ = renderer;
 }
 
+void GridRenderingPipeline::set_pane_id(int pane_id)
+{
+    pane_id_ = pane_id;
+}
+
 void GridRenderingPipeline::set_enable_ligatures(bool enable)
 {
     enable_ligatures_ = enable;
@@ -188,7 +193,7 @@ void GridRenderingPipeline::flush()
         if (force_full_atlas_upload_ || atlas_updated)
             upload_atlas();
 
-        renderer_->update_cells(updates);
+        renderer_->update_cells(pane_id_, updates);
         grid_.clear_dirty();
         return;
     }

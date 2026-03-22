@@ -31,6 +31,7 @@ public:
         std::function<void()> on_panel_toggled; // refresh layout, set viewport, update panel, request_frame
         std::function<void()> on_config_changed; // persist config when save_user_config is enabled
         std::function<void()> on_open_file_dialog; // show the native file-open dialog
+        std::function<void()> on_split_vertical; // create a vertical 2-pane split
     };
 
     explicit GuiActionHandler(Deps deps);
@@ -46,6 +47,7 @@ private:
     void paste();
     void toggle_diagnostics();
     void open_file_dialog() const;
+    void split_vertical() const;
     void change_font_size(float new_size);
 
     Deps deps_;

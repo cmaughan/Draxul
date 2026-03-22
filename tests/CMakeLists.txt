@@ -65,6 +65,7 @@ add_executable(draxul-tests
     ${CMAKE_SOURCE_DIR}/app/input_dispatcher.cpp
     ${CMAKE_SOURCE_DIR}/app/app.cpp
     ${CMAKE_SOURCE_DIR}/app/host_manager.cpp
+    ${CMAKE_SOURCE_DIR}/app/split_layout.cpp
     $<$<PLATFORM_ID:Darwin>:${CMAKE_SOURCE_DIR}/app/macos_menu.mm>
 )
 

@@ -49,6 +49,13 @@ public:
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;
 
+    // Pane assignment — called by HostManager before initialize().
+    void set_pane_id(int id);
+    int pane_id() const
+    {
+        return pane_id_;
+    }
+
 protected:
     virtual bool initialize_host() = 0;
     virtual void on_viewport_changed() = 0;
@@ -125,6 +132,7 @@ private:
     IWindow* window_ = nullptr;
     IGridRenderer* renderer_ = nullptr;
     TextService* text_service_ = nullptr;
+    int pane_id_ = 0;
     HostLaunchOptions launch_options_;
     HostViewport viewport_ = {};
     HostCallbacks callbacks_;
