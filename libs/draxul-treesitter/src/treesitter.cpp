@@ -54,8 +54,11 @@ bool should_skip_path(const std::filesystem::path& rel)
 bool is_cpp_source(const std::filesystem::path& path)
 {
     const auto ext = path.extension().string();
+    // .mm (Objective-C++) is excluded: its ObjC syntax (@autoreleasepool,
+    // message expressions, etc.) is not valid C++ and would produce spurious
+    // parse errors with the tree-sitter C++ grammar.
     return ext == ".cpp" || ext == ".h" || ext == ".cc" || ext == ".c"
-        || ext == ".mm" || ext == ".inl" || ext == ".hpp";
+        || ext == ".inl" || ext == ".hpp";
 }
 
 // Strip surrounding quotes or angle brackets from an include path node's text.
@@ -70,6 +73,21 @@ std::string strip_include_delimiters(std::string s)
     return s;
 }
 
+// Sniff the first chunk of a file for Objective-C keywords that are illegal
+// in standard C++. If found, the file should be skipped — the C++ grammar
+// cannot extract meaningful symbols from it and would produce spurious errors.
+bool is_objc_source(const std::string& source)
+{
+    // Only look at the first 8 KB to keep it fast.
+    const std::string_view head(source.data(), std::min(source.size(), size_t{ 8192 }));
+    for (const char* kw : { "@interface", "@implementation", "@protocol", "@property", "@end" })
+    {
+        if (head.find(kw) != std::string_view::npos)
+            return true;
+    }
+    return false;
+}
+
 std::string read_file(const std::filesystem::path& path)
 {
     std::ifstream f(path, std::ios::binary);
@@ -78,6 +96,24 @@ std::string read_file(const std::filesystem::path& path)
     std::ostringstream ss;
     ss << f.rdbuf();
     return ss.str();
+}
+
+constexpr uint32_t kMaxErrorsPerFile = 50;
+
+// Walk the tree and collect positions of ERROR nodes (up to the cap).
+void collect_errors(TSNode node, std::vector<ParseError>& errors)
+{
+    if (errors.size() >= kMaxErrorsPerFile)
+        return;
+    if (ts_node_is_error(node))
+    {
+        const TSPoint pt = ts_node_start_point(node);
+        errors.push_back({ pt.row + 1, pt.column });
+        return; // don't recurse further into an error node
+    }
+    const uint32_t n = ts_node_child_count(node);
+    for (uint32_t i = 0; i < n && errors.size() < kMaxErrorsPerFile; ++i)
+        collect_errors(ts_node_child(node, i), errors);
 }
 
 } // namespace
@@ -151,7 +187,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
 
     for (auto it = std::filesystem::begin(dir_iter),
               end = std::filesystem::end(dir_iter);
-        it != end; it.increment(ec))
+         it != end; it.increment(ec))
     {
         if (ec || stop_flag_.load(std::memory_order_relaxed))
             break;
@@ -173,6 +209,8 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
         const std::string source = read_file(entry.path());
         if (source.empty())
             continue;
+        if (is_objc_source(source))
+            continue;
 
         TSTree* tree = ts_parser_parse_string(
             parser, nullptr, source.c_str(),
@@ -186,9 +224,9 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
 
         const TSNode root_node = ts_tree_root_node(tree);
 
-        // Count parse errors via root node's has-error flag
+        // Collect ERROR node positions for display in the UI.
         if (ts_node_has_error(root_node))
-            file.error_count = 1; // coarse: tree has at least one error
+            collect_errors(root_node, file.errors);
 
         if (query && cursor)
         {

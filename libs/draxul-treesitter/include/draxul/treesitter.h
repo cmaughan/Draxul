@@ -27,11 +27,17 @@ struct SymbolRecord
     uint32_t line = 0; // 1-based
 };
 
+struct ParseError
+{
+    uint32_t line = 0; // 1-based
+    uint32_t col = 0; // 0-based
+};
+
 struct ParsedFile
 {
     std::string path; // relative to scan root, forward-slash separated
     std::vector<SymbolRecord> symbols;
-    uint32_t error_count = 0;
+    std::vector<ParseError> errors;
 };
 
 struct CodebaseSnapshot

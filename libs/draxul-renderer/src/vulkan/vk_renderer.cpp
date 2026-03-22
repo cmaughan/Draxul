@@ -358,7 +358,7 @@ bool VkRenderer::recreate_frame_resources()
     needs_descriptor_update_ = false;
     desc_update_pending_frames_ = 0;
 
-    if (imgui_initialized_)
+    if (imgui_initialized_ && ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)
     {
         shutdown_imgui_backend();
         if (!initialize_imgui_backend())
@@ -540,7 +540,7 @@ bool VkRenderer::create_imgui_font_texture()
 
 void VkRenderer::rebuild_imgui_font_texture()
 {
-    if (!imgui_initialized_)
+    if (!ImGui::GetCurrentContext() || !ImGui::GetIO().BackendRendererUserData)
         return;
 
     ImGui_ImplVulkan_DestroyFontsTexture();
@@ -549,8 +549,11 @@ void VkRenderer::rebuild_imgui_font_texture()
 
 bool VkRenderer::initialize_imgui_backend()
 {
-    if (imgui_initialized_)
+    // Already initialized for the current ImGui context — nothing to do.
+    if (ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)
         return true;
+
+    // The descriptor pool is shared across all contexts; create it only once.
     if (!create_imgui_descriptor_pool())
         return false;
 
@@ -584,18 +587,18 @@ bool VkRenderer::initialize_imgui_backend()
 
 void VkRenderer::shutdown_imgui_backend()
 {
-    if (!imgui_initialized_)
+    // Shuts down the backend for the current ImGui context only.
+    if (!ImGui::GetCurrentContext() || !ImGui::GetIO().BackendRendererUserData)
         return;
 
     vkDeviceWaitIdle(ctx_.device());
     ImGui_ImplVulkan_Shutdown();
-    imgui_initialized_ = false;
     imgui_draw_data_ = nullptr;
 }
 
 void VkRenderer::begin_imgui_frame()
 {
-    if (!imgui_initialized_)
+    if (!ImGui::GetCurrentContext() || !ImGui::GetIO().BackendRendererUserData)
         return;
 
     ImGui_ImplVulkan_NewFrame();
