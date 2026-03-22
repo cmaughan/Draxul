@@ -38,11 +38,6 @@ bool GridHostBase::initialize(const HostContext& context, HostCallbacks callback
 void GridHostBase::set_viewport(const HostViewport& viewport)
 {
     viewport_ = viewport;
-    DRAXUL_LOG_INFO(LogCategory::App,
-        "[%s] set_viewport: px=%d py=%d pw=%d ph=%d cols=%d rows=%d",
-        std::string(host_name()).c_str(),
-        viewport.pixel_x, viewport.pixel_y, viewport.pixel_width, viewport.pixel_height,
-        viewport.cols, viewport.rows);
     if (grid_handle_)
         grid_handle_->set_viewport(PaneDescriptor{ viewport.pixel_x, viewport.pixel_y,
             viewport.pixel_width, viewport.pixel_height });
@@ -111,8 +106,6 @@ void GridHostBase::apply_grid_size(int cols, int rows)
 {
     cols = std::max(1, cols);
     rows = std::max(1, rows);
-    DRAXUL_LOG_INFO(LogCategory::App, "[%s] apply_grid_size: cols=%d rows=%d",
-        std::string(host_name()).c_str(), cols, rows);
     grid_cols_ = cols;
     grid_rows_ = rows;
     grid_.resize(cols, rows);

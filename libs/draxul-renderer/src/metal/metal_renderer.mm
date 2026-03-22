@@ -53,8 +53,6 @@ public:
 
     void set_grid_size(int cols, int rows) override
     {
-        DRAXUL_LOG_INFO(LogCategory::Renderer,
-            "MetalGridHandle(%p) set_grid_size: cols=%d rows=%d", (void*)this, cols, rows);
         state_.set_grid_size(cols, rows, padding_);
 
         // Resize GPU buffer to fit the new cell count
@@ -97,9 +95,6 @@ public:
 
     void set_viewport(const PaneDescriptor& desc) override
     {
-        DRAXUL_LOG_INFO(LogCategory::Renderer,
-            "MetalGridHandle(%p) set_viewport: x=%d y=%d w=%d h=%d",
-            (void*)this, desc.pixel_x, desc.pixel_y, desc.pixel_width, desc.pixel_height);
         descriptor_ = desc;
     }
 
