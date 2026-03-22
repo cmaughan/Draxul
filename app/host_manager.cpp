@@ -2,6 +2,7 @@
 
 #include <draxul/app_config.h>
 #include <draxul/base_renderer.h>
+#include <draxul/grid_host_base.h>
 #include <draxul/host_kind.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
@@ -30,23 +31,49 @@ bool HostManager::create(HostCallbacks callbacks)
     launch.startup_commands = deps_.options->startup_commands;
     launch.enable_ligatures = deps_.config->enable_ligatures;
 
-    if (launch.kind == HostKind::MegaCity)
+    HostViewport viewport = deps_.get_viewport ? deps_.get_viewport() : HostViewport{};
+    return create_slot(std::move(callbacks), 0, viewport, std::move(launch), true);
+}
+
+bool HostManager::add_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport)
+{
+    HostLaunchOptions launch;
+    launch.kind = deps_.options->host_kind;
+    launch.command = deps_.options->host_command;
+    launch.args = deps_.options->host_args;
+    launch.working_dir = deps_.options->host_working_dir;
+    launch.startup_commands = deps_.options->startup_commands;
+    launch.enable_ligatures = deps_.config->enable_ligatures;
+
+    return create_slot(std::move(callbacks), pane_id, viewport, std::move(launch), false);
+}
+
+bool HostManager::create_slot(HostCallbacks callbacks, int pane_id, HostViewport viewport,
+    HostLaunchOptions launch, bool is_primary)
+{
+    std::unique_ptr<IHost> new_host;
+
+    if (is_primary && launch.kind == HostKind::MegaCity)
     {
 #ifdef DRAXUL_ENABLE_MEGACITY
-        host_ = create_megacity_host();
+        new_host = create_megacity_host();
 #else
         error_ = "The Megacity host was disabled at build time (DRAXUL_ENABLE_MEGACITY=OFF).";
         return false;
 #endif
     }
     else
-        host_ = create_host(launch.kind);
+        new_host = create_host(launch.kind);
 
-    if (!host_)
+    if (!new_host)
     {
         error_ = std::string("The selected host is not supported on this platform: ") + to_string(launch.kind);
         return false;
     }
+
+    // Set pane_id on the host if it is a GridHostBase
+    if (auto* ghb = dynamic_cast<GridHostBase*>(new_host.get()))
+        ghb->set_pane_id(pane_id);
 
     IGridRenderer& grid_renderer = *deps_.grid_renderer;
     const float display_ppi = deps_.display_ppi ? *deps_.display_ppi : 96.0f;
@@ -56,22 +83,21 @@ bool HostManager::create(HostCallbacks callbacks)
         grid_renderer,
         *deps_.text_service,
         launch,
-        deps_.get_viewport ? deps_.get_viewport() : HostViewport{},
+        viewport,
         display_ppi,
     };
 
-    if (!host_->initialize(context, std::move(callbacks)))
+    if (!new_host->initialize(context, std::move(callbacks)))
     {
-        error_ = host_->init_error();
+        error_ = new_host->init_error();
         if (error_.empty())
             error_ = "Failed to initialize the selected host.";
-        host_.reset();
         return false;
     }
 
     // Wire 3D renderer post-init for hosts that opt into I3DHost.
     // IGridRenderer IS-A I3DRenderer via inheritance — the upcast is always valid.
-    if (auto* h3d = dynamic_cast<I3DHost*>(host_.get()))
+    if (auto* h3d = dynamic_cast<I3DHost*>(new_host.get()))
     {
         if (deps_.grid_renderer)
             h3d->attach_3d_renderer(*static_cast<I3DRenderer*>(deps_.grid_renderer));
@@ -79,17 +105,24 @@ bool HostManager::create(HostCallbacks callbacks)
             h3d->attach_imgui_host(*deps_.imgui_host);
     }
 
-    grid_renderer.set_default_background(host_->default_background());
+    if (is_primary)
+        grid_renderer.set_default_background(new_host->default_background());
+
+    slots_.push_back({ std::move(new_host), pane_id });
     return true;
 }
 
 void HostManager::shutdown()
 {
-    if (host_)
+    for (auto& slot : slots_)
     {
-        host_->shutdown();
-        host_.reset();
+        if (slot.host)
+        {
+            slot.host->shutdown();
+            slot.host.reset();
+        }
     }
+    slots_.clear();
 }
 
 } // namespace draxul

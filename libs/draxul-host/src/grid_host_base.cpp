@@ -18,6 +18,7 @@ bool GridHostBase::initialize(const HostContext& context, HostCallbacks callback
     callbacks_ = std::move(callbacks);
     grid_pipeline_ = std::make_unique<GridRenderingPipeline>(grid_, highlights_, *text_service_);
     grid_pipeline_->set_renderer(renderer_);
+    grid_pipeline_->set_pane_id(pane_id_);
     grid_pipeline_->set_enable_ligatures(launch_options_.enable_ligatures);
     refresh_renderer_metrics();
     on_viewport_changed();
@@ -82,6 +83,13 @@ TextService& GridHostBase::text_service() const
     return *text_service_;
 }
 
+void GridHostBase::set_pane_id(int id)
+{
+    pane_id_ = id;
+    if (grid_pipeline_)
+        grid_pipeline_->set_pane_id(id);
+}
+
 void GridHostBase::apply_grid_size(int cols, int rows)
 {
     cols = std::max(1, cols);
@@ -89,7 +97,7 @@ void GridHostBase::apply_grid_size(int cols, int rows)
     grid_cols_ = cols;
     grid_rows_ = rows;
     grid_.resize(cols, rows);
-    renderer_->set_grid_size(cols, rows);
+    renderer_->set_grid_size(pane_id_, cols, rows);
     grid_pipeline_->force_full_atlas_upload();
     update_text_input_area();
     callbacks_.request_frame();
@@ -108,7 +116,7 @@ void GridHostBase::flush_grid()
     last_activity_time_ = std::chrono::steady_clock::now();
     grid_pipeline_->flush();
     const Color bg = highlights_.default_bg();
-    renderer_->set_default_background(bg);
+    renderer_->set_default_background(pane_id_, bg);
     if (bg != last_title_bar_color_)
     {
         last_title_bar_color_ = bg;
@@ -157,7 +165,7 @@ void GridHostBase::apply_cursor_visibility()
 {
     const int visible_col = cursor_blinker_.visible() ? cursor_col_ : -1;
     const int visible_row = cursor_blinker_.visible() ? cursor_row_ : -1;
-    renderer_->set_cursor(visible_col, visible_row, cursor_style_);
+    renderer_->set_cursor(pane_id_, visible_col, visible_row, cursor_style_);
     callbacks_.request_frame();
 }
 

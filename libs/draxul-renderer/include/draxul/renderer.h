@@ -1,5 +1,6 @@
 #pragma once
 #include <draxul/base_renderer.h>
+#include <draxul/pane_descriptor.h>
 #include <draxul/types.h>
 #include <memory>
 #include <optional>
@@ -23,6 +24,7 @@ class IGridRenderer : public I3DRenderer
 {
 public:
     ~IGridRenderer() override = default;
+    // Single-pane (pane 0) API — kept for backward compatibility.
     virtual void set_grid_size(int cols, int rows) = 0;
     virtual void update_cells(std::span<const CellUpdate> updates) = 0;
     virtual void set_overlay_cells(std::span<const CellUpdate> updates) = 0;
@@ -34,6 +36,22 @@ public:
     virtual void set_ascender(int a) = 0;
     virtual int padding() const = 0;
     virtual void set_scroll_offset(float px) = 0;
+
+    // Bring single-pane methods into scope explicitly to avoid name hiding
+    // when the pane-aware overloads below share the same method name.
+    using IBaseRenderer::set_default_background;
+
+    // Multi-pane API. pane_id 0 = the default pane (always exists).
+    virtual int alloc_pane() = 0;
+    virtual void free_pane(int pane_id) = 0;
+    virtual void set_pane_viewport(int pane_id, const PaneDescriptor& desc) = 0;
+    // pane-aware overloads (these shadow the single-pane virtuals above via same name)
+    virtual void set_grid_size(int pane_id, int cols, int rows) = 0;
+    virtual void update_cells(int pane_id, std::span<const CellUpdate> updates) = 0;
+    virtual void set_overlay_cells(int pane_id, std::span<const CellUpdate> updates) = 0;
+    virtual void set_cursor(int pane_id, int col, int row, const CursorStyle& style) = 0;
+    virtual void set_default_background(int pane_id, Color bg) = 0;
+    virtual void set_scroll_offset(int pane_id, float px) = 0;
 };
 
 // ---------------------------------------------------------------------------

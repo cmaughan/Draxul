@@ -12,7 +12,9 @@ struct GuiKeybinding;
 class GuiActionHandler;
 class UiPanel;
 class IHost;
+class HostManager;
 class SdlWindow;
+struct SplitLayout;
 struct KeyEvent;
 struct MouseButtonEvent;
 struct MouseMoveEvent;
@@ -35,6 +37,11 @@ public:
         GuiActionHandler* gui_action_handler = nullptr;
         UiPanel* ui_panel = nullptr;
         IHost* host = nullptr;
+        // Multi-pane: optional. If set, mouse events are hit-tested against split_layout.
+        HostManager* host_manager = nullptr;
+        SplitLayout* split_layout = nullptr;
+        // Callback to notify App that focused pane changed (so App can update focused_slot).
+        std::function<void(int)> on_pane_focus_changed;
         bool smooth_scroll = false;
         float scroll_speed = 1.0f;
 
@@ -47,6 +54,12 @@ public:
 
     // Installs this dispatcher's lambdas as the window's event callbacks.
     void connect(SdlWindow& window);
+
+    // Updates the host pointer (used when focus changes between panes).
+    void set_host(IHost* host)
+    {
+        deps_.host = host;
+    }
 
     // Exposed for testing — checks if the key event matches any GUI keybinding.
     std::optional<std::string_view> gui_action_for_key_event(const KeyEvent& event) const;
@@ -78,6 +91,8 @@ private:
     void on_mouse_button_event(const MouseButtonEvent& event);
     void on_mouse_move_event(const MouseMoveEvent& event);
     void on_mouse_wheel_event(const MouseWheelEvent& event);
+    // Returns the host that should receive mouse events at (px, py).
+    IHost* host_for_mouse_pos(int px, int py);
 
     Deps deps_;
     float pending_scroll_y_ = 0.0f;

@@ -24,6 +24,8 @@ struct PushConstants
     float cell_w;
     float cell_h;
     float scroll_offset_px;
+    float viewport_x;
+    float viewport_y;
 };
 
 // Background pass
@@ -54,6 +56,7 @@ vertex BgVertexOut bg_vertex(
     float2 offset = offsets[vertex_id];
     float2 pos = float2(cell.pos_x, cell.pos_y) + offset * float2(cell.size_x, cell.size_y);
     pos.y -= pc.scroll_offset_px;
+    pos += float2(pc.viewport_x, pc.viewport_y);
 
     // Convert to NDC: [0, screen] -> [-1, 1]
     float2 ndc = (pos / float2(pc.screen_w, pc.screen_h)) * 2.0 - 1.0;
@@ -128,6 +131,7 @@ vertex FgVertexOut fg_vertex(
     float2 glyph_size = float2(cell.glyph_size_x, cell.glyph_size_y);
 
     float2 pos = glyph_pos + offset * glyph_size;
+    pos += float2(pc.viewport_x, pc.viewport_y);
 
     // Convert to NDC
     float2 ndc = (pos / float2(pc.screen_w, pc.screen_h)) * 2.0 - 1.0;

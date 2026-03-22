@@ -2,6 +2,7 @@
 #include "gui_action_handler.h"
 #include "host_manager.h"
 #include "input_dispatcher.h"
+#include "split_layout.h"
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -62,6 +63,8 @@ private:
     void update_diagnostics_panel();
     void refresh_window_layout();
     HostViewport current_host_viewport() const;
+    HostViewport viewport_for_pane(int pane_id) const;
+    void split_vertical();
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
     double average_frame_ms() const;
 
@@ -72,6 +75,7 @@ private:
     TextService text_service_;
     UiPanel ui_panel_;
     HostManager host_manager_{ HostManager::Deps{} };
+    SplitLayout split_layout_;
 
     GuiActionHandler gui_action_handler_{ GuiActionHandler::Deps{} };
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };

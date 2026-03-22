@@ -30,8 +30,32 @@ NSUInteger align_capture_row_bytes(NSUInteger width)
 MetalRenderer::MetalRenderer(int atlas_size)
     : atlas_size_(atlas_size)
 {
+    // Always start with one pane (pane 0)
+    panes_.emplace_back();
 }
 MetalRenderer::~MetalRenderer() = default;
+
+size_t MetalRenderer::compute_total_buffer_cells() const
+{
+    size_t total = 0;
+    for (const auto& pane : panes_)
+    {
+        if (pane.active)
+            total += pane.state.total_cells() + RendererState::OVERLAY_CELL_CAPACITY + 1;
+    }
+    return total;
+}
+
+size_t MetalRenderer::pane_cell_offset(int pane_id) const
+{
+    size_t offset = 0;
+    for (int i = 0; i < pane_id; ++i)
+    {
+        if (panes_[static_cast<size_t>(i)].active)
+            offset += panes_[static_cast<size_t>(i)].state.total_cells() + RendererState::OVERLAY_CELL_CAPACITY + 1;
+    }
+    return offset;
+}
 
 void MetalRenderer::upload_dirty_state()
 {
@@ -40,17 +64,25 @@ void MetalRenderer::upload_dirty_state()
         return;
 
     auto* bytes = static_cast<std::byte*>([buf contents]);
-    if (state_.has_dirty_cells())
+    for (int i = 0; i < static_cast<int>(panes_.size()); ++i)
     {
-        state_.copy_dirty_cells_to(bytes + state_.dirty_cell_offset_bytes());
-    }
+        auto& pane = panes_[static_cast<size_t>(i)];
+        if (!pane.active)
+            continue;
+        const size_t pane_byte_offset = pane_cell_offset(i) * sizeof(GpuCell);
 
-    if (state_.overlay_region_dirty())
-    {
-        state_.copy_overlay_region_to(bytes + state_.overlay_offset_bytes());
-    }
+        if (pane.state.has_dirty_cells())
+        {
+            pane.state.copy_dirty_cells_to(bytes + pane_byte_offset + pane.state.dirty_cell_offset_bytes());
+        }
 
-    state_.clear_dirty();
+        if (pane.state.overlay_region_dirty())
+        {
+            pane.state.copy_overlay_region_to(bytes + pane_byte_offset + pane.state.overlay_offset_bytes());
+        }
+
+        pane.state.clear_dirty();
+    }
 }
 
 bool MetalRenderer::ensure_capture_buffer(size_t width, size_t height)
@@ -257,30 +289,17 @@ void MetalRenderer::shutdown()
 
 void MetalRenderer::set_grid_size(int cols, int rows)
 {
-    state_.set_grid_size(cols, rows, padding_);
-
-    size_t required = state_.buffer_size_bytes();
-
-    id<MTLBuffer> existing = grid_buffer_.get();
-    if (!existing || [existing length] < required)
-    {
-        grid_buffer_.reset([device_.get() newBufferWithLength:required
-                                                      options:MTLResourceStorageModeShared]);
-    }
-
-    upload_dirty_state();
+    set_grid_size(0, cols, rows);
 }
 
 void MetalRenderer::update_cells(std::span<const CellUpdate> updates)
 {
-    state_.update_cells(updates);
-    upload_dirty_state();
+    update_cells(0, updates);
 }
 
 void MetalRenderer::set_overlay_cells(std::span<const CellUpdate> updates)
 {
-    state_.set_overlay_cells(updates);
-    upload_dirty_state();
+    set_overlay_cells(0, updates);
 }
 
 void MetalRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
@@ -299,7 +318,7 @@ void MetalRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_
 
 void MetalRenderer::set_cursor(int col, int row, const CursorStyle& style)
 {
-    state_.set_cursor(col, row, style);
+    set_cursor(0, col, row, style);
 }
 
 void MetalRenderer::resize(int pixel_w, int pixel_h)
@@ -318,13 +337,21 @@ void MetalRenderer::set_cell_size(int w, int h)
 {
     cell_w_ = w;
     cell_h_ = h;
-    state_.set_cell_size(w, h);
+    for (auto& pane : panes_)
+    {
+        if (pane.active)
+            pane.state.set_cell_size(w, h);
+    }
 }
 
 void MetalRenderer::set_ascender(int a)
 {
     ascender_ = a;
-    state_.set_ascender(a);
+    for (auto& pane : panes_)
+    {
+        if (pane.active)
+            pane.state.set_ascender(a);
+    }
 }
 
 void MetalRenderer::set_default_background(Color bg)
@@ -332,12 +359,12 @@ void MetalRenderer::set_default_background(Color bg)
     clear_r_ = bg.r;
     clear_g_ = bg.g;
     clear_b_ = bg.b;
-    state_.set_default_background(bg);
+    set_default_background(0, bg);
 }
 
 void MetalRenderer::set_scroll_offset(float px)
 {
-    scroll_offset_px_ = px;
+    set_scroll_offset(0, px);
 }
 
 bool MetalRenderer::initialize_imgui_backend()
@@ -417,7 +444,11 @@ bool MetalRenderer::begin_frame()
     dispatch_semaphore_t sema = frame_semaphore_.get();
     dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
-    state_.restore_cursor();
+    for (auto& pane : panes_)
+    {
+        if (pane.active)
+            pane.state.restore_cursor();
+    }
     upload_dirty_state();
 
     id<CAMetalDrawable> drawable = [layer_.get() nextDrawable];
@@ -433,7 +464,11 @@ bool MetalRenderer::begin_frame()
 
 void MetalRenderer::end_frame()
 {
-    state_.apply_cursor();
+    for (auto& pane : panes_)
+    {
+        if (pane.active)
+            pane.state.apply_cursor();
+    }
     upload_dirty_state();
 
     id<CAMetalDrawable> drawable = current_drawable_.take();
@@ -449,28 +484,54 @@ void MetalRenderer::end_frame()
 
     id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpDesc];
 
-    int total_cells = state_.fg_instances();
-    int bg_instances = state_.bg_instances();
+    id<MTLBuffer> gridBuf = grid_buffer_.get();
+    id<MTLTexture> atlasTex = atlas_texture_.get();
+    id<MTLSamplerState> sampler = atlas_sampler_.get();
 
-    if (bg_instances > 0)
+    // Draw each active pane
+    for (int pane_id = 0; pane_id < static_cast<int>(panes_.size()); ++pane_id)
     {
-        // Push constants
+        const auto& pane = panes_[static_cast<size_t>(pane_id)];
+        if (!pane.active)
+            continue;
+
+        const int bg_instances = pane.state.bg_instances();
+        const int fg_instances = pane.state.fg_instances();
+        if (bg_instances <= 0)
+            continue;
+
+        // Compute buffer offset for this pane's cells (in bytes)
+        const NSUInteger pane_offset_bytes = pane_cell_offset(pane_id) * sizeof(GpuCell);
+
+        // Set scissor rect to clip this pane to its screen region
+        const PaneDescriptor& desc = pane.descriptor;
+        if (desc.pixel_width > 0 && desc.pixel_height > 0)
+        {
+            MTLScissorRect scissor;
+            scissor.x = static_cast<NSUInteger>(std::max(0, desc.pixel_x));
+            scissor.y = static_cast<NSUInteger>(std::max(0, desc.pixel_y));
+            scissor.width = static_cast<NSUInteger>(std::min(desc.pixel_width,
+                pixel_w_ - std::max(0, desc.pixel_x)));
+            scissor.height = static_cast<NSUInteger>(std::min(desc.pixel_height,
+                pixel_h_ - std::max(0, desc.pixel_y)));
+            [encoder setScissorRect:scissor];
+        }
+
+        // Push constants with viewport offset
         struct
         {
-            float screen_w, screen_h, cell_w, cell_h, scroll_offset_px;
+            float screen_w, screen_h, cell_w, cell_h, scroll_offset_px, viewport_x, viewport_y;
         } push_data = {
             (float)pixel_w_, (float)pixel_h_,
             (float)cell_w_, (float)cell_h_,
-            scroll_offset_px_
+            pane.scroll_offset_px,
+            (float)desc.pixel_x,
+            (float)desc.pixel_y
         };
-
-        id<MTLBuffer> gridBuf = grid_buffer_.get();
-        id<MTLTexture> atlasTex = atlas_texture_.get();
-        id<MTLSamplerState> sampler = atlas_sampler_.get();
 
         // Background pass
         [encoder setRenderPipelineState:bg_pipeline_.get()];
-        [encoder setVertexBuffer:gridBuf offset:0 atIndex:0];
+        [encoder setVertexBuffer:gridBuf offset:pane_offset_bytes atIndex:0];
         [encoder setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
@@ -479,14 +540,25 @@ void MetalRenderer::end_frame()
 
         // Foreground pass
         [encoder setRenderPipelineState:fg_pipeline_.get()];
-        [encoder setVertexBuffer:gridBuf offset:0 atIndex:0];
+        [encoder setVertexBuffer:gridBuf offset:pane_offset_bytes atIndex:0];
         [encoder setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
         [encoder setFragmentTexture:atlasTex atIndex:0];
         [encoder setFragmentSamplerState:sampler atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
                     vertexCount:6
-                  instanceCount:total_cells];
+                  instanceCount:fg_instances];
+    }
+
+    // Reset scissor to full window before 3D passes / ImGui
+    if (pixel_w_ > 0 && pixel_h_ > 0)
+    {
+        MTLScissorRect full_scissor;
+        full_scissor.x = 0;
+        full_scissor.y = 0;
+        full_scissor.width = static_cast<NSUInteger>(pixel_w_);
+        full_scissor.height = static_cast<NSUInteger>(pixel_h_);
+        [encoder setScissorRect:full_scissor];
     }
 
     if (render_pass_)
@@ -576,6 +648,101 @@ void MetalRenderer::register_render_pass(std::shared_ptr<IRenderPass> pass)
 void MetalRenderer::unregister_render_pass()
 {
     render_pass_.reset();
+}
+
+// ---------------------------------------------------------------------------
+// Multi-pane API
+// ---------------------------------------------------------------------------
+
+int MetalRenderer::alloc_pane()
+{
+    // Look for an inactive slot first
+    for (int i = 0; i < static_cast<int>(panes_.size()); ++i)
+    {
+        if (!panes_[static_cast<size_t>(i)].active)
+        {
+            panes_[static_cast<size_t>(i)] = PaneEntry{};
+            panes_[static_cast<size_t>(i)].active = true;
+            return i;
+        }
+    }
+    panes_.emplace_back();
+    return static_cast<int>(panes_.size()) - 1;
+}
+
+void MetalRenderer::free_pane(int pane_id)
+{
+    if (pane_id == 0)
+        return; // Pane 0 is always active
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].active = false;
+}
+
+void MetalRenderer::set_pane_viewport(int pane_id, const PaneDescriptor& desc)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].descriptor = desc;
+}
+
+void MetalRenderer::set_grid_size(int pane_id, int cols, int rows)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+
+    panes_[static_cast<size_t>(pane_id)].state.set_grid_size(cols, rows, padding_);
+
+    // Resize the shared GPU buffer to accommodate all panes
+    const size_t total_cells = compute_total_buffer_cells();
+    const size_t required = total_cells * sizeof(GpuCell);
+
+    id<MTLBuffer> existing = grid_buffer_.get();
+    if (!existing || [existing length] < required)
+    {
+        grid_buffer_.reset([device_.get() newBufferWithLength:required
+                                                      options:MTLResourceStorageModeShared]);
+    }
+
+    upload_dirty_state();
+}
+
+void MetalRenderer::update_cells(int pane_id, std::span<const CellUpdate> updates)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].state.update_cells(updates);
+    upload_dirty_state();
+}
+
+void MetalRenderer::set_overlay_cells(int pane_id, std::span<const CellUpdate> updates)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].state.set_overlay_cells(updates);
+    upload_dirty_state();
+}
+
+void MetalRenderer::set_cursor(int pane_id, int col, int row, const CursorStyle& style)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].state.set_cursor(col, row, style);
+}
+
+void MetalRenderer::set_default_background(int pane_id, Color bg)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].bg_color = bg;
+    panes_[static_cast<size_t>(pane_id)].state.set_default_background(bg);
+}
+
+void MetalRenderer::set_scroll_offset(int pane_id, float px)
+{
+    if (pane_id < 0 || pane_id >= static_cast<int>(panes_.size()))
+        return;
+    panes_[static_cast<size_t>(pane_id)].scroll_offset_px = px;
 }
 
 } // namespace draxul

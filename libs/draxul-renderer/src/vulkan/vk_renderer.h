@@ -3,6 +3,7 @@
 #include "vk_buffers.h"
 #include "vk_context.h"
 #include "vk_pipeline.h"
+#include <draxul/pane_descriptor.h>
 #include <draxul/renderer.h>
 #include <draxul/renderer_state.h>
 #include <optional>
@@ -44,6 +45,38 @@ public:
     }
     void set_default_background(Color bg) override;
     void set_scroll_offset(float px) override;
+
+    // Multi-pane API (stub — Vulkan backend is single-pane for now)
+    int alloc_pane() override
+    {
+        return 0;
+    }
+    void free_pane(int /*pane_id*/) override {}
+    void set_pane_viewport(int /*pane_id*/, const PaneDescriptor& /*desc*/) override {}
+    void set_grid_size(int /*pane_id*/, int cols, int rows) override
+    {
+        set_grid_size(cols, rows);
+    }
+    void update_cells(int /*pane_id*/, std::span<const CellUpdate> updates) override
+    {
+        update_cells(updates);
+    }
+    void set_overlay_cells(int /*pane_id*/, std::span<const CellUpdate> updates) override
+    {
+        set_overlay_cells(updates);
+    }
+    void set_cursor(int /*pane_id*/, int col, int row, const CursorStyle& style) override
+    {
+        set_cursor(col, row, style);
+    }
+    void set_default_background(int /*pane_id*/, Color bg) override
+    {
+        set_default_background(bg);
+    }
+    void set_scroll_offset(int /*pane_id*/, float px) override
+    {
+        set_scroll_offset(px);
+    }
 
     // I3DRenderer
     void register_render_pass(std::shared_ptr<IRenderPass> pass) override;

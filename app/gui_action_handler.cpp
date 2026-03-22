@@ -52,6 +52,11 @@ bool GuiActionHandler::execute(std::string_view action)
         open_file_dialog();
         return true;
     }
+    if (action == "split_vertical")
+    {
+        split_vertical();
+        return true;
+    }
     return false;
 }
 
@@ -93,6 +98,12 @@ void GuiActionHandler::open_file_dialog() const
 {
     if (deps_.on_open_file_dialog)
         deps_.on_open_file_dialog();
+}
+
+void GuiActionHandler::split_vertical() const
+{
+    if (deps_.on_split_vertical)
+        deps_.on_split_vertical();
 }
 
 void GuiActionHandler::change_font_size(float new_size)
