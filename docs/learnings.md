@@ -322,6 +322,22 @@ When running multiple agents in parallel via `isolation: "worktree"`, each agent
 
 ---
 
+### Debug logging is cheap to add and remove — don't leave it at INFO
+
+With AI-assisted development, adding or removing diagnostic log statements is trivial. There is no reason to keep verbose debug spew at `INFO` level "just in case."
+
+What happened:
+- split pane work added `INFO`-level logs for `apply_grid_size`, `set_viewport`, `MetalGridHandle` operations, and font loading
+- these were useful during development but cluttered the default output once the feature was stable
+- removing them was a single pass across a few files
+
+Rule:
+- use `DRAXUL_LOG_DEBUG` for diagnostic/tracing messages (grid sizes, viewport changes, font loading, renderer state)
+- reserve `DRAXUL_LOG_INFO` and above for messages that are actionable at runtime (errors, warnings about missing resources, startup milestones)
+- when in doubt, use DEBUG — it's seconds of work to promote a message to INFO later if it turns out to be important
+
+---
+
 ## Fonts, Emoji, and Fallbacks
 
 ### Windows color emoji needs an end-to-end color glyph path

@@ -35,7 +35,7 @@ BufferResizeResult ensure_buffer_size(BufferState& current, size_t required_size
     if (!create_buffer(required_size, replacement))
         return BufferResizeResult::Failed;
 
-    if (current.buffer != decltype(current.buffer){})
+    if (current.buffer != BufferState{}.buffer)
         destroy_buffer(current);
 
     current = std::move(replacement);

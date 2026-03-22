@@ -16,6 +16,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+
+// This must come after shellapi!
 #include <shellapi.h>
 #endif
 
@@ -122,15 +124,8 @@ void update_current_directory(const std::vector<std::string>& args)
 
 } // namespace
 
-#ifdef _WIN32
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+static int draxul_main(std::vector<std::string> args)
 {
-    auto args = command_line_args();
-#else
-int main(int argc, char* argv[])
-{
-    auto args = command_line_args(argc, argv);
-#endif
     ParsedArgs parsed = parse_args(args);
 
 #ifdef _WIN32
@@ -244,3 +239,15 @@ int main(int argc, char* argv[])
 
     return status;
 }
+
+#ifdef _WIN32
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+{
+    return draxul_main(command_line_args());
+}
+#else
+int main(int argc, char* argv[])
+{
+    return draxul_main(command_line_args(argc, argv));
+}
+#endif

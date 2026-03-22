@@ -75,6 +75,9 @@ void RendererState::clear_dirty()
 
 void RendererState::set_grid_size(int cols, int rows, int padding)
 {
+    const int old_cols = grid_cols_;
+    const int old_rows = grid_rows_;
+
     grid_cols_ = cols;
     grid_rows_ = rows;
     padding_ = padding;
@@ -82,8 +85,60 @@ void RendererState::set_grid_size(int cols, int rows, int padding)
     cursor_overlay_active_ = false;
     overlay_cell_count_ = 0;
 
-    gpu_cells_.resize((size_t)cols * rows);
-    relayout();
+    // When the grid dimensions actually change, preserve existing cell content
+    // (glyph atlas UVs, colors) so the pane doesn't flash blank for a frame
+    // while waiting for the host to redraw after the resize.
+    if (old_cols > 0 && old_rows > 0 && (old_cols != cols || old_rows != rows))
+    {
+        std::vector<GpuCell> old_cells = std::move(gpu_cells_);
+        gpu_cells_.resize((size_t)cols * rows);
+
+        const int copy_cols = std::min(old_cols, cols);
+        const int copy_rows = std::min(old_rows, rows);
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                auto& cell = gpu_cells_[(size_t)r * cols + c];
+                if (r < copy_rows && c < copy_cols)
+                {
+                    // Remap from old stride to new stride, preserving content
+                    cell = old_cells[(size_t)r * old_cols + c];
+                }
+                else
+                {
+                    cell = GpuCell{};
+                    cell.bg_r = default_bg_.r;
+                    cell.bg_g = default_bg_.g;
+                    cell.bg_b = default_bg_.b;
+                    cell.bg_a = default_bg_.a;
+                    cell.fg_r = 1.0f;
+                    cell.fg_g = 1.0f;
+                    cell.fg_b = 1.0f;
+                    cell.fg_a = 1.0f;
+                    cell.sp_r = 1.0f;
+                    cell.sp_g = 1.0f;
+                    cell.sp_b = 1.0f;
+                    cell.sp_a = 1.0f;
+                }
+                // Update position for new layout
+                cell.pos_x = (float)(c * cell_w_ + padding_);
+                cell.pos_y = (float)(r * cell_h_ + padding_);
+                cell.size_x = (float)cell_w_;
+                cell.size_y = (float)cell_h_;
+            }
+        }
+
+        std::fill(overlay_cells_.begin(), overlay_cells_.end(), GpuCell{});
+        mark_all_cells_dirty();
+        overlay_dirty_ = true;
+    }
+    else
+    {
+        gpu_cells_.resize((size_t)cols * rows);
+        relayout();
+    }
 }
 
 void RendererState::set_cell_size(int w, int h)
