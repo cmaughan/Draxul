@@ -52,6 +52,7 @@ add_executable(draxul-tests
     gui_action_handler_tests.cpp
     ui_panel_input_tests.cpp
     input_dispatcher_routing_tests.cpp
+    host_manager_tests.cpp
     shell_host_crash_tests.cpp
     scrollback_viewport_resize_tests.cpp
     vt_parser_fuzz_tests.cpp

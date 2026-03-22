@@ -2,6 +2,7 @@
 
 #include "split_tree.h"
 #include <draxul/host.h>
+#include <draxul/host_kind.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -22,6 +23,9 @@ struct AppConfig;
 class HostManager
 {
 public:
+    static HostKind platform_default_split_host_kind();
+    static HostKind split_host_kind_for(HostKind primary_kind);
+
     struct Deps
     {
         const AppOptions* options = nullptr;

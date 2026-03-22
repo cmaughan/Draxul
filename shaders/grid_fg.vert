@@ -6,6 +6,8 @@ layout(push_constant) uniform PushConstants {
     float cell_w;
     float cell_h;
     float scroll_offset_px;
+    float viewport_x;
+    float viewport_y;
 } pc;
 
 struct Cell {
@@ -47,6 +49,7 @@ void main() {
     vec2 glyph_size = vec2(cell.glyph_size_x, cell.glyph_size_y);
 
     vec2 pos = glyph_pos + offset * glyph_size;
+    pos += vec2(pc.viewport_x, pc.viewport_y);
 
     // Convert to NDC
     vec2 ndc = (pos / vec2(pc.screen_w, pc.screen_h)) * 2.0 - 1.0;

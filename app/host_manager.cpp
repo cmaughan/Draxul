@@ -14,9 +14,51 @@ namespace draxul
 std::unique_ptr<IHost> create_megacity_host();
 #endif
 
+namespace
+{
+
+bool is_terminal_shell_host(HostKind kind)
+{
+    switch (kind)
+    {
+    case HostKind::PowerShell:
+    case HostKind::Bash:
+    case HostKind::Zsh:
+    case HostKind::Wsl:
+        return true;
+    case HostKind::Nvim:
+    case HostKind::MegaCity:
+        return false;
+    }
+    return false;
+}
+
+HostKind platform_default_split_host_kind_impl()
+{
+#ifdef _WIN32
+    return HostKind::PowerShell;
+#else
+    return HostKind::Zsh;
+#endif
+}
+
+} // namespace
+
 HostManager::HostManager(Deps deps)
     : deps_(std::move(deps))
 {
+}
+
+HostKind HostManager::platform_default_split_host_kind()
+{
+    return platform_default_split_host_kind_impl();
+}
+
+HostKind HostManager::split_host_kind_for(HostKind primary_kind)
+{
+    if (is_terminal_shell_host(primary_kind))
+        return primary_kind;
+    return platform_default_split_host_kind_impl();
 }
 
 bool HostManager::create(HostCallbacks callbacks, int pixel_w, int pixel_h)
@@ -48,8 +90,21 @@ LeafId HostManager::split_focused(SplitDirection dir, HostCallbacks callbacks)
         return kInvalidLeaf;
 
     HostLaunchOptions launch;
-    launch.kind = HostKind::Zsh;
+    // Split panes open a shell by default. If the primary host is already a shell,
+    // preserve that explicit shell choice; otherwise use the platform shell.
+    const HostKind primary_kind = deps_.options ? deps_.options->host_kind : platform_default_split_host_kind_impl();
+    launch.kind = split_host_kind_for(primary_kind);
     launch.enable_ligatures = deps_.config->enable_ligatures;
+    if (deps_.options)
+    {
+        launch.working_dir = deps_.options->host_working_dir;
+        if (is_terminal_shell_host(primary_kind) && launch.kind == primary_kind)
+        {
+            launch.command = deps_.options->host_command;
+            launch.args = deps_.options->host_args;
+            launch.startup_commands = deps_.options->startup_commands;
+        }
+    }
 
     if (!create_host_for_leaf(new_id, std::move(callbacks), std::move(launch), false))
     {

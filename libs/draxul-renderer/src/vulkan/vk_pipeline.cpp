@@ -67,7 +67,7 @@ bool VkPipelineManager::initialize(VkDevice device, VkRenderPass render_pass, co
     VkPushConstantRange push_range = {};
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     push_range.offset = 0;
-    push_range.size = sizeof(float) * 5;
+    push_range.size = sizeof(float) * 7;
 
     {
         VkDescriptorSetLayoutBinding ssbo_binding = {};
