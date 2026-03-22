@@ -73,6 +73,21 @@ std::string strip_include_delimiters(std::string s)
     return s;
 }
 
+// Sniff the first chunk of a file for Objective-C keywords that are illegal
+// in standard C++. If found, the file should be skipped — the C++ grammar
+// cannot extract meaningful symbols from it and would produce spurious errors.
+bool is_objc_source(const std::string& source)
+{
+    // Only look at the first 8 KB to keep it fast.
+    const std::string_view head(source.data(), std::min(source.size(), size_t{ 8192 }));
+    for (const char* kw : { "@interface", "@implementation", "@protocol", "@property", "@end" })
+    {
+        if (head.find(kw) != std::string_view::npos)
+            return true;
+    }
+    return false;
+}
+
 std::string read_file(const std::filesystem::path& path)
 {
     std::ifstream f(path, std::ios::binary);
@@ -193,6 +208,8 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
 
         const std::string source = read_file(entry.path());
         if (source.empty())
+            continue;
+        if (is_objc_source(source))
             continue;
 
         TSTree* tree = ts_parser_parse_string(
