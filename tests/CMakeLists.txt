@@ -61,6 +61,7 @@ add_executable(draxul-tests
     keybinding_conflict_tests.cpp
     file_drop_tests.cpp
     split_tree_tests.cpp
+    frame_timer_tests.cpp
     # GuiActionHandler, InputDispatcher, App, and HostManager live in app/ but
     # can be compiled directly into the test binary via the DI seams in AppOptions.
     ${CMAKE_SOURCE_DIR}/app/gui_action_handler.cpp
