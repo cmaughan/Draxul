@@ -1,5 +1,6 @@
 add_library(draxul-app-support
-    src/app_config.cpp
+    src/app_config_io.cpp
+    src/keybinding_parser.cpp
     src/cursor_blinker.cpp
     src/grid_rendering_pipeline.cpp
     src/render_test.cpp

@@ -80,7 +80,7 @@ void LocalTerminalHost::on_key(const KeyEvent& event)
 
 void LocalTerminalHost::on_text_input(const TextInputEvent& event)
 {
-    if (event.text && *event.text)
+    if (!event.text.empty())
     {
         if (scrollback_.is_scrolled_back())
             scrollback_.scroll_to_live();

@@ -77,7 +77,7 @@ void TerminalHostBase::on_key(const KeyEvent& event)
 
 void TerminalHostBase::on_text_input(const TextInputEvent& event)
 {
-    if (event.text && *event.text)
+    if (!event.text.empty())
         do_process_write(event.text);
 }
 

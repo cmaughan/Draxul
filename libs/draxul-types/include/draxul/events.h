@@ -1,5 +1,6 @@
 #pragma once
 #include <draxul/input_types.h>
+#include <string>
 
 namespace draxul
 {
@@ -18,11 +19,11 @@ struct KeyEvent
 };
 struct TextInputEvent
 {
-    const char* text;
+    std::string text;
 };
 struct TextEditingEvent
 {
-    const char* text;
+    std::string text;
     int start = 0;
     int length = 0;
 };

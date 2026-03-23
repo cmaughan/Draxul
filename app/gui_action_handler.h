@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string_view>
+#include <unordered_map>
 
 namespace draxul
 {
@@ -41,6 +42,9 @@ public:
     bool execute(std::string_view action);
 
 private:
+    using ActionFn = std::function<void(GuiActionHandler&)>;
+    static const std::unordered_map<std::string_view, ActionFn>& action_map();
+
     void font_increase();
     void font_decrease();
     void font_reset();

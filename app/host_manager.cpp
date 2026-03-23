@@ -196,15 +196,6 @@ IHost* HostManager::host_at_point(int px, int py)
     return focused_host();
 }
 
-void HostManager::for_each_host(const std::function<void(LeafId, IHost&)>& fn) const
-{
-    tree_.for_each_leaf([&](LeafId id, const PaneDescriptor&) {
-        auto it = hosts_.find(id);
-        if (it != hosts_.end() && it->second)
-            fn(id, *it->second);
-    });
-}
-
 bool HostManager::create_host_for_leaf(LeafId id, HostCallbacks callbacks,
     HostLaunchOptions launch, bool is_primary)
 {

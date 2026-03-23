@@ -327,11 +327,11 @@ void UiPanel::on_mouse_wheel(const MouseWheelEvent& event)
 
 void UiPanel::on_text_input(const TextInputEvent& event)
 {
-    if (!impl_->context || !event.text)
+    if (!impl_->context || event.text.empty())
         return;
 
     ImGui::SetCurrentContext(impl_->context);
-    ImGui::GetIO().AddInputCharactersUTF8(event.text);
+    ImGui::GetIO().AddInputCharactersUTF8(event.text.c_str());
 }
 
 void UiPanel::on_key(const KeyEvent& event)

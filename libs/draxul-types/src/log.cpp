@@ -2,6 +2,7 @@
 #include <draxul/string_util.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdarg>
 #include <cstdio>
@@ -28,6 +29,12 @@ namespace draxul
 namespace
 {
 
+// Bitmask helper: convert a LogCategory to a single bit position.
+inline uint32_t category_bit(LogCategory cat)
+{
+    return uint32_t{ 1 } << static_cast<uint32_t>(cat);
+}
+
 struct LoggerState
 {
     std::mutex mutex;
@@ -36,6 +43,11 @@ struct LoggerState
     std::unordered_set<LogCategory> enabled_categories;
     FILE* file = nullptr;
     LogSink sink;
+
+    // Lock-free mirrors for the fast-path check in log_would_emit().
+    // 0 means "all categories enabled" (matches empty enabled_categories).
+    std::atomic<int> atomic_min_level{ static_cast<int>(LogLevel::Info) };
+    std::atomic<uint32_t> atomic_category_mask{ 0 };
 };
 
 LoggerState& state()
@@ -194,10 +206,16 @@ void configure_logging(const LogOptions& options)
     logger_state.min_level = options.min_level;
     logger_state.enable_stderr = options.enable_stderr;
     logger_state.enabled_categories.clear();
+    uint32_t mask = 0;
     for (LogCategory category : options.enabled_categories)
     {
         logger_state.enabled_categories.insert(category);
+        mask |= category_bit(category);
     }
+
+    // Update atomic mirrors so log_would_emit() can read lock-free.
+    logger_state.atomic_min_level.store(static_cast<int>(options.min_level), std::memory_order_relaxed);
+    logger_state.atomic_category_mask.store(mask, std::memory_order_relaxed);
 
     if (options.enable_file && !options.file_path.empty())
     {
@@ -260,8 +278,15 @@ void shutdown_logging()
 bool log_would_emit(LogLevel level, LogCategory category)
 {
     auto& logger_state = state();
-    std::lock_guard<std::mutex> lock(logger_state.mutex);
-    return (int)level <= (int)logger_state.min_level && category_enabled(logger_state, category);
+    // Lock-free fast path: read atomic mirrors with relaxed ordering.
+    // Exact ordering is not critical — log level changes are infrequent and
+    // a stale read only means one extra or one missed log line transiently.
+    int min_level = logger_state.atomic_min_level.load(std::memory_order_relaxed);
+    if (static_cast<int>(level) > min_level)
+        return false;
+    uint32_t mask = logger_state.atomic_category_mask.load(std::memory_order_relaxed);
+    // mask == 0 means "all categories enabled" (mirrors empty enabled_categories).
+    return mask == 0 || (mask & category_bit(category)) != 0;
 }
 
 void set_log_sink(LogSink sink)

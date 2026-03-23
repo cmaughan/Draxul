@@ -83,8 +83,16 @@ public:
     // Returns the host under the point, or null.
     IHost* host_at_point(int px, int py);
 
-    // Visit all hosts.
-    void for_each_host(const std::function<void(LeafId, IHost&)>& fn) const;
+    // Visit all hosts (zero-cost: no std::function allocation at call site).
+    template <typename F>
+    void for_each_host(F&& fn) const
+    {
+        tree_.for_each_leaf([&](LeafId id, const PaneDescriptor&) {
+            auto it = hosts_.find(id);
+            if (it != hosts_.end() && it->second)
+                fn(id, *it->second);
+        });
+    }
 
     int host_count() const
     {

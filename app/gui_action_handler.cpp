@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/host.h>
+#include <draxul/log.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/ui_panel.h>
@@ -15,53 +16,35 @@ GuiActionHandler::GuiActionHandler(Deps deps)
 {
 }
 
+const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActionHandler::action_map()
+{
+    // clang-format off
+    static const std::unordered_map<std::string_view, ActionFn> map = {
+        {"toggle_diagnostics", [](auto& h) { h.toggle_diagnostics(); }},
+        {"copy",               [](auto& h) { h.copy(); }},
+        {"paste",              [](auto& h) { h.paste(); }},
+        {"font_increase",      [](auto& h) { h.font_increase(); }},
+        {"font_decrease",      [](auto& h) { h.font_decrease(); }},
+        {"font_reset",         [](auto& h) { h.font_reset(); }},
+        {"open_file_dialog",   [](auto& h) { h.open_file_dialog(); }},
+        {"split_vertical",     [](auto& h) { h.split_vertical(); }},
+        {"split_horizontal",   [](auto& h) { h.split_horizontal(); }},
+    };
+    // clang-format on
+    return map;
+}
+
 bool GuiActionHandler::execute(std::string_view action)
 {
-    if (action == "toggle_diagnostics")
+    const auto& map = action_map();
+    auto it = map.find(action);
+    if (it != map.end())
     {
-        toggle_diagnostics();
+        it->second(*this);
         return true;
     }
-    if (action == "copy")
-    {
-        copy();
-        return true;
-    }
-    if (action == "paste")
-    {
-        paste();
-        return true;
-    }
-    if (action == "font_increase")
-    {
-        font_increase();
-        return true;
-    }
-    if (action == "font_decrease")
-    {
-        font_decrease();
-        return true;
-    }
-    if (action == "font_reset")
-    {
-        font_reset();
-        return true;
-    }
-    if (action == "open_file_dialog")
-    {
-        open_file_dialog();
-        return true;
-    }
-    if (action == "split_vertical")
-    {
-        split_vertical();
-        return true;
-    }
-    if (action == "split_horizontal")
-    {
-        split_horizontal();
-        return true;
-    }
+    DRAXUL_LOG_WARN(LogCategory::App, "Unknown GUI action: '%.*s'",
+        static_cast<int>(action.size()), action.data());
     return false;
 }
 

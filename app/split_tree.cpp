@@ -203,34 +203,44 @@ int SplitTree::leaf_count() const
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
-SplitTree::Node* SplitTree::find_leaf_node(LeafId id) const
+const SplitTree::Node* SplitTree::find_leaf_node(LeafId id) const
 {
-    std::function<Node*(Node*)> search = [&](Node* node) -> Node* {
+    std::function<const Node*(const Node*)> search = [&](const Node* node) -> const Node* {
         if (!node)
             return nullptr;
         if (node->is_leaf())
             return node->leaf().id == id ? node : nullptr;
-        auto& s = node->split();
-        if (auto* found = search(s.first.get()))
+        const auto& s = node->split();
+        if (const auto* found = search(s.first.get()))
             return found;
         return search(s.second.get());
     };
     return search(root_.get());
 }
 
-SplitTree::Node* SplitTree::find_parent_of(const Node* child) const
+SplitTree::Node* SplitTree::find_leaf_node(LeafId id)
 {
-    std::function<Node*(Node*)> search = [&](Node* node) -> Node* {
+    return const_cast<Node*>(static_cast<const SplitTree&>(*this).find_leaf_node(id));
+}
+
+const SplitTree::Node* SplitTree::find_parent_of(const Node* child) const
+{
+    std::function<const Node*(const Node*)> search = [&](const Node* node) -> const Node* {
         if (!node || node->is_leaf())
             return nullptr;
-        auto& s = node->split();
+        const auto& s = node->split();
         if (s.first.get() == child || s.second.get() == child)
             return node;
-        if (auto* found = search(s.first.get()))
+        if (const auto* found = search(s.first.get()))
             return found;
         return search(s.second.get());
     };
     return search(root_.get());
+}
+
+SplitTree::Node* SplitTree::find_parent_of(const Node* child)
+{
+    return const_cast<Node*>(static_cast<const SplitTree&>(*this).find_parent_of(child));
 }
 
 void SplitTree::recompute_node(Node* node, int x, int y, int w, int h, int div_w)

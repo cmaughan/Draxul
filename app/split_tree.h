@@ -83,8 +83,10 @@ private:
     int total_w_ = 0;
     int total_h_ = 0;
 
-    Node* find_leaf_node(LeafId id) const;
-    Node* find_parent_of(const Node* child) const;
+    Node* find_leaf_node(LeafId id);
+    const Node* find_leaf_node(LeafId id) const;
+    Node* find_parent_of(const Node* child);
+    const Node* find_parent_of(const Node* child) const;
     static void recompute_node(Node* node, int x, int y, int w, int h, int div_w);
     static HitResult hit_test_node(const Node* node, int px, int py, int div_w);
     static void visit_leaves(
