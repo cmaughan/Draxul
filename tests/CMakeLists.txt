@@ -36,6 +36,7 @@ add_executable(draxul-tests
     terminal_vt_tests.cpp
     mpackvalue_variant_stability_tests.cpp
     terminal_mouse_tests.cpp
+    mouse_reporter_tests.cpp
     selection_truncation_tests.cpp
     scrollback_overflow_tests.cpp
     ligature_atlas_reset_tests.cpp
