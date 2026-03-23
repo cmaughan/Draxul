@@ -35,7 +35,8 @@ public:
     ~ConPtyProcess();
 
     bool spawn(const std::string& command, const std::vector<std::string>& args,
-        const std::string& working_dir, std::function<void()> on_output_available);
+        const std::string& working_dir, int initial_cols, int initial_rows,
+        std::function<void()> on_output_available);
     void shutdown();
     bool is_running() const;
     bool resize(int cols, int rows);

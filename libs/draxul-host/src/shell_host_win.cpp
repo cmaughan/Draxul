@@ -62,7 +62,7 @@ protected:
     bool spawn_process(const std::string& command, const std::string& hint)
     {
         auto wake = callbacks().wake_window;
-        if (!process_.spawn(command, launch_options().args, launch_options().working_dir, [wake]() {
+        if (!process_.spawn(command, launch_options().args, launch_options().working_dir, grid_cols(), grid_rows(), [wake]() {
                 if (wake)
                     wake();
             }))

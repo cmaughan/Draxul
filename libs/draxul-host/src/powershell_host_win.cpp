@@ -36,13 +36,15 @@ protected:
         }
 
         auto wake = callbacks().wake_window;
-        if (!process_.spawn(command, args, launch_options().working_dir, [wake]() {
+        const int cols = grid_cols();
+        const int rows = grid_rows();
+        if (!process_.spawn(command, args, launch_options().working_dir, cols, rows, [wake]() {
                 if (wake)
                     wake();
             }))
         {
             if (launch_options().command.empty() && command != "powershell.exe"
-                && process_.spawn("powershell.exe", args, launch_options().working_dir, [wake]() {
+                && process_.spawn("powershell.exe", args, launch_options().working_dir, cols, rows, [wake]() {
                        if (wake)
                            wake();
                    }))

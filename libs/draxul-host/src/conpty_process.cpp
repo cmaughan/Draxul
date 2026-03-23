@@ -46,7 +46,8 @@ ConPtyProcess::~ConPtyProcess()
 }
 
 bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::string>& args,
-    const std::string& working_dir, std::function<void()> on_output_available)
+    const std::string& working_dir, int initial_cols, int initial_rows,
+    std::function<void()> on_output_available)
 {
     shutdown();
 
@@ -86,7 +87,10 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     SetHandleInformation(pty_input_write, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(pty_output_read, HANDLE_FLAG_INHERIT, 0);
 
-    COORD size = { 120, 40 };
+    COORD size = {
+        static_cast<SHORT>(std::clamp(initial_cols, 1, 320)),
+        static_cast<SHORT>(std::clamp(initial_rows, 1, 200)),
+    };
     if (FAILED(CreatePseudoConsole(size, pty_input_read, pty_output_write, 0, &pty_)))
     {
         cleanup();
