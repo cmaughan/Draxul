@@ -655,8 +655,17 @@ HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
 
 int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const
 {
+    // Cap the wait so that output from a background reader thread is displayed
+    // promptly even if SDL_PushEvent does not reliably wake SDL_WaitEvent on
+    // every platform (observed on macOS with SDL 3.2.x when the reader thread's
+    // wakeup event fires between SDL_PeepEvents and the platform wait entry).
+    static constexpr int kHostPollIntervalMs = 50;
+
     std::optional<std::chrono::steady_clock::time_point> deadline;
+    bool any_host_running = false;
     host_manager_.for_each_host([&](LeafId, IHost& host) {
+        if (host.is_running())
+            any_host_running = true;
         auto d = host.next_deadline();
         if (d && (!deadline || *d < *deadline))
             deadline = d;
@@ -665,13 +674,16 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
         deadline = wait_deadline;
 
     if (!deadline)
-        return -1;
+        return any_host_running ? kHostPollIntervalMs : -1;
 
     const auto now = std::chrono::steady_clock::now();
     if (now >= *deadline)
         return 0;
 
-    return std::max(1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - now).count()));
+    int ms = std::max(1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - now).count()));
+    if (any_host_running)
+        ms = std::min(ms, kHostPollIntervalMs);
+    return ms;
 }
 
 void App::shutdown()

@@ -102,42 +102,35 @@ cmake --build build --parallel
 
 ## Running
 
+With no arguments, Draxul starts an embedded Neovim child process (`nvim` must be on `PATH`).
+To run as a plain terminal instead, use `--host`:
+
 ### Windows
 
-Debug:
-
 ```powershell
-.\build\Debug\draxul.exe
+.\build\Release\draxul.exe                     # Neovim (default)
+.\build\Release\draxul.exe --host powershell   # PowerShell terminal
+.\build\Release\draxul.exe --host bash         # Bash (WSL)
+.\build\Release\draxul.exe --console           # allocate a debug console for log output
 ```
 
-Release:
-
-```powershell
-.\build\Release\draxul.exe
-```
-
-To open a console window for logs:
-
-```powershell
-.\build\Release\draxul.exe --console
-```
+For a Debug build, replace `Release` with `Debug`.
 
 ### macOS
 
 ```bash
-./build/draxul
+./build/draxul.app/Contents/MacOS/draxul                # Neovim (default)
+./build/draxul.app/Contents/MacOS/draxul --host zsh     # Zsh terminal
+./build/draxul.app/Contents/MacOS/draxul --host bash    # Bash terminal
 ```
 
-With no arguments, Draxul starts an embedded Neovim child process. To run as a plain terminal instead, pass a shell or command:
+Or launch via Finder / `open`:
 
 ```bash
-./build/draxul --shell zsh
-./build/draxul --shell bash
+open ./build/draxul.app
 ```
 
-```powershell
-.\build\Release\draxul.exe --shell powershell
-```
+Supported `--host` values: `nvim`, `zsh`, `bash`, `powershell` / `pwsh` (Windows), `wsl` (Windows).
 
 ## Configuration
 
