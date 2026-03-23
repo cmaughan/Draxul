@@ -44,7 +44,8 @@ void MegaCityHost::attach_imgui_host(IImGuiHost& host)
     imgui_ctx_ = ImGui::CreateContext();
     ImGui::SetCurrentContext(imgui_ctx_);
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_DockingEnable;
+    io.ConfigWindowsResizeFromEdges = true;
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
     ImGui::StyleColorsDark();
@@ -125,6 +126,25 @@ ImDrawData* MegaCityHost::render_imgui(float dt)
     io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
 
     ImGui::NewFrame();
+
+    // Fullscreen dockspace — PassthruCentralNode keeps the 3D background visible
+    // through any undocked central area.
+    const ImGuiWindowFlags ds_flags = ImGuiWindowFlags_NoDocking
+        | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus
+        | ImGuiWindowFlags_NoBackground;
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(pixel_w_), static_cast<float>(pixel_h_)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("##dockspace_root", nullptr, ds_flags);
+    ImGui::PopStyleVar(3);
+    ImGui::DockSpace(ImGui::GetID("MegaCityDock"), ImVec2(0.0f, 0.0f),
+        ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::End();
+
     render_treesitter_panel(pixel_w_, pixel_h_, scanner_.snapshot());
     ImGui::Render();
 

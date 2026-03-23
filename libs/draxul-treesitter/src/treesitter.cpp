@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string_view>
 #include <tree_sitter/api.h>
+#include <unordered_set>
 
 // Grammar entry point from tree-sitter-cpp
 extern "C" {
@@ -34,6 +35,30 @@ static constexpr std::string_view kCppQuery = R"(
 
 (preproc_include
   path: _ @inc)
+)";
+
+// Captures the name of any class/struct that contains at least one pure-virtual
+// member declaration (field_declaration with a pure_specifier, i.e. `= 0`).
+// Compiled as a separate optional query so a grammar version mismatch here
+// does not break the main symbol extraction.
+// Pure virtual member declarations parse as field_declaration (not function_definition).
+// The "= 0" suffix becomes a number_literal child alongside the function_declarator.
+// We match field_declaration nodes that have both a function_declarator child
+// (ruling out plain data members) and a number_literal child (the = 0).
+static constexpr std::string_view kAbstractQuery = R"(
+(class_specifier
+  name: (type_identifier) @acls
+  body: (field_declaration_list
+    (field_declaration
+      (function_declarator)
+      (number_literal))))
+
+(struct_specifier
+  name: (type_identifier) @acls
+  body: (field_declaration_list
+    (field_declaration
+      (function_declarator)
+      (number_literal))))
 )";
 // clang-format on
 
@@ -169,6 +194,13 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
 
     TSQueryCursor* cursor = query ? ts_query_cursor_new() : nullptr;
 
+    // Abstract-class detection is best-effort: if the grammar version doesn't
+    // support pure_specifier the query won't compile and we fall back gracefully.
+    TSQuery* abstract_query = ts_query_new(
+        lang, kAbstractQuery.data(), static_cast<uint32_t>(kAbstractQuery.size()),
+        &error_offset, &error_type);
+    TSQueryCursor* abstract_cursor = abstract_query ? ts_query_cursor_new() : nullptr;
+
     auto snapshot = std::make_shared<CodebaseSnapshot>();
     snapshot->scan_time = std::chrono::steady_clock::now();
 
@@ -178,6 +210,10 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
     if (ec)
     {
         ts_parser_delete(parser);
+        if (abstract_cursor)
+            ts_query_cursor_delete(abstract_cursor);
+        if (abstract_query)
+            ts_query_delete(abstract_query);
         if (cursor)
             ts_query_cursor_delete(cursor);
         if (query)
@@ -187,7 +223,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
 
     for (auto it = std::filesystem::begin(dir_iter),
               end = std::filesystem::end(dir_iter);
-         it != end; it.increment(ec))
+        it != end; it.increment(ec))
     {
         if (ec || stop_flag_.load(std::memory_order_relaxed))
             break;
@@ -252,15 +288,28 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
                     std::string sym_name = source.substr(start_byte, end_byte - start_byte);
 
                     SymbolKind kind;
+                    std::string parent_name;
                     if (name_len == 2 && strncmp(cap_name, "fn", 2) == 0)
+                    {
                         kind = SymbolKind::Function;
-                    else if (name_len == 3
-                        && strncmp(cap_name, "cls", 3) == 0)
+                        // qualified_identifier nodes represent out-of-class method
+                        // definitions (e.g. "Foo::bar"). Split off the class prefix
+                        // so free functions and methods can be distinguished in the UI.
+                        if (strcmp(ts_node_type(cap.node), "qualified_identifier") == 0)
+                        {
+                            const size_t sep = sym_name.rfind("::");
+                            if (sep != std::string::npos)
+                            {
+                                parent_name = sym_name.substr(0, sep);
+                                sym_name = sym_name.substr(sep + 2);
+                            }
+                        }
+                    }
+                    else if (name_len == 3 && strncmp(cap_name, "cls", 3) == 0)
                         kind = SymbolKind::Class;
                     else if (name_len == 2 && strncmp(cap_name, "st", 2) == 0)
                         kind = SymbolKind::Struct;
-                    else if (name_len == 3
-                        && strncmp(cap_name, "inc", 3) == 0)
+                    else if (name_len == 3 && strncmp(cap_name, "inc", 3) == 0)
                     {
                         kind = SymbolKind::Include;
                         sym_name = strip_include_delimiters(std::move(sym_name));
@@ -268,8 +317,34 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
                     else
                         continue;
 
-                    file.symbols.push_back({ kind, std::move(sym_name), line });
+                    file.symbols.push_back(
+                        { kind, std::move(sym_name), std::move(parent_name), false, line });
                 }
+            }
+        }
+
+        // Mark abstract classes using the optional abstract query.
+        if (abstract_query && abstract_cursor)
+        {
+            std::unordered_set<std::string> abstract_names;
+            ts_query_cursor_exec(abstract_cursor, abstract_query, root_node);
+            TSQueryMatch amatch;
+            while (ts_query_cursor_next_match(abstract_cursor, &amatch))
+            {
+                for (uint32_t i = 0; i < amatch.capture_count; ++i)
+                {
+                    const TSQueryCapture& cap = amatch.captures[i];
+                    const uint32_t s = ts_node_start_byte(cap.node);
+                    const uint32_t e = ts_node_end_byte(cap.node);
+                    if (s < e && e <= static_cast<uint32_t>(source.size()))
+                        abstract_names.insert(source.substr(s, e - s));
+                }
+            }
+            for (auto& sym : file.symbols)
+            {
+                if ((sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
+                    && abstract_names.count(sym.name))
+                    sym.is_abstract = true;
             }
         }
 
@@ -285,6 +360,10 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
     snapshot->scan_time = std::chrono::steady_clock::now();
     publish(std::move(snapshot));
 
+    if (abstract_cursor)
+        ts_query_cursor_delete(abstract_cursor);
+    if (abstract_query)
+        ts_query_delete(abstract_query);
     if (cursor)
         ts_query_cursor_delete(cursor);
     if (query)

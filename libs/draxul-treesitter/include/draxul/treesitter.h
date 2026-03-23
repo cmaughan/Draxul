@@ -24,6 +24,8 @@ struct SymbolRecord
 {
     SymbolKind kind = SymbolKind::Function;
     std::string name;
+    std::string parent; // for methods: owning class (e.g. "Foo" for Foo::bar); empty for free functions
+    bool is_abstract = false; // Class/Struct only: has at least one pure-virtual member
     uint32_t line = 0; // 1-based
 };
 
