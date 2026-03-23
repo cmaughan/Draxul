@@ -1,5 +1,7 @@
 # 04 app-smoke-test -test
 
+**Status:** Superseded by work item 23 (app-testable-window-renderer)
+
 **Priority:** HIGH
 **Type:** Test (end-to-end orchestrator coverage)
 **Raised by:** Claude
