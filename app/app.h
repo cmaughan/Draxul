@@ -1,10 +1,9 @@
 #pragma once
+#include "frame_timer.h"
 #include "gui_action_handler.h"
 #include "host_manager.h"
 #include "input_dispatcher.h"
-#include <array>
 #include <chrono>
-#include <cstddef>
 #include <draxul/app_config.h>
 #include <draxul/host.h>
 #include <draxul/sdl_window.h>
@@ -63,9 +62,12 @@ private:
     void refresh_window_layout();
     // Converts a PaneDescriptor (pixel region from SplitTree) to a full HostViewport.
     HostViewport viewport_from_descriptor(const PaneDescriptor& desc) const;
+    void wire_gui_actions();
+    bool close_dead_panes();
+    void render_imgui_overlay(float delta_seconds);
+    bool render_frame();
     HostCallbacks make_host_callbacks();
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
-    double average_frame_ms() const;
 
     AppOptions options_;
     AppConfig config_;
@@ -82,10 +84,7 @@ private:
     bool pending_window_activation_ = true;
     bool saw_frame_ = false;
     bool frame_requested_ = false;
-    double last_frame_ms_ = 0.0;
-    std::array<double, 32> recent_frame_ms_ = {};
-    size_t recent_frame_ms_count_ = 0;
-    size_t recent_frame_ms_index_ = 0;
+    FrameTimer frame_timer_;
     float display_ppi_ = 96.0f;
     std::chrono::steady_clock::time_point last_panel_frame_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();

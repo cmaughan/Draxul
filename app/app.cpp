@@ -173,41 +173,7 @@ bool App::initialize()
 
     startup_total_ms_ = Ms(Clock::now() - init_start).count();
 
-    GuiActionHandler::Deps gui_deps;
-    gui_deps.text_service = &text_service_;
-    gui_deps.ui_panel = &ui_panel_;
-    gui_deps.host = host_manager_.host();
-    gui_deps.imgui_host = renderer_.imgui();
-    gui_deps.config = &config_;
-    gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
-    gui_deps.on_open_file_dialog = [this]() { window_.show_open_file_dialog(); };
-    gui_deps.on_split_vertical = [this]() {
-        auto cbs = make_host_callbacks();
-        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Vertical, std::move(cbs));
-        if (new_leaf != kInvalidLeaf)
-        {
-            input_dispatcher_.set_host(host_manager_.focused_host());
-            request_frame();
-        }
-    };
-    gui_deps.on_split_horizontal = [this]() {
-        auto cbs = make_host_callbacks();
-        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Horizontal, std::move(cbs));
-        if (new_leaf != kInvalidLeaf)
-        {
-            input_dispatcher_.set_host(host_manager_.focused_host());
-            request_frame();
-        }
-    };
-    gui_deps.on_panel_toggled = [this]() {
-        refresh_window_layout();
-        auto [pixel_w, pixel_h] = window_.size_pixels();
-        (void)pixel_h;
-        host_manager_.recompute_viewports(pixel_w, ui_panel_.layout().terminal_height);
-        update_diagnostics_panel();
-        request_frame();
-    };
-    gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
+    wire_gui_actions();
 
 #ifdef __APPLE__
     install_macos_menu(gui_action_handler_);
@@ -322,6 +288,45 @@ HostCallbacks App::make_host_callbacks()
     return callbacks;
 }
 
+void App::wire_gui_actions()
+{
+    GuiActionHandler::Deps gui_deps;
+    gui_deps.text_service = &text_service_;
+    gui_deps.ui_panel = &ui_panel_;
+    gui_deps.host = host_manager_.host();
+    gui_deps.imgui_host = renderer_.imgui();
+    gui_deps.config = &config_;
+    gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
+    gui_deps.on_open_file_dialog = [this]() { window_.show_open_file_dialog(); };
+    gui_deps.on_split_vertical = [this]() {
+        auto cbs = make_host_callbacks();
+        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Vertical, std::move(cbs));
+        if (new_leaf != kInvalidLeaf)
+        {
+            input_dispatcher_.set_host(host_manager_.focused_host());
+            request_frame();
+        }
+    };
+    gui_deps.on_split_horizontal = [this]() {
+        auto cbs = make_host_callbacks();
+        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Horizontal, std::move(cbs));
+        if (new_leaf != kInvalidLeaf)
+        {
+            input_dispatcher_.set_host(host_manager_.focused_host());
+            request_frame();
+        }
+    };
+    gui_deps.on_panel_toggled = [this]() {
+        refresh_window_layout();
+        auto [pixel_w, pixel_h] = window_.size_pixels();
+        (void)pixel_h;
+        host_manager_.recompute_viewports(pixel_w, ui_panel_.layout().terminal_height);
+        update_diagnostics_panel();
+        request_frame();
+    };
+    gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
+}
+
 void App::wire_window_callbacks()
 {
     InputDispatcher::Deps disp_deps;
@@ -389,26 +394,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
             {
                 const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
                 last_panel_frame_time_ = now;
-                I3DHost* h3d = nullptr;
-                host_manager_.for_each_host([&](LeafId, IHost& h) {
-                    if (!h3d)
-                    {
-                        auto* c = dynamic_cast<I3DHost*>(&h);
-                        if (c && c->has_imgui())
-                            h3d = c;
-                    }
-                });
-                if (h3d)
-                {
-                    renderer_.imgui()->set_imgui_draw_data(
-                        h3d->render_imgui(delta_seconds));
-                }
-                else if (ui_panel_.visible())
-                {
-                    renderer_.imgui()->begin_imgui_frame();
-                    ui_panel_.begin_frame(delta_seconds);
-                    renderer_.imgui()->set_imgui_draw_data(ui_panel_.render());
-                }
+                render_imgui_overlay(delta_seconds);
                 saw_frame_ = true;
                 renderer_.grid()->end_frame();
                 if (auto captured = renderer_.capture()->take_captured_frame())
@@ -421,6 +407,80 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
     return std::nullopt;
 }
 #endif
+
+bool App::close_dead_panes()
+{
+    std::vector<LeafId> dead;
+    host_manager_.for_each_host([&](LeafId id, IHost& h) {
+        if (!h.is_running())
+            dead.push_back(id);
+    });
+    for (LeafId id : dead)
+    {
+        if (host_manager_.host_count() == 1)
+        {
+            running_ = false;
+            return false;
+        }
+        host_manager_.close_leaf(id);
+    }
+    return host_manager_.host() != nullptr;
+}
+
+void App::render_imgui_overlay(float delta_seconds)
+{
+    I3DHost* h3d = nullptr;
+    host_manager_.for_each_host([&](LeafId, IHost& h) {
+        if (!h3d)
+        {
+            auto* c = dynamic_cast<I3DHost*>(&h);
+            if (c && c->has_imgui())
+                h3d = c;
+        }
+    });
+    if (h3d)
+    {
+        renderer_.imgui()->set_imgui_draw_data(
+            h3d->render_imgui(delta_seconds));
+    }
+    else if (ui_panel_.visible())
+    {
+        renderer_.imgui()->begin_imgui_frame();
+        ui_panel_.begin_frame(delta_seconds);
+        renderer_.imgui()->set_imgui_draw_data(ui_panel_.render());
+    }
+    else
+    {
+        renderer_.imgui()->set_imgui_draw_data(nullptr);
+    }
+}
+
+bool App::render_frame()
+{
+    update_diagnostics_panel();
+
+    const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
+    if (auto* host = host_manager_.focused_host())
+        host->set_scroll_offset(input_dispatcher_.scroll_fraction() * static_cast<float>(ch));
+    input_dispatcher_.clear_scroll_event();
+
+    const auto frame_start = std::chrono::steady_clock::now();
+    if (!renderer_.grid()->begin_frame())
+        return false;
+
+    const auto now = std::chrono::steady_clock::now();
+    const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
+    last_panel_frame_time_ = now;
+
+    render_imgui_overlay(delta_seconds);
+
+    saw_frame_ = true;
+    renderer_.grid()->end_frame();
+    frame_requested_ = false;
+    frame_timer_.record(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count());
+    return true;
+}
 
 bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_deadline)
 {
@@ -437,25 +497,6 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             request_quit();
             return false;
         }
-
-        // Close any panes whose hosts have exited. If the last pane exits, stop.
-        auto close_dead_panes = [this]() -> bool {
-            std::vector<LeafId> dead;
-            host_manager_.for_each_host([&](LeafId id, IHost& h) {
-                if (!h.is_running())
-                    dead.push_back(id);
-            });
-            for (LeafId id : dead)
-            {
-                if (host_manager_.host_count() == 1)
-                {
-                    running_ = false;
-                    return false;
-                }
-                host_manager_.close_leaf(id);
-            }
-            return host_manager_.host() != nullptr;
-        };
 
         if (!close_dead_panes())
             return false;
@@ -474,54 +515,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         if (frame_requested_)
         {
-            update_diagnostics_panel();
-            {
-                const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
-                if (auto* host = host_manager_.focused_host())
-                    host->set_scroll_offset(input_dispatcher_.scroll_fraction() * static_cast<float>(ch));
-                input_dispatcher_.clear_scroll_event();
-            }
-            auto frame_start = std::chrono::steady_clock::now();
-            if (renderer_.grid()->begin_frame())
-            {
-                const auto now = std::chrono::steady_clock::now();
-                const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
-                last_panel_frame_time_ = now;
-
-                // Find any I3DHost with ImGui across all hosts.
-                I3DHost* h3d = nullptr;
-                host_manager_.for_each_host([&](LeafId, IHost& h) {
-                    if (!h3d)
-                    {
-                        auto* c = dynamic_cast<I3DHost*>(&h);
-                        if (c && c->has_imgui())
-                            h3d = c;
-                    }
-                });
-                if (h3d)
-                {
-                    renderer_.imgui()->set_imgui_draw_data(
-                        h3d->render_imgui(delta_seconds));
-                }
-                else if (ui_panel_.visible())
-                {
-                    renderer_.imgui()->begin_imgui_frame();
-                    ui_panel_.begin_frame(delta_seconds);
-                    renderer_.imgui()->set_imgui_draw_data(ui_panel_.render());
-                }
-                else
-                {
-                    renderer_.imgui()->set_imgui_draw_data(nullptr);
-                }
-
-                saw_frame_ = true;
-                renderer_.grid()->end_frame();
-                frame_requested_ = false;
-                last_frame_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
-                recent_frame_ms_[recent_frame_ms_index_] = last_frame_ms_;
-                recent_frame_ms_index_ = (recent_frame_ms_index_ + 1) % recent_frame_ms_.size();
-                recent_frame_ms_count_ = std::min(recent_frame_ms_count_ + 1, recent_frame_ms_.size());
-            }
+            render_frame();
             return running_;
         }
 
@@ -584,17 +578,6 @@ void App::request_quit()
     running_ = false;
 }
 
-double App::average_frame_ms() const
-{
-    if (recent_frame_ms_count_ == 0)
-        return 0.0;
-
-    double total = 0.0;
-    for (size_t i = 0; i < recent_frame_ms_count_; ++i)
-        total += recent_frame_ms_[i];
-    return total / static_cast<double>(recent_frame_ms_count_);
-}
-
 void App::update_diagnostics_panel()
 {
     auto [cell_w, cell_h] = renderer_.grid()->cell_size_pixels();
@@ -604,8 +587,8 @@ void App::update_diagnostics_panel()
     panel.display_ppi = display_ppi_;
     panel.cell_width = cell_w;
     panel.cell_height = cell_h;
-    panel.frame_ms = last_frame_ms_;
-    panel.average_frame_ms = average_frame_ms();
+    panel.frame_ms = frame_timer_.last_ms();
+    panel.average_frame_ms = frame_timer_.average_ms();
     panel.atlas_usage_ratio = text_service_.atlas_usage_ratio();
     panel.atlas_glyph_count = text_service_.atlas_glyph_count();
     panel.atlas_reset_count = text_service_.atlas_reset_count();
