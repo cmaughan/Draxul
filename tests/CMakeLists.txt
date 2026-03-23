@@ -65,6 +65,7 @@ add_executable(draxul-tests
     frame_timer_tests.cpp
     app_pump_tests.cpp
     app_smoke_tests.cpp
+    terminal_sgr_tests.cpp
 )
 
 target_include_directories(draxul-tests PRIVATE
