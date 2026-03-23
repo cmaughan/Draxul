@@ -1,0 +1,439 @@
+digraph DraxulArchitecture {
+  graph [
+    label="Draxul Runtime Architecture",
+    labelloc=t,
+    fontsize=24,
+    fontname="Helvetica",
+    rankdir=LR,
+    splines=true,
+    overlap=false,
+    pad=0.3,
+    nodesep=0.4,
+    ranksep=0.8,
+    bgcolor="white"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Helvetica",
+    fontsize=11,
+    color="#29465b",
+    fillcolor="#f7fbff",
+    margin="0.10,0.06"
+  ];
+
+  edge [
+    fontname="Helvetica",
+    fontsize=10,
+    color="#486581",
+    arrowsize=0.8
+  ];
+
+  subgraph cluster_app {
+    label="app/ orchestration";
+    color="#8fb3c9";
+    style="rounded";
+
+    App [label=<
+      <b>App</b><br/>
+      top-level runtime coordinator<br align="left"/>
+      owns window, renderer, text, UI, host manager<br align="left"/>
+      implements IHostCallbacks
+    >, fillcolor="#eaf4fb"];
+
+    HostManager [label=<
+      <b>HostManager</b><br/>
+      owns live hosts<br align="left"/>
+      owns SplitTree pane layout<br align="left"/>
+      creates/splits/closes hosts
+    >];
+
+    SplitTree [label=<
+      <b>SplitTree</b><br/>
+      pane descriptors<br align="left"/>
+      focus + divider hit-testing
+    >];
+
+    InputDispatcher [label=<
+      <b>InputDispatcher</b><br/>
+      routes window events<br align="left"/>
+      panel vs focused pane
+    >];
+
+    GuiActionHandler [label=<
+      <b>GuiActionHandler</b><br/>
+      named GUI actions<br align="left"/>
+      font, diagnostics, split, clipboard
+    >];
+
+    FrameTimer [label=<
+      <b>FrameTimer</b><br/>
+      frame-time stats<br align="left"/>
+      diagnostics data source
+    >, fillcolor="#f9fbfd"];
+
+    App -> HostManager [label="owns"];
+    App -> InputDispatcher [label="owns"];
+    App -> GuiActionHandler [label="owns"];
+    App -> FrameTimer [label="owns"];
+    HostManager -> SplitTree [label="owns"];
+    InputDispatcher -> GuiActionHandler [label="triggers"];
+  }
+
+  subgraph cluster_window_ui {
+    label="window + UI";
+    color="#9fc7a5";
+    style="rounded";
+
+    IWindow [label=<
+      <b>IWindow</b><br/>
+      abstract window/event surface
+    >, fillcolor="#eef9ef"];
+
+    SdlWindow [label=<
+      <b>SdlWindow</b><br/>
+      SDL3 implementation<br align="left"/>
+      clipboard, wake, dialog, DPI
+    >];
+
+    UiPanel [label=<
+      <b>UiPanel</b><br/>
+      diagnostics panel<br align="left"/>
+      owns ImGui context/layout
+    >, fillcolor="#eef9ef"];
+
+    SDL3 [label=<
+      <b>SDL3</b><br/>
+      platform windowing + input
+    >, shape=box, style="rounded,dashed,filled", fillcolor="#f4fff4", color="#6d8f6f"];
+
+    SdlWindow -> IWindow [label="implements", arrowhead="empty"];
+    SdlWindow -> SDL3 [label="wraps"];
+  }
+
+  subgraph cluster_render {
+    label="renderer";
+    color="#d6b06d";
+    style="rounded";
+
+    RendererBundle [label=<
+      <b>RendererBundle</b><br/>
+      typed accessors<br align="left"/>
+      grid / imgui / capture / 3D
+    >, fillcolor="#fff8e9"];
+
+    IBaseRenderer [label=<
+      <b>IBaseRenderer</b><br/>
+      init / resize / frame lifecycle
+    >];
+
+    I3DRenderer [label=<
+      <b>I3DRenderer</b><br/>
+      render pass registration<br align="left"/>
+      pane viewport for 3D
+    >];
+
+    IGridRenderer [label=<
+      <b>IGridRenderer</b><br/>
+      create_grid_handle()<br align="left"/>
+      atlas + cell metrics
+    >];
+
+    IImGuiHost [label=<
+      <b>IImGuiHost</b><br/>
+      backend ImGui bridge
+    >];
+
+    ICaptureRenderer [label=<
+      <b>ICaptureRenderer</b><br/>
+      render-test frame capture
+    >];
+
+    IRenderer [label=<
+      <b>IRenderer</b><br/>
+      combined compatibility interface
+    >, fillcolor="#fff8e9"];
+
+    IGridHandle [label=<
+      <b>IGridHandle</b><br/>
+      per-host grid GPU state<br align="left"/>
+      cells, overlays, cursor, viewport
+    >];
+
+    MetalRenderer [label=<
+      <b>MetalRenderer</b><br/>
+      macOS backend
+    >];
+
+    VkRenderer [label=<
+      <b>VkRenderer</b><br/>
+      Windows Vulkan backend
+    >];
+
+    GPU [label=<
+      <b>Metal / Vulkan GPU</b>
+    >, shape=box, style="rounded,dashed,filled", fillcolor="#fffdf5", color="#9a7a3c"];
+
+    I3DRenderer -> IBaseRenderer [label="extends", arrowhead="empty"];
+    IGridRenderer -> I3DRenderer [label="extends", arrowhead="empty"];
+    IRenderer -> IGridRenderer [label="extends", arrowhead="empty"];
+    IRenderer -> IImGuiHost [label="extends", arrowhead="empty"];
+    IRenderer -> ICaptureRenderer [label="extends", arrowhead="empty"];
+    MetalRenderer -> IRenderer [label="implements", arrowhead="empty"];
+    VkRenderer -> IRenderer [label="implements", arrowhead="empty"];
+    MetalRenderer -> GPU [label="records draw commands"];
+    VkRenderer -> GPU [label="records draw commands"];
+  }
+
+  subgraph cluster_text_grid {
+    label="text + grid";
+    color="#c39bd3";
+    style="rounded";
+
+    TextService [label=<
+      <b>TextService</b><br/>
+      FreeType + HarfBuzz shaping<br align="left"/>
+      glyph atlas + font metrics
+    >, fillcolor="#fbf4fe"];
+
+    Grid [label=<
+      <b>Grid</b><br/>
+      cell model + dirty tracking
+    >];
+
+    GridRenderingPipeline [label=<
+      <b>GridRenderingPipeline</b><br/>
+      grid -&gt; atlas regions -&gt; CellUpdate batches
+    >];
+
+    HighlightTable [label=<
+      <b>HighlightTable</b><br/>
+      hl_attr_id -&gt; colors/styles
+    >];
+
+    CursorBlinker [label=<
+      <b>CursorBlinker</b><br/>
+      cursor visibility timing
+    >];
+
+    GridRenderingPipeline -> Grid [label="reads"];
+    GridRenderingPipeline -> TextService [label="shapes via"];
+    GridRenderingPipeline -> IGridHandle [label="flushes to"];
+  }
+
+  subgraph cluster_hosts {
+    label="host abstraction";
+    color="#d68f8f";
+    style="rounded";
+
+    IHostCallbacks [label=<
+      <b>IHostCallbacks</b><br/>
+      request_frame / quit / wake / title / IME rect
+    >, fillcolor="#fff1f1"];
+
+    IHost [label=<
+      <b>IHost</b><br/>
+      lifecycle + input + viewport + debug state
+    >, fillcolor="#fff1f1"];
+
+    I3DHost [label=<
+      <b>I3DHost</b><br/>
+      optional 3D + ImGui contribution
+    >];
+
+    IGridHost [label=<
+      <b>IGridHost</b><br/>
+      marker for grid-based hosts
+    >];
+
+    GridHostBase [label=<
+      <b>GridHostBase</b><br/>
+      common grid-host runtime<br align="left"/>
+      viewport, cursor, redraw, title bar
+    >];
+
+    TerminalHostBase [label=<
+      <b>TerminalHostBase</b><br/>
+      VT parser + terminal state machine
+    >];
+
+    LocalTerminalHost [label=<
+      <b>LocalTerminalHost</b><br/>
+      selection + scrollback + mouse reporting
+    >];
+
+    NvimHost [label=<
+      <b>NvimHost</b><br/>
+      embedded Neovim UI host
+    >];
+
+    ShellHost [label=<
+      <b>ShellHost</b><br/>
+      bash / zsh / WSL PTY host
+    >];
+
+    PowerShellHost [label=<
+      <b>PowerShellHost</b><br/>
+      ConPTY-backed PowerShell host
+    >];
+
+    MegaCityHost [label=<
+      <b>MegaCityHost</b><br/>
+      3D scene host + ImGui windows
+    >];
+
+    VtParser [label=<
+      <b>VtParser</b>
+    >];
+
+    VtState [label=<
+      <b>VtState</b>
+    >];
+
+    AltScreenManager [label=<
+      <b>AltScreenManager</b>
+    >];
+
+    MouseReporter [label=<
+      <b>MouseReporter</b>
+    >];
+
+    SelectionManager [label=<
+      <b>SelectionManager</b>
+    >];
+
+    ScrollbackBuffer [label=<
+      <b>ScrollbackBuffer</b>
+    >];
+
+    CodebaseScanner [label=<
+      <b>CodebaseScanner</b><br/>
+      tree-sitter code scan
+    >];
+
+    CubeRenderPass [label=<
+      <b>CubeRenderPass</b>
+    >];
+
+    I3DHost -> IHost [label="extends", arrowhead="empty"];
+    IGridHost -> I3DHost [label="extends", arrowhead="empty"];
+    GridHostBase -> IGridHost [label="implements", arrowhead="empty"];
+    TerminalHostBase -> GridHostBase [label="extends", arrowhead="empty"];
+    LocalTerminalHost -> TerminalHostBase [label="extends", arrowhead="empty"];
+    NvimHost -> GridHostBase [label="extends", arrowhead="empty"];
+    ShellHost -> LocalTerminalHost [label="extends", arrowhead="empty"];
+    PowerShellHost -> LocalTerminalHost [label="extends", arrowhead="empty"];
+    MegaCityHost -> I3DHost [label="implements", arrowhead="empty"];
+
+    GridHostBase -> Grid [label="owns"];
+    GridHostBase -> HighlightTable [label="owns"];
+    GridHostBase -> GridRenderingPipeline [label="owns"];
+    GridHostBase -> CursorBlinker [label="owns"];
+    GridHostBase -> IGridHandle [label="owns"];
+    GridHostBase -> IWindow [label="uses"];
+    GridHostBase -> IGridRenderer [label="uses"];
+    GridHostBase -> TextService [label="uses"];
+    GridHostBase -> IHostCallbacks [label="calls"];
+
+    TerminalHostBase -> VtParser [label="owns"];
+    TerminalHostBase -> VtState [label="owns"];
+    TerminalHostBase -> AltScreenManager [label="owns"];
+
+    LocalTerminalHost -> MouseReporter [label="owns"];
+    LocalTerminalHost -> SelectionManager [label="owns"];
+    LocalTerminalHost -> ScrollbackBuffer [label="owns"];
+
+    MegaCityHost -> CodebaseScanner [label="owns"];
+    MegaCityHost -> CubeRenderPass [label="registers"];
+    MegaCityHost -> I3DRenderer [label="uses"];
+  }
+
+  subgraph cluster_nvim {
+    label="Neovim integration";
+    color="#6ea6a6";
+    style="rounded";
+
+    NvimProcess [label=<
+      <b>NvimProcess</b><br/>
+      spawn nvim --embed<br align="left"/>
+      pipe I/O
+    >, fillcolor="#f1fafa"];
+
+    NvimRpc [label=<
+      <b>NvimRpc</b><br/>
+      msgpack-RPC transport<br align="left"/>
+      reader thread + request/notify
+    >];
+
+    UiEventHandler [label=<
+      <b>UiEventHandler</b><br/>
+      redraw event decoder
+    >];
+
+    NvimInput [label=<
+      <b>NvimInput</b><br/>
+      key / mouse -&gt; Neovim input
+    >];
+
+    UiRequestWorker [label=<
+      <b>UiRequestWorker</b><br/>
+      async resize/UI requests
+    >];
+
+    StartupResizeState [label=<
+      <b>StartupResizeState</b>
+    >];
+
+    Neovim [label=<
+      <b>Neovim Child Process</b>
+    >, shape=box, style="rounded,dashed,filled", fillcolor="#f4ffff", color="#5d8f8f"];
+
+    NvimHost -> NvimProcess [label="owns"];
+    NvimHost -> NvimRpc [label="owns"];
+    NvimHost -> UiEventHandler [label="owns"];
+    NvimHost -> NvimInput [label="owns"];
+    NvimHost -> UiRequestWorker [label="owns"];
+    NvimHost -> StartupResizeState [label="owns"];
+
+    NvimRpc -> NvimProcess [label="transport over"];
+    NvimRpc -> Neovim [label="speaks msgpack-RPC"];
+    UiEventHandler -> Grid [label="writes redraws into"];
+    UiEventHandler -> HighlightTable [label="updates"];
+    NvimInput -> NvimRpc [label="sends input via"];
+    UiRequestWorker -> NvimRpc [label="async requests via"];
+  }
+
+  App -> IHostCallbacks [label="implements", arrowhead="empty"];
+  App -> IWindow [label="owns"];
+  App -> RendererBundle [label="owns"];
+  App -> TextService [label="owns"];
+  App -> UiPanel [label="owns"];
+  App -> HostManager [label="drives"];
+  App -> IImGuiHost [label="submits UiPanel draw data"];
+  App -> IGridRenderer [label="starts/ends frame"];
+
+  HostManager -> IHostCallbacks [label="passes shared observer"];
+  HostManager -> IHost [label="owns host instances"];
+  HostManager -> IGridRenderer [label="supplies to host context"];
+  HostManager -> IWindow [label="supplies to host context"];
+  HostManager -> TextService [label="supplies to host context"];
+
+  InputDispatcher -> IWindow [label="connects callbacks"];
+  InputDispatcher -> UiPanel [label="routes panel events"];
+  InputDispatcher -> HostManager [label="hit-tests pane for mouse"];
+  InputDispatcher -> IHost [label="forwards input"];
+
+  GuiActionHandler -> TextService [label="adjusts font size"];
+  GuiActionHandler -> UiPanel [label="toggles diagnostics"];
+  GuiActionHandler -> IHost [label="copy / paste / host actions"];
+  GuiActionHandler -> IImGuiHost [label="font texture rebuild path"];
+
+  RendererBundle -> IGridRenderer [label="grid()"];
+  RendererBundle -> IImGuiHost [label="imgui()"];
+  RendererBundle -> ICaptureRenderer [label="capture()"];
+  RendererBundle -> I3DRenderer [label="threed()"];
+
+  UiPanel -> IImGuiHost [label="produces ImDrawData for"];
+  TextService -> IGridRenderer [label="uploads atlas + metrics to"];
+}

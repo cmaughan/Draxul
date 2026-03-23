@@ -1,0 +1,475 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1200" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="11">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#555"/>
+    </marker>
+    <marker id="arrow-inherit" viewBox="0 0 12 8" refX="12" refY="4" markerWidth="12" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 12 4 L 0 8 z" fill="none" stroke="#333" stroke-width="1.5"/>
+    </marker>
+    <marker id="arrow-compose" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3 L 0 6 z" fill="#888"/>
+    </marker>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/>
+    </filter>
+
+    <!-- Interface box style -->
+    <linearGradient id="gInterface" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f0fe"/>
+      <stop offset="100%" stop-color="#d2e3fc"/>
+    </linearGradient>
+    <!-- Abstract box style -->
+    <linearGradient id="gAbstract" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fef7e0"/>
+      <stop offset="100%" stop-color="#fde293"/>
+    </linearGradient>
+    <!-- Concrete box style -->
+    <linearGradient id="gConcrete" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e6f4ea"/>
+      <stop offset="100%" stop-color="#ceead6"/>
+    </linearGradient>
+    <!-- App/orchestrator style -->
+    <linearGradient id="gApp" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fce8e6"/>
+      <stop offset="100%" stop-color="#f5c5c0"/>
+    </linearGradient>
+    <!-- Support/utility style -->
+    <linearGradient id="gSupport" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f3e8fd"/>
+      <stop offset="100%" stop-color="#e1d0f5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1200" fill="#fafafa" rx="8"/>
+
+  <!-- Title -->
+  <text x="700" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#222">Draxul Architecture</text>
+  <text x="700" y="50" text-anchor="middle" font-size="10" fill="#888">Neovim GUI Frontend  ---  Inheritance (hollow arrow) / Composition (filled arrow, dashed)</text>
+
+  <!-- Legend -->
+  <g transform="translate(30, 65)">
+    <rect width="18" height="12" rx="2" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1"/>
+    <text x="24" y="10" font-size="9" fill="#555">Interface (pure virtual)</text>
+    <rect x="160" width="18" height="12" rx="2" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1"/>
+    <text x="184" y="10" font-size="9" fill="#555">Abstract base</text>
+    <rect x="290" width="18" height="12" rx="2" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1"/>
+    <text x="314" y="10" font-size="9" fill="#555">Concrete class</text>
+    <rect x="420" width="18" height="12" rx="2" fill="url(#gApp)" stroke="#e8715a" stroke-width="1"/>
+    <text x="444" y="10" font-size="9" fill="#555">App orchestrator</text>
+    <rect x="560" width="18" height="12" rx="2" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1"/>
+    <text x="584" y="10" font-size="9" fill="#555">Support / Pipeline</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- RENDERER HIERARCHY (left column)                              -->
+  <!-- ============================================================ -->
+
+  <!-- Section label -->
+  <text x="250" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Renderer</text>
+  <line x1="170" y1="114" x2="330" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
+
+  <!-- IBaseRenderer -->
+  <g filter="url(#shadow)">
+    <rect x="155" y="125" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IBaseRenderer</text>
+    <text x="250" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, begin/end_frame</text>
+  </g>
+
+  <!-- I3DRenderer -->
+  <g filter="url(#shadow)">
+    <rect x="155" y="195" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">I3DRenderer</text>
+    <text x="250" y="230" text-anchor="middle" font-size="8.5" fill="#666">register_render_pass, 3D viewport</text>
+  </g>
+  <!-- Inherit: IBaseRenderer -> I3DRenderer -->
+  <line x1="250" y1="169" x2="250" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- IGridRenderer -->
+  <g filter="url(#shadow)">
+    <rect x="155" y="265" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridRenderer</text>
+    <text x="250" y="300" text-anchor="middle" font-size="8.5" fill="#666">create_grid_handle, atlas, cell_size</text>
+  </g>
+  <!-- Inherit: I3DRenderer -> IGridRenderer -->
+  <line x1="250" y1="239" x2="250" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- IRenderer (combined) -->
+  <g filter="url(#shadow)">
+    <rect x="155" y="335" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="353" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IRenderer</text>
+    <text x="250" y="370" text-anchor="middle" font-size="8.5" fill="#666">+ IImGuiHost + ICaptureRenderer</text>
+  </g>
+  <!-- Inherit: IGridRenderer -> IRenderer -->
+  <line x1="250" y1="309" x2="250" y2="335" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- MetalRenderer -->
+  <g filter="url(#shadow)">
+    <rect x="105" y="410" width="145" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="177" y="428" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">MetalRenderer</text>
+    <text x="177" y="445" text-anchor="middle" font-size="8.5" fill="#666">macOS Metal backend</text>
+  </g>
+  <!-- VkRenderer -->
+  <g filter="url(#shadow)">
+    <rect x="265" y="410" width="145" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="337" y="428" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">VkRenderer</text>
+    <text x="337" y="445" text-anchor="middle" font-size="8.5" fill="#666">Windows Vulkan backend</text>
+  </g>
+  <!-- Inherit: IRenderer -> MetalRenderer -->
+  <line x1="220" y1="379" x2="177" y2="410" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+  <!-- Inherit: IRenderer -> VkRenderer -->
+  <line x1="280" y1="379" x2="337" y2="410" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- IGridHandle -->
+  <g filter="url(#shadow)">
+    <rect x="17" y="265" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="77" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridHandle</text>
+    <text x="77" y="300" text-anchor="middle" font-size="8.5" fill="#666">per-host GPU buffer</text>
+  </g>
+  <!-- Compose: IGridRenderer creates IGridHandle -->
+  <line x1="155" y1="287" x2="137" y2="287" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- RendererState -->
+  <g filter="url(#shadow)">
+    <rect x="17" y="335" width="120" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="77" y="353" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">RendererState</text>
+    <text x="77" y="370" text-anchor="middle" font-size="8.5" fill="#666">GpuCell[], relayout</text>
+  </g>
+  <!-- Compose: IGridHandle owns RendererState -->
+  <line x1="77" y1="309" x2="77" y2="335" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- IRenderPass -->
+  <g filter="url(#shadow)">
+    <rect x="17" y="195" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="77" y="217" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IRenderPass</text>
+  </g>
+  <!-- Compose: I3DRenderer uses IRenderPass -->
+  <line x1="155" y1="214" x2="137" y2="214" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+
+  <!-- RendererBundle -->
+  <g filter="url(#shadow)">
+    <rect x="155" y="480" width="190" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="250" y="503" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">RendererBundle</text>
+  </g>
+  <!-- Compose: RendererBundle wraps IRenderer -->
+  <line x1="250" y1="454" x2="250" y2="480" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- ============================================================ -->
+  <!-- HOST HIERARCHY (center-right)                                 -->
+  <!-- ============================================================ -->
+
+  <text x="770" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Hosts</text>
+  <line x1="700" y1="114" x2="840" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
+
+  <!-- IHost -->
+  <g filter="url(#shadow)">
+    <rect x="670" y="125" width="200" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="770" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IHost</text>
+    <text x="770" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, pump, input, shutdown</text>
+  </g>
+
+  <!-- I3DHost -->
+  <g filter="url(#shadow)">
+    <rect x="670" y="195" width="200" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="770" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">I3DHost</text>
+    <text x="770" y="230" text-anchor="middle" font-size="8.5" fill="#666">attach_3d_renderer, imgui hooks</text>
+  </g>
+  <line x1="770" y1="169" x2="770" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- IGridHost -->
+  <g filter="url(#shadow)">
+    <rect x="625" y="265" width="155" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="702" y="288" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridHost</text>
+  </g>
+  <line x1="735" y1="239" x2="702" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- MegaCityHost (branches from I3DHost directly) -->
+  <g filter="url(#shadow)">
+    <rect x="830" y="265" width="155" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="907" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">MegaCityHost</text>
+    <text x="907" y="300" text-anchor="middle" font-size="8.5" fill="#666">3D code analysis host</text>
+  </g>
+  <line x1="810" y1="239" x2="907" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- GridHostBase -->
+  <g filter="url(#shadow)">
+    <rect x="605" y="325" width="195" height="52" rx="5" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1.2"/>
+    <text x="702" y="346" text-anchor="middle" font-weight="bold" font-size="11" fill="#8a6d00">GridHostBase</text>
+    <text x="702" y="360" text-anchor="middle" font-size="8.5" fill="#666">grid, highlights, cursor,</text>
+    <text x="702" y="371" text-anchor="middle" font-size="8.5" fill="#666">grid_pipeline, grid_handle</text>
+  </g>
+  <line x1="702" y1="301" x2="702" y2="325" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- TerminalHostBase -->
+  <g filter="url(#shadow)">
+    <rect x="555" y="405" width="175" height="44" rx="5" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1.2"/>
+    <text x="642" y="423" text-anchor="middle" font-weight="bold" font-size="11" fill="#8a6d00">TerminalHostBase</text>
+    <text x="642" y="440" text-anchor="middle" font-size="8.5" fill="#666">VT parser, alt screen</text>
+  </g>
+  <line x1="675" y1="377" x2="642" y2="405" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- NvimHost -->
+  <g filter="url(#shadow)">
+    <rect x="755" y="405" width="155" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="832" y="423" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">NvimHost</text>
+    <text x="832" y="440" text-anchor="middle" font-size="8.5" fill="#666">nvim RPC, UI events</text>
+  </g>
+  <line x1="735" y1="377" x2="832" y2="405" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- LocalTerminalHost -->
+  <g filter="url(#shadow)">
+    <rect x="555" y="478" width="175" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="642" y="496" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">LocalTerminalHost</text>
+    <text x="642" y="513" text-anchor="middle" font-size="8.5" fill="#666">scrollback, selection, mouse</text>
+  </g>
+  <line x1="642" y1="449" x2="642" y2="478" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- PTY process boxes (below LocalTerminalHost) -->
+  <g filter="url(#shadow)">
+    <rect x="515" y="548" width="115" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="572" y="570" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">UnixPtyProcess</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="645" y="548" width="115" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="702" y="570" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">ConPtyProcess</text>
+  </g>
+  <line x1="620" y1="522" x2="572" y2="548" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="665" y1="522" x2="702" y2="548" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="572" y="596" text-anchor="middle" font-size="8" fill="#888">macOS</text>
+  <text x="702" y="596" text-anchor="middle" font-size="8" fill="#888">Windows</text>
+
+  <!-- NvimProcess + NvimRpc (below NvimHost) -->
+  <g filter="url(#shadow)">
+    <rect x="765" y="478" width="95" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="812" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">NvimProcess</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="870" y="478" width="85" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="912" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">NvimRpc</text>
+  </g>
+  <line x1="812" y1="449" x2="812" y2="478" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="850" y1="449" x2="912" y2="478" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- ============================================================ -->
+  <!-- WINDOW (far left)                                             -->
+  <!-- ============================================================ -->
+
+  <text x="77" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Window</text>
+  <line x1="32" y1="114" x2="122" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
+
+  <!-- IWindow -->
+  <g filter="url(#shadow)">
+    <rect x="17" y="125" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="77" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IWindow</text>
+    <text x="77" y="160" text-anchor="middle" font-size="8.5" fill="#666">events, clipboard, title</text>
+  </g>
+
+  <!-- SdlWindow -->
+  <g filter="url(#shadow)">
+    <rect x="430" y="125" width="120" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="490" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">SdlWindow</text>
+    <text x="490" y="160" text-anchor="middle" font-size="8.5" fill="#666">SDL3 impl</text>
+  </g>
+  <!-- Inherit: IWindow -> SdlWindow (horizontal) -->
+  <line x1="137" y1="147" x2="430" y2="147" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+
+  <!-- ============================================================ -->
+  <!-- FONT / TEXT (right column, upper)                             -->
+  <!-- ============================================================ -->
+
+  <text x="1120" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Font &amp; Grid</text>
+  <line x1="1050" y1="114" x2="1190" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
+
+  <!-- TextService -->
+  <g filter="url(#shadow)">
+    <rect x="1040" y="125" width="160" height="52" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1120" y="146" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">TextService</text>
+    <text x="1120" y="160" text-anchor="middle" font-size="8.5" fill="#666">FreeType + HarfBuzz</text>
+    <text x="1120" y="171" text-anchor="middle" font-size="8.5" fill="#666">glyph atlas, metrics</text>
+  </g>
+
+  <!-- Grid -->
+  <g filter="url(#shadow)">
+    <rect x="1040" y="200" width="160" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1120" y="218" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">Grid</text>
+    <text x="1120" y="235" text-anchor="middle" font-size="8.5" fill="#666">2D Cell array, dirty tracking</text>
+  </g>
+
+  <!-- HighlightTable -->
+  <g filter="url(#shadow)">
+    <rect x="1040" y="265" width="160" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1120" y="288" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">HighlightTable</text>
+  </g>
+
+  <!-- GridRenderingPipeline -->
+  <g filter="url(#shadow)">
+    <rect x="1020" y="325" width="200" height="52" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="1120" y="346" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">GridRenderingPipeline</text>
+    <text x="1120" y="360" text-anchor="middle" font-size="8.5" fill="#666">Grid + TextService</text>
+    <text x="1120" y="371" text-anchor="middle" font-size="8.5" fill="#666">-> CellUpdate -> IGridHandle</text>
+  </g>
+  <!-- Compose: Pipeline uses TextService, Grid, HighlightTable -->
+  <line x1="1120" y1="177" x2="1120" y2="200" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="1120" y1="244" x2="1120" y2="265" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="1120" y1="301" x2="1120" y2="325" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Show that GridHostBase owns Pipeline, Grid, HighlightTable -->
+  <!-- Dashed line from GridHostBase to Pipeline cluster -->
+  <line x1="800" y1="350" x2="1020" y2="350" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="910" y="343" text-anchor="middle" font-size="8" fill="#888">owns</text>
+
+  <!-- ============================================================ -->
+  <!-- APP LAYER (bottom)                                            -->
+  <!-- ============================================================ -->
+
+  <text x="700" y="668" text-anchor="middle" font-size="12" font-weight="bold" fill="#c0392b">App Layer</text>
+  <line x1="400" y1="674" x2="1000" y2="674" stroke="#c0392b" stroke-width="0.5"/>
+
+  <!-- App -->
+  <g filter="url(#shadow)">
+    <rect x="530" y="690" width="340" height="60" rx="6" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.5"/>
+    <text x="700" y="712" text-anchor="middle" font-weight="bold" font-size="13" fill="#a52714">App</text>
+    <text x="700" y="727" text-anchor="middle" font-size="9" fill="#666">Main loop: SDL events -> nvim RPC -> Grid -> Renderer</text>
+    <text x="700" y="740" text-anchor="middle" font-size="9" fill="#666">Owns all subsystems below</text>
+  </g>
+
+  <!-- HostManager -->
+  <g filter="url(#shadow)">
+    <rect x="380" y="780" width="190" height="52" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
+    <text x="475" y="801" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">HostManager</text>
+    <text x="475" y="815" text-anchor="middle" font-size="8.5" fill="#666">multi-pane lifecycle</text>
+    <text x="475" y="826" text-anchor="middle" font-size="8.5" fill="#666">map&lt;LeafId, IHost&gt;</text>
+  </g>
+  <line x1="630" y1="750" x2="475" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- SplitTree -->
+  <g filter="url(#shadow)">
+    <rect x="380" y="860" width="190" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="475" y="878" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">SplitTree</text>
+    <text x="475" y="895" text-anchor="middle" font-size="8.5" fill="#666">binary tree pane layout</text>
+  </g>
+  <line x1="475" y1="832" x2="475" y2="860" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- InputDispatcher -->
+  <g filter="url(#shadow)">
+    <rect x="610" y="780" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
+    <text x="700" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">InputDispatcher</text>
+    <text x="700" y="815" text-anchor="middle" font-size="8.5" fill="#666">routes SDL events, chord keys</text>
+  </g>
+  <line x1="700" y1="750" x2="700" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- GuiActionHandler -->
+  <g filter="url(#shadow)">
+    <rect x="830" y="780" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
+    <text x="920" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">GuiActionHandler</text>
+    <text x="920" y="815" text-anchor="middle" font-size="8.5" fill="#666">font, copy, paste, split</text>
+  </g>
+  <line x1="770" y1="750" x2="920" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- UiPanel -->
+  <g filter="url(#shadow)">
+    <rect x="1050" y="780" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="1125" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">UiPanel</text>
+    <text x="1125" y="815" text-anchor="middle" font-size="8.5" fill="#666">ImGui diagnostics overlay</text>
+  </g>
+  <line x1="830" y1="750" x2="1125" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- AppConfig -->
+  <g filter="url(#shadow)">
+    <rect x="830" y="860" width="130" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="895" y="883" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">AppConfig</text>
+  </g>
+  <line x1="760" y1="750" x2="895" y2="860" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- Composition lines from App to major subsystems -->
+  <!-- App -> RendererBundle -->
+  <line x1="570" y1="690" x2="300" y2="516" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="415" y="598" text-anchor="middle" font-size="8" fill="#888">owns</text>
+
+  <!-- App -> SdlWindow -->
+  <line x1="530" y1="710" x2="490" y2="169" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- App -> TextService -->
+  <line x1="870" y1="710" x2="1100" y2="177" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- HostManager -> IHost (hosts) -->
+  <line x1="475" y1="780" x2="642" y2="522" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="548" y="645" text-anchor="middle" font-size="8" fill="#888">owns hosts</text>
+
+  <!-- ============================================================ -->
+  <!-- DATA FLOW (bottom section)                                    -->
+  <!-- ============================================================ -->
+
+  <text x="700" y="940" text-anchor="middle" font-size="12" font-weight="bold" fill="#555">Data Flow</text>
+  <line x1="200" y1="946" x2="1200" y2="946" stroke="#555" stroke-width="0.5"/>
+
+  <!-- Data flow boxes -->
+  <g transform="translate(80, 965)">
+    <rect width="150" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="75" y="20" text-anchor="middle" font-size="9" fill="#1565c0">nvim --embed</text>
+  </g>
+  <g transform="translate(265, 965)">
+    <rect width="130" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#1565c0">msgpack-RPC</text>
+  </g>
+  <g transform="translate(430, 965)">
+    <rect width="140" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="70" y="20" text-anchor="middle" font-size="9" fill="#1565c0">UiEventHandler</text>
+  </g>
+  <g transform="translate(605, 965)">
+    <rect width="100" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="50" y="20" text-anchor="middle" font-size="9" fill="#1565c0">Grid</text>
+  </g>
+  <g transform="translate(740, 965)">
+    <rect width="155" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="77" y="20" text-anchor="middle" font-size="9" fill="#1565c0">GridRenderPipeline</text>
+  </g>
+  <g transform="translate(930, 965)">
+    <rect width="130" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#1565c0">GPU Buffer</text>
+  </g>
+  <g transform="translate(1095, 965)">
+    <rect width="140" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
+    <text x="70" y="20" text-anchor="middle" font-size="9" fill="#1565c0">Metal / Vulkan</text>
+  </g>
+
+  <!-- Flow arrows -->
+  <line x1="230" y1="981" x2="265" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="395" y1="981" x2="430" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="981" x2="605" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="705" y1="981" x2="740" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="895" y1="981" x2="930" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="1060" y1="981" x2="1095" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Terminal data flow -->
+  <g transform="translate(80, 1015)">
+    <rect width="150" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
+    <text x="75" y="20" text-anchor="middle" font-size="9" fill="#c62828">PTY (zsh/bash)</text>
+  </g>
+  <g transform="translate(265, 1015)">
+    <rect width="130" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
+    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#c62828">VT escape seqs</text>
+  </g>
+  <g transform="translate(430, 1015)">
+    <rect width="140" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
+    <text x="70" y="20" text-anchor="middle" font-size="9" fill="#c62828">VtParser</text>
+  </g>
+
+  <line x1="230" y1="1031" x2="265" y2="1031" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="395" y1="1031" x2="430" y2="1031" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="1031" x2="605" y2="1031" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- VtParser also feeds into Grid -->
+
+  <!-- Threading note -->
+  <g transform="translate(80, 1065)">
+    <rect width="1155" height="28" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="0.5"/>
+    <text x="577" y="18" text-anchor="middle" font-size="9" fill="#616161">Main thread: SDL events + nvim/PTY message processing + grid mutation + GPU rendering  |  Reader thread: blocking reads from nvim stdout, MPack decode, push to queue</text>
+  </g>
+
+  <!-- Nvim flow label -->
+  <text x="50" y="985" text-anchor="middle" font-size="8" fill="#1565c0" font-weight="bold">nvim</text>
+  <!-- Terminal flow label -->
+  <text x="50" y="1035" text-anchor="middle" font-size="8" fill="#c62828" font-weight="bold">shell</text>
+
+</svg>

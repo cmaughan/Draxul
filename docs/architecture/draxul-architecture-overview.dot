@@ -1,0 +1,274 @@
+digraph DraxulOverview {
+  graph [
+    label="Draxul Architecture Overview",
+    labelloc=t,
+    fontsize=26,
+    fontname="Helvetica",
+    rankdir=LR,
+    splines=ortho,
+    overlap=false,
+    pad=0.35,
+    nodesep=0.55,
+    ranksep=1.0,
+    bgcolor="white"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Helvetica",
+    fontsize=12,
+    color="#284b63",
+    fillcolor="#f8fbfd",
+    margin="0.14,0.08"
+  ];
+
+  edge [
+    fontname="Helvetica",
+    fontsize=10,
+    color="#4f6d7a",
+    penwidth=1.2,
+    arrowsize=0.8
+  ];
+
+  subgraph cluster_app {
+    label="1. App Orchestration";
+    color="#8fb3c9";
+    style="rounded";
+
+    App [label=<
+      <b>App</b><br/>
+      startup, frame loop, shutdown<br align="left"/>
+      owns core runtime objects
+    >, fillcolor="#eaf4fb"];
+
+    HostManager [label=<
+      <b>HostManager + SplitTree</b><br/>
+      manages panes and live hosts
+    >];
+
+    InputDispatcher [label=<
+      <b>InputDispatcher</b><br/>
+      routes SDL events to panel or host
+    >];
+
+    GuiActionHandler [label=<
+      <b>GuiActionHandler</b><br/>
+      named app actions<br align="left"/>
+      font, split, diagnostics, clipboard
+    >];
+
+    Diagnostics [label=<
+      <b>UiPanel + FrameTimer</b><br/>
+      diagnostics UI and frame stats
+    >];
+
+    App -> HostManager [label="drives"];
+    App -> InputDispatcher [label="owns"];
+    App -> GuiActionHandler [label="owns"];
+    App -> Diagnostics [label="updates"];
+    InputDispatcher -> GuiActionHandler [label="fires actions"];
+  }
+
+  subgraph cluster_platform {
+    label="2. Platform Surface";
+    color="#9fc7a5";
+    style="rounded";
+
+    Window [label=<
+      <b>IWindow / SdlWindow</b><br/>
+      OS window, input, clipboard, wake, file dialog
+    >, fillcolor="#eef9ef"];
+
+    SDL3 [label=<
+      <b>SDL3</b><br/>
+      platform abstraction
+    >, shape=box, style="rounded,dashed,filled", fillcolor="#f5fff5", color="#6d8f6f"];
+
+    Window -> SDL3 [label="implemented with"];
+  }
+
+  subgraph cluster_render {
+    label="3. Rendering";
+    color="#d6b06d";
+    style="rounded";
+
+    Renderer [label=<
+      <b>RendererBundle</b><br/>
+      typed access to renderer capabilities
+    >, fillcolor="#fff8e9"];
+
+    GridRenderer [label=<
+      <b>IGridRenderer + IGridHandle</b><br/>
+      per-pane grid drawing
+    >];
+
+    ImGuiHost [label=<
+      <b>IImGuiHost</b><br/>
+      shared ImGui backend
+    >];
+
+    Capture [label=<
+      <b>ICaptureRenderer</b><br/>
+      render-test frame capture
+    >];
+
+    Backends [label=<
+      <b>MetalRenderer / VkRenderer</b><br/>
+      concrete backend
+    >];
+
+    GPU [label=<
+      <b>Metal / Vulkan GPU</b>
+    >, shape=box, style="rounded,dashed,filled", fillcolor="#fffdf5", color="#9a7a3c"];
+
+    Renderer -> GridRenderer [label="grid()"];
+    Renderer -> ImGuiHost [label="imgui()"];
+    Renderer -> Capture [label="capture()"];
+    Backends -> GPU [label="submits draw work"];
+  }
+
+  subgraph cluster_text {
+    label="4. Text + Grid";
+    color="#c39bd3";
+    style="rounded";
+
+    TextService [label=<
+      <b>TextService</b><br/>
+      font loading, shaping, glyph atlas
+    >, fillcolor="#fbf4fe"];
+
+    GridModel [label=<
+      <b>Grid + HighlightTable</b><br/>
+      terminal/editor cell state
+    >];
+
+    GridPipeline [label=<
+      <b>GridRenderingPipeline</b><br/>
+      shapes clusters and flushes dirty cells
+    >];
+
+    TextService -> GridPipeline [label="provides metrics + atlas"];
+    GridModel -> GridPipeline [label="feeds dirty state"];
+  }
+
+  subgraph cluster_hosts {
+    label="5. Hosts";
+    color="#d68f8f";
+    style="rounded";
+
+    HostAPI [label=<
+      <b>IHost / IHostCallbacks</b><br/>
+      lifecycle, input, viewport, frame requests
+    >, fillcolor="#fff1f1"];
+
+    GridHost [label=<
+      <b>GridHostBase</b><br/>
+      common grid-host runtime
+    >];
+
+    NvimHost [label=<
+      <b>NvimHost</b><br/>
+      embedded Neovim UI host
+    >];
+
+    TerminalStack [label=<
+      <b>TerminalHostBase -&gt; LocalTerminalHost</b><br/>
+      VT parser, alt screen, selection, scrollback, mouse
+    >];
+
+    ShellHosts [label=<
+      <b>Shell Hosts</b><br/>
+      Bash / Zsh / WSL / PowerShell
+    >];
+
+    MegaCity [label=<
+      <b>MegaCityHost</b><br/>
+      3D scene + extra ImGui windows
+    >];
+
+    GridHost -> HostAPI [label="implements", arrowhead="empty"];
+    NvimHost -> GridHost [label="extends", arrowhead="empty"];
+    TerminalStack -> GridHost [label="extends", arrowhead="empty"];
+    ShellHosts -> TerminalStack [label="extends", arrowhead="empty"];
+    MegaCity -> HostAPI [label="implements", arrowhead="empty"];
+  }
+
+  subgraph cluster_nvim {
+    label="6. Neovim Path";
+    color="#6ea6a6";
+    style="rounded";
+
+    NvimProcess [label=<
+      <b>NvimProcess</b><br/>
+      spawns nvim --embed
+    >, fillcolor="#f1fafa"];
+
+    NvimRpc [label=<
+      <b>NvimRpc</b><br/>
+      msgpack-RPC transport
+    >];
+
+    NvimUi [label=<
+      <b>UiEventHandler</b><br/>
+      redraw decoder
+    >];
+
+    NvimInput [label=<
+      <b>NvimInput + UiRequestWorker</b><br/>
+      sends input and async resize/UI requests
+    >];
+
+    Neovim [label=<
+      <b>Neovim Child Process</b>
+    >, shape=box, style="rounded,dashed,filled", fillcolor="#f4ffff", color="#5d8f8f"];
+
+    NvimProcess -> Neovim [label="process boundary"];
+    NvimRpc -> NvimProcess [label="uses pipes"];
+    NvimUi -> GridModel [label="writes redraws into"];
+    NvimInput -> NvimRpc [label="sends input"];
+  }
+
+  App -> Window [label="owns"];
+  App -> Renderer [label="owns"];
+  App -> TextService [label="owns"];
+  App -> HostAPI [label="implements callbacks for"];
+
+  HostManager -> HostAPI [label="owns host instances"];
+  HostManager -> Window [label="supplies host context"];
+  HostManager -> GridRenderer [label="supplies host context"];
+  HostManager -> TextService [label="supplies host context"];
+
+  InputDispatcher -> Window [label="installs callbacks on"];
+  InputDispatcher -> Diagnostics [label="routes panel input"];
+  InputDispatcher -> HostManager [label="hit-tests panes through"];
+
+  GuiActionHandler -> TextService [label="font changes"];
+  GuiActionHandler -> Diagnostics [label="toggle panel"];
+  GuiActionHandler -> HostManager [label="split panes"];
+  GuiActionHandler -> HostAPI [label="copy / paste / dispatch action"];
+
+  Diagnostics -> ImGuiHost [label="renders through"];
+  App -> ImGuiHost [label="begins one shared ImGui frame"];
+  App -> GridRenderer [label="runs frame lifecycle on"];
+
+  GridHost -> GridModel [label="owns"];
+  GridHost -> GridPipeline [label="owns"];
+  GridHost -> TextService [label="uses"];
+  GridHost -> GridRenderer [label="uses"];
+
+  NvimHost -> NvimRpc [label="owns"];
+  NvimHost -> NvimUi [label="owns"];
+  NvimHost -> NvimInput [label="owns"];
+  NvimHost -> NvimProcess [label="owns"];
+
+  TerminalStack -> GridModel [label="writes VT output into"];
+  ShellHosts -> Window [label="clipboard / title updates via host callbacks", style=dashed];
+
+  MegaCity -> ImGuiHost [label="contributes extra windows"];
+  MegaCity -> GridRenderer [label="registers 3D render pass with"];
+
+  Backends -> GridRenderer [label="implement", arrowhead="empty"];
+  Backends -> ImGuiHost [label="implement", arrowhead="empty"];
+  Backends -> Capture [label="implement", arrowhead="empty"];
+}

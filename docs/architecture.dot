@@ -1,0 +1,421 @@
+digraph DraxulArchitecturePrompt {
+  graph [
+    label="Draxul Architecture",
+    labelloc=t,
+    fontsize=26,
+    fontname="Helvetica",
+    rankdir=TB,
+    splines=polyline,
+    overlap=false,
+    pad=0.3,
+    nodesep=0.35,
+    ranksep=0.65,
+    bgcolor="white"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Helvetica",
+    fontsize=11,
+    margin="0.12,0.08",
+    color="#355070",
+    penwidth=1.2
+  ];
+
+  edge [
+    fontname="Helvetica",
+    fontsize=10,
+    color="#4a5568",
+    penwidth=1.1,
+    arrowsize=0.8
+  ];
+
+  // Color system from prompt.
+  // interfaces: blue, abstract bases: yellow, concrete classes: green,
+  // app orchestrators: red, support/pipeline: purple.
+
+  subgraph cluster_app {
+    label="App layer";
+    color="#c94f4f";
+    style="rounded";
+
+    App [label=<
+      <b>App</b><br/>
+      top-level runtime coordinator
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
+    HostManager [label=<
+      <b>HostManager</b><br/>
+      owns pane hosts + lifecycle
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
+    SplitTree [label=<
+      <b>SplitTree</b><br/>
+      pane layout + divider hit-testing
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
+    InputDispatcher [label=<
+      <b>InputDispatcher</b><br/>
+      routes window input
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
+    GuiActionHandler [label=<
+      <b>GuiActionHandler</b><br/>
+      named app actions
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
+    UiPanel [label=<
+      <b>UiPanel</b><br/>
+      diagnostics UI
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
+    FrameTimer [label=<
+      <b>FrameTimer</b><br/>
+      frame timing stats
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+  }
+
+  subgraph cluster_renderer {
+    label="Renderer hierarchy";
+    color="#4f83cc";
+    style="rounded";
+
+    IBaseRenderer [label=<
+      <b>IBaseRenderer</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    I3DRenderer [label=<
+      <b>I3DRenderer</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    IGridRenderer [label=<
+      <b>IGridRenderer</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    IImGuiHost [label=<
+      <b>IImGuiHost</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    ICaptureRenderer [label=<
+      <b>ICaptureRenderer</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    IRenderer [label=<
+      <b>IRenderer</b><br/>
+      compatibility aggregate
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    RendererBundle [label=<
+      <b>RendererBundle</b><br/>
+      typed access to renderer capabilities
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    IGridHandle [label=<
+      <b>IGridHandle</b><br/>
+      per-host GPU grid state
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    MetalRenderer [label=<
+      <b>MetalRenderer</b><br/>
+      macOS backend
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
+    VkRenderer [label=<
+      <b>VkRenderer</b><br/>
+      Windows backend
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+  }
+
+  subgraph cluster_hosts {
+    label="Host hierarchy";
+    color="#d6b04f";
+    style="rounded";
+
+    IHostCallbacks [label=<
+      <b>IHostCallbacks</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    IHost [label=<
+      <b>IHost</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    I3DHost [label=<
+      <b>I3DHost</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    IGridHost [label=<
+      <b>IGridHost</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    GridHostBase [label=<
+      <b>GridHostBase</b><br/>
+      common grid-host runtime
+    >, fillcolor="#ffe9a8", color="#c7981d"];
+
+    TerminalHostBase [label=<
+      <b>TerminalHostBase</b><br/>
+      VT terminal core
+    >, fillcolor="#ffe9a8", color="#c7981d"];
+
+    LocalTerminalHost [label=<
+      <b>LocalTerminalHost</b><br/>
+      selection + scrollback + mouse
+    >, fillcolor="#ffe9a8", color="#c7981d"];
+
+    NvimHost [label=<
+      <b>NvimHost</b>
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
+    ShellHost [label=<
+      <b>ShellHost</b><br/>
+      bash / zsh / WSL
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
+    PowerShellHost [label=<
+      <b>PowerShellHost</b>
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
+    MegaCityHost [label=<
+      <b>MegaCityHost</b>
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+  }
+
+  subgraph cluster_window {
+    label="Window";
+    color="#4f83cc";
+    style="rounded";
+
+    IWindow [label=<
+      <b>IWindow</b>
+    >, fillcolor="#dcecff", color="#4f83cc"];
+
+    SdlWindow [label=<
+      <b>SdlWindow</b><br/>
+      SDL3 implementation
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+  }
+
+  subgraph cluster_grid {
+    label="Font & Grid";
+    color="#7a4cc2";
+    style="rounded";
+
+    TextService [label=<
+      <b>TextService</b><br/>
+      fonts, shaping, atlas
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    Grid [label=<
+      <b>Grid</b><br/>
+      cell model + dirty tracking
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    HighlightTable [label=<
+      <b>HighlightTable</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    GridRenderingPipeline [label=<
+      <b>GridRenderingPipeline</b><br/>
+      grid to draw updates
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    CursorBlinker [label=<
+      <b>CursorBlinker</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    VtParser [label=<
+      <b>VtParser</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    VtState [label=<
+      <b>VtState</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    AltScreenManager [label=<
+      <b>AltScreenManager</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    MouseReporter [label=<
+      <b>MouseReporter</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    SelectionManager [label=<
+      <b>SelectionManager</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    ScrollbackBuffer [label=<
+      <b>ScrollbackBuffer</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+  }
+
+  subgraph cluster_nvim {
+    label="Neovim runtime";
+    color="#7a4cc2";
+    style="rounded";
+
+    NvimProcess [label=<
+      <b>NvimProcess</b><br/>
+      child process wrapper
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    NvimRpc [label=<
+      <b>NvimRpc</b><br/>
+      msgpack-RPC transport
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    UiEventHandler [label=<
+      <b>UiEventHandler</b><br/>
+      redraw decoder
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    NvimInput [label=<
+      <b>NvimInput</b><br/>
+      input encoder
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    UiRequestWorker [label=<
+      <b>UiRequestWorker</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    StartupResizeState [label=<
+      <b>StartupResizeState</b>
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+  }
+
+  // Inheritance: hollow arrows.
+  SdlWindow -> IWindow [arrowhead=empty, label="implements"];
+  I3DRenderer -> IBaseRenderer [arrowhead=empty, label="extends"];
+  IGridRenderer -> I3DRenderer [arrowhead=empty, label="extends"];
+  IRenderer -> IGridRenderer [arrowhead=empty, label="extends"];
+  IRenderer -> IImGuiHost [arrowhead=empty, label="extends"];
+  IRenderer -> ICaptureRenderer [arrowhead=empty, label="extends"];
+  MetalRenderer -> IRenderer [arrowhead=empty, label="implements"];
+  VkRenderer -> IRenderer [arrowhead=empty, label="implements"];
+
+  I3DHost -> IHost [arrowhead=empty, label="extends"];
+  IGridHost -> I3DHost [arrowhead=empty, label="extends"];
+  GridHostBase -> IGridHost [arrowhead=empty, label="extends"];
+  TerminalHostBase -> GridHostBase [arrowhead=empty, label="extends"];
+  LocalTerminalHost -> TerminalHostBase [arrowhead=empty, label="extends"];
+  NvimHost -> GridHostBase [arrowhead=empty, label="extends"];
+  ShellHost -> LocalTerminalHost [arrowhead=empty, label="extends"];
+  PowerShellHost -> LocalTerminalHost [arrowhead=empty, label="extends"];
+  MegaCityHost -> I3DHost [arrowhead=empty, label="implements"];
+  App -> IHostCallbacks [arrowhead=empty, label="implements"];
+
+  // Composition/ownership: dashed line, filled arrow.
+  App -> HostManager [style=dashed, arrowhead=vee, label="owns"];
+  App -> InputDispatcher [style=dashed, arrowhead=vee, label="owns"];
+  App -> GuiActionHandler [style=dashed, arrowhead=vee, label="owns"];
+  App -> UiPanel [style=dashed, arrowhead=vee, label="owns"];
+  App -> FrameTimer [style=dashed, arrowhead=vee, label="owns"];
+  App -> IWindow [style=dashed, arrowhead=vee, label="owns"];
+  App -> RendererBundle [style=dashed, arrowhead=vee, label="owns"];
+  App -> TextService [style=dashed, arrowhead=vee, label="owns"];
+
+  HostManager -> SplitTree [style=dashed, arrowhead=vee, label="owns"];
+  HostManager -> IHost [style=dashed, arrowhead=vee, label="owns hosts"];
+
+  GridHostBase -> Grid [style=dashed, arrowhead=vee, label="owns"];
+  GridHostBase -> HighlightTable [style=dashed, arrowhead=vee, label="owns"];
+  GridHostBase -> GridRenderingPipeline [style=dashed, arrowhead=vee, label="owns"];
+  GridHostBase -> CursorBlinker [style=dashed, arrowhead=vee, label="owns"];
+  GridHostBase -> IGridHandle [style=dashed, arrowhead=vee, label="owns"];
+
+  TerminalHostBase -> VtParser [style=dashed, arrowhead=vee, label="owns"];
+  TerminalHostBase -> VtState [style=dashed, arrowhead=vee, label="owns"];
+  TerminalHostBase -> AltScreenManager [style=dashed, arrowhead=vee, label="owns"];
+  LocalTerminalHost -> MouseReporter [style=dashed, arrowhead=vee, label="owns"];
+  LocalTerminalHost -> SelectionManager [style=dashed, arrowhead=vee, label="owns"];
+  LocalTerminalHost -> ScrollbackBuffer [style=dashed, arrowhead=vee, label="owns"];
+
+  NvimHost -> NvimProcess [style=dashed, arrowhead=vee, label="owns"];
+  NvimHost -> NvimRpc [style=dashed, arrowhead=vee, label="owns"];
+  NvimHost -> UiEventHandler [style=dashed, arrowhead=vee, label="owns"];
+  NvimHost -> NvimInput [style=dashed, arrowhead=vee, label="owns"];
+  NvimHost -> UiRequestWorker [style=dashed, arrowhead=vee, label="owns"];
+  NvimHost -> StartupResizeState [style=dashed, arrowhead=vee, label="owns"];
+
+  // Cross-links.
+  RendererBundle -> IGridRenderer [label="grid()"];
+  RendererBundle -> IImGuiHost [label="imgui()"];
+  RendererBundle -> ICaptureRenderer [label="capture()"];
+  RendererBundle -> I3DRenderer [label="threed()"];
+
+  GridRenderingPipeline -> TextService [label="shapes via"];
+  GridRenderingPipeline -> Grid [label="reads cells"];
+  GridRenderingPipeline -> IGridHandle [label="flushes to"];
+
+  GridHostBase -> IWindow [label="uses"];
+  GridHostBase -> IGridRenderer [label="uses"];
+  GridHostBase -> TextService [label="uses"];
+  GridHostBase -> IHostCallbacks [label="notifies"];
+
+  HostManager -> IWindow [label="supplies host context"];
+  HostManager -> IGridRenderer [label="supplies host context"];
+  HostManager -> TextService [label="supplies host context"];
+  HostManager -> IHostCallbacks [label="passes observer"];
+
+  InputDispatcher -> IWindow [label="connects callbacks"];
+  InputDispatcher -> HostManager [label="mouse hit-test"];
+  InputDispatcher -> IHost [label="forwards input"];
+  InputDispatcher -> UiPanel [label="routes panel input"];
+
+  GuiActionHandler -> TextService [label="font actions"];
+  GuiActionHandler -> UiPanel [label="toggle diagnostics"];
+  GuiActionHandler -> IHost [label="copy/paste/actions"];
+  GuiActionHandler -> HostManager [label="split panes"];
+  GuiActionHandler -> IImGuiHost [label="font texture rebuild path"];
+
+  UiPanel -> IImGuiHost [label="produces ImGui draw data"];
+  App -> IGridRenderer [label="frame lifecycle"];
+
+  NvimRpc -> NvimProcess [label="transport over"];
+  UiEventHandler -> Grid [label="writes redraws"];
+  UiEventHandler -> HighlightTable [label="updates attrs"];
+  NvimInput -> NvimRpc [label="sends input"];
+  UiRequestWorker -> NvimRpc [label="async requests"];
+
+  MegaCityHost -> I3DRenderer [label="registers 3D pass"];
+  MegaCityHost -> IImGuiHost [label="contributes windows"];
+
+  // Data flow strip at bottom.
+  {
+    rank=same;
+    FlowStart [label=<
+      <b>Data flow</b>
+    >, fillcolor="#fff6d6", color="#c7981d"];
+
+    WindowEvent [label=<
+      <b>Window event</b>
+    >, fillcolor="#fff6d6", color="#c7981d"];
+
+    NvimPath [label=<
+      <b>nvim path</b><br/>
+      InputDispatcher -&gt; NvimHost -&gt; NvimInput -&gt; NvimRpc -&gt; nvim<br align="left"/>
+      nvim redraw -&gt; NvimRpc -&gt; UiEventHandler -&gt; Grid -&gt; GridRenderingPipeline -&gt; Renderer
+    >, fillcolor="#fff6d6", color="#c7981d"];
+
+    TerminalPath [label=<
+      <b>terminal path</b><br/>
+      InputDispatcher -&gt; LocalTerminalHost -&gt; PTY/ConPTY write<br align="left"/>
+      PTY output -&gt; VtParser/TerminalHostBase -&gt; Grid -&gt; GridRenderingPipeline -&gt; Renderer
+    >, fillcolor="#fff6d6", color="#c7981d"];
+  }
+
+  FlowStart -> WindowEvent [style=dashed, arrowhead=vee];
+  WindowEvent -> NvimPath [style=dashed, arrowhead=vee];
+  WindowEvent -> TerminalPath [style=dashed, arrowhead=vee];
+
+  // Threading note.
+  Threading [label=<
+    <b>Threading model</b><br align="left"/>
+    Main thread: App loop, window events, rendering, host pump<br align="left"/>
+    Nvim path: NvimRpc owns a reader thread for msgpack-RPC notifications<br align="left"/>
+    Host wakeups: background I/O requests frame via IHostCallbacks::wake_window()<br align="left"/>
+    Terminal local process I/O is drained/coalesced by host pump before rendering
+  >, fillcolor="#fff6d6", color="#c7981d"];
+
+  App -> Threading [style=dotted, arrowhead=none];
+}

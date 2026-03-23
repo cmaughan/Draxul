@@ -1,475 +1,1034 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1200" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="11">
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 3 L 0 6 z" fill="#555"/>
-    </marker>
-    <marker id="arrow-inherit" viewBox="0 0 12 8" refX="12" refY="4" markerWidth="12" markerHeight="8" orient="auto-start-reverse">
-      <path d="M 0 0 L 12 4 L 0 8 z" fill="none" stroke="#333" stroke-width="1.5"/>
-    </marker>
-    <marker id="arrow-compose" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 3 L 0 6 z" fill="#888"/>
-    </marker>
-    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
-      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/>
-    </filter>
-
-    <!-- Interface box style -->
-    <linearGradient id="gInterface" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#e8f0fe"/>
-      <stop offset="100%" stop-color="#d2e3fc"/>
-    </linearGradient>
-    <!-- Abstract box style -->
-    <linearGradient id="gAbstract" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#fef7e0"/>
-      <stop offset="100%" stop-color="#fde293"/>
-    </linearGradient>
-    <!-- Concrete box style -->
-    <linearGradient id="gConcrete" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#e6f4ea"/>
-      <stop offset="100%" stop-color="#ceead6"/>
-    </linearGradient>
-    <!-- App/orchestrator style -->
-    <linearGradient id="gApp" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#fce8e6"/>
-      <stop offset="100%" stop-color="#f5c5c0"/>
-    </linearGradient>
-    <!-- Support/utility style -->
-    <linearGradient id="gSupport" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#f3e8fd"/>
-      <stop offset="100%" stop-color="#e1d0f5"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Background -->
-  <rect width="1400" height="1200" fill="#fafafa" rx="8"/>
-
-  <!-- Title -->
-  <text x="700" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#222">Draxul Architecture</text>
-  <text x="700" y="50" text-anchor="middle" font-size="10" fill="#888">Neovim GUI Frontend  ---  Inheritance (hollow arrow) / Composition (filled arrow, dashed)</text>
-
-  <!-- Legend -->
-  <g transform="translate(30, 65)">
-    <rect width="18" height="12" rx="2" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1"/>
-    <text x="24" y="10" font-size="9" fill="#555">Interface (pure virtual)</text>
-    <rect x="160" width="18" height="12" rx="2" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1"/>
-    <text x="184" y="10" font-size="9" fill="#555">Abstract base</text>
-    <rect x="290" width="18" height="12" rx="2" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1"/>
-    <text x="314" y="10" font-size="9" fill="#555">Concrete class</text>
-    <rect x="420" width="18" height="12" rx="2" fill="url(#gApp)" stroke="#e8715a" stroke-width="1"/>
-    <text x="444" y="10" font-size="9" fill="#555">App orchestrator</text>
-    <rect x="560" width="18" height="12" rx="2" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1"/>
-    <text x="584" y="10" font-size="9" fill="#555">Support / Pipeline</text>
-  </g>
-
-  <!-- ============================================================ -->
-  <!-- RENDERER HIERARCHY (left column)                              -->
-  <!-- ============================================================ -->
-
-  <!-- Section label -->
-  <text x="250" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Renderer</text>
-  <line x1="170" y1="114" x2="330" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
-
-  <!-- IBaseRenderer -->
-  <g filter="url(#shadow)">
-    <rect x="155" y="125" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="250" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IBaseRenderer</text>
-    <text x="250" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, begin/end_frame</text>
-  </g>
-
-  <!-- I3DRenderer -->
-  <g filter="url(#shadow)">
-    <rect x="155" y="195" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="250" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">I3DRenderer</text>
-    <text x="250" y="230" text-anchor="middle" font-size="8.5" fill="#666">register_render_pass, 3D viewport</text>
-  </g>
-  <!-- Inherit: IBaseRenderer -> I3DRenderer -->
-  <line x1="250" y1="169" x2="250" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- IGridRenderer -->
-  <g filter="url(#shadow)">
-    <rect x="155" y="265" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="250" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridRenderer</text>
-    <text x="250" y="300" text-anchor="middle" font-size="8.5" fill="#666">create_grid_handle, atlas, cell_size</text>
-  </g>
-  <!-- Inherit: I3DRenderer -> IGridRenderer -->
-  <line x1="250" y1="239" x2="250" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- IRenderer (combined) -->
-  <g filter="url(#shadow)">
-    <rect x="155" y="335" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="250" y="353" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IRenderer</text>
-    <text x="250" y="370" text-anchor="middle" font-size="8.5" fill="#666">+ IImGuiHost + ICaptureRenderer</text>
-  </g>
-  <!-- Inherit: IGridRenderer -> IRenderer -->
-  <line x1="250" y1="309" x2="250" y2="335" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- MetalRenderer -->
-  <g filter="url(#shadow)">
-    <rect x="105" y="410" width="145" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="177" y="428" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">MetalRenderer</text>
-    <text x="177" y="445" text-anchor="middle" font-size="8.5" fill="#666">macOS Metal backend</text>
-  </g>
-  <!-- VkRenderer -->
-  <g filter="url(#shadow)">
-    <rect x="265" y="410" width="145" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="337" y="428" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">VkRenderer</text>
-    <text x="337" y="445" text-anchor="middle" font-size="8.5" fill="#666">Windows Vulkan backend</text>
-  </g>
-  <!-- Inherit: IRenderer -> MetalRenderer -->
-  <line x1="220" y1="379" x2="177" y2="410" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-  <!-- Inherit: IRenderer -> VkRenderer -->
-  <line x1="280" y1="379" x2="337" y2="410" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- IGridHandle -->
-  <g filter="url(#shadow)">
-    <rect x="17" y="265" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="77" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridHandle</text>
-    <text x="77" y="300" text-anchor="middle" font-size="8.5" fill="#666">per-host GPU buffer</text>
-  </g>
-  <!-- Compose: IGridRenderer creates IGridHandle -->
-  <line x1="155" y1="287" x2="137" y2="287" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- RendererState -->
-  <g filter="url(#shadow)">
-    <rect x="17" y="335" width="120" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="77" y="353" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">RendererState</text>
-    <text x="77" y="370" text-anchor="middle" font-size="8.5" fill="#666">GpuCell[], relayout</text>
-  </g>
-  <!-- Compose: IGridHandle owns RendererState -->
-  <line x1="77" y1="309" x2="77" y2="335" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- IRenderPass -->
-  <g filter="url(#shadow)">
-    <rect x="17" y="195" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="77" y="217" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IRenderPass</text>
-  </g>
-  <!-- Compose: I3DRenderer uses IRenderPass -->
-  <line x1="155" y1="214" x2="137" y2="214" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-
-  <!-- RendererBundle -->
-  <g filter="url(#shadow)">
-    <rect x="155" y="480" width="190" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="250" y="503" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">RendererBundle</text>
-  </g>
-  <!-- Compose: RendererBundle wraps IRenderer -->
-  <line x1="250" y1="454" x2="250" y2="480" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- ============================================================ -->
-  <!-- HOST HIERARCHY (center-right)                                 -->
-  <!-- ============================================================ -->
-
-  <text x="770" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Hosts</text>
-  <line x1="700" y1="114" x2="840" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
-
-  <!-- IHost -->
-  <g filter="url(#shadow)">
-    <rect x="670" y="125" width="200" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="770" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IHost</text>
-    <text x="770" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, pump, input, shutdown</text>
-  </g>
-
-  <!-- I3DHost -->
-  <g filter="url(#shadow)">
-    <rect x="670" y="195" width="200" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="770" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">I3DHost</text>
-    <text x="770" y="230" text-anchor="middle" font-size="8.5" fill="#666">attach_3d_renderer, imgui hooks</text>
-  </g>
-  <line x1="770" y1="169" x2="770" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- IGridHost -->
-  <g filter="url(#shadow)">
-    <rect x="625" y="265" width="155" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="702" y="288" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridHost</text>
-  </g>
-  <line x1="735" y1="239" x2="702" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- MegaCityHost (branches from I3DHost directly) -->
-  <g filter="url(#shadow)">
-    <rect x="830" y="265" width="155" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="907" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">MegaCityHost</text>
-    <text x="907" y="300" text-anchor="middle" font-size="8.5" fill="#666">3D code analysis host</text>
-  </g>
-  <line x1="810" y1="239" x2="907" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- GridHostBase -->
-  <g filter="url(#shadow)">
-    <rect x="605" y="325" width="195" height="52" rx="5" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1.2"/>
-    <text x="702" y="346" text-anchor="middle" font-weight="bold" font-size="11" fill="#8a6d00">GridHostBase</text>
-    <text x="702" y="360" text-anchor="middle" font-size="8.5" fill="#666">grid, highlights, cursor,</text>
-    <text x="702" y="371" text-anchor="middle" font-size="8.5" fill="#666">grid_pipeline, grid_handle</text>
-  </g>
-  <line x1="702" y1="301" x2="702" y2="325" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- TerminalHostBase -->
-  <g filter="url(#shadow)">
-    <rect x="555" y="405" width="175" height="44" rx="5" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1.2"/>
-    <text x="642" y="423" text-anchor="middle" font-weight="bold" font-size="11" fill="#8a6d00">TerminalHostBase</text>
-    <text x="642" y="440" text-anchor="middle" font-size="8.5" fill="#666">VT parser, alt screen</text>
-  </g>
-  <line x1="675" y1="377" x2="642" y2="405" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- NvimHost -->
-  <g filter="url(#shadow)">
-    <rect x="755" y="405" width="155" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="832" y="423" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">NvimHost</text>
-    <text x="832" y="440" text-anchor="middle" font-size="8.5" fill="#666">nvim RPC, UI events</text>
-  </g>
-  <line x1="735" y1="377" x2="832" y2="405" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- LocalTerminalHost -->
-  <g filter="url(#shadow)">
-    <rect x="555" y="478" width="175" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="642" y="496" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">LocalTerminalHost</text>
-    <text x="642" y="513" text-anchor="middle" font-size="8.5" fill="#666">scrollback, selection, mouse</text>
-  </g>
-  <line x1="642" y1="449" x2="642" y2="478" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- PTY process boxes (below LocalTerminalHost) -->
-  <g filter="url(#shadow)">
-    <rect x="515" y="548" width="115" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="572" y="570" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">UnixPtyProcess</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="645" y="548" width="115" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="702" y="570" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">ConPtyProcess</text>
-  </g>
-  <line x1="620" y1="522" x2="572" y2="548" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <line x1="665" y1="522" x2="702" y2="548" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="572" y="596" text-anchor="middle" font-size="8" fill="#888">macOS</text>
-  <text x="702" y="596" text-anchor="middle" font-size="8" fill="#888">Windows</text>
-
-  <!-- NvimProcess + NvimRpc (below NvimHost) -->
-  <g filter="url(#shadow)">
-    <rect x="765" y="478" width="95" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="812" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">NvimProcess</text>
-  </g>
-  <g filter="url(#shadow)">
-    <rect x="870" y="478" width="85" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="912" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">NvimRpc</text>
-  </g>
-  <line x1="812" y1="449" x2="812" y2="478" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <line x1="850" y1="449" x2="912" y2="478" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- ============================================================ -->
-  <!-- WINDOW (far left)                                             -->
-  <!-- ============================================================ -->
-
-  <text x="77" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Window</text>
-  <line x1="32" y1="114" x2="122" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
-
-  <!-- IWindow -->
-  <g filter="url(#shadow)">
-    <rect x="17" y="125" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="77" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IWindow</text>
-    <text x="77" y="160" text-anchor="middle" font-size="8.5" fill="#666">events, clipboard, title</text>
-  </g>
-
-  <!-- SdlWindow -->
-  <g filter="url(#shadow)">
-    <rect x="430" y="125" width="120" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="490" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">SdlWindow</text>
-    <text x="490" y="160" text-anchor="middle" font-size="8.5" fill="#666">SDL3 impl</text>
-  </g>
-  <!-- Inherit: IWindow -> SdlWindow (horizontal) -->
-  <line x1="137" y1="147" x2="430" y2="147" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- ============================================================ -->
-  <!-- FONT / TEXT (right column, upper)                             -->
-  <!-- ============================================================ -->
-
-  <text x="1120" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Font &amp; Grid</text>
-  <line x1="1050" y1="114" x2="1190" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
-
-  <!-- TextService -->
-  <g filter="url(#shadow)">
-    <rect x="1040" y="125" width="160" height="52" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="1120" y="146" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">TextService</text>
-    <text x="1120" y="160" text-anchor="middle" font-size="8.5" fill="#666">FreeType + HarfBuzz</text>
-    <text x="1120" y="171" text-anchor="middle" font-size="8.5" fill="#666">glyph atlas, metrics</text>
-  </g>
-
-  <!-- Grid -->
-  <g filter="url(#shadow)">
-    <rect x="1040" y="200" width="160" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="1120" y="218" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">Grid</text>
-    <text x="1120" y="235" text-anchor="middle" font-size="8.5" fill="#666">2D Cell array, dirty tracking</text>
-  </g>
-
-  <!-- HighlightTable -->
-  <g filter="url(#shadow)">
-    <rect x="1040" y="265" width="160" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="1120" y="288" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">HighlightTable</text>
-  </g>
-
-  <!-- GridRenderingPipeline -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="325" width="200" height="52" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1120" y="346" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">GridRenderingPipeline</text>
-    <text x="1120" y="360" text-anchor="middle" font-size="8.5" fill="#666">Grid + TextService</text>
-    <text x="1120" y="371" text-anchor="middle" font-size="8.5" fill="#666">-> CellUpdate -> IGridHandle</text>
-  </g>
-  <!-- Compose: Pipeline uses TextService, Grid, HighlightTable -->
-  <line x1="1120" y1="177" x2="1120" y2="200" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="1120" y1="244" x2="1120" y2="265" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="1120" y1="301" x2="1120" y2="325" stroke="#888" stroke-width="1" stroke-dasharray="4,3"/>
-
-  <!-- Show that GridHostBase owns Pipeline, Grid, HighlightTable -->
-  <!-- Dashed line from GridHostBase to Pipeline cluster -->
-  <line x1="800" y1="350" x2="1020" y2="350" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="910" y="343" text-anchor="middle" font-size="8" fill="#888">owns</text>
-
-  <!-- ============================================================ -->
-  <!-- APP LAYER (bottom)                                            -->
-  <!-- ============================================================ -->
-
-  <text x="700" y="668" text-anchor="middle" font-size="12" font-weight="bold" fill="#c0392b">App Layer</text>
-  <line x1="400" y1="674" x2="1000" y2="674" stroke="#c0392b" stroke-width="0.5"/>
-
-  <!-- App -->
-  <g filter="url(#shadow)">
-    <rect x="530" y="690" width="340" height="60" rx="6" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.5"/>
-    <text x="700" y="712" text-anchor="middle" font-weight="bold" font-size="13" fill="#a52714">App</text>
-    <text x="700" y="727" text-anchor="middle" font-size="9" fill="#666">Main loop: SDL events -> nvim RPC -> Grid -> Renderer</text>
-    <text x="700" y="740" text-anchor="middle" font-size="9" fill="#666">Owns all subsystems below</text>
-  </g>
-
-  <!-- HostManager -->
-  <g filter="url(#shadow)">
-    <rect x="380" y="780" width="190" height="52" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
-    <text x="475" y="801" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">HostManager</text>
-    <text x="475" y="815" text-anchor="middle" font-size="8.5" fill="#666">multi-pane lifecycle</text>
-    <text x="475" y="826" text-anchor="middle" font-size="8.5" fill="#666">map&lt;LeafId, IHost&gt;</text>
-  </g>
-  <line x1="630" y1="750" x2="475" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- SplitTree -->
-  <g filter="url(#shadow)">
-    <rect x="380" y="860" width="190" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="475" y="878" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">SplitTree</text>
-    <text x="475" y="895" text-anchor="middle" font-size="8.5" fill="#666">binary tree pane layout</text>
-  </g>
-  <line x1="475" y1="832" x2="475" y2="860" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- InputDispatcher -->
-  <g filter="url(#shadow)">
-    <rect x="610" y="780" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
-    <text x="700" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">InputDispatcher</text>
-    <text x="700" y="815" text-anchor="middle" font-size="8.5" fill="#666">routes SDL events, chord keys</text>
-  </g>
-  <line x1="700" y1="750" x2="700" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- GuiActionHandler -->
-  <g filter="url(#shadow)">
-    <rect x="830" y="780" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
-    <text x="920" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">GuiActionHandler</text>
-    <text x="920" y="815" text-anchor="middle" font-size="8.5" fill="#666">font, copy, paste, split</text>
-  </g>
-  <line x1="770" y1="750" x2="920" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- UiPanel -->
-  <g filter="url(#shadow)">
-    <rect x="1050" y="780" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1125" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">UiPanel</text>
-    <text x="1125" y="815" text-anchor="middle" font-size="8.5" fill="#666">ImGui diagnostics overlay</text>
-  </g>
-  <line x1="830" y1="750" x2="1125" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- AppConfig -->
-  <g filter="url(#shadow)">
-    <rect x="830" y="860" width="130" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="895" y="883" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">AppConfig</text>
-  </g>
-  <line x1="760" y1="750" x2="895" y2="860" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- Composition lines from App to major subsystems -->
-  <!-- App -> RendererBundle -->
-  <line x1="570" y1="690" x2="300" y2="516" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="415" y="598" text-anchor="middle" font-size="8" fill="#888">owns</text>
-
-  <!-- App -> SdlWindow -->
-  <line x1="530" y1="710" x2="490" y2="169" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- App -> TextService -->
-  <line x1="870" y1="710" x2="1100" y2="177" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- HostManager -> IHost (hosts) -->
-  <line x1="475" y1="780" x2="642" y2="522" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="548" y="645" text-anchor="middle" font-size="8" fill="#888">owns hosts</text>
-
-  <!-- ============================================================ -->
-  <!-- DATA FLOW (bottom section)                                    -->
-  <!-- ============================================================ -->
-
-  <text x="700" y="940" text-anchor="middle" font-size="12" font-weight="bold" fill="#555">Data Flow</text>
-  <line x1="200" y1="946" x2="1200" y2="946" stroke="#555" stroke-width="0.5"/>
-
-  <!-- Data flow boxes -->
-  <g transform="translate(80, 965)">
-    <rect width="150" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="75" y="20" text-anchor="middle" font-size="9" fill="#1565c0">nvim --embed</text>
-  </g>
-  <g transform="translate(265, 965)">
-    <rect width="130" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#1565c0">msgpack-RPC</text>
-  </g>
-  <g transform="translate(430, 965)">
-    <rect width="140" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="70" y="20" text-anchor="middle" font-size="9" fill="#1565c0">UiEventHandler</text>
-  </g>
-  <g transform="translate(605, 965)">
-    <rect width="100" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="50" y="20" text-anchor="middle" font-size="9" fill="#1565c0">Grid</text>
-  </g>
-  <g transform="translate(740, 965)">
-    <rect width="155" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="77" y="20" text-anchor="middle" font-size="9" fill="#1565c0">GridRenderPipeline</text>
-  </g>
-  <g transform="translate(930, 965)">
-    <rect width="130" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#1565c0">GPU Buffer</text>
-  </g>
-  <g transform="translate(1095, 965)">
-    <rect width="140" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
-    <text x="70" y="20" text-anchor="middle" font-size="9" fill="#1565c0">Metal / Vulkan</text>
-  </g>
-
-  <!-- Flow arrows -->
-  <line x1="230" y1="981" x2="265" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="395" y1="981" x2="430" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="570" y1="981" x2="605" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="705" y1="981" x2="740" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="895" y1="981" x2="930" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="1060" y1="981" x2="1095" y2="981" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <!-- Terminal data flow -->
-  <g transform="translate(80, 1015)">
-    <rect width="150" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
-    <text x="75" y="20" text-anchor="middle" font-size="9" fill="#c62828">PTY (zsh/bash)</text>
-  </g>
-  <g transform="translate(265, 1015)">
-    <rect width="130" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
-    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#c62828">VT escape seqs</text>
-  </g>
-  <g transform="translate(430, 1015)">
-    <rect width="140" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
-    <text x="70" y="20" text-anchor="middle" font-size="9" fill="#c62828">VtParser</text>
-  </g>
-
-  <line x1="230" y1="1031" x2="265" y2="1031" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="395" y1="1031" x2="430" y2="1031" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="570" y1="1031" x2="605" y2="1031" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <!-- VtParser also feeds into Grid -->
-
-  <!-- Threading note -->
-  <g transform="translate(80, 1065)">
-    <rect width="1155" height="28" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="0.5"/>
-    <text x="577" y="18" text-anchor="middle" font-size="9" fill="#616161">Main thread: SDL events + nvim/PTY message processing + grid mutation + GPU rendering  |  Reader thread: blocking reads from nvim stdout, MPack decode, push to queue</text>
-  </g>
-
-  <!-- Nvim flow label -->
-  <text x="50" y="985" text-anchor="middle" font-size="8" fill="#1565c0" font-weight="bold">nvim</text>
-  <!-- Terminal flow label -->
-  <text x="50" y="1035" text-anchor="middle" font-size="8" fill="#c62828" font-weight="bold">shell</text>
-
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.3 (20260303.0454)
+ -->
+<!-- Title: DraxulArchitecturePrompt Pages: 1 -->
+<svg width="4610pt" height="1337pt"
+ viewBox="0.00 0.00 4610.00 1337.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 1315.12)">
+<title>DraxulArchitecturePrompt</title>
+<polygon fill="white" stroke="none" points="-21.6,21.6 -21.6,-1315.12 4588.6,-1315.12 4588.6,21.6 -21.6,21.6"/>
+<text xml:space="preserve" text-anchor="middle" x="2283.5" y="-1264.82" font-family="Helvetica,sans-Serif" font-size="26.00">Draxul Architecture</text>
+<g id="clust1" class="cluster">
+<title>cluster_app</title>
+<path fill="white" stroke="#c94f4f" d="M3859.25,-389C3859.25,-389 4461.25,-389 4461.25,-389 4467.25,-389 4473.25,-395 4473.25,-401 4473.25,-401 4473.25,-980.01 4473.25,-980.01 4473.25,-986.01 4467.25,-992.01 4461.25,-992.01 4461.25,-992.01 3859.25,-992.01 3859.25,-992.01 3853.25,-992.01 3847.25,-986.01 3847.25,-980.01 3847.25,-980.01 3847.25,-401 3847.25,-401 3847.25,-395 3853.25,-389 3859.25,-389"/>
+<text xml:space="preserve" text-anchor="middle" x="4160.25" y="-963.31" font-family="Helvetica,sans-Serif" font-size="26.00">App layer</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_renderer</title>
+<path fill="white" stroke="#4f83cc" d="M2255.25,-8C2255.25,-8 2750.25,-8 2750.25,-8 2756.25,-8 2762.25,-14 2762.25,-20 2762.25,-20 2762.25,-497.5 2762.25,-497.5 2762.25,-503.5 2756.25,-509.5 2750.25,-509.5 2750.25,-509.5 2255.25,-509.5 2255.25,-509.5 2249.25,-509.5 2243.25,-503.5 2243.25,-497.5 2243.25,-497.5 2243.25,-20 2243.25,-20 2243.25,-14 2249.25,-8 2255.25,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="2502.75" y="-480.8" font-family="Helvetica,sans-Serif" font-size="26.00">Renderer hierarchy</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_hosts</title>
+<path fill="white" stroke="#d6b04f" d="M2796.25,-293.75C2796.25,-293.75 3182.25,-293.75 3182.25,-293.75 3188.25,-293.75 3194.25,-299.75 3194.25,-305.75 3194.25,-305.75 3194.25,-1235.27 3194.25,-1235.27 3194.25,-1241.27 3188.25,-1247.27 3182.25,-1247.27 3182.25,-1247.27 2796.25,-1247.27 2796.25,-1247.27 2790.25,-1247.27 2784.25,-1241.27 2784.25,-1235.27 2784.25,-1235.27 2784.25,-305.75 2784.25,-305.75 2784.25,-299.75 2790.25,-293.75 2796.25,-293.75"/>
+<text xml:space="preserve" text-anchor="middle" x="2989.25" y="-1218.57" font-family="Helvetica,sans-Serif" font-size="26.00">Host hierarchy</text>
+</g>
+<g id="clust4" class="cluster">
+<title>cluster_window</title>
+<path fill="white" stroke="#4f83cc" d="M3286.25,-389C3286.25,-389 3428.25,-389 3428.25,-389 3434.25,-389 3440.25,-395 3440.25,-401 3440.25,-401 3440.25,-653.25 3440.25,-653.25 3440.25,-659.25 3434.25,-665.25 3428.25,-665.25 3428.25,-665.25 3286.25,-665.25 3286.25,-665.25 3280.25,-665.25 3274.25,-659.25 3274.25,-653.25 3274.25,-653.25 3274.25,-401 3274.25,-401 3274.25,-395 3280.25,-389 3286.25,-389"/>
+<text xml:space="preserve" text-anchor="middle" x="3357.25" y="-636.55" font-family="Helvetica,sans-Serif" font-size="26.00">Window</text>
+</g>
+<g id="clust5" class="cluster">
+<title>cluster_grid</title>
+<path fill="white" stroke="#7a4cc2" d="M860.25,-389C860.25,-389 2180.25,-389 2180.25,-389 2186.25,-389 2192.25,-395 2192.25,-401 2192.25,-401 2192.25,-653.25 2192.25,-653.25 2192.25,-659.25 2186.25,-665.25 2180.25,-665.25 2180.25,-665.25 860.25,-665.25 860.25,-665.25 854.25,-665.25 848.25,-659.25 848.25,-653.25 848.25,-653.25 848.25,-401 848.25,-401 848.25,-395 854.25,-389 860.25,-389"/>
+<text xml:space="preserve" text-anchor="middle" x="1520.25" y="-636.55" font-family="Helvetica,sans-Serif" font-size="26.00">Font &amp; Grid</text>
+</g>
+<g id="clust6" class="cluster">
+<title>cluster_nvim</title>
+<path fill="white" stroke="#7a4cc2" d="M40.25,-389C40.25,-389 630.25,-389 630.25,-389 636.25,-389 642.25,-395 642.25,-401 642.25,-401 642.25,-824.26 642.25,-824.26 642.25,-830.26 636.25,-836.26 630.25,-836.26 630.25,-836.26 40.25,-836.26 40.25,-836.26 34.25,-836.26 28.25,-830.26 28.25,-824.26 28.25,-824.26 28.25,-401 28.25,-401 28.25,-395 34.25,-389 40.25,-389"/>
+<text xml:space="preserve" text-anchor="middle" x="335.25" y="-807.56" font-family="Helvetica,sans-Serif" font-size="26.00">Neovim runtime</text>
+</g>
+<!-- App -->
+<g id="node1" class="node">
+<title>App</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M4027.14,-915.51C4027.14,-915.51 3867.36,-915.51 3867.36,-915.51 3861.36,-915.51 3855.36,-909.51 3855.36,-903.51 3855.36,-903.51 3855.36,-891.51 3855.36,-891.51 3855.36,-885.51 3861.36,-879.51 3867.36,-879.51 3867.36,-879.51 4027.14,-879.51 4027.14,-879.51 4033.14,-879.51 4039.14,-885.51 4039.14,-891.51 4039.14,-891.51 4039.14,-903.51 4039.14,-903.51 4039.14,-909.51 4033.14,-915.51 4027.14,-915.51"/>
+<text xml:space="preserve" text-anchor="start" x="3927.38" y="-899.06" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3945.38" y="-899.06" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">App</text>
+<text xml:space="preserve" text-anchor="start" x="3864" y="-888.06" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;top&#45;level runtime coordinator &#160;&#160;&#160;</text>
+</g>
+<!-- HostManager -->
+<g id="node2" class="node">
+<title>HostManager</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M4181.52,-588.75C4181.52,-588.75 4026.99,-588.75 4026.99,-588.75 4020.99,-588.75 4014.99,-582.75 4014.99,-576.75 4014.99,-576.75 4014.99,-564.75 4014.99,-564.75 4014.99,-558.75 4020.99,-552.75 4026.99,-552.75 4026.99,-552.75 4181.52,-552.75 4181.52,-552.75 4187.52,-552.75 4193.52,-558.75 4193.52,-564.75 4193.52,-564.75 4193.52,-576.75 4193.52,-576.75 4193.52,-582.75 4187.52,-588.75 4181.52,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="4060.38" y="-572.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="4078.38" y="-572.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">HostManager</text>
+<text xml:space="preserve" text-anchor="start" x="4023.62" y="-561.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;owns pane hosts + lifecycle &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;HostManager -->
+<g id="edge19" class="edge">
+<title>App&#45;&gt;HostManager</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M4031.33,-878.92C4116.33,-861.14 4235.25,-836.26 4235.25,-836.26 4235.25,-836.26 4235.25,-708.5 4235.25,-708.5 4235.25,-708.5 4219.25,-673.25 4219.25,-673.25 4219.25,-673.25 4164.91,-625.28 4130.93,-595.3"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4125.02,-590.09 4133.4,-592.68 4127.05,-591.81 4131.06,-595.34 4131.02,-595.38 4130.99,-595.42 4126.99,-591.88 4128.64,-598.08 4125.02,-590.09"/>
+<text xml:space="preserve" text-anchor="middle" x="4246.88" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- InputDispatcher -->
+<g id="node4" class="node">
+<title>InputDispatcher</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M3986.89,-759.76C3986.89,-759.76 3867.61,-759.76 3867.61,-759.76 3861.61,-759.76 3855.61,-753.76 3855.61,-747.76 3855.61,-747.76 3855.61,-735.76 3855.61,-735.76 3855.61,-729.76 3861.61,-723.76 3867.61,-723.76 3867.61,-723.76 3986.89,-723.76 3986.89,-723.76 3992.89,-723.76 3998.89,-729.76 3998.89,-735.76 3998.89,-735.76 3998.89,-747.76 3998.89,-747.76 3998.89,-753.76 3992.89,-759.76 3986.89,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="3876.25" y="-743.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3894.25" y="-743.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">InputDispatcher</text>
+<text xml:space="preserve" text-anchor="start" x="3864.25" y="-732.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;routes window input &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;InputDispatcher -->
+<g id="edge20" class="edge">
+<title>App&#45;&gt;InputDispatcher</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3944.99,-879.17C3941.51,-852.41 3934.81,-800.85 3930.71,-769.35"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3929.7,-761.6 3934.3,-769.07 3930.09,-764.23 3930.78,-769.53 3930.73,-769.53 3930.68,-769.54 3929.99,-764.24 3927.16,-770 3929.7,-761.6"/>
+<text xml:space="preserve" text-anchor="middle" x="3953.51" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- GuiActionHandler -->
+<g id="node5" class="node">
+<title>GuiActionHandler</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M4150.27,-759.76C4150.27,-759.76 4036.24,-759.76 4036.24,-759.76 4030.24,-759.76 4024.24,-753.76 4024.24,-747.76 4024.24,-747.76 4024.24,-735.76 4024.24,-735.76 4024.24,-729.76 4030.24,-723.76 4036.24,-723.76 4036.24,-723.76 4150.27,-723.76 4150.27,-723.76 4156.27,-723.76 4162.27,-729.76 4162.27,-735.76 4162.27,-735.76 4162.27,-747.76 4162.27,-747.76 4162.27,-753.76 4156.27,-759.76 4150.27,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="4037.38" y="-743.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="4055.38" y="-743.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">GuiActionHandler</text>
+<text xml:space="preserve" text-anchor="start" x="4032.88" y="-732.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;named app actions &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;GuiActionHandler -->
+<g id="edge21" class="edge">
+<title>App&#45;&gt;GuiActionHandler</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3965.76,-879.08C3984.66,-861.29 4011.25,-836.26 4011.25,-836.26 4011.25,-836.26 4047.64,-794.76 4071.94,-767.06"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4076.94,-761.35 4074.37,-769.74 4075.23,-763.39 4071.71,-767.4 4071.67,-767.37 4071.63,-767.34 4075.15,-763.32 4068.96,-765 4076.94,-761.35"/>
+<text xml:space="preserve" text-anchor="middle" x="4013.59" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- UiPanel -->
+<g id="node6" class="node">
+<title>UiPanel</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M3977.64,-588.75C3977.64,-588.75 3886.86,-588.75 3886.86,-588.75 3880.86,-588.75 3874.86,-582.75 3874.86,-576.75 3874.86,-576.75 3874.86,-564.75 3874.86,-564.75 3874.86,-558.75 3880.86,-552.75 3886.86,-552.75 3886.86,-552.75 3977.64,-552.75 3977.64,-552.75 3983.64,-552.75 3989.64,-558.75 3989.64,-564.75 3989.64,-564.75 3989.64,-576.75 3989.64,-576.75 3989.64,-582.75 3983.64,-588.75 3977.64,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="3903" y="-572.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3921" y="-572.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">UiPanel</text>
+<text xml:space="preserve" text-anchor="start" x="3883.5" y="-561.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;diagnostics UI &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;UiPanel -->
+<g id="edge22" class="edge">
+<title>App&#45;&gt;UiPanel</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M4013.81,-878.92C4081.11,-861.14 4175.25,-836.26 4175.25,-836.26 4175.25,-836.26 4212.25,-684.5 4212.25,-684.5 4212.25,-684.5 4212.25,-673.25 4212.25,-673.25 4212.25,-673.25 4002.25,-665.25 4002.25,-665.25 4002.25,-665.25 3971.71,-624.45 3950.97,-596.76"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3946.22,-590.41 3953.9,-594.66 3947.85,-592.51 3951.05,-596.78 3951.01,-596.81 3950.97,-596.84 3947.77,-592.57 3948.13,-598.97 3946.22,-590.41"/>
+<text xml:space="preserve" text-anchor="middle" x="4217.86" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- FrameTimer -->
+<g id="node7" class="node">
+<title>FrameTimer</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M4453.27,-759.76C4453.27,-759.76 4345.23,-759.76 4345.23,-759.76 4339.23,-759.76 4333.23,-753.76 4333.23,-747.76 4333.23,-747.76 4333.23,-735.76 4333.23,-735.76 4333.23,-729.76 4339.23,-723.76 4345.23,-723.76 4345.23,-723.76 4453.27,-723.76 4453.27,-723.76 4459.27,-723.76 4465.27,-729.76 4465.27,-735.76 4465.27,-735.76 4465.27,-747.76 4465.27,-747.76 4465.27,-753.76 4459.27,-759.76 4453.27,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="4358.75" y="-743.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="4376.75" y="-743.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">FrameTimer</text>
+<text xml:space="preserve" text-anchor="start" x="4341.88" y="-732.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;frame timing stats &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;FrameTimer -->
+<g id="edge23" class="edge">
+<title>App&#45;&gt;FrameTimer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M4039.7,-885.52C4141.9,-873.38 4292.25,-855.51 4292.25,-855.51 4292.25,-855.51 4314.25,-836.26 4314.25,-836.26 4314.25,-836.26 4351.97,-794.76 4377.16,-767.06"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4382.36,-761.34 4379.64,-769.68 4380.61,-763.34 4377.02,-767.29 4376.98,-767.26 4376.94,-767.22 4380.53,-763.27 4374.32,-764.84 4382.36,-761.34"/>
+<text xml:space="preserve" text-anchor="middle" x="4316.19" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- IGridRenderer -->
+<g id="node10" class="node">
+<title>IGridRenderer</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2742.01,-242.5C2742.01,-242.5 2644.49,-242.5 2644.49,-242.5 2638.49,-242.5 2632.49,-236.5 2632.49,-230.5 2632.49,-230.5 2632.49,-218.5 2632.49,-218.5 2632.49,-212.5 2638.49,-206.5 2644.49,-206.5 2644.49,-206.5 2742.01,-206.5 2742.01,-206.5 2748.01,-206.5 2754.01,-212.5 2754.01,-218.5 2754.01,-218.5 2754.01,-230.5 2754.01,-230.5 2754.01,-236.5 2748.01,-242.5 2742.01,-242.5"/>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-221.05" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2659.12" y="-221.05" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IGridRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2733.38" y="-221.05" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;IGridRenderer -->
+<g id="edge71" class="edge">
+<title>App&#45;&gt;IGridRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4039.45,-886.74C4153.92,-874.61 4334.25,-855.51 4334.25,-855.51 4334.25,-855.51 4478.25,-836.26 4478.25,-836.26 4478.25,-836.26 4503.25,-742.76 4503.25,-742.76 4503.25,-742.76 4503.25,-742.76 4503.25,-318.75 4503.25,-318.75 3098.52,-246.38 2764.09,-229.15"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2764.31,-226.36 2756.17,-228.74 2764.02,-231.95 2764.31,-226.36"/>
+<text xml:space="preserve" text-anchor="middle" x="4535.12" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">frame lifecycle</text>
+</g>
+<!-- RendererBundle -->
+<g id="node14" class="node">
+<title>RendererBundle</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M2716.89,-337.75C2716.89,-337.75 2519.61,-337.75 2519.61,-337.75 2513.61,-337.75 2507.61,-331.75 2507.61,-325.75 2507.61,-325.75 2507.61,-313.75 2507.61,-313.75 2507.61,-307.75 2513.61,-301.75 2519.61,-301.75 2519.61,-301.75 2716.89,-301.75 2716.89,-301.75 2722.89,-301.75 2728.89,-307.75 2728.89,-313.75 2728.89,-313.75 2728.89,-325.75 2728.89,-325.75 2728.89,-331.75 2722.89,-337.75 2716.89,-337.75"/>
+<text xml:space="preserve" text-anchor="start" x="2566.12" y="-321.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2584.12" y="-321.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">RendererBundle</text>
+<text xml:space="preserve" text-anchor="start" x="2516.25" y="-310.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;typed access to renderer capabilities &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;RendererBundle -->
+<g id="edge25" class="edge">
+<title>App&#45;&gt;RendererBundle</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3854.9,-889.3C3704.26,-877.53 3422.25,-855.51 3422.25,-855.51 3422.25,-855.51 3364.25,-844.26 3364.25,-844.26 3364.25,-844.26 3241.25,-836.26 3241.25,-836.26 3241.25,-836.26 3198.25,-673.25 3198.25,-673.25 3198.25,-673.25 2755,-665.25 2755,-665.25 2755,-665.25 2737.25,-389 2737.25,-389 2737.25,-389 2691.36,-362.68 2656.57,-342.73"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2650.06,-338.99 2658.79,-339.85 2652.39,-340.27 2657.02,-342.93 2657,-342.97 2656.97,-343.02 2652.34,-340.36 2655.21,-346.1 2650.06,-338.99"/>
+<text xml:space="preserve" text-anchor="middle" x="2766.62" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- IHostCallbacks -->
+<g id="node18" class="node">
+<title>IHostCallbacks</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M3174.26,-588.75C3174.26,-588.75 3072.24,-588.75 3072.24,-588.75 3066.24,-588.75 3060.24,-582.75 3060.24,-576.75 3060.24,-576.75 3060.24,-564.75 3060.24,-564.75 3060.24,-558.75 3066.24,-552.75 3072.24,-552.75 3072.24,-552.75 3174.26,-552.75 3174.26,-552.75 3180.26,-552.75 3186.26,-558.75 3186.26,-564.75 3186.26,-564.75 3186.26,-576.75 3186.26,-576.75 3186.26,-582.75 3180.26,-588.75 3174.26,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="3068.88" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3086.88" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IHostCallbacks</text>
+<text xml:space="preserve" text-anchor="start" x="3165.62" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;IHostCallbacks -->
+<g id="edge18" class="edge">
+<title>App&#45;&gt;IHostCallbacks</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3854.98,-887.38C3703.63,-872.4 3419.25,-844.26 3419.25,-844.26 3419.25,-844.26 3291,-836.26 3291,-836.26 3291,-836.26 3234.25,-673.25 3234.25,-673.25 3234.25,-673.25 3193.25,-665.25 3193.25,-665.25 3193.25,-665.25 3162.71,-624.45 3141.97,-596.76"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3144.45,-595.4 3137.41,-590.67 3139.97,-598.75 3144.45,-595.4"/>
+<text xml:space="preserve" text-anchor="middle" x="3316.12" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">implements</text>
+</g>
+<!-- IWindow -->
+<g id="node29" class="node">
+<title>IWindow</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M3420.39,-433C3420.39,-433 3352.11,-433 3352.11,-433 3346.11,-433 3340.11,-427 3340.11,-421 3340.11,-421 3340.11,-409 3340.11,-409 3340.11,-403 3346.11,-397 3352.11,-397 3352.11,-397 3420.39,-397 3420.39,-397 3426.39,-397 3432.39,-403 3432.39,-409 3432.39,-409 3432.39,-421 3432.39,-421 3432.39,-427 3426.39,-433 3420.39,-433"/>
+<text xml:space="preserve" text-anchor="start" x="3348.75" y="-411.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3366.75" y="-411.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IWindow</text>
+<text xml:space="preserve" text-anchor="start" x="3411.75" y="-411.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;IWindow -->
+<g id="edge24" class="edge">
+<title>App&#45;&gt;IWindow</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3916.89,-878.92C3886.19,-861.14 3843.25,-836.26 3843.25,-836.26 3843.25,-836.26 3791.25,-708.5 3791.25,-708.5 3791.25,-708.5 3558,-684.5 3558,-684.5 3558,-684.5 3487.25,-665.25 3487.25,-665.25 3487.25,-665.25 3445.25,-552.75 3445.25,-552.75 3445.25,-552.75 3414.59,-481.69 3397.47,-442.02"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3394.37,-434.83 3400.85,-440.75 3395.47,-437.25 3397.59,-442.15 3397.54,-442.17 3397.5,-442.19 3395.38,-437.29 3394.24,-443.6 3394.37,-434.83"/>
+<text xml:space="preserve" text-anchor="middle" x="3569.62" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- TextService -->
+<g id="node31" class="node">
+<title>TextService</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1539.52,-433C1539.52,-433 1420.98,-433 1420.98,-433 1414.98,-433 1408.98,-427 1408.98,-421 1408.98,-421 1408.98,-409 1408.98,-409 1408.98,-403 1414.98,-397 1420.98,-397 1420.98,-397 1539.52,-397 1539.52,-397 1545.52,-397 1551.52,-403 1551.52,-409 1551.52,-409 1551.52,-421 1551.52,-421 1551.52,-427 1545.52,-433 1539.52,-433"/>
+<text xml:space="preserve" text-anchor="start" x="1440.88" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1458.88" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">TextService</text>
+<text xml:space="preserve" text-anchor="start" x="1417.62" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;fonts, shaping, atlas &#160;&#160;&#160;</text>
+</g>
+<!-- App&#45;&gt;TextService -->
+<g id="edge26" class="edge">
+<title>App&#45;&gt;TextService</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3854.87,-891.21C3661.59,-880.13 3232.25,-855.51 3232.25,-855.51 3232.25,-855.51 3198.25,-844.26 3198.25,-844.26 3198.25,-844.26 2778.25,-836.26 2778.25,-836.26 2778.25,-836.26 2109.25,-708.5 2109.25,-708.5 2109.25,-708.5 815,-684.5 815,-684.5 815,-684.5 788.25,-665.25 788.25,-665.25 788.25,-665.25 788.25,-552.75 788.25,-552.75 788.25,-552.75 938.25,-517.5 938.25,-517.5 938.25,-517.5 1037.25,-509.5 1037.25,-509.5 1037.25,-509.5 1271.81,-459.99 1399.57,-433.03"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1407.27,-431.4 1400.19,-436.58 1404.68,-432 1399.45,-433.1 1399.44,-433.06 1399.43,-433.01 1404.66,-431.9 1398.7,-429.53 1407.27,-431.4"/>
+<text xml:space="preserve" text-anchor="middle" x="826.62" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- Threading -->
+<g id="node52" class="node">
+<title>Threading</title>
+<path fill="#fff6d6" stroke="#c7981d" stroke-width="1.2" d="M3766.89,-775.02C3766.89,-775.02 3365.61,-775.02 3365.61,-775.02 3359.61,-775.02 3353.61,-769.02 3353.61,-763.02 3353.61,-763.02 3353.61,-720.5 3353.61,-720.5 3353.61,-714.5 3359.61,-708.5 3365.61,-708.5 3365.61,-708.5 3766.89,-708.5 3766.89,-708.5 3772.89,-708.5 3778.89,-714.5 3778.89,-720.5 3778.89,-720.5 3778.89,-763.02 3778.89,-763.02 3778.89,-769.02 3772.89,-775.02 3766.89,-775.02"/>
+<text xml:space="preserve" text-anchor="start" x="3362.25" y="-759.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3374.25" y="-759.81" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">Threading model</text>
+<text xml:space="preserve" text-anchor="start" x="3362.25" y="-748.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;Main thread: App loop, window events, rendering, host pump</text>
+<text xml:space="preserve" text-anchor="start" x="3362.25" y="-737.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;Nvim path: NvimRpc owns a reader thread for msgpack&#45;RPC notifications</text>
+<text xml:space="preserve" text-anchor="start" x="3362.25" y="-726.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;Host wakeups: background I/O requests frame via IHostCallbacks::wake_window()</text>
+<text xml:space="preserve" text-anchor="start" x="3370.5" y="-715.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;Terminal local process I/O is drained/coalesced by host pump before rendering &#160;</text>
+</g>
+<!-- App&#45;&gt;Threading -->
+<g id="edge82" class="edge">
+<title>App&#45;&gt;Threading</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="1,5" d="M3883.63,-879C3843.13,-867.86 3798.25,-855.51 3798.25,-855.51 3798.25,-855.51 3702.16,-808.81 3633.67,-775.52"/>
+</g>
+<!-- SplitTree -->
+<g id="node3" class="node">
+<title>SplitTree</title>
+<path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M4326.52,-433C4326.52,-433 4153.98,-433 4153.98,-433 4147.98,-433 4141.98,-427 4141.98,-421 4141.98,-421 4141.98,-409 4141.98,-409 4141.98,-403 4147.98,-397 4153.98,-397 4153.98,-397 4326.52,-397 4326.52,-397 4332.52,-397 4338.52,-403 4338.52,-409 4338.52,-409 4338.52,-421 4338.52,-421 4338.52,-427 4332.52,-433 4326.52,-433"/>
+<text xml:space="preserve" text-anchor="start" x="4208" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="4226" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">SplitTree</text>
+<text xml:space="preserve" text-anchor="start" x="4150.62" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;pane layout + divider hit&#45;testing &#160;&#160;&#160;</text>
+</g>
+<!-- HostManager&#45;&gt;SplitTree -->
+<g id="edge27" class="edge">
+<title>HostManager&#45;&gt;SplitTree</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M4119.59,-552.41C4143.87,-524.96 4191.24,-471.41 4218.85,-440.19"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4223.87,-434.51 4221.27,-442.89 4222.15,-436.54 4218.61,-440.54 4218.57,-440.51 4218.53,-440.47 4222.07,-436.47 4215.88,-438.12 4223.87,-434.51"/>
+<text xml:space="preserve" text-anchor="middle" x="4159.87" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- HostManager&#45;&gt;IGridRenderer -->
+<g id="edge58" class="edge">
+<title>HostManager&#45;&gt;IGridRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4102.62,-552.42C4098.37,-507.18 4087.25,-389 4087.25,-389 4087.25,-389 3975.25,-361.75 3975.25,-361.75 3975.25,-361.75 3641.25,-293.75 3641.25,-293.75 3641.25,-293.75 2983.71,-246.41 2763.87,-230.58"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2764.2,-227.8 2756.02,-230.02 2763.8,-233.39 2764.2,-227.8"/>
+<text xml:space="preserve" text-anchor="middle" x="4067.46" y="-363.5" font-family="Helvetica,sans-Serif" font-size="10.00">supplies host context</text>
+</g>
+<!-- HostManager&#45;&gt;IHostCallbacks -->
+<g id="edge60" class="edge">
+<title>HostManager&#45;&gt;IHostCallbacks</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4081.61,-589.17C4051.56,-613.61 4002.25,-653.73 4002.25,-653.73 4002.25,-653.73 3205.25,-653.73 3205.25,-653.73 3205.25,-653.73 3172.13,-620.21 3147.98,-595.78"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3150.23,-594.07 3142.62,-590.35 3146.25,-598.01 3150.23,-594.07"/>
+<text xml:space="preserve" text-anchor="middle" x="3387.25" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">passes observer</text>
+</g>
+<!-- IHost -->
+<g id="node19" class="node">
+<title>IHost</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M3173.76,-337.75C3173.76,-337.75 3122.74,-337.75 3122.74,-337.75 3116.74,-337.75 3110.74,-331.75 3110.74,-325.75 3110.74,-325.75 3110.74,-313.75 3110.74,-313.75 3110.74,-307.75 3116.74,-301.75 3122.74,-301.75 3122.74,-301.75 3173.76,-301.75 3173.76,-301.75 3179.76,-301.75 3185.76,-307.75 3185.76,-313.75 3185.76,-313.75 3185.76,-325.75 3185.76,-325.75 3185.76,-331.75 3179.76,-337.75 3173.76,-337.75"/>
+<text xml:space="preserve" text-anchor="start" x="3119.38" y="-316.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3137.38" y="-316.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IHost</text>
+<text xml:space="preserve" text-anchor="start" x="3165.12" y="-316.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- HostManager&#45;&gt;IHost -->
+<g id="edge28" class="edge">
+<title>HostManager&#45;&gt;IHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M4084.22,-552.32C4063.77,-534.53 4035,-509.5 4035,-509.5 4035,-509.5 3908.25,-389 3908.25,-389 3908.25,-389 3751.25,-361.75 3751.25,-361.75 3751.25,-361.75 3336.4,-333.54 3194.89,-323.92"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3187.31,-323.41 3195.53,-320.36 3189.96,-323.54 3195.29,-323.9 3195.29,-323.95 3195.29,-324 3189.96,-323.64 3195.04,-327.54 3187.31,-323.41"/>
+<text xml:space="preserve" text-anchor="middle" x="4060.12" y="-411.12" font-family="Helvetica,sans-Serif" font-size="10.00">owns hosts</text>
+</g>
+<!-- HostManager&#45;&gt;IWindow -->
+<g id="edge57" class="edge">
+<title>HostManager&#45;&gt;IWindow</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4014.44,-552.93C3932.88,-537.66 3825.25,-517.5 3825.25,-517.5 3825.25,-517.5 3768.25,-509.5 3768.25,-509.5 3768.25,-509.5 3548.01,-455.59 3441.99,-429.64"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3442.76,-426.95 3434.33,-427.77 3441.43,-432.39 3442.76,-426.95"/>
+<text xml:space="preserve" text-anchor="middle" x="3925.12" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">supplies host context</text>
+</g>
+<!-- HostManager&#45;&gt;TextService -->
+<g id="edge59" class="edge">
+<title>HostManager&#45;&gt;TextService</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4014.76,-554.83C4007.13,-553.56 4002.25,-552.75 4002.25,-552.75 4002.25,-552.75 3520.25,-528.75 3520.25,-528.75 3520.25,-528.75 3446.25,-517.5 3446.25,-517.5 3446.25,-517.5 2237.25,-509.5 2237.25,-509.5 2237.25,-509.5 1756.39,-450.11 1561.17,-425.99"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1561.74,-423.24 1553.46,-425.04 1561.06,-428.8 1561.74,-423.24"/>
+<text xml:space="preserve" text-anchor="middle" x="3566.75" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">supplies host context</text>
+</g>
+<!-- InputDispatcher&#45;&gt;HostManager -->
+<g id="edge62" class="edge">
+<title>InputDispatcher&#45;&gt;HostManager</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3970.78,-723.27C4011.88,-706.75 4067.25,-684.5 4067.25,-684.5 4067.25,-684.5 4084.82,-630.96 4095.75,-597.67"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4098.28,-598.93 4098.11,-590.46 4092.96,-597.18 4098.28,-598.93"/>
+<text xml:space="preserve" text-anchor="middle" x="4101.54" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">mouse hit&#45;test</text>
+</g>
+<!-- InputDispatcher&#45;&gt;UiPanel -->
+<g id="edge64" class="edge">
+<title>InputDispatcher&#45;&gt;UiPanel</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3912.25,-723.27C3898.08,-706.75 3879,-684.5 3879,-684.5 3879,-684.5 3879,-673.25 3879,-673.25 3879,-673.25 3903.04,-627.42 3918.82,-597.35"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3921.21,-598.83 3922.44,-590.44 3916.25,-596.23 3921.21,-598.83"/>
+<text xml:space="preserve" text-anchor="middle" x="3917.62" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">routes panel input</text>
+</g>
+<!-- InputDispatcher&#45;&gt;IHost -->
+<g id="edge63" class="edge">
+<title>InputDispatcher&#45;&gt;IHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3877.76,-723.21C3856.41,-715.65 3836.25,-708.5 3836.25,-708.5 3836.25,-708.5 3717.25,-684.5 3717.25,-684.5 3717.25,-684.5 3638.25,-552.75 3638.25,-552.75 3638.25,-552.75 3615.25,-517.5 3615.25,-517.5 3615.25,-517.5 3446.25,-389 3446.25,-389 3446.25,-389 3279.72,-350.86 3195.63,-331.6"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3196.34,-328.89 3187.92,-329.83 3195.09,-334.35 3196.34,-328.89"/>
+<text xml:space="preserve" text-anchor="middle" x="3653.34" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">forwards input</text>
+</g>
+<!-- InputDispatcher&#45;&gt;IWindow -->
+<g id="edge61" class="edge">
+<title>InputDispatcher&#45;&gt;IWindow</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3877.76,-723.21C3856.41,-715.65 3836.25,-708.5 3836.25,-708.5 3836.25,-708.5 3636.25,-684.5 3636.25,-684.5 3636.25,-684.5 3552.25,-665.25 3552.25,-665.25 3552.25,-665.25 3489.25,-552.75 3489.25,-552.75 3489.25,-552.75 3434.82,-480.49 3405.1,-441.02"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3407.56,-439.63 3400.51,-434.93 3403.08,-443 3407.56,-439.63"/>
+<text xml:space="preserve" text-anchor="middle" x="3594.25" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">connects callbacks</text>
+</g>
+<!-- GuiActionHandler&#45;&gt;HostManager -->
+<g id="edge68" class="edge">
+<title>GuiActionHandler&#45;&gt;HostManager</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4113.77,-723.27C4133.15,-706.75 4159.25,-684.5 4159.25,-684.5 4159.25,-684.5 4159.25,-673.25 4159.25,-673.25 4159.25,-673.25 4134.42,-627.42 4118.12,-597.35"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4120.65,-596.13 4114.37,-590.43 4115.72,-598.8 4120.65,-596.13"/>
+<text xml:space="preserve" text-anchor="middle" x="4182.88" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">split panes</text>
+</g>
+<!-- GuiActionHandler&#45;&gt;UiPanel -->
+<g id="edge66" class="edge">
+<title>GuiActionHandler&#45;&gt;UiPanel</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4060.06,-723.27C4028.72,-706.75 3986.5,-684.5 3986.5,-684.5 3986.5,-684.5 3960.52,-630.5 3944.51,-597.24"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3947.2,-596.37 3941.21,-590.37 3942.16,-598.8 3947.2,-596.37"/>
+<text xml:space="preserve" text-anchor="middle" x="4025.88" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">toggle diagnostics</text>
+</g>
+<!-- IImGuiHost -->
+<g id="node11" class="node">
+<title>IImGuiHost</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2595.14,-242.5C2595.14,-242.5 2513.36,-242.5 2513.36,-242.5 2507.36,-242.5 2501.36,-236.5 2501.36,-230.5 2501.36,-230.5 2501.36,-218.5 2501.36,-218.5 2501.36,-212.5 2507.36,-206.5 2513.36,-206.5 2513.36,-206.5 2595.14,-206.5 2595.14,-206.5 2601.14,-206.5 2607.14,-212.5 2607.14,-218.5 2607.14,-218.5 2607.14,-230.5 2607.14,-230.5 2607.14,-236.5 2601.14,-242.5 2595.14,-242.5"/>
+<text xml:space="preserve" text-anchor="start" x="2510" y="-221.05" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2528" y="-221.05" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IImGuiHost</text>
+<text xml:space="preserve" text-anchor="start" x="2586.5" y="-221.05" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- GuiActionHandler&#45;&gt;IImGuiHost -->
+<g id="edge69" class="edge">
+<title>GuiActionHandler&#45;&gt;IImGuiHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4048.89,-723.31C4029.57,-715.71 4011.25,-708.5 4011.25,-708.5 4011.25,-708.5 3873.25,-684.5 3873.25,-684.5 3873.25,-684.5 3862.25,-665.25 3862.25,-665.25 3862.25,-665.25 3787.25,-517.5 3787.25,-517.5 3787.25,-517.5 3631.25,-389 3631.25,-389 3631.25,-389 3200.25,-293.75 3200.25,-293.75 3200.25,-293.75 2620.25,-242.5 2620.25,-242.5 2620.25,-242.5 2618.94,-242.16 2616.7,-241.59"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2617.58,-238.92 2609.14,-239.64 2616.19,-244.34 2617.58,-238.92"/>
+<text xml:space="preserve" text-anchor="middle" x="3828.79" y="-411.12" font-family="Helvetica,sans-Serif" font-size="10.00">font texture rebuild path</text>
+</g>
+<!-- GuiActionHandler&#45;&gt;IHost -->
+<g id="edge67" class="edge">
+<title>GuiActionHandler&#45;&gt;IHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4048.89,-723.31C4029.57,-715.71 4011.25,-708.5 4011.25,-708.5 4011.25,-708.5 3818.25,-684.5 3818.25,-684.5 3818.25,-684.5 3690.25,-517.5 3690.25,-517.5 3690.25,-517.5 3544.25,-389 3544.25,-389 3544.25,-389 3300.77,-347.04 3195.65,-328.92"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3196.22,-326.18 3187.86,-327.58 3195.27,-331.7 3196.22,-326.18"/>
+<text xml:space="preserve" text-anchor="middle" x="3739.66" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">copy/paste/actions</text>
+</g>
+<!-- GuiActionHandler&#45;&gt;TextService -->
+<g id="edge65" class="edge">
+<title>GuiActionHandler&#45;&gt;TextService</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M4048.89,-723.31C4029.57,-715.71 4011.25,-708.5 4011.25,-708.5 4011.25,-708.5 3345.25,-684.5 3345.25,-684.5 3345.25,-684.5 3200.25,-673.25 3200.25,-673.25 3200.25,-673.25 2661.25,-665.25 2661.25,-665.25 2661.25,-665.25 2566.25,-552.75 2566.25,-552.75 2566.25,-552.75 2216.25,-528.75 2216.25,-528.75 2216.25,-528.75 1752.57,-457.72 1561.28,-428.41"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1561.8,-425.66 1553.47,-427.22 1560.95,-431.2 1561.8,-425.66"/>
+<text xml:space="preserve" text-anchor="middle" x="2686.75" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">font actions</text>
+</g>
+<!-- UiPanel&#45;&gt;IImGuiHost -->
+<g id="edge70" class="edge">
+<title>UiPanel&#45;&gt;IImGuiHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3929.95,-552.42C3923.94,-507.18 3908.25,-389 3908.25,-389 3908.25,-389 3818.25,-361.75 3818.25,-361.75 3818.25,-361.75 3531.25,-293.75 3531.25,-293.75 3531.25,-293.75 2620.25,-242.5 2620.25,-242.5 2620.25,-242.5 2618.94,-242.16 2616.7,-241.59"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2617.58,-238.92 2609.14,-239.64 2616.19,-244.34 2617.58,-238.92"/>
+<text xml:space="preserve" text-anchor="middle" x="3912.36" y="-363.5" font-family="Helvetica,sans-Serif" font-size="10.00">produces ImGui draw data</text>
+</g>
+<!-- IBaseRenderer -->
+<g id="node8" class="node">
+<title>IBaseRenderer</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2493.89,-52C2493.89,-52 2392.61,-52 2392.61,-52 2386.61,-52 2380.61,-46 2380.61,-40 2380.61,-40 2380.61,-28 2380.61,-28 2380.61,-22 2386.61,-16 2392.61,-16 2392.61,-16 2493.89,-16 2493.89,-16 2499.89,-16 2505.89,-22 2505.89,-28 2505.89,-28 2505.89,-40 2505.89,-40 2505.89,-46 2499.89,-52 2493.89,-52"/>
+<text xml:space="preserve" text-anchor="start" x="2389.25" y="-30.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2407.25" y="-30.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IBaseRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2485.25" y="-30.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- I3DRenderer -->
+<g id="node9" class="node">
+<title>I3DRenderer</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2487.89,-147.25C2487.89,-147.25 2398.61,-147.25 2398.61,-147.25 2392.61,-147.25 2386.61,-141.25 2386.61,-135.25 2386.61,-135.25 2386.61,-123.25 2386.61,-123.25 2386.61,-117.25 2392.61,-111.25 2398.61,-111.25 2398.61,-111.25 2487.89,-111.25 2487.89,-111.25 2493.89,-111.25 2499.89,-117.25 2499.89,-123.25 2499.89,-123.25 2499.89,-135.25 2499.89,-135.25 2499.89,-141.25 2493.89,-147.25 2487.89,-147.25"/>
+<text xml:space="preserve" text-anchor="start" x="2395.25" y="-125.8" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2413.25" y="-125.8" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">I3DRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2479.25" y="-125.8" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- I3DRenderer&#45;&gt;IBaseRenderer -->
+<g id="edge2" class="edge">
+<title>I3DRenderer&#45;&gt;IBaseRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2443.25,-110.71C2443.25,-96.9 2443.25,-77.43 2443.25,-61.69"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2446.05,-62.13 2443.25,-54.13 2440.45,-62.13 2446.05,-62.13"/>
+<text xml:space="preserve" text-anchor="middle" x="2460.5" y="-77.75" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- IGridRenderer&#45;&gt;I3DRenderer -->
+<g id="edge3" class="edge">
+<title>IGridRenderer&#45;&gt;I3DRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2646.23,-205.96C2604.41,-190.36 2543.21,-167.54 2498.96,-151.03"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2500.1,-148.47 2491.62,-148.29 2498.14,-153.71 2500.1,-148.47"/>
+<text xml:space="preserve" text-anchor="middle" x="2600.47" y="-173" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- ICaptureRenderer -->
+<g id="node12" class="node">
+<title>ICaptureRenderer</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2380.76,-242.5C2380.76,-242.5 2263.74,-242.5 2263.74,-242.5 2257.74,-242.5 2251.74,-236.5 2251.74,-230.5 2251.74,-230.5 2251.74,-218.5 2251.74,-218.5 2251.74,-212.5 2257.74,-206.5 2263.74,-206.5 2263.74,-206.5 2380.76,-206.5 2380.76,-206.5 2386.76,-206.5 2392.76,-212.5 2392.76,-218.5 2392.76,-218.5 2392.76,-230.5 2392.76,-230.5 2392.76,-236.5 2386.76,-242.5 2380.76,-242.5"/>
+<text xml:space="preserve" text-anchor="start" x="2260.38" y="-221.05" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2278.38" y="-221.05" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">ICaptureRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2372.12" y="-221.05" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- IRenderer -->
+<g id="node13" class="node">
+<title>IRenderer</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2471.01,-337.75C2471.01,-337.75 2337.49,-337.75 2337.49,-337.75 2331.49,-337.75 2325.49,-331.75 2325.49,-325.75 2325.49,-325.75 2325.49,-313.75 2325.49,-313.75 2325.49,-307.75 2331.49,-301.75 2337.49,-301.75 2337.49,-301.75 2471.01,-301.75 2471.01,-301.75 2477.01,-301.75 2483.01,-307.75 2483.01,-313.75 2483.01,-313.75 2483.01,-325.75 2483.01,-325.75 2483.01,-331.75 2477.01,-337.75 2471.01,-337.75"/>
+<text xml:space="preserve" text-anchor="start" x="2369.38" y="-321.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2387.38" y="-321.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2334.12" y="-310.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;compatibility aggregate &#160;&#160;&#160;</text>
+</g>
+<!-- IRenderer&#45;&gt;IGridRenderer -->
+<g id="edge4" class="edge">
+<title>IRenderer&#45;&gt;IGridRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2450.42,-301.21C2490.36,-286.03 2541.75,-266.5 2541.75,-266.5 2541.75,-266.5 2583.47,-255.21 2623.12,-244.48"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2623.47,-247.29 2630.46,-242.49 2622.01,-241.88 2623.47,-247.29"/>
+<text xml:space="preserve" text-anchor="middle" x="2559" y="-268.25" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- IRenderer&#45;&gt;IImGuiHost -->
+<g id="edge5" class="edge">
+<title>IRenderer&#45;&gt;IImGuiHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2396.93,-301.6C2392.13,-290.36 2386.75,-277.75 2386.75,-277.75 2386.75,-277.75 2386.75,-266.5 2386.75,-266.5 2386.75,-266.5 2443.9,-252.51 2491.43,-240.88"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2492.07,-243.6 2499.17,-238.98 2490.74,-238.16 2492.07,-243.6"/>
+<text xml:space="preserve" text-anchor="middle" x="2404" y="-268.25" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- IRenderer&#45;&gt;ICaptureRenderer -->
+<g id="edge6" class="edge">
+<title>IRenderer&#45;&gt;ICaptureRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2369.26,-301.36C2346.78,-290.19 2321.75,-277.75 2321.75,-277.75 2321.75,-277.75 2321.75,-266.5 2321.75,-266.5 2321.75,-266.5 2321.83,-259.98 2321.93,-252.15"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2324.72,-252.35 2322.02,-244.31 2319.12,-252.28 2324.72,-252.35"/>
+<text xml:space="preserve" text-anchor="middle" x="2339" y="-268.25" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- RendererBundle&#45;&gt;I3DRenderer -->
+<g id="edge49" class="edge">
+<title>RendererBundle&#45;&gt;I3DRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2597.6,-301.35C2579.57,-286.15 2556.25,-266.5 2556.25,-266.5 2556.25,-266.5 2456.25,-242.5 2456.25,-242.5 2456.25,-242.5 2450.19,-190.2 2446.35,-156.99"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2449.17,-157.07 2445.47,-149.44 2443.61,-157.71 2449.17,-157.07"/>
+<text xml:space="preserve" text-anchor="middle" x="2472.75" y="-220.62" font-family="Helvetica,sans-Serif" font-size="10.00">threed()</text>
+</g>
+<!-- RendererBundle&#45;&gt;IGridRenderer -->
+<g id="edge46" class="edge">
+<title>RendererBundle&#45;&gt;IGridRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2632.36,-301.21C2643.88,-286.88 2660.31,-266.46 2673.2,-250.43"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2675.33,-252.25 2678.16,-244.26 2670.97,-248.74 2675.33,-252.25"/>
+<text xml:space="preserve" text-anchor="middle" x="2671.12" y="-268.25" font-family="Helvetica,sans-Serif" font-size="10.00">grid()</text>
+</g>
+<!-- RendererBundle&#45;&gt;IImGuiHost -->
+<g id="edge47" class="edge">
+<title>RendererBundle&#45;&gt;IImGuiHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2606.21,-301.21C2596.47,-287.01 2582.61,-266.83 2571.66,-250.87"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2574.01,-249.35 2567.18,-244.33 2569.39,-252.51 2574.01,-249.35"/>
+<text xml:space="preserve" text-anchor="middle" x="2604.71" y="-268.25" font-family="Helvetica,sans-Serif" font-size="10.00">imgui()</text>
+</g>
+<!-- RendererBundle&#45;&gt;ICaptureRenderer -->
+<g id="edge48" class="edge">
+<title>RendererBundle&#45;&gt;ICaptureRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2555.38,-301.24C2515.35,-290.1 2471,-277.75 2471,-277.75 2471,-277.75 2422.75,-260.8 2381.21,-246.21"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2382.24,-243.61 2373.77,-243.6 2380.39,-248.89 2382.24,-243.61"/>
+<text xml:space="preserve" text-anchor="middle" x="2490.12" y="-268.25" font-family="Helvetica,sans-Serif" font-size="10.00">capture()</text>
+</g>
+<!-- IGridHandle -->
+<g id="node15" class="node">
+<title>IGridHandle</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M2400.89,-433C2400.89,-433 2263.61,-433 2263.61,-433 2257.61,-433 2251.61,-427 2251.61,-421 2251.61,-421 2251.61,-409 2251.61,-409 2251.61,-403 2257.61,-397 2263.61,-397 2263.61,-397 2400.89,-397 2400.89,-397 2406.89,-397 2412.89,-403 2412.89,-409 2412.89,-409 2412.89,-421 2412.89,-421 2412.89,-427 2406.89,-433 2400.89,-433"/>
+<text xml:space="preserve" text-anchor="start" x="2292.12" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2310.12" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IGridHandle</text>
+<text xml:space="preserve" text-anchor="start" x="2260.25" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;per&#45;host GPU grid state &#160;&#160;&#160;</text>
+</g>
+<!-- MetalRenderer -->
+<g id="node16" class="node">
+<title>MetalRenderer</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M2552.64,-433C2552.64,-433 2449.86,-433 2449.86,-433 2443.86,-433 2437.86,-427 2437.86,-421 2437.86,-421 2437.86,-409 2437.86,-409 2437.86,-403 2443.86,-397 2449.86,-397 2449.86,-397 2552.64,-397 2552.64,-397 2558.64,-397 2564.64,-403 2564.64,-409 2564.64,-409 2564.64,-421 2564.64,-421 2564.64,-427 2558.64,-433 2552.64,-433"/>
+<text xml:space="preserve" text-anchor="start" x="2454" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2472" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">MetalRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2446.5" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;macOS backend &#160;&#160;&#160;</text>
+</g>
+<!-- MetalRenderer&#45;&gt;IRenderer -->
+<g id="edge7" class="edge">
+<title>MetalRenderer&#45;&gt;IRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2483.01,-396.46C2467.83,-381.87 2446.08,-360.96 2429.28,-344.81"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2431.32,-342.89 2423.61,-339.36 2427.44,-346.93 2431.32,-342.89"/>
+<text xml:space="preserve" text-anchor="middle" x="2483.68" y="-363.5" font-family="Helvetica,sans-Serif" font-size="10.00">implements</text>
+</g>
+<!-- VkRenderer -->
+<g id="node17" class="node">
+<title>VkRenderer</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M2712.76,-433C2712.76,-433 2601.74,-433 2601.74,-433 2595.74,-433 2589.74,-427 2589.74,-421 2589.74,-421 2589.74,-409 2589.74,-409 2589.74,-403 2595.74,-397 2601.74,-397 2601.74,-397 2712.76,-397 2712.76,-397 2718.76,-397 2724.76,-403 2724.76,-409 2724.76,-409 2724.76,-421 2724.76,-421 2724.76,-427 2718.76,-433 2712.76,-433"/>
+<text xml:space="preserve" text-anchor="start" x="2617.12" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2635.12" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">VkRenderer</text>
+<text xml:space="preserve" text-anchor="start" x="2598.38" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;Windows backend &#160;&#160;&#160;</text>
+</g>
+<!-- VkRenderer&#45;&gt;IRenderer -->
+<g id="edge8" class="edge">
+<title>VkRenderer&#45;&gt;IRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2609.66,-396.46C2567.35,-380.86 2505.41,-358.04 2460.62,-341.53"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2461.66,-338.93 2453.19,-338.79 2459.72,-344.18 2461.66,-338.93"/>
+<text xml:space="preserve" text-anchor="middle" x="2571.02" y="-363.5" font-family="Helvetica,sans-Serif" font-size="10.00">implements</text>
+</g>
+<!-- I3DHost -->
+<g id="node20" class="node">
+<title>I3DHost</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M3040.89,-433C3040.89,-433 2975.61,-433 2975.61,-433 2969.61,-433 2963.61,-427 2963.61,-421 2963.61,-421 2963.61,-409 2963.61,-409 2963.61,-403 2969.61,-397 2975.61,-397 2975.61,-397 3040.89,-397 3040.89,-397 3046.89,-397 3052.89,-403 3052.89,-409 3052.89,-409 3052.89,-421 3052.89,-421 3052.89,-427 3046.89,-433 3040.89,-433"/>
+<text xml:space="preserve" text-anchor="start" x="2972.25" y="-411.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2990.25" y="-411.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">I3DHost</text>
+<text xml:space="preserve" text-anchor="start" x="3032.25" y="-411.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- I3DHost&#45;&gt;IHost -->
+<g id="edge9" class="edge">
+<title>I3DHost&#45;&gt;IHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3034.58,-396.46C3057.07,-381.48 3089.57,-359.84 3114.06,-343.52"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3115.54,-345.9 3120.65,-339.13 3112.44,-341.24 3115.54,-345.9"/>
+<text xml:space="preserve" text-anchor="middle" x="3103.88" y="-363.5" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- IGridHost -->
+<g id="node21" class="node">
+<title>IGridHost</title>
+<path fill="#dcecff" stroke="#4f83cc" stroke-width="1.2" d="M3023.01,-588.75C3023.01,-588.75 2949.49,-588.75 2949.49,-588.75 2943.49,-588.75 2937.49,-582.75 2937.49,-576.75 2937.49,-576.75 2937.49,-564.75 2937.49,-564.75 2937.49,-558.75 2943.49,-552.75 2949.49,-552.75 2949.49,-552.75 3023.01,-552.75 3023.01,-552.75 3029.01,-552.75 3035.01,-558.75 3035.01,-564.75 3035.01,-564.75 3035.01,-576.75 3035.01,-576.75 3035.01,-582.75 3029.01,-588.75 3023.01,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="2946.12" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2964.12" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IGridHost</text>
+<text xml:space="preserve" text-anchor="start" x="3014.38" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- IGridHost&#45;&gt;I3DHost -->
+<g id="edge10" class="edge">
+<title>IGridHost&#45;&gt;I3DHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2988.73,-552.41C2992.54,-525.77 2999.87,-474.53 3004.39,-443"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3007.15,-443.47 3005.51,-435.16 3001.6,-442.68 3007.15,-443.47"/>
+<text xml:space="preserve" text-anchor="middle" x="3010.62" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- GridHostBase -->
+<g id="node22" class="node">
+<title>GridHostBase</title>
+<path fill="#ffe9a8" stroke="#c7981d" stroke-width="1.2" d="M2952.51,-759.76C2952.51,-759.76 2803.99,-759.76 2803.99,-759.76 2797.99,-759.76 2791.99,-753.76 2791.99,-747.76 2791.99,-747.76 2791.99,-735.76 2791.99,-735.76 2791.99,-729.76 2797.99,-723.76 2803.99,-723.76 2803.99,-723.76 2952.51,-723.76 2952.51,-723.76 2958.51,-723.76 2964.51,-729.76 2964.51,-735.76 2964.51,-735.76 2964.51,-747.76 2964.51,-747.76 2964.51,-753.76 2958.51,-759.76 2952.51,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="2832.5" y="-743.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2850.5" y="-743.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">GridHostBase</text>
+<text xml:space="preserve" text-anchor="start" x="2800.62" y="-732.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;common grid&#45;host runtime &#160;&#160;&#160;</text>
+</g>
+<!-- GridHostBase&#45;&gt;IGridRenderer -->
+<g id="edge54" class="edge">
+<title>GridHostBase&#45;&gt;IGridRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2812.84,-723.25C2729.54,-700.94 2596.25,-665.25 2596.25,-665.25 2596.25,-665.25 2596.25,-552.75 2596.25,-552.75 2596.25,-552.75 2737.25,-509.5 2737.25,-509.5 2737.25,-509.5 2741.25,-337.75 2741.25,-337.75 2741.25,-337.75 2741.25,-293.75 2741.25,-293.75 2741.25,-293.75 2724.71,-270.23 2711.04,-250.8"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2713.46,-249.37 2706.57,-244.44 2708.88,-252.59 2713.46,-249.37"/>
+<text xml:space="preserve" text-anchor="middle" x="2750.54" y="-411.12" font-family="Helvetica,sans-Serif" font-size="10.00">uses</text>
+</g>
+<!-- GridHostBase&#45;&gt;IGridHandle -->
+<g id="edge33" class="edge">
+<title>GridHostBase&#45;&gt;IGridHandle</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2799.1,-723.25C2698.29,-700.94 2537,-665.25 2537,-665.25 2537,-665.25 2404.26,-503.67 2352.54,-440.7"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2347.5,-434.56 2355.36,-438.46 2349.23,-436.59 2352.62,-440.71 2352.58,-440.74 2352.54,-440.78 2349.15,-436.65 2349.79,-443.03 2347.5,-434.56"/>
+<text xml:space="preserve" text-anchor="middle" x="2548.62" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- GridHostBase&#45;&gt;IHostCallbacks -->
+<g id="edge56" class="edge">
+<title>GridHostBase&#45;&gt;IHostCallbacks</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2917.45,-723.25C2967.37,-700.94 3047.25,-665.25 3047.25,-665.25 3047.25,-665.25 3080.41,-624.45 3102.92,-596.76"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3105.03,-598.6 3107.9,-590.63 3100.69,-595.07 3105.03,-598.6"/>
+<text xml:space="preserve" text-anchor="middle" x="3042.06" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">notifies</text>
+</g>
+<!-- GridHostBase&#45;&gt;IGridHost -->
+<g id="edge11" class="edge">
+<title>GridHostBase&#45;&gt;IGridHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2889.4,-723.31C2908.66,-693.17 2948.21,-631.27 2970.35,-596.63"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2972.48,-598.51 2974.42,-590.26 2967.76,-595.49 2972.48,-598.51"/>
+<text xml:space="preserve" text-anchor="middle" x="2936.65" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- GridHostBase&#45;&gt;IWindow -->
+<g id="edge53" class="edge">
+<title>GridHostBase&#45;&gt;IWindow</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2952.7,-723.25C3047.53,-700.94 3199.25,-665.25 3199.25,-665.25 3199.25,-665.25 3248.25,-552.75 3248.25,-552.75 3248.25,-552.75 3322.39,-479.28 3361.99,-440.04"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3363.6,-442.39 3367.31,-434.77 3359.66,-438.41 3363.6,-442.39"/>
+<text xml:space="preserve" text-anchor="middle" x="3258.75" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">uses</text>
+</g>
+<!-- GridHostBase&#45;&gt;TextService -->
+<g id="edge55" class="edge">
+<title>GridHostBase&#45;&gt;TextService</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2791.65,-736.95C2597.68,-728.41 2145.25,-708.5 2145.25,-708.5 2145.25,-708.5 1296.25,-684.5 1296.25,-684.5 1296.25,-684.5 823.25,-665.25 823.25,-665.25 823.25,-665.25 823.25,-552.75 823.25,-552.75 823.25,-552.75 1037.25,-509.5 1037.25,-509.5 1037.25,-509.5 1271.34,-460.09 1399.19,-433.11"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1399.7,-435.86 1406.95,-431.47 1398.55,-430.38 1399.7,-435.86"/>
+<text xml:space="preserve" text-anchor="middle" x="833.75" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">uses</text>
+</g>
+<!-- Grid -->
+<g id="node32" class="node">
+<title>Grid</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1012.64,-433C1012.64,-433 867.86,-433 867.86,-433 861.86,-433 855.86,-427 855.86,-421 855.86,-421 855.86,-409 855.86,-409 855.86,-403 861.86,-397 867.86,-397 867.86,-397 1012.64,-397 1012.64,-397 1018.64,-397 1024.64,-403 1024.64,-409 1024.64,-409 1024.64,-421 1024.64,-421 1024.64,-427 1018.64,-433 1012.64,-433"/>
+<text xml:space="preserve" text-anchor="start" x="920" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="938" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">Grid</text>
+<text xml:space="preserve" text-anchor="start" x="864.5" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;cell model + dirty tracking &#160;&#160;&#160;</text>
+</g>
+<!-- GridHostBase&#45;&gt;Grid -->
+<g id="edge29" class="edge">
+<title>GridHostBase&#45;&gt;Grid</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2791.65,-736.95C2597.68,-728.41 2145.25,-708.5 2145.25,-708.5 2145.25,-708.5 1014.25,-684.5 1014.25,-684.5 1014.25,-684.5 794,-665.25 794,-665.25 794,-665.25 794,-552.75 794,-552.75 794,-552.75 872.9,-478.97 914.8,-439.8"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="920.45,-434.51 917.07,-442.61 918.54,-436.37 914.64,-440.01 914.61,-439.98 914.57,-439.94 918.47,-436.29 912.15,-437.35 920.45,-434.51"/>
+<text xml:space="preserve" text-anchor="middle" x="805.62" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- HighlightTable -->
+<g id="node33" class="node">
+<title>HighlightTable</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1077.77,-588.75C1077.77,-588.75 978.74,-588.75 978.74,-588.75 972.74,-588.75 966.74,-582.75 966.74,-576.75 966.74,-576.75 966.74,-564.75 966.74,-564.75 966.74,-558.75 972.74,-552.75 978.74,-552.75 978.74,-552.75 1077.77,-552.75 1077.77,-552.75 1083.77,-552.75 1089.77,-558.75 1089.77,-564.75 1089.77,-564.75 1089.77,-576.75 1089.77,-576.75 1089.77,-582.75 1083.77,-588.75 1077.77,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="975.38" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="993.38" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">HighlightTable</text>
+<text xml:space="preserve" text-anchor="start" x="1069.12" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- GridHostBase&#45;&gt;HighlightTable -->
+<g id="edge30" class="edge">
+<title>GridHostBase&#45;&gt;HighlightTable</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2791.65,-736.95C2597.68,-728.41 2145.25,-708.5 2145.25,-708.5 2145.25,-708.5 1102.25,-665.25 1102.25,-665.25 1102.25,-665.25 1069.69,-624.1 1047.76,-596.4"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1043,-590.39 1050.79,-594.43 1044.69,-592.44 1048,-596.63 1047.97,-596.66 1047.93,-596.69 1044.61,-592.5 1045.14,-598.89 1043,-590.39"/>
+<text xml:space="preserve" text-anchor="middle" x="1572.93" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- GridRenderingPipeline -->
+<g id="node34" class="node">
+<title>GridRenderingPipeline</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1545.52,-588.75C1545.52,-588.75 1414.98,-588.75 1414.98,-588.75 1408.98,-588.75 1402.98,-582.75 1402.98,-576.75 1402.98,-576.75 1402.98,-564.75 1402.98,-564.75 1402.98,-558.75 1408.98,-552.75 1414.98,-552.75 1414.98,-552.75 1545.52,-552.75 1545.52,-552.75 1551.52,-552.75 1557.52,-558.75 1557.52,-564.75 1557.52,-564.75 1557.52,-576.75 1557.52,-576.75 1557.52,-582.75 1551.52,-588.75 1545.52,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="1411.62" y="-572.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1429.62" y="-572.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">GridRenderingPipeline</text>
+<text xml:space="preserve" text-anchor="start" x="1416.12" y="-561.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;grid to draw updates &#160;&#160;&#160;</text>
+</g>
+<!-- GridHostBase&#45;&gt;GridRenderingPipeline -->
+<g id="edge31" class="edge">
+<title>GridHostBase&#45;&gt;GridRenderingPipeline</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2791.66,-736.11C2540.75,-722.63 1831,-684.5 1831,-684.5 1831,-684.5 1570.25,-665.25 1570.25,-665.25 1570.25,-665.25 1530.31,-623.75 1503.64,-596.05"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1498.11,-590.3 1506.25,-593.57 1499.99,-592.18 1503.69,-596.03 1503.66,-596.07 1503.62,-596.1 1499.92,-592.25 1501.06,-598.56 1498.11,-590.3"/>
+<text xml:space="preserve" text-anchor="middle" x="1842.62" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- CursorBlinker -->
+<g id="node35" class="node">
+<title>CursorBlinker</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1692.02,-588.75C1692.02,-588.75 1594.48,-588.75 1594.48,-588.75 1588.48,-588.75 1582.48,-582.75 1582.48,-576.75 1582.48,-576.75 1582.48,-564.75 1582.48,-564.75 1582.48,-558.75 1588.48,-552.75 1594.48,-552.75 1594.48,-552.75 1692.02,-552.75 1692.02,-552.75 1698.02,-552.75 1704.02,-558.75 1704.02,-564.75 1704.02,-564.75 1704.02,-576.75 1704.02,-576.75 1704.02,-582.75 1698.02,-588.75 1692.02,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="1591.12" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1609.12" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">CursorBlinker</text>
+<text xml:space="preserve" text-anchor="start" x="1683.38" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- GridHostBase&#45;&gt;CursorBlinker -->
+<g id="edge32" class="edge">
+<title>GridHostBase&#45;&gt;CursorBlinker</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2791.39,-735.12C2521.62,-717.59 1716.25,-665.25 1716.25,-665.25 1716.25,-665.25 1684.13,-624.1 1662.5,-596.4"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1657.81,-590.39 1665.57,-594.48 1659.48,-592.46 1662.77,-596.67 1662.73,-596.7 1662.69,-596.73 1659.4,-592.52 1659.89,-598.91 1657.81,-590.39"/>
+<text xml:space="preserve" text-anchor="middle" x="2008.69" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- TerminalHostBase -->
+<g id="node23" class="node">
+<title>TerminalHostBase</title>
+<path fill="#ffe9a8" stroke="#c7981d" stroke-width="1.2" d="M3035.89,-915.51C3035.89,-915.51 2928.61,-915.51 2928.61,-915.51 2922.61,-915.51 2916.61,-909.51 2916.61,-903.51 2916.61,-903.51 2916.61,-891.51 2916.61,-891.51 2916.61,-885.51 2922.61,-879.51 2928.61,-879.51 2928.61,-879.51 3035.89,-879.51 3035.89,-879.51 3041.89,-879.51 3047.89,-885.51 3047.89,-891.51 3047.89,-891.51 3047.89,-903.51 3047.89,-903.51 3047.89,-909.51 3041.89,-915.51 3035.89,-915.51"/>
+<text xml:space="preserve" text-anchor="start" x="2925.25" y="-899.06" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2943.25" y="-899.06" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">TerminalHostBase</text>
+<text xml:space="preserve" text-anchor="start" x="2927.5" y="-888.06" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;VT terminal core &#160;&#160;&#160;</text>
+</g>
+<!-- TerminalHostBase&#45;&gt;GridHostBase -->
+<g id="edge12" class="edge">
+<title>TerminalHostBase&#45;&gt;GridHostBase</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2970.52,-879.17C2952.19,-852.07 2916.64,-799.51 2895.42,-768.14"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2897.83,-766.71 2891.03,-761.65 2893.19,-769.85 2897.83,-766.71"/>
+<text xml:space="preserve" text-anchor="middle" x="2971.61" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- VtParser -->
+<g id="node36" class="node">
+<title>VtParser</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1365.77,-588.75C1365.77,-588.75 1296.73,-588.75 1296.73,-588.75 1290.73,-588.75 1284.73,-582.75 1284.73,-576.75 1284.73,-576.75 1284.73,-564.75 1284.73,-564.75 1284.73,-558.75 1290.73,-552.75 1296.73,-552.75 1296.73,-552.75 1365.77,-552.75 1365.77,-552.75 1371.77,-552.75 1377.77,-558.75 1377.77,-564.75 1377.77,-564.75 1377.77,-576.75 1377.77,-576.75 1377.77,-582.75 1371.77,-588.75 1365.77,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="1293.38" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1311.38" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">VtParser</text>
+<text xml:space="preserve" text-anchor="start" x="1357.12" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- TerminalHostBase&#45;&gt;VtParser -->
+<g id="edge34" class="edge">
+<title>TerminalHostBase&#45;&gt;VtParser</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2916.1,-882.09C2908.97,-880.54 2904.25,-879.51 2904.25,-879.51 2904.25,-879.51 1390.25,-665.25 1390.25,-665.25 1390.25,-665.25 1364.73,-624.8 1347.25,-597.11"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1343.06,-590.47 1350.38,-595.31 1344.52,-592.69 1347.37,-597.21 1347.33,-597.24 1347.29,-597.26 1344.44,-592.75 1344.29,-599.16 1343.06,-590.47"/>
+<text xml:space="preserve" text-anchor="middle" x="2609.82" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- VtState -->
+<g id="node37" class="node">
+<title>VtState</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M930.01,-588.75C930.01,-588.75 868.49,-588.75 868.49,-588.75 862.49,-588.75 856.49,-582.75 856.49,-576.75 856.49,-576.75 856.49,-564.75 856.49,-564.75 856.49,-558.75 862.49,-552.75 868.49,-552.75 868.49,-552.75 930.01,-552.75 930.01,-552.75 936.01,-552.75 942.01,-558.75 942.01,-564.75 942.01,-564.75 942.01,-576.75 942.01,-576.75 942.01,-582.75 936.01,-588.75 930.01,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="865.12" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="883.12" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">VtState</text>
+<text xml:space="preserve" text-anchor="start" x="921.38" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- TerminalHostBase&#45;&gt;VtState -->
+<g id="edge35" class="edge">
+<title>TerminalHostBase&#45;&gt;VtState</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2916.1,-882.09C2908.97,-880.54 2904.25,-879.51 2904.25,-879.51 2904.25,-879.51 1894.25,-855.51 1894.25,-855.51 1894.25,-855.51 1327,-836.26 1327,-836.26 1327,-836.26 838.25,-684.5 838.25,-684.5 838.25,-684.5 838.25,-673.25 838.25,-673.25 838.25,-673.25 850.25,-665.25 850.25,-665.25 850.25,-665.25 871.27,-625.15 885.77,-597.47"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="889.41,-590.52 888.89,-599.28 888.22,-592.9 885.74,-597.63 885.7,-597.61 885.65,-597.59 888.13,-592.86 882.51,-595.94 889.41,-590.52"/>
+<text xml:space="preserve" text-anchor="middle" x="1338.62" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- AltScreenManager -->
+<g id="node38" class="node">
+<title>AltScreenManager</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1247.27,-588.75C1247.27,-588.75 1127.23,-588.75 1127.23,-588.75 1121.23,-588.75 1115.23,-582.75 1115.23,-576.75 1115.23,-576.75 1115.23,-564.75 1115.23,-564.75 1115.23,-558.75 1121.23,-552.75 1127.23,-552.75 1127.23,-552.75 1247.27,-552.75 1247.27,-552.75 1253.27,-552.75 1259.27,-558.75 1259.27,-564.75 1259.27,-564.75 1259.27,-576.75 1259.27,-576.75 1259.27,-582.75 1253.27,-588.75 1247.27,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="1123.88" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1141.88" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">AltScreenManager</text>
+<text xml:space="preserve" text-anchor="start" x="1238.62" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- TerminalHostBase&#45;&gt;AltScreenManager -->
+<g id="edge36" class="edge">
+<title>TerminalHostBase&#45;&gt;AltScreenManager</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2916.1,-882.09C2908.97,-880.54 2904.25,-879.51 2904.25,-879.51 2904.25,-879.51 1667,-836.26 1667,-836.26 1667,-836.26 1296.25,-684.5 1296.25,-684.5 1296.25,-684.5 1272.25,-665.25 1272.25,-665.25 1272.25,-665.25 1234.53,-623.75 1209.34,-596.05"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1204.14,-590.33 1212.18,-593.83 1205.97,-592.26 1209.56,-596.21 1209.52,-596.25 1209.48,-596.28 1205.89,-592.33 1206.86,-598.67 1204.14,-590.33"/>
+<text xml:space="preserve" text-anchor="middle" x="1678.62" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- LocalTerminalHost -->
+<g id="node24" class="node">
+<title>LocalTerminalHost</title>
+<path fill="#ffe9a8" stroke="#c7981d" stroke-width="1.2" d="M3174.39,-1071.26C3174.39,-1071.26 3004.11,-1071.26 3004.11,-1071.26 2998.11,-1071.26 2992.11,-1065.26 2992.11,-1059.26 2992.11,-1059.26 2992.11,-1047.26 2992.11,-1047.26 2992.11,-1041.26 2998.11,-1035.26 3004.11,-1035.26 3004.11,-1035.26 3174.39,-1035.26 3174.39,-1035.26 3180.39,-1035.26 3186.39,-1041.26 3186.39,-1047.26 3186.39,-1047.26 3186.39,-1059.26 3186.39,-1059.26 3186.39,-1065.26 3180.39,-1071.26 3174.39,-1071.26"/>
+<text xml:space="preserve" text-anchor="start" x="3031.12" y="-1054.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3049.12" y="-1054.81" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">LocalTerminalHost</text>
+<text xml:space="preserve" text-anchor="start" x="3000.75" y="-1043.81" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;selection + scrollback + mouse &#160;&#160;&#160;</text>
+</g>
+<!-- LocalTerminalHost&#45;&gt;TerminalHostBase -->
+<g id="edge13" class="edge">
+<title>LocalTerminalHost&#45;&gt;TerminalHostBase</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3077.18,-1034.92C3058.32,-1007.82 3021.75,-955.26 2999.91,-923.89"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3002.26,-922.35 2995.39,-917.39 2997.66,-925.55 3002.26,-922.35"/>
+<text xml:space="preserve" text-anchor="middle" x="3077.8" y="-1001.76" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- MouseReporter -->
+<g id="node39" class="node">
+<title>MouseReporter</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M1845.39,-588.75C1845.39,-588.75 1741.11,-588.75 1741.11,-588.75 1735.11,-588.75 1729.11,-582.75 1729.11,-576.75 1729.11,-576.75 1729.11,-564.75 1729.11,-564.75 1729.11,-558.75 1735.11,-552.75 1741.11,-552.75 1741.11,-552.75 1845.39,-552.75 1845.39,-552.75 1851.39,-552.75 1857.39,-558.75 1857.39,-564.75 1857.39,-564.75 1857.39,-576.75 1857.39,-576.75 1857.39,-582.75 1851.39,-588.75 1845.39,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="1737.75" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1755.75" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">MouseReporter</text>
+<text xml:space="preserve" text-anchor="start" x="1836.75" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- LocalTerminalHost&#45;&gt;MouseReporter -->
+<g id="edge37" class="edge">
+<title>LocalTerminalHost&#45;&gt;MouseReporter</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3094.27,-1035.11C3097.56,-1023.87 3101.25,-1011.26 3101.25,-1011.26 3101.25,-1011.26 3101.25,-1000.01 3101.25,-1000.01 3101.25,-1000.01 3060.25,-879.51 3060.25,-879.51 3060.25,-879.51 3034.25,-836.26 3034.25,-836.26 3034.25,-836.26 2977.25,-708.5 2977.25,-708.5 2977.25,-708.5 1870.25,-665.25 1870.25,-665.25 1870.25,-665.25 1836.36,-624.1 1813.55,-596.4"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1808.59,-590.37 1816.45,-594.26 1810.31,-592.39 1813.71,-596.51 1813.67,-596.55 1813.63,-596.58 1810.24,-592.46 1810.89,-598.84 1808.59,-590.37"/>
+<text xml:space="preserve" text-anchor="middle" x="3057.38" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- SelectionManager -->
+<g id="node40" class="node">
+<title>SelectionManager</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M2011.77,-588.75C2011.77,-588.75 1894.73,-588.75 1894.73,-588.75 1888.73,-588.75 1882.73,-582.75 1882.73,-576.75 1882.73,-576.75 1882.73,-564.75 1882.73,-564.75 1882.73,-558.75 1888.73,-552.75 1894.73,-552.75 1894.73,-552.75 2011.77,-552.75 2011.77,-552.75 2017.77,-552.75 2023.77,-558.75 2023.77,-564.75 2023.77,-564.75 2023.77,-576.75 2023.77,-576.75 2023.77,-582.75 2017.77,-588.75 2011.77,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="1891.38" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="1909.38" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">SelectionManager</text>
+<text xml:space="preserve" text-anchor="start" x="2003.12" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- LocalTerminalHost&#45;&gt;SelectionManager -->
+<g id="edge38" class="edge">
+<title>LocalTerminalHost&#45;&gt;SelectionManager</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3169.8,-1034.69C3220.82,-1023.57 3277.25,-1011.26 3277.25,-1011.26 3277.25,-1011.26 3282.25,-855.51 3282.25,-855.51 3282.25,-855.51 3282.25,-844.26 3282.25,-844.26 3282.25,-844.26 3115.25,-836.26 3115.25,-836.26 3115.25,-836.26 3036.25,-708.5 3036.25,-708.5 3036.25,-708.5 2645.25,-673.25 2645.25,-673.25 2645.25,-673.25 2036.25,-665.25 2036.25,-665.25 2036.25,-665.25 1999.41,-623.75 1974.82,-596.05"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1969.75,-590.34 1977.75,-593.93 1971.55,-592.29 1975.1,-596.29 1975.06,-596.32 1975.03,-596.35 1971.48,-592.36 1972.37,-598.71 1969.75,-590.34"/>
+<text xml:space="preserve" text-anchor="middle" x="3293.88" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- ScrollbackBuffer -->
+<g id="node41" class="node">
+<title>ScrollbackBuffer</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M2172.14,-588.75C2172.14,-588.75 2060.36,-588.75 2060.36,-588.75 2054.36,-588.75 2048.36,-582.75 2048.36,-576.75 2048.36,-576.75 2048.36,-564.75 2048.36,-564.75 2048.36,-558.75 2054.36,-552.75 2060.36,-552.75 2060.36,-552.75 2172.14,-552.75 2172.14,-552.75 2178.14,-552.75 2184.14,-558.75 2184.14,-564.75 2184.14,-564.75 2184.14,-576.75 2184.14,-576.75 2184.14,-582.75 2178.14,-588.75 2172.14,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="2057" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2075" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">ScrollbackBuffer</text>
+<text xml:space="preserve" text-anchor="start" x="2163.5" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- LocalTerminalHost&#45;&gt;ScrollbackBuffer -->
+<g id="edge39" class="edge">
+<title>LocalTerminalHost&#45;&gt;ScrollbackBuffer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3186.93,-1035.64C3253.73,-1024.28 3330.25,-1011.26 3330.25,-1011.26 3330.25,-1011.26 3335.25,-855.51 3335.25,-855.51 3335.25,-855.51 3335.25,-844.26 3335.25,-844.26 3335.25,-844.26 3196.25,-836.26 3196.25,-836.26 3196.25,-836.26 3117.25,-708.5 3117.25,-708.5 3117.25,-708.5 3064.25,-673.25 3064.25,-673.25 3064.25,-673.25 2439.25,-665.25 2439.25,-665.25 2439.25,-665.25 2280.63,-619.33 2185.7,-591.85"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2178.29,-589.71 2186.98,-588.48 2180.86,-590.4 2185.99,-591.89 2185.98,-591.93 2185.96,-591.98 2180.83,-590.5 2184.97,-595.39 2178.29,-589.71"/>
+<text xml:space="preserve" text-anchor="middle" x="3346.88" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- NvimHost -->
+<g id="node25" class="node">
+<title>NvimHost</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M2879.76,-915.51C2879.76,-915.51 2804.74,-915.51 2804.74,-915.51 2798.74,-915.51 2792.74,-909.51 2792.74,-903.51 2792.74,-903.51 2792.74,-891.51 2792.74,-891.51 2792.74,-885.51 2798.74,-879.51 2804.74,-879.51 2804.74,-879.51 2879.76,-879.51 2879.76,-879.51 2885.76,-879.51 2891.76,-885.51 2891.76,-891.51 2891.76,-891.51 2891.76,-903.51 2891.76,-903.51 2891.76,-909.51 2885.76,-915.51 2879.76,-915.51"/>
+<text xml:space="preserve" text-anchor="start" x="2801.38" y="-894.06" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2819.38" y="-894.06" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">NvimHost</text>
+<text xml:space="preserve" text-anchor="start" x="2871.12" y="-894.06" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;GridHostBase -->
+<g id="edge14" class="edge">
+<title>NvimHost&#45;&gt;GridHostBase</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2846.31,-879.17C2852.58,-852.41 2864.65,-800.85 2872.02,-769.35"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2874.67,-770.32 2873.77,-761.89 2869.22,-769.04 2874.67,-770.32"/>
+<text xml:space="preserve" text-anchor="middle" x="2871.14" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- NvimProcess -->
+<g id="node42" class="node">
+<title>NvimProcess</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M412.39,-433C412.39,-433 284.11,-433 284.11,-433 278.11,-433 272.11,-427 272.11,-421 272.11,-421 272.11,-409 272.11,-409 272.11,-403 278.11,-397 284.11,-397 284.11,-397 412.39,-397 412.39,-397 418.39,-397 424.39,-403 424.39,-409 424.39,-409 424.39,-421 424.39,-421 424.39,-427 418.39,-433 412.39,-433"/>
+<text xml:space="preserve" text-anchor="start" x="304.38" y="-416.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="322.38" y="-416.55" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">NvimProcess</text>
+<text xml:space="preserve" text-anchor="start" x="280.75" y="-405.55" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;child process wrapper &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;NvimProcess -->
+<g id="edge40" class="edge">
+<title>NvimHost&#45;&gt;NvimProcess</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2792.58,-894.96C2490.33,-885.53 911.25,-836.26 911.25,-836.26 911.25,-836.26 574.25,-665.25 574.25,-665.25 574.25,-665.25 427.14,-503.01 370.3,-440.32"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="365.04,-434.52 373.08,-438.03 366.87,-436.46 370.45,-440.41 370.42,-440.45 370.38,-440.48 366.79,-436.52 367.75,-442.86 365.04,-434.52"/>
+<text xml:space="preserve" text-anchor="middle" x="623.45" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- NvimRpc -->
+<g id="node43" class="node">
+<title>NvimRpc</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M238.01,-588.75C238.01,-588.75 98.49,-588.75 98.49,-588.75 92.49,-588.75 86.48,-582.75 86.48,-576.75 86.48,-576.75 86.48,-564.75 86.48,-564.75 86.48,-558.75 92.48,-552.75 98.48,-552.75 98.48,-552.75 238.01,-552.75 238.01,-552.75 244.01,-552.75 250.01,-558.75 250.01,-564.75 250.01,-564.75 250.01,-576.75 250.01,-576.75 250.01,-582.75 244.01,-588.75 238.01,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="135.25" y="-572.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="153.25" y="-572.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">NvimRpc</text>
+<text xml:space="preserve" text-anchor="start" x="95.12" y="-561.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;msgpack&#45;RPC transport &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;NvimRpc -->
+<g id="edge41" class="edge">
+<title>NvimHost&#45;&gt;NvimRpc</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2792.21,-895.72C2432.12,-890.02 250.25,-855.51 250.25,-855.51 250.25,-855.51 0,-836.26 0,-836.26 0,-836.26 0,-708.5 0,-708.5 0,-708.5 91.52,-634.11 139.56,-595.07"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="145.56,-590.19 141.62,-598.03 143.53,-591.91 139.38,-595.28 139.35,-595.24 139.32,-595.2 143.46,-591.83 137.08,-592.45 145.56,-590.19"/>
+<text xml:space="preserve" text-anchor="middle" x="11.62" y="-737.88" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- UiEventHandler -->
+<g id="node44" class="node">
+<title>UiEventHandler</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M621.76,-759.76C621.76,-759.76 522.74,-759.76 522.74,-759.76 516.74,-759.76 510.74,-753.76 510.74,-747.76 510.74,-747.76 510.74,-735.76 510.74,-735.76 510.74,-729.76 516.74,-723.76 522.74,-723.76 522.74,-723.76 621.76,-723.76 621.76,-723.76 627.76,-723.76 633.76,-729.76 633.76,-735.76 633.76,-735.76 633.76,-747.76 633.76,-747.76 633.76,-753.76 627.76,-759.76 621.76,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="522" y="-743.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="540" y="-743.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">UiEventHandler</text>
+<text xml:space="preserve" text-anchor="start" x="519.38" y="-732.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;redraw decoder &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;UiEventHandler -->
+<g id="edge42" class="edge">
+<title>NvimHost&#45;&gt;UiEventHandler</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2792.15,-895.58C2463.58,-889.49 630,-855.51 630,-855.51 630,-855.51 602.1,-801.05 585.09,-767.83"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="581.63,-761.08 588.48,-766.56 582.89,-763.42 585.32,-768.17 585.28,-768.2 585.23,-768.22 582.8,-763.47 582.07,-769.84 581.63,-761.08"/>
+<text xml:space="preserve" text-anchor="middle" x="641.62" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- NvimInput -->
+<g id="node45" class="node">
+<title>NvimInput</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M136.52,-759.76C136.52,-759.76 47.98,-759.76 47.98,-759.76 41.98,-759.76 35.98,-753.76 35.98,-747.76 35.98,-747.76 35.98,-735.76 35.98,-735.76 35.98,-729.76 41.98,-723.76 47.98,-723.76 47.98,-723.76 136.52,-723.76 136.52,-723.76 142.52,-723.76 148.52,-729.76 148.52,-735.76 148.52,-735.76 148.52,-747.76 148.52,-747.76 148.52,-753.76 142.52,-759.76 136.52,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="56.25" y="-743.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="74.25" y="-743.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">NvimInput</text>
+<text xml:space="preserve" text-anchor="start" x="44.62" y="-732.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;input encoder &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;NvimInput -->
+<g id="edge43" class="edge">
+<title>NvimHost&#45;&gt;NvimInput</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2792.21,-895.68C2442.57,-889.86 379,-855.51 379,-855.51 379,-855.51 160.25,-836.26 160.25,-836.26 160.25,-836.26 130.58,-795.46 110.44,-767.77"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="105.83,-761.43 113.45,-765.78 107.43,-763.55 110.57,-767.87 110.53,-767.9 110.49,-767.93 107.35,-763.61 107.62,-770.02 105.83,-761.43"/>
+<text xml:space="preserve" text-anchor="middle" x="390.62" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- UiRequestWorker -->
+<g id="node46" class="node">
+<title>UiRequestWorker</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M301.39,-759.76C301.39,-759.76 185.11,-759.76 185.11,-759.76 179.11,-759.76 173.11,-753.76 173.11,-747.76 173.11,-747.76 173.11,-735.76 173.11,-735.76 173.11,-729.76 179.11,-723.76 185.11,-723.76 185.11,-723.76 301.39,-723.76 301.39,-723.76 307.39,-723.76 313.39,-729.76 313.39,-735.76 313.39,-735.76 313.39,-747.76 313.39,-747.76 313.39,-753.76 307.39,-759.76 301.39,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="181.75" y="-738.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="199.75" y="-738.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">UiRequestWorker</text>
+<text xml:space="preserve" text-anchor="start" x="292.75" y="-738.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;UiRequestWorker -->
+<g id="edge44" class="edge">
+<title>NvimHost&#45;&gt;UiRequestWorker</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2792.23,-895.63C2453.75,-889.67 512,-855.51 512,-855.51 512,-855.51 326.25,-836.26 326.25,-836.26 326.25,-836.26 289.41,-794.76 264.82,-767.06"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="259.75,-761.35 267.75,-764.94 261.55,-763.3 265.1,-767.3 265.06,-767.33 265.03,-767.36 261.48,-763.37 262.37,-769.72 259.75,-761.35"/>
+<text xml:space="preserve" text-anchor="middle" x="523.62" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- StartupResizeState -->
+<g id="node47" class="node">
+<title>StartupResizeState</title>
+<path fill="#eadbff" stroke="#7a4cc2" stroke-width="1.2" d="M474.14,-759.76C474.14,-759.76 350.36,-759.76 350.36,-759.76 344.36,-759.76 338.36,-753.76 338.36,-747.76 338.36,-747.76 338.36,-735.76 338.36,-735.76 338.36,-729.76 344.36,-723.76 350.36,-723.76 350.36,-723.76 474.14,-723.76 474.14,-723.76 480.14,-723.76 486.14,-729.76 486.14,-735.76 486.14,-735.76 486.14,-747.76 486.14,-747.76 486.14,-753.76 480.14,-759.76 474.14,-759.76"/>
+<text xml:space="preserve" text-anchor="start" x="347" y="-738.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="365" y="-738.31" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">StartupResizeState</text>
+<text xml:space="preserve" text-anchor="start" x="465.5" y="-738.31" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- NvimHost&#45;&gt;StartupResizeState -->
+<g id="edge45" class="edge">
+<title>NvimHost&#45;&gt;StartupResizeState</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M2792.18,-895.6C2460.75,-889.55 596,-855.51 596,-855.51 596,-855.51 498.25,-836.26 498.25,-836.26 498.25,-836.26 460.08,-794.76 434.6,-767.06"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="429.33,-761.33 437.4,-764.78 431.17,-763.26 434.79,-767.19 434.75,-767.22 434.71,-767.26 431.1,-763.32 432.1,-769.66 429.33,-761.33"/>
+<text xml:space="preserve" text-anchor="middle" x="607.62" y="-846.01" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
+</g>
+<!-- ShellHost -->
+<g id="node26" class="node">
+<title>ShellHost</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M3007.76,-1170.77C3007.76,-1170.77 2902.74,-1170.77 2902.74,-1170.77 2896.74,-1170.77 2890.74,-1164.77 2890.74,-1158.77 2890.74,-1158.77 2890.74,-1146.77 2890.74,-1146.77 2890.74,-1140.77 2896.74,-1134.77 2902.74,-1134.77 2902.74,-1134.77 3007.76,-1134.77 3007.76,-1134.77 3013.76,-1134.77 3019.76,-1140.77 3019.76,-1146.77 3019.76,-1146.77 3019.76,-1158.77 3019.76,-1158.77 3019.76,-1164.77 3013.76,-1170.77 3007.76,-1170.77"/>
+<text xml:space="preserve" text-anchor="start" x="2920.75" y="-1154.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2938.75" y="-1154.32" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">ShellHost</text>
+<text xml:space="preserve" text-anchor="start" x="2899.38" y="-1143.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;bash / zsh / WSL &#160;&#160;&#160;</text>
+</g>
+<!-- ShellHost&#45;&gt;LocalTerminalHost -->
+<g id="edge15" class="edge">
+<title>ShellHost&#45;&gt;LocalTerminalHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2979.21,-1134.34C3001.12,-1118.39 3033.69,-1094.69 3057.71,-1077.21"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3059.33,-1079.49 3064.15,-1072.52 3056.04,-1074.96 3059.33,-1079.49"/>
+<text xml:space="preserve" text-anchor="middle" x="3047.52" y="-1097.01" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- PowerShellHost -->
+<g id="node27" class="node">
+<title>PowerShellHost</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M3163.89,-1170.77C3163.89,-1170.77 3056.61,-1170.77 3056.61,-1170.77 3050.61,-1170.77 3044.61,-1164.77 3044.61,-1158.77 3044.61,-1158.77 3044.61,-1146.77 3044.61,-1146.77 3044.61,-1140.77 3050.61,-1134.77 3056.61,-1134.77 3056.61,-1134.77 3163.89,-1134.77 3163.89,-1134.77 3169.89,-1134.77 3175.89,-1140.77 3175.89,-1146.77 3175.89,-1146.77 3175.89,-1158.77 3175.89,-1158.77 3175.89,-1164.77 3169.89,-1170.77 3163.89,-1170.77"/>
+<text xml:space="preserve" text-anchor="start" x="3053.25" y="-1149.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3071.25" y="-1149.32" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">PowerShellHost</text>
+<text xml:space="preserve" text-anchor="start" x="3155.25" y="-1149.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- PowerShellHost&#45;&gt;LocalTerminalHost -->
+<g id="edge16" class="edge">
+<title>PowerShellHost&#45;&gt;LocalTerminalHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3106.5,-1134.34C3103.3,-1119.5 3098.66,-1097.95 3095,-1080.95"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3097.74,-1080.4 3093.32,-1073.17 3092.27,-1081.58 3097.74,-1080.4"/>
+<text xml:space="preserve" text-anchor="middle" x="3117.63" y="-1097.01" font-family="Helvetica,sans-Serif" font-size="10.00">extends</text>
+</g>
+<!-- MegaCityHost -->
+<g id="node28" class="node">
+<title>MegaCityHost</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M2900.64,-588.75C2900.64,-588.75 2803.86,-588.75 2803.86,-588.75 2797.86,-588.75 2791.86,-582.75 2791.86,-576.75 2791.86,-576.75 2791.86,-564.75 2791.86,-564.75 2791.86,-558.75 2797.86,-552.75 2803.86,-552.75 2803.86,-552.75 2900.64,-552.75 2900.64,-552.75 2906.64,-552.75 2912.64,-558.75 2912.64,-564.75 2912.64,-564.75 2912.64,-576.75 2912.64,-576.75 2912.64,-582.75 2906.64,-588.75 2900.64,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="2800.5" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="2818.5" y="-567.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">MegaCityHost</text>
+<text xml:space="preserve" text-anchor="start" x="2892" y="-567.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- MegaCityHost&#45;&gt;I3DRenderer -->
+<g id="edge77" class="edge">
+<title>MegaCityHost&#45;&gt;I3DRenderer</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2791.62,-556.87C2780.46,-554.49 2772.25,-552.75 2772.25,-552.75 2772.25,-552.75 2239.25,-509.5 2239.25,-509.5 2239.25,-509.5 2213.25,-368.38 2213.25,-368.38 2213.25,-368.38 2213.25,-368.38 2213.25,-223.5 2213.25,-223.5 2239.25,-206.5 2239.25,-206.5 2239.25,-206.5 2327.09,-173.67 2387.49,-151.09"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2388.12,-153.85 2394.63,-148.42 2386.16,-148.6 2388.12,-153.85"/>
+<text xml:space="preserve" text-anchor="middle" x="2251.88" y="-315.88" font-family="Helvetica,sans-Serif" font-size="10.00">registers 3D pass</text>
+</g>
+<!-- MegaCityHost&#45;&gt;IImGuiHost -->
+<g id="edge78" class="edge">
+<title>MegaCityHost&#45;&gt;IImGuiHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2852.54,-552.32C2852.83,-534.53 2853.25,-509.5 2853.25,-509.5 2853.25,-509.5 2853.25,-389 2853.25,-389 2853.25,-389 2741.25,-293.75 2741.25,-293.75 2741.25,-293.75 2688.25,-266.5 2688.25,-266.5 2688.25,-266.5 2651.46,-255.24 2616.44,-244.53"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2617.66,-241.97 2609.19,-242.31 2616.02,-247.33 2617.66,-241.97"/>
+<text xml:space="preserve" text-anchor="middle" x="2878.9" y="-363.5" font-family="Helvetica,sans-Serif" font-size="10.00">contributes windows</text>
+</g>
+<!-- MegaCityHost&#45;&gt;I3DHost -->
+<g id="edge17" class="edge">
+<title>MegaCityHost&#45;&gt;I3DHost</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M2872.18,-552.36C2884.99,-541.19 2899.25,-528.75 2899.25,-528.75 2899.25,-528.75 2953.25,-472.89 2985.23,-439.81"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="2986.99,-442.02 2990.54,-434.32 2982.96,-438.13 2986.99,-442.02"/>
+<text xml:space="preserve" text-anchor="middle" x="2933.7" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">implements</text>
+</g>
+<!-- SdlWindow -->
+<g id="node30" class="node">
+<title>SdlWindow</title>
+<path fill="#d9f5dd" stroke="#3d8c50" stroke-width="1.2" d="M3420.64,-588.75C3420.64,-588.75 3293.86,-588.75 3293.86,-588.75 3287.86,-588.75 3281.86,-582.75 3281.86,-576.75 3281.86,-576.75 3281.86,-564.75 3281.86,-564.75 3281.86,-558.75 3287.86,-552.75 3293.86,-552.75 3293.86,-552.75 3420.64,-552.75 3420.64,-552.75 3426.64,-552.75 3432.64,-558.75 3432.64,-564.75 3432.64,-564.75 3432.64,-576.75 3432.64,-576.75 3432.64,-582.75 3426.64,-588.75 3420.64,-588.75"/>
+<text xml:space="preserve" text-anchor="start" x="3318.62" y="-572.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3336.62" y="-572.3" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">SdlWindow</text>
+<text xml:space="preserve" text-anchor="start" x="3290.5" y="-561.3" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;SDL3 implementation &#160;&#160;&#160;</text>
+</g>
+<!-- SdlWindow&#45;&gt;IWindow -->
+<g id="edge1" class="edge">
+<title>SdlWindow&#45;&gt;IWindow</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M3360.52,-552.41C3365.55,-525.77 3375.21,-474.53 3381.16,-443"/>
+<polygon fill="none" stroke="#4a5568" stroke-width="1.1" points="3383.91,-443.53 3382.64,-435.15 3378.4,-442.49 3383.91,-443.53"/>
+<text xml:space="preserve" text-anchor="middle" x="3391.76" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">implements</text>
+</g>
+<!-- GridRenderingPipeline&#45;&gt;IGridHandle -->
+<g id="edge52" class="edge">
+<title>GridRenderingPipeline&#45;&gt;IGridHandle</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M1558.11,-555.04C1565.47,-553.65 1570.25,-552.75 1570.25,-552.75 1570.25,-552.75 2198.25,-509.5 2198.25,-509.5 2198.25,-509.5 2259.76,-466.58 2299.43,-438.9"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="2300.72,-441.41 2305.68,-434.54 2297.52,-436.82 2300.72,-441.41"/>
+<text xml:space="preserve" text-anchor="middle" x="2099.49" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">flushes to</text>
+</g>
+<!-- GridRenderingPipeline&#45;&gt;TextService -->
+<g id="edge50" class="edge">
+<title>GridRenderingPipeline&#45;&gt;TextService</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M1480.25,-552.41C1480.25,-525.77 1480.25,-474.53 1480.25,-443"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1483.05,-443.18 1480.25,-435.18 1477.45,-443.18 1483.05,-443.18"/>
+<text xml:space="preserve" text-anchor="middle" x="1503.88" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">shapes via</text>
+</g>
+<!-- GridRenderingPipeline&#45;&gt;Grid -->
+<g id="edge51" class="edge">
+<title>GridRenderingPipeline&#45;&gt;Grid</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M1418.57,-552.19C1317.6,-523.44 1117.63,-466.5 1011.03,-436.15"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1012.02,-433.52 1003.56,-434.03 1010.49,-438.91 1012.02,-433.52"/>
+<text xml:space="preserve" text-anchor="middle" x="1359.05" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">reads cells</text>
+</g>
+<!-- NvimRpc&#45;&gt;NvimProcess -->
+<g id="edge72" class="edge">
+<title>NvimRpc&#45;&gt;NvimProcess</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M188.55,-552.41C220.96,-524.73 284.44,-470.5 320.85,-439.41"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="322.22,-441.92 326.48,-434.59 318.58,-437.66 322.22,-441.92"/>
+<text xml:space="preserve" text-anchor="middle" x="256.47" y="-519.25" font-family="Helvetica,sans-Serif" font-size="10.00">transport over</text>
+</g>
+<!-- UiEventHandler&#45;&gt;Grid -->
+<g id="edge73" class="edge">
+<title>UiEventHandler&#45;&gt;Grid</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M574.03,-723.41C578.79,-676.87 591.5,-552.75 591.5,-552.75 591.5,-552.75 655.25,-517.5 655.25,-517.5 655.25,-517.5 798.72,-466.41 882.07,-436.72"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="882.77,-439.44 889.36,-434.12 880.89,-434.17 882.77,-439.44"/>
+<text xml:space="preserve" text-anchor="middle" x="623.38" y="-566.88" font-family="Helvetica,sans-Serif" font-size="10.00">writes redraws</text>
+</g>
+<!-- UiEventHandler&#45;&gt;HighlightTable -->
+<g id="edge74" class="edge">
+<title>UiEventHandler&#45;&gt;HighlightTable</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M634,-725.67C668.35,-717.27 704.25,-708.5 704.25,-708.5 704.25,-708.5 954.25,-665.25 954.25,-665.25 954.25,-665.25 986.54,-624.45 1008.46,-596.76"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="1010.53,-598.65 1013.3,-590.64 1006.14,-595.18 1010.53,-598.65"/>
+<text xml:space="preserve" text-anchor="middle" x="934.93" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">updates attrs</text>
+</g>
+<!-- NvimInput&#45;&gt;NvimRpc -->
+<g id="edge75" class="edge">
+<title>NvimInput&#45;&gt;NvimRpc</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M100.1,-723.31C113.54,-693.43 141.02,-632.31 156.67,-597.51"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="159.15,-598.82 159.88,-590.37 154.04,-596.52 159.15,-598.82"/>
+<text xml:space="preserve" text-anchor="middle" x="146.33" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">sends input</text>
+</g>
+<!-- UiRequestWorker&#45;&gt;NvimRpc -->
+<g id="edge76" class="edge">
+<title>UiRequestWorker&#45;&gt;NvimRpc</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" d="M235.51,-723.31C222.24,-693.43 195.13,-632.31 179.68,-597.51"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="182.32,-596.55 176.52,-590.38 177.2,-598.82 182.32,-596.55"/>
+<text xml:space="preserve" text-anchor="middle" x="250.22" y="-675" font-family="Helvetica,sans-Serif" font-size="10.00">async requests</text>
+</g>
+<!-- FlowStart -->
+<g id="node48" class="node">
+<title>FlowStart</title>
+<path fill="#fff6d6" stroke="#c7981d" stroke-width="1.2" d="M3296.26,-1170.77C3296.26,-1170.77 3224.24,-1170.77 3224.24,-1170.77 3218.24,-1170.77 3212.24,-1164.77 3212.24,-1158.77 3212.24,-1158.77 3212.24,-1146.77 3212.24,-1146.77 3212.24,-1140.77 3218.24,-1134.77 3224.24,-1134.77 3224.24,-1134.77 3296.26,-1134.77 3296.26,-1134.77 3302.26,-1134.77 3308.26,-1140.77 3308.26,-1146.77 3308.26,-1146.77 3308.26,-1158.77 3308.26,-1158.77 3308.26,-1164.77 3302.26,-1170.77 3296.26,-1170.77"/>
+<text xml:space="preserve" text-anchor="start" x="3220.88" y="-1149.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3238.88" y="-1149.32" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">Data flow</text>
+<text xml:space="preserve" text-anchor="start" x="3287.62" y="-1149.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- WindowEvent -->
+<g id="node49" class="node">
+<title>WindowEvent</title>
+<path fill="#fff6d6" stroke="#c7981d" stroke-width="1.2" d="M3466.64,-1170.77C3466.64,-1170.77 3369.86,-1170.77 3369.86,-1170.77 3363.86,-1170.77 3357.86,-1164.77 3357.86,-1158.77 3357.86,-1158.77 3357.86,-1146.77 3357.86,-1146.77 3357.86,-1140.77 3363.86,-1134.77 3369.86,-1134.77 3369.86,-1134.77 3466.64,-1134.77 3466.64,-1134.77 3472.64,-1134.77 3478.64,-1140.77 3478.64,-1146.77 3478.64,-1146.77 3478.64,-1158.77 3478.64,-1158.77 3478.64,-1164.77 3472.64,-1170.77 3466.64,-1170.77"/>
+<text xml:space="preserve" text-anchor="start" x="3366.5" y="-1149.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3384.5" y="-1149.32" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">Window event</text>
+<text xml:space="preserve" text-anchor="start" x="3458" y="-1149.32" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
+</g>
+<!-- FlowStart&#45;&gt;WindowEvent -->
+<g id="edge79" class="edge">
+<title>FlowStart&#45;&gt;WindowEvent</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3308.78,-1152.77C3311.36,-1152.77 3312.92,-1152.77 3312.92,-1152.77 3312.92,-1152.77 3332.85,-1152.77 3348.19,-1152.77"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3356.01,-1152.77 3348.01,-1156.37 3353.35,-1152.82 3348.01,-1152.82 3348.01,-1152.77 3348.01,-1152.72 3353.35,-1152.72 3348.01,-1149.17 3356.01,-1152.77"/>
+</g>
+<!-- NvimPath -->
+<g id="node50" class="node">
+<title>NvimPath</title>
+<path fill="#fff6d6" stroke="#c7981d" stroke-width="1.2" d="M4501.52,-1175.03C4501.52,-1175.03 4040.99,-1175.03 4040.99,-1175.03 4034.99,-1175.03 4028.99,-1169.03 4028.99,-1163.03 4028.99,-1163.03 4028.99,-1142.51 4028.99,-1142.51 4028.99,-1136.51 4034.99,-1130.51 4040.99,-1130.51 4040.99,-1130.51 4501.52,-1130.51 4501.52,-1130.51 4507.52,-1130.51 4513.52,-1136.51 4513.52,-1142.51 4513.52,-1142.51 4513.52,-1163.03 4513.52,-1163.03 4513.52,-1169.03 4507.52,-1175.03 4501.52,-1175.03"/>
+<text xml:space="preserve" text-anchor="start" x="4236.38" y="-1159.82" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="4254.38" y="-1159.82" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">nvim path</text>
+<text xml:space="preserve" text-anchor="start" x="4037.62" y="-1148.82" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;InputDispatcher &#45;&gt; NvimHost &#45;&gt; NvimInput &#45;&gt; NvimRpc &#45;&gt; nvim</text>
+<text xml:space="preserve" text-anchor="start" x="4037.62" y="-1137.82" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;nvim redraw &#45;&gt; NvimRpc &#45;&gt; UiEventHandler &#45;&gt; Grid &#45;&gt; GridRenderingPipeline &#45;&gt; Renderer &#160;&#160;&#160;</text>
+</g>
+<!-- WindowEvent&#45;&gt;NvimPath -->
+<g id="edge80" class="edge">
+<title>WindowEvent&#45;&gt;NvimPath</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3436.95,-1170.99C3465.14,-1198.45 3515.25,-1247.27 3515.25,-1247.27 3515.25,-1247.27 3527.75,-1259.27 3527.75,-1259.27 3527.75,-1259.27 4004.75,-1259.27 4004.75,-1259.27 4004.75,-1259.27 4126.72,-1210.53 4205.63,-1178.99"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="4212.83,-1176.11 4206.74,-1182.43 4210.38,-1177.15 4205.42,-1179.13 4205.41,-1179.08 4205.39,-1179.04 4210.35,-1177.05 4204.07,-1175.74 4212.83,-1176.11"/>
+</g>
+<!-- TerminalPath -->
+<g id="node51" class="node">
+<title>TerminalPath</title>
+<path fill="#fff6d6" stroke="#c7981d" stroke-width="1.2" d="M3992.39,-1175.03C3992.39,-1175.03 3540.11,-1175.03 3540.11,-1175.03 3534.11,-1175.03 3528.11,-1169.03 3528.11,-1163.03 3528.11,-1163.03 3528.11,-1142.51 3528.11,-1142.51 3528.11,-1136.51 3534.11,-1130.51 3540.11,-1130.51 3540.11,-1130.51 3992.39,-1130.51 3992.39,-1130.51 3998.39,-1130.51 4004.39,-1136.51 4004.39,-1142.51 4004.39,-1142.51 4004.39,-1163.03 4004.39,-1163.03 4004.39,-1169.03 3998.39,-1175.03 3992.39,-1175.03"/>
+<text xml:space="preserve" text-anchor="start" x="3722.75" y="-1159.82" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
+<text xml:space="preserve" text-anchor="start" x="3740.75" y="-1159.82" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">terminal path</text>
+<text xml:space="preserve" text-anchor="start" x="3536.75" y="-1148.82" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;InputDispatcher &#45;&gt; LocalTerminalHost &#45;&gt; PTY/ConPTY write</text>
+<text xml:space="preserve" text-anchor="start" x="3536.75" y="-1137.82" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;PTY output &#45;&gt; VtParser/TerminalHostBase &#45;&gt; Grid &#45;&gt; GridRenderingPipeline &#45;&gt; Renderer &#160;&#160;&#160;</text>
+</g>
+<!-- WindowEvent&#45;&gt;TerminalPath -->
+<g id="edge81" class="edge">
+<title>WindowEvent&#45;&gt;TerminalPath</title>
+<path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M3478.97,-1152.77C3493.61,-1152.77 3508.03,-1152.77 3518.47,-1152.77"/>
+<polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="3526.4,-1152.77 3518.4,-1156.37 3523.74,-1152.82 3518.4,-1152.82 3518.4,-1152.77 3518.4,-1152.72 3523.74,-1152.72 3518.4,-1149.17 3526.4,-1152.77"/>
+</g>
+</g>
 </svg>
