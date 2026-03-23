@@ -25,8 +25,8 @@ bool MegaCityHost::initialize(const HostContext& context, HostCallbacks callback
 {
     callbacks_ = std::move(callbacks);
     viewport_ = context.initial_viewport;
-    pixel_w_ = viewport_.pixel_width > 0 ? viewport_.pixel_width : 800;
-    pixel_h_ = viewport_.pixel_height > 0 ? viewport_.pixel_height : 600;
+    pixel_w_ = viewport_.pixel_size.x > 0 ? viewport_.pixel_size.x : 800;
+    pixel_h_ = viewport_.pixel_size.y > 0 ? viewport_.pixel_size.y : 600;
     running_ = true;
 
     scanner_.start(DRAXUL_REPO_ROOT);
@@ -62,8 +62,8 @@ void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
     // Coordinates arrive in physical pixels (window-relative) from InputDispatcher.
     // Convert to pane-relative for ImGui whose DisplaySize matches the pane.
     ImGui::GetIO().AddMousePosEvent(
-        static_cast<float>(event.x - viewport_.pixel_x),
-        static_cast<float>(event.y - viewport_.pixel_y));
+        static_cast<float>(event.pos.x - viewport_.pixel_pos.x),
+        static_cast<float>(event.pos.y - viewport_.pixel_pos.y));
 }
 
 void MegaCityHost::on_mouse_button(const MouseButtonEvent& event)
@@ -95,7 +95,7 @@ void MegaCityHost::on_mouse_wheel(const MouseWheelEvent& event)
     if (!imgui_ctx_)
         return;
     ImGui::SetCurrentContext(imgui_ctx_);
-    ImGui::GetIO().AddMouseWheelEvent(event.dx, event.dy);
+    ImGui::GetIO().AddMouseWheelEvent(event.delta.x, event.delta.y);
 }
 
 void MegaCityHost::set_imgui_font(const std::string& path, float size_pixels)
@@ -155,7 +155,7 @@ void MegaCityHost::attach_3d_renderer(I3DRenderer& renderer)
 {
     renderer_3d_ = &renderer;
     renderer_3d_->register_render_pass(cube_pass_);
-    renderer_3d_->set_3d_viewport(viewport_.pixel_x, viewport_.pixel_y, pixel_w_, pixel_h_);
+    renderer_3d_->set_3d_viewport(viewport_.pixel_pos.x, viewport_.pixel_pos.y, pixel_w_, pixel_h_);
     DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost: 3D renderer attached, cube pass registered");
 }
 
@@ -199,10 +199,10 @@ std::string MegaCityHost::init_error() const
 void MegaCityHost::set_viewport(const HostViewport& viewport)
 {
     viewport_ = viewport;
-    pixel_w_ = viewport.pixel_width > 0 ? viewport.pixel_width : pixel_w_;
-    pixel_h_ = viewport.pixel_height > 0 ? viewport.pixel_height : pixel_h_;
+    pixel_w_ = viewport.pixel_size.x > 0 ? viewport.pixel_size.x : pixel_w_;
+    pixel_h_ = viewport.pixel_size.y > 0 ? viewport.pixel_size.y : pixel_h_;
     if (renderer_3d_)
-        renderer_3d_->set_3d_viewport(viewport_.pixel_x, viewport_.pixel_y, pixel_w_, pixel_h_);
+        renderer_3d_->set_3d_viewport(viewport_.pixel_pos.x, viewport_.pixel_pos.y, pixel_w_, pixel_h_);
 }
 
 void MegaCityHost::pump()

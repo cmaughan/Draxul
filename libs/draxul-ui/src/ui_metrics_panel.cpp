@@ -73,7 +73,7 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
     if (begin_metric_table("window_dimensions"))
     {
         metric_label("Window Size", "Current pixel size of the full Draxul window.");
-        ImGui::Text("%d x %d px", layout.window_width, layout.window_height);
+        ImGui::Text("%d x %d px", layout.window_size.x, layout.window_size.y);
 
         metric_label("Terminal Region", "Height reserved for terminal content after the panel takes its share.");
         ImGui::Text("%d px", layout.terminal_height);
@@ -93,10 +93,10 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
         ImGui::Text("%.0f ppi", state.display_ppi);
 
         metric_label("Cell Size", "Current terminal cell size after font metrics and DPI scaling.");
-        ImGui::Text("%d x %d px", state.cell_width, state.cell_height);
+        ImGui::Text("%d x %d px", state.cell_size.x, state.cell_size.y);
 
         metric_label("Grid Size", "Active terminal grid in columns and rows.");
-        ImGui::Text("%d x %d", state.grid_cols, state.grid_rows);
+        ImGui::Text("%d x %d", state.grid_size.x, state.grid_size.y);
         ImGui::EndTable();
     }
 }

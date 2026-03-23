@@ -128,20 +128,20 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
 void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
 {
     deps_.ui_panel->on_mouse_button(event);
-    if (deps_.ui_panel->layout().contains_panel_point(event.x, event.y))
+    if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
     {
         if (deps_.request_frame)
             deps_.request_frame();
         return;
     }
-    IHost* target = host_for_mouse_pos(event.x, event.y);
+    IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
     if (target)
     {
         // Hosts store viewports and cell sizes in physical pixels; translate
         // the SDL logical coordinates to physical before forwarding.
         MouseButtonEvent phys = event;
-        phys.x = to_physical(event.x);
-        phys.y = to_physical(event.y);
+        phys.pos.x = to_physical(event.pos.x);
+        phys.pos.y = to_physical(event.pos.y);
         target->on_mouse_button(phys);
     }
 }
@@ -149,18 +149,18 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
 void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
 {
     deps_.ui_panel->on_mouse_move(event);
-    if (deps_.ui_panel->layout().contains_panel_point(event.x, event.y))
+    if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
     {
         if (deps_.request_frame)
             deps_.request_frame();
         return;
     }
-    IHost* target = host_for_mouse_pos(event.x, event.y);
+    IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
     if (target)
     {
         MouseMoveEvent phys = event;
-        phys.x = to_physical(event.x);
-        phys.y = to_physical(event.y);
+        phys.pos.x = to_physical(event.pos.x);
+        phys.pos.y = to_physical(event.pos.y);
         target->on_mouse_move(phys);
     }
 }
@@ -168,31 +168,31 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
 void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
 {
     deps_.ui_panel->on_mouse_wheel(event);
-    if (deps_.ui_panel->layout().contains_panel_point(event.x, event.y))
+    if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
     {
         if (deps_.request_frame)
             deps_.request_frame();
         return;
     }
-    IHost* wheel_host = host_for_mouse_pos(event.x, event.y);
+    IHost* wheel_host = host_for_mouse_pos(event.pos.x, event.pos.y);
     if (!wheel_host)
         return;
 
     // Build a physical-coordinate version of the event for forwarding to the host.
     MouseWheelEvent phys_event = event;
-    phys_event.x = to_physical(event.x);
-    phys_event.y = to_physical(event.y);
+    phys_event.pos.x = to_physical(event.pos.x);
+    phys_event.pos.y = to_physical(event.pos.y);
 
-    if (deps_.smooth_scroll && event.dy != 0.0f)
+    if (deps_.smooth_scroll && event.delta.y != 0.0f)
     {
         had_scroll_event_ = true;
-        pending_scroll_y_ += event.dy * deps_.scroll_speed;
+        pending_scroll_y_ += event.delta.y * deps_.scroll_speed;
         const float sign = pending_scroll_y_ > 0.0f ? 1.0f : -1.0f;
         const auto steps = static_cast<int>(std::abs(pending_scroll_y_));
         for (int i = 0; i < steps; ++i)
         {
             MouseWheelEvent step = phys_event;
-            step.dy = sign;
+            step.delta.y = sign;
             wheel_host->on_mouse_wheel(step);
         }
         pending_scroll_y_ = std::fmod(pending_scroll_y_, 1.0f);
@@ -232,7 +232,7 @@ void InputDispatcher::connect(IWindow& window)
 
     window.on_resize = [this](const WindowResizeEvent& event) {
         if (deps_.on_resize)
-            deps_.on_resize(event.width, event.height);
+            deps_.on_resize(event.size.x, event.size.y);
     };
 
     window.on_display_scale_changed = [this](const DisplayScaleEvent& event) {

@@ -66,9 +66,9 @@ TEST_CASE("input escapes lt and maps mouse coordinates to grid cells", "[input]"
     input.initialize(&rpc, 10, 20);
 
     input.on_text_input({ "<" });
-    input.on_mouse_button({ SDL_BUTTON_LEFT, true, kModShift, 15, 25 });
-    input.on_mouse_move({ kModShift, 25, 45 });
-    input.on_mouse_wheel({ 0.0f, 1.0f, kModCtrl, 15, 25 });
+    input.on_mouse_button({ SDL_BUTTON_LEFT, true, kModShift, { 15, 25 } });
+    input.on_mouse_move({ kModShift, { 25, 45 } });
+    input.on_mouse_wheel({ { 0.0f, 1.0f }, kModCtrl, { 15, 25 } });
 
     INFO("text, button, drag, and wheel each emit a notification");
     REQUIRE(static_cast<int>(rpc.notifications.size()) == 4);
@@ -110,7 +110,7 @@ TEST_CASE("mouse coordinates are offset by viewport origin", "[input]")
     input.set_grid_size(10, 5);
 
     // pixel (8 + 1*10, 12 + 2*20) = (18, 52) => col=1, row=2
-    input.on_mouse_button({ SDL_BUTTON_LEFT, true, kModNone, 18, 52 });
+    input.on_mouse_button({ SDL_BUTTON_LEFT, true, kModNone, { 18, 52 } });
     INFO("button press emits one notification");
     REQUIRE(static_cast<int>(rpc.notifications.size()) == 1);
     INFO("row accounts for viewport y offset");
@@ -129,7 +129,7 @@ TEST_CASE("mouse click in padding area is clamped to col=0 row=0", "[input]")
     input.set_grid_size(10, 5);
 
     // pixel (3, 5) is inside padding (x < 8, y < 12) => clamped to col=0, row=0
-    input.on_mouse_button({ SDL_BUTTON_LEFT, true, kModNone, 3, 5 });
+    input.on_mouse_button({ SDL_BUTTON_LEFT, true, kModNone, { 3, 5 } });
     INFO("button press in padding emits one notification");
     REQUIRE(static_cast<int>(rpc.notifications.size()) == 1);
     INFO("row in padding area is clamped to 0");

@@ -24,7 +24,7 @@ bool GridHostBase::initialize(const HostContext& context, HostCallbacks callback
 
     // Apply the initial viewport as the scissor rect.
     const auto& vp = context.initial_viewport;
-    grid_handle_->set_viewport(PaneDescriptor{ vp.pixel_x, vp.pixel_y, vp.pixel_width, vp.pixel_height });
+    grid_handle_->set_viewport(PaneDescriptor{ vp.pixel_pos, vp.pixel_size });
 
     grid_pipeline_ = std::make_unique<GridRenderingPipeline>(grid_, highlights_, *text_service_);
     grid_pipeline_->set_renderer(renderer_);
@@ -39,8 +39,7 @@ void GridHostBase::set_viewport(const HostViewport& viewport)
 {
     viewport_ = viewport;
     if (grid_handle_)
-        grid_handle_->set_viewport(PaneDescriptor{ viewport.pixel_x, viewport.pixel_y,
-            viewport.pixel_width, viewport.pixel_height });
+        grid_handle_->set_viewport(PaneDescriptor{ viewport.pixel_pos, viewport.pixel_size });
     on_viewport_changed();
     update_text_input_area();
 }
@@ -199,8 +198,8 @@ void GridHostBase::restart_cursor_blink(std::chrono::steady_clock::time_point no
 void GridHostBase::update_text_input_area() const
 {
     auto [cell_w, cell_h] = renderer_->cell_size_pixels();
-    const int x = viewport_.pixel_x + renderer_->padding() + cursor_col_ * cell_w;
-    const int y = viewport_.pixel_y + renderer_->padding() + cursor_row_ * cell_h;
+    const int x = viewport_.pixel_pos.x + renderer_->padding() + cursor_col_ * cell_w;
+    const int y = viewport_.pixel_pos.y + renderer_->padding() + cursor_row_ * cell_h;
     callbacks_.set_text_input_area(x, y, cell_w, cell_h);
 }
 

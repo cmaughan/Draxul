@@ -5,6 +5,7 @@
 #include <draxul/host_kind.h>
 #include <draxul/types.h>
 #include <functional>
+#include <glm/glm.hpp>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,12 +40,9 @@ struct HostLaunchOptions
 
 struct HostViewport
 {
-    int pixel_x = 0;
-    int pixel_y = 0;
-    int pixel_width = 0;
-    int pixel_height = 0;
-    int cols = 1;
-    int rows = 1;
+    glm::ivec2 pixel_pos{ 0 };
+    glm::ivec2 pixel_size{ 0 };
+    glm::ivec2 grid_size{ 1 };
     int padding = 0;
     float pixel_scale = 1.0f;
 };

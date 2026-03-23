@@ -1,14 +1,14 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 namespace draxul
 {
 
 struct PaneDescriptor
 {
-    int pixel_x = 0;
-    int pixel_y = 0;
-    int pixel_width = 0;
-    int pixel_height = 0;
+    glm::ivec2 pixel_pos{ 0 };
+    glm::ivec2 pixel_size{ 0 };
 };
 
 } // namespace draxul

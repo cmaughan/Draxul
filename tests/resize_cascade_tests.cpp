@@ -133,9 +133,9 @@ TEST_CASE("resize cascade: panel layout 80x24 equivalent pixel dimensions", "[gr
     const PanelLayout layout = compute_panel_layout(642, 386, 8, 16, 1, false);
     // cols = (642 - 2) / 8 = 80, rows = (386 - 2) / 16 = 24
     INFO("panel layout produces 80 columns");
-    REQUIRE(layout.grid_cols == 80);
+    REQUIRE(layout.grid_size.x == 80);
     INFO("panel layout produces 24 rows");
-    REQUIRE(layout.grid_rows == 24);
+    REQUIRE(layout.grid_size.y == 24);
 }
 
 TEST_CASE("resize cascade: panel layout grow from 80x24 to 120x40", "[grid]")
@@ -146,13 +146,13 @@ TEST_CASE("resize cascade: panel layout grow from 80x24 to 120x40", "[grid]")
     const PanelLayout large_layout = compute_panel_layout(962, 642, 8, 16, 1, false);
 
     INFO("larger window yields 120 columns");
-    REQUIRE(large_layout.grid_cols == 120);
+    REQUIRE(large_layout.grid_size.x == 120);
     INFO("larger window yields 40 rows");
-    REQUIRE(large_layout.grid_rows == 40);
+    REQUIRE(large_layout.grid_size.y == 40);
     INFO("grow increases column count");
-    REQUIRE(large_layout.grid_cols > small_layout.grid_cols);
+    REQUIRE(large_layout.grid_size.x > small_layout.grid_size.x);
     INFO("grow increases row count");
-    REQUIRE(large_layout.grid_rows > small_layout.grid_rows);
+    REQUIRE(large_layout.grid_size.y > small_layout.grid_size.y);
 }
 
 TEST_CASE("resize cascade: panel layout shrink to 40x12", "[grid]")
@@ -160,9 +160,9 @@ TEST_CASE("resize cascade: panel layout shrink to 40x12", "[grid]")
     // 40 cols: 40*8 + 2 = 322px;  12 rows: 12*16 + 2 = 194px
     const PanelLayout layout = compute_panel_layout(322, 194, 8, 16, 1, false);
     INFO("shrunk layout has 40 columns");
-    REQUIRE(layout.grid_cols == 40);
+    REQUIRE(layout.grid_size.x == 40);
     INFO("shrunk layout has 12 rows");
-    REQUIRE(layout.grid_rows == 12);
+    REQUIRE(layout.grid_size.y == 12);
 }
 
 TEST_CASE("resize cascade: panel layout same dimensions is stable", "[grid]")
@@ -170,9 +170,9 @@ TEST_CASE("resize cascade: panel layout same dimensions is stable", "[grid]")
     const PanelLayout a = compute_panel_layout(800, 600, 8, 16, 1, false);
     const PanelLayout b = compute_panel_layout(800, 600, 8, 16, 1, false);
     INFO("identical inputs produce identical column count");
-    REQUIRE(a.grid_cols == b.grid_cols);
+    REQUIRE(a.grid_size.x == b.grid_size.x);
     INFO("identical inputs produce identical row count");
-    REQUIRE(a.grid_rows == b.grid_rows);
+    REQUIRE(a.grid_size.y == b.grid_size.y);
 }
 
 // -------------------------------------------------------------------------

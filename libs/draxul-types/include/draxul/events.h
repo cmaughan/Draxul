@@ -1,5 +1,6 @@
 #pragma once
 #include <draxul/input_types.h>
+#include <glm/glm.hpp>
 #include <string>
 
 namespace draxul
@@ -8,7 +9,7 @@ namespace draxul
 // Event types for window callbacks
 struct WindowResizeEvent
 {
-    int width, height;
+    glm::ivec2 size{ 0 };
 };
 struct KeyEvent
 {
@@ -32,18 +33,18 @@ struct MouseButtonEvent
     int button;
     bool pressed;
     ModifierFlags mod;
-    int x, y;
+    glm::ivec2 pos{ 0 };
 };
 struct MouseMoveEvent
 {
     ModifierFlags mod;
-    int x, y;
+    glm::ivec2 pos{ 0 };
 };
 struct MouseWheelEvent
 {
-    float dx, dy;
+    glm::vec2 delta{ 0.0f };
     ModifierFlags mod;
-    int x, y;
+    glm::ivec2 pos{ 0 };
 };
 struct DisplayScaleEvent
 {

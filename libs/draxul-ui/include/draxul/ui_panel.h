@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/events.h>
+#include <glm/glm.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -22,10 +23,8 @@ struct DiagnosticPanelState
 {
     bool visible = false;
     float display_ppi = 0.0f;
-    int cell_width = 0;
-    int cell_height = 0;
-    int grid_cols = 0;
-    int grid_rows = 0;
+    glm::ivec2 cell_size{ 0 };
+    glm::ivec2 grid_size{ 0 };
     size_t dirty_cells = 0;
     double frame_ms = 0.0;
     double average_frame_ms = 0.0;
@@ -39,20 +38,18 @@ struct DiagnosticPanelState
 struct PanelLayout
 {
     bool visible = false;
-    int window_width = 0;
-    int window_height = 0;
+    glm::ivec2 window_size{ 0 };
     int terminal_height = 0;
     int panel_y = 0;
     int panel_height = 0;
-    int grid_cols = 1;
-    int grid_rows = 1;
+    glm::ivec2 grid_size{ 1 };
     float pixel_scale = 1.0f;
 
     bool contains_panel_point(int x, int y) const
     {
         const auto px = static_cast<int>(static_cast<float>(x) * pixel_scale);
         const auto py = static_cast<int>(static_cast<float>(y) * pixel_scale);
-        return visible && px >= 0 && px < window_width && py >= panel_y && py < panel_y + panel_height;
+        return visible && px >= 0 && px < window_size.x && py >= panel_y && py < panel_y + panel_height;
     }
 };
 

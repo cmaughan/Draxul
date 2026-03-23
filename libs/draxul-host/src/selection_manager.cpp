@@ -23,7 +23,7 @@ bool SelectionManager::end_drag(GridPos pos)
 {
     sel_end_ = pos;
     sel_dragging_ = false;
-    if (sel_start_.col != sel_end_.col || sel_start_.row != sel_end_.row)
+    if (sel_start_.pos.x != sel_end_.pos.x || sel_start_.pos.y != sel_end_.pos.y)
     {
         sel_active_ = true;
         update_overlay();
@@ -37,7 +37,7 @@ void SelectionManager::update_drag(GridPos pos)
     if (!sel_dragging_)
         return;
     sel_end_ = pos;
-    sel_active_ = (sel_start_.col != sel_end_.col || sel_start_.row != sel_end_.row);
+    sel_active_ = (sel_start_.pos.x != sel_end_.pos.x || sel_start_.pos.y != sel_end_.pos.y);
     if (sel_active_)
         update_overlay();
 }
@@ -57,8 +57,8 @@ std::string SelectionManager::extract_text() const
     if (!sel_active_)
         return {};
 
-    int r1 = sel_start_.row, c1 = sel_start_.col;
-    int r2 = sel_end_.row, c2 = sel_end_.col;
+    int r1 = sel_start_.pos.y, c1 = sel_start_.pos.x;
+    int r2 = sel_end_.pos.y, c2 = sel_end_.pos.x;
     if (r1 > r2 || (r1 == r2 && c1 > c2))
     {
         std::swap(r1, r2);
@@ -100,8 +100,8 @@ void SelectionManager::update_overlay() const
         return;
     }
 
-    int r1 = sel_start_.row, c1 = sel_start_.col;
-    int r2 = sel_end_.row, c2 = sel_end_.col;
+    int r1 = sel_start_.pos.y, c1 = sel_start_.pos.x;
+    int r2 = sel_end_.pos.y, c2 = sel_end_.pos.x;
     if (r1 > r2 || (r1 == r2 && c1 > c2))
     {
         std::swap(r1, r2);

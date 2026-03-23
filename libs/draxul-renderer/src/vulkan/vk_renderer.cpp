@@ -755,14 +755,14 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
 
         const PaneDescriptor& desc = handle->descriptor_;
         VkRect2D pane_scissor = {};
-        if (desc.pixel_width > 0 && desc.pixel_height > 0)
+        if (desc.pixel_size.x > 0 && desc.pixel_size.y > 0)
         {
-            pane_scissor.offset.x = std::max(0, desc.pixel_x);
-            pane_scissor.offset.y = std::max(0, desc.pixel_y);
+            pane_scissor.offset.x = std::max(0, desc.pixel_pos.x);
+            pane_scissor.offset.y = std::max(0, desc.pixel_pos.y);
             pane_scissor.extent.width = static_cast<uint32_t>(std::max(0,
-                std::min(desc.pixel_width, pixel_w_ - pane_scissor.offset.x)));
+                std::min(desc.pixel_size.x, pixel_w_ - pane_scissor.offset.x)));
             pane_scissor.extent.height = static_cast<uint32_t>(std::max(0,
-                std::min(desc.pixel_height, pixel_h_ - pane_scissor.offset.y)));
+                std::min(desc.pixel_size.y, pixel_h_ - pane_scissor.offset.y)));
         }
         else
         {
@@ -776,8 +776,8 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
             (float)cell_w_,
             (float)cell_h_,
             handle->scroll_offset_px_,
-            (float)desc.pixel_x,
-            (float)desc.pixel_y
+            (float)desc.pixel_pos.x,
+            (float)desc.pixel_pos.y
         };
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_pipeline());

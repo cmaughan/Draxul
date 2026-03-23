@@ -101,8 +101,8 @@ struct AttrSetup
         text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
 
         HostViewport vp;
-        vp.cols = cols;
-        vp.rows = rows;
+        vp.grid_size.x = cols;
+        vp.grid_size.y = rows;
 
         HostContext ctx{ window, renderer, text_service, {}, vp, 96.0f };
 

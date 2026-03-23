@@ -115,7 +115,7 @@ bool LocalTerminalHost::dispatch_action(std::string_view action)
 
 void LocalTerminalHost::on_mouse_button(const MouseButtonEvent& event)
 {
-    const GridPos pos = pixel_to_cell(event.x, event.y);
+    const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
 
     if (mouse_reporter_.on_button(event.button, event.pressed, event.mod, pos.col, pos.row))
         return;
@@ -123,34 +123,34 @@ void LocalTerminalHost::on_mouse_button(const MouseButtonEvent& event)
     if (event.button == 1)
     {
         if (event.pressed)
-            selection_.begin_drag({ pos.col, pos.row });
+            selection_.begin_drag({ { pos.col, pos.row } });
         else
-            selection_.end_drag({ pos.col, pos.row });
+            selection_.end_drag({ { pos.col, pos.row } });
     }
 }
 
 void LocalTerminalHost::on_mouse_move(const MouseMoveEvent& event)
 {
-    const GridPos pos = pixel_to_cell(event.x, event.y);
+    const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
 
     if (mouse_reporter_.on_move(pos.col, pos.row))
         return;
 
-    selection_.update_drag({ pos.col, pos.row });
+    selection_.update_drag({ { pos.col, pos.row } });
 }
 
 void LocalTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
 {
     if (mouse_reporter_.mode() != MouseReporter::MouseMode::None)
     {
-        const GridPos pos = pixel_to_cell(event.x, event.y);
-        const int button_code = event.dy > 0 ? 64 : 65;
+        const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
+        const int button_code = event.delta.y > 0 ? 64 : 65;
         mouse_reporter_.on_wheel(button_code, pos.col, pos.row);
         return;
     }
 
-    const int lines = std::max(1, static_cast<int>(std::abs(event.dy) * 3.0f + 0.5f));
-    scrollback_.scroll(event.dy > 0 ? lines : -lines);
+    const int lines = std::max(1, static_cast<int>(std::abs(event.delta.y) * 3.0f + 0.5f));
+    scrollback_.scroll(event.delta.y > 0 ? lines : -lines);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,8 +159,8 @@ void LocalTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
 
 void LocalTerminalHost::on_viewport_changed()
 {
-    const int new_cols = std::max(1, viewport().cols);
-    const int new_rows = std::max(1, viewport().rows);
+    const int new_cols = std::max(1, viewport().grid_size.x);
+    const int new_rows = std::max(1, viewport().grid_size.y);
     if (new_cols == grid_cols() && new_rows == grid_rows())
         return;
 
@@ -219,9 +219,9 @@ LocalTerminalHost::GridPos LocalTerminalHost::pixel_to_cell(int px, int py) cons
     if (cell_h <= 0)
         cell_h = 1;
     const int col = std::clamp(
-        (px - viewport().pixel_x - pad) / cell_w, 0, std::max(0, grid_cols() - 1));
+        (px - viewport().pixel_pos.x - pad) / cell_w, 0, std::max(0, grid_cols() - 1));
     const int row = std::clamp(
-        (py - viewport().pixel_y - pad) / cell_h, 0, std::max(0, grid_rows() - 1));
+        (py - viewport().pixel_pos.y - pad) / cell_h, 0, std::max(0, grid_rows() - 1));
     return { col, row };
 }
 

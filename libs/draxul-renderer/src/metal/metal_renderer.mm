@@ -524,15 +524,15 @@ void MetalRenderer::end_frame()
 
         // Set scissor rect to clip this host to its screen region
         const PaneDescriptor& desc = handle->descriptor_;
-        if (desc.pixel_width > 0 && desc.pixel_height > 0)
+        if (desc.pixel_size.x > 0 && desc.pixel_size.y > 0)
         {
             MTLScissorRect scissor;
-            scissor.x = static_cast<NSUInteger>(std::max(0, desc.pixel_x));
-            scissor.y = static_cast<NSUInteger>(std::max(0, desc.pixel_y));
-            scissor.width = static_cast<NSUInteger>(std::min(desc.pixel_width,
-                pixel_w_ - std::max(0, desc.pixel_x)));
-            scissor.height = static_cast<NSUInteger>(std::min(desc.pixel_height,
-                pixel_h_ - std::max(0, desc.pixel_y)));
+            scissor.x = static_cast<NSUInteger>(std::max(0, desc.pixel_pos.x));
+            scissor.y = static_cast<NSUInteger>(std::max(0, desc.pixel_pos.y));
+            scissor.width = static_cast<NSUInteger>(std::min(desc.pixel_size.x,
+                pixel_w_ - std::max(0, desc.pixel_pos.x)));
+            scissor.height = static_cast<NSUInteger>(std::min(desc.pixel_size.y,
+                pixel_h_ - std::max(0, desc.pixel_pos.y)));
             [encoder setScissorRect:scissor];
         }
 
@@ -544,8 +544,8 @@ void MetalRenderer::end_frame()
             (float)pixel_w_, (float)pixel_h_,
             (float)cell_w_, (float)cell_h_,
             handle->scroll_offset_px_,
-            (float)desc.pixel_x,
-            (float)desc.pixel_y
+            (float)desc.pixel_pos.x,
+            (float)desc.pixel_pos.y
         };
 
         // Background pass (each handle's buffer starts at offset 0)

@@ -65,7 +65,7 @@ LeafId SplitTree::reset(int pixel_w, int pixel_h)
 {
     next_id_ = 0;
     root_ = std::make_unique<Node>();
-    root_->data = Node::LeafData{ next_id_++, { 0, 0, pixel_w, pixel_h } };
+    root_->data = Node::LeafData{ next_id_++, { { 0, 0 }, { pixel_w, pixel_h } } };
     focused_id_ = 0;
     total_w_ = pixel_w;
     total_h_ = pixel_h;
@@ -250,7 +250,7 @@ void SplitTree::recompute_node(Node* node, int x, int y, int w, int h, int div_w
 
     if (node->is_leaf())
     {
-        node->leaf().descriptor = { x, y, w, h };
+        node->leaf().descriptor = { { x, y }, { w, h } };
         return;
     }
 
@@ -289,8 +289,8 @@ SplitTree::HitResult SplitTree::hit_test_node(const Node* node, int px, int py, 
     if (node->is_leaf())
     {
         const auto& d = node->leaf().descriptor;
-        if (px >= d.pixel_x && px < d.pixel_x + d.pixel_width && py >= d.pixel_y
-            && py < d.pixel_y + d.pixel_height)
+        if (px >= d.pixel_pos.x && px < d.pixel_pos.x + d.pixel_size.x && py >= d.pixel_pos.y
+            && py < d.pixel_pos.y + d.pixel_size.y)
             return LeafHit{ node->leaf().id };
         return std::monostate{};
     }

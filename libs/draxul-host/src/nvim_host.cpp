@@ -49,7 +49,7 @@ bool NvimHost::initialize_host()
     input_.initialize(&rpc_, metrics.cell_width, metrics.cell_height);
     ui_request_worker_.start(&rpc_);
 
-    apply_grid_size(viewport().cols, viewport().rows);
+    apply_grid_size(viewport().grid_size.x, viewport().grid_size.y);
     if (!attach_ui())
         return false;
     if (!execute_startup_commands())
@@ -179,9 +179,9 @@ void NvimHost::request_close()
 
 void NvimHost::on_viewport_changed()
 {
-    input_.set_viewport_origin(viewport().pixel_x + renderer().padding(), viewport().pixel_y + renderer().padding());
-    const int new_cols = std::max(1, viewport().cols);
-    const int new_rows = std::max(1, viewport().rows);
+    input_.set_viewport_origin(viewport().pixel_pos.x + renderer().padding(), viewport().pixel_pos.y + renderer().padding());
+    const int new_cols = std::max(1, viewport().grid_size.x);
+    const int new_rows = std::max(1, viewport().grid_size.y);
     if (grid_cols() == 0 || grid_rows() == 0)
     {
         apply_grid_size(new_cols, new_rows);
@@ -208,8 +208,8 @@ void NvimHost::on_font_metrics_changed_impl()
     flush_grid();
     refresh_cursor_style();
 
-    const int new_cols = std::max(1, viewport().cols);
-    const int new_rows = std::max(1, viewport().rows);
+    const int new_cols = std::max(1, viewport().grid_size.x);
+    const int new_rows = std::max(1, viewport().grid_size.y);
     if (new_cols != grid_cols() || new_rows != grid_rows())
         queue_resize_request(new_cols, new_rows, "font resize");
 }

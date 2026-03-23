@@ -617,8 +617,7 @@ void App::update_diagnostics_panel()
     DiagnosticPanelState panel;
     panel.visible = ui_panel_.visible();
     panel.display_ppi = display_ppi_;
-    panel.cell_width = cell_w;
-    panel.cell_height = cell_h;
+    panel.cell_size = { cell_w, cell_h };
     panel.frame_ms = frame_timer_.last_ms();
     panel.average_frame_ms = frame_timer_.average_ms();
     panel.atlas_usage_ratio = text_service_.atlas_usage_ratio();
@@ -630,8 +629,7 @@ void App::update_diagnostics_panel()
     if (host_manager_.host())
     {
         const HostDebugState host_state = host_manager_.host()->debug_state();
-        panel.grid_cols = host_state.grid_cols;
-        panel.grid_rows = host_state.grid_rows;
+        panel.grid_size = { host_state.grid_cols, host_state.grid_rows };
         panel.dirty_cells = host_state.dirty_cells;
     }
 
@@ -655,17 +653,15 @@ HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
     const auto& layout = ui_panel_.layout();
 
     HostViewport viewport;
-    viewport.pixel_x = desc.pixel_x;
-    viewport.pixel_y = desc.pixel_y;
-    viewport.pixel_width = desc.pixel_width;
-    viewport.pixel_height = desc.pixel_height;
+    viewport.pixel_pos = desc.pixel_pos;
+    viewport.pixel_size = desc.pixel_size;
     viewport.padding = padding;
     viewport.pixel_scale = layout.pixel_scale;
 
-    const int usable_w = viewport.pixel_width - 2 * padding;
-    const int usable_h = viewport.pixel_height - 2 * padding;
-    viewport.cols = cell_w > 0 ? std::max(1, usable_w / cell_w) : 1;
-    viewport.rows = cell_h > 0 ? std::max(1, usable_h / cell_h) : 1;
+    const int usable_w = viewport.pixel_size.x - 2 * padding;
+    const int usable_h = viewport.pixel_size.y - 2 * padding;
+    viewport.grid_size.x = cell_w > 0 ? std::max(1, usable_w / cell_w) : 1;
+    viewport.grid_size.y = cell_h > 0 ? std::max(1, usable_h / cell_h) : 1;
     return viewport;
 }
 

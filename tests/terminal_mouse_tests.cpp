@@ -96,8 +96,7 @@ struct TermSetup
         text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
 
         HostViewport vp;
-        vp.cols = cols;
-        vp.rows = rows;
+        vp.grid_size = { cols, rows };
 
         HostContext ctx{ window, renderer, text_service, {}, vp, 96.0f };
 
@@ -117,8 +116,7 @@ struct TermSetup
         MouseButtonEvent ev;
         ev.button = button;
         ev.pressed = true;
-        ev.x = px;
-        ev.y = py;
+        ev.pos = { px, py };
         ev.mod = static_cast<uint16_t>(mod);
         host.on_mouse_button(ev);
     }
@@ -128,8 +126,7 @@ struct TermSetup
         MouseButtonEvent ev;
         ev.button = button;
         ev.pressed = false;
-        ev.x = px;
-        ev.y = py;
+        ev.pos = { px, py };
         ev.mod = static_cast<uint16_t>(mod);
         host.on_mouse_button(ev);
     }
@@ -137,8 +134,7 @@ struct TermSetup
     void move(int px, int py)
     {
         MouseMoveEvent ev;
-        ev.x = px;
-        ev.y = py;
+        ev.pos = { px, py };
         host.on_mouse_move(ev);
     }
 };

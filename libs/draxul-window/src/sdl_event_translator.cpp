@@ -41,8 +41,7 @@ std::optional<MouseButtonEvent> translate_mouse_button(const SDL_Event& event)
         (int)event.button.button,
         event.type == SDL_EVENT_MOUSE_BUTTON_DOWN,
         static_cast<ModifierFlags>(SDL_GetModState()),
-        (int)event.button.x,
-        (int)event.button.y,
+        { (int)event.button.x, (int)event.button.y },
     };
 }
 
@@ -56,8 +55,7 @@ std::optional<MouseMoveEvent> translate_mouse_move(const SDL_Event& event)
     // modifier state at event-enqueue time, which is a SDL3 API limitation.
     return MouseMoveEvent{
         static_cast<ModifierFlags>(SDL_GetModState()),
-        (int)event.motion.x,
-        (int)event.motion.y,
+        { (int)event.motion.x, (int)event.motion.y },
     };
 }
 
@@ -70,11 +68,9 @@ std::optional<MouseWheelEvent> translate_mouse_wheel(const SDL_Event& event)
     // approximation. Under bursty or delayed input this may not reflect the
     // modifier state at event-enqueue time, which is a SDL3 API limitation.
     return MouseWheelEvent{
-        event.wheel.x,
-        event.wheel.y,
+        { event.wheel.x, event.wheel.y },
         static_cast<ModifierFlags>(SDL_GetModState()),
-        (int)event.wheel.mouse_x,
-        (int)event.wheel.mouse_y,
+        { (int)event.wheel.mouse_x, (int)event.wheel.mouse_y },
     };
 }
 
@@ -84,7 +80,7 @@ std::optional<WindowResizeEvent> translate_resize(SDL_Window* window, const SDL_
         return std::nullopt;
     int pw, ph;
     SDL_GetWindowSizeInPixels(window, &pw, &ph);
-    return WindowResizeEvent{ pw, ph };
+    return WindowResizeEvent{ { pw, ph } };
 }
 
 std::optional<DisplayScaleEvent> translate_display_scale(SDL_Window* window, const SDL_Event& event)

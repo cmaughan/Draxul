@@ -14,10 +14,10 @@ TEST_CASE("SplitTree: single leaf", "[split_tree]")
     REQUIRE(tree.focused() == id);
 
     auto desc = tree.descriptor_for(id);
-    CHECK(desc.pixel_x == 0);
-    CHECK(desc.pixel_y == 0);
-    CHECK(desc.pixel_width == 1000);
-    CHECK(desc.pixel_height == 800);
+    CHECK(desc.pixel_pos.x == 0);
+    CHECK(desc.pixel_pos.y == 0);
+    CHECK(desc.pixel_size.x == 1000);
+    CHECK(desc.pixel_size.y == 800);
 
     // Can't close the last leaf.
     CHECK_FALSE(tree.close_leaf(id));
@@ -37,15 +37,15 @@ TEST_CASE("SplitTree: vertical split", "[split_tree]")
     auto rd = tree.descriptor_for(right);
 
     // 1000 total, 4px divider → 996 available, 498 each
-    CHECK(ld.pixel_x == 0);
-    CHECK(ld.pixel_y == 0);
-    CHECK(ld.pixel_width == 498);
-    CHECK(ld.pixel_height == 800);
+    CHECK(ld.pixel_pos.x == 0);
+    CHECK(ld.pixel_pos.y == 0);
+    CHECK(ld.pixel_size.x == 498);
+    CHECK(ld.pixel_size.y == 800);
 
-    CHECK(rd.pixel_x == 502);
-    CHECK(rd.pixel_y == 0);
-    CHECK(rd.pixel_width == 498);
-    CHECK(rd.pixel_height == 800);
+    CHECK(rd.pixel_pos.x == 502);
+    CHECK(rd.pixel_pos.y == 0);
+    CHECK(rd.pixel_size.x == 498);
+    CHECK(rd.pixel_size.y == 800);
 }
 
 TEST_CASE("SplitTree: horizontal split", "[split_tree]")
@@ -60,15 +60,15 @@ TEST_CASE("SplitTree: horizontal split", "[split_tree]")
     auto bd = tree.descriptor_for(bottom);
 
     // 800 total, 4px divider → 796 available, 398 each
-    CHECK(td.pixel_x == 0);
-    CHECK(td.pixel_y == 0);
-    CHECK(td.pixel_width == 1000);
-    CHECK(td.pixel_height == 398);
+    CHECK(td.pixel_pos.x == 0);
+    CHECK(td.pixel_pos.y == 0);
+    CHECK(td.pixel_size.x == 1000);
+    CHECK(td.pixel_size.y == 398);
 
-    CHECK(bd.pixel_x == 0);
-    CHECK(bd.pixel_y == 402);
-    CHECK(bd.pixel_width == 1000);
-    CHECK(bd.pixel_height == 398);
+    CHECK(bd.pixel_pos.x == 0);
+    CHECK(bd.pixel_pos.y == 402);
+    CHECK(bd.pixel_size.x == 1000);
+    CHECK(bd.pixel_size.y == 398);
 }
 
 TEST_CASE("SplitTree: recursive split", "[split_tree]")
@@ -88,21 +88,21 @@ TEST_CASE("SplitTree: recursive split", "[split_tree]")
     auto cd = tree.descriptor_for(c);
 
     // A: left half
-    CHECK(ad.pixel_x == 0);
-    CHECK(ad.pixel_width == 498);
-    CHECK(ad.pixel_height == 800);
+    CHECK(ad.pixel_pos.x == 0);
+    CHECK(ad.pixel_size.x == 498);
+    CHECK(ad.pixel_size.y == 800);
 
     // B: right-top
-    CHECK(bd.pixel_x == 502);
-    CHECK(bd.pixel_y == 0);
-    CHECK(bd.pixel_width == 498);
-    CHECK(bd.pixel_height == 398);
+    CHECK(bd.pixel_pos.x == 502);
+    CHECK(bd.pixel_pos.y == 0);
+    CHECK(bd.pixel_size.x == 498);
+    CHECK(bd.pixel_size.y == 398);
 
     // C: right-bottom
-    CHECK(cd.pixel_x == 502);
-    CHECK(cd.pixel_y == 402);
-    CHECK(cd.pixel_width == 498);
-    CHECK(cd.pixel_height == 398);
+    CHECK(cd.pixel_pos.x == 502);
+    CHECK(cd.pixel_pos.y == 402);
+    CHECK(cd.pixel_size.x == 498);
+    CHECK(cd.pixel_size.y == 398);
 }
 
 TEST_CASE("SplitTree: close leaf in 2-pane", "[split_tree]")
@@ -115,10 +115,10 @@ TEST_CASE("SplitTree: close leaf in 2-pane", "[split_tree]")
     REQUIRE(tree.leaf_count() == 1);
 
     auto ad = tree.descriptor_for(a);
-    CHECK(ad.pixel_x == 0);
-    CHECK(ad.pixel_y == 0);
-    CHECK(ad.pixel_width == 1000);
-    CHECK(ad.pixel_height == 800);
+    CHECK(ad.pixel_pos.x == 0);
+    CHECK(ad.pixel_pos.y == 0);
+    CHECK(ad.pixel_size.x == 1000);
+    CHECK(ad.pixel_size.y == 800);
 }
 
 TEST_CASE("SplitTree: close leaf in 3-pane collapses parent", "[split_tree]")
@@ -134,13 +134,13 @@ TEST_CASE("SplitTree: close leaf in 3-pane collapses parent", "[split_tree]")
     REQUIRE(tree.leaf_count() == 2);
 
     auto ad = tree.descriptor_for(a);
-    CHECK(ad.pixel_x == 0);
-    CHECK(ad.pixel_width == 498);
+    CHECK(ad.pixel_pos.x == 0);
+    CHECK(ad.pixel_size.x == 498);
 
     auto cd = tree.descriptor_for(c);
-    CHECK(cd.pixel_x == 502);
-    CHECK(cd.pixel_width == 498);
-    CHECK(cd.pixel_height == 800); // full height — parent split collapsed
+    CHECK(cd.pixel_pos.x == 502);
+    CHECK(cd.pixel_size.x == 498);
+    CHECK(cd.pixel_size.y == 800); // full height — parent split collapsed
 }
 
 TEST_CASE("SplitTree: close leaf promotes sibling subtree", "[split_tree]")
@@ -159,14 +159,14 @@ TEST_CASE("SplitTree: close leaf promotes sibling subtree", "[split_tree]")
     auto cd = tree.descriptor_for(c);
 
     // Now horizontally split across full window
-    CHECK(ad.pixel_x == 0);
-    CHECK(ad.pixel_width == 1000);
-    CHECK(ad.pixel_height == 398);
+    CHECK(ad.pixel_pos.x == 0);
+    CHECK(ad.pixel_size.x == 1000);
+    CHECK(ad.pixel_size.y == 398);
 
-    CHECK(cd.pixel_x == 0);
-    CHECK(cd.pixel_y == 402);
-    CHECK(cd.pixel_width == 1000);
-    CHECK(cd.pixel_height == 398);
+    CHECK(cd.pixel_pos.x == 0);
+    CHECK(cd.pixel_pos.y == 402);
+    CHECK(cd.pixel_size.x == 1000);
+    CHECK(cd.pixel_size.y == 398);
 }
 
 TEST_CASE("SplitTree: close focused leaf moves focus", "[split_tree]")
@@ -232,11 +232,11 @@ TEST_CASE("SplitTree: recompute on resize", "[split_tree]")
     auto bd = tree.descriptor_for(b);
 
     // 2000 total, 4px divider → 1996, 998 each
-    CHECK(ad.pixel_width == 998);
-    CHECK(ad.pixel_height == 1000);
-    CHECK(bd.pixel_x == 1002);
-    CHECK(bd.pixel_width == 998);
-    CHECK(bd.pixel_height == 1000);
+    CHECK(ad.pixel_size.x == 998);
+    CHECK(ad.pixel_size.y == 1000);
+    CHECK(bd.pixel_pos.x == 1002);
+    CHECK(bd.pixel_size.x == 998);
+    CHECK(bd.pixel_size.y == 1000);
 }
 
 TEST_CASE("SplitTree: set_divider_ratio", "[split_tree]")
@@ -257,9 +257,9 @@ TEST_CASE("SplitTree: set_divider_ratio", "[split_tree]")
     auto bd = tree.descriptor_for(b);
 
     // 996 available, floor(996 * 0.3) = 298
-    CHECK(ad.pixel_width == 298);
-    CHECK(bd.pixel_width == 698);
-    CHECK(bd.pixel_x == 302); // 298 + 4
+    CHECK(ad.pixel_size.x == 298);
+    CHECK(bd.pixel_size.x == 698);
+    CHECK(bd.pixel_pos.x == 302); // 298 + 4
 }
 
 TEST_CASE("SplitTree: set_divider_ratio clamps", "[split_tree]")
@@ -273,13 +273,13 @@ TEST_CASE("SplitTree: set_divider_ratio clamps", "[split_tree]")
 
     // Extreme low — clamped to 0.1
     tree.set_divider_ratio(hit.node, 0.01f);
-    CHECK(tree.descriptor_for(a).pixel_width > 0);
-    CHECK(tree.descriptor_for(b).pixel_width > 0);
+    CHECK(tree.descriptor_for(a).pixel_size.x > 0);
+    CHECK(tree.descriptor_for(b).pixel_size.x > 0);
 
     // Extreme high — clamped to 0.9
     tree.set_divider_ratio(hit.node, 0.99f);
-    CHECK(tree.descriptor_for(a).pixel_width > 0);
-    CHECK(tree.descriptor_for(b).pixel_width > 0);
+    CHECK(tree.descriptor_for(a).pixel_size.x > 0);
+    CHECK(tree.descriptor_for(b).pixel_size.x > 0);
 }
 
 TEST_CASE("SplitTree: for_each_leaf visits all in order", "[split_tree]")
@@ -311,8 +311,8 @@ TEST_CASE("SplitTree: descriptor_for invalid id", "[split_tree]")
     SplitTree tree;
     tree.reset(1000, 800);
     auto desc = tree.descriptor_for(999);
-    CHECK(desc.pixel_width == 0);
-    CHECK(desc.pixel_height == 0);
+    CHECK(desc.pixel_size.x == 0);
+    CHECK(desc.pixel_size.y == 0);
 }
 
 TEST_CASE("SplitTree: pixel conservation", "[split_tree]")
@@ -331,17 +331,17 @@ TEST_CASE("SplitTree: pixel conservation", "[split_tree]")
     // by exactly one leaf or one divider.
     int leaf_pixels = 0;
     tree.for_each_leaf([&](LeafId, const PaneDescriptor& desc) {
-        leaf_pixels += desc.pixel_width * desc.pixel_height;
+        leaf_pixels += desc.pixel_size.x * desc.pixel_size.y;
     });
     // Some pixels belong to dividers, so leaf_pixels < total.
     // But all leaf rects should be non-overlapping and within bounds.
     tree.for_each_leaf([&](LeafId, const PaneDescriptor& desc) {
-        CHECK(desc.pixel_x >= 0);
-        CHECK(desc.pixel_y >= 0);
-        CHECK(desc.pixel_x + desc.pixel_width <= 1001);
-        CHECK(desc.pixel_y + desc.pixel_height <= 801);
-        CHECK(desc.pixel_width > 0);
-        CHECK(desc.pixel_height > 0);
+        CHECK(desc.pixel_pos.x >= 0);
+        CHECK(desc.pixel_pos.y >= 0);
+        CHECK(desc.pixel_pos.x + desc.pixel_size.x <= 1001);
+        CHECK(desc.pixel_pos.y + desc.pixel_size.y <= 801);
+        CHECK(desc.pixel_size.x > 0);
+        CHECK(desc.pixel_size.y > 0);
     });
 }
 
@@ -357,7 +357,7 @@ TEST_CASE("SplitTree: deep recursive split 4 levels", "[split_tree]")
 
     // All leaves should have positive dimensions
     tree.for_each_leaf([&](LeafId, const PaneDescriptor& desc) {
-        CHECK(desc.pixel_width > 0);
-        CHECK(desc.pixel_height > 0);
+        CHECK(desc.pixel_size.x > 0);
+        CHECK(desc.pixel_size.y > 0);
     });
 }

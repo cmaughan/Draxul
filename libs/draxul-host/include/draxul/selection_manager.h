@@ -3,6 +3,7 @@
 #include <draxul/grid.h>
 #include <draxul/types.h>
 #include <functional>
+#include <glm/glm.hpp>
 #include <string>
 #include <vector>
 
@@ -18,8 +19,7 @@ class SelectionManager
 public:
     struct GridPos
     {
-        int col = 0;
-        int row = 0;
+        glm::ivec2 pos{ 0 };
     };
 
     struct Callbacks

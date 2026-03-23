@@ -51,14 +51,14 @@ TEST_CASE("split tree: split creates two leaves with correct viewports", "[host_
     PaneDescriptor d2 = tree.descriptor_for(new_leaf);
 
     // Both panes should have non-zero dimensions
-    REQUIRE(d1.pixel_width > 0);
-    REQUIRE(d1.pixel_height > 0);
-    REQUIRE(d2.pixel_width > 0);
-    REQUIRE(d2.pixel_height > 0);
+    REQUIRE(d1.pixel_size.x > 0);
+    REQUIRE(d1.pixel_size.y > 0);
+    REQUIRE(d2.pixel_size.x > 0);
+    REQUIRE(d2.pixel_size.y > 0);
 
     // Combined widths should approximately equal total (minus divider)
     INFO("vertical split divides width between panes");
-    REQUIRE(d1.pixel_width + d2.pixel_width + SplitTree::kDividerWidth <= 800);
+    REQUIRE(d1.pixel_size.x + d2.pixel_size.x + SplitTree::kDividerWidth <= 800);
 }
 
 TEST_CASE("split tree: horizontal split divides height", "[host_manager]")
@@ -73,10 +73,10 @@ TEST_CASE("split tree: horizontal split divides height", "[host_manager]")
     PaneDescriptor d2 = tree.descriptor_for(new_leaf);
 
     INFO("horizontal split divides height between panes");
-    REQUIRE(d1.pixel_height + d2.pixel_height + SplitTree::kDividerWidth <= 600);
+    REQUIRE(d1.pixel_size.y + d2.pixel_size.y + SplitTree::kDividerWidth <= 600);
     INFO("horizontal split preserves full width for both panes");
-    REQUIRE(d1.pixel_width == 800);
-    REQUIRE(d2.pixel_width == 800);
+    REQUIRE(d1.pixel_size.x == 800);
+    REQUIRE(d2.pixel_size.x == 800);
 }
 
 TEST_CASE("split tree: close leaf collapses tree and reassigns focus", "[host_manager]")
@@ -116,12 +116,12 @@ TEST_CASE("split tree: hit test returns correct leaf", "[host_manager]")
     PaneDescriptor d_right = tree.descriptor_for(right);
 
     // Hit test in the left pane
-    auto result_left = tree.hit_test(d_left.pixel_x + 10, d_left.pixel_y + 10);
+    auto result_left = tree.hit_test(d_left.pixel_pos.x + 10, d_left.pixel_pos.y + 10);
     REQUIRE(std::holds_alternative<SplitTree::LeafHit>(result_left));
     REQUIRE(std::get<SplitTree::LeafHit>(result_left).id == root);
 
     // Hit test in the right pane
-    auto result_right = tree.hit_test(d_right.pixel_x + 10, d_right.pixel_y + 10);
+    auto result_right = tree.hit_test(d_right.pixel_pos.x + 10, d_right.pixel_pos.y + 10);
     REQUIRE(std::holds_alternative<SplitTree::LeafHit>(result_right));
     REQUIRE(std::get<SplitTree::LeafHit>(result_right).id == right);
 }
@@ -141,11 +141,11 @@ TEST_CASE("split tree: recompute updates all descriptors proportionally", "[host
     PaneDescriptor d2_after = tree.descriptor_for(right);
 
     INFO("recomputed pane is wider than before");
-    REQUIRE(d1_after.pixel_width > d1_before.pixel_width);
+    REQUIRE(d1_after.pixel_size.x > d1_before.pixel_size.x);
     INFO("recomputed panes fit in new window dimensions");
-    REQUIRE(d1_after.pixel_width + d2_after.pixel_width + SplitTree::kDividerWidth <= 1600);
+    REQUIRE(d1_after.pixel_size.x + d2_after.pixel_size.x + SplitTree::kDividerWidth <= 1600);
     INFO("height adjusts to new window height");
-    REQUIRE(d1_after.pixel_height == 1200);
+    REQUIRE(d1_after.pixel_size.y == 1200);
 }
 
 TEST_CASE("split tree: for_each_leaf visits all leaves", "[host_manager]")
@@ -192,7 +192,7 @@ TEST_CASE("split tree: double split creates three panes", "[host_manager]")
     REQUIRE(tree.leaf_count() == 3);
 
     // All descriptors should have non-zero dimensions
-    REQUIRE(tree.descriptor_for(root).pixel_width > 0);
-    REQUIRE(tree.descriptor_for(second).pixel_width > 0);
-    REQUIRE(tree.descriptor_for(third).pixel_width > 0);
+    REQUIRE(tree.descriptor_for(root).pixel_size.x > 0);
+    REQUIRE(tree.descriptor_for(second).pixel_size.x > 0);
+    REQUIRE(tree.descriptor_for(third).pixel_size.x > 0);
 }

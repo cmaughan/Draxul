@@ -41,21 +41,18 @@ public:
         MouseButtonEvent press_ev;
         press_ev.button = 1;
         press_ev.pressed = true;
-        press_ev.x = c1 * 8;
-        press_ev.y = r1 * 16;
+        press_ev.pos = { c1 * 8, r1 * 16 };
         press_ev.mod = {};
         on_mouse_button(press_ev);
 
         MouseMoveEvent move_ev;
-        move_ev.x = c2 * 8;
-        move_ev.y = r2 * 16;
+        move_ev.pos = { c2 * 8, r2 * 16 };
         on_mouse_move(move_ev);
 
         MouseButtonEvent release_ev;
         release_ev.button = 1;
         release_ev.pressed = false;
-        release_ev.x = c2 * 8;
-        release_ev.y = r2 * 16;
+        release_ev.pos = { c2 * 8, r2 * 16 };
         release_ev.mod = {};
         on_mouse_button(release_ev);
     }
@@ -144,8 +141,7 @@ struct SelSetup
         text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
 
         HostViewport vp;
-        vp.cols = cols;
-        vp.rows = rows;
+        vp.grid_size = { cols, rows };
 
         HostContext ctx{ window, renderer, text_service, {}, vp, 96.0f };
 

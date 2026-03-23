@@ -238,8 +238,8 @@ int NvimInput::pixel_to_row(int y) const
 
 void NvimInput::on_mouse_button(const MouseButtonEvent& event)
 {
-    int grid_col = pixel_to_col(event.x);
-    int grid_row = pixel_to_row(event.y);
+    int grid_col = pixel_to_col(event.pos.x);
+    int grid_row = pixel_to_row(event.pos.y);
 
     std::string button;
     switch (event.button)
@@ -279,8 +279,8 @@ void NvimInput::on_mouse_move(const MouseMoveEvent& event)
     if (!mouse_pressed_ || mouse_button_.empty())
         return;
 
-    int grid_col = pixel_to_col(event.x);
-    int grid_row = pixel_to_row(event.y);
+    int grid_col = pixel_to_col(event.pos.x);
+    int grid_row = pixel_to_row(event.pos.y);
     std::string modifiers = mouse_modifiers(event.mod);
 
     rpc_->notify("nvim_input_mouse", { NvimRpc::make_str(mouse_button_), NvimRpc::make_str("drag"), NvimRpc::make_str(modifiers), NvimRpc::make_int(0), NvimRpc::make_int(grid_row), NvimRpc::make_int(grid_col) });
@@ -288,17 +288,17 @@ void NvimInput::on_mouse_move(const MouseMoveEvent& event)
 
 void NvimInput::on_mouse_wheel(const MouseWheelEvent& event)
 {
-    int grid_col = pixel_to_col(event.x);
-    int grid_row = pixel_to_row(event.y);
+    int grid_col = pixel_to_col(event.pos.x);
+    int grid_row = pixel_to_row(event.pos.y);
 
     std::string direction;
-    if (event.dy > 0)
+    if (event.delta.y > 0)
         direction = "up";
-    else if (event.dy < 0)
+    else if (event.delta.y < 0)
         direction = "down";
-    else if (event.dx > 0)
+    else if (event.delta.x > 0)
         direction = "right";
-    else if (event.dx < 0)
+    else if (event.delta.x < 0)
         direction = "left";
     else
         return;

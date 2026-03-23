@@ -91,8 +91,8 @@ struct KeyTestSetup
         text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
 
         HostViewport vp;
-        vp.cols = 20;
-        vp.rows = 5;
+        vp.grid_size.x = 20;
+        vp.grid_size.y = 5;
 
         HostContext ctx{ window, renderer, text_service, {}, vp, 96.0f };
 

@@ -18,9 +18,9 @@ void layout_hidden_uses_full_window_height()
     INFO("hidden panel should leave the full terminal height");
     REQUIRE(layout.terminal_height == 800);
     INFO("hidden panel should preserve full-width grid columns");
-    REQUIRE(layout.grid_cols == 127);
+    REQUIRE(layout.grid_size.x == 127);
     INFO("hidden panel should preserve full-height grid rows");
-    REQUIRE(layout.grid_rows == 39);
+    REQUIRE(layout.grid_size.y == 39);
 }
 
 void layout_visible_reserves_bottom_panel_space()
@@ -36,9 +36,9 @@ void layout_visible_reserves_bottom_panel_space()
     INFO("terminal height should snap to where terminal content ends");
     REQUIRE(layout.terminal_height == 521);
     INFO("panel should not change grid columns");
-    REQUIRE(layout.grid_cols == 127);
+    REQUIRE(layout.grid_size.x == 127);
     INFO("panel should reduce the available grid rows");
-    REQUIRE(layout.grid_rows == 26);
+    REQUIRE(layout.grid_size.y == 26);
     INFO("panel hit-testing should include bottom-region points");
     REQUIRE(layout.contains_panel_point(100, 600));
     INFO("panel hit-testing should exclude terminal points");

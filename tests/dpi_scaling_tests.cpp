@@ -59,9 +59,9 @@ TEST_CASE("dpi 1.0x: grid dimensions match window pixels divided by cell size", 
     // cols = (800 - 2) / 8 = 99
     // rows = (600 - 2) / 16 = 37
     INFO("1x scale cols match pixel division");
-    REQUIRE(layout.grid_cols == 99);
+    REQUIRE(layout.grid_size.x == 99);
     INFO("1x scale rows match pixel division");
-    REQUIRE(layout.grid_rows == 37);
+    REQUIRE(layout.grid_size.y == 37);
 }
 
 TEST_CASE("dpi 2.0x: same logical window with doubled cell size halves grid dimensions", "[display]")
@@ -74,9 +74,9 @@ TEST_CASE("dpi 2.0x: same logical window with doubled cell size halves grid dime
     // 1x: cols=(800-2)/8=99, rows=(600-2)/16=37
     // 2x: cols=(1600-2)/16=99, rows=(1200-2)/32=37
     INFO("2x retina: same logical grid cols when pixel size and cell size both double");
-    REQUIRE(layout_1x.grid_cols == layout_2x.grid_cols);
+    REQUIRE(layout_1x.grid_size.x == layout_2x.grid_size.x);
     INFO("2x retina: same logical grid rows when pixel size and cell size both double");
-    REQUIRE(layout_1x.grid_rows == layout_2x.grid_rows);
+    REQUIRE(layout_1x.grid_size.y == layout_2x.grid_size.y);
 }
 
 TEST_CASE("dpi 1.5x fractional scale: grid dimensions round down correctly", "[display]")
@@ -86,9 +86,9 @@ TEST_CASE("dpi 1.5x fractional scale: grid dimensions round down correctly", "[d
     // rows = (900 - 2) / 24 = 37 (898/24 = 37.4... → 37)
     const PanelLayout layout = compute_panel_layout(1200, 900, 12, 24, 1, false);
     INFO("1.5x scale cols round down correctly");
-    REQUIRE(layout.grid_cols == 99);
+    REQUIRE(layout.grid_size.x == 99);
     INFO("1.5x scale rows round down correctly");
-    REQUIRE(layout.grid_rows == 37);
+    REQUIRE(layout.grid_size.y == 37);
 }
 
 TEST_CASE("dpi window resize with constant dpi recalculates grid dimensions", "[display]")
@@ -99,13 +99,13 @@ TEST_CASE("dpi window resize with constant dpi recalculates grid dimensions", "[
     // small: cols=(800-2)/8=99, rows=(600-2)/16=37
     // large: cols=(1000-2)/8=124, rows=(700-2)/16=43
     INFO("wider window gives more columns at same DPI");
-    REQUIRE(large.grid_cols > small.grid_cols);
+    REQUIRE(large.grid_size.x > small.grid_size.x);
     INFO("taller window gives more rows at same DPI");
-    REQUIRE(large.grid_rows > small.grid_rows);
+    REQUIRE(large.grid_size.y > small.grid_size.y);
     INFO("wider window columns at 1x DPI");
-    REQUIRE(large.grid_cols == 124);
+    REQUIRE(large.grid_size.x == 124);
     INFO("taller window rows at 1x DPI");
-    REQUIRE(large.grid_rows == 43);
+    REQUIRE(large.grid_size.y == 43);
 }
 
 // --- TextService: cell metrics scale with PPI ---
@@ -189,16 +189,16 @@ TEST_CASE("dpi cell size at 1.0x feeds correct grid dimensions to panel layout",
     // A typical 1x HD window: 1280x800
     const PanelLayout layout = compute_panel_layout(1280, 800, m.cell_width, m.cell_height, 1, false);
     INFO("grid has at least one column");
-    REQUIRE(layout.grid_cols > 0);
+    REQUIRE(layout.grid_size.x > 0);
     INFO("grid has at least one row");
-    REQUIRE(layout.grid_rows > 0);
+    REQUIRE(layout.grid_size.y > 0);
     // Columns should fit roughly 1280/cell_width characters
     const int expected_cols = (1280 - 2) / m.cell_width;
     const int expected_rows = (800 - 2) / m.cell_height;
     INFO("grid cols match expected cell division");
-    REQUIRE(layout.grid_cols == expected_cols);
+    REQUIRE(layout.grid_size.x == expected_cols);
     INFO("grid rows match expected cell division");
-    REQUIRE(layout.grid_rows == expected_rows);
+    REQUIRE(layout.grid_size.y == expected_rows);
 
     svc.shutdown();
 }
@@ -268,16 +268,16 @@ TEST_CASE("dpi hotplug stress: panel layout consistent after each scale change",
         const int cell_h = static_cast<int>(16 * scale);
         const PanelLayout layout = compute_panel_layout(px_w, px_h, cell_w, cell_h, 1, false);
         INFO("grid_cols positive after rapid scale change");
-        REQUIRE(layout.grid_cols > 0);
+        REQUIRE(layout.grid_size.x > 0);
         INFO("grid_rows positive after rapid scale change");
-        REQUIRE(layout.grid_rows > 0);
-        last_cols = layout.grid_cols;
-        last_rows = layout.grid_rows;
+        REQUIRE(layout.grid_size.y > 0);
+        last_cols = layout.grid_size.x;
+        last_rows = layout.grid_size.y;
     }
     // Final state is 2x scale; cols/rows should match a fresh 2x layout
     const PanelLayout final_layout = compute_panel_layout(1280 * 2, 800 * 2, 8 * 2, 16 * 2, 1, false);
     INFO("final cols after 20 hotplug events matches fresh 2x layout");
-    REQUIRE(last_cols == final_layout.grid_cols);
+    REQUIRE(last_cols == final_layout.grid_size.x);
     INFO("final rows after 20 hotplug events matches fresh 2x layout");
-    REQUIRE(last_rows == final_layout.grid_rows);
+    REQUIRE(last_rows == final_layout.grid_size.y);
 }

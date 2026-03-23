@@ -22,7 +22,7 @@ protected:
             launch_options().terminal_fg.value_or(Color(0.92f, 0.92f, 0.92f, 1.0f)));
         highlights().set_default_bg(
             launch_options().terminal_bg.value_or(Color(0.08f, 0.09f, 0.10f, 1.0f)));
-        apply_grid_size(viewport().cols, viewport().rows);
+        apply_grid_size(viewport().grid_size.x, viewport().grid_size.y);
         reset_terminal_state();
 
         std::string command = launch_options().command.empty() ? "pwsh.exe" : launch_options().command;

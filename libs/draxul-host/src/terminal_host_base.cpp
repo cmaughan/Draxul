@@ -110,8 +110,8 @@ bool TerminalHostBase::dispatch_action(std::string_view action)
 
 void TerminalHostBase::on_viewport_changed()
 {
-    const int new_cols = std::max(1, viewport().cols);
-    const int new_rows = std::max(1, viewport().rows);
+    const int new_cols = std::max(1, viewport().grid_size.x);
+    const int new_rows = std::max(1, viewport().grid_size.y);
     if (new_cols == grid_cols() && new_rows == grid_rows())
         return;
 
