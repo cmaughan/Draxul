@@ -15,13 +15,13 @@ Modern shells (zsh, bash with proper config, fish) emit the OSC 7 escape sequenc
 
 ## Implementation Plan
 
-- [ ] Search for OSC sequence handling in the VT parser / terminal host code (`libs/draxul-host/src/`). Identify whether there is already an OSC dispatch mechanism.
-- [ ] If OSC dispatch exists: find where OSC sequences are routed after parsing. Add a case for OSC code `7`.
-- [ ] If OSC dispatch does not exist: add a minimal OSC parser to the terminal byte stream processing path. Only needs to handle the standard `ESC ] N ; ST` framing.
-- [ ] Add an `on_osc_7(std::string_view path)` callback to `TerminalHostBase` (or the appropriate base class). Default implementation: no-op.
-- [ ] In `ShellHost` (or equivalent): override `on_osc_7()` to update the pane title via whatever title-update API the host or window uses.
-- [ ] Test manually: open a shell pane, `cd /tmp`, verify the pane title updates.
-- [ ] Build and run smoke test.
+- [x] Search for OSC sequence handling in the VT parser / terminal host code (`libs/draxul-host/src/`). Identify whether there is already an OSC dispatch mechanism.
+- [x] If OSC dispatch exists: find where OSC sequences are routed after parsing. Add a case for OSC code `7`.
+- [x] If OSC dispatch does not exist: add a minimal OSC parser to the terminal byte stream processing path. Only needs to handle the standard `ESC ] N ; ST` framing.
+- [x] Add an `on_osc_7(std::string_view path)` callback to `TerminalHostBase` (or the appropriate base class). Default implementation: no-op.
+- [x] In `ShellHost` (or equivalent): override `on_osc_7()` to update the pane title via whatever title-update API the host or window uses.
+- [x] Test manually: open a shell pane, `cd /tmp`, verify the pane title updates.
+- [x] Build and run smoke test.
 
 ---
 

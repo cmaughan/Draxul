@@ -118,6 +118,16 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tomlplusplus)
 include_directories(${tomlplusplus_SOURCE_DIR}/include)
 
+# GLM (OpenGL Mathematics — header-only vector/matrix library)
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 1.0.1
+    GIT_SHALLOW TRUE
+)
+set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glm)
+
 # Catch2 (test framework)
 FetchContent_Declare(
     Catch2

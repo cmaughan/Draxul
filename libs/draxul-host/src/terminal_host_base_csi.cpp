@@ -476,15 +476,84 @@ void TerminalHostBase::csi_margins(bool private_mode, const std::vector<int>& pa
     }
 }
 
-void TerminalHostBase::handle_osc(std::string_view body) const
+// Decode percent-encoded bytes in a URI path (e.g. %20 → ' ').
+// Only touches %XX sequences; all other characters pass through unchanged.
+static std::string percent_decode(std::string_view encoded)
+{
+    std::string out;
+    out.reserve(encoded.size());
+    for (size_t i = 0; i < encoded.size(); ++i)
+    {
+        if (encoded[i] == '%' && i + 2 < encoded.size())
+        {
+            const auto hi = encoded[i + 1];
+            const auto lo = encoded[i + 2];
+            auto hex_digit = [](char c) -> int {
+                if (c >= '0' && c <= '9')
+                    return c - '0';
+                if (c >= 'a' && c <= 'f')
+                    return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F')
+                    return c - 'A' + 10;
+                return -1;
+            };
+            const int h = hex_digit(hi);
+            const int l = hex_digit(lo);
+            if (h >= 0 && l >= 0)
+            {
+                out.push_back(static_cast<char>((h << 4) | l));
+                i += 2;
+                continue;
+            }
+        }
+        out.push_back(encoded[i]);
+    }
+    return out;
+}
+
+// Extract the filesystem path from an OSC 7 URI (file://hostname/path).
+// Returns the decoded absolute path, or empty string if the URI is malformed.
+static std::string extract_osc7_path(std::string_view uri)
+{
+    // Strip the "file://" prefix.
+    constexpr std::string_view kFilePrefix = "file://";
+    if (uri.size() < kFilePrefix.size())
+        return {};
+    if (uri.substr(0, kFilePrefix.size()) != kFilePrefix)
+        return {};
+    uri.remove_prefix(kFilePrefix.size());
+
+    // Skip the hostname — everything up to the next '/'.
+    const size_t slash = uri.find('/');
+    if (slash == std::string_view::npos)
+        return {};
+    uri.remove_prefix(slash); // keep the leading '/'
+
+    return percent_decode(uri);
+}
+
+void TerminalHostBase::handle_osc(std::string_view body)
 {
     const size_t semi = body.find(';');
     if (semi == std::string_view::npos)
         return;
 
     const std::string_view code = body.substr(0, semi);
+    const std::string_view payload = body.substr(semi + 1);
+
     if ((code == "0" || code == "2") && callbacks().set_window_title)
-        callbacks().set_window_title(std::string(body.substr(semi + 1)));
+    {
+        callbacks().set_window_title(std::string(payload));
+    }
+    else if (code == "7")
+    {
+        std::string path = extract_osc7_path(payload);
+        if (!path.empty())
+        {
+            DRAXUL_LOG_DEBUG(LogCategory::App, "OSC 7: cwd = %s", path.c_str());
+            on_osc_cwd(path);
+        }
+    }
 }
 
 void TerminalHostBase::consume_output(std::string_view bytes)

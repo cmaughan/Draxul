@@ -88,6 +88,12 @@ protected:
         // Intentionally empty — LocalTerminalHost overrides to forward to MouseReporter.
     }
 
+    // Hook called by handle_osc() when the shell emits an OSC 7
+    // directory-change notification (file://hostname/path).  The decoded
+    // filesystem path is passed directly — no URL prefix, no percent-encoding.
+    // Default implementation updates the window title to the directory basename.
+    virtual void on_osc_cwd(const std::string& path);
+
 private:
     uint16_t attr_id();
     void clear_cell(int col, int row);
@@ -98,7 +104,7 @@ private:
     void handle_control(char ch);
     void handle_esc(char ch);
     void handle_csi(char final_char, std::string_view body);
-    void handle_osc(std::string_view body) const;
+    void handle_osc(std::string_view body);
 
     // CSI dispatch helpers — each handles one logical group of sequences.
     // Called from handle_csi(); pure behavioral extraction, no logic changes.

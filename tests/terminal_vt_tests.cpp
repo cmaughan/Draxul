@@ -101,6 +101,7 @@ struct TermSetup
     TextService text_service;
     TestTerminalHost host;
     bool ok = false;
+    std::string last_title; // captures the most recent set_window_title call
 
     explicit TermSetup(int cols = 20, int rows = 5)
     {
@@ -123,7 +124,7 @@ struct TermSetup
         cbs.request_frame = [] {};
         cbs.request_quit = [] {};
         cbs.wake_window = [] {};
-        cbs.set_window_title = [](const std::string&) {};
+        cbs.set_window_title = [this](const std::string& title) { last_title = title; };
         cbs.set_text_input_area = [](int, int, int, int) {};
 
         ok = host.initialize(ctx, std::move(cbs));
@@ -1093,4 +1094,82 @@ TEST_CASE("terminal: auto-wrap mode can be toggled with ?7h and ?7l", "[terminal
     ts.host.feed("ABCDEF"); // 6 chars in 5-wide terminal: wraps to row 2
     INFO("wrap enabled: F on row 2");
     REQUIRE(ts.host.cell_text(0, 2) == std::string("F"));
+}
+
+// ---------------------------------------------------------------------------
+// OSC 7 — working directory notification
+// ---------------------------------------------------------------------------
+
+TEST_CASE("terminal: OSC 7 sets window title to directory basename", "[terminal]")
+{
+    TermSetup ts;
+    INFO("host must initialize");
+    REQUIRE(ts.ok);
+    // Standard OSC 7 with localhost hostname, BEL terminator
+    ts.host.feed("\x1B]7;file://localhost/Users/chris/projects\x07");
+    REQUIRE(ts.last_title == "projects");
+}
+
+TEST_CASE("terminal: OSC 7 with empty hostname", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    // Empty hostname (common on macOS zsh)
+    ts.host.feed("\x1B]7;file:///tmp\x07");
+    REQUIRE(ts.last_title == "tmp");
+}
+
+TEST_CASE("terminal: OSC 7 with trailing slash", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]7;file://host/home/user/\x07");
+    REQUIRE(ts.last_title == "user");
+}
+
+TEST_CASE("terminal: OSC 7 root directory", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]7;file://localhost/\x07");
+    REQUIRE(ts.last_title == "/");
+}
+
+TEST_CASE("terminal: OSC 7 percent-decodes path", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    // %20 = space, %2F should not appear in practice but test mixed encoding
+    ts.host.feed("\x1B]7;file://localhost/home/my%20folder\x07");
+    REQUIRE(ts.last_title == "my folder");
+}
+
+TEST_CASE("terminal: OSC 7 with ST terminator", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    // ST = ESC backslash
+    ts.host.feed("\x1B]7;file:///var/log\x1B\\");
+    REQUIRE(ts.last_title == "log");
+}
+
+TEST_CASE("terminal: OSC 7 malformed URI is ignored", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    // Not a file:// URI — should be silently ignored
+    ts.host.feed("\x1B]7;http://example.com/path\x07");
+    REQUIRE(ts.last_title.empty());
+}
+
+TEST_CASE("terminal: OSC 0 title still works alongside OSC 7", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    // OSC 0 sets title
+    ts.host.feed("\x1B]0;My Terminal\x07");
+    REQUIRE(ts.last_title == "My Terminal");
+    // OSC 7 overrides it
+    ts.host.feed("\x1B]7;file:///home/user/code\x07");
+    REQUIRE(ts.last_title == "code");
 }

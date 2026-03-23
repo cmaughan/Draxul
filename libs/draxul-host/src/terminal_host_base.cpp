@@ -326,4 +326,27 @@ void TerminalHostBase::erase_display(int mode)
     }
 }
 
+// ---------------------------------------------------------------------------
+// OSC 7 — working directory change
+// ---------------------------------------------------------------------------
+
+void TerminalHostBase::on_osc_cwd(const std::string& path)
+{
+    if (!callbacks().set_window_title)
+        return;
+
+    // Show the last path component (directory name) as the window title,
+    // matching the convention used by most terminal emulators.
+    std::string_view sv = path;
+
+    // Strip trailing slash(es) so that "/tmp/" yields "tmp", not "".
+    while (sv.size() > 1 && sv.back() == '/')
+        sv.remove_suffix(1);
+
+    const auto last_slash = sv.rfind('/');
+    const std::string_view basename = (last_slash != std::string_view::npos) ? sv.substr(last_slash + 1) : sv;
+
+    callbacks().set_window_title(basename.empty() ? "/" : std::string(basename));
+}
+
 } // namespace draxul
