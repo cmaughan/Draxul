@@ -153,7 +153,7 @@ int TextService::atlas_height() const
 AtlasDirtyRect TextService::atlas_dirty_rect() const
 {
     const auto& dirty = impl_->atlas_manager.cache().dirty_rect();
-    return { dirty.x, dirty.y, dirty.w, dirty.h };
+    return { dirty.pos, dirty.size };
 }
 
 float TextService::atlas_usage_ratio() const

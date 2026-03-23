@@ -217,23 +217,23 @@ void GridRenderingPipeline::upload_atlas()
     else
     {
         const auto dirty = glyph_atlas_.atlas_dirty_rect();
-        if (dirty.w > 0 && dirty.h > 0)
+        if (dirty.size.x > 0 && dirty.size.y > 0)
         {
             constexpr size_t atlas_pixel_size = 4;
-            atlas_upload_scratch_.resize((size_t)dirty.w * dirty.h * atlas_pixel_size);
+            atlas_upload_scratch_.resize((size_t)dirty.size.x * dirty.size.y * atlas_pixel_size);
 
             const uint8_t* atlas = glyph_atlas_.atlas_data();
             const int atlas_width = glyph_atlas_.atlas_width();
-            for (int row = 0; row < dirty.h; row++)
+            for (int row = 0; row < dirty.size.y; row++)
             {
                 const uint8_t* src = atlas
-                    + (((size_t)(dirty.y + row) * atlas_width) + dirty.x) * atlas_pixel_size;
-                uint8_t* dst = atlas_upload_scratch_.data() + (size_t)row * dirty.w * atlas_pixel_size;
-                std::memcpy(dst, src, (size_t)dirty.w * atlas_pixel_size);
+                    + (((size_t)(dirty.pos.y + row) * atlas_width) + dirty.pos.x) * atlas_pixel_size;
+                uint8_t* dst = atlas_upload_scratch_.data() + (size_t)row * dirty.size.x * atlas_pixel_size;
+                std::memcpy(dst, src, (size_t)dirty.size.x * atlas_pixel_size);
             }
 
             renderer_->update_atlas_region(
-                dirty.x, dirty.y, dirty.w, dirty.h, atlas_upload_scratch_.data());
+                dirty.pos.x, dirty.pos.y, dirty.size.x, dirty.size.y, atlas_upload_scratch_.data());
         }
     }
 

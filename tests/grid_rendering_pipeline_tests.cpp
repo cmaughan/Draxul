@@ -23,12 +23,12 @@ public:
         : resets_remaining_(resets_remaining)
     {
         atlas_.assign(16, 0x7F);
-        glyphs_["A"] = { 0.0f, 0.0f, 0.25f, 0.5f, 1, 2, 7, 9, false };
-        glyphs_["B"] = { 0.25f, 0.0f, 0.5f, 0.5f, 2, 3, 8, 10, false };
-        glyphs_["-"] = { 0.5f, 0.0f, 0.625f, 0.5f, 1, 1, 6, 3, false };
-        glyphs_[">"] = { 0.625f, 0.0f, 0.75f, 0.5f, 1, 1, 6, 8, false };
-        glyphs_["X"] = { 0.75f, 0.0f, 0.875f, 0.5f, 1, 2, 7, 9, false };
-        glyphs_["->"] = { 0.0f, 0.5f, 0.375f, 1.0f, 1, 2, 18, 9, false };
+        glyphs_["A"] = { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false };
+        glyphs_["B"] = { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false };
+        glyphs_["-"] = { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 6, 3 }, false };
+        glyphs_[">"] = { { 0.625f, 0.0f, 0.75f, 0.5f }, { 1, 1 }, { 6, 8 }, false };
+        glyphs_["X"] = { { 0.75f, 0.0f, 0.875f, 0.5f }, { 1, 2 }, { 7, 9 }, false };
+        glyphs_["->"] = { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, false };
         ligature_spans_["->"] = 2;
     }
 
@@ -87,7 +87,7 @@ public:
 
     AtlasDirtyRect atlas_dirty_rect() const override
     {
-        return { 0, 0, 2, 2 };
+        return { { 0, 0 }, { 2, 2 } };
     }
 
     int resolve_calls = 0;
@@ -242,9 +242,9 @@ TEST_CASE("grid rendering pipeline retries once after an atlas reset", "[grid]")
     INFO("both dirty cells should be sent to the renderer");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("first glyph survives the retry");
-    REQUIRE(handle.update_batches[0][0].glyph.width == 7);
+    REQUIRE(handle.update_batches[0][0].glyph.size.x == 7);
     INFO("second glyph survives the retry");
-    REQUIRE(handle.update_batches[0][1].glyph.width == 8);
+    REQUIRE(handle.update_batches[0][1].glyph.size.x == 8);
     INFO("successful retry clears the grid dirty set");
     REQUIRE(grid.dirty_cell_count() == size_t(0));
 }
@@ -297,9 +297,9 @@ TEST_CASE("grid rendering pipeline combines two-cell ligatures into a leader and
     INFO("leader and continuation cells should both be updated");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("leader cell stores the ligature atlas region");
-    REQUIRE(handle.update_batches[0][0].glyph.width == 18);
+    REQUIRE(handle.update_batches[0][0].glyph.size.x == 18);
     INFO("continuation cell renders no glyph");
-    REQUIRE(handle.update_batches[0][1].glyph.width == 0);
+    REQUIRE(handle.update_batches[0][1].glyph.size.x == 0);
 }
 
 TEST_CASE("grid rendering pipeline redraws the leader when a continuation change breaks a ligature", "[grid]")
@@ -336,7 +336,7 @@ TEST_CASE("grid rendering pipeline redraws the leader when a continuation change
     INFO("both cells are updated to clear the old ligature");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("leader redraw restores a standalone glyph");
-    REQUIRE(handle.update_batches[0][0].glyph.width > 0);
+    REQUIRE(handle.update_batches[0][0].glyph.size.x > 0);
     INFO("changed cell restores its standalone glyph");
-    REQUIRE(handle.update_batches[0][1].glyph.width > 0);
+    REQUIRE(handle.update_batches[0][1].glyph.size.x > 0);
 }

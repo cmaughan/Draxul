@@ -7,20 +7,22 @@
 #include <cstdint>
 #include <vector>
 
+#include <glm/glm.hpp>
+
 namespace draxul
 {
 
 // Data sent to the GPU per cell (matches SSBO layout)
 struct alignas(16) GpuCell
 {
-    float pos_x, pos_y; // Screen position in pixels
-    float size_x, size_y; // Cell size in pixels
-    float bg_r, bg_g, bg_b, bg_a;
-    float fg_r, fg_g, fg_b, fg_a;
-    float sp_r, sp_g, sp_b, sp_a;
-    float uv_x0, uv_y0, uv_x1, uv_y1; // Atlas UVs
-    float glyph_offset_x, glyph_offset_y;
-    float glyph_size_x, glyph_size_y;
+    glm::vec2 pos = {}; // Screen position in pixels
+    glm::vec2 size = {}; // Cell size in pixels
+    glm::vec4 bg = {};
+    glm::vec4 fg = {};
+    glm::vec4 sp = {};
+    glm::vec4 uv = {}; // Atlas UVs (x=x0, y=y0, z=x1, w=y1)
+    glm::vec2 glyph_offset = {};
+    glm::vec2 glyph_size = {};
     uint32_t style_flags;
     std::array<uint32_t, 3> _pad{};
 
@@ -28,13 +30,13 @@ struct alignas(16) GpuCell
 };
 static_assert(sizeof(GpuCell) == 112, "GpuCell must be 112 bytes for SSBO alignment");
 // Field offsets must match the shader struct layout in shaders/grid.metal and shaders/grid.glsl
-static_assert(offsetof(GpuCell, pos_x) == 0, "GpuCell layout mismatch: pos_x");
-static_assert(offsetof(GpuCell, bg_r) == 16, "GpuCell layout mismatch: bg_r");
-static_assert(offsetof(GpuCell, fg_r) == 32, "GpuCell layout mismatch: fg_r");
-static_assert(offsetof(GpuCell, sp_r) == 48, "GpuCell layout mismatch: sp_r");
-static_assert(offsetof(GpuCell, uv_x0) == 64, "GpuCell layout mismatch: uv_x0");
-static_assert(offsetof(GpuCell, glyph_offset_x) == 80, "GpuCell layout mismatch: glyph_offset_x");
-static_assert(offsetof(GpuCell, glyph_size_x) == 88, "GpuCell layout mismatch: glyph_size_x");
+static_assert(offsetof(GpuCell, pos) == 0, "GpuCell layout mismatch: pos");
+static_assert(offsetof(GpuCell, bg) == 16, "GpuCell layout mismatch: bg");
+static_assert(offsetof(GpuCell, fg) == 32, "GpuCell layout mismatch: fg");
+static_assert(offsetof(GpuCell, sp) == 48, "GpuCell layout mismatch: sp");
+static_assert(offsetof(GpuCell, uv) == 64, "GpuCell layout mismatch: uv");
+static_assert(offsetof(GpuCell, glyph_offset) == 80, "GpuCell layout mismatch: glyph_offset");
+static_assert(offsetof(GpuCell, glyph_size) == 88, "GpuCell layout mismatch: glyph_size");
 static_assert(offsetof(GpuCell, style_flags) == 96, "GpuCell layout mismatch: style_flags");
 
 class RendererState

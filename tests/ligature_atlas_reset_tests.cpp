@@ -52,7 +52,7 @@ TEST_CASE("ligature atlas reset: single-cell glyph survives re-cache after reset
     // Cache a single-cell ASCII glyph.
     AtlasRegion before = ts.resolve_cluster("A");
     INFO("glyph 'A' must rasterize to a non-empty region");
-    REQUIRE((before.width > 0 || before.height > 0));
+    REQUIRE((before.size.x > 0 || before.size.y > 0));
 
     // Trigger an atlas reset by changing the font size back and forth.
     const float old_size = ts.point_size();
@@ -65,7 +65,7 @@ TEST_CASE("ligature atlas reset: single-cell glyph survives re-cache after reset
     // Re-query the same glyph — should rasterise at the new size.
     AtlasRegion after = ts.resolve_cluster("A");
     INFO("glyph 'A' re-rasterises after atlas reset");
-    REQUIRE((after.width > 0 || after.height > 0));
+    REQUIRE((after.size.x > 0 || after.size.y > 0));
 
     // Reset back to original size.
     ts.set_point_size(old_size);
@@ -144,9 +144,9 @@ TEST_CASE("ligature atlas reset: multi-cluster ligature re-caches cleanly after 
     // The important assertion: no crash and the returned region coords are
     // within the atlas bounds.
     INFO("fi re-cache: u0 >= 0");
-    REQUIRE(after.u0 >= 0.0f);
+    REQUIRE(after.uv.x >= 0.0f);
     INFO("fi re-cache: v0 >= 0");
-    REQUIRE(after.v0 >= 0.0f);
+    REQUIRE(after.uv.y >= 0.0f);
 
     ts.set_point_size(old_size);
 }

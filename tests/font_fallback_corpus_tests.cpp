@@ -140,11 +140,11 @@ TEST_CASE("font fallback corpus: TextService initializes and all script blocks r
         // resolve_cluster must not crash or assert — that is the primary guarantee
         const AtlasRegion region = service.resolve_cluster(entry.text);
 
-        if (region.width > 0)
+        if (region.size.x > 0)
         {
             ++resolved_count;
             DRAXUL_LOG_INFO(LogCategory::Test, "[corpus] %s: resolved (%dx%d)", entry.script,
-                region.width, region.height);
+                region.size.x, region.size.y);
         }
         else
         {
@@ -175,7 +175,7 @@ TEST_CASE("font fallback corpus: TextService initializes and all script blocks r
     {
         const AtlasRegion r = service.resolve_cluster(req->text);
         INFO(std::string(req->script) + " must resolve in primary font (non-zero width)");
-        REQUIRE(r.width > 0);
+        REQUIRE(r.size.x > 0);
     }
 
     service.shutdown();

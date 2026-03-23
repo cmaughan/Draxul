@@ -109,24 +109,13 @@ void RendererState::set_grid_size(int cols, int rows, int padding)
                 else
                 {
                     cell = GpuCell{};
-                    cell.bg_r = default_bg_.r;
-                    cell.bg_g = default_bg_.g;
-                    cell.bg_b = default_bg_.b;
-                    cell.bg_a = default_bg_.a;
-                    cell.fg_r = 1.0f;
-                    cell.fg_g = 1.0f;
-                    cell.fg_b = 1.0f;
-                    cell.fg_a = 1.0f;
-                    cell.sp_r = 1.0f;
-                    cell.sp_g = 1.0f;
-                    cell.sp_b = 1.0f;
-                    cell.sp_a = 1.0f;
+                    cell.bg = { default_bg_.r, default_bg_.g, default_bg_.b, default_bg_.a };
+                    cell.fg = glm::vec4(1.0f);
+                    cell.sp = glm::vec4(1.0f);
                 }
                 // Update position for new layout
-                cell.pos_x = (float)(c * cell_w_ + padding_);
-                cell.pos_y = (float)(r * cell_h_ + padding_);
-                cell.size_x = (float)cell_w_;
-                cell.size_y = (float)cell_h_;
+                cell.pos = { (float)(c * cell_w_ + padding_), (float)(r * cell_h_ + padding_) };
+                cell.size = { (float)cell_w_, (float)cell_h_ };
             }
         }
 
@@ -163,30 +152,14 @@ void RendererState::set_default_background(Color bg)
 void RendererState::apply_update_to_cell(GpuCell& cell, const CellUpdate& u) const
 {
     cell = {};
-    cell.pos_x = (float)(u.col * cell_w_ + padding_);
-    cell.pos_y = (float)(u.row * cell_h_ + padding_);
-    cell.size_x = (float)cell_w_;
-    cell.size_y = (float)cell_h_;
-    cell.bg_r = u.bg.r;
-    cell.bg_g = u.bg.g;
-    cell.bg_b = u.bg.b;
-    cell.bg_a = u.bg.a;
-    cell.fg_r = u.fg.r;
-    cell.fg_g = u.fg.g;
-    cell.fg_b = u.fg.b;
-    cell.fg_a = u.fg.a;
-    cell.sp_r = u.sp.r;
-    cell.sp_g = u.sp.g;
-    cell.sp_b = u.sp.b;
-    cell.sp_a = u.sp.a;
-    cell.uv_x0 = u.glyph.u0;
-    cell.uv_y0 = u.glyph.v0;
-    cell.uv_x1 = u.glyph.u1;
-    cell.uv_y1 = u.glyph.v1;
-    cell.glyph_offset_x = (float)u.glyph.bearing_x;
-    cell.glyph_offset_y = (float)(cell_h_ - ascender_ + u.glyph.bearing_y);
-    cell.glyph_size_x = (float)u.glyph.width;
-    cell.glyph_size_y = (float)u.glyph.height;
+    cell.pos = { (float)(u.col * cell_w_ + padding_), (float)(u.row * cell_h_ + padding_) };
+    cell.size = { (float)cell_w_, (float)cell_h_ };
+    cell.bg = { u.bg.r, u.bg.g, u.bg.b, u.bg.a };
+    cell.fg = { u.fg.r, u.fg.g, u.fg.b, u.fg.a };
+    cell.sp = { u.sp.r, u.sp.g, u.sp.b, u.sp.a };
+    cell.uv = u.glyph.uv;
+    cell.glyph_offset = { (float)u.glyph.bearing.x, (float)(cell_h_ - ascender_ + u.glyph.bearing.y) };
+    cell.glyph_size = glm::vec2(u.glyph.size);
     cell.style_flags = u.style_flags;
 }
 
@@ -200,22 +173,11 @@ void RendererState::relayout()
         for (int c = 0; c < grid_cols_; c++)
         {
             auto& cell = gpu_cells_[(size_t)r * grid_cols_ + c];
-            cell.pos_x = (float)(c * cell_w_ + padding_);
-            cell.pos_y = (float)(r * cell_h_ + padding_);
-            cell.size_x = (float)cell_w_;
-            cell.size_y = (float)cell_h_;
-            cell.bg_r = default_bg_.r;
-            cell.bg_g = default_bg_.g;
-            cell.bg_b = default_bg_.b;
-            cell.bg_a = default_bg_.a;
-            cell.fg_r = 1.0f;
-            cell.fg_g = 1.0f;
-            cell.fg_b = 1.0f;
-            cell.fg_a = 1.0f;
-            cell.sp_r = 1.0f;
-            cell.sp_g = 1.0f;
-            cell.sp_b = 1.0f;
-            cell.sp_a = 1.0f;
+            cell.pos = { (float)(c * cell_w_ + padding_), (float)(r * cell_h_ + padding_) };
+            cell.size = { (float)cell_w_, (float)cell_h_ };
+            cell.bg = { default_bg_.r, default_bg_.g, default_bg_.b, default_bg_.a };
+            cell.fg = glm::vec4(1.0f);
+            cell.sp = glm::vec4(1.0f);
         }
     }
 
@@ -296,23 +258,14 @@ void RendererState::apply_cursor()
         // underneath (red cursor on a red keyword, etc.). cursor_style_.bg is guaranteed to
         // contrast with the background: either a properly-resolved cursor highlight (reverse
         // or explicit fg/bg), or the default_fg() fallback set in refresh_cursor_style().
-        cell.fg_r = cursor_style_.fg.r;
-        cell.fg_g = cursor_style_.fg.g;
-        cell.fg_b = cursor_style_.fg.b;
-        cell.fg_a = cursor_style_.fg.a;
-        cell.bg_r = cursor_style_.bg.r;
-        cell.bg_g = cursor_style_.bg.g;
-        cell.bg_b = cursor_style_.bg.b;
-        cell.bg_a = cursor_style_.bg.a;
+        cell.fg = { cursor_style_.fg.r, cursor_style_.fg.g, cursor_style_.fg.b, cursor_style_.fg.a };
+        cell.bg = { cursor_style_.bg.r, cursor_style_.bg.g, cursor_style_.bg.b, cursor_style_.bg.a };
         mark_cell_dirty((size_t)idx);
         return;
     }
 
     overlay_cell_ = {};
-    overlay_cell_.bg_r = cursor_style_.bg.r;
-    overlay_cell_.bg_g = cursor_style_.bg.g;
-    overlay_cell_.bg_b = cursor_style_.bg.b;
-    overlay_cell_.bg_a = cursor_style_.bg.a;
+    overlay_cell_.bg = { cursor_style_.bg.r, cursor_style_.bg.g, cursor_style_.bg.b, cursor_style_.bg.a };
 
     int percentage = cursor_style_.cell_percentage;
     if (percentage <= 0)
@@ -320,17 +273,14 @@ void RendererState::apply_cursor()
 
     if (cursor_style_.shape == CursorShape::Vertical)
     {
-        overlay_cell_.pos_x = cell.pos_x;
-        overlay_cell_.pos_y = cell.pos_y;
-        overlay_cell_.size_x = std::max(1.0f, cell.size_x * static_cast<float>(percentage) / 100.0f);
-        overlay_cell_.size_y = cell.size_y;
+        overlay_cell_.pos = cell.pos;
+        overlay_cell_.size = { std::max(1.0f, cell.size.x * static_cast<float>(percentage) / 100.0f), cell.size.y };
     }
     else
     {
-        overlay_cell_.pos_x = cell.pos_x;
-        overlay_cell_.size_y = std::max(1.0f, cell.size_y * static_cast<float>(percentage) / 100.0f);
-        overlay_cell_.pos_y = cell.pos_y + cell.size_y - overlay_cell_.size_y;
-        overlay_cell_.size_x = cell.size_x;
+        overlay_cell_.size.y = std::max(1.0f, cell.size.y * static_cast<float>(percentage) / 100.0f);
+        overlay_cell_.pos = { cell.pos.x, cell.pos.y + cell.size.y - overlay_cell_.size.y };
+        overlay_cell_.size.x = cell.size.x;
     }
 
     cursor_overlay_active_ = true;

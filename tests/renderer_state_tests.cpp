@@ -43,30 +43,14 @@ std::vector<GpuCell> snapshot(const RendererState& state)
 TEST_CASE("gpu cell equality compares all meaningful fields", "[renderer]")
 {
     GpuCell a = {};
-    a.pos_x = 10.0f;
-    a.pos_y = 20.0f;
-    a.size_x = 11.0f;
-    a.size_y = 21.0f;
-    a.bg_r = 0.1f;
-    a.bg_g = 0.2f;
-    a.bg_b = 0.3f;
-    a.bg_a = 0.4f;
-    a.fg_r = 0.5f;
-    a.fg_g = 0.6f;
-    a.fg_b = 0.7f;
-    a.fg_a = 0.8f;
-    a.sp_r = 0.9f;
-    a.sp_g = 1.0f;
-    a.sp_b = 1.1f;
-    a.sp_a = 1.2f;
-    a.uv_x0 = 0.11f;
-    a.uv_y0 = 0.22f;
-    a.uv_x1 = 0.33f;
-    a.uv_y1 = 0.44f;
-    a.glyph_offset_x = 2.0f;
-    a.glyph_offset_y = 3.0f;
-    a.glyph_size_x = 4.0f;
-    a.glyph_size_y = 5.0f;
+    a.pos = { 10.0f, 20.0f };
+    a.size = { 11.0f, 21.0f };
+    a.bg = { 0.1f, 0.2f, 0.3f, 0.4f };
+    a.fg = { 0.5f, 0.6f, 0.7f, 0.8f };
+    a.sp = { 0.9f, 1.0f, 1.1f, 1.2f };
+    a.uv = { 0.11f, 0.22f, 0.33f, 0.44f };
+    a.glyph_offset = { 2.0f, 3.0f };
+    a.glyph_size = { 4.0f, 5.0f };
     a.style_flags = 7;
 
     GpuCell b = a;
@@ -79,7 +63,7 @@ TEST_CASE("gpu cell equality compares all meaningful fields", "[renderer]")
     REQUIRE(!(a == c));
 
     GpuCell d = a;
-    d.pos_x = 99.0f;
+    d.pos.x = 99.0f;
     INFO("gpu cell equality tracks position changes");
     REQUIRE(!(a == d));
 }
@@ -97,7 +81,7 @@ TEST_CASE("renderer state projects cell updates into gpu cells", "[renderer]")
     update.bg = { 0.1f, 0.2f, 0.3f, 1.0f };
     update.fg = { 0.9f, 0.8f, 0.7f, 1.0f };
     update.sp = { 0.5f, 0.4f, 0.3f, 1.0f };
-    update.glyph = { 0.1f, 0.2f, 0.3f, 0.4f, 2, 3, 6, 7 };
+    update.glyph = { { 0.1f, 0.2f, 0.3f, 0.4f }, { 2, 3 }, { 6, 7 } };
     update.style_flags = 5;
     state.update_cells({ &update, 1 });
 
@@ -107,19 +91,19 @@ TEST_CASE("renderer state projects cell updates into gpu cells", "[renderer]")
     INFO("buffer includes overlay region and cursor slot");
     REQUIRE(static_cast<int>(state.buffer_size_bytes()) == static_cast<int>((state.total_cells() + RendererState::OVERLAY_CELL_CAPACITY + 1) * sizeof(GpuCell)));
     INFO("cell x position uses cell width and padding");
-    REQUIRE(static_cast<int>(gpu[1].pos_x) == 11);
+    REQUIRE(static_cast<int>(gpu[1].pos.x) == 11);
     INFO("cell y position uses padding");
-    REQUIRE(static_cast<int>(gpu[1].pos_y) == 1);
+    REQUIRE(static_cast<int>(gpu[1].pos.y) == 1);
     INFO("background color is copied");
-    REQUIRE(gpu[1].bg_b == 0.3f);
+    REQUIRE(gpu[1].bg.b == 0.3f);
     INFO("foreground color is copied");
-    REQUIRE(gpu[1].fg_r == 0.9f);
+    REQUIRE(gpu[1].fg.r == 0.9f);
     INFO("special color is copied");
-    REQUIRE(gpu[1].sp_r == 0.5f);
+    REQUIRE(gpu[1].sp.r == 0.5f);
     INFO("glyph width is copied");
-    REQUIRE(gpu[1].glyph_size_x == 6.0f);
+    REQUIRE(gpu[1].glyph_size.x == 6.0f);
     INFO("glyph y offset uses ascender and cell height");
-    REQUIRE(gpu[1].glyph_offset_y == 7.0f);
+    REQUIRE(gpu[1].glyph_offset.y == 7.0f);
     INFO("style flags are copied");
     REQUIRE(gpu[1].style_flags == static_cast<uint32_t>(5));
 }
@@ -137,16 +121,16 @@ TEST_CASE("block cursor saves the cell under the cursor for later restore", "[re
 
     auto gpu = snapshot(state);
     INFO("block cursor overrides background");
-    REQUIRE(gpu[0].bg_r == 0.0f);
+    REQUIRE(gpu[0].bg.r == 0.0f);
     INFO("block cursor overrides foreground");
-    REQUIRE(gpu[0].fg_r == 1.0f);
+    REQUIRE(gpu[0].fg.r == 1.0f);
 
     state.restore_cursor();
     gpu = snapshot(state);
     INFO("restoring cursor restores background");
-    REQUIRE(gpu[0].bg_r == 0.2f);
+    REQUIRE(gpu[0].bg.r == 0.2f);
     INFO("restoring cursor restores foreground");
-    REQUIRE(gpu[0].fg_r == 0.8f);
+    REQUIRE(gpu[0].fg.r == 0.8f);
 }
 
 TEST_CASE("block cursor restores the previous cell when the cursor moves", "[renderer]")
@@ -168,13 +152,13 @@ TEST_CASE("block cursor restores the previous cell when the cursor moves", "[ren
 
     const auto gpu = snapshot(state);
     INFO("moving the cursor restores the old cell background");
-    REQUIRE(gpu[0].bg_r == 0.2f);
+    REQUIRE(gpu[0].bg.r == 0.2f);
     INFO("moving the cursor restores the old cell foreground");
-    REQUIRE(gpu[0].fg_r == 0.8f);
+    REQUIRE(gpu[0].fg.r == 0.8f);
     INFO("the new cursor location receives the cursor background");
-    REQUIRE(gpu[1].bg_r == 0.0f);
+    REQUIRE(gpu[1].bg.r == 0.0f);
     INFO("the new cursor location receives the cursor foreground");
-    REQUIRE(gpu[1].fg_r == 1.0f);
+    REQUIRE(gpu[1].fg.r == 1.0f);
 }
 
 TEST_CASE("block cursor restores the saved cell when hidden", "[renderer]")
@@ -192,9 +176,9 @@ TEST_CASE("block cursor restores the saved cell when hidden", "[renderer]")
 
     const auto gpu = snapshot(state);
     INFO("hiding the cursor restores the original background");
-    REQUIRE(gpu[0].bg_r == 0.3f);
+    REQUIRE(gpu[0].bg.r == 0.3f);
     INFO("hiding the cursor restores the original foreground");
-    REQUIRE(gpu[0].fg_r == 0.7f);
+    REQUIRE(gpu[0].fg.r == 0.7f);
 }
 
 TEST_CASE("adjacent cell updates do not corrupt block cursor restore", "[renderer]")
@@ -216,13 +200,13 @@ TEST_CASE("adjacent cell updates do not corrupt block cursor restore", "[rendere
 
     const auto gpu = snapshot(state);
     INFO("restoring the cursor keeps the original cell content");
-    REQUIRE(gpu[0].bg_r == 0.2f);
+    REQUIRE(gpu[0].bg.r == 0.2f);
     INFO("restoring the cursor keeps the original foreground");
-    REQUIRE(gpu[0].fg_r == 0.8f);
+    REQUIRE(gpu[0].fg.r == 0.8f);
     INFO("adjacent updates are preserved");
-    REQUIRE(gpu[1].bg_r == 0.9f);
+    REQUIRE(gpu[1].bg.r == 0.9f);
     INFO("adjacent foreground updates are preserved");
-    REQUIRE(gpu[1].fg_r == 0.1f);
+    REQUIRE(gpu[1].fg.r == 0.1f);
 }
 
 TEST_CASE("renderer state appends overlay geometry for line cursors", "[renderer]")
@@ -250,11 +234,11 @@ TEST_CASE("renderer state appends overlay geometry for line cursors", "[renderer
     INFO("line cursor adds one overlay background instance");
     REQUIRE(state.bg_instances() == 2);
     INFO("overlay cell carries cursor background");
-    REQUIRE(gpu[state.total_cells()].bg_r == 1.0f);
+    REQUIRE(gpu[state.total_cells()].bg.r == 1.0f);
     INFO("overlay width uses cell percentage");
-    REQUIRE(gpu[state.total_cells()].size_x == 3.0f);
+    REQUIRE(gpu[state.total_cells()].size.x == 3.0f);
     INFO("overlay height spans the cell");
-    REQUIRE(gpu[state.total_cells()].size_y == 20.0f);
+    REQUIRE(gpu[state.total_cells()].size.y == 20.0f);
 }
 
 TEST_CASE("renderer state keeps debug overlay cells separate from the grid", "[renderer]")
@@ -271,7 +255,7 @@ TEST_CASE("renderer state keeps debug overlay cells separate from the grid", "[r
     overlay.bg = { 0.0f, 0.0f, 0.0f, 0.8f };
     overlay.fg = { 0.1f, 0.8f, 1.0f, 1.0f };
     overlay.sp = overlay.fg;
-    overlay.glyph = { 0.1f, 0.2f, 0.3f, 0.4f, 1, 2, 7, 8 };
+    overlay.glyph = { { 0.1f, 0.2f, 0.3f, 0.4f }, { 1, 2 }, { 7, 8 } };
     state.set_overlay_cells({ &overlay, 1 });
 
     std::vector<GpuCell> gpu(state.total_cells() + RendererState::OVERLAY_CELL_CAPACITY + 1);
@@ -284,9 +268,9 @@ TEST_CASE("renderer state keeps debug overlay cells separate from the grid", "[r
     INFO("setting the debug overlay dirties the overlay region");
     REQUIRE(state.overlay_region_dirty());
     INFO("overlay cell position uses grid coordinates");
-    REQUIRE(gpu[state.total_cells()].pos_x == 11.0f);
+    REQUIRE(gpu[state.total_cells()].pos.x == 11.0f);
     INFO("overlay cell foreground is copied");
-    REQUIRE(gpu[state.total_cells()].fg_g == 0.8f);
+    REQUIRE(gpu[state.total_cells()].fg.g == 0.8f);
 }
 
 TEST_CASE("renderer state tracks dirty ranges for incremental uploads", "[renderer]")

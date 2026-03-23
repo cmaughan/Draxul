@@ -72,7 +72,7 @@ public:
 
     AtlasDirtyRect atlas_dirty_rect() const override
     {
-        return { 0, 0, 2, 2 };
+        return { { 0, 0 }, { 2, 2 } };
     }
 
     void register_glyph(const std::string& text, AtlasRegion region)
@@ -236,8 +236,8 @@ TEST_CASE("font size change: force_full_atlas_upload triggers a full atlas textu
 
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    atlas.register_glyph("A", { 0.0f, 0.0f, 0.25f, 0.5f, 1, 2, 7, 9, false });
-    atlas.register_glyph("B", { 0.25f, 0.0f, 0.5f, 0.5f, 2, 3, 8, 10, false });
+    atlas.register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
+    atlas.register_glyph("B", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false });
 
     FakeRenderer renderer;
     FakeGridHandle handle;
@@ -268,8 +268,8 @@ TEST_CASE("font size change: force_full_atlas_upload with no dirty cells still s
 
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    atlas.register_glyph("A", { 0.0f, 0.0f, 0.25f, 0.5f, 1, 2, 7, 9, false });
-    atlas.register_glyph("B", { 0.25f, 0.0f, 0.5f, 0.5f, 2, 3, 8, 10, false });
+    atlas.register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
+    atlas.register_glyph("B", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false });
 
     FakeRenderer renderer;
     FakeGridHandle handle;
@@ -372,7 +372,7 @@ TEST_CASE("font size change cascade: dirty grid plus forced atlas upload produce
 
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    atlas.register_glyph("A", { 0.0f, 0.0f, 0.25f, 0.5f, 1, 2, 7, 9, false });
+    atlas.register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
 
     FakeRenderer renderer;
     FakeGridHandle handle;

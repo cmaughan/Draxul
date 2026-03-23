@@ -120,15 +120,15 @@ void expand_dirty_rect(GlyphCache::DirtyRect& dirty_rect, bool dirty, int x, int
 {
     if (!dirty)
     {
-        dirty_rect = { x, y, w, h };
+        dirty_rect = { { x, y }, { w, h } };
         return;
     }
 
-    int left = std::min(dirty_rect.x, x);
-    int top = std::min(dirty_rect.y, y);
-    int right = std::max(dirty_rect.x + dirty_rect.w, x + w);
-    int bottom = std::max(dirty_rect.y + dirty_rect.h, y + h);
-    dirty_rect = { left, top, right - left, bottom - top };
+    int left = std::min(dirty_rect.pos.x, x);
+    int top = std::min(dirty_rect.pos.y, y);
+    int right = std::max(dirty_rect.pos.x + dirty_rect.size.x, x + w);
+    int bottom = std::max(dirty_rect.pos.y + dirty_rect.size.y, y + h);
+    dirty_rect = { { left, top }, { right - left, bottom - top } };
 }
 
 } // namespace
@@ -161,7 +161,7 @@ void GlyphCache::reset(FT_Face face, int pixel_size)
     shelf_height_ = 0;
     used_pixels_ = 0;
     dirty_ = true;
-    dirty_rect_ = { 0, 0, atlas_size_, atlas_size_ };
+    dirty_rect_ = { { 0, 0 }, { atlas_size_, atlas_size_ } };
     overflowed_ = false;
 }
 
@@ -348,14 +348,14 @@ bool GlyphCache::rasterize_cluster(const std::string& text, FT_Face face, TextSh
     }
 
     float inv_size = 1.0f / static_cast<float>(atlas_size_);
-    region.u0 = static_cast<float>(atlas_x) * inv_size;
-    region.v0 = static_cast<float>(atlas_y) * inv_size;
-    region.u1 = static_cast<float>(atlas_x + cluster_width) * inv_size;
-    region.v1 = static_cast<float>(atlas_y + cluster_height) * inv_size;
-    region.bearing_x = bbox_left;
-    region.bearing_y = bbox_top;
-    region.width = cluster_width;
-    region.height = cluster_height;
+    region.uv = {
+        static_cast<float>(atlas_x) * inv_size,
+        static_cast<float>(atlas_y) * inv_size,
+        static_cast<float>(atlas_x + cluster_width) * inv_size,
+        static_cast<float>(atlas_y + cluster_height) * inv_size
+    };
+    region.bearing = { bbox_left, bbox_top };
+    region.size = { cluster_width, cluster_height };
     region.is_color = cluster_is_color;
 
     expand_dirty_rect(dirty_rect_, dirty_, atlas_x, atlas_y, cluster_width, cluster_height);

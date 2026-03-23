@@ -3,6 +3,8 @@
 #include <glm/glm.hpp>
 #include <vector>
 
+#include <glm/glm.hpp>
+
 namespace draxul
 {
 
@@ -28,9 +30,9 @@ inline Color color_from_rgba(uint32_t rgba)
 
 struct AtlasRegion
 {
-    float u0 = 0, v0 = 0, u1 = 0, v1 = 0; // UV coordinates in atlas
-    int bearing_x = 0, bearing_y = 0; // Glyph bearing from baseline
-    int width = 0, height = 0; // Pixel dimensions
+    glm::vec4 uv = {}; // UV coordinates in atlas (x=u0, y=v0, z=u1, w=v1)
+    glm::ivec2 bearing = {}; // Glyph bearing from baseline
+    glm::ivec2 size = {}; // Pixel dimensions
     bool is_color = false;
 };
 

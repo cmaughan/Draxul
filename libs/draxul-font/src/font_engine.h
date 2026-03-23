@@ -95,10 +95,8 @@ class GlyphCache
 public:
     struct DirtyRect
     {
-        int x = 0;
-        int y = 0;
-        int w = 0;
-        int h = 0;
+        glm::ivec2 pos = {};
+        glm::ivec2 size = {};
     };
 
     bool initialize(FT_Face face, int pixel_size, int atlas_size = 2048);
