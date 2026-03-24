@@ -16,7 +16,7 @@ namespace draxul
 // ---------------------------------------------------------------------------
 // VkGridHandle — per-host grid handle for the Vulkan backend.
 // Each handle owns its pane-local cell state, viewport, and scroll offset.
-// VkRenderer repacks all active handles into a shared SSBO each frame.
+// VkRenderer repacks all active handles into the current frame slot's SSBO.
 // ---------------------------------------------------------------------------
 class VkGridHandle final : public IGridHandle
 {
@@ -37,17 +37,14 @@ public:
     void set_grid_size(int cols, int rows) override
     {
         state_.set_grid_size(cols, rows, padding_);
-        renderer_.upload_dirty_state();
     }
     void update_cells(std::span<const CellUpdate> updates) override
     {
         state_.update_cells(updates);
-        renderer_.upload_dirty_state();
     }
     void set_overlay_cells(std::span<const CellUpdate> updates) override
     {
         state_.set_overlay_cells(updates);
-        renderer_.upload_dirty_state();
     }
     void set_cursor(int col, int row, const CursorStyle& style) override
     {
@@ -56,7 +53,6 @@ public:
     void set_default_background(Color bg) override
     {
         state_.set_default_background(bg);
-        renderer_.upload_dirty_state();
     }
     void set_scroll_offset(float px) override
     {
@@ -114,19 +110,17 @@ void VkRenderer::upload_dirty_state()
     if (total_size == 0)
         return;
 
-    const auto resize_result = grid_buffer_.ensure_size(ctx_.allocator(), total_size);
+    auto& grid_buffer = grid_buffers_[current_frame_];
+    const auto resize_result = grid_buffer.ensure_size(ctx_.allocator(), total_size);
     if (resize_result == BufferResizeResult::Failed)
     {
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to resize Vulkan grid buffer to %zu bytes", total_size);
         return;
     }
     if (resize_result == BufferResizeResult::Resized)
-    {
-        needs_descriptor_update_ = true;
-        desc_update_pending_frames_ = 0;
-    }
+        update_descriptor_sets_for_frame(current_frame_, bg_desc_sets_[current_frame_], fg_desc_sets_[current_frame_]);
 
-    auto* mapped = static_cast<std::byte*>(grid_buffer_.mapped());
+    auto* mapped = static_cast<std::byte*>(grid_buffer.mapped());
     if (!mapped)
         return;
 
@@ -137,7 +131,7 @@ void VkRenderer::upload_dirty_state()
         handle->state_.clear_dirty();
         byte_offset += handle->state_.buffer_size_bytes();
     }
-    grid_buffer_.flush_range(ctx_.allocator(), 0, total_size);
+    grid_buffer.flush_range(ctx_.allocator(), 0, total_size);
 }
 
 bool VkRenderer::ensure_capture_buffer(size_t required_size)
@@ -218,8 +212,11 @@ bool VkRenderer::initialize(IWindow& window)
 
     if (!atlas_.initialize(ctx_, atlas_size_))
         return false;
-    if (!grid_buffer_.initialize(ctx_, 80 * 24 * sizeof(GpuCell)))
-        return false;
+    for (auto& grid_buffer : grid_buffers_)
+    {
+        if (!grid_buffer.initialize(ctx_, 80 * 24 * sizeof(GpuCell)))
+            return false;
+    }
     if (!pipeline_.initialize(ctx_.device(), ctx_.render_pass(), "shaders"))
         return false;
     if (!create_command_buffers())
@@ -228,6 +225,7 @@ bool VkRenderer::initialize(IWindow& window)
         return false;
     if (!create_descriptor_pool(pipeline_, desc_pool_, bg_desc_sets_, fg_desc_sets_))
         return false;
+    images_in_flight_.assign(ctx_.swapchain().images.size(), VK_NULL_HANDLE);
     update_all_descriptor_sets();
     return true;
 }
@@ -269,7 +267,8 @@ void VkRenderer::shutdown()
         vkDestroyDescriptorPool(ctx_.device(), imgui_desc_pool_, nullptr);
     destroy_capture_buffer();
 
-    grid_buffer_.shutdown(ctx_.allocator());
+    for (auto& grid_buffer : grid_buffers_)
+        grid_buffer.shutdown(ctx_.allocator());
     pipeline_.shutdown(ctx_.device());
     atlas_.shutdown(ctx_);
     ctx_.shutdown();
@@ -377,7 +376,7 @@ bool VkRenderer::recreate_frame_resources()
     }
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-        update_descriptor_sets_for_frame(pending_bg_desc_sets[(size_t)i], pending_fg_desc_sets[(size_t)i]);
+        update_descriptor_sets_for_frame(static_cast<size_t>(i), pending_bg_desc_sets[(size_t)i], pending_fg_desc_sets[(size_t)i]);
 
     VkDescriptorPool old_desc_pool = desc_pool_;
     ctx_.commit_swapchain_resources(std::move(pending_swapchain));
@@ -391,8 +390,7 @@ bool VkRenderer::recreate_frame_resources()
     if (old_desc_pool != VK_NULL_HANDLE)
         vkDestroyDescriptorPool(ctx_.device(), old_desc_pool, nullptr);
 
-    needs_descriptor_update_ = false;
-    desc_update_pending_frames_ = 0;
+    images_in_flight_.assign(ctx_.swapchain().images.size(), VK_NULL_HANDLE);
 
     if (imgui_initialized_ && ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)
     {
@@ -404,10 +402,12 @@ bool VkRenderer::recreate_frame_resources()
     return true;
 }
 
-void VkRenderer::update_descriptor_sets_for_frame(VkDescriptorSet bg_desc_set, VkDescriptorSet fg_desc_set)
+void VkRenderer::update_descriptor_sets_for_frame(size_t frame_index, VkDescriptorSet bg_desc_set, VkDescriptorSet fg_desc_set)
 {
+    auto& grid_buffer = grid_buffers_[frame_index];
+
     VkDescriptorBufferInfo buf_info = {};
-    buf_info.buffer = grid_buffer_.buffer();
+    buf_info.buffer = grid_buffer.buffer();
     buf_info.offset = 0;
     buf_info.range = VK_WHOLE_SIZE;
 
@@ -444,8 +444,7 @@ void VkRenderer::update_descriptor_sets_for_frame(VkDescriptorSet bg_desc_set, V
 void VkRenderer::update_all_descriptor_sets()
 {
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-        update_descriptor_sets_for_frame(bg_desc_sets_[(size_t)i], fg_desc_sets_[(size_t)i]);
-    needs_descriptor_update_ = false;
+        update_descriptor_sets_for_frame(static_cast<size_t>(i), bg_desc_sets_[(size_t)i], fg_desc_sets_[(size_t)i]);
 }
 
 void VkRenderer::set_grid_size(int cols, int rows)
@@ -453,29 +452,17 @@ void VkRenderer::set_grid_size(int cols, int rows)
     RendererState next_state = state_;
     next_state.set_grid_size(cols, rows, padding_);
 
-    const auto resize_result = grid_buffer_.ensure_size(ctx_.allocator(), next_state.buffer_size_bytes());
-    if (resize_result == BufferResizeResult::Failed)
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to resize Vulkan grid buffer for %dx%d grid", cols, rows);
-        return;
-    }
-
     state_ = std::move(next_state);
-    if (resize_result == BufferResizeResult::Resized)
-        needs_descriptor_update_ = true;
-    upload_dirty_state();
 }
 
 void VkRenderer::update_cells(std::span<const CellUpdate> updates)
 {
     state_.update_cells(updates);
-    upload_dirty_state();
 }
 
 void VkRenderer::set_overlay_cells(std::span<const CellUpdate> updates)
 {
     state_.set_overlay_cells(updates);
-    upload_dirty_state();
 }
 
 void VkRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
@@ -512,7 +499,6 @@ void VkRenderer::set_cell_size(int w, int h)
     state_.set_cell_size(w, h);
     for (auto* handle : grid_handles_)
         handle->state_.set_cell_size(w, h);
-    upload_dirty_state();
 }
 
 void VkRenderer::set_ascender(int a)
@@ -521,7 +507,6 @@ void VkRenderer::set_ascender(int a)
     state_.set_ascender(a);
     for (auto* handle : grid_handles_)
         handle->state_.set_ascender(a);
-    upload_dirty_state();
 }
 
 std::unique_ptr<IGridHandle> VkRenderer::create_grid_handle()
@@ -692,19 +677,12 @@ bool VkRenderer::begin_frame()
         DRAXUL_LOG_WARN(LogCategory::Renderer, "Vulkan acquire returned VK_SUBOPTIMAL_KHR");
     }
 
-    if (needs_descriptor_update_)
+    if (current_image_ < images_in_flight_.size() && images_in_flight_[current_image_] != VK_NULL_HANDLE)
     {
-        update_descriptor_sets_for_frame(bg_desc_sets_[current_frame_], fg_desc_sets_[current_frame_]);
-        desc_update_pending_frames_ |= ((1u << MAX_FRAMES_IN_FLIGHT) - 1u);
-        desc_update_pending_frames_ &= ~(1u << current_frame_);
-        if (desc_update_pending_frames_ == 0)
-            needs_descriptor_update_ = false;
+        vkWaitForFences(ctx_.device(), 1, &images_in_flight_[current_image_], VK_TRUE, UINT64_MAX);
     }
-    else if (desc_update_pending_frames_ & (1u << current_frame_))
-    {
-        update_descriptor_sets_for_frame(bg_desc_sets_[current_frame_], fg_desc_sets_[current_frame_]);
-        desc_update_pending_frames_ &= ~(1u << current_frame_);
-    }
+    if (current_image_ < images_in_flight_.size())
+        images_in_flight_[current_image_] = in_flight_fences_[current_frame_];
 
     vkResetFences(ctx_.device(), 1, &in_flight_fences_[current_frame_]);
     vkResetCommandBuffer(cmd_buffers_[current_frame_], 0);

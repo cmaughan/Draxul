@@ -3,6 +3,7 @@
 #include "vk_buffers.h"
 #include "vk_context.h"
 #include "vk_pipeline.h"
+#include <array>
 #include <draxul/renderer.h>
 #include <draxul/renderer_state.h>
 #include <optional>
@@ -66,7 +67,7 @@ private:
     bool create_descriptor_pool(const VkPipelineManager& pipeline, VkDescriptorPool& pool,
         std::vector<VkDescriptorSet>& bg_desc_sets, std::vector<VkDescriptorSet>& fg_desc_sets);
     bool recreate_frame_resources();
-    void update_descriptor_sets_for_frame(VkDescriptorSet bg_desc_set, VkDescriptorSet fg_desc_set);
+    void update_descriptor_sets_for_frame(size_t frame_index, VkDescriptorSet bg_desc_set, VkDescriptorSet fg_desc_set);
     void update_all_descriptor_sets();
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
     void upload_dirty_state();
@@ -81,13 +82,14 @@ private:
     VkContext ctx_;
     VkPipelineManager pipeline_;
     VkAtlas atlas_;
-    VkGridBuffer grid_buffer_;
+    std::array<VkGridBuffer, MAX_FRAMES_IN_FLIGHT> grid_buffers_;
 
     VkCommandPool cmd_pool_ = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> cmd_buffers_;
     std::vector<VkSemaphore> image_available_sem_;
     std::vector<VkSemaphore> render_finished_sem_;
     std::vector<VkFence> in_flight_fences_;
+    std::vector<VkFence> images_in_flight_;
 
     VkDescriptorPool desc_pool_ = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> bg_desc_sets_;
@@ -115,8 +117,6 @@ private:
 
     RendererState state_;
     std::vector<PendingAtlasUpload> pending_atlas_uploads_;
-    bool needs_descriptor_update_ = true;
-    uint32_t desc_update_pending_frames_ = 0;
     bool capture_requested_ = false;
     std::optional<CapturedFrame> captured_frame_;
     VkBuffer capture_buffer_ = VK_NULL_HANDLE;
