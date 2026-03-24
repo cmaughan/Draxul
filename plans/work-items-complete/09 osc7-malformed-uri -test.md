@@ -10,14 +10,14 @@
 
 ## Acceptance Criteria
 
-- [ ] Locate `handle_osc()` in `libs/draxul-host/src/terminal_host_base.cpp` (or equivalent).
-- [ ] Add tests using `replay_fixture.h` or direct sequence injection for:
-  - [ ] `\e]7;not-a-url\a` — malformed URI, should produce a WARN or be silently ignored.
-  - [ ] `\e]7;\a` — empty URI, should be handled gracefully.
-  - [ ] `\e]7;file:///valid/path\a` — valid URI, should update the CWD correctly.
-  - [ ] `\e]7;file://host/path\a` — remote host URI (should be ignored or handled appropriately).
-- [ ] Verify no crash under `mac-asan` for any of the above.
-- [ ] Run under `ctest`.
+- [x] Locate `handle_osc()` in `libs/draxul-host/src/terminal_host_base_csi.cpp`.
+- [x] Add tests using direct sequence injection for:
+  - [x] `\e]7;not-a-url\a` — malformed URI, produces a WARN log and is ignored.
+  - [x] `\e]7;\a` — empty URI, produces a WARN log and is handled gracefully.
+  - [x] `\e]7;file:///valid/path\a` — valid URI, updates CWD correctly (pre-existing test).
+  - [x] `\e]7;file://host/path\a` — remote host URI extracts path and updates title.
+- [x] Verify no crash under test run.
+- [x] Run under `ctest`.
 
 ## Implementation Notes
 

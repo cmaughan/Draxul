@@ -69,8 +69,16 @@ public:
     {
         return { 8, 16 };
     }
-    void set_cell_size(int, int) override {}
-    void set_ascender(int) override {}
+    void set_cell_size(int w, int h) override
+    {
+        last_cell_w = w;
+        last_cell_h = h;
+        ++set_cell_size_calls;
+    }
+    void set_ascender(int a) override
+    {
+        last_ascender = a;
+    }
     int padding() const override
     {
         return 0;
@@ -118,6 +126,10 @@ public:
     std::vector<CellUpdate> last_overlay;
     const ImDrawData* last_imgui_draw_data = nullptr;
     int set_imgui_draw_data_calls = 0;
+    int last_cell_w = 8;
+    int last_cell_h = 16;
+    int last_ascender = 0;
+    int set_cell_size_calls = 0;
 
     void reset()
     {
@@ -125,6 +137,10 @@ public:
         last_handle = nullptr;
         last_imgui_draw_data = nullptr;
         set_imgui_draw_data_calls = 0;
+        last_cell_w = 8;
+        last_cell_h = 16;
+        last_ascender = 0;
+        set_cell_size_calls = 0;
     }
 };
 

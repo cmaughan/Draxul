@@ -19,14 +19,14 @@ GPT specifically flagged: file-drop coverage in `file_drop_tests.cpp` reimplemen
 
 ## Acceptance Criteria
 
-- [ ] Read `app/input_dispatcher.h`, `app/input_dispatcher.cpp`, and the existing `tests/input_dispatcher_routing_tests.cpp`.
-- [ ] Use `FakeWindow`, `FakeRenderer`, and a mock/fake host to call `dispatcher.connect(...)` and exercise the full dispatch path.
-- [ ] Add tests for:
-  - [ ] A key event that matches a GUI action reaches the action handler and is NOT forwarded to the host.
-  - [ ] A key event that does NOT match a GUI action is forwarded to the host.
-  - [ ] A file-drop event dispatches through `InputDispatcher` into a fake host's `on_files_dropped()` (or equivalent), verifying the wiring — not just the encoding logic.
-  - [ ] Mouse click events with pixel-scale applied produce correct grid-cell coordinates at the host.
-  - [ ] Text-editing events are forwarded consistently with the (now fixed, after item 02) contract.
+- [x] Read `app/input_dispatcher.h`, `app/input_dispatcher.cpp`, and the existing `tests/input_dispatcher_routing_tests.cpp`.
+- [x] Use `FakeWindow`, `FakeRenderer`, and a mock/fake host to call `dispatcher.connect(...)` and exercise the full dispatch path.
+- [x] Add tests for:
+  - [x] A key event that matches a GUI action reaches the action handler and is NOT forwarded to the host.
+  - [x] A key event that does NOT match a GUI action is forwarded to the host.
+  - [x] A file-drop event dispatches through `InputDispatcher` into a fake host's `on_files_dropped()` (or equivalent), verifying the wiring — not just the encoding logic.
+  - [x] Mouse click events with pixel-scale applied produce correct grid-cell coordinates at the host.
+  - [x] Text-editing events are forwarded consistently with the (now fixed, after item 02) contract.
 - [ ] All new tests run under `ctest` and pass under `mac-asan` preset.
 
 ## Implementation Notes

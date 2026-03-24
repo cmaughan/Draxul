@@ -10,13 +10,13 @@ When the glyph atlas overflows and resets, all glyphs must be re-rasterised. The
 
 ## Acceptance Criteria
 
-- [ ] Locate the atlas reset logic in `libs/draxul-renderer/` (likely in the `GridRenderingPipeline` or atlas management code).
-- [ ] Read the existing `05 grid-pipeline-atlas-reset-retry -test.md` (complete) to understand the existing coverage.
-- [ ] Add a test that:
-  - [ ] Creates (or simulates) two `IGridHandle` instances backed by the same atlas.
-  - [ ] Fills the atlas to overflow.
-  - [ ] Triggers the reset.
-  - [ ] Verifies that cells from both handles are marked dirty and produce correct re-uploads (check dirty flags or re-rasterisation counts).
+- [x] Locate the atlas reset logic in `libs/draxul-renderer/` (likely in the `GridRenderingPipeline` or atlas management code).
+- [x] Read the existing `05 grid-pipeline-atlas-reset-retry -test.md` (complete) to understand the existing coverage.
+- [x] Add a test that:
+  - [x] Creates (or simulates) two `IGridHandle` instances backed by the same atlas.
+  - [x] Fills the atlas to overflow.
+  - [x] Triggers the reset.
+  - [x] Verifies that cells from both handles are marked dirty and produce correct re-uploads (check dirty flags or re-rasterisation counts).
 - [ ] Run under `ctest` and `mac-asan`.
 
 ## Implementation Notes

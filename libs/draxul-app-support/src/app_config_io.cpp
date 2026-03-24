@@ -1,6 +1,7 @@
 #include "toml_support.h"
 #include <draxul/app_config_types.h>
 #include <draxul/keybinding_parser.h>
+#include <draxul/text_service.h>
 
 #include <SDL3/SDL.h>
 #include <algorithm>

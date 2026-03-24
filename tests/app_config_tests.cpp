@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include <draxul/app_config.h>
+#include <draxul/text_service.h>
 
 #include <atomic>
 #include <catch2/catch_all.hpp>

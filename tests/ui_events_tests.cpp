@@ -516,3 +516,52 @@ TEST_CASE("ui event handler consults option state for ambiwidth", "[ui]")
     INFO("ambiguous-width continuation cell is marked");
     REQUIRE(grid.get_cell(1, 0).double_width_cont);
 }
+
+TEST_CASE("ui event handler does not crash when grid is null", "[ui]")
+{
+    HighlightTable highlights;
+    UiEventHandler handler;
+    // Deliberately NOT calling set_grid() — grid_ remains nullptr.
+    handler.set_highlights(&highlights);
+
+    int flushes = 0;
+    handler.on_flush = [&]() { ++flushes; };
+
+    // Send grid-touching events that would dereference grid_ if not guarded.
+    handler.process_redraw({
+        redraw_event("grid_line", { grid_line_batch(1, 0, 0, { cell("A", 1) }) }),
+        redraw_event("grid_scroll", { arr({ i(1), i(0), i(4), i(0), i(8), i(2), i(0) }) }),
+        redraw_event("grid_clear", { arr({ i(1) }) }),
+        redraw_event("grid_resize", { arr({ i(1), i(10), i(6) }) }),
+        redraw_event("flush", {}),
+    });
+
+    INFO("flush still fires even when grid is null");
+    REQUIRE(flushes == 1);
+}
+
+TEST_CASE("ui event handler does not crash when both grid and highlights are null", "[ui]")
+{
+    UiEventHandler handler;
+    // Deliberately NOT calling set_grid() or set_highlights().
+
+    int flushes = 0;
+    handler.on_flush = [&]() { ++flushes; };
+
+    // Send events that touch grid_, highlights_, and neither.
+    handler.process_redraw({
+        redraw_event("grid_line", { grid_line_batch(1, 0, 0, { cell("X", 2) }) }),
+        redraw_event("grid_clear", { arr({ i(1) }) }),
+        redraw_event("grid_scroll", { arr({ i(1), i(0), i(4), i(0), i(8), i(1), i(0) }) }),
+        redraw_event("grid_resize", { arr({ i(1), i(5), i(3) }) }),
+        redraw_event("hl_attr_define", { arr({ i(7), map({ { s("bold"), b(true) } }) }) }),
+        redraw_event("default_colors_set", { arr({ i(0xFFFFFF), i(0x000000), i(0xABCDEF) }) }),
+        redraw_event("mode_change", { arr({ s("insert"), i(1) }) }),
+        redraw_event("flush", {}),
+    });
+
+    INFO("flush fires when all sinks are null");
+    REQUIRE(flushes == 1);
+    INFO("mode change still updates internal state");
+    REQUIRE(handler.current_mode() == 1);
+}

@@ -12,13 +12,13 @@ After item `01 uieventhandler-raw-pointer-safety -bug` adds null assertions, thi
 
 ## Acceptance Criteria
 
-- [ ] Read `UiEventHandler` source and the fix from item 01.
-- [ ] Add a test that:
-  - [ ] Constructs `UiEventHandler` without calling `set_grid()`.
-  - [ ] Calls `process_redraw()` (or the equivalent entry point).
-  - [ ] Asserts the call produces a clean early-return or fires the expected assertion — NOT a segfault or silent memory corruption.
-- [ ] If the assertion fires via `DRAXUL_ASSERT`, verify it is caught under test (check the test harness's assertion override if one exists).
-- [ ] Run under `ctest` and `mac-asan`.
+- [x] Read `UiEventHandler` source and the fix from item 01.
+- [x] Add a test that:
+  - [x] Constructs `UiEventHandler` without calling `set_grid()`.
+  - [x] Calls `process_redraw()` (or the equivalent entry point).
+  - [x] Asserts the call produces a clean early-return or fires the expected assertion — NOT a segfault or silent memory corruption.
+- [x] If the assertion fires via `DRAXUL_ASSERT`, verify it is caught under test (check the test harness's assertion override if one exists).
+- [x] Run under `ctest` and `mac-asan`.
 
 ## Implementation Notes
 

@@ -13,18 +13,18 @@ Previous truncation bugs (`00 celltext-silent-truncation-bug`, `02 celltext-sile
 
 ## Acceptance Criteria
 
-- [ ] Read `libs/draxul-grid/include/draxul/grid.h` (`CellText::assign()`) and the existing grid tests.
-- [ ] Build a corpus of at least 5 known-difficult sequences:
+- [x] Read `libs/draxul-grid/include/draxul/grid.h` (`CellText::assign()`) and the existing grid tests.
+- [x] Build a corpus of at least 5 known-difficult sequences:
   - Family emoji with skin tone: `👨‍👩‍👧‍👦` (likely > 32 bytes as UTF-8)
   - ZWJ sequence: `👁️‍🗨️`
   - Long combining sequence (combining characters stacked)
   - RTL mark sequences
   - A sequence that is exactly 32 bytes (boundary case)
-- [ ] For each sequence, add a test that:
-  - [ ] Calls `CellText::assign()` with the sequence.
-  - [ ] Asserts `len` matches the valid UTF-8 prefix length (not raw byte count).
-  - [ ] Verifies adjacent cell memory is unmodified (check with a canary value).
-  - [ ] Asserts no crash under `mac-asan`.
+- [x] For each sequence, add a test that:
+  - [x] Calls `CellText::assign()` with the sequence.
+  - [x] Asserts `len` matches the valid UTF-8 prefix length (not raw byte count).
+  - [x] Verifies adjacent cell memory is unmodified (check with a canary value).
+  - [x] Asserts no crash under `mac-asan`.
 - [ ] Run `ctest` with `mac-asan` preset.
 
 ## Implementation Notes

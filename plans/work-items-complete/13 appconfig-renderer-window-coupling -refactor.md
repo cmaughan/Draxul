@@ -19,13 +19,13 @@ GPT rates this "High". It also blocks icebox 56 (live-config-reload) and icebox 
 
 ## Acceptance Criteria
 
-- [ ] Read `app_config_types.h` and `app_config.h` in full.
-- [ ] Identify which types in `app_config_types.h` genuinely need renderer/window/font headers (probably `RendererBundle*` references or similar).
-- [ ] Extract the pure data types (`AppConfig` fields, enums, simple structs) into a new header that includes only `<string>`, `<cstdint>`, `<optional>`, etc. — no library-level includes.
-- [ ] Move the types that require renderer/window/font headers to a separate "runtime config" or `AppOptions` header.
-- [ ] Update all `#include` sites to use the appropriate new header.
-- [ ] Verify `draxul-app-support` does NOT `target_link_libraries` against `draxul-renderer` or `draxul-window` (or that such links are intentional and documented).
-- [ ] Build both targets; run `ctest`.
+- [x] Read `app_config_types.h` and `app_config.h` in full.
+- [x] Identify which types in `app_config_types.h` genuinely need renderer/window/font headers (probably `RendererBundle*` references or similar).
+- [x] Extract the pure data types (`AppConfig` fields, enums, simple structs) into a new header that includes only `<string>`, `<cstdint>`, `<optional>`, etc. — no library-level includes.
+- [x] Move the types that require renderer/window/font headers to a separate "runtime config" or `AppOptions` header.
+- [x] Update all `#include` sites to use the appropriate new header.
+- [x] Verify `draxul-app-support` does NOT `target_link_libraries` against `draxul-renderer` or `draxul-window` (or that such links are intentional and documented).
+- [x] Build both targets; run `ctest`.
 
 ## Implementation Notes
 

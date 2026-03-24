@@ -16,16 +16,16 @@ Claude: "A smaller base interface with optional extension interfaces (like `IMou
 
 ## Acceptance Criteria
 
-- [ ] Read the full `IHost` interface and all concrete host subclasses (`NvimHost`, `LocalTerminalHost`, `PowerShellHost`, `MegaCityHost`, and any others).
-- [ ] Identify the event methods that only some hosts genuinely implement (vs. all hosts needing them).
-- [ ] Propose a split, e.g.:
+- [x] Read the full `IHost` interface and all concrete host subclasses (`NvimHost`, `LocalTerminalHost`, `PowerShellHost`, `MegaCityHost`, and any others).
+- [x] Identify the event methods that only some hosts genuinely implement (vs. all hosts needing them).
+- [x] Propose a split, e.g.:
   - `IHost` — lifecycle only (`initialize`, `shutdown`, `tick`, `on_resize`).
   - `IInteractiveHost` extends `IHost` — adds keyboard and text input.
   - `IMouseHost` extends `IHost` — adds mouse events.
   - Or alternatively: provide default no-op implementations in `IHost` for mouse methods (making them non-pure virtuals).
-- [ ] Implement the agreed split with minimal churn to existing callers.
-- [ ] Confirm `HostManager` can hold `IHost*` and dispatch to the appropriate sub-interface without new `dynamic_cast` (or that any new cast is explicitly documented).
-- [ ] Build both targets; run `ctest`.
+- [x] Implement the agreed split with minimal churn to existing callers.
+- [x] Confirm `HostManager` can hold `IHost*` and dispatch to the appropriate sub-interface without new `dynamic_cast` (or that any new cast is explicitly documented).
+- [x] Build both targets; run `ctest`.
 
 ## Implementation Notes
 

@@ -547,11 +547,21 @@ void TerminalHostBase::handle_osc(std::string_view body)
     }
     else if (code == "7")
     {
+        if (payload.empty())
+        {
+            DRAXUL_LOG_WARN(LogCategory::App, "OSC 7: empty URI, ignoring");
+            return;
+        }
         std::string path = extract_osc7_path(payload);
         if (!path.empty())
         {
             DRAXUL_LOG_DEBUG(LogCategory::App, "OSC 7: cwd = %s", path.c_str());
             on_osc_cwd(path);
+        }
+        else
+        {
+            DRAXUL_LOG_WARN(LogCategory::App, "OSC 7: malformed URI '%.*s', ignoring",
+                static_cast<int>(payload.size()), payload.data());
         }
     }
 }

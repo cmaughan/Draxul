@@ -37,18 +37,6 @@ public:
     void pump() override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
 
-    void on_key(const KeyEvent&) override
-    {
-        // MegaCityHost has no key handling; input is not used in the cube demo.
-    }
-    void on_text_input(const TextInputEvent&) override
-    {
-        // MegaCityHost ignores text input events; the 3D cube demo requires no input handling.
-    }
-    void on_text_editing(const TextEditingEvent&) override
-    {
-        // MegaCityHost ignores text editing events; the 3D cube demo requires no input handling.
-    }
     void on_mouse_button(const MouseButtonEvent& event) override;
     void on_mouse_move(const MouseMoveEvent& event) override;
     void on_mouse_wheel(const MouseWheelEvent& event) override;

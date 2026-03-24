@@ -71,13 +71,6 @@ public:
         return std::nullopt;
     }
 
-    void on_key(const KeyEvent&) override {}
-    void on_text_input(const TextInputEvent&) override {}
-    void on_text_editing(const TextEditingEvent&) override {}
-    void on_mouse_button(const MouseButtonEvent&) override {}
-    void on_mouse_move(const MouseMoveEvent&) override {}
-    void on_mouse_wheel(const MouseWheelEvent&) override {}
-
     bool dispatch_action(std::string_view) override
     {
         return false;

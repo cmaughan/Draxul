@@ -111,12 +111,12 @@ public:
     virtual void pump() = 0;
     virtual std::optional<std::chrono::steady_clock::time_point> next_deadline() const = 0;
 
-    virtual void on_key(const KeyEvent& event) = 0;
-    virtual void on_text_input(const TextInputEvent& event) = 0;
-    virtual void on_text_editing(const TextEditingEvent& event) = 0;
-    virtual void on_mouse_button(const MouseButtonEvent& event) = 0;
-    virtual void on_mouse_move(const MouseMoveEvent& event) = 0;
-    virtual void on_mouse_wheel(const MouseWheelEvent& event) = 0;
+    virtual void on_key(const KeyEvent& /*event*/) {}
+    virtual void on_text_input(const TextInputEvent& /*event*/) {}
+    virtual void on_text_editing(const TextEditingEvent& /*event*/) {}
+    virtual void on_mouse_button(const MouseButtonEvent& /*event*/) {}
+    virtual void on_mouse_move(const MouseMoveEvent& /*event*/) {}
+    virtual void on_mouse_wheel(const MouseWheelEvent& /*event*/) {}
 
     virtual bool dispatch_action(std::string_view action) = 0;
     virtual void request_close() = 0;

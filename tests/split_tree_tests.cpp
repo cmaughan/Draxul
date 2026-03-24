@@ -21,6 +21,16 @@ TEST_CASE("SplitTree: single leaf", "[split_tree]")
 
     // Can't close the last leaf.
     CHECK_FALSE(tree.close_leaf(id));
+
+    // Root must still be intact after the rejected close.
+    REQUIRE(tree.leaf_count() == 1);
+
+    // The leaf descriptor must still be valid and unchanged.
+    auto after = tree.descriptor_for(id);
+    CHECK(after.pixel_pos.x == 0);
+    CHECK(after.pixel_pos.y == 0);
+    CHECK(after.pixel_size.x == 1000);
+    CHECK(after.pixel_size.y == 800);
 }
 
 TEST_CASE("SplitTree: vertical split", "[split_tree]")

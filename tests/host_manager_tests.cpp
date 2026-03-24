@@ -62,13 +62,6 @@ public:
         return std::nullopt;
     }
 
-    void on_key(const KeyEvent&) override {}
-    void on_text_input(const TextInputEvent&) override {}
-    void on_text_editing(const TextEditingEvent&) override {}
-    void on_mouse_button(const MouseButtonEvent&) override {}
-    void on_mouse_move(const MouseMoveEvent&) override {}
-    void on_mouse_wheel(const MouseWheelEvent&) override {}
-
     bool dispatch_action(std::string_view) override
     {
         return false;
@@ -154,6 +147,159 @@ struct HostManagerHarness
             auto host = std::make_unique<LifetimeTestHost>(std::move(shutdown_calls));
             created_hosts.push_back(host.get());
             return host;
+        };
+
+        HostManager::Deps deps;
+        deps.options = &options;
+        deps.config = &config;
+        deps.window = &window;
+        deps.grid_renderer = &renderer;
+        deps.text_service = &text_service;
+        deps.display_ppi = &display_ppi;
+        deps.compute_viewport = [](const PaneDescriptor& desc) {
+            HostViewport viewport;
+            viewport.pixel_pos = desc.pixel_pos;
+            viewport.pixel_size = desc.pixel_size;
+            viewport.grid_size = { 80, 24 };
+            return viewport;
+        };
+        return deps;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Fake I3DHost for testing attach_3d_renderer() dispatch.
+// ---------------------------------------------------------------------------
+class Fake3DTestHost final : public I3DHost
+{
+public:
+    bool initialize(const HostContext&, IHostCallbacks& callbacks) override
+    {
+        callbacks_ = &callbacks;
+        return true;
+    }
+
+    void shutdown() override
+    {
+        running_ = false;
+    }
+
+    bool is_running() const override
+    {
+        return running_;
+    }
+
+    std::string init_error() const override
+    {
+        return {};
+    }
+
+    void set_viewport(const HostViewport&) override {}
+    void on_font_metrics_changed() override {}
+    void pump() override {}
+    std::optional<std::chrono::steady_clock::time_point> next_deadline() const override
+    {
+        return std::nullopt;
+    }
+
+    bool dispatch_action(std::string_view) override
+    {
+        return false;
+    }
+
+    void request_close() override
+    {
+        running_ = false;
+    }
+
+    Color default_background() const override
+    {
+        return Color(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    HostRuntimeState runtime_state() const override
+    {
+        HostRuntimeState state;
+        state.content_ready = true;
+        return state;
+    }
+
+    HostDebugState debug_state() const override
+    {
+        HostDebugState state;
+        state.name = "fake-3d";
+        return state;
+    }
+
+    // I3DHost interface
+    void attach_3d_renderer(I3DRenderer&) override
+    {
+        ++attach_calls;
+    }
+
+    void detach_3d_renderer() override {}
+
+    int attach_calls = 0;
+
+private:
+    IHostCallbacks* callbacks_ = nullptr;
+    bool running_ = true;
+};
+
+// A harness variant that lets us control which host type the factory produces.
+struct I3DHarnessData
+{
+    std::vector<bool> host_sequence; // true = I3DHost, false = plain IHost
+    size_t next_index = 0;
+    std::vector<IHost*> created_hosts;
+};
+
+struct I3DHostManagerHarness
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TestHostCallbacks callbacks;
+    AppOptions options;
+    AppConfig config;
+    float display_ppi = 96.0f;
+    I3DHarnessData data;
+    HostManager manager;
+
+    explicit I3DHostManagerHarness(std::vector<bool> sequence)
+        : manager(make_deps(std::move(sequence)))
+    {
+        TextServiceConfig ts_cfg;
+        ts_cfg.font_path = bundled_font_path();
+        const bool ok = text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, display_ppi);
+        REQUIRE(ok);
+    }
+
+    HostManager::Deps make_deps(std::vector<bool> sequence)
+    {
+        data.host_sequence = std::move(sequence);
+        options.load_user_config = false;
+        options.save_user_config = false;
+        options.host_kind = HostKind::Nvim;
+        options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
+            bool make_3d = false;
+            if (data.next_index < data.host_sequence.size())
+                make_3d = data.host_sequence[data.next_index];
+            ++data.next_index;
+
+            if (make_3d)
+            {
+                auto host = std::make_unique<Fake3DTestHost>();
+                data.created_hosts.push_back(host.get());
+                return host;
+            }
+            else
+            {
+                auto counter = std::make_shared<int>(0);
+                auto host = std::make_unique<LifetimeTestHost>(std::move(counter));
+                data.created_hosts.push_back(host.get());
+                return host;
+            }
         };
 
         HostManager::Deps deps;
@@ -391,4 +537,68 @@ TEST_CASE("host manager: callbacks remain valid across pane teardown", "[host_ma
 
     primary->trigger_frame_request();
     REQUIRE(harness.callbacks.request_frame_calls == 2);
+}
+
+// ---------------------------------------------------------------------------
+// I3DHost capability tests — validates the dynamic_cast dispatch in
+// HostManager::create_host_for_leaf.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("host manager: I3DHost receives attach_3d_renderer exactly once", "[host_manager][i3dhost]")
+{
+    I3DHostManagerHarness harness({ true });
+
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    REQUIRE(harness.data.created_hosts.size() == 1);
+
+    auto* host_3d = dynamic_cast<Fake3DTestHost*>(harness.data.created_hosts[0]);
+    REQUIRE(host_3d != nullptr);
+    REQUIRE(host_3d->attach_calls == 1);
+}
+
+TEST_CASE("host manager: plain IHost does not receive attach_3d_renderer", "[host_manager][i3dhost]")
+{
+    I3DHostManagerHarness harness({ false });
+
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    REQUIRE(harness.data.created_hosts.size() == 1);
+
+    auto* host_3d = dynamic_cast<Fake3DTestHost*>(harness.data.created_hosts[0]);
+    REQUIRE(host_3d == nullptr);
+}
+
+TEST_CASE("host manager: mixed registration selectively attaches 3D renderer", "[host_manager][i3dhost]")
+{
+    I3DHostManagerHarness harness({ true, false });
+
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    const LeafId new_leaf = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
+    REQUIRE(new_leaf != kInvalidLeaf);
+    REQUIRE(harness.data.created_hosts.size() == 2);
+
+    auto* host_3d = dynamic_cast<Fake3DTestHost*>(harness.data.created_hosts[0]);
+    REQUIRE(host_3d != nullptr);
+    REQUIRE(host_3d->attach_calls == 1);
+
+    auto* host_plain = dynamic_cast<Fake3DTestHost*>(harness.data.created_hosts[1]);
+    REQUIRE(host_plain == nullptr);
+}
+
+TEST_CASE("host manager: I3DHost added after plain host still receives attachment", "[host_manager][i3dhost]")
+{
+    I3DHostManagerHarness harness({ false, true });
+
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    const LeafId new_leaf = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
+    REQUIRE(new_leaf != kInvalidLeaf);
+    REQUIRE(harness.data.created_hosts.size() == 2);
+
+    auto* host_plain = dynamic_cast<Fake3DTestHost*>(harness.data.created_hosts[0]);
+    REQUIRE(host_plain == nullptr);
+
+    auto* host_3d = dynamic_cast<Fake3DTestHost*>(harness.data.created_hosts[1]);
+    REQUIRE(host_3d != nullptr);
+    REQUIRE(host_3d->attach_calls == 1);
 }

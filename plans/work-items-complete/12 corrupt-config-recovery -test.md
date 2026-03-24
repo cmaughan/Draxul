@@ -10,15 +10,15 @@ There is no test that verifies Draxul starts with sensible defaults when `config
 
 ## Acceptance Criteria
 
-- [ ] Read the config loading path in `libs/draxul-app-support/` (likely `app_config.cpp` / `config_loader.cpp`).
-- [ ] Add tests for:
-  - [ ] Missing `config.toml` — app should initialise with defaults, no crash.
-  - [ ] Empty `config.toml` — should produce defaults.
-  - [ ] Garbage/binary content in `config.toml` — should produce a WARN log + defaults, no crash.
-  - [ ] `config.toml` with valid TOML but unknown keys — should log WARN for unknown keys and use defaults for missing required keys.
-  - [ ] `config.toml` with out-of-range values (e.g. `scroll_speed = 999.0`) — should clamp and WARN.
-- [ ] Verify via `ScopedLogCapture` that warnings are emitted where expected.
-- [ ] Run under `ctest`.
+- [x] Read the config loading path in `libs/draxul-app-support/` (likely `app_config.cpp` / `config_loader.cpp`).
+- [x] Add tests for:
+  - [x] Missing `config.toml` — app should initialise with defaults, no crash.
+  - [x] Empty `config.toml` — should produce defaults.
+  - [x] Garbage/binary content in `config.toml` — should produce a WARN log + defaults, no crash.
+  - [x] `config.toml` with valid TOML but unknown keys — should log WARN for unknown keys and use defaults for missing required keys.
+  - [x] `config.toml` with out-of-range values (e.g. `scroll_speed = 999.0`) — should clamp and WARN.
+- [x] Verify via `ScopedLogCapture` that warnings are emitted where expected.
+- [x] Run under `ctest`.
 
 ## Implementation Notes
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/app_config.h>
+#include <draxul/app_options.h>
 #include <draxul/renderer.h>
 #include <filesystem>
 #include <optional>
@@ -22,7 +23,7 @@ struct RenderTestScenario
     std::vector<std::string> commands;
     int width = 1280;
     int height = 800;
-    float font_size = TextService::DEFAULT_POINT_SIZE;
+    float font_size = kDefaultFontPointSize;
     int timeout_ms = 5000;
     int settle_ms = 100;
     int pixel_tolerance = 8;

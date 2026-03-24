@@ -10,13 +10,13 @@
 
 ## Acceptance Criteria
 
-- [ ] Locate `SplitTree` in `libs/draxul-host/` or `app/`.
-- [ ] Read its `close_leaf()` implementation and the existing `host_manager_tests.cpp`.
-- [ ] Add a unit test directly against `SplitTree` (not through `HostManager`) that:
-  - [ ] Creates a `SplitTree` with a single leaf.
-  - [ ] Calls `close_leaf()` on that leaf.
-  - [ ] Asserts the return value is `false`.
-  - [ ] Asserts `leaf_count() == 1` after the call (root is intact).
+- [x] Locate `SplitTree` in `libs/draxul-host/` or `app/`.
+- [x] Read its `close_leaf()` implementation and the existing `host_manager_tests.cpp`.
+- [x] Add a unit test directly against `SplitTree` (not through `HostManager`) that:
+  - [x] Creates a `SplitTree` with a single leaf.
+  - [x] Calls `close_leaf()` on that leaf.
+  - [x] Asserts the return value is `false`.
+  - [x] Asserts `leaf_count() == 1` after the call (root is intact).
 - [ ] Run under `ctest` and `mac-asan` to confirm no use-after-free.
 
 ## Implementation Notes

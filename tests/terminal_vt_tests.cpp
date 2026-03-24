@@ -1,6 +1,7 @@
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 #include "support/test_host_callbacks.h"
+#include "support/test_support.h"
 
 #include <draxul/terminal_host_base.h>
 
@@ -48,6 +49,14 @@ public:
     int row() const
     {
         return cursor_row();
+    }
+    int scroll_top() const
+    {
+        return vt_state().scroll_top;
+    }
+    int scroll_bottom() const
+    {
+        return vt_state().scroll_bottom;
     }
 
     std::string written; // bytes sent back to the "process"
@@ -1165,4 +1174,109 @@ TEST_CASE("terminal: OSC 0 title still works alongside OSC 7", "[terminal]")
     // OSC 7 overrides it
     ts.host.feed("\x1B]7;file:///home/user/code\x07");
     REQUIRE(ts.callbacks.last_window_title == "code");
+}
+
+TEST_CASE("terminal: OSC 7 non-URI string produces WARN and is ignored", "[terminal]")
+{
+    ScopedLogCapture logs(LogLevel::Warn);
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]7;not-a-url\x07");
+    REQUIRE(ts.callbacks.last_window_title.empty());
+    bool found_warn = false;
+    for (const auto& rec : logs.records)
+    {
+        if (rec.level == LogLevel::Warn && rec.message.find("malformed URI") != std::string::npos)
+        {
+            found_warn = true;
+            break;
+        }
+    }
+    REQUIRE(found_warn);
+}
+
+TEST_CASE("terminal: OSC 7 empty URI produces WARN and is ignored", "[terminal]")
+{
+    ScopedLogCapture logs(LogLevel::Warn);
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]7;\x07");
+    REQUIRE(ts.callbacks.last_window_title.empty());
+    bool found_warn = false;
+    for (const auto& rec : logs.records)
+    {
+        if (rec.level == LogLevel::Warn && rec.message.find("empty URI") != std::string::npos)
+        {
+            found_warn = true;
+            break;
+        }
+    }
+    REQUIRE(found_warn);
+}
+
+TEST_CASE("terminal: OSC 7 remote host URI updates CWD correctly", "[terminal]")
+{
+    TermSetup ts;
+    REQUIRE(ts.ok);
+    ts.host.feed("\x1B]7;file://remotehost/home/user/work\x07");
+    REQUIRE(ts.callbacks.last_window_title == "work");
+}
+
+// ---------------------------------------------------------------------------
+// DECSTBM (CSI r) scroll region bounds tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("terminal: DECSTBM top > bot is ignored", "[terminal]")
+{
+    TermSetup ts(10, 5);
+    REQUIRE(ts.ok);
+
+    INFO("default scroll_top is 0");
+    REQUIRE(ts.host.scroll_top() == 0);
+    INFO("default scroll_bottom is rows-1");
+    REQUIRE(ts.host.scroll_bottom() == 4);
+
+    // Set a valid region first
+    ts.host.feed("\x1B[2;4r");
+    INFO("valid region: scroll_top = 1");
+    REQUIRE(ts.host.scroll_top() == 1);
+    INFO("valid region: scroll_bottom = 3");
+    REQUIRE(ts.host.scroll_bottom() == 3);
+
+    // Invalid: top > bot
+    ts.host.feed("\x1B[5;3r");
+    INFO("invalid region ignored: scroll_top unchanged");
+    REQUIRE(ts.host.scroll_top() == 1);
+    INFO("invalid region ignored: scroll_bottom unchanged");
+    REQUIRE(ts.host.scroll_bottom() == 3);
+}
+
+TEST_CASE("terminal: DECSTBM bot > rows is clamped", "[terminal]")
+{
+    TermSetup ts(10, 5);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B[1;999r");
+    INFO("scroll_top = 0 (param 1 -> 0-based 0)");
+    REQUIRE(ts.host.scroll_top() == 0);
+    INFO("scroll_bottom clamped to rows-1 = 4");
+    REQUIRE(ts.host.scroll_bottom() == 4);
+}
+
+TEST_CASE("terminal: DECSTBM 0;0 resets to full screen", "[terminal]")
+{
+    TermSetup ts(10, 5);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B[2;4r");
+    INFO("restricted region: scroll_top = 1");
+    REQUIRE(ts.host.scroll_top() == 1);
+    INFO("restricted region: scroll_bottom = 3");
+    REQUIRE(ts.host.scroll_bottom() == 3);
+
+    ts.host.feed("\x1B[0;0r");
+    INFO("reset: scroll_top = 0");
+    REQUIRE(ts.host.scroll_top() == 0);
+    INFO("reset: scroll_bottom = rows-1 = 4");
+    REQUIRE(ts.host.scroll_bottom() == 4);
 }

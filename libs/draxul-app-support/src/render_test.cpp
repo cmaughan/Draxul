@@ -1,6 +1,7 @@
 #include "toml_support.h"
 #include <draxul/json_util.h>
 #include <draxul/render_test.h>
+#include <draxul/text_service.h>
 
 #include <draxul/bmp.h>
 #include <draxul/log.h>

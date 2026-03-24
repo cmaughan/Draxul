@@ -10,13 +10,13 @@
 
 ## Acceptance Criteria
 
-- [ ] Read `tests/grid_tests.cpp` and the VT/CSI `r` handling in `libs/draxul-host/src/` (likely in the terminal emulator or VT parser).
-- [ ] Add tests using `replay_fixture.h` or direct VT sequence injection for:
-  - [ ] `CSI 5;3 r` (top > bot) — should be ignored or clamped, not cause out-of-bounds access.
-  - [ ] `CSI 1;999 r` (bot > rows) — should be clamped to `rows`.
-  - [ ] `CSI 0;0 r` — should reset to full screen (check VT spec for the correct default).
-- [ ] Verify under `mac-asan` that no out-of-bounds memory access occurs.
-- [ ] Run under `ctest`.
+- [x] Read `tests/grid_tests.cpp` and the VT/CSI `r` handling in `libs/draxul-host/src/` (likely in the terminal emulator or VT parser).
+- [x] Add tests using `replay_fixture.h` or direct VT sequence injection for:
+  - [x] `CSI 5;3 r` (top > bot) — should be ignored or clamped, not cause out-of-bounds access.
+  - [x] `CSI 1;999 r` (bot > rows) — should be clamped to `rows`.
+  - [x] `CSI 0;0 r` — should reset to full screen (check VT spec for the correct default).
+- [x] Verify under `mac-asan` that no out-of-bounds memory access occurs.
+- [x] Run under `ctest`.
 
 ## Implementation Notes
 

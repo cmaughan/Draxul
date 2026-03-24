@@ -16,14 +16,14 @@ A regression in any of these four coordination steps would not be caught by exis
 
 ## Acceptance Criteria
 
-- [ ] Read `app/app.cpp` around `on_display_scale_changed()` and the existing `tests/dpi_scaling_tests.cpp`.
-- [ ] Use the testable `App` harness (with `FakeWindow` + `FakeRenderer`) to simulate a display-scale change event.
-- [ ] Add tests that verify, after triggering a scale-change event:
-  - [ ] `TextService` (or the font metrics) reflects the new cell size.
-  - [ ] The renderer grid handle's buffer dimensions match the new cell geometry.
-  - [ ] `InputDispatcher`'s pixel-scale value is updated (check via a subsequent mouse event landing on the expected cell).
-  - [ ] No crash or assertion failure occurs when the event fires mid-frame (i.e., with a partially rendered frame in progress if the harness supports this).
-- [ ] Run under `ctest` and `mac-asan`.
+- [x] Read `app/app.cpp` around `on_display_scale_changed()` and the existing `tests/dpi_scaling_tests.cpp`.
+- [x] Use the testable `App` harness (with `FakeWindow` + `FakeRenderer`) to simulate a display-scale change event.
+- [x] Add tests that verify, after triggering a scale-change event:
+  - [x] `TextService` (or the font metrics) reflects the new cell size.
+  - [x] The renderer grid handle's buffer dimensions match the new cell geometry.
+  - [x] `InputDispatcher`'s pixel-scale value is updated (check via a subsequent mouse event landing on the expected cell).
+  - [x] No crash or assertion failure occurs when the event fires mid-frame (i.e., with a partially rendered frame in progress if the harness supports this).
+- [x] Run under `ctest` and `mac-asan`.
 
 ## Implementation Notes
 

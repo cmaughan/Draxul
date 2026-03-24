@@ -9,4 +9,5 @@
 // the full I/O surface (file load/save, TOML parse/serialize, override merging).
 
 #include <draxul/app_config_types.h>
+#include <draxul/app_options.h>
 #include <draxul/keybinding_parser.h>

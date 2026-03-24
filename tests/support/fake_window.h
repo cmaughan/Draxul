@@ -29,15 +29,15 @@ public:
     }
     std::pair<int, int> size_logical() const override
     {
-        return { 800, 600 };
+        return { logical_w_, logical_h_ };
     }
     std::pair<int, int> size_pixels() const override
     {
-        return { 800, 600 };
+        return { pixel_w_, pixel_h_ };
     }
     float display_ppi() const override
     {
-        return 96.0f;
+        return display_ppi_;
     }
     void set_title(const std::string& title) override
     {
@@ -53,6 +53,13 @@ public:
         return true;
     }
     void set_text_input_area(int, int, int, int) override {}
+
+    // Configurable state — set by tests to simulate different display configurations.
+    int pixel_w_ = 800;
+    int pixel_h_ = 600;
+    int logical_w_ = 800;
+    int logical_h_ = 600;
+    float display_ppi_ = 96.0f;
 
     // Recorded state — read by tests.
     std::string clipboard_;

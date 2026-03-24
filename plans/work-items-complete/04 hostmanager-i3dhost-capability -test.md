@@ -15,14 +15,14 @@ This matters because `HostManager` uses `dynamic_cast<I3DHost*>` silently (icebo
 
 ## Acceptance Criteria
 
-- [ ] Read `tests/host_manager_tests.cpp` and `libs/draxul-host/src/host_manager.cpp` (or wherever HostManager lives).
-- [ ] Add a fake `I3DHost` subclass with a counter or flag for `attach_3d_renderer()`.
-- [ ] Add tests:
-  - [ ] `I3DHost` registered with `HostManager` → `attach_3d_renderer()` called exactly once.
-  - [ ] Plain `IHost` registered → `attach_3d_renderer()` NOT called.
-  - [ ] Mixed registration (one `I3DHost`, one plain `IHost`) → correct selective attachment.
-  - [ ] `I3DHost` still receives `attach_3d_renderer()` even when added after another plain host.
-- [ ] Run under `ctest` and `mac-asan`.
+- [x] Read `tests/host_manager_tests.cpp` and `libs/draxul-host/src/host_manager.cpp` (or wherever HostManager lives).
+- [x] Add a fake `I3DHost` subclass with a counter or flag for `attach_3d_renderer()`.
+- [x] Add tests:
+  - [x] `I3DHost` registered with `HostManager` → `attach_3d_renderer()` called exactly once.
+  - [x] Plain `IHost` registered → `attach_3d_renderer()` NOT called.
+  - [x] Mixed registration (one `I3DHost`, one plain `IHost`) → correct selective attachment.
+  - [x] `I3DHost` still receives `attach_3d_renderer()` even when added after another plain host.
+- [x] Run under `ctest` and `mac-asan`.
 
 ## Implementation Notes
 
