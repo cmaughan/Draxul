@@ -421,7 +421,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 bool App::close_dead_panes()
 {
     std::vector<LeafId> dead;
-    host_manager_.for_each_host([&](LeafId id, IHost& h) {
+    host_manager_.for_each_host([&dead](LeafId id, IHost& h) {
         if (!h.is_running())
             dead.push_back(id);
     });
@@ -683,7 +683,7 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 
     std::optional<std::chrono::steady_clock::time_point> deadline;
     bool any_host_running = false;
-    host_manager_.for_each_host([&](LeafId, IHost& host) {
+    host_manager_.for_each_host([&deadline, &any_host_running](LeafId, IHost& host) {
         if (host.is_running())
             any_host_running = true;
         auto d = host.next_deadline();

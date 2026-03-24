@@ -188,8 +188,7 @@ const char* to_string(LogCategory category)
 
 LogLevel parse_log_level_or(std::string_view value, LogLevel fallback)
 {
-    auto parsed = parse_log_level(value);
-    return parsed ? *parsed : fallback;
+    return parse_log_level(value).value_or(fallback);
 }
 
 void configure_logging(const LogOptions& options)
@@ -214,8 +213,8 @@ void configure_logging(const LogOptions& options)
     }
 
     // Update atomic mirrors so log_would_emit() can read lock-free.
-    logger_state.atomic_min_level.store(static_cast<int>(options.min_level), std::memory_order_relaxed);
-    logger_state.atomic_category_mask.store(mask, std::memory_order_relaxed);
+    logger_state.atomic_min_level.store(static_cast<int>(options.min_level));
+    logger_state.atomic_category_mask.store(mask);
 
     if (!options.enable_file || options.file_path.empty())
         return;
@@ -281,10 +280,10 @@ bool log_would_emit(LogLevel level, LogCategory category)
     // Lock-free fast path: read atomic mirrors with relaxed ordering.
     // Exact ordering is not critical — log level changes are infrequent and
     // a stale read only means one extra or one missed log line transiently.
-    int min_level = logger_state.atomic_min_level.load(std::memory_order_relaxed);
+    int min_level = logger_state.atomic_min_level.load();
     if (static_cast<int>(level) > min_level)
         return false;
-    uint32_t mask = logger_state.atomic_category_mask.load(std::memory_order_relaxed);
+    uint32_t mask = logger_state.atomic_category_mask.load();
     // mask == 0 means "all categories enabled" (mirrors empty enabled_categories).
     return mask == 0 || (mask & category_bit(category)) != 0;
 }

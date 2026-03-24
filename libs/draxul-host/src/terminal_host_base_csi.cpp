@@ -423,10 +423,10 @@ void TerminalHostBase::csi_dsr(bool private_mode, const std::vector<int>& params
     if (code == 6)
     {
         // CPR — Cursor Position Report: reply ESC [ row ; col R (1-based)
-        char buf[32];
-        const int n = std::snprintf(buf, sizeof(buf), "\x1B[%d;%dR", vt_.row + 1, vt_.col + 1);
+        std::string response(32, '\0');
+        const int n = std::snprintf(response.data(), response.size(), "\x1B[%d;%dR", vt_.row + 1, vt_.col + 1);
         if (n > 0)
-            do_process_write(std::string_view(buf, static_cast<size_t>(n)));
+            do_process_write(std::string_view(response.data(), static_cast<size_t>(n)));
     }
     else if (code == 5)
     {

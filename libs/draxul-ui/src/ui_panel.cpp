@@ -293,7 +293,7 @@ const ImDrawData* UiPanel::end_frame() const
     return ImGui::GetDrawData();
 }
 
-void UiPanel::render_into_current_context()
+void UiPanel::render_into_current_context() const
 {
     render_panel_windows(impl_->layout, impl_->debug_state);
 }

@@ -81,7 +81,8 @@ LeafId SplitTree::split_leaf(LeafId id, SplitDirection dir)
     if (!target)
         return kInvalidLeaf;
 
-    const LeafId new_id = next_id_++;
+    const LeafId new_id = next_id_;
+    ++next_id_;
     const LeafId existing_id = target->leaf().id;
 
     auto first_child = std::make_unique<Node>();

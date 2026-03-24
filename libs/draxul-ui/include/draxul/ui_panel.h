@@ -78,7 +78,7 @@ public:
     void begin_frame(float delta_seconds);
     const ImDrawData* render();
     const ImDrawData* end_frame() const;
-    void render_into_current_context();
+    void render_into_current_context() const;
 
     void on_key(const KeyEvent& event);
     void on_mouse_move(const MouseMoveEvent& event);

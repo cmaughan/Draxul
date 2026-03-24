@@ -63,21 +63,21 @@ void GuiActionHandler::font_reset()
     change_font_size(TextService::DEFAULT_POINT_SIZE);
 }
 
-void GuiActionHandler::copy()
+void GuiActionHandler::copy() const
 {
     IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr;
     if (host)
         host->dispatch_action("copy");
 }
 
-void GuiActionHandler::paste()
+void GuiActionHandler::paste() const
 {
     IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr;
     if (host)
         host->dispatch_action("paste");
 }
 
-void GuiActionHandler::toggle_diagnostics()
+void GuiActionHandler::toggle_diagnostics() const
 {
     deps_.ui_panel->toggle_visible();
     if (deps_.on_panel_toggled)

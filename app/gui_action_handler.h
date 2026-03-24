@@ -48,9 +48,9 @@ private:
     void font_increase();
     void font_decrease();
     void font_reset();
-    void copy();
-    void paste();
-    void toggle_diagnostics();
+    void copy() const;
+    void paste() const;
+    void toggle_diagnostics() const;
     void open_file_dialog() const;
     void split_vertical() const;
     void split_horizontal() const;

@@ -273,7 +273,7 @@ void HostManager::update_all_viewports()
     if (!deps_.compute_viewport)
         return;
 
-    tree_.for_each_leaf([&](LeafId id, const PaneDescriptor& desc) {
+    tree_.for_each_leaf([this](LeafId id, const PaneDescriptor& desc) {
         auto it = hosts_.find(id);
         if (it != hosts_.end() && it->second)
             it->second->set_viewport(deps_.compute_viewport(desc));

@@ -87,7 +87,7 @@ public:
     template <typename F>
     void for_each_host(F&& fn) const
     {
-        tree_.for_each_leaf([&](LeafId id, const PaneDescriptor&) {
+        tree_.for_each_leaf([this, &fn](LeafId id, const PaneDescriptor&) {
             auto it = hosts_.find(id);
             if (it != hosts_.end() && it->second)
                 fn(id, *it->second);

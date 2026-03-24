@@ -281,7 +281,8 @@ void TerminalHostBase::compact_attr_ids()
     attr_cache_.clear();
     for (const auto& [old_id, attr] : active_attrs)
     {
-        const uint16_t new_id = next_id++;
+        const uint16_t new_id = next_id;
+        ++next_id;
         remap.try_emplace(old_id, new_id);
         attr_cache_.try_emplace(attr, new_id);
         highlights().set(new_id, attr);
