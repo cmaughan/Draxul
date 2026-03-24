@@ -69,6 +69,54 @@ void set_color(HlAttr& attr, bool is_fg, Color color)
     }
 }
 
+bool apply_basic_sgr(HlAttr& attr, int value)
+{
+    switch (value)
+    {
+    case 0:
+        attr = {};
+        return true;
+    case 1:
+        attr.bold = true;
+        return true;
+    case 3:
+        attr.italic = true;
+        return true;
+    case 4:
+        attr.underline = true;
+        return true;
+    case 7:
+        attr.reverse = true;
+        return true;
+    case 9:
+        attr.strikethrough = true;
+        return true;
+    case 22:
+        attr.bold = false;
+        return true;
+    case 23:
+        attr.italic = false;
+        return true;
+    case 24:
+        attr.underline = false;
+        return true;
+    case 27:
+        attr.reverse = false;
+        return true;
+    case 29:
+        attr.strikethrough = false;
+        return true;
+    case 39:
+        attr.has_fg = false;
+        return true;
+    case 49:
+        attr.has_bg = false;
+        return true;
+    default:
+        return false;
+    }
+}
+
 // Returns the number of extra parameter slots consumed (0 if not recognised).
 size_t try_apply_extended_color(HlAttr& attr, bool is_fg, const std::vector<int>& values, size_t i)
 {
@@ -100,33 +148,9 @@ void apply_sgr(HlAttr& current_attr, const std::vector<int>& params)
     for (size_t i = 0; i < values.size(); ++i)
     {
         const int value = values[i];
-        if (value == 0)
-            current_attr = {};
-        else if (value == 1)
-            current_attr.bold = true;
-        else if (value == 3)
-            current_attr.italic = true;
-        else if (value == 4)
-            current_attr.underline = true;
-        else if (value == 7)
-            current_attr.reverse = true;
-        else if (value == 9)
-            current_attr.strikethrough = true;
-        else if (value == 22)
-            current_attr.bold = false;
-        else if (value == 23)
-            current_attr.italic = false;
-        else if (value == 24)
-            current_attr.underline = false;
-        else if (value == 27)
-            current_attr.reverse = false;
-        else if (value == 29)
-            current_attr.strikethrough = false;
-        else if (value == 39)
-            current_attr.has_fg = false;
-        else if (value == 49)
-            current_attr.has_bg = false;
-        else if (value >= 30 && value <= 37)
+        if (apply_basic_sgr(current_attr, value))
+            continue;
+        if (value >= 30 && value <= 37)
             set_color(current_attr, true, ansi_color(value - 30));
         else if (value >= 40 && value <= 47)
             set_color(current_attr, false, ansi_color(value - 40));

@@ -80,32 +80,25 @@ void LocalTerminalHost::on_key(const KeyEvent& event)
 
 void LocalTerminalHost::on_text_input(const TextInputEvent& event)
 {
-    if (!event.text.empty())
-    {
-        if (scrollback_.is_scrolled_back())
-            scrollback_.scroll_to_live();
-    }
+    if (!event.text.empty() && scrollback_.is_scrolled_back())
+        scrollback_.scroll_to_live();
     TerminalHostBase::on_text_input(event);
 }
 
 bool LocalTerminalHost::dispatch_action(std::string_view action)
 {
-    if (action == "copy")
+    if (action == "copy" && selection_.is_active())
     {
-        if (selection_.is_active())
-        {
-            const std::string text = selection_.extract_text();
-            if (!text.empty())
-                window().set_clipboard_text(text);
-            selection_.clear();
-        }
+        const std::string text = selection_.extract_text();
+        if (!text.empty())
+            window().set_clipboard_text(text);
+        selection_.clear();
         return true;
     }
-    if (action == "paste")
-    {
-        if (scrollback_.is_scrolled_back())
-            scrollback_.scroll_to_live();
-    }
+    if (action == "copy")
+        return true;
+    if (action == "paste" && scrollback_.is_scrolled_back())
+        scrollback_.scroll_to_live();
     return TerminalHostBase::dispatch_action(action);
 }
 
@@ -120,13 +113,13 @@ void LocalTerminalHost::on_mouse_button(const MouseButtonEvent& event)
     if (mouse_reporter_.on_button(event.button, event.pressed, event.mod, pos.col, pos.row))
         return;
 
-    if (event.button == 1)
+    if (event.button == 1 && event.pressed)
     {
-        if (event.pressed)
-            selection_.begin_drag({ { pos.col, pos.row } });
-        else
-            selection_.end_drag({ { pos.col, pos.row } });
+        selection_.begin_drag({ { pos.col, pos.row } });
+        return;
     }
+    if (event.button == 1)
+        selection_.end_drag({ { pos.col, pos.row } });
 }
 
 void LocalTerminalHost::on_mouse_move(const MouseMoveEvent& event)

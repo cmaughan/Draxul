@@ -135,7 +135,7 @@ private:
 
     // SGR / highlight state
     HlAttr current_attr_ = {};
-    // perf: O(1) via unordered_map (replaced linear std::vector scan)
+    // Cached highlight IDs for the active terminal attribute state.
     std::unordered_map<HlAttr, uint16_t, HlAttrHash> attr_cache_;
     uint16_t next_attr_id_ = 1;
 

@@ -279,12 +279,17 @@ bool NvimProcess::spawn(const std::string& nvim_path, const std::vector<std::str
         if (!working_dir.empty())
             chdir(working_dir.c_str());
 
-        std::vector<char*> argv;
-        argv.reserve(extra_args.size() + 3);
-        argv.push_back(const_cast<char*>(nvim_path.c_str()));
-        argv.push_back(const_cast<char*>("--embed"));
+        std::vector<std::string> argv_storage;
+        argv_storage.reserve(extra_args.size() + 2);
+        argv_storage.push_back(nvim_path);
+        argv_storage.emplace_back("--embed");
         for (const auto& arg : extra_args)
-            argv.push_back(const_cast<char*>(arg.c_str()));
+            argv_storage.push_back(arg);
+
+        std::vector<char*> argv;
+        argv.reserve(argv_storage.size() + 1);
+        for (auto& arg : argv_storage)
+            argv.push_back(arg.data());
         argv.push_back(nullptr);
 
         execvp(nvim_path.c_str(), argv.data());

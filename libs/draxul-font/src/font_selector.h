@@ -6,13 +6,15 @@
 #include <draxul/unicode.h>
 
 #include <algorithm>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace draxul
 {
 
-namespace
+namespace detail
 {
 
 inline bool can_render_cluster(FT_Face face, TextShaper& shaper, const std::string& text)
@@ -89,7 +91,27 @@ inline bool font_has_color(FT_Face face)
     return face && FT_HAS_COLOR(face);
 }
 
-} // namespace
+struct TransparentStringHash
+{
+    using is_transparent = void;
+
+    size_t operator()(std::string_view text) const noexcept
+    {
+        return std::hash<std::string_view>{}(text);
+    }
+};
+
+struct TransparentStringEqual
+{
+    using is_transparent = void;
+
+    bool operator()(std::string_view lhs, std::string_view rhs) const noexcept
+    {
+        return lhs == rhs;
+    }
+};
+
+} // namespace detail
 
 // Selects the best font face for a given text cluster, with per-cluster caching.
 class FontSelector
@@ -155,13 +177,13 @@ public:
                 return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
         }
 
-        if (cluster_prefers_color_font(text))
+        if (detail::cluster_prefers_color_font(text))
         {
             if (auto sel = select_color_font(text, resolver))
                 return *sel;
         }
 
-        if (can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
+        if (detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
         {
             store(text, -1);
             return { resolver.primary().face(), &resolver.primary_shaper() };
@@ -190,9 +212,9 @@ private:
             if (!resolver.ensure_loaded((size_t)i))
                 continue;
             auto& fb = fallbacks[(size_t)i];
-            if (color_only && !font_has_color(fb.font.face()))
+            if (color_only && !detail::font_has_color(fb.font.face()))
                 continue;
-            if (can_render_cluster(fb.font.face(), fb.shaper, text))
+            if (detail::can_render_cluster(fb.font.face(), fb.shaper, text))
             {
                 store(text, i);
                 return { fb.font.face(), &fb.shaper };
@@ -204,8 +226,8 @@ private:
     // Try primary color font then color fallbacks for emoji/color clusters.
     std::optional<Selection> select_color_font(const std::string& text, FontResolver& resolver)
     {
-        if (font_has_color(resolver.primary().face())
-            && can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
+        if (detail::font_has_color(resolver.primary().face())
+            && detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
         {
             store(text, -1);
             return Selection{ resolver.primary().face(), &resolver.primary_shaper() };
@@ -218,8 +240,8 @@ private:
 
     // Check cache then try a style-variant face; returns empty Selection on miss.
     template <typename StoreFn>
-    Selection try_variant_selection(const std::string& text,
-        std::unordered_map<std::string, int>& variant_cache,
+    static Selection try_variant_selection(const std::string& text,
+        std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual>& variant_cache,
         FT_Face variant_face, TextShaper& variant_shaper,
         FontResolver& resolver, StoreFn store_fn)
     {
@@ -233,7 +255,7 @@ private:
             if (idx < (int)fallbacks.size())
                 return { fallbacks[(size_t)idx].font.face(), &fallbacks[(size_t)idx].shaper };
         }
-        if (can_render_cluster(variant_face, variant_shaper, text))
+        if (detail::can_render_cluster(variant_face, variant_shaper, text))
         {
             store_fn(text, -1);
             return { variant_face, &variant_shaper };
@@ -269,10 +291,10 @@ private:
         bold_italic_cache_[text] = idx;
     }
 
-    std::unordered_map<std::string, int> cache_;
-    std::unordered_map<std::string, int> bold_cache_;
-    std::unordered_map<std::string, int> italic_cache_;
-    std::unordered_map<std::string, int> bold_italic_cache_;
+    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> cache_;
+    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> bold_cache_;
+    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> italic_cache_;
+    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> bold_italic_cache_;
     size_t cache_limit_ = TextServiceConfig::DEFAULT_FONT_CHOICE_CACHE_LIMIT;
 };
 

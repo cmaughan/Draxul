@@ -67,7 +67,7 @@ private:
     int pixel_w_ = 800;
     int pixel_h_ = 600;
     bool running_ = false;
-    std::chrono::steady_clock::time_point last_frame_time_;
+    std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
 };
 
 // Factory function — called from host_factory.cpp

@@ -489,7 +489,12 @@ AppConfig AppConfig::load_from_path(const std::filesystem::path& path)
 
         return config_from_toml(*document);
     }
-    catch (const std::exception& ex)
+    catch (const std::filesystem::filesystem_error& ex)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config from %s: %s", path.string().c_str(), ex.what());
+        return {};
+    }
+    catch (const std::ios_base::failure& ex)
     {
         DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config from %s: %s", path.string().c_str(), ex.what());
         return {};
@@ -512,7 +517,11 @@ void AppConfig::save_to_path(const std::filesystem::path& path) const
         if (!out)
             DRAXUL_LOG_WARN(LogCategory::App, "Failed to write config to %s", path.string().c_str());
     }
-    catch (const std::exception& ex)
+    catch (const std::filesystem::filesystem_error& ex)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "Failed to save config to %s: %s", path.string().c_str(), ex.what());
+    }
+    catch (const std::ios_base::failure& ex)
     {
         DRAXUL_LOG_WARN(LogCategory::App, "Failed to save config to %s: %s", path.string().c_str(), ex.what());
     }

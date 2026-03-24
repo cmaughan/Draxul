@@ -12,7 +12,7 @@
 namespace draxul
 {
 
-namespace
+namespace detail
 {
 
 inline std::vector<std::string> default_fallback_font_candidates()
@@ -144,7 +144,7 @@ inline std::string auto_detect_bold_italic_path(const std::string& regular_path)
     return {};
 }
 
-} // namespace
+} // namespace detail
 
 // Discovers and loads the primary font face plus all fallback faces.
 class FontResolver
@@ -167,7 +167,7 @@ public:
         display_ppi_ = display_ppi;
         if (config.font_path.empty())
         {
-            font_path_ = first_existing_path(default_primary_font_candidates());
+            font_path_ = detail::first_existing_path(detail::default_primary_font_candidates());
         }
         else
         {
@@ -187,7 +187,7 @@ public:
         // Determine bold font path
         std::string bold_path = config.bold_font_path;
         if (bold_path.empty())
-            bold_path = auto_detect_bold_path(font_path_);
+            bold_path = detail::auto_detect_bold_path(font_path_);
         if (!bold_path.empty() && bold_path != font_path_)
         {
             if (bold_.initialize(bold_path, point_size, display_ppi))
@@ -215,7 +215,7 @@ public:
         // Determine italic font path
         std::string italic_path = config.italic_font_path;
         if (italic_path.empty())
-            italic_path = auto_detect_italic_path(font_path_);
+            italic_path = detail::auto_detect_italic_path(font_path_);
         if (!italic_path.empty() && italic_path != font_path_)
         {
             if (italic_.initialize(italic_path, point_size, display_ppi))
@@ -243,7 +243,7 @@ public:
         // Determine bold-italic font path
         std::string bold_italic_path = config.bold_italic_font_path;
         if (bold_italic_path.empty())
-            bold_italic_path = auto_detect_bold_italic_path(font_path_);
+            bold_italic_path = detail::auto_detect_bold_italic_path(font_path_);
         if (!bold_italic_path.empty() && bold_italic_path != font_path_)
         {
             if (bold_italic_.initialize(bold_italic_path, point_size, display_ppi))
@@ -415,7 +415,7 @@ public:
         fallbacks_.clear();
 
         std::vector<std::string> candidates = config_->fallback_paths.empty()
-            ? default_fallback_font_candidates()
+            ? detail::default_fallback_font_candidates()
             : config_->fallback_paths;
 
         fallbacks_.reserve(candidates.size());

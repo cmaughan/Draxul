@@ -15,7 +15,6 @@ namespace draxul
 
 MegaCityHost::MegaCityHost()
     : cube_pass_(std::make_shared<CubeRenderPass>())
-    , last_frame_time_(std::chrono::steady_clock::now())
 {
 }
 

@@ -217,13 +217,13 @@ void configure_logging(const LogOptions& options)
     logger_state.atomic_min_level.store(static_cast<int>(options.min_level), std::memory_order_relaxed);
     logger_state.atomic_category_mask.store(mask, std::memory_order_relaxed);
 
-    if (options.enable_file && !options.file_path.empty())
+    if (!options.enable_file || options.file_path.empty())
+        return;
+
+    logger_state.file = std::fopen(options.file_path.c_str(), "a");
+    if (!logger_state.file)
     {
-        logger_state.file = std::fopen(options.file_path.c_str(), "a");
-        if (!logger_state.file)
-        {
-            std::fprintf(stderr, "[error][app] failed to open log file: %s\n", options.file_path.c_str());
-        }
+        std::fprintf(stderr, "[error][app] failed to open log file: %s\n", options.file_path.c_str());
     }
 }
 
@@ -260,7 +260,7 @@ void configure_default_logging(const char* default_file_name, bool prefer_file_w
         options.file_path = default_file_name ? default_file_name : "draxul.log";
     }
 
-    configure_logging(std::move(options));
+    configure_logging(options);
 }
 
 void shutdown_logging()
