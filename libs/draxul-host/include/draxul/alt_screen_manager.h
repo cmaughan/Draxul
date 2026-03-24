@@ -51,8 +51,10 @@ public:
 
     // Clamp the saved cursor position into valid bounds after a resize.
     void clamp_saved_cursor(int max_col, int max_row);
-    void for_each_saved_cell(const std::function<void(const Cell&)>& fn) const;
-    void remap_saved_highlight_ids(const std::function<uint16_t(uint16_t)>& remap);
+    template <typename Fn>
+    void for_each_saved_cell(Fn&& fn) const;
+    template <typename Remap>
+    void remap_saved_highlight_ids(Remap&& remap);
 
     // Reset all state (called from reset_terminal_state).
     void reset();
@@ -71,5 +73,19 @@ private:
     bool in_alt_screen_ = false;
     Snapshot saved_main_;
 };
+
+template <typename Fn>
+void AltScreenManager::for_each_saved_cell(Fn&& fn) const
+{
+    for (const auto& cell : saved_main_.cells)
+        fn(cell);
+}
+
+template <typename Remap>
+void AltScreenManager::remap_saved_highlight_ids(Remap&& remap)
+{
+    for (auto& cell : saved_main_.cells)
+        cell.hl_attr_id = remap(cell.hl_attr_id);
+}
 
 } // namespace draxul

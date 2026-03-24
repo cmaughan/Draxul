@@ -6,7 +6,6 @@
 #include <draxul/grid_sink.h>
 #include <draxul/highlight.h>
 #include <draxul/log.h>
-#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +19,58 @@ namespace detail
 inline bool is_utf8_continuation_byte(uint8_t byte)
 {
     return (byte & 0xC0) == 0x80;
+}
+
+inline bool utf8_next_codepoint_two_byte(const uint8_t* bytes, size_t offset, size_t remaining, size_t& next_offset)
+{
+    if (remaining < 2)
+        return false;
+    const uint8_t lead = bytes[offset];
+    if (lead < 0xC2 || lead > 0xDF || !is_utf8_continuation_byte(bytes[offset + 1]))
+        return false;
+    next_offset = offset + 2;
+    return true;
+}
+
+inline bool utf8_next_codepoint_three_byte(const uint8_t* bytes, size_t offset, size_t remaining, size_t& next_offset)
+{
+    if (remaining < 3)
+        return false;
+
+    const uint8_t lead = bytes[offset];
+    const uint8_t b1 = bytes[offset + 1];
+    const uint8_t b2 = bytes[offset + 2];
+    const bool valid = (lead == 0xE0 && b1 >= 0xA0 && b1 <= 0xBF && is_utf8_continuation_byte(b2))
+        || ((lead >= 0xE1 && lead <= 0xEC) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2))
+        || (lead == 0xED && b1 >= 0x80 && b1 <= 0x9F && is_utf8_continuation_byte(b2))
+        || ((lead >= 0xEE && lead <= 0xEF) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2));
+    if (!valid)
+        return false;
+
+    next_offset = offset + 3;
+    return true;
+}
+
+inline bool utf8_next_codepoint_four_byte(const uint8_t* bytes, size_t offset, size_t remaining, size_t& next_offset)
+{
+    if (remaining < 4)
+        return false;
+
+    const uint8_t lead = bytes[offset];
+    const uint8_t b1 = bytes[offset + 1];
+    const uint8_t b2 = bytes[offset + 2];
+    const uint8_t b3 = bytes[offset + 3];
+    const bool valid = (lead == 0xF0 && b1 >= 0x90 && b1 <= 0xBF && is_utf8_continuation_byte(b2)
+                           && is_utf8_continuation_byte(b3))
+        || ((lead >= 0xF1 && lead <= 0xF3) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2)
+            && is_utf8_continuation_byte(b3))
+        || (lead == 0xF4 && b1 >= 0x80 && b1 <= 0x8F && is_utf8_continuation_byte(b2)
+            && is_utf8_continuation_byte(b3));
+    if (!valid)
+        return false;
+
+    next_offset = offset + 4;
+    return true;
 }
 
 inline bool utf8_next_codepoint(std::string_view text, size_t offset, size_t limit, size_t& next_offset)
@@ -37,62 +88,14 @@ inline bool utf8_next_codepoint(std::string_view text, size_t offset, size_t lim
         return true;
     }
 
-    if (lead >= 0xC2 && lead <= 0xDF && remaining >= 2 && is_utf8_continuation_byte(bytes[offset + 1]))
-    {
-        next_offset = offset + 2;
+    if (utf8_next_codepoint_two_byte(bytes, offset, remaining, next_offset))
         return true;
-    }
 
-    if (remaining >= 3)
-    {
-        const uint8_t b1 = bytes[offset + 1];
-        const uint8_t b2 = bytes[offset + 2];
-        if (lead == 0xE0 && b1 >= 0xA0 && b1 <= 0xBF && is_utf8_continuation_byte(b2))
-        {
-            next_offset = offset + 3;
-            return true;
-        }
-        if (lead >= 0xE1 && lead <= 0xEC && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2))
-        {
-            next_offset = offset + 3;
-            return true;
-        }
-        if (lead == 0xED && b1 >= 0x80 && b1 <= 0x9F && is_utf8_continuation_byte(b2))
-        {
-            next_offset = offset + 3;
-            return true;
-        }
-        if (lead >= 0xEE && lead <= 0xEF && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2))
-        {
-            next_offset = offset + 3;
-            return true;
-        }
-    }
+    if (utf8_next_codepoint_three_byte(bytes, offset, remaining, next_offset))
+        return true;
 
-    if (remaining >= 4)
-    {
-        const uint8_t b1 = bytes[offset + 1];
-        const uint8_t b2 = bytes[offset + 2];
-        const uint8_t b3 = bytes[offset + 3];
-        if (lead == 0xF0 && b1 >= 0x90 && b1 <= 0xBF && is_utf8_continuation_byte(b2)
-            && is_utf8_continuation_byte(b3))
-        {
-            next_offset = offset + 4;
-            return true;
-        }
-        if (lead >= 0xF1 && lead <= 0xF3 && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2)
-            && is_utf8_continuation_byte(b3))
-        {
-            next_offset = offset + 4;
-            return true;
-        }
-        if (lead == 0xF4 && b1 >= 0x80 && b1 <= 0x8F && is_utf8_continuation_byte(b2)
-            && is_utf8_continuation_byte(b3))
-        {
-            next_offset = offset + 4;
-            return true;
-        }
-    }
+    if (utf8_next_codepoint_four_byte(bytes, offset, remaining, next_offset))
+        return true;
 
     return false;
 }
@@ -137,10 +140,11 @@ struct CellText
         if (sv.size() > static_cast<size_t>(kMaxLen))
             DRAXUL_LOG_WARN(LogCategory::App, "CellText: cluster truncated from %zu to %d bytes",
                 sv.size(), static_cast<int>(kMaxLen));
-        len = static_cast<uint8_t>(sv.size() > static_cast<size_t>(kMaxLen)
-                ? detail::utf8_valid_prefix_length(sv, static_cast<size_t>(kMaxLen))
-                : sv.size());
-        std::memcpy(data.data(), sv.data(), len);
+        const size_t valid_len = sv.size() > static_cast<size_t>(kMaxLen)
+            ? detail::utf8_valid_prefix_length(sv, static_cast<size_t>(kMaxLen))
+            : sv.size();
+        len = static_cast<uint8_t>(valid_len);
+        std::memcpy(data.data(), sv.data(), valid_len);
     }
 
     std::string_view view() const
@@ -206,7 +210,8 @@ public:
     void mark_dirty(int col, int row);
     void mark_all_dirty();
     void clear_dirty();
-    void remap_highlight_ids(const std::function<uint16_t(uint16_t)>& remap);
+    template <typename Remap>
+    void remap_highlight_ids(Remap&& remap);
     size_t dirty_cell_count() const
     {
         return dirty_cells_.size();
@@ -227,5 +232,19 @@ private:
     std::vector<uint8_t> dirty_marks_;
     Cell empty_cell_;
 };
+
+template <typename Remap>
+void Grid::remap_highlight_ids(Remap&& remap)
+{
+    for (size_t i = 0; i < cells_.size(); ++i)
+    {
+        auto& cell = cells_[i];
+        const uint16_t remapped = remap(cell.hl_attr_id);
+        if (remapped == cell.hl_attr_id)
+            continue;
+        cell.hl_attr_id = remapped;
+        mark_dirty_index(static_cast<int>(i));
+    }
+}
 
 } // namespace draxul

@@ -145,6 +145,52 @@ bool parse_enable_ligatures(const toml::table& document, bool fallback)
     return toml_support::get_bool(document, "enable_ligatures").value_or(fallback);
 }
 
+void apply_gui_keybindings(AppConfig& config, const toml::table& keybindings)
+{
+    for (const auto& [action_key, value] : keybindings)
+    {
+        if (!value.is_string())
+            continue;
+
+        auto action = std::string(action_key.str());
+        auto combo = value.value<std::string_view>();
+        if (!combo)
+            continue;
+
+        if (combo->empty())
+        {
+            if (remove_gui_keybinding(config.keybindings, action))
+            {
+                DRAXUL_LOG_DEBUG(LogCategory::App,
+                    "Keybinding '%s' removed by user config.", action.c_str());
+            }
+            continue;
+        }
+
+        if (auto parsed = parse_gui_keybinding(action, *combo))
+            replace_gui_keybinding(config.keybindings, std::move(*parsed));
+    }
+}
+
+void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
+{
+    if (auto fg = toml_support::get_string(terminal, "fg"))
+    {
+        if (auto parsed = parse_hex_color(*fg); parsed.has_value())
+            config.terminal.fg = *fg;
+        else
+            DRAXUL_LOG_WARN(LogCategory::App, "[config] terminal.fg '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring", fg->c_str());
+    }
+
+    if (auto bg = toml_support::get_string(terminal, "bg"))
+    {
+        if (auto parsed = parse_hex_color(*bg); parsed.has_value())
+            config.terminal.bg = *bg;
+        else
+            DRAXUL_LOG_WARN(LogCategory::App, "[config] terminal.bg '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring", bg->c_str());
+    }
+}
+
 AppConfig config_from_toml(const toml::table& document)
 {
     AppConfig config;
@@ -238,32 +284,9 @@ AppConfig config_from_toml(const toml::table& document)
         config.bold_italic_font_path = *bold_italic_font_path;
     if (auto fallback_paths = toml_support::get_string_array(document, "fallback_paths"))
         config.fallback_paths = std::move(*fallback_paths);
+
     if (const auto* keybindings = document["keybindings"].as_table())
-    {
-        for (const auto& [action_key, value] : *keybindings)
-        {
-            if (!value.is_string())
-                continue;
-
-            auto action = std::string(action_key.str());
-            auto combo = value.value<std::string_view>();
-            if (!combo)
-                continue;
-
-            if (combo->empty())
-            {
-                if (remove_gui_keybinding(config.keybindings, action))
-                {
-                    DRAXUL_LOG_DEBUG(LogCategory::App,
-                        "Keybinding '%s' removed by user config.", action.c_str());
-                }
-                continue;
-            }
-
-            if (auto parsed = parse_gui_keybinding(action, *combo))
-                replace_gui_keybinding(config.keybindings, std::move(*parsed));
-        }
-    }
+        apply_gui_keybindings(config, *keybindings);
 
     // Warn about duplicate key+modifier combinations in keybindings
     for (size_t i = 0; i < config.keybindings.size(); ++i)
@@ -283,22 +306,7 @@ AppConfig config_from_toml(const toml::table& document)
 
     // [terminal] section -- optional fg/bg hex color overrides for shell panes.
     if (const auto* terminal = document["terminal"].as_table())
-    {
-        if (auto fg = toml_support::get_string(*terminal, "fg"))
-        {
-            if (auto parsed = parse_hex_color(*fg); parsed.has_value())
-                config.terminal.fg = *fg;
-            else
-                DRAXUL_LOG_WARN(LogCategory::App, "[config] terminal.fg '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring", fg->c_str());
-        }
-        if (auto bg = toml_support::get_string(*terminal, "bg"))
-        {
-            if (auto parsed = parse_hex_color(*bg); parsed.has_value())
-                config.terminal.bg = *bg;
-            else
-                DRAXUL_LOG_WARN(LogCategory::App, "[config] terminal.bg '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring", bg->c_str());
-        }
-    }
+        apply_terminal_overrides(config, *terminal);
 
     // Warn about unknown top-level keys
     for (const auto& [key, value] : document)
@@ -335,14 +343,14 @@ std::optional<Color> parse_hex_color(std::string_view hex)
 
     if (hex.size() == 6)
     {
-        int digits[6];
+        std::array<int, 6> digits{};
         for (int i = 0; i < 6; ++i)
         {
-            digits[i] = hex_digit(hex[static_cast<size_t>(i)]);
+            digits[static_cast<size_t>(i)] = hex_digit(hex[static_cast<size_t>(i)]);
             if (digits[i] < 0)
                 return std::nullopt;
         }
-        uint32_t rgb = static_cast<uint32_t>((digits[0] << 20) | (digits[1] << 16)
+        const auto rgb = static_cast<uint32_t>((digits[0] << 20) | (digits[1] << 16)
             | (digits[2] << 12) | (digits[3] << 8)
             | (digits[4] << 4) | digits[5]);
         return color_from_rgb(rgb);
@@ -350,15 +358,15 @@ std::optional<Color> parse_hex_color(std::string_view hex)
 
     if (hex.size() == 3)
     {
-        int digits[3];
+        std::array<int, 3> digits{};
         for (int i = 0; i < 3; ++i)
         {
-            digits[i] = hex_digit(hex[static_cast<size_t>(i)]);
+            digits[static_cast<size_t>(i)] = hex_digit(hex[static_cast<size_t>(i)]);
             if (digits[i] < 0)
                 return std::nullopt;
         }
         // Expand #RGB to #RRGGBB: each digit is doubled (e.g. #abc -> #aabbcc)
-        uint32_t rgb = static_cast<uint32_t>(
+        const auto rgb = static_cast<uint32_t>(
             ((digits[0] * 17) << 16) | ((digits[1] * 17) << 8) | (digits[2] * 17));
         return color_from_rgb(rgb);
     }

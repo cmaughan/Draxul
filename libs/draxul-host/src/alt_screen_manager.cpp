@@ -80,15 +80,16 @@ void AltScreenManager::resize_snapshot(int new_cols, int new_rows, int prev_cols
     {
         for (int c = 0; c < new_cols; ++c)
         {
+            const size_t dst = static_cast<size_t>(r) * new_cols + c;
             if (r < prev_rows && c < prev_cols)
             {
                 const size_t idx = static_cast<size_t>(r) * prev_cols + c;
-                resized[static_cast<size_t>(r) * new_cols + c]
-                    = idx < saved_main_.cells.size() ? saved_main_.cells[idx] : blank;
+                const Cell source = idx < saved_main_.cells.size() ? saved_main_.cells[idx] : blank;
+                resized[dst] = source;
             }
             else
             {
-                resized[static_cast<size_t>(r) * new_cols + c] = blank;
+                resized[dst] = blank;
             }
         }
     }
@@ -99,18 +100,6 @@ void AltScreenManager::clamp_saved_cursor(int max_col, int max_row)
 {
     saved_main_.col = std::clamp(saved_main_.col, 0, max_col);
     saved_main_.row = std::clamp(saved_main_.row, 0, max_row);
-}
-
-void AltScreenManager::for_each_saved_cell(const std::function<void(const Cell&)>& fn) const
-{
-    for (const auto& cell : saved_main_.cells)
-        fn(cell);
-}
-
-void AltScreenManager::remap_saved_highlight_ids(const std::function<uint16_t(uint16_t)>& remap)
-{
-    for (auto& cell : saved_main_.cells)
-        cell.hl_attr_id = remap(cell.hl_attr_id);
 }
 
 void AltScreenManager::reset()

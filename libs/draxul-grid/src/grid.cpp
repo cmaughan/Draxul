@@ -260,19 +260,6 @@ void Grid::clear_dirty()
     dirty_cells_.clear();
 }
 
-void Grid::remap_highlight_ids(const std::function<uint16_t(uint16_t)>& remap)
-{
-    for (size_t i = 0; i < cells_.size(); ++i)
-    {
-        auto& cell = cells_[i];
-        const uint16_t remapped = remap(cell.hl_attr_id);
-        if (remapped == cell.hl_attr_id)
-            continue;
-        cell.hl_attr_id = remapped;
-        mark_dirty_index(static_cast<int>(i));
-    }
-}
-
 std::vector<Grid::DirtyCell> Grid::get_dirty_cells() const
 {
     return dirty_cells_;

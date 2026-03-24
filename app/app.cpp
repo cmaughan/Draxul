@@ -440,7 +440,7 @@ bool App::close_dead_panes()
 void App::render_imgui_overlay(float delta_seconds)
 {
     bool any_host_imgui = false;
-    host_manager_.for_each_host([&](LeafId, IHost& h) {
+    host_manager_.for_each_host([&any_host_imgui](LeafId, IHost& h) {
         if (h.has_imgui())
             any_host_imgui = true;
     });
@@ -453,7 +453,7 @@ void App::render_imgui_overlay(float delta_seconds)
         render_app_imgui_dockspace(ui_panel_.layout());
         if (ui_panel_.visible())
             ui_panel_.render_into_current_context();
-        host_manager_.for_each_host([&](LeafId, IHost& h) {
+        host_manager_.for_each_host([delta_seconds](LeafId, IHost& h) {
             if (h.has_imgui())
                 h.render_imgui(delta_seconds);
         });

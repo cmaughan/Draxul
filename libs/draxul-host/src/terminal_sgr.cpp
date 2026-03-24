@@ -82,9 +82,9 @@ size_t try_apply_extended_color(HlAttr& attr, bool is_fg, const std::vector<int>
     if (values[i + 1] == 2 && i + 4 < values.size())
     {
         const Color color(
-            std::clamp(values[i + 2], 0, 255) / 255.0f,
-            std::clamp(values[i + 3], 0, 255) / 255.0f,
-            std::clamp(values[i + 4], 0, 255) / 255.0f,
+            static_cast<float>(std::clamp(values[i + 2], 0, 255)) / 255.0f,
+            static_cast<float>(std::clamp(values[i + 3], 0, 255)) / 255.0f,
+            static_cast<float>(std::clamp(values[i + 4], 0, 255)) / 255.0f,
             1.0f);
         set_color(attr, is_fg, color);
         return 4;

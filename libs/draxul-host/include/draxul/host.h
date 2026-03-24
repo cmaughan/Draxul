@@ -111,12 +111,30 @@ public:
     virtual void pump() = 0;
     virtual std::optional<std::chrono::steady_clock::time_point> next_deadline() const = 0;
 
-    virtual void on_key(const KeyEvent& /*event*/) {}
-    virtual void on_text_input(const TextInputEvent& /*event*/) {}
-    virtual void on_text_editing(const TextEditingEvent& /*event*/) {}
-    virtual void on_mouse_button(const MouseButtonEvent& /*event*/) {}
-    virtual void on_mouse_move(const MouseMoveEvent& /*event*/) {}
-    virtual void on_mouse_wheel(const MouseWheelEvent& /*event*/) {}
+    virtual void on_key(const KeyEvent& /*event*/)
+    {
+        // Default no-op; hosts override only the input paths they consume.
+    }
+    virtual void on_text_input(const TextInputEvent& /*event*/)
+    {
+        // Default no-op; hosts override only the input paths they consume.
+    }
+    virtual void on_text_editing(const TextEditingEvent& /*event*/)
+    {
+        // Default no-op; hosts override only the input paths they consume.
+    }
+    virtual void on_mouse_button(const MouseButtonEvent& /*event*/)
+    {
+        // Default no-op; hosts override only the input paths they consume.
+    }
+    virtual void on_mouse_move(const MouseMoveEvent& /*event*/)
+    {
+        // Default no-op; hosts override only the input paths they consume.
+    }
+    virtual void on_mouse_wheel(const MouseWheelEvent& /*event*/)
+    {
+        // Default no-op; hosts override only the input paths they consume.
+    }
 
     virtual bool dispatch_action(std::string_view action) = 0;
     virtual void request_close() = 0;
@@ -126,13 +144,22 @@ public:
 
     // Apply a sub-pixel vertical scroll offset to this host's rendered grid.
     // Grid hosts delegate to their IGridHandle; non-grid hosts ignore this.
-    virtual void set_scroll_offset(float /*px*/) {}
+    virtual void set_scroll_offset(float /*px*/)
+    {
+        // Default no-op; non-grid hosts ignore scroll offsets.
+    }
     virtual bool has_imgui() const
     {
         return false;
     }
-    virtual void render_imgui(float /*dt*/) {}
-    virtual void set_imgui_font(const std::string& /*path*/, float /*size_pixels*/) {}
+    virtual void render_imgui(float /*dt*/)
+    {
+        // Default no-op; only hosts with extra ImGui chrome override this.
+    }
+    virtual void set_imgui_font(const std::string& /*path*/, float /*size_pixels*/)
+    {
+        // Default no-op; only hosts with custom ImGui content need host fonts.
+    }
 };
 
 std::unique_ptr<IHost> create_host(HostKind kind);
@@ -152,17 +179,15 @@ public:
     // calls render_imgui() after it has already begun a frame on the shared
     // application ImGui context. Hosts may add windows or other chrome to the
     // current frame but must not call NewFrame() or Render() themselves.
-    virtual void attach_imgui_host(IImGuiHost& /*host*/) {}
+    virtual void attach_imgui_host(IImGuiHost& /*host*/)
+    {
+        // Default no-op; hosts with app-level ImGui integration may override this.
+    }
 };
 
-// ---------------------------------------------------------------------------
-// IGridHost — marker type for all grid-based (terminal/editor) hosts.
-// Inherits I3DHost so that future hosts can optionally register a 3D
-// background pass without changing the host manager dispatch.
-// ---------------------------------------------------------------------------
 class IGridHost : public I3DHost
 {
-    // No new pure virtuals — subclasses provide no-op attach/detach by default.
+    // Marker type only; grid hosts inherit the I3DHost hooks unchanged.
 };
 
 } // namespace draxul

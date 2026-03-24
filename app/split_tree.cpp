@@ -231,7 +231,17 @@ const SplitTree::Node* SplitTree::find_leaf_node(LeafId id) const
 
 SplitTree::Node* SplitTree::find_leaf_node(LeafId id)
 {
-    return const_cast<Node*>(static_cast<const SplitTree&>(*this).find_leaf_node(id));
+    std::function<Node*(Node*)> search = [&](Node* node) -> Node* {
+        if (!node)
+            return nullptr;
+        if (node->is_leaf())
+            return node->leaf().id == id ? node : nullptr;
+        auto& s = node->split();
+        if (auto* found = search(s.first.get()))
+            return found;
+        return search(s.second.get());
+    };
+    return search(root_.get());
 }
 
 const SplitTree::Node* SplitTree::find_divider_node(DividerId id) const
@@ -251,7 +261,17 @@ const SplitTree::Node* SplitTree::find_divider_node(DividerId id) const
 
 SplitTree::Node* SplitTree::find_divider_node(DividerId id)
 {
-    return const_cast<Node*>(static_cast<const SplitTree&>(*this).find_divider_node(id));
+    std::function<Node*(Node*)> search = [&](Node* node) -> Node* {
+        if (!node || node->is_leaf())
+            return nullptr;
+        auto& s = node->split();
+        if (s.divider_id == id)
+            return node;
+        if (auto* found = search(s.first.get()))
+            return found;
+        return search(s.second.get());
+    };
+    return search(root_.get());
 }
 
 const SplitTree::Node* SplitTree::find_parent_of(const Node* child) const
@@ -271,7 +291,17 @@ const SplitTree::Node* SplitTree::find_parent_of(const Node* child) const
 
 SplitTree::Node* SplitTree::find_parent_of(const Node* child)
 {
-    return const_cast<Node*>(static_cast<const SplitTree&>(*this).find_parent_of(child));
+    std::function<Node*(Node*)> search = [&](Node* node) -> Node* {
+        if (!node || node->is_leaf())
+            return nullptr;
+        auto& s = node->split();
+        if (s.first.get() == child || s.second.get() == child)
+            return node;
+        if (auto* found = search(s.first.get()))
+            return found;
+        return search(s.second.get());
+    };
+    return search(root_.get());
 }
 
 void SplitTree::recompute_node(Node* node, int x, int y, int w, int h, int div_w)

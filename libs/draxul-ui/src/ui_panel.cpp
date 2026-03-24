@@ -134,7 +134,7 @@ PanelLayout compute_panel_layout(int pixel_w, int pixel_h, int cell_w, int cell_
     int panel_height = 0;
     if (visible && layout.window_size.y > safe_cell_h + safe_padding * 2)
     {
-        const int desired = static_cast<int>(std::lround(static_cast<double>(layout.window_size.y) * kDefaultPanelRatio));
+        const auto desired = static_cast<int>(std::lround(static_cast<double>(layout.window_size.y) * kDefaultPanelRatio));
         const int max_panel_height = std::max(0, layout.window_size.y - (safe_cell_h + safe_padding * 2));
         panel_height = std::clamp(desired, kMinimumPanelHeight, max_panel_height);
     }
@@ -283,7 +283,7 @@ const ImDrawData* UiPanel::render()
     return end_frame();
 }
 
-const ImDrawData* UiPanel::end_frame()
+const ImDrawData* UiPanel::end_frame() const
 {
     if (!impl_->context)
         return nullptr;

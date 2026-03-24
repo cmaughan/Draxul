@@ -517,9 +517,7 @@ static std::string extract_osc7_path(std::string_view uri)
 {
     // Strip the "file://" prefix.
     constexpr std::string_view kFilePrefix = "file://";
-    if (uri.size() < kFilePrefix.size())
-        return {};
-    if (uri.substr(0, kFilePrefix.size()) != kFilePrefix)
+    if (!uri.starts_with(kFilePrefix))
         return {};
     uri.remove_prefix(kFilePrefix.size());
 

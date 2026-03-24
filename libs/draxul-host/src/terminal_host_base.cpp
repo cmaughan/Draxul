@@ -9,38 +9,41 @@
 #include <draxul/unicode.h>
 #include <draxul/vt_parser.h>
 #include <draxul/window.h>
+#include <functional>
 #include <unordered_map>
 
 namespace draxul
 {
+
+namespace
+{
+
+void set_grid_cell_for_alt_screen(Grid& grid, int col, int row, const Cell& cell)
+{
+    grid.set_cell(col, row, std::string(cell.text.view()), cell.hl_attr_id, cell.double_width);
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
 
 TerminalHostBase::TerminalHostBase()
-    : vt_parser_([this]() -> VtParser::Callbacks {
-        VtParser::Callbacks cbs;
-        cbs.on_cluster = [this](const std::string& cluster) { write_cluster(cluster); };
-        cbs.on_control = [this](char ch) { handle_control(ch); };
-        cbs.on_esc = [this](char ch) { handle_esc(ch); };
-        cbs.on_csi = [this](char final_char, std::string_view body) {
-            handle_csi(final_char, body);
-        };
-        cbs.on_osc = [this](std::string_view body) { handle_osc(body); };
-        return cbs;
-    }())
-    , alt_screen_([this]() -> AltScreenManager::GridAccessors {
-        AltScreenManager::GridAccessors acc;
-        acc.grid_cols = [this]() { return grid_cols(); };
-        acc.grid_rows = [this]() { return grid_rows(); };
-        acc.get_cell = [this](int col, int row) { return grid().get_cell(col, row); };
-        acc.set_cell = [this](int col, int row, const Cell& c) {
-            grid().set_cell(col, row, std::string(c.text.view()), c.hl_attr_id, c.double_width);
-        };
-        acc.clear_grid = [this]() { grid().clear(); };
-        return acc;
-    }())
+    : vt_parser_(VtParser::Callbacks{
+          std::bind_front(&TerminalHostBase::write_cluster, this),
+          std::bind_front(&TerminalHostBase::handle_control, this),
+          std::bind_front(&TerminalHostBase::handle_csi, this),
+          std::bind_front(&TerminalHostBase::handle_osc, this),
+          std::bind_front(&TerminalHostBase::handle_esc, this),
+      })
+    , alt_screen_(AltScreenManager::GridAccessors{
+          std::bind_front(&TerminalHostBase::grid_cols, this),
+          std::bind_front(&TerminalHostBase::grid_rows, this),
+          std::bind_front(std::mem_fn(&Grid::get_cell), std::ref(grid())),
+          std::bind_front(set_grid_cell_for_alt_screen, std::ref(grid())),
+          std::bind_front(std::mem_fn(&Grid::clear), std::ref(grid())),
+      })
 {
 }
 
@@ -229,6 +232,32 @@ uint16_t TerminalHostBase::attr_id()
 
 void TerminalHostBase::compact_attr_ids()
 {
+    struct ActiveAttrCollector
+    {
+        TerminalHostBase* self;
+        std::unordered_map<uint16_t, HlAttr>& active_attrs;
+
+        void operator()(const Cell& cell) const
+        {
+            if (cell.hl_attr_id == 0)
+                return;
+            active_attrs.try_emplace(cell.hl_attr_id, self->highlights().get(cell.hl_attr_id));
+        }
+    };
+
+    struct HighlightRemapper
+    {
+        const std::unordered_map<uint16_t, uint16_t>& remap;
+
+        uint16_t operator()(uint16_t id) const
+        {
+            if (id == 0)
+                return id;
+            const auto it = remap.find(id);
+            return it != remap.end() ? it->second : static_cast<uint16_t>(0);
+        }
+    };
+
     std::unordered_map<uint16_t, HlAttr> active_attrs;
     active_attrs.reserve(attr_cache_.size());
 
@@ -243,11 +272,7 @@ void TerminalHostBase::compact_attr_ids()
         }
     }
 
-    alt_screen_.for_each_saved_cell([&](const Cell& cell) {
-        if (cell.hl_attr_id == 0)
-            return;
-        active_attrs.try_emplace(cell.hl_attr_id, highlights().get(cell.hl_attr_id));
-    });
+    alt_screen_.for_each_saved_cell(ActiveAttrCollector{ this, active_attrs });
 
     std::unordered_map<uint16_t, uint16_t> remap;
     remap.reserve(active_attrs.size());
@@ -257,23 +282,13 @@ void TerminalHostBase::compact_attr_ids()
     for (const auto& [old_id, attr] : active_attrs)
     {
         const uint16_t new_id = next_id++;
-        remap.emplace(old_id, new_id);
-        attr_cache_.emplace(attr, new_id);
+        remap.try_emplace(old_id, new_id);
+        attr_cache_.try_emplace(attr, new_id);
         highlights().set(new_id, attr);
     }
 
-    grid().remap_highlight_ids([&](uint16_t id) {
-        if (id == 0)
-            return id;
-        const auto it = remap.find(id);
-        return it != remap.end() ? it->second : static_cast<uint16_t>(0);
-    });
-    alt_screen_.remap_saved_highlight_ids([&](uint16_t id) {
-        if (id == 0)
-            return id;
-        const auto it = remap.find(id);
-        return it != remap.end() ? it->second : static_cast<uint16_t>(0);
-    });
+    grid().remap_highlight_ids(HighlightRemapper{ remap });
+    alt_screen_.remap_saved_highlight_ids(HighlightRemapper{ remap });
 
     next_attr_id_ = next_id;
     DRAXUL_LOG_DEBUG(LogCategory::App,

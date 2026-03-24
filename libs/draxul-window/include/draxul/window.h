@@ -24,21 +24,36 @@ public:
     virtual std::string clipboard_text() const = 0;
     virtual bool set_clipboard_text(const std::string& text) = 0;
     virtual void set_text_input_area(int x, int y, int w, int h) = 0;
-    virtual void normalize_render_target_window_size(int /*target_pixel_width*/, int /*target_pixel_height*/) {}
+    virtual void normalize_render_target_window_size(int /*target_pixel_width*/, int /*target_pixel_height*/)
+    {
+        // Default no-op; window backends override when render tests need size normalization.
+    }
 
     // Wake the event loop from another thread (e.g. after a host requests a frame).
-    virtual void wake() {}
+    virtual void wake()
+    {
+        // Default no-op; platform backends override when they can wake a blocked event loop.
+    }
     // Bring the window to the foreground and give it input focus.
-    virtual void activate() {}
+    virtual void activate()
+    {
+        // Default no-op; platform backends override when they can request focus.
+    }
     // Block until an event arrives or timeout_ms elapses. Returns false if quit.
     virtual bool wait_events(int /*timeout_ms*/)
     {
         return true;
     }
     // Hint to clamp the window position to display bounds.
-    virtual void set_clamp_to_display(bool) {}
+    virtual void set_clamp_to_display(bool)
+    {
+        // Default no-op; platform backends may use this hint during window creation.
+    }
     // Hint to create the window hidden (used for headless render tests).
-    virtual void set_hidden(bool) {}
+    virtual void set_hidden(bool)
+    {
+        // Default no-op; platform backends may use this hint during window creation.
+    }
 
     // Show the platform native file-open dialog. Non-blocking: when the user
     // picks a file (or cancels), on_drop_file is called with the path (or no

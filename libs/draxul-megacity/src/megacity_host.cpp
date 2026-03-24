@@ -36,16 +36,24 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     return true;
 }
 
-void MegaCityHost::on_mouse_move(const MouseMoveEvent& /*event*/) {}
-
-void MegaCityHost::on_mouse_button(const MouseButtonEvent& /*event*/) {}
-
-void MegaCityHost::on_mouse_wheel(const MouseWheelEvent& /*event*/) {}
-
-void MegaCityHost::set_imgui_font(const std::string& path, float size_pixels)
+void MegaCityHost::on_mouse_move(const MouseMoveEvent& /*event*/)
 {
-    (void)path;
-    (void)size_pixels;
+    // The Megacity camera is keyboard-driven today; mouse motion is ignored.
+}
+
+void MegaCityHost::on_mouse_button(const MouseButtonEvent& /*event*/)
+{
+    // The Megacity view currently has no mouse-click interactions.
+}
+
+void MegaCityHost::on_mouse_wheel(const MouseWheelEvent& /*event*/)
+{
+    // The Megacity view currently has no wheel-driven zoom or scroll behavior.
+}
+
+void MegaCityHost::set_imgui_font(const std::string&, float)
+{
+    // Megacity uses the shared app ImGui context and does not own fonts itself.
 }
 
 void MegaCityHost::render_imgui(float dt)
@@ -134,7 +142,7 @@ void MegaCityHost::pump()
 
 std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline() const
 {
-    // Return "now" so pump() is called every frame
+    // Return "now" so pump() is called every frame.
     return std::chrono::steady_clock::now();
 }
 
@@ -151,15 +159,14 @@ bool MegaCityHost::dispatch_action(std::string_view action)
 
 void MegaCityHost::request_close()
 {
-    // App-initiated quit: just stop running. Do NOT call callbacks_->request_quit()
-    // here — that would call back into App::request_quit(), which calls this method
-    // again, causing infinite mutual mutual recursion and a stack overflow.
+    // App-initiated quit: just stop running. Do not call request_quit() here,
+    // because App::request_quit() already delegates to this method.
     running_ = false;
 }
 
 Color MegaCityHost::default_background() const
 {
-    return Color(0.05f, 0.05f, 0.10f, 1.0f); // dark navy — city at night
+    return Color(0.05f, 0.05f, 0.10f, 1.0f); // dark navy, for the night-city scene
 }
 
 HostRuntimeState MegaCityHost::runtime_state() const
