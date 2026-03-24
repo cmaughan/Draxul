@@ -204,9 +204,11 @@ bool App::initialize()
     std::tie(last_pixel_w_, last_pixel_h_) = window_->size_pixels();
 
     saw_frame_ = false;
-    frame_requested_ = false;
     last_panel_frame_time_ = std::chrono::steady_clock::now();
     running_ = true;
+    // Render one initial composite frame after init so hosts that only request
+    // redraws on state changes do not start on a blank window.
+    request_frame();
     init_completed_ = true;
     rollback.armed = false;
     return true;

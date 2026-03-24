@@ -18,6 +18,7 @@ class IsometricCamera
 public:
     void set_viewport(int pixel_w, int pixel_h);
     void look_at_world_center(float world_w, float world_h);
+    void set_target(const glm::vec3& target);
 
     glm::mat4 view_matrix() const;
     glm::mat4 proj_matrix() const;
@@ -26,6 +27,7 @@ public:
 private:
     glm::vec3 position_{ -6.0f, 7.0f, -6.0f };
     glm::vec3 target_{ 2.5f, 0.0f, 2.5f };
+    glm::vec3 follow_offset_{ -5.0f, 6.25f, -5.0f };
     float ortho_half_height_ = 4.0f;
     float aspect_ = 1.0f;
 };

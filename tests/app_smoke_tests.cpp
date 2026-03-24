@@ -147,14 +147,17 @@ std::filesystem::path canonical_path(const std::filesystem::path& path)
     return ec ? path : canonical;
 }
 
+// Shared pointers to the most recently created fakes — lets tests inspect
+// renderer/host state after App takes ownership.
+SmokeTestHost* g_last_smoke_host = nullptr;
+FakeTermRenderer* g_last_fake_renderer = nullptr;
+
 RendererBundle make_fake_renderer(int /*atlas_size*/)
 {
-    return RendererBundle{ std::make_unique<FakeTermRenderer>() };
+    auto renderer = std::make_unique<FakeTermRenderer>();
+    g_last_fake_renderer = renderer.get();
+    return RendererBundle{ std::move(renderer) };
 }
-
-// Shared pointer to the most recently created SmokeTestHost — lets tests
-// inspect host state after App takes ownership of the unique_ptr.
-SmokeTestHost* g_last_smoke_host = nullptr;
 
 std::unique_ptr<IHost> make_smoke_host(HostKind /*kind*/)
 {
@@ -162,6 +165,89 @@ std::unique_ptr<IHost> make_smoke_host(HostKind /*kind*/)
     g_last_smoke_host = host.get();
     return host;
 }
+
+class InitFrameOnlyHost final : public IGridHost
+{
+public:
+    bool initialize(const HostContext&, IHostCallbacks& callbacks) override
+    {
+        callbacks_ = &callbacks;
+        initialized_ = true;
+        callbacks_->request_frame();
+        return true;
+    }
+
+    void shutdown() override
+    {
+        running_ = false;
+    }
+
+    bool is_running() const override
+    {
+        return running_;
+    }
+
+    std::string init_error() const override
+    {
+        return {};
+    }
+
+    void set_viewport(const HostViewport&) override {}
+    void on_font_metrics_changed() override {}
+
+    void pump() override
+    {
+        ++pump_count_;
+    }
+
+    std::optional<std::chrono::steady_clock::time_point> next_deadline() const override
+    {
+        return std::nullopt;
+    }
+
+    bool dispatch_action(std::string_view) override
+    {
+        return false;
+    }
+
+    void request_close() override
+    {
+        running_ = false;
+    }
+
+    Color default_background() const override
+    {
+        return Color(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    HostRuntimeState runtime_state() const override
+    {
+        HostRuntimeState state;
+        state.content_ready = initialized_;
+        return state;
+    }
+
+    HostDebugState debug_state() const override
+    {
+        HostDebugState state;
+        state.name = "init-frame-only";
+        return state;
+    }
+
+    void attach_3d_renderer(I3DRenderer&) override {}
+    void detach_3d_renderer() override {}
+
+    int pump_count() const
+    {
+        return pump_count_;
+    }
+
+private:
+    IHostCallbacks* callbacks_ = nullptr;
+    bool initialized_ = false;
+    bool running_ = true;
+    int pump_count_ = 0;
+};
 
 // Constructs AppOptions for a fully-initializable App with all fakes.
 AppOptions make_smoke_options()
@@ -278,6 +364,28 @@ TEST_CASE("app smoke: shutdown after successful init is clean", "[app_smoke]")
 
     app.shutdown();
     // Second shutdown must not crash (idempotency).
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: initial frame renders before any later host redraw", "[app_smoke]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    g_last_fake_renderer = nullptr;
+    AppOptions opts = make_smoke_options();
+    opts.host_factory = [](HostKind) -> std::unique_ptr<IHost> {
+        return std::make_unique<InitFrameOnlyHost>();
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(g_last_fake_renderer != nullptr);
+
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
+    REQUIRE(g_last_fake_renderer->set_imgui_draw_data_calls > 0);
+
     app.shutdown();
 }
 

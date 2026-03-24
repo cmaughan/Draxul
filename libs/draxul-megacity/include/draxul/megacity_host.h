@@ -67,6 +67,8 @@ public:
 
 private:
     void mark_scene_dirty();
+    bool movement_active() const;
+    void update_camera_target();
     SceneSnapshot build_scene_snapshot() const;
 
     IHostCallbacks* callbacks_ = nullptr;
@@ -81,7 +83,12 @@ private:
     bool running_ = false;
     bool scene_dirty_ = true;
     bool continuous_refresh_enabled_ = false;
+    bool move_left_ = false;
+    bool move_right_ = false;
+    bool move_up_ = false;
+    bool move_down_ = false;
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
 };
 
 // Factory function — called from host_factory.cpp

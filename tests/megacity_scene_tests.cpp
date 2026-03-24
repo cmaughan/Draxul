@@ -29,6 +29,7 @@ TEST_CASE("megacity world maps grid coordinates to tile centers", "[megacity]")
     const glm::vec3 origin = world.grid_to_world(0, 0);
     const glm::vec3 corner = world.grid_to_world(4, 4);
     const glm::vec3 elevated = world.grid_to_world(2, 3, 2.0f);
+    const glm::vec3 fractional = world.grid_to_world(2.25f, 3.5f);
 
     CHECK(origin.x == Catch::Approx(0.5f));
     CHECK(origin.y == Catch::Approx(0.0f));
@@ -40,6 +41,9 @@ TEST_CASE("megacity world maps grid coordinates to tile centers", "[megacity]")
     CHECK(elevated.x == Catch::Approx(2.5f));
     CHECK(elevated.y == Catch::Approx(2.0f));
     CHECK(elevated.z == Catch::Approx(3.5f));
+
+    CHECK(fractional.x == Catch::Approx(2.75f));
+    CHECK(fractional.z == Catch::Approx(4.0f));
 }
 
 TEST_CASE("megacity camera projection responds to viewport aspect", "[megacity]")
@@ -69,6 +73,22 @@ TEST_CASE("megacity camera footprint covers the centered world", "[megacity]")
     CHECK(footprint.max_x > 4.5f);
     CHECK(footprint.min_z < 0.5f);
     CHECK(footprint.max_z > 4.5f);
+}
+
+TEST_CASE("megacity camera footprint follows a retargeted focus point", "[megacity]")
+{
+    IsometricCamera camera;
+    camera.look_at_world_center(5.0f, 5.0f);
+    camera.set_viewport(160, 100);
+
+    const GroundFootprint centered = camera.visible_ground_footprint();
+    camera.set_target({ 14.5f, 0.0f, 9.5f });
+    const GroundFootprint shifted = camera.visible_ground_footprint();
+
+    CHECK(shifted.min_x > centered.min_x + 8.0f);
+    CHECK(shifted.max_x > centered.max_x + 8.0f);
+    CHECK(shifted.min_z > centered.min_z + 4.0f);
+    CHECK(shifted.max_z > centered.max_z + 4.0f);
 }
 
 TEST_CASE("megacity mesh library builds expected primitive counts", "[megacity]")

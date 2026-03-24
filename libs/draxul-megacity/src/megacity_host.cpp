@@ -6,6 +6,7 @@
 #include <cmath>
 #include <draxul/log.h>
 #include <draxul/megacity_host.h>
+#include <glm/geometric.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 
@@ -15,6 +16,14 @@
 
 namespace draxul
 {
+
+namespace
+{
+
+constexpr float kMovementSpeedTilesPerSecond = 3.5f;
+constexpr auto kMovementTick = std::chrono::milliseconds(16);
+
+} // namespace
 
 MegaCityHost::MegaCityHost() = default;
 
@@ -31,10 +40,12 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     camera_ = std::make_unique<IsometricCamera>();
     camera_->set_viewport(pixel_w_, pixel_h_);
     camera_->look_at_world_center(world_->width() * world_->tile_size(), world_->height() * world_->tile_size());
+    update_camera_target();
     scene_pass_ = std::make_shared<IsometricScenePass>(world_->width(), world_->height(), world_->tile_size());
 
     running_ = true;
     last_activity_time_ = std::chrono::steady_clock::now();
+    last_pump_time_ = last_activity_time_;
     scanner_.start(DRAXUL_REPO_ROOT);
     mark_scene_dirty();
 
@@ -53,37 +64,30 @@ void MegaCityHost::mark_scene_dirty()
 
 void MegaCityHost::on_key(const KeyEvent& event)
 {
-    if (!event.pressed || !world_ || world_->objects().empty())
-        return;
-
-    int dx = 0;
-    int dy = 0;
+    bool* movement_flag = nullptr;
     switch (event.keycode)
     {
     case SDLK_LEFT:
-        dx = -1;
+        movement_flag = &move_left_;
         break;
     case SDLK_RIGHT:
-        dx = 1;
+        movement_flag = &move_right_;
         break;
     case SDLK_UP:
-        dy = -1;
+        movement_flag = &move_up_;
         break;
     case SDLK_DOWN:
-        dy = 1;
+        movement_flag = &move_down_;
         break;
     default:
         return;
     }
 
-    auto& obj = world_->objects().front();
-    const int next_x = obj.x + dx;
-    const int next_y = obj.y + dy;
-    if (!world_->is_valid(next_x, next_y))
+    if (!movement_flag || *movement_flag == event.pressed)
         return;
 
-    obj.x = next_x;
-    obj.y = next_y;
+    *movement_flag = event.pressed;
+    last_pump_time_ = std::chrono::steady_clock::now();
     mark_scene_dirty();
 }
 
@@ -227,8 +231,52 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     return scene;
 }
 
+bool MegaCityHost::movement_active() const
+{
+    return move_left_ || move_right_ || move_up_ || move_down_;
+}
+
+void MegaCityHost::update_camera_target()
+{
+    if (!camera_ || !world_ || world_->objects().empty())
+        return;
+
+    const auto& obj = world_->objects().front();
+    camera_->set_target(world_->grid_to_world(obj.x, obj.y));
+}
+
 void MegaCityHost::pump()
 {
+    const auto now = std::chrono::steady_clock::now();
+    if (movement_active() && world_ && !world_->objects().empty())
+    {
+        glm::vec2 direction{ 0.0f, 0.0f };
+        if (move_left_)
+            direction.x -= 1.0f;
+        if (move_right_)
+            direction.x += 1.0f;
+        if (move_up_)
+            direction.y -= 1.0f;
+        if (move_down_)
+            direction.y += 1.0f;
+
+        const float distance = std::chrono::duration<float>(now - last_pump_time_).count()
+            * kMovementSpeedTilesPerSecond;
+        if (distance > 0.0f && glm::dot(direction, direction) > 0.0f)
+        {
+            direction = glm::normalize(direction);
+            auto& obj = world_->objects().front();
+            obj.x += direction.x * distance;
+            obj.y += direction.y * distance;
+            update_camera_target();
+            scene_dirty_ = true;
+            last_activity_time_ = now;
+            if (callbacks_)
+                callbacks_->request_frame();
+        }
+    }
+    last_pump_time_ = now;
+
     if (scene_dirty_ && scene_pass_)
     {
         scene_pass_->set_scene(build_scene_snapshot());
@@ -240,9 +288,11 @@ void MegaCityHost::pump()
 
 std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline() const
 {
-    if (!running_ || !continuous_refresh_enabled_)
+    if (!running_)
         return std::nullopt;
-    return std::chrono::steady_clock::now();
+    if (!continuous_refresh_enabled_ && !movement_active())
+        return std::nullopt;
+    return std::chrono::steady_clock::now() + kMovementTick;
 }
 
 bool MegaCityHost::dispatch_action(std::string_view action)

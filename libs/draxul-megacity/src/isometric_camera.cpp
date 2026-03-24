@@ -17,11 +17,16 @@ void IsometricCamera::set_viewport(int pixel_w, int pixel_h)
 
 void IsometricCamera::look_at_world_center(float world_w, float world_h)
 {
-    target_ = { world_w * 0.5f, 0.0f, world_h * 0.5f };
-
     const float max_dim = std::max(world_w, world_h);
     ortho_half_height_ = std::max(4.0f, max_dim * 0.8f);
-    position_ = target_ + glm::vec3(-max_dim, max_dim * 1.25f, -max_dim);
+    follow_offset_ = glm::vec3(-max_dim, max_dim * 1.25f, -max_dim);
+    set_target({ world_w * 0.5f, 0.0f, world_h * 0.5f });
+}
+
+void IsometricCamera::set_target(const glm::vec3& target)
+{
+    target_ = target;
+    position_ = target_ + follow_offset_;
 }
 
 glm::mat4 IsometricCamera::view_matrix() const

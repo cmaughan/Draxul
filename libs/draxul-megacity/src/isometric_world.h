@@ -6,16 +6,11 @@
 namespace draxul
 {
 
-struct GridTile
-{
-    bool occupied = false;
-};
-
 struct GridObject
 {
-    int x = 0;
-    int y = 0;
-    int elevation = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float elevation = 0.0f;
     glm::vec3 color{ 1.0f, 1.0f, 1.0f };
 };
 
@@ -26,9 +21,7 @@ public:
     static constexpr int kHeight = 5;
 
     IsometricWorld();
-
-    bool is_valid(int x, int y) const;
-    glm::vec3 grid_to_world(int x, int y, float elevation = 0.0f) const;
+    glm::vec3 grid_to_world(float x, float y, float elevation = 0.0f) const;
 
     int width() const
     {
@@ -54,7 +47,6 @@ public:
 
 private:
     float tile_size_ = 1.0f;
-    GridTile tiles_[kWidth][kHeight]{};
     std::vector<GridObject> objects_;
 };
 
