@@ -291,6 +291,8 @@ static int draxul_main(std::vector<std::string> args)
 
             if (!ok)
             {
+                DRAXUL_LOG_ERROR(draxul::LogCategory::Test, "Render test finalize failed: %s",
+                    finalize_error.c_str());
                 draxul::write_render_test_failure_report(*render_test, finalize_error);
                 DRAXUL_LOG_ERROR(draxul::LogCategory::App, "%s", finalize_error.c_str());
                 status = 1;

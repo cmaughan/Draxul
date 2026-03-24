@@ -12,6 +12,7 @@
 #include <draxul/log.h>
 #include <draxul/sdl_window.h>
 #include <imgui.h>
+#include <sstream>
 #include <utility>
 
 namespace draxul
@@ -368,7 +369,8 @@ void App::run()
 
 bool App::run_smoke_test(std::chrono::milliseconds timeout)
 {
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    const auto start_time = std::chrono::steady_clock::now();
+    const auto deadline = start_time + timeout;
     while (running_ && std::chrono::steady_clock::now() < deadline)
     {
         pump_once(deadline);
@@ -382,6 +384,11 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     last_render_test_error_.clear();
+    bool capture_requested = false;
+    bool diagnostics_enabled = !options_.show_diagnostics_in_render_test;
+    std::optional<std::chrono::steady_clock::time_point> diagnostics_enabled_at;
+    std::optional<std::chrono::steady_clock::time_point> ready_since;
+    std::optional<std::chrono::steady_clock::time_point> quiet_since;
     if (!renderer_.capture())
     {
         last_render_test_error_ = "Renderer does not support frame capture";
@@ -390,7 +397,18 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 
     while (running_ && std::chrono::steady_clock::now() < deadline)
     {
-        pump_once(deadline);
+        auto wait_deadline = deadline;
+        if (!diagnostics_enabled && ready_since)
+            wait_deadline = std::min(wait_deadline, *ready_since + settle);
+        if (diagnostics_enabled && !capture_requested)
+        {
+            if (options_.show_diagnostics_in_render_test && diagnostics_enabled_at)
+                wait_deadline = std::min(wait_deadline, *diagnostics_enabled_at + settle);
+            else if (!options_.show_diagnostics_in_render_test && quiet_since)
+                wait_deadline = std::min(wait_deadline, *quiet_since + settle);
+        }
+
+        pump_once(wait_deadline);
 
         if (auto captured = renderer_.capture()->take_captured_frame())
             return captured;
@@ -400,23 +418,77 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 
         const HostRuntimeState state = host_manager_.host()->runtime_state();
         const auto now = std::chrono::steady_clock::now();
-        if (state.content_ready && saw_frame_ && !frame_requested_ && now - state.last_activity_time >= settle)
+        if (state.content_ready && saw_frame_)
+        {
+            if (!ready_since)
+                ready_since = now;
+        }
+        else
+        {
+            ready_since.reset();
+        }
+
+        if (state.content_ready && saw_frame_ && !frame_requested_)
+        {
+            if (!quiet_since)
+                quiet_since = now;
+        }
+        else
+        {
+            quiet_since.reset();
+        }
+
+        if (!diagnostics_enabled && ready_since && now - *ready_since >= settle)
+        {
+            ui_panel_.set_visible(true);
+            refresh_window_layout();
+            auto [pixel_w, pixel_h] = window_->size_pixels();
+            (void)pixel_h;
+            host_manager_.recompute_viewports(pixel_w, ui_panel_.layout().terminal_height);
+            update_diagnostics_panel();
+            request_frame();
+            diagnostics_enabled = true;
+            diagnostics_enabled_at = now;
+            quiet_since.reset();
+            continue;
+        }
+
+        const bool diagnostics_capture_ready = diagnostics_enabled_at
+            && last_panel_frame_time_ > *diagnostics_enabled_at
+            && now - *diagnostics_enabled_at >= settle;
+
+        if (!capture_requested && diagnostics_enabled
+            && ((options_.show_diagnostics_in_render_test && diagnostics_capture_ready)
+                || (!options_.show_diagnostics_in_render_test && quiet_since && now - *quiet_since >= settle)))
         {
             renderer_.capture()->request_frame_capture();
-            if (renderer_.grid()->begin_frame())
-            {
-                const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
-                last_panel_frame_time_ = now;
-                render_imgui_overlay(delta_seconds);
-                saw_frame_ = true;
-                renderer_.grid()->end_frame();
-                if (auto captured = renderer_.capture()->take_captured_frame())
-                    return captured;
-            }
+            request_frame();
+            capture_requested = true;
         }
     }
 
-    last_render_test_error_ = "Timed out waiting for a stable render capture";
+    if (host_manager_.host())
+    {
+        const HostRuntimeState state = host_manager_.host()->runtime_state();
+        std::ostringstream oss;
+        const bool post_diagnostics_frame = diagnostics_enabled_at && last_panel_frame_time_ > *diagnostics_enabled_at;
+        const auto diagnostics_age_ms = diagnostics_enabled_at
+            ? std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - *diagnostics_enabled_at).count()
+            : -1;
+        oss << "Timed out waiting for a stable render capture"
+            << " (content_ready=" << (state.content_ready ? "true" : "false")
+            << ", saw_frame=" << (saw_frame_ ? "true" : "false")
+            << ", frame_requested=" << (frame_requested_ ? "true" : "false")
+            << ", diagnostics_enabled=" << (diagnostics_enabled ? "true" : "false")
+            << ", capture_requested=" << (capture_requested ? "true" : "false")
+            << ", post_diagnostics_frame=" << (post_diagnostics_frame ? "true" : "false")
+            << ", diagnostics_age_ms=" << diagnostics_age_ms << ")";
+        last_render_test_error_ = oss.str();
+    }
+    else
+    {
+        last_render_test_error_ = "Timed out waiting for a stable render capture (no host)";
+    }
     return std::nullopt;
 }
 

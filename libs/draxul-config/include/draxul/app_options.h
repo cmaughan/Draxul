@@ -29,6 +29,7 @@ struct AppOptions
     bool save_user_config = true;
     bool activate_window_on_startup = true;
     bool show_diagnostics_on_startup = false;
+    bool show_diagnostics_in_render_test = false;
     bool clamp_window_to_display = true;
     bool show_render_test_window = false;
     std::optional<float> override_display_ppi;

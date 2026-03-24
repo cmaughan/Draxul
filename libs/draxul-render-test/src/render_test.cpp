@@ -187,7 +187,7 @@ AppOptions RenderTestScenario::make_app_options() const
     options.load_user_config = false;
     options.save_user_config = false;
     options.activate_window_on_startup = false;
-    options.show_diagnostics_on_startup = debug_overlay;
+    options.show_diagnostics_in_render_test = debug_overlay;
     options.clamp_window_to_display = false;
     options.render_target_pixel_width = width;
     options.render_target_pixel_height = height;
