@@ -1,2 +1,8 @@
 [info][app] MegaCityHost initialized (2942x1730), scanning D:/dev/Draxul
 [info][app] MegaCityHost: 3D renderer attached, scene pass registered
+[info][app] MegaCityHost initialized (2942x1730), scanning D:/dev/Draxul
+[info][app] MegaCityHost: 3D renderer attached, scene pass registered
+[info][app] MegaCityHost initialized (2942x1730), scanning D:/dev/Draxul
+[info][app] MegaCityHost: 3D renderer attached, scene pass registered
+[info][nvim] nvim spawned (PID 56664)
+[error][rpc] nvim pipe read error (n=-1)

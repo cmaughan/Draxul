@@ -1,0 +1,35 @@
+[info][nvim] nvim spawned (PID 59400)
+[info][test] Render test start: D:\dev\Draxul\tests\render\panel-view.toml
+[info][test] run_render_test begin (timeout=8000ms settle=300ms)
+[info][nvim] nvim spawned (PID 59900)
+[info][test] Render test start: D:\dev\Draxul\tests\render\panel-view.toml
+[info][test] run_render_test begin (timeout=8000ms settle=300ms)
+[info][nvim] nvim spawned (PID 32716)
+[info][test] Render test start: D:\dev\Draxul\tests\render\panel-view.toml
+[info][test] run_render_test begin (timeout=8000ms settle=300ms)
+[info][test] run_render_test enabling diagnostics overlay
+[error][test] Timed out waiting for a stable render capture
+[error][test] Render test capture failed: Timed out waiting for a stable render capture
+[error][test] [panel-view] writing failure report to D:/dev/Draxul/tests/render/out/panel-view.windows.report.json
+[error][test] [panel-view] Timed out waiting for a stable render capture
+[info][rpc] RPC transport closed
+[info][rpc] Reader thread exiting (transport closed)
+[info][nvim] nvim spawned (PID 63144)
+[info][test] Render test start: D:\dev\Draxul\tests\render\panel-view.toml
+[info][test] run_render_test begin (timeout=8000ms settle=300ms)
+[info][test] run_render_test enabling diagnostics overlay
+[error][test] Timed out waiting for a stable render capture (content_ready=true, saw_frame=true, frame_requested=true, diagnostics_enabled=true, capture_requested=false)
+[error][test] Render test capture failed: Timed out waiting for a stable render capture (content_ready=true, saw_frame=true, frame_requested=true, diagnostics_enabled=true, capture_requested=false)
+[error][test] [panel-view] writing failure report to D:/dev/Draxul/tests/render/out/panel-view.windows.report.json
+[error][test] [panel-view] Timed out waiting for a stable render capture (content_ready=true, saw_frame=true, frame_requested=true, diagnostics_enabled=true, capture_requested=false)
+[info][rpc] RPC transport closed
+[info][nvim] nvim spawned (PID 62192)
+[info][test] Render test start: D:\dev\Draxul\tests\render\panel-view.toml
+[info][test] run_render_test begin (timeout=12000ms settle=300ms)
+[info][test] run_render_test ready milestone at 43ms
+[info][test] run_render_test enabling diagnostics overlay at 12000ms
+[error][test] Timed out waiting for a stable render capture (content_ready=true, saw_frame=true, frame_requested=true, diagnostics_enabled=true, capture_requested=false, post_diagnostics_frame=false, diagnostics_age_ms=0)
+[error][test] Render test capture failed: Timed out waiting for a stable render capture (content_ready=true, saw_frame=true, frame_requested=true, diagnostics_enabled=true, capture_requested=false, post_diagnostics_frame=false, diagnostics_age_ms=0)
+[error][test] [panel-view] writing failure report to D:/dev/Draxul/tests/render/out/panel-view.windows.report.json
+[error][test] [panel-view] Timed out waiting for a stable render capture (content_ready=true, saw_frame=true, frame_requested=true, diagnostics_enabled=true, capture_requested=false, post_diagnostics_frame=false, diagnostics_age_ms=0)
+[info][rpc] RPC transport closed
