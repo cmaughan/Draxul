@@ -1,6 +1,7 @@
 #pragma once
 #include <draxul/renderer.h>
 #include <draxul/renderer_state.h>
+#include <draxul/thread_check.h>
 #include <optional>
 #include <vector>
 
@@ -127,6 +128,7 @@ private:
     bool imgui_initialized_ = false;
 
     std::shared_ptr<IRenderPass> render_pass_;
+    MainThreadChecker thread_checker_;
 };
 
 } // namespace draxul

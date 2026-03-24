@@ -168,7 +168,7 @@ struct PsSetup
 // Tests
 // ---------------------------------------------------------------------------
 
-TEST_CASE("powershell: ESC 7 saves cursor position", "[terminal]")
+TEST_CASE("terminal vt: ESC 7 saves cursor position", "[terminal]")
 {
     PsSetup ts;
     INFO("host must initialize");
@@ -194,7 +194,7 @@ TEST_CASE("powershell: ESC 7 saves cursor position", "[terminal]")
     REQUIRE(ts.host.row() == 3);
 }
 
-TEST_CASE("powershell: ESC 7/8 round-trip does not disturb grid content", "[terminal]")
+TEST_CASE("terminal vt: ESC 7/8 round-trip does not disturb grid content", "[terminal]")
 {
     PsSetup ts;
     INFO("host must initialize");
@@ -213,7 +213,7 @@ TEST_CASE("powershell: ESC 7/8 round-trip does not disturb grid content", "[term
     REQUIRE(ts.host.col() == 5);
 }
 
-TEST_CASE("powershell: PSReadLine bracketed paste wraps clipboard text", "[terminal]")
+TEST_CASE("terminal vt: PSReadLine bracketed paste wraps clipboard text", "[terminal]")
 {
     PsSetup ts;
     INFO("host must initialize");
@@ -232,7 +232,7 @@ TEST_CASE("powershell: PSReadLine bracketed paste wraps clipboard text", "[termi
     REQUIRE(out.find("\x1B[201~") != std::string::npos);
 }
 
-TEST_CASE("powershell: bracketed paste disabled when PSReadLine sends ?2004l", "[terminal]")
+TEST_CASE("terminal vt: bracketed paste disabled when PSReadLine sends ?2004l", "[terminal]")
 {
     PsSetup ts;
     INFO("host must initialize");
@@ -249,7 +249,7 @@ TEST_CASE("powershell: bracketed paste disabled when PSReadLine sends ?2004l", "
     REQUIRE(out.find("abc") != std::string::npos);
 }
 
-TEST_CASE("powershell: PSReadLine-style startup sequence renders prompt correctly", "[terminal]")
+TEST_CASE("terminal vt: PSReadLine-style startup sequence renders prompt correctly", "[terminal]")
 {
     PsSetup ts(80, 24);
     INFO("host must initialize");

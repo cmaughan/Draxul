@@ -6,6 +6,7 @@
 #include <draxul/grid_sink.h>
 #include <draxul/highlight.h>
 #include <draxul/log.h>
+#include <draxul/thread_check.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -232,6 +233,7 @@ private:
     std::vector<DirtyCell> dirty_cells_;
     std::vector<uint8_t> dirty_marks_;
     Cell empty_cell_;
+    MainThreadChecker thread_checker_;
 };
 
 template <typename Remap>

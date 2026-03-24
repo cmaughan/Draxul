@@ -17,7 +17,6 @@ add_library(draxul-host
 if(WIN32)
     target_sources(draxul-host PRIVATE
         src/conpty_process.cpp
-        src/powershell_host_win.cpp
         src/shell_host_win.cpp
     )
 else()

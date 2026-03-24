@@ -109,6 +109,11 @@ protected:
         reset_terminal_state();
     }
 
+    ConPtyProcess& process()
+    {
+        return process_;
+    }
+
 private:
     ConPtyProcess process_;
 };
@@ -140,6 +145,59 @@ protected:
     }
 };
 
+class PowerShellHost : public ConPtyHostBase
+{
+public:
+    std::string_view host_name() const override
+    {
+        return "powershell";
+    }
+
+protected:
+    bool initialize_host() override
+    {
+        init_colors();
+
+        std::string command = launch_options().command.empty() ? "pwsh.exe" : launch_options().command;
+        std::vector<std::string> args = launch_options().args;
+        if (args.empty())
+        {
+            args = {
+                "-NoLogo",
+                "-NoExit",
+                "-Command",
+                "[Console]::InputEncoding=[System.Text.UTF8Encoding]::UTF8; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::UTF8"
+            };
+        }
+
+        const int cols = grid_cols();
+        const int rows = grid_rows();
+        if (!process().spawn(command, args, launch_options().working_dir, cols, rows, [this]() {
+                callbacks().wake_window();
+            }))
+        {
+            if (launch_options().command.empty() && command != "powershell.exe"
+                && process().spawn("powershell.exe", args, launch_options().working_dir, cols, rows, [this]() {
+                       callbacks().wake_window();
+                   }))
+            {
+                command = "powershell.exe";
+            }
+            else
+            {
+                set_init_error("Could not start PowerShell. Please install PowerShell 7 or ensure powershell.exe is available.");
+                return false;
+            }
+        }
+
+        for (const auto& startup : launch_options().startup_commands)
+            process().write(startup + "\r");
+
+        update_cursor_style();
+        return true;
+    }
+};
+
 class WslHost : public ConPtyHostBase
 {
 public:
@@ -167,6 +225,11 @@ protected:
 std::unique_ptr<IHost> create_shell_host()
 {
     return std::make_unique<ShellHost>();
+}
+
+std::unique_ptr<IHost> create_powershell_host()
+{
+    return std::make_unique<PowerShellHost>();
 }
 
 std::unique_ptr<IHost> create_wsl_host()

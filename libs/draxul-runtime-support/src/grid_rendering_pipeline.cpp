@@ -167,6 +167,7 @@ void GridRenderingPipeline::build_cell_updates(const std::vector<Grid::DirtyCell
 
 void GridRenderingPipeline::flush()
 {
+    thread_checker_.assert_main_thread("GridRenderingPipeline::flush");
     if (!renderer_ || !grid_handle_)
         return;
 

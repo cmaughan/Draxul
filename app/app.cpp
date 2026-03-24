@@ -56,21 +56,21 @@ App::App(AppOptions options)
     pending_window_activation_ = options_.activate_window_on_startup;
 }
 
+App::~App() = default;
+
 bool App::initialize()
 {
     using Clock = std::chrono::steady_clock;
     using Ms = std::chrono::duration<double, std::milli>;
 
-    startup_steps_.clear();
-    startup_total_ms_ = 0.0;
+    diagnostics_collector_.clear_startup_steps();
     const auto init_start = Clock::now();
 
     auto time_step = [this](const char* label, auto fn) {
         const auto t0 = Clock::now();
         const bool ok = fn();
         const double ms = Ms(Clock::now() - t0).count();
-        startup_steps_.emplace_back(label, ms);
-        startup_total_ms_ += ms;
+        diagnostics_collector_.record_startup_step(label, ms);
         return ok;
     };
 
@@ -187,14 +187,14 @@ bool App::initialize()
         return false;
 
     if (host_manager_.host())
-        startup_steps_.back().label = "Host (" + host_manager_.host()->debug_state().name + ")";
+        diagnostics_collector_.amend_last_step_label("Host (" + host_manager_.host()->debug_state().name + ")");
 
-    startup_total_ms_ = Ms(Clock::now() - init_start).count();
+    diagnostics_collector_.set_startup_total_ms(Ms(Clock::now() - init_start).count());
 
     wire_gui_actions();
 
 #ifdef __APPLE__
-    install_macos_menu(gui_action_handler_);
+    macos_menu_ = std::make_unique<MacOsMenu>(gui_action_handler_);
 #endif
 
     wire_window_callbacks();
@@ -634,8 +634,8 @@ void App::update_diagnostics_panel()
     panel.atlas_usage_ratio = text_service_.atlas_usage_ratio();
     panel.atlas_glyph_count = text_service_.atlas_glyph_count();
     panel.atlas_reset_count = text_service_.atlas_reset_count();
-    panel.startup_steps = startup_steps_;
-    panel.startup_total_ms = startup_total_ms_;
+    panel.startup_steps = diagnostics_collector_.startup_steps();
+    panel.startup_total_ms = diagnostics_collector_.startup_total_ms();
 
     if (host_manager_.host())
     {
@@ -724,6 +724,10 @@ void App::shutdown()
         config_.font_path = text_service_.primary_font_path();
         config_.save();
     }
+
+#ifdef __APPLE__
+    macos_menu_.reset(); // tear down menu before handler goes away
+#endif
 
     host_manager_.shutdown();
     host_owner_lifetime_.reset();

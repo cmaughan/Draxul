@@ -5,6 +5,7 @@
 #include "input_dispatcher.h"
 #include <chrono>
 #include <draxul/app_config.h>
+#include <draxul/diagnostics_collector.h>
 #include <draxul/host.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
@@ -17,10 +18,13 @@
 namespace draxul
 {
 
+class MacOsMenu;
+
 class App : private IHostCallbacks
 {
 public:
     explicit App(AppOptions options = {});
+    ~App();
     bool initialize();
     void run();
     bool run_smoke_test(std::chrono::milliseconds timeout);
@@ -75,6 +79,9 @@ private:
 
     GuiActionHandler gui_action_handler_{ GuiActionHandler::Deps{} };
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };
+#ifdef __APPLE__
+    std::unique_ptr<MacOsMenu> macos_menu_;
+#endif
     bool init_completed_ = false;
     bool running_ = false;
     bool pending_window_activation_ = true;
@@ -89,8 +96,7 @@ private:
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     std::string last_render_test_error_;
     std::string last_init_error_;
-    std::vector<StartupStep> startup_steps_;
-    double startup_total_ms_ = 0.0;
+    DiagnosticsCollector diagnostics_collector_;
 };
 
 } // namespace draxul

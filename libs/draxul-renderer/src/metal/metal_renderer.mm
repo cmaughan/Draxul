@@ -386,6 +386,7 @@ std::unique_ptr<IGridHandle> MetalRenderer::create_grid_handle()
 
 void MetalRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
 {
+    thread_checker_.assert_main_thread("MetalRenderer::set_atlas_texture");
     id<MTLTexture> tex = atlas_texture_.get();
     MTLRegion region = MTLRegionMake2D(0, 0, w, h);
     [tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:w * 4];
@@ -393,6 +394,7 @@ void MetalRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
 
 void MetalRenderer::update_atlas_region(int x, int y, int w, int h, const uint8_t* data)
 {
+    thread_checker_.assert_main_thread("MetalRenderer::update_atlas_region");
     id<MTLTexture> tex = atlas_texture_.get();
     MTLRegion region = MTLRegionMake2D(x, y, w, h);
     [tex replaceRegion:region mipmapLevel:0 withBytes:data bytesPerRow:w * 4];
@@ -511,6 +513,7 @@ std::optional<CapturedFrame> MetalRenderer::take_captured_frame()
 
 bool MetalRenderer::begin_frame()
 {
+    thread_checker_.assert_main_thread("MetalRenderer::begin_frame");
     dispatch_semaphore_t sema = frame_semaphore_.get();
     dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
@@ -531,6 +534,7 @@ bool MetalRenderer::begin_frame()
 
 void MetalRenderer::end_frame()
 {
+    thread_checker_.assert_main_thread("MetalRenderer::end_frame");
     for (auto* handle : grid_handles_)
         handle->apply_cursor();
     upload_dirty_state();

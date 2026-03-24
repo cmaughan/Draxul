@@ -3,6 +3,7 @@
 #include <draxul/glyph_atlas.h>
 #include <draxul/grid.h>
 #include <draxul/renderer.h>
+#include <draxul/thread_check.h>
 #include <vector>
 
 namespace draxul
@@ -42,6 +43,7 @@ private:
     bool enable_ligatures_ = true;
     std::vector<uint8_t> atlas_upload_scratch_;
     std::vector<Grid::DirtyCell> expanded_scratch_;
+    MainThreadChecker thread_checker_;
 };
 
 } // namespace draxul
