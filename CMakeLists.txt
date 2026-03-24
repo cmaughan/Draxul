@@ -220,7 +220,7 @@ if(APPLE)
     if(DRAXUL_ENABLE_MEGACITY)
         add_custom_command(TARGET draxul POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_BINARY_DIR}/shaders/megacity_cube.metallib
+                ${CMAKE_BINARY_DIR}/shaders/megacity_scene.metallib
                 $<TARGET_FILE_DIR:draxul>/shaders/
         )
     endif()

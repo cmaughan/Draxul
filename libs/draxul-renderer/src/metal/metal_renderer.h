@@ -25,7 +25,7 @@ namespace draxul
 // MetalGridHandle is fully defined in metal_renderer.mm (ObjC++ only).
 class MetalGridHandle;
 
-class MetalRenderer : public IRenderer
+class MetalRenderer : public IGridRenderer, public IImGuiHost, public ICaptureRenderer
 {
 public:
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
@@ -67,6 +67,7 @@ private:
 
     void upload_dirty_state();
     bool ensure_capture_buffer(size_t width, size_t height);
+    bool ensure_depth_texture();
 
     // Non-owning list of active grid handles; handles register/deregister themselves.
     std::vector<MetalGridHandle*> grid_handles_;
@@ -80,6 +81,7 @@ private:
     ObjCRef<id<MTLRenderPipelineState>> bg_pipeline_;
     ObjCRef<id<MTLRenderPipelineState>> fg_pipeline_;
     ObjCRef<id<MTLTexture>> atlas_texture_;
+    ObjCRef<id<MTLTexture>> depth_texture_;
     ObjCRef<id<MTLSamplerState>> atlas_sampler_;
     ObjCRef<dispatch_semaphore_t> frame_semaphore_;
     ObjCRef<id<MTLBuffer>> capture_buffer_;
@@ -91,6 +93,7 @@ private:
     void* bg_pipeline_ = nullptr; // NOSONAR cpp:S5008
     void* fg_pipeline_ = nullptr; // NOSONAR cpp:S5008
     void* atlas_texture_ = nullptr; // NOSONAR cpp:S5008
+    void* depth_texture_ = nullptr; // NOSONAR cpp:S5008
     void* atlas_sampler_ = nullptr; // NOSONAR cpp:S5008
     void* frame_semaphore_ = nullptr; // NOSONAR cpp:S5008
     void* capture_buffer_ = nullptr; // NOSONAR cpp:S5008

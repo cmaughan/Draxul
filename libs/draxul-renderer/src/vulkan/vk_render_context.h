@@ -1,6 +1,7 @@
 #pragma once
 // Internal Vulkan header — only included from Vulkan (.cpp) translation units.
 #include <draxul/base_renderer.h>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 namespace draxul
@@ -18,10 +19,11 @@ namespace draxul
 class VkRenderContext : public IRenderContext
 {
 public:
-    VkRenderContext(VkCommandBuffer cmd, VkDevice device, VkRenderPass render_pass,
+    VkRenderContext(VkCommandBuffer cmd, VkDevice device, VmaAllocator allocator, VkRenderPass render_pass,
         int w, int h, int viewport_x = 0, int viewport_y = 0, int viewport_w = 0, int viewport_h = 0)
         : cmd_(cmd)
         , device_(device)
+        , allocator_(allocator)
         , render_pass_(render_pass)
         , w_(w)
         , h_(h)
@@ -70,6 +72,10 @@ public:
     {
         return device_;
     }
+    VmaAllocator allocator() const
+    {
+        return allocator_;
+    }
     VkRenderPass render_pass() const
     {
         return render_pass_;
@@ -78,6 +84,7 @@ public:
 private:
     VkCommandBuffer cmd_;
     VkDevice device_;
+    VmaAllocator allocator_;
     VkRenderPass render_pass_;
     int w_;
     int h_;

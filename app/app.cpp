@@ -20,7 +20,6 @@ namespace draxul
 namespace
 {
 
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
 void normalize_render_target_window_size(IWindow& window, const AppOptions& options)
 {
     if (options.render_target_pixel_width <= 0 || options.render_target_pixel_height <= 0)
@@ -28,7 +27,6 @@ void normalize_render_target_window_size(IWindow& window, const AppOptions& opti
     window.normalize_render_target_window_size(options.render_target_pixel_width,
         options.render_target_pixel_height);
 }
-#endif
 
 void render_app_imgui_dockspace(const PanelLayout& layout)
 {
@@ -141,9 +139,7 @@ bool App::initialize()
                 last_init_error_ = "Failed to create the application window.";
                 return false;
             }
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
             normalize_render_target_window_size(*window_, options_);
-#endif
             return true;
         }))
         return false;
@@ -157,10 +153,8 @@ bool App::initialize()
                 last_init_error_ = "Failed to initialize the renderer.";
                 return false;
             }
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
             if (options_.render_target_pixel_width > 0 && options_.render_target_pixel_height > 0)
                 renderer_.grid()->resize(options_.render_target_pixel_width, options_.render_target_pixel_height);
-#endif
             return true;
         }))
         return false;
@@ -180,7 +174,7 @@ bool App::initialize()
                     / text_service_.point_size());
             ui_panel_.set_visible(options_.show_diagnostics_on_startup);
             refresh_window_layout();
-            if (!renderer_.imgui()->initialize_imgui_backend())
+            if (!renderer_.imgui() || !renderer_.imgui()->initialize_imgui_backend())
             {
                 last_init_error_ = "Failed to initialize the renderer ImGui backend.";
                 return false;
@@ -382,11 +376,15 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
     return false;
 }
 
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
 std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)
 {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     last_render_test_error_.clear();
+    if (!renderer_.capture())
+    {
+        last_render_test_error_ = "Renderer does not support frame capture";
+        return std::nullopt;
+    }
 
     while (running_ && std::chrono::steady_clock::now() < deadline)
     {
@@ -419,7 +417,6 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
     last_render_test_error_ = "Timed out waiting for a stable render capture";
     return std::nullopt;
 }
-#endif
 
 bool App::close_dead_panes()
 {
@@ -448,7 +445,7 @@ void App::render_imgui_overlay(float delta_seconds)
             any_host_imgui = true;
     });
 
-    if (ui_panel_.visible() || any_host_imgui)
+    if ((ui_panel_.visible() || any_host_imgui) && renderer_.imgui())
     {
         ui_panel_.activate_imgui_context();
         renderer_.imgui()->begin_imgui_frame();
@@ -462,7 +459,7 @@ void App::render_imgui_overlay(float delta_seconds)
         });
         renderer_.imgui()->set_imgui_draw_data(ui_panel_.end_frame());
     }
-    else
+    else if (renderer_.imgui())
     {
         renderer_.imgui()->set_imgui_draw_data(nullptr);
     }
@@ -577,7 +574,8 @@ void App::on_display_scale_changed(float new_ppi)
         return;
 
     // DPI change also requires an ImGui font texture rebuild (different from on_font_changed).
-    renderer_.imgui()->rebuild_imgui_font_texture();
+    if (renderer_.imgui())
+        renderer_.imgui()->rebuild_imgui_font_texture();
     apply_font_metrics();
 
     // Keep the input dispatcher's pixel_scale in sync so mouse hit-testing remains correct.

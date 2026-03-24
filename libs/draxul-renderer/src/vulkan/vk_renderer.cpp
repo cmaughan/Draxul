@@ -719,15 +719,17 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
     if (!flush_pending_atlas_uploads(cmd))
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to record pending atlas uploads");
 
-    VkClearValue clear_value = {};
-    clear_value.color = { { clear_r_, clear_g_, clear_b_, 1.0f } };
+    VkClearValue clear_values[2] = {};
+    clear_values[0].color = { { clear_r_, clear_g_, clear_b_, 1.0f } };
+    clear_values[1].depthStencil.depth = 1.0f;
+    clear_values[1].depthStencil.stencil = 0;
 
     VkRenderPassBeginInfo rp_begin = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
     rp_begin.renderPass = ctx_.render_pass();
     rp_begin.framebuffer = ctx_.swapchain().framebuffers[image_index];
     rp_begin.renderArea.extent = ctx_.swapchain().extent;
-    rp_begin.clearValueCount = 1;
-    rp_begin.pClearValues = &clear_value;
+    rp_begin.clearValueCount = 2;
+    rp_begin.pClearValues = clear_values;
 
     vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -819,7 +821,7 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
             std::min(vh, pixel_h_ - pass_scissor.offset.y)));
         vkCmdSetScissor(cmd, 0, 1, &pass_scissor);
 
-        VkRenderContext ctx(cmd, ctx_.device(), ctx_.render_pass(),
+        VkRenderContext ctx(cmd, ctx_.device(), ctx_.allocator(), ctx_.render_pass(),
             (int)ctx_.swapchain().extent.width, (int)ctx_.swapchain().extent.height,
             vx, vy, vw, vh);
         render_pass_->record(ctx);

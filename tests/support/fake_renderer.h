@@ -40,10 +40,10 @@ public:
     }
 };
 
-// Shared fake IRenderer implementation for use across all test files.
+// Shared fake renderer implementation for use across all test files.
 // Provides the union of all capabilities observed across per-file fake
 // declarations. Call reset() between test cases to clear recorded state.
-class FakeTermRenderer final : public IRenderer
+class FakeTermRenderer final : public IGridRenderer, public IImGuiHost, public ICaptureRenderer
 {
 public:
     bool initialize(IWindow&) override

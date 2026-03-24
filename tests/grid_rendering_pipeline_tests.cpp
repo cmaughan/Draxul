@@ -119,7 +119,7 @@ public:
     std::vector<std::vector<CellUpdate>> update_batches;
 };
 
-class FakeRenderer final : public IRenderer
+class FakeRenderer final : public IGridRenderer
 {
 public:
     bool initialize(IWindow&) override
@@ -157,21 +157,6 @@ public:
 
     void set_cell_size(int, int) override {}
     void set_ascender(int) override {}
-    bool initialize_imgui_backend() override
-    {
-        return true;
-    }
-    void shutdown_imgui_backend() override {}
-    void rebuild_imgui_font_texture() override {}
-    void begin_imgui_frame() override {}
-    void set_imgui_draw_data(const ImDrawData*) override {}
-    void request_frame_capture() override {}
-
-    std::optional<CapturedFrame> take_captured_frame() override
-    {
-        return std::nullopt;
-    }
-
     int padding() const override
     {
         return 1;

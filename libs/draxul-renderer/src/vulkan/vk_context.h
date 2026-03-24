@@ -13,9 +13,13 @@ struct SwapchainInfo
 {
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
+    VkFormat depth_format = VK_FORMAT_UNDEFINED;
     VkExtent2D extent = {};
     std::vector<VkImage> images;
     std::vector<VkImageView> image_views;
+    std::vector<VkImage> depth_images;
+    std::vector<VmaAllocation> depth_allocations;
+    std::vector<VkImageView> depth_image_views;
     std::vector<VkFramebuffer> framebuffers;
 };
 
@@ -74,7 +78,9 @@ public:
     }
 
 private:
-    bool create_render_pass(VkFormat format, VkRenderPass& render_pass);
+    VkFormat choose_depth_format() const;
+    bool create_render_pass(VkFormat color_format, VkFormat depth_format, VkRenderPass& render_pass);
+    bool create_depth_resources(SwapchainInfo& swapchain);
     bool create_framebuffers(SwapchainInfo& swapchain, VkRenderPass render_pass);
     void destroy_swapchain();
 

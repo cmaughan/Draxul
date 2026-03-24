@@ -1,13 +1,13 @@
 #pragma once
+#include <concepts>
 #include <draxul/base_renderer.h>
+#include <draxul/capture_renderer.h>
+#include <draxul/imgui_host.h>
 #include <draxul/pane_descriptor.h>
 #include <draxul/types.h>
 #include <memory>
-#include <optional>
 #include <span>
 #include <utility>
-
-struct ImDrawData;
 
 namespace draxul
 {
@@ -66,57 +66,47 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// IImGuiHost — ImGui backend lifecycle
-// Used by App for the debug panel. Cast from IGridRenderer* when needed.
-// ---------------------------------------------------------------------------
-class IImGuiHost
-{
-public:
-    virtual ~IImGuiHost() = default;
-    virtual bool initialize_imgui_backend() = 0;
-    virtual void shutdown_imgui_backend() = 0;
-    virtual void rebuild_imgui_font_texture() = 0;
-    virtual void begin_imgui_frame() = 0;
-    virtual void set_imgui_draw_data(const ImDrawData* draw_data) = 0;
-};
-
-// ---------------------------------------------------------------------------
-// ICaptureRenderer — frame capture for CI / render-test builds only
-// Cast from IGridRenderer* when frame capture is needed.
-// ---------------------------------------------------------------------------
-class ICaptureRenderer
-{
-public:
-    virtual ~ICaptureRenderer() = default;
-    virtual void request_frame_capture() = 0;
-    virtual std::optional<CapturedFrame> take_captured_frame() = 0;
-};
-
-// ---------------------------------------------------------------------------
-// IRenderer — backward-compat combined interface
-// Concrete backends (MetalRenderer, VkRenderer) inherit IRenderer so they
-// satisfy all three focused interfaces through a single base pointer.
-// Tests that define FakeRenderer : public IRenderer continue to work.
-// App code should use RendererBundle (returned by create_renderer) instead
-// of holding IRenderer* directly.
-// ---------------------------------------------------------------------------
-class IRenderer
-    : public IGridRenderer,
-      public IImGuiHost,
-      public ICaptureRenderer
-{
-public:
-    ~IRenderer() override = default;
-};
-
-// ---------------------------------------------------------------------------
 // RendererBundle — owning wrapper returned by create_renderer().
-// Holds the concrete renderer and exposes typed interface pointers so App
-// code never needs to cast or store IRenderer* directly.
+// Holds the concrete grid renderer plus any optional side capabilities so App
+// code never needs to cast or store a widened renderer interface directly.
 // ---------------------------------------------------------------------------
 struct RendererBundle
 {
-    std::unique_ptr<IRenderer> impl;
+    std::unique_ptr<IGridRenderer> impl;
+    IImGuiHost* imgui_host = nullptr;
+    ICaptureRenderer* capture_renderer = nullptr;
+
+    RendererBundle() = default;
+
+    template <typename T>
+        requires std::derived_from<T, IGridRenderer>
+    explicit RendererBundle(std::unique_ptr<T> renderer)
+    {
+        reset(std::move(renderer));
+    }
+
+    template <typename T>
+        requires std::derived_from<T, IGridRenderer>
+    void reset(std::unique_ptr<T> renderer)
+    {
+        T* raw = renderer.get();
+        impl = std::move(renderer);
+        if constexpr (std::derived_from<T, IImGuiHost>)
+            imgui_host = raw;
+        else
+            imgui_host = nullptr;
+        if constexpr (std::derived_from<T, ICaptureRenderer>)
+            capture_renderer = raw;
+        else
+            capture_renderer = nullptr;
+    }
+
+    void reset()
+    {
+        impl.reset();
+        imgui_host = nullptr;
+        capture_renderer = nullptr;
+    }
 
     IGridRenderer* grid() const
     {
@@ -124,11 +114,11 @@ struct RendererBundle
     }
     IImGuiHost* imgui() const
     {
-        return impl.get();
+        return imgui_host;
     }
     ICaptureRenderer* capture() const
     {
-        return impl.get();
+        return capture_renderer;
     }
     // IGridRenderer IS-A I3DRenderer — upcast is always valid and free.
     I3DRenderer* threed() const

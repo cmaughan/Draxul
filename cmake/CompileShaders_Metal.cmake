@@ -25,23 +25,23 @@ add_custom_command(
 
 add_custom_target(compile_metal_shaders DEPENDS ${METAL_LIB})
 
-# MegaCity cube shader
-set(MEGACITY_METAL_SOURCE ${SHADER_SOURCE_DIR}/megacity_cube.metal)
-set(MEGACITY_METAL_AIR    ${SHADER_OUTPUT_DIR}/megacity_cube.air)
-set(MEGACITY_METAL_LIB    ${SHADER_OUTPUT_DIR}/megacity_cube.metallib)
+# MegaCity scene shader
+set(MEGACITY_METAL_SOURCE ${SHADER_SOURCE_DIR}/megacity_scene.metal)
+set(MEGACITY_METAL_AIR    ${SHADER_OUTPUT_DIR}/megacity_scene.air)
+set(MEGACITY_METAL_LIB    ${SHADER_OUTPUT_DIR}/megacity_scene.metallib)
 
 add_custom_command(
     OUTPUT ${MEGACITY_METAL_AIR}
     COMMAND xcrun -sdk macosx metal -c ${MEGACITY_METAL_SOURCE} -o ${MEGACITY_METAL_AIR}
     DEPENDS ${MEGACITY_METAL_SOURCE}
-    COMMENT "Compiling Metal shader: megacity_cube.metal"
+    COMMENT "Compiling Metal shader: megacity_scene.metal"
 )
 
 add_custom_command(
     OUTPUT ${MEGACITY_METAL_LIB}
     COMMAND xcrun -sdk macosx metallib ${MEGACITY_METAL_AIR} -o ${MEGACITY_METAL_LIB}
     DEPENDS ${MEGACITY_METAL_AIR}
-    COMMENT "Linking Metal shader library: megacity_cube.metallib"
+    COMMENT "Linking Metal shader library: megacity_scene.metallib"
 )
 
 add_custom_target(compile_megacity_shaders DEPENDS ${MEGACITY_METAL_LIB})

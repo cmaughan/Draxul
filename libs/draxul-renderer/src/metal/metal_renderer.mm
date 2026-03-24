@@ -178,6 +178,33 @@ bool MetalRenderer::ensure_capture_buffer(size_t width, size_t height)
     return true;
 }
 
+bool MetalRenderer::ensure_depth_texture()
+{
+    if (!device_ || pixel_w_ <= 0 || pixel_h_ <= 0)
+        return false;
+
+    id<MTLTexture> existing = depth_texture_.get();
+    if (existing && existing.width == static_cast<NSUInteger>(pixel_w_) && existing.height == static_cast<NSUInteger>(pixel_h_))
+        return true;
+
+    MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                                                    width:static_cast<NSUInteger>(pixel_w_)
+                                                                                   height:static_cast<NSUInteger>(pixel_h_)
+                                                                                mipmapped:NO];
+    desc.usage = MTLTextureUsageRenderTarget;
+    desc.storageMode = MTLStorageModePrivate;
+
+    id<MTLTexture> texture = [device_.get() newTextureWithDescriptor:desc];
+    if (!texture)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to create Metal depth texture");
+        return false;
+    }
+
+    depth_texture_.reset(texture);
+    return true;
+}
+
 bool MetalRenderer::initialize(IWindow& window)
 {
     // Get Metal device
@@ -206,6 +233,8 @@ bool MetalRenderer::initialize(IWindow& window)
     pixel_w_ = w;
     pixel_h_ = h;
     layer.drawableSize = CGSizeMake(w, h);
+    if (!ensure_depth_texture())
+        return false;
 
     // Create command queue
     command_queue_.reset([device newCommandQueue]);
@@ -248,6 +277,7 @@ bool MetalRenderer::initialize(IWindow& window)
         desc.vertexFunction = vertFunc;
         desc.fragmentFunction = fragFunc;
         desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
         // BG pass: no blending (opaque)
         desc.colorAttachments[0].blendingEnabled = NO;
 
@@ -275,6 +305,7 @@ bool MetalRenderer::initialize(IWindow& window)
         desc.vertexFunction = vertFunc;
         desc.fragmentFunction = fragFunc;
         desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
         // FG pass: alpha blending
         desc.colorAttachments[0].blendingEnabled = YES;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
@@ -338,6 +369,7 @@ void MetalRenderer::shutdown()
     // Release Metal objects explicitly in reverse-dependency order.
     atlas_sampler_.reset();
     atlas_texture_.reset();
+    depth_texture_.reset();
     capture_buffer_.reset();
     fg_pipeline_.reset();
     bg_pipeline_.reset();
@@ -371,6 +403,8 @@ void MetalRenderer::resize(int pixel_w, int pixel_h)
     pixel_w_ = pixel_w;
     pixel_h_ = pixel_h;
     layer_.get().drawableSize = CGSizeMake(pixel_w, pixel_h);
+    depth_texture_.reset();
+    ensure_depth_texture();
 }
 
 std::pair<int, int> MetalRenderer::cell_size_pixels() const
@@ -449,6 +483,12 @@ void MetalRenderer::begin_imgui_frame()
     rpDesc.colorAttachments[0].texture = drawable.texture;
     rpDesc.colorAttachments[0].loadAction = MTLLoadActionLoad;
     rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    if (ensure_depth_texture())
+    {
+        rpDesc.depthAttachment.texture = depth_texture_.get();
+        rpDesc.depthAttachment.loadAction = MTLLoadActionDontCare;
+        rpDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+    }
     ImGui_ImplMetal_NewFrame(rpDesc);
 }
 
@@ -505,6 +545,13 @@ void MetalRenderer::end_frame()
     rpDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
     rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
     rpDesc.colorAttachments[0].clearColor = MTLClearColorMake(clear_r_, clear_g_, clear_b_, 1.0);
+    if (ensure_depth_texture())
+    {
+        rpDesc.depthAttachment.texture = depth_texture_.get();
+        rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
+        rpDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+        rpDesc.depthAttachment.clearDepth = 1.0;
+    }
 
     id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpDesc];
 

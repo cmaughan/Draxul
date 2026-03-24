@@ -35,4 +35,4 @@ endif()
 
 target_include_directories(draxul-renderer PUBLIC include)
 target_include_directories(draxul-renderer PRIVATE src)
-target_link_libraries(draxul-renderer PUBLIC draxul-types draxul-window SDL3::SDL3 imgui)
+target_link_libraries(draxul-renderer PUBLIC draxul-types draxul-ui draxul-window SDL3::SDL3 imgui)

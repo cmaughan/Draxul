@@ -2,12 +2,18 @@ cmake_minimum_required(VERSION 3.25)
 
 if(APPLE)
     set(MEGACITY_SOURCES
+        src/isometric_camera.cpp
+        src/isometric_world.cpp
+        src/mesh_library.cpp
         src/megacity_host.cpp
         src/megacity_render.mm
         src/ui_treesitter_panel.cpp
     )
 else()
     set(MEGACITY_SOURCES
+        src/isometric_camera.cpp
+        src/isometric_world.cpp
+        src/mesh_library.cpp
         src/megacity_host.cpp
         src/megacity_render_vk.cpp
         src/ui_treesitter_panel.cpp
@@ -36,12 +42,15 @@ target_compile_definitions(draxul-megacity PRIVATE
 
 if(APPLE)
     find_library(METAL_FRAMEWORK Metal REQUIRED)
+    target_include_directories(draxul-megacity PRIVATE
+        ${CMAKE_SOURCE_DIR}/libs/draxul-renderer/src/metal
+    )
     target_link_libraries(draxul-megacity PRIVATE ${METAL_FRAMEWORK})
     set_source_files_properties(src/megacity_render.mm PROPERTIES
         COMPILE_FLAGS "-fobjc-arc"
     )
 else()
-    # megacity_render_vk.cpp needs the private Vulkan headers (VkCubePass) and Vulkan itself
+    # megacity_render_vk.cpp uses private Vulkan renderer headers for render-context access.
     target_include_directories(draxul-megacity PRIVATE
         ${CMAKE_SOURCE_DIR}/libs/draxul-renderer/src/vulkan
     )

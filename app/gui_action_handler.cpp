@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/host.h>
+#include <draxul/imgui_host.h>
 #include <draxul/log.h>
-#include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/ui_panel.h>
 

@@ -8,14 +8,16 @@
 namespace draxul
 {
 
-class CubeRenderPass;
+class IsometricCamera;
+class IsometricScenePass;
+class IsometricWorld;
+struct SceneSnapshot;
 
-// MegaCityHost is a non-terminal I3DHost that renders 3D content directly into
-// the GPU render pass. It does not use the grid, text service, or font pipeline.
-// Currently renders a spinning cube as a proof-of-concept for the 3D rendering path.
+// MegaCityHost is a non-terminal I3DHost that renders a small 3D scene directly
+// into the GPU render pass. It does not use the grid, text service, or font pipeline.
 //
 // The I3DHost contract means HostManager calls attach_3d_renderer() after
-// initialize() succeeds, and detach_3d_renderer() before shutdown(). The cube
+// initialize() succeeds, and detach_3d_renderer() before shutdown(). The scene
 // render pass is registered with the renderer in attach_3d_renderer() rather
 // than inside initialize(), keeping HostContext free of renderer capability details.
 class MegaCityHost final : public I3DHost
@@ -30,6 +32,7 @@ public:
     std::string init_error() const override;
 
     void set_viewport(const HostViewport& viewport) override;
+    void on_key(const KeyEvent& event) override;
     void on_font_metrics_changed() override
     {
         // MegaCityHost ignores font metrics changes; it renders 3D geometry, not a text grid.
@@ -58,16 +61,21 @@ public:
     void set_imgui_font(const std::string& path, float size_pixels) override;
 
 private:
+    void mark_scene_dirty();
+    SceneSnapshot build_scene_snapshot() const;
+
     IHostCallbacks* callbacks_ = nullptr;
     HostViewport viewport_;
-    std::shared_ptr<CubeRenderPass> cube_pass_;
+    std::shared_ptr<IsometricScenePass> scene_pass_;
+    std::unique_ptr<IsometricWorld> world_;
+    std::unique_ptr<IsometricCamera> camera_;
     I3DRenderer* renderer_3d_ = nullptr;
     CodebaseScanner scanner_;
-    float rotation_angle_ = 0.0f;
     int pixel_w_ = 800;
     int pixel_h_ = 600;
     bool running_ = false;
-    std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
+    bool scene_dirty_ = true;
+    std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
 };
 
 // Factory function — called from host_factory.cpp

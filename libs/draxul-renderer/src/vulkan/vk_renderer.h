@@ -13,7 +13,7 @@ namespace draxul
 // VkGridHandle is fully defined in vk_renderer.cpp.
 class VkGridHandle;
 
-class VkRenderer : public IRenderer
+class VkRenderer : public IGridRenderer, public IImGuiHost, public ICaptureRenderer
 {
 public:
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;

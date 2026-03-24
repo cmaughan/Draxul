@@ -20,26 +20,26 @@
 
 ## Steps
 
-- [ ] Read `libs/draxul-renderer/include/draxul/renderer.h` and locate the `#ifdef DRAXUL_ENABLE_RENDER_TESTS` block.
-- [ ] Read `libs/draxul-renderer/include/draxul/base_renderer.h` for `ICaptureRenderer` if it's defined there.
-- [ ] Design a clean separation:
+- [x] Read `libs/draxul-renderer/include/draxul/renderer.h` and locate the `#ifdef DRAXUL_ENABLE_RENDER_TESTS` block.
+- [x] Read `libs/draxul-renderer/include/draxul/base_renderer.h` for `ICaptureRenderer` if it's defined there.
+- [x] Design a clean separation:
   - Move `ICaptureRenderer` + `CapturedFrame` into a separate header `capture_renderer.h` (always compiled).
   - Make `MetalRenderer` and `VkRenderer` implement `ICaptureRenderer` unconditionally (the methods can be no-ops in production if capture is not triggered — or guard at runtime with `DRAXUL_ENABLE_RENDER_TESTS` env var).
   - Remove the `#ifdef` from the core renderer interface.
   - Callers that want capture capability do `dynamic_cast<ICaptureRenderer*>(renderer)` or receive it as a separate injected capability.
-- [ ] Update `FakeRenderer` to optionally implement `ICaptureRenderer` via a separate mixin.
-- [ ] Remove all `#ifdef DRAXUL_ENABLE_RENDER_TESTS` from headers visible to consumer code.
-- [ ] Run `cmake --build build --target draxul draxul-tests` with and without `DRAXUL_ENABLE_RENDER_TESTS`.
-- [ ] Run render tests: `py do.py smoke`.
-- [ ] Run `clang-format` on touched files.
+- [x] Update `FakeRenderer` to optionally implement `ICaptureRenderer` via a separate mixin.
+- [x] Remove all `#ifdef DRAXUL_ENABLE_RENDER_TESTS` from headers visible to consumer code.
+- [x] Run `cmake --build build --target draxul draxul-tests` with and without `DRAXUL_ENABLE_RENDER_TESTS`.
+- [x] Run render tests: `py do.py smoke`.
+- [x] Run `clang-format` on touched files.
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] Core renderer interface is identical in test and production builds.
-- [ ] `#ifdef DRAXUL_ENABLE_RENDER_TESTS` appears only in implementation files (`src/`), not headers.
-- [ ] Render tests still pass.
+- [x] Core renderer interface is identical in test and production builds.
+- [x] `#ifdef DRAXUL_ENABLE_RENDER_TESTS` appears only in implementation files (`src/`), not headers.
+- [x] Render tests still pass.
 
 ---
 

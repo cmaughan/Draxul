@@ -13,10 +13,17 @@ namespace draxul
 namespace
 {
 
-void destroy_swapchain_info(VkDevice device, SwapchainInfo& swapchain)
+void destroy_swapchain_info(VkDevice device, VmaAllocator allocator, SwapchainInfo& swapchain)
 {
     for (auto fb : swapchain.framebuffers)
         vkDestroyFramebuffer(device, fb, nullptr);
+    for (auto iv : swapchain.depth_image_views)
+        vkDestroyImageView(device, iv, nullptr);
+    for (size_t i = 0; i < swapchain.depth_images.size(); ++i)
+    {
+        if (swapchain.depth_images[i] != VK_NULL_HANDLE)
+            vmaDestroyImage(allocator, swapchain.depth_images[i], swapchain.depth_allocations[i]);
+    }
     for (auto iv : swapchain.image_views)
         vkDestroyImageView(device, iv, nullptr);
     if (swapchain.swapchain != VK_NULL_HANDLE)
@@ -109,10 +116,28 @@ bool VkContext::initialize(SDL_Window* window)
     return recreate_swapchain(w, h);
 }
 
-bool VkContext::create_render_pass(VkFormat format, VkRenderPass& render_pass)
+VkFormat VkContext::choose_depth_format() const
+{
+    constexpr VkFormat candidates[] = {
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D16_UNORM,
+    };
+
+    for (VkFormat format : candidates)
+    {
+        VkFormatProperties props{};
+        vkGetPhysicalDeviceFormatProperties(physical_device_, format, &props);
+        if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0)
+            return format;
+    }
+
+    return VK_FORMAT_UNDEFINED;
+}
+
+bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format, VkRenderPass& render_pass)
 {
     VkAttachmentDescription color_attachment = {};
-    color_attachment.format = format;
+    color_attachment.format = color_format;
     color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -121,25 +146,42 @@ bool VkContext::create_render_pass(VkFormat format, VkRenderPass& render_pass)
     color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     color_attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentDescription depth_attachment = {};
+    depth_attachment.format = depth_format;
+    depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkAttachmentReference color_ref = {};
     color_ref.attachment = 0;
     color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depth_ref = {};
+    depth_ref.attachment = 1;
+    depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_ref;
+    subpass.pDepthStencilAttachment = &depth_ref;
 
     VkSubpassDependency dependency = {};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    VkAttachmentDescription attachments[2] = { color_attachment, depth_attachment };
 
     VkRenderPassCreateInfo rp_info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-    rp_info.attachmentCount = 1;
-    rp_info.pAttachments = &color_attachment;
+    rp_info.attachmentCount = 2;
+    rp_info.pAttachments = attachments;
     rp_info.subpassCount = 1;
     rp_info.pSubpasses = &subpass;
     rp_info.dependencyCount = 1;
@@ -149,6 +191,64 @@ bool VkContext::create_render_pass(VkFormat format, VkRenderPass& render_pass)
     {
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to create render pass");
         return false;
+    }
+
+    return true;
+}
+
+bool VkContext::create_depth_resources(SwapchainInfo& swapchain)
+{
+    swapchain.depth_images.clear();
+    swapchain.depth_allocations.clear();
+    swapchain.depth_image_views.clear();
+    swapchain.depth_images.reserve(swapchain.image_views.size());
+    swapchain.depth_allocations.reserve(swapchain.image_views.size());
+    swapchain.depth_image_views.reserve(swapchain.image_views.size());
+
+    for (size_t i = 0; i < swapchain.image_views.size(); ++i)
+    {
+        VkImageCreateInfo img_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        img_ci.imageType = VK_IMAGE_TYPE_2D;
+        img_ci.format = swapchain.depth_format;
+        img_ci.extent = { swapchain.extent.width, swapchain.extent.height, 1 };
+        img_ci.mipLevels = 1;
+        img_ci.arrayLayers = 1;
+        img_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        img_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        img_ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        img_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VmaAllocationCreateInfo alloc_ci = {};
+        alloc_ci.usage = VMA_MEMORY_USAGE_AUTO;
+
+        VkImage image = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        if (vmaCreateImage(allocator_, &img_ci, &alloc_ci, &image, &allocation, nullptr) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to create Vulkan depth image");
+            return false;
+        }
+
+        VkImageViewCreateInfo view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        view_ci.image = image;
+        view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_ci.format = swapchain.depth_format;
+        view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        view_ci.subresourceRange.levelCount = 1;
+        view_ci.subresourceRange.layerCount = 1;
+
+        VkImageView image_view = VK_NULL_HANDLE;
+        if (vkCreateImageView(device_, &view_ci, nullptr, &image_view) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to create Vulkan depth image view");
+            vmaDestroyImage(allocator_, image, allocation);
+            return false;
+        }
+
+        swapchain.depth_images.push_back(image);
+        swapchain.depth_allocations.push_back(allocation);
+        swapchain.depth_image_views.push_back(image_view);
     }
 
     return true;
@@ -206,7 +306,21 @@ bool VkContext::build_swapchain_resources(int width, int height, PendingSwapchai
     }
     pending.swapchain.image_views = views_ret.value();
 
-    if (!create_render_pass(pending.swapchain.format, pending.render_pass))
+    pending.swapchain.depth_format = choose_depth_format();
+    if (pending.swapchain.depth_format == VK_FORMAT_UNDEFINED)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to find a supported Vulkan depth format");
+        destroy_pending_swapchain_resources(pending);
+        return false;
+    }
+
+    if (!create_render_pass(pending.swapchain.format, pending.swapchain.depth_format, pending.render_pass))
+    {
+        destroy_pending_swapchain_resources(pending);
+        return false;
+    }
+
+    if (!create_depth_resources(pending.swapchain))
     {
         destroy_pending_swapchain_resources(pending);
         return false;
@@ -244,10 +358,14 @@ bool VkContext::create_framebuffers(SwapchainInfo& swapchain, VkRenderPass rende
 
     for (size_t i = 0; i < swapchain.image_views.size(); i++)
     {
+        VkImageView attachments[2] = {
+            swapchain.image_views[i],
+            swapchain.depth_image_views[i],
+        };
         VkFramebufferCreateInfo fb_info = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
         fb_info.renderPass = render_pass;
-        fb_info.attachmentCount = 1;
-        fb_info.pAttachments = &swapchain.image_views[i];
+        fb_info.attachmentCount = 2;
+        fb_info.pAttachments = attachments;
         fb_info.width = swapchain.extent.width;
         fb_info.height = swapchain.extent.height;
         fb_info.layers = 1;
@@ -276,12 +394,12 @@ void VkContext::destroy_pending_swapchain_resources(PendingSwapchainResources& p
         pending.render_pass = VK_NULL_HANDLE;
     }
 
-    destroy_swapchain_info(device_, pending.swapchain);
+    destroy_swapchain_info(device_, allocator_, pending.swapchain);
 }
 
 void VkContext::destroy_swapchain()
 {
-    destroy_swapchain_info(device_, swapchain_);
+    destroy_swapchain_info(device_, allocator_, swapchain_);
 }
 
 void VkContext::shutdown()

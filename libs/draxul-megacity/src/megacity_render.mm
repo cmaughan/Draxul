@@ -1,169 +1,244 @@
-#include "cube_render_pass.h"
+#include "isometric_scene_pass.h"
+
+#include "mesh_library.h"
+#include "objc_ref.h"
 #import <Metal/Metal.h>
-#include <cmath>
 #include <draxul/log.h>
 #import <simd/simd.h>
 
-// ---------------------------------------------------------------------------
-// Matrix math helpers (column-major, Metal convention)
-// ---------------------------------------------------------------------------
-// clang-format off
-static simd_float4x4 make_perspective(float fov_y_radians, float aspect, float near_z, float far_z)
-{
-    float ys = 1.0f / tanf(fov_y_radians * 0.5f);
-    float xs = ys / aspect;
-    float zs = far_z / (near_z - far_z);
-    return (simd_float4x4){ .columns = {
-        { xs,  0,  0,  0 },
-        {  0, ys,  0,  0 },
-        {  0,  0, zs, -1 },
-        {  0,  0, zs * near_z, 0 }
-    }};
-}
-
-static simd_float4x4 make_translation(float tx, float ty, float tz)
-{
-    simd_float4x4 m = matrix_identity_float4x4;
-    m.columns[3] = (simd_float4){ tx, ty, tz, 1.0f };
-    return m;
-}
-
-static simd_float4x4 make_rotation_y(float angle)
-{
-    float c = cosf(angle), s = sinf(angle);
-    return (simd_float4x4){ .columns = {
-        {  c, 0, s, 0 },
-        {  0, 1, 0, 0 },
-        { -s, 0, c, 0 },
-        {  0, 0, 0, 1 }
-    }};
-}
-
-static simd_float4x4 make_rotation_x(float angle)
-{
-    float c = cosf(angle), s = sinf(angle);
-    return (simd_float4x4){ .columns = {
-        { 1,  0,  0, 0 },
-        { 0,  c,  s, 0 },
-        { 0, -s,  c, 0 },
-        { 0,  0,  0, 1 }
-    }};
-}
-// clang-format on
-
-// ---------------------------------------------------------------------------
-// CubeRenderPass::State — Metal pipeline, lazily initialised on first record()
-// ---------------------------------------------------------------------------
 namespace draxul
 {
 
-struct CubeRenderPass::State
+namespace
 {
-    id<MTLRenderPipelineState> pipeline = nil;
+
+struct FrameUniforms
+{
+    simd_float4x4 view;
+    simd_float4x4 proj;
+    simd_float4 light_dir;
+};
+
+struct ObjectUniforms
+{
+    simd_float4x4 world;
+    simd_float4 color;
+};
+
+struct MeshBuffers
+{
+    ObjCRef<id<MTLBuffer>> vertex_buffer;
+    ObjCRef<id<MTLBuffer>> index_buffer;
+    NSUInteger index_count = 0;
+};
+
+simd_float4x4 to_simd_matrix(const glm::mat4& mat)
+{
+    simd_float4x4 out;
+    for (int column = 0; column < 4; ++column)
+    {
+        out.columns[column] = simd_make_float4(
+            mat[column][0],
+            mat[column][1],
+            mat[column][2],
+            mat[column][3]);
+    }
+    return out;
+}
+
+bool upload_mesh(id<MTLDevice> device, const MeshData& mesh, MeshBuffers& buffers)
+{
+    id<MTLBuffer> vertex_buffer = [device newBufferWithBytes:mesh.vertices.data()
+                                                      length:mesh.vertices.size() * sizeof(SceneVertex)
+                                                     options:MTLResourceStorageModeShared];
+    id<MTLBuffer> index_buffer = [device newBufferWithBytes:mesh.indices.data()
+                                                     length:mesh.indices.size() * sizeof(uint16_t)
+                                                    options:MTLResourceStorageModeShared];
+    if (!vertex_buffer || !index_buffer)
+        return false;
+
+    buffers.vertex_buffer.reset(vertex_buffer);
+    buffers.index_buffer.reset(index_buffer);
+    buffers.index_count = static_cast<NSUInteger>(mesh.indices.size());
+    return true;
+}
+
+} // namespace
+
+struct IsometricScenePass::State
+{
+    ObjCRef<id<MTLRenderPipelineState>> pipeline;
+    ObjCRef<id<MTLDepthStencilState>> depth_state;
+    MeshBuffers cube_mesh;
+    MeshBuffers grid_mesh;
     bool initialized = false;
 
-    bool init(id<MTLDevice> device)
+    bool init(id<MTLDevice> device, int grid_width, int grid_height, float tile_size)
     {
         if (initialized)
-            return pipeline != nil;
+            return pipeline.get() != nil && depth_state.get() != nil;
 
         initialized = true;
 
         NSError* error = nil;
         NSString* exePath = [[NSBundle mainBundle] executablePath];
         NSString* exeDir = [exePath stringByDeletingLastPathComponent];
-        NSString* libPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_cube.metallib"];
+        NSString* libPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_scene.metallib"];
         NSURL* libURL = [NSURL fileURLWithPath:libPath];
 
         id<MTLLibrary> library = [device newLibraryWithURL:libURL error:&error];
         if (!library)
         {
             DRAXUL_LOG_ERROR(LogCategory::App,
-                "MegaCity: failed to load megacity_cube.metallib from %s: %s",
+                "MegaCity: failed to load megacity_scene.metallib from %s: %s",
                 [libPath UTF8String],
                 error ? [[error localizedDescription] UTF8String] : "unknown");
             return false;
         }
 
-        id<MTLFunction> vertFn = [library newFunctionWithName:@"cube_vertex"];
-        id<MTLFunction> fragFn = [library newFunctionWithName:@"cube_fragment"];
-        if (!vertFn || !fragFn)
+        id<MTLFunction> vert_fn = [library newFunctionWithName:@"scene_vertex"];
+        id<MTLFunction> frag_fn = [library newFunctionWithName:@"scene_fragment"];
+        if (!vert_fn || !frag_fn)
         {
             DRAXUL_LOG_ERROR(LogCategory::App,
-                "MegaCity: cube_vertex or cube_fragment not found in shader library");
+                "MegaCity: scene_vertex or scene_fragment not found in shader library");
             return false;
         }
 
-        MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
-        desc.vertexFunction = vertFn;
-        desc.fragmentFunction = fragFn;
-        desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-        desc.colorAttachments[0].blendingEnabled = NO;
+        MTLVertexDescriptor* vertex_desc = [[MTLVertexDescriptor alloc] init];
+        vertex_desc.attributes[0].format = MTLVertexFormatFloat3;
+        vertex_desc.attributes[0].offset = offsetof(SceneVertex, position);
+        vertex_desc.attributes[0].bufferIndex = 0;
+        vertex_desc.attributes[1].format = MTLVertexFormatFloat3;
+        vertex_desc.attributes[1].offset = offsetof(SceneVertex, normal);
+        vertex_desc.attributes[1].bufferIndex = 0;
+        vertex_desc.attributes[2].format = MTLVertexFormatFloat3;
+        vertex_desc.attributes[2].offset = offsetof(SceneVertex, color);
+        vertex_desc.attributes[2].bufferIndex = 0;
+        vertex_desc.layouts[0].stride = sizeof(SceneVertex);
+        vertex_desc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 
-        pipeline = [device newRenderPipelineStateWithDescriptor:desc error:&error];
-        if (!pipeline)
+        MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
+        desc.vertexFunction = vert_fn;
+        desc.fragmentFunction = frag_fn;
+        desc.vertexDescriptor = vertex_desc;
+        desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+
+        id<MTLRenderPipelineState> pipeline_state = [device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!pipeline_state)
         {
             DRAXUL_LOG_ERROR(LogCategory::App,
-                "MegaCity: failed to create cube pipeline: %s",
+                "MegaCity: failed to create scene pipeline: %s",
                 error ? [[error localizedDescription] UTF8String] : "unknown");
             return false;
         }
+        pipeline.reset(pipeline_state);
 
-        DRAXUL_LOG_INFO(LogCategory::App, "MegaCity: cube pipeline initialized");
+        MTLDepthStencilDescriptor* depth_desc = [[MTLDepthStencilDescriptor alloc] init];
+        depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
+        depth_desc.depthWriteEnabled = YES;
+        depth_state.reset([device newDepthStencilStateWithDescriptor:depth_desc]);
+        if (!depth_state)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to create depth state");
+            return false;
+        }
+
+        if (!upload_mesh(device, build_unit_cube_mesh(), cube_mesh))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload cube mesh");
+            return false;
+        }
+        if (!upload_mesh(device, build_grid_mesh(grid_width, grid_height, tile_size), grid_mesh))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload grid mesh");
+            return false;
+        }
+
+        DRAXUL_LOG_INFO(LogCategory::App, "MegaCity: scene pipeline initialized");
         return true;
     }
 };
 
-CubeRenderPass::CubeRenderPass()
-    : state_(std::make_unique<State>())
+IsometricScenePass::IsometricScenePass(int grid_width, int grid_height, float tile_size)
+    : grid_width_(grid_width)
+    , grid_height_(grid_height)
+    , tile_size_(tile_size)
+    , state_(std::make_unique<State>())
 {
 }
 
-CubeRenderPass::~CubeRenderPass() = default;
+IsometricScenePass::~IsometricScenePass() = default;
 
-void CubeRenderPass::record(IRenderContext& ctx)
+void IsometricScenePass::record(IRenderContext& ctx)
 {
-    id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)ctx.native_command_buffer();
+    id<MTLCommandBuffer> cmd_buf = (__bridge id<MTLCommandBuffer>)ctx.native_command_buffer();
     id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)ctx.native_render_encoder();
-
-    if (!cmdBuf || !encoder)
+    if (!cmd_buf || !encoder)
         return;
 
-    if (!state_->init(cmdBuf.device))
+    if (!state_->init(cmd_buf.device, grid_width_, grid_height_, tile_size_))
         return;
 
-    int vx = ctx.viewport_x();
-    int vy = ctx.viewport_y();
-    int vw = ctx.viewport_w();
-    int vh = ctx.viewport_h();
-    float aspect = (vh > 0) ? (float)vw / (float)vh : 1.0f;
-    simd_float4x4 proj = make_perspective(0.7854f /* 45 deg */, aspect, 0.1f, 100.0f);
-    simd_float4x4 view = make_translation(0.0f, 0.0f, -3.0f);
-    simd_float4x4 rot = simd_mul(make_rotation_y(angle_), make_rotation_x(angle_ * 0.4f));
-    simd_float4x4 mvp = simd_mul(proj, simd_mul(view, rot));
-
-    // Confine rendering to the pane region within the framebuffer.
-    MTLViewport vp;
-    vp.originX = vx;
-    vp.originY = vy;
-    vp.width = vw;
-    vp.height = vh;
-    vp.znear = 0.0;
-    vp.zfar = 1.0;
-    [encoder setViewport:vp];
+    MTLViewport viewport;
+    viewport.originX = ctx.viewport_x();
+    viewport.originY = ctx.viewport_y();
+    viewport.width = ctx.viewport_w();
+    viewport.height = ctx.viewport_h();
+    viewport.znear = 0.0;
+    viewport.zfar = 1.0;
+    [encoder setViewport:viewport];
 
     MTLScissorRect scissor;
-    scissor.x = static_cast<NSUInteger>(vx);
-    scissor.y = static_cast<NSUInteger>(vy);
-    scissor.width = static_cast<NSUInteger>(vw);
-    scissor.height = static_cast<NSUInteger>(vh);
+    scissor.x = static_cast<NSUInteger>(std::max(0, ctx.viewport_x()));
+    scissor.y = static_cast<NSUInteger>(std::max(0, ctx.viewport_y()));
+    scissor.width = static_cast<NSUInteger>(std::max(0, ctx.viewport_w()));
+    scissor.height = static_cast<NSUInteger>(std::max(0, ctx.viewport_h()));
     [encoder setScissorRect:scissor];
 
-    [encoder setRenderPipelineState:state_->pipeline];
+    FrameUniforms frame;
+    frame.view = to_simd_matrix(scene_.camera.view);
+    frame.proj = to_simd_matrix(scene_.camera.proj);
+    frame.light_dir = simd_make_float4(
+        scene_.camera.light_dir.x,
+        scene_.camera.light_dir.y,
+        scene_.camera.light_dir.z,
+        scene_.camera.light_dir.w);
+
+    [encoder setRenderPipelineState:state_->pipeline.get()];
+    [encoder setDepthStencilState:state_->depth_state.get()];
     [encoder setCullMode:MTLCullModeBack];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
-    [encoder setVertexBytes:&mvp length:sizeof(mvp) atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:36];
+    [encoder setVertexBytes:&frame length:sizeof(frame) atIndex:1];
+
+    for (const SceneObject& obj : scene_.objects)
+    {
+        const MeshBuffers* mesh = nullptr;
+        switch (obj.mesh)
+        {
+        case MeshId::Grid:
+            mesh = &state_->grid_mesh;
+            break;
+        case MeshId::Cube:
+            mesh = &state_->cube_mesh;
+            break;
+        }
+        if (!mesh || mesh->index_count == 0)
+            continue;
+
+        ObjectUniforms object;
+        object.world = to_simd_matrix(obj.world);
+        object.color = simd_make_float4(obj.color.x, obj.color.y, obj.color.z, obj.color.w);
+
+        [encoder setVertexBuffer:mesh->vertex_buffer.get() offset:0 atIndex:0];
+        [encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:mesh->index_count
+                             indexType:MTLIndexTypeUInt16
+                           indexBuffer:mesh->index_buffer.get()
+                     indexBufferOffset:0];
+    }
 }
 
 } // namespace draxul

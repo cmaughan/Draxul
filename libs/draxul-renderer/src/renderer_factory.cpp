@@ -14,13 +14,11 @@ namespace draxul
 
 RendererBundle create_renderer(int atlas_size)
 {
-    RendererBundle bundle;
 #ifdef __APPLE__
-    bundle.impl = std::make_unique<MetalRenderer>(atlas_size);
+    return RendererBundle{ std::make_unique<MetalRenderer>(atlas_size) };
 #else
-    bundle.impl = std::make_unique<VkRenderer>(atlas_size);
+    return RendererBundle{ std::make_unique<VkRenderer>(atlas_size) };
 #endif
-    return bundle;
 }
 
 } // namespace draxul

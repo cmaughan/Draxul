@@ -15,6 +15,11 @@ add_executable(draxul-tests ${DRAXUL_TEST_SOURCES})
 target_include_directories(draxul-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/support
 )
+if(DRAXUL_ENABLE_MEGACITY)
+    target_include_directories(draxul-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/libs/draxul-megacity/src
+    )
+endif()
 target_link_libraries(draxul-tests PRIVATE
     draxul-app
     Catch2::Catch2
@@ -24,6 +29,9 @@ target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
     DRAXUL_ENABLE_RENDER_TESTS
 )
+if(DRAXUL_ENABLE_MEGACITY)
+    target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_MEGACITY)
+endif()
 
 add_test(NAME draxul-tests COMMAND $<TARGET_FILE:draxul-tests>)
 

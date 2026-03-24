@@ -20,26 +20,26 @@ Downstream effects:
 
 ## Steps
 
-- [ ] Read `libs/draxul-renderer/include/draxul/renderer.h` in full.
-- [ ] Read `libs/draxul-renderer/include/draxul/base_renderer.h` for the base hierarchy.
-- [ ] Read `app/app.cpp` and `tests/fake_renderer.h` (or equivalent) to understand all `IRenderer` use sites.
-- [ ] Evaluate the split:
+- [x] Read `libs/draxul-renderer/include/draxul/renderer.h` in full.
+- [x] Read `libs/draxul-renderer/include/draxul/base_renderer.h` for the base hierarchy.
+- [x] Read `app/app.cpp` and `tests/fake_renderer.h` (or equivalent) to understand all `IRenderer` use sites.
+- [x] Evaluate the split:
   - Keep `IGridRenderer` as the grid-rendering contract.
   - Move `IImGuiHost` to `libs/draxul-ui/` or a new `draxul-imgui-host` interface.
   - Move `ICaptureRenderer` capture capability to a separate interface (see also item `20`).
   - Replace `IRenderer` with `RendererBundle` (which already exists) as the at-app-level composed type.
-- [ ] Update `FakeRenderer` to implement only `IGridRenderer` (and optionally `IImGuiHost` separately).
-- [ ] Update all call sites that use `IRenderer*` to use the appropriate narrower interface or `RendererBundle`.
-- [ ] Run `cmake --build build --target draxul draxul-tests`.
-- [ ] Run `clang-format` on touched files.
+- [x] Update `FakeRenderer` to implement only `IGridRenderer` (and optionally `IImGuiHost` separately).
+- [x] Update all call sites that use `IRenderer*` to use the appropriate narrower interface or `RendererBundle`.
+- [x] Run `cmake --build build --target draxul draxul-tests`.
+- [x] Run `clang-format` on touched files.
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `IRenderer` multiple inheritance shim is removed or replaced by `RendererBundle` at all call sites.
-- [ ] `FakeRenderer` no longer inherits the combined interface.
-- [ ] All tests pass.
+- [x] `IRenderer` multiple inheritance shim is removed or replaced by `RendererBundle` at all call sites.
+- [x] `FakeRenderer` no longer inherits the combined interface.
+- [x] All tests pass.
 
 ---
 

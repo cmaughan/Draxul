@@ -24,14 +24,12 @@ public:
     bool initialize();
     void run();
     bool run_smoke_test(std::chrono::milliseconds timeout);
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
     std::optional<CapturedFrame> run_render_test(std::chrono::milliseconds timeout,
         std::chrono::milliseconds settle);
     const std::string& last_render_test_error() const
     {
         return last_render_test_error_;
     }
-#endif
     void shutdown();
     const std::string& init_error() const
     {
@@ -89,9 +87,7 @@ private:
     std::shared_ptr<void> host_owner_lifetime_;
     std::chrono::steady_clock::time_point last_panel_frame_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
-#ifdef DRAXUL_ENABLE_RENDER_TESTS
     std::string last_render_test_error_;
-#endif
     std::string last_init_error_;
     std::vector<StartupStep> startup_steps_;
     double startup_total_ms_ = 0.0;
