@@ -25,7 +25,10 @@ struct SplitTree::Node
         std::unique_ptr<Node> first; // left or top
         std::unique_ptr<Node> second; // right or bottom
         // Divider rect, computed during recompute().
-        int div_x = 0, div_y = 0, div_w = 0, div_h = 0;
+        int div_x = 0;
+        int div_y = 0;
+        int div_w = 0;
+        int div_h = 0;
     };
 
     std::variant<LeafData, SplitData> data;
@@ -123,7 +126,7 @@ bool SplitTree::close_leaf(LeafId id)
     LeafId new_focus = focused_id_;
     if (focused_id_ == id)
     {
-        Node* sibling = closing_first ? s.second.get() : s.first.get();
+        const Node* sibling = closing_first ? s.second.get() : s.first.get();
         new_focus = first_leaf(sibling);
     }
 
@@ -173,16 +176,16 @@ void SplitTree::set_divider_ratio(DividerId id, float ratio)
     if (id == kInvalidDivider)
         return;
 
-    auto* node = find_divider_node(id);
-    if (!node)
+    if (auto* node = find_divider_node(id); !node)
     {
         DRAXUL_LOG_DEBUG(LogCategory::App,
             "Ignoring stale divider id %d during ratio update", id);
         return;
     }
-    if (node->is_leaf())
+    else if (node->is_leaf())
         return;
-    node->split().ratio = std::clamp(ratio, 0.1f, 0.9f);
+    else
+        node->split().ratio = std::clamp(ratio, 0.1f, 0.9f);
     recompute(total_w_, total_h_);
 }
 
@@ -194,8 +197,7 @@ void SplitTree::set_focused(LeafId id)
 
 PaneDescriptor SplitTree::descriptor_for(LeafId id) const
 {
-    const Node* node = find_leaf_node(id);
-    if (node)
+    if (const Node* node = find_leaf_node(id); node)
         return node->leaf().descriptor;
     return {};
 }
@@ -352,8 +354,8 @@ SplitTree::HitResult SplitTree::hit_test_node(const Node* node, int px, int py, 
 
     if (node->is_leaf())
     {
-        const auto& d = node->leaf().descriptor;
-        if (px >= d.pixel_pos.x && px < d.pixel_pos.x + d.pixel_size.x && py >= d.pixel_pos.y
+        if (const auto& d = node->leaf().descriptor;
+            px >= d.pixel_pos.x && px < d.pixel_pos.x + d.pixel_size.x && py >= d.pixel_pos.y
             && py < d.pixel_pos.y + d.pixel_size.y)
             return LeafHit{ node->leaf().id };
         return std::monostate{};
@@ -365,8 +367,8 @@ SplitTree::HitResult SplitTree::hit_test_node(const Node* node, int px, int py, 
         return DividerHit{ s.direction, s.divider_id };
 
     // Recurse into children.
-    auto result = hit_test_node(s.first.get(), px, py, div_w);
-    if (!std::holds_alternative<std::monostate>(result))
+    if (auto result = hit_test_node(s.first.get(), px, py, div_w);
+        !std::holds_alternative<std::monostate>(result))
         return result;
     return hit_test_node(s.second.get(), px, py, div_w);
 }

@@ -46,7 +46,7 @@ ModifierFlags normalize_gui_modifiers(ModifierFlags mod)
 
 bool is_known_gui_action(std::string_view action)
 {
-    return std::find(kKnownGuiActions.begin(), kKnownGuiActions.end(), action) != kKnownGuiActions.end();
+    return std::ranges::find(kKnownGuiActions, action) != kKnownGuiActions.end();
 }
 
 bool equals_ignore_case(std::string_view lhs, std::string_view rhs)
@@ -186,8 +186,7 @@ std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::
         return std::nullopt;
 
     // Chord syntax: "Ctrl+S, |" -- split on the first comma.
-    const size_t comma = combo.find(',');
-    if (comma != std::string_view::npos)
+    if (const size_t comma = combo.find(','); comma != std::string_view::npos)
     {
         const std::string_view prefix_half = combo.substr(0, comma);
         const std::string_view action_half = combo.substr(comma + 1);

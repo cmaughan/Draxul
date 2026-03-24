@@ -145,8 +145,8 @@ void UnixPtyProcess::shutdown()
         int status = 0;
         for (int i = 0; i < 10; ++i)
         {
-            pid_t ret = waitpid(pid_, &status, WNOHANG);
-            if (ret == pid_ || (ret < 0 && errno == ECHILD))
+            if (const pid_t ret = waitpid(pid_, &status, WNOHANG);
+                ret == pid_ || (ret < 0 && errno == ECHILD))
             {
                 child_reaped = true;
                 break;
@@ -168,8 +168,8 @@ void UnixPtyProcess::shutdown()
             // UI thread if the child is in an uninterruptible kernel sleep.
             for (int i = 0; i < 50; ++i)
             {
-                pid_t ret = waitpid(pid_, &status, WNOHANG);
-                if (ret == pid_ || (ret < 0 && errno == ECHILD))
+                if (const pid_t ret = waitpid(pid_, &status, WNOHANG);
+                    ret == pid_ || (ret < 0 && errno == ECHILD))
                     break;
                 std::this_thread::sleep_for(std::chrono::microseconds(10000));
             }
@@ -187,12 +187,12 @@ void UnixPtyProcess::shutdown()
     if (reader_thread_.joinable())
         reader_thread_.join();
 
-    for (int i = 0; i < 2; ++i)
+    for (int& fd : shutdown_pipe_)
     {
-        if (shutdown_pipe_[i] >= 0)
+        if (fd >= 0)
         {
-            close(shutdown_pipe_[i]);
-            shutdown_pipe_[i] = -1;
+            close(fd);
+            fd = -1;
         }
     }
 
@@ -269,8 +269,7 @@ void UnixPtyProcess::reader_main()
 
     while (reader_running_)
     {
-        int ret = poll(fds, 2, -1);
-        if (ret <= 0)
+        if (const int ret = poll(fds, 2, -1); ret <= 0)
             break;
 
         // Shutdown pipe signaled — exit immediately.

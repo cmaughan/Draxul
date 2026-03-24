@@ -19,15 +19,16 @@ namespace
 
 bool is_terminal_shell_host(HostKind kind)
 {
+    using enum HostKind;
     switch (kind)
     {
-    case HostKind::PowerShell:
-    case HostKind::Bash:
-    case HostKind::Zsh:
-    case HostKind::Wsl:
+    case PowerShell:
+    case Bash:
+    case Zsh:
+    case Wsl:
         return true;
-    case HostKind::Nvim:
-    case HostKind::MegaCity:
+    case Nvim:
+    case MegaCity:
         return false;
     }
     return false;
@@ -195,7 +196,7 @@ IHost* HostManager::host_for(LeafId id) const
 IHost* HostManager::host_at_point(int px, int py)
 {
     auto result = tree_.hit_test(px, py);
-    if (auto* leaf_hit = std::get_if<SplitTree::LeafHit>(&result))
+    if (const auto* leaf_hit = std::get_if<SplitTree::LeafHit>(&result))
     {
         tree_.set_focused(leaf_hit->id);
         return host_for(leaf_hit->id);
@@ -237,17 +238,16 @@ bool HostManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     PaneDescriptor desc = tree_.descriptor_for(id);
     HostViewport viewport = deps_.compute_viewport ? deps_.compute_viewport(desc) : HostViewport{};
 
-    HostContext context{
-        deps_.window,
-        &grid_renderer,
-        deps_.text_service,
-        launch,
-        viewport,
-        deps_.owner_lifetime,
-        display_ppi,
-    };
-
-    if (!new_host->initialize(context, callbacks))
+    if (HostContext context{
+            deps_.window,
+            &grid_renderer,
+            deps_.text_service,
+            launch,
+            viewport,
+            deps_.owner_lifetime,
+            display_ppi,
+        };
+        !new_host->initialize(context, callbacks))
     {
         error_ = new_host->init_error();
         if (error_.empty())

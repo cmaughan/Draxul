@@ -117,7 +117,7 @@ void RendererState::set_grid_size(int cols, int rows, int padding)
             }
         }
 
-        std::fill(overlay_cells_.begin(), overlay_cells_.end(), GpuCell{});
+        std::ranges::fill(overlay_cells_, GpuCell{});
         mark_all_cells_dirty();
         overlay_dirty_ = true;
     }
@@ -163,8 +163,8 @@ void RendererState::apply_update_to_cell(GpuCell& cell, const CellUpdate& u) con
 
 void RendererState::relayout()
 {
-    std::fill(gpu_cells_.begin(), gpu_cells_.end(), GpuCell{});
-    std::fill(overlay_cells_.begin(), overlay_cells_.end(), GpuCell{});
+    std::ranges::fill(gpu_cells_, GpuCell{});
+    std::ranges::fill(overlay_cells_, GpuCell{});
 
     for (int r = 0; r < grid_rows_; r++)
     {
@@ -201,7 +201,7 @@ void RendererState::update_cells(std::span<const CellUpdate> updates)
 void RendererState::set_overlay_cells(std::span<const CellUpdate> updates)
 {
     overlay_cell_count_ = std::min(updates.size(), OVERLAY_CELL_CAPACITY);
-    std::fill(overlay_cells_.begin(), overlay_cells_.end(), GpuCell{});
+    std::ranges::fill(overlay_cells_, GpuCell{});
 
     for (size_t i = 0; i < overlay_cell_count_; ++i)
         apply_update_to_cell(overlay_cells_[i], updates[i]);

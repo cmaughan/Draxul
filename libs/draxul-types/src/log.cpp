@@ -114,8 +114,8 @@ std::vector<LogCategory> parse_category_list(std::string_view value)
         if (end == std::string_view::npos)
             end = value.size();
 
-        std::string token = draxul::trim(std::string(value.substr(start, end - start)));
-        if (!token.empty())
+        if (std::string token = draxul::trim(std::string(value.substr(start, end - start)));
+            !token.empty())
         {
             auto parsed = parse_log_category(token);
             if (parsed)
@@ -130,7 +130,7 @@ std::vector<LogCategory> parse_category_list(std::string_view value)
 bool category_enabled(const LoggerState& logger_state, LogCategory category)
 {
     return logger_state.enabled_categories.empty()
-        || logger_state.enabled_categories.count(category) > 0;
+        || logger_state.enabled_categories.contains(category);
 }
 
 void write_line(FILE* stream, LogLevel level, LogCategory category, const std::string& message)
@@ -146,17 +146,18 @@ void write_line(FILE* stream, LogLevel level, LogCategory category, const std::s
 
 const char* to_string(LogLevel level)
 {
+    using enum LogLevel;
     switch (level)
     {
-    case LogLevel::Error:
+    case Error:
         return "error";
-    case LogLevel::Warn:
+    case Warn:
         return "warn";
-    case LogLevel::Info:
+    case Info:
         return "info";
-    case LogLevel::Debug:
+    case Debug:
         return "debug";
-    case LogLevel::Trace:
+    case Trace:
         return "trace";
     }
     return "info";
@@ -164,23 +165,24 @@ const char* to_string(LogLevel level)
 
 const char* to_string(LogCategory category)
 {
+    using enum LogCategory;
     switch (category)
     {
-    case LogCategory::App:
+    case App:
         return "app";
-    case LogCategory::Rpc:
+    case Rpc:
         return "rpc";
-    case LogCategory::Nvim:
+    case Nvim:
         return "nvim";
-    case LogCategory::Window:
+    case Window:
         return "window";
-    case LogCategory::Font:
+    case Font:
         return "font";
-    case LogCategory::Renderer:
+    case Renderer:
         return "renderer";
-    case LogCategory::Input:
+    case Input:
         return "input";
-    case LogCategory::Test:
+    case Test:
         return "test";
     }
     return "app";
@@ -194,7 +196,7 @@ LogLevel parse_log_level_or(std::string_view value, LogLevel fallback)
 void configure_logging(const LogOptions& options)
 {
     auto& logger_state = state();
-    std::lock_guard<std::mutex> lock(logger_state.mutex);
+    std::scoped_lock lock(logger_state.mutex);
 
     if (logger_state.file)
     {
@@ -239,7 +241,7 @@ void configure_default_logging(const char* default_file_name, bool prefer_file_w
 
     if (env_level)
     {
-        if (auto level = parse_log_level(env_level))
+        if (const auto level = parse_log_level(env_level))
             options.min_level = *level;
     }
 
@@ -265,7 +267,7 @@ void configure_default_logging(const char* default_file_name, bool prefer_file_w
 void shutdown_logging()
 {
     auto& logger_state = state();
-    std::lock_guard<std::mutex> lock(logger_state.mutex);
+    std::scoped_lock lock(logger_state.mutex);
     if (logger_state.file)
     {
         std::fclose(logger_state.file);
@@ -280,8 +282,8 @@ bool log_would_emit(LogLevel level, LogCategory category)
     // Lock-free fast path: read atomic mirrors with relaxed ordering.
     // Exact ordering is not critical — log level changes are infrequent and
     // a stale read only means one extra or one missed log line transiently.
-    int min_level = logger_state.atomic_min_level.load();
-    if (static_cast<int>(level) > min_level)
+    if (const int min_level = logger_state.atomic_min_level.load();
+        static_cast<int>(level) > min_level)
         return false;
     uint32_t mask = logger_state.atomic_category_mask.load();
     // mask == 0 means "all categories enabled" (mirrors empty enabled_categories).
@@ -291,7 +293,7 @@ bool log_would_emit(LogLevel level, LogCategory category)
 void set_log_sink(LogSink sink)
 {
     auto& logger_state = state();
-    std::lock_guard<std::mutex> lock(logger_state.mutex);
+    std::scoped_lock lock(logger_state.mutex);
     logger_state.sink = std::move(sink);
 }
 
@@ -303,7 +305,7 @@ void clear_log_sink()
 void log_message(LogLevel level, LogCategory category, std::string_view message)
 {
     auto& logger_state = state();
-    std::lock_guard<std::mutex> lock(logger_state.mutex);
+    std::scoped_lock lock(logger_state.mutex);
     if ((int)level > (int)logger_state.min_level || !category_enabled(logger_state, category))
     {
         return;

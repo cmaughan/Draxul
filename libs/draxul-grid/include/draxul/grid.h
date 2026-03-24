@@ -25,8 +25,8 @@ inline bool utf8_next_codepoint_two_byte(const uint8_t* bytes, size_t offset, si
 {
     if (remaining < 2)
         return false;
-    const uint8_t lead = bytes[offset];
-    if (lead < 0xC2 || lead > 0xDF || !is_utf8_continuation_byte(bytes[offset + 1]))
+    if (const uint8_t lead = bytes[offset];
+        lead < 0xC2 || lead > 0xDF || !is_utf8_continuation_byte(bytes[offset + 1]))
         return false;
     next_offset = offset + 2;
     return true;
@@ -40,11 +40,11 @@ inline bool utf8_next_codepoint_three_byte(const uint8_t* bytes, size_t offset, 
     const uint8_t lead = bytes[offset];
     const uint8_t b1 = bytes[offset + 1];
     const uint8_t b2 = bytes[offset + 2];
-    const bool valid = (lead == 0xE0 && b1 >= 0xA0 && b1 <= 0xBF && is_utf8_continuation_byte(b2))
-        || ((lead >= 0xE1 && lead <= 0xEC) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2))
-        || (lead == 0xED && b1 >= 0x80 && b1 <= 0x9F && is_utf8_continuation_byte(b2))
-        || ((lead >= 0xEE && lead <= 0xEF) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2));
-    if (!valid)
+    if (const bool valid = (lead == 0xE0 && b1 >= 0xA0 && b1 <= 0xBF && is_utf8_continuation_byte(b2))
+            || ((lead >= 0xE1 && lead <= 0xEC) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2))
+            || (lead == 0xED && b1 >= 0x80 && b1 <= 0x9F && is_utf8_continuation_byte(b2))
+            || ((lead >= 0xEE && lead <= 0xEF) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2));
+        !valid)
         return false;
 
     next_offset = offset + 3;
@@ -60,13 +60,13 @@ inline bool utf8_next_codepoint_four_byte(const uint8_t* bytes, size_t offset, s
     const uint8_t b1 = bytes[offset + 1];
     const uint8_t b2 = bytes[offset + 2];
     const uint8_t b3 = bytes[offset + 3];
-    const bool valid = (lead == 0xF0 && b1 >= 0x90 && b1 <= 0xBF && is_utf8_continuation_byte(b2)
-                           && is_utf8_continuation_byte(b3))
-        || ((lead >= 0xF1 && lead <= 0xF3) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2)
-            && is_utf8_continuation_byte(b3))
-        || (lead == 0xF4 && b1 >= 0x80 && b1 <= 0x8F && is_utf8_continuation_byte(b2)
-            && is_utf8_continuation_byte(b3));
-    if (!valid)
+    if (const bool valid = (lead == 0xF0 && b1 >= 0x90 && b1 <= 0xBF && is_utf8_continuation_byte(b2)
+                               && is_utf8_continuation_byte(b3))
+            || ((lead >= 0xF1 && lead <= 0xF3) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2)
+                && is_utf8_continuation_byte(b3))
+            || (lead == 0xF4 && b1 >= 0x80 && b1 <= 0x8F && is_utf8_continuation_byte(b2)
+                && is_utf8_continuation_byte(b3));
+        !valid)
         return false;
 
     next_offset = offset + 4;
@@ -226,7 +226,8 @@ public:
 private:
     void mark_dirty_index(int index);
 
-    int cols_ = 0, rows_ = 0;
+    int cols_ = 0;
+    int rows_ = 0;
     std::vector<Cell> cells_;
     std::vector<DirtyCell> dirty_cells_;
     std::vector<uint8_t> dirty_marks_;

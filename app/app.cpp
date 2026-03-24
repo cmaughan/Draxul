@@ -67,7 +67,7 @@ bool App::initialize()
     startup_total_ms_ = 0.0;
     const auto init_start = Clock::now();
 
-    auto time_step = [this](const char* label, auto fn) -> bool {
+    auto time_step = [this](const char* label, auto fn) {
         const auto t0 = Clock::now();
         const bool ok = fn();
         const double ms = Ms(Clock::now() - t0).count();
@@ -111,7 +111,8 @@ bool App::initialize()
                 }
             }
         }
-    } rollback(this);
+    };
+    InitRollback rollback(this);
 
     if (!ok)
         return false;
@@ -175,8 +176,8 @@ bool App::initialize()
             }
             ui_panel_.set_font(text_service_.primary_font_path(),
                 static_cast<float>(text_service_.metrics().cell_height)
-                    * static_cast<float>(text_service_.point_size() - 2)
-                    / static_cast<float>(text_service_.point_size()));
+                    * (text_service_.point_size() - 2)
+                    / text_service_.point_size());
             ui_panel_.set_visible(options_.show_diagnostics_on_startup);
             refresh_window_layout();
             if (!renderer_.imgui()->initialize_imgui_backend())
@@ -233,8 +234,8 @@ bool App::initialize_text_service()
 {
     display_ppi_ = options_.override_display_ppi.value_or(window_->display_ppi());
 
-    const TextServiceConfig text_config = make_text_service_config();
-    if (!text_service_.initialize(text_config, config_.font_size, display_ppi_))
+    if (const TextServiceConfig text_config = make_text_service_config();
+        !text_service_.initialize(text_config, config_.font_size, display_ppi_))
     {
         const std::string& attempted = text_config.font_path.empty() ? "(auto-detected)" : text_config.font_path;
         last_init_error_ = "Failed to load the configured font (path: " + attempted
@@ -256,8 +257,8 @@ void App::apply_font_metrics()
     renderer_.grid()->set_ascender(metrics.ascender);
     ui_panel_.set_font(text_service_.primary_font_path(),
         static_cast<float>(metrics.cell_height)
-            * static_cast<float>(text_service_.point_size() - 2)
-            / static_cast<float>(text_service_.point_size()));
+            * (text_service_.point_size() - 2)
+            / text_service_.point_size());
     if (host_manager_.host())
         host_manager_.host()->on_font_metrics_changed();
     refresh_window_layout();
@@ -294,8 +295,8 @@ bool App::initialize_host()
 
     const auto& metrics = text_service_.metrics();
     const float font_size = static_cast<float>(metrics.cell_height)
-        * static_cast<float>(text_service_.point_size() - 2)
-        / static_cast<float>(text_service_.point_size());
+        * (text_service_.point_size() - 2)
+        / text_service_.point_size();
     host_manager_.host()->set_imgui_font(text_service_.primary_font_path(), font_size);
 
     request_frame();
@@ -307,7 +308,7 @@ void App::wire_gui_actions()
     GuiActionHandler::Deps gui_deps;
     gui_deps.text_service = &text_service_;
     gui_deps.ui_panel = &ui_panel_;
-    gui_deps.focused_host = [this]() -> IHost* { return host_manager_.focused_host(); };
+    gui_deps.focused_host = [this]() { return host_manager_.focused_host(); };
     gui_deps.imgui_host = renderer_.imgui();
     gui_deps.config = &config_;
     gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
@@ -423,7 +424,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 bool App::close_dead_panes()
 {
     std::vector<LeafId> dead;
-    host_manager_.for_each_host([&dead](LeafId id, IHost& h) {
+    host_manager_.for_each_host([&dead](LeafId id, const IHost& h) {
         if (!h.is_running())
             dead.push_back(id);
     });
@@ -442,7 +443,7 @@ bool App::close_dead_panes()
 void App::render_imgui_overlay(float delta_seconds)
 {
     bool any_host_imgui = false;
-    host_manager_.for_each_host([&any_host_imgui](LeafId, IHost& h) {
+    host_manager_.for_each_host([&any_host_imgui](LeafId, const IHost& h) {
         if (h.has_imgui())
             any_host_imgui = true;
     });
@@ -571,8 +572,8 @@ void App::on_display_scale_changed(float new_ppi)
 
     display_ppi_ = new_ppi;
 
-    const TextServiceConfig text_config = make_text_service_config();
-    if (!text_service_.initialize(text_config, text_service_.point_size(), display_ppi_))
+    if (const TextServiceConfig text_config = make_text_service_config();
+        !text_service_.initialize(text_config, text_service_.point_size(), display_ppi_))
         return;
 
     // DPI change also requires an ImGui font texture rebuild (different from on_font_changed).
@@ -685,7 +686,7 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 
     std::optional<std::chrono::steady_clock::time_point> deadline;
     bool any_host_running = false;
-    host_manager_.for_each_host([&deadline, &any_host_running](LeafId, IHost& host) {
+    host_manager_.for_each_host([&deadline, &any_host_running](LeafId, const IHost& host) {
         if (host.is_running())
             any_host_running = true;
         auto d = host.next_deadline();

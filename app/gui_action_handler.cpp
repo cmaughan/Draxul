@@ -37,8 +37,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
 bool GuiActionHandler::execute(std::string_view action)
 {
     const auto& map = action_map();
-    auto it = map.find(action);
-    if (it != map.end())
+    if (const auto it = map.find(action); it != map.end())
     {
         it->second(*this);
         return true;
