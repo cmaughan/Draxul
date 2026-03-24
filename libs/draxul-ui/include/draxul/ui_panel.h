@@ -86,6 +86,7 @@ public:
     void on_mouse_wheel(const MouseWheelEvent& event);
     void on_text_input(const TextInputEvent& event);
 
+    bool wants_mouse() const;
     bool wants_keyboard() const;
 
 private:

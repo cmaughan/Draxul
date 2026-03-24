@@ -32,6 +32,22 @@ struct MeshBuffers
     NSUInteger index_count = 0;
 };
 
+bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
+{
+    return a.enabled == b.enabled
+        && a.min_x == b.min_x
+        && a.max_x == b.max_x
+        && a.min_z == b.min_z
+        && a.max_z == b.max_z
+        && a.tile_size == b.tile_size
+        && a.line_width == b.line_width
+        && a.y == b.y
+        && a.color.x == b.color.x
+        && a.color.y == b.color.y
+        && a.color.z == b.color.z
+        && a.color.w == b.color.w;
+}
+
 simd_float4x4 to_simd_matrix(const glm::mat4& mat)
 {
     simd_float4x4 out;
@@ -71,6 +87,8 @@ struct IsometricScenePass::State
     ObjCRef<id<MTLDepthStencilState>> depth_state;
     MeshBuffers cube_mesh;
     MeshBuffers grid_mesh;
+    FloorGridSpec grid_spec;
+    bool has_grid_mesh = false;
     bool initialized = false;
 
     bool init(id<MTLDevice> device, int grid_width, int grid_height, float tile_size)
@@ -150,13 +168,35 @@ struct IsometricScenePass::State
             DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload cube mesh");
             return false;
         }
-        if (!upload_mesh(device, build_grid_mesh(grid_width, grid_height, tile_size), grid_mesh))
+        DRAXUL_LOG_INFO(LogCategory::App, "MegaCity: scene pipeline initialized");
+        return true;
+    }
+
+    bool ensure_floor_grid(id<MTLDevice> device, const FloorGridSpec& spec)
+    {
+        if (!spec.enabled)
         {
-            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload grid mesh");
+            grid_mesh.vertex_buffer.reset();
+            grid_mesh.index_buffer.reset();
+            grid_mesh.index_count = 0;
+            grid_spec = {};
+            has_grid_mesh = false;
+            return true;
+        }
+        if (has_grid_mesh && same_grid_spec(grid_spec, spec))
+            return true;
+
+        grid_mesh.vertex_buffer.reset();
+        grid_mesh.index_buffer.reset();
+        grid_mesh.index_count = 0;
+        if (!upload_mesh(device, build_outline_grid_mesh(spec), grid_mesh))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload floor grid mesh");
             return false;
         }
 
-        DRAXUL_LOG_INFO(LogCategory::App, "MegaCity: scene pipeline initialized");
+        grid_spec = spec;
+        has_grid_mesh = true;
         return true;
     }
 };
@@ -179,6 +219,8 @@ void IsometricScenePass::record(IRenderContext& ctx)
         return;
 
     if (!state_->init(cmd_buf.device, grid_width_, grid_height_, tile_size_))
+        return;
+    if (!state_->ensure_floor_grid(cmd_buf.device, scene_.floor_grid))
         return;
 
     MTLViewport viewport;
@@ -217,12 +259,11 @@ void IsometricScenePass::record(IRenderContext& ctx)
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
-        case MeshId::Grid:
-            mesh = &state_->grid_mesh;
-            break;
         case MeshId::Cube:
             mesh = &state_->cube_mesh;
             break;
+        case MeshId::Grid:
+            continue;
         }
         if (!mesh || mesh->index_count == 0)
             continue;
@@ -237,6 +278,25 @@ void IsometricScenePass::record(IRenderContext& ctx)
                             indexCount:mesh->index_count
                              indexType:MTLIndexTypeUInt16
                            indexBuffer:mesh->index_buffer.get()
+                     indexBufferOffset:0];
+    }
+
+    if (state_->grid_mesh.index_count > 0)
+    {
+        ObjectUniforms object;
+        object.world = matrix_identity_float4x4;
+        object.color = simd_make_float4(
+            scene_.floor_grid.color.x,
+            scene_.floor_grid.color.y,
+            scene_.floor_grid.color.z,
+            scene_.floor_grid.color.w);
+
+        [encoder setVertexBuffer:state_->grid_mesh.vertex_buffer.get() offset:0 atIndex:0];
+        [encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:state_->grid_mesh.index_count
+                             indexType:MTLIndexTypeUInt16
+                           indexBuffer:state_->grid_mesh.index_buffer.get()
                      indexBufferOffset:0];
     }
 }

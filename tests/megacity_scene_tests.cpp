@@ -8,6 +8,20 @@
 
 using namespace draxul;
 
+namespace
+{
+
+float triangle_up_normal_y(const MeshData& mesh, size_t triangle_index)
+{
+    const size_t base = triangle_index * 3;
+    const glm::vec3 p0 = mesh.vertices[mesh.indices[base + 0]].position;
+    const glm::vec3 p1 = mesh.vertices[mesh.indices[base + 1]].position;
+    const glm::vec3 p2 = mesh.vertices[mesh.indices[base + 2]].position;
+    return glm::cross(p1 - p0, p2 - p0).y;
+}
+
+} // namespace
+
 TEST_CASE("megacity world maps grid coordinates to tile centers", "[megacity]")
 {
     IsometricWorld world;
@@ -43,16 +57,46 @@ TEST_CASE("megacity camera projection responds to viewport aspect", "[megacity]"
     CHECK(wide[1][1] == Catch::Approx(square[1][1]));
 }
 
+TEST_CASE("megacity camera footprint covers the centered world", "[megacity]")
+{
+    IsometricCamera camera;
+    camera.look_at_world_center(5.0f, 5.0f);
+    camera.set_viewport(160, 100);
+
+    const GroundFootprint footprint = camera.visible_ground_footprint();
+
+    CHECK(footprint.min_x < 0.5f);
+    CHECK(footprint.max_x > 4.5f);
+    CHECK(footprint.min_z < 0.5f);
+    CHECK(footprint.max_z > 4.5f);
+}
+
 TEST_CASE("megacity mesh library builds expected primitive counts", "[megacity]")
 {
     const MeshData cube = build_unit_cube_mesh();
-    const MeshData grid = build_grid_mesh(5, 5, 1.0f);
+    const MeshData filled = build_grid_mesh(2, 2, 1.0f);
+
+    FloorGridSpec grid;
+    grid.enabled = true;
+    grid.min_x = 0;
+    grid.max_x = 2;
+    grid.min_z = 0;
+    grid.max_z = 2;
+    grid.tile_size = 1.0f;
+    grid.line_width = 0.04f;
+
+    const MeshData outline = build_outline_grid_mesh(grid);
 
     CHECK(cube.vertices.size() == 24);
     CHECK(cube.indices.size() == 36);
 
-    CHECK(grid.vertices.size() == 100);
-    CHECK(grid.indices.size() == 150);
+    CHECK(filled.vertices.size() == 16);
+    CHECK(filled.indices.size() == 24);
+    CHECK(triangle_up_normal_y(filled, 0) > 0.0f);
+
+    CHECK(outline.vertices.size() == 24);
+    CHECK(outline.indices.size() == 36);
+    CHECK(triangle_up_normal_y(outline, 0) > 0.0f);
 }
 
 #endif

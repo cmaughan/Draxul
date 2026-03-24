@@ -128,13 +128,16 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
 void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
 {
     deps_.ui_panel->on_mouse_button(event);
+    IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
+    const bool host_has_imgui = target && target->has_imgui();
+    if ((deps_.ui_panel->wants_mouse() || host_has_imgui) && deps_.request_frame)
+        deps_.request_frame();
+    if (deps_.ui_panel->wants_mouse())
+        return;
     if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
     {
-        if (deps_.request_frame)
-            deps_.request_frame();
         return;
     }
-    IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
     if (target)
     {
         // Hosts store viewports and cell sizes in physical pixels; translate
@@ -149,13 +152,16 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
 void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
 {
     deps_.ui_panel->on_mouse_move(event);
+    IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
+    const bool host_has_imgui = target && target->has_imgui();
+    if ((deps_.ui_panel->wants_mouse() || host_has_imgui) && deps_.request_frame)
+        deps_.request_frame();
+    if (deps_.ui_panel->wants_mouse())
+        return;
     if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
     {
-        if (deps_.request_frame)
-            deps_.request_frame();
         return;
     }
-    IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
     if (target)
     {
         MouseMoveEvent phys = event;
@@ -168,13 +174,14 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
 void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
 {
     deps_.ui_panel->on_mouse_wheel(event);
-    if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
-    {
-        if (deps_.request_frame)
-            deps_.request_frame();
-        return;
-    }
     IHost* wheel_host = host_for_mouse_pos(event.pos.x, event.pos.y);
+    const bool host_has_imgui = wheel_host && wheel_host->has_imgui();
+    if ((deps_.ui_panel->wants_mouse() || host_has_imgui) && deps_.request_frame)
+        deps_.request_frame();
+    if (deps_.ui_panel->wants_mouse())
+        return;
+    if (deps_.ui_panel->layout().contains_panel_point(event.pos.x, event.pos.y))
+        return;
     if (!wheel_host)
         return;
 

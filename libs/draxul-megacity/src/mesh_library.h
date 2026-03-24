@@ -7,5 +7,6 @@ namespace draxul
 
 MeshData build_unit_cube_mesh();
 MeshData build_grid_mesh(int width, int height, float tile_size);
+MeshData build_outline_grid_mesh(const FloorGridSpec& spec);
 
 } // namespace draxul

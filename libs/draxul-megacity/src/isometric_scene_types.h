@@ -27,9 +27,23 @@ struct SceneCameraData
     glm::vec4 light_dir{ -0.5f, -1.0f, -0.3f, 0.0f };
 };
 
+struct FloorGridSpec
+{
+    bool enabled = false;
+    int min_x = 0;
+    int max_x = 0;
+    int min_z = 0;
+    int max_z = 0;
+    float tile_size = 1.0f;
+    float line_width = 0.04f;
+    float y = -0.001f;
+    glm::vec4 color{ 0.45f, 0.45f, 0.48f, 1.0f };
+};
+
 struct SceneSnapshot
 {
     SceneCameraData camera;
+    FloorGridSpec floor_grid;
     std::vector<SceneObject> objects;
 };
 

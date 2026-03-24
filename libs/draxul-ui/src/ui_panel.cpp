@@ -374,11 +374,20 @@ void UiPanel::on_key(const KeyEvent& event)
 
 bool UiPanel::wants_keyboard() const
 {
-    if (!impl_->context || !impl_->layout.visible)
+    if (!impl_->context)
         return false;
 
     ImGui::SetCurrentContext(impl_->context);
     return ImGui::GetIO().WantCaptureKeyboard;
+}
+
+bool UiPanel::wants_mouse() const
+{
+    if (!impl_->context)
+        return false;
+
+    ImGui::SetCurrentContext(impl_->context);
+    return ImGui::GetIO().WantCaptureMouse;
 }
 
 } // namespace draxul

@@ -105,12 +105,58 @@ MeshData build_grid_mesh(int width, int height, float tile_size)
 
             append_quad(mesh, { {
                                   { x0, 0.0f, z0 },
-                                  { x1, 0.0f, z0 },
-                                  { x1, 0.0f, z1 },
                                   { x0, 0.0f, z1 },
+                                  { x1, 0.0f, z1 },
+                                  { x1, 0.0f, z0 },
                               } },
                 { 0.0f, 1.0f, 0.0f }, color);
         }
+    }
+
+    return mesh;
+}
+
+MeshData build_outline_grid_mesh(const FloorGridSpec& spec)
+{
+    MeshData mesh;
+    if (!spec.enabled || spec.max_x < spec.min_x || spec.max_z < spec.min_z || spec.tile_size <= 0.0f)
+        return mesh;
+
+    const int x_line_count = spec.max_x - spec.min_x + 1;
+    const int z_line_count = spec.max_z - spec.min_z + 1;
+    mesh.vertices.reserve(static_cast<size_t>((x_line_count + z_line_count) * 4));
+    mesh.indices.reserve(static_cast<size_t>((x_line_count + z_line_count) * 6));
+
+    const float half_width = spec.line_width * 0.5f;
+    const float xmin = static_cast<float>(spec.min_x) * spec.tile_size;
+    const float xmax = static_cast<float>(spec.max_x) * spec.tile_size;
+    const float zmin = static_cast<float>(spec.min_z) * spec.tile_size;
+    const float zmax = static_cast<float>(spec.max_z) * spec.tile_size;
+    const glm::vec3 color{ spec.color.x, spec.color.y, spec.color.z };
+    const float y = spec.y;
+
+    for (int x = spec.min_x; x <= spec.max_x; ++x)
+    {
+        const float world_x = static_cast<float>(x) * spec.tile_size;
+        append_quad(mesh, { {
+                              { world_x - half_width, y, zmin },
+                              { world_x - half_width, y, zmax },
+                              { world_x + half_width, y, zmax },
+                              { world_x + half_width, y, zmin },
+                          } },
+            { 0.0f, 1.0f, 0.0f }, color);
+    }
+
+    for (int z = spec.min_z; z <= spec.max_z; ++z)
+    {
+        const float world_z = static_cast<float>(z) * spec.tile_size;
+        append_quad(mesh, { {
+                              { xmin, y, world_z - half_width },
+                              { xmin, y, world_z + half_width },
+                              { xmax, y, world_z + half_width },
+                              { xmax, y, world_z - half_width },
+                          } },
+            { 0.0f, 1.0f, 0.0f }, color);
     }
 
     return mesh;

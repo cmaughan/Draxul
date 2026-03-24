@@ -3,6 +3,7 @@
 #include "isometric_world.h"
 #include "ui_treesitter_panel.h"
 #include <SDL3/SDL.h>
+#include <cmath>
 #include <draxul/log.h>
 #include <draxul/megacity_host.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -201,11 +202,17 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     scene.camera.proj = camera_->proj_matrix();
     scene.camera.light_dir = glm::normalize(glm::vec4(-0.5f, -1.0f, -0.3f, 0.0f));
 
-    SceneObject grid;
-    grid.mesh = MeshId::Grid;
-    grid.world = glm::mat4(1.0f);
-    grid.color = glm::vec4(1.0f);
-    scene.objects.push_back(grid);
+    const GroundFootprint footprint = camera_->visible_ground_footprint(0.0f);
+    const float tile_size = world_->tile_size();
+    scene.floor_grid.enabled = true;
+    scene.floor_grid.min_x = static_cast<int>(std::floor(footprint.min_x / tile_size)) - 1;
+    scene.floor_grid.max_x = static_cast<int>(std::ceil(footprint.max_x / tile_size)) + 1;
+    scene.floor_grid.min_z = static_cast<int>(std::floor(footprint.min_z / tile_size)) - 1;
+    scene.floor_grid.max_z = static_cast<int>(std::ceil(footprint.max_z / tile_size)) + 1;
+    scene.floor_grid.tile_size = tile_size;
+    scene.floor_grid.line_width = tile_size * 0.08f;
+    scene.floor_grid.y = -0.001f;
+    scene.floor_grid.color = glm::vec4(0.62f, 0.62f, 0.66f, 1.0f);
 
     for (const auto& obj : world_->objects())
     {
@@ -222,16 +229,20 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
 
 void MegaCityHost::pump()
 {
-    if (!scene_dirty_ || !scene_pass_)
-        return;
-
-    scene_pass_->set_scene(build_scene_snapshot());
-    scene_dirty_ = false;
+    if (scene_dirty_ && scene_pass_)
+    {
+        scene_pass_->set_scene(build_scene_snapshot());
+        scene_dirty_ = false;
+    }
+    if (running_ && continuous_refresh_enabled_ && callbacks_)
+        callbacks_->request_frame();
 }
 
 std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline() const
 {
-    return std::nullopt;
+    if (!running_ || !continuous_refresh_enabled_)
+        return std::nullopt;
+    return std::chrono::steady_clock::now();
 }
 
 bool MegaCityHost::dispatch_action(std::string_view action)

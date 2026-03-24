@@ -41,6 +41,22 @@ struct MeshBuffers
     uint32_t index_count = 0;
 };
 
+bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
+{
+    return a.enabled == b.enabled
+        && a.min_x == b.min_x
+        && a.max_x == b.max_x
+        && a.min_z == b.min_z
+        && a.max_z == b.max_z
+        && a.tile_size == b.tile_size
+        && a.line_width == b.line_width
+        && a.y == b.y
+        && a.color.x == b.color.x
+        && a.color.y == b.color.y
+        && a.color.z == b.color.z
+        && a.color.w == b.color.w;
+}
+
 void destroy_buffer(VmaAllocator allocator, Buffer& buffer)
 {
     if (buffer.buffer != VK_NULL_HANDLE)
@@ -141,6 +157,8 @@ struct IsometricScenePass::State
     Buffer frame_uniforms;
     MeshBuffers cube_mesh;
     MeshBuffers grid_mesh;
+    FloorGridSpec grid_spec;
+    bool has_grid_mesh = false;
 
     bool create_device_resources(int grid_width, int grid_height, float tile_size)
     {
@@ -206,12 +224,30 @@ struct IsometricScenePass::State
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload cube mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_grid_mesh(grid_width, grid_height, tile_size), grid_mesh))
+        return true;
+    }
+
+    bool ensure_floor_grid(const FloorGridSpec& spec)
+    {
+        if (!spec.enabled)
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload grid mesh");
+            destroy_mesh(allocator, grid_mesh);
+            grid_spec = {};
+            has_grid_mesh = false;
+            return true;
+        }
+        if (has_grid_mesh && same_grid_spec(grid_spec, spec))
+            return true;
+
+        destroy_mesh(allocator, grid_mesh);
+        if (!upload_mesh(allocator, build_outline_grid_mesh(spec), grid_mesh))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload floor grid mesh");
             return false;
         }
 
+        grid_spec = spec;
+        has_grid_mesh = true;
         return true;
     }
 
@@ -405,6 +441,8 @@ void IsometricScenePass::record(IRenderContext& ctx)
 
     if (!state_->ensure(*vk_ctx, grid_width_, grid_height_, tile_size_))
         return;
+    if (!state_->ensure_floor_grid(scene_.floor_grid))
+        return;
 
     FrameUniforms frame;
     frame.view = scene_.camera.view;
@@ -422,12 +460,11 @@ void IsometricScenePass::record(IRenderContext& ctx)
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
-        case MeshId::Grid:
-            mesh = &state_->grid_mesh;
-            break;
         case MeshId::Cube:
             mesh = &state_->cube_mesh;
             break;
+        case MeshId::Grid:
+            continue;
         }
         if (!mesh || mesh->index_count == 0)
             continue;
@@ -442,6 +479,20 @@ void IsometricScenePass::record(IRenderContext& ctx)
         vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+    }
+
+    if (state_->grid_mesh.index_count > 0)
+    {
+        ObjectPushConstants push;
+        push.world = glm::mat4(1.0f);
+        push.color = scene_.floor_grid.color;
+
+        VkBuffer vertex_buffer = state_->grid_mesh.vertices.buffer;
+        VkDeviceSize vertex_offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &vertex_offset);
+        vkCmdBindIndexBuffer(cmd, state_->grid_mesh.indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+        vkCmdDrawIndexed(cmd, state_->grid_mesh.index_count, 1, 0, 0, 0);
     }
 }
 

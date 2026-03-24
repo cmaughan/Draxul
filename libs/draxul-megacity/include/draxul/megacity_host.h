@@ -26,6 +26,11 @@ public:
     MegaCityHost();
     ~MegaCityHost() override;
 
+    void set_continuous_refresh_enabled(bool enabled)
+    {
+        continuous_refresh_enabled_ = enabled;
+    }
+
     bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
     void shutdown() override;
     bool is_running() const override;
@@ -75,6 +80,7 @@ private:
     int pixel_h_ = 600;
     bool running_ = false;
     bool scene_dirty_ = true;
+    bool continuous_refresh_enabled_ = false;
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
 };
 
