@@ -18,6 +18,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <draxul/local_terminal_host.h>
 #include <draxul/terminal_host_base.h>
 
 #include "support/fake_renderer.h"
@@ -170,6 +171,59 @@ private:
     bool process_alive_ = true;
 };
 
+class FakeLocalShellHost final : public LocalTerminalHost
+{
+public:
+    void feed(std::string_view bytes)
+    {
+        consume_output(bytes);
+    }
+
+    std::string cell_text(int col, int row)
+    {
+        return std::string(grid().get_cell(col, row).text.view());
+    }
+
+    int cols_ = 20;
+    int rows_ = 5;
+    int resize_count = 0;
+
+protected:
+    std::string_view host_name() const override
+    {
+        return "fake-local-shell";
+    }
+
+    bool initialize_host() override
+    {
+        highlights().set_default_fg({ 1.0f, 1.0f, 1.0f, 1.0f });
+        highlights().set_default_bg({ 0.0f, 0.0f, 0.0f, 1.0f });
+        apply_grid_size(cols_, rows_);
+        reset_terminal_state();
+        set_content_ready(true);
+        return true;
+    }
+
+    bool do_process_write(std::string_view) override
+    {
+        return true;
+    }
+    std::vector<std::string> do_process_drain() override
+    {
+        return {};
+    }
+    bool do_process_resize(int, int) override
+    {
+        ++resize_count;
+        return true;
+    }
+    bool do_process_is_running() const override
+    {
+        return true;
+    }
+    void do_process_shutdown() override {}
+};
+
 struct ShCrashSetup
 {
     ShCrashFakeWindow window;
@@ -180,6 +234,35 @@ struct ShCrashSetup
     bool ok = false;
 
     explicit ShCrashSetup(int cols = 20, int rows = 5)
+    {
+        host.cols_ = cols;
+        host.rows_ = rows;
+
+        TextServiceConfig ts_cfg;
+        ts_cfg.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT) / "fonts"
+            / "JetBrainsMonoNerdFont-Regular.ttf")
+                               .string();
+        text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
+
+        HostViewport vp;
+        vp.grid_size.x = cols;
+        vp.grid_size.y = rows;
+
+        HostContext ctx{ &window, &renderer, &text_service, {}, vp, 96.0f };
+        ok = host.initialize(ctx, callbacks);
+    }
+};
+
+struct LocalResizeSetup
+{
+    ShCrashFakeWindow window;
+    ShCrashFakeRenderer renderer;
+    TextService text_service;
+    FakeLocalShellHost host;
+    draxul::tests::TestHostCallbacks callbacks;
+    bool ok = false;
+
+    explicit LocalResizeSetup(int cols = 20, int rows = 5)
     {
         host.cols_ = cols;
         host.rows_ = rows;
@@ -264,4 +347,25 @@ TEST_CASE("shell host: grid is not mutated after process exits", "[shell_host]")
 
     // The process is no longer running.
     REQUIRE_FALSE(ts.host.is_running());
+}
+
+TEST_CASE("local shell: viewport resize preserves visible text", "[shell_host]")
+{
+    LocalResizeSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("ABCD\r\nEFGH\r\nIJKL");
+    REQUIRE(ts.host.cell_text(0, 0) == "A");
+    REQUIRE(ts.host.cell_text(3, 2) == "L");
+
+    HostViewport resized;
+    resized.grid_size.x = 4;
+    resized.grid_size.y = 4;
+    ts.host.set_viewport(resized);
+
+    INFO("existing visible rows remain after resize-triggered grid reset");
+    REQUIRE(ts.host.cell_text(0, 1) == "A");
+    REQUIRE(ts.host.cell_text(3, 3) == "L");
+    INFO("the backing process still receives the resize notification");
+    REQUIRE(ts.host.resize_count >= 1);
 }

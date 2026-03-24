@@ -7,6 +7,61 @@
 namespace draxul
 {
 
+namespace
+{
+
+struct GridSnapshot
+{
+    int cols = 0;
+    int rows = 0;
+    std::vector<Cell> cells;
+
+    [[nodiscard]] bool empty() const
+    {
+        return cols <= 0 || rows <= 0 || cells.empty();
+    }
+};
+
+GridSnapshot capture_grid_snapshot(const Grid& grid, int cols, int rows)
+{
+    GridSnapshot snapshot;
+    snapshot.cols = cols;
+    snapshot.rows = rows;
+    snapshot.cells.reserve(static_cast<size_t>(cols) * static_cast<size_t>(rows));
+    for (int row = 0; row < rows; ++row)
+    {
+        for (int col = 0; col < cols; ++col)
+            snapshot.cells.push_back(grid.get_cell(col, row));
+    }
+    return snapshot;
+}
+
+void restore_grid_snapshot(Grid& grid, int dst_cols, int dst_rows, const GridSnapshot& snapshot)
+{
+    if (snapshot.empty())
+        return;
+
+    const int copy_cols = std::min(snapshot.cols, dst_cols);
+    const int copy_rows = std::min(snapshot.rows, dst_rows);
+    const int src_row_offset = snapshot.rows - copy_rows;
+    const int dst_row_offset = dst_rows - copy_rows;
+
+    for (int row = 0; row < copy_rows; ++row)
+    {
+        for (int col = 0; col < copy_cols; ++col)
+        {
+            const auto& cell = snapshot.cells[static_cast<size_t>(src_row_offset + row) * snapshot.cols + col];
+            if (cell.double_width_cont)
+                continue;
+            if (cell.double_width && col + 1 >= copy_cols)
+                continue;
+            grid.set_cell(col, dst_row_offset + row, std::string(cell.text.view()), cell.hl_attr_id, cell.double_width);
+        }
+    }
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
@@ -152,10 +207,14 @@ void LocalTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
 
 void LocalTerminalHost::on_viewport_changed()
 {
+    const int old_cols = grid_cols();
+    const int old_rows = grid_rows();
     const int new_cols = std::max(1, viewport().grid_size.x);
     const int new_rows = std::max(1, viewport().grid_size.y);
     if (new_cols == grid_cols() && new_rows == grid_rows())
         return;
+
+    const GridSnapshot visible_snapshot = capture_grid_snapshot(grid(), old_cols, old_rows);
 
     if (new_cols != grid_cols())
         scrollback_.resize(new_cols);
@@ -164,6 +223,10 @@ void LocalTerminalHost::on_viewport_changed()
     selection_.clear();
 
     TerminalHostBase::on_viewport_changed();
+
+    restore_grid_snapshot(grid(), grid_cols(), grid_rows(), visible_snapshot);
+    force_full_redraw();
+    flush_grid();
 }
 
 void LocalTerminalHost::reset_terminal_state()
