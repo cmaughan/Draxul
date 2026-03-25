@@ -859,6 +859,7 @@ void IsometricScenePass::record(IRenderContext& ctx)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->pipeline_layout,
         0, 1, &frame_resources.descriptor_set, 0, nullptr);
 
+    const MeshBuffers* last_mesh = nullptr;
     for (const SceneObject& obj : scene_.objects)
     {
         const MeshBuffers* mesh = nullptr;
@@ -882,16 +883,20 @@ void IsometricScenePass::record(IRenderContext& ctx)
         if (!mesh || mesh->index_count == 0)
             continue;
 
+        if (mesh != last_mesh)
+        {
+            VkBuffer vertex_buffer = mesh->vertices.buffer;
+            VkDeviceSize vertex_offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &vertex_offset);
+            vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+            last_mesh = mesh;
+        }
+
         ObjectPushConstants push;
         push.world = obj.world;
         push.color = obj.color;
         push.uv_rect = obj.uv_rect;
         push.label_metrics = glm::vec4(obj.label_ink_pixel_size, 0.0f, 0.0f);
-
-        VkBuffer vertex_buffer = mesh->vertices.buffer;
-        VkDeviceSize vertex_offset = 0;
-        vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &vertex_offset);
-        vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
     }

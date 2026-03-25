@@ -736,6 +736,7 @@ bool render_treesitter_panel(
     ImGui::SetNextWindowSize(
         ImVec2(static_cast<float>(window_w) * 0.5f, static_cast<float>(window_h)),
         ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowCollapsed(true, ImGuiCond_FirstUseEver);
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 3.0f));

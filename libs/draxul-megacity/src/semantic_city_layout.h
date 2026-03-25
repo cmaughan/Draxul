@@ -13,6 +13,9 @@
 namespace draxul
 {
 
+// Fraction of road_width reserved on each side of a building in the lot layout.
+constexpr float kRoadMarginFraction = 0.25f;
+
 struct SemanticBuildingLayer
 {
     int function_size = 0;

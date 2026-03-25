@@ -436,10 +436,19 @@ std::vector<int> parse_json_int_array(std::string_view text)
 std::string module_path_for_file(std::string_view file_path)
 {
     const std::filesystem::path path(file_path);
-    const std::filesystem::path parent = path.parent_path();
-    if (parent.empty() || parent == ".")
+    // Group by library root: libs/<lib-name> or top-level directory (e.g. app).
+    auto it = path.begin();
+    if (it == path.end())
         return {};
-    return parent.generic_string();
+    const std::string first = it->string();
+    ++it;
+    if (first == "libs" && it != path.end())
+    {
+        // libs/<lib-name>/... → module is "libs/<lib-name>"
+        return (std::filesystem::path(first) / *it).generic_string();
+    }
+    // top-level dir (app/, shaders/, etc.)
+    return first;
 }
 
 [[nodiscard]] std::string make_symbol_id(

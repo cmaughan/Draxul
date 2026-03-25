@@ -90,11 +90,12 @@ private:
     float sign_text_hidden_px_ = 1.5f;
     float sign_text_full_px_ = 8.0f;
     float output_gamma_ = 1.0f;
-    bool clamp_semantic_metrics_ = true;
+    bool clamp_semantic_metrics_ = false;
     bool hide_test_entities_ = true;
     int pixel_w_ = 800;
     int pixel_h_ = 600;
     bool running_ = false;
+    mutable float world_span_ = 5.0f;
     bool scene_dirty_ = true;
     bool city_db_reconciled_ = false;
     bool continuous_refresh_enabled_ = false;

@@ -29,7 +29,7 @@ namespace draxul
 namespace
 {
 
-constexpr float kMovementSpeedTilesPerSecond = 3.5f;
+constexpr float kMovementSpeedFractionPerSecond = 0.35f;
 constexpr float kOrbitSpeedRadiansPerSecond = 1.8f;
 constexpr float kZoomSpeedPerSecond = 1.35f;
 constexpr float kPitchSpeedRadiansPerSecond = 0.9f;
@@ -40,14 +40,15 @@ constexpr float kRoofSignEdgeInset = 0.08f;
 constexpr float kRoofSignSideInset = 0.12f;
 constexpr float kWallSignThickness = 0.05f;
 constexpr float kWallSignFaceGap = 0.02f;
-constexpr float kWallSignWidth = 0.96f;
+constexpr float kWallSignWidth = 1.92f;
 constexpr float kWallSignSideInset = 0.12f;
 constexpr float kWallSignTopInset = 0.18f;
 constexpr float kWallSignBottomInset = 0.28f;
+constexpr int kWallSignTextPadding = 4;
 constexpr float kRoadSignEdgeInset = 0.06f;
 constexpr float kRoadSignSideInset = 0.12f;
-constexpr float kRoadSignLift = 0.003f;
-constexpr float kRoofSignPixelsPerWorldUnit = 96.0f;
+constexpr float kRoadSignLift = 0.006f;
+constexpr float kRoofSignPixelsPerWorldUnit = 192.0f;
 constexpr float kOrbitDragReferencePixelsPerSecond = 240.0f;
 constexpr float kOrbitDragRadiansPerPixel = kOrbitSpeedRadiansPerSecond / kOrbitDragReferencePixelsPerSecond;
 constexpr float kDragCatchUpRatePerSecond = 30.0f;
@@ -56,7 +57,7 @@ constexpr float kDragOrbitSettleEpsilon = 1e-4f;
 constexpr auto kMovementTick = std::chrono::milliseconds(16);
 constexpr auto kDragSmoothingTick = std::chrono::milliseconds(8);
 constexpr glm::vec3 kCatppuccinSurface0(0.192f, 0.196f, 0.266f);
-constexpr std::array<glm::vec4, 14> kModuleAccentPalette = {
+constexpr std::array<glm::vec4, 26> kModuleAccentPalette = {
     glm::vec4(0.961f, 0.878f, 0.863f, 1.0f), // rosewater
     glm::vec4(0.949f, 0.804f, 0.804f, 1.0f), // flamingo
     glm::vec4(0.957f, 0.761f, 0.906f, 1.0f), // pink
@@ -71,6 +72,18 @@ constexpr std::array<glm::vec4, 14> kModuleAccentPalette = {
     glm::vec4(0.455f, 0.780f, 0.925f, 1.0f), // sapphire
     glm::vec4(0.537f, 0.706f, 0.980f, 1.0f), // blue
     glm::vec4(0.706f, 0.745f, 0.996f, 1.0f), // lavender
+    glm::vec4(0.855f, 0.733f, 0.502f, 1.0f), // amber
+    glm::vec4(0.643f, 0.827f, 0.502f, 1.0f), // lime
+    glm::vec4(0.502f, 0.745f, 0.682f, 1.0f), // sage
+    glm::vec4(0.749f, 0.565f, 0.827f, 1.0f), // orchid
+    glm::vec4(0.890f, 0.643f, 0.584f, 1.0f), // coral
+    glm::vec4(0.584f, 0.647f, 0.890f, 1.0f), // periwinkle
+    glm::vec4(0.827f, 0.827f, 0.584f, 1.0f), // khaki
+    glm::vec4(0.502f, 0.827f, 0.890f, 1.0f), // cyan
+    glm::vec4(0.890f, 0.502f, 0.765f, 1.0f), // magenta
+    glm::vec4(0.765f, 0.890f, 0.502f, 1.0f), // chartreuse
+    glm::vec4(0.682f, 0.549f, 0.451f, 1.0f), // sienna
+    glm::vec4(0.502f, 0.682f, 0.827f, 1.0f), // steel
 };
 
 enum class BuildingSignPlacement
@@ -88,7 +101,7 @@ enum class BuildingSignPlacement
 constexpr BuildingSignPlacement kBuildingSignPlacement = BuildingSignPlacement::WallEast;
 constexpr glm::vec4 kRoadColor(0.46f, 0.46f, 0.48f, 1.0f);
 constexpr glm::vec4 kRoadSurfaceColor(0.18f, 0.18f, 0.19f, 1.0f);
-constexpr glm::vec4 kSignBoardColor(0.72f, 0.72f, 0.75f, 1.0f);
+constexpr glm::vec4 kSignBoardColor(1.0f, 1.0f, 1.0f, 1.0f);
 constexpr glm::vec4 kBuildingSignColor = kSignBoardColor;
 constexpr glm::vec4 kModuleSignColor = kSignBoardColor;
 constexpr float kRoadSurfaceHeight = 0.03f;
@@ -96,7 +109,7 @@ constexpr float kWorldFloorHeight = kRoadSurfaceHeight * 0.5f;
 constexpr float kWorldFloorTopY = -0.01f;
 constexpr float kWorldFloorGridYOffset = 0.0015f;
 constexpr float kWorldFloorGridTileScale = 2.0f;
-constexpr float kWorldFloorGridLineWidth = 0.04f;
+constexpr float kWorldFloorGridLineWidth = 0.08f;
 
 struct SignPlacementSpec
 {
@@ -310,11 +323,30 @@ SignPlacementSpec place_roof_sign(const SemanticCityBuilding& building)
     return placement;
 }
 
-SignPlacementSpec place_wall_sign(const SemanticCityBuilding& building)
+SignPlacementSpec place_wall_sign(
+    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
 {
     SignPlacementSpec placement;
-    placement.width = clamp_wall_sign_width(building);
-    placement.height = clamp_wall_sign_height(building);
+    const float footprint = building.metrics.footprint;
+    const float max_height = clamp_wall_sign_height(building);
+
+    // Text height (cross-text dimension) = 1/4 of building width.
+    const float char_height = footprint * 0.25f;
+    float sign_width = char_height + 2.0f * kWallSignSideInset;
+    float sign_height = max_height;
+
+    if (text_service && !text.empty())
+    {
+        const int cw = std::max(text_service->metrics().cell_width, 1);
+        const int ch = std::max(text_service->metrics().cell_height, 1);
+        const float aspect = static_cast<float>(cw) / static_cast<float>(ch);
+        const float char_width = char_height * aspect;
+        const float text_run = static_cast<float>(text.size()) * char_width;
+        sign_height = std::min(max_height, text_run + 2.0f * kWallSignSideInset);
+    }
+
+    placement.width = std::max(0.24f, sign_width);
+    placement.height = std::max(0.24f, sign_height);
     placement.depth = kWallSignThickness;
     placement.mesh = MeshId::WallSign;
 
@@ -346,57 +378,113 @@ SignPlacementSpec place_wall_sign(const SemanticCityBuilding& building)
     return placement;
 }
 
-SignPlacementSpec place_building_sign(const SemanticCityBuilding& building)
+// Returns 4 wall signs, one per face, text running horizontally across each side,
+// aligned with the top of the building.
+std::array<SignPlacementSpec, 4> place_building_signs(
+    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
 {
-    switch (kBuildingSignPlacement)
+    const float footprint = building.metrics.footprint;
+    const float half_footprint = footprint * 0.5f;
+
+    // Text spans the full building face; derive sign height from font aspect ratio.
+    float sign_width = footprint; // along the wall face
+    float sign_height = footprint * 0.25f; // fallback
+
+    if (text_service && !text.empty())
     {
-    case BuildingSignPlacement::RoofNorth:
-    case BuildingSignPlacement::RoofSouth:
-    case BuildingSignPlacement::RoofEast:
-    case BuildingSignPlacement::RoofWest:
-        return place_roof_sign(building);
-    case BuildingSignPlacement::WallNorth:
-    case BuildingSignPlacement::WallSouth:
-    case BuildingSignPlacement::WallEast:
-    case BuildingSignPlacement::WallWest:
-        return place_wall_sign(building);
+        const int cw = std::max(text_service->metrics().cell_width, 1);
+        const int ch = std::max(text_service->metrics().cell_height, 1);
+        const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
+        const float char_width = footprint / std::max(static_cast<float>(text.size()), 1.0f);
+        sign_height = char_width * aspect + 2.0f * kWallSignSideInset;
     }
 
-    return place_wall_sign(building);
+    sign_width = std::max(0.35f, sign_width);
+    sign_height = std::clamp(sign_height, 0.24f, building.metrics.height * 0.15f);
+
+    const float wall_offset = half_footprint + kWallSignThickness * 0.5f;
+
+    std::array<SignPlacementSpec, 4> signs;
+    // North
+    signs[0].width = sign_width;
+    signs[0].height = sign_height;
+    signs[0].depth = kWallSignThickness;
+    signs[0].mesh = MeshId::WallSign;
+    signs[0].center = { building.center.x, building.center.y + wall_offset };
+    signs[0].yaw_radians = 0.0f;
+    // South
+    signs[1].width = sign_width;
+    signs[1].height = sign_height;
+    signs[1].depth = kWallSignThickness;
+    signs[1].mesh = MeshId::WallSign;
+    signs[1].center = { building.center.x, building.center.y - wall_offset };
+    signs[1].yaw_radians = glm::pi<float>();
+    // East
+    signs[2].width = sign_width;
+    signs[2].height = sign_height;
+    signs[2].depth = kWallSignThickness;
+    signs[2].mesh = MeshId::WallSign;
+    signs[2].center = { building.center.x + wall_offset, building.center.y };
+    signs[2].yaw_radians = glm::half_pi<float>();
+    // West
+    signs[3].width = sign_width;
+    signs[3].height = sign_height;
+    signs[3].depth = kWallSignThickness;
+    signs[3].mesh = MeshId::WallSign;
+    signs[3].center = { building.center.x - wall_offset, building.center.y };
+    signs[3].yaw_radians = -glm::half_pi<float>();
+
+    return signs;
 }
 
-SignPlacementSpec place_module_road_sign(const SemanticCityBuilding& building)
+SignPlacementSpec place_module_road_sign(
+    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
 {
     SignPlacementSpec placement;
-    placement.width = clamp_sign_width(building.metrics.footprint, kRoadSignSideInset);
+    const float road_width = building.metrics.road_width;
+    const float road_margin = road_width * kRoadMarginFraction;
+    const float lot_width = building.metrics.footprint + 2.0f * road_margin;
+
+    // Width = building footprint; depth from font aspect ratio, clamped.
+    float sign_width = building.metrics.footprint;
+    float sign_depth = sign_width * 0.25f; // fallback
+    if (text_service && !text.empty())
+    {
+        const int cw = std::max(text_service->metrics().cell_width, 1);
+        const int ch = std::max(text_service->metrics().cell_height, 1);
+        const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
+        const float char_width = sign_width / std::max(static_cast<float>(text.size()), 1.0f);
+        sign_depth = char_width * aspect + 2.0f * kRoadSignEdgeInset;
+    }
+    placement.width = std::max(0.35f, sign_width);
     placement.height = kRoofSignThickness;
-    placement.depth = clamp_sign_depth(building.metrics.road_width, kRoadSignEdgeInset);
+    placement.depth = std::clamp(sign_depth, 0.16f, building.metrics.footprint * 0.3f);
     placement.mesh = MeshId::RoofSign;
 
+    // Place on the street just in front of the building edge.
     const float half_footprint = building.metrics.footprint * 0.5f;
-    const float center_offset = half_footprint + building.metrics.road_width * 0.5f;
-    const float edge_offset = half_footprint - placement.width * 0.5f - kRoadSignSideInset;
+    const float center_offset = half_footprint + placement.depth * 0.5f + kRoadSignLift;
 
     switch (kBuildingSignPlacement)
     {
     case BuildingSignPlacement::RoofNorth:
     case BuildingSignPlacement::WallNorth:
-        placement.center = { building.center.x + edge_offset, building.center.y + center_offset };
+        placement.center = { building.center.x, building.center.y + center_offset };
         placement.yaw_radians = 0.0f;
         break;
     case BuildingSignPlacement::RoofSouth:
     case BuildingSignPlacement::WallSouth:
-        placement.center = { building.center.x + edge_offset, building.center.y - center_offset };
+        placement.center = { building.center.x, building.center.y - center_offset };
         placement.yaw_radians = 0.0f;
         break;
     case BuildingSignPlacement::RoofEast:
     case BuildingSignPlacement::WallEast:
-        placement.center = { building.center.x + center_offset, building.center.y + edge_offset };
+        placement.center = { building.center.x + center_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
     case BuildingSignPlacement::RoofWest:
     case BuildingSignPlacement::WallWest:
-        placement.center = { building.center.x - center_offset, building.center.y + edge_offset };
+        placement.center = { building.center.x - center_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
     }
@@ -405,16 +493,31 @@ SignPlacementSpec place_module_road_sign(const SemanticCityBuilding& building)
 }
 
 SignLabelRequest make_sign_request(
-    std::string key, std::string_view text, const SignPlacementSpec& placement)
+    std::string key, std::string_view text, const SignPlacementSpec& placement,
+    const TextService* text_service)
 {
-    const float label_world_width = placement.mesh == MeshId::WallSign ? placement.height : placement.width;
-    const float label_world_height = placement.mesh == MeshId::WallSign ? placement.width : placement.depth;
+    // Small bitmap at native font size — UVs stretch it to fill the sign.
+    int pixel_width;
+    int pixel_height;
+    if (text_service && !text.empty())
+    {
+        const int cw = std::max(text_service->metrics().cell_width, 1);
+        const int ch = std::max(text_service->metrics().cell_height, 1);
+        constexpr int kPad = 4;
+        pixel_width = static_cast<int>(text.size()) * cw + 2 * kPad;
+        pixel_height = ch + 2 * kPad;
+    }
+    else
+    {
+        pixel_width = std::max(1, static_cast<int>(text.size()) * 8);
+        pixel_height = 16;
+    }
+
     return SignLabelRequest{
         .key = std::move(key),
         .text = std::string(text),
-        .target_pixel_width = std::max(1, static_cast<int>(std::lround(label_world_width * kRoofSignPixelsPerWorldUnit))),
-        .target_pixel_height = std::max(1, static_cast<int>(std::lround(label_world_height * kRoofSignPixelsPerWorldUnit))),
-        .align_primary_to_start = placement.mesh == MeshId::WallSign,
+        .target_pixel_width = pixel_width,
+        .target_pixel_height = pixel_height,
         .vertical_align = SignLabelVerticalAlign::Center,
     };
 }
@@ -869,6 +972,7 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     }
 
     const float span = std::max(max_x - min_x, max_z - min_z);
+    world_span_ = std::max(span, 1.0f);
     scene.camera.point_light_pos = glm::vec4(
         max_x,
         std::max(8.0f, span * 1.0f),
@@ -894,17 +998,22 @@ void MegaCityHost::rebuild_semantic_city()
     {
         for (const auto& building : module.buildings)
         {
-            const SignPlacementSpec sign = place_building_sign(building);
             const std::string& text = building.display_name.empty() ? building.qualified_name : building.display_name;
-            sign_requests.push_back(make_sign_request(building_sign_key(building), text, sign));
+            const TextService* ts = sign_text_service_ ? sign_text_service_.get() : nullptr;
+            const auto signs = place_building_signs(building, text, ts);
+            // All 4 faces share the same atlas entry — use the first for sizing.
+            sign_requests.push_back(make_sign_request(building_sign_key(building), text, signs[0], ts));
         }
 
         if (!module.buildings.empty())
         {
             const SemanticCityBuilding& anchor = module.buildings.front();
-            const SignPlacementSpec road = place_module_road_sign(anchor);
+            const std::string name = module_display_name(module.module_path);
+            const SignPlacementSpec road = place_module_road_sign(
+                anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr);
             sign_requests.push_back(make_sign_request(
-                module_sign_key(module.module_path), module_display_name(module.module_path), road));
+                module_sign_key(module.module_path), name, road,
+                sign_text_service_ ? sign_text_service_.get() : nullptr));
         }
     }
     if (sign_text_service_)
@@ -955,19 +1064,23 @@ void MegaCityHost::rebuild_semantic_city()
                 const auto it = sign_label_atlas_->entries.find(building_sign_key(building));
                 if (it != sign_label_atlas_->entries.end())
                 {
-                    const SignPlacementSpec placement = place_building_sign(building);
-                    const SignMetrics sign = make_sign_metrics(placement, it->second);
-                    const float sign_y = placement.mesh == MeshId::WallSign
-                        ? kWallSignBottomInset + sign.height * 0.5f
-                        : building.metrics.height + sign.height * 0.5f;
-                    world_->create_sign(
-                        placement.center.x,
-                        placement.center.y,
-                        sign_y,
-                        sign,
-                        placement.mesh,
-                        kBuildingSignColor,
-                        SourceSymbol{ building.source_file_path, building.qualified_name });
+                    const std::string& btext = building.display_name.empty() ? building.qualified_name : building.display_name;
+                    const TextService* ts = sign_text_service_ ? sign_text_service_.get() : nullptr;
+                    const auto face_signs = place_building_signs(building, btext, ts);
+                    for (const SignPlacementSpec& placement : face_signs)
+                    {
+                        const SignMetrics sign = make_sign_metrics(placement, it->second);
+                        // Aligned with the top of the building, on the wall face.
+                        const float sign_y = building.metrics.height - sign.height * 0.5f;
+                        world_->create_sign(
+                            placement.center.x,
+                            placement.center.y,
+                            sign_y,
+                            sign,
+                            placement.mesh,
+                            kBuildingSignColor,
+                            SourceSymbol{ building.source_file_path, building.qualified_name });
+                    }
                 }
             }
 
@@ -988,7 +1101,9 @@ void MegaCityHost::rebuild_semantic_city()
             const auto it = sign_label_atlas_->entries.find(module_sign_key(module.module_path));
             if (it != sign_label_atlas_->entries.end())
             {
-                const SignPlacementSpec road = place_module_road_sign(anchor);
+                const std::string name = module_display_name(module.module_path);
+                const SignPlacementSpec road = place_module_road_sign(
+                    anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr);
                 const SignMetrics sign = make_sign_metrics(road, it->second);
                 world_->create_sign(
                     road.center.x,
@@ -1047,7 +1162,7 @@ void MegaCityHost::pump()
             if (move_down_)
                 pan_input.y -= 1.0f;
 
-            const float pan_distance = dt * kMovementSpeedTilesPerSecond;
+            const float pan_distance = dt * kMovementSpeedFractionPerSecond * world_span_;
             if (pan_distance > 0.0f && glm::dot(pan_input, pan_input) > 0.0f)
             {
                 const glm::vec2 right = camera_->planar_right_vector();

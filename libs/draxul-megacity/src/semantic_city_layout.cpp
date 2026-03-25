@@ -103,7 +103,7 @@ struct LotRect
 
 LotRect centered_building_lot(const BuildingMetrics& metrics)
 {
-    const float half_extent = metrics.footprint * 0.5f + metrics.road_width;
+    const float half_extent = metrics.footprint * 0.5f + metrics.road_width * kRoadMarginFraction;
     return {
         -half_extent,
         half_extent,
@@ -285,8 +285,10 @@ BuildingMetrics derive_building_metrics(const CityClassRecord& row, bool clamp_m
         2.0f,
         12.0f,
         clamp_metrics);
-    const float road_width = maybe_clamp_metric(
-        0.6f + 0.85f * std::log1p(static_cast<float>(std::max(row.road_size, 0))), 0.6f, 3.0f, clamp_metrics);
+    const float raw_road = 0.6f + static_cast<float>(std::max(row.road_size, 0));
+    const float road_width = clamp_metrics
+        ? std::clamp(0.6f + 0.85f * std::log1p(static_cast<float>(std::max(row.road_size, 0))), 0.6f, 3.0f)
+        : raw_road;
     return { footprint, height, road_width };
 }
 

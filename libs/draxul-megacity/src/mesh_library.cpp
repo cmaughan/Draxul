@@ -182,10 +182,10 @@ MeshData build_wall_sign_mesh()
                       } },
         { 0.0f, 0.0f, 1.0f }, color,
         { {
+            { 0.0f, 1.0f },
             { 1.0f, 1.0f },
             { 1.0f, 0.0f },
             { 0.0f, 0.0f },
-            { 0.0f, 1.0f },
         } },
         1.0f);
     append_quad(mesh, { {
