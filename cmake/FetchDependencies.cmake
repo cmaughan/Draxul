@@ -166,6 +166,28 @@ target_include_directories(imgui PUBLIC
     ${imgui_SOURCE_DIR}/backends
 )
 
+# SQLite3 (amalgamation — single-file build)
+FetchContent_Declare(
+    sqlite3
+    URL https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip
+)
+FetchContent_MakeAvailable(sqlite3)
+
+add_library(sqlite3_lib STATIC
+    ${sqlite3_SOURCE_DIR}/sqlite3.c
+)
+target_include_directories(sqlite3_lib PUBLIC
+    ${sqlite3_SOURCE_DIR}
+)
+target_compile_definitions(sqlite3_lib PRIVATE
+    SQLITE_THREADSAFE=1
+)
+if(MSVC)
+    target_compile_options(sqlite3_lib PRIVATE /w)
+else()
+    target_compile_options(sqlite3_lib PRIVATE -w)
+endif()
+
 # tree-sitter (core parsing library)
 FetchContent_Declare(
     tree_sitter
