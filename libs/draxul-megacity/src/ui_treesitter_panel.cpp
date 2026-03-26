@@ -824,6 +824,10 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         }
         edit_float("Point Light Brightness", config.point_light_brightness, 0.01f, 0.0f, 8.0f, "%.2f");
         edit_float("Output Gamma", config.output_gamma, 0.01f, 0.1f, 4.0f, "%.2f");
+        const bool ao_debug_changed = ImGui::Checkbox("Show AO Greyscale", &config.show_ao_greyscale);
+        changed |= ao_debug_changed;
+        if (ao_debug_changed)
+            controls.committed_edit = true;
         ImGui::TreePop();
     }
 

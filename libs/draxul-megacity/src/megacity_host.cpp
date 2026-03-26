@@ -104,6 +104,7 @@ MegaCityCodeConfig world_rebuild_signature(MegaCityCodeConfig config)
     config.sign_text_hidden_px = 0.0f;
     config.sign_text_full_px = 0.0f;
     config.output_gamma = 1.0f;
+    config.show_ao_greyscale = false;
     config.world_floor_height_scale = 0.0f;
     config.world_floor_top_y = 0.0f;
     config.world_floor_grid_y_offset = 0.0f;
@@ -1028,6 +1029,7 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
 
     scene.camera.view = camera_->view_matrix();
     scene.camera.proj = camera_->proj_matrix();
+    scene.camera.inv_view_proj = glm::inverse(scene.camera.proj * scene.camera.view);
     scene.camera.light_dir = glm::normalize(glm::vec4(
         renderer_config_.directional_light_x,
         renderer_config_.directional_light_y,
@@ -1042,7 +1044,8 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
         renderer_config_.output_gamma,
         renderer_config_.point_light_brightness,
         renderer_config_.ambient_strength,
-        0.0f);
+        renderer_config_.show_ao_greyscale ? 1.0f : 0.0f);
+    scene.camera.ao_settings = glm::vec4(1.6f, 0.12f, 1.35f, 0.0f);
 
     const GroundFootprint footprint = camera_->visible_ground_footprint(0.0f);
     const float tile_size = world_->tile_size();

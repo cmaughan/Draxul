@@ -3,12 +3,16 @@
 layout(set = 0, binding = 0) uniform FrameUniforms {
     mat4 view;
     mat4 proj;
+    mat4 inv_view_proj;
     vec4 light_dir;
     vec4 point_light_pos;
     vec4 label_fade_px;
     vec4 render_tuning;
+    vec4 screen_params;
+    vec4 ao_params;
 } frame;
 layout(set = 0, binding = 1) uniform sampler2D sign_atlas;
+layout(set = 0, binding = 2) uniform sampler2D ao_buffer;
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) in vec3 in_base_color;
@@ -21,6 +25,16 @@ layout(location = 0) out vec4 out_frag_color;
 void main()
 {
     vec3 normal_ws = normalize(in_normal_ws);
+    vec2 screen_uv = clamp(
+        (gl_FragCoord.xy - frame.screen_params.xy) * frame.screen_params.zw,
+        vec2(0.0),
+        vec2(1.0));
+    float ao = clamp(texture(ao_buffer, screen_uv).r, 0.0, 1.0);
+    if (frame.render_tuning.w > 0.5)
+    {
+        out_frag_color = vec4(vec3(ao), 1.0);
+        return;
+    }
     vec3 light_dir = normalize(-frame.light_dir.xyz);
     float ndotl = max(dot(normal_ws, light_dir), 0.0);
     float ambient = max(frame.render_tuning.z, 0.0);
@@ -36,7 +50,7 @@ void main()
     float point_light = max(frame.render_tuning.y, 0.0) * point_ndotl * point_atten * point_atten;
     vec3 point_color = vec3(1.05, 0.98, 0.90);
 
-    vec3 shaded = in_base_color * (hemi * (ambient + directional) + point_color * point_light);
+    vec3 shaded = in_base_color * (hemi * ambient * ao + hemi * directional + point_color * point_light);
     if (in_tex_blend > 0.5)
     {
         vec4 label = texture(sign_atlas, in_atlas_uv);

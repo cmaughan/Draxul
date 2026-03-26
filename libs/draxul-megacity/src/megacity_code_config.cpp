@@ -82,6 +82,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_float("sign_text_hidden_px", config.sign_text_hidden_px);
     assign_float("sign_text_full_px", config.sign_text_full_px);
     assign_float("output_gamma", config.output_gamma);
+    assign_bool("show_ao_greyscale", config.show_ao_greyscale);
     assign_float("height_multiplier", config.height_multiplier);
     assign_bool("clamp_semantic_metrics", config.clamp_semantic_metrics);
     assign_bool("hide_test_entities", config.hide_test_entities);
@@ -169,6 +170,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("sign_text_hidden_px", static_cast<double>(config.sign_text_hidden_px));
     table.insert_or_assign("sign_text_full_px", static_cast<double>(config.sign_text_full_px));
     table.insert_or_assign("output_gamma", static_cast<double>(config.output_gamma));
+    table.insert_or_assign("show_ao_greyscale", config.show_ao_greyscale);
     table.insert_or_assign("height_multiplier", static_cast<double>(config.height_multiplier));
     table.insert_or_assign("clamp_semantic_metrics", config.clamp_semantic_metrics);
     table.insert_or_assign("hide_test_entities", config.hide_test_entities);

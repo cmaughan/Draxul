@@ -690,6 +690,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     MegaCityCodeConfig current = defaults;
     current.height_multiplier = 2.25f;
     current.hide_test_entities = false;
+    current.show_ao_greyscale = true;
     current.ambient_strength = 0.62f;
     current.point_light_position_valid = true;
     current.point_light_x = -14.0f;

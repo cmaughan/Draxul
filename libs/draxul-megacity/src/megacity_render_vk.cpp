@@ -21,10 +21,13 @@ struct alignas(16) FrameUniforms
 {
     glm::mat4 view{ 1.0f };
     glm::mat4 proj{ 1.0f };
+    glm::mat4 inv_view_proj{ 1.0f };
     glm::vec4 light_dir{ -0.5f, -1.0f, -0.3f, 0.0f };
     glm::vec4 point_light_pos{ 0.0f, 8.0f, 0.0f, 24.0f };
     glm::vec4 label_fade_px{ 1.0f, 15.0f, 0.0f, 0.0f };
     glm::vec4 render_tuning{ 1.0f, 1.0f, 0.45f, 0.0f };
+    glm::vec4 screen_params{ 0.0f, 0.0f, 1.0f, 1.0f }; // x = viewport origin x, y = viewport origin y, z = 1 / viewport width, w = 1 / viewport height
+    glm::vec4 ao_params{ 1.6f, 1.0f, 0.12f, 1.35f }; // x = radius world, y = radius pixels, z = bias, w = power
 };
 
 struct alignas(16) ObjectPushConstants
@@ -125,6 +128,7 @@ struct GBufferTargets
     VkImageView depth_view = VK_NULL_HANDLE;
 
     VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    VkFramebuffer ao_framebuffer = VK_NULL_HANDLE;
 
     // ImGui debug visualization descriptor sets (lazily registered)
     VkDescriptorSet imgui_material_ds = VK_NULL_HANDLE;
@@ -150,6 +154,14 @@ bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
         && a.color.y == b.color.y
         && a.color.z == b.color.z
         && a.color.w == b.color.w;
+}
+
+float compute_ao_radius_pixels(const glm::mat4& proj, float radius_world, int viewport_h)
+{
+    if (viewport_h <= 0)
+        return 1.0f;
+    const float ortho_scale_y = std::abs(proj[1][1]);
+    return std::max(1.0f, radius_world * ortho_scale_y * 0.5f * static_cast<float>(viewport_h));
 }
 
 void destroy_buffer(VmaAllocator allocator, Buffer& buffer)
@@ -457,6 +469,8 @@ struct IsometricScenePass::State
     // GBuffer pre-pass resources
     VkRenderPass gbuffer_render_pass = VK_NULL_HANDLE;
     VkPipeline gbuffer_pipeline = VK_NULL_HANDLE;
+    VkRenderPass ao_render_pass = VK_NULL_HANDLE;
+    VkPipeline ao_pipeline = VK_NULL_HANDLE;
     VkSampler gbuffer_sampler = VK_NULL_HANDLE;
     std::vector<GBufferTargets> gbuffer_targets;
     bool gbuffer_initialized = false;
@@ -464,7 +478,7 @@ struct IsometricScenePass::State
 
     bool create_device_resources(uint32_t frame_count)
     {
-        VkDescriptorSetLayoutBinding bindings[2] = {};
+        VkDescriptorSetLayoutBinding bindings[5] = {};
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
@@ -473,9 +487,21 @@ struct IsometricScenePass::State
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[2].binding = 2;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[3].binding = 3;
+        bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[3].descriptorCount = 1;
+        bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[4].binding = 4;
+        bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[4].descriptorCount = 1;
+        bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo layout_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layout_ci.bindingCount = 2;
+        layout_ci.bindingCount = 5;
         layout_ci.pBindings = bindings;
         if (vkCreateDescriptorSetLayout(device, &layout_ci, nullptr, &descriptor_set_layout) != VK_SUCCESS)
         {
@@ -487,7 +513,7 @@ struct IsometricScenePass::State
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         pool_sizes[0].descriptorCount = frame_count;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_sizes[1].descriptorCount = frame_count;
+        pool_sizes[1].descriptorCount = frame_count * 4;
 
         VkDescriptorPoolCreateInfo pool_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_ci.maxSets = frame_count;
@@ -538,6 +564,8 @@ struct IsometricScenePass::State
         }
 
         buffered_frame_count = frame_count;
+        refresh_label_descriptors();
+        refresh_gbuffer_descriptors();
 
         if (!upload_mesh(allocator, build_unit_cube_mesh(), cube_mesh))
         {
@@ -599,6 +627,64 @@ struct IsometricScenePass::State
             write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             write.pImageInfo = &image_info;
             vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
+    }
+
+    void refresh_gbuffer_descriptors()
+    {
+        if (gbuffer_sampler == VK_NULL_HANDLE || gbuffer_targets.empty())
+            return;
+
+        for (size_t i = 0; i < frame_resources.size() && i < gbuffer_targets.size(); ++i)
+        {
+            const auto& gbuffer = gbuffer_targets[i];
+            auto& frame = frame_resources[i];
+            if (frame.descriptor_set == VK_NULL_HANDLE
+                || gbuffer.ao_view == VK_NULL_HANDLE
+                || gbuffer.material_view == VK_NULL_HANDLE
+                || gbuffer.depth_view == VK_NULL_HANDLE)
+            {
+                continue;
+            }
+
+            VkDescriptorImageInfo ao_info = {};
+            ao_info.sampler = gbuffer_sampler;
+            ao_info.imageView = gbuffer.ao_view;
+            ao_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo material_info = {};
+            material_info.sampler = gbuffer_sampler;
+            material_info.imageView = gbuffer.material_view;
+            material_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo depth_info = {};
+            depth_info.sampler = gbuffer_sampler;
+            depth_info.imageView = gbuffer.depth_view;
+            depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet writes[3] = {};
+            writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[0].dstSet = frame.descriptor_set;
+            writes[0].dstBinding = 2;
+            writes[0].descriptorCount = 1;
+            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[0].pImageInfo = &ao_info;
+
+            writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[1].dstSet = frame.descriptor_set;
+            writes[1].dstBinding = 3;
+            writes[1].descriptorCount = 1;
+            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[1].pImageInfo = &material_info;
+
+            writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[2].dstSet = frame.descriptor_set;
+            writes[2].dstBinding = 4;
+            writes[2].descriptorCount = 1;
+            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[2].pImageInfo = &depth_info;
+
+            vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
         }
     }
 
@@ -817,6 +903,8 @@ struct IsometricScenePass::State
                 ImGui_ImplVulkan_RemoveTexture(t.imgui_depth_ds);
             if (t.framebuffer != VK_NULL_HANDLE)
                 vkDestroyFramebuffer(device, t.framebuffer, nullptr);
+            if (t.ao_framebuffer != VK_NULL_HANDLE)
+                vkDestroyFramebuffer(device, t.ao_framebuffer, nullptr);
             if (t.material_view != VK_NULL_HANDLE)
                 vkDestroyImageView(device, t.material_view, nullptr);
             if (t.material_image != VK_NULL_HANDLE)
@@ -844,11 +932,17 @@ struct IsometricScenePass::State
         destroy_gbuffer_targets();
         if (gbuffer_sampler != VK_NULL_HANDLE)
             vkDestroySampler(device, gbuffer_sampler, nullptr);
+        if (ao_pipeline != VK_NULL_HANDLE)
+            vkDestroyPipeline(device, ao_pipeline, nullptr);
+        if (ao_render_pass != VK_NULL_HANDLE)
+            vkDestroyRenderPass(device, ao_render_pass, nullptr);
         if (gbuffer_pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, gbuffer_pipeline, nullptr);
         if (gbuffer_render_pass != VK_NULL_HANDLE)
             vkDestroyRenderPass(device, gbuffer_render_pass, nullptr);
         gbuffer_sampler = VK_NULL_HANDLE;
+        ao_pipeline = VK_NULL_HANDLE;
+        ao_render_pass = VK_NULL_HANDLE;
         gbuffer_pipeline = VK_NULL_HANDLE;
         gbuffer_render_pass = VK_NULL_HANDLE;
         gbuffer_initialized = false;
@@ -857,7 +951,9 @@ struct IsometricScenePass::State
     bool init_gbuffer()
     {
         if (gbuffer_initialized)
-            return gbuffer_pipeline != VK_NULL_HANDLE;
+            return gbuffer_pipeline != VK_NULL_HANDLE
+                && ao_pipeline != VK_NULL_HANDLE
+                && gbuffer_sampler != VK_NULL_HANDLE;
         gbuffer_initialized = true;
 
         // Create GBuffer render pass: 3 color + 1 depth attachment
@@ -1096,6 +1192,141 @@ struct IsometricScenePass::State
             return false;
         }
 
+        VkAttachmentDescription ao_attachment = {};
+        ao_attachment.format = VK_FORMAT_R8G8B8A8_UNORM;
+        ao_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        ao_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        ao_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        ao_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        ao_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        ao_attachment.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ao_attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference ao_color_ref = {};
+        ao_color_ref.attachment = 0;
+        ao_color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription ao_subpass = {};
+        ao_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        ao_subpass.colorAttachmentCount = 1;
+        ao_subpass.pColorAttachments = &ao_color_ref;
+
+        VkSubpassDependency ao_deps[2] = {};
+        ao_deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        ao_deps[0].dstSubpass = 0;
+        ao_deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        ao_deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        ao_deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        ao_deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        ao_deps[1].srcSubpass = 0;
+        ao_deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        ao_deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        ao_deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        ao_deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        ao_deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        VkRenderPassCreateInfo ao_rp_ci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+        ao_rp_ci.attachmentCount = 1;
+        ao_rp_ci.pAttachments = &ao_attachment;
+        ao_rp_ci.subpassCount = 1;
+        ao_rp_ci.pSubpasses = &ao_subpass;
+        ao_rp_ci.dependencyCount = 2;
+        ao_rp_ci.pDependencies = ao_deps;
+        if (vkCreateRenderPass(device, &ao_rp_ci, nullptr, &ao_render_pass) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create AO render pass");
+            return false;
+        }
+
+        auto ao_vert = load_shader(device, (shader_dir / "megacity_ao.vert.spv").string());
+        auto ao_frag = load_shader(device, (shader_dir / "megacity_ao.frag.spv").string());
+        if (!ao_vert || !ao_frag)
+        {
+            if (ao_vert)
+                vkDestroyShaderModule(device, ao_vert, nullptr);
+            if (ao_frag)
+                vkDestroyShaderModule(device, ao_frag, nullptr);
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo ao_stages[2] = {};
+        ao_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        ao_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        ao_stages[0].module = ao_vert;
+        ao_stages[0].pName = "main";
+        ao_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        ao_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        ao_stages[1].module = ao_frag;
+        ao_stages[1].pName = "main";
+
+        VkPipelineVertexInputStateCreateInfo ao_vertex_input = {
+            VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+        };
+
+        VkPipelineInputAssemblyStateCreateInfo ao_input_assembly = {
+            VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+        };
+        ao_input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo ao_viewport_state = {
+            VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+        };
+        ao_viewport_state.viewportCount = 1;
+        ao_viewport_state.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo ao_raster = {
+            VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+        };
+        ao_raster.polygonMode = VK_POLYGON_MODE_FILL;
+        ao_raster.cullMode = VK_CULL_MODE_NONE;
+        ao_raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        ao_raster.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo ao_multisample = {
+            VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+        };
+        ao_multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState ao_blend_attachment = {};
+        ao_blend_attachment.colorWriteMask = rgba_mask;
+
+        VkPipelineColorBlendStateCreateInfo ao_blend = {
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+        };
+        ao_blend.attachmentCount = 1;
+        ao_blend.pAttachments = &ao_blend_attachment;
+
+        VkPipelineDynamicStateCreateInfo ao_dynamic = {
+            VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+        };
+        ao_dynamic.dynamicStateCount = 2;
+        ao_dynamic.pDynamicStates = dynamic_states;
+
+        VkGraphicsPipelineCreateInfo ao_pipeline_ci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        ao_pipeline_ci.stageCount = 2;
+        ao_pipeline_ci.pStages = ao_stages;
+        ao_pipeline_ci.pVertexInputState = &ao_vertex_input;
+        ao_pipeline_ci.pInputAssemblyState = &ao_input_assembly;
+        ao_pipeline_ci.pViewportState = &ao_viewport_state;
+        ao_pipeline_ci.pRasterizationState = &ao_raster;
+        ao_pipeline_ci.pMultisampleState = &ao_multisample;
+        ao_pipeline_ci.pColorBlendState = &ao_blend;
+        ao_pipeline_ci.pDynamicState = &ao_dynamic;
+        ao_pipeline_ci.layout = pipeline_layout;
+        ao_pipeline_ci.renderPass = ao_render_pass;
+        ao_pipeline_ci.subpass = 0;
+
+        const VkResult ao_result = vkCreateGraphicsPipelines(
+            device, VK_NULL_HANDLE, 1, &ao_pipeline_ci, nullptr, &ao_pipeline);
+        vkDestroyShaderModule(device, ao_vert, nullptr);
+        vkDestroyShaderModule(device, ao_frag, nullptr);
+        if (ao_result != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create AO pipeline");
+            return false;
+        }
+
         DRAXUL_LOG_INFO(LogCategory::Renderer, "MegaCity: GBuffer pipeline initialized");
         return true;
     }
@@ -1225,9 +1456,25 @@ struct IsometricScenePass::State
                 return false;
             }
 
+            VkImageView ao_fb_views[] = { t.ao_view };
+            VkFramebufferCreateInfo ao_fb_ci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+            ao_fb_ci.renderPass = ao_render_pass;
+            ao_fb_ci.attachmentCount = 1;
+            ao_fb_ci.pAttachments = ao_fb_views;
+            ao_fb_ci.width = static_cast<uint32_t>(width);
+            ao_fb_ci.height = static_cast<uint32_t>(height);
+            ao_fb_ci.layers = 1;
+            if (vkCreateFramebuffer(device, &ao_fb_ci, nullptr, &t.ao_framebuffer) != VK_SUCCESS)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create AO framebuffer");
+                destroy_gbuffer_targets();
+                return false;
+            }
+
             t.width = width;
             t.height = height;
         }
+        refresh_gbuffer_descriptors();
         return true;
     }
 
@@ -1292,10 +1539,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     auto cmd = static_cast<VkCommandBuffer>(ctx.native_command_buffer());
     if (!cmd)
         return;
-
-    // Shared resources (meshes, descriptors, pipeline layout) are created by ensure()
-    // during the first record() call. Skip gracefully until they exist.
-    if (state_->pipeline_layout == VK_NULL_HANDLE)
+    if (!state_->ensure(*vk_ctx))
         return;
 
     const int vw = ctx.viewport_w();
@@ -1335,10 +1579,17 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     FrameUniforms frame;
     frame.view = scene_.camera.view;
     frame.proj = make_vulkan_projection(scene_.camera.proj);
+    frame.inv_view_proj = glm::inverse(frame.proj * frame.view);
     frame.light_dir = scene_.camera.light_dir;
     frame.point_light_pos = scene_.camera.point_light_pos;
     frame.label_fade_px = glm::vec4(0.0f);
     frame.render_tuning = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+    frame.screen_params = glm::vec4(0.0f, 0.0f, 1.0f / std::max(vw, 1), 1.0f / std::max(vh, 1));
+    frame.ao_params = glm::vec4(
+        scene_.camera.ao_settings.x,
+        compute_ao_radius_pixels(scene_.camera.proj, scene_.camera.ao_settings.x, vh),
+        scene_.camera.ao_settings.y,
+        scene_.camera.ao_settings.z);
     std::memcpy(frame_res.frame_uniforms.mapped, &frame, sizeof(frame));
     vmaFlushAllocation(vk_ctx->allocator(), frame_res.frame_uniforms.allocation, 0, sizeof(frame));
 
@@ -1432,6 +1683,28 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     }
 
     vkCmdEndRenderPass(cmd);
+
+    if (gbuffer.ao_framebuffer == VK_NULL_HANDLE)
+        return;
+
+    VkClearValue ao_clear = {};
+    ao_clear.color = { { 1.0f, 0.0f, 0.0f, 1.0f } };
+
+    VkRenderPassBeginInfo ao_rpbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    ao_rpbi.renderPass = state_->ao_render_pass;
+    ao_rpbi.framebuffer = gbuffer.ao_framebuffer;
+    ao_rpbi.renderArea.extent = { static_cast<uint32_t>(vw), static_cast<uint32_t>(vh) };
+    ao_rpbi.clearValueCount = 1;
+    ao_rpbi.pClearValues = &ao_clear;
+
+    vkCmdBeginRenderPass(cmd, &ao_rpbi, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->ao_pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->pipeline_layout,
+        0, 1, &frame_res.descriptor_set, 0, nullptr);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRenderPass(cmd);
 }
 
 void IsometricScenePass::record(IRenderContext& ctx)
@@ -1465,10 +1738,21 @@ void IsometricScenePass::record(IRenderContext& ctx)
     FrameUniforms frame;
     frame.view = scene_.camera.view;
     frame.proj = make_vulkan_projection(scene_.camera.proj);
+    frame.inv_view_proj = glm::inverse(frame.proj * frame.view);
     frame.light_dir = scene_.camera.light_dir;
     frame.point_light_pos = scene_.camera.point_light_pos;
     frame.label_fade_px = scene_.camera.label_fade_px;
     frame.render_tuning = scene_.camera.render_tuning;
+    frame.screen_params = glm::vec4(
+        static_cast<float>(ctx.viewport_x()),
+        static_cast<float>(ctx.viewport_y()),
+        1.0f / std::max(ctx.viewport_w(), 1),
+        1.0f / std::max(ctx.viewport_h(), 1));
+    frame.ao_params = glm::vec4(
+        scene_.camera.ao_settings.x,
+        compute_ao_radius_pixels(scene_.camera.proj, scene_.camera.ao_settings.x, ctx.viewport_h()),
+        scene_.camera.ao_settings.y,
+        scene_.camera.ao_settings.z);
     std::memcpy(frame_resources.frame_uniforms.mapped, &frame, sizeof(frame));
     vmaFlushAllocation(vk_ctx->allocator(), frame_resources.frame_uniforms.allocation, 0, sizeof(frame));
 

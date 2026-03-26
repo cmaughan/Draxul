@@ -4,6 +4,7 @@
 #include "objc_ref.h"
 #import <Metal/Metal.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <draxul/log.h>
 #include <imgui.h>
@@ -20,10 +21,13 @@ struct FrameUniforms
 {
     simd_float4x4 view;
     simd_float4x4 proj;
+    simd_float4x4 inv_view_proj;
     simd_float4 light_dir;
     simd_float4 point_light_pos;
     simd_float4 label_fade_px;
     simd_float4 render_tuning;
+    simd_float4 screen_params; // x = viewport origin x, y = viewport origin y, z = 1 / viewport width, w = 1 / viewport height
+    simd_float4 ao_params; // x = radius world, y = radius pixels, z = bias, w = power
 };
 
 struct ObjectUniforms
@@ -114,6 +118,14 @@ simd_float4x4 to_simd_matrix(const glm::mat4& mat)
             mat[column][3]);
     }
     return out;
+}
+
+float compute_ao_radius_pixels(const glm::mat4& proj, float radius_world, int viewport_h)
+{
+    if (viewport_h <= 0)
+        return 1.0f;
+    const float ortho_scale_y = std::abs(proj[1][1]);
+    return std::max(1.0f, radius_world * ortho_scale_y * 0.5f * static_cast<float>(viewport_h));
 }
 
 bool upload_mesh(id<MTLDevice> device, const MeshData& mesh, MeshBuffers& buffers)
@@ -255,6 +267,8 @@ struct IsometricScenePass::State
 
     // GBuffer pre-pass resources
     ObjCRef<id<MTLRenderPipelineState>> gbuffer_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> ao_pipeline;
+    ObjCRef<id<MTLSamplerState>> gbuffer_sampler;
     std::vector<GBufferTargets> gbuffer_targets; // per frame
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
@@ -467,7 +481,7 @@ struct IsometricScenePass::State
     bool init_gbuffer(id<MTLDevice> device)
     {
         if (gbuffer_initialized)
-            return gbuffer_pipeline.get() != nil;
+            return gbuffer_pipeline.get() != nil && ao_pipeline.get() != nil && gbuffer_sampler.get() != nil;
 
         gbuffer_initialized = true;
 
@@ -531,6 +545,54 @@ struct IsometricScenePass::State
             return false;
         }
         gbuffer_pipeline.reset(pso);
+
+        NSString* aoLibPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_ao.metallib"];
+        NSURL* aoLibURL = [NSURL fileURLWithPath:aoLibPath];
+        id<MTLLibrary> aoLibrary = [device newLibraryWithURL:aoLibURL error:&error];
+        if (!aoLibrary)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "MegaCity: failed to load megacity_ao.metallib: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+
+        id<MTLFunction> ao_vert_fn = [aoLibrary newFunctionWithName:@"ao_vertex"];
+        id<MTLFunction> ao_frag_fn = [aoLibrary newFunctionWithName:@"ao_fragment"];
+        if (!ao_vert_fn || !ao_frag_fn)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: ao_vertex or ao_fragment not found");
+            return false;
+        }
+
+        MTLRenderPipelineDescriptor* ao_desc = [[MTLRenderPipelineDescriptor alloc] init];
+        ao_desc.vertexFunction = ao_vert_fn;
+        ao_desc.fragmentFunction = ao_frag_fn;
+        ao_desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+
+        id<MTLRenderPipelineState> ao_pso = [device newRenderPipelineStateWithDescriptor:ao_desc error:&error];
+        if (!ao_pso)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "MegaCity: failed to create AO pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        ao_pipeline.reset(ao_pso);
+
+        MTLSamplerDescriptor* gbuffer_sampler_desc = [[MTLSamplerDescriptor alloc] init];
+        gbuffer_sampler_desc.minFilter = MTLSamplerMinMagFilterLinear;
+        gbuffer_sampler_desc.magFilter = MTLSamplerMinMagFilterLinear;
+        gbuffer_sampler_desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
+        gbuffer_sampler_desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        gbuffer_sampler_desc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+        gbuffer_sampler_desc.rAddressMode = MTLSamplerAddressModeClampToEdge;
+        gbuffer_sampler.reset([device newSamplerStateWithDescriptor:gbuffer_sampler_desc]);
+        if (!gbuffer_sampler)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to create GBuffer sampler");
+            return false;
+        }
         DRAXUL_LOG_INFO(LogCategory::App, "MegaCity: GBuffer pipeline initialized");
         return true;
     }
@@ -676,6 +738,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     FrameUniforms frame;
     frame.view = to_simd_matrix(scene_.camera.view);
     frame.proj = to_simd_matrix(scene_.camera.proj);
+    frame.inv_view_proj = to_simd_matrix(scene_.camera.inv_view_proj);
     frame.light_dir = simd_make_float4(
         scene_.camera.light_dir.x, scene_.camera.light_dir.y,
         scene_.camera.light_dir.z, scene_.camera.light_dir.w);
@@ -684,6 +747,12 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         scene_.camera.point_light_pos.z, scene_.camera.point_light_pos.w);
     frame.label_fade_px = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
     frame.render_tuning = simd_make_float4(1.0f, 0.0f, 0.0f, 0.0f);
+    frame.screen_params = simd_make_float4(0.0f, 0.0f, 1.0f / std::max(vw, 1), 1.0f / std::max(vh, 1));
+    frame.ao_params = simd_make_float4(
+        scene_.camera.ao_settings.x,
+        compute_ao_radius_pixels(scene_.camera.proj, scene_.camera.ao_settings.x, vh),
+        scene_.camera.ao_settings.y,
+        scene_.camera.ao_settings.z);
     std::memcpy([frame_resources.frame_uniforms.get() contents], &frame, sizeof(frame));
 
     [encoder setRenderPipelineState:state_->gbuffer_pipeline.get()];
@@ -752,6 +821,26 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     }
 
     [encoder endEncoding];
+
+    MTLRenderPassDescriptor* aoDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+    aoDesc.colorAttachments[0].texture = gbuffer.ao.get();
+    aoDesc.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+    aoDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+    id<MTLRenderCommandEncoder> aoEncoder = [cmd_buf renderCommandEncoderWithDescriptor:aoDesc];
+    if (!aoEncoder)
+        return;
+
+    [aoEncoder setViewport:viewport];
+    [aoEncoder setScissorRect:scissor];
+    [aoEncoder setRenderPipelineState:state_->ao_pipeline.get()];
+    [aoEncoder setCullMode:MTLCullModeNone];
+    [aoEncoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:0];
+    [aoEncoder setFragmentTexture:gbuffer.material.get() atIndex:0];
+    [aoEncoder setFragmentTexture:gbuffer.depth.get() atIndex:1];
+    [aoEncoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:0];
+    [aoEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [aoEncoder endEncoding];
 }
 
 void IsometricScenePass::record(IRenderContext& ctx)
@@ -764,7 +853,11 @@ void IsometricScenePass::record(IRenderContext& ctx)
     const uint32_t frame_count = std::max(1u, ctx.buffered_frame_count());
     if (!state_->init(cmd_buf.device, grid_width_, grid_height_, tile_size_))
         return;
+    if (!state_->init_gbuffer(cmd_buf.device))
+        return;
     if (!state_->ensure_frame_resources(cmd_buf.device, frame_count))
+        return;
+    if (!state_->ensure_gbuffer_targets(cmd_buf.device, frame_count, ctx.viewport_w(), ctx.viewport_h()))
         return;
     if (!state_->ensure_floor_grid(cmd_buf.device, scene_.floor_grid))
         return;
@@ -801,6 +894,7 @@ void IsometricScenePass::record(IRenderContext& ctx)
     FrameUniforms frame;
     frame.view = to_simd_matrix(scene_.camera.view);
     frame.proj = to_simd_matrix(scene_.camera.proj);
+    frame.inv_view_proj = to_simd_matrix(scene_.camera.inv_view_proj);
     frame.light_dir = simd_make_float4(
         scene_.camera.light_dir.x,
         scene_.camera.light_dir.y,
@@ -821,6 +915,16 @@ void IsometricScenePass::record(IRenderContext& ctx)
         scene_.camera.render_tuning.y,
         scene_.camera.render_tuning.z,
         scene_.camera.render_tuning.w);
+    frame.screen_params = simd_make_float4(
+        static_cast<float>(ctx.viewport_x()),
+        static_cast<float>(ctx.viewport_y()),
+        1.0f / std::max(ctx.viewport_w(), 1),
+        1.0f / std::max(ctx.viewport_h(), 1));
+    frame.ao_params = simd_make_float4(
+        scene_.camera.ao_settings.x,
+        compute_ao_radius_pixels(scene_.camera.proj, scene_.camera.ao_settings.x, ctx.viewport_h()),
+        scene_.camera.ao_settings.y,
+        scene_.camera.ao_settings.z);
     std::memcpy([frame_resources.frame_uniforms.get() contents], &frame, sizeof(frame));
 
     [encoder setRenderPipelineState:state_->pipeline.get()];
@@ -830,7 +934,9 @@ void IsometricScenePass::record(IRenderContext& ctx)
     [encoder setVertexBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
     [encoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
     [encoder setFragmentTexture:state_->label_atlas_texture.get() atIndex:0];
+    [encoder setFragmentTexture:state_->gbuffer_targets[frame_index].ao.get() atIndex:1];
     [encoder setFragmentSamplerState:state_->label_sampler.get() atIndex:0];
+    [encoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:1];
 
     for (const SceneObject& obj : scene_.objects)
     {

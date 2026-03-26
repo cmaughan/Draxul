@@ -6,10 +6,13 @@ struct FrameUniforms
 {
     float4x4 view;
     float4x4 proj;
+    float4x4 inv_view_proj;
     float4 light_dir;
     float4 point_light_pos;
     float4 label_fade_px;
     float4 render_tuning;
+    float4 screen_params;
+    float4 ao_params;
 };
 
 struct ObjectUniforms
@@ -60,9 +63,18 @@ fragment float4 scene_fragment(
     VertexOut in [[stage_in]],
     constant FrameUniforms& frame [[buffer(1)]],
     texture2d<float> signAtlas [[texture(0)]],
-    sampler signSampler [[sampler(0)]])
+    texture2d<float> aoTexture [[texture(1)]],
+    sampler signSampler [[sampler(0)]],
+    sampler aoSampler [[sampler(1)]])
 {
     const float3 normal_ws = normalize(in.normal_ws);
+    const float2 screen_uv = clamp(
+        (in.position.xy - frame.screen_params.xy) * frame.screen_params.zw,
+        float2(0.0),
+        float2(1.0));
+    const float ao = clamp(aoTexture.sample(aoSampler, screen_uv).r, 0.0, 1.0);
+    if (frame.render_tuning.w > 0.5)
+        return float4(ao, ao, ao, 1.0);
     const float3 light_dir = normalize(-frame.light_dir.xyz);
     const float ndotl = max(dot(normal_ws, light_dir), 0.0);
     const float ambient = max(frame.render_tuning.z, 0.0);
@@ -77,7 +89,7 @@ fragment float4 scene_fragment(
     const float point_atten = clamp(1.0 - point_dist / point_radius, 0.0, 1.0);
     const float point_light = max(frame.render_tuning.y, 0.0) * point_ndotl * point_atten * point_atten;
     const float3 point_color = float3(1.05, 0.98, 0.90);
-    float3 shaded = in.base_color * (hemi * (ambient + directional) + point_color * point_light);
+    float3 shaded = in.base_color * (hemi * ambient * ao + hemi * directional + point_color * point_light);
     if (in.tex_blend > 0.5)
     {
         const float4 label = signAtlas.sample(signSampler, in.atlas_uv);
