@@ -35,6 +35,16 @@ struct CityClassRecord
     bool is_abstract = false;
 };
 
+struct CityModuleRecord
+{
+    std::string module_path;
+    int building_count = 0;
+    int total_functions = 0;
+    int total_function_lines = 0;
+    float avg_function_size = 0.0f;
+    float quality = 0.5f; // 0..1, higher = better-factored code
+};
+
 class CityDatabase
 {
 public:
@@ -58,6 +68,7 @@ public:
     bool reconcile_snapshot(const CodebaseSnapshot& snapshot);
     [[nodiscard]] std::vector<std::string> list_modules() const;
     [[nodiscard]] std::vector<CityClassRecord> list_classes_in_module(std::string_view module_path) const;
+    [[nodiscard]] CityModuleRecord module_record(std::string_view module_path) const;
 
 private:
     struct Impl;

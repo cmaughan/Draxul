@@ -68,6 +68,7 @@ void render_city_map_panel(const std::shared_ptr<const CityGrid>& grid, bool bui
     constexpr ImU32 kColorBuilding = IM_COL32(200, 80, 80, 255);
     constexpr ImU32 kColorSidewalk = IM_COL32(140, 140, 100, 255);
     constexpr ImU32 kColorRoad = IM_COL32(90, 90, 90, 255);
+    constexpr ImU32 kColorPark = IM_COL32(80, 160, 60, 255);
 
     for (int r = 0; r < grid->rows; ++r)
     {
@@ -88,6 +89,9 @@ void render_city_map_panel(const std::shared_ptr<const CityGrid>& grid, bool bui
                 break;
             case kCityGridRoad:
                 color = kColorRoad;
+                break;
+            case kCityGridPark:
+                color = kColorPark;
                 break;
             default:
                 color = IM_COL32(255, 255, 255, 255);

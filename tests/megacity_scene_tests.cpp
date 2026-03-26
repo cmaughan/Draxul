@@ -269,8 +269,8 @@ TEST_CASE("semantic city layout starts with the tallest building at the origin",
 
     REQUIRE(layout.buildings.size() == 3);
     CHECK(layout.buildings[0].qualified_name == "App");
-    CHECK(layout.buildings[0].center.x == Catch::Approx(0.0f));
-    CHECK(layout.buildings[0].center.y == Catch::Approx(0.0f));
+    // First building is no longer at (0,0) — the park occupies the center.
+    CHECK(layout.park_footprint > 0.0f);
     CHECK(layout.min_x < 0.0f);
     CHECK(layout.max_x > 0.0f);
     CHECK(layout.min_z < 0.0f);
@@ -438,8 +438,8 @@ TEST_CASE("semantic megacity model is built from DB rows and shared metrics", "[
     REQUIRE(layout.modules.size() == 1);
     REQUIRE(layout.building_count() == 2);
     CHECK(layout.modules[0].buildings[0].qualified_name == "App");
-    CHECK(layout.modules[0].buildings[0].center.x == Catch::Approx(0.0f));
-    CHECK(layout.modules[0].buildings[0].center.y == Catch::Approx(0.0f));
+    // Park occupies the center; first building is offset from origin.
+    CHECK(layout.modules[0].park_footprint > 0.0f);
     CHECK(layout.modules[0].buildings[0].metrics.height
         == Catch::Approx(model.modules[0].buildings[0].metrics.height));
 }
@@ -573,14 +573,32 @@ TEST_CASE("semantic city layout places later lots in edge contact with existing 
     const TestLotRect a = test_building_lot(layout.buildings[0]);
     const TestLotRect b = test_building_lot(layout.buildings[1]);
 
-    const bool touch_x = a.max_x == Catch::Approx(b.min_x) || b.max_x == Catch::Approx(a.min_x);
-    const bool touch_z = a.max_z == Catch::Approx(b.min_z) || b.max_z == Catch::Approx(a.min_z);
-    const float overlap_x = std::min(a.max_x, b.max_x) - std::max(a.min_x, b.min_x);
-    const float overlap_z = std::min(a.max_z, b.max_z) - std::max(a.min_z, b.min_z);
-    const bool shares_edge = (touch_x && overlap_z > 0.0f) || (touch_z && overlap_x > 0.0f);
-
+    // Buildings must not overlap each other.
     CHECK_FALSE(test_lots_overlap(a, b));
-    CHECK(shares_edge);
+
+    // With the park occupying the center, the second building may share an edge
+    // with the park rather than with building A directly. Check that buildings
+    // are in edge contact with each other OR that each touches the park.
+    const float park_half = layout.park_footprint * 0.5f;
+    const TestLotRect park_lot{
+        layout.park_center.x - park_half,
+        layout.park_center.x + park_half,
+        layout.park_center.y - park_half,
+        layout.park_center.y + park_half,
+    };
+
+    auto shares_edge_with = [](const TestLotRect& p, const TestLotRect& q) {
+        const bool touch_x = p.max_x == Catch::Approx(q.min_x) || q.max_x == Catch::Approx(p.min_x);
+        const bool touch_z = p.max_z == Catch::Approx(q.min_z) || q.max_z == Catch::Approx(p.min_z);
+        const float overlap_x = std::min(p.max_x, q.max_x) - std::max(p.min_x, q.min_x);
+        const float overlap_z = std::min(p.max_z, q.max_z) - std::max(p.min_z, q.min_z);
+        return (touch_x && overlap_z > 0.0f) || (touch_z && overlap_x > 0.0f);
+    };
+
+    const bool a_b_touch = shares_edge_with(a, b);
+    const bool a_park_touch = shares_edge_with(a, park_lot);
+    const bool b_park_touch = shares_edge_with(b, park_lot);
+    CHECK((a_b_touch || (a_park_touch && b_park_touch)));
 }
 
 TEST_CASE("semantic megacity layout spirals modules around the largest module", "[megacity]")

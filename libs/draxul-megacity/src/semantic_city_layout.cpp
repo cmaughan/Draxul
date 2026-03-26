@@ -424,7 +424,10 @@ SemanticMegacityModel build_semantic_megacity_model(
     {
         SemanticCityModuleModel module_model = build_semantic_city_model(module_input.module_path, module_input.rows, config);
         if (!module_model.empty())
+        {
+            module_model.quality = module_input.quality;
             model.modules.push_back(std::move(module_model));
+        }
     }
 
     return model;
@@ -438,11 +441,26 @@ SemanticCityLayout build_semantic_city_layout(
         return layout;
 
     std::vector<LotRect> reserved_lots;
-    reserved_lots.reserve(module_model.buildings.size());
+    reserved_lots.reserve(module_model.buildings.size() + 1);
     layout.min_x = std::numeric_limits<float>::max();
     layout.max_x = std::numeric_limits<float>::lowest();
     layout.min_z = std::numeric_limits<float>::max();
     layout.max_z = std::numeric_limits<float>::lowest();
+
+    // Reserve a park lot at the center so buildings spiral outward from it.
+    const float step = std::max(config.placement_step, 0.01f);
+    const float park_fp = std::max(step, snap_to_grid(config.park_footprint, step));
+    if (park_fp > 0.0f)
+    {
+        const float park_half = park_fp * 0.5f;
+        layout.park_center = { 0.0f, 0.0f };
+        layout.park_footprint = park_fp;
+        reserved_lots.push_back({ -park_half, park_half, -park_half, park_half });
+        layout.min_x = -park_half;
+        layout.max_x = park_half;
+        layout.min_z = -park_half;
+        layout.max_z = park_half;
+    }
 
     for (const SemanticCityBuilding& building : module_model.buildings)
     {
@@ -510,6 +528,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
     {
         std::string module_path;
         int connectivity = 0;
+        float quality = 0.5f;
         SemanticCityLayout layout;
         LotRect local_lot;
         float area = 0.0f;
@@ -528,6 +547,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         candidates.push_back({
             module_model.module_path,
             module_model.connectivity,
+            module_model.quality,
             std::move(layout),
             { 0.0f, 0.0f, 0.0f, 0.0f },
             width * depth,
@@ -598,6 +618,9 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         module_layout.max_x = chosen_lot.max_x;
         module_layout.min_z = chosen_lot.min_z;
         module_layout.max_z = chosen_lot.max_z;
+        module_layout.quality = candidate.quality;
+        module_layout.park_center = candidate.layout.park_center + chosen_offset;
+        module_layout.park_footprint = candidate.layout.park_footprint;
         module_layout.buildings.reserve(candidate.layout.buildings.size());
         for (const SemanticCityBuilding& building : candidate.layout.buildings)
         {
@@ -669,13 +692,28 @@ CityGrid build_city_grid(const SemanticMegacityLayout& layout, const MegaCityCod
                 grid.cells[static_cast<size_t>(r) * grid.cols + c] = value;
     };
 
-    // Three separate passes so later buildings don't overwrite earlier ones:
-    // 1) all roads, 2) all sidewalks (overwrites roads within), 3) all buildings (overwrites both).
+    // Four separate passes so higher-priority layers always overwrite lower ones:
+    // 0) parks, 1) roads, 2) sidewalks, 3) buildings.
     auto for_each_building = [&](auto&& fn) {
         for (const auto& module_layout : layout.modules)
             for (const auto& building : module_layout.buildings)
                 fn(building);
     };
+
+    // Pass 0: parks (lowest priority — everything else overwrites)
+    for (const auto& module_layout : layout.modules)
+    {
+        if (module_layout.park_footprint > 0.0f)
+        {
+            const float half = module_layout.park_footprint * 0.5f;
+            fill_rect(
+                module_layout.park_center.x - half,
+                module_layout.park_center.x + half,
+                module_layout.park_center.y - half,
+                module_layout.park_center.y + half,
+                kCityGridPark);
+        }
+    }
 
     // Pass 1: roads (outermost layer)
     for_each_building([&](const SemanticCityBuilding& building) {

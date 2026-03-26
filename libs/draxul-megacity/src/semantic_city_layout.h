@@ -40,6 +40,7 @@ struct SemanticCityModuleModel
 {
     std::string module_path;
     int connectivity = 0;
+    float quality = 0.5f;
     std::vector<SemanticCityBuilding> buildings;
 
     [[nodiscard]] bool empty() const
@@ -70,6 +71,7 @@ struct SemanticCityModuleInput
 {
     std::string module_path;
     std::vector<CityClassRecord> rows;
+    float quality = 0.5f; // 0..1, from CityModuleRecord
 };
 
 struct SemanticCityModuleLayout
@@ -81,6 +83,9 @@ struct SemanticCityModuleLayout
     float max_x = 0.0f;
     float min_z = 0.0f;
     float max_z = 0.0f;
+    float quality = 0.5f;
+    glm::vec2 park_center{ 0.0f };
+    float park_footprint = 0.0f; // 0 means no park
 
     [[nodiscard]] bool empty() const
     {
@@ -101,6 +106,8 @@ struct SemanticCityLayout
     float max_x = 0.0f;
     float min_z = 0.0f;
     float max_z = 0.0f;
+    glm::vec2 park_center{ 0.0f };
+    float park_footprint = 0.0f;
 
     [[nodiscard]] bool empty() const
     {
@@ -174,6 +181,7 @@ inline constexpr uint8_t kCityGridEmpty = 0;
 inline constexpr uint8_t kCityGridBuilding = 1;
 inline constexpr uint8_t kCityGridSidewalk = 2;
 inline constexpr uint8_t kCityGridRoad = 3;
+inline constexpr uint8_t kCityGridPark = 4;
 
 [[nodiscard]] CityGrid build_city_grid(
     const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config);

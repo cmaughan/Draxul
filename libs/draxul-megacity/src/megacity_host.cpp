@@ -1149,7 +1149,10 @@ void MegaCityHost::rebuild_semantic_city()
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
     std::vector<SemanticCityModuleInput> modules;
     for (const std::string& module_path : city_db_.list_modules())
-        modules.push_back({ module_path, city_db_.list_classes_in_module(module_path) });
+    {
+        const CityModuleRecord mod_record = city_db_.module_record(module_path);
+        modules.push_back({ module_path, city_db_.list_classes_in_module(module_path), mod_record.quality });
+    }
 
     auto semantic_model = std::make_shared<SemanticMegacityModel>(
         build_semantic_megacity_model(modules, renderer_config_));
@@ -1210,6 +1213,30 @@ void MegaCityHost::rebuild_semantic_city()
     world_->clear();
     for (const auto& module_layout : layout.modules)
     {
+        // Park slab at the center of the module, colored by quality.
+        if (module_layout.park_footprint > 0.0f)
+        {
+            // Lerp from brown (low quality) to green (high quality).
+            const glm::vec3 kParkBrown(0.45f, 0.30f, 0.15f);
+            const glm::vec3 kParkGreen(0.25f, 0.65f, 0.20f);
+            const float q = std::clamp(module_layout.quality, 0.0f, 1.0f);
+            const glm::vec3 park_rgb = glm::mix(kParkBrown, kParkGreen, q);
+            const glm::vec4 park_color(park_rgb, 1.0f);
+
+            BuildingMetrics park_metrics;
+            park_metrics.footprint = module_layout.park_footprint;
+            park_metrics.height = renderer_config_.park_height;
+            park_metrics.sidewalk_width = 0.0f;
+            park_metrics.road_width = 0.0f;
+            world_->create_building(
+                module_layout.park_center.x,
+                module_layout.park_center.y,
+                building_base_elevation(renderer_config_),
+                park_metrics,
+                park_color,
+                SourceSymbol{ "", module_layout.module_path });
+        }
+
         const glm::vec4 module_color = module_building_color(module_layout.module_path);
         for (const auto& building : module_layout.buildings)
         {

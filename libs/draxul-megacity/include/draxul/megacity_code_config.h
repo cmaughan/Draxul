@@ -51,6 +51,8 @@ struct MegaCityCodeConfig
     float road_width_min = 0.6f;
     float road_width_max = 3.0f;
     float sidewalk_width = 1.0f;
+    float park_footprint = 9.0f;
+    float park_height = 0.15f;
 
     float sign_label_point_size = 18.0f;
     MegaCitySignPlacement building_sign_placement = MegaCitySignPlacement::WallEast;
