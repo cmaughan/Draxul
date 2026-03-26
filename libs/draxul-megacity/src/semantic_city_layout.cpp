@@ -95,8 +95,7 @@ struct LotRect
 LotRect centered_building_lot(const BuildingMetrics& metrics, const MegaCityCodeConfig& config)
 {
     const float step = std::max(config.placement_step, 0.01f);
-    const float raw_half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width
-        + metrics.road_width * config.lot_road_reserve_fraction;
+    const float raw_half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width + metrics.road_width;
     const float half_extent = std::max(step, snap_to_grid(raw_half_extent, step));
     return {
         -half_extent,
@@ -305,7 +304,7 @@ BuildingMetrics derive_building_metrics(const CityClassRecord& row, const MegaCi
             + config.height_multiplier * config.height_unclamped_count_weight * std::log1p(funcs);
     const float raw_road_width = clamp_metrics
         ? std::clamp(config.road_width_base + config.road_width_scale * std::log1p(road), config.road_width_min, config.road_width_max)
-        : config.road_width_base + road;
+        : config.road_width_base + config.road_width_scale * std::log1p(road);
     const float road_width = std::max(step, snap_to_grid(raw_road_width, step));
     const float sidewalk_width = std::max(step, snap_to_grid(config.sidewalk_width, step));
     return { footprint, height, sidewalk_width, road_width };

@@ -152,7 +152,6 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
 
     assign_float("placement_step", config.placement_step);
     assign_int("max_spiral_rings", config.max_spiral_rings);
-    assign_float("lot_road_reserve_fraction", config.lot_road_reserve_fraction);
 
     assign_float("footprint_base", config.footprint_base);
     assign_float("footprint_min", config.footprint_min);
@@ -264,7 +263,6 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("show_ui_panels", config.show_ui_panels);
     table.insert_or_assign("placement_step", static_cast<double>(config.placement_step));
     table.insert_or_assign("max_spiral_rings", config.max_spiral_rings);
-    table.insert_or_assign("lot_road_reserve_fraction", static_cast<double>(config.lot_road_reserve_fraction));
     table.insert_or_assign("footprint_base", static_cast<double>(config.footprint_base));
     table.insert_or_assign("footprint_min", static_cast<double>(config.footprint_min));
     table.insert_or_assign("footprint_max", static_cast<double>(config.footprint_max));

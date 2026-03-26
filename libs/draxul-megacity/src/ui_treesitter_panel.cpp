@@ -774,7 +774,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("Height Multiplier", config.height_multiplier, 0.05f, 0.1f, 8.0f, "%.2f");
         edit_float("Placement Step", config.placement_step, 0.01f, 0.05f, 8.0f, "%.2f");
         edit_int("Max Spiral Rings", config.max_spiral_rings, 8, 8, 65536);
-        edit_float("Lot Road Reserve", config.lot_road_reserve_fraction, 0.01f, 0.0f, 4.0f, "%.2f");
         edit_float("Footprint Base", config.footprint_base, 0.05f, 0.0f, 32.0f, "%.2f");
         edit_float("Footprint Min", config.footprint_min, 0.05f, 0.0f, 32.0f, "%.2f");
         edit_float("Footprint Max", config.footprint_max, 0.05f, 0.0f, 64.0f, "%.2f");

@@ -53,7 +53,6 @@ struct MegaCityCodeConfig
 
     float placement_step = 0.5f;
     int max_spiral_rings = 4096;
-    float lot_road_reserve_fraction = 0.25f;
 
     float footprint_base = 1.0f;
     float footprint_min = 1.0f;

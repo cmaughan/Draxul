@@ -69,7 +69,7 @@ TestLotRect test_building_lot(const SemanticCityBuilding& building)
     const MegaCityCodeConfig config;
     const float step = std::max(config.placement_step, 0.01f);
     const float raw_half_extent = building.metrics.footprint * 0.5f + building.metrics.sidewalk_width
-        + building.metrics.road_width * config.lot_road_reserve_fraction;
+        + building.metrics.road_width;
     const float half_extent = std::max(step, std::round(raw_half_extent / step) * step);
     return {
         building.center.x - half_extent,
@@ -323,6 +323,66 @@ TEST_CASE("semantic building metrics can bypass clamping", "[megacity]")
     CHECK(unclamped.height > clamped.height);
     CHECK(unclamped.sidewalk_width == Catch::Approx(clamped.sidewalk_width));
     CHECK(unclamped.road_width > clamped.road_width);
+}
+
+TEST_CASE("semantic city lot reserve matches the full visible road width by default", "[megacity]")
+{
+    CityClassRecord row;
+    row.name = "MegaCityHost";
+    row.qualified_name = "MegaCityHost";
+    row.module_path = "libs/draxul-megacity";
+    row.source_file_path = "libs/draxul-megacity/include/draxul/megacity_host.h";
+    row.entity_kind = "building";
+    row.base_size = 55;
+    row.building_functions = 33;
+    row.function_sizes = { 24, 18, 14, 10 };
+    row.road_size = 24;
+
+    const MegaCityCodeConfig config;
+    const BuildingMetrics metrics = derive_building_metrics(row, config);
+    const SemanticCityBuilding building{
+        row.module_path,
+        row.name,
+        row.qualified_name,
+        row.source_file_path,
+        row.base_size,
+        row.building_functions,
+        0,
+        row.road_size,
+        metrics,
+        { 0.0f, 0.0f },
+        {},
+    };
+
+    const TestLotRect lot = test_building_lot(building);
+    const float step = std::max(config.placement_step, 0.01f);
+    const float required_half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width + metrics.road_width;
+    CHECK(lot.max_x >= required_half_extent);
+    CHECK(-lot.min_x >= required_half_extent);
+    CHECK(lot.max_x <= required_half_extent + step * 0.5f + 1e-4f);
+    CHECK(-lot.min_x <= required_half_extent + step * 0.5f + 1e-4f);
+}
+
+TEST_CASE("road width scale affects unclamped semantic road width", "[megacity]")
+{
+    CityClassRecord row;
+    row.entity_kind = "building";
+    row.base_size = 12;
+    row.building_functions = 6;
+    row.function_sizes = { 18, 12, 8 };
+    row.road_size = 24;
+
+    MegaCityCodeConfig low_scale_config;
+    low_scale_config.clamp_semantic_metrics = false;
+    low_scale_config.road_width_scale = 0.25f;
+
+    MegaCityCodeConfig high_scale_config = low_scale_config;
+    high_scale_config.road_width_scale = 1.25f;
+
+    const BuildingMetrics low_scale = derive_building_metrics(row, low_scale_config);
+    const BuildingMetrics high_scale = derive_building_metrics(row, high_scale_config);
+
+    CHECK(high_scale.road_width > low_scale.road_width);
 }
 
 TEST_CASE("semantic city layout handles very large unclamped lots", "[megacity]")
