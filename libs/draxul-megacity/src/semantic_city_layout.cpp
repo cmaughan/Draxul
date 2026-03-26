@@ -15,32 +15,6 @@ namespace draxul
 namespace
 {
 
-constexpr float kPlacementStep = 0.5f;
-constexpr int kMaxSpiralRings = 4096;
-
-// derive_building_metrics tuning constants.
-// Footprint: 1 + sqrt(base_size), clamped to [kFootprintMin, kFootprintMax].
-constexpr float kFootprintBase = 1.0f;
-constexpr float kFootprintMin = 1.0f;
-constexpr float kFootprintMax = 9.0f;
-constexpr float kFootprintUnclampedScale = 0.15f;
-
-// Height: base + mass_weight * log1p(function_mass) + count_weight * sqrt(function_count),
-// clamped to [kHeightMin, kHeightMax].
-constexpr float kHeightBase = 2.0f;
-constexpr float kHeightMassWeight = 1.35f;
-constexpr float kHeightCountWeight = 0.45f;
-constexpr float kHeightMin = 2.0f;
-constexpr float kHeightMax = 12.0f;
-constexpr float kHeightUnclampedCountWeight = 0.27f;
-
-// Road width: base + scale * log1p(road_size), clamped to [kRoadWidthMin, kRoadWidthMax].
-constexpr float kRoadWidthBase = 0.6f;
-constexpr float kRoadWidthScale = 0.85f;
-constexpr float kRoadWidthMin = 0.6f;
-constexpr float kRoadWidthMax = 3.0f;
-constexpr float kSidewalkWidth = 1.0f;
-
 float clamp_metric(float value, float min_value, float max_value)
 {
     return std::clamp(value, min_value, max_value);
@@ -123,10 +97,10 @@ struct LotRect
     float max_z = 0.0f;
 };
 
-LotRect centered_building_lot(const BuildingMetrics& metrics)
+LotRect centered_building_lot(const BuildingMetrics& metrics, const MegaCityCodeConfig& config)
 {
     const float half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width
-        + metrics.road_width * kLotRoadReserveFraction;
+        + metrics.road_width * config.lot_road_reserve_fraction;
     return {
         -half_extent,
         half_extent,
@@ -171,32 +145,34 @@ float lot_half_extent_z(const LotRect& lot)
 }
 
 template <typename Fn>
-bool for_each_spiral_candidate(Fn&& fn)
+bool for_each_spiral_candidate(const MegaCityCodeConfig& config, Fn&& fn)
 {
+    const float placement_step = std::max(config.placement_step, 0.01f);
+    const int max_spiral_rings = std::max(config.max_spiral_rings, 1);
     if (!fn(glm::vec2(0.0f)))
         return false;
 
-    for (int ring = 1; ring < kMaxSpiralRings; ++ring)
+    for (int ring = 1; ring < max_spiral_rings; ++ring)
     {
-        const float radius = static_cast<float>(ring) * kPlacementStep;
+        const float radius = static_cast<float>(ring) * placement_step;
         for (int ix = -ring; ix <= ring; ++ix)
         {
-            if (!fn(glm::vec2(static_cast<float>(ix) * kPlacementStep, -radius)))
+            if (!fn(glm::vec2(static_cast<float>(ix) * placement_step, -radius)))
                 return false;
         }
         for (int iz = -ring + 1; iz <= ring; ++iz)
         {
-            if (!fn(glm::vec2(radius, static_cast<float>(iz) * kPlacementStep)))
+            if (!fn(glm::vec2(radius, static_cast<float>(iz) * placement_step)))
                 return false;
         }
         for (int ix = ring - 1; ix >= -ring; --ix)
         {
-            if (!fn(glm::vec2(static_cast<float>(ix) * kPlacementStep, radius)))
+            if (!fn(glm::vec2(static_cast<float>(ix) * placement_step, radius)))
                 return false;
         }
         for (int iz = ring - 1; iz >= -ring + 1; --iz)
         {
-            if (!fn(glm::vec2(-radius, static_cast<float>(iz) * kPlacementStep)))
+            if (!fn(glm::vec2(-radius, static_cast<float>(iz) * placement_step)))
                 return false;
         }
     }
@@ -216,19 +192,32 @@ void push_candidate(std::vector<glm::vec2>& candidates, const glm::vec2& candida
 }
 
 void add_contact_candidates_for_side(
-    std::vector<glm::vec2>& candidates, float fixed_axis, float center_axis, float overlap_limit, bool fixed_x)
+    std::vector<glm::vec2>& candidates, float fixed_axis, float center_axis, float overlap_limit, bool fixed_x,
+    const MegaCityCodeConfig& config)
 {
+    constexpr int kMaxEdgeSamplesPerSide = 24;
     push_candidate(candidates, fixed_x ? glm::vec2(fixed_axis, center_axis) : glm::vec2(center_axis, fixed_axis));
 
-    for (float offset = kPlacementStep; offset < overlap_limit; offset += kPlacementStep)
+    if (overlap_limit <= 0.0f)
+        return;
+
+    const float placement_step = std::max(config.placement_step, 0.01f);
+    const int desired_samples = std::max(1, static_cast<int>(std::ceil(overlap_limit / placement_step)));
+    const int sample_count = std::min(desired_samples, kMaxEdgeSamplesPerSide);
+
+    for (int sample = 1; sample <= sample_count; ++sample)
     {
-        push_candidate(candidates, fixed_x ? glm::vec2(fixed_axis, center_axis + offset) : glm::vec2(center_axis + offset, fixed_axis));
-        push_candidate(candidates, fixed_x ? glm::vec2(fixed_axis, center_axis - offset) : glm::vec2(center_axis - offset, fixed_axis));
+        const float t = static_cast<float>(sample) / static_cast<float>(sample_count + 1);
+        const float offset = t * overlap_limit;
+        push_candidate(candidates,
+            fixed_x ? glm::vec2(fixed_axis, center_axis + offset) : glm::vec2(center_axis + offset, fixed_axis));
+        push_candidate(candidates,
+            fixed_x ? glm::vec2(fixed_axis, center_axis - offset) : glm::vec2(center_axis - offset, fixed_axis));
     }
 }
 
 std::vector<glm::vec2> touching_lot_candidates(
-    const std::vector<LotRect>& reserved_lots, const LotRect& local_lot)
+    const std::vector<LotRect>& reserved_lots, const LotRect& local_lot, const MegaCityCodeConfig& config)
 {
     std::vector<glm::vec2> candidates;
     if (reserved_lots.empty())
@@ -249,13 +238,13 @@ std::vector<glm::vec2> touching_lot_candidates(
         const float overlap_limit_x = lot_half_extent_x(occupied) + local_half_extent_x;
 
         add_contact_candidates_for_side(
-            candidates, occupied.min_x - local_lot.max_x, center_z - local_center_z, overlap_limit_z, true);
+            candidates, occupied.min_x - local_lot.max_x, center_z - local_center_z, overlap_limit_z, true, config);
         add_contact_candidates_for_side(
-            candidates, occupied.max_x - local_lot.min_x, center_z - local_center_z, overlap_limit_z, true);
+            candidates, occupied.max_x - local_lot.min_x, center_z - local_center_z, overlap_limit_z, true, config);
         add_contact_candidates_for_side(
-            candidates, occupied.min_z - local_lot.max_z, center_x - local_center_x, overlap_limit_x, false);
+            candidates, occupied.min_z - local_lot.max_z, center_x - local_center_x, overlap_limit_x, false, config);
         add_contact_candidates_for_side(
-            candidates, occupied.max_z - local_lot.min_z, center_x - local_center_x, overlap_limit_x, false);
+            candidates, occupied.max_z - local_lot.min_z, center_x - local_center_x, overlap_limit_x, false, config);
     }
 
     std::sort(candidates.begin(), candidates.end(), [](const glm::vec2& a, const glm::vec2& b) {
@@ -297,28 +286,29 @@ bool try_place_candidate(
 
 } // namespace
 
-BuildingMetrics derive_building_metrics(const CityClassRecord& row, bool clamp_metrics, float height_multiplier)
+BuildingMetrics derive_building_metrics(const CityClassRecord& row, const MegaCityCodeConfig& config)
 {
     const float base = static_cast<float>(std::max(row.base_size, 0));
     const float mass = static_cast<float>(std::max(function_mass(row), 0));
     const float funcs = static_cast<float>(std::max(row.building_functions, 0));
     const float road = static_cast<float>(std::max(row.road_size, 0));
 
+    const bool clamp_metrics = config.clamp_semantic_metrics;
     const float footprint = clamp_metrics
-        ? std::clamp(kFootprintBase + std::sqrt(base), kFootprintMin, kFootprintMax)
-        : kFootprintBase + base * kFootprintUnclampedScale;
+        ? std::clamp(config.footprint_base + std::sqrt(base), config.footprint_min, config.footprint_max)
+        : config.footprint_base + base * config.footprint_unclamped_scale;
     const float height = clamp_metrics
         ? std::clamp(
-              kHeightBase + kHeightMassWeight * std::log1p(mass)
-                  + kHeightCountWeight * std::sqrt(funcs),
-              kHeightMin, kHeightMax)
-        : kHeightBase + height_multiplier * std::log1p(mass)
-            + height_multiplier * kHeightUnclampedCountWeight * std::log1p(funcs);
-    const float raw_road_width = kRoadWidthBase + road;
+              config.height_base + config.height_mass_weight * std::log1p(mass)
+                  + config.height_count_weight * std::sqrt(funcs),
+              config.height_min, config.height_max)
+        : config.height_base + config.height_multiplier * std::log1p(mass)
+            + config.height_multiplier * config.height_unclamped_count_weight * std::log1p(funcs);
+    const float raw_road_width = config.road_width_base + road;
     const float road_width = clamp_metrics
-        ? std::clamp(kRoadWidthBase + kRoadWidthScale * std::log1p(road), kRoadWidthMin, kRoadWidthMax)
+        ? std::clamp(config.road_width_base + config.road_width_scale * std::log1p(road), config.road_width_min, config.road_width_max)
         : raw_road_width;
-    const float sidewalk_width = kSidewalkWidth;
+    const float sidewalk_width = config.sidewalk_width;
     return { footprint, height, sidewalk_width, road_width };
 }
 
@@ -383,35 +373,38 @@ std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuildi
     };
 }
 
-SemanticCityLayout build_semantic_city_layout(
-    const std::vector<CityClassRecord>& rows, bool clamp_metrics, bool hide_test_entities, float height_multiplier)
+SemanticCityModuleModel build_semantic_city_model(
+    std::string_view module_path, const std::vector<CityClassRecord>& rows, const MegaCityCodeConfig& config)
 {
-    struct Candidate
-    {
-        std::string module_path;
-        std::string display_name;
-        std::string qualified_name;
-        std::string source_file_path;
-        BuildingMetrics metrics;
-        std::vector<SemanticBuildingLayer> layers;
-    };
+    SemanticCityModuleModel module;
+    module.module_path = std::string(module_path);
+    module.buildings.reserve(rows.size());
 
-    std::vector<Candidate> candidates;
-    candidates.reserve(rows.size());
     for (const auto& row : rows)
     {
         if (row.entity_kind != "building" || row.is_abstract)
             continue;
-        if (hide_test_entities && is_test_semantic_source(row.source_file_path))
+        if (config.hide_test_entities && is_test_semantic_source(row.source_file_path))
             continue;
 
-        const BuildingMetrics metrics = derive_building_metrics(row, clamp_metrics, height_multiplier);
-        candidates.push_back(
-            { row.module_path, row.name, row.qualified_name, row.source_file_path, metrics,
-                build_function_layers(row, metrics) });
+        const BuildingMetrics metrics = derive_building_metrics(row, config);
+        module.connectivity += std::max(row.road_size, 0);
+        module.buildings.push_back({
+            row.module_path.empty() ? std::string(module_path) : row.module_path,
+            row.name,
+            row.qualified_name,
+            row.source_file_path,
+            std::max(row.base_size, 0),
+            std::max(row.building_functions, 0),
+            function_mass(row),
+            std::max(row.road_size, 0),
+            metrics,
+            { 0.0f, 0.0f },
+            build_function_layers(row, metrics),
+        });
     }
 
-    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+    std::sort(module.buildings.begin(), module.buildings.end(), [](const SemanticCityBuilding& a, const SemanticCityBuilding& b) {
         if (a.metrics.height != b.metrics.height)
             return a.metrics.height > b.metrics.height;
         if (a.metrics.footprint != b.metrics.footprint)
@@ -419,25 +412,47 @@ SemanticCityLayout build_semantic_city_layout(
         return a.qualified_name < b.qualified_name;
     });
 
+    return module;
+}
+
+SemanticMegacityModel build_semantic_megacity_model(
+    const std::vector<SemanticCityModuleInput>& modules, const MegaCityCodeConfig& config)
+{
+    SemanticMegacityModel model;
+    model.modules.reserve(modules.size());
+
+    for (const auto& module_input : modules)
+    {
+        SemanticCityModuleModel module = build_semantic_city_model(module_input.module_path, module_input.rows, config);
+        if (!module.empty())
+            model.modules.push_back(std::move(module));
+    }
+
+    return model;
+}
+
+SemanticCityLayout build_semantic_city_layout(
+    const SemanticCityModuleModel& module, const MegaCityCodeConfig& config)
+{
     SemanticCityLayout layout;
-    if (candidates.empty())
+    if (module.empty())
         return layout;
 
     std::vector<LotRect> reserved_lots;
-    reserved_lots.reserve(candidates.size());
+    reserved_lots.reserve(module.buildings.size());
     layout.min_x = std::numeric_limits<float>::max();
     layout.max_x = std::numeric_limits<float>::lowest();
     layout.min_z = std::numeric_limits<float>::max();
     layout.max_z = std::numeric_limits<float>::lowest();
 
-    for (const Candidate& candidate : candidates)
+    for (const SemanticCityBuilding& building : module.buildings)
     {
-        const LotRect local_lot = centered_building_lot(candidate.metrics);
+        const LotRect local_lot = centered_building_lot(building.metrics, config);
         glm::vec2 chosen_center{ 0.0f };
         LotRect chosen_lot{};
         bool placed = false;
 
-        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(reserved_lots, local_lot);
+        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(reserved_lots, local_lot, config);
         for (const glm::vec2& center : contact_candidates)
         {
             if (try_place_candidate(reserved_lots, local_lot, center, chosen_center, chosen_lot))
@@ -449,11 +464,9 @@ SemanticCityLayout build_semantic_city_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate([&](const glm::vec2& center) {
+            for_each_spiral_candidate(config, [&](const glm::vec2& center) {
                 if (!try_place_candidate(reserved_lots, local_lot, center, chosen_center, chosen_lot))
-                {
                     return true;
-                }
 
                 placed = true;
                 return false;
@@ -464,9 +477,9 @@ SemanticCityLayout build_semantic_city_layout(
             continue;
 
         reserved_lots.push_back(chosen_lot);
-        layout.buildings.push_back(
-            { candidate.module_path, candidate.display_name, candidate.qualified_name, candidate.source_file_path,
-                candidate.metrics, chosen_center, candidate.layers });
+        SemanticCityBuilding placed_building = building;
+        placed_building.center = chosen_center;
+        layout.buildings.push_back(std::move(placed_building));
         layout.min_x = std::min(layout.min_x, chosen_lot.min_x);
         layout.max_x = std::max(layout.max_x, chosen_lot.max_x);
         layout.min_z = std::min(layout.min_z, chosen_lot.min_z);
@@ -484,37 +497,40 @@ SemanticCityLayout build_semantic_city_layout(
     return layout;
 }
 
+SemanticCityLayout build_semantic_city_layout(
+    const std::vector<CityClassRecord>& rows, const MegaCityCodeConfig& config)
+{
+    const SemanticCityModuleModel module = build_semantic_city_model(std::string_view{}, rows, config);
+    return build_semantic_city_layout(module, config);
+}
+
 SemanticMegacityLayout build_semantic_megacity_layout(
-    const std::vector<SemanticCityModuleInput>& modules, bool clamp_metrics, bool hide_test_entities, float height_multiplier)
+    const SemanticMegacityModel& model, const MegaCityCodeConfig& config)
 {
     struct ModuleCandidate
     {
         std::string module_path;
+        int connectivity = 0;
         SemanticCityLayout layout;
         LotRect local_lot;
-        int connectivity = 0;
         float area = 0.0f;
     };
 
     std::vector<ModuleCandidate> candidates;
-    candidates.reserve(modules.size());
-    for (const auto& module : modules)
+    candidates.reserve(model.modules.size());
+    for (const auto& module : model.modules)
     {
-        SemanticCityLayout layout = build_semantic_city_layout(module.rows, clamp_metrics, hide_test_entities, height_multiplier);
+        SemanticCityLayout layout = build_semantic_city_layout(module, config);
         if (layout.empty())
             continue;
-
-        int connectivity = 0;
-        for (const auto& row : module.rows)
-            connectivity += std::max(row.road_size, 0);
 
         const float width = layout.max_x - layout.min_x;
         const float depth = layout.max_z - layout.min_z;
         candidates.push_back({
             module.module_path,
+            module.connectivity,
             std::move(layout),
             { 0.0f, 0.0f, 0.0f, 0.0f },
-            connectivity,
             width * depth,
         });
         candidates.back().local_lot = {
@@ -552,11 +568,10 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         LotRect chosen_lot{};
         bool placed = false;
 
-        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(reserved_modules, candidate.local_lot);
+        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(reserved_modules, candidate.local_lot, config);
         for (const glm::vec2& offset : contact_candidates)
         {
-            if (try_place_candidate(
-                    reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
+            if (try_place_candidate(reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
             {
                 placed = true;
                 break;
@@ -565,12 +580,9 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate([&](const glm::vec2& offset) {
-                if (!try_place_candidate(
-                        reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
-                {
+            for_each_spiral_candidate(config, [&](const glm::vec2& offset) {
+                if (!try_place_candidate(reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
                     return true;
-                }
 
                 placed = true;
                 return false;
@@ -612,6 +624,13 @@ SemanticMegacityLayout build_semantic_megacity_layout(
     }
 
     return megacity;
+}
+
+SemanticMegacityLayout build_semantic_megacity_layout(
+    const std::vector<SemanticCityModuleInput>& modules, const MegaCityCodeConfig& config)
+{
+    const SemanticMegacityModel model = build_semantic_megacity_model(modules, config);
+    return build_semantic_megacity_layout(model, config);
 }
 
 } // namespace draxul

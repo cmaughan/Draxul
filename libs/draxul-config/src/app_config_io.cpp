@@ -313,6 +313,8 @@ AppConfig config_from_toml(const toml::table& document)
     {
         std::string_view key_sv = key.str();
         bool known = std::find(kKnownTopLevelKeys.begin(), kKnownTopLevelKeys.end(), key_sv) != kKnownTopLevelKeys.end();
+        if (!known && value.is_table())
+            continue;
         if (!known)
             DRAXUL_LOG_WARN(LogCategory::App, "[config] Unknown key '%.*s' -- check spelling", static_cast<int>(key_sv.size()), key_sv.data());
     }

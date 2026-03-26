@@ -77,9 +77,15 @@ bool App::initialize()
 
     bool ok = time_step("Config", [this]() {
         if (options_.load_user_config)
+        {
             config_ = AppConfig::load();
+            config_document_ = ConfigDocument::load();
+        }
         else
+        {
             config_ = {};
+            config_document_ = {};
+        }
         apply_overrides(config_, options_.config_overrides);
         return true;
     });
@@ -274,6 +280,7 @@ bool App::initialize_host()
     HostManager::Deps host_deps;
     host_deps.options = &options_;
     host_deps.config = &config_;
+    host_deps.config_document = &config_document_;
     host_deps.window = window_.get();
     host_deps.grid_renderer = renderer_.grid();
     host_deps.imgui_host = renderer_.imgui();
@@ -786,6 +793,13 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 
 void App::shutdown()
 {
+#ifdef __APPLE__
+    macos_menu_.reset(); // tear down menu before handler goes away
+#endif
+
+    host_manager_.shutdown();
+    host_owner_lifetime_.reset();
+
     if (options_.save_user_config && init_completed_)
     {
         init_completed_ = false; // prevent double-save on repeated shutdown() calls
@@ -797,15 +811,9 @@ void App::shutdown()
         }
         config_.font_size = text_service_.point_size();
         config_.font_path = text_service_.primary_font_path();
-        config_.save();
+        config_document_.merge_core_config(config_);
+        config_document_.save();
     }
-
-#ifdef __APPLE__
-    macos_menu_.reset(); // tear down menu before handler goes away
-#endif
-
-    host_manager_.shutdown();
-    host_owner_lifetime_.reset();
 
     text_service_.shutdown();
     if (renderer_.imgui())

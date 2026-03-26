@@ -1,19 +1,23 @@
 #pragma once
 
+#include <draxul/megacity_code_config.h>
 #include <draxul/treesitter.h>
 #include <memory>
 
 namespace draxul
 {
 
+struct SemanticMegacityModel;
+
 struct MegacityRendererControls
 {
-    float sign_text_hidden_px = 1.5f;
-    float sign_text_full_px = 8.0f;
-    float output_gamma = 1.0f;
-    float height_multiplier = 1.5f;
-    bool clamp_semantic_metrics = false;
-    bool hide_test_entities = true;
+    MegaCityCodeConfig config;
+    MegaCityCodeConfig defaults;
+    bool rebuild_pending = false;
+    bool rebuild_requested = false;
+    bool reset_camera_requested = false;
+    bool committed_edit = false;
+    bool set_defaults_requested = false;
 };
 
 // Renders the codebase analysis tree into the current ImGui frame.
@@ -22,6 +26,7 @@ bool render_treesitter_panel(
     int window_w,
     int window_h,
     const std::shared_ptr<const CodebaseSnapshot>& snapshot,
+    const SemanticMegacityModel* semantic_model = nullptr,
     MegacityRendererControls* renderer_controls = nullptr);
 
 } // namespace draxul

@@ -66,8 +66,9 @@ struct TestLotRect
 
 TestLotRect test_building_lot(const SemanticCityBuilding& building)
 {
+    const MegaCityCodeConfig config;
     const float half_extent = building.metrics.footprint * 0.5f + building.metrics.sidewalk_width
-        + building.metrics.road_width * kLotRoadReserveFraction;
+        + building.metrics.road_width * config.lot_road_reserve_fraction;
     return {
         building.center.x - half_extent,
         building.center.x + half_extent,
@@ -192,6 +193,30 @@ TEST_CASE("megacity camera pitch is clamped to a sensible range", "[megacity]")
     CHECK(camera.pitch_angle() == Catch::Approx(0.43633231f));
 }
 
+TEST_CASE("megacity camera state round-trips through apply_state", "[megacity]")
+{
+    IsometricCamera camera;
+    camera.frame_world_bounds(-30.0f, 30.0f, -20.0f, 20.0f);
+
+    const IsometricCameraState desired{
+        .target = { 12.5f, 0.0f, -7.25f },
+        .yaw = -1.2f,
+        .pitch = 0.9f,
+        .orbit_radius = 42.0f,
+        .zoom_half_height = 17.5f,
+    };
+    camera.apply_state(desired);
+
+    const IsometricCameraState actual = camera.state();
+    CHECK(actual.target.x == Catch::Approx(desired.target.x));
+    CHECK(actual.target.y == Catch::Approx(desired.target.y));
+    CHECK(actual.target.z == Catch::Approx(desired.target.z));
+    CHECK(actual.yaw == Catch::Approx(desired.yaw));
+    CHECK(actual.pitch == Catch::Approx(desired.pitch));
+    CHECK(actual.orbit_radius == Catch::Approx(desired.orbit_radius));
+    CHECK(actual.zoom_half_height == Catch::Approx(desired.zoom_half_height));
+}
+
 TEST_CASE("semantic city layout starts with the tallest building at the origin", "[megacity]")
 {
     std::vector<CityClassRecord> rows;
@@ -237,7 +262,8 @@ TEST_CASE("semantic city layout starts with the tallest building at the origin",
     abstract_type.road_size = 3;
     rows.push_back(abstract_type);
 
-    const SemanticCityLayout layout = build_semantic_city_layout(rows);
+    const MegaCityCodeConfig config;
+    const SemanticCityLayout layout = build_semantic_city_layout(rows, config);
 
     REQUIRE(layout.buildings.size() == 3);
     CHECK(layout.buildings[0].qualified_name == "App");
@@ -279,8 +305,12 @@ TEST_CASE("semantic building metrics can bypass clamping", "[megacity]")
     row.function_sizes = { 200, 180, 160, 140, 120, 100, 80 };
     row.road_size = 80;
 
-    const BuildingMetrics clamped = derive_building_metrics(row, true);
-    const BuildingMetrics unclamped = derive_building_metrics(row, false);
+    MegaCityCodeConfig clamped_config;
+    clamped_config.clamp_semantic_metrics = true;
+    MegaCityCodeConfig unclamped_config;
+    unclamped_config.clamp_semantic_metrics = false;
+    const BuildingMetrics clamped = derive_building_metrics(row, clamped_config);
+    const BuildingMetrics unclamped = derive_building_metrics(row, unclamped_config);
 
     CHECK(clamped.footprint == Catch::Approx(9.0f));
     CHECK(clamped.height == Catch::Approx(12.0f));
@@ -291,6 +321,35 @@ TEST_CASE("semantic building metrics can bypass clamping", "[megacity]")
     CHECK(unclamped.height > clamped.height);
     CHECK(unclamped.sidewalk_width == Catch::Approx(clamped.sidewalk_width));
     CHECK(unclamped.road_width > clamped.road_width);
+}
+
+TEST_CASE("semantic city layout handles very large unclamped lots", "[megacity]")
+{
+    CityClassRecord alpha;
+    alpha.name = "Alpha";
+    alpha.qualified_name = "Alpha";
+    alpha.module_path = "libs/draxul-megacity";
+    alpha.source_file_path = "libs/draxul-megacity/src/alpha.cpp";
+    alpha.entity_kind = "building";
+    alpha.base_size = 6400;
+    alpha.building_functions = 24;
+    alpha.function_sizes = { 200, 180, 160, 140, 120 };
+    alpha.road_size = 48;
+
+    CityClassRecord beta = alpha;
+    beta.name = "Beta";
+    beta.qualified_name = "Beta";
+    beta.source_file_path = "libs/draxul-megacity/src/beta.cpp";
+
+    MegaCityCodeConfig config;
+    config.clamp_semantic_metrics = false;
+
+    const SemanticCityLayout layout = build_semantic_city_layout({ alpha, beta }, config);
+
+    REQUIRE(layout.buildings.size() == 2);
+    CHECK_FALSE(test_lots_overlap(
+        test_building_lot(layout.buildings[0]),
+        test_building_lot(layout.buildings[1])));
 }
 
 TEST_CASE("semantic city layout can hide test entities by source path", "[megacity]")
@@ -318,14 +377,69 @@ TEST_CASE("semantic city layout can hide test entities by source path", "[megaci
     test_row.road_size = 1;
 
     const std::vector<CityClassRecord> rows{ app_row, test_row };
-    const SemanticCityLayout visible = build_semantic_city_layout(rows, true, false);
-    const SemanticCityLayout hidden = build_semantic_city_layout(rows, true, true);
+    MegaCityCodeConfig visible_config;
+    visible_config.clamp_semantic_metrics = true;
+    visible_config.hide_test_entities = false;
+    MegaCityCodeConfig hidden_config = visible_config;
+    hidden_config.hide_test_entities = true;
+    const SemanticCityLayout visible = build_semantic_city_layout(rows, visible_config);
+    const SemanticCityLayout hidden = build_semantic_city_layout(rows, hidden_config);
 
     REQUIRE(visible.buildings.size() == 2);
     REQUIRE(hidden.buildings.size() == 1);
     CHECK(hidden.buildings[0].qualified_name == "App");
     CHECK(is_test_semantic_source(test_row.source_file_path));
     CHECK_FALSE(is_test_semantic_source(app_row.source_file_path));
+}
+
+TEST_CASE("semantic megacity model is built from DB rows and shared metrics", "[megacity]")
+{
+    SemanticCityModuleInput app;
+    app.module_path = "app";
+
+    CityClassRecord main_window;
+    main_window.name = "App";
+    main_window.qualified_name = "App";
+    main_window.module_path = app.module_path;
+    main_window.source_file_path = "app/app.cpp";
+    main_window.entity_kind = "building";
+    main_window.base_size = 24;
+    main_window.building_functions = 5;
+    main_window.function_sizes = { 20, 16, 12 };
+    main_window.road_size = 4;
+    app.rows.push_back(main_window);
+
+    CityClassRecord dispatcher = main_window;
+    dispatcher.name = "InputDispatcher";
+    dispatcher.qualified_name = "InputDispatcher";
+    dispatcher.source_file_path = "app/input_dispatcher.cpp";
+    dispatcher.base_size = 8;
+    dispatcher.building_functions = 3;
+    dispatcher.function_sizes = { 10, 8 };
+    dispatcher.road_size = 2;
+    app.rows.push_back(dispatcher);
+
+    const MegaCityCodeConfig config;
+    const SemanticMegacityModel model = build_semantic_megacity_model({ app }, config);
+
+    REQUIRE(model.modules.size() == 1);
+    REQUIRE(model.building_count() == 2);
+    CHECK(model.modules[0].module_path == "app");
+    CHECK(model.modules[0].connectivity == 6);
+    CHECK(model.modules[0].buildings[0].qualified_name == "App");
+    CHECK(model.modules[0].buildings[0].base_size == 24);
+    CHECK(model.modules[0].buildings[0].function_count == 5);
+    CHECK(model.modules[0].buildings[0].function_mass == 48);
+    CHECK(model.modules[0].buildings[0].road_size == 4);
+
+    const SemanticMegacityLayout layout = build_semantic_megacity_layout(model, config);
+    REQUIRE(layout.modules.size() == 1);
+    REQUIRE(layout.building_count() == 2);
+    CHECK(layout.modules[0].buildings[0].qualified_name == "App");
+    CHECK(layout.modules[0].buildings[0].center.x == Catch::Approx(0.0f));
+    CHECK(layout.modules[0].buildings[0].center.y == Catch::Approx(0.0f));
+    CHECK(layout.modules[0].buildings[0].metrics.height
+        == Catch::Approx(model.modules[0].buildings[0].metrics.height));
 }
 
 TEST_CASE("semantic city road strips form a square ring around a building", "[megacity]")
@@ -450,7 +564,8 @@ TEST_CASE("semantic city layout places later lots in edge contact with existing 
     dispatcher.source_file_path = "app/input_dispatcher.h";
     rows.push_back(dispatcher);
 
-    const SemanticCityLayout layout = build_semantic_city_layout(rows);
+    const MegaCityCodeConfig config;
+    const SemanticCityLayout layout = build_semantic_city_layout(rows, config);
 
     REQUIRE(layout.buildings.size() == 2);
     const TestLotRect a = test_building_lot(layout.buildings[0]);
@@ -505,7 +620,8 @@ TEST_CASE("semantic megacity layout spirals modules around the largest module", 
     terminal.road_size = 2;
     host.rows.push_back(terminal);
 
-    const SemanticMegacityLayout layout = build_semantic_megacity_layout({ host, app });
+    const MegaCityCodeConfig config;
+    const SemanticMegacityLayout layout = build_semantic_megacity_layout({ host, app }, config);
 
     REQUIRE(layout.modules.size() == 2);
     REQUIRE(layout.building_count() == 3);

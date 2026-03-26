@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL.h>
 #include <draxul/app_config.h>
+#include <draxul/config_document.h>
+#include <draxul/megacity_code_config.h>
 #include <draxul/text_service.h>
 
 #include <atomic>
@@ -56,6 +58,14 @@ const GuiKeybinding* find_keybinding(const AppConfig& config, std::string_view a
             return &binding;
     }
     return nullptr;
+}
+
+std::string read_text_file(const std::filesystem::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return {};
+    return std::string(std::istreambuf_iterator<char>(in), {});
 }
 
 } // namespace
@@ -627,14 +637,84 @@ TEST_CASE("config unknown key: unknown keys are dropped from serialized output",
     REQUIRE(serialized.find("window_width") != std::string::npos);
 }
 
-TEST_CASE("config unknown section: unknown TOML section produces unknown key warning", "[config]")
+TEST_CASE("config host section: unknown TOML table does not warn", "[config]")
 {
     ScopedLogCapture capture;
-    AppConfig::parse("[future_section]\n"
-                     "option = true\n"
-                     "window_width = 1280\n");
-    INFO("unknown section should produce an unknown-key warning");
-    REQUIRE(contains_message(capture.records, "Unknown key 'future_section'"));
+    AppConfig::parse("window_width = 1280\n"
+                     "[mega_city_code]\n"
+                     "sign_text_hidden_px = 1.5\n");
+    INFO("host-owned top-level tables should not produce an unknown-key warning");
+    REQUIRE(!contains_message(capture.records, "Unknown key 'mega_city_code'"));
+}
+
+TEST_CASE("config document merge preserves host-owned tables", "[config]")
+{
+    TempDir temp("draxul-config-document");
+    const std::filesystem::path path = temp.path / "config.toml";
+
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << "window_width = 1200\n"
+               "[mega_city_code]\n"
+               "sign_text_hidden_px = 1.5\n"
+               "[mega_city_code.defaults]\n"
+               "sign_text_full_px = 8.0\n";
+    }
+
+    ConfigDocument document = ConfigDocument::load_from_path(path);
+    AppConfig config = AppConfig::parse("window_width = 1600\nfont_size = 17\n");
+    document.merge_core_config(config);
+    document.save_to_path(path);
+
+    const std::string saved = read_text_file(path);
+    INFO("core app keys should update");
+    REQUIRE(saved.find("window_width = 1600") != std::string::npos);
+    REQUIRE(saved.find("font_size = 17") != std::string::npos);
+    INFO("host-owned tables should survive merge/save");
+    REQUIRE(saved.find("[mega_city_code]") != std::string::npos);
+    REQUIRE(saved.find("sign_text_hidden_px = 1.5") != std::string::npos);
+    REQUIRE(saved.find("[mega_city_code.defaults]") != std::string::npos);
+    REQUIRE(saved.find("sign_text_full_px = 8.0") != std::string::npos);
+}
+
+TEST_CASE("megacity config round-trips through config document", "[config][megacity]")
+{
+    ConfigDocument document;
+    MegaCityCodeConfig defaults;
+    defaults.sign_text_hidden_px = 2.5f;
+    defaults.sign_text_full_px = 12.0f;
+    defaults.clamp_semantic_metrics = true;
+    defaults.building_sign_placement = MegaCitySignPlacement::WallNorth;
+    defaults.auto_rebuild = true;
+
+    MegaCityCodeConfig current = defaults;
+    current.height_multiplier = 2.25f;
+    current.hide_test_entities = false;
+    current.ambient_strength = 0.62f;
+    current.point_light_position_valid = true;
+    current.point_light_x = -14.0f;
+    current.point_light_y = 18.5f;
+    current.point_light_z = -9.5f;
+    current.point_light_radius = 37.0f;
+    current.point_light_brightness = 1.7f;
+    current.directional_light_x = -0.25f;
+    current.world_floor_grid_tile_scale = 3.0f;
+    current.auto_rebuild = false;
+    current.camera_state_valid = true;
+    current.camera_target_x = 12.5f;
+    current.camera_target_z = -8.25f;
+    current.camera_yaw = -1.75f;
+    current.camera_pitch = 0.93f;
+    current.camera_orbit_radius = 21.0f;
+    current.camera_zoom_half_height = 13.5f;
+
+    store_megacity_code_config(document, current, defaults);
+
+    const MegaCityCodeConfig loaded_defaults = load_megacity_code_defaults(document);
+    const MegaCityCodeConfig loaded_current = load_megacity_code_config(document, loaded_defaults);
+
+    REQUIRE(loaded_defaults == defaults);
+    REQUIRE(loaded_current == current);
 }
 
 TEST_CASE("config duplicate keybinding: same key+modifier for two actions produces warning", "[config]")

@@ -64,6 +64,14 @@ static bool is_modifier_only_key(const KeyEvent& event)
     }
 }
 
+template <typename Deps>
+void request_imgui_frame_if_needed(const Deps& deps)
+{
+    const bool host_has_imgui = deps.host && deps.host->has_imgui();
+    if ((deps.ui_panel->wants_keyboard() || host_has_imgui) && deps.request_frame)
+        deps.request_frame();
+}
+
 void InputDispatcher::on_key_event(const KeyEvent& event)
 {
     if (event.pressed)
@@ -75,6 +83,7 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
             if (is_modifier_only_key(event))
             {
                 deps_.ui_panel->on_key(event);
+                request_imgui_frame_if_needed(deps_);
                 return;
             }
             // We consumed the prefix key; now look for a chord match.
@@ -121,6 +130,7 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
         // a future policy. For now just keep prefix_active_ until the next key-down.
     }
     deps_.ui_panel->on_key(event);
+    request_imgui_frame_if_needed(deps_);
     if (!deps_.ui_panel->wants_keyboard() && deps_.host)
         deps_.host->on_key(event);
 }
@@ -225,11 +235,13 @@ void InputDispatcher::connect(IWindow& window)
             return;
         }
         deps_.ui_panel->on_text_input(event);
+        request_imgui_frame_if_needed(deps_);
         if (!deps_.ui_panel->wants_keyboard() && deps_.host)
             deps_.host->on_text_input(event);
     };
 
     window.on_text_editing = [this](const TextEditingEvent& event) {
+        request_imgui_frame_if_needed(deps_);
         if (deps_.host)
             deps_.host->on_text_editing(event);
     };

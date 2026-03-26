@@ -3,6 +3,7 @@
 #include <chrono>
 #include <draxul/citydb.h>
 #include <draxul/host.h>
+#include <draxul/megacity_code_config.h>
 #include <draxul/treesitter.h>
 #include <memory>
 
@@ -12,7 +13,7 @@ namespace draxul
 class IsometricCamera;
 class IsometricScenePass;
 struct SignLabelAtlas;
-struct SemanticCityLayout;
+struct SemanticMegacityModel;
 class SceneWorld;
 struct SceneSnapshot;
 
@@ -71,7 +72,11 @@ public:
 
 private:
     void mark_scene_dirty();
+    void mark_world_rebuild_pending();
     void rebuild_semantic_city();
+    void refresh_sign_text_service();
+    void sync_camera_state_to_configs();
+    void reset_camera_to_default_frame();
     bool movement_active() const;
     bool drag_smoothing_active() const;
     SceneSnapshot build_scene_snapshot() const;
@@ -86,19 +91,27 @@ private:
     CityDatabase city_db_;
     std::unique_ptr<TextService> sign_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
+    std::shared_ptr<const SemanticMegacityModel> semantic_model_;
+    ConfigDocument* config_document_ = nullptr;
+    MegaCityCodeConfig renderer_config_;
+    MegaCityCodeConfig pending_renderer_config_;
+    MegaCityCodeConfig renderer_defaults_;
     uint64_t sign_label_revision_ = 1;
-    float sign_text_hidden_px_ = 1.5f;
-    float sign_text_full_px_ = 8.0f;
-    float output_gamma_ = 1.0f;
-    float height_multiplier_ = 1.5f;
-    bool clamp_semantic_metrics_ = false;
-    bool hide_test_entities_ = true;
+    std::string sign_font_path_;
+    float display_ppi_ = 96.0f;
     int pixel_w_ = 800;
     int pixel_h_ = 600;
     bool running_ = false;
     mutable float world_span_ = 5.0f;
     bool scene_dirty_ = true;
+    bool world_rebuild_pending_ = false;
     bool city_db_reconciled_ = false;
+    bool restore_camera_after_initial_build_ = false;
+    bool city_bounds_valid_ = false;
+    float city_min_x_ = -2.5f;
+    float city_max_x_ = 2.5f;
+    float city_min_z_ = -2.5f;
+    float city_max_z_ = 2.5f;
     bool continuous_refresh_enabled_ = false;
     bool move_left_ = false;
     bool move_right_ = false;

@@ -158,6 +158,27 @@ glm::mat4 IsometricCamera::proj_matrix() const
         -half_width, half_width, -ortho_half_height_, ortho_half_height_, 0.1f, far_plane_);
 }
 
+IsometricCameraState IsometricCamera::state() const
+{
+    return IsometricCameraState{
+        .target = target_,
+        .yaw = yaw_angle_,
+        .pitch = pitch_angle_,
+        .orbit_radius = orbit_radius_,
+        .zoom_half_height = ortho_half_height_,
+    };
+}
+
+void IsometricCamera::apply_state(const IsometricCameraState& state)
+{
+    yaw_angle_ = state.yaw;
+    pitch_angle_ = std::clamp(state.pitch, kMinPitchAngle, kMaxPitchAngle);
+    orbit_radius_ = std::max(state.orbit_radius, 1e-3f);
+    ortho_half_height_ = std::clamp(state.zoom_half_height, min_ortho_half_height_, max_ortho_half_height_);
+    update_follow_offset();
+    set_target(state.target);
+}
+
 GroundFootprint IsometricCamera::visible_ground_footprint(float plane_y) const
 {
     const glm::mat4 inv_view_proj = glm::inverse(proj_matrix() * view_matrix());

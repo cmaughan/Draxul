@@ -5,6 +5,7 @@
 #include "input_dispatcher.h"
 #include <chrono>
 #include <draxul/app_config.h>
+#include <draxul/config_document.h>
 #include <draxul/diagnostics_collector.h>
 #include <draxul/host.h>
 #include <draxul/renderer.h>
@@ -71,6 +72,7 @@ private:
 
     AppOptions options_;
     AppConfig config_;
+    ConfigDocument config_document_;
     std::unique_ptr<IWindow> window_;
     RendererBundle renderer_;
     TextService text_service_;

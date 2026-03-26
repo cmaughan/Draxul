@@ -17,6 +17,7 @@ class IImGuiHost;
 class TextService;
 struct AppOptions;
 struct AppConfig;
+class ConfigDocument;
 
 // Owns the IHost instance(s), the SplitTree layout, and manages their lifecycle.
 // App holds a HostManager and calls create() during initialisation.
@@ -29,7 +30,8 @@ public:
     struct Deps
     {
         const AppOptions* options = nullptr;
-        const AppConfig* config = nullptr;
+        AppConfig* config = nullptr;
+        ConfigDocument* config_document = nullptr;
         IWindow* window = nullptr;
         IGridRenderer* grid_renderer = nullptr;
         IImGuiHost* imgui_host = nullptr;

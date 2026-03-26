@@ -20,9 +20,9 @@ struct alignas(16) FrameUniforms
     glm::mat4 view{ 1.0f };
     glm::mat4 proj{ 1.0f };
     glm::vec4 light_dir{ -0.5f, -1.0f, -0.3f, 0.0f };
-    glm::vec4 point_light_pos{ 4.0f, 6.0f, 4.0f, 12.0f };
+    glm::vec4 point_light_pos{ 0.0f, 8.0f, 0.0f, 24.0f };
     glm::vec4 label_fade_px{ 1.0f, 15.0f, 0.0f, 0.0f };
-    glm::vec4 render_tuning{ 1.0f, 0.0f, 0.0f, 0.0f };
+    glm::vec4 render_tuning{ 1.0f, 1.0f, 0.45f, 0.0f };
 };
 
 struct alignas(16) ObjectPushConstants

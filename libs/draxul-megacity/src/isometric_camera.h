@@ -13,6 +13,15 @@ struct GroundFootprint
     float max_z = 0.0f;
 };
 
+struct IsometricCameraState
+{
+    glm::vec3 target{ 0.0f };
+    float yaw = -2.35619449f;
+    float pitch = 0.72425002f;
+    float orbit_radius = 7.07106781f;
+    float zoom_half_height = 4.0f;
+};
+
 class IsometricCamera
 {
 public:
@@ -31,6 +40,8 @@ public:
     glm::mat4 view_matrix() const;
     glm::mat4 proj_matrix() const;
     GroundFootprint visible_ground_footprint(float plane_y = 0.0f) const;
+    IsometricCameraState state() const;
+    void apply_state(const IsometricCameraState& state);
     float far_plane() const
     {
         return far_plane_;

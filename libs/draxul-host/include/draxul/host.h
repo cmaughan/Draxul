@@ -22,6 +22,8 @@ class IGridRenderer;
 class IImGuiHost;
 class TextService;
 class I3DRenderer;
+struct AppConfig;
+class ConfigDocument;
 
 struct HostLaunchOptions
 {
@@ -77,16 +79,32 @@ struct HostContext
     HostContext(IWindow* window_in, IGridRenderer* grid_renderer_in, TextService* text_service_in,
         HostLaunchOptions launch_options_in, HostViewport initial_viewport_in, float display_ppi_in)
         : HostContext(window_in, grid_renderer_in, text_service_in, std::move(launch_options_in),
-              std::move(initial_viewport_in), std::weak_ptr<void>{}, display_ppi_in)
+              nullptr, nullptr, std::move(initial_viewport_in), std::weak_ptr<void>{}, display_ppi_in)
     {
     }
 
     HostContext(IWindow* window_in, IGridRenderer* grid_renderer_in, TextService* text_service_in,
-        HostLaunchOptions launch_options_in, HostViewport initial_viewport_in,
+        HostLaunchOptions launch_options_in, HostViewport initial_viewport_in, std::weak_ptr<void> owner_lifetime_in, float display_ppi_in)
+        : HostContext(window_in, grid_renderer_in, text_service_in, std::move(launch_options_in),
+              nullptr, nullptr, std::move(initial_viewport_in), std::move(owner_lifetime_in), display_ppi_in)
+    {
+    }
+
+    HostContext(IWindow* window_in, IGridRenderer* grid_renderer_in, TextService* text_service_in,
+        AppConfig* config_in, ConfigDocument* config_document_in, HostLaunchOptions launch_options_in, HostViewport initial_viewport_in, float display_ppi_in)
+        : HostContext(window_in, grid_renderer_in, text_service_in, std::move(launch_options_in),
+              config_in, config_document_in, std::move(initial_viewport_in), std::weak_ptr<void>{}, display_ppi_in)
+    {
+    }
+
+    HostContext(IWindow* window_in, IGridRenderer* grid_renderer_in, TextService* text_service_in,
+        HostLaunchOptions launch_options_in, AppConfig* config_in, ConfigDocument* config_document_in, HostViewport initial_viewport_in,
         std::weak_ptr<void> owner_lifetime_in = {}, float display_ppi_in = 96.0f)
         : window(window_in)
         , grid_renderer(grid_renderer_in)
         , text_service(text_service_in)
+        , config(config_in)
+        , config_document(config_document_in)
         , launch_options(std::move(launch_options_in))
         , initial_viewport(std::move(initial_viewport_in))
         , track_owner_lifetime(!owner_lifetime_in.expired())
@@ -101,6 +119,8 @@ struct HostContext
     IWindow* window = nullptr;
     IGridRenderer* grid_renderer = nullptr;
     TextService* text_service = nullptr;
+    AppConfig* config = nullptr;
+    ConfigDocument* config_document = nullptr;
     HostLaunchOptions launch_options;
     HostViewport initial_viewport;
     bool track_owner_lifetime = false;

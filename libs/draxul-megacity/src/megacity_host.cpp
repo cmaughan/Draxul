@@ -33,24 +33,6 @@ constexpr float kMovementSpeedFractionPerSecond = 0.35f;
 constexpr float kOrbitSpeedRadiansPerSecond = 1.8f;
 constexpr float kZoomSpeedPerSecond = 1.35f;
 constexpr float kPitchSpeedRadiansPerSecond = 0.9f;
-constexpr float kSignLabelPointSize = 18.0f;
-constexpr float kRoofSignThickness = 0.05f;
-constexpr float kRoofSignDepth = 0.42f;
-constexpr float kRoofSignEdgeInset = 0.08f;
-constexpr float kRoofSignSideInset = 0.12f;
-constexpr float kWallSignThickness = 0.05f;
-constexpr float kWallSignFaceGap = 0.02f;
-constexpr float kWallSignWidth = 1.92f;
-constexpr float kWallSignSideInset = 0.12f;
-constexpr float kWallSignTopInset = 0.18f;
-constexpr float kWallSignBottomInset = 0.28f;
-constexpr int kWallSignTextPadding = 4;
-constexpr float kRoadSignEdgeInset = 0.06f;
-constexpr float kRoadSignSideInset = 0.12f;
-constexpr float kMinimumRoadSignDepth = 0.16f;
-constexpr float kSidewalkSignEdgeInset = 0.04f;
-constexpr float kRoadSignLift = 0.006f;
-constexpr float kRoofSignPixelsPerWorldUnit = 192.0f;
 constexpr float kOrbitDragReferencePixelsPerSecond = 240.0f;
 constexpr float kOrbitDragRadiansPerPixel = kOrbitSpeedRadiansPerSecond / kOrbitDragReferencePixelsPerSecond;
 constexpr float kDragCatchUpRatePerSecond = 30.0f;
@@ -88,34 +70,12 @@ constexpr std::array<glm::vec4, 26> kModuleAccentPalette = {
     glm::vec4(0.502f, 0.682f, 0.827f, 1.0f), // steel
 };
 
-enum class BuildingSignPlacement
-{
-    RoofNorth,
-    RoofSouth,
-    RoofEast,
-    RoofWest,
-    WallNorth,
-    WallSouth,
-    WallEast,
-    WallWest,
-};
-
-constexpr BuildingSignPlacement kBuildingSignPlacement = BuildingSignPlacement::WallEast;
 constexpr glm::vec4 kRoadColor(0.46f, 0.46f, 0.48f, 1.0f);
 constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
 constexpr glm::vec4 kRoadSurfaceColor(0.18f, 0.18f, 0.19f, 1.0f);
 constexpr glm::vec4 kSignBoardColor(1.0f, 1.0f, 1.0f, 1.0f);
 constexpr glm::vec4 kBuildingSignColor = kSignBoardColor;
 constexpr glm::vec4 kModuleSignColor = kSignBoardColor;
-constexpr float kRoadSurfaceHeight = 0.03f;
-constexpr float kSidewalkSurfaceHeight = 0.18f;
-constexpr float kSidewalkSurfaceLift = 0.024f;
-constexpr float kBuildingBaseElevation = kSidewalkSurfaceLift + kSidewalkSurfaceHeight;
-constexpr float kWorldFloorHeight = kRoadSurfaceHeight * 0.5f;
-constexpr float kWorldFloorTopY = -0.01f;
-constexpr float kWorldFloorGridYOffset = 0.0015f;
-constexpr float kWorldFloorGridTileScale = 2.0f;
-constexpr float kWorldFloorGridLineWidth = 0.08f;
 
 struct SignPlacementSpec
 {
@@ -126,6 +86,52 @@ struct SignPlacementSpec
     float yaw_radians = 0.0f;
     MeshId mesh = MeshId::RoofSign;
 };
+
+float building_base_elevation(const MegaCityCodeConfig& config)
+{
+    return config.sidewalk_surface_lift + config.sidewalk_surface_height;
+}
+
+float world_floor_height(const MegaCityCodeConfig& config)
+{
+    return config.road_surface_height * config.world_floor_height_scale;
+}
+
+MegaCityCodeConfig world_rebuild_signature(MegaCityCodeConfig config)
+{
+    config.auto_rebuild = false;
+    config.sign_text_hidden_px = 0.0f;
+    config.sign_text_full_px = 0.0f;
+    config.output_gamma = 1.0f;
+    config.world_floor_height_scale = 0.0f;
+    config.world_floor_top_y = 0.0f;
+    config.world_floor_grid_y_offset = 0.0f;
+    config.world_floor_grid_tile_scale = 0.0f;
+    config.world_floor_grid_line_width = 0.0f;
+    config.ambient_strength = 0.0f;
+    config.directional_light_x = 0.0f;
+    config.directional_light_y = 0.0f;
+    config.directional_light_z = 0.0f;
+    config.point_light_position_valid = false;
+    config.point_light_x = 0.0f;
+    config.point_light_y = 0.0f;
+    config.point_light_z = 0.0f;
+    config.point_light_radius = 0.0f;
+    config.point_light_brightness = 0.0f;
+    config.camera_state_valid = false;
+    config.camera_target_x = 0.0f;
+    config.camera_target_z = 0.0f;
+    config.camera_yaw = 0.0f;
+    config.camera_pitch = 0.0f;
+    config.camera_orbit_radius = 0.0f;
+    config.camera_zoom_half_height = 0.0f;
+    return config;
+}
+
+bool requires_world_rebuild(const MegaCityCodeConfig& before, const MegaCityCodeConfig& after)
+{
+    return world_rebuild_signature(before) != world_rebuild_signature(after);
+}
 
 std::filesystem::path megacity_db_path()
 {
@@ -276,49 +282,49 @@ float clamp_sign_width(float available_width, float inset)
     return std::max(0.35f, available_width - 2.0f * inset);
 }
 
-float clamp_sign_depth(float available_depth, float inset)
+float clamp_sign_depth(float available_depth, float inset, const MegaCityCodeConfig& config)
 {
     const float max_depth = std::max(0.16f, available_depth - 2.0f * inset);
-    return std::clamp(std::min(kRoofSignDepth, max_depth), 0.16f, kRoofSignDepth);
+    return std::clamp(std::min(config.roof_sign_depth, max_depth), 0.16f, config.roof_sign_depth);
 }
 
-float clamp_wall_sign_height(const SemanticCityBuilding& building)
+float clamp_wall_sign_height(const SemanticCityBuilding& building, const MegaCityCodeConfig& config)
 {
-    return std::max(0.6f, building.metrics.height - (kWallSignTopInset + kWallSignBottomInset));
+    return std::max(0.6f, building.metrics.height - (config.wall_sign_top_inset + config.wall_sign_bottom_inset));
 }
 
-float clamp_wall_sign_width(const SemanticCityBuilding& building)
+float clamp_wall_sign_width(const SemanticCityBuilding& building, const MegaCityCodeConfig& config)
 {
-    const float max_width = std::max(0.24f, building.metrics.footprint - 2.0f * kWallSignSideInset);
-    return std::clamp(kWallSignWidth, 0.24f, max_width);
+    const float max_width = std::max(0.24f, building.metrics.footprint - 2.0f * config.wall_sign_side_inset);
+    return std::clamp(config.wall_sign_width, 0.24f, max_width);
 }
 
-SignPlacementSpec place_roof_sign(const SemanticCityBuilding& building)
+SignPlacementSpec place_roof_sign(const SemanticCityBuilding& building, const MegaCityCodeConfig& config)
 {
     SignPlacementSpec placement;
-    placement.width = clamp_sign_width(building.metrics.footprint, kRoofSignSideInset);
-    placement.height = kRoofSignThickness;
-    placement.depth = clamp_sign_depth(building.metrics.footprint, kRoofSignEdgeInset);
+    placement.width = clamp_sign_width(building.metrics.footprint, config.roof_sign_side_inset);
+    placement.height = config.roof_sign_thickness;
+    placement.depth = clamp_sign_depth(building.metrics.footprint, config.roof_sign_edge_inset, config);
     placement.mesh = MeshId::RoofSign;
 
     const float half_footprint = building.metrics.footprint * 0.5f;
-    const float center_offset = half_footprint - placement.depth * 0.5f - kRoofSignEdgeInset;
+    const float center_offset = half_footprint - placement.depth * 0.5f - config.roof_sign_edge_inset;
 
-    switch (kBuildingSignPlacement)
+    switch (config.building_sign_placement)
     {
-    case BuildingSignPlacement::RoofNorth:
+    case MegaCitySignPlacement::RoofNorth:
         placement.center = { building.center.x, building.center.y + center_offset };
         placement.yaw_radians = 0.0f;
         break;
-    case BuildingSignPlacement::RoofSouth:
+    case MegaCitySignPlacement::RoofSouth:
         placement.center = { building.center.x, building.center.y - center_offset };
         placement.yaw_radians = 0.0f;
         break;
-    case BuildingSignPlacement::RoofEast:
+    case MegaCitySignPlacement::RoofEast:
         placement.center = { building.center.x + center_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
-    case BuildingSignPlacement::RoofWest:
+    case MegaCitySignPlacement::RoofWest:
         placement.center = { building.center.x - center_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
@@ -330,15 +336,16 @@ SignPlacementSpec place_roof_sign(const SemanticCityBuilding& building)
 }
 
 SignPlacementSpec place_wall_sign(
-    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
+    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
+    const MegaCityCodeConfig& config)
 {
     SignPlacementSpec placement;
     const float footprint = building.metrics.footprint;
-    const float max_height = clamp_wall_sign_height(building);
+    const float max_height = clamp_wall_sign_height(building, config);
 
     // Text height (cross-text dimension) = 1/4 of building width.
     const float char_height = footprint * 0.25f;
-    float sign_width = char_height + 2.0f * kWallSignSideInset;
+    float sign_width = char_height + 2.0f * config.wall_sign_side_inset;
     float sign_height = max_height;
 
     if (text_service && !text.empty())
@@ -348,32 +355,32 @@ SignPlacementSpec place_wall_sign(
         const float aspect = static_cast<float>(cw) / static_cast<float>(ch);
         const float char_width = char_height * aspect;
         const float text_run = static_cast<float>(text.size()) * char_width;
-        sign_height = std::min(max_height, text_run + 2.0f * kWallSignSideInset);
+        sign_height = std::min(max_height, text_run + 2.0f * config.wall_sign_side_inset);
     }
 
     placement.width = std::max(0.24f, sign_width);
     placement.height = std::max(0.24f, sign_height);
-    placement.depth = kWallSignThickness;
+    placement.depth = config.wall_sign_thickness;
     placement.mesh = MeshId::WallSign;
 
     const float half_footprint = building.metrics.footprint * 0.5f;
-    const float wall_offset = half_footprint + placement.depth * 0.5f + kWallSignFaceGap;
+    const float wall_offset = half_footprint + placement.depth * 0.5f + config.wall_sign_face_gap;
 
-    switch (kBuildingSignPlacement)
+    switch (config.building_sign_placement)
     {
-    case BuildingSignPlacement::WallNorth:
+    case MegaCitySignPlacement::WallNorth:
         placement.center = { building.center.x, building.center.y + wall_offset };
         placement.yaw_radians = 0.0f;
         break;
-    case BuildingSignPlacement::WallSouth:
+    case MegaCitySignPlacement::WallSouth:
         placement.center = { building.center.x, building.center.y - wall_offset };
         placement.yaw_radians = glm::pi<float>();
         break;
-    case BuildingSignPlacement::WallEast:
+    case MegaCitySignPlacement::WallEast:
         placement.center = { building.center.x + wall_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
-    case BuildingSignPlacement::WallWest:
+    case MegaCitySignPlacement::WallWest:
         placement.center = { building.center.x - wall_offset, building.center.y };
         placement.yaw_radians = -glm::half_pi<float>();
         break;
@@ -387,7 +394,8 @@ SignPlacementSpec place_wall_sign(
 // Returns 4 wall signs, one per face, text running horizontally across each side,
 // aligned with the top of the building.
 std::array<SignPlacementSpec, 4> place_building_signs(
-    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
+    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
+    const MegaCityCodeConfig& config)
 {
     const float footprint = building.metrics.footprint;
     const float half_footprint = footprint * 0.5f;
@@ -402,40 +410,40 @@ std::array<SignPlacementSpec, 4> place_building_signs(
         const int ch = std::max(text_service->metrics().cell_height, 1);
         const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
         const float char_width = footprint / std::max(static_cast<float>(text.size()), 1.0f);
-        sign_height = char_width * aspect + 2.0f * kWallSignSideInset;
+        sign_height = char_width * aspect + 2.0f * config.wall_sign_side_inset;
     }
 
     sign_width = std::max(0.35f, sign_width);
     sign_height = std::clamp(sign_height, 0.24f, building.metrics.height * 0.15f);
 
-    const float wall_offset = half_footprint + kWallSignThickness * 0.5f;
+    const float wall_offset = half_footprint + config.wall_sign_thickness * 0.5f + config.wall_sign_face_gap;
 
     std::array<SignPlacementSpec, 4> signs;
     // North
     signs[0].width = sign_width;
     signs[0].height = sign_height;
-    signs[0].depth = kWallSignThickness;
+    signs[0].depth = config.wall_sign_thickness;
     signs[0].mesh = MeshId::WallSign;
     signs[0].center = { building.center.x, building.center.y + wall_offset };
     signs[0].yaw_radians = 0.0f;
     // South
     signs[1].width = sign_width;
     signs[1].height = sign_height;
-    signs[1].depth = kWallSignThickness;
+    signs[1].depth = config.wall_sign_thickness;
     signs[1].mesh = MeshId::WallSign;
     signs[1].center = { building.center.x, building.center.y - wall_offset };
     signs[1].yaw_radians = glm::pi<float>();
     // East
     signs[2].width = sign_width;
     signs[2].height = sign_height;
-    signs[2].depth = kWallSignThickness;
+    signs[2].depth = config.wall_sign_thickness;
     signs[2].mesh = MeshId::WallSign;
     signs[2].center = { building.center.x + wall_offset, building.center.y };
     signs[2].yaw_radians = glm::half_pi<float>();
     // West
     signs[3].width = sign_width;
     signs[3].height = sign_height;
-    signs[3].depth = kWallSignThickness;
+    signs[3].depth = config.wall_sign_thickness;
     signs[3].mesh = MeshId::WallSign;
     signs[3].center = { building.center.x - wall_offset, building.center.y };
     signs[3].yaw_radians = -glm::half_pi<float>();
@@ -444,7 +452,8 @@ std::array<SignPlacementSpec, 4> place_building_signs(
 }
 
 SignPlacementSpec place_module_road_sign(
-    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
+    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
+    const MegaCityCodeConfig& config)
 {
     SignPlacementSpec placement;
     const float sidewalk_width = building.metrics.sidewalk_width;
@@ -458,38 +467,38 @@ SignPlacementSpec place_module_road_sign(
         const int ch = std::max(text_service->metrics().cell_height, 1);
         const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
         const float char_width = sign_width / std::max(static_cast<float>(text.size()), 1.0f);
-        sign_depth = char_width * aspect + 2.0f * kRoadSignEdgeInset;
+        sign_depth = char_width * aspect + 2.0f * config.road_sign_edge_inset;
     }
     placement.width = std::max(0.35f, sign_width);
-    placement.height = kRoofSignThickness;
+    placement.height = config.roof_sign_thickness;
     placement.depth = std::clamp(
-        sign_depth, kMinimumRoadSignDepth,
-        std::max(kMinimumRoadSignDepth, sidewalk_width - 2.0f * kSidewalkSignEdgeInset));
+        sign_depth, config.minimum_road_sign_depth,
+        std::max(config.minimum_road_sign_depth, sidewalk_width - 2.0f * config.sidewalk_sign_edge_inset));
     placement.mesh = MeshId::RoofSign;
 
     // Place at the center of the sidewalk ring just beyond the building edge.
     const float half_footprint = building.metrics.footprint * 0.5f;
     const float center_offset = half_footprint + sidewalk_width * 0.5f;
 
-    switch (kBuildingSignPlacement)
+    switch (config.building_sign_placement)
     {
-    case BuildingSignPlacement::RoofNorth:
-    case BuildingSignPlacement::WallNorth:
+    case MegaCitySignPlacement::RoofNorth:
+    case MegaCitySignPlacement::WallNorth:
         placement.center = { building.center.x, building.center.y + center_offset };
         placement.yaw_radians = 0.0f;
         break;
-    case BuildingSignPlacement::RoofSouth:
-    case BuildingSignPlacement::WallSouth:
+    case MegaCitySignPlacement::RoofSouth:
+    case MegaCitySignPlacement::WallSouth:
         placement.center = { building.center.x, building.center.y - center_offset };
         placement.yaw_radians = 0.0f;
         break;
-    case BuildingSignPlacement::RoofEast:
-    case BuildingSignPlacement::WallEast:
+    case MegaCitySignPlacement::RoofEast:
+    case MegaCitySignPlacement::WallEast:
         placement.center = { building.center.x + center_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
-    case BuildingSignPlacement::RoofWest:
-    case BuildingSignPlacement::WallWest:
+    case MegaCitySignPlacement::RoofWest:
+    case MegaCitySignPlacement::WallWest:
         placement.center = { building.center.x - center_offset, building.center.y };
         placement.yaw_radians = glm::half_pi<float>();
         break;
@@ -500,7 +509,7 @@ SignPlacementSpec place_module_road_sign(
 
 SignLabelRequest make_sign_request(
     std::string key, std::string_view text, const SignPlacementSpec& placement,
-    const TextService* text_service)
+    const TextService* text_service, const MegaCityCodeConfig& config)
 {
     // Small bitmap at native font size — UVs stretch it to fill the sign.
     int pixel_width;
@@ -509,7 +518,7 @@ SignLabelRequest make_sign_request(
     {
         const int cw = std::max(text_service->metrics().cell_width, 1);
         const int ch = std::max(text_service->metrics().cell_height, 1);
-        constexpr int kPad = 4;
+        const int kPad = std::max(config.wall_sign_text_padding, 0);
         pixel_width = static_cast<int>(text.size()) * cw + 2 * kPad;
         pixel_height = ch + 2 * kPad;
     }
@@ -556,26 +565,27 @@ MegaCityHost::MegaCityHost() = default;
 
 MegaCityHost::~MegaCityHost() = default;
 
-bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
+void MegaCityHost::refresh_sign_text_service()
 {
-    callbacks_ = &callbacks;
-    viewport_ = context.initial_viewport;
-    pixel_w_ = viewport_.pixel_size.x > 0 ? viewport_.pixel_size.x : 800;
-    pixel_h_ = viewport_.pixel_size.y > 0 ? viewport_.pixel_size.y : 600;
-
-    world_ = std::make_unique<SceneWorld>();
-    camera_ = std::make_unique<IsometricCamera>();
-    camera_->set_viewport(pixel_w_, pixel_h_);
-    camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
-    scene_pass_ = std::make_shared<IsometricScenePass>(1, 1, world_->tile_size());
-    sign_text_service_ = std::make_unique<TextService>();
     sign_label_atlas_.reset();
+    if (sign_font_path_.empty())
+    {
+        sign_text_service_.reset();
+        return;
+    }
+
+    if (!sign_text_service_)
+        sign_text_service_ = std::make_unique<TextService>();
+    else
+        sign_text_service_->shutdown();
 
     TextServiceConfig sign_text_config;
-    sign_text_config.font_path = context.text_service->primary_font_path();
+    sign_text_config.font_path = sign_font_path_;
     sign_text_config.enable_ligatures = false;
-    if (!sign_text_config.font_path.empty()
-        && sign_text_service_->initialize(sign_text_config, kSignLabelPointSize, context.display_ppi))
+    if (sign_text_service_->initialize(
+            sign_text_config,
+            std::max(renderer_config_.sign_label_point_size, 1.0f),
+            display_ppi_))
     {
         DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost: sign label text service initialized");
     }
@@ -585,9 +595,37 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         DRAXUL_LOG_WARN(LogCategory::App,
             "MegaCityHost: sign label text service unavailable; rooftop labels disabled");
     }
+}
+
+bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
+{
+    callbacks_ = &callbacks;
+    config_document_ = context.config_document;
+    renderer_defaults_ = config_document_
+        ? load_megacity_code_defaults(*config_document_)
+        : MegaCityCodeConfig{};
+    renderer_config_ = config_document_
+        ? load_megacity_code_config(*config_document_, renderer_defaults_)
+        : renderer_defaults_;
+    pending_renderer_config_ = renderer_config_;
+    restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
+    sign_font_path_ = context.text_service->primary_font_path();
+    display_ppi_ = context.display_ppi;
+    viewport_ = context.initial_viewport;
+    pixel_w_ = viewport_.pixel_size.x > 0 ? viewport_.pixel_size.x : 800;
+    pixel_h_ = viewport_.pixel_size.y > 0 ? viewport_.pixel_size.y : 600;
+
+    world_ = std::make_unique<SceneWorld>();
+    camera_ = std::make_unique<IsometricCamera>();
+    camera_->set_viewport(pixel_w_, pixel_h_);
+    camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
+    scene_pass_ = std::make_shared<IsometricScenePass>(1, 1, world_->tile_size());
+    refresh_sign_text_service();
 
     running_ = true;
     city_db_reconciled_ = false;
+    world_rebuild_pending_ = false;
+    city_bounds_valid_ = false;
     last_activity_time_ = std::chrono::steady_clock::now();
     last_pump_time_ = last_activity_time_;
     const std::filesystem::path city_db_path = megacity_db_path();
@@ -610,6 +648,49 @@ void MegaCityHost::mark_scene_dirty()
     last_activity_time_ = std::chrono::steady_clock::now();
     if (callbacks_)
         callbacks_->request_frame();
+}
+
+void MegaCityHost::mark_world_rebuild_pending()
+{
+    world_rebuild_pending_ = true;
+    last_activity_time_ = std::chrono::steady_clock::now();
+    if (callbacks_)
+        callbacks_->request_frame();
+}
+
+void MegaCityHost::sync_camera_state_to_configs()
+{
+    if (!camera_)
+        return;
+
+    const IsometricCameraState state = camera_->state();
+    auto write_state = [&](MegaCityCodeConfig& config) {
+        config.camera_state_valid = true;
+        config.camera_target_x = state.target.x;
+        config.camera_target_z = state.target.z;
+        config.camera_yaw = state.yaw;
+        config.camera_pitch = state.pitch;
+        config.camera_orbit_radius = state.orbit_radius;
+        config.camera_zoom_half_height = state.zoom_half_height;
+    };
+
+    write_state(renderer_config_);
+    write_state(pending_renderer_config_);
+}
+
+void MegaCityHost::reset_camera_to_default_frame()
+{
+    if (!camera_)
+        return;
+
+    if (city_bounds_valid_)
+        camera_->frame_world_bounds(city_min_x_, city_max_x_, city_min_z_, city_max_z_);
+    else
+        camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
+
+    restore_camera_after_initial_build_ = false;
+    sync_camera_state_to_configs();
+    mark_scene_dirty();
 }
 
 void MegaCityHost::on_key(const KeyEvent& event)
@@ -763,28 +844,57 @@ void MegaCityHost::render_imgui(float dt)
     ImGui::End();
 
     MegacityRendererControls renderer_controls{
-        .sign_text_hidden_px = sign_text_hidden_px_,
-        .sign_text_full_px = sign_text_full_px_,
-        .output_gamma = output_gamma_,
-        .height_multiplier = height_multiplier_,
-        .clamp_semantic_metrics = clamp_semantic_metrics_,
-        .hide_test_entities = hide_test_entities_,
+        .config = pending_renderer_config_,
+        .defaults = renderer_defaults_,
+        .rebuild_pending = world_rebuild_pending_
+            || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
-    if (render_treesitter_panel(pixel_w_, pixel_h_, scanner_.snapshot(), &renderer_controls))
+    if (render_treesitter_panel(
+            pixel_w_, pixel_h_, scanner_.snapshot(), semantic_model_.get(), &renderer_controls))
     {
-        const bool clamp_changed = clamp_semantic_metrics_ != renderer_controls.clamp_semantic_metrics;
-        const bool test_filter_changed = hide_test_entities_ != renderer_controls.hide_test_entities;
-        const bool height_changed = height_multiplier_ != renderer_controls.height_multiplier;
-        sign_text_hidden_px_ = renderer_controls.sign_text_hidden_px;
-        sign_text_full_px_ = renderer_controls.sign_text_full_px;
-        output_gamma_ = renderer_controls.output_gamma;
-        height_multiplier_ = renderer_controls.height_multiplier;
-        clamp_semantic_metrics_ = renderer_controls.clamp_semantic_metrics;
-        hide_test_entities_ = renderer_controls.hide_test_entities;
-        if ((clamp_changed || test_filter_changed || height_changed) && city_db_reconciled_)
-            rebuild_semantic_city();
-        else
+        if (renderer_controls.reset_camera_requested)
+            reset_camera_to_default_frame();
+
+        const MegaCityCodeConfig previous_pending = pending_renderer_config_;
+        pending_renderer_config_ = renderer_controls.config;
+        renderer_defaults_ = renderer_controls.defaults;
+        const bool pending_changed = previous_pending != pending_renderer_config_;
+        const bool world_rebuild_needed = requires_world_rebuild(renderer_config_, pending_renderer_config_);
+
+        if (world_rebuild_needed)
+        {
+            if (pending_changed)
+                mark_world_rebuild_pending();
+        }
+        else if (pending_changed)
+        {
+            renderer_config_ = pending_renderer_config_;
             mark_scene_dirty();
+        }
+
+        const bool auto_rebuild_requested = renderer_controls.committed_edit
+            && pending_renderer_config_.auto_rebuild
+            && world_rebuild_needed;
+        if (renderer_controls.rebuild_requested || auto_rebuild_requested)
+        {
+            renderer_config_ = pending_renderer_config_;
+            if (renderer_controls.rebuild_requested && config_document_)
+            {
+                store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
+                config_document_->save();
+            }
+            refresh_sign_text_service();
+            if (city_db_reconciled_)
+                rebuild_semantic_city();
+            else
+                mark_world_rebuild_pending();
+        }
+
+        if (renderer_controls.set_defaults_requested && config_document_)
+        {
+            store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
+            config_document_->save();
+        }
     }
 }
 
@@ -816,6 +926,8 @@ void MegaCityHost::detach_3d_renderer()
 
 void MegaCityHost::shutdown()
 {
+    if (config_document_)
+        store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
     scanner_.stop();
     city_db_.close();
     if (sign_text_service_)
@@ -824,6 +936,7 @@ void MegaCityHost::shutdown()
         sign_text_service_.reset();
     }
     sign_label_atlas_.reset();
+    semantic_model_.reset();
     detach_3d_renderer();
     scene_pass_.reset();
     camera_.reset();
@@ -863,21 +976,35 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
 
     scene.camera.view = camera_->view_matrix();
     scene.camera.proj = camera_->proj_matrix();
-    scene.camera.light_dir = glm::normalize(glm::vec4(-0.5f, -1.0f, -0.3f, 0.0f));
-    scene.camera.label_fade_px = glm::vec4(sign_text_hidden_px_, sign_text_full_px_, 0.0f, 0.0f);
-    scene.camera.render_tuning = glm::vec4(output_gamma_, 0.0f, 0.0f, 0.0f);
+    scene.camera.light_dir = glm::normalize(glm::vec4(
+        renderer_config_.directional_light_x,
+        renderer_config_.directional_light_y,
+        renderer_config_.directional_light_z,
+        0.0f));
+    scene.camera.label_fade_px = glm::vec4(
+        renderer_config_.sign_text_hidden_px,
+        renderer_config_.sign_text_full_px,
+        0.0f,
+        0.0f);
+    scene.camera.render_tuning = glm::vec4(
+        renderer_config_.output_gamma,
+        renderer_config_.point_light_brightness,
+        renderer_config_.ambient_strength,
+        0.0f);
 
     const GroundFootprint footprint = camera_->visible_ground_footprint(0.0f);
     const float tile_size = world_->tile_size();
-    const float grid_tile_size = tile_size * kWorldFloorGridTileScale;
+    const float grid_tile_size = tile_size * renderer_config_.world_floor_grid_tile_scale;
     scene.floor_grid.enabled = true;
     scene.floor_grid.min_x = static_cast<int>(std::floor(footprint.min_x / grid_tile_size)) - 1;
     scene.floor_grid.max_x = static_cast<int>(std::ceil(footprint.max_x / grid_tile_size)) + 1;
     scene.floor_grid.min_z = static_cast<int>(std::floor(footprint.min_z / grid_tile_size)) - 1;
     scene.floor_grid.max_z = static_cast<int>(std::ceil(footprint.max_z / grid_tile_size)) + 1;
     scene.floor_grid.tile_size = grid_tile_size;
-    scene.floor_grid.line_width = tile_size * kWorldFloorGridLineWidth;
-    scene.floor_grid.y = kWorldFloorTopY - kWorldFloorHeight - kWorldFloorGridYOffset;
+    scene.floor_grid.line_width = tile_size * renderer_config_.world_floor_grid_line_width;
+    scene.floor_grid.y = renderer_config_.world_floor_top_y
+        - world_floor_height(renderer_config_)
+        - renderer_config_.world_floor_grid_y_offset;
     scene.floor_grid.color = glm::vec4(0.62f, 0.62f, 0.66f, 1.0f);
     if (sign_label_atlas_)
         scene.label_atlas = std::shared_ptr<const LabelAtlasData>(sign_label_atlas_, &sign_label_atlas_->image);
@@ -963,12 +1090,12 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
         floor.world = glm::translate(glm::mat4(1.0f),
                           glm::vec3(
                               (floor_min_x + floor_max_x) * 0.5f,
-                              kWorldFloorTopY - kWorldFloorHeight * 0.5f,
+                              renderer_config_.world_floor_top_y - world_floor_height(renderer_config_) * 0.5f,
                               (floor_min_z + floor_max_z) * 0.5f))
             * glm::scale(glm::mat4(1.0f),
                 glm::vec3(
                     floor_max_x - floor_min_x,
-                    kWorldFloorHeight,
+                    world_floor_height(renderer_config_),
                     floor_max_z - floor_min_z));
         scene.objects.insert(scene.objects.begin(), floor);
     }
@@ -984,10 +1111,10 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     const float span = std::max(max_x - min_x, max_z - min_z);
     world_span_ = std::max(span, 1.0f);
     scene.camera.point_light_pos = glm::vec4(
-        max_x,
-        std::max(8.0f, span * 1.0f),
-        max_z,
-        std::max(14.0f, span * 2.2f));
+        renderer_config_.point_light_x,
+        renderer_config_.point_light_y,
+        renderer_config_.point_light_z,
+        std::max(renderer_config_.point_light_radius, 1.0f));
 
     return scene;
 }
@@ -997,11 +1124,38 @@ void MegaCityHost::rebuild_semantic_city()
     if (!world_ || !camera_)
         return;
 
+    const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
     std::vector<SemanticCityModuleInput> modules;
     for (const std::string& module_path : city_db_.list_modules())
         modules.push_back({ module_path, city_db_.list_classes_in_module(module_path) });
 
-    const SemanticMegacityLayout layout = build_semantic_megacity_layout(modules, clamp_semantic_metrics_, hide_test_entities_, height_multiplier_);
+    auto semantic_model = std::make_shared<SemanticMegacityModel>(
+        build_semantic_megacity_model(modules, renderer_config_));
+    const SemanticMegacityLayout layout = build_semantic_megacity_layout(*semantic_model, renderer_config_);
+    city_bounds_valid_ = !layout.empty();
+    if (city_bounds_valid_)
+    {
+        city_min_x_ = layout.min_x;
+        city_max_x_ = layout.max_x;
+        city_min_z_ = layout.min_z;
+        city_max_z_ = layout.max_z;
+
+        if (!renderer_config_.point_light_position_valid)
+        {
+            const float span = std::max(layout.max_x - layout.min_x, layout.max_z - layout.min_z);
+            const float default_height = std::max(8.0f, span * 0.4f);
+            const float default_radius = std::max(24.0f, span * 0.8f);
+            auto set_default_light = [&](MegaCityCodeConfig& config) {
+                config.point_light_position_valid = true;
+                config.point_light_x = layout.min_x;
+                config.point_light_y = default_height;
+                config.point_light_z = layout.min_z;
+                config.point_light_radius = default_radius;
+            };
+            set_default_light(renderer_config_);
+            set_default_light(pending_renderer_config_);
+        }
+    }
     std::vector<SignLabelRequest> sign_requests;
     sign_requests.reserve(layout.building_count() + layout.modules.size());
     for (const auto& module : layout.modules)
@@ -1010,9 +1164,9 @@ void MegaCityHost::rebuild_semantic_city()
         {
             const std::string& text = building.display_name.empty() ? building.qualified_name : building.display_name;
             const TextService* ts = sign_text_service_ ? sign_text_service_.get() : nullptr;
-            const auto signs = place_building_signs(building, text, ts);
+            const auto signs = place_building_signs(building, text, ts, renderer_config_);
             // All 4 faces share the same atlas entry — use the first for sizing.
-            sign_requests.push_back(make_sign_request(building_sign_key(building), text, signs[0], ts));
+            sign_requests.push_back(make_sign_request(building_sign_key(building), text, signs[0], ts, renderer_config_));
         }
 
         if (!module.buildings.empty())
@@ -1020,10 +1174,10 @@ void MegaCityHost::rebuild_semantic_city()
             const SemanticCityBuilding& anchor = module.buildings.front();
             const std::string name = module_display_name(module.module_path);
             const SignPlacementSpec road = place_module_road_sign(
-                anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr);
+                anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
             sign_requests.push_back(make_sign_request(
                 module_sign_key(module.module_path), name, road,
-                sign_text_service_ ? sign_text_service_.get() : nullptr));
+                sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_));
         }
     }
     if (sign_text_service_)
@@ -1037,13 +1191,13 @@ void MegaCityHost::rebuild_semantic_city()
         const glm::vec4 module_color = module_building_color(module.module_path);
         for (const auto& building : module.buildings)
         {
-            float layer_base_y = kBuildingBaseElevation;
+            float layer_base_y = building_base_elevation(renderer_config_);
             if (building.layers.empty())
             {
                 world_->create_building(
                     building.center.x,
                     building.center.y,
-                    kBuildingBaseElevation,
+                    building_base_elevation(renderer_config_),
                     building.metrics,
                     module_color,
                     SourceSymbol{ building.source_file_path, building.qualified_name });
@@ -1076,7 +1230,7 @@ void MegaCityHost::rebuild_semantic_city()
                 {
                     const std::string& btext = building.display_name.empty() ? building.qualified_name : building.display_name;
                     const TextService* ts = sign_text_service_ ? sign_text_service_.get() : nullptr;
-                    const auto face_signs = place_building_signs(building, btext, ts);
+                    const auto face_signs = place_building_signs(building, btext, ts, renderer_config_);
                     const SignMetrics first_sign = make_sign_metrics(face_signs[0], it->second);
                     const float cap_height = first_sign.height;
 
@@ -1088,13 +1242,13 @@ void MegaCityHost::rebuild_semantic_city()
                         world_->create_building(
                             building.center.x,
                             building.center.y,
-                            kBuildingBaseElevation + building.metrics.height,
+                            building_base_elevation(renderer_config_) + building.metrics.height,
                             cap_metrics,
                             module_color,
                             SourceSymbol{ building.source_file_path, building.qualified_name });
                     }
 
-                    const float total_height = kBuildingBaseElevation + building.metrics.height + cap_height;
+                    const float total_height = building_base_elevation(renderer_config_) + building.metrics.height + cap_height;
                     for (const SignPlacementSpec& placement : face_signs)
                     {
                         const SignMetrics sign = make_sign_metrics(placement, it->second);
@@ -1116,10 +1270,10 @@ void MegaCityHost::rebuild_semantic_city()
                 world_->create_road(
                     sidewalk.center.x,
                     sidewalk.center.y,
-                    RoadMetrics{ sidewalk.extent.x, sidewalk.extent.y, kSidewalkSurfaceHeight },
+                    RoadMetrics{ sidewalk.extent.x, sidewalk.extent.y, renderer_config_.sidewalk_surface_height },
                     kSidewalkSurfaceColor,
                     SourceSymbol{ building.source_file_path, building.qualified_name },
-                    kSidewalkSurfaceLift);
+                    renderer_config_.sidewalk_surface_lift);
             }
 
             for (const RoadSegmentPlacement& road : build_road_segments(building))
@@ -1127,7 +1281,7 @@ void MegaCityHost::rebuild_semantic_city()
                 world_->create_road(
                     road.center.x,
                     road.center.y,
-                    RoadMetrics{ road.extent.x, road.extent.y, kRoadSurfaceHeight },
+                    RoadMetrics{ road.extent.x, road.extent.y, renderer_config_.road_surface_height },
                     kRoadSurfaceColor,
                     SourceSymbol{ building.source_file_path, building.qualified_name });
             }
@@ -1141,12 +1295,15 @@ void MegaCityHost::rebuild_semantic_city()
             {
                 const std::string name = module_display_name(module.module_path);
                 const SignPlacementSpec road = place_module_road_sign(
-                    anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr);
+                    anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
                 const SignMetrics sign = make_sign_metrics(road, it->second);
                 world_->create_sign(
                     road.center.x,
                     road.center.y,
-                    kSidewalkSurfaceLift + kSidewalkSurfaceHeight + sign.height * 0.5f + kRoadSignLift,
+                    renderer_config_.sidewalk_surface_lift
+                        + renderer_config_.sidewalk_surface_height
+                        + sign.height * 0.5f
+                        + renderer_config_.road_sign_lift,
                     sign,
                     road.mesh,
                     kModuleSignColor,
@@ -1155,16 +1312,37 @@ void MegaCityHost::rebuild_semantic_city()
         }
     }
 
-    if (layout.empty())
-        camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
-    else
-        camera_->frame_world_bounds(layout.min_x, layout.max_x, layout.min_z, layout.max_z);
+    if (!had_existing_city)
+    {
+        if (restore_camera_after_initial_build_ && renderer_config_.camera_state_valid)
+        {
+            if (layout.empty())
+                camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
+            else
+                camera_->frame_world_bounds(layout.min_x, layout.max_x, layout.min_z, layout.max_z);
+            camera_->apply_state(IsometricCameraState{
+                .target = { renderer_config_.camera_target_x, 0.0f, renderer_config_.camera_target_z },
+                .yaw = renderer_config_.camera_yaw,
+                .pitch = renderer_config_.camera_pitch,
+                .orbit_radius = renderer_config_.camera_orbit_radius,
+                .zoom_half_height = renderer_config_.camera_zoom_half_height,
+            });
+        }
+        else if (layout.empty())
+            camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
+        else
+            camera_->frame_world_bounds(layout.min_x, layout.max_x, layout.min_z, layout.max_z);
+    }
+    restore_camera_after_initial_build_ = false;
+    sync_camera_state_to_configs();
 
     DRAXUL_LOG_INFO(LogCategory::App,
         "MegaCityHost: built semantic megacity with %zu modules and %zu buildings",
         layout.modules.size(),
         layout.building_count());
 
+    semantic_model_ = std::move(semantic_model);
+    world_rebuild_pending_ = false;
     mark_scene_dirty();
 }
 
@@ -1272,6 +1450,7 @@ void MegaCityHost::pump()
 
     if (camera_changed)
     {
+        sync_camera_state_to_configs();
         scene_dirty_ = true;
         last_activity_time_ = now;
         if (callbacks_)

@@ -91,161 +91,231 @@ std::string file_path_within_module(std::string_view file_path)
     return relative_path.empty() ? std::string(path_basename(file_path)) : std::string(relative_path);
 }
 
-float clamp_metric(float value, float min_value, float max_value)
+std::string file_path_within_module(std::string_view file_path, std::string_view module_path)
 {
-    return std::clamp(value, min_value, max_value);
+    if (module_path.empty() || file_path.size() <= module_path.size())
+        return std::string(path_basename(file_path));
+
+    std::string_view relative_path = file_path;
+    if (path_has_prefix(file_path, module_path))
+    {
+        relative_path = file_path.substr(module_path.size());
+        if (!relative_path.empty() && relative_path.front() == '/')
+            relative_path.remove_prefix(1);
+    }
+
+    return relative_path.empty() ? std::string(path_basename(file_path)) : std::string(relative_path);
 }
 
-float maybe_clamp_metric(float value, float min_value, float max_value, bool clamp_metrics)
+struct SnapshotStats
 {
-    return clamp_metrics ? clamp_metric(value, min_value, max_value) : value;
-}
-
-struct CityPreviewEntry
-{
-    std::string qualified_name;
-    std::string module;
-    std::string file;
-    std::string module_file;
-    bool is_tree = false;
-    int base_size = 0;
-    int function_count = 0;
-    int function_mass = 0;
-    int road_size = 0;
-    float render_footprint = 1.0f;
-    float render_height = 1.0f;
-    float render_road = 0.6f;
+    size_t file_count = 0;
+    size_t function_count = 0;
+    size_t class_count = 0;
+    size_t struct_count = 0;
+    size_t error_count = 0;
 };
 
-float normalized_footprint(int base_size, bool clamp_metrics)
+struct FilesSymbolEntry
 {
-    return maybe_clamp_metric(
-        1.0f + std::sqrt(static_cast<float>(std::max(base_size, 0))), 1.0f, 9.0f, clamp_metrics);
+    std::string name;
+    SymbolKind kind = SymbolKind::Function;
+    uint32_t line = 0;
+};
+
+struct FilesErrorEntry
+{
+    uint32_t line = 0;
+    uint32_t col = 0;
+};
+
+struct FilesEntry
+{
+    std::string path;
+    bool has_children = false;
+    bool has_errors = false;
+    std::vector<FilesErrorEntry> errors;
+    std::vector<FilesSymbolEntry> symbols;
+};
+
+struct ClassEntry
+{
+    std::string name;
+    std::string file;
+    uint32_t line;
+    SymbolKind kind; // Class or Struct
+};
+
+struct FuncEntry
+{
+    std::string name;
+    std::string file;
+    uint32_t line;
+};
+
+struct ModuleObjects
+{
+    std::vector<ClassEntry> concrete;
+    std::vector<ClassEntry> abstract;
+    std::vector<ClassEntry> data_structs;
+    std::vector<FuncEntry> free_functions;
+};
+
+struct ObjectsTreeCache
+{
+    std::map<std::string, ModuleObjects> modules;
+    size_t concrete_count = 0;
+    size_t abstract_count = 0;
+    size_t struct_count = 0;
+    size_t function_count = 0;
+};
+
+struct SnapshotUiCache
+{
+    std::shared_ptr<const CodebaseSnapshot> snapshot;
+    SnapshotStats stats;
+    std::vector<FilesEntry> files;
+    ObjectsTreeCache objects;
+    bool valid = false;
+};
+
+bool same_snapshot_identity(
+    const std::shared_ptr<const CodebaseSnapshot>& cached,
+    const std::shared_ptr<const CodebaseSnapshot>& current)
+{
+    return cached
+        && cached.get() == current.get()
+        && cached->scan_time == current->scan_time
+        && cached->complete == current->complete
+        && cached->files.size() == current->files.size();
 }
 
-float normalized_height(int function_count, int function_mass, bool clamp_metrics)
+SnapshotStats build_snapshot_stats(const CodebaseSnapshot& snap)
 {
-    const float height = 2.0f
-        + 1.35f * std::log1p(static_cast<float>(std::max(function_mass, 0)))
-        + 0.45f * std::sqrt(static_cast<float>(std::max(function_count, 0)));
-    return maybe_clamp_metric(height, 2.0f, 12.0f, clamp_metrics);
+    SnapshotStats stats;
+    stats.file_count = snap.files.size();
+    for (const auto& f : snap.files)
+    {
+        for (const auto& sym : f.symbols)
+        {
+            if (sym.kind == SymbolKind::Function)
+                ++stats.function_count;
+            else if (sym.kind == SymbolKind::Class)
+                ++stats.class_count;
+            else if (sym.kind == SymbolKind::Struct)
+                ++stats.struct_count;
+        }
+        stats.error_count += f.errors.size();
+    }
+    return stats;
 }
 
-float normalized_road_width(int road_size, bool clamp_metrics)
+std::vector<FilesEntry> build_files_entries(const CodebaseSnapshot& snap)
 {
-    return maybe_clamp_metric(
-        0.6f + 0.85f * std::log1p(static_cast<float>(std::max(road_size, 0))), 0.6f, 3.0f, clamp_metrics);
+    std::vector<FilesEntry> files;
+    files.reserve(snap.files.size());
+    for (const auto& file : snap.files)
+    {
+        FilesEntry entry;
+        entry.path = file.path;
+        entry.has_children = !file.symbols.empty() || !file.errors.empty();
+        entry.has_errors = !file.errors.empty();
+        entry.errors.reserve(file.errors.size());
+        for (const auto& err : file.errors)
+            entry.errors.push_back({ err.line, err.col });
+        entry.symbols.reserve(file.symbols.size());
+        for (const auto& sym : file.symbols)
+        {
+            if (sym.kind == SymbolKind::Include)
+                continue;
+            entry.symbols.push_back({ sym.name, sym.kind, sym.line });
+        }
+        files.push_back(std::move(entry));
+    }
+    return files;
 }
 
-std::vector<CityPreviewEntry> build_city_preview(
-    const CodebaseSnapshot& snap, bool clamp_metrics, bool hide_test_entities)
+ObjectsTreeCache build_objects_tree_cache(const CodebaseSnapshot& snap)
 {
-    std::unordered_set<std::string> concrete_type_names;
-    std::unordered_map<std::string, std::vector<int>> method_sizes_by_type;
+    ObjectsTreeCache cache;
+
+    std::set<std::string> types_with_methods;
     for (const auto& file : snap.files)
     {
         for (const auto& sym : file.symbols)
         {
             if (sym.kind == SymbolKind::Function && !sym.parent.empty())
-            {
-                const int function_size = static_cast<int>(
-                    sym.end_line >= sym.line ? (sym.end_line - sym.line + 1) : 1);
-                method_sizes_by_type[sym.parent].push_back(function_size);
-            }
+                types_with_methods.insert(sym.parent);
         }
     }
 
     for (const auto& file : snap.files)
     {
-        for (const auto& sym : file.symbols)
-        {
-            if (sym.is_abstract)
-                continue;
-            if (sym.kind == SymbolKind::Class)
-                concrete_type_names.insert(sym.name);
-            else if (sym.kind == SymbolKind::Struct
-                && method_sizes_by_type.find(sym.name) != method_sizes_by_type.end())
-                concrete_type_names.insert(sym.name);
-        }
-    }
-
-    std::vector<CityPreviewEntry> entries;
-    for (const auto& file : snap.files)
-    {
-        if (hide_test_entities && is_test_semantic_source(file.path))
-            continue;
         const std::string module = logical_module_for_file(file.path);
         const std::string module_file = file_path_within_module(file.path);
+        auto& module_entries = cache.modules[module];
         for (const auto& sym : file.symbols)
         {
-            if (sym.kind == SymbolKind::Function && sym.parent.empty())
+            if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
             {
-                const int function_size = static_cast<int>(
-                    sym.end_line >= sym.line ? (sym.end_line - sym.line + 1) : 1);
-                CityPreviewEntry entry;
-                entry.qualified_name = sym.name;
-                entry.module = module;
-                entry.file = file.path;
-                entry.module_file = module_file;
-                entry.is_tree = true;
-                entry.function_count = 1;
-                entry.function_mass = function_size;
-                entry.render_footprint = 1.0f;
-                entry.render_height = maybe_clamp_metric(
-                    1.4f + 0.9f * std::log1p(static_cast<float>(function_size)), 1.4f, 4.5f, clamp_metrics);
-                entry.render_road = 0.0f;
-                entries.push_back(std::move(entry));
-                continue;
+                ClassEntry e{ sym.name, module_file, sym.line, sym.kind };
+                if (sym.is_abstract)
+                    module_entries.abstract.push_back(std::move(e));
+                else if (sym.kind == SymbolKind::Struct
+                    && types_with_methods.find(sym.name) == types_with_methods.end())
+                    module_entries.data_structs.push_back(std::move(e));
+                else
+                    module_entries.concrete.push_back(std::move(e));
             }
-
-            const auto method_it = method_sizes_by_type.find(sym.name);
-            const bool concrete_class = sym.kind == SymbolKind::Class && !sym.is_abstract;
-            const bool concrete_struct = sym.kind == SymbolKind::Struct
-                && !sym.is_abstract
-                && method_it != method_sizes_by_type.end();
-            if (!concrete_class && !concrete_struct)
-                continue;
-
-            CityPreviewEntry entry;
-            entry.qualified_name = sym.name;
-            entry.module = module;
-            entry.file = file.path;
-            entry.module_file = module_file;
-            entry.base_size = static_cast<int>(sym.field_count);
-            if (method_it != method_sizes_by_type.end())
+            else if (sym.kind == SymbolKind::Function && sym.parent.empty())
             {
-                entry.function_count = static_cast<int>(method_it->second.size());
-                for (const int size : method_it->second)
-                    entry.function_mass += size;
+                module_entries.free_functions.push_back({ sym.name, module_file, sym.line });
             }
-
-            std::unordered_set<std::string> external_refs;
-            for (const auto& ref : sym.referenced_types)
-            {
-                if (ref != sym.name && concrete_type_names.find(ref) != concrete_type_names.end())
-                    external_refs.insert(ref);
-            }
-            entry.road_size = static_cast<int>(external_refs.size());
-            entry.render_footprint = normalized_footprint(entry.base_size, clamp_metrics);
-            entry.render_height = normalized_height(entry.function_count, entry.function_mass, clamp_metrics);
-            entry.render_road = normalized_road_width(entry.road_size, clamp_metrics);
-            entries.push_back(std::move(entry));
         }
     }
 
-    std::sort(entries.begin(), entries.end(), [](const CityPreviewEntry& a, const CityPreviewEntry& b) {
-        if (a.module != b.module)
-            return a.module < b.module;
-        return a.qualified_name < b.qualified_name;
-    });
+    auto by_name_then_file = [](const auto& a, const auto& b) {
+        if (a.name != b.name)
+            return a.name < b.name;
+        return a.file < b.file;
+    };
+    for (auto& [module, module_entries] : cache.modules)
+    {
+        std::sort(module_entries.concrete.begin(), module_entries.concrete.end(), by_name_then_file);
+        std::sort(module_entries.abstract.begin(), module_entries.abstract.end(), by_name_then_file);
+        std::sort(module_entries.data_structs.begin(), module_entries.data_structs.end(), by_name_then_file);
+        std::sort(module_entries.free_functions.begin(), module_entries.free_functions.end(), by_name_then_file);
+        cache.concrete_count += module_entries.concrete.size();
+        cache.abstract_count += module_entries.abstract.size();
+        cache.struct_count += module_entries.data_structs.size();
+        cache.function_count += module_entries.free_functions.size();
+    }
 
-    return entries;
+    return cache;
 }
 
-void render_city_preview(const CodebaseSnapshot& snap, bool clamp_metrics, bool hide_test_entities)
+const SnapshotUiCache& cached_snapshot_ui(
+    const std::shared_ptr<const CodebaseSnapshot>& snapshot)
 {
-    const std::vector<CityPreviewEntry> entries = build_city_preview(snap, clamp_metrics, hide_test_entities);
-    if (entries.empty())
+    static SnapshotUiCache cache;
+    if (!snapshot)
+        return cache;
+
+    if (!cache.valid || !same_snapshot_identity(cache.snapshot, snapshot))
+    {
+        cache.snapshot = snapshot;
+        cache.stats = build_snapshot_stats(*snapshot);
+        cache.files = build_files_entries(*snapshot);
+        cache.objects = build_objects_tree_cache(*snapshot);
+        cache.valid = true;
+    }
+
+    return cache;
+}
+
+void render_city_preview(const SemanticMegacityModel* semantic_model)
+{
+    if (!semantic_model || semantic_model->empty())
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
         ImGui::TextUnformatted("No city entities yet.");
@@ -253,80 +323,56 @@ void render_city_preview(const CodebaseSnapshot& snap, bool clamp_metrics, bool 
         return;
     }
 
-    int building_count = 0;
-    int tree_count = 0;
-    for (const auto& entry : entries)
-    {
-        if (entry.is_tree)
-            ++tree_count;
-        else
-            ++building_count;
-    }
-
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
-    ImGui::Text("Compressed preview: %d buildings | %d trees", building_count, tree_count);
-    ImGui::TextUnformatted(clamp_metrics
-            ? "Render metrics use sqrt/log compression and clamped city-friendly ranges."
-            : "Render metrics use sqrt/log compression with all clamps disabled.");
+    ImGui::Text(
+        "Semantic preview: %zu modules | %zu buildings",
+        semantic_model->modules.size(),
+        semantic_model->building_count());
+    ImGui::TextUnformatted("Preview reflects the last rebuilt DB-derived city model.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
 
-    std::map<std::string, std::vector<const CityPreviewEntry*>> modules;
-    for (const auto& entry : entries)
-        modules[entry.module].push_back(&entry);
-
-    for (const auto& [module, module_entries] : modules)
+    for (const auto& module : semantic_model->modules)
     {
-        const std::string label = module.empty()
+        const std::string label = module.module_path.empty()
             ? "Module: (root)"
-            : ("Module: " + module);
+            : ("Module: " + module.module_path);
         const bool module_open = ImGui::TreeNodeEx(
             label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth,
-            "%s (%zu)", label.c_str(), module_entries.size());
+            "%s (%zu)", label.c_str(), module.buildings.size());
         if (!module_open)
             continue;
 
-        for (const CityPreviewEntry* entry : module_entries)
+        for (const SemanticCityBuilding& building : module.buildings)
         {
-            const ImVec4 color = entry->is_tree
-                ? ImVec4(0.55f, 0.88f, 0.55f, 1.0f)
-                : ImVec4(0.88f, 0.82f, 0.55f, 1.0f);
-            const char* kind = entry->is_tree ? "tree" : "building";
+            const ImVec4 color = ImVec4(0.88f, 0.82f, 0.55f, 1.0f);
+            const std::string module_file = file_path_within_module(building.source_file_path, module.module_path);
 
             ImGui::PushStyleColor(ImGuiCol_Text, color);
             const bool open = ImGui::TreeNodeEx(
-                (entry->qualified_name + entry->file).c_str(),
+                (building.qualified_name + building.source_file_path).c_str(),
                 ImGuiTreeNodeFlags_SpanAvailWidth,
-                "%s [%s]  (%s)",
-                entry->qualified_name.c_str(),
-                kind,
-                entry->module_file.c_str());
+                "%s [building]  (%s)",
+                building.qualified_name.c_str(),
+                module_file.c_str());
             ImGui::PopStyleColor();
 
             if (!open)
                 continue;
 
-            ImGui::Text("file: %s", entry->file.c_str());
-            if (entry->is_tree)
-            {
-                ImGui::Text("raw: function_mass=%d", entry->function_mass);
-                ImGui::Text("render: height=%.2f", entry->render_height);
-            }
-            else
-            {
-                ImGui::Text(
-                    "raw: base=%d | methods=%d | function_mass=%d | roads=%d",
-                    entry->base_size,
-                    entry->function_count,
-                    entry->function_mass,
-                    entry->road_size);
-                ImGui::Text(
-                    "render: footprint=%.2f x %.2f | height=%.2f | road=%.2f",
-                    entry->render_footprint,
-                    entry->render_footprint,
-                    entry->render_height,
-                    entry->render_road);
-            }
+            ImGui::Text("file: %s", building.source_file_path.c_str());
+            ImGui::Text(
+                "raw: base=%d | methods=%d | function_mass=%d | roads=%d",
+                building.base_size,
+                building.function_count,
+                building.function_mass,
+                building.road_size);
+            ImGui::Text(
+                "render: footprint=%.2f x %.2f | height=%.2f | road=%.2f",
+                building.metrics.footprint,
+                building.metrics.footprint,
+                building.metrics.height,
+                building.metrics.road_width);
 
             ImGui::TreePop();
         }
@@ -335,32 +381,17 @@ void render_city_preview(const CodebaseSnapshot& snap, bool clamp_metrics, bool 
     }
 }
 
-void render_stats(const CodebaseSnapshot& snap)
+void render_stats(const SnapshotStats& stats)
 {
-    size_t fn_count = 0, cls_count = 0, st_count = 0, err_count = 0;
-    for (const auto& f : snap.files)
-    {
-        for (const auto& sym : f.symbols)
-        {
-            if (sym.kind == SymbolKind::Function)
-                ++fn_count;
-            else if (sym.kind == SymbolKind::Class)
-                ++cls_count;
-            else if (sym.kind == SymbolKind::Struct)
-                ++st_count;
-        }
-        err_count += f.errors.size();
-    }
-
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
     ImGui::Text(
         "%zu files  |  %zu functions  |  %zu classes  |  %zu structs",
-        snap.files.size(), fn_count, cls_count, st_count);
-    if (err_count > 0)
+        stats.file_count, stats.function_count, stats.class_count, stats.struct_count);
+    if (stats.error_count > 0)
     {
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
-        ImGui::Text("  |  %zu parse errors", err_count);
+        ImGui::Text("  |  %zu parse errors", stats.error_count);
         ImGui::PopStyleColor();
     }
     ImGui::PopStyleColor();
@@ -368,17 +399,16 @@ void render_stats(const CodebaseSnapshot& snap)
 
 // ---- Files root ----------------------------------------------------------------
 
-void render_files_tree(const CodebaseSnapshot& snap)
+void render_files_tree(const std::vector<FilesEntry>& files)
 {
-    for (const auto& file : snap.files)
+    for (const auto& file : files)
     {
-        const bool has_children = !file.symbols.empty() || !file.errors.empty();
         const ImGuiTreeNodeFlags file_flags = ImGuiTreeNodeFlags_SpanAvailWidth
-            | (has_children ? 0 : ImGuiTreeNodeFlags_Leaf);
+            | (file.has_children ? 0 : ImGuiTreeNodeFlags_Leaf);
 
-        const ImVec4 file_color = file.errors.empty()
-            ? ImVec4(0.85f, 0.85f, 0.85f, 1.0f)
-            : ImVec4(1.0f, 0.55f, 0.55f, 1.0f);
+        const ImVec4 file_color = file.has_errors
+            ? ImVec4(1.0f, 0.55f, 0.55f, 1.0f)
+            : ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Text, file_color);
         const bool open = ImGui::TreeNodeEx(
             file.path.c_str(), file_flags, "%s", file.path.c_str());
@@ -417,9 +447,6 @@ void render_files_tree(const CodebaseSnapshot& snap)
 
             for (const auto& sym : file.symbols)
             {
-                if (sym.kind == SymbolKind::Include)
-                    continue;
-
                 ImGui::PushStyleColor(ImGuiCol_Text, symbol_kind_color(sym.kind));
                 ImGui::TreeNodeEx(
                     sym.name.c_str(),
@@ -438,29 +465,6 @@ void render_files_tree(const CodebaseSnapshot& snap)
 
 // ---- Objects root --------------------------------------------------------------
 
-struct ClassEntry
-{
-    std::string name;
-    std::string file;
-    uint32_t line;
-    SymbolKind kind; // Class or Struct
-};
-
-struct FuncEntry
-{
-    std::string name;
-    std::string file;
-    uint32_t line;
-};
-
-struct ModuleObjects
-{
-    std::vector<ClassEntry> concrete;
-    std::vector<ClassEntry> abstract;
-    std::vector<ClassEntry> data_structs;
-    std::vector<FuncEntry> free_functions;
-};
-
 void render_symbol_leaf(const char* id, const char* icon, ImVec4 color,
     std::string_view name, std::string_view file, uint32_t line)
 {
@@ -477,82 +481,19 @@ void render_symbol_leaf(const char* id, const char* icon, ImVec4 color,
     ImGui::PopStyleColor();
 }
 
-void render_objects_tree(const CodebaseSnapshot& snap)
+void render_objects_tree(const ObjectsTreeCache& cache)
 {
-    // Build set of type names that have member functions
-    std::set<std::string> types_with_methods;
-    for (const auto& file : snap.files)
-    {
-        for (const auto& sym : file.symbols)
-        {
-            if (sym.kind == SymbolKind::Function && !sym.parent.empty())
-                types_with_methods.insert(sym.parent);
-        }
-    }
-
-    // Collect across all files by logical module root so include/src live together.
-    std::map<std::string, ModuleObjects> modules;
-    for (const auto& file : snap.files)
-    {
-        const std::string module = logical_module_for_file(file.path);
-        const std::string module_file = file_path_within_module(file.path);
-        auto& module_entries = modules[module];
-        for (const auto& sym : file.symbols)
-        {
-            if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
-            {
-                ClassEntry e{ sym.name, module_file, sym.line, sym.kind };
-                if (sym.is_abstract)
-                    module_entries.abstract.push_back(std::move(e));
-                else if (sym.kind == SymbolKind::Struct
-                    && types_with_methods.find(sym.name) == types_with_methods.end())
-                    module_entries.data_structs.push_back(std::move(e));
-                else
-                    module_entries.concrete.push_back(std::move(e));
-            }
-            else if (sym.kind == SymbolKind::Function && sym.parent.empty())
-            {
-                module_entries.free_functions.push_back({ sym.name, module_file, sym.line });
-            }
-        }
-    }
-
-    auto by_name_then_file = [](const auto& a, const auto& b) {
-        if (a.name != b.name)
-            return a.name < b.name;
-        return a.file < b.file;
-    };
-    size_t concrete_count = 0;
-    size_t abstract_count = 0;
-    size_t struct_count = 0;
-    size_t function_count = 0;
-    for (auto& [module, module_entries] : modules)
-    {
-        std::sort(module_entries.concrete.begin(), module_entries.concrete.end(), by_name_then_file);
-        std::sort(module_entries.abstract.begin(), module_entries.abstract.end(), by_name_then_file);
-        std::sort(
-            module_entries.data_structs.begin(), module_entries.data_structs.end(), by_name_then_file);
-        std::sort(
-            module_entries.free_functions.begin(),
-            module_entries.free_functions.end(),
-            by_name_then_file);
-        concrete_count += module_entries.concrete.size();
-        abstract_count += module_entries.abstract.size();
-        struct_count += module_entries.data_structs.size();
-        function_count += module_entries.free_functions.size();
-    }
-
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
     ImGui::Text(
         "%zu modules  |  %zu concrete classes  |  %zu functions  |  %zu abstract classes  |  %zu data structs",
-        modules.size(),
-        concrete_count,
-        function_count,
-        abstract_count,
-        struct_count);
+        cache.modules.size(),
+        cache.concrete_count,
+        cache.function_count,
+        cache.abstract_count,
+        cache.struct_count);
     ImGui::PopStyleColor();
 
-    for (const auto& [module, module_entries] : modules)
+    for (const auto& [module, module_entries] : cache.modules)
     {
         const std::string label = module.empty() ? "Module: (root)" : ("Module: " + module);
         const size_t entity_count = module_entries.concrete.size()
@@ -685,6 +626,11 @@ void render_objects_tree(const CodebaseSnapshot& snap)
 bool render_renderer_controls(MegacityRendererControls& controls)
 {
     bool changed = false;
+    controls.rebuild_requested = false;
+    controls.reset_camera_requested = false;
+    controls.committed_edit = false;
+    controls.set_defaults_requested = false;
+    MegaCityCodeConfig config = controls.config;
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
     const bool renderer_open = ImGui::TreeNodeEx(
@@ -693,33 +639,203 @@ bool render_renderer_controls(MegacityRendererControls& controls)
     if (!renderer_open)
         return false;
 
-    float hidden_px = controls.sign_text_hidden_px;
-    float full_px = controls.sign_text_full_px;
-    float output_gamma = controls.output_gamma;
-    bool clamp_semantic_metrics = controls.clamp_semantic_metrics;
-    bool hide_test_entities = controls.hide_test_entities;
-    changed |= ImGui::SliderFloat("Sign Text Hidden <= px", &hidden_px, 0.0f, 64.0f, "%.1f");
-    changed |= ImGui::SliderFloat("Sign Text Full >= px", &full_px, 0.0f, 64.0f, "%.1f");
-    changed |= ImGui::SliderFloat("Output Gamma", &output_gamma, 1.0f, 3.0f, "%.2f");
-    float height_multiplier = controls.height_multiplier;
-    changed |= ImGui::SliderFloat("Height Multiplier", &height_multiplier, 0.5f, 5.0f, "%.2f");
-    changed |= ImGui::Checkbox("Clamp Semantic Metrics", &clamp_semantic_metrics);
-    changed |= ImGui::Checkbox("Hide Test Entities", &hide_test_entities);
+    if (controls.rebuild_pending)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.78f, 0.35f, 1.0f));
+        ImGui::TextUnformatted("World rebuild pending.");
+        ImGui::PopStyleColor();
+    }
+    else
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.90f, 0.60f, 1.0f));
+        ImGui::TextUnformatted("World is current.");
+        ImGui::PopStyleColor();
+    }
+
+    if (ImGui::Button("Rebuild World"))
+        controls.rebuild_requested = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Camera"))
+        controls.reset_camera_requested = true;
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Auto Rebuild", &config.auto_rebuild))
+    {
+        changed = true;
+        controls.committed_edit = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Config"))
+    {
+        config = controls.defaults;
+        changed = true;
+        controls.committed_edit = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Set Defaults"))
+        ImGui::OpenPopup("##megacity_set_defaults");
+
+    if (ImGui::BeginPopupModal("##megacity_set_defaults", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted("Use the current Megacity config as the new defaults?");
+        if (ImGui::Button("Set Defaults"))
+        {
+            controls.defaults = config;
+            controls.set_defaults_requested = true;
+            changed = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    auto note_commit = [&]() {
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            controls.committed_edit = true;
+    };
+    auto edit_float = [&](const char* label, float& value, float speed, float min_value, float max_value, const char* format) {
+        const bool item_changed = ImGui::DragFloat(label, &value, speed, min_value, max_value, format);
+        changed |= item_changed;
+        note_commit();
+    };
+    auto edit_int = [&](const char* label, int& value, int speed, int min_value, int max_value) {
+        const bool item_changed = ImGui::DragInt(label, &value, static_cast<float>(speed), min_value, max_value);
+        changed |= item_changed;
+        note_commit();
+    };
+
+    if (ImGui::TreeNodeEx("##renderer_build", ImGuiTreeNodeFlags_SpanAvailWidth, "City Build"))
+    {
+        const bool clamp_changed = ImGui::Checkbox("Clamp Semantic Metrics", &config.clamp_semantic_metrics);
+        changed |= clamp_changed;
+        if (clamp_changed)
+            controls.committed_edit = true;
+        const bool hide_tests_changed = ImGui::Checkbox("Hide Test Entities", &config.hide_test_entities);
+        changed |= hide_tests_changed;
+        if (hide_tests_changed)
+            controls.committed_edit = true;
+        edit_float("Height Multiplier", config.height_multiplier, 0.05f, 0.1f, 8.0f, "%.2f");
+        edit_float("Placement Step", config.placement_step, 0.01f, 0.05f, 8.0f, "%.2f");
+        edit_int("Max Spiral Rings", config.max_spiral_rings, 8, 8, 65536);
+        edit_float("Lot Road Reserve", config.lot_road_reserve_fraction, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Footprint Base", config.footprint_base, 0.05f, 0.0f, 32.0f, "%.2f");
+        edit_float("Footprint Min", config.footprint_min, 0.05f, 0.0f, 32.0f, "%.2f");
+        edit_float("Footprint Max", config.footprint_max, 0.05f, 0.0f, 64.0f, "%.2f");
+        edit_float("Footprint Unclamped Scale", config.footprint_unclamped_scale, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Height Base", config.height_base, 0.05f, 0.0f, 32.0f, "%.2f");
+        edit_float("Height Mass Weight", config.height_mass_weight, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Height Count Weight", config.height_count_weight, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Height Min", config.height_min, 0.05f, 0.0f, 32.0f, "%.2f");
+        edit_float("Height Max", config.height_max, 0.05f, 0.0f, 64.0f, "%.2f");
+        edit_float("Height Unclamped Count Weight", config.height_unclamped_count_weight, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Road Width Base", config.road_width_base, 0.01f, 0.0f, 16.0f, "%.2f");
+        edit_float("Road Width Scale", config.road_width_scale, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Road Width Min", config.road_width_min, 0.01f, 0.0f, 16.0f, "%.2f");
+        edit_float("Road Width Max", config.road_width_max, 0.01f, 0.0f, 32.0f, "%.2f");
+        edit_float("Sidewalk Width", config.sidewalk_width, 0.01f, 0.0f, 16.0f, "%.2f");
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("##renderer_signs", ImGuiTreeNodeFlags_SpanAvailWidth, "Signs"))
+    {
+        edit_float("Sign Text Hidden <= px", config.sign_text_hidden_px, 0.1f, 0.0f, 64.0f, "%.1f");
+        edit_float("Sign Text Full >= px", config.sign_text_full_px, 0.1f, 0.0f, 64.0f, "%.1f");
+        edit_float("Sign Label Point Size", config.sign_label_point_size, 0.25f, 1.0f, 72.0f, "%.1f");
+        edit_int("Wall Sign Text Padding", config.wall_sign_text_padding, 1, 0, 64);
+
+        static constexpr std::array<const char*, 8> kPlacementLabels = {
+            "Roof North",
+            "Roof South",
+            "Roof East",
+            "Roof West",
+            "Wall North",
+            "Wall South",
+            "Wall East",
+            "Wall West",
+        };
+        int placement = static_cast<int>(config.building_sign_placement);
+        if (ImGui::Combo("Building Sign Placement", &placement, kPlacementLabels.data(), static_cast<int>(kPlacementLabels.size())))
+        {
+            config.building_sign_placement = static_cast<MegaCitySignPlacement>(std::clamp(placement, 0, 7));
+            changed = true;
+            controls.committed_edit = true;
+        }
+
+        edit_float("Roof Sign Thickness", config.roof_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
+        edit_float("Roof Sign Depth", config.roof_sign_depth, 0.01f, 0.01f, 8.0f, "%.2f");
+        edit_float("Roof Sign Edge Inset", config.roof_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Roof Sign Side Inset", config.roof_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Wall Sign Thickness", config.wall_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
+        edit_float("Wall Sign Face Gap", config.wall_sign_face_gap, 0.001f, 0.0f, 1.0f, "%.3f");
+        edit_float("Wall Sign Width", config.wall_sign_width, 0.01f, 0.05f, 16.0f, "%.2f");
+        edit_float("Wall Sign Side Inset", config.wall_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Wall Sign Top Inset", config.wall_sign_top_inset, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Wall Sign Bottom Inset", config.wall_sign_bottom_inset, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Road Sign Edge Inset", config.road_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Road Sign Side Inset", config.road_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Minimum Road Sign Depth", config.minimum_road_sign_depth, 0.01f, 0.01f, 8.0f, "%.2f");
+        edit_float("Sidewalk Sign Edge Inset", config.sidewalk_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Road Sign Lift", config.road_sign_lift, 0.001f, 0.0f, 1.0f, "%.3f");
+        edit_float("Sign Pixels / World Unit", config.roof_sign_pixels_per_world_unit, 1.0f, 8.0f, 2048.0f, "%.1f");
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("##renderer_surface", ImGuiTreeNodeFlags_SpanAvailWidth, "Surfaces"))
+    {
+        edit_float("Road Surface Height", config.road_surface_height, 0.001f, 0.001f, 4.0f, "%.3f");
+        edit_float("Sidewalk Surface Height", config.sidewalk_surface_height, 0.005f, 0.001f, 8.0f, "%.3f");
+        edit_float("Sidewalk Surface Lift", config.sidewalk_surface_lift, 0.001f, 0.0f, 4.0f, "%.3f");
+        edit_float("World Floor Height Scale", config.world_floor_height_scale, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("World Floor Top Y", config.world_floor_top_y, 0.001f, -8.0f, 8.0f, "%.3f");
+        edit_float("World Floor Grid Y Offset", config.world_floor_grid_y_offset, 0.001f, 0.0f, 4.0f, "%.3f");
+        edit_float("World Floor Grid Tile Scale", config.world_floor_grid_tile_scale, 0.05f, 0.1f, 64.0f, "%.2f");
+        edit_float("World Floor Grid Line Width", config.world_floor_grid_line_width, 0.005f, 0.001f, 4.0f, "%.3f");
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("##renderer_lighting", ImGuiTreeNodeFlags_SpanAvailWidth, "Lighting"))
+    {
+        edit_float("Ambient", config.ambient_strength, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Directional Light X", config.directional_light_x, 0.01f, -4.0f, 4.0f, "%.2f");
+        edit_float("Directional Light Y", config.directional_light_y, 0.01f, -4.0f, 4.0f, "%.2f");
+        edit_float("Directional Light Z", config.directional_light_z, 0.01f, -4.0f, 4.0f, "%.2f");
+        const std::array<float, 4> previous_point_light = {
+            config.point_light_x,
+            config.point_light_y,
+            config.point_light_z,
+            config.point_light_radius,
+        };
+        edit_float("Point Light X", config.point_light_x, 0.05f, -1024.0f, 1024.0f, "%.2f");
+        edit_float("Point Light Y", config.point_light_y, 0.05f, -1024.0f, 1024.0f, "%.2f");
+        edit_float("Point Light Z", config.point_light_z, 0.05f, -1024.0f, 1024.0f, "%.2f");
+        edit_float("Point Light Radius", config.point_light_radius, 0.05f, 0.1f, 2048.0f, "%.2f");
+        if (previous_point_light
+            != std::array<float, 4>{
+                config.point_light_x,
+                config.point_light_y,
+                config.point_light_z,
+                config.point_light_radius,
+            })
+        {
+            config.point_light_position_valid = true;
+        }
+        edit_float("Point Light Brightness", config.point_light_brightness, 0.01f, 0.0f, 8.0f, "%.2f");
+        edit_float("Output Gamma", config.output_gamma, 0.01f, 0.1f, 4.0f, "%.2f");
+        ImGui::TreePop();
+    }
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.68f, 1.0f));
     ImGui::TextUnformatted("Fade uses projected ink size on screen, not camera distance.");
     ImGui::TextUnformatted("Gamma is a Megacity-only final output curve, not true sRGB backbuffer conversion.");
+    ImGui::TextUnformatted("Point light position is in absolute world space.");
     ImGui::PopStyleColor();
 
-    controls.sign_text_hidden_px = std::max(hidden_px, 0.0f);
-    controls.sign_text_full_px = std::max(full_px, 0.0f);
-    controls.output_gamma = std::max(output_gamma, 1.0f);
-    controls.height_multiplier = std::clamp(height_multiplier, 0.5f, 5.0f);
-    controls.clamp_semantic_metrics = clamp_semantic_metrics;
-    controls.hide_test_entities = hide_test_entities;
+    controls.config = config;
 
     ImGui::TreePop();
-    return changed;
+    return changed || controls.rebuild_requested || controls.reset_camera_requested
+        || controls.set_defaults_requested || controls.committed_edit;
 }
 
 } // namespace
@@ -730,6 +846,7 @@ bool render_treesitter_panel(
     int window_w,
     int window_h,
     const std::shared_ptr<const CodebaseSnapshot>& snapshot,
+    const SemanticMegacityModel* semantic_model,
     MegacityRendererControls* renderer_controls)
 {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -768,21 +885,17 @@ bool render_treesitter_panel(
         ImGui::PopStyleColor();
     }
 
+    const SnapshotUiCache& ui_cache = cached_snapshot_ui(snapshot);
+
     ImGui::Separator();
-    render_stats(*snapshot);
+    render_stats(ui_cache.stats);
     ImGui::Separator();
 
     ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), false,
         ImGuiWindowFlags_HorizontalScrollbar);
 
-    bool clamp_semantic_metrics = true;
-    bool hide_test_entities = true;
     if (renderer_controls)
-    {
         changed |= render_renderer_controls(*renderer_controls);
-        clamp_semantic_metrics = renderer_controls->clamp_semantic_metrics;
-        hide_test_entities = renderer_controls->hide_test_entities;
-    }
 
     // ---- Files root ------------------------------------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
@@ -792,7 +905,7 @@ bool render_treesitter_panel(
     ImGui::PopStyleColor();
     if (files_open)
     {
-        render_files_tree(*snapshot);
+        render_files_tree(ui_cache.files);
         ImGui::TreePop();
     }
 
@@ -804,7 +917,7 @@ bool render_treesitter_panel(
     ImGui::PopStyleColor();
     if (objects_open)
     {
-        render_objects_tree(*snapshot);
+        render_objects_tree(ui_cache.objects);
         ImGui::TreePop();
     }
 
@@ -815,7 +928,7 @@ bool render_treesitter_panel(
     ImGui::PopStyleColor();
     if (city_open)
     {
-        render_city_preview(*snapshot, clamp_semantic_metrics, hide_test_entities);
+        render_city_preview(semantic_model);
         ImGui::TreePop();
     }
 

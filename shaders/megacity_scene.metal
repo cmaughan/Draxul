@@ -65,7 +65,7 @@ fragment float4 scene_fragment(
     const float3 normal_ws = normalize(in.normal_ws);
     const float3 light_dir = normalize(-frame.light_dir.xyz);
     const float ndotl = max(dot(normal_ws, light_dir), 0.0);
-    const float ambient = 0.45;
+    const float ambient = max(frame.render_tuning.z, 0.0);
     const float directional = 0.52 * ndotl;
     const float hemi_factor = normal_ws.y * 0.5 + 0.5;
     const float3 hemi = mix(float3(0.84, 0.82, 0.78), float3(1.04, 1.03, 1.01), hemi_factor);
@@ -75,7 +75,7 @@ fragment float4 scene_fragment(
     const float point_ndotl = max(dot(normal_ws, point_dir), 0.0);
     const float point_radius = max(frame.point_light_pos.w, 1.0);
     const float point_atten = clamp(1.0 - point_dist / point_radius, 0.0, 1.0);
-    const float point_light = 1.0 * point_ndotl * point_atten * point_atten;
+    const float point_light = max(frame.render_tuning.y, 0.0) * point_ndotl * point_atten * point_atten;
     const float3 point_color = float3(1.05, 0.98, 0.90);
     float3 shaded = in.base_color * (hemi * (ambient + directional) + point_color * point_light);
     if (in.tex_blend > 0.5)

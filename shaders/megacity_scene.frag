@@ -23,7 +23,7 @@ void main()
     vec3 normal_ws = normalize(in_normal_ws);
     vec3 light_dir = normalize(-frame.light_dir.xyz);
     float ndotl = max(dot(normal_ws, light_dir), 0.0);
-    float ambient = 0.45;
+    float ambient = max(frame.render_tuning.z, 0.0);
     float directional = 0.52 * ndotl;
     float hemi_factor = normal_ws.y * 0.5 + 0.5;
     vec3 hemi = mix(vec3(0.84, 0.82, 0.78), vec3(1.04, 1.03, 1.01), hemi_factor);
@@ -33,7 +33,7 @@ void main()
     float point_ndotl = max(dot(normal_ws, point_dir), 0.0);
     float point_radius = max(frame.point_light_pos.w, 1.0);
     float point_atten = clamp(1.0 - point_dist / point_radius, 0.0, 1.0);
-    float point_light = 1.00 * point_ndotl * point_atten * point_atten;
+    float point_light = max(frame.render_tuning.y, 0.0) * point_ndotl * point_atten * point_atten;
     vec3 point_color = vec3(1.05, 0.98, 0.90);
 
     vec3 shaded = in_base_color * (hemi * (ambient + directional) + point_color * point_light);
