@@ -66,7 +66,7 @@ struct TestLotRect
 
 TestLotRect test_building_lot(const SemanticCityBuilding& building)
 {
-    const float half_extent = building.metrics.footprint * 0.5f + building.metrics.road_width;
+    const float half_extent = building.metrics.footprint * 0.5f + building.metrics.road_width * kRoadMarginFraction;
     return {
         building.center.x - half_extent,
         building.center.x + half_extent,
