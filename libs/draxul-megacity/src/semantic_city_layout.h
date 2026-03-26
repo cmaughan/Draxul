@@ -13,8 +13,8 @@
 namespace draxul
 {
 
-// Fraction of road_width reserved on each side of a building in the lot layout.
-constexpr float kRoadMarginFraction = 0.25f;
+// Fraction of road width reserved beyond the sidewalk on each side of a building lot.
+constexpr float kLotRoadReserveFraction = 0.25f;
 
 struct SemanticBuildingLayer
 {
@@ -99,6 +99,8 @@ struct SemanticMegacityLayout
 
 [[nodiscard]] BuildingMetrics derive_building_metrics(const CityClassRecord& row, bool clamp_metrics = true, float height_multiplier = 1.5f);
 [[nodiscard]] bool is_test_semantic_source(std::string_view source_file_path);
+[[nodiscard]] std::array<RoadSegmentPlacement, 4> build_sidewalk_segments(
+    const SemanticCityBuilding& building);
 [[nodiscard]] std::array<RoadSegmentPlacement, 4> build_road_segments(
     const SemanticCityBuilding& building);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(

@@ -66,7 +66,8 @@ struct TestLotRect
 
 TestLotRect test_building_lot(const SemanticCityBuilding& building)
 {
-    const float half_extent = building.metrics.footprint * 0.5f + building.metrics.road_width * kRoadMarginFraction;
+    const float half_extent = building.metrics.footprint * 0.5f + building.metrics.sidewalk_width
+        + building.metrics.road_width * kLotRoadReserveFraction;
     return {
         building.center.x - half_extent,
         building.center.x + half_extent,
@@ -283,10 +284,12 @@ TEST_CASE("semantic building metrics can bypass clamping", "[megacity]")
 
     CHECK(clamped.footprint == Catch::Approx(9.0f));
     CHECK(clamped.height == Catch::Approx(12.0f));
+    CHECK(clamped.sidewalk_width == Catch::Approx(1.0f));
     CHECK(clamped.road_width == Catch::Approx(3.0f));
 
     CHECK(unclamped.footprint > clamped.footprint);
     CHECK(unclamped.height > clamped.height);
+    CHECK(unclamped.sidewalk_width == Catch::Approx(clamped.sidewalk_width));
     CHECK(unclamped.road_width > clamped.road_width);
 }
 
@@ -332,30 +335,54 @@ TEST_CASE("semantic city road strips form a square ring around a building", "[me
     building.metrics = {
         .footprint = 4.0f,
         .height = 8.0f,
+        .sidewalk_width = 1.0f,
         .road_width = 1.0f,
     };
 
     const auto roads = build_road_segments(building);
 
     CHECK(roads[0].center.x == Catch::Approx(0.0f));
-    CHECK(roads[0].center.y == Catch::Approx(2.5f));
-    CHECK(roads[0].extent.x == Catch::Approx(6.0f));
+    CHECK(roads[0].center.y == Catch::Approx(3.5f));
+    CHECK(roads[0].extent.x == Catch::Approx(8.0f));
     CHECK(roads[0].extent.y == Catch::Approx(1.0f));
 
     CHECK(roads[1].center.x == Catch::Approx(0.0f));
-    CHECK(roads[1].center.y == Catch::Approx(-2.5f));
-    CHECK(roads[1].extent.x == Catch::Approx(6.0f));
+    CHECK(roads[1].center.y == Catch::Approx(-3.5f));
+    CHECK(roads[1].extent.x == Catch::Approx(8.0f));
     CHECK(roads[1].extent.y == Catch::Approx(1.0f));
 
-    CHECK(roads[2].center.x == Catch::Approx(-2.5f));
+    CHECK(roads[2].center.x == Catch::Approx(-3.5f));
     CHECK(roads[2].center.y == Catch::Approx(0.0f));
     CHECK(roads[2].extent.x == Catch::Approx(1.0f));
-    CHECK(roads[2].extent.y == Catch::Approx(4.0f));
+    CHECK(roads[2].extent.y == Catch::Approx(6.0f));
 
-    CHECK(roads[3].center.x == Catch::Approx(2.5f));
+    CHECK(roads[3].center.x == Catch::Approx(3.5f));
     CHECK(roads[3].center.y == Catch::Approx(0.0f));
     CHECK(roads[3].extent.x == Catch::Approx(1.0f));
-    CHECK(roads[3].extent.y == Catch::Approx(4.0f));
+    CHECK(roads[3].extent.y == Catch::Approx(6.0f));
+}
+
+TEST_CASE("semantic city sidewalks form a ring between a building and its roads", "[megacity]")
+{
+    SemanticCityBuilding building;
+    building.center = { 0.0f, 0.0f };
+    building.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 1.0f,
+    };
+
+    const auto sidewalks = build_sidewalk_segments(building);
+
+    CHECK(sidewalks[0].center == glm::vec2(0.0f, 2.5f));
+    CHECK(sidewalks[0].extent == glm::vec2(6.0f, 1.0f));
+    CHECK(sidewalks[1].center == glm::vec2(0.0f, -2.5f));
+    CHECK(sidewalks[1].extent == glm::vec2(6.0f, 1.0f));
+    CHECK(sidewalks[2].center == glm::vec2(-2.5f, 0.0f));
+    CHECK(sidewalks[2].extent == glm::vec2(1.0f, 4.0f));
+    CHECK(sidewalks[3].center == glm::vec2(2.5f, 0.0f));
+    CHECK(sidewalks[3].extent == glm::vec2(1.0f, 4.0f));
 }
 
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
@@ -488,17 +515,12 @@ TEST_CASE("semantic megacity layout spirals modules around the largest module", 
 
     const auto& centered = layout.modules[0];
     const auto& neighbor = layout.modules[1];
-    const bool touch_x = centered.max_x == Catch::Approx(neighbor.min_x)
-        || neighbor.max_x == Catch::Approx(centered.min_x);
-    const bool touch_z = centered.max_z == Catch::Approx(neighbor.min_z)
-        || neighbor.max_z == Catch::Approx(centered.min_z);
-    const float overlap_x = std::min(centered.max_x, neighbor.max_x)
-        - std::max(centered.min_x, neighbor.min_x);
-    const float overlap_z = std::min(centered.max_z, neighbor.max_z)
-        - std::max(centered.min_z, neighbor.min_z);
-    const bool shares_edge = (touch_x && overlap_z > 0.0f) || (touch_z && overlap_x > 0.0f);
+    const bool overlaps = centered.min_x < neighbor.max_x && centered.max_x > neighbor.min_x
+        && centered.min_z < neighbor.max_z && centered.max_z > neighbor.min_z;
+    const bool moved_off_origin = std::abs(neighbor.offset.x) > 0.0f || std::abs(neighbor.offset.y) > 0.0f;
 
-    CHECK(shares_edge);
+    CHECK(moved_off_origin);
+    CHECK_FALSE(overlaps);
     CHECK(neighbor.buildings[0].module_path == neighbor.module_path);
 }
 

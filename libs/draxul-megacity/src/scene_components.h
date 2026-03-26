@@ -37,6 +37,7 @@ struct BuildingMetrics
 {
     float footprint = 1.0f; // XZ extent in tile units
     float height = 1.0f; // Y extent in world units
+    float sidewalk_width = 0.0f;
     float road_width = 0.0f;
 };
 

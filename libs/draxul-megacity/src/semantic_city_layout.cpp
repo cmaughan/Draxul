@@ -16,6 +16,30 @@ namespace
 {
 
 constexpr float kPlacementStep = 0.5f;
+constexpr int kMaxSpiralRings = 4096;
+
+// derive_building_metrics tuning constants.
+// Footprint: 1 + sqrt(base_size), clamped to [kFootprintMin, kFootprintMax].
+constexpr float kFootprintBase = 1.0f;
+constexpr float kFootprintMin = 1.0f;
+constexpr float kFootprintMax = 9.0f;
+constexpr float kFootprintUnclampedScale = 0.15f;
+
+// Height: base + mass_weight * log1p(function_mass) + count_weight * sqrt(function_count),
+// clamped to [kHeightMin, kHeightMax].
+constexpr float kHeightBase = 2.0f;
+constexpr float kHeightMassWeight = 1.35f;
+constexpr float kHeightCountWeight = 0.45f;
+constexpr float kHeightMin = 2.0f;
+constexpr float kHeightMax = 12.0f;
+constexpr float kHeightUnclampedCountWeight = 0.27f;
+
+// Road width: base + scale * log1p(road_size), clamped to [kRoadWidthMin, kRoadWidthMax].
+constexpr float kRoadWidthBase = 0.6f;
+constexpr float kRoadWidthScale = 0.85f;
+constexpr float kRoadWidthMin = 0.6f;
+constexpr float kRoadWidthMax = 3.0f;
+constexpr float kSidewalkWidth = 1.0f;
 
 float clamp_metric(float value, float min_value, float max_value)
 {
@@ -101,7 +125,8 @@ struct LotRect
 
 LotRect centered_building_lot(const BuildingMetrics& metrics)
 {
-    const float half_extent = metrics.footprint * 0.5f + metrics.road_width * kRoadMarginFraction;
+    const float half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width
+        + metrics.road_width * kLotRoadReserveFraction;
     return {
         -half_extent,
         half_extent,
@@ -151,7 +176,7 @@ bool for_each_spiral_candidate(Fn&& fn)
     if (!fn(glm::vec2(0.0f)))
         return false;
 
-    for (int ring = 1; ring < 4096; ++ring)
+    for (int ring = 1; ring < kMaxSpiralRings; ++ring)
     {
         const float radius = static_cast<float>(ring) * kPlacementStep;
         for (int ix = -ring; ix <= ring; ++ix)
@@ -274,21 +299,27 @@ bool try_place_candidate(
 
 BuildingMetrics derive_building_metrics(const CityClassRecord& row, bool clamp_metrics, float height_multiplier)
 {
+    const float base = static_cast<float>(std::max(row.base_size, 0));
+    const float mass = static_cast<float>(std::max(function_mass(row), 0));
+    const float funcs = static_cast<float>(std::max(row.building_functions, 0));
+    const float road = static_cast<float>(std::max(row.road_size, 0));
+
     const float footprint = clamp_metrics
-        ? std::clamp(1.0f + std::sqrt(static_cast<float>(std::max(row.base_size, 0))), 1.0f, 9.0f)
-        : 1.0f + static_cast<float>(std::max(row.base_size, 0)) * 0.15f;
+        ? std::clamp(kFootprintBase + std::sqrt(base), kFootprintMin, kFootprintMax)
+        : kFootprintBase + base * kFootprintUnclampedScale;
     const float height = clamp_metrics
         ? std::clamp(
-              2.0f + 1.35f * std::log1p(static_cast<float>(std::max(function_mass(row), 0)))
-                  + 0.45f * std::sqrt(static_cast<float>(std::max(row.building_functions, 0))),
-              2.0f, 12.0f)
-        : 2.0f + height_multiplier * std::log1p(static_cast<float>(std::max(function_mass(row), 0)))
-              + height_multiplier * 0.27f * std::log1p(static_cast<float>(std::max(row.building_functions, 0)));
-    const float raw_road = 0.6f + static_cast<float>(std::max(row.road_size, 0));
+              kHeightBase + kHeightMassWeight * std::log1p(mass)
+                  + kHeightCountWeight * std::sqrt(funcs),
+              kHeightMin, kHeightMax)
+        : kHeightBase + height_multiplier * std::log1p(mass)
+            + height_multiplier * kHeightUnclampedCountWeight * std::log1p(funcs);
+    const float raw_road_width = kRoadWidthBase + road;
     const float road_width = clamp_metrics
-        ? std::clamp(0.6f + 0.85f * std::log1p(static_cast<float>(std::max(row.road_size, 0))), 0.6f, 3.0f)
-        : raw_road;
-    return { footprint, height, road_width };
+        ? std::clamp(kRoadWidthBase + kRoadWidthScale * std::log1p(road), kRoadWidthMin, kRoadWidthMax)
+        : raw_road_width;
+    const float sidewalk_width = kSidewalkWidth;
+    return { footprint, height, sidewalk_width, road_width };
 }
 
 bool is_test_semantic_source(std::string_view source_file_path)
@@ -296,29 +327,58 @@ bool is_test_semantic_source(std::string_view source_file_path)
     return path_has_prefix(source_file_path, "tests/");
 }
 
-std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuilding& building)
+std::array<RoadSegmentPlacement, 4> build_sidewalk_segments(const SemanticCityBuilding& building)
 {
     const float half_footprint = building.metrics.footprint * 0.5f;
-    const float road_width = building.metrics.road_width;
-    const float outer_span = building.metrics.footprint + 2.0f * road_width;
+    const float sidewalk_width = building.metrics.sidewalk_width;
+    const float sidewalk_outer_span = building.metrics.footprint + 2.0f * sidewalk_width;
     const glm::vec2 center = building.center;
 
     return {
         RoadSegmentPlacement{
-            { center.x, center.y + half_footprint + road_width * 0.5f },
+            { center.x, center.y + half_footprint + sidewalk_width * 0.5f },
+            { sidewalk_outer_span, sidewalk_width },
+        },
+        RoadSegmentPlacement{
+            { center.x, center.y - half_footprint - sidewalk_width * 0.5f },
+            { sidewalk_outer_span, sidewalk_width },
+        },
+        RoadSegmentPlacement{
+            { center.x - half_footprint - sidewalk_width * 0.5f, center.y },
+            { sidewalk_width, building.metrics.footprint },
+        },
+        RoadSegmentPlacement{
+            { center.x + half_footprint + sidewalk_width * 0.5f, center.y },
+            { sidewalk_width, building.metrics.footprint },
+        },
+    };
+}
+
+std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuilding& building)
+{
+    const float half_footprint = building.metrics.footprint * 0.5f;
+    const float sidewalk_width = building.metrics.sidewalk_width;
+    const float road_width = building.metrics.road_width;
+    const float inner_span = building.metrics.footprint + 2.0f * sidewalk_width;
+    const float outer_span = inner_span + 2.0f * road_width;
+    const glm::vec2 center = building.center;
+
+    return {
+        RoadSegmentPlacement{
+            { center.x, center.y + half_footprint + sidewalk_width + road_width * 0.5f },
             { outer_span, road_width },
         },
         RoadSegmentPlacement{
-            { center.x, center.y - half_footprint - road_width * 0.5f },
+            { center.x, center.y - half_footprint - sidewalk_width - road_width * 0.5f },
             { outer_span, road_width },
         },
         RoadSegmentPlacement{
-            { center.x - half_footprint - road_width * 0.5f, center.y },
-            { road_width, building.metrics.footprint },
+            { center.x - half_footprint - sidewalk_width - road_width * 0.5f, center.y },
+            { road_width, inner_span },
         },
         RoadSegmentPlacement{
-            { center.x + half_footprint + road_width * 0.5f, center.y },
-            { road_width, building.metrics.footprint },
+            { center.x + half_footprint + sidewalk_width + road_width * 0.5f, center.y },
+            { road_width, inner_span },
         },
     };
 }

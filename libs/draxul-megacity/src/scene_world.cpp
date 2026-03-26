@@ -39,11 +39,11 @@ entt::entity SceneWorld::create_tree(float world_x, float world_z,
 }
 
 entt::entity SceneWorld::create_road(float world_x, float world_z,
-    const RoadMetrics& metrics, const glm::vec4& color, SourceSymbol source)
+    const RoadMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation)
 {
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
-    registry_.emplace<Elevation>(entity, 0.0f);
+    registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<RoadMetrics>(entity, metrics);
     registry_.emplace<Appearance>(entity, MeshId::Cube, color);
     if (!source.file.empty() || !source.name.empty())

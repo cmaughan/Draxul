@@ -47,6 +47,8 @@ constexpr float kWallSignBottomInset = 0.28f;
 constexpr int kWallSignTextPadding = 4;
 constexpr float kRoadSignEdgeInset = 0.06f;
 constexpr float kRoadSignSideInset = 0.12f;
+constexpr float kMinimumRoadSignDepth = 0.16f;
+constexpr float kSidewalkSignEdgeInset = 0.04f;
 constexpr float kRoadSignLift = 0.006f;
 constexpr float kRoofSignPixelsPerWorldUnit = 192.0f;
 constexpr float kOrbitDragReferencePixelsPerSecond = 240.0f;
@@ -100,11 +102,15 @@ enum class BuildingSignPlacement
 
 constexpr BuildingSignPlacement kBuildingSignPlacement = BuildingSignPlacement::WallEast;
 constexpr glm::vec4 kRoadColor(0.46f, 0.46f, 0.48f, 1.0f);
+constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
 constexpr glm::vec4 kRoadSurfaceColor(0.18f, 0.18f, 0.19f, 1.0f);
 constexpr glm::vec4 kSignBoardColor(1.0f, 1.0f, 1.0f, 1.0f);
 constexpr glm::vec4 kBuildingSignColor = kSignBoardColor;
 constexpr glm::vec4 kModuleSignColor = kSignBoardColor;
 constexpr float kRoadSurfaceHeight = 0.03f;
+constexpr float kSidewalkSurfaceHeight = 0.18f;
+constexpr float kSidewalkSurfaceLift = 0.024f;
+constexpr float kBuildingBaseElevation = kSidewalkSurfaceLift + kSidewalkSurfaceHeight;
 constexpr float kWorldFloorHeight = kRoadSurfaceHeight * 0.5f;
 constexpr float kWorldFloorTopY = -0.01f;
 constexpr float kWorldFloorGridYOffset = 0.0015f;
@@ -441,9 +447,7 @@ SignPlacementSpec place_module_road_sign(
     const SemanticCityBuilding& building, std::string_view text, const TextService* text_service)
 {
     SignPlacementSpec placement;
-    const float road_width = building.metrics.road_width;
-    const float road_margin = road_width * kRoadMarginFraction;
-    const float lot_width = building.metrics.footprint + 2.0f * road_margin;
+    const float sidewalk_width = building.metrics.sidewalk_width;
 
     // Width = building footprint; depth from font aspect ratio, clamped.
     float sign_width = building.metrics.footprint;
@@ -458,12 +462,14 @@ SignPlacementSpec place_module_road_sign(
     }
     placement.width = std::max(0.35f, sign_width);
     placement.height = kRoofSignThickness;
-    placement.depth = std::clamp(sign_depth, 0.16f, building.metrics.footprint * 0.3f);
+    placement.depth = std::clamp(
+        sign_depth, kMinimumRoadSignDepth,
+        std::max(kMinimumRoadSignDepth, sidewalk_width - 2.0f * kSidewalkSignEdgeInset));
     placement.mesh = MeshId::RoofSign;
 
-    // Place on the street just in front of the building edge.
+    // Place at the center of the sidewalk ring just beyond the building edge.
     const float half_footprint = building.metrics.footprint * 0.5f;
-    const float center_offset = half_footprint + placement.depth * 0.5f + kRoadSignLift;
+    const float center_offset = half_footprint + sidewalk_width * 0.5f;
 
     switch (kBuildingSignPlacement)
     {
@@ -887,7 +893,7 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     float building_max_x = std::numeric_limits<float>::lowest();
     float building_min_z = std::numeric_limits<float>::max();
     float building_max_z = std::numeric_limits<float>::lowest();
-    float max_building_road_width = 0.0f;
+    float max_building_lot_margin = 0.0f;
     for (auto [entity, pos, elev, appearance] : view.each())
     {
         SceneObject obj;
@@ -909,7 +915,8 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
             building_max_x = std::max(building_max_x, pos.x + bm->footprint * 0.5f);
             building_min_z = std::min(building_min_z, pos.z - bm->footprint * 0.5f);
             building_max_z = std::max(building_max_z, pos.z + bm->footprint * 0.5f);
-            max_building_road_width = std::max(max_building_road_width, bm->road_width);
+            max_building_lot_margin = std::max(
+                max_building_lot_margin, bm->sidewalk_width + bm->road_width);
         }
         else if (const auto* rm = reg.try_get<RoadMetrics>(entity))
         {
@@ -945,10 +952,10 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
 
     if (building_min_x <= building_max_x && building_min_z <= building_max_z)
     {
-        const float floor_min_x = building_min_x - max_building_road_width;
-        const float floor_max_x = building_max_x + max_building_road_width;
-        const float floor_min_z = building_min_z - max_building_road_width;
-        const float floor_max_z = building_max_z + max_building_road_width;
+        const float floor_min_x = building_min_x - max_building_lot_margin;
+        const float floor_max_x = building_max_x + max_building_lot_margin;
+        const float floor_min_z = building_min_z - max_building_lot_margin;
+        const float floor_max_z = building_max_z + max_building_lot_margin;
 
         SceneObject floor;
         floor.mesh = MeshId::Floor;
@@ -1030,13 +1037,13 @@ void MegaCityHost::rebuild_semantic_city()
         const glm::vec4 module_color = module_building_color(module.module_path);
         for (const auto& building : module.buildings)
         {
-            float layer_base_y = 0.0f;
+            float layer_base_y = kBuildingBaseElevation;
             if (building.layers.empty())
             {
                 world_->create_building(
                     building.center.x,
                     building.center.y,
-                    0.0f,
+                    kBuildingBaseElevation,
                     building.metrics,
                     module_color,
                     SourceSymbol{ building.source_file_path, building.qualified_name });
@@ -1081,13 +1088,13 @@ void MegaCityHost::rebuild_semantic_city()
                         world_->create_building(
                             building.center.x,
                             building.center.y,
-                            building.metrics.height,
+                            kBuildingBaseElevation + building.metrics.height,
                             cap_metrics,
                             module_color,
                             SourceSymbol{ building.source_file_path, building.qualified_name });
                     }
 
-                    const float total_height = building.metrics.height + cap_height;
+                    const float total_height = kBuildingBaseElevation + building.metrics.height + cap_height;
                     for (const SignPlacementSpec& placement : face_signs)
                     {
                         const SignMetrics sign = make_sign_metrics(placement, it->second);
@@ -1102,6 +1109,17 @@ void MegaCityHost::rebuild_semantic_city()
                             SourceSymbol{ building.source_file_path, building.qualified_name });
                     }
                 }
+            }
+
+            for (const RoadSegmentPlacement& sidewalk : build_sidewalk_segments(building))
+            {
+                world_->create_road(
+                    sidewalk.center.x,
+                    sidewalk.center.y,
+                    RoadMetrics{ sidewalk.extent.x, sidewalk.extent.y, kSidewalkSurfaceHeight },
+                    kSidewalkSurfaceColor,
+                    SourceSymbol{ building.source_file_path, building.qualified_name },
+                    kSidewalkSurfaceLift);
             }
 
             for (const RoadSegmentPlacement& road : build_road_segments(building))
@@ -1128,7 +1146,7 @@ void MegaCityHost::rebuild_semantic_city()
                 world_->create_sign(
                     road.center.x,
                     road.center.y,
-                    kRoadSurfaceHeight + sign.height * 0.5f + kRoadSignLift,
+                    kSidewalkSurfaceLift + kSidewalkSurfaceHeight + sign.height * 0.5f + kRoadSignLift,
                     sign,
                     road.mesh,
                     kModuleSignColor,

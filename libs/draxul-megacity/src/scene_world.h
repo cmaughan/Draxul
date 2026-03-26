@@ -29,7 +29,7 @@ public:
 
     // Create a road-strip entity at the given world-space center position.
     entt::entity create_road(float world_x, float world_z, const RoadMetrics& metrics,
-        const glm::vec4& color, SourceSymbol source = {});
+        const glm::vec4& color, SourceSymbol source = {}, float elevation = 0.0f);
 
     // Create a sign entity at the given world-space center position.
     entt::entity create_sign(float world_x, float world_z, float elevation,
