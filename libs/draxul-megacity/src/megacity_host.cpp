@@ -71,9 +71,7 @@ constexpr std::array<glm::vec4, 26> kModuleAccentPalette = {
     glm::vec4(0.502f, 0.682f, 0.827f, 1.0f), // steel
 };
 
-constexpr glm::vec4 kRoadColor(0.46f, 0.46f, 0.48f, 1.0f);
 constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
-constexpr glm::vec4 kRoadSurfaceColor(0.18f, 0.18f, 0.19f, 1.0f);
 constexpr float kRoadSurfaceTextureLift = 0.002f;
 constexpr float kRoadMaterialUvScale = 0.28f;
 
@@ -1315,6 +1313,22 @@ void MegaCityHost::rebuild_semantic_city()
         sign_label_atlas_.reset();
 
     world_->clear();
+    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(layout);
+    if (road_surface_bounds.valid())
+    {
+        world_->create_road_surface(
+            (road_surface_bounds.min_x + road_surface_bounds.max_x) * 0.5f,
+            (road_surface_bounds.min_z + road_surface_bounds.max_z) * 0.5f,
+            RoadSurfaceMetrics{
+                road_surface_bounds.max_x - road_surface_bounds.min_x,
+                road_surface_bounds.max_z - road_surface_bounds.min_z,
+                kRoadMaterialUvScale,
+                1.0f,
+                1.0f,
+            },
+            SourceSymbol{},
+            renderer_config_.road_surface_height + kRoadSurfaceTextureLift);
+    }
     for (const auto& module_layout : layout.modules)
     {
         // Park slab at the center of the module, colored by quality.
@@ -1430,23 +1444,6 @@ void MegaCityHost::rebuild_semantic_city()
                     kSidewalkSurfaceColor,
                     SourceSymbol{ building.source_file_path, building.qualified_name },
                     renderer_config_.sidewalk_surface_lift);
-            }
-
-            for (const RoadSegmentPlacement& road : build_road_segments(building))
-            {
-                world_->create_road(
-                    road.center.x,
-                    road.center.y,
-                    RoadMetrics{ road.extent.x, road.extent.y, renderer_config_.road_surface_height },
-                    kRoadSurfaceColor,
-                    SourceSymbol{ building.source_file_path, building.qualified_name });
-
-                world_->create_road_surface(
-                    road.center.x,
-                    road.center.y,
-                    RoadSurfaceMetrics{ road.extent.x, road.extent.y, kRoadMaterialUvScale, 1.0f, 1.0f },
-                    SourceSymbol{ building.source_file_path, building.qualified_name },
-                    renderer_config_.road_surface_height + kRoadSurfaceTextureLift);
             }
         }
 

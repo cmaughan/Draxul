@@ -99,6 +99,19 @@ struct RoadSegmentPlacement
     glm::vec2 extent{ 1.0f };
 };
 
+struct CitySurfaceBounds
+{
+    float min_x = 0.0f;
+    float max_x = 0.0f;
+    float min_z = 0.0f;
+    float max_z = 0.0f;
+
+    [[nodiscard]] bool valid() const
+    {
+        return max_x > min_x && max_z > min_z;
+    }
+};
+
 struct SemanticCityLayout
 {
     std::vector<SemanticCityBuilding> buildings;
@@ -148,6 +161,8 @@ struct SemanticMegacityLayout
     const SemanticCityBuilding& building);
 [[nodiscard]] std::array<RoadSegmentPlacement, 4> build_road_segments(
     const SemanticCityBuilding& building);
+[[nodiscard]] CitySurfaceBounds compute_city_road_surface_bounds(
+    const SemanticMegacityLayout& layout);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(
     const SemanticCityModuleModel& module_model, const MegaCityCodeConfig& config);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(

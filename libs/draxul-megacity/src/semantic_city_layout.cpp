@@ -371,6 +371,41 @@ std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuildi
     };
 }
 
+CitySurfaceBounds compute_city_road_surface_bounds(const SemanticMegacityLayout& layout)
+{
+    CitySurfaceBounds bounds;
+    bool have_bounds = false;
+
+    for (const auto& module_layout : layout.modules)
+    {
+        for (const auto& building : module_layout.buildings)
+        {
+            const float half_extent = building.metrics.footprint * 0.5f + building.metrics.sidewalk_width;
+            const float min_x = building.center.x - half_extent;
+            const float max_x = building.center.x + half_extent;
+            const float min_z = building.center.y - half_extent;
+            const float max_z = building.center.y + half_extent;
+
+            if (!have_bounds)
+            {
+                bounds.min_x = min_x;
+                bounds.max_x = max_x;
+                bounds.min_z = min_z;
+                bounds.max_z = max_z;
+                have_bounds = true;
+                continue;
+            }
+
+            bounds.min_x = std::min(bounds.min_x, min_x);
+            bounds.max_x = std::max(bounds.max_x, max_x);
+            bounds.min_z = std::min(bounds.min_z, min_z);
+            bounds.max_z = std::max(bounds.max_z, max_z);
+        }
+    }
+
+    return bounds;
+}
+
 SemanticCityModuleModel build_semantic_city_model(
     std::string_view module_path, const std::vector<CityClassRecord>& rows, const MegaCityCodeConfig& config)
 {
@@ -699,17 +734,17 @@ CityGrid build_city_grid(const SemanticMegacityLayout& layout, const MegaCityCod
                 fn(building);
     };
 
-    // Pass 1: roads (outermost layer)
-    for_each_building([&](const SemanticCityBuilding& building) {
-        const auto roads = build_road_segments(building);
-        for (const auto& road : roads)
-            fill_rect(
-                road.center.x - road.extent.x * 0.5f,
-                road.center.x + road.extent.x * 0.5f,
-                road.center.y - road.extent.y * 0.5f,
-                road.center.y + road.extent.y * 0.5f,
-                kCityGridRoad);
-    });
+    // Pass 1: shared road surface (outermost layer)
+    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(layout);
+    if (road_surface_bounds.valid())
+    {
+        fill_rect(
+            road_surface_bounds.min_x,
+            road_surface_bounds.max_x,
+            road_surface_bounds.min_z,
+            road_surface_bounds.max_z,
+            kCityGridRoad);
+    }
 
     // Pass 2: sidewalks (overwrites roads within sidewalk areas)
     for_each_building([&](const SemanticCityBuilding& building) {

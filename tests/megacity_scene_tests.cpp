@@ -561,6 +561,87 @@ TEST_CASE("semantic city sidewalks form a ring between a building and its roads"
     CHECK(sidewalks[3].extent == glm::vec2(1.0f, 4.0f));
 }
 
+TEST_CASE("semantic megacity road surface spans the shared building footprint envelope", "[megacity]")
+{
+    SemanticMegacityLayout layout;
+    SemanticCityModuleLayout module_layout;
+
+    SemanticCityBuilding building_a;
+    building_a.center = { 0.0f, 0.0f };
+    building_a.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    SemanticCityBuilding building_b;
+    building_b.center = { 8.0f, 0.0f };
+    building_b.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    module_layout.buildings = { building_a, building_b };
+    layout.modules.push_back(std::move(module_layout));
+
+    const CitySurfaceBounds bounds = compute_city_road_surface_bounds(layout);
+
+    REQUIRE(bounds.valid());
+    CHECK(bounds.min_x == Catch::Approx(-3.0f));
+    CHECK(bounds.max_x == Catch::Approx(11.0f));
+    CHECK(bounds.min_z == Catch::Approx(-3.0f));
+    CHECK(bounds.max_z == Catch::Approx(3.0f));
+}
+
+TEST_CASE("city grid uses one shared road surface under the building envelope", "[megacity]")
+{
+    SemanticMegacityLayout layout;
+    SemanticCityModuleLayout module_layout;
+
+    SemanticCityBuilding building_a;
+    building_a.center = { 0.0f, 0.0f };
+    building_a.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    SemanticCityBuilding building_b;
+    building_b.center = { 8.0f, 0.0f };
+    building_b.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    module_layout.buildings = { building_a, building_b };
+    layout.modules.push_back(std::move(module_layout));
+    layout.min_x = -5.0f;
+    layout.max_x = 13.0f;
+    layout.min_z = -5.0f;
+    layout.max_z = 5.0f;
+
+    MegaCityCodeConfig config;
+    config.placement_step = 0.5f;
+    const CityGrid grid = build_city_grid(layout, config);
+
+    auto sample_cell = [&](float world_x, float world_z) {
+        const int col = static_cast<int>(std::floor((world_x - grid.origin_x) / grid.cell_size));
+        const int row = static_cast<int>(std::floor((world_z - grid.origin_z) / grid.cell_size));
+        return grid.at(col, row);
+    };
+
+    CHECK(sample_cell(0.0f, 0.0f) == kCityGridBuilding);
+    CHECK(sample_cell(2.5f, 0.0f) == kCityGridSidewalk);
+    CHECK(sample_cell(4.0f, 0.0f) == kCityGridRoad);
+    CHECK(sample_cell(-4.0f, 0.0f) == kCityGridEmpty);
+}
+
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
 {
     const MeshData mesh = build_roof_sign_mesh();
