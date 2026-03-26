@@ -19,7 +19,7 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<BuildingMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, MeshId::Cube, color);
+    registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;
@@ -32,7 +32,7 @@ entt::entity SceneWorld::create_tree(float world_x, float world_z,
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, 0.0f);
     registry_.emplace<TreeMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, MeshId::Cube, color); // TODO: tree mesh
+    registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f)); // TODO: tree mesh
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;
@@ -45,7 +45,25 @@ entt::entity SceneWorld::create_road(float world_x, float world_z,
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<RoadMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, MeshId::Cube, color);
+    registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    if (!source.file.empty() || !source.name.empty())
+        registry_.emplace<SourceSymbol>(entity, std::move(source));
+    return entity;
+}
+
+entt::entity SceneWorld::create_road_surface(float world_x, float world_z,
+    const RoadSurfaceMetrics& metrics, SourceSymbol source, float elevation)
+{
+    const auto entity = registry_.create();
+    registry_.emplace<WorldPosition>(entity, world_x, world_z);
+    registry_.emplace<Elevation>(entity, elevation);
+    registry_.emplace<RoadSurfaceMetrics>(entity, metrics);
+    registry_.emplace<Appearance>(
+        entity,
+        MeshId::RoadSurface,
+        MaterialId::AsphaltRoad,
+        glm::vec4(1.0f),
+        glm::vec4(static_cast<float>(MaterialId::AsphaltRoad), metrics.uv_scale, metrics.normal_strength, metrics.ao_strength));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;
@@ -58,7 +76,7 @@ entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevati
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<SignMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, mesh, color);
+    registry_.emplace<Appearance>(entity, mesh, MaterialId::FlatColor, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;

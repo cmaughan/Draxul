@@ -7,6 +7,7 @@ struct FrameUniforms
     float4x4 view;
     float4x4 proj;
     float4x4 inv_view_proj;
+    float4 camera_pos;
     float4 light_dir;
     float4 point_light_pos;
     float4 label_fade_px;

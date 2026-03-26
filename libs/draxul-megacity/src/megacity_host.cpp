@@ -74,6 +74,8 @@ constexpr std::array<glm::vec4, 26> kModuleAccentPalette = {
 constexpr glm::vec4 kRoadColor(0.46f, 0.46f, 0.48f, 1.0f);
 constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
 constexpr glm::vec4 kRoadSurfaceColor(0.18f, 0.18f, 0.19f, 1.0f);
+constexpr float kRoadSurfaceTextureLift = 0.002f;
+constexpr float kRoadMaterialUvScale = 0.28f;
 
 struct SignPlacementSpec
 {
@@ -682,7 +684,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     {
         std::filesystem::path ini_path = ConfigDocument::default_path().parent_path() / "megacity_imgui.ini";
         imgui_ini_path_ = ini_path.string();
-        if (std::filesystem::exists(ini_path))
+        if (ImGui::GetCurrentContext() != nullptr && std::filesystem::exists(ini_path))
             ImGui::LoadIniSettingsFromDisk(imgui_ini_path_.c_str());
     }
     sign_font_path_ = context.text_service->primary_font_path();
@@ -1031,7 +1033,7 @@ void MegaCityHost::shutdown()
     city_grid_.reset();
 
     // Save ImGui layout state
-    if (!imgui_ini_path_.empty())
+    if (ImGui::GetCurrentContext() != nullptr && !imgui_ini_path_.empty())
         ImGui::SaveIniSettingsToDisk(imgui_ini_path_.c_str());
 
     pending_renderer_config_.show_ui_panels = show_ui_panels_;
@@ -1086,6 +1088,7 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     scene.camera.view = camera_->view_matrix();
     scene.camera.proj = camera_->proj_matrix();
     scene.camera.inv_view_proj = glm::inverse(scene.camera.proj * scene.camera.view);
+    scene.camera.camera_pos = glm::vec4(camera_->position(), 1.0f);
     scene.camera.light_dir = glm::normalize(glm::vec4(
         renderer_config_.directional_light_x,
         renderer_config_.directional_light_y,
@@ -1145,6 +1148,8 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     {
         SceneObject obj;
         obj.mesh = appearance.mesh;
+        obj.material = appearance.material;
+        obj.material_info = appearance.material_info;
         const glm::vec3 world_pos{ pos.x, elev.value, pos.z };
         float extent_x = 1.0f;
         float extent_z = 1.0f;
@@ -1171,6 +1176,12 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
             extent_z = rm->extent_z;
             transform = glm::translate(transform, glm::vec3(0.0f, rm->height * 0.5f, 0.0f));
             transform = glm::scale(transform, glm::vec3(rm->extent_x, rm->height, rm->extent_z));
+        }
+        else if (const auto* rsm = reg.try_get<RoadSurfaceMetrics>(entity))
+        {
+            extent_x = rsm->extent_x;
+            extent_z = rsm->extent_z;
+            transform = glm::scale(transform, glm::vec3(rsm->extent_x, 1.0f, rsm->extent_z));
         }
         else if (const auto* sm = reg.try_get<SignMetrics>(entity))
         {
@@ -1439,6 +1450,13 @@ void MegaCityHost::rebuild_semantic_city()
                     RoadMetrics{ road.extent.x, road.extent.y, renderer_config_.road_surface_height },
                     kRoadSurfaceColor,
                     SourceSymbol{ building.source_file_path, building.qualified_name });
+
+                world_->create_road_surface(
+                    road.center.x,
+                    road.center.y,
+                    RoadSurfaceMetrics{ road.extent.x, road.extent.y, kRoadMaterialUvScale, 1.0f, 1.0f },
+                    SourceSymbol{ building.source_file_path, building.qualified_name },
+                    renderer_config_.road_surface_height + kRoadSurfaceTextureLift);
             }
         }
 

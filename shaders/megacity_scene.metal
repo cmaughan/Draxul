@@ -7,6 +7,7 @@ struct FrameUniforms
     float4x4 view;
     float4x4 proj;
     float4x4 inv_view_proj;
+    float4 camera_pos;
     float4 light_dir;
     float4 point_light_pos;
     float4 label_fade_px;
@@ -21,6 +22,7 @@ struct ObjectUniforms
 {
     float4x4 world;
     float4 color;
+    float4 material_info;
     float4 uv_rect;
     float4 label_metrics;
 };
@@ -43,6 +45,7 @@ struct VertexOut
     float2 atlas_uv;
     float tex_blend;
     float2 label_ink_pixel_size;
+    float4 material_info;
 };
 
 vertex VertexOut scene_vertex(VertexIn in [[stage_in]],
@@ -58,7 +61,36 @@ vertex VertexOut scene_vertex(VertexIn in [[stage_in]],
     out.atlas_uv = mix(object.uv_rect.xy, object.uv_rect.zw, in.uv);
     out.tex_blend = in.tex_blend;
     out.label_ink_pixel_size = object.label_metrics.xy;
+    out.material_info = object.material_info;
     return out;
+}
+
+float distribution_ggx(float3 n, float3 h, float roughness)
+{
+    const float a = roughness * roughness;
+    const float a2 = a * a;
+    const float ndoth = max(dot(n, h), 0.0f);
+    const float ndoth2 = ndoth * ndoth;
+    const float denom = ndoth2 * (a2 - 1.0f) + 1.0f;
+    return a2 / max(3.14159265359f * denom * denom, 1e-4f);
+}
+
+float geometry_schlick_ggx(float ndotv, float roughness)
+{
+    const float r = roughness + 1.0f;
+    const float k = (r * r) * 0.125f;
+    return ndotv / max(ndotv * (1.0f - k) + k, 1e-4f);
+}
+
+float geometry_smith(float3 n, float3 v, float3 l, float roughness)
+{
+    return geometry_schlick_ggx(max(dot(n, v), 0.0f), roughness)
+        * geometry_schlick_ggx(max(dot(n, l), 0.0f), roughness);
+}
+
+float3 fresnel_schlick(float cosTheta, float3 f0)
+{
+    return f0 + (1.0f - f0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
 }
 
 fragment float4 scene_fragment(
@@ -66,48 +98,103 @@ fragment float4 scene_fragment(
     constant FrameUniforms& frame [[buffer(1)]],
     texture2d<float> signAtlas [[texture(0)]],
     texture2d<float> aoTexture [[texture(1)]],
+    texture2d<float> roadAlbedoTexture [[texture(2)]],
+    texture2d<float> roadNormalTexture [[texture(3)]],
+    texture2d<float> roadRoughnessTexture [[texture(4)]],
+    texture2d<float> roadAoTexture [[texture(5)]],
     sampler signSampler [[sampler(0)]],
-    sampler aoSampler [[sampler(1)]])
+    sampler aoSampler [[sampler(1)]],
+    sampler materialSampler [[sampler(2)]])
 {
-    const float3 normal_ws = normalize(in.normal_ws);
+    float3 normal_ws = normalize(in.normal_ws);
+    float3 albedo = in.base_color;
+    float roughness = 0.65f;
+    const float metallic = 0.0f;
+    float material_ao = 1.0f;
+
+    if (in.material_info.x > 0.5f)
+    {
+        const float2 road_uv = in.world_position.xz * in.material_info.y;
+        float3 tangent_normal = roadNormalTexture.sample(materialSampler, road_uv).xyz * 2.0f - 1.0f;
+        tangent_normal.xy *= max(in.material_info.z, 0.0f);
+        tangent_normal = normalize(tangent_normal);
+        const float3x3 tbn = float3x3(float3(1.0f, 0.0f, 0.0f), float3(0.0f, 0.0f, 1.0f), normal_ws);
+        normal_ws = normalize(tbn * tangent_normal);
+        albedo = roadAlbedoTexture.sample(materialSampler, road_uv).rgb * in.base_color;
+        roughness = clamp(roadRoughnessTexture.sample(materialSampler, road_uv).r, 0.04f, 1.0f);
+        material_ao = mix(1.0f, roadAoTexture.sample(materialSampler, road_uv).r, clamp(in.material_info.w, 0.0f, 1.0f));
+    }
+
     const float2 screen_uv = clamp(
         (in.position.xy - frame.screen_params.xy) * frame.screen_params.zw,
-        float2(0.0),
-        float2(1.0));
+        float2(0.0f),
+        float2(1.0f));
     const float3 ao_debug = aoTexture.sample(aoSampler, screen_uv).rgb;
-    const float ao = clamp(ao_debug.r, 0.0, 1.0);
-    if (frame.debug_view.x > 0.5)
-        return float4(ao_debug, 1.0);
+    const float ao = clamp(ao_debug.r, 0.0f, 1.0f);
+    if (frame.debug_view.x > 0.5f)
+        return float4(ao_debug, 1.0f);
+
+    const float ambient = max(frame.render_tuning.z, 0.0f);
+    const float3 view_dir = normalize(frame.camera_pos.xyz - in.world_position);
+    const float3 f0 = mix(float3(0.04f), albedo, metallic);
+    const float hemi_factor = normal_ws.y * 0.5f + 0.5f;
+    const float3 hemi = mix(float3(0.84f, 0.82f, 0.78f), float3(1.04f, 1.03f, 1.01f), hemi_factor);
+    const float combined_ao = material_ao * ao;
+
+    float3 direct_lighting = float3(0.0f);
+
     const float3 light_dir = normalize(-frame.light_dir.xyz);
-    const float ndotl = max(dot(normal_ws, light_dir), 0.0);
-    const float ambient = max(frame.render_tuning.z, 0.0);
-    const float directional = 0.52 * ndotl;
-    const float hemi_factor = normal_ws.y * 0.5 + 0.5;
-    const float3 hemi = mix(float3(0.84, 0.82, 0.78), float3(1.04, 1.03, 1.01), hemi_factor);
+    const float ndotl = max(dot(normal_ws, light_dir), 0.0f);
+    if (ndotl > 0.0f)
+    {
+        const float3 half_vec = normalize(view_dir + light_dir);
+        const float3 fresnel = fresnel_schlick(max(dot(half_vec, view_dir), 0.0f), f0);
+        const float ndf = distribution_ggx(normal_ws, half_vec, roughness);
+        const float geometry = geometry_smith(normal_ws, view_dir, light_dir, roughness);
+        const float3 specular = (ndf * geometry * fresnel)
+            / max(4.0f * max(dot(normal_ws, view_dir), 0.0f) * ndotl, 1e-4f);
+        const float3 kd = (1.0f - fresnel) * (1.0f - metallic);
+        const float3 radiance = hemi * 0.52f;
+        direct_lighting += (kd * albedo / 3.14159265359f + specular) * radiance * ndotl;
+    }
+
     const float3 point_vec = frame.point_light_pos.xyz - in.world_position;
     const float point_dist = length(point_vec);
-    const float3 point_dir = point_dist > 1e-4 ? point_vec / point_dist : float3(0.0, 1.0, 0.0);
-    const float point_ndotl = max(dot(normal_ws, point_dir), 0.0);
-    const float point_radius = max(frame.point_light_pos.w, 1.0);
-    const float point_atten = clamp(1.0 - point_dist / point_radius, 0.0, 1.0);
-    const float point_light = max(frame.render_tuning.y, 0.0) * point_ndotl * point_atten * point_atten;
-    const float3 point_color = float3(1.05, 0.98, 0.90);
-    float3 shaded = in.base_color * (hemi * ambient * ao + hemi * directional + point_color * point_light);
-    if (in.tex_blend > 0.5)
+    const float3 point_dir = point_dist > 1e-4f ? point_vec / point_dist : float3(0.0f, 1.0f, 0.0f);
+    const float point_radius = max(frame.point_light_pos.w, 1.0f);
+    const float point_atten = clamp(1.0f - point_dist / point_radius, 0.0f, 1.0f);
+    const float point_ndotl = max(dot(normal_ws, point_dir), 0.0f);
+    if (point_ndotl > 0.0f && point_atten > 0.0f)
+    {
+        const float3 half_vec = normalize(view_dir + point_dir);
+        const float3 fresnel = fresnel_schlick(max(dot(half_vec, view_dir), 0.0f), f0);
+        const float ndf = distribution_ggx(normal_ws, half_vec, roughness);
+        const float geometry = geometry_smith(normal_ws, view_dir, point_dir, roughness);
+        const float3 specular = (ndf * geometry * fresnel)
+            / max(4.0f * max(dot(normal_ws, view_dir), 0.0f) * point_ndotl, 1e-4f);
+        const float3 kd = (1.0f - fresnel) * (1.0f - metallic);
+        const float3 radiance = float3(1.05f, 0.98f, 0.90f)
+            * max(frame.render_tuning.y, 0.0f) * point_atten * point_atten;
+        direct_lighting += (kd * albedo / 3.14159265359f + specular) * radiance * point_ndotl;
+    }
+
+    float3 shaded = albedo * (hemi * ambient * combined_ao) + direct_lighting;
+    if (in.tex_blend > 0.5f)
     {
         const float4 label = signAtlas.sample(signSampler, in.atlas_uv);
         const float2 atlas_texels_per_pixel = max(
             fwidth(in.atlas_uv) * float2(signAtlas.get_width(), signAtlas.get_height()),
-            float2(1e-5));
+            float2(1e-5f));
         const float2 projected_ink_pixels = in.label_ink_pixel_size / atlas_texels_per_pixel;
         const float projected_text_pixels = min(projected_ink_pixels.x, projected_ink_pixels.y);
-        const float fade_start_px = max(min(frame.label_fade_px.x, frame.label_fade_px.y), 0.0);
-        const float fade_end_px = max(max(frame.label_fade_px.x, frame.label_fade_px.y), fade_start_px + 1e-3);
+        const float fade_start_px = max(min(frame.label_fade_px.x, frame.label_fade_px.y), 0.0f);
+        const float fade_end_px = max(max(frame.label_fade_px.x, frame.label_fade_px.y), fade_start_px + 1e-3f);
         const float visibility = smoothstep(fade_start_px, fade_end_px, projected_text_pixels);
-        const float label_alpha = smoothstep(0.18, 0.55, label.a) * visibility;
+        const float label_alpha = smoothstep(0.18f, 0.55f, label.a) * visibility;
         shaded = mix(shaded, label.rgb, label_alpha);
     }
-    const float output_gamma = max(frame.render_tuning.x, 1.0);
-    const float3 encoded = pow(max(shaded, float3(0.0)), float3(1.0 / output_gamma));
-    return float4(encoded, 1.0);
+
+    const float output_gamma = max(frame.render_tuning.x, 1.0f);
+    const float3 encoded = pow(max(shaded, float3(0.0f)), float3(1.0f / output_gamma));
+    return float4(encoded, 1.0f);
 }

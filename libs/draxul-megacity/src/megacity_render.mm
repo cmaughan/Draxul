@@ -1,5 +1,6 @@
 #include "isometric_scene_pass.h"
 
+#include "megacity_material_assets.h"
 #include "mesh_library.h"
 #include "objc_ref.h"
 #import <Metal/Metal.h>
@@ -22,6 +23,7 @@ struct FrameUniforms
     simd_float4x4 view;
     simd_float4x4 proj;
     simd_float4x4 inv_view_proj;
+    simd_float4 camera_pos;
     simd_float4 light_dir;
     simd_float4 point_light_pos;
     simd_float4 label_fade_px;
@@ -36,6 +38,7 @@ struct ObjectUniforms
 {
     simd_float4x4 world;
     simd_float4 color;
+    simd_float4 material_info;
     simd_float4 uv_rect;
     simd_float4 label_metrics;
 };
@@ -256,6 +259,7 @@ struct IsometricScenePass::State
     ObjCRef<id<MTLDepthStencilState>> depth_state;
     MeshBuffers cube_mesh;
     MeshBuffers floor_mesh;
+    MeshBuffers road_surface_mesh;
     MeshBuffers roof_sign_mesh;
     MeshBuffers wall_sign_mesh;
     MeshData cached_grid_mesh;
@@ -274,6 +278,11 @@ struct IsometricScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> ao_blur_pipeline;
     ObjCRef<id<MTLSamplerState>> gbuffer_sampler;
     ObjCRef<id<MTLSamplerState>> gbuffer_point_sampler;
+    ObjCRef<id<MTLSamplerState>> material_sampler;
+    ObjCRef<id<MTLTexture>> road_albedo_texture;
+    ObjCRef<id<MTLTexture>> road_normal_texture;
+    ObjCRef<id<MTLTexture>> road_roughness_texture;
+    ObjCRef<id<MTLTexture>> road_ao_texture;
     std::vector<GBufferTargets> gbuffer_targets; // per frame
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
@@ -281,9 +290,12 @@ struct IsometricScenePass::State
     bool init(id<MTLDevice> device, int grid_width, int grid_height, float tile_size)
     {
         if (initialized)
-            return pipeline.get() != nil && depth_state.get() != nil;
+            return pipeline.get() != nil && depth_state.get() != nil
+                && material_sampler.get() != nil && road_albedo_texture.get() != nil;
 
         initialized = true;
+        if (!ensure_road_materials(device))
+            return false;
 
         NSError* error = nil;
         NSString* exePath = [[NSBundle mainBundle] executablePath];
@@ -364,6 +376,11 @@ struct IsometricScenePass::State
         if (!upload_mesh(device, build_floor_box_mesh(), floor_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload floor mesh");
+            return false;
+        }
+        if (!upload_mesh(device, build_road_surface_mesh(), road_surface_mesh))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload road surface mesh");
             return false;
         }
         if (!upload_mesh(device, build_roof_sign_mesh(), roof_sign_mesh))
@@ -483,13 +500,65 @@ struct IsometricScenePass::State
         return true;
     }
 
+    id<MTLTexture> make_texture(id<MTLDevice> device, MTLPixelFormat format, const LoadedTextureImage& image)
+    {
+        MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
+                                                                                        width:static_cast<NSUInteger>(image.width)
+                                                                                       height:static_cast<NSUInteger>(image.height)
+                                                                                    mipmapped:NO];
+        desc.usage = MTLTextureUsageShaderRead;
+        id<MTLTexture> texture = [device newTextureWithDescriptor:desc];
+        if (!texture)
+            return nil;
+
+        [texture replaceRegion:MTLRegionMake2D(0, 0, static_cast<NSUInteger>(image.width), static_cast<NSUInteger>(image.height))
+                   mipmapLevel:0
+                     withBytes:image.rgba.data()
+                   bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
+        return texture;
+    }
+
+    bool ensure_road_materials(id<MTLDevice> device)
+    {
+        if (road_albedo_texture && road_normal_texture && road_roughness_texture && road_ao_texture && material_sampler)
+            return true;
+
+        const AsphaltRoadMaterialImages images = load_asphalt_road_material_images();
+        if (!images.valid())
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load asphalt road material images");
+            return false;
+        }
+
+        road_albedo_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm_sRGB, images.albedo));
+        road_normal_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm, images.normal));
+        road_roughness_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm, images.roughness));
+        road_ao_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm, images.ao));
+        if (!road_albedo_texture || !road_normal_texture || !road_roughness_texture || !road_ao_texture)
+            return false;
+
+        MTLSamplerDescriptor* material_sampler_desc = [[MTLSamplerDescriptor alloc] init];
+        material_sampler_desc.minFilter = MTLSamplerMinMagFilterLinear;
+        material_sampler_desc.magFilter = MTLSamplerMinMagFilterLinear;
+        material_sampler_desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
+        material_sampler_desc.sAddressMode = MTLSamplerAddressModeRepeat;
+        material_sampler_desc.tAddressMode = MTLSamplerAddressModeRepeat;
+        material_sampler_desc.rAddressMode = MTLSamplerAddressModeRepeat;
+        material_sampler_desc.maxAnisotropy = 8;
+        material_sampler.reset([device newSamplerStateWithDescriptor:material_sampler_desc]);
+        return material_sampler.get() != nil;
+    }
+
     bool init_gbuffer(id<MTLDevice> device)
     {
         if (gbuffer_initialized)
             return gbuffer_pipeline.get() != nil && ao_pipeline.get() != nil && ao_blur_pipeline.get() != nil
-                && gbuffer_sampler.get() != nil && gbuffer_point_sampler.get() != nil;
+                && gbuffer_sampler.get() != nil && gbuffer_point_sampler.get() != nil
+                && material_sampler.get() != nil && road_albedo_texture.get() != nil;
 
         gbuffer_initialized = true;
+        if (!ensure_road_materials(device))
+            return false;
 
         NSError* error = nil;
         NSString* exePath = [[NSBundle mainBundle] executablePath];
@@ -776,6 +845,9 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     frame.view = to_simd_matrix(scene_.camera.view);
     frame.proj = to_simd_matrix(scene_.camera.proj);
     frame.inv_view_proj = to_simd_matrix(scene_.camera.inv_view_proj);
+    frame.camera_pos = simd_make_float4(
+        scene_.camera.camera_pos.x, scene_.camera.camera_pos.y,
+        scene_.camera.camera_pos.z, scene_.camera.camera_pos.w);
     frame.light_dir = simd_make_float4(
         scene_.camera.light_dir.x, scene_.camera.light_dir.y,
         scene_.camera.light_dir.z, scene_.camera.light_dir.w);
@@ -799,6 +871,11 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [encoder setCullMode:MTLCullModeBack];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
     [encoder setVertexBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
+    [encoder setFragmentTexture:state_->road_albedo_texture.get() atIndex:0];
+    [encoder setFragmentTexture:state_->road_normal_texture.get() atIndex:1];
+    [encoder setFragmentTexture:state_->road_roughness_texture.get() atIndex:2];
+    [encoder setFragmentTexture:state_->road_ao_texture.get() atIndex:3];
+    [encoder setFragmentSamplerState:state_->material_sampler.get() atIndex:0];
 
     // Draw scene objects
     for (const SceneObject& obj : scene_.objects)
@@ -811,6 +888,9 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
             break;
         case MeshId::Cube:
             mesh = &state_->cube_mesh;
+            break;
+        case MeshId::RoadSurface:
+            mesh = &state_->road_surface_mesh;
             break;
         case MeshId::RoofSign:
             mesh = &state_->roof_sign_mesh;
@@ -827,6 +907,8 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         ObjectUniforms object;
         object.world = to_simd_matrix(obj.world);
         object.color = simd_make_float4(obj.color.x, obj.color.y, obj.color.z, obj.color.w);
+        object.material_info = simd_make_float4(
+            obj.material_info.x, obj.material_info.y, obj.material_info.z, obj.material_info.w);
         object.uv_rect = simd_make_float4(0.0f, 0.0f, 1.0f, 1.0f);
         object.label_metrics = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -847,6 +929,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         object.color = simd_make_float4(
             scene_.floor_grid.color.x, scene_.floor_grid.color.y,
             scene_.floor_grid.color.z, scene_.floor_grid.color.w);
+        object.material_info = simd_make_float4(0.0f, 1.0f, 1.0f, 1.0f);
         object.uv_rect = simd_make_float4(0.0f, 0.0f, 1.0f, 1.0f);
         object.label_metrics = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -955,6 +1038,11 @@ void IsometricScenePass::record(IRenderContext& ctx)
     frame.view = to_simd_matrix(scene_.camera.view);
     frame.proj = to_simd_matrix(scene_.camera.proj);
     frame.inv_view_proj = to_simd_matrix(scene_.camera.inv_view_proj);
+    frame.camera_pos = simd_make_float4(
+        scene_.camera.camera_pos.x,
+        scene_.camera.camera_pos.y,
+        scene_.camera.camera_pos.z,
+        scene_.camera.camera_pos.w);
     frame.light_dir = simd_make_float4(
         scene_.camera.light_dir.x,
         scene_.camera.light_dir.y,
@@ -1005,8 +1093,13 @@ void IsometricScenePass::record(IRenderContext& ctx)
     [encoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
     [encoder setFragmentTexture:state_->label_atlas_texture.get() atIndex:0];
     [encoder setFragmentTexture:state_->gbuffer_targets[frame_index].ao.get() atIndex:1];
+    [encoder setFragmentTexture:state_->road_albedo_texture.get() atIndex:2];
+    [encoder setFragmentTexture:state_->road_normal_texture.get() atIndex:3];
+    [encoder setFragmentTexture:state_->road_roughness_texture.get() atIndex:4];
+    [encoder setFragmentTexture:state_->road_ao_texture.get() atIndex:5];
     [encoder setFragmentSamplerState:state_->label_sampler.get() atIndex:0];
     [encoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:1];
+    [encoder setFragmentSamplerState:state_->material_sampler.get() atIndex:2];
 
     for (const SceneObject& obj : scene_.objects)
     {
@@ -1018,6 +1111,9 @@ void IsometricScenePass::record(IRenderContext& ctx)
             break;
         case MeshId::Cube:
             mesh = &state_->cube_mesh;
+            break;
+        case MeshId::RoadSurface:
+            mesh = &state_->road_surface_mesh;
             break;
         case MeshId::RoofSign:
             mesh = &state_->roof_sign_mesh;
@@ -1034,6 +1130,8 @@ void IsometricScenePass::record(IRenderContext& ctx)
         ObjectUniforms object;
         object.world = to_simd_matrix(obj.world);
         object.color = simd_make_float4(obj.color.x, obj.color.y, obj.color.z, obj.color.w);
+        object.material_info = simd_make_float4(
+            obj.material_info.x, obj.material_info.y, obj.material_info.z, obj.material_info.w);
         object.uv_rect = simd_make_float4(obj.uv_rect.x, obj.uv_rect.y, obj.uv_rect.z, obj.uv_rect.w);
         object.label_metrics = simd_make_float4(
             obj.label_ink_pixel_size.x,
@@ -1059,6 +1157,7 @@ void IsometricScenePass::record(IRenderContext& ctx)
             scene_.floor_grid.color.y,
             scene_.floor_grid.color.z,
             scene_.floor_grid.color.w);
+        object.material_info = simd_make_float4(0.0f, 1.0f, 1.0f, 1.0f);
         object.uv_rect = simd_make_float4(0.0f, 0.0f, 1.0f, 1.0f);
         object.label_metrics = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
 

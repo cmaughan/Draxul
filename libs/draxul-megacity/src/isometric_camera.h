@@ -54,6 +54,10 @@ public:
     {
         return pitch_angle_;
     }
+    const glm::vec3& position() const
+    {
+        return position_;
+    }
 
 private:
     void update_follow_offset();

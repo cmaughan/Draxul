@@ -4,6 +4,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms {
     mat4 view;
     mat4 proj;
     mat4 inv_view_proj;
+    vec4 camera_pos;
     vec4 light_dir;
     vec4 point_light_pos;
     vec4 label_fade_px;
@@ -17,6 +18,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms {
 layout(push_constant) uniform ObjectUniforms {
     mat4 world;
     vec4 color;
+    vec4 material_info;
     vec4 uv_rect;
     vec4 label_metrics;
 } object_data;
@@ -33,6 +35,7 @@ layout(location = 2) out vec3 out_world_position;
 layout(location = 3) out vec2 out_atlas_uv;
 layout(location = 4) out float out_tex_blend;
 layout(location = 5) out vec2 out_label_ink_pixel_size;
+layout(location = 6) flat out vec4 out_material_info;
 
 void main()
 {
@@ -43,5 +46,6 @@ void main()
     out_atlas_uv = mix(object_data.uv_rect.xy, object_data.uv_rect.zw, in_uv);
     out_tex_blend = in_tex_blend;
     out_label_ink_pixel_size = object_data.label_metrics.xy;
+    out_material_info = object_data.material_info;
     gl_Position = frame.proj * frame.view * world_position;
 }

@@ -13,7 +13,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Zsh | `--host zsh` | PTY-based terminal (Unix) |
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
 | WSL | `--host wsl` | Windows Subsystem for Linux shell |
-| MegaCity | `--host megacity` | 3D demo host (spinning cube + code visualization, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache) |
+| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road materials, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache) |
 
 Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
 
@@ -27,6 +27,7 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **Buffer**: Host-visible/shared memory, direct writes, no staging. 112 bytes per cell
 - **Frames in flight**: 2 with synchronization primitives
 - **Pixel format**: BGRA8 Unorm (Neovim sends pre-sRGB colors)
+- **MegaCity materials**: Textured asphalt road surfaces with albedo, normal, roughness, and material-AO maps, plus deferred-style AO debug/lighting controls
 
 ---
 

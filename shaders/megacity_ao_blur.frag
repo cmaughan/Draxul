@@ -5,6 +5,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     mat4 view;
     mat4 proj;
     mat4 inv_view_proj;
+    vec4 camera_pos;
     vec4 light_dir;
     vec4 point_light_pos;
     vec4 label_fade_px;

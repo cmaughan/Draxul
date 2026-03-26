@@ -4,6 +4,7 @@ if(APPLE)
     set(MEGACITY_SOURCES
         src/isometric_camera.cpp
         src/megacity_code_config.cpp
+        src/megacity_material_assets.cpp
         src/scene_world.cpp
         src/semantic_city_layout.cpp
         src/sign_label_atlas.cpp
@@ -17,6 +18,7 @@ else()
     set(MEGACITY_SOURCES
         src/isometric_camera.cpp
         src/megacity_code_config.cpp
+        src/megacity_material_assets.cpp
         src/scene_world.cpp
         src/semantic_city_layout.cpp
         src/sign_label_atlas.cpp
@@ -33,6 +35,7 @@ add_library(draxul-megacity STATIC ${MEGACITY_SOURCES})
 target_include_directories(draxul-megacity
     PUBLIC include
     PRIVATE src
+    PRIVATE ${stb_SOURCE_DIR}
 )
 
 target_link_libraries(draxul-megacity PUBLIC

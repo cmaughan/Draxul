@@ -13,8 +13,15 @@ enum class MeshId : uint32_t
     Grid,
     Floor,
     Cube,
+    RoadSurface,
     RoofSign,
     WallSign,
+};
+
+enum class MaterialId : uint32_t
+{
+    FlatColor = 0,
+    AsphaltRoad = 1,
 };
 
 struct LabelAtlasData
@@ -34,8 +41,10 @@ struct LabelAtlasData
 struct SceneObject
 {
     MeshId mesh = MeshId::Cube;
+    MaterialId material = MaterialId::FlatColor;
     glm::mat4 world{ 1.0f };
     glm::vec4 color{ 1.0f };
+    glm::vec4 material_info{ 0.0f, 1.0f, 1.0f, 1.0f }; // x = material id, y = uv scale, z = normal strength, w = AO strength
     glm::vec4 uv_rect{ 0.0f, 0.0f, 1.0f, 1.0f };
     glm::vec2 label_ink_pixel_size{ 0.0f };
 };
@@ -45,6 +54,7 @@ struct SceneCameraData
     glm::mat4 view{ 1.0f };
     glm::mat4 proj{ 1.0f };
     glm::mat4 inv_view_proj{ 1.0f };
+    glm::vec4 camera_pos{ 0.0f, 8.0f, 0.0f, 1.0f };
     glm::vec4 light_dir{ -0.5f, -1.0f, -0.3f, 0.0f };
     glm::vec4 point_light_pos{ 4.0f, 6.0f, 4.0f, 12.0f }; // xyz = position, w = radius
     glm::vec4 label_fade_px{ 1.5f, 8.0f, 0.0f, 0.0f };
