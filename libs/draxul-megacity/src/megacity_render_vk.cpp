@@ -381,13 +381,13 @@ VkShaderModule load_shader(VkDevice device, const std::string& path)
     ci.codeSize = size;
     ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
-    VkShaderModule module = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(device, &ci, nullptr, &module) != VK_SUCCESS)
+    VkShaderModule shader_module = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(device, &ci, nullptr, &shader_module) != VK_SUCCESS)
     {
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create shader module %s", path.c_str());
         return VK_NULL_HANDLE;
     }
-    return module;
+    return shader_module;
 }
 
 glm::mat4 make_vulkan_projection(glm::mat4 proj)

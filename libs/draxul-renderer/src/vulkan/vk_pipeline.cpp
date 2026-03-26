@@ -27,13 +27,13 @@ VkShaderModule VkPipelineManager::load_shader(VkDevice device, const std::string
     ci.codeSize = size;
     ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
-    VkShaderModule module = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(device, &ci, nullptr, &module) != VK_SUCCESS)
+    VkShaderModule shader_module = VK_NULL_HANDLE;
+    if (vkCreateShaderModule(device, &ci, nullptr, &shader_module) != VK_SUCCESS)
     {
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to create shader module: %s", path.c_str());
         return VK_NULL_HANDLE;
     }
-    return module;
+    return shader_module;
 }
 
 bool VkPipelineManager::initialize(VkDevice device, VkRenderPass render_pass, const std::string& shader_dir)

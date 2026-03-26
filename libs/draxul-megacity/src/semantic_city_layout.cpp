@@ -15,14 +15,9 @@ namespace draxul
 namespace
 {
 
-float clamp_metric(float value, float min_value, float max_value)
+float snap_to_grid(float value, float grid_step)
 {
-    return std::clamp(value, min_value, max_value);
-}
-
-float maybe_clamp_metric(float value, float min_value, float max_value, bool clamp_metrics)
-{
-    return clamp_metrics ? clamp_metric(value, min_value, max_value) : value;
+    return std::round(value / grid_step) * grid_step;
 }
 
 bool path_has_prefix(std::string_view path, std::string_view prefix)
@@ -99,8 +94,10 @@ struct LotRect
 
 LotRect centered_building_lot(const BuildingMetrics& metrics, const MegaCityCodeConfig& config)
 {
-    const float half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width
+    const float step = std::max(config.placement_step, 0.01f);
+    const float raw_half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width
         + metrics.road_width * config.lot_road_reserve_fraction;
+    const float half_extent = std::max(step, snap_to_grid(raw_half_extent, step));
     return {
         -half_extent,
         half_extent,
@@ -294,9 +291,11 @@ BuildingMetrics derive_building_metrics(const CityClassRecord& row, const MegaCi
     const float road = static_cast<float>(std::max(row.road_size, 0));
 
     const bool clamp_metrics = config.clamp_semantic_metrics;
-    const float footprint = clamp_metrics
+    const float step = std::max(config.placement_step, 0.01f);
+    const float raw_footprint = clamp_metrics
         ? std::clamp(config.footprint_base + std::sqrt(base), config.footprint_min, config.footprint_max)
         : config.footprint_base + base * config.footprint_unclamped_scale;
+    const float footprint = std::max(step, snap_to_grid(raw_footprint, step));
     const float height = clamp_metrics
         ? std::clamp(
               config.height_base + config.height_mass_weight * std::log1p(mass)
@@ -304,11 +303,11 @@ BuildingMetrics derive_building_metrics(const CityClassRecord& row, const MegaCi
               config.height_min, config.height_max)
         : config.height_base + config.height_multiplier * std::log1p(mass)
             + config.height_multiplier * config.height_unclamped_count_weight * std::log1p(funcs);
-    const float raw_road_width = config.road_width_base + road;
-    const float road_width = clamp_metrics
+    const float raw_road_width = clamp_metrics
         ? std::clamp(config.road_width_base + config.road_width_scale * std::log1p(road), config.road_width_min, config.road_width_max)
-        : raw_road_width;
-    const float sidewalk_width = config.sidewalk_width;
+        : config.road_width_base + road;
+    const float road_width = std::max(step, snap_to_grid(raw_road_width, step));
+    const float sidewalk_width = std::max(step, snap_to_grid(config.sidewalk_width, step));
     return { footprint, height, sidewalk_width, road_width };
 }
 
@@ -376,9 +375,9 @@ std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuildi
 SemanticCityModuleModel build_semantic_city_model(
     std::string_view module_path, const std::vector<CityClassRecord>& rows, const MegaCityCodeConfig& config)
 {
-    SemanticCityModuleModel module;
-    module.module_path = std::string(module_path);
-    module.buildings.reserve(rows.size());
+    SemanticCityModuleModel module_model;
+    module_model.module_path = std::string(module_path);
+    module_model.buildings.reserve(rows.size());
 
     for (const auto& row : rows)
     {
@@ -388,8 +387,8 @@ SemanticCityModuleModel build_semantic_city_model(
             continue;
 
         const BuildingMetrics metrics = derive_building_metrics(row, config);
-        module.connectivity += std::max(row.road_size, 0);
-        module.buildings.push_back({
+        module_model.connectivity += std::max(row.road_size, 0);
+        module_model.buildings.push_back({
             row.module_path.empty() ? std::string(module_path) : row.module_path,
             row.name,
             row.qualified_name,
@@ -404,7 +403,7 @@ SemanticCityModuleModel build_semantic_city_model(
         });
     }
 
-    std::sort(module.buildings.begin(), module.buildings.end(), [](const SemanticCityBuilding& a, const SemanticCityBuilding& b) {
+    std::sort(module_model.buildings.begin(), module_model.buildings.end(), [](const SemanticCityBuilding& a, const SemanticCityBuilding& b) {
         if (a.metrics.height != b.metrics.height)
             return a.metrics.height > b.metrics.height;
         if (a.metrics.footprint != b.metrics.footprint)
@@ -412,7 +411,7 @@ SemanticCityModuleModel build_semantic_city_model(
         return a.qualified_name < b.qualified_name;
     });
 
-    return module;
+    return module_model;
 }
 
 SemanticMegacityModel build_semantic_megacity_model(
@@ -423,29 +422,29 @@ SemanticMegacityModel build_semantic_megacity_model(
 
     for (const auto& module_input : modules)
     {
-        SemanticCityModuleModel module = build_semantic_city_model(module_input.module_path, module_input.rows, config);
-        if (!module.empty())
-            model.modules.push_back(std::move(module));
+        SemanticCityModuleModel module_model = build_semantic_city_model(module_input.module_path, module_input.rows, config);
+        if (!module_model.empty())
+            model.modules.push_back(std::move(module_model));
     }
 
     return model;
 }
 
 SemanticCityLayout build_semantic_city_layout(
-    const SemanticCityModuleModel& module, const MegaCityCodeConfig& config)
+    const SemanticCityModuleModel& module_model, const MegaCityCodeConfig& config)
 {
     SemanticCityLayout layout;
-    if (module.empty())
+    if (module_model.empty())
         return layout;
 
     std::vector<LotRect> reserved_lots;
-    reserved_lots.reserve(module.buildings.size());
+    reserved_lots.reserve(module_model.buildings.size());
     layout.min_x = std::numeric_limits<float>::max();
     layout.max_x = std::numeric_limits<float>::lowest();
     layout.min_z = std::numeric_limits<float>::max();
     layout.max_z = std::numeric_limits<float>::lowest();
 
-    for (const SemanticCityBuilding& building : module.buildings)
+    for (const SemanticCityBuilding& building : module_model.buildings)
     {
         const LotRect local_lot = centered_building_lot(building.metrics, config);
         glm::vec2 chosen_center{ 0.0f };
@@ -500,8 +499,8 @@ SemanticCityLayout build_semantic_city_layout(
 SemanticCityLayout build_semantic_city_layout(
     const std::vector<CityClassRecord>& rows, const MegaCityCodeConfig& config)
 {
-    const SemanticCityModuleModel module = build_semantic_city_model(std::string_view{}, rows, config);
-    return build_semantic_city_layout(module, config);
+    const SemanticCityModuleModel module_model = build_semantic_city_model(std::string_view{}, rows, config);
+    return build_semantic_city_layout(module_model, config);
 }
 
 SemanticMegacityLayout build_semantic_megacity_layout(
@@ -518,17 +517,17 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 
     std::vector<ModuleCandidate> candidates;
     candidates.reserve(model.modules.size());
-    for (const auto& module : model.modules)
+    for (const auto& module_model : model.modules)
     {
-        SemanticCityLayout layout = build_semantic_city_layout(module, config);
+        SemanticCityLayout layout = build_semantic_city_layout(module_model, config);
         if (layout.empty())
             continue;
 
         const float width = layout.max_x - layout.min_x;
         const float depth = layout.max_z - layout.min_z;
         candidates.push_back({
-            module.module_path,
-            module.connectivity,
+            module_model.module_path,
+            module_model.connectivity,
             std::move(layout),
             { 0.0f, 0.0f, 0.0f, 0.0f },
             width * depth,
@@ -631,6 +630,75 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 {
     const SemanticMegacityModel model = build_semantic_megacity_model(modules, config);
     return build_semantic_megacity_layout(model, config);
+}
+
+CityGrid build_city_grid(const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config)
+{
+    CityGrid grid;
+    if (layout.empty())
+        return grid;
+
+    const float step = std::max(config.placement_step, 0.01f);
+    grid.cell_size = step;
+
+    // Pad bounds by one cell so buildings at the edge are fully inside.
+    grid.origin_x = layout.min_x - step;
+    grid.origin_z = layout.min_z - step;
+    const float extent_x = (layout.max_x + step) - grid.origin_x;
+    const float extent_z = (layout.max_z + step) - grid.origin_z;
+    grid.cols = static_cast<int>(std::ceil(extent_x / step));
+    grid.rows = static_cast<int>(std::ceil(extent_z / step));
+
+    if (grid.cols <= 0 || grid.rows <= 0)
+        return grid;
+
+    grid.cells.assign(static_cast<size_t>(grid.cols) * grid.rows, kCityGridEmpty);
+
+    // Helper: rasterize an axis-aligned rect into the grid with a given cell value.
+    auto fill_rect = [&](float world_min_x, float world_max_x, float world_min_z, float world_max_z, uint8_t value) {
+        const int c0 = std::max(0, static_cast<int>(std::floor((world_min_x - grid.origin_x) / step)));
+        const int c1 = std::min(grid.cols - 1, static_cast<int>(std::floor((world_max_x - grid.origin_x) / step)));
+        const int r0 = std::max(0, static_cast<int>(std::floor((world_min_z - grid.origin_z) / step)));
+        const int r1 = std::min(grid.rows - 1, static_cast<int>(std::floor((world_max_z - grid.origin_z) / step)));
+        for (int r = r0; r <= r1; ++r)
+            for (int c = c0; c <= c1; ++c)
+                grid.cells[static_cast<size_t>(r) * grid.cols + c] = value;
+    };
+
+    for (const auto& module_layout : layout.modules)
+    {
+        for (const auto& building : module_layout.buildings)
+        {
+            const float half_fp = building.metrics.footprint * 0.5f;
+            const float cx = building.center.x;
+            const float cz = building.center.y; // center.y is world Z
+
+            // Road layer (outermost)
+            const auto roads = build_road_segments(building);
+            for (const auto& road : roads)
+                fill_rect(
+                    road.center.x - road.extent.x,
+                    road.center.x + road.extent.x,
+                    road.center.y - road.extent.y,
+                    road.center.y + road.extent.y,
+                    kCityGridRoad);
+
+            // Sidewalk layer (middle)
+            const auto sidewalks = build_sidewalk_segments(building);
+            for (const auto& sw : sidewalks)
+                fill_rect(
+                    sw.center.x - sw.extent.x,
+                    sw.center.x + sw.extent.x,
+                    sw.center.y - sw.extent.y,
+                    sw.center.y + sw.extent.y,
+                    kCityGridSidewalk);
+
+            // Building footprint (innermost, overwrites road/sidewalk within footprint)
+            fill_rect(cx - half_fp, cx + half_fp, cz - half_fp, cz + half_fp, kCityGridBuilding);
+        }
+    }
+
+    return grid;
 }
 
 } // namespace draxul

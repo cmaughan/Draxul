@@ -3,6 +3,7 @@
 #include "scene_world.h"
 #include "semantic_city_layout.h"
 #include "sign_label_atlas.h"
+#include "ui_city_map_panel.h"
 #include "ui_treesitter_panel.h"
 #include <SDL3/SDL.h>
 #include <array>
@@ -563,7 +564,11 @@ SignMetrics make_sign_metrics(const SignPlacementSpec& placement, const SignAtla
 
 MegaCityHost::MegaCityHost() = default;
 
-MegaCityHost::~MegaCityHost() = default;
+MegaCityHost::~MegaCityHost()
+{
+    if (grid_thread_.joinable())
+        grid_thread_.join();
+}
 
 void MegaCityHost::refresh_sign_text_service()
 {
@@ -843,6 +848,16 @@ void MegaCityHost::render_imgui(float dt)
         ImGuiDockNodeFlags_PassthruCentralNode);
     ImGui::End();
 
+    // City map overview panel
+    {
+        std::shared_ptr<const CityGrid> grid;
+        {
+            std::lock_guard<std::mutex> lock(grid_mutex_);
+            grid = city_grid_;
+        }
+        render_city_map_panel(grid, grid_build_in_progress_.load());
+    }
+
     MegacityRendererControls renderer_controls{
         .config = pending_renderer_config_,
         .defaults = renderer_defaults_,
@@ -926,6 +941,10 @@ void MegaCityHost::detach_3d_renderer()
 
 void MegaCityHost::shutdown()
 {
+    if (grid_thread_.joinable())
+        grid_thread_.join();
+    city_grid_.reset();
+
     if (config_document_)
         store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
     scanner_.stop();
@@ -1158,9 +1177,9 @@ void MegaCityHost::rebuild_semantic_city()
     }
     std::vector<SignLabelRequest> sign_requests;
     sign_requests.reserve(layout.building_count() + layout.modules.size());
-    for (const auto& module : layout.modules)
+    for (const auto& module_layout : layout.modules)
     {
-        for (const auto& building : module.buildings)
+        for (const auto& building : module_layout.buildings)
         {
             const std::string& text = building.display_name.empty() ? building.qualified_name : building.display_name;
             const TextService* ts = sign_text_service_ ? sign_text_service_.get() : nullptr;
@@ -1169,14 +1188,14 @@ void MegaCityHost::rebuild_semantic_city()
             sign_requests.push_back(make_sign_request(building_sign_key(building), text, signs[0], ts, renderer_config_));
         }
 
-        if (!module.buildings.empty())
+        if (!module_layout.buildings.empty())
         {
-            const SemanticCityBuilding& anchor = module.buildings.front();
-            const std::string name = module_display_name(module.module_path);
+            const SemanticCityBuilding& anchor = module_layout.buildings.front();
+            const std::string name = module_display_name(module_layout.module_path);
             const SignPlacementSpec road = place_module_road_sign(
                 anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
             sign_requests.push_back(make_sign_request(
-                module_sign_key(module.module_path), name, road,
+                module_sign_key(module_layout.module_path), name, road,
                 sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_));
         }
     }
@@ -1186,10 +1205,10 @@ void MegaCityHost::rebuild_semantic_city()
         sign_label_atlas_.reset();
 
     world_->clear();
-    for (const auto& module : layout.modules)
+    for (const auto& module_layout : layout.modules)
     {
-        const glm::vec4 module_color = module_building_color(module.module_path);
-        for (const auto& building : module.buildings)
+        const glm::vec4 module_color = module_building_color(module_layout.module_path);
+        for (const auto& building : module_layout.buildings)
         {
             float layer_base_y = building_base_elevation(renderer_config_);
             if (building.layers.empty())
@@ -1287,13 +1306,13 @@ void MegaCityHost::rebuild_semantic_city()
             }
         }
 
-        if (sign_label_atlas_ && !module.buildings.empty())
+        if (sign_label_atlas_ && !module_layout.buildings.empty())
         {
-            const SemanticCityBuilding& anchor = module.buildings.front();
-            const auto it = sign_label_atlas_->entries.find(module_sign_key(module.module_path));
+            const SemanticCityBuilding& anchor = module_layout.buildings.front();
+            const auto it = sign_label_atlas_->entries.find(module_sign_key(module_layout.module_path));
             if (it != sign_label_atlas_->entries.end())
             {
-                const std::string name = module_display_name(module.module_path);
+                const std::string name = module_display_name(module_layout.module_path);
                 const SignPlacementSpec road = place_module_road_sign(
                     anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
                 const SignMetrics sign = make_sign_metrics(road, it->second);
@@ -1307,7 +1326,7 @@ void MegaCityHost::rebuild_semantic_city()
                     sign,
                     road.mesh,
                     kModuleSignColor,
-                    SourceSymbol{ anchor.source_file_path, module.module_path });
+                    SourceSymbol{ anchor.source_file_path, module_layout.module_path });
             }
         }
     }
@@ -1344,6 +1363,42 @@ void MegaCityHost::rebuild_semantic_city()
     semantic_model_ = std::move(semantic_model);
     world_rebuild_pending_ = false;
     mark_scene_dirty();
+
+    launch_grid_build(layout);
+}
+
+void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout)
+{
+    // Wait for any previous grid build to finish.
+    if (grid_thread_.joinable())
+        grid_thread_.join();
+
+    if (layout.empty())
+    {
+        std::lock_guard<std::mutex> lock(grid_mutex_);
+        city_grid_.reset();
+        return;
+    }
+
+    // Copy the layout and config so the thread owns its data.
+    auto layout_copy = std::make_shared<SemanticMegacityLayout>(layout);
+    const MegaCityCodeConfig config = renderer_config_;
+
+    grid_build_in_progress_ = true;
+    grid_thread_ = std::thread([this, layout_copy, config]() {
+        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, config));
+
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "MegaCityHost: city grid built: %dx%d cells (%.1f x %.1f world units)",
+            grid->cols, grid->rows,
+            grid->cols * grid->cell_size, grid->rows * grid->cell_size);
+
+        {
+            std::lock_guard<std::mutex> lock(grid_mutex_);
+            city_grid_ = std::move(grid);
+        }
+        grid_build_in_progress_ = false;
+    });
 }
 
 bool MegaCityHost::movement_active() const

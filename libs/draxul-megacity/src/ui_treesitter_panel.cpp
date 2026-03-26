@@ -81,11 +81,11 @@ std::string logical_module_for_file(std::string_view file_path)
 
 std::string file_path_within_module(std::string_view file_path)
 {
-    const std::string module = logical_module_for_file(file_path);
-    if (module.empty() || file_path.size() <= module.size())
+    const std::string module_path = logical_module_for_file(file_path);
+    if (module_path.empty() || file_path.size() <= module_path.size())
         return std::string(path_basename(file_path));
 
-    std::string_view relative_path = file_path.substr(module.size());
+    std::string_view relative_path = file_path.substr(module_path.size());
     if (!relative_path.empty() && relative_path.front() == '/')
         relative_path.remove_prefix(1);
     return relative_path.empty() ? std::string(path_basename(file_path)) : std::string(relative_path);
@@ -251,9 +251,9 @@ ObjectsTreeCache build_objects_tree_cache(const CodebaseSnapshot& snap)
 
     for (const auto& file : snap.files)
     {
-        const std::string module = logical_module_for_file(file.path);
+        const std::string module_path = logical_module_for_file(file.path);
         const std::string module_file = file_path_within_module(file.path);
-        auto& module_entries = cache.modules[module];
+        auto& module_entries = cache.modules[module_path];
         for (const auto& sym : file.symbols)
         {
             if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
@@ -279,7 +279,7 @@ ObjectsTreeCache build_objects_tree_cache(const CodebaseSnapshot& snap)
             return a.name < b.name;
         return a.file < b.file;
     };
-    for (auto& [module, module_entries] : cache.modules)
+    for (auto& [module_path, module_entries] : cache.modules)
     {
         std::sort(module_entries.concrete.begin(), module_entries.concrete.end(), by_name_then_file);
         std::sort(module_entries.abstract.begin(), module_entries.abstract.end(), by_name_then_file);
@@ -332,21 +332,21 @@ void render_city_preview(const SemanticMegacityModel* semantic_model)
     ImGui::PopStyleColor();
     ImGui::Spacing();
 
-    for (const auto& module : semantic_model->modules)
+    for (const auto& module_model : semantic_model->modules)
     {
-        const std::string label = module.module_path.empty()
+        const std::string label = module_model.module_path.empty()
             ? "Module: (root)"
-            : ("Module: " + module.module_path);
+            : ("Module: " + module_model.module_path);
         const bool module_open = ImGui::TreeNodeEx(
             label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth,
-            "%s (%zu)", label.c_str(), module.buildings.size());
+            "%s (%zu)", label.c_str(), module_model.buildings.size());
         if (!module_open)
             continue;
 
-        for (const SemanticCityBuilding& building : module.buildings)
+        for (const SemanticCityBuilding& building : module_model.buildings)
         {
             const ImVec4 color = ImVec4(0.88f, 0.82f, 0.55f, 1.0f);
-            const std::string module_file = file_path_within_module(building.source_file_path, module.module_path);
+            const std::string module_file = file_path_within_module(building.source_file_path, module_model.module_path);
 
             ImGui::PushStyleColor(ImGuiCol_Text, color);
             const bool open = ImGui::TreeNodeEx(
@@ -493,9 +493,9 @@ void render_objects_tree(const ObjectsTreeCache& cache)
         cache.struct_count);
     ImGui::PopStyleColor();
 
-    for (const auto& [module, module_entries] : cache.modules)
+    for (const auto& [module_path, module_entries] : cache.modules)
     {
-        const std::string label = module.empty() ? "Module: (root)" : ("Module: " + module);
+        const std::string label = module_path.empty() ? "Module: (root)" : ("Module: " + module_path);
         const size_t entity_count = module_entries.concrete.size()
             + module_entries.free_functions.size()
             + module_entries.abstract.size()
@@ -521,7 +521,7 @@ void render_objects_tree(const ObjectsTreeCache& cache)
             for (const auto& e : module_entries.concrete)
             {
                 render_symbol_leaf(
-                    (module + e.name + e.file).c_str(),
+                    (module_path + e.name + e.file).c_str(),
                     symbol_kind_icon(e.kind),
                     symbol_kind_color(e.kind),
                     e.name,
@@ -543,7 +543,7 @@ void render_objects_tree(const ObjectsTreeCache& cache)
             for (const auto& e : module_entries.free_functions)
             {
                 render_symbol_leaf(
-                    (module + e.name + e.file).c_str(),
+                    (module_path + e.name + e.file).c_str(),
                     "fn ",
                     { 0.60f, 0.85f, 1.00f, 1.0f },
                     e.name,
@@ -579,7 +579,7 @@ void render_objects_tree(const ObjectsTreeCache& cache)
                         for (const auto& e : module_entries.abstract)
                         {
                             render_symbol_leaf(
-                                (module + e.name + e.file).c_str(),
+                                (module_path + e.name + e.file).c_str(),
                                 symbol_kind_icon(e.kind),
                                 symbol_kind_color(e.kind),
                                 e.name,
@@ -604,7 +604,7 @@ void render_objects_tree(const ObjectsTreeCache& cache)
                         for (const auto& e : module_entries.data_structs)
                         {
                             render_symbol_leaf(
-                                (module + e.name + e.file).c_str(),
+                                (module_path + e.name + e.file).c_str(),
                                 "st ",
                                 { 0.75f, 0.90f, 0.50f, 1.0f },
                                 e.name,
