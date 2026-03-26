@@ -141,7 +141,7 @@ float3 world_position_false_color(constant FrameUniforms& frame, float3 world_po
 fragment float4 ao_fragment(
     VertexOut in [[stage_in]],
     constant FrameUniforms& frame [[buffer(0)]],
-    texture2d<float> materialTexture [[texture(0)]],
+    texture2d<float> normalTexture [[texture(0)]],
     depth2d<float> depthTexture [[texture(1)]],
     sampler gbufferSampler [[sampler(0)]])
 {
@@ -153,8 +153,8 @@ fragment float4 ao_fragment(
     if (depth >= 0.99999)
         return float4(1.0, 0.0, 0.0, 1.0);
 
-    const float4 material = materialTexture.sample(gbufferSampler, screen_uv);
-    const float3 normal_ws = oct_decode(material.rg);
+    const float4 normal_data = normalTexture.sample(gbufferSampler, screen_uv);
+    const float3 normal_ws = oct_decode(normal_data.rg);
     const float3 world_pos = reconstruct_world(frame, screen_uv, depth);
     const float3 normal_vs = normalize(float3x3(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz) * normal_ws);
     const float3 frag_pos_vs = float3(frame.view * float4(world_pos, 1.0));
@@ -198,7 +198,7 @@ fragment float4 ao_blur_fragment(
     VertexOut in [[stage_in]],
     constant FrameUniforms& frame [[buffer(0)]],
     texture2d<float> rawAoTexture [[texture(0)]],
-    texture2d<float> materialTexture [[texture(1)]],
+    texture2d<float> normalTexture [[texture(1)]],
     depth2d<float> depthTexture [[texture(2)]],
     sampler pointSampler [[sampler(0)]])
 {
@@ -215,8 +215,8 @@ fragment float4 ao_blur_fragment(
         return float4(background, 1.0);
     }
 
-    const float4 center_material = materialTexture.sample(pointSampler, center_uv);
-    const float3 center_normal = oct_decode(center_material.rg);
+    const float4 center_normal_data = normalTexture.sample(pointSampler, center_uv);
+    const float3 center_normal = oct_decode(center_normal_data.rg);
     const float3 center_world = reconstruct_world(frame, center_uv, center_depth);
     const float center_ao = rawAoTexture.sample(pointSampler, center_uv).r;
     if (debug_mode == 2)
@@ -246,8 +246,8 @@ fragment float4 ao_blur_fragment(
             if (sample_depth >= 0.99999)
                 continue;
 
-            const float4 sample_material = materialTexture.sample(pointSampler, sample_uv);
-            const float3 sample_normal = oct_decode(sample_material.rg);
+            const float4 sample_normal_data = normalTexture.sample(pointSampler, sample_uv);
+            const float3 sample_normal = oct_decode(sample_normal_data.rg);
             const float3 sample_world = reconstruct_world(frame, sample_uv, sample_depth);
             const float sample_ao = rawAoTexture.sample(pointSampler, sample_uv).r;
 

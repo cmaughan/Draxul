@@ -17,7 +17,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms
 }
 frame;
 layout(set = 0, binding = 1) uniform sampler2D ao_input;
-layout(set = 0, binding = 2) uniform sampler2D gbuffer_material;
+layout(set = 0, binding = 2) uniform sampler2D gbuffer_normal;
 layout(set = 0, binding = 3) uniform sampler2D gbuffer_depth;
 
 layout(location = 0) out vec4 out_ao;
@@ -98,8 +98,8 @@ void main()
         return;
     }
 
-    vec4 center_material = texture(gbuffer_material, center_uv);
-    vec3 center_normal = oct_decode(center_material.rg);
+    vec4 center_normal_data = texture(gbuffer_normal, center_uv);
+    vec3 center_normal = oct_decode(center_normal_data.rg);
     vec3 center_world = reconstruct_world(center_uv, center_depth);
     float center_ao = texture(ao_input, center_uv).r;
     if (debug_mode == 2)
@@ -138,8 +138,8 @@ void main()
             if (sample_depth >= 0.99999)
                 continue;
 
-            vec4 sample_material = texture(gbuffer_material, sample_uv);
-            vec3 sample_normal = oct_decode(sample_material.rg);
+            vec4 sample_normal_data = texture(gbuffer_normal, sample_uv);
+            vec3 sample_normal = oct_decode(sample_normal_data.rg);
             vec3 sample_world = reconstruct_world(sample_uv, sample_depth);
             float sample_ao = texture(ao_input, sample_uv).r;
 

@@ -133,6 +133,14 @@ float compute_ao_radius_pixels(const glm::mat4& proj, float radius_world, int vi
     return std::max(1.0f, radius_world * ortho_scale_y * 0.5f * static_cast<float>(viewport_h));
 }
 
+NSUInteger mip_level_count_for_size(int width, int height)
+{
+    const int max_dim = std::max(width, height);
+    if (max_dim <= 0)
+        return 1;
+    return static_cast<NSUInteger>(std::floor(std::log2(static_cast<double>(max_dim)))) + 1;
+}
+
 bool upload_mesh(id<MTLDevice> device, const MeshData& mesh, MeshBuffers& buffers)
 {
     id<MTLBuffer> vertex_buffer = [device newBufferWithBytes:mesh.vertices.data()
@@ -244,8 +252,7 @@ bool stream_transient_mesh(id<MTLDevice> device, const MeshData& mesh,
 
 struct GBufferTargets
 {
-    ObjCRef<id<MTLTexture>> material; // RGBA8Unorm — RG octahedral normal, B roughness, A specular
-    ObjCRef<id<MTLTexture>> base_color; // RGBA8Unorm — RGB albedo, A metallic
+    ObjCRef<id<MTLTexture>> normal; // RGBA8Unorm — RG octahedral normal, BA reserved
     ObjCRef<id<MTLTexture>> ao_raw; // RGBA8Unorm — raw ambient occlusion before denoise
     ObjCRef<id<MTLTexture>> ao; // RGBA8Unorm — R ambient occlusion, GBA reserved
     ObjCRef<id<MTLTexture>> depth; // Depth32Float — hardware depth
@@ -283,6 +290,10 @@ struct IsometricScenePass::State
     ObjCRef<id<MTLTexture>> road_normal_texture;
     ObjCRef<id<MTLTexture>> road_roughness_texture;
     ObjCRef<id<MTLTexture>> road_ao_texture;
+    ObjCRef<id<MTLTexture>> wood_albedo_texture;
+    ObjCRef<id<MTLTexture>> wood_normal_texture;
+    ObjCRef<id<MTLTexture>> wood_roughness_texture;
+    ObjCRef<id<MTLTexture>> wood_ao_texture;
     std::vector<GBufferTargets> gbuffer_targets; // per frame
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
@@ -290,13 +301,9 @@ struct IsometricScenePass::State
     bool init(id<MTLDevice> device, int grid_width, int grid_height, float tile_size)
     {
         if (initialized)
-            return pipeline.get() != nil && depth_state.get() != nil
-                && material_sampler.get() != nil && road_albedo_texture.get() != nil;
+            return pipeline.get() != nil && depth_state.get() != nil;
 
         initialized = true;
-        if (!ensure_road_materials(device))
-            return false;
-
         NSError* error = nil;
         NSString* exePath = [[NSBundle mainBundle] executablePath];
         NSString* exeDir = [exePath stringByDeletingLastPathComponent];
@@ -500,12 +507,14 @@ struct IsometricScenePass::State
         return true;
     }
 
-    id<MTLTexture> make_texture(id<MTLDevice> device, MTLPixelFormat format, const LoadedTextureImage& image)
+    id<MTLTexture> make_texture(id<MTLCommandBuffer> cmd_buf, MTLPixelFormat format, const LoadedTextureImage& image)
     {
+        id<MTLDevice> device = cmd_buf.device;
+        const NSUInteger mip_count = mip_level_count_for_size(image.width, image.height);
         MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
                                                                                         width:static_cast<NSUInteger>(image.width)
                                                                                        height:static_cast<NSUInteger>(image.height)
-                                                                                    mipmapped:NO];
+                                                                                    mipmapped:(mip_count > 1)];
         desc.usage = MTLTextureUsageShaderRead;
         id<MTLTexture> texture = [device newTextureWithDescriptor:desc];
         if (!texture)
@@ -515,37 +524,61 @@ struct IsometricScenePass::State
                    mipmapLevel:0
                      withBytes:image.rgba.data()
                    bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
+        if (mip_count > 1)
+        {
+            id<MTLCommandQueue> command_queue = [cmd_buf commandQueue];
+            if (!command_queue)
+                return nil;
+            id<MTLCommandBuffer> mip_cmd = [command_queue commandBuffer];
+            if (!mip_cmd)
+                return nil;
+            id<MTLBlitCommandEncoder> blit = [mip_cmd blitCommandEncoder];
+            if (!blit)
+                return nil;
+            [blit generateMipmapsForTexture:texture];
+            [blit endEncoding];
+            [mip_cmd commit];
+            [mip_cmd waitUntilCompleted];
+        }
         return texture;
     }
 
-    bool ensure_road_materials(id<MTLDevice> device)
+    bool ensure_road_materials(id<MTLCommandBuffer> cmd_buf)
     {
-        if (road_albedo_texture && road_normal_texture && road_roughness_texture && road_ao_texture && material_sampler)
+        if (road_albedo_texture && road_normal_texture && road_roughness_texture && road_ao_texture
+            && wood_albedo_texture && wood_normal_texture && wood_roughness_texture && wood_ao_texture
+            && material_sampler)
             return true;
 
-        const AsphaltRoadMaterialImages images = load_asphalt_road_material_images();
-        if (!images.valid())
+        const AsphaltRoadMaterialImages road_images = load_asphalt_road_material_images();
+        const WoodBuildingMaterialImages wood_images = load_wood_building_material_images();
+        if (!road_images.valid() || !wood_images.valid())
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load asphalt road material images");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load Megacity material images");
             return false;
         }
 
-        road_albedo_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm_sRGB, images.albedo));
-        road_normal_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm, images.normal));
-        road_roughness_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm, images.roughness));
-        road_ao_texture.reset(make_texture(device, MTLPixelFormatRGBA8Unorm, images.ao));
-        if (!road_albedo_texture || !road_normal_texture || !road_roughness_texture || !road_ao_texture)
+        road_albedo_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, road_images.albedo));
+        road_normal_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, road_images.normal));
+        road_roughness_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, road_images.roughness));
+        road_ao_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, road_images.ao));
+        wood_albedo_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, wood_images.albedo));
+        wood_normal_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.normal));
+        wood_roughness_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.roughness));
+        wood_ao_texture.reset(make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.ao));
+        if (!road_albedo_texture || !road_normal_texture || !road_roughness_texture || !road_ao_texture
+            || !wood_albedo_texture || !wood_normal_texture || !wood_roughness_texture || !wood_ao_texture)
             return false;
 
         MTLSamplerDescriptor* material_sampler_desc = [[MTLSamplerDescriptor alloc] init];
         material_sampler_desc.minFilter = MTLSamplerMinMagFilterLinear;
         material_sampler_desc.magFilter = MTLSamplerMinMagFilterLinear;
-        material_sampler_desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
+        material_sampler_desc.mipFilter = MTLSamplerMipFilterLinear;
         material_sampler_desc.sAddressMode = MTLSamplerAddressModeRepeat;
         material_sampler_desc.tAddressMode = MTLSamplerAddressModeRepeat;
         material_sampler_desc.rAddressMode = MTLSamplerAddressModeRepeat;
         material_sampler_desc.maxAnisotropy = 8;
-        material_sampler.reset([device newSamplerStateWithDescriptor:material_sampler_desc]);
+        material_sampler.reset([cmd_buf.device newSamplerStateWithDescriptor:material_sampler_desc]);
         return material_sampler.get() != nil;
     }
 
@@ -553,12 +586,9 @@ struct IsometricScenePass::State
     {
         if (gbuffer_initialized)
             return gbuffer_pipeline.get() != nil && ao_pipeline.get() != nil && ao_blur_pipeline.get() != nil
-                && gbuffer_sampler.get() != nil && gbuffer_point_sampler.get() != nil
-                && material_sampler.get() != nil && road_albedo_texture.get() != nil;
+                && gbuffer_sampler.get() != nil && gbuffer_point_sampler.get() != nil;
 
         gbuffer_initialized = true;
-        if (!ensure_road_materials(device))
-            return false;
 
         NSError* error = nil;
         NSString* exePath = [[NSBundle mainBundle] executablePath];
@@ -607,8 +637,6 @@ struct IsometricScenePass::State
         desc.fragmentFunction = frag_fn;
         desc.vertexDescriptor = vertex_desc;
         desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
-        desc.colorAttachments[1].pixelFormat = MTLPixelFormatRGBA8Unorm;
-        desc.colorAttachments[2].pixelFormat = MTLPixelFormatRGBA8Unorm;
         desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 
         id<MTLRenderPipelineState> pso = [device newRenderPipelineStateWithDescriptor:desc error:&error];
@@ -735,15 +763,14 @@ struct IsometricScenePass::State
             depth_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
             depth_desc.storageMode = MTLStorageModePrivate;
 
-            targets.material.reset([device newTextureWithDescriptor:rgba8_desc]);
-            targets.base_color.reset([device newTextureWithDescriptor:rgba8_desc]);
+            targets.normal.reset([device newTextureWithDescriptor:rgba8_desc]);
             targets.ao_raw.reset([device newTextureWithDescriptor:rgba8_desc]);
             targets.ao.reset([device newTextureWithDescriptor:rgba8_desc]);
             targets.depth.reset([device newTextureWithDescriptor:depth_desc]);
             targets.width = width;
             targets.height = height;
 
-            if (!targets.material || !targets.base_color || !targets.ao_raw || !targets.ao || !targets.depth)
+            if (!targets.normal || !targets.ao_raw || !targets.ao || !targets.depth)
             {
                 DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to create GBuffer textures");
                 gbuffer_targets.clear();
@@ -784,6 +811,8 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         return;
     if (!state_->ensure_gbuffer_targets(cmd_buf.device, frame_count, vw, vh))
         return;
+    if (!state_->ensure_road_materials(cmd_buf))
+        return;
     if (!state_->ensure_floor_grid(cmd_buf.device, scene_.floor_grid))
         return;
 
@@ -803,18 +832,10 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
 
     // Build GBuffer render pass descriptor
     MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpDesc.colorAttachments[0].texture = gbuffer.material.get();
+    rpDesc.colorAttachments[0].texture = gbuffer.normal.get();
     rpDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
     rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
     rpDesc.colorAttachments[0].clearColor = MTLClearColorMake(0.5, 0.5, 0.0, 0.0);
-    rpDesc.colorAttachments[1].texture = gbuffer.base_color.get();
-    rpDesc.colorAttachments[1].loadAction = MTLLoadActionClear;
-    rpDesc.colorAttachments[1].storeAction = MTLStoreActionStore;
-    rpDesc.colorAttachments[1].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
-    rpDesc.colorAttachments[2].texture = gbuffer.ao.get();
-    rpDesc.colorAttachments[2].loadAction = MTLLoadActionClear;
-    rpDesc.colorAttachments[2].storeAction = MTLStoreActionStore;
-    rpDesc.colorAttachments[2].clearColor = MTLClearColorMake(1.0, 0.0, 0.0, 1.0);
     rpDesc.depthAttachment.texture = gbuffer.depth.get();
     rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
     rpDesc.depthAttachment.storeAction = MTLStoreActionStore;
@@ -862,8 +883,16 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         compute_ao_radius_pixels(scene_.camera.proj, scene_.camera.ao_settings.x, vh),
         scene_.camera.ao_settings.y,
         scene_.camera.ao_settings.z);
-    frame.debug_view = simd_make_float4(0.0f, 1.0f, 0.0f, 0.0f);
-    frame.world_debug_bounds = simd_make_float4(-5.0f, 5.0f, -5.0f, 5.0f);
+    frame.debug_view = simd_make_float4(
+        scene_.camera.debug_view.x,
+        scene_.camera.debug_view.y,
+        scene_.camera.debug_view.z,
+        scene_.camera.debug_view.w);
+    frame.world_debug_bounds = simd_make_float4(
+        scene_.camera.world_debug_bounds.x,
+        scene_.camera.world_debug_bounds.y,
+        scene_.camera.world_debug_bounds.z,
+        scene_.camera.world_debug_bounds.w);
     std::memcpy([frame_resources.frame_uniforms.get() contents], &frame, sizeof(frame));
 
     [encoder setRenderPipelineState:state_->gbuffer_pipeline.get()];
@@ -871,11 +900,6 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [encoder setCullMode:MTLCullModeBack];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
     [encoder setVertexBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
-    [encoder setFragmentTexture:state_->road_albedo_texture.get() atIndex:0];
-    [encoder setFragmentTexture:state_->road_normal_texture.get() atIndex:1];
-    [encoder setFragmentTexture:state_->road_roughness_texture.get() atIndex:2];
-    [encoder setFragmentTexture:state_->road_ao_texture.get() atIndex:3];
-    [encoder setFragmentSamplerState:state_->material_sampler.get() atIndex:0];
 
     // Draw scene objects
     for (const SceneObject& obj : scene_.objects)
@@ -958,7 +982,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [aoEncoder setRenderPipelineState:state_->ao_pipeline.get()];
     [aoEncoder setCullMode:MTLCullModeNone];
     [aoEncoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:0];
-    [aoEncoder setFragmentTexture:gbuffer.material.get() atIndex:0];
+    [aoEncoder setFragmentTexture:gbuffer.normal.get() atIndex:0];
     [aoEncoder setFragmentTexture:gbuffer.depth.get() atIndex:1];
     [aoEncoder setFragmentSamplerState:state_->gbuffer_point_sampler.get() atIndex:0];
     [aoEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -979,7 +1003,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [blurEncoder setCullMode:MTLCullModeNone];
     [blurEncoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:0];
     [blurEncoder setFragmentTexture:gbuffer.ao_raw.get() atIndex:0];
-    [blurEncoder setFragmentTexture:gbuffer.material.get() atIndex:1];
+    [blurEncoder setFragmentTexture:gbuffer.normal.get() atIndex:1];
     [blurEncoder setFragmentTexture:gbuffer.depth.get() atIndex:2];
     [blurEncoder setFragmentSamplerState:state_->gbuffer_point_sampler.get() atIndex:0];
     [blurEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -1097,6 +1121,10 @@ void IsometricScenePass::record(IRenderContext& ctx)
     [encoder setFragmentTexture:state_->road_normal_texture.get() atIndex:3];
     [encoder setFragmentTexture:state_->road_roughness_texture.get() atIndex:4];
     [encoder setFragmentTexture:state_->road_ao_texture.get() atIndex:5];
+    [encoder setFragmentTexture:state_->wood_albedo_texture.get() atIndex:6];
+    [encoder setFragmentTexture:state_->wood_normal_texture.get() atIndex:7];
+    [encoder setFragmentTexture:state_->wood_roughness_texture.get() atIndex:8];
+    [encoder setFragmentTexture:state_->wood_ao_texture.get() atIndex:9];
     [encoder setFragmentSamplerState:state_->label_sampler.get() atIndex:0];
     [encoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:1];
     [encoder setFragmentSamplerState:state_->material_sampler.get() atIndex:2];
@@ -1178,7 +1206,7 @@ void IsometricScenePass::render_gbuffer_debug_ui()
 
     const uint32_t fi = state_->last_prepass_frame % static_cast<uint32_t>(state_->gbuffer_targets.size());
     auto& t = state_->gbuffer_targets[fi];
-    if (!t.material || !t.base_color || !t.ao || !t.depth)
+    if (!t.normal || !t.ao_raw || !t.ao || !t.depth)
         return;
 
     if (!ImGui::Begin("GBuffer Debug"))
@@ -1200,12 +1228,12 @@ void IsometricScenePass::render_gbuffer_debug_ui()
     if (ImGui::BeginTable("##gbuffer_grid", 2))
     {
         ImGui::TableNextColumn();
-        ImGui::Text("Norm/Rough/Spec");
-        ImGui::Image((__bridge void*)t.material.get(), size);
+        ImGui::Text("Normals");
+        ImGui::Image((__bridge void*)t.normal.get(), size);
 
         ImGui::TableNextColumn();
-        ImGui::Text("RGB/Metallic");
-        ImGui::Image((__bridge void*)t.base_color.get(), size);
+        ImGui::Text("Raw AO");
+        ImGui::Image((__bridge void*)t.ao_raw.get(), size);
 
         ImGui::TableNextColumn();
         ImGui::Text("Depth");

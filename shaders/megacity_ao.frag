@@ -16,7 +16,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     vec4 world_debug_bounds;
 }
 frame;
-layout(set = 0, binding = 2) uniform sampler2D gbuffer_material;
+layout(set = 0, binding = 2) uniform sampler2D gbuffer_normal;
 layout(set = 0, binding = 3) uniform sampler2D gbuffer_depth;
 
 layout(location = 0) out vec4 out_ao;
@@ -98,8 +98,8 @@ void main()
         return;
     }
 
-    vec4 material = texture(gbuffer_material, screen_uv);
-    vec3 normal_ws = oct_decode(material.rg);
+    vec4 normal_data = texture(gbuffer_normal, screen_uv);
+    vec3 normal_ws = oct_decode(normal_data.rg);
     vec3 world_pos = reconstruct_world(screen_uv, depth);
     vec3 normal_vs = normalize(mat3(frame.view) * normal_ws);
     vec3 frag_pos_vs = vec3(frame.view * vec4(world_pos, 1.0));

@@ -20,7 +20,7 @@ struct LoadedTextureImage
     }
 };
 
-struct AsphaltRoadMaterialImages
+struct TexturedMaterialImages
 {
     LoadedTextureImage albedo;
     LoadedTextureImage normal;
@@ -33,7 +33,11 @@ struct AsphaltRoadMaterialImages
     }
 };
 
+using AsphaltRoadMaterialImages = TexturedMaterialImages;
+using WoodBuildingMaterialImages = TexturedMaterialImages;
+
 [[nodiscard]] std::filesystem::path resolve_megacity_asset_path(const std::filesystem::path& relative_path);
 [[nodiscard]] AsphaltRoadMaterialImages load_asphalt_road_material_images();
+[[nodiscard]] WoodBuildingMaterialImages load_wood_building_material_images();
 
 } // namespace draxul

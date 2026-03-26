@@ -93,6 +93,48 @@ float3 fresnel_schlick(float cosTheta, float3 f0)
     return f0 + (1.0f - f0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
 }
 
+constant int kMaterialAsphaltRoad = 1;
+constant int kMaterialWoodBuilding = 2;
+
+int material_id(float4 material_info)
+{
+    return int(floor(material_info.x + 0.5f));
+}
+
+void dominant_axis_mapping(float3 world_position, float3 normal_ws, float uv_scale,
+    thread float2& uv, thread float3x3& tbn)
+{
+    const float3 abs_n = abs(normal_ws);
+    if (abs_n.y >= abs_n.x && abs_n.y >= abs_n.z)
+    {
+        const float sign_y = normal_ws.y >= 0.0f ? 1.0f : -1.0f;
+        uv = float2(world_position.x, -sign_y * world_position.z) * uv_scale;
+        tbn = float3x3(
+            float3(1.0f, 0.0f, 0.0f),
+            float3(0.0f, 0.0f, -sign_y),
+            float3(0.0f, sign_y, 0.0f));
+        return;
+    }
+
+    if (abs_n.x >= abs_n.z)
+    {
+        const float sign_x = normal_ws.x >= 0.0f ? 1.0f : -1.0f;
+        uv = float2(-sign_x * world_position.z, world_position.y) * uv_scale;
+        tbn = float3x3(
+            float3(0.0f, 0.0f, -sign_x),
+            float3(0.0f, 1.0f, 0.0f),
+            float3(sign_x, 0.0f, 0.0f));
+        return;
+    }
+
+    const float sign_z = normal_ws.z >= 0.0f ? 1.0f : -1.0f;
+    uv = float2(sign_z * world_position.x, world_position.y) * uv_scale;
+    tbn = float3x3(
+        float3(sign_z, 0.0f, 0.0f),
+        float3(0.0f, 1.0f, 0.0f),
+        float3(0.0f, 0.0f, sign_z));
+}
+
 fragment float4 scene_fragment(
     VertexOut in [[stage_in]],
     constant FrameUniforms& frame [[buffer(1)]],
@@ -102,6 +144,10 @@ fragment float4 scene_fragment(
     texture2d<float> roadNormalTexture [[texture(3)]],
     texture2d<float> roadRoughnessTexture [[texture(4)]],
     texture2d<float> roadAoTexture [[texture(5)]],
+    texture2d<float> woodAlbedoTexture [[texture(6)]],
+    texture2d<float> woodNormalTexture [[texture(7)]],
+    texture2d<float> woodRoughnessTexture [[texture(8)]],
+    texture2d<float> woodAoTexture [[texture(9)]],
     sampler signSampler [[sampler(0)]],
     sampler aoSampler [[sampler(1)]],
     sampler materialSampler [[sampler(2)]])
@@ -112,7 +158,8 @@ fragment float4 scene_fragment(
     const float metallic = 0.0f;
     float material_ao = 1.0f;
 
-    if (in.material_info.x > 0.5f)
+    const int id = material_id(in.material_info);
+    if (id == kMaterialAsphaltRoad)
     {
         const float2 road_uv = in.world_position.xz * in.material_info.y;
         float3 tangent_normal = roadNormalTexture.sample(materialSampler, road_uv).xyz * 2.0f - 1.0f;
@@ -123,6 +170,21 @@ fragment float4 scene_fragment(
         albedo = roadAlbedoTexture.sample(materialSampler, road_uv).rgb * in.base_color;
         roughness = clamp(roadRoughnessTexture.sample(materialSampler, road_uv).r, 0.04f, 1.0f);
         material_ao = mix(1.0f, roadAoTexture.sample(materialSampler, road_uv).r, clamp(in.material_info.w, 0.0f, 1.0f));
+    }
+    else if (id == kMaterialWoodBuilding)
+    {
+        float2 wood_uv = float2(0.0f);
+        float3x3 tbn;
+        dominant_axis_mapping(in.world_position, normal_ws, in.material_info.y, wood_uv, tbn);
+
+        float3 tangent_normal = woodNormalTexture.sample(materialSampler, wood_uv).xyz * 2.0f - 1.0f;
+        tangent_normal.xy *= max(in.material_info.z, 0.0f);
+        tangent_normal = normalize(tangent_normal);
+
+        normal_ws = normalize(tbn * tangent_normal);
+        albedo = in.base_color;
+        roughness = clamp(woodRoughnessTexture.sample(materialSampler, wood_uv).r, 0.04f, 1.0f);
+        material_ao = mix(1.0f, woodAoTexture.sample(materialSampler, wood_uv).r, clamp(in.material_info.w, 0.0f, 1.0f));
     }
 
     const float2 screen_uv = clamp(

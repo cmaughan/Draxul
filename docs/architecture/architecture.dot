@@ -88,6 +88,11 @@ digraph DraxulArchitecture {
       frame timing stats
     >, fillcolor="#ffd7d7", color="#b53a3a"];
 
+    MacOsMenu [label=<
+      <b>MacOsMenu</b><br/>
+      native menu integration
+    >, fillcolor="#ffd7d7", color="#b53a3a"];
+
     App -> HostManager [style=invis, weight=30];
     HostManager -> SplitTree [style=invis, weight=30];
     SplitTree -> InputDispatcher [style=invis, weight=30];
@@ -95,6 +100,7 @@ digraph DraxulArchitecture {
     GuiActionHandler -> UiPanel [style=invis, weight=30];
     UiPanel -> DiagnosticsCollector [style=invis, weight=30];
     DiagnosticsCollector -> FrameTimer [style=invis, weight=30];
+    FrameTimer -> MacOsMenu [style=invis, weight=30];
   }
 
   // ─────────────────────────────────────────────────
@@ -149,9 +155,17 @@ digraph DraxulArchitecture {
       macOS backend
     >, fillcolor="#d9f5dd", color="#3d8c50"];
 
+    MetalRenderContext [label=<
+      <b>MetalRenderContext</b>
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
     VkRenderer [label=<
       <b>VkRenderer</b><br/>
       Windows backend
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
+    VkRenderContext [label=<
+      <b>VkRenderContext</b>
     >, fillcolor="#d9f5dd", color="#3d8c50"];
 
     IBaseRenderer -> I3DRenderer [style=invis, weight=30];
@@ -163,7 +177,9 @@ digraph DraxulArchitecture {
     ICaptureRenderer -> RendererBundle [style=invis, weight=30];
     RendererBundle -> IGridHandle [style=invis, weight=30];
     IGridHandle -> MetalRenderer [style=invis, weight=30];
-    MetalRenderer -> VkRenderer [style=invis, weight=30];
+    MetalRenderer -> MetalRenderContext [style=invis, weight=30];
+    MetalRenderContext -> VkRenderer [style=invis, weight=30];
+    VkRenderer -> VkRenderContext [style=invis, weight=30];
   }
 
   // ─────────────────────────────────────────────────
@@ -383,6 +399,11 @@ digraph DraxulArchitecture {
       implements IRenderPass
     >, fillcolor="#d9f5dd", color="#3d8c50"];
 
+    CubeRenderPass [label=<
+      <b>CubeRenderPass</b><br/>
+      implements IRenderPass
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
     MeshLibrary [label=<
       <b>MeshLibrary</b><br/>
       cube, floor, sign meshes
@@ -390,12 +411,19 @@ digraph DraxulArchitecture {
 
     SemanticCityLayout [label=<
       <b>SemanticCityLayout</b><br/>
-      code-analysis city generation
+      code-analysis city generation<br/>
+      spiral layout per module
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
+    CityGrid [label=<
+      <b>CityGrid</b><br/>
+      2D occupancy grid<br/>
+      building/road/park cells
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
     SignLabelAtlas [label=<
       <b>SignLabelAtlas</b><br/>
-      building name labels
+      building + module name labels
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
     MegaCityCodeConfig [label=<
@@ -408,13 +436,21 @@ digraph DraxulArchitecture {
       ImGui codebase analysis UI
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
+    CityMapPanel [label=<
+      <b>CityMapPanel</b><br/>
+      ImGui 2D grid overview
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
     SceneWorld -> IsometricCamera [style=invis, weight=30];
     IsometricCamera -> IsometricScenePass [style=invis, weight=30];
-    IsometricScenePass -> MeshLibrary [style=invis, weight=30];
+    IsometricScenePass -> CubeRenderPass [style=invis, weight=30];
+    CubeRenderPass -> MeshLibrary [style=invis, weight=30];
     MeshLibrary -> SemanticCityLayout [style=invis, weight=30];
-    SemanticCityLayout -> SignLabelAtlas [style=invis, weight=30];
+    SemanticCityLayout -> CityGrid [style=invis, weight=30];
+    CityGrid -> SignLabelAtlas [style=invis, weight=30];
     SignLabelAtlas -> MegaCityCodeConfig [style=invis, weight=30];
     MegaCityCodeConfig -> TreesitterPanel [style=invis, weight=30];
+    TreesitterPanel -> CityMapPanel [style=invis, weight=30];
   }
 
   // ─────────────────────────────────────────────────
@@ -446,9 +482,15 @@ digraph DraxulArchitecture {
       mapped entity data
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
+    CityModuleRecord [label=<
+      <b>CityModuleRecord</b><br/>
+      per-module quality metric
+    >, fillcolor="#eadbff", color="#7a4cc2"];
+
     CodebaseScanner -> CodebaseSnapshot [style=invis, weight=30];
     CodebaseSnapshot -> CityDatabase [style=invis, weight=30];
     CityDatabase -> CityClassRecord [style=invis, weight=30];
+    CityClassRecord -> CityModuleRecord [style=invis, weight=30];
   }
 
   // ─────────────────────────────────────────────────
@@ -483,6 +525,10 @@ digraph DraxulArchitecture {
       <b>RoadMetrics</b>
     >, fillcolor="#d9f5dd", color="#3d8c50"];
 
+    RoadSurfaceMetrics [label=<
+      <b>RoadSurfaceMetrics</b>
+    >, fillcolor="#d9f5dd", color="#3d8c50"];
+
     TreeMetrics [label=<
       <b>TreeMetrics</b>
     >, fillcolor="#d9f5dd", color="#3d8c50"];
@@ -500,7 +546,8 @@ digraph DraxulArchitecture {
     Elevation -> Appearance [style=invis, weight=30];
     Appearance -> BuildingMetrics [style=invis, weight=30];
     BuildingMetrics -> RoadMetrics [style=invis, weight=30];
-    RoadMetrics -> TreeMetrics [style=invis, weight=30];
+    RoadMetrics -> RoadSurfaceMetrics [style=invis, weight=30];
+    RoadSurfaceMetrics -> TreeMetrics [style=invis, weight=30];
     TreeMetrics -> SignMetrics [style=invis, weight=30];
     SignMetrics -> SourceSymbol [style=invis, weight=30];
   }
@@ -519,7 +566,10 @@ digraph DraxulArchitecture {
   VkRenderer -> IGridRenderer [arrowhead=empty, label="implements"];
   VkRenderer -> IImGuiHost [arrowhead=empty, label="implements"];
   VkRenderer -> ICaptureRenderer [arrowhead=empty, label="implements"];
+  MetalRenderContext -> IRenderContext [arrowhead=empty, label="implements"];
+  VkRenderContext -> IRenderContext [arrowhead=empty, label="implements"];
   IsometricScenePass -> IRenderPass [arrowhead=empty, label="implements"];
+  CubeRenderPass -> IRenderPass [arrowhead=empty, label="implements"];
 
   // Host hierarchy
   I3DHost -> IHost [arrowhead=empty, label="extends"];
@@ -579,10 +629,12 @@ digraph DraxulArchitecture {
   MegaCityHost -> SceneWorld [style=dashed, arrowhead=vee, label="owns"];
   MegaCityHost -> IsometricCamera [style=dashed, arrowhead=vee, label="owns"];
   MegaCityHost -> IsometricScenePass [style=dashed, arrowhead=vee, label="owns (shared)"];
+  MegaCityHost -> CubeRenderPass [style=dashed, arrowhead=vee, label="owns (shared)"];
   MegaCityHost -> CodebaseScanner [style=dashed, arrowhead=vee, label="owns"];
   MegaCityHost -> CityDatabase [style=dashed, arrowhead=vee, label="owns"];
   MegaCityHost -> SignLabelAtlas [style=dashed, arrowhead=vee, label="owns (shared)"];
   MegaCityHost -> MegaCityCodeConfig [style=dashed, arrowhead=vee, label="owns"];
+  MegaCityHost -> CityGrid [style=dashed, arrowhead=vee, label="builds (bg thread)"];
 
   // SceneWorld owns ECS components
   SceneWorld -> WorldPosition [style=dashed, arrowhead=vee, label="registry stores"];
@@ -639,9 +691,12 @@ digraph DraxulArchitecture {
   IsometricScenePass -> IRenderContext [label="records into", constraint=false, color="#94a3b8"];
   SemanticCityLayout -> CityClassRecord [label="reads from", constraint=false, color="#94a3b8"];
   SemanticCityLayout -> MegaCityCodeConfig [label="tuned by", constraint=false, color="#94a3b8"];
+  SemanticCityLayout -> CityGrid [label="produces", constraint=false, color="#94a3b8"];
+  CityGrid -> CityMapPanel [label="rendered by", constraint=false, color="#94a3b8"];
   CodebaseScanner -> CodebaseSnapshot [label="produces", constraint=false, color="#94a3b8"];
   CityDatabase -> CodebaseSnapshot [label="reconciles", constraint=false, color="#94a3b8"];
   CityDatabase -> CityClassRecord [label="queries", constraint=false, color="#94a3b8"];
+  CityDatabase -> CityModuleRecord [label="queries", constraint=false, color="#94a3b8"];
   SignLabelAtlas -> TextService [label="rasterizes via", constraint=false, color="#94a3b8"];
   TreesitterPanel -> CodebaseSnapshot [label="displays", constraint=false, color="#94a3b8"];
 
@@ -674,7 +729,8 @@ digraph DraxulArchitecture {
     MegaCityPath [label=<
       <b>megacity path</b><br/>
       CodebaseScanner -&gt; CodebaseSnapshot -&gt; CityDatabase -&gt; CityClassRecord<br align="left"/>
-      SemanticCityLayout -&gt; SceneWorld (ECS) -&gt; SceneSnapshot -&gt; IsometricScenePass -&gt; Renderer
+      SemanticCityLayout -&gt; SceneWorld (ECS) -&gt; SceneSnapshot -&gt; IsometricScenePass -&gt; Renderer<br align="left"/>
+      SemanticCityLayout -&gt; CityGrid (bg thread) -&gt; CityMapPanel (ImGui)
     >, fillcolor="#fff6d6", color="#c7981d"];
   }
 
@@ -689,6 +745,7 @@ digraph DraxulArchitecture {
     Main thread: App loop, window events, rendering, host pump<br align="left"/>
     Nvim path: NvimRpc owns a reader thread for msgpack-RPC notifications<br align="left"/>
     MegaCity: CodebaseScanner runs a background tree-sitter scan thread<br align="left"/>
+    MegaCity: CityGrid built on a background thread after layout completes<br align="left"/>
     Host wakeups: background I/O requests frame via IHostCallbacks::wake_window()<br align="left"/>
     Terminal local process I/O is drained/coalesced by host pump before rendering
   >, fillcolor="#fff6d6", color="#c7981d"];

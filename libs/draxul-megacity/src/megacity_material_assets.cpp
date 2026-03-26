@@ -62,4 +62,14 @@ AsphaltRoadMaterialImages load_asphalt_road_material_images()
     return images;
 }
 
+WoodBuildingMaterialImages load_wood_building_material_images()
+{
+    WoodBuildingMaterialImages images;
+    images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/WoodSiding005_1K-JPG_Color.jpg"));
+    images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/WoodSiding005_1K-JPG_NormalGL.jpg"));
+    images.roughness = load_rgba8_image(resolve_megacity_asset_path("textures/WoodSiding005_1K-JPG_Roughness.jpg"));
+    images.ao = load_rgba8_image(resolve_megacity_asset_path("textures/WoodSiding005_1K-JPG_AmbientOcclusion.jpg"));
+    return images;
+}
+
 } // namespace draxul

@@ -16,10 +16,14 @@ layout(set = 0, binding = 0) uniform FrameUniforms {
 } frame;
 layout(set = 0, binding = 1) uniform sampler2D sign_atlas;
 layout(set = 0, binding = 2) uniform sampler2D ao_buffer;
-layout(set = 0, binding = 5) uniform sampler2D road_albedo_texture;
-layout(set = 0, binding = 6) uniform sampler2D road_normal_texture;
-layout(set = 0, binding = 7) uniform sampler2D road_roughness_texture;
-layout(set = 0, binding = 8) uniform sampler2D road_ao_texture;
+layout(set = 0, binding = 3) uniform sampler2D road_albedo_texture;
+layout(set = 0, binding = 4) uniform sampler2D road_normal_texture;
+layout(set = 0, binding = 5) uniform sampler2D road_roughness_texture;
+layout(set = 0, binding = 6) uniform sampler2D road_ao_texture;
+layout(set = 0, binding = 7) uniform sampler2D wood_albedo_texture;
+layout(set = 0, binding = 8) uniform sampler2D wood_normal_texture;
+layout(set = 0, binding = 9) uniform sampler2D wood_roughness_texture;
+layout(set = 0, binding = 10) uniform sampler2D wood_ao_texture;
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) in vec3 in_base_color;
@@ -31,6 +35,8 @@ layout(location = 6) flat in vec4 in_material_info;
 layout(location = 0) out vec4 out_frag_color;
 
 const float kPi = 3.14159265359;
+const int kMaterialAsphaltRoad = 1;
+const int kMaterialWoodBuilding = 2;
 
 float distribution_ggx(vec3 n, vec3 h, float roughness)
 {
@@ -60,6 +66,44 @@ vec3 fresnel_schlick(float cos_theta, vec3 f0)
     return f0 + (1.0 - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
 
+int material_id()
+{
+    return int(floor(in_material_info.x + 0.5));
+}
+
+void dominant_axis_mapping(vec3 normal_ws, float uv_scale, out vec2 uv, out mat3 tbn)
+{
+    vec3 abs_n = abs(normal_ws);
+    if (abs_n.y >= abs_n.x && abs_n.y >= abs_n.z)
+    {
+        float sign_y = normal_ws.y >= 0.0 ? 1.0 : -1.0;
+        uv = vec2(in_world_position.x, -sign_y * in_world_position.z) * uv_scale;
+        tbn = mat3(
+            vec3(1.0, 0.0, 0.0),
+            vec3(0.0, 0.0, -sign_y),
+            vec3(0.0, sign_y, 0.0));
+        return;
+    }
+
+    if (abs_n.x >= abs_n.z)
+    {
+        float sign_x = normal_ws.x >= 0.0 ? 1.0 : -1.0;
+        uv = vec2(-sign_x * in_world_position.z, in_world_position.y) * uv_scale;
+        tbn = mat3(
+            vec3(0.0, 0.0, -sign_x),
+            vec3(0.0, 1.0, 0.0),
+            vec3(sign_x, 0.0, 0.0));
+        return;
+    }
+
+    float sign_z = normal_ws.z >= 0.0 ? 1.0 : -1.0;
+    uv = vec2(sign_z * in_world_position.x, in_world_position.y) * uv_scale;
+    tbn = mat3(
+        vec3(sign_z, 0.0, 0.0),
+        vec3(0.0, 1.0, 0.0),
+        vec3(0.0, 0.0, sign_z));
+}
+
 void main()
 {
     vec3 normal_ws = normalize(in_normal_ws);
@@ -68,7 +112,8 @@ void main()
     float metallic = 0.0;
     float material_ao = 1.0;
 
-    if (in_material_info.x > 0.5)
+    int id = material_id();
+    if (id == kMaterialAsphaltRoad)
     {
         vec2 road_uv = in_world_position.xz * in_material_info.y;
         vec3 tangent_normal = texture(road_normal_texture, road_uv).xyz * 2.0 - 1.0;
@@ -83,6 +128,21 @@ void main()
         albedo = texture(road_albedo_texture, road_uv).rgb * in_base_color;
         roughness = clamp(texture(road_roughness_texture, road_uv).r, 0.04, 1.0);
         material_ao = mix(1.0, texture(road_ao_texture, road_uv).r, clamp(in_material_info.w, 0.0, 1.0));
+    }
+    else if (id == kMaterialWoodBuilding)
+    {
+        vec2 wood_uv;
+        mat3 tbn;
+        dominant_axis_mapping(normal_ws, in_material_info.y, wood_uv, tbn);
+
+        vec3 tangent_normal = texture(wood_normal_texture, wood_uv).xyz * 2.0 - 1.0;
+        tangent_normal.xy *= max(in_material_info.z, 0.0);
+        tangent_normal = normalize(tangent_normal);
+
+        normal_ws = normalize(tbn * tangent_normal);
+        albedo = in_base_color;
+        roughness = clamp(texture(wood_roughness_texture, wood_uv).r, 0.04, 1.0);
+        material_ao = mix(1.0, texture(wood_ao_texture, wood_uv).r, clamp(in_material_info.w, 0.0, 1.0));
     }
 
     vec2 screen_uv = clamp(

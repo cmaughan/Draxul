@@ -712,6 +712,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         DRAXUL_LOG_WARN(LogCategory::App, "MegaCityHost: failed to open city DB at %s: %s",
             city_db_path.string().c_str(), city_db_.last_error().c_str());
     }
+    refresh_available_modules();
     scanner_.start(DRAXUL_REPO_ROOT);
     mark_scene_dirty();
 
@@ -734,6 +735,13 @@ void MegaCityHost::mark_world_rebuild_pending()
     last_activity_time_ = std::chrono::steady_clock::now();
     if (callbacks_)
         callbacks_->request_frame();
+}
+
+void MegaCityHost::refresh_available_modules()
+{
+    available_modules_.clear();
+    if (city_db_.is_open())
+        available_modules_ = city_db_.list_modules();
 }
 
 void MegaCityHost::sync_camera_state_to_configs()
@@ -948,6 +956,7 @@ void MegaCityHost::render_imgui(float dt)
     MegacityRendererControls renderer_controls{
         .config = pending_renderer_config_,
         .defaults = renderer_defaults_,
+        .available_modules = available_modules_,
         .rebuild_pending = world_rebuild_pending_
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
@@ -1208,29 +1217,6 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
         max_z = std::max(max_z, pos.z + extent_z * 0.5f);
     }
 
-    if (building_min_x <= building_max_x && building_min_z <= building_max_z)
-    {
-        const float floor_min_x = building_min_x - max_building_lot_margin;
-        const float floor_max_x = building_max_x + max_building_lot_margin;
-        const float floor_min_z = building_min_z - max_building_lot_margin;
-        const float floor_max_z = building_max_z + max_building_lot_margin;
-
-        SceneObject floor;
-        floor.mesh = MeshId::Floor;
-        floor.color = kRoadColor;
-        floor.world = glm::translate(glm::mat4(1.0f),
-                          glm::vec3(
-                              (floor_min_x + floor_max_x) * 0.5f,
-                              renderer_config_.world_floor_top_y - world_floor_height(renderer_config_) * 0.5f,
-                              (floor_min_z + floor_max_z) * 0.5f))
-            * glm::scale(glm::mat4(1.0f),
-                glm::vec3(
-                    floor_max_x - floor_min_x,
-                    world_floor_height(renderer_config_),
-                    floor_max_z - floor_min_z));
-        scene.objects.insert(scene.objects.begin(), floor);
-    }
-
     if (min_x > max_x || min_z > max_z)
     {
         min_x = -2.5f;
@@ -1257,9 +1243,13 @@ void MegaCityHost::rebuild_semantic_city()
         return;
 
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
+    refresh_available_modules();
     std::vector<SemanticCityModuleInput> modules;
-    for (const std::string& module_path : city_db_.list_modules())
+    for (const std::string& module_path : available_modules_)
     {
+        if (!renderer_config_.selected_module_path.empty()
+            && module_path != renderer_config_.selected_module_path)
+            continue;
         const CityModuleRecord mod_record = city_db_.module_record(module_path);
         modules.push_back({ module_path, city_db_.list_classes_in_module(module_path), mod_record.quality });
     }
@@ -1676,6 +1666,7 @@ void MegaCityHost::pump()
             if (city_db_.reconcile_snapshot(*snapshot))
             {
                 city_db_reconciled_ = true;
+                refresh_available_modules();
                 rebuild_semantic_city();
                 const auto& stats = city_db_.stats();
                 DRAXUL_LOG_INFO(LogCategory::App,

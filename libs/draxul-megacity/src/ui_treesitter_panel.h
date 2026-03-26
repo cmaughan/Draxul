@@ -3,6 +3,8 @@
 #include <draxul/megacity_code_config.h>
 #include <draxul/treesitter.h>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace draxul
 {
@@ -13,6 +15,7 @@ struct MegacityRendererControls
 {
     MegaCityCodeConfig config;
     MegaCityCodeConfig defaults;
+    std::vector<std::string> available_modules;
     bool rebuild_pending = false;
     bool rebuild_requested = false;
     bool reset_camera_requested = false;

@@ -5,6 +5,9 @@
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <toml++/toml.hpp>
 
 namespace draxul
@@ -32,6 +35,7 @@ enum class MegaCityAODebugView : uint8_t
 
 struct MegaCityCodeConfig
 {
+    std::string selected_module_path;
     float sign_text_hidden_px = 1.5f;
     float sign_text_full_px = 8.0f;
     float output_gamma = 1.0f;

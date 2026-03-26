@@ -716,6 +716,53 @@ bool render_renderer_controls(MegacityRendererControls& controls)
 
     if (ImGui::TreeNodeEx("##renderer_build", ImGuiTreeNodeFlags_SpanAvailWidth, "City Build"))
     {
+        const bool module_selection_missing = !config.selected_module_path.empty()
+            && std::find(
+                   controls.available_modules.begin(),
+                   controls.available_modules.end(),
+                   config.selected_module_path)
+                == controls.available_modules.end();
+        const std::string current_module_label = config.selected_module_path.empty()
+            ? "All Modules"
+            : module_selection_missing
+            ? ("Missing: " + config.selected_module_path)
+            : config.selected_module_path;
+        if (ImGui::BeginCombo("Module View", current_module_label.c_str()))
+        {
+            const bool all_modules_selected = config.selected_module_path.empty();
+            if (ImGui::Selectable("All Modules", all_modules_selected))
+            {
+                config.selected_module_path.clear();
+                changed = true;
+                controls.committed_edit = true;
+            }
+            if (all_modules_selected)
+                ImGui::SetItemDefaultFocus();
+
+            for (const std::string& module_path : controls.available_modules)
+            {
+                const bool module_selected = module_path == config.selected_module_path;
+                if (ImGui::Selectable(module_path.c_str(), module_selected))
+                {
+                    config.selected_module_path = module_path;
+                    changed = true;
+                    controls.committed_edit = true;
+                }
+                if (module_selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+
+            if (module_selection_missing)
+            {
+                ImGui::Separator();
+                ImGui::BeginDisabled();
+                ImGui::Selectable(current_module_label.c_str(), true);
+                ImGui::EndDisabled();
+            }
+
+            ImGui::EndCombo();
+        }
+
         const bool clamp_changed = ImGui::Checkbox("Clamp Semantic Metrics", &config.clamp_semantic_metrics);
         changed |= clamp_changed;
         if (clamp_changed)

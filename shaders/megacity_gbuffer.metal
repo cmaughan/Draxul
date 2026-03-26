@@ -40,16 +40,11 @@ struct VertexOut
 {
     float4 position [[position]];
     float3 normal_ws;
-    float3 base_color;
-    float3 world_position;
-    float4 material_info [[flat]];
 };
 
 struct GBufferOut
 {
-    half4 material [[color(0)]];    // RG = octahedral normal, B = roughness, A = material AO
-    half4 base_color [[color(1)]];  // RGB = albedo, A = metallic
-    half4 ao [[color(2)]];          // R = ambient occlusion, GBA = reserved
+    half4 normal [[color(0)]];      // RG = octahedral normal, BA reserved
 };
 
 // Octahedral encoding: unit normal → [0,1]^2
@@ -70,43 +65,14 @@ vertex VertexOut gbuffer_vertex(VertexIn in [[stage_in]],
     const float4 world_position = object.world * float4(in.position, 1.0);
     out.position = frame.proj * frame.view * world_position;
     out.normal_ws = normalize(float3x3(object.world[0].xyz, object.world[1].xyz, object.world[2].xyz) * in.normal);
-    out.base_color = in.color * object.color.rgb;
-    out.world_position = world_position.xyz;
-    out.material_info = object.material_info;
     return out;
 }
 
 fragment GBufferOut gbuffer_fragment(
-    VertexOut in [[stage_in]],
-    texture2d<float> roadAlbedoTexture [[texture(0)]],
-    texture2d<float> roadNormalTexture [[texture(1)]],
-    texture2d<float> roadRoughnessTexture [[texture(2)]],
-    texture2d<float> roadAoTexture [[texture(3)]],
-    sampler materialSampler [[sampler(0)]])
+    VertexOut in [[stage_in]])
 {
     GBufferOut out;
     float3 normal_ws = normalize(in.normal_ws);
-    float3 albedo = in.base_color;
-    float roughness = 0.5f;
-    float metallic = 0.0f;
-    float material_ao = 1.0f;
-
-    if (in.material_info.x > 0.5f)
-    {
-        const float2 road_uv = in.world_position.xz * in.material_info.y;
-        float3 tangent_normal = roadNormalTexture.sample(materialSampler, road_uv).xyz * 2.0f - 1.0f;
-        tangent_normal.xy *= max(in.material_info.z, 0.0f);
-        tangent_normal = normalize(tangent_normal);
-
-        const float3x3 tbn = float3x3(float3(1.0f, 0.0f, 0.0f), float3(0.0f, 0.0f, 1.0f), normal_ws);
-        normal_ws = normalize(tbn * tangent_normal);
-        albedo = roadAlbedoTexture.sample(materialSampler, road_uv).rgb * in.base_color;
-        roughness = clamp(roadRoughnessTexture.sample(materialSampler, road_uv).r, 0.04f, 1.0f);
-        material_ao = mix(1.0f, roadAoTexture.sample(materialSampler, road_uv).r, clamp(in.material_info.w, 0.0f, 1.0f));
-    }
-
-    out.material = half4(half2(oct_encode(normalize(normal_ws))), half(roughness), half(material_ao));
-    out.base_color = half4(half3(albedo), half(metallic));
-    out.ao = half4(1.0h, 0.0h, 0.0h, 1.0h);
+    out.normal = half4(half2(oct_encode(normalize(normal_ws))), 0.0h, 1.0h);
     return out;
 }

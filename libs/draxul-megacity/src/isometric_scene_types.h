@@ -22,6 +22,7 @@ enum class MaterialId : uint32_t
 {
     FlatColor = 0,
     AsphaltRoad = 1,
+    WoodBuilding = 2,
 };
 
 struct LabelAtlasData

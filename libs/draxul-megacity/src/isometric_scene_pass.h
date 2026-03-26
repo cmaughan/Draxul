@@ -22,7 +22,7 @@ public:
     void record_prepass(IRenderContext& ctx) override;
     void record(IRenderContext& ctx) override;
 
-    /// Render an ImGui debug window showing GBuffer normal, base color, and depth textures.
+    /// Render an ImGui debug window showing prepass normals, depth, raw AO, and final AO textures.
     /// Call during the ImGui frame (between NewFrame and Render).
     void render_gbuffer_debug_ui();
 

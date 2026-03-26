@@ -125,6 +125,8 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
             target = *parsed;
     };
 
+    if (auto selected_module_path = toml_support::get_string(table, "selected_module_path"); selected_module_path.has_value())
+        config.selected_module_path = *selected_module_path;
     assign_float("sign_text_hidden_px", config.sign_text_hidden_px);
     assign_float("sign_text_full_px", config.sign_text_full_px);
     assign_float("output_gamma", config.output_gamma);
@@ -245,6 +247,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
 toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
 {
     toml::table table;
+    table.insert_or_assign("selected_module_path", config.selected_module_path);
     table.insert_or_assign("sign_text_hidden_px", static_cast<double>(config.sign_text_hidden_px));
     table.insert_or_assign("sign_text_full_px", static_cast<double>(config.sign_text_full_px));
     table.insert_or_assign("output_gamma", static_cast<double>(config.output_gamma));

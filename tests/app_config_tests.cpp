@@ -681,6 +681,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
 {
     ConfigDocument document;
     MegaCityCodeConfig defaults;
+    defaults.selected_module_path = "app";
     defaults.sign_text_hidden_px = 2.5f;
     defaults.sign_text_full_px = 12.0f;
     defaults.clamp_semantic_metrics = true;
@@ -688,6 +689,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     defaults.auto_rebuild = true;
 
     MegaCityCodeConfig current = defaults;
+    current.selected_module_path = "libs/draxul-megacity";
     current.height_multiplier = 2.25f;
     current.hide_test_entities = false;
     current.ao_debug_view = MegaCityAODebugView::DecodedNormals;
