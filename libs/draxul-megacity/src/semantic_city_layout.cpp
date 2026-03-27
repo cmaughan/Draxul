@@ -495,12 +495,12 @@ SemanticCityLayout build_semantic_city_layout(
     const float park_fp = std::max(step, snap_to_grid(config.park_footprint, step));
     if (park_fp > 0.0f)
     {
-        const float park_margin = park_fp * 0.5f + config.sidewalk_width + config.road_width_max;
+        const float park_margin = park_fp * 0.5f + config.park_sidewalk_width + config.park_road_width;
         const float park_lot_half = std::max(step, snap_to_grid(park_margin, step));
         layout.park_center = { 0.0f, 0.0f };
         layout.park_footprint = park_fp;
-        layout.park_sidewalk_width = config.sidewalk_width;
-        layout.park_road_width = config.road_width_max;
+        layout.park_sidewalk_width = config.park_sidewalk_width;
+        layout.park_road_width = config.park_road_width;
         reserved_lots.push_back({ -park_lot_half, park_lot_half, -park_lot_half, park_lot_half });
         layout.min_x = -park_lot_half;
         layout.max_x = park_lot_half;
@@ -634,9 +634,10 @@ SemanticMegacityLayout build_semantic_megacity_layout(
     if (candidates.size() > 1)
     {
         const float step = std::max(config.placement_step, 0.01f);
-        const float park_fp = std::max(step, snap_to_grid(config.park_footprint * 2.0f, step));
-        const float park_sw = config.sidewalk_width * 2.0f;
-        const float park_rw = config.road_width_max * 2.0f;
+        const float scale = std::clamp(config.central_park_scale, 1.0f, 3.0f);
+        const float park_fp = std::max(step, snap_to_grid(config.park_footprint * scale, step));
+        const float park_sw = config.park_sidewalk_width * scale;
+        const float park_rw = config.park_road_width * scale;
         const float park_margin = park_fp * 0.5f + park_sw + park_rw;
         const float park_lot_half = std::max(step, snap_to_grid(park_margin, step));
 

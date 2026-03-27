@@ -73,6 +73,9 @@ struct MegaCityCodeConfig
     float sidewalk_width = 1.0f;
     float park_footprint = 6.0f;
     float park_height = 0.15f;
+    float park_sidewalk_width = 1.0f;
+    float park_road_width = 3.0f;
+    float central_park_scale = 2.0f; // 1..3 multiplier for central park size, sidewalk, and road
 
     float sign_label_point_size = 18.0f;
     glm::vec3 module_sign_board_color{ 1.0f, 1.0f, 1.0f };
