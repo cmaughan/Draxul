@@ -90,6 +90,8 @@ struct SemanticCityModuleLayout
     CodebaseHealthMetrics health;
     glm::vec2 park_center{ 0.0f };
     float park_footprint = 0.0f; // 0 means no park
+    float park_sidewalk_width = 0.0f;
+    float park_road_width = 0.0f;
     bool is_central_park = false;
 
     [[nodiscard]] bool empty() const
@@ -126,6 +128,8 @@ struct SemanticCityLayout
     float max_z = 0.0f;
     glm::vec2 park_center{ 0.0f };
     float park_footprint = 0.0f;
+    float park_sidewalk_width = 0.0f;
+    float park_road_width = 0.0f;
 
     [[nodiscard]] bool empty() const
     {
@@ -167,7 +171,7 @@ struct SemanticMegacityLayout
 [[nodiscard]] std::array<RoadSegmentPlacement, 4> build_road_segments(
     const SemanticCityBuilding& building);
 [[nodiscard]] CitySurfaceBounds compute_city_road_surface_bounds(
-    const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config);
+    const SemanticMegacityLayout& layout);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(
     const SemanticCityModuleModel& module_model, const MegaCityCodeConfig& config);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(

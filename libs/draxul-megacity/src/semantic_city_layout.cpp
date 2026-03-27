@@ -371,8 +371,7 @@ std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuildi
     };
 }
 
-CitySurfaceBounds compute_city_road_surface_bounds(
-    const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config)
+CitySurfaceBounds compute_city_road_surface_bounds(const SemanticMegacityLayout& layout)
 {
     CitySurfaceBounds bounds;
     bool have_bounds = false;
@@ -405,9 +404,8 @@ CitySurfaceBounds compute_city_road_surface_bounds(
 
         if (module_layout.park_footprint > 0.0f)
         {
-            const float scale = module_layout.is_central_park ? 2.0f : 1.0f;
             const float half_extent = module_layout.park_footprint * 0.5f
-                + config.sidewalk_width * scale + config.road_width_max * scale;
+                + module_layout.park_sidewalk_width + module_layout.park_road_width;
             expand(module_layout.park_center.x - half_extent, module_layout.park_center.x + half_extent,
                 module_layout.park_center.y - half_extent, module_layout.park_center.y + half_extent);
         }
@@ -500,6 +498,8 @@ SemanticCityLayout build_semantic_city_layout(
         const float park_half = park_fp * 0.5f;
         layout.park_center = { 0.0f, 0.0f };
         layout.park_footprint = park_fp;
+        layout.park_sidewalk_width = config.sidewalk_width;
+        layout.park_road_width = config.road_width_max;
         reserved_lots.push_back({ -park_half, park_half, -park_half, park_half });
         layout.min_x = -park_half;
         layout.max_x = park_half;
@@ -648,6 +648,8 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         central.health = model.codebase_health;
         central.park_center = { 0.0f, 0.0f };
         central.park_footprint = park_fp;
+        central.park_sidewalk_width = config.sidewalk_width * 2.0f;
+        central.park_road_width = config.road_width_max * 2.0f;
 
         reserved_modules.push_back({ -park_half, park_half, -park_half, park_half });
         megacity.modules.push_back(std::move(central));
@@ -698,6 +700,8 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         module_layout.health = candidate.health;
         module_layout.park_center = candidate.layout.park_center + chosen_offset;
         module_layout.park_footprint = candidate.layout.park_footprint;
+        module_layout.park_sidewalk_width = candidate.layout.park_sidewalk_width;
+        module_layout.park_road_width = candidate.layout.park_road_width;
         module_layout.buildings.reserve(candidate.layout.buildings.size());
         for (const SemanticCityBuilding& building : candidate.layout.buildings)
         {
@@ -778,7 +782,7 @@ CityGrid build_city_grid(const SemanticMegacityLayout& layout, const MegaCityCod
     };
 
     // Pass 1: shared road surface (outermost layer)
-    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(layout, config);
+    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(layout);
     if (road_surface_bounds.valid())
     {
         fill_rect(
@@ -804,12 +808,11 @@ CityGrid build_city_grid(const SemanticMegacityLayout& layout, const MegaCityCod
     {
         if (module_layout.park_footprint > 0.0f)
         {
-            const float scale = module_layout.is_central_park ? 2.0f : 1.0f;
             SemanticCityBuilding park_building;
             park_building.center = module_layout.park_center;
             park_building.metrics.footprint = module_layout.park_footprint;
-            park_building.metrics.sidewalk_width = config.sidewalk_width * scale;
-            park_building.metrics.road_width = config.road_width_max * scale;
+            park_building.metrics.sidewalk_width = module_layout.park_sidewalk_width;
+            park_building.metrics.road_width = module_layout.park_road_width;
             const auto sidewalks = build_sidewalk_segments(park_building);
             for (const auto& sw : sidewalks)
                 fill_rect(

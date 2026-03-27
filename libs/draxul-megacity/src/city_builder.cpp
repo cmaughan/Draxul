@@ -528,7 +528,7 @@ CityBuildResult build_city(
 
     // Populate the ECS world.
     world.clear();
-    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(*layout, config);
+    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(*layout);
     if (road_surface_bounds.valid())
     {
         world.create_road_surface(
@@ -555,12 +555,11 @@ CityBuildResult build_city(
             const glm::vec3 park_rgb = glm::mix(kParkBrown, kParkGreen, q);
             const glm::vec4 park_color(park_rgb, 1.0f);
 
-            const float scale = module_layout.is_central_park ? 2.0f : 1.0f;
             BuildingMetrics park_metrics;
             park_metrics.footprint = module_layout.park_footprint;
             park_metrics.height = config.park_height;
-            park_metrics.sidewalk_width = config.sidewalk_width * scale;
-            park_metrics.road_width = config.road_width_max * scale;
+            park_metrics.sidewalk_width = module_layout.park_sidewalk_width;
+            park_metrics.road_width = module_layout.park_road_width;
             world.create_building(
                 module_layout.park_center.x,
                 module_layout.park_center.y,
