@@ -87,12 +87,14 @@ struct SemanticCityModuleLayout
     float min_z = 0.0f;
     float max_z = 0.0f;
     float quality = 0.5f;
+    CodebaseHealthMetrics health;
     glm::vec2 park_center{ 0.0f };
     float park_footprint = 0.0f; // 0 means no park
+    bool is_central_park = false;
 
     [[nodiscard]] bool empty() const
     {
-        return buildings.empty();
+        return buildings.empty() && !is_central_park;
     }
 };
 

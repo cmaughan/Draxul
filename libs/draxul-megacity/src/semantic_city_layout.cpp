@@ -564,6 +564,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         std::string module_path;
         int connectivity = 0;
         float quality = 0.5f;
+        CodebaseHealthMetrics health;
         SemanticCityLayout layout;
         LotRect local_lot;
         float area = 0.0f;
@@ -579,14 +580,14 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 
         const float width = layout.max_x - layout.min_x;
         const float depth = layout.max_z - layout.min_z;
-        candidates.push_back({
-            module_model.module_path,
-            module_model.connectivity,
-            module_model.quality,
-            std::move(layout),
-            { 0.0f, 0.0f, 0.0f, 0.0f },
-            width * depth,
-        });
+        ModuleCandidate mc;
+        mc.module_path = module_model.module_path;
+        mc.connectivity = module_model.connectivity;
+        mc.quality = module_model.quality;
+        mc.health = module_model.health;
+        mc.layout = std::move(layout);
+        mc.area = width * depth;
+        candidates.push_back(std::move(mc));
         candidates.back().local_lot = {
             candidates.back().layout.min_x,
             candidates.back().layout.max_x,
@@ -610,11 +611,38 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         return megacity;
 
     std::vector<LotRect> reserved_modules;
-    reserved_modules.reserve(candidates.size());
+    reserved_modules.reserve(candidates.size() + 1);
     megacity.min_x = std::numeric_limits<float>::max();
     megacity.max_x = std::numeric_limits<float>::lowest();
     megacity.min_z = std::numeric_limits<float>::max();
     megacity.max_z = std::numeric_limits<float>::lowest();
+
+    // Place the central park module at the origin — it represents the whole codebase.
+    {
+        const float step = std::max(config.placement_step, 0.01f);
+        const float park_fp = std::max(step, snap_to_grid(config.park_footprint, step));
+        const float park_half = park_fp * 0.5f;
+
+        SemanticCityModuleLayout central;
+        central.module_path = "central_park";
+        central.is_central_park = true;
+        central.offset = { 0.0f, 0.0f };
+        central.min_x = -park_half;
+        central.max_x = park_half;
+        central.min_z = -park_half;
+        central.max_z = park_half;
+        central.quality = (model.codebase_health.complexity + model.codebase_health.cohesion + model.codebase_health.coupling) / 3.0f;
+        central.health = model.codebase_health;
+        central.park_center = { 0.0f, 0.0f };
+        central.park_footprint = park_fp;
+
+        reserved_modules.push_back({ -park_half, park_half, -park_half, park_half });
+        megacity.modules.push_back(std::move(central));
+        megacity.min_x = -park_half;
+        megacity.max_x = park_half;
+        megacity.min_z = -park_half;
+        megacity.max_z = park_half;
+    }
 
     for (const ModuleCandidate& candidate : candidates)
     {
@@ -654,6 +682,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         module_layout.min_z = chosen_lot.min_z;
         module_layout.max_z = chosen_lot.max_z;
         module_layout.quality = candidate.quality;
+        module_layout.health = candidate.health;
         module_layout.park_center = candidate.layout.park_center + chosen_offset;
         module_layout.park_footprint = candidate.layout.park_footprint;
         module_layout.buildings.reserve(candidate.layout.buildings.size());

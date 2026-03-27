@@ -495,12 +495,14 @@ TEST_CASE("semantic megacity model is built from DB rows and shared metrics", "[
     CHECK(model.modules[0].buildings[0].road_size == 4);
 
     const SemanticMegacityLayout layout = build_semantic_megacity_layout(model, config);
-    REQUIRE(layout.modules.size() == 1);
+    REQUIRE(layout.modules.size() == 2); // central_park + 1 real module
+    CHECK(layout.modules[0].is_central_park);
+    CHECK(layout.modules[0].module_path == "central_park");
     REQUIRE(layout.building_count() == 2);
-    CHECK(layout.modules[0].buildings[0].qualified_name == "App");
+    CHECK(layout.modules[1].buildings[0].qualified_name == "App");
     // Park occupies the center; first building is offset from origin.
-    CHECK(layout.modules[0].park_footprint > 0.0f);
-    CHECK(layout.modules[0].buildings[0].metrics.height
+    CHECK(layout.modules[1].park_footprint > 0.0f);
+    CHECK(layout.modules[1].buildings[0].metrics.height
         == Catch::Approx(model.modules[0].buildings[0].metrics.height));
 }
 
@@ -784,14 +786,13 @@ TEST_CASE("semantic megacity layout spirals modules around the largest module", 
     const MegaCityCodeConfig config;
     const SemanticMegacityLayout layout = build_semantic_megacity_layout({ host, app }, config);
 
-    REQUIRE(layout.modules.size() == 2);
+    REQUIRE(layout.modules.size() == 3); // central_park + 2 real modules
+    CHECK(layout.modules[0].is_central_park);
     REQUIRE(layout.building_count() == 3);
-    CHECK(layout.modules[0].module_path == "app");
-    CHECK(layout.modules[0].offset.x == Catch::Approx(0.0f));
-    CHECK(layout.modules[0].offset.y == Catch::Approx(0.0f));
+    CHECK(layout.modules[1].module_path == "app");
 
-    const auto& centered = layout.modules[0];
-    const auto& neighbor = layout.modules[1];
+    const auto& centered = layout.modules[1];
+    const auto& neighbor = layout.modules[2];
     const bool overlaps = centered.min_x < neighbor.max_x && centered.max_x > neighbor.min_x
         && centered.min_z < neighbor.max_z && centered.max_z > neighbor.min_z;
     const bool moved_off_origin = std::abs(neighbor.offset.x) > 0.0f || std::abs(neighbor.offset.y) > 0.0f;
