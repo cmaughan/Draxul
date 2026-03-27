@@ -495,14 +495,13 @@ TEST_CASE("semantic megacity model is built from DB rows and shared metrics", "[
     CHECK(model.modules[0].buildings[0].road_size == 4);
 
     const SemanticMegacityLayout layout = build_semantic_megacity_layout(model, config);
-    REQUIRE(layout.modules.size() == 2); // central_park + 1 real module
-    CHECK(layout.modules[0].is_central_park);
-    CHECK(layout.modules[0].module_path == "central_park");
+    REQUIRE(layout.modules.size() == 1); // single module, no central park
+    CHECK_FALSE(layout.modules[0].is_central_park);
     REQUIRE(layout.building_count() == 2);
-    CHECK(layout.modules[1].buildings[0].qualified_name == "App");
+    CHECK(layout.modules[0].buildings[0].qualified_name == "App");
     // Park occupies the center; first building is offset from origin.
-    CHECK(layout.modules[1].park_footprint > 0.0f);
-    CHECK(layout.modules[1].buildings[0].metrics.height
+    CHECK(layout.modules[0].park_footprint > 0.0f);
+    CHECK(layout.modules[0].buildings[0].metrics.height
         == Catch::Approx(model.modules[0].buildings[0].metrics.height));
 }
 
