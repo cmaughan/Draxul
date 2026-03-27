@@ -721,12 +721,13 @@ TEST_CASE("semantic city layout places later lots in edge contact with existing 
     // With the park occupying the center, the second building may share an edge
     // with the park rather than with building A directly. Check that buildings
     // are in edge contact with each other OR that each touches the park.
-    const float park_half = layout.park_footprint * 0.5f;
+    const float park_lot_half = layout.park_footprint * 0.5f
+        + layout.park_sidewalk_width + layout.park_road_width;
     const TestLotRect park_lot{
-        layout.park_center.x - park_half,
-        layout.park_center.x + park_half,
-        layout.park_center.y - park_half,
-        layout.park_center.y + park_half,
+        layout.park_center.x - park_lot_half,
+        layout.park_center.x + park_lot_half,
+        layout.park_center.y - park_lot_half,
+        layout.park_center.y + park_lot_half,
     };
 
     auto shares_edge_with = [](const TestLotRect& p, const TestLotRect& q) {
