@@ -634,10 +634,11 @@ SemanticMegacityLayout build_semantic_megacity_layout(
     if (candidates.size() > 1)
     {
         const float step = std::max(config.placement_step, 0.01f);
-        const float scale = std::clamp(config.central_park_scale, 1.0f, 3.0f);
-        const float park_fp = std::max(step, snap_to_grid(config.park_footprint * scale, step));
-        const float park_sw = config.park_sidewalk_width * scale;
-        const float park_rw = config.park_road_width * scale;
+        const float area_scale = std::clamp(config.central_park_area_scale, 1.0f, 3.0f);
+        const float border_scale = std::clamp(config.central_park_border_scale, 1.0f, 3.0f);
+        const float park_fp = std::max(step, snap_to_grid(config.park_footprint * area_scale, step));
+        const float park_sw = config.park_sidewalk_width * border_scale;
+        const float park_rw = config.park_road_width * border_scale;
         const float park_margin = park_fp * 0.5f + park_sw + park_rw;
         const float park_lot_half = std::max(step, snap_to_grid(park_margin, step));
 

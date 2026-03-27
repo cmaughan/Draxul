@@ -174,7 +174,8 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_float("park_height", config.park_height);
     assign_float("park_sidewalk_width", config.park_sidewalk_width);
     assign_float("park_road_width", config.park_road_width);
-    assign_float("central_park_scale", config.central_park_scale);
+    assign_float("central_park_area_scale", config.central_park_area_scale);
+    assign_float("central_park_border_scale", config.central_park_border_scale);
 
     assign_float("sign_label_point_size", config.sign_label_point_size);
     assign_vec3(table, "module_sign_board_color", config.module_sign_board_color);
@@ -285,7 +286,8 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("park_height", static_cast<double>(config.park_height));
     table.insert_or_assign("park_sidewalk_width", static_cast<double>(config.park_sidewalk_width));
     table.insert_or_assign("park_road_width", static_cast<double>(config.park_road_width));
-    table.insert_or_assign("central_park_scale", static_cast<double>(config.central_park_scale));
+    table.insert_or_assign("central_park_area_scale", static_cast<double>(config.central_park_area_scale));
+    table.insert_or_assign("central_park_border_scale", static_cast<double>(config.central_park_border_scale));
     table.insert_or_assign("sign_label_point_size", static_cast<double>(config.sign_label_point_size));
     toml_support::insert_vec3(table, "module_sign_board_color", config.module_sign_board_color);
     toml_support::insert_vec3(table, "module_sign_text_color", config.module_sign_text_color);
