@@ -588,7 +588,8 @@ TEST_CASE("semantic megacity road surface spans the shared building footprint en
     module_layout.buildings = { building_a, building_b };
     layout.modules.push_back(std::move(module_layout));
 
-    const CitySurfaceBounds bounds = compute_city_road_surface_bounds(layout);
+    MegaCityCodeConfig bounds_config;
+    const CitySurfaceBounds bounds = compute_city_road_surface_bounds(layout, bounds_config);
 
     REQUIRE(bounds.valid());
     CHECK(bounds.min_x == Catch::Approx(-6.0f));

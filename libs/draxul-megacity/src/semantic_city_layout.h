@@ -167,7 +167,7 @@ struct SemanticMegacityLayout
 [[nodiscard]] std::array<RoadSegmentPlacement, 4> build_road_segments(
     const SemanticCityBuilding& building);
 [[nodiscard]] CitySurfaceBounds compute_city_road_surface_bounds(
-    const SemanticMegacityLayout& layout);
+    const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(
     const SemanticCityModuleModel& module_model, const MegaCityCodeConfig& config);
 [[nodiscard]] SemanticCityLayout build_semantic_city_layout(

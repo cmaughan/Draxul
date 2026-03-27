@@ -528,7 +528,7 @@ CityBuildResult build_city(
 
     // Populate the ECS world.
     world.clear();
-    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(*layout);
+    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(*layout, config);
     if (road_surface_bounds.valid())
     {
         world.create_road_surface(
@@ -555,11 +555,12 @@ CityBuildResult build_city(
             const glm::vec3 park_rgb = glm::mix(kParkBrown, kParkGreen, q);
             const glm::vec4 park_color(park_rgb, 1.0f);
 
+            const float scale = module_layout.is_central_park ? 2.0f : 1.0f;
             BuildingMetrics park_metrics;
             park_metrics.footprint = module_layout.park_footprint;
             park_metrics.height = config.park_height;
-            park_metrics.sidewalk_width = 0.0f;
-            park_metrics.road_width = 0.0f;
+            park_metrics.sidewalk_width = config.sidewalk_width * scale;
+            park_metrics.road_width = config.road_width_max * scale;
             world.create_building(
                 module_layout.park_center.x,
                 module_layout.park_center.y,
@@ -568,6 +569,22 @@ CityBuildResult build_city(
                 park_color,
                 SourceSymbol{ "", module_layout.module_path },
                 MaterialId::FlatColor);
+
+            // Reuse the building sidewalk/road segment builders for the park.
+            SemanticCityBuilding park_building;
+            park_building.center = module_layout.park_center;
+            park_building.metrics = park_metrics;
+
+            for (const RoadSegmentPlacement& sidewalk : build_sidewalk_segments(park_building))
+            {
+                world.create_road(
+                    sidewalk.center.x,
+                    sidewalk.center.y,
+                    RoadMetrics{ sidewalk.extent.x, sidewalk.extent.y, config.sidewalk_surface_height },
+                    kSidewalkSurfaceColor,
+                    SourceSymbol{ "", module_layout.module_path },
+                    config.sidewalk_surface_lift);
+            }
         }
 
         const glm::vec4 module_color = module_building_color(module_layout.module_path);
