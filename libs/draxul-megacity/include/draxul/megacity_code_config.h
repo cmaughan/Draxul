@@ -75,6 +75,7 @@ struct MegaCityCodeConfig
     float park_height = 0.15f;
     float park_sidewalk_width = 1.0f;
     float park_road_width = 1.0f;
+    float park_sign_max_depth_fraction = 0.33f; // max sign depth as fraction of park footprint
     float central_park_area_scale = 2.0f; // 1..3 multiplier for central park footprint
     float central_park_border_scale = 2.0f; // 1..3 multiplier for central park sidewalk and road
 

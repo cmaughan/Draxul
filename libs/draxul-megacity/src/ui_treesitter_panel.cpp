@@ -793,6 +793,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("Park Height", config.park_height, 0.01f, 0.0f, 2.0f, "%.2f");
         edit_float("Park Sidewalk Width", config.park_sidewalk_width, 0.01f, 0.0f, 16.0f, "%.2f");
         edit_float("Park Road Width", config.park_road_width, 0.01f, 0.0f, 16.0f, "%.2f");
+        edit_float("Park Sign Max Depth", config.park_sign_max_depth_fraction, 0.01f, 0.05f, 1.0f, "%.2f");
         edit_float("Central Park Area Scale", config.central_park_area_scale, 0.1f, 1.0f, 3.0f, "%.1f");
         edit_float("Central Park Border Scale", config.central_park_border_scale, 0.1f, 1.0f, 3.0f, "%.1f");
         ImGui::TreePop();

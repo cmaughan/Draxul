@@ -374,7 +374,7 @@ std::array<SignPlacementSpec, 2> place_module_park_signs(
     base.width = std::max(0.35f, sign_width);
     base.height = config.roof_sign_thickness;
     base.depth = std::clamp(
-        sign_depth, config.minimum_road_sign_depth, park_footprint * 0.33f);
+        sign_depth, config.minimum_road_sign_depth, park_footprint * config.park_sign_max_depth_fraction);
     base.mesh = MeshId::RoofSign;
 
     const float half = park_footprint * 0.5f;
