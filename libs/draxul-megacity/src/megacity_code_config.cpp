@@ -50,31 +50,59 @@ std::string_view format_megacity_sign_placement(MegaCitySignPlacement value)
     return "wall_east";
 }
 
-std::optional<MegaCityAODebugView> parse_megacity_ao_debug_view(std::string_view value)
+std::optional<MegaCityDebugView> parse_megacity_debug_view(std::string_view value)
 {
     if (value == "final_scene")
-        return MegaCityAODebugView::FinalScene;
+        return MegaCityDebugView::FinalScene;
     if (value == "ambient_occlusion")
-        return MegaCityAODebugView::AmbientOcclusion;
-    if (value == "decoded_normals")
-        return MegaCityAODebugView::DecodedNormals;
+        return MegaCityDebugView::AmbientOcclusion;
+    if (value == "ambient_occlusion_denoised")
+        return MegaCityDebugView::AmbientOcclusionDenoised;
+    if (value == "normals" || value == "decoded_normals")
+        return MegaCityDebugView::Normals;
     if (value == "world_position")
-        return MegaCityAODebugView::WorldPosition;
+        return MegaCityDebugView::WorldPosition;
+    if (value == "roughness")
+        return MegaCityDebugView::Roughness;
+    if (value == "metallic")
+        return MegaCityDebugView::Metallic;
+    if (value == "albedo")
+        return MegaCityDebugView::Albedo;
+    if (value == "tangents")
+        return MegaCityDebugView::Tangents;
+    if (value == "uv")
+        return MegaCityDebugView::UV;
+    if (value == "depth")
+        return MegaCityDebugView::Depth;
     return std::nullopt;
 }
 
-std::string_view format_megacity_ao_debug_view(MegaCityAODebugView value)
+std::string_view format_megacity_debug_view(MegaCityDebugView value)
 {
     switch (value)
     {
-    case MegaCityAODebugView::FinalScene:
+    case MegaCityDebugView::FinalScene:
         return "final_scene";
-    case MegaCityAODebugView::AmbientOcclusion:
+    case MegaCityDebugView::AmbientOcclusion:
         return "ambient_occlusion";
-    case MegaCityAODebugView::DecodedNormals:
-        return "decoded_normals";
-    case MegaCityAODebugView::WorldPosition:
+    case MegaCityDebugView::AmbientOcclusionDenoised:
+        return "ambient_occlusion_denoised";
+    case MegaCityDebugView::Normals:
+        return "normals";
+    case MegaCityDebugView::WorldPosition:
         return "world_position";
+    case MegaCityDebugView::Roughness:
+        return "roughness";
+    case MegaCityDebugView::Metallic:
+        return "metallic";
+    case MegaCityDebugView::Albedo:
+        return "albedo";
+    case MegaCityDebugView::Tangents:
+        return "tangents";
+    case MegaCityDebugView::UV:
+        return "uv";
+    case MegaCityDebugView::Depth:
+        return "depth";
     }
     return "final_scene";
 }
@@ -135,14 +163,15 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
         config.selected_module_path = *selected_module_path;
     assign_vec2(table, "sign_text_px_range", config.sign_text_px_range);
     assign_float("output_gamma", config.output_gamma);
-    if (auto debug_view = toml_support::get_string(table, "ao_debug_view"))
+    if (auto dv = toml_support::get_string(table, "debug_view"))
     {
-        if (auto parsed = parse_megacity_ao_debug_view(*debug_view); parsed.has_value())
-            config.ao_debug_view = *parsed;
+        if (auto parsed = parse_megacity_debug_view(*dv); parsed.has_value())
+            config.debug_view = *parsed;
     }
-    else if (auto legacy_show_ao = toml_support::get_bool(table, "show_ao_greyscale"); legacy_show_ao.value_or(false))
+    else if (auto legacy_dv = toml_support::get_string(table, "ao_debug_view"))
     {
-        config.ao_debug_view = MegaCityAODebugView::AmbientOcclusion;
+        if (auto parsed = parse_megacity_debug_view(*legacy_dv); parsed.has_value())
+            config.debug_view = *parsed;
     }
     assign_bool("ao_denoise", config.ao_denoise);
     assign_float("ao_radius", config.ao_radius);
@@ -274,7 +303,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("selected_module_path", config.selected_module_path);
     toml_support::insert_vec2(table, "sign_text_px_range", config.sign_text_px_range);
     table.insert_or_assign("output_gamma", static_cast<double>(config.output_gamma));
-    table.insert_or_assign("ao_debug_view", std::string(format_megacity_ao_debug_view(config.ao_debug_view)));
+    table.insert_or_assign("debug_view", std::string(format_megacity_debug_view(config.debug_view)));
     table.insert_or_assign("ao_denoise", config.ao_denoise);
     table.insert_or_assign("ao_radius", static_cast<double>(config.ao_radius));
     table.insert_or_assign("ao_bias", static_cast<double>(config.ao_bias));

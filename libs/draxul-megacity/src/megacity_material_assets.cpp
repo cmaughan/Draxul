@@ -82,6 +82,16 @@ WoodBuildingMaterialImages load_wood_building_material_images()
     return images;
 }
 
+BarkTreeMaterialImages load_bark_tree_material_images()
+{
+    BarkTreeMaterialImages images;
+    images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/Bark014_1K-JPG_Color.jpg"));
+    images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/Bark014_1K-JPG_NormalGL.jpg"));
+    images.roughness = load_rgba8_image(resolve_megacity_asset_path("textures/Bark014_1K-JPG_Roughness.jpg"));
+    images.ao = load_rgba8_image(resolve_megacity_asset_path("textures/Bark014_1K-JPG_AmbientOcclusion.jpg"));
+    return images;
+}
+
 LeafAtlasMaterialImages load_leaf_atlas_material_images()
 {
     LeafAtlasMaterialImages images;

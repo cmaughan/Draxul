@@ -88,7 +88,7 @@ vertex VertexOut gbuffer_vertex(VertexIn in [[stage_in]],
 fragment GBufferOut gbuffer_fragment(
     VertexOut in [[stage_in]],
     constant MaterialUniforms& materialTable [[buffer(3)]],
-    array<texture2d<float>, 20> materialTextures [[texture(2)]],
+    array<texture2d<float>, 24> materialTextures [[texture(2)]],
     sampler materialSampler [[sampler(2)]])
 {
     GBufferOut out;

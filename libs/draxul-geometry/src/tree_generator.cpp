@@ -18,6 +18,7 @@ namespace
 constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kTwoPi = 2.0f * kPi;
 constexpr float kLeafAtlasSize = 1024.0f;
+constexpr size_t kMaxGeometryVertices = std::numeric_limits<uint16_t>::max();
 
 // Padded atlas rects derived from LeafSet023_1K-JPG_Opacity.jpg.
 constexpr std::array<glm::vec4, 6> kLeafAtlasRects = { {
@@ -38,6 +39,15 @@ struct BranchFrame
     float radius = 0.1f;
     float t = 0.0f;
     float distance = 0.0f;
+};
+
+struct BranchAttachment
+{
+    bool enabled = false;
+    glm::vec3 surface_center{ 0.0f };
+    glm::vec3 surface_normal{ 0.0f, 1.0f, 0.0f };
+    glm::vec3 surface_u{ 1.0f, 0.0f, 0.0f };
+    float collar_radius = 0.05f;
 };
 
 float hash_to_unit_float(uint64_t seed, uint32_t a, uint32_t b)
@@ -93,6 +103,49 @@ glm::vec3 leaf_color_for_quad(const DraxulTreeParams& params, uint32_t branch_id
     return glm::vec3(1.0f);
 }
 
+bool can_append_vertices(const GeometryMesh& mesh, size_t additional_vertices)
+{
+    if (additional_vertices > kMaxGeometryVertices)
+        return false;
+    return mesh.vertices.size() <= (kMaxGeometryVertices - additional_vertices);
+}
+
+void prepend_attachment_ring(
+    std::vector<BranchFrame>& frames,
+    float length,
+    const BranchAttachment& attachment)
+{
+    if (!attachment.enabled || frames.size() < 2)
+        return;
+
+    const glm::vec3 surface_normal = glm::normalize(attachment.surface_normal);
+    const glm::vec3 surface_u = project_basis(attachment.surface_u, surface_normal);
+    const glm::vec3 surface_v = glm::normalize(glm::cross(surface_normal, surface_u));
+    const float collar_radius = std::max(attachment.collar_radius, 0.005f);
+
+    BranchFrame root_frame;
+    root_frame.center = attachment.surface_center;
+    root_frame.axis = surface_normal;
+    root_frame.basis_u = surface_u;
+    root_frame.basis_v = surface_v;
+    root_frame.radius = collar_radius;
+    root_frame.t = 0.0f;
+    root_frame.distance = 0.0f;
+
+    const float origin_distance = glm::length(frames.front().center - attachment.surface_center);
+    const float fallback_distance = std::max(collar_radius * 0.55f, length * 0.05f);
+    const float transition_distance = std::clamp(
+        origin_distance > 1e-4f ? origin_distance : fallback_distance,
+        0.001f,
+        std::max(fallback_distance, length * 0.18f));
+
+    frames.front().distance = transition_distance;
+    frames.front().t = length > 1e-5f ? std::clamp(transition_distance / length, 0.0f, 1.0f) : 0.0f;
+    frames.front().radius = std::max(frames.front().radius, collar_radius * 0.82f);
+
+    frames.insert(frames.begin(), root_frame);
+}
+
 void append_double_sided_quad(
     GeometryMesh& mesh,
     const glm::vec3& center,
@@ -102,7 +155,7 @@ void append_double_sided_quad(
     const glm::vec3& color,
     const glm::vec4& uv_rect)
 {
-    if (mesh.vertices.size() > (std::numeric_limits<uint16_t>::max() - 8U))
+    if (!can_append_vertices(mesh, 8U))
         return;
 
     const uint16_t base_index = static_cast<uint16_t>(mesh.vertices.size());
@@ -272,7 +325,7 @@ std::vector<BranchFrame> build_branch_frames(
     return frames;
 }
 
-void append_branch_rings(
+bool append_branch_rings(
     GeometryMesh& bark_mesh,
     const DraxulTreeParams& params,
     const std::vector<BranchFrame>& frames,
@@ -280,6 +333,10 @@ void append_branch_rings(
     uint32_t& out_ring_start,
     int radial_segments)
 {
+    const size_t branch_vertex_count = frames.size() * static_cast<size_t>(radial_segments + 1);
+    if (!can_append_vertices(bark_mesh, branch_vertex_count))
+        return false;
+
     out_ring_start = static_cast<uint32_t>(bark_mesh.vertices.size());
     for (size_t ring_index = 0; ring_index < frames.size(); ++ring_index)
     {
@@ -331,6 +388,7 @@ void append_branch_rings(
             bark_mesh.indices.push_back(d);
         }
     }
+    return true;
 }
 
 void append_branch_leaves(
@@ -442,7 +500,7 @@ void append_branch_leaves(
     }
 }
 
-void append_cap(
+bool append_cap(
     GeometryMesh& mesh,
     const DraxulTreeParams& params,
     uint32_t ring_start,
@@ -463,14 +521,15 @@ void append_branch(
     float tip_radius,
     int depth,
     uint32_t branch_id,
-    bool close_base)
+    bool close_base,
+    const BranchAttachment* attachment = nullptr)
 {
     if (depth > params.max_branch_depth)
         return;
     if (length <= 0.1f || base_radius <= 0.01f)
         return;
 
-    const std::vector<BranchFrame> frames = build_branch_frames(
+    std::vector<BranchFrame> frames = build_branch_frames(
         params,
         origin,
         direction,
@@ -482,13 +541,17 @@ void append_branch(
     if (frames.size() < 2)
         return;
 
+    if (attachment != nullptr && attachment->enabled)
+        prepend_attachment_ring(frames, length, *attachment);
+
     const int radial_segments = std::max(params.radial_segments, 3);
     uint32_t ring_start = 0;
-    append_branch_rings(bark_mesh, params, frames, branch_id, ring_start, radial_segments);
+    if (!append_branch_rings(bark_mesh, params, frames, branch_id, ring_start, radial_segments))
+        return;
 
     if (close_base)
     {
-        append_cap(
+        (void)append_cap(
             bark_mesh,
             params,
             ring_start,
@@ -501,7 +564,7 @@ void append_branch(
 
     const uint32_t tip_ring_start = ring_start
         + static_cast<uint32_t>((frames.size() - 1) * static_cast<size_t>(radial_segments + 1));
-    append_cap(
+    (void)append_cap(
         bark_mesh,
         params,
         tip_ring_start,
@@ -535,12 +598,20 @@ void append_branch(
             params.seed + branch_id * 29U,
             static_cast<uint32_t>(child_index),
             19U + static_cast<uint32_t>(depth));
-        const float spawn_t = std::lerp(params.branch_spawn_start, params.branch_spawn_end, spawn_unit);
+        const float spawn_start = depth == 0
+            ? std::max(params.branch_spawn_start, 0.48f)
+            : params.branch_spawn_start;
+        const float spawn_end = std::max(params.branch_spawn_end, spawn_start + 0.05f);
+        const float spawn_t = std::lerp(spawn_start, spawn_end, spawn_unit);
         const size_t frame_index = std::clamp(
             static_cast<size_t>(std::lround(spawn_t * static_cast<float>(frames.size() - 1))),
             static_cast<size_t>(1),
             frames.size() - 2);
         const BranchFrame& frame = frames[frame_index];
+        const float junction_t = glm::smoothstep(
+            spawn_start,
+            std::min(spawn_end, spawn_start + 0.30f),
+            frame.t);
 
         const float azimuth = hash_to_unit_float(
                                   params.seed + branch_id * 43U,
@@ -550,8 +621,6 @@ void append_branch(
         const glm::vec3 radial_dir = glm::normalize(
             std::cos(azimuth) * frame.basis_u
             + std::sin(azimuth) * frame.basis_v);
-        const glm::vec3 child_origin = frame.center + radial_dir * frame.radius * 0.82f;
-
         const float axis_weight = std::lerp(0.18f, 0.34f, hash_to_unit_float(params.seed, branch_id, static_cast<uint32_t>(child_index) + 101U));
         const float upward = params.upward_bias * std::lerp(0.75f, 1.2f, hash_to_unit_float(params.seed, branch_id, static_cast<uint32_t>(child_index) + 121U));
         const float outward = params.outward_bias * std::lerp(0.75f, 1.15f, hash_to_unit_float(params.seed, branch_id, static_cast<uint32_t>(child_index) + 151U));
@@ -564,14 +633,25 @@ void append_branch(
 
         const float child_length = length
             * params.branch_length_scale
+            * std::lerp(0.82f, 1.0f, junction_t)
             * std::lerp(0.72f, 1.1f, hash_to_unit_float(params.seed, branch_id, static_cast<uint32_t>(child_index) + 191U));
         const float child_base_radius = frame.radius
             * params.branch_radius_scale
+            * std::lerp(depth == 0 ? 0.46f : 0.60f, 1.0f, junction_t)
             * std::lerp(0.82f, 1.08f, hash_to_unit_float(params.seed, branch_id, static_cast<uint32_t>(child_index) + 211U));
         const float child_tip_radius = std::max(
             child_base_radius
                 * std::lerp(0.28f, 0.42f, hash_to_unit_float(params.seed, branch_id, static_cast<uint32_t>(child_index) + 241U)),
             0.006f * params.overall_scale);
+        const glm::vec3 attachment_center = frame.center + radial_dir * frame.radius;
+        const glm::vec3 child_origin = attachment_center
+            + child_direction * (child_base_radius * std::lerp(0.35f, 0.55f, junction_t));
+        BranchAttachment attachment;
+        attachment.enabled = true;
+        attachment.surface_center = attachment_center;
+        attachment.surface_normal = radial_dir;
+        attachment.surface_u = frame.axis;
+        attachment.collar_radius = child_base_radius * std::lerp(1.10f, 0.96f, junction_t);
 
         append_branch(
             bark_mesh,
@@ -584,11 +664,12 @@ void append_branch(
             child_tip_radius,
             depth + 1,
             branch_id * 7U + static_cast<uint32_t>(child_index) + 1U,
-            false);
+            false,
+            &attachment);
     }
 }
 
-void append_cap(
+bool append_cap(
     GeometryMesh& mesh,
     const DraxulTreeParams& params,
     uint32_t ring_start,
@@ -598,6 +679,9 @@ void append_cap(
     float v_coord,
     bool flip_winding)
 {
+    if (!can_append_vertices(mesh, 1U))
+        return false;
+
     GeometryVertex center_vertex;
     center_vertex.position = center;
     center_vertex.normal = normal;
@@ -625,6 +709,7 @@ void append_cap(
             mesh.indices.push_back(b);
         }
     }
+    return true;
 }
 
 } // namespace
@@ -677,6 +762,8 @@ DraxulTreeMeshes generate_draxul_tree_meshes(const DraxulTreeParams& input_param
     params.max_branch_depth = std::max(params.max_branch_depth, 0);
     params.branch_length_scale = std::clamp(params.branch_length_scale, 0.1f, 1.0f);
     params.branch_radius_scale = std::clamp(params.branch_radius_scale, 0.1f, 1.0f);
+    params.branch_spawn_start = std::clamp(params.branch_spawn_start, 0.0f, 0.95f);
+    params.branch_spawn_end = std::clamp(params.branch_spawn_end, params.branch_spawn_start, 1.0f);
     params.curvature = std::clamp(params.curvature, 0.0f, 1.0f);
     params.trunk_wander = std::clamp(params.trunk_wander, 0.0f, 2.0f);
     params.branch_wander = std::clamp(params.branch_wander, 0.0f, 2.0f);
@@ -717,6 +804,8 @@ GeometryMesh generate_draxul_tree(const DraxulTreeParams& params)
     DraxulTreeMeshes split = generate_draxul_tree_meshes(params);
     GeometryMesh merged = std::move(split.bark_mesh);
     if (split.leaf_mesh.vertices.empty())
+        return merged;
+    if (!can_append_vertices(merged, split.leaf_mesh.vertices.size()))
         return merged;
 
     const uint16_t vertex_offset = static_cast<uint16_t>(merged.vertices.size());

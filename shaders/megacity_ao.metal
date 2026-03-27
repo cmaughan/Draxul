@@ -110,32 +110,9 @@ int kernel_size(constant FrameUniforms& frame)
     return int(clamp(floor(frame.debug_view.z + 0.5), 1.0, 64.0));
 }
 
-int debug_view_mode(constant FrameUniforms& frame)
-{
-    return int(floor(frame.debug_view.x + 0.5));
-}
-
 bool ao_denoise_enabled(constant FrameUniforms& frame)
 {
     return frame.debug_view.y > 0.5;
-}
-
-float3 world_position_false_color(constant FrameUniforms& frame, float3 world_pos)
-{
-    const float min_x = frame.world_debug_bounds.x;
-    const float max_x = frame.world_debug_bounds.y;
-    const float min_z = frame.world_debug_bounds.z;
-    const float max_z = frame.world_debug_bounds.w;
-    const float span_x = max(max_x - min_x, 1e-3);
-    const float span_z = max(max_z - min_z, 1e-3);
-    const float span_y = max(max(span_x, span_z) * 0.35, 8.0);
-    return clamp(
-        float3(
-            (world_pos.x - min_x) / span_x,
-            world_pos.y / span_y,
-            (world_pos.z - min_z) / span_z),
-        float3(0.0),
-        float3(1.0));
 }
 
 fragment float4 ao_fragment(
@@ -202,7 +179,6 @@ fragment float4 ao_blur_fragment(
     depth2d<float> depthTexture [[texture(2)]],
     sampler pointSampler [[sampler(0)]])
 {
-    const int debug_mode = debug_view_mode(frame);
     const float2 center_uv = clamp(
         (in.position.xy - frame.screen_params.xy) * frame.screen_params.zw,
         float2(0.0),
@@ -210,19 +186,12 @@ fragment float4 ao_blur_fragment(
 
     const float center_depth = depthTexture.sample(pointSampler, center_uv);
     if (center_depth >= 0.99999)
-    {
-        const float3 background = debug_mode >= 2 ? float3(0.0) : float3(1.0);
-        return float4(background, 1.0);
-    }
+        return float4(1.0, 1.0, 1.0, 1.0);
 
     const float4 center_normal_data = normalTexture.sample(pointSampler, center_uv);
     const float3 center_normal = oct_decode(center_normal_data.rg);
     const float3 center_world = reconstruct_world(frame, center_uv, center_depth);
     const float center_ao = rawAoTexture.sample(pointSampler, center_uv).r;
-    if (debug_mode == 2)
-        return float4(center_normal * 0.5 + 0.5, 1.0);
-    if (debug_mode == 3)
-        return float4(world_position_false_color(frame, center_world), 1.0);
     if (!ao_denoise_enabled(frame))
         return float4(center_ao, center_ao, center_ao, 1.0);
 

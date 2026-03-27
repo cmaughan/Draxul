@@ -36,6 +36,7 @@ struct TexturedMaterialImages
 using AsphaltRoadMaterialImages = TexturedMaterialImages;
 using PavingSidewalkMaterialImages = TexturedMaterialImages;
 using WoodBuildingMaterialImages = TexturedMaterialImages;
+using BarkTreeMaterialImages = TexturedMaterialImages;
 
 struct LeafAtlasMaterialImages
 {
@@ -56,6 +57,7 @@ struct LeafAtlasMaterialImages
 [[nodiscard]] AsphaltRoadMaterialImages load_asphalt_road_material_images();
 [[nodiscard]] PavingSidewalkMaterialImages load_paving_sidewalk_material_images();
 [[nodiscard]] WoodBuildingMaterialImages load_wood_building_material_images();
+[[nodiscard]] BarkTreeMaterialImages load_bark_tree_material_images();
 [[nodiscard]] LeafAtlasMaterialImages load_leaf_atlas_material_images();
 
 } // namespace draxul

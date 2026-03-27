@@ -27,8 +27,8 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **Buffer**: Host-visible/shared memory, direct writes, no staging. 112 bytes per cell
 - **Frames in flight**: 2 with synchronization primitives
 - **Pixel format**: BGRA8 Unorm (Neovim sends pre-sRGB colors)
-- **MegaCity materials**: Textured asphalt road surfaces, paving-stone sidewalks, and experimental wood-sided building materials with albedo, normal, roughness, and material-AO maps, plus a depth/normal AO prepass and forward-lit AO debug/lighting controls
-- **MegaCity park dressing**: Central park now includes a procedurally generated `DraxulTree` mesh
+- **MegaCity materials**: Textured asphalt road surfaces, paving-stone sidewalks, bark-textured central-park trees, and experimental wood-sided building materials with albedo, normal, roughness, and material-AO maps, plus a depth/normal AO prepass and forward-lit AO debug/lighting controls
+- **MegaCity park dressing**: Central park now includes a procedurally generated `DraxulTree` mesh with atlas-based PBR leaf cards
 
 ---
 

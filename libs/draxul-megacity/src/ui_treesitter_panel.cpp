@@ -975,23 +975,34 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             changed |= ao_denoise_changed;
             if (ao_denoise_changed)
                 controls.committed_edit = true;
-            static constexpr std::array<const char*, 4> kAODebugLabels = {
-                "Final Scene",
-                "Ambient Occlusion",
-                "Decoded Normals",
-                "World Position",
-            };
-            int ao_debug_view = static_cast<int>(config.ao_debug_view);
-            if (ImGui::Combo("Debug View", &ao_debug_view, kAODebugLabels.data(), static_cast<int>(kAODebugLabels.size())))
-            {
-                config.ao_debug_view = static_cast<MegaCityAODebugView>(std::clamp(ao_debug_view, 0, 3));
-                changed = true;
-                controls.committed_edit = true;
-            }
             ImGui::TreePop();
         }
 
         ImGui::TreePop();
+    }
+
+    // -- Debug View --------------------------------------------------------
+    {
+        static constexpr std::array<const char*, 11> kDebugViewLabels = {
+            "Final Scene",
+            "Ambient Occlusion",
+            "AO Denoised",
+            "Normals",
+            "World Position",
+            "Roughness",
+            "Metallic",
+            "Albedo",
+            "Tangents",
+            "UV",
+            "Depth",
+        };
+        int debug_view = static_cast<int>(config.debug_view);
+        if (ImGui::Combo("Debug View", &debug_view, kDebugViewLabels.data(), static_cast<int>(kDebugViewLabels.size())))
+        {
+            config.debug_view = static_cast<MegaCityDebugView>(std::clamp(debug_view, 0, 10));
+            changed = true;
+            controls.committed_edit = true;
+        }
     }
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.68f, 1.0f));

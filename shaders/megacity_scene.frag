@@ -30,7 +30,7 @@ layout(set = 0, binding = 1) uniform MaterialUniforms
 material_table;
 layout(set = 0, binding = 2) uniform sampler2D sign_atlas;
 layout(set = 0, binding = 3) uniform sampler2D ao_buffer;
-layout(set = 0, binding = 4) uniform sampler2D material_textures[20];
+layout(set = 0, binding = 4) uniform sampler2D material_textures[24];
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) in vec3 in_base_color;
@@ -149,13 +149,7 @@ void main()
         (gl_FragCoord.xy - frame.screen_params.xy) * frame.screen_params.zw,
         vec2(0.0),
         vec2(1.0));
-    vec3 ao_debug = texture(ao_buffer, screen_uv).rgb;
-    float ao = clamp(ao_debug.r, 0.0, 1.0);
-    if (frame.debug_view.x > 0.5)
-    {
-        out_frag_color = vec4(ao_debug, 1.0);
-        return;
-    }
+    float ao = clamp(texture(ao_buffer, screen_uv).r, 0.0, 1.0);
     vec3 view_dir = normalize(frame.camera_pos.xyz - in_world_position);
     vec3 f0 = mix(vec3(0.04), albedo, metallic);
     float ambient = max(frame.render_tuning.z, 0.0);

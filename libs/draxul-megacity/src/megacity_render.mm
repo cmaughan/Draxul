@@ -303,6 +303,7 @@ struct GBufferTargets
 struct IsometricScenePass::State
 {
     ObjCRef<id<MTLRenderPipelineState>> pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> debug_pipeline;
     ObjCRef<id<MTLDepthStencilState>> depth_state;
     MeshBuffers cube_mesh;
     MeshBuffers floor_mesh;
@@ -404,6 +405,24 @@ struct IsometricScenePass::State
             return false;
         }
         pipeline.reset(pipeline_state);
+
+        id<MTLFunction> debug_frag_fn = [library newFunctionWithName:@"debug_fragment"];
+        if (debug_frag_fn)
+        {
+            desc.fragmentFunction = debug_frag_fn;
+            id<MTLRenderPipelineState> debug_pipeline_state = [device newRenderPipelineStateWithDescriptor:desc
+                                                                                                     error:&error];
+            if (debug_pipeline_state)
+                debug_pipeline.reset(debug_pipeline_state);
+            else
+                DRAXUL_LOG_ERROR(LogCategory::App,
+                    "MegaCity: failed to create debug pipeline: %s",
+                    error ? [[error localizedDescription] UTF8String] : "unknown");
+        }
+        else
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: debug_fragment not found in shader library");
+        }
 
         MTLDepthStencilDescriptor* depth_desc = [[MTLDepthStencilDescriptor alloc] init];
         depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
@@ -651,8 +670,10 @@ struct IsometricScenePass::State
         const AsphaltRoadMaterialImages road_images = load_asphalt_road_material_images();
         const PavingSidewalkMaterialImages sidewalk_images = load_paving_sidewalk_material_images();
         const WoodBuildingMaterialImages wood_images = load_wood_building_material_images();
+        const BarkTreeMaterialImages bark_images = load_bark_tree_material_images();
         const LeafAtlasMaterialImages leaf_images = load_leaf_atlas_material_images();
-        if (!road_images.valid() || !sidewalk_images.valid() || !wood_images.valid() || !leaf_images.valid())
+        if (!road_images.valid() || !sidewalk_images.valid() || !wood_images.valid()
+            || !bark_images.valid() || !leaf_images.valid())
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load Megacity material images");
             return false;
@@ -688,6 +709,14 @@ struct IsometricScenePass::State
             make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.roughness));
         material_textures[static_cast<size_t>(SceneTextureId::WoodAo)].reset(
             make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.ao));
+        material_textures[static_cast<size_t>(SceneTextureId::BarkAlbedo)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, bark_images.albedo));
+        material_textures[static_cast<size_t>(SceneTextureId::BarkNormal)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, bark_images.normal));
+        material_textures[static_cast<size_t>(SceneTextureId::BarkRoughness)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, bark_images.roughness));
+        material_textures[static_cast<size_t>(SceneTextureId::BarkAo)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, bark_images.ao));
         material_textures[static_cast<size_t>(SceneTextureId::LeafAlbedo)].reset(
             make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, leaf_images.albedo));
         material_textures[static_cast<size_t>(SceneTextureId::LeafNormal)].reset(
@@ -1261,14 +1290,20 @@ void IsometricScenePass::record(IRenderContext& ctx)
     const MaterialUniforms material_uniforms = build_material_uniforms(scene_);
     std::memcpy([frame_resources.material_uniforms.get() contents], &material_uniforms, sizeof(material_uniforms));
 
-    [encoder setRenderPipelineState:state_->pipeline.get()];
+    const int debug_mode = static_cast<int>(scene_.camera.debug_view.x + 0.5f);
+    const bool use_debug = debug_mode > 0 && state_->debug_pipeline.get() != nil;
+    [encoder setRenderPipelineState:use_debug ? state_->debug_pipeline.get() : state_->pipeline.get()];
     [encoder setDepthStencilState:state_->depth_state.get()];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
     [encoder setVertexBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
     [encoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
     [encoder setFragmentBuffer:frame_resources.material_uniforms.get() offset:0 atIndex:3];
     [encoder setFragmentTexture:state_->label_atlas_texture.get() atIndex:0];
-    [encoder setFragmentTexture:state_->gbuffer_targets[frame_index].ao.get() atIndex:1];
+    // For raw AO debug (mode 1), bind the pre-denoise AO texture
+    id<MTLTexture> ao_texture = (debug_mode == 1)
+        ? state_->gbuffer_targets[frame_index].ao_raw.get()
+        : state_->gbuffer_targets[frame_index].ao.get();
+    [encoder setFragmentTexture:ao_texture atIndex:1];
     for (NSUInteger texture_index = 0; texture_index < state_->material_textures.size(); ++texture_index)
         [encoder setFragmentTexture:state_->material_textures[texture_index].get() atIndex:2 + texture_index];
     [encoder setFragmentSamplerState:state_->label_sampler.get() atIndex:0];

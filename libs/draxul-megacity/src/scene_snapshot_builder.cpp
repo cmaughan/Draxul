@@ -77,6 +77,19 @@ SceneMaterial build_scene_material(const Appearance& appearance)
             0u,
             0u);
         break;
+    case MaterialId::TreeBark:
+        material.shading_model = MaterialShadingModel::TexturedTintedPbr;
+        material.scalar_params = glm::vec4(
+            appearance.material_info.y,
+            appearance.material_info.z,
+            appearance.material_info.w,
+            0.0f);
+        material.texture_indices = glm::uvec4(
+            static_cast<uint32_t>(SceneTextureId::BarkAlbedo),
+            static_cast<uint32_t>(SceneTextureId::BarkNormal),
+            static_cast<uint32_t>(SceneTextureId::BarkRoughness),
+            static_cast<uint32_t>(SceneTextureId::BarkAo));
+        break;
     case MaterialId::FlatColor:
     default:
         break;
@@ -144,7 +157,7 @@ SceneSnapshotResult build_scene_snapshot(
         config.ao_power,
         0.0f);
     scene.camera.debug_view = glm::vec4(
-        static_cast<float>(config.ao_debug_view),
+        static_cast<float>(config.debug_view),
         config.ao_denoise ? 1.0f : 0.0f,
         static_cast<float>(config.ao_kernel_size),
         0.0f);

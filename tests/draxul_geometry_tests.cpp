@@ -130,7 +130,10 @@ TEST_CASE("tree generator leaf size range changes card extent", "[geometry]")
 {
     DraxulTreeParams small_leaves = make_tree_params_from_age(20.0f);
     small_leaves.seed = 23;
-    small_leaves.leaf_density = 2.0f;
+    small_leaves.max_branch_depth = 0;
+    small_leaves.child_branches_min = 0;
+    small_leaves.child_branches_max = 0;
+    small_leaves.leaf_density = 4.0f;
     small_leaves.leaf_size_range = glm::vec2(1.2f, 1.2f);
     small_leaves.leaf_start_depth = 0;
 
@@ -197,6 +200,36 @@ TEST_CASE("tree generator supports lateral branch and trunk wander", "[geometry]
     CHECK(
         top_center_radius(wandering_meshes.bark_mesh)
         > top_center_radius(straight_meshes.bark_mesh) + 0.02f);
+}
+
+TEST_CASE("dense tree bark stays within index budget and avoids stretched triangles", "[geometry]")
+{
+    DraxulTreeParams params = make_tree_params_from_age(40.0f);
+    params.seed = 29;
+    params.max_branch_depth = 4;
+    params.child_branches_min = 3;
+    params.child_branches_max = 5;
+    params.branch_wander = 0.5f;
+    params.wander_frequency = 0.55f;
+    params.wander_deviation = 0.75f;
+
+    const DraxulTreeMeshes meshes = generate_draxul_tree_meshes(params);
+
+    REQUIRE(meshes.bark_mesh.vertices.size() <= static_cast<size_t>(std::numeric_limits<uint16_t>::max()));
+    REQUIRE(meshes.bark_mesh.indices.size() % 3 == 0);
+
+    float max_edge_length = 0.0f;
+    for (size_t base = 0; base + 2 < meshes.bark_mesh.indices.size(); base += 3)
+    {
+        const glm::vec3 p0 = meshes.bark_mesh.vertices[meshes.bark_mesh.indices[base + 0]].position;
+        const glm::vec3 p1 = meshes.bark_mesh.vertices[meshes.bark_mesh.indices[base + 1]].position;
+        const glm::vec3 p2 = meshes.bark_mesh.vertices[meshes.bark_mesh.indices[base + 2]].position;
+        max_edge_length = std::max(max_edge_length, glm::distance(p0, p1));
+        max_edge_length = std::max(max_edge_length, glm::distance(p1, p2));
+        max_edge_length = std::max(max_edge_length, glm::distance(p2, p0));
+    }
+
+    CHECK(max_edge_length < params.max_height * params.overall_scale * 0.45f);
 }
 
 TEST_CASE("unit cube geometry uses the shared vertex format", "[geometry]")

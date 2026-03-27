@@ -640,6 +640,7 @@ struct IsometricScenePass::State
     VkDescriptorPool prepass_descriptor_pool = VK_NULL_HANDLE;
     VkPipelineLayout prepass_pipeline_layout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
+    VkPipeline debug_pipeline = VK_NULL_HANDLE;
     MeshBuffers cube_mesh;
     MeshBuffers floor_mesh;
     MeshBuffers tree_bark_mesh;
@@ -906,8 +907,10 @@ struct IsometricScenePass::State
         const AsphaltRoadMaterialImages road_images = load_asphalt_road_material_images();
         const PavingSidewalkMaterialImages sidewalk_images = load_paving_sidewalk_material_images();
         const WoodBuildingMaterialImages wood_images = load_wood_building_material_images();
+        const BarkTreeMaterialImages bark_images = load_bark_tree_material_images();
         const LeafAtlasMaterialImages leaf_images = load_leaf_atlas_material_images();
-        if (!road_images.valid() || !sidewalk_images.valid() || !wood_images.valid() || !leaf_images.valid())
+        if (!road_images.valid() || !sidewalk_images.valid() || !wood_images.valid()
+            || !bark_images.valid() || !leaf_images.valid())
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load Megacity material images");
             return false;
@@ -949,6 +952,10 @@ struct IsometricScenePass::State
             { SceneTextureId::WoodNormal, &wood_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
             { SceneTextureId::WoodRoughness, &wood_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
             { SceneTextureId::WoodAo, &wood_images.ao, VK_FORMAT_R8G8B8A8_UNORM },
+            { SceneTextureId::BarkAlbedo, &bark_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { SceneTextureId::BarkNormal, &bark_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { SceneTextureId::BarkRoughness, &bark_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
+            { SceneTextureId::BarkAo, &bark_images.ao, VK_FORMAT_R8G8B8A8_UNORM },
             { SceneTextureId::LeafAlbedo, &leaf_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
             { SceneTextureId::LeafNormal, &leaf_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
             { SceneTextureId::LeafRoughness, &leaf_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
@@ -1343,6 +1350,32 @@ struct IsometricScenePass::State
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create graphics pipeline");
             return false;
+        }
+
+        // Create debug pipeline (same layout, same vertex shader, different fragment shader)
+        auto debug_frag = load_shader(device, (shader_dir / "megacity_debug.frag.spv").string());
+        if (debug_frag)
+        {
+            auto debug_vert = load_shader(device, (shader_dir / "megacity_scene.vert.spv").string());
+            if (debug_vert)
+            {
+                VkPipelineShaderStageCreateInfo debug_stages[2] = {};
+                debug_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                debug_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+                debug_stages[0].module = debug_vert;
+                debug_stages[0].pName = "main";
+                debug_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                debug_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                debug_stages[1].module = debug_frag;
+                debug_stages[1].pName = "main";
+                pipeline_ci.pStages = debug_stages;
+                const VkResult debug_result = vkCreateGraphicsPipelines(
+                    device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &debug_pipeline);
+                vkDestroyShaderModule(device, debug_vert, nullptr);
+                if (debug_result != VK_SUCCESS)
+                    DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create debug pipeline");
+            }
+            vkDestroyShaderModule(device, debug_frag, nullptr);
         }
 
         return true;
@@ -2028,6 +2061,8 @@ struct IsometricScenePass::State
                 destroy_buffer(allocator, frame.material_uniforms);
             }
         }
+        if (debug_pipeline != VK_NULL_HANDLE)
+            vkDestroyPipeline(device, debug_pipeline, nullptr);
         if (pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, pipeline, nullptr);
         if (pipeline_layout != VK_NULL_HANDLE)
@@ -2336,7 +2371,28 @@ void IsometricScenePass::record(IRenderContext& ctx)
     std::memcpy(frame_resources.material_uniforms.mapped, &material_uniforms, sizeof(material_uniforms));
     vmaFlushAllocation(vk_ctx->allocator(), frame_resources.material_uniforms.allocation, 0, sizeof(material_uniforms));
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->pipeline);
+    const int debug_mode = static_cast<int>(scene_.camera.debug_view.x + 0.5f);
+    const bool use_debug = debug_mode > 0 && state_->debug_pipeline != VK_NULL_HANDLE;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, use_debug ? state_->debug_pipeline : state_->pipeline);
+    // For raw AO debug (mode 1), temporarily rebind the raw AO texture to the descriptor
+    if (debug_mode == 1 && frame_index < state_->gbuffer_targets.size())
+    {
+        const auto& gbuffer = state_->gbuffer_targets[frame_index];
+        if (gbuffer.ao_raw_view != VK_NULL_HANDLE)
+        {
+            VkDescriptorImageInfo raw_ao_info = {};
+            raw_ao_info.sampler = state_->gbuffer_sampler;
+            raw_ao_info.imageView = gbuffer.ao_raw_view;
+            raw_ao_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            write.dstSet = frame_resources.descriptor_set;
+            write.dstBinding = 3;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &raw_ao_info;
+            vkUpdateDescriptorSets(vk_ctx->device(), 1, &write, 0, nullptr);
+        }
+    }
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->pipeline_layout,
         0, 1, &frame_resources.descriptor_set, 0, nullptr);
 
@@ -2407,6 +2463,26 @@ void IsometricScenePass::record(IRenderContext& ctx)
         vkCmdBindIndexBuffer(cmd, grid_slice.index_buffer, grid_slice.index_offset, VK_INDEX_TYPE_UINT16);
         vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(cmd, grid_slice.index_count, 1, 0, 0, 0);
+    }
+
+    // Restore denoised AO binding if we switched to raw for debug
+    if (debug_mode == 1 && frame_index < state_->gbuffer_targets.size())
+    {
+        const auto& gbuffer = state_->gbuffer_targets[frame_index];
+        if (gbuffer.ao_view != VK_NULL_HANDLE)
+        {
+            VkDescriptorImageInfo ao_info = {};
+            ao_info.sampler = state_->gbuffer_sampler;
+            ao_info.imageView = gbuffer.ao_view;
+            ao_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            write.dstSet = frame_resources.descriptor_set;
+            write.dstBinding = 3;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &ao_info;
+            vkUpdateDescriptorSets(vk_ctx->device(), 1, &write, 0, nullptr);
+        }
     }
 }
 

@@ -12,7 +12,7 @@ layout(set = 0, binding = 1) uniform MaterialUniforms
     MaterialInstance materials[64];
 }
 material_table;
-layout(set = 0, binding = 4) uniform sampler2D material_textures[20];
+layout(set = 0, binding = 4) uniform sampler2D material_textures[24];
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) flat in uint in_material_index;

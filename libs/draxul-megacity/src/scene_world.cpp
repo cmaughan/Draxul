@@ -9,6 +9,9 @@ namespace
 constexpr float kWoodBuildingUvScale = 0.45f;
 constexpr float kWoodBuildingNormalStrength = 0.7f;
 constexpr float kWoodBuildingAoStrength = 0.45f;
+constexpr float kTreeBarkUvScale = 1.0f;
+constexpr float kTreeBarkNormalStrength = 0.6f;
+constexpr float kTreeBarkAoStrength = 0.28f;
 constexpr float kSidewalkPavingUvScale = 0.85f;
 constexpr float kSidewalkPavingNormalStrength = 0.8f;
 constexpr float kSidewalkPavingAoStrength = 0.55f;
@@ -69,10 +72,14 @@ entt::entity SceneWorld::create_tree_bark(float world_x, float world_z, float el
     registry_.emplace<Appearance>(
         entity,
         MeshId::TreeBark,
-        MaterialId::FlatColor,
+        MaterialId::TreeBark,
         false,
         color,
-        glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+        glm::vec4(
+            static_cast<float>(MaterialId::TreeBark),
+            kTreeBarkUvScale,
+            kTreeBarkNormalStrength,
+            kTreeBarkAoStrength));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;

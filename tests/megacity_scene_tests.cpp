@@ -147,7 +147,7 @@ TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
     const auto& elevation = world.registry().get<Elevation>(bark_entity);
 
     CHECK(bark_appearance.mesh == MeshId::TreeBark);
-    CHECK(bark_appearance.material == MaterialId::FlatColor);
+    CHECK(bark_appearance.material == MaterialId::TreeBark);
     CHECK_FALSE(bark_appearance.double_sided);
     CHECK(leaf_appearance.mesh == MeshId::TreeLeaves);
     CHECK(leaf_appearance.material == MaterialId::LeafCards);

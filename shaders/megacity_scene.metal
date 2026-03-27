@@ -128,7 +128,7 @@ fragment float4 scene_fragment(
     constant MaterialUniforms& materialTable [[buffer(3)]],
     texture2d<float> signAtlas [[texture(0)]],
     texture2d<float> aoTexture [[texture(1)]],
-    array<texture2d<float>, 20> materialTextures [[texture(2)]],
+    array<texture2d<float>, 24> materialTextures [[texture(2)]],
     sampler signSampler [[sampler(0)]],
     sampler aoSampler [[sampler(1)]],
     sampler materialSampler [[sampler(2)]])
@@ -212,10 +212,7 @@ fragment float4 scene_fragment(
         (in.position.xy - frame.screen_params.xy) * frame.screen_params.zw,
         float2(0.0f),
         float2(1.0f));
-    const float3 ao_debug = aoTexture.sample(aoSampler, screen_uv).rgb;
-    const float ao = clamp(ao_debug.r, 0.0f, 1.0f);
-    if (frame.debug_view.x > 0.5f)
-        return float4(ao_debug, 1.0f);
+    const float ao = clamp(aoTexture.sample(aoSampler, screen_uv).r, 0.0f, 1.0f);
 
     const float ambient = max(frame.render_tuning.z, 0.0f);
     const float3 view_dir = normalize(frame.camera_pos.xyz - in.world_position);
@@ -290,4 +287,149 @@ fragment float4 scene_fragment(
     const float output_gamma = max(frame.render_tuning.x, 1.0f);
     const float3 encoded = pow(max(shaded, float3(0.0f)), float3(1.0f / output_gamma));
     return float4(encoded, 1.0f);
+}
+
+float3 world_position_false_color(constant FrameUniforms& frame, float3 world_pos)
+{
+    const float min_x = frame.world_debug_bounds.x;
+    const float max_x = frame.world_debug_bounds.y;
+    const float min_z = frame.world_debug_bounds.z;
+    const float max_z = frame.world_debug_bounds.w;
+    const float span_x = max(max_x - min_x, 1e-3f);
+    const float span_z = max(max_z - min_z, 1e-3f);
+    const float span_y = max(max(span_x, span_z) * 0.35f, 8.0f);
+    return clamp(
+        float3(
+            (world_pos.x - min_x) / span_x,
+            world_pos.y / span_y,
+            (world_pos.z - min_z) / span_z),
+        float3(0.0f),
+        float3(1.0f));
+}
+
+fragment float4 debug_fragment(
+    VertexOut in [[stage_in]],
+    constant FrameUniforms& frame [[buffer(1)]],
+    constant MaterialUniforms& materialTable [[buffer(3)]],
+    texture2d<float> signAtlas [[texture(0)]],
+    texture2d<float> aoTexture [[texture(1)]],
+    array<texture2d<float>, 24> materialTextures [[texture(2)]],
+    sampler signSampler [[sampler(0)]],
+    sampler aoSampler [[sampler(1)]],
+    sampler materialSampler [[sampler(2)]])
+{
+    const int mode = int(floor(frame.debug_view.x + 0.5f));
+
+    float3 normal_ws = normalize(in.normal_ws);
+    float3 albedo = in.base_color;
+    float roughness = 0.65f;
+    float metallic = 0.0f;
+
+    const MaterialInstance material = materialTable.materials[min(in.material_index, 63u)];
+    const float2 material_uv = in.material_uv * material.scalar_params.x;
+    const float normal_strength = max(material.scalar_params.y, 0.0f);
+    metallic = material.scalar_params.w;
+
+    if (material.metadata.x == kShadingTexturedTintedPbr)
+    {
+        float3 tangent_normal = materialTextures[material.texture_indices.y].sample(materialSampler, material_uv).xyz
+                * 2.0f
+            - 1.0f;
+        tangent_normal.xy *= normal_strength;
+        tangent_normal = normalize(tangent_normal);
+        const float3x3 tbn = tangent_basis(normal_ws, in.tangent_ws);
+        normal_ws = normalize(tbn * tangent_normal);
+        albedo = materialTextures[material.texture_indices.x].sample(materialSampler, material_uv).rgb
+            * in.base_color;
+        roughness = clamp(
+            materialTextures[material.texture_indices.z].sample(materialSampler, material_uv).r,
+            0.04f,
+            1.0f);
+    }
+    else if (material.metadata.x == kShadingVertexTintPbr)
+    {
+        const float3x3 tbn = tangent_basis(normal_ws, in.tangent_ws);
+        float3 tangent_normal = materialTextures[material.texture_indices.y].sample(materialSampler, material_uv).xyz
+                * 2.0f
+            - 1.0f;
+        tangent_normal.xy *= normal_strength;
+        tangent_normal = normalize(tangent_normal);
+        normal_ws = normalize(tbn * tangent_normal);
+        albedo = in.base_color;
+        roughness = clamp(
+            materialTextures[material.texture_indices.z].sample(materialSampler, material_uv).r,
+            0.04f,
+            1.0f);
+    }
+    else if (material.metadata.x == kShadingLeafCutoutPbr)
+    {
+        const float opacity = materialTextures[material.texture_indices.w].sample(materialSampler, material_uv).r;
+        if (opacity < kLeafAlphaCutoff)
+            discard_fragment();
+
+        float3 tangent_normal = materialTextures[material.texture_indices.y].sample(materialSampler, material_uv).xyz
+                * 2.0f
+            - 1.0f;
+        tangent_normal.xy *= normal_strength;
+        tangent_normal = normalize(tangent_normal);
+        const float3x3 tbn = tangent_basis(normal_ws, in.tangent_ws);
+        normal_ws = normalize(tbn * tangent_normal);
+        albedo = materialTextures[material.texture_indices.x].sample(materialSampler, material_uv).rgb
+            * in.base_color;
+        roughness = clamp(
+            materialTextures[material.texture_indices.z].sample(materialSampler, material_uv).r,
+            0.04f,
+            1.0f);
+    }
+
+    const float2 screen_uv = clamp(
+        (in.position.xy - frame.screen_params.xy) * frame.screen_params.zw,
+        float2(0.0f),
+        float2(1.0f));
+
+    float3 result = float3(0.0f);
+
+    if (mode == 1 || mode == 2)
+    {
+        result = aoTexture.sample(aoSampler, screen_uv).rrr;
+    }
+    else if (mode == 3)
+    {
+        result = normal_ws * 0.5f + 0.5f;
+    }
+    else if (mode == 4)
+    {
+        result = world_position_false_color(frame, in.world_position);
+    }
+    else if (mode == 5)
+    {
+        result = float3(roughness);
+    }
+    else if (mode == 6)
+    {
+        result = float3(metallic);
+    }
+    else if (mode == 7)
+    {
+        result = albedo;
+    }
+    else if (mode == 8)
+    {
+        const float3 tangent = normalize(in.tangent_ws.xyz);
+        const float3 bitangent = normalize(cross(normal_ws, tangent) * in.tangent_ws.w);
+        result = float3(
+            tangent.x * 0.5f + 0.5f,
+            bitangent.y * 0.5f + 0.5f,
+            normal_ws.z * 0.5f + 0.5f);
+    }
+    else if (mode == 9)
+    {
+        result = float3(in.material_uv, 0.0f);
+    }
+    else if (mode == 10)
+    {
+        result = float3(in.position.z);
+    }
+
+    return float4(result, 1.0f);
 }

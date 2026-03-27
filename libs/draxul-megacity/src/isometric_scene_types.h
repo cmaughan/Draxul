@@ -31,6 +31,7 @@ enum class MaterialId : uint32_t
     PavingSidewalk = 2,
     WoodBuilding = 3,
     LeafCards = 4,
+    TreeBark = 5,
 };
 
 enum class MaterialShadingModel : uint32_t
@@ -63,9 +64,13 @@ enum class SceneTextureId : uint32_t
     LeafRoughness = 17,
     LeafOpacity = 18,
     LeafScattering = 19,
+    BarkAlbedo = 20,
+    BarkNormal = 21,
+    BarkRoughness = 22,
+    BarkAo = 23,
 };
 
-constexpr uint32_t kSceneMaterialTextureCount = 20;
+constexpr uint32_t kSceneMaterialTextureCount = 24;
 constexpr uint32_t kMaxSceneMaterials = 64;
 
 struct LabelAtlasData
