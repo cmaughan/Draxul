@@ -207,25 +207,39 @@ endif()
 if(APPLE)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     target_link_libraries(draxul PRIVATE ${COREGRAPHICS_FRAMEWORK})
-    if(DRAXUL_ENABLE_MEGACITY)
-        add_dependencies(draxul compile_metal_shaders compile_megacity_shaders)
-    else()
-        add_dependencies(draxul compile_metal_shaders)
-    endif()
 
-    # Copy metallib to build dir next to executable
-    add_custom_command(TARGET draxul POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/shaders
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_BINARY_DIR}/shaders/grid.metallib
-            $<TARGET_FILE_DIR:draxul>/shaders/
-    )
-    if(DRAXUL_ENABLE_MEGACITY)
-        add_custom_command(TARGET draxul POST_BUILD
+    function(draxul_stage_metal_shader target_name shader_path)
+        add_custom_target(${target_name}
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/shaders
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_BINARY_DIR}/shaders/megacity_scene.metallib
+                ${shader_path}
                 $<TARGET_FILE_DIR:draxul>/shaders/
+            DEPENDS ${shader_path}
         )
+    endfunction()
+
+    draxul_stage_metal_shader(stage_grid_metal_shader
+        ${CMAKE_BINARY_DIR}/shaders/grid.metallib)
+    if(DRAXUL_ENABLE_MEGACITY)
+        draxul_stage_metal_shader(stage_megacity_scene_metal_shader
+            ${CMAKE_BINARY_DIR}/shaders/megacity_scene.metallib)
+        draxul_stage_metal_shader(stage_megacity_gbuffer_metal_shader
+            ${CMAKE_BINARY_DIR}/shaders/megacity_gbuffer.metallib)
+        draxul_stage_metal_shader(stage_megacity_ao_metal_shader
+            ${CMAKE_BINARY_DIR}/shaders/megacity_ao.metallib)
+        add_dependencies(draxul
+            compile_metal_shaders
+            compile_megacity_shaders
+            compile_megacity_gbuffer_shaders
+            compile_megacity_ao_shaders
+            stage_grid_metal_shader
+            stage_megacity_scene_metal_shader
+            stage_megacity_gbuffer_metal_shader
+            stage_megacity_ao_metal_shader)
+    else()
+        add_dependencies(draxul
+            compile_metal_shaders
+            stage_grid_metal_shader)
     endif()
 else()
     add_dependencies(draxul compile_shaders)
@@ -236,6 +250,16 @@ else()
             ${CMAKE_BINARY_DIR}/shaders
             $<TARGET_FILE_DIR:draxul>/shaders
     )
+endif()
+
+if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")
+    add_custom_target(stage_megacity_assets
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets/megacity
+            $<TARGET_FILE_DIR:draxul>/assets/megacity
+    )
+    add_dependencies(draxul stage_megacity_assets)
 endif()
 
 # Copy fonts to build directory

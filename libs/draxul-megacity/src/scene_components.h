@@ -27,7 +27,9 @@ struct Elevation
 struct Appearance
 {
     MeshId mesh = MeshId::Cube;
+    MaterialId material = MaterialId::FlatColor;
     glm::vec4 color{ 1.0f };
+    glm::vec4 material_info{ 0.0f, 1.0f, 1.0f, 1.0f };
 };
 
 // --- Entity-type markers (tag components) ---
@@ -46,6 +48,15 @@ struct RoadMetrics
     float extent_x = 1.0f;
     float extent_z = 1.0f;
     float height = 0.02f;
+};
+
+struct RoadSurfaceMetrics
+{
+    float extent_x = 1.0f;
+    float extent_z = 1.0f;
+    float uv_scale = 0.35f;
+    float normal_strength = 1.0f;
+    float ao_strength = 1.0f;
 };
 
 struct SignMetrics

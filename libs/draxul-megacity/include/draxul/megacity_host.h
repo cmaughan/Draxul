@@ -8,7 +8,9 @@
 #include <draxul/treesitter.h>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace draxul
 {
@@ -78,6 +80,7 @@ public:
 private:
     void mark_scene_dirty();
     void mark_world_rebuild_pending();
+    void refresh_available_modules();
     void rebuild_semantic_city();
     void launch_grid_build(const SemanticMegacityLayout& layout);
     void refresh_sign_text_service();
@@ -98,6 +101,7 @@ private:
     std::unique_ptr<TextService> sign_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
     std::shared_ptr<const SemanticMegacityModel> semantic_model_;
+    std::vector<std::string> available_modules_;
     ConfigDocument* config_document_ = nullptr;
     MegaCityCodeConfig renderer_config_;
     MegaCityCodeConfig pending_renderer_config_;
@@ -118,6 +122,8 @@ private:
     float city_max_x_ = 2.5f;
     float city_min_z_ = -2.5f;
     float city_max_z_ = 2.5f;
+    bool show_ui_panels_ = true;
+    std::string imgui_ini_path_;
     bool continuous_refresh_enabled_ = false;
     bool move_left_ = false;
     bool move_right_ = false;

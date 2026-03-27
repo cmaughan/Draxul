@@ -128,6 +128,15 @@ FetchContent_Declare(
 set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
 
+# stb (image loading helpers — header-only)
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG 28d546d5eb77d4585506a20480f4de2e706dff4c
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(stb)
+
 # EnTT (entity component system — header-only)
 FetchContent_Declare(
     EnTT

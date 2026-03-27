@@ -99,6 +99,25 @@ MeshData build_floor_box_mesh()
     return build_unit_cube_mesh();
 }
 
+MeshData build_road_surface_mesh()
+{
+    MeshData mesh;
+    mesh.vertices.reserve(4);
+    mesh.indices.reserve(6);
+
+    const float h = 0.5f;
+    const glm::vec3 color{ 1.0f, 1.0f, 1.0f };
+
+    append_quad(mesh, { {
+                          { -h, 0.0f, -h },
+                          { -h, 0.0f, h },
+                          { h, 0.0f, h },
+                          { h, 0.0f, -h },
+                      } },
+        { 0.0f, 1.0f, 0.0f }, color);
+    return mesh;
+}
+
 MeshData build_roof_sign_mesh()
 {
     MeshData mesh;

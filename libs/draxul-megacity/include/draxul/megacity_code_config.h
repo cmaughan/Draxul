@@ -2,7 +2,12 @@
 
 #include <draxul/config_document.h>
 
+#include <glm/vec3.hpp>
+
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <toml++/toml.hpp>
 
 namespace draxul
@@ -20,19 +25,34 @@ enum class MegaCitySignPlacement : uint8_t
     WallWest,
 };
 
+enum class MegaCityAODebugView : uint8_t
+{
+    FinalScene,
+    AmbientOcclusion,
+    DecodedNormals,
+    WorldPosition,
+};
+
 struct MegaCityCodeConfig
 {
+    std::string selected_module_path;
     float sign_text_hidden_px = 1.5f;
     float sign_text_full_px = 8.0f;
     float output_gamma = 1.0f;
+    MegaCityAODebugView ao_debug_view = MegaCityAODebugView::FinalScene;
+    bool ao_denoise = true;
+    float ao_radius = 1.6f;
+    float ao_bias = 0.12f;
+    float ao_power = 1.35f;
+    int ao_kernel_size = 16;
     float height_multiplier = 1.5f;
     bool clamp_semantic_metrics = false;
     bool hide_test_entities = true;
     bool auto_rebuild = true;
+    bool show_ui_panels = true;
 
     float placement_step = 0.5f;
     int max_spiral_rings = 4096;
-    float lot_road_reserve_fraction = 0.25f;
 
     float footprint_base = 1.0f;
     float footprint_min = 1.0f;
@@ -51,8 +71,14 @@ struct MegaCityCodeConfig
     float road_width_min = 0.6f;
     float road_width_max = 3.0f;
     float sidewalk_width = 1.0f;
+    float park_footprint = 6.0f;
+    float park_height = 0.15f;
 
     float sign_label_point_size = 18.0f;
+    glm::vec3 module_sign_board_color{ 1.0f, 1.0f, 1.0f };
+    glm::vec3 module_sign_text_color{ 0.0f, 0.0f, 0.0f };
+    glm::vec3 building_sign_board_color{ 1.0f, 1.0f, 1.0f };
+    glm::vec3 building_sign_text_color{ 0.0f, 0.0f, 0.0f };
     MegaCitySignPlacement building_sign_placement = MegaCitySignPlacement::WallEast;
     float roof_sign_thickness = 0.05f;
     float roof_sign_depth = 0.42f;
@@ -105,6 +131,8 @@ struct MegaCityCodeConfig
 
 [[nodiscard]] std::optional<MegaCitySignPlacement> parse_megacity_sign_placement(std::string_view value);
 [[nodiscard]] std::string_view format_megacity_sign_placement(MegaCitySignPlacement value);
+[[nodiscard]] std::optional<MegaCityAODebugView> parse_megacity_ao_debug_view(std::string_view value);
+[[nodiscard]] std::string_view format_megacity_ao_debug_view(MegaCityAODebugView value);
 
 void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& table);
 [[nodiscard]] toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config);

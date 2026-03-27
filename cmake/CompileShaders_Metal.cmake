@@ -45,3 +45,45 @@ add_custom_command(
 )
 
 add_custom_target(compile_megacity_shaders DEPENDS ${MEGACITY_METAL_LIB})
+
+# MegaCity GBuffer pre-pass shader
+set(GBUFFER_METAL_SOURCE ${SHADER_SOURCE_DIR}/megacity_gbuffer.metal)
+set(GBUFFER_METAL_AIR    ${SHADER_OUTPUT_DIR}/megacity_gbuffer.air)
+set(GBUFFER_METAL_LIB    ${SHADER_OUTPUT_DIR}/megacity_gbuffer.metallib)
+
+add_custom_command(
+    OUTPUT ${GBUFFER_METAL_AIR}
+    COMMAND xcrun -sdk macosx metal -c ${GBUFFER_METAL_SOURCE} -o ${GBUFFER_METAL_AIR}
+    DEPENDS ${GBUFFER_METAL_SOURCE}
+    COMMENT "Compiling Metal shader: megacity_gbuffer.metal"
+)
+
+add_custom_command(
+    OUTPUT ${GBUFFER_METAL_LIB}
+    COMMAND xcrun -sdk macosx metallib ${GBUFFER_METAL_AIR} -o ${GBUFFER_METAL_LIB}
+    DEPENDS ${GBUFFER_METAL_AIR}
+    COMMENT "Linking Metal shader library: megacity_gbuffer.metallib"
+)
+
+add_custom_target(compile_megacity_gbuffer_shaders DEPENDS ${GBUFFER_METAL_LIB})
+
+# MegaCity AO post-pass shader
+set(AO_METAL_SOURCE ${SHADER_SOURCE_DIR}/megacity_ao.metal)
+set(AO_METAL_AIR    ${SHADER_OUTPUT_DIR}/megacity_ao.air)
+set(AO_METAL_LIB    ${SHADER_OUTPUT_DIR}/megacity_ao.metallib)
+
+add_custom_command(
+    OUTPUT ${AO_METAL_AIR}
+    COMMAND xcrun -sdk macosx metal -c ${AO_METAL_SOURCE} -o ${AO_METAL_AIR}
+    DEPENDS ${AO_METAL_SOURCE}
+    COMMENT "Compiling Metal shader: megacity_ao.metal"
+)
+
+add_custom_command(
+    OUTPUT ${AO_METAL_LIB}
+    COMMAND xcrun -sdk macosx metallib ${AO_METAL_AIR} -o ${AO_METAL_LIB}
+    DEPENDS ${AO_METAL_AIR}
+    COMMENT "Linking Metal shader library: megacity_ao.metallib"
+)
+
+add_custom_target(compile_megacity_ao_shaders DEPENDS ${AO_METAL_LIB})

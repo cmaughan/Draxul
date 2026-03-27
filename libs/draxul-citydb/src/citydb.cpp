@@ -26,7 +26,7 @@ namespace draxul
 namespace
 {
 
-constexpr int kSchemaVersion = 2;
+constexpr int kSchemaVersion = 3;
 
 class SqliteError final : public std::runtime_error
 {
@@ -512,14 +512,47 @@ void create_schema_v2(sqlite3* db)
     exec(db, "PRAGMA user_version = 2");
 }
 
-void migrate_v1_to_v2(sqlite3* db)
+void create_schema_v3(sqlite3* db)
+{
+    create_schema_v2(db);
+
+    exec(db, R"sql(
+        CREATE TABLE IF NOT EXISTS city_modules (
+            module_path TEXT PRIMARY KEY NOT NULL,
+            building_count INTEGER NOT NULL,
+            total_functions INTEGER NOT NULL,
+            total_function_lines INTEGER NOT NULL,
+            avg_function_size REAL NOT NULL,
+            quality REAL NOT NULL
+        );
+    )sql");
+    exec(db, "PRAGMA user_version = 3");
+}
+
+void migrate_v1_to_v3(sqlite3* db)
 {
     // The city DB is a derived cache, so a destructive migration is acceptable
     // here and simpler than preserving the old intermediate layout.
+    exec(db, "DROP TABLE IF EXISTS city_modules");
     exec(db, "DROP TABLE IF EXISTS city_entities");
     exec(db, "DROP TABLE IF EXISTS symbols");
     exec(db, "DROP TABLE IF EXISTS files");
-    create_schema_v2(db);
+    create_schema_v3(db);
+}
+
+void migrate_v2_to_v3(sqlite3* db)
+{
+    exec(db, R"sql(
+        CREATE TABLE IF NOT EXISTS city_modules (
+            module_path TEXT PRIMARY KEY NOT NULL,
+            building_count INTEGER NOT NULL,
+            total_functions INTEGER NOT NULL,
+            total_function_lines INTEGER NOT NULL,
+            avg_function_size REAL NOT NULL,
+            quality REAL NOT NULL
+        );
+    )sql");
+    exec(db, "PRAGMA user_version = 3");
 }
 
 void migrate_schema(sqlite3* db)
@@ -536,9 +569,11 @@ void migrate_schema(sqlite3* db)
     }
 
     if (version == 0)
-        create_schema_v2(db);
+        create_schema_v3(db);
     else if (version == 1)
-        migrate_v1_to_v2(db);
+        migrate_v1_to_v3(db);
+    else if (version == 2)
+        migrate_v2_to_v3(db);
 
     {
         sqlite3_stmt* raw_stmt = nullptr;
@@ -790,6 +825,73 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
             }
         }
 
+        // Populate city_modules with aggregated quality metrics.
+        exec(impl_->db.get(), "DELETE FROM city_modules");
+        Statement insert_module(impl_->db.get(),
+            "INSERT INTO city_modules(module_path, building_count, total_functions, "
+            "total_function_lines, avg_function_size, quality) VALUES(?, ?, ?, ?, ?, ?)");
+
+        // Aggregate function sizes per module from the just-inserted entities.
+        Statement query_modules(impl_->db.get(),
+            "SELECT module_path, COUNT(*), SUM(building_functions), building_function_sizes_json "
+            "FROM city_entities "
+            "WHERE entity_kind IN ('building', 'tower', 'block') "
+            "GROUP BY module_path ORDER BY module_path");
+
+        // We need per-module function size lists, but SQL can't easily parse JSON arrays.
+        // So group by module_path and accumulate from the per-entity JSON in a second pass.
+        struct ModuleAgg
+        {
+            int building_count = 0;
+            int total_functions = 0;
+            int total_function_lines = 0;
+        };
+        std::unordered_map<std::string, ModuleAgg> module_agg;
+
+        {
+            Statement entity_scan(impl_->db.get(),
+                "SELECT module_path, building_functions, building_function_sizes_json "
+                "FROM city_entities WHERE entity_kind IN ('building', 'tower', 'block')");
+            const auto col_text = [&](int index) -> std::string {
+                const auto* t = sqlite3_column_text(entity_scan.raw(), index);
+                return t ? std::string(reinterpret_cast<const char*>(t)) : std::string();
+            };
+            while (entity_scan.step() == SQLITE_ROW)
+            {
+                const std::string mp = col_text(0);
+                auto& agg = module_agg[mp];
+                agg.building_count++;
+                const int funcs = sqlite3_column_int(entity_scan.raw(), 1);
+                agg.total_functions += funcs;
+                const std::vector<int> sizes = parse_json_int_array(col_text(2));
+                for (const int sz : sizes)
+                    agg.total_function_lines += sz;
+            }
+        }
+
+        for (const auto& [mp, agg] : module_agg)
+        {
+            const float avg_fn_size = agg.total_functions > 0
+                ? static_cast<float>(agg.total_function_lines) / static_cast<float>(agg.total_functions)
+                : 0.0f;
+
+            // Quality: 1.0 for tiny avg function size, tapering toward 0.0 for large.
+            // An average of ~5 lines is excellent (quality ~0.67), ~30 lines is poor (~0.25).
+            // Formula: quality = 1 / (1 + avg/10), gives a smooth 0-1 curve.
+            const float quality = agg.total_functions > 0
+                ? 1.0f / (1.0f + avg_fn_size / 10.0f)
+                : 0.5f; // no functions = neutral
+
+            insert_module.reuse();
+            insert_module.bind_text(1, mp);
+            insert_module.bind_int(2, agg.building_count);
+            insert_module.bind_int(3, agg.total_functions);
+            insert_module.bind_int(4, agg.total_function_lines);
+            insert_module.bind_double(5, static_cast<double>(avg_fn_size));
+            insert_module.bind_double(6, static_cast<double>(quality));
+            insert_module.step_done();
+        }
+
         txn.commit();
 
         impl_->stats.path = impl_->path;
@@ -875,6 +977,36 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
     }
 
     return rows;
+}
+
+CityModuleRecord CityDatabase::module_record(std::string_view module_path) const
+{
+    CityModuleRecord record;
+    record.module_path = std::string(module_path);
+    if (!impl_ || !impl_->db)
+        return record;
+
+    try
+    {
+        Statement stmt(impl_->db.get(),
+            "SELECT building_count, total_functions, total_function_lines, avg_function_size, quality "
+            "FROM city_modules WHERE module_path = ?");
+        stmt.bind_text(1, module_path);
+        if (stmt.step() == SQLITE_ROW)
+        {
+            record.building_count = sqlite3_column_int(stmt.raw(), 0);
+            record.total_functions = sqlite3_column_int(stmt.raw(), 1);
+            record.total_function_lines = sqlite3_column_int(stmt.raw(), 2);
+            record.avg_function_size = static_cast<float>(sqlite3_column_double(stmt.raw(), 3));
+            record.quality = static_cast<float>(sqlite3_column_double(stmt.raw(), 4));
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        impl_->last_error = ex.what();
+    }
+
+    return record;
 }
 
 } // namespace draxul

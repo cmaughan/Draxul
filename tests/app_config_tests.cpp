@@ -681,6 +681,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
 {
     ConfigDocument document;
     MegaCityCodeConfig defaults;
+    defaults.selected_module_path = "app";
     defaults.sign_text_hidden_px = 2.5f;
     defaults.sign_text_full_px = 12.0f;
     defaults.clamp_semantic_metrics = true;
@@ -688,8 +689,19 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     defaults.auto_rebuild = true;
 
     MegaCityCodeConfig current = defaults;
+    current.selected_module_path = "libs/draxul-megacity";
     current.height_multiplier = 2.25f;
     current.hide_test_entities = false;
+    current.ao_debug_view = MegaCityAODebugView::DecodedNormals;
+    current.ao_denoise = false;
+    current.ao_radius = 2.4f;
+    current.ao_bias = 0.08f;
+    current.ao_power = 1.9f;
+    current.ao_kernel_size = 24;
+    current.module_sign_board_color = glm::vec3(0.85f, 0.80f, 0.72f);
+    current.module_sign_text_color = glm::vec3(0.15f, 0.10f, 0.05f);
+    current.building_sign_board_color = glm::vec3(0.72f, 0.78f, 0.88f);
+    current.building_sign_text_color = glm::vec3(0.08f, 0.09f, 0.15f);
     current.ambient_strength = 0.62f;
     current.point_light_position_valid = true;
     current.point_light_x = -14.0f;

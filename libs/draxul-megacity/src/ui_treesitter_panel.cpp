@@ -704,9 +704,65 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         changed |= item_changed;
         note_commit();
     };
+    auto edit_color3 = [&](const char* label, glm::vec3& value) {
+        float color[3] = { value.r, value.g, value.b };
+        if (ImGui::ColorEdit3(label, color))
+        {
+            value = glm::vec3(color[0], color[1], color[2]);
+            changed = true;
+            controls.committed_edit = true;
+        }
+    };
 
     if (ImGui::TreeNodeEx("##renderer_build", ImGuiTreeNodeFlags_SpanAvailWidth, "City Build"))
     {
+        const bool module_selection_missing = !config.selected_module_path.empty()
+            && std::find(
+                   controls.available_modules.begin(),
+                   controls.available_modules.end(),
+                   config.selected_module_path)
+                == controls.available_modules.end();
+        const std::string current_module_label = config.selected_module_path.empty()
+            ? "All Modules"
+            : module_selection_missing
+            ? ("Missing: " + config.selected_module_path)
+            : config.selected_module_path;
+        if (ImGui::BeginCombo("Module View", current_module_label.c_str()))
+        {
+            const bool all_modules_selected = config.selected_module_path.empty();
+            if (ImGui::Selectable("All Modules", all_modules_selected))
+            {
+                config.selected_module_path.clear();
+                changed = true;
+                controls.committed_edit = true;
+            }
+            if (all_modules_selected)
+                ImGui::SetItemDefaultFocus();
+
+            for (const std::string& module_path : controls.available_modules)
+            {
+                const bool module_selected = module_path == config.selected_module_path;
+                if (ImGui::Selectable(module_path.c_str(), module_selected))
+                {
+                    config.selected_module_path = module_path;
+                    changed = true;
+                    controls.committed_edit = true;
+                }
+                if (module_selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+
+            if (module_selection_missing)
+            {
+                ImGui::Separator();
+                ImGui::BeginDisabled();
+                ImGui::Selectable(current_module_label.c_str(), true);
+                ImGui::EndDisabled();
+            }
+
+            ImGui::EndCombo();
+        }
+
         const bool clamp_changed = ImGui::Checkbox("Clamp Semantic Metrics", &config.clamp_semantic_metrics);
         changed |= clamp_changed;
         if (clamp_changed)
@@ -718,7 +774,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("Height Multiplier", config.height_multiplier, 0.05f, 0.1f, 8.0f, "%.2f");
         edit_float("Placement Step", config.placement_step, 0.01f, 0.05f, 8.0f, "%.2f");
         edit_int("Max Spiral Rings", config.max_spiral_rings, 8, 8, 65536);
-        edit_float("Lot Road Reserve", config.lot_road_reserve_fraction, 0.01f, 0.0f, 4.0f, "%.2f");
         edit_float("Footprint Base", config.footprint_base, 0.05f, 0.0f, 32.0f, "%.2f");
         edit_float("Footprint Min", config.footprint_min, 0.05f, 0.0f, 32.0f, "%.2f");
         edit_float("Footprint Max", config.footprint_max, 0.05f, 0.0f, 64.0f, "%.2f");
@@ -734,6 +789,8 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("Road Width Min", config.road_width_min, 0.01f, 0.0f, 16.0f, "%.2f");
         edit_float("Road Width Max", config.road_width_max, 0.01f, 0.0f, 32.0f, "%.2f");
         edit_float("Sidewalk Width", config.sidewalk_width, 0.01f, 0.0f, 16.0f, "%.2f");
+        edit_float("Park Footprint", config.park_footprint, 0.5f, 0.0f, 32.0f, "%.1f");
+        edit_float("Park Height", config.park_height, 0.01f, 0.0f, 2.0f, "%.2f");
         ImGui::TreePop();
     }
 
@@ -742,6 +799,10 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("Sign Text Hidden <= px", config.sign_text_hidden_px, 0.1f, 0.0f, 64.0f, "%.1f");
         edit_float("Sign Text Full >= px", config.sign_text_full_px, 0.1f, 0.0f, 64.0f, "%.1f");
         edit_float("Sign Label Point Size", config.sign_label_point_size, 0.25f, 1.0f, 72.0f, "%.1f");
+        edit_color3("Module Sign Board Color", config.module_sign_board_color);
+        edit_color3("Module Sign Text Color", config.module_sign_text_color);
+        edit_color3("Building Sign Board Color", config.building_sign_board_color);
+        edit_color3("Building Sign Text Color", config.building_sign_text_color);
         edit_int("Wall Sign Text Padding", config.wall_sign_text_padding, 1, 0, 64);
 
         static constexpr std::array<const char*, 8> kPlacementLabels = {
@@ -762,10 +823,10 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             controls.committed_edit = true;
         }
 
-        edit_float("Roof Sign Thickness", config.roof_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
-        edit_float("Roof Sign Depth", config.roof_sign_depth, 0.01f, 0.01f, 8.0f, "%.2f");
-        edit_float("Roof Sign Edge Inset", config.roof_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
-        edit_float("Roof Sign Side Inset", config.roof_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Floor/Module Sign Thickness", config.roof_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
+        edit_float("Floor/Module Sign Depth", config.roof_sign_depth, 0.01f, 0.01f, 8.0f, "%.2f");
+        edit_float("Floor/Module Sign Edge Inset", config.roof_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Floor/Module Sign Side Inset", config.roof_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
         edit_float("Wall Sign Thickness", config.wall_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
         edit_float("Wall Sign Face Gap", config.wall_sign_face_gap, 0.001f, 0.0f, 1.0f, "%.3f");
         edit_float("Wall Sign Width", config.wall_sign_width, 0.01f, 0.05f, 16.0f, "%.2f");
@@ -777,7 +838,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("Minimum Road Sign Depth", config.minimum_road_sign_depth, 0.01f, 0.01f, 8.0f, "%.2f");
         edit_float("Sidewalk Sign Edge Inset", config.sidewalk_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
         edit_float("Road Sign Lift", config.road_sign_lift, 0.001f, 0.0f, 1.0f, "%.3f");
-        edit_float("Sign Pixels / World Unit", config.roof_sign_pixels_per_world_unit, 1.0f, 8.0f, 2048.0f, "%.1f");
+        edit_float("Floor/Module Sign Pixels / World Unit", config.roof_sign_pixels_per_world_unit, 1.0f, 8.0f, 2048.0f, "%.1f");
         ImGui::TreePop();
     }
 
@@ -822,6 +883,27 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         }
         edit_float("Point Light Brightness", config.point_light_brightness, 0.01f, 0.0f, 8.0f, "%.2f");
         edit_float("Output Gamma", config.output_gamma, 0.01f, 0.1f, 4.0f, "%.2f");
+        edit_float("AO Radius", config.ao_radius, 0.05f, 0.01f, 64.0f, "%.2f");
+        edit_float("AO Bias", config.ao_bias, 0.01f, 0.0f, 1.0f, "%.2f");
+        edit_float("AO Power", config.ao_power, 0.01f, 0.1f, 8.0f, "%.2f");
+        edit_int("AO Kernel Size", config.ao_kernel_size, 1, 1, 64);
+        static constexpr std::array<const char*, 4> kAODebugLabels = {
+            "Final Scene",
+            "Ambient Occlusion",
+            "Decoded Normals",
+            "World Position",
+        };
+        int ao_debug_view = static_cast<int>(config.ao_debug_view);
+        if (ImGui::Combo("AO Debug View", &ao_debug_view, kAODebugLabels.data(), static_cast<int>(kAODebugLabels.size())))
+        {
+            config.ao_debug_view = static_cast<MegaCityAODebugView>(std::clamp(ao_debug_view, 0, 3));
+            changed = true;
+            controls.committed_edit = true;
+        }
+        const bool ao_denoise_changed = ImGui::Checkbox("AO Denoise", &config.ao_denoise);
+        changed |= ao_denoise_changed;
+        if (ao_denoise_changed)
+            controls.committed_edit = true;
         ImGui::TreePop();
     }
 

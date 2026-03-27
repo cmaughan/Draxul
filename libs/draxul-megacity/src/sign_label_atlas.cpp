@@ -35,11 +35,11 @@ struct PackedLabel
     int y = 0;
 };
 
-void write_black_pixel(uint8_t* dst, uint8_t alpha)
+void write_colored_pixel(uint8_t* dst, uint8_t alpha, uint8_t r, uint8_t g, uint8_t b)
 {
-    dst[0] = 0;
-    dst[1] = 0;
-    dst[2] = 0;
+    dst[0] = r;
+    dst[1] = g;
+    dst[2] = b;
     dst[3] = std::max(dst[3], alpha);
 }
 
@@ -133,7 +133,7 @@ LabelBitmap rasterize_label(TextService& text_service, const SignLabelRequest& r
                 if (src[3] == 0)
                     continue;
                 uint8_t* dst = bitmap.rgba.data() + (((dst_y * bitmap.width) + dst_x) * 4);
-                write_black_pixel(dst, src[3]);
+                write_colored_pixel(dst, src[3], request.text_r, request.text_g, request.text_b);
                 ink_min_x = std::min(ink_min_x, dst_x);
                 ink_min_y = std::min(ink_min_y, dst_y);
                 ink_max_x = std::max(ink_max_x, dst_x);

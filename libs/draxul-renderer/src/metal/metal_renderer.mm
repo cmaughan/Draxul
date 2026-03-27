@@ -594,6 +594,18 @@ void MetalRenderer::end_frame()
     // Flush any queued atlas uploads via blit encoder before the render pass samples the atlas.
     flush_pending_atlas_uploads((__bridge void*)cmdBuf);
 
+    // Run any registered pre-pass (e.g. GBuffer) before the main render pass.
+    if (render_pass_)
+    {
+        int vx = viewport3d_x_;
+        int vy = viewport3d_y_;
+        int vw = viewport3d_w_ > 0 ? viewport3d_w_ : pixel_w_;
+        int vh = viewport3d_h_ > 0 ? viewport3d_h_ : pixel_h_;
+        MetalRenderContext prepass_ctx(cmdBuf, nil, current_frame_, MAX_FRAMES_IN_FLIGHT,
+            pixel_w_, pixel_h_, vx, vy, vw, vh);
+        render_pass_->record_prepass(prepass_ctx);
+    }
+
     // Create render pass descriptor
     MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
     rpDesc.colorAttachments[0].texture = drawable.texture;

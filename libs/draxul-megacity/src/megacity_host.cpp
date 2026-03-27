@@ -71,12 +71,9 @@ constexpr std::array<glm::vec4, 26> kModuleAccentPalette = {
     glm::vec4(0.502f, 0.682f, 0.827f, 1.0f), // steel
 };
 
-constexpr glm::vec4 kRoadColor(0.46f, 0.46f, 0.48f, 1.0f);
 constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
-constexpr glm::vec4 kRoadSurfaceColor(0.18f, 0.18f, 0.19f, 1.0f);
-constexpr glm::vec4 kSignBoardColor(1.0f, 1.0f, 1.0f, 1.0f);
-constexpr glm::vec4 kBuildingSignColor = kSignBoardColor;
-constexpr glm::vec4 kModuleSignColor = kSignBoardColor;
+constexpr float kRoadSurfaceTextureLift = 0.002f;
+constexpr float kRoadMaterialUvScale = 0.28f;
 
 struct SignPlacementSpec
 {
@@ -98,12 +95,42 @@ float world_floor_height(const MegaCityCodeConfig& config)
     return config.road_surface_height * config.world_floor_height_scale;
 }
 
+glm::vec4 color_with_alpha(const glm::vec3& color, float alpha = 1.0f)
+{
+    return glm::vec4(
+        std::clamp(color.r, 0.0f, 1.0f),
+        std::clamp(color.g, 0.0f, 1.0f),
+        std::clamp(color.b, 0.0f, 1.0f),
+        alpha);
+}
+
+glm::vec4 module_sign_board_color(const MegaCityCodeConfig& config)
+{
+    return color_with_alpha(config.module_sign_board_color);
+}
+
+glm::vec4 building_sign_board_color(const MegaCityCodeConfig& config)
+{
+    return color_with_alpha(config.building_sign_board_color);
+}
+
+uint8_t color_channel_to_byte(float value)
+{
+    return static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+}
+
 MegaCityCodeConfig world_rebuild_signature(MegaCityCodeConfig config)
 {
     config.auto_rebuild = false;
     config.sign_text_hidden_px = 0.0f;
     config.sign_text_full_px = 0.0f;
     config.output_gamma = 1.0f;
+    config.ao_debug_view = MegaCityAODebugView::FinalScene;
+    config.ao_denoise = true;
+    config.ao_radius = 0.0f;
+    config.ao_bias = 0.0f;
+    config.ao_power = 0.0f;
+    config.ao_kernel_size = 0;
     config.world_floor_height_scale = 0.0f;
     config.world_floor_top_y = 0.0f;
     config.world_floor_grid_y_offset = 0.0f;
@@ -508,6 +535,36 @@ SignPlacementSpec place_module_road_sign(
     return placement;
 }
 
+SignPlacementSpec place_module_park_sign(
+    glm::vec2 park_center, float park_footprint, std::string_view text, const TextService* text_service,
+    const MegaCityCodeConfig& config)
+{
+    SignPlacementSpec placement;
+
+    // Width = park footprint; depth from font aspect ratio, clamped to fit.
+    float sign_width = park_footprint;
+    float sign_depth = sign_width * 0.25f; // fallback
+    if (text_service && !text.empty())
+    {
+        const int cw = std::max(text_service->metrics().cell_width, 1);
+        const int ch = std::max(text_service->metrics().cell_height, 1);
+        const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
+        const float char_width = sign_width / std::max(static_cast<float>(text.size()), 1.0f);
+        sign_depth = char_width * aspect + 2.0f * config.road_sign_edge_inset;
+    }
+    placement.width = std::max(0.35f, sign_width);
+    placement.height = config.roof_sign_thickness;
+    placement.depth = std::clamp(
+        sign_depth, config.minimum_road_sign_depth, park_footprint * 0.33f);
+    placement.mesh = MeshId::RoofSign;
+
+    // Place along the south edge of the park (negative Z).
+    const float half = park_footprint * 0.5f;
+    placement.center = { park_center.x, park_center.y - half + placement.depth * 0.5f };
+    placement.yaw_radians = 0.0f;
+    return placement;
+}
+
 SignLabelRequest make_sign_request(
     std::string key, std::string_view text, const SignPlacementSpec& placement,
     const TextService* text_service, const MegaCityCodeConfig& config)
@@ -529,12 +586,17 @@ SignLabelRequest make_sign_request(
         pixel_height = 16;
     }
 
+    const bool building_sign = placement.mesh == MeshId::WallSign;
+    const glm::vec3& text_color = building_sign ? config.building_sign_text_color : config.module_sign_text_color;
     return SignLabelRequest{
         .key = std::move(key),
         .text = std::string(text),
         .target_pixel_width = pixel_width,
         .target_pixel_height = pixel_height,
         .vertical_align = SignLabelVerticalAlign::Center,
+        .text_r = color_channel_to_byte(text_color.r),
+        .text_g = color_channel_to_byte(text_color.g),
+        .text_b = color_channel_to_byte(text_color.b),
     };
 }
 
@@ -613,7 +675,16 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         ? load_megacity_code_config(*config_document_, renderer_defaults_)
         : renderer_defaults_;
     pending_renderer_config_ = renderer_config_;
+    show_ui_panels_ = renderer_config_.show_ui_panels;
     restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
+
+    // Enable ImGui layout persistence alongside config.toml
+    {
+        std::filesystem::path ini_path = ConfigDocument::default_path().parent_path() / "megacity_imgui.ini";
+        imgui_ini_path_ = ini_path.string();
+        if (ImGui::GetCurrentContext() != nullptr && std::filesystem::exists(ini_path))
+            ImGui::LoadIniSettingsFromDisk(imgui_ini_path_.c_str());
+    }
     sign_font_path_ = context.text_service->primary_font_path();
     display_ppi_ = context.display_ppi;
     viewport_ = context.initial_viewport;
@@ -639,6 +710,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         DRAXUL_LOG_WARN(LogCategory::App, "MegaCityHost: failed to open city DB at %s: %s",
             city_db_path.string().c_str(), city_db_.last_error().c_str());
     }
+    refresh_available_modules();
     scanner_.start(DRAXUL_REPO_ROOT);
     mark_scene_dirty();
 
@@ -661,6 +733,13 @@ void MegaCityHost::mark_world_rebuild_pending()
     last_activity_time_ = std::chrono::steady_clock::now();
     if (callbacks_)
         callbacks_->request_frame();
+}
+
+void MegaCityHost::refresh_available_modules()
+{
+    available_modules_.clear();
+    if (city_db_.is_open())
+        available_modules_ = city_db_.list_modules();
 }
 
 void MegaCityHost::sync_camera_state_to_configs()
@@ -700,6 +779,14 @@ void MegaCityHost::reset_camera_to_default_frame()
 
 void MegaCityHost::on_key(const KeyEvent& event)
 {
+    // F1 toggles UI panels (press only, not release)
+    if (event.pressed
+        && (event.scancode == SDL_SCANCODE_F1 || event.keycode == SDLK_F1))
+    {
+        dispatch_action("toggle_ui_panels");
+        return;
+    }
+
     bool changed = false;
     if (is_left_arrow(event))
     {
@@ -848,6 +935,12 @@ void MegaCityHost::render_imgui(float dt)
         ImGuiDockNodeFlags_PassthruCentralNode);
     ImGui::End();
 
+    if (!show_ui_panels_)
+        return;
+
+    if (scene_pass_)
+        scene_pass_->render_gbuffer_debug_ui();
+
     // City map overview panel
     {
         std::shared_ptr<const CityGrid> grid;
@@ -861,6 +954,7 @@ void MegaCityHost::render_imgui(float dt)
     MegacityRendererControls renderer_controls{
         .config = pending_renderer_config_,
         .defaults = renderer_defaults_,
+        .available_modules = available_modules_,
         .rebuild_pending = world_rebuild_pending_
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
@@ -945,6 +1039,11 @@ void MegaCityHost::shutdown()
         grid_thread_.join();
     city_grid_.reset();
 
+    // Save ImGui layout state
+    if (ImGui::GetCurrentContext() != nullptr && !imgui_ini_path_.empty())
+        ImGui::SaveIniSettingsToDisk(imgui_ini_path_.c_str());
+
+    pending_renderer_config_.show_ui_panels = show_ui_panels_;
     if (config_document_)
         store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
     scanner_.stop();
@@ -995,6 +1094,8 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
 
     scene.camera.view = camera_->view_matrix();
     scene.camera.proj = camera_->proj_matrix();
+    scene.camera.inv_view_proj = glm::inverse(scene.camera.proj * scene.camera.view);
+    scene.camera.camera_pos = glm::vec4(camera_->position(), 1.0f);
     scene.camera.light_dir = glm::normalize(glm::vec4(
         renderer_config_.directional_light_x,
         renderer_config_.directional_light_y,
@@ -1009,6 +1110,16 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
         renderer_config_.output_gamma,
         renderer_config_.point_light_brightness,
         renderer_config_.ambient_strength,
+        0.0f);
+    scene.camera.ao_settings = glm::vec4(
+        renderer_config_.ao_radius,
+        renderer_config_.ao_bias,
+        renderer_config_.ao_power,
+        0.0f);
+    scene.camera.debug_view = glm::vec4(
+        static_cast<float>(renderer_config_.ao_debug_view),
+        renderer_config_.ao_denoise ? 1.0f : 0.0f,
+        static_cast<float>(renderer_config_.ao_kernel_size),
         0.0f);
 
     const GroundFootprint footprint = camera_->visible_ground_footprint(0.0f);
@@ -1044,6 +1155,8 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
     {
         SceneObject obj;
         obj.mesh = appearance.mesh;
+        obj.material = appearance.material;
+        obj.material_info = appearance.material_info;
         const glm::vec3 world_pos{ pos.x, elev.value, pos.z };
         float extent_x = 1.0f;
         float extent_z = 1.0f;
@@ -1071,6 +1184,12 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
             transform = glm::translate(transform, glm::vec3(0.0f, rm->height * 0.5f, 0.0f));
             transform = glm::scale(transform, glm::vec3(rm->extent_x, rm->height, rm->extent_z));
         }
+        else if (const auto* rsm = reg.try_get<RoadSurfaceMetrics>(entity))
+        {
+            extent_x = rsm->extent_x;
+            extent_z = rsm->extent_z;
+            transform = glm::scale(transform, glm::vec3(rsm->extent_x, 1.0f, rsm->extent_z));
+        }
         else if (const auto* sm = reg.try_get<SignMetrics>(entity))
         {
             const bool quarter_turn = std::abs(std::sin(sm->yaw_radians)) > 0.70710678f;
@@ -1096,29 +1215,6 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
         max_z = std::max(max_z, pos.z + extent_z * 0.5f);
     }
 
-    if (building_min_x <= building_max_x && building_min_z <= building_max_z)
-    {
-        const float floor_min_x = building_min_x - max_building_lot_margin;
-        const float floor_max_x = building_max_x + max_building_lot_margin;
-        const float floor_min_z = building_min_z - max_building_lot_margin;
-        const float floor_max_z = building_max_z + max_building_lot_margin;
-
-        SceneObject floor;
-        floor.mesh = MeshId::Floor;
-        floor.color = kRoadColor;
-        floor.world = glm::translate(glm::mat4(1.0f),
-                          glm::vec3(
-                              (floor_min_x + floor_max_x) * 0.5f,
-                              renderer_config_.world_floor_top_y - world_floor_height(renderer_config_) * 0.5f,
-                              (floor_min_z + floor_max_z) * 0.5f))
-            * glm::scale(glm::mat4(1.0f),
-                glm::vec3(
-                    floor_max_x - floor_min_x,
-                    world_floor_height(renderer_config_),
-                    floor_max_z - floor_min_z));
-        scene.objects.insert(scene.objects.begin(), floor);
-    }
-
     if (min_x > max_x || min_z > max_z)
     {
         min_x = -2.5f;
@@ -1129,6 +1225,7 @@ SceneSnapshot MegaCityHost::build_scene_snapshot() const
 
     const float span = std::max(max_x - min_x, max_z - min_z);
     world_span_ = std::max(span, 1.0f);
+    scene.camera.world_debug_bounds = glm::vec4(min_x, max_x, min_z, max_z);
     scene.camera.point_light_pos = glm::vec4(
         renderer_config_.point_light_x,
         renderer_config_.point_light_y,
@@ -1144,9 +1241,16 @@ void MegaCityHost::rebuild_semantic_city()
         return;
 
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
+    refresh_available_modules();
     std::vector<SemanticCityModuleInput> modules;
-    for (const std::string& module_path : city_db_.list_modules())
-        modules.push_back({ module_path, city_db_.list_classes_in_module(module_path) });
+    for (const std::string& module_path : available_modules_)
+    {
+        if (!renderer_config_.selected_module_path.empty()
+            && module_path != renderer_config_.selected_module_path)
+            continue;
+        const CityModuleRecord mod_record = city_db_.module_record(module_path);
+        modules.push_back({ module_path, city_db_.list_classes_in_module(module_path), mod_record.quality });
+    }
 
     auto semantic_model = std::make_shared<SemanticMegacityModel>(
         build_semantic_megacity_model(modules, renderer_config_));
@@ -1188,15 +1292,19 @@ void MegaCityHost::rebuild_semantic_city()
             sign_requests.push_back(make_sign_request(building_sign_key(building), text, signs[0], ts, renderer_config_));
         }
 
-        if (!module_layout.buildings.empty())
+        if (module_layout.park_footprint > 0.0f)
         {
-            const SemanticCityBuilding& anchor = module_layout.buildings.front();
             const std::string name = module_display_name(module_layout.module_path);
-            const SignPlacementSpec road = place_module_road_sign(
-                anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
-            sign_requests.push_back(make_sign_request(
-                module_sign_key(module_layout.module_path), name, road,
-                sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_));
+            const SignPlacementSpec park_sign = place_module_park_sign(
+                module_layout.park_center, module_layout.park_footprint,
+                name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
+            auto request = make_sign_request(
+                module_sign_key(module_layout.module_path), name, park_sign,
+                sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
+            request.text_r = 255;
+            request.text_g = 255;
+            request.text_b = 255;
+            sign_requests.push_back(std::move(request));
         }
     }
     if (sign_text_service_)
@@ -1205,8 +1313,48 @@ void MegaCityHost::rebuild_semantic_city()
         sign_label_atlas_.reset();
 
     world_->clear();
+    const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(layout);
+    if (road_surface_bounds.valid())
+    {
+        world_->create_road_surface(
+            (road_surface_bounds.min_x + road_surface_bounds.max_x) * 0.5f,
+            (road_surface_bounds.min_z + road_surface_bounds.max_z) * 0.5f,
+            RoadSurfaceMetrics{
+                road_surface_bounds.max_x - road_surface_bounds.min_x,
+                road_surface_bounds.max_z - road_surface_bounds.min_z,
+                kRoadMaterialUvScale,
+                1.0f,
+                1.0f,
+            },
+            SourceSymbol{},
+            renderer_config_.road_surface_height + kRoadSurfaceTextureLift);
+    }
     for (const auto& module_layout : layout.modules)
     {
+        // Park slab at the center of the module, colored by quality.
+        if (module_layout.park_footprint > 0.0f)
+        {
+            // Lerp from brown (low quality) to green (high quality).
+            const glm::vec3 kParkBrown(0.45f, 0.30f, 0.15f);
+            const glm::vec3 kParkGreen(0.25f, 0.65f, 0.20f);
+            const float q = std::clamp(module_layout.quality, 0.0f, 1.0f);
+            const glm::vec3 park_rgb = glm::mix(kParkBrown, kParkGreen, q);
+            const glm::vec4 park_color(park_rgb, 1.0f);
+
+            BuildingMetrics park_metrics;
+            park_metrics.footprint = module_layout.park_footprint;
+            park_metrics.height = renderer_config_.park_height;
+            park_metrics.sidewalk_width = 0.0f;
+            park_metrics.road_width = 0.0f;
+            world_->create_building(
+                module_layout.park_center.x,
+                module_layout.park_center.y,
+                building_base_elevation(renderer_config_),
+                park_metrics,
+                park_color,
+                SourceSymbol{ "", module_layout.module_path });
+        }
+
         const glm::vec4 module_color = module_building_color(module_layout.module_path);
         for (const auto& building : module_layout.buildings)
         {
@@ -1272,13 +1420,16 @@ void MegaCityHost::rebuild_semantic_city()
                     {
                         const SignMetrics sign = make_sign_metrics(placement, it->second);
                         const float sign_y = total_height - sign.height * 0.5f;
+                        const glm::vec4 sign_color
+                            = placement.mesh == MeshId::RoofSign ? module_sign_board_color(renderer_config_)
+                                                                 : building_sign_board_color(renderer_config_);
                         world_->create_sign(
                             placement.center.x,
                             placement.center.y,
                             sign_y,
                             sign,
                             placement.mesh,
-                            kBuildingSignColor,
+                            sign_color,
                             SourceSymbol{ building.source_file_path, building.qualified_name });
                     }
                 }
@@ -1294,39 +1445,30 @@ void MegaCityHost::rebuild_semantic_city()
                     SourceSymbol{ building.source_file_path, building.qualified_name },
                     renderer_config_.sidewalk_surface_lift);
             }
-
-            for (const RoadSegmentPlacement& road : build_road_segments(building))
-            {
-                world_->create_road(
-                    road.center.x,
-                    road.center.y,
-                    RoadMetrics{ road.extent.x, road.extent.y, renderer_config_.road_surface_height },
-                    kRoadSurfaceColor,
-                    SourceSymbol{ building.source_file_path, building.qualified_name });
-            }
         }
 
-        if (sign_label_atlas_ && !module_layout.buildings.empty())
+        if (sign_label_atlas_ && module_layout.park_footprint > 0.0f)
         {
-            const SemanticCityBuilding& anchor = module_layout.buildings.front();
             const auto it = sign_label_atlas_->entries.find(module_sign_key(module_layout.module_path));
             if (it != sign_label_atlas_->entries.end())
             {
                 const std::string name = module_display_name(module_layout.module_path);
-                const SignPlacementSpec road = place_module_road_sign(
-                    anchor, name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
-                const SignMetrics sign = make_sign_metrics(road, it->second);
+                const SignPlacementSpec park_sign = place_module_park_sign(
+                    module_layout.park_center, module_layout.park_footprint,
+                    name, sign_text_service_ ? sign_text_service_.get() : nullptr, renderer_config_);
+                const SignMetrics sign = make_sign_metrics(park_sign, it->second);
+
                 world_->create_sign(
-                    road.center.x,
-                    road.center.y,
-                    renderer_config_.sidewalk_surface_lift
-                        + renderer_config_.sidewalk_surface_height
+                    park_sign.center.x,
+                    park_sign.center.y,
+                    building_base_elevation(renderer_config_)
+                        + renderer_config_.park_height
                         + sign.height * 0.5f
                         + renderer_config_.road_sign_lift,
                     sign,
-                    road.mesh,
-                    kModuleSignColor,
-                    SourceSymbol{ anchor.source_file_path, module_layout.module_path });
+                    park_sign.mesh,
+                    module_sign_board_color(renderer_config_),
+                    SourceSymbol{ "", module_layout.module_path });
             }
         }
     }
@@ -1521,6 +1663,7 @@ void MegaCityHost::pump()
             if (city_db_.reconcile_snapshot(*snapshot))
             {
                 city_db_reconciled_ = true;
+                refresh_available_modules();
                 rebuild_semantic_city();
                 const auto& stats = city_db_.stats();
                 DRAXUL_LOG_INFO(LogCategory::App,
@@ -1567,6 +1710,13 @@ bool MegaCityHost::dispatch_action(std::string_view action)
         running_ = false;
         if (callbacks_)
             callbacks_->request_quit();
+        return true;
+    }
+    if (action == "toggle_ui_panels")
+    {
+        show_ui_panels_ = !show_ui_panels_;
+        if (callbacks_)
+            callbacks_->request_frame();
         return true;
     }
     return false;

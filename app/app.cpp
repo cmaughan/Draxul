@@ -551,6 +551,11 @@ void App::render_imgui_overlay(float delta_seconds)
 
 bool App::render_frame()
 {
+    // Consume the current request up front so any nested request_frame() calls
+    // made during this frame schedule a follow-up frame instead of being
+    // cleared at the end of the render.
+    frame_requested_ = false;
+
     update_diagnostics_panel();
 
     const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
@@ -570,7 +575,6 @@ bool App::render_frame()
 
     saw_frame_ = true;
     renderer_.grid()->end_frame();
-    frame_requested_ = false;
     frame_timer_.record(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count());
     return true;

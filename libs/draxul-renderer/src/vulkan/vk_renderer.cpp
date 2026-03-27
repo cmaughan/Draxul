@@ -669,6 +669,20 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
     if (!flush_pending_atlas_uploads(cmd))
         DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to record pending atlas uploads");
 
+    // Run any registered pre-pass (e.g. GBuffer) before the main render pass.
+    if (render_pass_)
+    {
+        const int vx = viewport3d_x_;
+        const int vy = viewport3d_y_;
+        const int vw = viewport3d_w_ > 0 ? viewport3d_w_ : pixel_w_;
+        const int vh = viewport3d_h_ > 0 ? viewport3d_h_ : pixel_h_;
+        VkRenderContext prepass_ctx(cmd, ctx_.physical_device(), ctx_.device(), ctx_.allocator(), VK_NULL_HANDLE,
+            current_frame_, MAX_FRAMES_IN_FLIGHT,
+            (int)ctx_.swapchain().extent.width, (int)ctx_.swapchain().extent.height,
+            vx, vy, vw, vh);
+        render_pass_->record_prepass(prepass_ctx);
+    }
+
     VkClearValue clear_values[2] = {};
     clear_values[0].color = { { clear_r_, clear_g_, clear_b_, 1.0f } };
     clear_values[1].depthStencil.depth = 1.0f;

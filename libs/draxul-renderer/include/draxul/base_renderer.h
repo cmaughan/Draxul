@@ -76,12 +76,19 @@ public:
 
 // ---------------------------------------------------------------------------
 // IRenderPass — a single draw pass registered with the renderer.
-// Invoked inside end_frame() after the grid pass completes.
+// record_prepass() is called before the main render pass begins (no active
+// encoder/render pass), allowing implementations to create their own render
+// targets and render pass. record() is called inside end_frame() after the
+// grid pass completes, within the main render pass.
 // ---------------------------------------------------------------------------
 class IRenderPass
 {
 public:
     virtual ~IRenderPass() = default;
+    virtual void record_prepass(IRenderContext& ctx)
+    {
+        (void)ctx;
+    }
     virtual void record(IRenderContext& ctx) = 0;
 };
 

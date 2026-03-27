@@ -1,5 +1,7 @@
 #pragma once
 
+#include <glm/vec3.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -82,6 +84,44 @@ inline std::optional<double> get_double(const toml::table& table, std::string_vi
 inline std::optional<bool> get_bool(const toml::table& table, std::string_view key)
 {
     return table[key].value<bool>();
+}
+
+inline std::optional<glm::vec3> get_vec3(const toml::table& table, std::string_view key)
+{
+    const auto* arr = table[key].as_array();
+    if (!arr || arr->size() != 3)
+        return std::nullopt;
+
+    glm::vec3 value{ 0.0f };
+    for (size_t i = 0; i < 3; ++i)
+    {
+        if (auto parsed = (*arr)[i].value<double>())
+        {
+            value[i] = static_cast<float>(*parsed);
+            continue;
+        }
+        if (auto parsed = (*arr)[i].value<int64_t>())
+        {
+            value[i] = static_cast<float>(*parsed);
+            continue;
+        }
+        return std::nullopt;
+    }
+    return value;
+}
+
+inline toml::array make_array(const glm::vec3& value)
+{
+    toml::array array;
+    array.push_back(static_cast<double>(value.x));
+    array.push_back(static_cast<double>(value.y));
+    array.push_back(static_cast<double>(value.z));
+    return array;
+}
+
+inline void insert_vec3(toml::table& table, std::string_view key, const glm::vec3& value)
+{
+    table.insert_or_assign(std::string(key), make_array(value));
 }
 
 } // namespace draxul::toml_support

@@ -69,7 +69,7 @@ TestLotRect test_building_lot(const SemanticCityBuilding& building)
     const MegaCityCodeConfig config;
     const float step = std::max(config.placement_step, 0.01f);
     const float raw_half_extent = building.metrics.footprint * 0.5f + building.metrics.sidewalk_width
-        + building.metrics.road_width * config.lot_road_reserve_fraction;
+        + building.metrics.road_width;
     const float half_extent = std::max(step, std::round(raw_half_extent / step) * step);
     return {
         building.center.x - half_extent,
@@ -269,8 +269,8 @@ TEST_CASE("semantic city layout starts with the tallest building at the origin",
 
     REQUIRE(layout.buildings.size() == 3);
     CHECK(layout.buildings[0].qualified_name == "App");
-    CHECK(layout.buildings[0].center.x == Catch::Approx(0.0f));
-    CHECK(layout.buildings[0].center.y == Catch::Approx(0.0f));
+    // First building is no longer at (0,0) — the park occupies the center.
+    CHECK(layout.park_footprint > 0.0f);
     CHECK(layout.min_x < 0.0f);
     CHECK(layout.max_x > 0.0f);
     CHECK(layout.min_z < 0.0f);
@@ -323,6 +323,66 @@ TEST_CASE("semantic building metrics can bypass clamping", "[megacity]")
     CHECK(unclamped.height > clamped.height);
     CHECK(unclamped.sidewalk_width == Catch::Approx(clamped.sidewalk_width));
     CHECK(unclamped.road_width > clamped.road_width);
+}
+
+TEST_CASE("semantic city lot reserve matches the full visible road width by default", "[megacity]")
+{
+    CityClassRecord row;
+    row.name = "MegaCityHost";
+    row.qualified_name = "MegaCityHost";
+    row.module_path = "libs/draxul-megacity";
+    row.source_file_path = "libs/draxul-megacity/include/draxul/megacity_host.h";
+    row.entity_kind = "building";
+    row.base_size = 55;
+    row.building_functions = 33;
+    row.function_sizes = { 24, 18, 14, 10 };
+    row.road_size = 24;
+
+    const MegaCityCodeConfig config;
+    const BuildingMetrics metrics = derive_building_metrics(row, config);
+    const SemanticCityBuilding building{
+        row.module_path,
+        row.name,
+        row.qualified_name,
+        row.source_file_path,
+        row.base_size,
+        row.building_functions,
+        0,
+        row.road_size,
+        metrics,
+        { 0.0f, 0.0f },
+        {},
+    };
+
+    const TestLotRect lot = test_building_lot(building);
+    const float step = std::max(config.placement_step, 0.01f);
+    const float required_half_extent = metrics.footprint * 0.5f + metrics.sidewalk_width + metrics.road_width;
+    CHECK(lot.max_x >= required_half_extent);
+    CHECK(-lot.min_x >= required_half_extent);
+    CHECK(lot.max_x <= required_half_extent + step * 0.5f + 1e-4f);
+    CHECK(-lot.min_x <= required_half_extent + step * 0.5f + 1e-4f);
+}
+
+TEST_CASE("road width scale affects unclamped semantic road width", "[megacity]")
+{
+    CityClassRecord row;
+    row.entity_kind = "building";
+    row.base_size = 12;
+    row.building_functions = 6;
+    row.function_sizes = { 18, 12, 8 };
+    row.road_size = 24;
+
+    MegaCityCodeConfig low_scale_config;
+    low_scale_config.clamp_semantic_metrics = false;
+    low_scale_config.road_width_scale = 0.25f;
+
+    MegaCityCodeConfig high_scale_config = low_scale_config;
+    high_scale_config.road_width_scale = 1.25f;
+
+    const BuildingMetrics low_scale = derive_building_metrics(row, low_scale_config);
+    const BuildingMetrics high_scale = derive_building_metrics(row, high_scale_config);
+
+    CHECK(high_scale.road_width > low_scale.road_width);
 }
 
 TEST_CASE("semantic city layout handles very large unclamped lots", "[megacity]")
@@ -438,8 +498,8 @@ TEST_CASE("semantic megacity model is built from DB rows and shared metrics", "[
     REQUIRE(layout.modules.size() == 1);
     REQUIRE(layout.building_count() == 2);
     CHECK(layout.modules[0].buildings[0].qualified_name == "App");
-    CHECK(layout.modules[0].buildings[0].center.x == Catch::Approx(0.0f));
-    CHECK(layout.modules[0].buildings[0].center.y == Catch::Approx(0.0f));
+    // Park occupies the center; first building is offset from origin.
+    CHECK(layout.modules[0].park_footprint > 0.0f);
     CHECK(layout.modules[0].buildings[0].metrics.height
         == Catch::Approx(model.modules[0].buildings[0].metrics.height));
 }
@@ -499,6 +559,87 @@ TEST_CASE("semantic city sidewalks form a ring between a building and its roads"
     CHECK(sidewalks[2].extent == glm::vec2(1.0f, 4.0f));
     CHECK(sidewalks[3].center == glm::vec2(2.5f, 0.0f));
     CHECK(sidewalks[3].extent == glm::vec2(1.0f, 4.0f));
+}
+
+TEST_CASE("semantic megacity road surface spans the shared building footprint envelope", "[megacity]")
+{
+    SemanticMegacityLayout layout;
+    SemanticCityModuleLayout module_layout;
+
+    SemanticCityBuilding building_a;
+    building_a.center = { 0.0f, 0.0f };
+    building_a.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    SemanticCityBuilding building_b;
+    building_b.center = { 8.0f, 0.0f };
+    building_b.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    module_layout.buildings = { building_a, building_b };
+    layout.modules.push_back(std::move(module_layout));
+
+    const CitySurfaceBounds bounds = compute_city_road_surface_bounds(layout);
+
+    REQUIRE(bounds.valid());
+    CHECK(bounds.min_x == Catch::Approx(-3.0f));
+    CHECK(bounds.max_x == Catch::Approx(11.0f));
+    CHECK(bounds.min_z == Catch::Approx(-3.0f));
+    CHECK(bounds.max_z == Catch::Approx(3.0f));
+}
+
+TEST_CASE("city grid uses one shared road surface under the building envelope", "[megacity]")
+{
+    SemanticMegacityLayout layout;
+    SemanticCityModuleLayout module_layout;
+
+    SemanticCityBuilding building_a;
+    building_a.center = { 0.0f, 0.0f };
+    building_a.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    SemanticCityBuilding building_b;
+    building_b.center = { 8.0f, 0.0f };
+    building_b.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    module_layout.buildings = { building_a, building_b };
+    layout.modules.push_back(std::move(module_layout));
+    layout.min_x = -5.0f;
+    layout.max_x = 13.0f;
+    layout.min_z = -5.0f;
+    layout.max_z = 5.0f;
+
+    MegaCityCodeConfig config;
+    config.placement_step = 0.5f;
+    const CityGrid grid = build_city_grid(layout, config);
+
+    auto sample_cell = [&](float world_x, float world_z) {
+        const int col = static_cast<int>(std::floor((world_x - grid.origin_x) / grid.cell_size));
+        const int row = static_cast<int>(std::floor((world_z - grid.origin_z) / grid.cell_size));
+        return grid.at(col, row);
+    };
+
+    CHECK(sample_cell(0.0f, 0.0f) == kCityGridBuilding);
+    CHECK(sample_cell(2.5f, 0.0f) == kCityGridSidewalk);
+    CHECK(sample_cell(4.0f, 0.0f) == kCityGridRoad);
+    CHECK(sample_cell(-4.0f, 0.0f) == kCityGridEmpty);
 }
 
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
@@ -573,14 +714,32 @@ TEST_CASE("semantic city layout places later lots in edge contact with existing 
     const TestLotRect a = test_building_lot(layout.buildings[0]);
     const TestLotRect b = test_building_lot(layout.buildings[1]);
 
-    const bool touch_x = a.max_x == Catch::Approx(b.min_x) || b.max_x == Catch::Approx(a.min_x);
-    const bool touch_z = a.max_z == Catch::Approx(b.min_z) || b.max_z == Catch::Approx(a.min_z);
-    const float overlap_x = std::min(a.max_x, b.max_x) - std::max(a.min_x, b.min_x);
-    const float overlap_z = std::min(a.max_z, b.max_z) - std::max(a.min_z, b.min_z);
-    const bool shares_edge = (touch_x && overlap_z > 0.0f) || (touch_z && overlap_x > 0.0f);
-
+    // Buildings must not overlap each other.
     CHECK_FALSE(test_lots_overlap(a, b));
-    CHECK(shares_edge);
+
+    // With the park occupying the center, the second building may share an edge
+    // with the park rather than with building A directly. Check that buildings
+    // are in edge contact with each other OR that each touches the park.
+    const float park_half = layout.park_footprint * 0.5f;
+    const TestLotRect park_lot{
+        layout.park_center.x - park_half,
+        layout.park_center.x + park_half,
+        layout.park_center.y - park_half,
+        layout.park_center.y + park_half,
+    };
+
+    auto shares_edge_with = [](const TestLotRect& p, const TestLotRect& q) {
+        const bool touch_x = p.max_x == Catch::Approx(q.min_x) || q.max_x == Catch::Approx(p.min_x);
+        const bool touch_z = p.max_z == Catch::Approx(q.min_z) || q.max_z == Catch::Approx(p.min_z);
+        const float overlap_x = std::min(p.max_x, q.max_x) - std::max(p.min_x, q.min_x);
+        const float overlap_z = std::min(p.max_z, q.max_z) - std::max(p.min_z, q.min_z);
+        return (touch_x && overlap_z > 0.0f) || (touch_z && overlap_x > 0.0f);
+    };
+
+    const bool a_b_touch = shares_edge_with(a, b);
+    const bool a_park_touch = shares_edge_with(a, park_lot);
+    const bool b_park_touch = shares_edge_with(b, park_lot);
+    CHECK((a_b_touch || (a_park_touch && b_park_touch)));
 }
 
 TEST_CASE("semantic megacity layout spirals modules around the largest module", "[megacity]")
