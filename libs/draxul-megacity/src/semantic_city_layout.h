@@ -36,6 +36,16 @@ struct SemanticCityBuilding
     std::vector<SemanticBuildingLayer> layers;
 };
 
+struct SemanticCityDependency
+{
+    std::string source_module_path;
+    std::string source_qualified_name;
+    std::string field_name;
+    std::string field_type_name;
+    std::string target_module_path;
+    std::string target_qualified_name;
+};
+
 struct SemanticCityModuleModel
 {
     std::string module_path;
@@ -53,6 +63,7 @@ struct SemanticCityModuleModel
 struct SemanticMegacityModel
 {
     std::vector<SemanticCityModuleModel> modules;
+    std::vector<SemanticCityDependency> dependencies;
     CodebaseHealthMetrics codebase_health; // global metrics across all modules
 
     [[nodiscard]] bool empty() const
@@ -73,6 +84,7 @@ struct SemanticCityModuleInput
 {
     std::string module_path;
     std::vector<CityClassRecord> rows;
+    std::vector<CityDependencyRecord> dependencies;
     float quality = 0.5f; // 0..1, from CityModuleRecord
     CodebaseHealthMetrics health;
 };
@@ -185,7 +197,23 @@ struct SemanticMegacityLayout
 // Lives in the presentation model so both the ImGui panel and 3D scene can use it.
 struct CityGrid
 {
+    struct RoutePolyline
+    {
+        std::string source_qualified_name;
+        std::string target_qualified_name;
+        glm::vec4 color{ 1.0f };
+        std::vector<glm::vec2> world_points;
+    };
+
+    struct RouteRenderSegment
+    {
+        glm::vec2 a{ 0.0f };
+        glm::vec2 b{ 0.0f };
+        glm::vec4 color{ 1.0f };
+    };
+
     std::vector<uint8_t> cells; // row-major: cells[row * cols + col]
+    std::vector<RoutePolyline> routes;
     int cols = 0;
     int rows = 0;
     float cell_size = 0.5f; // world units per cell (matches placement_step)
@@ -209,5 +237,11 @@ inline constexpr uint8_t kCityGridPark = 4;
 
 [[nodiscard]] CityGrid build_city_grid(
     const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config);
+[[nodiscard]] CityGrid build_city_grid(
+    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config);
+[[nodiscard]] std::vector<CityGrid::RoutePolyline> build_city_routes(
+    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config);
+[[nodiscard]] std::vector<CityGrid::RouteRenderSegment> build_city_route_render_segments(
+    const std::vector<CityGrid::RoutePolyline>& routes, float lane_spacing);
 
 } // namespace draxul

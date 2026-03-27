@@ -24,39 +24,13 @@ namespace draxul
 namespace
 {
 
-constexpr glm::vec3 kCatppuccinSurface0(0.192f, 0.196f, 0.266f);
-constexpr std::array<glm::vec4, 26> kModuleAccentPalette = {
-    glm::vec4(0.961f, 0.878f, 0.863f, 1.0f), // rosewater
-    glm::vec4(0.949f, 0.804f, 0.804f, 1.0f), // flamingo
-    glm::vec4(0.957f, 0.761f, 0.906f, 1.0f), // pink
-    glm::vec4(0.796f, 0.651f, 0.969f, 1.0f), // mauve
-    glm::vec4(0.953f, 0.545f, 0.659f, 1.0f), // red
-    glm::vec4(0.922f, 0.627f, 0.675f, 1.0f), // maroon
-    glm::vec4(0.980f, 0.702f, 0.529f, 1.0f), // peach
-    glm::vec4(0.976f, 0.886f, 0.686f, 1.0f), // yellow
-    glm::vec4(0.651f, 0.890f, 0.631f, 1.0f), // green
-    glm::vec4(0.580f, 0.886f, 0.835f, 1.0f), // teal
-    glm::vec4(0.537f, 0.863f, 0.922f, 1.0f), // sky
-    glm::vec4(0.455f, 0.780f, 0.925f, 1.0f), // sapphire
-    glm::vec4(0.537f, 0.706f, 0.980f, 1.0f), // blue
-    glm::vec4(0.706f, 0.745f, 0.996f, 1.0f), // lavender
-    glm::vec4(0.855f, 0.733f, 0.502f, 1.0f), // amber
-    glm::vec4(0.643f, 0.827f, 0.502f, 1.0f), // lime
-    glm::vec4(0.502f, 0.745f, 0.682f, 1.0f), // sage
-    glm::vec4(0.749f, 0.565f, 0.827f, 1.0f), // orchid
-    glm::vec4(0.890f, 0.643f, 0.584f, 1.0f), // coral
-    glm::vec4(0.584f, 0.647f, 0.890f, 1.0f), // periwinkle
-    glm::vec4(0.827f, 0.827f, 0.584f, 1.0f), // khaki
-    glm::vec4(0.502f, 0.827f, 0.890f, 1.0f), // cyan
-    glm::vec4(0.890f, 0.502f, 0.765f, 1.0f), // magenta
-    glm::vec4(0.765f, 0.890f, 0.502f, 1.0f), // chartreuse
-    glm::vec4(0.682f, 0.549f, 0.451f, 1.0f), // sienna
-    glm::vec4(0.502f, 0.682f, 0.827f, 1.0f), // steel
-};
-
 constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
 constexpr float kRoadSurfaceTextureLift = 0.002f;
 constexpr float kRoadMaterialUvScale = 0.28f;
+constexpr float kDependencyRouteWidthScale = 0.18f;
+constexpr float kDependencyRouteMinWidth = 0.09f;
+constexpr float kDependencyRouteHeight = 0.045f;
+constexpr float kDependencyRouteLift = 0.01f;
 
 struct SignPlacementSpec
 {
@@ -90,37 +64,6 @@ glm::vec4 building_sign_board_color(const MegaCityCodeConfig& config)
 uint8_t color_channel_to_byte(float value)
 {
     return static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
-}
-
-uint32_t stable_module_hash(std::string_view text)
-{
-    uint32_t hash = 2166136261u;
-    for (const unsigned char ch : text)
-    {
-        hash ^= ch;
-        hash *= 16777619u;
-    }
-    return hash;
-}
-
-glm::vec4 module_building_color(std::string_view module_path)
-{
-    const uint32_t hash = stable_module_hash(module_path);
-    const glm::vec4 base = kModuleAccentPalette[hash % kModuleAccentPalette.size()];
-    const uint32_t variant = hash / static_cast<uint32_t>(kModuleAccentPalette.size());
-    if ((variant % 3u) == 0u)
-        return base;
-    if ((variant % 3u) == 1u)
-        return glm::vec4(glm::mix(glm::vec3(base), glm::vec3(1.0f), 0.10f), base.a);
-    return glm::vec4(glm::mix(glm::vec3(base), kCatppuccinSurface0, 0.12f), base.a);
-}
-
-glm::vec4 module_building_layer_color(const glm::vec4& module_color, size_t layer_index)
-{
-    if ((layer_index % 2) == 0)
-        return module_color;
-    const glm::vec3 dark_band = glm::mix(glm::vec3(module_color), kCatppuccinSurface0, 0.28f);
-    return glm::vec4(glm::clamp(dark_band, glm::vec3(0.0f), glm::vec3(1.0f)), module_color.a);
 }
 
 DraxulTreeParams make_central_park_tree_params(const MegaCityCodeConfig& config)
@@ -538,7 +481,13 @@ CityBuildResult build_city(
             && module_path != config.selected_module_path)
             continue;
         const CityModuleRecord mod_record = city_db.module_record(module_path);
-        modules.push_back({ module_path, city_db.list_classes_in_module(module_path), mod_record.quality, mod_record.health });
+        modules.push_back({
+            module_path,
+            city_db.list_classes_in_module(module_path),
+            city_db.list_class_dependencies_in_module(module_path),
+            mod_record.quality,
+            mod_record.health,
+        });
     }
 
     auto semantic_model = std::make_shared<SemanticMegacityModel>(
@@ -635,6 +584,40 @@ CityBuildResult build_city(
             SourceSymbol{},
             kRoadSurfaceTextureLift);
     }
+
+    const float route_width = std::max(
+        config.placement_step * kDependencyRouteWidthScale,
+        kDependencyRouteMinWidth);
+    const float route_elevation = std::max(
+                                      kRoadSurfaceTextureLift + config.road_surface_height,
+                                      config.sidewalk_surface_lift + config.sidewalk_surface_height)
+        + kDependencyRouteLift;
+    const std::vector<CityGrid::RoutePolyline> routes = build_city_routes(*layout, *semantic_model, config);
+    const std::vector<CityGrid::RouteRenderSegment> route_segments = build_city_route_render_segments(
+        routes,
+        config.placement_step * 0.18f);
+    for (const auto& segment : route_segments)
+    {
+        const glm::vec2 delta = segment.b - segment.a;
+        const float length_x = std::abs(delta.x);
+        const float length_z = std::abs(delta.y);
+        if (length_x <= 1e-4f && length_z <= 1e-4f)
+            continue;
+
+        const bool horizontal = length_x >= length_z;
+        world.create_route_segment(
+            (segment.a.x + segment.b.x) * 0.5f,
+            (segment.a.y + segment.b.y) * 0.5f,
+            RouteSegmentMetrics{
+                horizontal ? std::max(length_x, route_width) : route_width,
+                horizontal ? route_width : std::max(length_z, route_width),
+                kDependencyRouteHeight,
+            },
+            segment.color,
+            SourceSymbol{},
+            route_elevation);
+    }
+
     for (const auto& module_layout : layout->modules)
     {
         // Park slab at the center of the module, colored by quality.

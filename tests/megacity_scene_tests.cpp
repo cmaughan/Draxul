@@ -2,6 +2,7 @@
 
 #ifdef DRAXUL_ENABLE_MEGACITY
 
+#include "city_helpers.h"
 #include "isometric_camera.h"
 #include "isometric_scene_pass.h"
 #include "mesh_library.h"
@@ -680,6 +681,114 @@ TEST_CASE("city grid uses one shared road surface under the building envelope", 
     CHECK(sample_cell(2.5f, 0.0f) == kCityGridSidewalk);
     CHECK(sample_cell(4.0f, 0.0f) == kCityGridRoad);
     CHECK(sample_cell(-4.0f, 0.0f) == kCityGridRoad);
+}
+
+TEST_CASE("city grid routes dependencies along road cells between buildings", "[megacity]")
+{
+    SemanticMegacityLayout layout;
+    SemanticCityModuleLayout module_layout;
+    module_layout.module_path = "libs/example";
+
+    SemanticCityBuilding source;
+    source.module_path = "libs/example";
+    source.qualified_name = "Source";
+    source.center = { 0.0f, 0.0f };
+    source.metrics = {
+        .footprint = 4.0f,
+        .height = 8.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 3.0f,
+    };
+
+    SemanticCityBuilding target = source;
+    target.qualified_name = "Target";
+    target.center = { 10.0f, 0.0f };
+
+    module_layout.buildings = { source, target };
+    layout.modules.push_back(module_layout);
+    layout.min_x = -6.0f;
+    layout.max_x = 16.0f;
+    layout.min_z = -6.0f;
+    layout.max_z = 6.0f;
+
+    SemanticMegacityModel model;
+    model.modules.push_back({ module_layout.module_path, 0, 0.5f, {}, module_layout.buildings });
+    model.dependencies.push_back({
+        "libs/example",
+        "Source",
+        "target_",
+        "Target",
+        "libs/example",
+        "Target",
+    });
+
+    MegaCityCodeConfig config;
+    config.placement_step = 0.5f;
+    const CityGrid grid = build_city_grid(layout, model, config);
+
+    REQUIRE(grid.routes.size() == 1);
+    const auto& route = grid.routes[0];
+    REQUIRE(route.world_points.size() >= 4);
+    CHECK(route.source_qualified_name == "Source");
+    CHECK(route.target_qualified_name == "Target");
+    CHECK(route.color == module_building_color("libs/example"));
+
+    for (size_t i = 1; i + 1 < route.world_points.size(); ++i)
+    {
+        const glm::vec2 point = route.world_points[i];
+        const int col = static_cast<int>(std::floor((point.x - grid.origin_x) / grid.cell_size));
+        const int row = static_cast<int>(std::floor((point.y - grid.origin_z) / grid.cell_size));
+        CHECK(grid.at(col, row) == kCityGridRoad);
+    }
+}
+
+TEST_CASE("shared route segments are offset into bundled lanes", "[megacity]")
+{
+    std::vector<CityGrid::RoutePolyline> routes;
+    routes.push_back({
+        "Alpha",
+        "Target",
+        module_building_color("libs/example"),
+        {
+            { 0.0f, -1.0f },
+            { 0.0f, 0.0f },
+            { 2.0f, 0.0f },
+            { 4.0f, 0.0f },
+            { 5.0f, 0.0f },
+        },
+    });
+    routes.push_back({
+        "Beta",
+        "Target",
+        module_building_color("libs/example"),
+        {
+            { 0.0f, 2.0f },
+            { 1.0f, 1.0f },
+            { 2.0f, 0.0f },
+            { 4.0f, 0.0f },
+            { 5.0f, 0.0f },
+        },
+    });
+
+    const auto segments = build_city_route_render_segments(routes, 0.2f);
+    REQUIRE(segments.size() == 8);
+
+    bool found_positive_lane = false;
+    bool found_negative_lane = false;
+    for (const auto& segment : segments)
+    {
+        if (segment.a.x > 1.5f && segment.b.x > 3.5f)
+        {
+            const float offset = segment.a.y;
+            if (offset > 0.05f)
+                found_positive_lane = true;
+            if (offset < -0.05f)
+                found_negative_lane = true;
+        }
+    }
+
+    CHECK(found_positive_lane);
+    CHECK(found_negative_lane);
 }
 
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")

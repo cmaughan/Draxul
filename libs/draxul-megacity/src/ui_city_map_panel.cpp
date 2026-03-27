@@ -104,6 +104,33 @@ void render_city_map_panel(const std::shared_ptr<const CityGrid>& grid, bool bui
         }
     }
 
+    auto world_to_screen = [&](const glm::vec2& world) -> ImVec2 {
+        const float col = (world.x - grid->origin_x) / grid->cell_size;
+        const float row = (world.y - grid->origin_z) / grid->cell_size;
+        return {
+            origin.x + col * cell_px,
+            origin.y + row * cell_px,
+        };
+    };
+
+    const float route_thickness = std::max(1.5f, cell_px * 0.24f);
+    const auto route_segments = build_city_route_render_segments(
+        grid->routes,
+        grid->cell_size * 0.18f);
+    for (const auto& segment : route_segments)
+    {
+        const ImU32 color = IM_COL32(
+            static_cast<int>(segment.color.r * 255.0f),
+            static_cast<int>(segment.color.g * 255.0f),
+            static_cast<int>(segment.color.b * 255.0f),
+            235);
+        draw_list->AddLine(
+            world_to_screen(segment.a),
+            world_to_screen(segment.b),
+            color,
+            route_thickness);
+    }
+
     // Reserve the space so ImGui layout knows about it.
     ImGui::Dummy(ImVec2(draw_w, draw_h));
 

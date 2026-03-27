@@ -72,10 +72,52 @@ TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", 
 
     ParsedFile file;
     file.path = "src/example.cpp";
+    SymbolRecord tower{
+        SymbolKind::Class,
+        "Tower",
+        "",
+        false,
+        10,
+        30,
+        3,
+        { "IView", "PlainData" },
+        {
+            { "view_", "IView", { "IView" } },
+            { "data_", "PlainData", { "PlainData" } },
+            { "count_", "int", {} },
+        },
+    };
+    SymbolRecord plain_data{
+        SymbolKind::Struct,
+        "PlainData",
+        "",
+        false,
+        20,
+        24,
+        2,
+        {},
+        {
+            { "x", "int", {} },
+            { "y", "int", {} },
+        },
+    };
+    SymbolRecord iview{
+        SymbolKind::Class,
+        "IView",
+        "",
+        true,
+        30,
+        35,
+        1,
+        { "PlainData" },
+        {
+            { "data_", "PlainData", { "PlainData" } },
+        },
+    };
     file.symbols = {
-        { SymbolKind::Class, "Tower", "", false, 10, 30, 3, { "IView", "PlainData" } },
-        { SymbolKind::Struct, "PlainData", "", false, 20, 24, 2, {} },
-        { SymbolKind::Class, "IView", "", true, 30, 35, 1, { "PlainData" } },
+        tower,
+        plain_data,
+        iview,
         { SymbolKind::Function, "build_city", "", false, 40, 45, 0, {} },
         { SymbolKind::Function, "tick", "Tower", false, 50, 56, 0, {} },
     };
@@ -116,6 +158,10 @@ TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", 
     CHECK(scalar_int(raw.get(),
               "SELECT road_size FROM city_entities WHERE display_name = 'Tower'")
         == 2);
+    CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM symbol_fields WHERE symbol_id LIKE '%|Tower|10'") == 3);
+    CHECK(scalar_int(raw.get(),
+              "SELECT COUNT(*) FROM city_entity_dependencies WHERE source_entity_id LIKE '%|Tower|10'")
+        == 2);
     CHECK(scalar_text(raw.get(),
               "SELECT city_role FROM symbols WHERE qualified_name = 'IView'")
         == "abstract_class");
@@ -143,6 +189,18 @@ TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", 
     REQUIRE(classes[2].function_sizes.size() == 1);
     CHECK(classes[2].function_sizes[0] == 7);
     CHECK(classes[2].road_size == 2);
+
+    const std::vector<CityDependencyRecord> deps = db.list_class_dependencies_in_module("src");
+    REQUIRE(deps.size() == 3);
+    CHECK(deps[0].source_qualified_name == "IView");
+    CHECK(deps[0].field_name == "data_");
+    CHECK(deps[0].target_qualified_name == "PlainData");
+    CHECK(deps[1].source_qualified_name == "Tower");
+    CHECK(deps[1].field_name == "data_");
+    CHECK(deps[1].target_qualified_name == "PlainData");
+    CHECK(deps[2].source_qualified_name == "Tower");
+    CHECK(deps[2].field_name == "view_");
+    CHECK(deps[2].target_qualified_name == "IView");
 
     // Verify per-module health metrics.
     const CityModuleRecord mod = db.module_record("src");

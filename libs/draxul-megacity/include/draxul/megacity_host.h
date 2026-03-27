@@ -83,7 +83,7 @@ private:
     void mark_world_rebuild_pending();
     void refresh_available_modules();
     void rebuild_semantic_city();
-    void launch_grid_build(const SemanticMegacityLayout& layout);
+    void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
     void refresh_sign_text_service();
     void sync_camera_state_to_configs();
     void reset_camera_to_default_frame();

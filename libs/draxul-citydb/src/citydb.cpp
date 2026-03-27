@@ -26,7 +26,7 @@ namespace draxul
 namespace
 {
 
-constexpr int kSchemaVersion = 4;
+constexpr int kSchemaVersion = 5;
 
 class SqliteError final : public std::runtime_error
 {
@@ -458,6 +458,12 @@ std::string module_path_for_file(std::string_view file_path)
         + std::to_string(line);
 }
 
+[[nodiscard]] std::string make_field_id(
+    std::string_view symbol_id, std::string_view field_name, size_t ordinal)
+{
+    return std::string(symbol_id) + "|field|" + std::string(field_name) + "|" + std::to_string(ordinal);
+}
+
 void create_schema_v2(sqlite3* db)
 {
     exec(db, R"sql(
@@ -549,23 +555,45 @@ void create_schema_v4(sqlite3* db)
     exec(db, "PRAGMA user_version = 4");
 }
 
-void migrate_to_v4_destructive(sqlite3* db)
+void create_schema_v5(sqlite3* db)
+{
+    create_schema_v4(db);
+
+    exec(db, R"sql(
+        CREATE TABLE IF NOT EXISTS symbol_fields (
+            field_id TEXT PRIMARY KEY NOT NULL,
+            symbol_id TEXT NOT NULL REFERENCES symbols(symbol_id) ON DELETE CASCADE,
+            field_name TEXT NOT NULL,
+            field_type_name TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_symbol_fields_symbol_id ON symbol_fields(symbol_id);
+
+        CREATE TABLE IF NOT EXISTS city_entity_dependencies (
+            source_entity_id TEXT NOT NULL REFERENCES city_entities(entity_id) ON DELETE CASCADE,
+            target_entity_id TEXT NOT NULL REFERENCES city_entities(entity_id) ON DELETE CASCADE,
+            field_name TEXT NOT NULL,
+            field_type_name TEXT NOT NULL,
+            PRIMARY KEY(source_entity_id, target_entity_id, field_name, field_type_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_city_entity_dependencies_source ON city_entity_dependencies(source_entity_id);
+        CREATE INDEX IF NOT EXISTS idx_city_entity_dependencies_target ON city_entity_dependencies(target_entity_id);
+    )sql");
+    exec(db, "PRAGMA user_version = 5");
+}
+
+void migrate_to_v5_destructive(sqlite3* db)
 {
     // The city DB is a derived cache, so a destructive migration is acceptable
     // here and simpler than preserving the old intermediate layout.
+    exec(db, "DROP TABLE IF EXISTS city_entity_dependencies");
+    exec(db, "DROP TABLE IF EXISTS symbol_fields");
     exec(db, "DROP TABLE IF EXISTS city_modules");
     exec(db, "DROP TABLE IF EXISTS city_entities");
     exec(db, "DROP TABLE IF EXISTS symbols");
     exec(db, "DROP TABLE IF EXISTS files");
-    create_schema_v4(db);
-}
-
-void migrate_v3_to_v4(sqlite3* db)
-{
-    exec(db, "ALTER TABLE city_modules ADD COLUMN complexity REAL NOT NULL DEFAULT 0.5");
-    exec(db, "ALTER TABLE city_modules ADD COLUMN cohesion REAL NOT NULL DEFAULT 0.5");
-    exec(db, "ALTER TABLE city_modules ADD COLUMN coupling REAL NOT NULL DEFAULT 0.5");
-    exec(db, "PRAGMA user_version = 4");
+    create_schema_v5(db);
 }
 
 void migrate_schema(sqlite3* db)
@@ -582,11 +610,9 @@ void migrate_schema(sqlite3* db)
     }
 
     if (version == 0)
-        create_schema_v4(db);
-    else if (version < 3)
-        migrate_to_v4_destructive(db);
-    else if (version == 3)
-        migrate_v3_to_v4(db);
+        create_schema_v5(db);
+    else if (version < 5)
+        migrate_to_v5_destructive(db);
 
     {
         sqlite3_stmt* raw_stmt = nullptr;
@@ -703,14 +729,20 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
     try
     {
         std::unordered_set<std::string> types_with_methods;
-        std::unordered_set<std::string> known_types;
         std::unordered_map<std::string, std::vector<int>> method_sizes_by_type;
+        std::unordered_map<std::string, std::vector<std::string>> known_type_symbol_ids;
         for (const auto& file : snapshot.files)
         {
             for (const auto& sym : file.symbols)
             {
                 if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
-                    known_types.insert(sym.name);
+                {
+                    const std::string qualified_name = sym.parent.empty()
+                        ? sym.name
+                        : (sym.parent + "::" + sym.name);
+                    known_type_symbol_ids[sym.name].push_back(
+                        make_symbol_id(file.path, sym.kind, qualified_name, sym.line));
+                }
                 if (sym.kind == SymbolKind::Function && !sym.parent.empty())
                 {
                     types_with_methods.insert(sym.parent);
@@ -736,6 +768,18 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
             "INSERT INTO city_entities(entity_id, symbol_id, entity_kind, district, display_name, module_path, "
             "source_file_path, source_line, base_size, building_functions, building_function_sizes_json, road_size, "
             "height, footprint_x, footprint_y) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        Statement insert_field(impl_->db.get(),
+            "INSERT INTO symbol_fields(field_id, symbol_id, field_name, field_type_name) VALUES(?, ?, ?, ?)");
+        Statement insert_dependency(impl_->db.get(),
+            "INSERT OR IGNORE INTO city_entity_dependencies(source_entity_id, target_entity_id, field_name, field_type_name) "
+            "VALUES(?, ?, ?, ?)");
+
+        struct PendingFieldRows
+        {
+            std::string symbol_id;
+            std::vector<SymbolRecord::FieldRecord> fields;
+        };
+        std::vector<PendingFieldRows> pending_field_rows;
 
         const auto reconcile_wall_time = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch())
@@ -785,16 +829,23 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                         function_sizes = it->second;
                 }
                 const int building_functions = static_cast<int>(function_sizes.size());
-                std::unordered_set<std::string> external_refs;
-                if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
+                std::unordered_set<std::string> dependency_targets;
+                if ((sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct) && !sym.fields.empty())
                 {
-                    for (const auto& ref : sym.referenced_types)
+                    for (const auto& field : sym.fields)
                     {
-                        if (ref != sym.name && known_types.find(ref) != known_types.end())
-                            external_refs.insert(ref);
+                        for (const auto& ref : field.referenced_types)
+                        {
+                            if (ref == sym.name)
+                                continue;
+                            const auto it = known_type_symbol_ids.find(ref);
+                            if (it == known_type_symbol_ids.end() || it->second.size() != 1)
+                                continue;
+                            dependency_targets.insert(it->second.front());
+                        }
                     }
                 }
-                const int road_size = static_cast<int>(external_refs.size());
+                const int road_size = static_cast<int>(dependency_targets.size());
                 const std::string symbol_id = make_symbol_id(file.path, sym.kind, qualified_name, sym.line);
 
                 insert_symbol.reuse();
@@ -812,6 +863,9 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 insert_symbol.bind_int(12, static_cast<int>(sym.field_count));
                 insert_symbol.step_done();
                 ++symbol_count;
+
+                if (!sym.fields.empty())
+                    pending_field_rows.push_back({ symbol_id, sym.fields });
 
                 if (role == CityRole::Method || role == CityRole::Include)
                     continue;
@@ -835,6 +889,36 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 insert_entity.bind_double(15, spec.footprint_y);
                 insert_entity.step_done();
                 ++entity_count;
+            }
+        }
+
+        for (const auto& pending : pending_field_rows)
+        {
+            for (size_t field_index = 0; field_index < pending.fields.size(); ++field_index)
+            {
+                const auto& field = pending.fields[field_index];
+                insert_field.reuse();
+                insert_field.bind_text(1, make_field_id(pending.symbol_id, field.name, field_index));
+                insert_field.bind_text(2, pending.symbol_id);
+                insert_field.bind_text(3, field.name);
+                insert_field.bind_text(4, field.type_name);
+                insert_field.step_done();
+
+                for (const auto& ref : field.referenced_types)
+                {
+                    const auto it = known_type_symbol_ids.find(ref);
+                    if (it == known_type_symbol_ids.end() || it->second.size() != 1)
+                        continue;
+                    const std::string& target_symbol_id = it->second.front();
+                    if (target_symbol_id == pending.symbol_id)
+                        continue;
+                    insert_dependency.reuse();
+                    insert_dependency.bind_text(1, pending.symbol_id);
+                    insert_dependency.bind_text(2, target_symbol_id);
+                    insert_dependency.bind_text(3, field.name);
+                    insert_dependency.bind_text(4, field.type_name);
+                    insert_dependency.step_done();
+                }
             }
         }
 
@@ -1005,6 +1089,47 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
             row.function_sizes = parse_json_int_array(read_text(7));
             row.road_size = sqlite3_column_int(stmt.raw(), 8);
             row.is_abstract = sqlite3_column_int(stmt.raw(), 9) != 0;
+            rows.push_back(std::move(row));
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        impl_->last_error = ex.what();
+    }
+
+    return rows;
+}
+
+std::vector<CityDependencyRecord> CityDatabase::list_class_dependencies_in_module(std::string_view module_path) const
+{
+    std::vector<CityDependencyRecord> rows;
+    if (!impl_ || !impl_->db)
+        return rows;
+
+    try
+    {
+        Statement stmt(impl_->db.get(),
+            "SELECT src.display_name, src.module_path, dep.field_name, dep.field_type_name, "
+            "dst.display_name, dst.module_path "
+            "FROM city_entity_dependencies dep "
+            "JOIN city_entities src ON src.entity_id = dep.source_entity_id "
+            "JOIN city_entities dst ON dst.entity_id = dep.target_entity_id "
+            "WHERE src.module_path = ? "
+            "ORDER BY src.display_name, dep.field_name, dst.display_name");
+        stmt.bind_text(1, module_path);
+        while (stmt.step() == SQLITE_ROW)
+        {
+            CityDependencyRecord row;
+            const auto read_text = [&](int index) -> std::string {
+                const unsigned char* text = sqlite3_column_text(stmt.raw(), index);
+                return text ? reinterpret_cast<const char*>(text) : "";
+            };
+            row.source_qualified_name = read_text(0);
+            row.source_module_path = read_text(1);
+            row.field_name = read_text(2);
+            row.field_type_name = read_text(3);
+            row.target_qualified_name = read_text(4);
+            row.target_module_path = read_text(5);
             rows.push_back(std::move(row));
         }
     }

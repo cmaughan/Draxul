@@ -221,6 +221,82 @@ uint32_t count_data_fields(TSNode class_node)
     return count;
 }
 
+bool is_type_like_node(TSNode node)
+{
+    const char* type = ts_node_type(node);
+    return std::strcmp(type, "type_identifier") == 0
+        || std::strcmp(type, "template_type") == 0
+        || std::strcmp(type, "qualified_identifier") == 0
+        || std::strcmp(type, "sized_type_specifier") == 0
+        || std::strcmp(type, "primitive_type") == 0;
+}
+
+std::string field_display_type_from_declaration(TSNode field_node, const std::string& source)
+{
+    const uint32_t child_count = ts_node_named_child_count(field_node);
+    for (uint32_t i = 0; i < child_count; ++i)
+    {
+        const TSNode child = ts_node_named_child(field_node, i);
+        if (is_type_like_node(child))
+            return node_text(source, child);
+    }
+    return {};
+}
+
+void collect_type_references(TSNode node, const std::string& source, std::set<std::string>& out);
+
+void collect_declared_field_names(TSNode node, const std::string& source, std::vector<std::string>& out)
+{
+    if (node_type_is(node, "function_declarator"))
+        return;
+    if (node_type_is(node, "field_identifier") || node_type_is(node, "identifier"))
+    {
+        const std::string name = node_text(source, node);
+        if (!name.empty())
+            out.push_back(name);
+        return;
+    }
+
+    const uint32_t count = ts_node_named_child_count(node);
+    for (uint32_t i = 0; i < count; ++i)
+        collect_declared_field_names(ts_node_named_child(node, i), source, out);
+}
+
+std::vector<SymbolRecord::FieldRecord> collect_data_field_records(TSNode class_node, const std::string& source)
+{
+    std::vector<SymbolRecord::FieldRecord> fields;
+    const TSNode body = find_named_child_of_type(class_node, "field_declaration_list");
+    if (ts_node_is_null(body))
+        return fields;
+
+    const uint32_t child_count = ts_node_named_child_count(body);
+    for (uint32_t i = 0; i < child_count; ++i)
+    {
+        const TSNode child = ts_node_named_child(body, i);
+        if (!node_type_is(child, "field_declaration"))
+            continue;
+        if (subtree_contains_type(child, "function_declarator"))
+            continue;
+
+        std::vector<std::string> field_names;
+        const uint32_t field_child_count = ts_node_named_child_count(child);
+        for (uint32_t field_child = 0; field_child < field_child_count; ++field_child)
+            collect_declared_field_names(ts_node_named_child(child, field_child), source, field_names);
+        if (field_names.empty())
+            continue;
+
+        std::set<std::string> refs;
+        collect_type_references(child, source, refs);
+        const std::vector<std::string> referenced_types(refs.begin(), refs.end());
+        const std::string type_name = field_display_type_from_declaration(child, source);
+
+        for (const auto& field_name : field_names)
+            fields.push_back({ field_name, type_name, referenced_types });
+    }
+
+    return fields;
+}
+
 bool has_type_definition_body(TSNode type_node)
 {
     return ts_node_is_null(find_named_child_of_type(type_node, "field_declaration_list")) == 0;
@@ -392,6 +468,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
                     uint32_t end_line = line;
                     uint32_t field_count = 0;
                     std::vector<std::string> referenced_types;
+                    std::vector<SymbolRecord::FieldRecord> fields;
                     if (name_len == 2 && strncmp(cap_name, "fn", 2) == 0)
                     {
                         kind = SymbolKind::Function;
@@ -427,7 +504,8 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
                             if (!has_type_definition_body(class_node))
                                 continue;
                             end_line = ts_node_end_point(class_node).row + 1;
-                            field_count = count_data_fields(class_node);
+                            fields = collect_data_field_records(class_node, source);
+                            field_count = static_cast<uint32_t>(fields.size());
                             std::set<std::string> refs;
                             collect_type_references(class_node, source, refs);
                             refs.erase(sym_name);
@@ -443,7 +521,8 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
                             if (!has_type_definition_body(struct_node))
                                 continue;
                             end_line = ts_node_end_point(struct_node).row + 1;
-                            field_count = count_data_fields(struct_node);
+                            fields = collect_data_field_records(struct_node, source);
+                            field_count = static_cast<uint32_t>(fields.size());
                             std::set<std::string> refs;
                             collect_type_references(struct_node, source, refs);
                             refs.erase(sym_name);
@@ -459,7 +538,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
                         continue;
 
                     file.symbols.push_back({ kind, std::move(sym_name), std::move(parent_name),
-                        false, line, end_line, field_count, std::move(referenced_types) });
+                        false, line, end_line, field_count, std::move(referenced_types), std::move(fields) });
                 }
             }
         }

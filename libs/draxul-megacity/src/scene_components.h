@@ -61,6 +61,13 @@ struct RoadSurfaceMetrics
     float ao_strength = 1.0f;
 };
 
+struct RouteSegmentMetrics
+{
+    float extent_x = 1.0f;
+    float extent_z = 1.0f;
+    float height = 0.04f;
+};
+
 struct SignMetrics
 {
     float width = 1.0f;

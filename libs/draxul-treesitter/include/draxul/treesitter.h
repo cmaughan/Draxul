@@ -30,6 +30,13 @@ struct SymbolRecord
     uint32_t end_line = 0; // 1-based inclusive end line
     uint32_t field_count = 0; // Class/Struct only: direct data members/fields
     std::vector<std::string> referenced_types; // Class/Struct only: raw referenced type names inside the declaration
+    struct FieldRecord
+    {
+        std::string name;
+        std::string type_name; // best-effort display type for the declared field
+        std::vector<std::string> referenced_types; // raw type names referenced by this field declaration
+    };
+    std::vector<FieldRecord> fields; // Class/Struct only: direct data members with best-effort type info
 };
 
 struct ParseError

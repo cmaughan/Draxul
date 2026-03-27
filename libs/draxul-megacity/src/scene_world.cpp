@@ -150,6 +150,19 @@ entt::entity SceneWorld::create_road_surface(float world_x, float world_z,
     return entity;
 }
 
+entt::entity SceneWorld::create_route_segment(float world_x, float world_z,
+    const RouteSegmentMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation)
+{
+    const auto entity = registry_.create();
+    registry_.emplace<WorldPosition>(entity, world_x, world_z);
+    registry_.emplace<Elevation>(entity, elevation);
+    registry_.emplace<RouteSegmentMetrics>(entity, metrics);
+    registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    if (!source.file.empty() || !source.name.empty())
+        registry_.emplace<SourceSymbol>(entity, std::move(source));
+    return entity;
+}
+
 entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevation,
     const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source)
 {

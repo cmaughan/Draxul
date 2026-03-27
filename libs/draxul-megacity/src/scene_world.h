@@ -40,6 +40,10 @@ public:
     entt::entity create_road_surface(float world_x, float world_z, const RoadSurfaceMetrics& metrics,
         SourceSymbol source = {}, float elevation = 0.0f);
 
+    // Create a thin dependency route segment at the given world-space center position.
+    entt::entity create_route_segment(float world_x, float world_z, const RouteSegmentMetrics& metrics,
+        const glm::vec4& color, SourceSymbol source = {}, float elevation = 0.0f);
+
     // Create a sign entity at the given world-space center position.
     entt::entity create_sign(float world_x, float world_z, float elevation,
         const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source = {});

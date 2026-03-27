@@ -243,6 +243,13 @@ SceneSnapshotResult build_scene_snapshot(
             transform = glm::translate(transform, glm::vec3(0.0f, rsm->height * 0.5f, 0.0f));
             transform = glm::scale(transform, glm::vec3(rsm->extent_x, rsm->height, rsm->extent_z));
         }
+        else if (const auto* route = reg.try_get<RouteSegmentMetrics>(entity))
+        {
+            extent_x = route->extent_x;
+            extent_z = route->extent_z;
+            transform = glm::translate(transform, glm::vec3(0.0f, route->height * 0.5f, 0.0f));
+            transform = glm::scale(transform, glm::vec3(route->extent_x, route->height, route->extent_z));
+        }
         else if (const auto* sm = reg.try_get<SignMetrics>(entity))
         {
             const bool quarter_turn = std::abs(std::sin(sm->yaw_radians)) > 0.70710678f;

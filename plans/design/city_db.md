@@ -47,6 +47,7 @@ The reconciliation currently happens once per completed scan in one transaction.
 - `end_line`
 - `field_count`
 - `referenced_types`
+- `fields`
 
 Notes:
 
@@ -54,6 +55,7 @@ Notes:
 - out-of-class method definitions still use the qualified-name split
 - `field_count` is the count of direct data-member declarations in the class/struct body
 - `referenced_types` is a raw set of type-like names seen inside the class/struct declaration body
+- `fields` is a best-effort list of direct member fields with field name, display type, and raw referenced type names for that declaration
 
 These values let the DB compute building metrics without needing to keep AST nodes alive.
 
@@ -61,7 +63,7 @@ These values let the DB compute building metrics without needing to keep AST nod
 
 Schema version is managed with `PRAGMA user_version`.
 
-Current schema version: `2`
+Current schema version: `5`
 
 ### `files`
 
@@ -114,6 +116,33 @@ Indexes:
 
 - `idx_city_entities_district`
 - `idx_city_entities_module_path`
+
+### `symbol_fields`
+
+- `field_id` `TEXT PRIMARY KEY`
+- `symbol_id` `TEXT NOT NULL`
+- `field_name` `TEXT NOT NULL`
+- `field_type_name` `TEXT NOT NULL`
+
+Indexes:
+
+- `idx_symbol_fields_symbol_id`
+
+### `city_entity_dependencies`
+
+- `source_entity_id` `TEXT NOT NULL`
+- `target_entity_id` `TEXT NOT NULL`
+- `field_name` `TEXT NOT NULL`
+- `field_type_name` `TEXT NOT NULL`
+
+Primary key:
+
+- `(source_entity_id, target_entity_id, field_name, field_type_name)`
+
+Indexes:
+
+- `idx_city_entity_dependencies_source`
+- `idx_city_entity_dependencies_target`
 
 ## Semantic Classification
 
@@ -171,10 +200,11 @@ If later analytics need per-method joins, add a normalized child table rather th
 
 For class/struct entities:
 
-- count distinct referenced type names that also resolve to known class/struct names elsewhere in the snapshot
+- count distinct resolved field dependencies to other known class/struct entities
 - self-references are excluded
+- ambiguous simple-name matches are ignored
 
-This is currently a semantic approximation of “how many external classes this building references”.
+The DB now keeps the explicit field and dependency rows as well as the collapsed `road_size`.
 
 ## Normalized Render Metrics
 

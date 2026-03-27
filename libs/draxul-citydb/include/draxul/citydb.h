@@ -35,6 +35,16 @@ struct CityClassRecord
     bool is_abstract = false;
 };
 
+struct CityDependencyRecord
+{
+    std::string source_qualified_name;
+    std::string source_module_path;
+    std::string field_name;
+    std::string field_type_name;
+    std::string target_qualified_name;
+    std::string target_module_path;
+};
+
 struct CodebaseHealthMetrics
 {
     float complexity = 0.5f; // 0..1, higher = smaller avg function size
@@ -76,6 +86,7 @@ public:
     bool reconcile_snapshot(const CodebaseSnapshot& snapshot);
     [[nodiscard]] std::vector<std::string> list_modules() const;
     [[nodiscard]] std::vector<CityClassRecord> list_classes_in_module(std::string_view module_path) const;
+    [[nodiscard]] std::vector<CityDependencyRecord> list_class_dependencies_in_module(std::string_view module_path) const;
     [[nodiscard]] CityModuleRecord module_record(std::string_view module_path) const;
     [[nodiscard]] CodebaseHealthMetrics codebase_health() const;
 

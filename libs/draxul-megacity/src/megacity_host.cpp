@@ -554,11 +554,11 @@ void MegaCityHost::rebuild_semantic_city()
     world_rebuild_pending_ = false;
     mark_scene_dirty();
 
-    if (result.layout)
-        launch_grid_build(*result.layout);
+    if (result.layout && semantic_model_)
+        launch_grid_build(*result.layout, *semantic_model_);
 }
 
-void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout)
+void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model)
 {
     // Wait for any previous grid build to finish.
     if (grid_thread_.joinable())
@@ -573,11 +573,12 @@ void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout)
 
     // Copy the layout and config so the thread owns its data.
     auto layout_copy = std::make_shared<SemanticMegacityLayout>(layout);
+    auto model_copy = std::make_shared<SemanticMegacityModel>(model);
     const MegaCityCodeConfig config = renderer_config_;
 
     grid_build_in_progress_ = true;
-    grid_thread_ = std::thread([this, layout_copy, config]() {
-        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, config));
+    grid_thread_ = std::thread([this, layout_copy, model_copy, config]() {
+        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, *model_copy, config));
 
         DRAXUL_LOG_DEBUG(LogCategory::App,
             "MegaCityHost: city grid built: %dx%d cells (%.1f x %.1f world units)",
