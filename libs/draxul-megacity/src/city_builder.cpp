@@ -379,15 +379,15 @@ std::array<SignPlacementSpec, 2> place_module_park_signs(
 
     const float half = park_footprint * 0.5f;
 
-    // South edge, facing north (yaw = 0)
+    // South edge, facing south (yaw = π) — readable approaching from the south
     SignPlacementSpec south = base;
     south.center = { park_center.x, park_center.y - half + base.depth * 0.5f };
-    south.yaw_radians = 0.0f;
+    south.yaw_radians = glm::pi<float>();
 
-    // North edge, facing south (yaw = π)
+    // North edge, facing north (yaw = 0) — readable approaching from the north
     SignPlacementSpec north = base;
     north.center = { park_center.x, park_center.y + half - base.depth * 0.5f };
-    north.yaw_radians = glm::pi<float>();
+    north.yaw_radians = 0.0f;
 
     return { south, north };
 }
