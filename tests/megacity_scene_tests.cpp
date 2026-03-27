@@ -733,6 +733,13 @@ TEST_CASE("city grid routes dependencies along road cells between buildings", "[
     CHECK(route.target_qualified_name == "Target");
     CHECK(route.color == module_building_color("libs/example"));
 
+    for (size_t i = 1; i < route.world_points.size(); ++i)
+    {
+        const glm::vec2 a = route.world_points[i - 1];
+        const glm::vec2 b = route.world_points[i];
+        CHECK((std::abs(a.x - b.x) <= 1e-4f || std::abs(a.y - b.y) <= 1e-4f));
+    }
+
     for (size_t i = 1; i + 1 < route.world_points.size(); ++i)
     {
         const glm::vec2 point = route.world_points[i];
@@ -742,7 +749,7 @@ TEST_CASE("city grid routes dependencies along road cells between buildings", "[
     }
 }
 
-TEST_CASE("shared route segments are offset into bundled lanes", "[megacity]")
+TEST_CASE("route render segments preserve independent route geometry", "[megacity]")
 {
     std::vector<CityGrid::RoutePolyline> routes;
     routes.push_back({
@@ -773,22 +780,17 @@ TEST_CASE("shared route segments are offset into bundled lanes", "[megacity]")
     const auto segments = build_city_route_render_segments(routes, 0.2f);
     REQUIRE(segments.size() == 8);
 
-    bool found_positive_lane = false;
-    bool found_negative_lane = false;
+    bool found_shared_centerline_segment = false;
     for (const auto& segment : segments)
     {
-        if (segment.a.x > 1.5f && segment.b.x > 3.5f)
+        if (std::abs(segment.a.x - 2.0f) <= 1e-4f && std::abs(segment.b.x - 4.0f) <= 1e-4f
+            && std::abs(segment.a.y) <= 1e-4f && std::abs(segment.b.y) <= 1e-4f)
         {
-            const float offset = segment.a.y;
-            if (offset > 0.05f)
-                found_positive_lane = true;
-            if (offset < -0.05f)
-                found_negative_lane = true;
+            found_shared_centerline_segment = true;
         }
     }
 
-    CHECK(found_positive_lane);
-    CHECK(found_negative_lane);
+    CHECK(found_shared_centerline_segment);
 }
 
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
