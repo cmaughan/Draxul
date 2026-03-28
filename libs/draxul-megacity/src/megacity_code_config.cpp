@@ -211,6 +211,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_float("height_count_weight", config.height_count_weight);
     assign_vec2(table, "height_range", config.height_range);
     assign_float("height_unclamped_count_weight", config.height_unclamped_count_weight);
+    assign_float("flat_color_roughness", config.flat_color_roughness);
     assign_float("flat_color_metallic", config.flat_color_metallic);
 
     assign_float("road_width_base", config.road_width_base);
@@ -301,6 +302,8 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_float("world_floor_grid_line_width", config.world_floor_grid_line_width);
 
     assign_float("ambient_strength", config.ambient_strength);
+    assign_float("tone_map_exposure", config.tone_map_exposure);
+    assign_float("tone_map_white_point", config.tone_map_white_point);
     assign_vec3(table, "directional_light_dir", config.directional_light_dir);
     assign_bool("point_light_position_valid", config.point_light_position_valid);
     assign_vec3(table, "point_light_position", config.point_light_position);
@@ -350,6 +353,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("height_count_weight", static_cast<double>(config.height_count_weight));
     toml_support::insert_vec2(table, "height_range", config.height_range);
     table.insert_or_assign("height_unclamped_count_weight", static_cast<double>(config.height_unclamped_count_weight));
+    table.insert_or_assign("flat_color_roughness", static_cast<double>(config.flat_color_roughness));
     table.insert_or_assign("flat_color_metallic", static_cast<double>(config.flat_color_metallic));
     table.insert_or_assign("road_width_base", static_cast<double>(config.road_width_base));
     table.insert_or_assign("road_width_scale", static_cast<double>(config.road_width_scale));
@@ -418,6 +422,8 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("world_floor_grid_tile_scale", static_cast<double>(config.world_floor_grid_tile_scale));
     table.insert_or_assign("world_floor_grid_line_width", static_cast<double>(config.world_floor_grid_line_width));
     table.insert_or_assign("ambient_strength", static_cast<double>(config.ambient_strength));
+    table.insert_or_assign("tone_map_exposure", static_cast<double>(config.tone_map_exposure));
+    table.insert_or_assign("tone_map_white_point", static_cast<double>(config.tone_map_white_point));
     toml_support::insert_vec3(table, "directional_light_dir", config.directional_light_dir);
     table.insert_or_assign("point_light_position_valid", config.point_light_position_valid);
     toml_support::insert_vec3(table, "point_light_position", config.point_light_position);

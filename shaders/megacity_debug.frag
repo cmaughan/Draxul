@@ -108,6 +108,8 @@ void main()
     vec2 material_uv = in_material_uv * material.scalar_params.x;
     float normal_strength = max(material.scalar_params.y, 0.0);
     metallic = material.scalar_params.w;
+    if (material.metadata.x == kShadingFlatColor)
+        roughness = clamp(material.scalar_params.x, 0.04, 1.0);
 
     if (material.metadata.x == kShadingTexturedTintedPbr)
     {

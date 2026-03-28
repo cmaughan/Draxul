@@ -104,6 +104,8 @@ void main()
     float normal_strength = max(material.scalar_params.y, 0.0);
     float ao_strength = clamp(material.scalar_params.z, 0.0, 1.0);
     metallic = material.scalar_params.w;
+    if (material.metadata.x == kShadingFlatColor)
+        roughness = clamp(material.scalar_params.x, 0.04, 1.0);
 
     if (material.metadata.x == kShadingTexturedTintedPbr)
     {

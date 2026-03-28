@@ -703,6 +703,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.ao_bias = 0.08f;
     current.ao_power = 1.9f;
     current.ao_kernel_size = 24;
+    current.flat_color_roughness = 0.58f;
     current.flat_color_metallic = 0.27f;
     current.central_park_tree_age_years = 48.0f;
     current.central_park_tree_seed = 101;
@@ -736,6 +737,8 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.point_light_position = { -14.0f, 18.5f, -9.5f };
     current.point_light_radius = 37.0f;
     current.point_light_brightness = 1.7f;
+    current.tone_map_exposure = 1.18f;
+    current.tone_map_white_point = 5.5f;
     current.dependency_route_layer_step = 0.048f;
     current.directional_light_dir.x = -0.25f;
     current.world_floor_grid_tile_scale = 3.0f;

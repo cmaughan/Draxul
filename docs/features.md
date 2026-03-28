@@ -29,11 +29,12 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **Pixel format**: BGRA8 Unorm (Neovim sends pre-sRGB colors)
 - **MegaCity materials**: Textured asphalt road surfaces, paving-stone sidewalks, facade-textured procedural n-gon building shell meshes with albedo/normal/roughness/metalness support, bark-textured central-park trees, plus a depth/normal AO prepass and forward-lit AO/material debug controls including metallic, tangent, bitangent, and packed-TBN views
 - **MegaCity surface pipeline**: Opaque MegaCity rendering now uses an offscreen MSAA depth buffer, an MSAA `RGBA16F` scene color target, a resolved HDR scene texture, and a final `BGRA8 sRGB` scene texture before the main swapchain present; the debug panel can inspect the resolved HDR and final scene targets alongside the AO/GBuffer surfaces
+- **MegaCity tone mapping controls**: The HDR post pass now applies tone mapping before the final sRGB target, with configurable `Exposure` and `White Point` controls in the Megacity lighting UI
 - **MegaCity module surfaces**: Each non-central module now draws a thin module-colored outline above the shared road layer so module footprints are readable beneath sidewalks and buildings
 - **MegaCity park dressing**: Central park now includes a procedurally generated `DraxulTree` mesh with atlas-based PBR leaf cards
 - **MegaCity dependency routing**: The City Map panel now overlays routed building-to-building dependency lines driven by Tree-sitter field references and road-only semantic routing, and the same routed polylines are emitted into the 3D scene as thin raised connection strips with a directional green-to-red gradient from source to target, plus a configurable per-route layer step for stacked overlap readability
 - **MegaCity semantic filters**: The City Build UI can now hide test entities and struct-backed entities before layout/build
-- **MegaCity building shading controls**: The City Build UI includes a `Flat Metallic` control for non-textured procedural buildings, so flat-color shells can use a configurable metallic value without affecting roads, routes, signs, or other flat overlays
+- **MegaCity building shading controls**: The City Build UI includes `Flat Roughness` and `Flat Metallic` controls for non-textured procedural buildings, so flat-color shells can use configurable roughness and metallic values without affecting roads, routes, signs, or other flat overlays
 - **MegaCity selection tuning**: Selection fade now has configurable dependency, hidden, hover-hidden, and road hidden alpha controls, with configurable spacebar-held raise/fall timing for hidden buildings so the shared road layer can remain fully visible while selected-context buildings read clearly
 
 ---

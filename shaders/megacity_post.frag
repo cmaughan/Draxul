@@ -22,8 +22,21 @@ layout(set = 0, binding = 1) uniform sampler2D hdr_scene;
 layout(location = 0) in vec2 out_uv;
 layout(location = 0) out vec4 out_frag_color;
 
+vec3 tone_map_aces(vec3 hdr, float exposure, float white_point)
+{
+    vec3 color = max(hdr, vec3(0.0)) * max(exposure, 0.0);
+    color /= max(white_point, 1e-3);
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3(0.0), vec3(1.0));
+}
+
 void main()
 {
     vec4 hdr = texture(hdr_scene, out_uv);
-    out_frag_color = vec4(max(hdr.rgb, vec3(0.0)), clamp(hdr.a, 0.0, 1.0));
+    vec3 mapped = tone_map_aces(hdr.rgb, frame.render_tuning.x, frame.render_tuning.w);
+    out_frag_color = vec4(mapped, clamp(hdr.a, 0.0, 1.0));
 }

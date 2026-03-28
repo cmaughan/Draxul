@@ -96,6 +96,7 @@ SceneMaterial build_scene_material(const Appearance& appearance, const MegaCityC
             static_cast<uint32_t>(SceneTextureId::BarkAo));
         break;
     case MaterialId::FlatColor:
+        material.scalar_params.x = glm::clamp(config.flat_color_roughness, 0.04f, 1.0f);
         material.scalar_params.w = glm::clamp(appearance.material_info.x * config.flat_color_metallic, 0.0f, 1.0f);
         break;
     default:
@@ -166,10 +167,10 @@ SceneSnapshotResult build_scene_snapshot(
         0.0f,
         0.0f);
     scene.camera.render_tuning = glm::vec4(
-        0.0f,
+        config.tone_map_exposure,
         config.point_light_brightness,
         config.ambient_strength,
-        0.0f);
+        config.tone_map_white_point);
     scene.camera.ao_settings = glm::vec4(
         config.ao_radius,
         config.ao_bias,

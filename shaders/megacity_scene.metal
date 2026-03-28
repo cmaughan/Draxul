@@ -112,6 +112,7 @@ float3 fresnel_schlick(float cosTheta, float3 f0)
     return f0 + (1.0f - f0) * pow(clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
 }
 
+constant uint kShadingFlatColor = 0u;
 constant uint kShadingTexturedTintedPbr = 1u;
 constant uint kShadingVertexTintPbr = 2u;
 constant uint kShadingLeafCutoutPbr = 3u;
@@ -146,6 +147,8 @@ fragment float4 scene_fragment(
     const float normal_strength = max(material.scalar_params.y, 0.0f);
     const float ao_strength = clamp(material.scalar_params.z, 0.0f, 1.0f);
     metallic = material.scalar_params.w;
+    if (material.metadata.x == kShadingFlatColor)
+        roughness = clamp(material.scalar_params.x, 0.04f, 1.0f);
 
     if (material.metadata.x == kShadingTexturedTintedPbr)
     {
@@ -335,6 +338,8 @@ fragment float4 debug_fragment(
     const float2 material_uv = in.material_uv * material.scalar_params.x;
     const float normal_strength = max(material.scalar_params.y, 0.0f);
     metallic = material.scalar_params.w;
+    if (material.metadata.x == kShadingFlatColor)
+        roughness = clamp(material.scalar_params.x, 0.04f, 1.0f);
 
     if (material.metadata.x == kShadingTexturedTintedPbr)
     {
@@ -476,15 +481,27 @@ vertex FullscreenVertexOut fullscreen_vertex(uint vertex_id [[vertex_id]])
     return out;
 }
 
+float3 tone_map_aces(float3 hdr, float exposure, float whitePoint)
+{
+    float3 color = max(hdr, float3(0.0f)) * max(exposure, 0.0f);
+    color /= max(whitePoint, 1e-3f);
+    constexpr float a = 2.51f;
+    constexpr float b = 0.03f;
+    constexpr float c = 2.43f;
+    constexpr float d = 0.59f;
+    constexpr float e = 0.14f;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), float3(0.0f), float3(1.0f));
+}
+
 fragment float4 scene_post_fragment(
     FullscreenVertexOut in [[stage_in]],
     constant FrameUniforms& frame [[buffer(0)]],
     texture2d<float> hdrScene [[texture(0)]],
     sampler linearSampler [[sampler(0)]])
 {
-    (void)frame;
     const float4 hdr = hdrScene.sample(linearSampler, in.uv);
-    return float4(max(hdr.rgb, float3(0.0f)), clamp(hdr.a, 0.0f, 1.0f));
+    const float3 mapped = tone_map_aces(hdr.rgb, frame.render_tuning.x, frame.render_tuning.w);
+    return float4(mapped, clamp(hdr.a, 0.0f, 1.0f));
 }
 
 fragment float4 scene_present_fragment(
