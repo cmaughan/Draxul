@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <glm/vec2.hpp>
 #include <optional>
 #include <string>
@@ -25,6 +26,7 @@ std::optional<PickResult> pick_building(
     const glm::ivec2& screen_pos,
     int viewport_width, int viewport_height,
     const IsometricCamera& camera,
-    const SemanticMegacityLayout& layout);
+    const SemanticMegacityLayout& layout,
+    const std::function<bool(const std::string&, const std::string&, const std::string&)>& filter = {});
 
 } // namespace draxul

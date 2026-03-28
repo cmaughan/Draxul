@@ -1,4 +1,6 @@
 
+#include "support/fake_grid_pipeline_renderer.h"
+
 #include <draxul/grid_rendering_pipeline.h>
 
 #include <draxul/grid.h>
@@ -15,6 +17,8 @@ using namespace draxul;
 
 namespace
 {
+using FakeGridHandle = draxul::tests::FakeGridPipelineHandle;
+using FakeRenderer = draxul::tests::FakeGridPipelineRenderer;
 
 // A fake glyph atlas that simulates overflow after a configurable number of
 // resolve_cluster calls. When overflow is triggered, the atlas sets a reset
@@ -121,85 +125,6 @@ private:
     bool atlas_dirty_ = false;
     std::vector<uint8_t> atlas_;
     std::unordered_map<std::string, AtlasRegion> glyphs_;
-};
-
-// Fake grid handle that records cell update batches.
-class FakeGridHandle final : public IGridHandle
-{
-public:
-    void set_grid_size(int, int) override {}
-    void update_cells(std::span<const CellUpdate> updates) override
-    {
-        update_batches.emplace_back(updates.begin(), updates.end());
-    }
-    void set_overlay_cells(std::span<const CellUpdate>) override {}
-    void set_cursor(int, int, const CursorStyle&) override {}
-    void set_default_background(Color) override {}
-    void set_scroll_offset(float) override {}
-    void set_viewport(const PaneDescriptor&) override {}
-
-    std::vector<std::vector<CellUpdate>> update_batches;
-
-    // Total number of cell updates across all batches.
-    size_t total_cell_updates() const
-    {
-        size_t total = 0;
-        for (const auto& batch : update_batches)
-            total += batch.size();
-        return total;
-    }
-};
-
-class FakeRenderer final : public IGridRenderer
-{
-public:
-    bool initialize(IWindow&) override
-    {
-        return true;
-    }
-
-    void shutdown() override {}
-    bool begin_frame() override
-    {
-        return true;
-    }
-    void end_frame() override {}
-    std::unique_ptr<IGridHandle> create_grid_handle() override
-    {
-        return std::make_unique<FakeGridHandle>();
-    }
-
-    void set_atlas_texture(const uint8_t*, int, int) override
-    {
-        ++full_atlas_uploads;
-    }
-
-    void update_atlas_region(int, int, int, int, const uint8_t*) override
-    {
-        ++region_uploads;
-    }
-
-    void resize(int, int) override {}
-
-    std::pair<int, int> cell_size_pixels() const override
-    {
-        return { 10, 20 };
-    }
-
-    void set_cell_size(int, int) override {}
-    void set_ascender(int) override {}
-    int padding() const override
-    {
-        return 1;
-    }
-
-    void set_default_background(Color) override {}
-    void register_render_pass(std::shared_ptr<IRenderPass>) override {}
-    void unregister_render_pass() override {}
-    void set_3d_viewport(int, int, int, int) override {}
-
-    int full_atlas_uploads = 0;
-    int region_uploads = 0;
 };
 
 } // namespace

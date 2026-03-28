@@ -1,4 +1,6 @@
 
+#include "support/fake_rpc_channel.h"
+
 #include <SDL3/SDL.h>
 #include <catch2/catch_all.hpp>
 #include <draxul/nvim.h>
@@ -10,33 +12,7 @@ using namespace draxul;
 
 namespace
 {
-
-class FakeRpcChannel final : public IRpcChannel
-{
-public:
-    struct Call
-    {
-        std::string method;
-        std::vector<MpackValue> params;
-    };
-
-    RpcResult request(const std::string& method, const std::vector<MpackValue>& params) override
-    {
-        requests.push_back({ method, params });
-        RpcResult result;
-        result.transport_ok = true;
-        result.result = NvimRpc::make_nil();
-        return result;
-    }
-
-    void notify(const std::string& method, const std::vector<MpackValue>& params) override
-    {
-        notifications.push_back({ method, params });
-    }
-
-    std::vector<Call> requests;
-    std::vector<Call> notifications;
-};
+using draxul::tests::FakeRpcChannel;
 
 } // namespace
 

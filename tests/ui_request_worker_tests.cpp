@@ -1,4 +1,6 @@
 
+#include "support/fake_rpc_channel.h"
+
 #include <draxul/ui_request_worker.h>
 
 #include <chrono>
@@ -14,83 +16,7 @@ using namespace draxul;
 
 namespace
 {
-
-class FakeRpcChannel final : public IRpcChannel
-{
-public:
-    struct Call
-    {
-        std::string method;
-        std::vector<MpackValue> params;
-    };
-
-    explicit FakeRpcChannel(bool block_requests = false)
-        : block_requests_(block_requests)
-    {
-    }
-
-    RpcResult request(const std::string& method, const std::vector<MpackValue>& params) override
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        requests.push_back({ method, params });
-        request_in_flight_ = true;
-        cv_.notify_all();
-
-        if (block_requests_)
-            cv_.wait(lock, [&]() { return released_; });
-
-        request_in_flight_ = false;
-        cv_.notify_all();
-
-        RpcResult result;
-        result.transport_ok = true;
-        result.result = NvimRpc::make_nil();
-        return result;
-    }
-
-    void notify(const std::string&, const std::vector<MpackValue>&) override {}
-
-    bool wait_for_request_count(size_t count, std::chrono::milliseconds timeout)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return cv_.wait_for(lock, timeout, [&]() { return requests.size() >= count; });
-    }
-
-    bool wait_for_in_flight(std::chrono::milliseconds timeout)
-    {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return cv_.wait_for(lock, timeout, [&]() { return request_in_flight_; });
-    }
-
-    void release()
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        released_ = true;
-        cv_.notify_all();
-    }
-
-    size_t request_count() const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return requests.size();
-    }
-
-    Call request_at(size_t index) const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return requests[index];
-    }
-
-private:
-    const bool block_requests_ = false;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    bool request_in_flight_ = false;
-    bool released_ = false;
-
-public:
-    std::vector<Call> requests;
-};
+using draxul::tests::FakeRpcChannel;
 
 } // namespace
 

@@ -1,6 +1,9 @@
 
 #include <catch2/catch_all.hpp>
 
+#include "support/fake_glyph_atlas.h"
+#include "support/fake_grid_pipeline_renderer.h"
+
 #include <draxul/grid_rendering_pipeline.h>
 #include <draxul/ui_request_worker_state.h>
 
@@ -21,141 +24,9 @@ using namespace draxul;
 
 namespace
 {
-
-class FakeGlyphAtlas final : public IGlyphAtlas
-{
-public:
-    AtlasRegion resolve_cluster(const std::string& text, bool /*is_bold*/, bool /*is_italic*/) override
-    {
-        ++resolve_calls;
-        atlas_dirty_ = true;
-        auto it = glyphs_.find(text);
-        if (it != glyphs_.end())
-            return it->second;
-        return {};
-    }
-
-    int ligature_cell_span(const std::string&, bool /*is_bold*/, bool /*is_italic*/) override
-    {
-        return 0;
-    }
-
-    bool atlas_dirty() const override
-    {
-        return atlas_dirty_;
-    }
-
-    bool consume_atlas_reset() override
-    {
-        return false;
-    }
-
-    void clear_atlas_dirty() override
-    {
-        atlas_dirty_ = false;
-    }
-
-    const uint8_t* atlas_data() const override
-    {
-        return atlas_.data();
-    }
-
-    int atlas_width() const override
-    {
-        return 2;
-    }
-
-    int atlas_height() const override
-    {
-        return 2;
-    }
-
-    AtlasDirtyRect atlas_dirty_rect() const override
-    {
-        return { { 0, 0 }, { 2, 2 } };
-    }
-
-    void register_glyph(const std::string& text, AtlasRegion region)
-    {
-        glyphs_[text] = region;
-    }
-
-    int resolve_calls = 0;
-
-private:
-    bool atlas_dirty_ = false;
-    std::vector<uint8_t> atlas_ = std::vector<uint8_t>(16, 0x00);
-    std::unordered_map<std::string, AtlasRegion> glyphs_;
-};
-
-class FakeGridHandle final : public IGridHandle
-{
-public:
-    void set_grid_size(int, int) override {}
-    void update_cells(std::span<const CellUpdate>) override {}
-    void set_overlay_cells(std::span<const CellUpdate>) override {}
-    void set_cursor(int, int, const CursorStyle&) override {}
-    void set_default_background(Color) override {}
-    void set_scroll_offset(float) override {}
-    void set_viewport(const PaneDescriptor&) override {}
-};
-
-class FakeRenderer final : public IGridRenderer
-{
-public:
-    bool initialize(IWindow&) override
-    {
-        return true;
-    }
-
-    void shutdown() override {}
-
-    bool begin_frame() override
-    {
-        return true;
-    }
-
-    void end_frame() override {}
-
-    std::unique_ptr<IGridHandle> create_grid_handle() override
-    {
-        return std::make_unique<FakeGridHandle>();
-    }
-
-    void set_atlas_texture(const uint8_t*, int, int) override
-    {
-        ++full_atlas_uploads;
-    }
-
-    void update_atlas_region(int, int, int, int, const uint8_t*) override
-    {
-        ++region_uploads;
-    }
-
-    void resize(int, int) override {}
-
-    std::pair<int, int> cell_size_pixels() const override
-    {
-        return { 10, 20 };
-    }
-
-    void set_cell_size(int, int) override {}
-
-    void set_ascender(int) override {}
-
-    int padding() const override
-    {
-        return 0;
-    }
-
-    void set_default_background(Color) override {}
-    void register_render_pass(std::shared_ptr<IRenderPass>) override {}
-    void unregister_render_pass() override {}
-    void set_3d_viewport(int, int, int, int) override {}
-
-    int full_atlas_uploads = 0;
-    int region_uploads = 0;
-};
+using draxul::tests::FakeGlyphAtlas;
+using draxul::tests::FakeGridPipelineHandle;
+using draxul::tests::FakeGridPipelineRenderer;
 
 // Build a grid with N cells all dirty
 Grid make_populated_grid(int cols, int rows)
@@ -219,8 +90,9 @@ TEST_CASE("font size change: force_full_atlas_upload triggers a full atlas textu
     atlas.register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
     atlas.register_glyph("B", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false });
 
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    renderer.padding_pixels = 0;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);
@@ -251,8 +123,9 @@ TEST_CASE("font size change: force_full_atlas_upload with no dirty cells still s
     atlas.register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
     atlas.register_glyph("B", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false });
 
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    renderer.padding_pixels = 0;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);
@@ -354,8 +227,9 @@ TEST_CASE("font size change cascade: dirty grid plus forced atlas upload produce
     FakeGlyphAtlas atlas;
     atlas.register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
 
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    renderer.padding_pixels = 0;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);

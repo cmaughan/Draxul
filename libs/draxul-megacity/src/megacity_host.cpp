@@ -18,6 +18,7 @@
 #include <draxul/megacity_host.h>
 #include <draxul/text_service.h>
 #include <filesystem>
+#include <functional>
 #include <imgui.h>
 #include <unordered_set>
 
@@ -131,6 +132,29 @@ std::string exact_building_identity_key(
     key.push_back('|');
     key.append(qualified_name);
     return key;
+}
+
+std::unordered_set<std::string> connected_building_identities(
+    const SemanticMegacityModel& model,
+    std::string_view selected_source_file_path,
+    std::string_view selected_module_path,
+    std::string_view selected_qualified_name)
+{
+    const std::string selected_identity
+        = exact_building_identity_key(selected_source_file_path, selected_module_path, selected_qualified_name);
+    std::unordered_set<std::string> connected;
+    for (const auto& dep : model.dependencies)
+    {
+        const std::string source_identity
+            = exact_building_identity_key(dep.source_file_path, dep.source_module_path, dep.source_qualified_name);
+        const std::string target_identity
+            = exact_building_identity_key(dep.target_file_path, dep.target_module_path, dep.target_qualified_name);
+        if (source_identity == selected_identity)
+            connected.insert(target_identity);
+        else if (target_identity == selected_identity)
+            connected.insert(source_identity);
+    }
+    return connected;
 }
 
 } // namespace
@@ -1012,7 +1036,29 @@ void MegaCityHost::pump()
                         callbacks_->request_frame();
                 };
 
-                auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_layout_);
+                std::function<bool(const std::string&, const std::string&, const std::string&)> pick_filter;
+                if (!selected_building_name_.empty() && !hidden_hover_active_)
+                {
+                    const std::string selected_identity = exact_building_identity_key(
+                        selected_building_source_file_,
+                        selected_building_module_path_,
+                        selected_building_name_);
+                    const std::unordered_set<std::string> connected = connected_building_identities(
+                        *semantic_model_,
+                        selected_building_source_file_,
+                        selected_building_module_path_,
+                        selected_building_name_);
+                    pick_filter = [selected_identity, connected](
+                                      const std::string& source_file_path,
+                                      const std::string& module_path,
+                                      const std::string& qualified_name) {
+                        const std::string identity
+                            = exact_building_identity_key(source_file_path, module_path, qualified_name);
+                        return identity == selected_identity || connected.count(identity) > 0;
+                    };
+                }
+
+                auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_layout_, pick_filter);
                 if (hit)
                 {
                     // Look up full building data.
@@ -1213,14 +1259,36 @@ void MegaCityHost::handle_click(const glm::ivec2& screen_pos)
     DRAXUL_LOG_DEBUG(LogCategory::App, "Click at (%d,%d) viewport-local (%d,%d) viewport %dx%d",
         screen_pos.x, screen_pos.y, local_pos.x, local_pos.y, pixel_w_, pixel_h_);
 
-    auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_layout_);
+    std::function<bool(const std::string&, const std::string&, const std::string&)> pick_filter;
+    if (!selected_building_name_.empty() && !hidden_hover_active_)
+    {
+        const std::string selected_identity = exact_building_identity_key(
+            selected_building_source_file_,
+            selected_building_module_path_,
+            selected_building_name_);
+        const std::unordered_set<std::string> connected = connected_building_identities(
+            *semantic_model_,
+            selected_building_source_file_,
+            selected_building_module_path_,
+            selected_building_name_);
+        pick_filter = [selected_identity, connected](
+                          const std::string& source_file_path,
+                          const std::string& module_path,
+                          const std::string& qualified_name) {
+            const std::string identity = exact_building_identity_key(source_file_path, module_path, qualified_name);
+            return identity == selected_identity || connected.count(identity) > 0;
+        };
+    }
+
+    auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_layout_, pick_filter);
     if (hit)
     {
         if (hit->qualified_name == selected_building_name_
             && hit->module_path == selected_building_module_path_
             && hit->source_file_path == selected_building_source_file_)
         {
-            clear_selection();
+            if (callbacks_)
+                callbacks_->request_frame();
             return;
         }
         clear_active_routes(false);
@@ -1275,18 +1343,11 @@ void MegaCityHost::apply_selection_opacity()
             selected_building_source_file_,
             selected_building_module_path_,
             selected_building_name_);
-    std::unordered_set<std::string> connected;
-    for (const auto& dep : semantic_model_->dependencies)
-    {
-        const std::string source_identity
-            = exact_building_identity_key(dep.source_file_path, dep.source_module_path, dep.source_qualified_name);
-        const std::string target_identity
-            = exact_building_identity_key(dep.target_file_path, dep.target_module_path, dep.target_qualified_name);
-        if (source_identity == selected_identity)
-            connected.insert(target_identity);
-        else if (target_identity == selected_identity)
-            connected.insert(source_identity);
-    }
+    const std::unordered_set<std::string> connected = connected_building_identities(
+        *semantic_model_,
+        selected_building_source_file_,
+        selected_building_module_path_,
+        selected_building_name_);
 
     SceneSnapshot& scene = scene_pass_->scene();
     const float hidden_building_alpha = std::clamp(

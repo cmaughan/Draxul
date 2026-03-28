@@ -49,7 +49,8 @@ std::optional<PickResult> pick_building(
     const glm::ivec2& screen_pos,
     int viewport_width, int viewport_height,
     const IsometricCamera& camera,
-    const SemanticMegacityLayout& layout)
+    const SemanticMegacityLayout& layout,
+    const std::function<bool(const std::string&, const std::string&, const std::string&)>& filter)
 {
     if (viewport_width <= 0 || viewport_height <= 0)
         return std::nullopt;
@@ -76,6 +77,15 @@ std::optional<PickResult> pick_building(
     {
         for (const auto& building : module_layout.buildings)
         {
+            if (filter
+                && !filter(
+                    building.source_file_path,
+                    building.module_path,
+                    building.qualified_name))
+            {
+                continue;
+            }
+
             const float half_fp = building.metrics.footprint * 0.5f;
             const glm::vec3 aabb_min(
                 building.center.x - half_fp,

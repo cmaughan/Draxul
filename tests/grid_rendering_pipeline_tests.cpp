@@ -1,4 +1,7 @@
 
+#include "support/fake_glyph_atlas.h"
+#include "support/fake_grid_pipeline_renderer.h"
+
 #include <draxul/grid_rendering_pipeline.h>
 
 #include <draxul/grid.h>
@@ -15,161 +18,9 @@ using namespace draxul;
 
 namespace
 {
-
-class FakeGlyphAtlas final : public IGlyphAtlas
-{
-public:
-    explicit FakeGlyphAtlas(int resets_remaining = 0)
-        : resets_remaining_(resets_remaining)
-    {
-        atlas_.assign(16, 0x7F);
-        glyphs_["A"] = { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false };
-        glyphs_["B"] = { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false };
-        glyphs_["-"] = { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 6, 3 }, false };
-        glyphs_[">"] = { { 0.625f, 0.0f, 0.75f, 0.5f }, { 1, 1 }, { 6, 8 }, false };
-        glyphs_["X"] = { { 0.75f, 0.0f, 0.875f, 0.5f }, { 1, 2 }, { 7, 9 }, false };
-        glyphs_["->"] = { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, false };
-        ligature_spans_["->"] = 2;
-    }
-
-    AtlasRegion resolve_cluster(const std::string& text, bool /*is_bold*/, bool /*is_italic*/) override
-    {
-        ++resolve_calls;
-        resolved_texts.push_back(text);
-        atlas_dirty_ = true;
-
-        auto it = glyphs_.find(text);
-        if (it != glyphs_.end())
-            return it->second;
-        return {};
-    }
-
-    int ligature_cell_span(const std::string& text, bool /*is_bold*/, bool /*is_italic*/) override
-    {
-        auto it = ligature_spans_.find(text);
-        return it != ligature_spans_.end() ? it->second : 0;
-    }
-
-    bool atlas_dirty() const override
-    {
-        return atlas_dirty_;
-    }
-
-    bool consume_atlas_reset() override
-    {
-        if (resets_remaining_ <= 0)
-            return false;
-
-        --resets_remaining_;
-        atlas_dirty_ = false;
-        return true;
-    }
-
-    void clear_atlas_dirty() override
-    {
-        atlas_dirty_ = false;
-    }
-
-    const uint8_t* atlas_data() const override
-    {
-        return atlas_.data();
-    }
-
-    int atlas_width() const override
-    {
-        return 2;
-    }
-
-    int atlas_height() const override
-    {
-        return 2;
-    }
-
-    AtlasDirtyRect atlas_dirty_rect() const override
-    {
-        return { { 0, 0 }, { 2, 2 } };
-    }
-
-    int resolve_calls = 0;
-    std::vector<std::string> resolved_texts;
-
-private:
-    int resets_remaining_ = 0;
-    bool atlas_dirty_ = false;
-    std::vector<uint8_t> atlas_;
-    std::unordered_map<std::string, AtlasRegion> glyphs_;
-    std::unordered_map<std::string, int> ligature_spans_;
-};
-
-// Fake grid handle that records cell update batches.
-class FakeGridHandle final : public IGridHandle
-{
-public:
-    void set_grid_size(int, int) override {}
-    void update_cells(std::span<const CellUpdate> updates) override
-    {
-        update_batches.emplace_back(updates.begin(), updates.end());
-    }
-    void set_overlay_cells(std::span<const CellUpdate>) override {}
-    void set_cursor(int, int, const CursorStyle&) override {}
-    void set_default_background(Color) override {}
-    void set_scroll_offset(float) override {}
-    void set_viewport(const PaneDescriptor&) override {}
-
-    std::vector<std::vector<CellUpdate>> update_batches;
-};
-
-class FakeRenderer final : public IGridRenderer
-{
-public:
-    bool initialize(IWindow&) override
-    {
-        return true;
-    }
-
-    void shutdown() override {}
-    bool begin_frame() override
-    {
-        return true;
-    }
-    void end_frame() override {}
-    std::unique_ptr<IGridHandle> create_grid_handle() override
-    {
-        return std::make_unique<FakeGridHandle>();
-    }
-
-    void set_atlas_texture(const uint8_t*, int, int) override
-    {
-        ++full_atlas_uploads;
-    }
-
-    void update_atlas_region(int, int, int, int, const uint8_t*) override
-    {
-        ++region_uploads;
-    }
-
-    void resize(int, int) override {}
-
-    std::pair<int, int> cell_size_pixels() const override
-    {
-        return { 10, 20 };
-    }
-
-    void set_cell_size(int, int) override {}
-    void set_ascender(int) override {}
-    int padding() const override
-    {
-        return 1;
-    }
-
-    void set_default_background(Color) override {}
-    void register_render_pass(std::shared_ptr<IRenderPass>) override {}
-    void unregister_render_pass() override {}
-    void set_3d_viewport(int, int, int, int) override {}
-
-    int full_atlas_uploads = 0;
-    int region_uploads = 0;
-};
+using draxul::tests::FakeGlyphAtlas;
+using draxul::tests::FakeGridPipelineHandle;
+using draxul::tests::FakeGridPipelineRenderer;
 
 Grid make_grid()
 {
@@ -198,8 +49,8 @@ TEST_CASE("grid rendering pipeline retries once after an atlas reset", "[grid]")
     Grid grid = make_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas(1);
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);
@@ -239,8 +90,8 @@ TEST_CASE("grid rendering pipeline gives up after a second atlas reset", "[grid]
     Grid grid = make_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas(2);
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);
@@ -262,8 +113,8 @@ TEST_CASE("grid rendering pipeline combines two-cell ligatures into a leader and
     Grid grid = make_ligature_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);
@@ -292,8 +143,8 @@ TEST_CASE("grid rendering pipeline redraws the leader when a continuation change
     Grid grid = make_ligature_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);
@@ -331,8 +182,8 @@ TEST_CASE("grid rendering pipeline reuses scratch capacity for ligature expansio
     Grid grid = make_ligature_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    FakeRenderer renderer;
-    FakeGridHandle handle;
+    FakeGridPipelineRenderer renderer;
+    FakeGridPipelineHandle handle;
     GridRenderingPipeline pipeline(grid, highlights, atlas);
     pipeline.set_renderer(&renderer);
     pipeline.set_grid_handle(&handle);

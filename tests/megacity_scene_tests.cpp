@@ -281,6 +281,54 @@ TEST_CASE("megacity picking distinguishes duplicate names in the same module by 
     CHECK(picked->source_file_path == "tests/grid_rendering_pipeline_tests.cpp");
 }
 
+TEST_CASE("megacity picking filter can skip disallowed duplicate-name buildings", "[megacity]")
+{
+    SemanticMegacityLayout layout;
+    SemanticCityModuleLayout module;
+    module.module_path = "tests";
+
+    SemanticCityBuilding first;
+    first.module_path = module.module_path;
+    first.qualified_name = "FakeGlyphAtlas";
+    first.display_name = "FakeGlyphAtlas";
+    first.source_file_path = "tests/font_size_tests.cpp";
+    first.metrics = BuildingMetrics{
+        .footprint = 2.0f,
+        .height = 4.0f,
+        .sidewalk_width = 0.5f,
+        .road_width = 1.0f,
+    };
+    first.center = glm::vec2(0.0f, 0.0f);
+
+    SemanticCityBuilding second = first;
+    second.source_file_path = "tests/grid_rendering_pipeline_tests.cpp";
+
+    module.buildings = { first, second };
+    layout.modules.push_back(module);
+
+    IsometricCamera camera;
+    camera.set_viewport(800, 600);
+    camera.frame_world_bounds(-4.0f, 4.0f, -4.0f, 4.0f);
+
+    const SceneSnapshot scene = snapshot_from_camera(camera);
+    const glm::vec2 ndc = ndc_of_point(scene, glm::vec3(0.0f, first.metrics.height * 0.5f, 0.0f));
+    const glm::ivec2 screen_pos(
+        static_cast<int>(std::lround((ndc.x * 0.5f + 0.5f) * 800.0f)),
+        static_cast<int>(std::lround((1.0f - (ndc.y * 0.5f + 0.5f)) * 600.0f)));
+
+    const auto picked = pick_building(
+        screen_pos,
+        800,
+        600,
+        camera,
+        layout,
+        [&](const std::string& source_file_path, const std::string&, const std::string&) {
+            return source_file_path == second.source_file_path;
+        });
+    REQUIRE(picked.has_value());
+    CHECK(picked->source_file_path == second.source_file_path);
+}
+
 TEST_CASE("procedural building side count becomes hex for heavily connected buildings", "[megacity]")
 {
     CHECK(procedural_building_side_count(0, 12) == 4);
