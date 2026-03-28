@@ -4,6 +4,7 @@
 #include <draxul/geometry_mesh.h>
 #include <glm/glm.hpp>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace draxul

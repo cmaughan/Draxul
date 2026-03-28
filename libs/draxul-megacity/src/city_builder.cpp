@@ -240,8 +240,8 @@ void build_point_shadow_debug_scene(
         MaterialId::FlatColor,
         build_procedural_building_mesh(
             SemanticCityBuilding{
-                .center = kPointShadowDebugPrimaryCenter,
                 .metrics = primary_metrics,
+                .center = kPointShadowDebugPrimaryCenter,
             },
             glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
             4),
@@ -262,8 +262,8 @@ void build_point_shadow_debug_scene(
         MaterialId::FlatColor,
         build_procedural_building_mesh(
             SemanticCityBuilding{
-                .center = kPointShadowDebugSecondaryCenter,
                 .metrics = secondary_metrics,
+                .center = kPointShadowDebugSecondaryCenter,
             },
             glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
             4),
@@ -1071,7 +1071,8 @@ CityBuildResult build_city(
                 layout_centers[building_connection_key(
                     building.source_file_path,
                     building.module_path,
-                    building.qualified_name)] = building.center;
+                    building.qualified_name)]
+                    = building.center;
 
         for (auto& module : semantic_model->modules)
             for (auto& building : module.buildings)

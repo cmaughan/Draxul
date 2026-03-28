@@ -81,10 +81,10 @@ vec3 kernel_sample(int index, int count)
     float phi = 6.28318530718 * u;
     float z = v;
     float r = sqrt(max(1.0 - z * z, 0.0));
-    vec3 sample = vec3(cos(phi) * r, sin(phi) * r, z);
+    vec3 kernel_dir = vec3(cos(phi) * r, sin(phi) * r, z);
     float t = (i + 0.5) / float(count);
     float scale = mix(0.1, 1.0, t * t);
-    return sample * scale;
+    return kernel_dir * scale;
 }
 
 int kernel_size()
