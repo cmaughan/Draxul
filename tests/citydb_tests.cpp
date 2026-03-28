@@ -7,7 +7,9 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <string>
+#include <thread>
 
 namespace draxul
 {
@@ -57,6 +59,20 @@ std::string scalar_text(sqlite3* db, const char* sql)
     const std::string text = value ? reinterpret_cast<const char*>(value) : "";
     sqlite3_finalize(stmt);
     return text;
+}
+
+std::shared_ptr<const CodebaseSnapshot> wait_for_complete_snapshot(
+    CodebaseScanner& scanner,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(2000))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (const auto snapshot = scanner.snapshot(); snapshot && snapshot->complete)
+            return snapshot;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return scanner.snapshot();
 }
 
 } // namespace
@@ -224,6 +240,64 @@ TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", 
     CHECK(global.cohesion == mod.health.cohesion);
     CHECK(global.coupling == mod.health.coupling);
 
+    std::filesystem::remove(db_path);
+}
+
+TEST_CASE("city database does not cross-product nested type fields onto the parent class", "[citydb]")
+{
+    const auto temp_root = std::filesystem::temp_directory_path() / "draxul-citydb-nested-fields";
+    const auto db_path = std::filesystem::temp_directory_path() / "draxul-citydb-nested-fields.sqlite3";
+    std::filesystem::remove_all(temp_root);
+    std::filesystem::remove(db_path);
+    std::filesystem::create_directories(temp_root);
+
+    const auto source_path = temp_root / "nested_fields.h";
+    {
+        std::ofstream out(source_path);
+        REQUIRE(out.is_open());
+        out << "class Foo {};\n";
+        out << "class Bar {};\n";
+        out << "class Outer {\n";
+        out << "public:\n";
+        out << "    struct Deps {\n";
+        out << "        Foo* foo = nullptr;\n";
+        out << "        Bar* bar = nullptr;\n";
+        out << "    };\n";
+        out << "private:\n";
+        out << "    Deps deps_;\n";
+        out << "    int count_;\n";
+        out << "};\n";
+    }
+
+    CodebaseScanner scanner;
+    scanner.start(temp_root);
+    const auto snapshot = wait_for_complete_snapshot(scanner);
+    scanner.stop();
+
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+
+    CityDatabase db;
+    REQUIRE(db.open(db_path));
+    REQUIRE(db.reconcile_snapshot(*snapshot));
+
+    const std::vector<CityDependencyRecord> deps = db.list_class_dependencies_in_module("nested_fields.h");
+    std::vector<CityDependencyRecord> outer_deps;
+    for (const auto& dep : deps)
+    {
+        if (dep.source_qualified_name == "Outer")
+            outer_deps.push_back(dep);
+    }
+
+    for (const auto& dep : outer_deps)
+    {
+        CHECK(dep.field_name != "foo");
+        CHECK(dep.field_name != "bar");
+        CHECK(dep.target_qualified_name != "Foo");
+        CHECK(dep.target_qualified_name != "Bar");
+    }
+
+    std::filesystem::remove_all(temp_root);
     std::filesystem::remove(db_path);
 }
 

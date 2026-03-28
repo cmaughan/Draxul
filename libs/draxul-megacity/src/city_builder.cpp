@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <draxul/building_generator.h>
 #include <draxul/citydb.h>
 #include <draxul/log.h>
 #include <draxul/megacity_code_config.h>
@@ -36,6 +37,7 @@ constexpr float kDependencyRouteWidthScale = 0.18f;
 constexpr float kDependencyRouteMinWidth = 0.09f;
 constexpr float kDependencyRouteHeight = 0.045f;
 constexpr float kDependencyRouteLift = 0.01f;
+constexpr int kHexBuildingIncidentConnectionThreshold = 6;
 
 struct SignPlacementSpec
 {
@@ -138,6 +140,81 @@ TreeMetrics tree_metrics_from_meshes(const GeometryMesh& bark_mesh, const Geomet
         bark_metrics.canopy_radius = std::max(bark_metrics.canopy_radius, leaf_metrics.canopy_radius);
     }
     return bark_metrics;
+}
+
+std::shared_ptr<const GeometryMesh> build_procedural_building_mesh(
+    const SemanticCityBuilding& building,
+    const glm::vec4& module_color,
+    int sides)
+{
+    DraxulBuildingParams params;
+    params.footprint = building.metrics.footprint;
+    params.sides = std::max(sides, 3);
+    params.middle_strip_scale = 1.0f;
+
+    if (building.layers.empty())
+    {
+        params.levels.push_back({ building.metrics.height, glm::vec3(module_color) });
+    }
+    else
+    {
+        params.levels.reserve(building.layers.size());
+        for (size_t layer_index = 0; layer_index < building.layers.size(); ++layer_index)
+        {
+            const SemanticBuildingLayer& layer = building.layers[layer_index];
+            if (layer.height <= 0.0f)
+                continue;
+            params.levels.push_back({
+                layer.height,
+                glm::vec3(module_building_layer_color(module_color, layer_index)),
+            });
+        }
+    }
+
+    if (params.levels.empty())
+        params.levels.push_back({ std::max(building.metrics.height, 0.1f), glm::vec3(module_color) });
+
+    return std::make_shared<GeometryMesh>(generate_draxul_building(params));
+}
+
+std::shared_ptr<const GeometryMesh> build_procedural_building_cap_mesh(
+    const SemanticCityBuilding& building,
+    const glm::vec4& color,
+    int sides,
+    float height)
+{
+    DraxulBuildingParams params;
+    params.footprint = building.metrics.footprint;
+    params.sides = std::max(sides, 3);
+    params.middle_strip_scale = 1.0f;
+    params.levels.push_back({ std::max(height, 0.1f), glm::vec3(color) });
+    return std::make_shared<GeometryMesh>(generate_draxul_building(params));
+}
+
+std::string building_connection_key(std::string_view module_path, std::string_view qualified_name)
+{
+    std::string key;
+    key.reserve(module_path.size() + qualified_name.size() + 1);
+    key.append(module_path);
+    key.push_back('\n');
+    key.append(qualified_name);
+    return key;
+}
+
+std::unordered_map<std::string, int> build_incident_connection_counts(const SemanticMegacityModel& model)
+{
+    std::unordered_map<std::string, int> connection_counts;
+    connection_counts.reserve(model.dependencies.size() * 2);
+    for (const SemanticCityDependency& dependency : model.dependencies)
+    {
+        ++connection_counts[building_connection_key(
+            dependency.source_module_path,
+            dependency.source_qualified_name)];
+        ++connection_counts[building_connection_key(
+            dependency.target_module_path,
+            dependency.target_qualified_name)];
+    }
+    return connection_counts;
 }
 
 std::string module_display_name(std::string_view module_path)
@@ -469,6 +546,11 @@ SignMetrics make_sign_metrics(const SignPlacementSpec& placement, const SignAtla
 
 } // namespace
 
+int procedural_building_side_count(int incident_connection_count)
+{
+    return incident_connection_count >= kHexBuildingIncidentConnectionThreshold ? 6 : 4;
+}
+
 CityBuildResult build_city(
     SceneWorld& world,
     CityDatabase& city_db,
@@ -498,6 +580,8 @@ CityBuildResult build_city(
     auto semantic_model = std::make_shared<SemanticMegacityModel>(
         build_semantic_megacity_model(modules, config));
     semantic_model->codebase_health = city_db.codebase_health();
+    const std::unordered_map<std::string, int> building_connection_counts
+        = build_incident_connection_counts(*semantic_model);
     auto layout = std::make_unique<SemanticMegacityLayout>(
         build_semantic_megacity_layout(*semantic_model, config));
     result.city_bounds_valid = !layout->empty();
@@ -643,40 +727,6 @@ CityBuildResult build_city(
             module_surface_elevation);
     }
 
-    const float route_width = std::max(
-        config.placement_step * kDependencyRouteWidthScale,
-        kDependencyRouteMinWidth);
-    const float route_elevation = std::max(
-                                      kRoadSurfaceTextureLift + config.road_surface_height,
-                                      config.sidewalk_surface_lift + config.sidewalk_surface_height)
-        + kDependencyRouteLift;
-    const std::vector<CityGrid::RoutePolyline> routes = build_city_routes(*layout, *semantic_model, config);
-    const std::vector<CityGrid::RouteRenderSegment> route_segments = build_city_route_render_segments(
-        routes,
-        config.placement_step * 0.18f);
-    for (const auto& segment : route_segments)
-    {
-        const glm::vec2 delta = segment.b - segment.a;
-        const float length_x = std::abs(delta.x);
-        const float length_z = std::abs(delta.y);
-        if (length_x <= 1e-4f && length_z <= 1e-4f)
-            continue;
-
-        const bool horizontal = length_x >= length_z;
-        world.create_route_segment(
-            (segment.a.x + segment.b.x) * 0.5f,
-            (segment.a.y + segment.b.y) * 0.5f,
-            RouteSegmentMetrics{
-                horizontal ? std::max(length_x, route_width) : route_width,
-                horizontal ? route_width : std::max(length_z, route_width),
-                kDependencyRouteHeight,
-            },
-            segment.color,
-            SourceSymbol{},
-            route_elevation,
-            RouteLink{ segment.source_qualified_name, segment.target_qualified_name });
-    }
-
     for (const auto& module_layout : layout->modules)
     {
         // Park slab at the center of the module, colored by quality.
@@ -740,37 +790,23 @@ CityBuildResult build_city(
         const glm::vec4 module_color = module_building_color(module_layout.module_path);
         for (const auto& building : module_layout.buildings)
         {
-            float layer_base_y = building_base_elevation(config);
-            if (building.layers.empty())
-            {
-                world.create_building(
-                    building.center.x,
-                    building.center.y,
-                    building_base_elevation(config),
-                    building.metrics,
+            const auto count_it = building_connection_counts.find(
+                building_connection_key(building.module_path, building.qualified_name));
+            const int incident_connection_count
+                = count_it != building_connection_counts.end() ? count_it->second : 0;
+            const int building_side_count = procedural_building_side_count(incident_connection_count);
+            world.create_building(
+                building.center.x,
+                building.center.y,
+                building_base_elevation(config),
+                building.metrics,
+                glm::vec4(1.0f),
+                SourceSymbol{ building.source_file_path, building.qualified_name },
+                MaterialId::FlatColor,
+                build_procedural_building_mesh(
+                    building,
                     module_color,
-                    SourceSymbol{ building.source_file_path, building.qualified_name });
-            }
-            else
-            {
-                for (size_t layer_index = 0; layer_index < building.layers.size(); ++layer_index)
-                {
-                    const SemanticBuildingLayer& layer = building.layers[layer_index];
-                    if (layer.height <= 0.0f)
-                        continue;
-
-                    BuildingMetrics layer_metrics = building.metrics;
-                    layer_metrics.height = layer.height;
-                    world.create_building(
-                        building.center.x,
-                        building.center.y,
-                        layer_base_y,
-                        layer_metrics,
-                        module_building_layer_color(module_color, layer_index),
-                        SourceSymbol{ building.source_file_path, building.qualified_name });
-                    layer_base_y += layer.height;
-                }
-            }
+                    building_side_count));
 
             if (sign_label_atlas)
             {
@@ -792,7 +828,13 @@ CityBuildResult build_city(
                             building_base_elevation(config) + building.metrics.height,
                             cap_metrics,
                             module_color,
-                            SourceSymbol{ building.source_file_path, building.qualified_name });
+                            SourceSymbol{ building.source_file_path, building.qualified_name },
+                            MaterialId::FlatColor,
+                            build_procedural_building_cap_mesh(
+                                building,
+                                module_color,
+                                building_side_count,
+                                cap_height));
                     }
 
                     const float total_height = building_base_elevation(config) + building.metrics.height + cap_height;
@@ -884,6 +926,45 @@ CityBuildResult build_city(
     result.sign_label_atlas = std::move(sign_label_atlas);
     result.layout = std::move(layout);
     return result;
+}
+
+void emit_route_entities(
+    SceneWorld& world,
+    const std::vector<CityGrid::RoutePolyline>& routes,
+    const MegaCityCodeConfig& config)
+{
+    const float route_width = std::max(
+        config.placement_step * kDependencyRouteWidthScale,
+        kDependencyRouteMinWidth);
+    const float route_elevation = std::max(
+                                      kRoadSurfaceTextureLift + config.road_surface_height,
+                                      config.sidewalk_surface_lift + config.sidewalk_surface_height)
+        + kDependencyRouteLift;
+    const std::vector<CityGrid::RouteRenderSegment> route_segments = build_city_route_render_segments(
+        routes,
+        config.placement_step * 0.18f);
+    for (const auto& segment : route_segments)
+    {
+        const glm::vec2 delta = segment.b - segment.a;
+        const float length_x = std::abs(delta.x);
+        const float length_z = std::abs(delta.y);
+        if (length_x <= 1e-4f && length_z <= 1e-4f)
+            continue;
+
+        const bool horizontal = length_x >= length_z;
+        world.create_route_segment(
+            (segment.a.x + segment.b.x) * 0.5f,
+            (segment.a.y + segment.b.y) * 0.5f,
+            RouteSegmentMetrics{
+                horizontal ? std::max(length_x, route_width) : route_width,
+                horizontal ? route_width : std::max(length_z, route_width),
+                kDependencyRouteHeight,
+            },
+            segment.color,
+            SourceSymbol{},
+            route_elevation,
+            RouteLink{ segment.source_qualified_name, segment.target_qualified_name });
+    }
 }
 
 } // namespace draxul

@@ -201,7 +201,8 @@ struct CityGrid
     {
         std::string source_qualified_name;
         std::string target_qualified_name;
-        glm::vec4 color{ 1.0f };
+        glm::vec4 source_color{ 1.0f };
+        glm::vec4 target_color{ 1.0f };
         std::vector<glm::vec2> world_points;
     };
 
@@ -243,6 +244,9 @@ inline constexpr uint8_t kCityGridPark = 4;
     const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config);
 [[nodiscard]] std::vector<CityGrid::RoutePolyline> build_city_routes(
     const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config);
+[[nodiscard]] std::vector<CityGrid::RoutePolyline> build_city_routes_for_selection(
+    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const CityGrid& grid,
+    std::string_view focus_qualified_name);
 [[nodiscard]] std::vector<CityGrid::RouteRenderSegment> build_city_route_render_segments(
     const std::vector<CityGrid::RoutePolyline>& routes, float lane_spacing);
 

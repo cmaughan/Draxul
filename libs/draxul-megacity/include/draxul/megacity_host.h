@@ -2,12 +2,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <draxul/citydb.h>
 #include <draxul/host.h>
 #include <draxul/megacity_code_config.h>
 #include <draxul/treesitter.h>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -88,6 +90,10 @@ private:
     void handle_click(const glm::ivec2& screen_pos);
     void apply_selection_opacity();
     void clear_selection();
+    void route_worker_loop();
+    void request_routes_for_focus(std::string focus_qualified_name);
+    void consume_completed_routes();
+    void clear_active_routes(bool request_frame = true);
     void refresh_available_modules();
     void rebuild_semantic_city();
     void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
@@ -109,6 +115,7 @@ private:
     std::shared_ptr<const GeometryMesh> tree_bark_mesh_;
     std::shared_ptr<const GeometryMesh> tree_leaf_mesh_;
     std::shared_ptr<const SemanticMegacityModel> semantic_model_;
+    std::shared_ptr<const SemanticMegacityLayout> semantic_layout_;
     std::vector<std::string> available_modules_;
     ConfigDocument* config_document_ = nullptr;
     MegaCityCodeConfig renderer_config_;
@@ -142,6 +149,30 @@ private:
     std::shared_ptr<const CityGrid> city_grid_;
     std::thread grid_thread_;
     std::atomic<bool> grid_build_in_progress_{ false };
+
+    struct RouteBuildRequest
+    {
+        uint64_t generation = 0;
+        std::string focus_qualified_name;
+        std::shared_ptr<const SemanticMegacityLayout> layout;
+        std::shared_ptr<const SemanticMegacityModel> model;
+        std::shared_ptr<const CityGrid> grid;
+    };
+
+    struct RouteBuildResult
+    {
+        uint64_t generation = 0;
+        std::shared_ptr<const CityGrid> grid;
+    };
+
+    mutable std::mutex route_mutex_;
+    std::condition_variable route_cv_;
+    std::thread route_thread_;
+    bool route_worker_stop_ = false;
+    uint64_t route_request_generation_ = 0;
+    std::optional<RouteBuildRequest> pending_route_request_;
+    std::optional<RouteBuildResult> completed_route_result_;
+    std::atomic<bool> route_build_in_progress_{ false };
 };
 
 // Factory function — called from host_factory.cpp

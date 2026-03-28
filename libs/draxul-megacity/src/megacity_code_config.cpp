@@ -182,6 +182,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_float("height_multiplier", config.height_multiplier);
     assign_bool("clamp_semantic_metrics", config.clamp_semantic_metrics);
     assign_bool("hide_test_entities", config.hide_test_entities);
+    assign_bool("hide_struct_entities", config.hide_struct_entities);
     assign_bool("auto_rebuild", config.auto_rebuild);
     assign_bool("show_ui_panels", config.show_ui_panels);
 
@@ -314,6 +315,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("height_multiplier", static_cast<double>(config.height_multiplier));
     table.insert_or_assign("clamp_semantic_metrics", config.clamp_semantic_metrics);
     table.insert_or_assign("hide_test_entities", config.hide_test_entities);
+    table.insert_or_assign("hide_struct_entities", config.hide_struct_entities);
     table.insert_or_assign("auto_rebuild", config.auto_rebuild);
     table.insert_or_assign("show_ui_panels", config.show_ui_panels);
     table.insert_or_assign("placement_step", static_cast<double>(config.placement_step));

@@ -116,6 +116,14 @@ MegaCityHost::~MegaCityHost()
 {
     if (grid_thread_.joinable())
         grid_thread_.join();
+    {
+        std::lock_guard<std::mutex> lock(route_mutex_);
+        route_worker_stop_ = true;
+        pending_route_request_.reset();
+    }
+    route_cv_.notify_all();
+    if (route_thread_.joinable())
+        route_thread_.join();
 }
 
 void MegaCityHost::refresh_sign_text_service()
@@ -198,6 +206,8 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     }
     refresh_available_modules();
     scanner_.start(DRAXUL_REPO_ROOT);
+    route_worker_stop_ = false;
+    route_thread_ = std::thread([this]() { route_worker_loop(); });
     mark_scene_dirty();
 
     DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost initialized (%dx%d), scanning %s, city DB %s",
@@ -219,6 +229,122 @@ void MegaCityHost::mark_world_rebuild_pending()
     last_activity_time_ = std::chrono::steady_clock::now();
     if (callbacks_)
         callbacks_->request_frame();
+}
+
+void MegaCityHost::route_worker_loop()
+{
+    while (true)
+    {
+        RouteBuildRequest request;
+        {
+            std::unique_lock<std::mutex> lock(route_mutex_);
+            route_cv_.wait(lock, [&]() {
+                return route_worker_stop_ || pending_route_request_.has_value();
+            });
+            if (route_worker_stop_)
+                break;
+            request = *pending_route_request_;
+            pending_route_request_.reset();
+        }
+
+        std::shared_ptr<CityGrid> routed_grid;
+        if (request.layout && request.model && request.grid && !request.focus_qualified_name.empty())
+        {
+            routed_grid = std::make_shared<CityGrid>(*request.grid);
+            routed_grid->routes = build_city_routes_for_selection(
+                *request.layout,
+                *request.model,
+                *request.grid,
+                request.focus_qualified_name);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(route_mutex_);
+            if (request.generation == route_request_generation_)
+                completed_route_result_ = RouteBuildResult{ request.generation, std::move(routed_grid) };
+            if (!pending_route_request_.has_value())
+                route_build_in_progress_ = false;
+        }
+        if (callbacks_)
+            callbacks_->request_frame();
+    }
+}
+
+void MegaCityHost::request_routes_for_focus(std::string focus_qualified_name)
+{
+    if (focus_qualified_name.empty() || !semantic_layout_ || !semantic_model_)
+        return;
+
+    std::shared_ptr<const CityGrid> grid;
+    {
+        std::lock_guard<std::mutex> lock(grid_mutex_);
+        grid = city_grid_;
+    }
+    if (!grid)
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(route_mutex_);
+        pending_route_request_ = RouteBuildRequest{
+            ++route_request_generation_,
+            std::move(focus_qualified_name),
+            semantic_layout_,
+            semantic_model_,
+            std::move(grid),
+        };
+        completed_route_result_.reset();
+        route_build_in_progress_ = true;
+    }
+    route_cv_.notify_one();
+}
+
+void MegaCityHost::clear_active_routes(bool request_frame)
+{
+    {
+        std::lock_guard<std::mutex> lock(grid_mutex_);
+        if (city_grid_)
+        {
+            auto cleared_grid = std::make_shared<CityGrid>(*city_grid_);
+            cleared_grid->routes.clear();
+            city_grid_ = std::move(cleared_grid);
+        }
+    }
+
+    if (world_)
+        world_->clear_route_segments();
+    scene_dirty_ = true;
+    last_activity_time_ = std::chrono::steady_clock::now();
+    if (request_frame && callbacks_)
+        callbacks_->request_frame();
+}
+
+void MegaCityHost::consume_completed_routes()
+{
+    std::optional<RouteBuildResult> result;
+    {
+        std::lock_guard<std::mutex> lock(route_mutex_);
+        if (!completed_route_result_.has_value())
+            return;
+        result = std::move(completed_route_result_);
+        completed_route_result_.reset();
+    }
+    if (!result.has_value())
+        return;
+
+    if (result->grid)
+    {
+        std::lock_guard<std::mutex> lock(grid_mutex_);
+        city_grid_ = result->grid;
+    }
+
+    if (world_)
+    {
+        world_->clear_route_segments();
+        if (result->grid)
+            emit_route_entities(*world_, result->grid->routes, renderer_config_);
+    }
+    scene_dirty_ = true;
+    last_activity_time_ = std::chrono::steady_clock::now();
 }
 
 void MegaCityHost::refresh_available_modules()
@@ -452,7 +578,17 @@ void MegaCityHost::shutdown()
 {
     if (grid_thread_.joinable())
         grid_thread_.join();
+    {
+        std::lock_guard<std::mutex> lock(route_mutex_);
+        route_worker_stop_ = true;
+        pending_route_request_.reset();
+        completed_route_result_.reset();
+    }
+    route_cv_.notify_all();
+    if (route_thread_.joinable())
+        route_thread_.join();
     city_grid_.reset();
+    semantic_layout_.reset();
 
     // Save ImGui layout state
     if (ImGui::GetCurrentContext() != nullptr && !imgui_ini_path_.empty())
@@ -540,6 +676,17 @@ void MegaCityHost::rebuild_semantic_city()
 
     sign_label_atlas_ = std::move(result.sign_label_atlas);
     semantic_model_ = std::move(result.semantic_model);
+    semantic_layout_ = result.layout
+        ? std::make_shared<SemanticMegacityLayout>(*result.layout)
+        : nullptr;
+    clear_active_routes(false);
+    {
+        std::lock_guard<std::mutex> lock(route_mutex_);
+        ++route_request_generation_;
+        pending_route_request_.reset();
+        completed_route_result_.reset();
+        route_build_in_progress_ = false;
+    }
 
     // Camera framing for first build or empty city.
     if (!had_existing_city)
@@ -569,8 +716,8 @@ void MegaCityHost::rebuild_semantic_city()
     world_rebuild_pending_ = false;
     mark_scene_dirty();
 
-    if (result.layout && semantic_model_)
-        launch_grid_build(*result.layout, *semantic_model_);
+    if (semantic_layout_ && semantic_model_)
+        launch_grid_build(*semantic_layout_, *semantic_model_);
 }
 
 void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model)
@@ -588,12 +735,11 @@ void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout, const
 
     // Copy the layout and config so the thread owns its data.
     auto layout_copy = std::make_shared<SemanticMegacityLayout>(layout);
-    auto model_copy = std::make_shared<SemanticMegacityModel>(model);
     const MegaCityCodeConfig config = renderer_config_;
 
     grid_build_in_progress_ = true;
-    grid_thread_ = std::thread([this, layout_copy, model_copy, config]() {
-        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, *model_copy, config));
+    grid_thread_ = std::thread([this, layout_copy, config]() {
+        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, config));
 
         DRAXUL_LOG_DEBUG(LogCategory::App,
             "MegaCityHost: city grid built: %dx%d cells (%.1f x %.1f world units)",
@@ -605,6 +751,8 @@ void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout, const
             city_grid_ = std::move(grid);
         }
         grid_build_in_progress_ = false;
+        if (callbacks_)
+            callbacks_->request_frame();
     });
 }
 
@@ -688,6 +836,19 @@ void MegaCityHost::pump()
                     city_db_.last_error().c_str());
             }
         }
+    }
+
+    consume_completed_routes();
+
+    if (!selected_building_name_.empty() && semantic_layout_ && semantic_model_)
+    {
+        std::shared_ptr<const CityGrid> grid;
+        {
+            std::lock_guard<std::mutex> lock(grid_mutex_);
+            grid = city_grid_;
+        }
+        if (grid && grid->routes.empty() && !route_build_in_progress_.load())
+            request_routes_for_focus(selected_building_name_);
     }
 
     if (scene_dirty_ && scene_pass_ && camera_ && world_)
@@ -788,9 +949,11 @@ void MegaCityHost::handle_click(const glm::ivec2& screen_pos)
             clear_selection();
             return;
         }
+        clear_active_routes(false);
         selected_building_name_ = hit->qualified_name;
         DRAXUL_LOG_DEBUG(LogCategory::App, "Selected building: %s", selected_building_name_.c_str());
         apply_selection_opacity();
+        request_routes_for_focus(selected_building_name_);
     }
     else
     {

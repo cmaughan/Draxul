@@ -1066,7 +1066,7 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
     {
         Statement stmt(impl_->db.get(),
             "SELECT ce.display_name, s.name, ce.module_path, ce.source_file_path, ce.entity_kind, "
-            "ce.base_size, ce.building_functions, ce.building_function_sizes_json, ce.road_size, s.is_abstract "
+            "ce.base_size, ce.building_functions, ce.building_function_sizes_json, ce.road_size, s.is_abstract, s.kind "
             "FROM city_entities ce "
             "JOIN symbols s ON s.symbol_id = ce.symbol_id "
             "WHERE ce.module_path = ? AND ce.entity_kind IN ('building', 'tower', 'block') "
@@ -1089,6 +1089,7 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
             row.function_sizes = parse_json_int_array(read_text(7));
             row.road_size = sqlite3_column_int(stmt.raw(), 8);
             row.is_abstract = sqlite3_column_int(stmt.raw(), 9) != 0;
+            row.is_struct = read_text(10) == "struct";
             rows.push_back(std::move(row));
         }
     }

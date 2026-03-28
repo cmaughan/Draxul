@@ -785,6 +785,10 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             changed |= hide_tests_changed;
             if (hide_tests_changed)
                 controls.committed_edit = true;
+            const bool hide_structs_changed = ImGui::Checkbox("Hide Struct Entities", &config.hide_struct_entities);
+            changed |= hide_structs_changed;
+            if (hide_structs_changed)
+                controls.committed_edit = true;
             edit_float("Height Multiplier", config.height_multiplier, 0.05f, 0.1f, 8.0f, "%.2f");
             edit_float("Placement Step", config.placement_step, 0.01f, 0.05f, 8.0f, "%.2f");
             edit_int("Max Spiral Rings", config.max_spiral_rings, 8, 8, 65536);

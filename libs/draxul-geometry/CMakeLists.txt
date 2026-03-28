@@ -1,4 +1,5 @@
 add_library(draxul-geometry STATIC
+    src/building_generator.cpp
     src/primitive_meshes.cpp
     src/tree_generator.cpp
 )

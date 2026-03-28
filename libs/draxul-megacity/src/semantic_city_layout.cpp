@@ -7,6 +7,7 @@
 #include <limits>
 #include <numbers>
 #include <numeric>
+#include <optional>
 #include <queue>
 #include <string_view>
 #include <unordered_map>
@@ -18,6 +19,9 @@ namespace draxul
 
 namespace
 {
+
+constexpr glm::vec4 kOutgoingRouteColor{ 0.20f, 0.88f, 0.30f, 1.0f };
+constexpr glm::vec4 kIncomingRouteColor{ 0.92f, 0.22f, 0.18f, 1.0f };
 
 float snap_to_grid(float value, float grid_step)
 {
@@ -320,6 +324,32 @@ struct BuildingRoutePort
     bool vertical_exit = false;
 };
 
+enum class PortSide : uint8_t
+{
+    North,
+    South,
+    West,
+    East,
+};
+
+struct RoutePair
+{
+    const SemanticCityBuilding* source = nullptr;
+    const SemanticCityBuilding* target = nullptr;
+    std::string source_qualified_name;
+    std::string target_qualified_name;
+};
+
+struct RouteEndpointRequest
+{
+    size_t route_index = 0;
+    bool source_endpoint = false;
+    const SemanticCityBuilding* building = nullptr;
+    const SemanticCityBuilding* other = nullptr;
+    PortSide side = PortSide::North;
+    float sort_key = 0.0f;
+};
+
 bool find_nearest_road_cell(const CityGrid& grid, int start_col, int start_row, int& out_col, int& out_row)
 {
     constexpr int kMaxSearchRadius = 3;
@@ -358,48 +388,199 @@ bool find_nearest_road_cell(const CityGrid& grid, int start_col, int start_row, 
     return false;
 }
 
-std::vector<BuildingRoutePort> build_route_ports(const SemanticCityBuilding& building, const CityGrid& grid)
+PortSide side_towards(const SemanticCityBuilding& from, const SemanticCityBuilding& to)
+{
+    const glm::vec2 delta = to.center - from.center;
+    if (std::abs(delta.x) >= std::abs(delta.y))
+        return delta.x >= 0.0f ? PortSide::East : PortSide::West;
+    return delta.y >= 0.0f ? PortSide::North : PortSide::South;
+}
+
+float side_sort_key(PortSide side, const SemanticCityBuilding& other)
+{
+    switch (side)
+    {
+    case PortSide::North:
+    case PortSide::South:
+        return other.center.x;
+    case PortSide::West:
+    case PortSide::East:
+        return other.center.y;
+    }
+    return 0.0f;
+}
+
+std::string route_port_group_key(std::string_view building_key_value, PortSide side)
+{
+    return std::string(building_key_value) + "#" + std::to_string(static_cast<int>(side));
+}
+
+std::optional<BuildingRoutePort> make_building_route_port(
+    const SemanticCityBuilding& building, PortSide side, float tangent_offset, const CityGrid& grid)
 {
     const float half_footprint = building.metrics.footprint * 0.5f;
-    const float sidewalk_width = building.metrics.sidewalk_width;
-    const float road_center_offset = half_footprint + sidewalk_width + building.metrics.road_width * 0.5f;
-    const std::array<glm::vec2, 4> edge_points = {
-        glm::vec2(building.center.x, building.center.y + half_footprint),
-        glm::vec2(building.center.x, building.center.y - half_footprint),
-        glm::vec2(building.center.x - half_footprint, building.center.y),
-        glm::vec2(building.center.x + half_footprint, building.center.y),
-    };
-    const std::array<glm::vec2, 4> road_points = {
-        glm::vec2(building.center.x, building.center.y + road_center_offset),
-        glm::vec2(building.center.x, building.center.y - road_center_offset),
-        glm::vec2(building.center.x - road_center_offset, building.center.y),
-        glm::vec2(building.center.x + road_center_offset, building.center.y),
-    };
+    const float road_center_offset = half_footprint + building.metrics.sidewalk_width + building.metrics.road_width * 0.5f;
 
-    std::vector<BuildingRoutePort> ports;
-    ports.reserve(4);
-    for (size_t i = 0; i < road_points.size(); ++i)
+    glm::vec2 edge_world(0.0f);
+    glm::vec2 road_world(0.0f);
+    bool vertical_exit = false;
+    switch (side)
     {
-        int col = world_to_grid_col(grid, road_points[i].x);
-        int row = world_to_grid_row(grid, road_points[i].y);
-        if (!find_nearest_road_cell(grid, col, row, col, row))
+    case PortSide::North:
+        edge_world = { building.center.x + tangent_offset, building.center.y + half_footprint };
+        road_world = { building.center.x + tangent_offset, building.center.y + road_center_offset };
+        vertical_exit = true;
+        break;
+    case PortSide::South:
+        edge_world = { building.center.x + tangent_offset, building.center.y - half_footprint };
+        road_world = { building.center.x + tangent_offset, building.center.y - road_center_offset };
+        vertical_exit = true;
+        break;
+    case PortSide::West:
+        edge_world = { building.center.x - half_footprint, building.center.y + tangent_offset };
+        road_world = { building.center.x - road_center_offset, building.center.y + tangent_offset };
+        vertical_exit = false;
+        break;
+    case PortSide::East:
+        edge_world = { building.center.x + half_footprint, building.center.y + tangent_offset };
+        road_world = { building.center.x + road_center_offset, building.center.y + tangent_offset };
+        vertical_exit = false;
+        break;
+    }
+
+    int col = world_to_grid_col(grid, road_world.x);
+    int row = world_to_grid_row(grid, road_world.y);
+    if (!find_nearest_road_cell(grid, col, row, col, row))
+        return std::nullopt;
+
+    return BuildingRoutePort{
+        col,
+        row,
+        edge_world,
+        vertical_exit,
+    };
+}
+
+std::vector<RoutePair> collect_route_pairs(
+    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, std::string_view focus_qualified_name)
+{
+    std::unordered_map<std::string, const SemanticCityBuilding*> buildings_by_key;
+    for (const auto& module_layout : layout.modules)
+    {
+        for (const auto& building : module_layout.buildings)
+            buildings_by_key.emplace(building_key(building.module_path, building.qualified_name), &building);
+    }
+
+    std::vector<RoutePair> route_pairs;
+    route_pairs.reserve(model.dependencies.size());
+    for (const auto& dep : model.dependencies)
+    {
+        if (!focus_qualified_name.empty()
+            && dep.source_qualified_name != focus_qualified_name
+            && dep.target_qualified_name != focus_qualified_name)
+        {
+            continue;
+        }
+
+        const std::string source_key = building_key(dep.source_module_path, dep.source_qualified_name);
+        const std::string target_key = building_key(dep.target_module_path, dep.target_qualified_name);
+        if (source_key == target_key)
+            continue;
+        const auto source_it = buildings_by_key.find(source_key);
+        const auto target_it = buildings_by_key.find(target_key);
+        if (source_it == buildings_by_key.end() || target_it == buildings_by_key.end())
             continue;
 
-        const bool duplicate = std::any_of(ports.begin(), ports.end(), [&](const BuildingRoutePort& port) {
-            return port.col == col && port.row == row;
-        });
-        if (duplicate)
-            continue;
-
-        ports.push_back({
-            col,
-            row,
-            edge_points[i],
-            i < 2,
+        route_pairs.push_back({
+            source_it->second,
+            target_it->second,
+            dep.source_qualified_name,
+            dep.target_qualified_name,
         });
     }
 
-    return ports;
+    return route_pairs;
+}
+
+struct AssignedRoutePorts
+{
+    std::optional<BuildingRoutePort> source_port;
+    std::optional<BuildingRoutePort> target_port;
+};
+
+std::vector<AssignedRoutePorts> assign_route_ports(
+    const std::vector<RoutePair>& route_pairs, const CityGrid& grid)
+{
+    std::unordered_map<std::string, std::vector<RouteEndpointRequest>> groups;
+    groups.reserve(route_pairs.size() * 2);
+
+    for (size_t route_index = 0; route_index < route_pairs.size(); ++route_index)
+    {
+        const RoutePair& route = route_pairs[route_index];
+        if (route.source == nullptr || route.target == nullptr)
+            continue;
+
+        const PortSide source_side = side_towards(*route.source, *route.target);
+        const PortSide target_side = side_towards(*route.target, *route.source);
+
+        groups[route_port_group_key(building_key(route.source->module_path, route.source->qualified_name), source_side)].push_back({
+            route_index,
+            true,
+            route.source,
+            route.target,
+            source_side,
+            side_sort_key(source_side, *route.target),
+        });
+        groups[route_port_group_key(building_key(route.target->module_path, route.target->qualified_name), target_side)].push_back({
+            route_index,
+            false,
+            route.target,
+            route.source,
+            target_side,
+            side_sort_key(target_side, *route.source),
+        });
+    }
+
+    std::vector<AssignedRoutePorts> assignments(route_pairs.size());
+    for (auto& [group_key, requests] : groups)
+    {
+        (void)group_key;
+        if (requests.empty() || requests.front().building == nullptr)
+            continue;
+
+        std::sort(requests.begin(), requests.end(), [](const RouteEndpointRequest& lhs, const RouteEndpointRequest& rhs) {
+            if (lhs.sort_key != rhs.sort_key)
+                return lhs.sort_key < rhs.sort_key;
+            return lhs.route_index < rhs.route_index;
+        });
+
+        const SemanticCityBuilding& building = *requests.front().building;
+        const float half_footprint = building.metrics.footprint * 0.5f;
+        const float edge_margin = std::min(
+            half_footprint * 0.65f,
+            std::max(grid.cell_size * 0.75f, building.metrics.footprint * 0.08f));
+        const float usable_half_span = std::max(grid.cell_size * 0.25f, half_footprint - edge_margin);
+        const size_t count = requests.size();
+
+        for (size_t index = 0; index < count; ++index)
+        {
+            const float fraction = static_cast<float>(index + 1) / static_cast<float>(count + 1);
+            const float tangent_offset = count == 1
+                ? 0.0f
+                : glm::mix(-usable_half_span, usable_half_span, fraction);
+            const std::optional<BuildingRoutePort> port
+                = make_building_route_port(building, requests[index].side, tangent_offset, grid);
+            if (!port.has_value())
+                continue;
+
+            if (requests[index].source_endpoint)
+                assignments[requests[index].route_index].source_port = port;
+            else
+                assignments[requests[index].route_index].target_port = port;
+        }
+    }
+
+    return assignments;
 }
 
 void append_point_if_new(std::vector<glm::vec2>& points, const glm::vec2& point)
@@ -446,141 +627,140 @@ void simplify_axis_aligned_polyline(std::vector<glm::vec2>& points)
     points = std::move(simplified);
 }
 
-std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
-    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const CityGrid& grid)
+std::array<int, 4> preferred_direction_order(int col, int row, int target_col, int target_row)
 {
-    std::unordered_map<std::string, const SemanticCityBuilding*> buildings_by_key;
-    for (const auto& module_layout : layout.modules)
+    const int dx = target_col - col;
+    const int dy = target_row - row;
+
+    const int horizontal_primary = dx >= 0 ? 0 : 1;
+    const int horizontal_secondary = dx >= 0 ? 1 : 0;
+    const int vertical_primary = dy >= 0 ? 2 : 3;
+    const int vertical_secondary = dy >= 0 ? 3 : 2;
+
+    if (std::abs(dx) >= std::abs(dy))
     {
-        for (const auto& building : module_layout.buildings)
-            buildings_by_key.emplace(building_key(building.module_path, building.qualified_name), &building);
+        return { horizontal_primary, vertical_primary, horizontal_secondary, vertical_secondary };
     }
+    return { vertical_primary, horizontal_primary, vertical_secondary, horizontal_secondary };
+}
 
-    struct RoutePair
-    {
-        const SemanticCityBuilding* source = nullptr;
-        const SemanticCityBuilding* target = nullptr;
-    };
+bool find_road_path(
+    const CityGrid& grid, int start_col, int start_row, int target_col, int target_row, std::vector<int>& path_out)
+{
+    path_out.clear();
+    if (grid.at(start_col, start_row) != kCityGridRoad || grid.at(target_col, target_row) != kCityGridRoad)
+        return false;
 
-    std::unordered_set<std::string> seen_pairs;
-    std::vector<RoutePair> route_pairs;
-    for (const auto& dep : model.dependencies)
-    {
-        const std::string source_key = building_key(dep.source_module_path, dep.source_qualified_name);
-        const std::string target_key = building_key(dep.target_module_path, dep.target_qualified_name);
-        if (source_key == target_key)
-            continue;
-        const auto source_it = buildings_by_key.find(source_key);
-        const auto target_it = buildings_by_key.find(target_key);
-        if (source_it == buildings_by_key.end() || target_it == buildings_by_key.end())
-            continue;
-
-        const std::string pair_key = source_key + "->" + target_key;
-        if (!seen_pairs.insert(pair_key).second)
-            continue;
-        route_pairs.push_back({ source_it->second, target_it->second });
-    }
-
-    std::vector<CityGrid::RoutePolyline> routes;
     const std::array<int, 4> dc{ 1, -1, 0, 0 };
     const std::array<int, 4> dr{ 0, 0, 1, -1 };
+    const int cell_count = grid.cols * grid.rows;
+    const int start_index = grid_index(grid, start_col, start_row);
+    const int target_index = grid_index(grid, target_col, target_row);
+    std::vector<int> distance(cell_count, -1);
+    std::vector<int> predecessor(cell_count, -1);
+    std::queue<int> frontier;
+    distance[start_index] = 0;
+    frontier.push(start_index);
 
-    for (const RoutePair& pair : route_pairs)
+    while (!frontier.empty())
     {
-        if (pair.source == nullptr || pair.target == nullptr)
-            continue;
+        const int index = frontier.front();
+        frontier.pop();
+        if (index == target_index)
+            break;
 
-        const std::vector<BuildingRoutePort> target_ports = build_route_ports(*pair.target, grid);
-        if (target_ports.empty())
-            continue;
-
-        const int cell_count = grid.cols * grid.rows;
-        std::vector<int> distance(cell_count, -1);
-        std::vector<int> predecessor(cell_count, -1);
-        std::queue<int> frontier;
-        std::unordered_map<int, BuildingRoutePort> target_port_by_index;
-
-        for (const BuildingRoutePort& port : target_ports)
+        const int col = index % grid.cols;
+        const int row = index / grid.cols;
+        const std::array<int, 4> dir_order = preferred_direction_order(col, row, target_col, target_row);
+        for (const int dir : dir_order)
         {
-            const int index = grid_index(grid, port.col, port.row);
-            if (distance[index] != -1)
+            const int next_col = col + dc[dir];
+            const int next_row = row + dr[dir];
+            if (grid.at(next_col, next_row) != kCityGridRoad)
                 continue;
-            distance[index] = 0;
-            frontier.push(index);
-            target_port_by_index.emplace(index, port);
-        }
-
-        while (!frontier.empty())
-        {
-            const int index = frontier.front();
-            frontier.pop();
-            const int col = index % grid.cols;
-            const int row = index / grid.cols;
-            for (int dir = 0; dir < 4; ++dir)
-            {
-                const int next_col = col + dc[dir];
-                const int next_row = row + dr[dir];
-                if (grid.at(next_col, next_row) != kCityGridRoad)
-                    continue;
-                const int next_index = grid_index(grid, next_col, next_row);
-                if (distance[next_index] != -1)
-                    continue;
-                distance[next_index] = distance[index] + 1;
-                predecessor[next_index] = index;
-                frontier.push(next_index);
-            }
-        }
-
-        const std::vector<BuildingRoutePort> source_ports = build_route_ports(*pair.source, grid);
-        if (source_ports.empty())
-            continue;
-
-        const BuildingRoutePort* best_port = nullptr;
-        int best_index = -1;
-        int best_distance = std::numeric_limits<int>::max();
-        for (const BuildingRoutePort& port : source_ports)
-        {
-            const int index = grid_index(grid, port.col, port.row);
-            if (distance[index] < 0 || distance[index] >= best_distance)
+            const int next_index = grid_index(grid, next_col, next_row);
+            if (distance[next_index] != -1)
                 continue;
-            best_port = &port;
-            best_index = index;
-            best_distance = distance[index];
+            distance[next_index] = distance[index] + 1;
+            predecessor[next_index] = index;
+            frontier.push(next_index);
         }
-        if (best_port == nullptr || best_index < 0)
+    }
+
+    if (distance[target_index] < 0)
+        return false;
+
+    int current = target_index;
+    while (current >= 0)
+    {
+        path_out.push_back(current);
+        if (current == start_index)
+            break;
+        current = predecessor[current];
+    }
+    if (path_out.empty() || path_out.back() != start_index)
+    {
+        path_out.clear();
+        return false;
+    }
+
+    std::reverse(path_out.begin(), path_out.end());
+    return true;
+}
+
+std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
+    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const CityGrid& grid,
+    std::string_view focus_qualified_name)
+{
+    const std::vector<RoutePair> route_pairs = collect_route_pairs(layout, model, focus_qualified_name);
+    const std::vector<AssignedRoutePorts> assigned_ports = assign_route_ports(route_pairs, grid);
+
+    std::vector<CityGrid::RoutePolyline> routes;
+    routes.reserve(route_pairs.size());
+    for (size_t route_index = 0; route_index < route_pairs.size(); ++route_index)
+    {
+        const RoutePair& pair = route_pairs[route_index];
+        const AssignedRoutePorts& ports = assigned_ports[route_index];
+        if (pair.source == nullptr || pair.target == nullptr
+            || !ports.source_port.has_value() || !ports.target_port.has_value())
+        {
             continue;
+        }
+
+        std::vector<int> cell_path;
+        if (!find_road_path(grid,
+                ports.source_port->col, ports.source_port->row,
+                ports.target_port->col, ports.target_port->row,
+                cell_path))
+        {
+            continue;
+        }
 
         std::vector<glm::vec2> world_points;
-        append_point_if_new(world_points, best_port->edge_world);
-        const glm::vec2 source_cell_center = grid_cell_center_world(grid, best_port->col, best_port->row);
-        append_point_if_new(world_points, axis_aligned_connector(*best_port, source_cell_center));
+        append_point_if_new(world_points, ports.source_port->edge_world);
+        const glm::vec2 source_cell_center = grid_cell_center_world(grid, ports.source_port->col, ports.source_port->row);
+        append_point_if_new(world_points, axis_aligned_connector(*ports.source_port, source_cell_center));
         append_point_if_new(world_points, source_cell_center);
 
-        int current = best_index;
-        int root_index = best_index;
-        while (current >= 0)
+        for (size_t cell_index = 1; cell_index < cell_path.size(); ++cell_index)
         {
-            root_index = current;
-            const int col = current % grid.cols;
-            const int row = current / grid.cols;
+            const int index = cell_path[cell_index];
+            const int col = index % grid.cols;
+            const int row = index / grid.cols;
             append_point_if_new(world_points, grid_cell_center_world(grid, col, row));
-            current = predecessor[current];
         }
 
-        const auto target_port_it = target_port_by_index.find(root_index);
-        if (target_port_it != target_port_by_index.end())
-        {
-            const glm::vec2 target_cell_center
-                = grid_cell_center_world(grid, target_port_it->second.col, target_port_it->second.row);
-            append_point_if_new(world_points, axis_aligned_connector(target_port_it->second, target_cell_center));
-            append_point_if_new(world_points, target_port_it->second.edge_world);
-        }
+        const glm::vec2 target_cell_center
+            = grid_cell_center_world(grid, ports.target_port->col, ports.target_port->row);
+        append_point_if_new(world_points, axis_aligned_connector(*ports.target_port, target_cell_center));
+        append_point_if_new(world_points, ports.target_port->edge_world);
 
         simplify_axis_aligned_polyline(world_points);
         routes.push_back({
-            pair.source->qualified_name,
-            pair.target->qualified_name,
-            module_building_color(pair.target->module_path),
+            pair.source_qualified_name,
+            pair.target_qualified_name,
+            kOutgoingRouteColor,
+            kIncomingRouteColor,
             std::move(world_points),
         });
     }
@@ -734,6 +914,8 @@ SemanticCityModuleModel build_semantic_city_model(
         if ((row.entity_kind != "building" && row.entity_kind != "block") || row.is_abstract)
             continue;
         if (config.hide_test_entities && is_test_semantic_source(row.source_file_path))
+            continue;
+        if (config.hide_struct_entities && row.is_struct)
             continue;
 
         const BuildingMetrics metrics = derive_building_metrics(row, config);
@@ -1178,8 +1360,6 @@ CityGrid build_city_grid(
         }
     }
 
-    grid.routes = build_city_routes_from_grid(layout, model, grid);
-
     return grid;
 }
 
@@ -1187,7 +1367,16 @@ std::vector<CityGrid::RoutePolyline> build_city_routes(
     const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config)
 {
     const CityGrid routing_grid = build_city_grid(layout, config);
-    return build_city_routes_from_grid(layout, model, routing_grid);
+    return build_city_routes_from_grid(layout, model, routing_grid, {});
+}
+
+std::vector<CityGrid::RoutePolyline> build_city_routes_for_selection(
+    const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const CityGrid& grid,
+    std::string_view focus_qualified_name)
+{
+    if (focus_qualified_name.empty())
+        return {};
+    return build_city_routes_from_grid(layout, model, grid, focus_qualified_name);
 }
 
 std::vector<CityGrid::RouteRenderSegment> build_city_route_render_segments(
@@ -1195,17 +1384,45 @@ std::vector<CityGrid::RouteRenderSegment> build_city_route_render_segments(
 {
     (void)lane_spacing;
 
+    constexpr float kGradientChunkLength = 0.5f;
+
     std::vector<CityGrid::RouteRenderSegment> segments;
     for (const auto& route : routes)
     {
+        if (route.world_points.size() < 2)
+            continue;
+
+        float total_length = 0.0f;
+        for (size_t point_index = 1; point_index < route.world_points.size(); ++point_index)
+            total_length += glm::length(route.world_points[point_index] - route.world_points[point_index - 1]);
+        if (total_length <= 1e-4f)
+            continue;
+
+        float traversed_length = 0.0f;
         for (size_t point_index = 1; point_index < route.world_points.size(); ++point_index)
         {
             const glm::vec2 a = route.world_points[point_index - 1];
             const glm::vec2 b = route.world_points[point_index];
             const glm::vec2 delta = b - a;
-            if (glm::length(delta) <= 1e-4f)
+            const float segment_length = glm::length(delta);
+            if (segment_length <= 1e-4f)
                 continue;
-            segments.push_back({ a, b, route.color, route.source_qualified_name, route.target_qualified_name });
+
+            const int chunk_count = std::max(1, static_cast<int>(std::ceil(segment_length / kGradientChunkLength)));
+            for (int chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
+            {
+                const float t0 = static_cast<float>(chunk_index) / static_cast<float>(chunk_count);
+                const float t1 = static_cast<float>(chunk_index + 1) / static_cast<float>(chunk_count);
+                const glm::vec2 chunk_a = glm::mix(a, b, t0);
+                const glm::vec2 chunk_b = glm::mix(a, b, t1);
+                const float chunk_mid_length = traversed_length + segment_length * (t0 + t1) * 0.5f;
+                const float color_t = std::clamp(chunk_mid_length / total_length, 0.0f, 1.0f);
+                const glm::vec4 chunk_color = glm::mix(route.source_color, route.target_color, color_t);
+                segments.push_back(
+                    { chunk_a, chunk_b, chunk_color, route.source_qualified_name, route.target_qualified_name });
+            }
+
+            traversed_length += segment_length;
         }
     }
 

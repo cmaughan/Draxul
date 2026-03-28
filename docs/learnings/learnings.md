@@ -528,3 +528,11 @@ Fix: three separate global passes — all roads, then all sidewalks, then all bu
 **Key lesson**: When rasterizing layered geometry with overlapping extents, always separate passes by layer priority rather than by entity. Per-entity layering only works if entities don't overlap, but city lots are deliberately placed in edge contact with shared road corridors.
 
 ---
+
+## Procedural Geometry Prompts
+
+### Procedural building generator prompt
+
+Store the original prompt that drove the procedural building-shell work:
+
+> lets add a procedural building to the geometry static library. We already know what a building is; it's a set of 'slices', each of which has a given height, based on the semantic information. I want to build a building based of that semantic information, instead of the stacked cubes we hvae now. Much like the tree, we will start with a ring at the base - typically 4 vertices to make a rectangluar shape. We will step up to the next fractional height by building '3' more rings; Yes - each heigh section will effectively be 3 quads. But that's basically it - we walk to the roof of the building, adding rings of quads. Effectively 3 rings per level: the semantic map should contain the array of level information. Obviously we calculate the correct tangent and normal information. There are no 'inner' floors; the building is now an outer ring of default 4 vertices. It will look the same as now, but without the cube stacking/inner quads. Since each 'level' of the building is now represented by 3 quad strips, we may push that inner quad in or out - lets have a factor for that, but not change it yet. The basic 4 ring floor size will divide evenly too - so if I said 5 I would get a pentagonal building, etc. You can think of this is a 'tube with 'n' sides', divided into the usual alternating floor colors; with each floor having that extra middle strip. Obviously this now means that each building has unique geoemtry (if it doesn't already). Lets build and try it

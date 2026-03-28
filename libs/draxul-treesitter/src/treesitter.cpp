@@ -244,10 +244,19 @@ std::string field_display_type_from_declaration(TSNode field_node, const std::st
 }
 
 void collect_type_references(TSNode node, const std::string& source, std::set<std::string>& out);
+bool has_type_definition_body(TSNode type_node);
+
+bool is_nested_type_definition_node(TSNode node)
+{
+    return ((node_type_is(node, "class_specifier") || node_type_is(node, "struct_specifier"))
+        && has_type_definition_body(node));
+}
 
 void collect_declared_field_names(TSNode node, const std::string& source, std::vector<std::string>& out)
 {
     if (node_type_is(node, "function_declarator"))
+        return;
+    if (is_nested_type_definition_node(node))
         return;
     if (node_type_is(node, "field_identifier") || node_type_is(node, "identifier"))
     {
@@ -304,6 +313,9 @@ bool has_type_definition_body(TSNode type_node)
 
 void collect_type_references(TSNode node, const std::string& source, std::set<std::string>& out)
 {
+    if (is_nested_type_definition_node(node))
+        return;
+
     const char* type = ts_node_type(node);
     if (std::strcmp(type, "type_identifier") == 0
         || std::strcmp(type, "sized_type_specifier") == 0

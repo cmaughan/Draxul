@@ -28,6 +28,7 @@ struct CityClassRecord
     std::string module_path;
     std::string source_file_path;
     std::string entity_kind;
+    bool is_struct = false;
     int base_size = 0;
     int building_functions = 0;
     std::vector<int> function_sizes;

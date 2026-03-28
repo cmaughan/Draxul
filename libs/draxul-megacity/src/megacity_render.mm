@@ -315,6 +315,8 @@ struct IsometricScenePass::State
     MeshBuffers wall_sign_mesh;
     const MeshData* tree_bark_mesh_source = nullptr;
     const MeshData* tree_leaf_mesh_source = nullptr;
+    std::vector<MeshBuffers> custom_meshes;
+    std::vector<const MeshData*> custom_mesh_sources;
     MeshData cached_grid_mesh;
     FloorGridSpec cached_grid_spec;
     bool has_cached_grid_mesh = false;
@@ -556,6 +558,32 @@ struct IsometricScenePass::State
             }
             tree_leaf_mesh = std::move(replacement);
             tree_leaf_mesh_source = tree_leaf_mesh_data.get();
+        }
+        return true;
+    }
+
+    bool ensure_custom_meshes(
+        id<MTLDevice> device,
+        const std::vector<std::shared_ptr<const MeshData>>& custom_mesh_data)
+    {
+        custom_meshes.resize(custom_mesh_data.size());
+        custom_mesh_sources.resize(custom_mesh_data.size(), nullptr);
+        for (size_t index = 0; index < custom_mesh_data.size(); ++index)
+        {
+            const auto& mesh_data = custom_mesh_data[index];
+            if (!mesh_data)
+                continue;
+            if (custom_mesh_sources[index] == mesh_data.get() && custom_meshes[index].index_count > 0)
+                continue;
+
+            MeshBuffers replacement;
+            if (!upload_mesh(device, *mesh_data, replacement))
+            {
+                DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to upload procedural custom mesh");
+                return false;
+            }
+            custom_meshes[index] = std::move(replacement);
+            custom_mesh_sources[index] = mesh_data.get();
         }
         return true;
     }
@@ -996,7 +1024,8 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     auto& frame_resources = state_->frame_resources[frame_index];
     frame_resources.geometry_arena.reset();
 
-    if (!state_->ensure_tree_mesh(cmd_buf.device, scene_.tree_bark_mesh, scene_.tree_leaf_mesh))
+    if (!state_->ensure_tree_mesh(cmd_buf.device, scene_.tree_bark_mesh, scene_.tree_leaf_mesh)
+        || !state_->ensure_custom_meshes(cmd_buf.device, scene_.custom_meshes))
         return;
 
     MeshSlice grid_slice;
@@ -1112,6 +1141,10 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         case MeshId::WallSign:
             mesh = &state_->wall_sign_mesh;
             break;
+        case MeshId::Custom:
+            if (obj.custom_mesh_index < state_->custom_meshes.size())
+                mesh = &state_->custom_meshes[obj.custom_mesh_index];
+            break;
         case MeshId::Grid:
             continue;
         }
@@ -1225,7 +1258,8 @@ void IsometricScenePass::record(IRenderContext& ctx)
     auto& frame_resources = state_->frame_resources[frame_index];
     frame_resources.geometry_arena.reset();
 
-    if (!state_->ensure_tree_mesh(cmd_buf.device, scene_.tree_bark_mesh, scene_.tree_leaf_mesh))
+    if (!state_->ensure_tree_mesh(cmd_buf.device, scene_.tree_bark_mesh, scene_.tree_leaf_mesh)
+        || !state_->ensure_custom_meshes(cmd_buf.device, scene_.custom_meshes))
         return;
 
     MeshSlice grid_slice;
@@ -1350,6 +1384,10 @@ void IsometricScenePass::record(IRenderContext& ctx)
             break;
         case MeshId::WallSign:
             mesh = &state_->wall_sign_mesh;
+            break;
+        case MeshId::Custom:
+            if (obj.custom_mesh_index < state_->custom_meshes.size())
+                mesh = &state_->custom_meshes[obj.custom_mesh_index];
             break;
         case MeshId::Grid:
             return;

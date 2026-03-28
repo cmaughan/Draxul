@@ -690,6 +690,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.selected_module_path = "libs/draxul-megacity";
     current.height_multiplier = 2.25f;
     current.hide_test_entities = false;
+    current.hide_struct_entities = true;
     current.debug_view = MegaCityDebugView::Normals;
     current.ao_denoise = false;
     current.ao_radius = 2.4f;

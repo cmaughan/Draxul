@@ -2,6 +2,7 @@
 
 #ifdef DRAXUL_ENABLE_MEGACITY
 
+#include <draxul/building_generator.h>
 #include <draxul/primitive_meshes.h>
 #include <draxul/tree_generator.h>
 
@@ -248,6 +249,62 @@ TEST_CASE("unit cube geometry uses the shared vertex format", "[geometry]")
         CHECK(vertex.uv.y >= Catch::Approx(0.0f));
         CHECK(vertex.uv.y <= Catch::Approx(1.0f));
     }
+}
+
+TEST_CASE("building generator emits valid prism shell geometry", "[geometry]")
+{
+    DraxulBuildingParams params;
+    params.footprint = 6.0f;
+    params.sides = 4;
+    params.middle_strip_scale = 1.0f;
+    params.levels = {
+        { 3.0f, glm::vec3(0.8f, 0.2f, 0.2f) },
+        { 5.0f, glm::vec3(0.2f, 0.8f, 0.2f) },
+    };
+
+    const GeometryMesh mesh = generate_draxul_building(params);
+
+    REQUIRE_FALSE(mesh.vertices.empty());
+    REQUIRE_FALSE(mesh.indices.empty());
+    REQUIRE(mesh.indices.size() % 3 == 0);
+
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+    for (const GeometryVertex& vertex : mesh.vertices)
+    {
+        min_y = std::min(min_y, vertex.position.y);
+        max_y = std::max(max_y, vertex.position.y);
+        CHECK(glm::length(vertex.normal) == Catch::Approx(1.0f).margin(0.001f));
+        CHECK(std::abs(glm::dot(vertex.normal, glm::vec3(vertex.tangent))) <= Catch::Approx(0.001f));
+    }
+
+    CHECK(min_y == Catch::Approx(0.0f));
+    CHECK(max_y == Catch::Approx(8.0f));
+}
+
+TEST_CASE("building generator carries per-level colors into the mesh", "[geometry]")
+{
+    DraxulBuildingParams params;
+    params.footprint = 4.0f;
+    params.sides = 5;
+    params.middle_strip_scale = 0.92f;
+    params.levels = {
+        { 2.0f, glm::vec3(0.9f, 0.1f, 0.1f) },
+        { 2.0f, glm::vec3(0.1f, 0.1f, 0.9f) },
+    };
+
+    const GeometryMesh mesh = generate_draxul_building(params);
+
+    bool found_first = false;
+    bool found_second = false;
+    for (const GeometryVertex& vertex : mesh.vertices)
+    {
+        found_first = found_first || vertex.color == params.levels[0].color;
+        found_second = found_second || vertex.color == params.levels[1].color;
+    }
+
+    CHECK(found_first);
+    CHECK(found_second);
 }
 
 #endif

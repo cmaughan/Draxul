@@ -121,6 +121,18 @@ uint32_t find_or_append_material(SceneSnapshot& scene, const Appearance& appeara
     return static_cast<uint32_t>(scene.materials.size() - 1);
 }
 
+uint32_t find_or_append_custom_mesh(SceneSnapshot& scene, const std::shared_ptr<const MeshData>& mesh)
+{
+    for (uint32_t index = 0; index < scene.custom_meshes.size(); ++index)
+    {
+        if (scene.custom_meshes[index].get() == mesh.get())
+            return index;
+    }
+
+    scene.custom_meshes.push_back(mesh);
+    return static_cast<uint32_t>(scene.custom_meshes.size() - 1);
+}
+
 } // namespace
 
 SceneSnapshotResult build_scene_snapshot(
@@ -184,6 +196,7 @@ SceneSnapshotResult build_scene_snapshot(
 
     scene.materials.clear();
     scene.materials.push_back(SceneMaterial{});
+    scene.custom_meshes.clear();
 
     // Query the ECS registry for all entities with position + appearance.
     const auto& reg = world.registry();
@@ -209,12 +222,22 @@ SceneSnapshotResult build_scene_snapshot(
 
         // Scale the cube by building metrics if present.
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), world_pos);
+        const auto* custom_mesh = reg.try_get<CustomMeshRef>(entity);
+        if (custom_mesh && custom_mesh->mesh)
+        {
+            obj.mesh = MeshId::Custom;
+            obj.custom_mesh_index = find_or_append_custom_mesh(scene, custom_mesh->mesh);
+        }
+
         if (const auto* bm = reg.try_get<BuildingMetrics>(entity))
         {
             extent_x = bm->footprint;
             extent_z = bm->footprint;
-            transform = glm::translate(transform, glm::vec3(0.0f, bm->height * 0.5f, 0.0f));
-            transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
+            if (obj.mesh != MeshId::Custom)
+            {
+                transform = glm::translate(transform, glm::vec3(0.0f, bm->height * 0.5f, 0.0f));
+                transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
+            }
             building_min_x = std::min(building_min_x, pos.x - bm->footprint * 0.5f);
             building_max_x = std::max(building_max_x, pos.x + bm->footprint * 0.5f);
             building_min_z = std::min(building_min_z, pos.z - bm->footprint * 0.5f);

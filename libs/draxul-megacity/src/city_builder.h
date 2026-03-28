@@ -2,6 +2,8 @@
 
 #include <draxul/geometry_mesh.h>
 
+#include "semantic_city_layout.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -36,6 +38,13 @@ struct CityBuildResult
     std::shared_ptr<const GeometryMesh> tree_bark_mesh;
     std::shared_ptr<const GeometryMesh> tree_leaf_mesh;
 };
+
+[[nodiscard]] int procedural_building_side_count(int incident_connection_count);
+
+void emit_route_entities(
+    SceneWorld& world,
+    const std::vector<CityGrid::RoutePolyline>& routes,
+    const MegaCityCodeConfig& config);
 
 // Build (or rebuild) the semantic city into the given SceneWorld.
 // Clears the world, queries the city DB, lays out modules, creates all ECS

@@ -22,6 +22,7 @@ enum class MeshId : uint32_t
     RoadSurface,
     RoofSign,
     WallSign,
+    Custom,
 };
 
 enum class MaterialId : uint32_t
@@ -90,6 +91,7 @@ struct LabelAtlasData
 struct SceneObject
 {
     MeshId mesh = MeshId::Cube;
+    uint32_t custom_mesh_index = UINT32_MAX;
     uint32_t material_index = 0;
     bool double_sided = false;
     glm::mat4 world{ 1.0f };
@@ -151,6 +153,7 @@ struct SceneSnapshot
     std::shared_ptr<const LabelAtlasData> label_atlas;
     std::shared_ptr<const MeshData> tree_bark_mesh;
     std::shared_ptr<const MeshData> tree_leaf_mesh;
+    std::vector<std::shared_ptr<const MeshData>> custom_meshes;
     std::vector<SceneMaterial> materials;
     std::vector<SceneObject> objects;
     uint32_t opaque_count = 0;

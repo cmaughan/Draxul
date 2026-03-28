@@ -136,4 +136,61 @@ TEST_CASE("tree-sitter snapshot captures direct fields with type references", "[
     std::filesystem::remove_all(temp_root);
 }
 
+TEST_CASE("tree-sitter snapshot does not flatten nested type fields into the parent type", "[treesitter]")
+{
+    const auto temp_root
+        = std::filesystem::temp_directory_path() / "draxul-treesitter-nested-fields";
+    std::filesystem::remove_all(temp_root);
+    std::filesystem::create_directories(temp_root);
+
+    const auto source_path = temp_root / "nested_fields.h";
+    {
+        std::ofstream out(source_path);
+        REQUIRE(out.is_open());
+        out << "class Foo {};\n";
+        out << "class Bar {};\n";
+        out << "class Outer {\n";
+        out << "public:\n";
+        out << "    struct Deps {\n";
+        out << "        Foo* foo = nullptr;\n";
+        out << "        Bar* bar = nullptr;\n";
+        out << "    };\n";
+        out << "private:\n";
+        out << "    Deps deps_;\n";
+        out << "    int count_;\n";
+        out << "};\n";
+    }
+
+    CodebaseScanner scanner;
+    scanner.start(temp_root);
+    const auto snapshot = wait_for_complete_snapshot(scanner);
+    scanner.stop();
+
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+    REQUIRE(snapshot->files.size() == 1);
+
+    const SymbolRecord* outer = find_symbol(snapshot->files[0], SymbolKind::Class, "Outer");
+    REQUIRE(outer != nullptr);
+    REQUIRE(outer->field_count == 2);
+    REQUIRE(outer->fields.size() == 2);
+
+    CHECK(outer->fields[0].name == "deps_");
+    CHECK(outer->fields[0].type_name == "Deps");
+    CHECK(outer->fields[0].referenced_types == std::vector<std::string>{ "Deps" });
+
+    CHECK(outer->fields[1].name == "count_");
+    CHECK(outer->fields[1].type_name == "int");
+    CHECK(outer->fields[1].referenced_types.empty());
+
+    const SymbolRecord* deps = find_symbol(snapshot->files[0], SymbolKind::Struct, "Deps");
+    REQUIRE(deps != nullptr);
+    REQUIRE(deps->field_count == 2);
+    REQUIRE(deps->fields.size() == 2);
+    CHECK(deps->fields[0].name == "foo");
+    CHECK(deps->fields[1].name == "bar");
+
+    std::filesystem::remove_all(temp_root);
+}
+
 } // namespace draxul

@@ -56,6 +56,7 @@ struct MegaCityCodeConfig
     float height_multiplier = 1.5f;
     bool clamp_semantic_metrics = false;
     bool hide_test_entities = true;
+    bool hide_struct_entities = false;
     bool auto_rebuild = true;
     bool show_ui_panels = true;
 

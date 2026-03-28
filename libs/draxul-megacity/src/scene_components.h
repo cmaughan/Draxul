@@ -99,6 +99,11 @@ struct SourceSymbol
     std::string name;
 };
 
+struct CustomMeshRef
+{
+    std::shared_ptr<const GeometryMesh> mesh;
+};
+
 // Links a route segment entity to the buildings it connects.
 struct RouteLink
 {

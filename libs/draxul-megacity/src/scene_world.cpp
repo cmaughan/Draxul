@@ -30,19 +30,30 @@ void SceneWorld::clear()
     registry_.clear();
 }
 
+void SceneWorld::clear_route_segments()
+{
+    std::vector<entt::entity> entities;
+    auto view = registry_.view<RouteSegmentMetrics>();
+    for (const entt::entity entity : view)
+        entities.push_back(entity);
+    for (const entt::entity entity : entities)
+        registry_.destroy(entity);
+}
+
 entt::entity SceneWorld::create_building(float world_x, float world_z, float elevation,
     const BuildingMetrics& metrics, const glm::vec4& color, SourceSymbol source,
-    MaterialId material)
+    MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh)
 {
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<BuildingMetrics>(entity, metrics);
+    const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
     if (material == MaterialId::WoodBuilding)
     {
         registry_.emplace<Appearance>(
             entity,
-            MeshId::Cube,
+            mesh_id,
             MaterialId::WoodBuilding,
             false,
             color,
@@ -55,8 +66,10 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
     else
     {
         registry_.emplace<Appearance>(
-            entity, MeshId::Cube, material, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+            entity, mesh_id, material, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     }
+    if (custom_mesh)
+        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;

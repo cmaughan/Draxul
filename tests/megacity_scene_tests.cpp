@@ -2,16 +2,19 @@
 
 #ifdef DRAXUL_ENABLE_MEGACITY
 
+#include "city_builder.h"
 #include "city_helpers.h"
 #include "isometric_camera.h"
 #include "isometric_scene_pass.h"
 #include "mesh_library.h"
+#include "scene_snapshot_builder.h"
 #include "scene_world.h"
 #include "semantic_city_layout.h"
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 #include "support/test_host_callbacks.h"
 #include <SDL3/SDL.h>
+#include <draxul/building_generator.h>
 #include <draxul/megacity_host.h>
 #include <draxul/text_service.h>
 #include <numbers>
@@ -184,6 +187,62 @@ TEST_CASE("megacity world creates module surface entities", "[megacity]")
     CHECK(metrics.extent_z == Catch::Approx(14.0f));
     CHECK(metrics.height == Catch::Approx(0.018f));
     CHECK(elevation.value == Catch::Approx(0.05f));
+}
+
+TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]")
+{
+    SceneWorld world;
+    DraxulBuildingParams params;
+    params.footprint = 4.0f;
+    params.sides = 4;
+    params.levels = {
+        { 2.0f, glm::vec3(0.8f, 0.2f, 0.2f) },
+        { 3.0f, glm::vec3(0.2f, 0.2f, 0.8f) },
+    };
+    auto custom_mesh = std::make_shared<GeometryMesh>(generate_draxul_building(params));
+
+    const BuildingMetrics metrics{
+        .footprint = 4.0f,
+        .height = 5.0f,
+        .sidewalk_width = 1.0f,
+        .road_width = 2.0f,
+    };
+    world.create_building(
+        1.0f,
+        2.0f,
+        0.25f,
+        metrics,
+        glm::vec4(1.0f),
+        SourceSymbol{ "src/app.cpp", "App" },
+        MaterialId::WoodBuilding,
+        custom_mesh);
+
+    IsometricCamera camera;
+    camera.look_at_world_center(1.0f, 2.0f);
+    camera.set_viewport(800, 600);
+    MegaCityCodeConfig config;
+
+    const SceneSnapshotResult result = build_scene_snapshot(
+        camera,
+        world,
+        config,
+        {},
+        {},
+        {});
+
+    REQUIRE(result.snapshot.objects.size() == 1);
+    REQUIRE(result.snapshot.custom_meshes.size() == 1);
+    CHECK(result.snapshot.objects[0].mesh == MeshId::Custom);
+    CHECK(result.snapshot.objects[0].custom_mesh_index == 0);
+    CHECK(result.snapshot.custom_meshes[0].get() == custom_mesh.get());
+}
+
+TEST_CASE("procedural building side count becomes hex for heavily connected buildings", "[megacity]")
+{
+    CHECK(procedural_building_side_count(0) == 4);
+    CHECK(procedural_building_side_count(5) == 4);
+    CHECK(procedural_building_side_count(6) == 6);
+    CHECK(procedural_building_side_count(12) == 6);
 }
 
 TEST_CASE("megacity camera projection responds to viewport aspect", "[megacity]")
@@ -522,6 +581,41 @@ TEST_CASE("semantic city layout can hide test entities by source path", "[megaci
     CHECK_FALSE(is_test_semantic_source(app_row.source_file_path));
 }
 
+TEST_CASE("semantic city layout can hide struct entities", "[megacity]")
+{
+    CityClassRecord class_row;
+    class_row.name = "App";
+    class_row.qualified_name = "App";
+    class_row.module_path = "app";
+    class_row.source_file_path = "app/app.cpp";
+    class_row.entity_kind = "building";
+    class_row.base_size = 8;
+    class_row.building_functions = 4;
+    class_row.function_sizes = { 20, 16 };
+    class_row.road_size = 2;
+    class_row.is_struct = false;
+
+    CityClassRecord struct_row = class_row;
+    struct_row.name = "AppState";
+    struct_row.qualified_name = "AppState";
+    struct_row.source_file_path = "app/app_state.h";
+    struct_row.is_struct = true;
+
+    const std::vector<CityClassRecord> rows{ class_row, struct_row };
+    MegaCityCodeConfig visible_config;
+    visible_config.clamp_semantic_metrics = true;
+    visible_config.hide_struct_entities = false;
+    MegaCityCodeConfig hidden_config = visible_config;
+    hidden_config.hide_struct_entities = true;
+
+    const SemanticCityLayout visible = build_semantic_city_layout(rows, visible_config);
+    const SemanticCityLayout hidden = build_semantic_city_layout(rows, hidden_config);
+
+    REQUIRE(visible.buildings.size() == 2);
+    REQUIRE(hidden.buildings.size() == 1);
+    CHECK(hidden.buildings[0].qualified_name == "App");
+}
+
 TEST_CASE("semantic megacity model is built from DB rows and shared metrics", "[megacity]")
 {
     SemanticCityModuleInput app;
@@ -752,14 +846,16 @@ TEST_CASE("city grid routes dependencies along road cells between buildings", "[
 
     MegaCityCodeConfig config;
     config.placement_step = 0.5f;
-    const CityGrid grid = build_city_grid(layout, model, config);
+    const CityGrid grid = build_city_grid(layout, config);
+    const auto routes = build_city_routes_for_selection(layout, model, grid, "Target");
 
-    REQUIRE(grid.routes.size() == 1);
-    const auto& route = grid.routes[0];
+    REQUIRE(routes.size() == 1);
+    const auto& route = routes[0];
     REQUIRE(route.world_points.size() >= 4);
     CHECK(route.source_qualified_name == "Source");
     CHECK(route.target_qualified_name == "Target");
-    CHECK(route.color == module_building_color("libs/example"));
+    CHECK(route.source_color == glm::vec4(0.20f, 0.88f, 0.30f, 1.0f));
+    CHECK(route.target_color == glm::vec4(0.92f, 0.22f, 0.18f, 1.0f));
 
     for (size_t i = 1; i < route.world_points.size(); ++i)
     {
@@ -777,13 +873,74 @@ TEST_CASE("city grid routes dependencies along road cells between buildings", "[
     }
 }
 
+TEST_CASE("selection routes allocate distinct target ports", "[megacity]")
+{
+    SemanticCityBuilding target;
+    target.module_path = "libs/example";
+    target.qualified_name = "Target";
+    target.display_name = "Target";
+    target.center = { 8.0f, 0.0f };
+    target.metrics = { 4.0f, 6.0f, 1.0f, 1.0f };
+
+    SemanticCityBuilding west = target;
+    west.qualified_name = "West";
+    west.display_name = "West";
+    west.center = { 0.0f, 0.0f };
+
+    SemanticCityBuilding north = target;
+    north.qualified_name = "North";
+    north.display_name = "North";
+    north.center = { 8.0f, 8.0f };
+
+    SemanticCityBuilding east = target;
+    east.qualified_name = "East";
+    east.display_name = "East";
+    east.center = { 16.0f, 0.0f };
+
+    SemanticCityModuleLayout module_layout;
+    module_layout.module_path = "libs/example";
+    module_layout.buildings = { west, north, east, target };
+
+    SemanticMegacityLayout layout;
+    layout.modules.push_back(module_layout);
+    layout.min_x = -4.0f;
+    layout.max_x = 20.0f;
+    layout.min_z = -4.0f;
+    layout.max_z = 12.0f;
+
+    SemanticMegacityModel model;
+    model.modules.push_back({ module_layout.module_path, 0, 0.5f, {}, module_layout.buildings });
+    model.dependencies.push_back({ "libs/example", "West", "target_", "Target", "libs/example", "Target" });
+    model.dependencies.push_back({ "libs/example", "North", "target_", "Target", "libs/example", "Target" });
+    model.dependencies.push_back({ "libs/example", "East", "target_", "Target", "libs/example", "Target" });
+
+    MegaCityCodeConfig config;
+    config.placement_step = 0.5f;
+    const CityGrid grid = build_city_grid(layout, config);
+    const auto routes = build_city_routes_for_selection(layout, model, grid, "Target");
+
+    REQUIRE(routes.size() == 3);
+    REQUIRE(routes[0].world_points.size() >= 2);
+    REQUIRE(routes[1].world_points.size() >= 2);
+    REQUIRE(routes[2].world_points.size() >= 2);
+
+    const glm::vec2 end_a = routes[0].world_points.back();
+    const glm::vec2 end_b = routes[1].world_points.back();
+    const glm::vec2 end_c = routes[2].world_points.back();
+
+    CHECK(glm::distance(end_a, end_b) > 1e-3f);
+    CHECK(glm::distance(end_a, end_c) > 1e-3f);
+    CHECK(glm::distance(end_b, end_c) > 1e-3f);
+}
+
 TEST_CASE("route render segments preserve independent route geometry", "[megacity]")
 {
     std::vector<CityGrid::RoutePolyline> routes;
     routes.push_back({
         "Alpha",
         "Target",
-        module_building_color("libs/example"),
+        glm::vec4(0.20f, 0.88f, 0.30f, 1.0f),
+        glm::vec4(0.92f, 0.22f, 0.18f, 1.0f),
         {
             { 0.0f, -1.0f },
             { 0.0f, 0.0f },
@@ -795,7 +952,8 @@ TEST_CASE("route render segments preserve independent route geometry", "[megacit
     routes.push_back({
         "Beta",
         "Target",
-        module_building_color("libs/example"),
+        glm::vec4(0.20f, 0.88f, 0.30f, 1.0f),
+        glm::vec4(0.92f, 0.22f, 0.18f, 1.0f),
         {
             { 0.0f, 2.0f },
             { 1.0f, 1.0f },
@@ -806,19 +964,25 @@ TEST_CASE("route render segments preserve independent route geometry", "[megacit
     });
 
     const auto segments = build_city_route_render_segments(routes, 0.2f);
-    REQUIRE(segments.size() == 8);
+    REQUIRE(segments.size() == 24);
 
-    bool found_shared_centerline_segment = false;
+    bool found_centerline_gradient_segment = false;
+    bool found_greenish_segment = false;
+    bool found_reddish_segment = false;
     for (const auto& segment : segments)
     {
-        if (std::abs(segment.a.x - 2.0f) <= 1e-4f && std::abs(segment.b.x - 4.0f) <= 1e-4f
-            && std::abs(segment.a.y) <= 1e-4f && std::abs(segment.b.y) <= 1e-4f)
+        if (std::abs(segment.a.y) <= 1e-4f && std::abs(segment.b.y) <= 1e-4f
+            && segment.a.x >= 2.0f - 1e-4f && segment.b.x <= 4.0f + 1e-4f)
         {
-            found_shared_centerline_segment = true;
+            found_centerline_gradient_segment = true;
         }
+        found_greenish_segment |= segment.color.g > segment.color.r;
+        found_reddish_segment |= segment.color.r > segment.color.g;
     }
 
-    CHECK(found_shared_centerline_segment);
+    CHECK(found_centerline_gradient_segment);
+    CHECK(found_greenish_segment);
+    CHECK(found_reddish_segment);
 }
 
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
