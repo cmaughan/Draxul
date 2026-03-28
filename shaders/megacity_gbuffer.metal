@@ -16,6 +16,10 @@ struct FrameUniforms
     float4 ao_params;
     float4 debug_view;
     float4 world_debug_bounds;
+    float4x4 shadow_view_proj[3];
+    float4x4 shadow_texture_matrix[3];
+    float4 shadow_split_depths;
+    float4 shadow_params;
 };
 
 struct ObjectUniforms
@@ -62,6 +66,11 @@ struct GBufferOut
     half4 normal [[color(0)]]; // RG = octahedral normal, BA reserved
 };
 
+struct ShadowVertexOut
+{
+    float4 position [[position]];
+};
+
 // Octahedral encoding: unit normal → [0,1]^2
 // Reference: "Survey of Efficient Representations for Independent Unit Vectors" (Cigolle et al. 2014)
 float2 oct_encode(float3 n)
@@ -82,6 +91,17 @@ vertex VertexOut gbuffer_vertex(VertexIn in [[stage_in]],
     out.normal_ws = normalize(float3x3(object.world[0].xyz, object.world[1].xyz, object.world[2].xyz) * in.normal);
     out.material_index = object.material_data.x;
     out.material_uv = in.uv * object.uv_rect.zw;
+    return out;
+}
+
+vertex ShadowVertexOut shadow_vertex(VertexIn in [[stage_in]],
+    constant FrameUniforms& frame [[buffer(1)]],
+    constant ObjectUniforms& object [[buffer(2)]])
+{
+    ShadowVertexOut out;
+    const float4 world_position = object.world * float4(in.position, 1.0f);
+    const uint cascade_index = min(object.material_data.y, 2u);
+    out.position = frame.shadow_view_proj[cascade_index] * world_position;
     return out;
 }
 

@@ -14,6 +14,10 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     vec4 ao_params;
     vec4 debug_view;
     vec4 world_debug_bounds;
+    mat4 shadow_view_proj[3];
+    mat4 shadow_texture_matrix[3];
+    vec4 shadow_split_depths;
+    vec4 shadow_params;
 }
 frame;
 struct MaterialInstance
@@ -31,6 +35,7 @@ material_table;
 layout(set = 0, binding = 2) uniform sampler2D sign_atlas;
 layout(set = 0, binding = 3) uniform sampler2D ao_buffer;
 layout(set = 0, binding = 4) uniform sampler2D material_textures[25];
+layout(set = 0, binding = 5) uniform sampler2D shadow_maps[3];
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) in vec3 in_base_color;
@@ -84,6 +89,47 @@ mat3 tangent_basis(vec3 normal_ws, vec4 tangent_ws)
     vec3 tangent = normalize(tangent_ws.xyz);
     vec3 bitangent = normalize(cross(normal_ws, tangent) * tangent_ws.w);
     return mat3(tangent, bitangent, normal_ws);
+}
+
+int shadow_cascade_index(float clip_depth)
+{
+    if (clip_depth <= frame.shadow_split_depths.x)
+        return 0;
+    if (clip_depth <= frame.shadow_split_depths.y)
+        return 1;
+    return 2;
+}
+
+float sample_shadow_map(int cascade_index, vec3 shadow_coord)
+{
+    if (shadow_coord.x <= 0.0 || shadow_coord.x >= 1.0 || shadow_coord.y <= 0.0 || shadow_coord.y >= 1.0)
+        return 1.0;
+    if (shadow_coord.z <= 0.0 || shadow_coord.z >= 1.0)
+        return 1.0;
+
+    float visibility = 0.0;
+    float texel = max(frame.shadow_params.w, 1e-6);
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            vec2 uv = shadow_coord.xy + vec2(x, y) * texel;
+            float stored_depth = texture(shadow_maps[cascade_index], uv).r;
+            visibility += shadow_coord.z <= stored_depth ? 1.0 : 0.0;
+        }
+    }
+    return visibility / 9.0;
+}
+
+float directional_shadow_visibility(vec3 world_position, vec3 normal_ws, float ndotl, float clip_depth)
+{
+    int cascade_index = shadow_cascade_index(clip_depth);
+    float normal_bias = max(frame.shadow_params.z, 0.0);
+    vec3 biased_world = world_position + normal_ws * (normal_bias * (1.0 - ndotl));
+    vec4 shadow_position = frame.shadow_texture_matrix[cascade_index] * vec4(biased_world, 1.0);
+    vec3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6);
+    shadow_coord.z -= max(frame.shadow_params.y, 0.0);
+    return sample_shadow_map(cascade_index, shadow_coord);
 }
 
 vec4 sample_material_texture(uint texture_index, vec2 uv)
@@ -168,6 +214,11 @@ void main()
     float ndotl = max(dot(normal_ws, dir_light), 0.0);
     if (ndotl > 0.0)
     {
+        float shadow_visibility = directional_shadow_visibility(
+            in_world_position,
+            normal_ws,
+            ndotl,
+            gl_FragCoord.z);
         vec3 half_vec = normalize(view_dir + dir_light);
         vec3 fresnel = fresnel_schlick(max(dot(half_vec, view_dir), 0.0), f0);
         float ndf = distribution_ggx(normal_ws, half_vec, roughness);
@@ -177,11 +228,11 @@ void main()
         vec3 specular = numerator / denom;
         vec3 kd = (1.0 - fresnel) * (1.0 - metallic);
         vec3 radiance = hemi * 0.52;
-        direct_lighting += (kd * albedo / kPi + specular) * radiance * ndotl;
+        direct_lighting += (kd * albedo / kPi + specular) * radiance * ndotl * shadow_visibility;
         if (leaf_scattering > 0.0)
         {
             float transmitted = max(dot(-normal_ws, dir_light), 0.0);
-            direct_lighting += albedo * radiance * (leaf_scattering * 0.45) * transmitted;
+            direct_lighting += albedo * radiance * (leaf_scattering * 0.45) * transmitted * shadow_visibility;
         }
     }
 

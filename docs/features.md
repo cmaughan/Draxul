@@ -13,7 +13,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Zsh | `--host zsh` | PTY-based terminal (Unix) |
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
 | WSL | `--host wsl` | Windows Subsystem for Linux shell |
-| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/building materials, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache) |
+| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache) |
 
 Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
 
@@ -27,8 +27,8 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **Buffer**: Host-visible/shared memory, direct writes, no staging. 112 bytes per cell
 - **Frames in flight**: 2 with synchronization primitives
 - **Pixel format**: BGRA8 Unorm (Neovim sends pre-sRGB colors)
-- **MegaCity materials**: Textured asphalt road surfaces, paving-stone sidewalks, facade-textured procedural n-gon building shell meshes with albedo/normal/roughness/metalness support, bark-textured central-park trees, plus a depth/normal AO prepass and forward-lit AO/material debug controls including metallic, tangent, bitangent, and packed-TBN views
-- **MegaCity surface pipeline**: Opaque MegaCity rendering now uses an offscreen MSAA depth buffer, an MSAA `RGBA16F` scene color target, a resolved HDR scene texture, and a final `BGRA8 sRGB` scene texture before the main swapchain present; the debug panel can inspect the resolved HDR and final scene targets alongside the AO/GBuffer surfaces
+- **MegaCity materials**: Textured asphalt road surfaces, paving-stone sidewalks, flat-color procedural n-gon building shell meshes with configurable roughness/metallic, bark-textured central-park trees, plus forward-lit material debug controls including metallic, tangent, bitangent, packed-TBN, and directional-shadow views
+- **MegaCity surface pipeline**: Opaque MegaCity rendering now uses cascaded directional shadow maps, a depth/normal AO prepass, an offscreen MSAA depth buffer, an MSAA `RGBA16F` scene color target, a resolved HDR scene texture, and a final `BGRA8 sRGB` scene texture before the main swapchain present; the debug panel can inspect the resolved HDR/final scene targets and the directional shadow cascades alongside the AO/GBuffer surfaces
 - **MegaCity tone mapping controls**: The HDR post pass now applies tone mapping before the final sRGB target, with configurable `Exposure` and `White Point` controls in the Megacity lighting UI
 - **MegaCity module surfaces**: Each non-central module now draws a thin module-colored outline above the shared road layer so module footprints are readable beneath sidewalks and buildings
 - **MegaCity park dressing**: Central park now includes a procedurally generated `DraxulTree` mesh with atlas-based PBR leaf cards
@@ -87,7 +87,7 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 
 ## Diagnostics Panel (ImGui)
 
-Toggle with F12.Shows : -Display DPI, cell size, grid dimensions, dirty cell count - Frame timing(current + average) - Atlas usage ratio and glyph count - Startup profiling step timings - MegaCity renderer controls, including module filtering(`All Modules` or a selected module), AO debug view(`Final Scene`, `Ambient Occlusion`, `Decoded Normals`, `World Position`), and AO denoise toggle - MegaCity sign styling controls, including separate module - sign and building - sign board / text colors - MegaCity central - park tree controls, including age, seed, branch depth / count, curvature, trunk / branch wander, bend frequency / deviation, leaf density / orientation randomness, leaf size range, leaf start depth, bark colors, and atlas-based leaf cards with PBR normal / roughness / opacity / scattering textures
+Toggle with F12.Shows : -Display DPI, cell size, grid dimensions, dirty cell count - Frame timing(current + average) - Atlas usage ratio and glyph count - Startup profiling step timings - MegaCity renderer controls, including module filtering(`All Modules` or a selected module), debug views(`Final Scene`, `Ambient Occlusion`, `Normals`, `World Position`, `Roughness`, `Metallic`, `Albedo`, `Tangents`, `UV`, `Depth`, `Bitangents`, `TBN Packed`, `Directional Shadow`), tone-mapping controls, AO tuning, and shadow-map inspection - MegaCity sign styling controls, including separate module-sign and building-sign board/text colors - MegaCity central-park tree controls, including age, seed, branch depth/count, curvature, trunk/branch wander, bend frequency/deviation, leaf density/orientation randomness, leaf size range, leaf start depth, bark colors, and atlas-based leaf cards with PBR normal/roughness/opacity/scattering textures
 
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 --
         -

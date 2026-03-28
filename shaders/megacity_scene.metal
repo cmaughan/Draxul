@@ -16,6 +16,10 @@ struct FrameUniforms
     float4 ao_params;
     float4 debug_view;
     float4 world_debug_bounds;
+    float4x4 shadow_view_proj[3];
+    float4x4 shadow_texture_matrix[3];
+    float4 shadow_split_depths;
+    float4 shadow_params;
 };
 
 struct ObjectUniforms
@@ -125,6 +129,54 @@ float3x3 tangent_basis(float3 normal_ws, float4 tangent_ws)
     return float3x3(tangent, bitangent, normal_ws);
 }
 
+int shadow_cascade_index(constant FrameUniforms& frame, float clip_depth)
+{
+    if (clip_depth <= frame.shadow_split_depths.x)
+        return 0;
+    if (clip_depth <= frame.shadow_split_depths.y)
+        return 1;
+    return 2;
+}
+
+float sample_shadow_map(array<depth2d<float>, 3> shadowMaps, sampler shadowSampler, int cascadeIndex, float3 shadowCoord,
+    constant FrameUniforms& frame)
+{
+    if (shadowCoord.x <= 0.0f || shadowCoord.x >= 1.0f || shadowCoord.y <= 0.0f || shadowCoord.y >= 1.0f)
+        return 1.0f;
+    if (shadowCoord.z <= 0.0f || shadowCoord.z >= 1.0f)
+        return 1.0f;
+
+    float visibility = 0.0f;
+    const float texel = max(frame.shadow_params.w, 1e-6f);
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            const float2 uv = shadowCoord.xy + float2(float(x), float(y)) * texel;
+            const float stored_depth = shadowMaps[cascadeIndex].sample(shadowSampler, uv);
+            visibility += shadowCoord.z <= stored_depth ? 1.0f : 0.0f;
+        }
+    }
+    return visibility / 9.0f;
+}
+
+float directional_shadow_visibility(
+    VertexOut in,
+    constant FrameUniforms& frame,
+    array<depth2d<float>, 3> shadowMaps,
+    sampler shadowSampler,
+    float3 normal_ws,
+    float ndotl)
+{
+    const int cascade_index = shadow_cascade_index(frame, in.position.z);
+    const float normal_bias = max(frame.shadow_params.z, 0.0f);
+    const float3 biased_world = in.world_position + normal_ws * (normal_bias * (1.0f - ndotl));
+    const float4 shadow_position = frame.shadow_texture_matrix[cascade_index] * float4(biased_world, 1.0f);
+    float3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6f);
+    shadow_coord.z -= max(frame.shadow_params.y, 0.0f);
+    return sample_shadow_map(shadowMaps, shadowSampler, cascade_index, shadow_coord, frame);
+}
+
 fragment float4 scene_fragment(
     VertexOut in [[stage_in]],
     constant FrameUniforms& frame [[buffer(1)]],
@@ -132,9 +184,11 @@ fragment float4 scene_fragment(
     texture2d<float> signAtlas [[texture(0)]],
     texture2d<float> aoTexture [[texture(1)]],
     array<texture2d<float>, 25> materialTextures [[texture(2)]],
+    array<depth2d<float>, 3> shadowMaps [[texture(27)]],
     sampler signSampler [[sampler(0)]],
     sampler aoSampler [[sampler(1)]],
-    sampler materialSampler [[sampler(2)]])
+    sampler materialSampler [[sampler(2)]],
+    sampler shadowSampler [[sampler(3)]])
 {
     float3 normal_ws = normalize(in.normal_ws);
     float3 albedo = in.base_color;
@@ -238,6 +292,13 @@ fragment float4 scene_fragment(
     const float ndotl = max(dot(normal_ws, light_dir), 0.0f);
     if (ndotl > 0.0f)
     {
+        const float shadow_visibility = directional_shadow_visibility(
+            in,
+            frame,
+            shadowMaps,
+            shadowSampler,
+            normal_ws,
+            ndotl);
         const float3 half_vec = normalize(view_dir + light_dir);
         const float3 fresnel = fresnel_schlick(max(dot(half_vec, view_dir), 0.0f), f0);
         const float ndf = distribution_ggx(normal_ws, half_vec, roughness);
@@ -246,11 +307,11 @@ fragment float4 scene_fragment(
             / max(4.0f * max(dot(normal_ws, view_dir), 0.0f) * ndotl, 1e-4f);
         const float3 kd = (1.0f - fresnel) * (1.0f - metallic);
         const float3 radiance = hemi * 0.52f;
-        direct_lighting += (kd * albedo / 3.14159265359f + specular) * radiance * ndotl;
+        direct_lighting += (kd * albedo / 3.14159265359f + specular) * radiance * ndotl * shadow_visibility;
         if (leaf_scattering > 0.0f)
         {
             const float transmitted = max(dot(-normal_ws, light_dir), 0.0f);
-            direct_lighting += albedo * radiance * (leaf_scattering * 0.45f) * transmitted;
+            direct_lighting += albedo * radiance * (leaf_scattering * 0.45f) * transmitted * shadow_visibility;
         }
     }
 
@@ -323,9 +384,11 @@ fragment float4 debug_fragment(
     texture2d<float> signAtlas [[texture(0)]],
     texture2d<float> aoTexture [[texture(1)]],
     array<texture2d<float>, 25> materialTextures [[texture(2)]],
+    array<depth2d<float>, 3> shadowMaps [[texture(27)]],
     sampler signSampler [[sampler(0)]],
     sampler aoSampler [[sampler(1)]],
-    sampler materialSampler [[sampler(2)]])
+    sampler materialSampler [[sampler(2)]],
+    sampler shadowSampler [[sampler(3)]])
 {
     const int mode = int(floor(frame.debug_view.x + 0.5f));
 
@@ -458,6 +521,15 @@ fragment float4 debug_fragment(
             bitangent.y * 0.5f + 0.5f,
             normal_ws.z * 0.5f + 0.5f);
     }
+    else if (mode == 13)
+    {
+        const float3 dir_light = normalize(-frame.light_dir.xyz);
+        const float ndotl = max(dot(normal_ws, dir_light), 0.0f);
+        const float visibility = ndotl > 0.0f
+            ? directional_shadow_visibility(in, frame, shadowMaps, shadowSampler, normal_ws, ndotl)
+            : 1.0f;
+        result = float3(visibility);
+    }
 
     return float4(result, in.opacity);
 }
@@ -510,4 +582,44 @@ fragment float4 scene_present_fragment(
     sampler linearSampler [[sampler(0)]])
 {
     return presentTexture.sample(linearSampler, in.uv);
+}
+
+// --- Tooltip overlay ---
+
+struct TooltipUniforms
+{
+    float4 rect;     // x, y, width, height in pixels
+    float4 viewport; // viewport_width, viewport_height, 0, 0
+};
+
+struct TooltipVertexOut
+{
+    float4 position [[position]];
+    float2 uv;
+};
+
+vertex TooltipVertexOut tooltip_vertex(
+    uint vid [[vertex_id]],
+    constant TooltipUniforms& tooltip [[buffer(0)]])
+{
+    const float2 corners[4] = { {0, 0}, {1, 0}, {1, 1}, {0, 1} };
+    constexpr uint indices[6] = { 0, 1, 2, 0, 2, 3 };
+    const float2 corner = corners[indices[vid]];
+
+    const float2 pixel_pos = tooltip.rect.xy + corner * tooltip.rect.zw;
+    float2 ndc = pixel_pos / tooltip.viewport.xy * 2.0f - 1.0f;
+    ndc.y = -ndc.y;
+
+    TooltipVertexOut out;
+    out.position = float4(ndc, 0.0f, 1.0f);
+    out.uv = corner;
+    return out;
+}
+
+fragment float4 tooltip_fragment(
+    TooltipVertexOut in [[stage_in]],
+    texture2d<float> tooltipTex [[texture(0)]],
+    sampler tooltipSampler [[sampler(0)]])
+{
+    return tooltipTex.sample(tooltipSampler, in.uv);
 }

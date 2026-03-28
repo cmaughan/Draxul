@@ -886,6 +886,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         {
             edit_vec2("Fade px Range", config.sign_text_px_range, 0.1f, 0.0f, 64.0f, "%.1f");
             edit_float("Label Point Size", config.sign_label_point_size, 0.25f, 1.0f, 72.0f, "%.1f");
+            edit_float("Tooltip Point Size", config.tooltip_point_size, 0.25f, 4.0f, 72.0f, "%.1f");
             edit_float("Pixels / World Unit", config.roof_sign_pixels_per_world_unit, 1.0f, 8.0f, 2048.0f, "%.1f");
             ImGui::TreePop();
         }
@@ -1014,7 +1015,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
 
     // -- Debug View --------------------------------------------------------
     {
-        static constexpr std::array<const char*, 13> kDebugViewLabels = {
+        static constexpr std::array<const char*, 14> kDebugViewLabels = {
             "Final Scene",
             "Ambient Occlusion",
             "AO Denoised",
@@ -1028,11 +1029,12 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             "Depth",
             "Bitangents",
             "TBN Packed",
+            "Directional Shadow",
         };
         int debug_view = static_cast<int>(config.debug_view);
         if (ImGui::Combo("Debug View", &debug_view, kDebugViewLabels.data(), static_cast<int>(kDebugViewLabels.size())))
         {
-            config.debug_view = static_cast<MegaCityDebugView>(std::clamp(debug_view, 0, 12));
+            config.debug_view = static_cast<MegaCityDebugView>(std::clamp(debug_view, 0, 13));
             changed = true;
             controls.committed_edit = true;
         }

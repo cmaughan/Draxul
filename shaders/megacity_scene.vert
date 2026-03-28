@@ -14,6 +14,10 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     vec4 ao_params;
     vec4 debug_view;
     vec4 world_debug_bounds;
+    mat4 shadow_view_proj[3];
+    mat4 shadow_texture_matrix[3];
+    vec4 shadow_split_depths;
+    vec4 shadow_params;
 }
 frame;
 

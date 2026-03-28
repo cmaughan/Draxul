@@ -3,6 +3,7 @@
 #include "megacity_material_assets.h"
 #include "mesh_library.h"
 #include "objc_ref.h"
+#include "shadow_cascade.h"
 #import <Metal/Metal.h>
 #include <algorithm>
 #include <array>
@@ -33,6 +34,10 @@ struct FrameUniforms
     simd_float4 ao_params; // x = radius world, y = radius pixels, z = bias, w = power
     simd_float4 debug_view; // x = AO debug mode, y = AO denoise enabled
     simd_float4 world_debug_bounds; // x = min x, y = max x, z = min z, w = max z
+    simd_float4x4 shadow_view_proj[kShadowCascadeCount];
+    simd_float4x4 shadow_texture_matrix[kShadowCascadeCount];
+    simd_float4 shadow_split_depths; // x/y/z = cascade end depth in clip space [0,1]
+    simd_float4 shadow_params; // x = cascade count, y = sample depth bias, z = normal bias, w = 1 / shadow resolution
 };
 
 struct ObjectUniforms
@@ -296,6 +301,7 @@ struct GBufferTargets
     ObjCRef<id<MTLTexture>> ao_raw; // RGBA8Unorm — raw ambient occlusion before denoise
     ObjCRef<id<MTLTexture>> ao; // RGBA8Unorm — R ambient occlusion, GBA reserved
     ObjCRef<id<MTLTexture>> depth; // Depth32Float — hardware depth
+    std::array<ObjCRef<id<MTLTexture>>, kShadowCascadeCount> shadow_maps; // Depth32Float directional shadow cascades
     ObjCRef<id<MTLTexture>> scene_color_msaa; // RGBA16Float MSAA scene color
     ObjCRef<id<MTLTexture>> scene_depth_msaa; // Depth32Float MSAA scene depth
     ObjCRef<id<MTLTexture>> scene_hdr; // RGBA16Float resolved HDR scene
@@ -335,6 +341,7 @@ struct IsometricScenePass::State
     bool initialized = false;
 
     // GBuffer pre-pass resources
+    ObjCRef<id<MTLRenderPipelineState>> shadow_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> gbuffer_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ao_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ao_blur_pipeline;
@@ -346,6 +353,13 @@ struct IsometricScenePass::State
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
     NSUInteger scene_sample_count = 4;
+    int shadow_map_resolution = 2048;
+
+    // Tooltip overlay resources
+    ObjCRef<id<MTLRenderPipelineState>> tooltip_pipeline;
+    ObjCRef<id<MTLTexture>> tooltip_texture;
+    ObjCRef<id<MTLSamplerState>> tooltip_sampler;
+    uint64_t tooltip_texture_revision = 0;
 
     bool init(id<MTLDevice> device, int grid_width, int grid_height, float tile_size)
     {
@@ -549,6 +563,46 @@ struct IsometricScenePass::State
             DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to create label sampler");
             return false;
         }
+
+        // Tooltip overlay pipeline (alpha-blended screen-space quad).
+        id<MTLFunction> tooltip_vert_fn = [library newFunctionWithName:@"tooltip_vertex"];
+        id<MTLFunction> tooltip_frag_fn = [library newFunctionWithName:@"tooltip_fragment"];
+        if (tooltip_vert_fn && tooltip_frag_fn)
+        {
+            MTLRenderPipelineDescriptor* tooltip_desc = [[MTLRenderPipelineDescriptor alloc] init];
+            tooltip_desc.vertexFunction = tooltip_vert_fn;
+            tooltip_desc.fragmentFunction = tooltip_frag_fn;
+            tooltip_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+            tooltip_desc.colorAttachments[0].blendingEnabled = YES;
+            tooltip_desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+            tooltip_desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+            tooltip_desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+            tooltip_desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+            tooltip_desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+            tooltip_desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+
+            id<MTLRenderPipelineState> tooltip_ps = [device newRenderPipelineStateWithDescriptor:tooltip_desc
+                                                                                           error:&error];
+            if (tooltip_ps)
+                tooltip_pipeline.reset(tooltip_ps);
+            else
+                DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: failed to create tooltip pipeline: %s",
+                    error ? [[error localizedDescription] UTF8String] : "unknown");
+
+            // Tooltip sampler (nearest for pixel-precise text).
+            MTLSamplerDescriptor* tooltip_sampler_desc = [[MTLSamplerDescriptor alloc] init];
+            tooltip_sampler_desc.minFilter = MTLSamplerMinMagFilterNearest;
+            tooltip_sampler_desc.magFilter = MTLSamplerMinMagFilterNearest;
+            tooltip_sampler_desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+            tooltip_sampler_desc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+            tooltip_sampler.reset([device newSamplerStateWithDescriptor:tooltip_sampler_desc]);
+        }
+        else
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "MegaCity: tooltip shader functions not found in scene library");
+        }
+
         DRAXUL_LOG_INFO(LogCategory::App, "MegaCity: scene pipeline initialized");
         return true;
     }
@@ -840,7 +894,8 @@ struct IsometricScenePass::State
     bool init_gbuffer(id<MTLDevice> device)
     {
         if (gbuffer_initialized)
-            return gbuffer_pipeline.get() != nil && ao_pipeline.get() != nil && ao_blur_pipeline.get() != nil
+            return shadow_pipeline.get() != nil && gbuffer_pipeline.get() != nil
+                && ao_pipeline.get() != nil && ao_blur_pipeline.get() != nil
                 && gbuffer_sampler.get() != nil && gbuffer_point_sampler.get() != nil;
 
         gbuffer_initialized = true;
@@ -862,9 +917,10 @@ struct IsometricScenePass::State
 
         id<MTLFunction> vert_fn = [library newFunctionWithName:@"gbuffer_vertex"];
         id<MTLFunction> frag_fn = [library newFunctionWithName:@"gbuffer_fragment"];
-        if (!vert_fn || !frag_fn)
+        id<MTLFunction> shadow_vert_fn = [library newFunctionWithName:@"shadow_vertex"];
+        if (!vert_fn || !frag_fn || !shadow_vert_fn)
         {
-            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: gbuffer_vertex or gbuffer_fragment not found");
+            DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: gbuffer/shadow shader functions not found");
             return false;
         }
 
@@ -906,6 +962,22 @@ struct IsometricScenePass::State
             return false;
         }
         gbuffer_pipeline.reset(pso);
+
+        MTLRenderPipelineDescriptor* shadow_desc = [[MTLRenderPipelineDescriptor alloc] init];
+        shadow_desc.vertexFunction = shadow_vert_fn;
+        shadow_desc.fragmentFunction = nil;
+        shadow_desc.vertexDescriptor = vertex_desc;
+        shadow_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+
+        id<MTLRenderPipelineState> shadow_pso = [device newRenderPipelineStateWithDescriptor:shadow_desc error:&error];
+        if (!shadow_pso)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "MegaCity: failed to create shadow pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        shadow_pipeline.reset(shadow_pso);
 
         NSString* aoLibPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_ao.metallib"];
         NSURL* aoLibURL = [NSURL fileURLWithPath:aoLibPath];
@@ -1005,6 +1077,14 @@ struct IsometricScenePass::State
 
         for (auto& targets : gbuffer_targets)
         {
+            MTLTextureDescriptor* shadow_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                             width:static_cast<NSUInteger>(shadow_map_resolution)
+                                            height:static_cast<NSUInteger>(shadow_map_resolution)
+                                         mipmapped:NO];
+            shadow_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            shadow_desc.storageMode = MTLStorageModePrivate;
+
             MTLTextureDescriptor* rgba8_desc = [MTLTextureDescriptor
                 texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                              width:static_cast<NSUInteger>(width)
@@ -1061,6 +1141,8 @@ struct IsometricScenePass::State
             targets.ao_raw.reset([device newTextureWithDescriptor:rgba8_desc]);
             targets.ao.reset([device newTextureWithDescriptor:rgba8_desc]);
             targets.depth.reset([device newTextureWithDescriptor:depth_desc]);
+            for (auto& shadow_map : targets.shadow_maps)
+                shadow_map.reset([device newTextureWithDescriptor:shadow_desc]);
             targets.scene_color_msaa.reset([device newTextureWithDescriptor:scene_msaa_desc]);
             targets.scene_depth_msaa.reset([device newTextureWithDescriptor:scene_depth_desc]);
             targets.scene_hdr.reset([device newTextureWithDescriptor:scene_hdr_desc]);
@@ -1073,7 +1155,11 @@ struct IsometricScenePass::State
             targets.width = width;
             targets.height = height;
 
-            if (!targets.normal || !targets.ao_raw || !targets.ao || !targets.depth
+            const bool have_shadow_maps = std::all_of(
+                targets.shadow_maps.begin(), targets.shadow_maps.end(),
+                [](const ObjCRef<id<MTLTexture>>& texture) { return texture.get() != nil; });
+
+            if (!targets.normal || !targets.ao_raw || !targets.ao || !targets.depth || !have_shadow_maps
                 || !targets.scene_color_msaa || !targets.scene_depth_msaa
                 || !targets.scene_hdr || !targets.scene_final_srgb || !targets.scene_final_unorm)
             {
@@ -1141,21 +1227,6 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
 
     auto& gbuffer = state_->gbuffer_targets[frame_index];
 
-    // Build GBuffer render pass descriptor
-    MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpDesc.colorAttachments[0].texture = gbuffer.normal.get();
-    rpDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
-    rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
-    rpDesc.colorAttachments[0].clearColor = MTLClearColorMake(0.5, 0.5, 0.0, 0.0);
-    rpDesc.depthAttachment.texture = gbuffer.depth.get();
-    rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
-    rpDesc.depthAttachment.storeAction = MTLStoreActionStore;
-    rpDesc.depthAttachment.clearDepth = 1.0;
-
-    id<MTLRenderCommandEncoder> encoder = [cmd_buf renderCommandEncoderWithDescriptor:rpDesc];
-    if (!encoder)
-        return;
-
     MTLViewport viewport;
     viewport.originX = 0;
     viewport.originY = 0;
@@ -1163,14 +1234,12 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     viewport.height = vh;
     viewport.znear = 0.0;
     viewport.zfar = 1.0;
-    [encoder setViewport:viewport];
 
     MTLScissorRect scissor;
     scissor.x = 0;
     scissor.y = 0;
     scissor.width = static_cast<NSUInteger>(vw);
     scissor.height = static_cast<NSUInteger>(vh);
-    [encoder setScissorRect:scissor];
 
     // Upload frame uniforms (same as main pass)
     FrameUniforms frame;
@@ -1212,7 +1281,153 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         scene_.camera.world_debug_bounds.y,
         scene_.camera.world_debug_bounds.z,
         scene_.camera.world_debug_bounds.w);
+    const DirectionalShadowCascadeSet shadow_cascades = build_directional_shadow_cascades(scene_.camera, state_->shadow_map_resolution);
+    for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+    {
+        const glm::mat4 world_to_clip = shadow_cascades.cascades[cascade_index].proj * shadow_cascades.cascades[cascade_index].view;
+        frame.shadow_view_proj[cascade_index] = to_simd_matrix(world_to_clip);
+        frame.shadow_texture_matrix[cascade_index] = to_simd_matrix(shadow_texture_matrix(world_to_clip));
+    }
+    frame.shadow_split_depths = simd_make_float4(
+        shadow_cascades.cascades[0].split_depth,
+        shadow_cascades.cascades[1].split_depth,
+        shadow_cascades.cascades[2].split_depth,
+        1.0f);
+    frame.shadow_params = simd_make_float4(
+        static_cast<float>(shadow_cascades.cascade_count),
+        shadow_cascades.sample_depth_bias,
+        shadow_cascades.normal_bias,
+        1.0f / static_cast<float>(std::max(shadow_cascades.resolution, 1)));
     std::memcpy([frame_resources.frame_uniforms.get() contents], &frame, sizeof(frame));
+
+    const uint32_t gbuffer_opaque_count = std::min(scene_.opaque_count,
+        static_cast<uint32_t>(scene_.objects.size()));
+    auto object_casts_shadow = [&](const SceneObject& obj) {
+        if (obj.mesh == MeshId::Grid || obj.color.a < 1.0f)
+            return false;
+        if (!obj.route_source.empty() || !obj.route_target.empty())
+            return false;
+        if (obj.material_index < scene_.materials.size()
+            && scene_.materials[obj.material_index].shading_model == MaterialShadingModel::LeafCutoutPbr)
+        {
+            return false;
+        }
+        return true;
+    };
+
+    for (uint32_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+    {
+        if (!gbuffer.shadow_maps[cascade_index])
+            continue;
+
+        MTLRenderPassDescriptor* shadowDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+        shadowDesc.depthAttachment.texture = gbuffer.shadow_maps[cascade_index].get();
+        shadowDesc.depthAttachment.loadAction = MTLLoadActionClear;
+        shadowDesc.depthAttachment.storeAction = MTLStoreActionStore;
+        shadowDesc.depthAttachment.clearDepth = 1.0;
+
+        id<MTLRenderCommandEncoder> shadowEncoder = [cmd_buf renderCommandEncoderWithDescriptor:shadowDesc];
+        if (!shadowEncoder)
+            return;
+
+        MTLViewport shadowViewport;
+        shadowViewport.originX = 0.0;
+        shadowViewport.originY = 0.0;
+        shadowViewport.width = static_cast<double>(state_->shadow_map_resolution);
+        shadowViewport.height = static_cast<double>(state_->shadow_map_resolution);
+        shadowViewport.znear = 0.0;
+        shadowViewport.zfar = 1.0;
+        [shadowEncoder setViewport:shadowViewport];
+
+        MTLScissorRect shadowScissor;
+        shadowScissor.x = 0;
+        shadowScissor.y = 0;
+        shadowScissor.width = static_cast<NSUInteger>(state_->shadow_map_resolution);
+        shadowScissor.height = static_cast<NSUInteger>(state_->shadow_map_resolution);
+        [shadowEncoder setScissorRect:shadowScissor];
+        [shadowEncoder setRenderPipelineState:state_->shadow_pipeline.get()];
+        [shadowEncoder setDepthStencilState:state_->depth_state.get()];
+        [shadowEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
+        [shadowEncoder setDepthBias:2.0 slopeScale:2.0 clamp:0.02];
+        [shadowEncoder setVertexBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
+
+        for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
+        {
+            const SceneObject& obj = scene_.objects[gi];
+            if (!object_casts_shadow(obj))
+                continue;
+
+            const MeshBuffers* mesh = nullptr;
+            switch (obj.mesh)
+            {
+            case MeshId::Floor:
+                mesh = &state_->floor_mesh;
+                break;
+            case MeshId::Cube:
+                mesh = &state_->cube_mesh;
+                break;
+            case MeshId::TreeBark:
+                mesh = &state_->tree_bark_mesh;
+                break;
+            case MeshId::TreeLeaves:
+                mesh = &state_->tree_leaf_mesh;
+                break;
+            case MeshId::RoadSurface:
+                mesh = &state_->road_surface_mesh;
+                break;
+            case MeshId::RoofSign:
+                mesh = &state_->roof_sign_mesh;
+                break;
+            case MeshId::WallSign:
+                mesh = &state_->wall_sign_mesh;
+                break;
+            case MeshId::Custom:
+                if (obj.custom_mesh_index < state_->custom_meshes.size())
+                    mesh = &state_->custom_meshes[obj.custom_mesh_index];
+                break;
+            case MeshId::Grid:
+                break;
+            }
+            if (!mesh || mesh->index_count == 0)
+                continue;
+
+            ObjectUniforms object;
+            object.world = to_simd_matrix(obj.world);
+            object.color = simd_make_float4(obj.color.x, obj.color.y, obj.color.z, obj.color.w);
+            object.material_data = simd_make_uint4(obj.material_index, cascade_index, 0u, 0u);
+            object.uv_rect = simd_make_float4(obj.uv_rect.x, obj.uv_rect.y, obj.uv_rect.z, obj.uv_rect.w);
+            object.label_metrics = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+            [shadowEncoder setCullMode:obj.double_sided ? MTLCullModeNone : MTLCullModeBack];
+            [shadowEncoder setVertexBuffer:mesh->vertex_buffer.get() offset:0 atIndex:0];
+            [shadowEncoder setVertexBytes:&object length:sizeof(object) atIndex:2];
+            [shadowEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                      indexCount:mesh->index_count
+                                       indexType:MTLIndexTypeUInt16
+                                     indexBuffer:mesh->index_buffer.get()
+                               indexBufferOffset:0];
+        }
+
+        [shadowEncoder endEncoding];
+    }
+
+    // Build GBuffer render pass descriptor
+    MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+    rpDesc.colorAttachments[0].texture = gbuffer.normal.get();
+    rpDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    rpDesc.colorAttachments[0].clearColor = MTLClearColorMake(0.5, 0.5, 0.0, 0.0);
+    rpDesc.depthAttachment.texture = gbuffer.depth.get();
+    rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
+    rpDesc.depthAttachment.storeAction = MTLStoreActionStore;
+    rpDesc.depthAttachment.clearDepth = 1.0;
+
+    id<MTLRenderCommandEncoder> encoder = [cmd_buf renderCommandEncoderWithDescriptor:rpDesc];
+    if (!encoder)
+        return;
+
+    [encoder setViewport:viewport];
+    [encoder setScissorRect:scissor];
 
     [encoder setRenderPipelineState:state_->gbuffer_pipeline.get()];
     [encoder setDepthStencilState:state_->depth_state.get()];
@@ -1224,8 +1439,6 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [encoder setFragmentSamplerState:state_->material_sampler.get() atIndex:2];
 
     // Draw scene objects (GBuffer: opaque only)
-    const uint32_t gbuffer_opaque_count = std::min(scene_.opaque_count,
-        static_cast<uint32_t>(scene_.objects.size()));
     for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
     {
         const SceneObject& obj = scene_.objects[gi];
@@ -1382,9 +1595,12 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [sceneEncoder setFragmentTexture:ao_texture atIndex:1];
     for (NSUInteger texture_index = 0; texture_index < state_->material_textures.size(); ++texture_index)
         [sceneEncoder setFragmentTexture:state_->material_textures[texture_index].get() atIndex:2 + texture_index];
+    for (NSUInteger cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+        [sceneEncoder setFragmentTexture:gbuffer.shadow_maps[cascade_index].get() atIndex:27 + cascade_index];
     [sceneEncoder setFragmentSamplerState:state_->label_sampler.get() atIndex:0];
     [sceneEncoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:1];
     [sceneEncoder setFragmentSamplerState:state_->material_sampler.get() atIndex:2];
+    [sceneEncoder setFragmentSamplerState:state_->gbuffer_point_sampler.get() atIndex:3];
 
     auto draw_scene_object = [&](const SceneObject& obj) {
         const MeshBuffers* mesh = nullptr;
@@ -1538,6 +1754,76 @@ void IsometricScenePass::record(IRenderContext& ctx)
     [encoder setFragmentTexture:gbuffer.scene_final_unorm.get() atIndex:0];
     [encoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+
+    // Draw tooltip overlay if visible.
+    if (scene_.tooltip.valid() && state_->tooltip_pipeline.get() != nil && state_->tooltip_sampler.get() != nil)
+    {
+        // Upload / re-upload tooltip texture if revision changed.
+        if (state_->tooltip_texture_revision != scene_.tooltip.revision || !state_->tooltip_texture.get())
+        {
+            MTLTextureDescriptor* tex_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                             width:static_cast<NSUInteger>(scene_.tooltip.width)
+                                            height:static_cast<NSUInteger>(scene_.tooltip.height)
+                                         mipmapped:NO];
+            tex_desc.usage = MTLTextureUsageShaderRead;
+            id<MTLTexture> tex = [cmd_buf.device newTextureWithDescriptor:tex_desc];
+            if (tex)
+            {
+                [tex replaceRegion:MTLRegionMake2D(0, 0,
+                                       static_cast<NSUInteger>(scene_.tooltip.width),
+                                       static_cast<NSUInteger>(scene_.tooltip.height))
+                       mipmapLevel:0
+                         withBytes:scene_.tooltip.rgba.data()
+                       bytesPerRow:static_cast<NSUInteger>(scene_.tooltip.width * 4)];
+                state_->tooltip_texture.reset(tex);
+                state_->tooltip_texture_revision = scene_.tooltip.revision;
+            }
+        }
+
+        if (state_->tooltip_texture.get())
+        {
+            struct TooltipUniforms
+            {
+                simd_float4 rect;
+                simd_float4 viewport;
+            };
+
+            const float full_w = static_cast<float>(ctx.width());
+            const float full_h = static_cast<float>(ctx.height());
+
+            TooltipUniforms uniforms;
+            uniforms.rect = simd_make_float4(
+                scene_.tooltip.screen_pos.x,
+                scene_.tooltip.screen_pos.y,
+                static_cast<float>(scene_.tooltip.width),
+                static_cast<float>(scene_.tooltip.height));
+            uniforms.viewport = simd_make_float4(full_w, full_h, 0.0f, 0.0f);
+
+            // Use full-window viewport for screen-space positioning.
+            MTLViewport full_viewport;
+            full_viewport.originX = 0;
+            full_viewport.originY = 0;
+            full_viewport.width = full_w;
+            full_viewport.height = full_h;
+            full_viewport.znear = 0.0;
+            full_viewport.zfar = 1.0;
+            [encoder setViewport:full_viewport];
+
+            MTLScissorRect full_scissor;
+            full_scissor.x = 0;
+            full_scissor.y = 0;
+            full_scissor.width = static_cast<NSUInteger>(ctx.width());
+            full_scissor.height = static_cast<NSUInteger>(ctx.height());
+            [encoder setScissorRect:full_scissor];
+
+            [encoder setRenderPipelineState:state_->tooltip_pipeline.get()];
+            [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+            [encoder setFragmentTexture:state_->tooltip_texture.get() atIndex:0];
+            [encoder setFragmentSamplerState:state_->tooltip_sampler.get() atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+        }
+    }
 }
 
 void IsometricScenePass::render_gbuffer_debug_ui()
@@ -1561,7 +1847,7 @@ void IsometricScenePass::render_gbuffer_debug_ui()
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float text_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
     const float cell_w = std::max(64.0f, (avail.x - spacing) * 0.5f);
-    const float cell_h = std::max(32.0f, (avail.y - text_h * 3.0f) * 0.5f);
+    const float cell_h = std::max(32.0f, (avail.y - text_h * 5.0f) * 0.5f);
     const float img_w = std::min(cell_w, cell_h * aspect);
     const float img_h = img_w / aspect;
     const ImVec2 size(img_w, img_h);
@@ -1591,6 +1877,13 @@ void IsometricScenePass::render_gbuffer_debug_ui()
         ImGui::TableNextColumn();
         ImGui::Text("Scene Final");
         ImGui::Image((__bridge void*)t.scene_final_unorm.get(), size, ImVec2(0, 1), ImVec2(1, 0));
+
+        for (NSUInteger cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+        {
+            ImGui::TableNextColumn();
+            ImGui::Text("Shadow %u", static_cast<unsigned>(cascade_index));
+            ImGui::Image((__bridge void*)t.shadow_maps[cascade_index].get(), size);
+        }
 
         ImGui::EndTable();
     }

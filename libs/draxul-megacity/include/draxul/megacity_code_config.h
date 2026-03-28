@@ -41,6 +41,7 @@ enum class MegaCityDebugView : uint8_t
     Depth,
     Bitangents,
     TbnPacked,
+    DirectionalShadow,
 };
 
 struct MegaCityCodeConfig
@@ -118,6 +119,7 @@ struct MegaCityCodeConfig
     glm::vec3 central_park_tree_bark_tip{ 0.58f, 0.45f, 0.33f };
 
     float sign_label_point_size = 18.0f;
+    float tooltip_point_size = 12.0f;
     glm::vec3 module_sign_board_color{ 1.0f, 1.0f, 1.0f };
     glm::vec3 module_sign_text_color{ 0.0f, 0.0f, 0.0f };
     glm::vec3 building_sign_board_color{ 1.0f, 1.0f, 1.0f };

@@ -16,6 +16,10 @@ struct FrameUniforms
     float4 ao_params; // x = radius_world, y = radius_pixels, z = bias, w = power
     float4 debug_view;
     float4 world_debug_bounds;
+    float4x4 shadow_view_proj[3];
+    float4x4 shadow_texture_matrix[3];
+    float4 shadow_split_depths;
+    float4 shadow_params;
 };
 
 struct VertexOut

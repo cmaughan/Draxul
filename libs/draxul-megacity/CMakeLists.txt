@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 if(APPLE)
     set(MEGACITY_SOURCES
+        src/building_tooltip.cpp
         src/city_builder.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
@@ -11,6 +12,7 @@ if(APPLE)
         src/scene_snapshot_builder.cpp
         src/scene_world.cpp
         src/semantic_city_layout.cpp
+        src/shadow_cascade.cpp
         src/sign_label_atlas.cpp
         src/mesh_library.cpp
         src/megacity_host.cpp
@@ -20,6 +22,7 @@ if(APPLE)
     )
 else()
     set(MEGACITY_SOURCES
+        src/building_tooltip.cpp
         src/city_builder.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
@@ -29,6 +32,7 @@ else()
         src/scene_snapshot_builder.cpp
         src/scene_world.cpp
         src/semantic_city_layout.cpp
+        src/shadow_cascade.cpp
         src/sign_label_atlas.cpp
         src/mesh_library.cpp
         src/megacity_host.cpp

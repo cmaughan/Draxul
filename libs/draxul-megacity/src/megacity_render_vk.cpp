@@ -2,6 +2,7 @@
 
 #include "megacity_material_assets.h"
 #include "mesh_library.h"
+#include "shadow_cascade.h"
 #include "vk_render_context.h"
 #include <algorithm>
 #include <array>
@@ -33,6 +34,10 @@ struct alignas(16) FrameUniforms
     glm::vec4 ao_params{ 1.6f, 1.0f, 0.12f, 1.35f }; // x = radius world, y = radius pixels, z = bias, w = power
     glm::vec4 debug_view{ 0.0f, 1.0f, 0.0f, 0.0f }; // x = AO debug mode, y = AO denoise enabled
     glm::vec4 world_debug_bounds{ -5.0f, 5.0f, -5.0f, 5.0f }; // x = min x, y = max x, z = min z, w = max z
+    std::array<glm::mat4, kShadowCascadeCount> shadow_view_proj{};
+    std::array<glm::mat4, kShadowCascadeCount> shadow_texture_matrix{};
+    glm::vec4 shadow_split_depths{ 1.0f };
+    glm::vec4 shadow_params{ static_cast<float>(kShadowCascadeCount), 0.0015f, 0.04f, 1.0f / 2048.0f };
 };
 
 struct alignas(16) ObjectPushConstants
@@ -150,6 +155,10 @@ struct GBufferTargets
     VkImage depth_image = VK_NULL_HANDLE; // D32Float
     VmaAllocation depth_alloc = VK_NULL_HANDLE;
     VkImageView depth_view = VK_NULL_HANDLE;
+    std::array<VkImage, kShadowCascadeCount> shadow_images{};
+    std::array<VmaAllocation, kShadowCascadeCount> shadow_allocs{};
+    std::array<VkImageView, kShadowCascadeCount> shadow_views{};
+    std::array<VkFramebuffer, kShadowCascadeCount> shadow_framebuffers{};
 
     VkImage scene_color_msaa_image = VK_NULL_HANDLE; // RGBA16Float MSAA scene color
     VmaAllocation scene_color_msaa_alloc = VK_NULL_HANDLE;
@@ -179,6 +188,7 @@ struct GBufferTargets
     VkDescriptorSet imgui_ao_raw_ds = VK_NULL_HANDLE;
     VkDescriptorSet imgui_ao_ds = VK_NULL_HANDLE;
     VkDescriptorSet imgui_depth_ds = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, kShadowCascadeCount> imgui_shadow_ds{};
     VkDescriptorSet imgui_scene_hdr_ds = VK_NULL_HANDLE;
     VkDescriptorSet imgui_scene_final_ds = VK_NULL_HANDLE;
 
@@ -758,6 +768,8 @@ struct IsometricScenePass::State
     // GBuffer pre-pass resources
     VkRenderPass gbuffer_render_pass = VK_NULL_HANDLE;
     VkPipeline gbuffer_pipeline = VK_NULL_HANDLE;
+    VkRenderPass shadow_render_pass = VK_NULL_HANDLE;
+    VkPipeline shadow_pipeline = VK_NULL_HANDLE;
     VkRenderPass ao_render_pass = VK_NULL_HANDLE;
     VkPipeline ao_pipeline = VK_NULL_HANDLE;
     VkPipeline ao_blur_pipeline = VK_NULL_HANDLE;
@@ -770,10 +782,23 @@ struct IsometricScenePass::State
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
     VkSampleCountFlagBits scene_sample_count = VK_SAMPLE_COUNT_1_BIT;
+    int shadow_map_resolution = 2048;
+
+    // Tooltip overlay resources
+    VkDescriptorSetLayout tooltip_descriptor_set_layout = VK_NULL_HANDLE;
+    VkDescriptorPool tooltip_descriptor_pool = VK_NULL_HANDLE;
+    VkPipelineLayout tooltip_pipeline_layout = VK_NULL_HANDLE;
+    VkPipeline tooltip_pipeline = VK_NULL_HANDLE;
+    VkDescriptorSet tooltip_descriptor_set = VK_NULL_HANDLE;
+    ImageResource tooltip_image;
+    VkSampler tooltip_sampler = VK_NULL_HANDLE;
+    VkImageLayout tooltip_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    uint64_t tooltip_texture_revision = 0;
+    bool tooltip_initialized = false;
 
     bool create_device_resources(uint32_t frame_count)
     {
-        VkDescriptorSetLayoutBinding scene_bindings[5] = {};
+        VkDescriptorSetLayoutBinding scene_bindings[6] = {};
         scene_bindings[0].binding = 0;
         scene_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         scene_bindings[0].descriptorCount = 1;
@@ -794,9 +819,13 @@ struct IsometricScenePass::State
         scene_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         scene_bindings[4].descriptorCount = kSceneMaterialTextureCount;
         scene_bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        scene_bindings[5].binding = 5;
+        scene_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        scene_bindings[5].descriptorCount = kShadowCascadeCount;
+        scene_bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo layout_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layout_ci.bindingCount = 5;
+        layout_ci.bindingCount = 6;
         layout_ci.pBindings = scene_bindings;
         if (vkCreateDescriptorSetLayout(device, &layout_ci, nullptr, &descriptor_set_layout) != VK_SUCCESS)
         {
@@ -859,7 +888,7 @@ struct IsometricScenePass::State
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         pool_sizes[0].descriptorCount = frame_count * 2;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_sizes[1].descriptorCount = frame_count * (2 + kSceneMaterialTextureCount);
+        pool_sizes[1].descriptorCount = frame_count * (2 + kSceneMaterialTextureCount + kShadowCascadeCount);
 
         VkDescriptorPoolCreateInfo pool_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_ci.maxSets = frame_count;
@@ -1259,6 +1288,20 @@ struct IsometricScenePass::State
             ao_info.imageView = gbuffer.ao_view;
             ao_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
+            std::array<VkDescriptorImageInfo, kShadowCascadeCount> shadow_infos{};
+            bool have_shadow_maps = true;
+            for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+            {
+                if (gbuffer.shadow_views[cascade_index] == VK_NULL_HANDLE)
+                {
+                    have_shadow_maps = false;
+                    break;
+                }
+                shadow_infos[cascade_index].sampler = gbuffer_point_sampler;
+                shadow_infos[cascade_index].imageView = gbuffer.shadow_views[cascade_index];
+                shadow_infos[cascade_index].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            }
+
             std::array<VkDescriptorImageInfo, kSceneMaterialTextureCount> material_infos{};
             for (size_t texture_index = 0; texture_index < material_textures.size(); ++texture_index)
             {
@@ -1267,7 +1310,7 @@ struct IsometricScenePass::State
                 material_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 
-            VkWriteDescriptorSet writes[2] = {};
+            VkWriteDescriptorSet writes[3] = {};
             uint32_t write_count = 0;
 
             writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1286,6 +1329,17 @@ struct IsometricScenePass::State
                 writes[write_count].descriptorCount = static_cast<uint32_t>(material_infos.size());
                 writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 writes[write_count].pImageInfo = material_infos.data();
+                ++write_count;
+            }
+
+            if (have_shadow_maps)
+            {
+                writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[write_count].dstSet = frame.descriptor_set;
+                writes[write_count].dstBinding = 5;
+                writes[write_count].descriptorCount = static_cast<uint32_t>(shadow_infos.size());
+                writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[write_count].pImageInfo = shadow_infos.data();
                 ++write_count;
             }
 
@@ -1773,6 +1827,230 @@ struct IsometricScenePass::State
                 vkDestroyShaderModule(device, wf_debug_frag, nullptr);
         }
 
+        // Tooltip overlay pipeline.
+        {
+            auto tooltip_vert = load_shader(device, (shader_dir / "megacity_tooltip.vert.spv").string());
+            auto tooltip_frag = load_shader(device, (shader_dir / "megacity_tooltip.frag.spv").string());
+            if (tooltip_vert && tooltip_frag)
+            {
+                // Descriptor set layout: 1 combined image sampler.
+                VkDescriptorSetLayoutBinding tooltip_binding = {};
+                tooltip_binding.binding = 0;
+                tooltip_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                tooltip_binding.descriptorCount = 1;
+                tooltip_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+                VkDescriptorSetLayoutCreateInfo tooltip_layout_ci = {
+                    VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
+                };
+                tooltip_layout_ci.bindingCount = 1;
+                tooltip_layout_ci.pBindings = &tooltip_binding;
+                vkCreateDescriptorSetLayout(device, &tooltip_layout_ci, nullptr, &tooltip_descriptor_set_layout);
+
+                // Descriptor pool: 1 set, 1 combined image sampler.
+                VkDescriptorPoolSize tooltip_pool_size = {};
+                tooltip_pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                tooltip_pool_size.descriptorCount = 1;
+
+                VkDescriptorPoolCreateInfo tooltip_pool_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+                tooltip_pool_ci.maxSets = 1;
+                tooltip_pool_ci.poolSizeCount = 1;
+                tooltip_pool_ci.pPoolSizes = &tooltip_pool_size;
+                vkCreateDescriptorPool(device, &tooltip_pool_ci, nullptr, &tooltip_descriptor_pool);
+
+                // Allocate descriptor set.
+                VkDescriptorSetAllocateInfo tooltip_alloc = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+                tooltip_alloc.descriptorPool = tooltip_descriptor_pool;
+                tooltip_alloc.descriptorSetCount = 1;
+                tooltip_alloc.pSetLayouts = &tooltip_descriptor_set_layout;
+                vkAllocateDescriptorSets(device, &tooltip_alloc, &tooltip_descriptor_set);
+
+                // Pipeline layout: push constant for rect + viewport.
+                VkPushConstantRange tooltip_push = {};
+                tooltip_push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                tooltip_push.offset = 0;
+                tooltip_push.size = sizeof(float) * 8; // 2x vec4
+
+                VkPipelineLayoutCreateInfo tooltip_pl_ci = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+                tooltip_pl_ci.setLayoutCount = 1;
+                tooltip_pl_ci.pSetLayouts = &tooltip_descriptor_set_layout;
+                tooltip_pl_ci.pushConstantRangeCount = 1;
+                tooltip_pl_ci.pPushConstantRanges = &tooltip_push;
+                vkCreatePipelineLayout(device, &tooltip_pl_ci, nullptr, &tooltip_pipeline_layout);
+
+                // Graphics pipeline.
+                VkPipelineShaderStageCreateInfo tooltip_stages[2] = {};
+                tooltip_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                tooltip_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+                tooltip_stages[0].module = tooltip_vert;
+                tooltip_stages[0].pName = "main";
+                tooltip_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                tooltip_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                tooltip_stages[1].module = tooltip_frag;
+                tooltip_stages[1].pName = "main";
+
+                VkPipelineVertexInputStateCreateInfo tooltip_vi = {
+                    VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+                };
+                VkPipelineInputAssemblyStateCreateInfo tooltip_ia = {
+                    VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+                };
+                tooltip_ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+                VkPipelineViewportStateCreateInfo tooltip_vp = {
+                    VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+                };
+                tooltip_vp.viewportCount = 1;
+                tooltip_vp.scissorCount = 1;
+
+                VkPipelineRasterizationStateCreateInfo tooltip_raster = {
+                    VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+                };
+                tooltip_raster.polygonMode = VK_POLYGON_MODE_FILL;
+                tooltip_raster.cullMode = VK_CULL_MODE_NONE;
+                tooltip_raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                tooltip_raster.lineWidth = 1.0f;
+
+                VkPipelineMultisampleStateCreateInfo tooltip_ms = {
+                    VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+                };
+                tooltip_ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+                VkPipelineColorBlendAttachmentState tooltip_blend_att = {};
+                tooltip_blend_att.blendEnable = VK_TRUE;
+                tooltip_blend_att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+                tooltip_blend_att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                tooltip_blend_att.colorBlendOp = VK_BLEND_OP_ADD;
+                tooltip_blend_att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+                tooltip_blend_att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                tooltip_blend_att.alphaBlendOp = VK_BLEND_OP_ADD;
+                tooltip_blend_att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+                    | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+                VkPipelineColorBlendStateCreateInfo tooltip_blend = {
+                    VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+                };
+                tooltip_blend.attachmentCount = 1;
+                tooltip_blend.pAttachments = &tooltip_blend_att;
+
+                VkPipelineDynamicStateCreateInfo tooltip_dyn = {
+                    VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+                };
+                tooltip_dyn.dynamicStateCount = 2;
+                tooltip_dyn.pDynamicStates = dynamic_states;
+
+                VkGraphicsPipelineCreateInfo tooltip_ci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+                tooltip_ci.stageCount = 2;
+                tooltip_ci.pStages = tooltip_stages;
+                tooltip_ci.pVertexInputState = &tooltip_vi;
+                tooltip_ci.pInputAssemblyState = &tooltip_ia;
+                tooltip_ci.pViewportState = &tooltip_vp;
+                tooltip_ci.pRasterizationState = &tooltip_raster;
+                tooltip_ci.pMultisampleState = &tooltip_ms;
+                tooltip_ci.pColorBlendState = &tooltip_blend;
+                tooltip_ci.pDynamicState = &tooltip_dyn;
+                tooltip_ci.layout = tooltip_pipeline_layout;
+                tooltip_ci.renderPass = render_pass;
+                tooltip_ci.subpass = 0;
+
+                if (vkCreateGraphicsPipelines(
+                        device, VK_NULL_HANDLE, 1, &tooltip_ci, nullptr, &tooltip_pipeline)
+                    != VK_SUCCESS)
+                {
+                    DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create tooltip pipeline");
+                }
+
+                // Tooltip sampler (nearest for pixel-precise text).
+                VkSamplerCreateInfo tooltip_sampler_ci = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+                tooltip_sampler_ci.magFilter = VK_FILTER_NEAREST;
+                tooltip_sampler_ci.minFilter = VK_FILTER_NEAREST;
+                tooltip_sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                tooltip_sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                tooltip_sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                vkCreateSampler(device, &tooltip_sampler_ci, nullptr, &tooltip_sampler);
+
+                tooltip_initialized = true;
+            }
+            else
+            {
+                DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                    "MegaCity: failed to load tooltip shaders (non-fatal)");
+            }
+            if (tooltip_vert)
+                vkDestroyShaderModule(device, tooltip_vert, nullptr);
+            if (tooltip_frag)
+                vkDestroyShaderModule(device, tooltip_frag, nullptr);
+        }
+
+        return true;
+    }
+
+    bool ensure_tooltip_texture(VkCommandBuffer cmd, const TooltipOverlay& tooltip)
+    {
+        if (!tooltip_initialized || !tooltip.valid())
+            return false;
+        if (tooltip_texture_revision == tooltip.revision && tooltip_image.image != VK_NULL_HANDLE)
+            return true;
+
+        // Recreate tooltip image if size changed.
+        if (tooltip_image.width != tooltip.width || tooltip_image.height != tooltip.height
+            || tooltip_image.image == VK_NULL_HANDLE)
+        {
+            destroy_image(device, allocator, tooltip_image);
+            if (!create_sampled_image(physical_device, device, allocator,
+                    tooltip.width, tooltip.height,
+                    VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                    false, tooltip_image))
+            {
+                return false;
+            }
+            // Replace the sampler on tooltip_image with our nearest sampler.
+            if (tooltip_image.sampler != VK_NULL_HANDLE)
+                vkDestroySampler(device, tooltip_image.sampler, nullptr);
+            tooltip_image.sampler = tooltip_sampler;
+            tooltip_image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
+
+        // Upload RGBA data via staging buffer.
+        const size_t bytes = static_cast<size_t>(tooltip.width) * tooltip.height * 4;
+        Buffer staging{};
+        if (!create_mapped_buffer(allocator, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging))
+            return false;
+
+        std::memcpy(staging.mapped, tooltip.rgba.data(), bytes);
+        vmaFlushAllocation(allocator, staging.allocation, 0, bytes);
+
+        transition_image(cmd, tooltip_image.image, tooltip_image_layout,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkBufferImageCopy copy = {};
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageExtent = {
+            static_cast<uint32_t>(tooltip.width),
+            static_cast<uint32_t>(tooltip.height), 1
+        };
+        vkCmdCopyBufferToImage(cmd, staging.buffer, tooltip_image.image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        transition_image(cmd, tooltip_image.image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        tooltip_image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        tooltip_texture_revision = tooltip.revision;
+
+        // Update descriptor set.
+        VkDescriptorImageInfo img_info = {};
+        img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        img_info.imageView = tooltip_image.view;
+        img_info.sampler = tooltip_sampler;
+
+        VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet = tooltip_descriptor_set;
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &img_info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+        destroy_buffer(allocator, staging);
         return true;
     }
 
@@ -1808,6 +2086,11 @@ struct IsometricScenePass::State
                 ImGui_ImplVulkan_RemoveTexture(t.imgui_ao_ds);
             if (t.imgui_depth_ds != VK_NULL_HANDLE)
                 ImGui_ImplVulkan_RemoveTexture(t.imgui_depth_ds);
+            for (VkDescriptorSet shadow_ds : t.imgui_shadow_ds)
+            {
+                if (shadow_ds != VK_NULL_HANDLE)
+                    ImGui_ImplVulkan_RemoveTexture(shadow_ds);
+            }
             if (t.imgui_scene_hdr_ds != VK_NULL_HANDLE)
                 ImGui_ImplVulkan_RemoveTexture(t.imgui_scene_hdr_ds);
             if (t.imgui_scene_final_ds != VK_NULL_HANDLE)
@@ -1818,6 +2101,11 @@ struct IsometricScenePass::State
                 vkDestroyFramebuffer(device, t.ao_raw_framebuffer, nullptr);
             if (t.ao_framebuffer != VK_NULL_HANDLE)
                 vkDestroyFramebuffer(device, t.ao_framebuffer, nullptr);
+            for (VkFramebuffer shadow_fb : t.shadow_framebuffers)
+            {
+                if (shadow_fb != VK_NULL_HANDLE)
+                    vkDestroyFramebuffer(device, shadow_fb, nullptr);
+            }
             if (t.scene_framebuffer != VK_NULL_HANDLE)
                 vkDestroyFramebuffer(device, t.scene_framebuffer, nullptr);
             if (t.scene_post_framebuffer != VK_NULL_HANDLE)
@@ -1838,6 +2126,13 @@ struct IsometricScenePass::State
                 vkDestroyImageView(device, t.depth_view, nullptr);
             if (t.depth_image != VK_NULL_HANDLE)
                 vmaDestroyImage(allocator, t.depth_image, t.depth_alloc);
+            for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+            {
+                if (t.shadow_views[cascade_index] != VK_NULL_HANDLE)
+                    vkDestroyImageView(device, t.shadow_views[cascade_index], nullptr);
+                if (t.shadow_images[cascade_index] != VK_NULL_HANDLE)
+                    vmaDestroyImage(allocator, t.shadow_images[cascade_index], t.shadow_allocs[cascade_index]);
+            }
             if (t.scene_color_msaa_view != VK_NULL_HANDLE)
                 vkDestroyImageView(device, t.scene_color_msaa_view, nullptr);
             if (t.scene_color_msaa_image != VK_NULL_HANDLE)
@@ -1869,6 +2164,10 @@ struct IsometricScenePass::State
             vkDestroySampler(device, gbuffer_sampler, nullptr);
         if (gbuffer_point_sampler != VK_NULL_HANDLE)
             vkDestroySampler(device, gbuffer_point_sampler, nullptr);
+        if (shadow_pipeline != VK_NULL_HANDLE)
+            vkDestroyPipeline(device, shadow_pipeline, nullptr);
+        if (shadow_render_pass != VK_NULL_HANDLE)
+            vkDestroyRenderPass(device, shadow_render_pass, nullptr);
         if (ao_pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, ao_pipeline, nullptr);
         if (ao_blur_pipeline != VK_NULL_HANDLE)
@@ -1885,6 +2184,8 @@ struct IsometricScenePass::State
             vkDestroyRenderPass(device, gbuffer_render_pass, nullptr);
         gbuffer_sampler = VK_NULL_HANDLE;
         gbuffer_point_sampler = VK_NULL_HANDLE;
+        shadow_pipeline = VK_NULL_HANDLE;
+        shadow_render_pass = VK_NULL_HANDLE;
         ao_pipeline = VK_NULL_HANDLE;
         ao_blur_pipeline = VK_NULL_HANDLE;
         ao_render_pass = VK_NULL_HANDLE;
@@ -1898,7 +2199,9 @@ struct IsometricScenePass::State
     bool init_gbuffer()
     {
         if (gbuffer_initialized)
-            return gbuffer_pipeline != VK_NULL_HANDLE
+            return shadow_pipeline != VK_NULL_HANDLE
+                && shadow_render_pass != VK_NULL_HANDLE
+                && gbuffer_pipeline != VK_NULL_HANDLE
                 && ao_pipeline != VK_NULL_HANDLE
                 && ao_blur_pipeline != VK_NULL_HANDLE
                 && scene_render_pass != VK_NULL_HANDLE
@@ -1906,6 +2209,51 @@ struct IsometricScenePass::State
                 && gbuffer_sampler != VK_NULL_HANDLE
                 && gbuffer_point_sampler != VK_NULL_HANDLE;
         gbuffer_initialized = true;
+
+        VkAttachmentDescription shadow_attachment = {};
+        shadow_attachment.format = VK_FORMAT_D32_SFLOAT;
+        shadow_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        shadow_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        shadow_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        shadow_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        shadow_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        shadow_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        shadow_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference shadow_depth_ref = {};
+        shadow_depth_ref.attachment = 0;
+        shadow_depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription shadow_subpass = {};
+        shadow_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        shadow_subpass.pDepthStencilAttachment = &shadow_depth_ref;
+
+        VkSubpassDependency shadow_deps[2] = {};
+        shadow_deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        shadow_deps[0].dstSubpass = 0;
+        shadow_deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        shadow_deps[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        shadow_deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        shadow_deps[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        shadow_deps[1].srcSubpass = 0;
+        shadow_deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        shadow_deps[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        shadow_deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        shadow_deps[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        shadow_deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        VkRenderPassCreateInfo shadow_rp_ci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+        shadow_rp_ci.attachmentCount = 1;
+        shadow_rp_ci.pAttachments = &shadow_attachment;
+        shadow_rp_ci.subpassCount = 1;
+        shadow_rp_ci.pSubpasses = &shadow_subpass;
+        shadow_rp_ci.dependencyCount = 2;
+        shadow_rp_ci.pDependencies = shadow_deps;
+        if (vkCreateRenderPass(device, &shadow_rp_ci, nullptr, &shadow_render_pass) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create shadow render pass");
+            return false;
+        }
 
         // Create GBuffer render pass: 1 color + 1 depth attachment
         VkAttachmentDescription attachments[2] = {};
@@ -2097,6 +2445,58 @@ struct IsometricScenePass::State
         };
         dynamic.dynamicStateCount = 2;
         dynamic.pDynamicStates = dynamic_states;
+
+        auto shadow_vert = load_shader(device, (shader_dir / "megacity_shadow.vert.spv").string());
+        if (!shadow_vert)
+            return false;
+
+        VkPipelineShaderStageCreateInfo shadow_stage = {};
+        shadow_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        shadow_stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        shadow_stage.module = shadow_vert;
+        shadow_stage.pName = "main";
+
+        VkPipelineRasterizationStateCreateInfo shadow_raster = raster;
+        shadow_raster.cullMode = VK_CULL_MODE_NONE;
+        shadow_raster.depthBiasEnable = VK_TRUE;
+
+        VkPipelineColorBlendStateCreateInfo shadow_blend = {
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+        };
+
+        VkDynamicState shadow_dynamic_states[] = {
+            VK_DYNAMIC_STATE_VIEWPORT,
+            VK_DYNAMIC_STATE_SCISSOR,
+            VK_DYNAMIC_STATE_DEPTH_BIAS,
+        };
+        VkPipelineDynamicStateCreateInfo shadow_dynamic = {
+            VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+        };
+        shadow_dynamic.dynamicStateCount = 3;
+        shadow_dynamic.pDynamicStates = shadow_dynamic_states;
+
+        VkGraphicsPipelineCreateInfo shadow_pipeline_ci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        shadow_pipeline_ci.stageCount = 1;
+        shadow_pipeline_ci.pStages = &shadow_stage;
+        shadow_pipeline_ci.pVertexInputState = &vertex_input;
+        shadow_pipeline_ci.pInputAssemblyState = &input_assembly;
+        shadow_pipeline_ci.pViewportState = &viewport_state;
+        shadow_pipeline_ci.pRasterizationState = &shadow_raster;
+        shadow_pipeline_ci.pMultisampleState = &multisample;
+        shadow_pipeline_ci.pDepthStencilState = &depth_stencil;
+        shadow_pipeline_ci.pColorBlendState = &shadow_blend;
+        shadow_pipeline_ci.pDynamicState = &shadow_dynamic;
+        shadow_pipeline_ci.layout = prepass_pipeline_layout;
+        shadow_pipeline_ci.renderPass = shadow_render_pass;
+        shadow_pipeline_ci.subpass = 0;
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &shadow_pipeline_ci, nullptr, &shadow_pipeline)
+            != VK_SUCCESS)
+        {
+            vkDestroyShaderModule(device, shadow_vert, nullptr);
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create shadow pipeline");
+            return false;
+        }
+        vkDestroyShaderModule(device, shadow_vert, nullptr);
 
         VkGraphicsPipelineCreateInfo pipeline_ci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
         pipeline_ci.stageCount = 2;
@@ -2449,7 +2849,26 @@ struct IsometricScenePass::State
 
         for (auto& t : gbuffer_targets)
         {
-            if (!create_attachment_image(
+            bool shadow_ok = true;
+            for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+            {
+                shadow_ok = shadow_ok
+                    && create_attachment_image(
+                        device,
+                        allocator,
+                        shadow_map_resolution,
+                        shadow_map_resolution,
+                        VK_FORMAT_D32_SFLOAT,
+                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                        VK_IMAGE_ASPECT_DEPTH_BIT,
+                        VK_SAMPLE_COUNT_1_BIT,
+                        t.shadow_images[cascade_index],
+                        t.shadow_allocs[cascade_index],
+                        t.shadow_views[cascade_index]);
+            }
+
+            if (!shadow_ok
+                || !create_attachment_image(
                     device,
                     allocator,
                     width,
@@ -2556,6 +2975,25 @@ struct IsometricScenePass::State
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create offscreen scene targets");
                 destroy_gbuffer_targets();
                 return false;
+            }
+
+            for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+            {
+                VkImageView shadow_views[] = { t.shadow_views[cascade_index] };
+                VkFramebufferCreateInfo shadow_fb_ci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+                shadow_fb_ci.renderPass = shadow_render_pass;
+                shadow_fb_ci.attachmentCount = 1;
+                shadow_fb_ci.pAttachments = shadow_views;
+                shadow_fb_ci.width = static_cast<uint32_t>(shadow_map_resolution);
+                shadow_fb_ci.height = static_cast<uint32_t>(shadow_map_resolution);
+                shadow_fb_ci.layers = 1;
+                if (vkCreateFramebuffer(device, &shadow_fb_ci, nullptr, &t.shadow_framebuffers[cascade_index])
+                    != VK_SUCCESS)
+                {
+                    DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create shadow framebuffer");
+                    destroy_gbuffer_targets();
+                    return false;
+                }
             }
 
             // Framebuffer
@@ -2668,6 +3106,20 @@ struct IsometricScenePass::State
                 destroy_buffer(allocator, frame.material_uniforms);
             }
         }
+        // Tooltip resources (null out shared sampler before destroy_image to avoid double-free).
+        tooltip_image.sampler = VK_NULL_HANDLE;
+        if (tooltip_sampler != VK_NULL_HANDLE)
+            vkDestroySampler(device, tooltip_sampler, nullptr);
+        destroy_image(device, allocator, tooltip_image);
+        if (tooltip_pipeline != VK_NULL_HANDLE)
+            vkDestroyPipeline(device, tooltip_pipeline, nullptr);
+        if (tooltip_pipeline_layout != VK_NULL_HANDLE)
+            vkDestroyPipelineLayout(device, tooltip_pipeline_layout, nullptr);
+        if (tooltip_descriptor_pool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(device, tooltip_descriptor_pool, nullptr);
+        if (tooltip_descriptor_set_layout != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(device, tooltip_descriptor_set_layout, nullptr);
+
         if (debug_wireframe_pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, debug_wireframe_pipeline, nullptr);
         if (wireframe_pipeline != VK_NULL_HANDLE)
@@ -2772,6 +3224,10 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     if (!state_->ensure_label_atlas(*vk_ctx, cmd, scene_.label_atlas))
         return;
 
+    // Upload tooltip texture if needed.
+    if (scene_.tooltip.valid())
+        state_->ensure_tooltip_texture(cmd, scene_.tooltip);
+
     // Ensure floor grid mesh
     if (!state_->ensure_floor_grid(scene_.floor_grid))
         return;
@@ -2804,11 +3260,144 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         scene_.camera.ao_settings.z);
     frame.debug_view = scene_.camera.debug_view;
     frame.world_debug_bounds = scene_.camera.world_debug_bounds;
+    const DirectionalShadowCascadeSet shadow_cascades = build_directional_shadow_cascades(scene_.camera, state_->shadow_map_resolution);
+    for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+    {
+        const glm::mat4 shadow_proj = make_vulkan_projection(shadow_cascades.cascades[cascade_index].proj);
+        const glm::mat4 world_to_clip = shadow_proj * shadow_cascades.cascades[cascade_index].view;
+        frame.shadow_view_proj[cascade_index] = world_to_clip;
+        frame.shadow_texture_matrix[cascade_index] = shadow_texture_matrix(world_to_clip);
+    }
+    frame.shadow_split_depths = glm::vec4(
+        shadow_cascades.cascades[0].split_depth,
+        shadow_cascades.cascades[1].split_depth,
+        shadow_cascades.cascades[2].split_depth,
+        1.0f);
+    frame.shadow_params = glm::vec4(
+        static_cast<float>(shadow_cascades.cascade_count),
+        shadow_cascades.sample_depth_bias,
+        shadow_cascades.normal_bias,
+        1.0f / static_cast<float>(std::max(shadow_cascades.resolution, 1)));
     std::memcpy(frame_res.frame_uniforms.mapped, &frame, sizeof(frame));
     vmaFlushAllocation(vk_ctx->allocator(), frame_res.frame_uniforms.allocation, 0, sizeof(frame));
     const MaterialUniforms material_uniforms = build_material_uniforms(scene_);
     std::memcpy(frame_res.material_uniforms.mapped, &material_uniforms, sizeof(material_uniforms));
     vmaFlushAllocation(vk_ctx->allocator(), frame_res.material_uniforms.allocation, 0, sizeof(material_uniforms));
+
+    const uint32_t shadow_opaque_count = std::min(scene_.opaque_count,
+        static_cast<uint32_t>(scene_.objects.size()));
+    auto object_casts_shadow = [&](const SceneObject& obj) {
+        if (obj.mesh == MeshId::Grid || obj.color.a < 1.0f)
+            return false;
+        if (!obj.route_source.empty() || !obj.route_target.empty())
+            return false;
+        if (obj.material_index < scene_.materials.size()
+            && scene_.materials[obj.material_index].shading_model == MaterialShadingModel::LeafCutoutPbr)
+        {
+            return false;
+        }
+        return true;
+    };
+
+    VkViewport shadow_viewport = {};
+    shadow_viewport.width = static_cast<float>(state_->shadow_map_resolution);
+    shadow_viewport.height = static_cast<float>(state_->shadow_map_resolution);
+    shadow_viewport.maxDepth = 1.0f;
+
+    VkRect2D shadow_scissor = {};
+    shadow_scissor.extent = {
+        static_cast<uint32_t>(state_->shadow_map_resolution),
+        static_cast<uint32_t>(state_->shadow_map_resolution)
+    };
+
+    for (uint32_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+    {
+        if (gbuffer.shadow_framebuffers[cascade_index] == VK_NULL_HANDLE)
+            continue;
+
+        VkClearValue shadow_clear = {};
+        shadow_clear.depthStencil = { 1.0f, 0 };
+
+        VkRenderPassBeginInfo shadow_rpbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        shadow_rpbi.renderPass = state_->shadow_render_pass;
+        shadow_rpbi.framebuffer = gbuffer.shadow_framebuffers[cascade_index];
+        shadow_rpbi.renderArea.extent = {
+            static_cast<uint32_t>(state_->shadow_map_resolution),
+            static_cast<uint32_t>(state_->shadow_map_resolution)
+        };
+        shadow_rpbi.clearValueCount = 1;
+        shadow_rpbi.pClearValues = &shadow_clear;
+
+        vkCmdBeginRenderPass(cmd, &shadow_rpbi, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdSetViewport(cmd, 0, 1, &shadow_viewport);
+        vkCmdSetScissor(cmd, 0, 1, &shadow_scissor);
+        vkCmdSetDepthBias(cmd, 2.0f, 0.0f, 2.0f);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->shadow_pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->prepass_pipeline_layout,
+            0, 1, &frame_res.prepass_descriptor_set, 0, nullptr);
+
+        const MeshBuffers* last_shadow_mesh = nullptr;
+        for (uint32_t shadow_index = 0; shadow_index < shadow_opaque_count; ++shadow_index)
+        {
+            const SceneObject& obj = scene_.objects[shadow_index];
+            if (!object_casts_shadow(obj))
+                continue;
+
+            const MeshBuffers* mesh = nullptr;
+            switch (obj.mesh)
+            {
+            case MeshId::Floor:
+                mesh = &state_->floor_mesh;
+                break;
+            case MeshId::Cube:
+                mesh = &state_->cube_mesh;
+                break;
+            case MeshId::TreeBark:
+                mesh = &state_->tree_bark_mesh;
+                break;
+            case MeshId::TreeLeaves:
+                mesh = &state_->tree_leaf_mesh;
+                break;
+            case MeshId::RoadSurface:
+                mesh = &state_->road_surface_mesh;
+                break;
+            case MeshId::RoofSign:
+                mesh = &state_->roof_sign_mesh;
+                break;
+            case MeshId::WallSign:
+                mesh = &state_->wall_sign_mesh;
+                break;
+            case MeshId::Custom:
+                if (obj.custom_mesh_index < state_->custom_meshes.size())
+                    mesh = &state_->custom_meshes[obj.custom_mesh_index];
+                break;
+            case MeshId::Grid:
+                break;
+            }
+            if (!mesh || mesh->index_count == 0)
+                continue;
+
+            if (mesh != last_shadow_mesh)
+            {
+                VkBuffer vertex_buffer = mesh->vertices.buffer;
+                VkDeviceSize vertex_offset = 0;
+                vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &vertex_offset);
+                vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+                last_shadow_mesh = mesh;
+            }
+
+            ObjectPushConstants push;
+            push.world = obj.world;
+            push.color = obj.color;
+            push.material_data = glm::uvec4(obj.material_index, cascade_index, 0u, 0u);
+            push.uv_rect = obj.uv_rect;
+            push.label_metrics = glm::vec4(0.0f);
+            vkCmdPushConstants(cmd, state_->prepass_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+            vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+        }
+
+        vkCmdEndRenderPass(cmd);
+    }
 
     // Begin GBuffer render pass
     VkClearValue clear_values[2] = {};
@@ -3142,6 +3731,51 @@ void IsometricScenePass::record(IRenderContext& ctx)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->post_pipeline_layout,
         0, 1, &frame_resources.post_descriptor_set, 0, nullptr);
     vkCmdDraw(cmd, 3, 1, 0, 0);
+
+    // Draw tooltip overlay if visible.
+    if (scene_.tooltip.valid() && state_->tooltip_initialized
+        && state_->tooltip_pipeline != VK_NULL_HANDLE
+        && state_->tooltip_image.view != VK_NULL_HANDLE
+        && state_->tooltip_texture_revision == scene_.tooltip.revision)
+    {
+        struct TooltipPush
+        {
+            glm::vec4 rect;
+            glm::vec4 viewport;
+        };
+
+        const float full_w = static_cast<float>(ctx.width());
+        const float full_h = static_cast<float>(ctx.height());
+
+        TooltipPush push;
+        push.rect = glm::vec4(
+            scene_.tooltip.screen_pos.x,
+            scene_.tooltip.screen_pos.y,
+            static_cast<float>(scene_.tooltip.width),
+            static_cast<float>(scene_.tooltip.height));
+        push.viewport = glm::vec4(full_w, full_h, 0.0f, 0.0f);
+
+        // Use full-window viewport for screen-space positioning.
+        VkViewport full_viewport = {};
+        full_viewport.width = full_w;
+        full_viewport.height = full_h;
+        full_viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &full_viewport);
+
+        VkRect2D full_scissor = {};
+        full_scissor.extent = {
+            static_cast<uint32_t>(ctx.width()),
+            static_cast<uint32_t>(ctx.height())
+        };
+        vkCmdSetScissor(cmd, 0, 1, &full_scissor);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->tooltip_pipeline);
+        vkCmdPushConstants(cmd, state_->tooltip_pipeline_layout,
+            VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->tooltip_pipeline_layout,
+            0, 1, &state_->tooltip_descriptor_set, 0, nullptr);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+    }
 }
 
 void IsometricScenePass::render_gbuffer_debug_ui()
@@ -3175,6 +3809,16 @@ void IsometricScenePass::render_gbuffer_debug_ui()
         t.imgui_depth_ds = ImGui_ImplVulkan_AddTexture(
             state_->gbuffer_sampler, t.depth_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     }
+    for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+    {
+        if (t.imgui_shadow_ds[cascade_index] == VK_NULL_HANDLE && t.shadow_views[cascade_index] != VK_NULL_HANDLE)
+        {
+            t.imgui_shadow_ds[cascade_index] = ImGui_ImplVulkan_AddTexture(
+                state_->gbuffer_point_sampler,
+                t.shadow_views[cascade_index],
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        }
+    }
     if (t.imgui_scene_hdr_ds == VK_NULL_HANDLE && t.scene_hdr_view != VK_NULL_HANDLE)
     {
         t.imgui_scene_hdr_ds = ImGui_ImplVulkan_AddTexture(
@@ -3197,7 +3841,7 @@ void IsometricScenePass::render_gbuffer_debug_ui()
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float text_h = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
     const float cell_w = std::max(64.0f, (avail.x - spacing) * 0.5f);
-    const float cell_h = std::max(32.0f, (avail.y - text_h * 3.0f) * 0.5f);
+    const float cell_h = std::max(32.0f, (avail.y - text_h * 5.0f) * 0.5f);
     const float img_w = std::min(cell_w, cell_h * aspect);
     const float img_h = img_w / aspect;
     const ImVec2 size(img_w, img_h);
@@ -3229,6 +3873,14 @@ void IsometricScenePass::render_gbuffer_debug_ui()
         ImGui::Text("Scene Final");
         if (t.imgui_scene_final_ds != VK_NULL_HANDLE)
             ImGui::Image(static_cast<ImTextureID>(t.imgui_scene_final_ds), size, ImVec2(0, 1), ImVec2(1, 0));
+
+        for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
+        {
+            ImGui::TableNextColumn();
+            ImGui::Text("Shadow %u", static_cast<unsigned>(cascade_index));
+            if (t.imgui_shadow_ds[cascade_index] != VK_NULL_HANDLE)
+                ImGui::Image(static_cast<ImTextureID>(t.imgui_shadow_ds[cascade_index]), size);
+        }
 
         ImGui::EndTable();
     }

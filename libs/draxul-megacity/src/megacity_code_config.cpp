@@ -78,6 +78,8 @@ std::optional<MegaCityDebugView> parse_megacity_debug_view(std::string_view valu
         return MegaCityDebugView::Bitangents;
     if (value == "tbn_packed")
         return MegaCityDebugView::TbnPacked;
+    if (value == "directional_shadow")
+        return MegaCityDebugView::DirectionalShadow;
     return std::nullopt;
 }
 
@@ -111,6 +113,8 @@ std::string_view format_megacity_debug_view(MegaCityDebugView value)
         return "bitangents";
     case MegaCityDebugView::TbnPacked:
         return "tbn_packed";
+    case MegaCityDebugView::DirectionalShadow:
+        return "directional_shadow";
     }
     return "final_scene";
 }
@@ -252,6 +256,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_vec3(table, "central_park_tree_bark_tip", config.central_park_tree_bark_tip);
 
     assign_float("sign_label_point_size", config.sign_label_point_size);
+    assign_float("tooltip_point_size", config.tooltip_point_size);
     assign_vec3(table, "module_sign_board_color", config.module_sign_board_color);
     assign_vec3(table, "module_sign_text_color", config.module_sign_text_color);
     assign_vec3(table, "building_sign_board_color", config.building_sign_board_color);
@@ -392,6 +397,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("central_park_tree_bark_root", toml_support::make_array(config.central_park_tree_bark_root));
     table.insert_or_assign("central_park_tree_bark_tip", toml_support::make_array(config.central_park_tree_bark_tip));
     table.insert_or_assign("sign_label_point_size", static_cast<double>(config.sign_label_point_size));
+    table.insert_or_assign("tooltip_point_size", static_cast<double>(config.tooltip_point_size));
     toml_support::insert_vec3(table, "module_sign_board_color", config.module_sign_board_color);
     toml_support::insert_vec3(table, "module_sign_text_color", config.module_sign_text_color);
     toml_support::insert_vec3(table, "building_sign_board_color", config.building_sign_board_color);

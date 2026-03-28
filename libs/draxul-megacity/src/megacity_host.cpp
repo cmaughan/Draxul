@@ -1,3 +1,4 @@
+#include "building_tooltip.h"
 #include "city_builder.h"
 #include "city_input_state.h"
 #include "city_picking.h"
@@ -167,6 +168,19 @@ void MegaCityHost::refresh_sign_text_service()
         sign_text_service_.reset();
         DRAXUL_LOG_WARN(LogCategory::App,
             "MegaCityHost: sign label text service unavailable; rooftop labels disabled");
+    }
+
+    // Tooltip text service at configurable point size.
+    tooltip_text_service_.reset();
+    if (!sign_font_path_.empty())
+    {
+        tooltip_text_service_ = std::make_unique<TextService>();
+        TextServiceConfig tooltip_config;
+        tooltip_config.font_path = sign_font_path_;
+        tooltip_config.enable_ligatures = false;
+        const float tooltip_pt = std::max(renderer_config_.tooltip_point_size, 4.0f);
+        if (!tooltip_text_service_->initialize(tooltip_config, tooltip_pt, display_ppi_))
+            tooltip_text_service_.reset();
     }
 }
 
@@ -444,6 +458,18 @@ void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
     if (!camera_)
         return;
 
+    // Reset hover tooltip whenever the mouse moves.
+    const bool had_tooltip = hover_tooltip_visible_;
+    hover_mouse_pos_ = event.pos;
+    hover_start_time_ = std::chrono::steady_clock::now();
+    hover_tooltip_visible_ = false;
+    hover_building_name_.clear();
+    if (had_tooltip && scene_pass_)
+    {
+        scene_pass_->scene().tooltip.visible = false;
+        mark_scene_dirty();
+    }
+
     if (input_->on_mouse_move(event, *camera_))
     {
         last_activity_time_ = std::chrono::steady_clock::now();
@@ -637,6 +663,11 @@ void MegaCityHost::shutdown()
         store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
     scanner_.stop();
     city_db_.close();
+    if (tooltip_text_service_)
+    {
+        tooltip_text_service_->shutdown();
+        tooltip_text_service_.reset();
+    }
     if (sign_text_service_)
     {
         sign_text_service_->shutdown();
@@ -913,6 +944,70 @@ void MegaCityHost::pump()
         apply_selection_opacity();
     }
 
+    // Hover tooltip: show after mouse is still for >1s over a building.
+    if (!hover_tooltip_visible_ && hover_mouse_pos_.x >= 0
+        && camera_ && semantic_model_ && scene_pass_ && tooltip_text_service_)
+    {
+        const auto hover_elapsed = std::chrono::duration<float>(now - hover_start_time_).count();
+        if (hover_elapsed >= 1.0f)
+        {
+            const glm::ivec2 local_pos = hover_mouse_pos_ - viewport_.pixel_pos;
+            if (local_pos.x >= 0 && local_pos.y >= 0 && local_pos.x < pixel_w_ && local_pos.y < pixel_h_)
+            {
+                auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_model_);
+                if (hit)
+                {
+                    // Look up full building data.
+                    for (const auto& mod : semantic_model_->modules)
+                    {
+                        if (mod.module_path != hit->module_path)
+                            continue;
+                        for (const auto& bldg : mod.buildings)
+                        {
+                            if (bldg.qualified_name != hit->qualified_name)
+                                continue;
+
+                            BuildingTooltipData tooltip_data;
+                            tooltip_data.name = bldg.display_name;
+                            tooltip_data.module_path = bldg.module_path;
+                            tooltip_data.function_count = bldg.function_count;
+                            tooltip_data.field_count = bldg.base_size;
+
+                            auto bitmap = rasterize_tooltip(*tooltip_text_service_, tooltip_data);
+                            if (bitmap.valid())
+                            {
+                                ++tooltip_revision_;
+                                auto& tooltip = scene_pass_->scene().tooltip;
+                                tooltip.visible = true;
+                                // Position tooltip offset from cursor, clamped to viewport.
+                                const int offset_x = 16;
+                                const int offset_y = 16;
+                                int tx = hover_mouse_pos_.x + offset_x;
+                                int ty = hover_mouse_pos_.y + offset_y;
+                                if (tx + bitmap.width > viewport_.pixel_pos.x + pixel_w_)
+                                    tx = hover_mouse_pos_.x - bitmap.width - offset_x;
+                                if (ty + bitmap.height > viewport_.pixel_pos.y + pixel_h_)
+                                    ty = hover_mouse_pos_.y - bitmap.height - offset_y;
+                                tooltip.screen_pos = glm::vec2(
+                                    static_cast<float>(tx), static_cast<float>(ty));
+                                tooltip.width = bitmap.width;
+                                tooltip.height = bitmap.height;
+                                tooltip.rgba = std::move(bitmap.rgba);
+                                tooltip.revision = tooltip_revision_;
+                                hover_tooltip_visible_ = true;
+                                hover_building_name_ = hit->qualified_name;
+                                if (callbacks_)
+                                    callbacks_->request_frame();
+                            }
+                            break;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     if (!continuous_refresh_enabled_ && selection_alpha_changed && callbacks_)
         callbacks_->request_frame();
     if (running_ && continuous_refresh_enabled_ && callbacks_)
@@ -923,6 +1018,15 @@ std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline
 {
     if (!running_)
         return std::nullopt;
+
+    // Schedule a wake-up for the hover tooltip if the mouse is resting.
+    if (!hover_tooltip_visible_ && hover_mouse_pos_.x >= 0)
+    {
+        const auto tooltip_deadline = hover_start_time_ + std::chrono::milliseconds(1050);
+        if (tooltip_deadline > std::chrono::steady_clock::now())
+            return tooltip_deadline;
+    }
+
     if (!continuous_refresh_enabled_ && !input_->movement_active() && !input_->drag_smoothing_active()
         && hidden_hover_blend_ <= 1e-3f)
         return std::nullopt;

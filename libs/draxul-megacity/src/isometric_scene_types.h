@@ -74,6 +74,7 @@ enum class SceneTextureId : uint32_t
 
 constexpr uint32_t kSceneMaterialTextureCount = 25;
 constexpr uint32_t kMaxSceneMaterials = 64;
+constexpr uint32_t kShadowCascadeCount = 3;
 
 struct LabelAtlasData
 {
@@ -150,6 +151,22 @@ struct FloorGridSpec
     glm::vec4 color{ 0.45f, 0.45f, 0.48f, 1.0f };
 };
 
+struct TooltipOverlay
+{
+    bool visible = false;
+    glm::vec2 screen_pos{ 0.0f }; // pixel position (top-left of tooltip)
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> rgba;
+    uint64_t revision = 0;
+
+    [[nodiscard]] bool valid() const
+    {
+        return visible && width > 0 && height > 0
+            && rgba.size() == static_cast<size_t>(width * height * 4);
+    }
+};
+
 struct SceneSnapshot
 {
     SceneCameraData camera;
@@ -161,6 +178,7 @@ struct SceneSnapshot
     std::vector<SceneMaterial> materials;
     std::vector<SceneObject> objects;
     uint32_t opaque_count = 0;
+    TooltipOverlay tooltip;
 };
 
 } // namespace draxul

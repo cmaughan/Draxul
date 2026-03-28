@@ -112,6 +112,7 @@ private:
     CodebaseScanner scanner_;
     CityDatabase city_db_;
     std::unique_ptr<TextService> sign_text_service_;
+    std::unique_ptr<TextService> tooltip_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
     std::shared_ptr<const GeometryMesh> tree_bark_mesh_;
     std::shared_ptr<const GeometryMesh> tree_leaf_mesh_;
@@ -147,6 +148,13 @@ private:
     float hidden_hover_blend_ = 0.0f;
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
+
+    // Hover tooltip state
+    glm::ivec2 hover_mouse_pos_{ -1, -1 };
+    std::chrono::steady_clock::time_point hover_start_time_;
+    bool hover_tooltip_visible_ = false;
+    std::string hover_building_name_;
+    uint64_t tooltip_revision_ = 0;
 
     // City grid (occupancy map for overview and pathfinding)
     mutable std::mutex grid_mutex_;
