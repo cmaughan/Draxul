@@ -63,6 +63,20 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
                 kWoodBuildingNormalStrength,
                 kWoodBuildingAoStrength));
     }
+    else if (material == MaterialId::PavingSidewalk)
+    {
+        registry_.emplace<Appearance>(
+            entity,
+            mesh_id,
+            MaterialId::PavingSidewalk,
+            false,
+            color,
+            glm::vec4(
+                static_cast<float>(MaterialId::PavingSidewalk),
+                kSidewalkPavingUvScale,
+                kSidewalkPavingNormalStrength,
+                kSidewalkPavingAoStrength));
+    }
     else
     {
         registry_.emplace<Appearance>(

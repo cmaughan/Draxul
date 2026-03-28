@@ -219,4 +219,57 @@ GeometryMesh generate_draxul_building(const DraxulBuildingParams& input_params)
     return mesh;
 }
 
+GeometryMesh generate_sidewalk_ring(
+    int sides, float inner_radius, float outer_radius, float y, float height,
+    const glm::vec3& color)
+{
+    GeometryMesh mesh;
+    const RingContour inner = make_ring_contour(sides, inner_radius * 2.0f, 1.0f);
+    const RingContour outer = make_ring_contour(sides, outer_radius * 2.0f, 1.0f);
+    if (inner.points.size() < 3 || inner.points.size() != outer.points.size())
+        return mesh;
+
+    const glm::vec3 up(0.0f, 1.0f, 0.0f);
+    const glm::vec4 tangent(1.0f, 0.0f, 0.0f, 1.0f);
+    const size_t n = inner.points.size();
+    const float inv_outer = 1.0f / std::max(outer_radius * 2.0f, 0.1f);
+
+    // Top face: ring between inner and outer contours.
+    const float top_y = y + height;
+    for (size_t i = 0; i < n; ++i)
+    {
+        const uint16_t base = static_cast<uint16_t>(mesh.vertices.size());
+        const size_t next = (i + 1) % n;
+
+        GeometryVertex vi0, vo0, vi1, vo1;
+        vi0.position = { inner.points[i].x, top_y, inner.points[i].y };
+        vo0.position = { outer.points[i].x, top_y, outer.points[i].y };
+        vi1.position = { inner.points[next].x, top_y, inner.points[next].y };
+        vo1.position = { outer.points[next].x, top_y, outer.points[next].y };
+
+        for (auto* v : { &vi0, &vo0, &vi1, &vo1 })
+        {
+            v->normal = up;
+            v->color = color;
+            v->tangent = tangent;
+            v->uv = glm::vec2(v->position.x, v->position.z);
+        }
+
+        mesh.vertices.push_back(vi0);
+        mesh.vertices.push_back(vo0);
+        mesh.vertices.push_back(vi1);
+        mesh.vertices.push_back(vo1);
+
+        // Two triangles: vi0-vo0-vo1, vi0-vo1-vi1
+        mesh.indices.push_back(base);
+        mesh.indices.push_back(base + 1);
+        mesh.indices.push_back(base + 3);
+        mesh.indices.push_back(base);
+        mesh.indices.push_back(base + 3);
+        mesh.indices.push_back(base + 2);
+    }
+
+    return mesh;
+}
+
 } // namespace draxul

@@ -859,15 +859,25 @@ CityBuildResult build_city(
                 }
             }
 
-            for (const RoadSegmentPlacement& sidewalk : build_sidewalk_segments(building))
             {
-                world.create_road(
-                    sidewalk.center.x,
-                    sidewalk.center.y,
-                    RoadMetrics{ sidewalk.extent.x, sidewalk.extent.y, config.sidewalk_surface_height },
+                const float inner_r = building.metrics.footprint * 0.5f;
+                const float outer_r = inner_r + building.metrics.sidewalk_width;
+                auto ring_mesh = std::make_shared<GeometryMesh>(generate_sidewalk_ring(
+                    building_side_count, inner_r, outer_r,
+                    0.0f, config.sidewalk_surface_height,
+                    glm::vec3(kSidewalkSurfaceColor)));
+                BuildingMetrics sidewalk_metrics;
+                sidewalk_metrics.footprint = outer_r * 2.0f;
+                sidewalk_metrics.height = config.sidewalk_surface_height;
+                world.create_building(
+                    building.center.x,
+                    building.center.y,
+                    config.sidewalk_surface_lift,
+                    sidewalk_metrics,
                     kSidewalkSurfaceColor,
                     SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
-                    config.sidewalk_surface_lift);
+                    MaterialId::PavingSidewalk,
+                    std::move(ring_mesh));
             }
         }
 
