@@ -10,6 +10,7 @@
 #include <draxul/window.h>
 #include <imgui.h>
 
+#import <CoreGraphics/CoreGraphics.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
@@ -208,6 +209,12 @@ bool MetalRenderer::initialize(IWindow& window)
     CAMetalLayer* layer = (__bridge CAMetalLayer*)SDL_Metal_GetLayer(metalView);
     layer.device = device;
     layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    CGColorSpaceRef srgb_color_space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    if (srgb_color_space)
+    {
+        layer.colorspace = srgb_color_space;
+        CGColorSpaceRelease(srgb_color_space);
+    }
     layer.framebufferOnly = NO;
     layer.displaySyncEnabled = wait_for_vblank_;
     layer_.reset(layer);
