@@ -789,6 +789,11 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             changed |= hide_structs_changed;
             if (hide_structs_changed)
                 controls.committed_edit = true;
+            const bool point_shadow_debug_scene_changed
+                = ImGui::Checkbox("Point Shadow Debug Scene", &config.point_shadow_debug_scene);
+            changed |= point_shadow_debug_scene_changed;
+            if (point_shadow_debug_scene_changed)
+                controls.committed_edit = true;
             edit_float("Height Multiplier", config.height_multiplier, 0.05f, 0.1f, 8.0f, "%.2f");
             edit_float("Placement Step", config.placement_step, 0.01f, 0.05f, 8.0f, "%.2f");
             edit_int("Max Spiral Rings", config.max_spiral_rings, 8, 8, 65536);
@@ -824,6 +829,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             edit_float("Road Width Scale", config.road_width_scale, 0.01f, 0.0f, 8.0f, "%.2f");
             edit_vec2("Road Width Range", config.road_width_range, 0.01f, 0.0f, 32.0f, "%.2f");
             edit_float("Sidewalk Width", config.sidewalk_width, 0.01f, 0.0f, 16.0f, "%.2f");
+            edit_float("Module Border Alpha", config.module_border_alpha, 0.01f, 0.0f, 1.0f, "%.2f");
             ImGui::TreePop();
         }
 
@@ -1015,7 +1021,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
 
     // -- Debug View --------------------------------------------------------
     {
-        static constexpr std::array<const char*, 14> kDebugViewLabels = {
+        static constexpr std::array<const char*, 18> kDebugViewLabels = {
             "Final Scene",
             "Ambient Occlusion",
             "AO Denoised",
@@ -1030,11 +1036,15 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             "Bitangents",
             "TBN Packed",
             "Directional Shadow",
+            "Point Shadow",
+            "Point Shadow Face",
+            "Point Shadow Stored Depth",
+            "Point Shadow Depth Delta",
         };
         int debug_view = static_cast<int>(config.debug_view);
         if (ImGui::Combo("Debug View", &debug_view, kDebugViewLabels.data(), static_cast<int>(kDebugViewLabels.size())))
         {
-            config.debug_view = static_cast<MegaCityDebugView>(std::clamp(debug_view, 0, 13));
+            config.debug_view = static_cast<MegaCityDebugView>(std::clamp(debug_view, 0, 17));
             changed = true;
             controls.committed_edit = true;
         }

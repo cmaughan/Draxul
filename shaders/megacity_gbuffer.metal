@@ -20,6 +20,9 @@ struct FrameUniforms
     float4x4 shadow_texture_matrix[3];
     float4 shadow_split_depths;
     float4 shadow_params;
+    float4x4 point_shadow_view_proj[6];
+    float4x4 point_shadow_texture_matrix[6];
+    float4 point_shadow_params;
 };
 
 struct ObjectUniforms
@@ -71,6 +74,12 @@ struct ShadowVertexOut
     float4 position [[position]];
 };
 
+struct PointShadowVertexOut
+{
+    float4 position [[position]];
+    float3 world_position;
+};
+
 // Octahedral encoding: unit normal → [0,1]^2
 // Reference: "Survey of Efficient Representations for Independent Unit Vectors" (Cigolle et al. 2014)
 float2 oct_encode(float3 n)
@@ -103,6 +112,27 @@ vertex ShadowVertexOut shadow_vertex(VertexIn in [[stage_in]],
     const uint cascade_index = min(object.material_data.y, 2u);
     out.position = frame.shadow_view_proj[cascade_index] * world_position;
     return out;
+}
+
+vertex PointShadowVertexOut point_shadow_vertex(VertexIn in [[stage_in]],
+    constant FrameUniforms& frame [[buffer(1)]],
+    constant ObjectUniforms& object [[buffer(2)]])
+{
+    PointShadowVertexOut out;
+    const float4 world_position = object.world * float4(in.position, 1.0f);
+    const uint face_index = min(object.material_data.z, 5u);
+    out.position = frame.point_shadow_view_proj[face_index] * world_position;
+    out.world_position = world_position.xyz;
+    return out;
+}
+
+fragment float point_shadow_fragment(
+    PointShadowVertexOut in [[stage_in]],
+    constant FrameUniforms& frame [[buffer(1)]])
+{
+    const float radius = max(frame.point_light_pos.w, 1.0f);
+    const float distance_to_light = length(in.world_position - frame.point_light_pos.xyz);
+    return clamp(distance_to_light / radius, 0.0f, 1.0f);
 }
 
 fragment GBufferOut gbuffer_fragment(

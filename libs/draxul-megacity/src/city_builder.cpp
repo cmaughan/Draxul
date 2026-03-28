@@ -38,6 +38,14 @@ constexpr float kDependencyRouteMinWidth = 0.135f;
 constexpr float kDependencyRouteHeight = 0.045f;
 constexpr float kDependencyRouteLift = 0.01f;
 constexpr int kHexBuildingIncidentConnectionThreshold = 6;
+constexpr float kPointShadowDebugSceneHalfExtent = 9.0f;
+constexpr float kPointShadowDebugPrimaryFootprint = 2.5f;
+constexpr float kPointShadowDebugPrimaryHeight = 4.5f;
+constexpr float kPointShadowDebugSecondaryFootprint = 1.8f;
+constexpr float kPointShadowDebugSecondaryHeight = 2.4f;
+constexpr glm::vec2 kPointShadowDebugPrimaryCenter(0.0f, 0.0f);
+constexpr glm::vec2 kPointShadowDebugSecondaryCenter(4.0f, -2.5f);
+constexpr glm::vec2 kPointShadowDebugTreeCenter(-4.0f, 2.0f);
 
 struct SignPlacementSpec
 {
@@ -189,6 +197,90 @@ std::shared_ptr<const GeometryMesh> build_procedural_building_cap_mesh(
     params.middle_strip_scale = 1.0f;
     params.levels.push_back({ std::max(height, 0.1f), glm::vec3(color) });
     return std::make_shared<GeometryMesh>(generate_draxul_building(params));
+}
+
+void build_point_shadow_debug_scene(
+    SceneWorld& world,
+    const MegaCityCodeConfig& config,
+    const std::shared_ptr<const GeometryMesh>& tree_bark_mesh,
+    const std::shared_ptr<const GeometryMesh>& tree_leaf_mesh,
+    const TreeMetrics& tree_metrics)
+{
+    world.create_road_surface(
+        0.0f,
+        0.0f,
+        RoadSurfaceMetrics{
+            kPointShadowDebugSceneHalfExtent * 2.0f,
+            kPointShadowDebugSceneHalfExtent * 2.0f,
+            config.road_surface_height,
+            kRoadMaterialUvScale,
+            1.0f,
+            1.0f,
+        },
+        SourceSymbol{ "", "PointShadowDebugGround", "" },
+        kRoadSurfaceTextureLift);
+
+    BuildingMetrics primary_metrics;
+    primary_metrics.footprint = kPointShadowDebugPrimaryFootprint;
+    primary_metrics.height = kPointShadowDebugPrimaryHeight;
+    primary_metrics.sidewalk_width = 0.0f;
+    primary_metrics.road_width = 0.0f;
+    world.create_building(
+        kPointShadowDebugPrimaryCenter.x,
+        kPointShadowDebugPrimaryCenter.y,
+        building_base_elevation(config),
+        primary_metrics,
+        glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
+        SourceSymbol{ "", "PointShadowDebugPrimary", "" },
+        MaterialId::FlatColor,
+        build_procedural_building_mesh(
+            SemanticCityBuilding{
+                .center = kPointShadowDebugPrimaryCenter,
+                .metrics = primary_metrics,
+            },
+            glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
+            4),
+        1.0f);
+
+    BuildingMetrics secondary_metrics;
+    secondary_metrics.footprint = kPointShadowDebugSecondaryFootprint;
+    secondary_metrics.height = kPointShadowDebugSecondaryHeight;
+    secondary_metrics.sidewalk_width = 0.0f;
+    secondary_metrics.road_width = 0.0f;
+    world.create_building(
+        kPointShadowDebugSecondaryCenter.x,
+        kPointShadowDebugSecondaryCenter.y,
+        building_base_elevation(config),
+        secondary_metrics,
+        glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
+        SourceSymbol{ "", "PointShadowDebugSecondary", "" },
+        MaterialId::FlatColor,
+        build_procedural_building_mesh(
+            SemanticCityBuilding{
+                .center = kPointShadowDebugSecondaryCenter,
+                .metrics = secondary_metrics,
+            },
+            glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
+            4),
+        1.0f);
+
+    if (tree_bark_mesh && tree_leaf_mesh && tree_metrics.height > 0.0f)
+    {
+        world.create_tree_bark(
+            kPointShadowDebugTreeCenter.x,
+            kPointShadowDebugTreeCenter.y,
+            building_base_elevation(config),
+            tree_metrics,
+            glm::vec4(1.0f),
+            SourceSymbol{ "", "PointShadowDebugTreeBark", "" });
+        world.create_tree_leaves(
+            kPointShadowDebugTreeCenter.x,
+            kPointShadowDebugTreeCenter.y,
+            building_base_elevation(config),
+            tree_metrics,
+            glm::vec4(1.0f),
+            SourceSymbol{ "", "PointShadowDebugTreeLeaves", "" });
+    }
 }
 
 std::string building_connection_key(std::string_view module_path, std::string_view qualified_name)
@@ -642,7 +734,8 @@ CityBuildResult build_city(
     TreeMetrics central_park_tree_metrics;
     for (const auto& module_layout : layout->modules)
     {
-        if (module_layout.is_central_park && module_layout.park_footprint > 0.0f)
+        if ((module_layout.is_central_park && module_layout.park_footprint > 0.0f)
+            || config.point_shadow_debug_scene)
         {
             DraxulTreeMeshes generated_tree = generate_draxul_tree_meshes(make_central_park_tree_params(config));
             auto bark_mesh = std::make_shared<GeometryMesh>(std::move(generated_tree.bark_mesh));
@@ -655,6 +748,34 @@ CityBuildResult build_city(
     }
     result.tree_bark_mesh = central_park_tree_bark_mesh;
     result.tree_leaf_mesh = central_park_tree_leaf_mesh;
+
+    if (config.point_shadow_debug_scene)
+    {
+        world.clear();
+        build_point_shadow_debug_scene(
+            world,
+            config,
+            central_park_tree_bark_mesh,
+            central_park_tree_leaf_mesh,
+            central_park_tree_metrics);
+        result.city_bounds_valid = true;
+        result.min_x = -kPointShadowDebugSceneHalfExtent;
+        result.max_x = kPointShadowDebugSceneHalfExtent;
+        result.min_z = -kPointShadowDebugSceneHalfExtent;
+        result.max_z = kPointShadowDebugSceneHalfExtent;
+        if (!config.point_light_position_valid)
+        {
+            result.computed_default_light = true;
+            result.default_light_x = 3.0f;
+            result.default_light_y = 6.0f;
+            result.default_light_z = 3.0f;
+            result.default_light_radius = 18.0f;
+        }
+        result.semantic_model = std::move(semantic_model);
+        result.sign_label_atlas = std::move(sign_label_atlas);
+        result.layout = std::move(layout);
+        return result;
+    }
 
     const CitySurfaceBounds road_surface_bounds = compute_city_road_surface_bounds(*layout);
     if (road_surface_bounds.valid())
@@ -692,7 +813,8 @@ CityBuildResult build_city(
         if (border_width <= 1e-4f)
             continue;
 
-        const glm::vec4 module_color = module_building_color(module_layout.module_path);
+        const glm::vec4 base_color = module_building_color(module_layout.module_path);
+        const glm::vec4 module_color(glm::vec3(base_color), base_color.a * config.module_border_alpha);
         const float center_x = (module_layout.min_x + module_layout.max_x) * 0.5f;
         const float center_z = (module_layout.min_z + module_layout.max_z) * 0.5f;
         const float inner_extent_z = std::max(extent_z - 2.0f * border_width, border_width);

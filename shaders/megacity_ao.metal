@@ -20,6 +20,9 @@ struct FrameUniforms
     float4x4 shadow_texture_matrix[3];
     float4 shadow_split_depths;
     float4 shadow_params;
+    float4x4 point_shadow_view_proj[6];
+    float4x4 point_shadow_texture_matrix[6];
+    float4 point_shadow_params;
 };
 
 struct VertexOut

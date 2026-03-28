@@ -47,30 +47,40 @@ int function_mass(const CityClassRecord& row)
 
 std::vector<SemanticBuildingLayer> build_function_layers(const CityClassRecord& row, const BuildingMetrics& metrics)
 {
-    std::vector<int> sizes;
-    sizes.reserve(row.function_sizes.size());
-    for (const int size : row.function_sizes)
+    struct FunctionEntry
     {
-        if (size > 0)
-            sizes.push_back(size);
+        std::string name;
+        int size = 0;
+    };
+    std::vector<FunctionEntry> entries;
+    entries.reserve(row.function_sizes.size());
+    for (size_t i = 0; i < row.function_sizes.size(); ++i)
+    {
+        if (row.function_sizes[i] > 0)
+        {
+            std::string name = (i < row.function_names.size()) ? row.function_names[i] : std::string();
+            entries.push_back({ std::move(name), row.function_sizes[i] });
+        }
     }
 
-    if (sizes.empty())
-        return { { 0, metrics.height } };
+    if (entries.empty())
+        return { { std::string(), 0, metrics.height } };
 
-    const int total_size = std::accumulate(sizes.begin(), sizes.end(), 0);
+    int total_size = 0;
+    for (const auto& entry : entries)
+        total_size += entry.size;
     if (total_size <= 0)
-        return { { 0, metrics.height } };
+        return { { std::string(), 0, metrics.height } };
 
     std::vector<SemanticBuildingLayer> layers;
-    layers.reserve(sizes.size());
+    layers.reserve(entries.size());
 
     float remaining_height = metrics.height;
-    for (size_t index = 0; index < sizes.size(); ++index)
+    for (size_t index = 0; index < entries.size(); ++index)
     {
-        const int function_size = sizes[index];
+        const int function_size = entries[index].size;
         float layer_height = metrics.height;
-        if (index + 1 < sizes.size())
+        if (index + 1 < entries.size())
         {
             layer_height = metrics.height * static_cast<float>(function_size) / static_cast<float>(total_size);
             layer_height = std::min(layer_height, remaining_height);
@@ -80,7 +90,7 @@ std::vector<SemanticBuildingLayer> build_function_layers(const CityClassRecord& 
             layer_height = remaining_height;
         }
 
-        layers.push_back({ function_size, std::max(layer_height, 0.0f) });
+        layers.push_back({ entries[index].name, function_size, std::max(layer_height, 0.0f) });
         remaining_height = std::max(0.0f, remaining_height - layer_height);
     }
 
@@ -401,25 +411,28 @@ std::optional<BuildingRoutePort> make_building_route_port(
     (void)grid;
     const float half_footprint = building.metrics.footprint * 0.5f;
     const float road_center_offset = half_footprint + building.metrics.sidewalk_width + building.metrics.road_width * 0.5f;
+    // Start the edge anchor 1/4 inside the footprint so the rendered line
+    // visually intersects non-rectangular (pentagonal) building geometry.
+    const float edge_inset = half_footprint * 0.5f;
 
     glm::vec2 edge_world(0.0f);
     glm::vec2 road_world(0.0f);
     switch (side)
     {
     case PortSide::North:
-        edge_world = { building.center.x + tangent_offset, building.center.y + half_footprint };
+        edge_world = { building.center.x + tangent_offset, building.center.y + edge_inset };
         road_world = { building.center.x + tangent_offset, building.center.y + road_center_offset };
         break;
     case PortSide::South:
-        edge_world = { building.center.x + tangent_offset, building.center.y - half_footprint };
+        edge_world = { building.center.x + tangent_offset, building.center.y - edge_inset };
         road_world = { building.center.x + tangent_offset, building.center.y - road_center_offset };
         break;
     case PortSide::West:
-        edge_world = { building.center.x - half_footprint, building.center.y + tangent_offset };
+        edge_world = { building.center.x - edge_inset, building.center.y + tangent_offset };
         road_world = { building.center.x - road_center_offset, building.center.y + tangent_offset };
         break;
     case PortSide::East:
-        edge_world = { building.center.x + half_footprint, building.center.y + tangent_offset };
+        edge_world = { building.center.x + edge_inset, building.center.y + tangent_offset };
         road_world = { building.center.x + road_center_offset, building.center.y + tangent_offset };
         break;
     }

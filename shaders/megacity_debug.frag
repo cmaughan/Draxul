@@ -18,6 +18,9 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     mat4 shadow_texture_matrix[3];
     vec4 shadow_split_depths;
     vec4 shadow_params;
+    mat4 point_shadow_view_proj[6];
+    mat4 point_shadow_texture_matrix[6];
+    vec4 point_shadow_params;
 }
 frame;
 struct MaterialInstance
@@ -36,6 +39,7 @@ layout(set = 0, binding = 2) uniform sampler2D sign_atlas;
 layout(set = 0, binding = 3) uniform sampler2D ao_buffer;
 layout(set = 0, binding = 4) uniform sampler2D material_textures[25];
 layout(set = 0, binding = 5) uniform sampler2D shadow_maps[3];
+layout(set = 0, binding = 6) uniform sampler2D point_shadow_maps[6];
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) in vec3 in_base_color;
@@ -63,6 +67,11 @@ layout(location = 0) out vec4 out_frag_color;
 // 10 = Depth
 // 11 = Bitangents
 // 12 = TBN Packed
+// 13 = Directional Shadow
+// 14 = Point Shadow
+// 15 = Point Shadow Face
+// 16 = Point Shadow Stored Depth
+// 17 = Point Shadow Depth Delta
 
 const uint kShadingFlatColor = 0u;
 const uint kShadingTexturedTintedPbr = 1u;
@@ -121,6 +130,79 @@ float directional_shadow_visibility(vec3 world_position, vec3 normal_ws, float n
     vec3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6);
     shadow_coord.z -= max(frame.shadow_params.y, 0.0);
     return sample_shadow_map(cascade_index, shadow_coord);
+}
+
+float point_shadow_visibility(vec3 world_position, vec3 normal_ws, vec3 point_dir)
+{
+    if (frame.point_shadow_params.w < 0.5)
+        return 1.0;
+
+    float radius = max(frame.point_light_pos.w, 1.0);
+    float sample_bias = max(frame.point_shadow_params.x, 0.0);
+    float normal_bias = max(frame.point_shadow_params.y, 0.0);
+    vec3 light_to_surface = world_position - frame.point_light_pos.xyz;
+    float current_depth = length(light_to_surface) / radius;
+    vec3 abs_dir = abs(light_to_surface);
+    int face_index = 0;
+    if (abs_dir.x >= abs_dir.y && abs_dir.x >= abs_dir.z)
+        face_index = light_to_surface.x >= 0.0 ? 0 : 1;
+    else if (abs_dir.y >= abs_dir.x && abs_dir.y >= abs_dir.z)
+        face_index = light_to_surface.y >= 0.0 ? 2 : 3;
+    else
+        face_index = light_to_surface.z >= 0.0 ? 4 : 5;
+
+    vec4 shadow_position = frame.point_shadow_texture_matrix[face_index] * vec4(world_position, 1.0);
+    vec3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6);
+    if (shadow_coord.x <= 0.0 || shadow_coord.x >= 1.0 || shadow_coord.y <= 0.0 || shadow_coord.y >= 1.0)
+        return 1.0;
+    if (shadow_coord.z <= 0.0 || shadow_coord.z >= 1.0)
+        return 1.0;
+
+    float stored_depth = texture(point_shadow_maps[face_index], shadow_coord.xy).r;
+    float slope_bias = normal_bias * (1.0 - max(dot(normal_ws, point_dir), 0.0));
+    return current_depth - (sample_bias + slope_bias) <= stored_depth ? 1.0 : 0.0;
+}
+
+int point_shadow_face_index(vec3 light_to_surface)
+{
+    vec3 abs_dir = abs(light_to_surface);
+    if (abs_dir.x >= abs_dir.y && abs_dir.x >= abs_dir.z)
+        return light_to_surface.x >= 0.0 ? 0 : 1;
+    if (abs_dir.y >= abs_dir.x && abs_dir.y >= abs_dir.z)
+        return light_to_surface.y >= 0.0 ? 2 : 3;
+    return light_to_surface.z >= 0.0 ? 4 : 5;
+}
+
+float point_shadow_stored_depth(vec3 world_position)
+{
+    vec3 light_to_surface = world_position - frame.point_light_pos.xyz;
+    int face_index = point_shadow_face_index(light_to_surface);
+    vec4 shadow_position = frame.point_shadow_texture_matrix[face_index] * vec4(world_position, 1.0);
+    vec3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6);
+    if (shadow_coord.x <= 0.0 || shadow_coord.x >= 1.0 || shadow_coord.y <= 0.0 || shadow_coord.y >= 1.0)
+        return 1.0;
+    if (shadow_coord.z <= 0.0 || shadow_coord.z >= 1.0)
+        return 1.0;
+    return texture(point_shadow_maps[face_index], shadow_coord.xy).r;
+}
+
+float point_shadow_current_depth(vec3 world_position)
+{
+    vec3 light_to_surface = world_position - frame.point_light_pos.xyz;
+    return length(light_to_surface) / max(frame.point_light_pos.w, 1.0);
+}
+
+vec3 point_shadow_face_color(int face_index)
+{
+    switch (face_index)
+    {
+    case 0: return vec3(1.0, 0.2, 0.2);
+    case 1: return vec3(1.0, 0.7, 0.2);
+    case 2: return vec3(0.2, 1.0, 0.2);
+    case 3: return vec3(0.2, 1.0, 1.0);
+    case 4: return vec3(0.2, 0.4, 1.0);
+    default: return vec3(1.0, 0.2, 1.0);
+    }
 }
 
 vec3 world_position_false_color(vec3 world_pos)
@@ -263,6 +345,28 @@ void main()
             ? directional_shadow_visibility(in_world_position, normal_ws, ndotl, gl_FragCoord.z)
             : 1.0;
         result = vec3(visibility);
+    }
+    else if (mode == 14)
+    {
+        vec3 point_vec = frame.point_light_pos.xyz - in_world_position;
+        float point_dist = length(point_vec);
+        vec3 point_dir = point_dist > 1e-4 ? point_vec / point_dist : vec3(0.0, 1.0, 0.0);
+        result = vec3(point_shadow_visibility(in_world_position, normal_ws, point_dir));
+    }
+    else if (mode == 15)
+    {
+        result = point_shadow_face_color(point_shadow_face_index(in_world_position - frame.point_light_pos.xyz));
+    }
+    else if (mode == 16)
+    {
+        result = vec3(point_shadow_stored_depth(in_world_position));
+    }
+    else if (mode == 17)
+    {
+        float delta = point_shadow_current_depth(in_world_position) - point_shadow_stored_depth(in_world_position);
+        result = delta >= 0.0
+            ? vec3(clamp(delta * 12.0, 0.0, 1.0), 0.0, 0.0)
+            : vec3(0.0, clamp(-delta * 12.0, 0.0, 1.0), 0.0);
     }
 
     out_frag_color = vec4(result, in_opacity);

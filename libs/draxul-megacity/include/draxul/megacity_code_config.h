@@ -42,6 +42,10 @@ enum class MegaCityDebugView : uint8_t
     Bitangents,
     TbnPacked,
     DirectionalShadow,
+    PointShadow,
+    PointShadowFace,
+    PointShadowStoredDepth,
+    PointShadowDepthDelta,
 };
 
 struct MegaCityCodeConfig
@@ -59,6 +63,7 @@ struct MegaCityCodeConfig
     bool clamp_semantic_metrics = false;
     bool hide_test_entities = true;
     bool hide_struct_entities = false;
+    bool point_shadow_debug_scene = false;
     bool auto_rebuild = true;
     bool show_ui_panels = true;
     float selection_dependency_alpha = 0.7f;
@@ -87,6 +92,7 @@ struct MegaCityCodeConfig
     float road_width_scale = 0.85f;
     glm::vec2 road_width_range{ 0.6f, 3.0f }; // (min, max)
     float sidewalk_width = 1.0f;
+    float module_border_alpha = 1.0f;
     float dependency_route_layer_step = 0.036f;
     float park_footprint = 6.0f;
     float park_height = 0.15f;

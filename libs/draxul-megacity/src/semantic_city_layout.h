@@ -17,6 +17,7 @@ namespace draxul
 
 struct SemanticBuildingLayer
 {
+    std::string function_name;
     int function_size = 0;
     float height = 1.0f;
 };

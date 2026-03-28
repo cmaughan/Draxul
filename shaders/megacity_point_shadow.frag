@@ -24,21 +24,12 @@ layout(set = 0, binding = 0) uniform FrameUniforms
 }
 frame;
 
-layout(push_constant) uniform ObjectUniforms
-{
-    mat4 world;
-    vec4 color;
-    uvec4 material_data;
-    vec4 uv_rect;
-    vec4 label_metrics;
-}
-object_data;
-
-layout(location = 0) in vec3 in_position;
+layout(location = 0) in vec3 in_world_position;
+layout(location = 0) out float out_depth_distance;
 
 void main()
 {
-    vec4 world_position = object_data.world * vec4(in_position, 1.0);
-    uint cascade_index = min(object_data.material_data.y, 2u);
-    gl_Position = frame.shadow_view_proj[cascade_index] * world_position;
+    float radius = max(frame.point_light_pos.w, 1.0);
+    float distance_to_light = length(in_world_position - frame.point_light_pos.xyz);
+    out_depth_distance = clamp(distance_to_light / radius, 0.0, 1.0);
 }

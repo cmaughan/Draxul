@@ -80,6 +80,14 @@ std::optional<MegaCityDebugView> parse_megacity_debug_view(std::string_view valu
         return MegaCityDebugView::TbnPacked;
     if (value == "directional_shadow")
         return MegaCityDebugView::DirectionalShadow;
+    if (value == "point_shadow")
+        return MegaCityDebugView::PointShadow;
+    if (value == "point_shadow_face")
+        return MegaCityDebugView::PointShadowFace;
+    if (value == "point_shadow_stored_depth")
+        return MegaCityDebugView::PointShadowStoredDepth;
+    if (value == "point_shadow_depth_delta")
+        return MegaCityDebugView::PointShadowDepthDelta;
     return std::nullopt;
 }
 
@@ -115,6 +123,14 @@ std::string_view format_megacity_debug_view(MegaCityDebugView value)
         return "tbn_packed";
     case MegaCityDebugView::DirectionalShadow:
         return "directional_shadow";
+    case MegaCityDebugView::PointShadow:
+        return "point_shadow";
+    case MegaCityDebugView::PointShadowFace:
+        return "point_shadow_face";
+    case MegaCityDebugView::PointShadowStoredDepth:
+        return "point_shadow_stored_depth";
+    case MegaCityDebugView::PointShadowDepthDelta:
+        return "point_shadow_depth_delta";
     }
     return "final_scene";
 }
@@ -194,6 +210,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_bool("clamp_semantic_metrics", config.clamp_semantic_metrics);
     assign_bool("hide_test_entities", config.hide_test_entities);
     assign_bool("hide_struct_entities", config.hide_struct_entities);
+    assign_bool("point_shadow_debug_scene", config.point_shadow_debug_scene);
     assign_bool("auto_rebuild", config.auto_rebuild);
     assign_bool("show_ui_panels", config.show_ui_panels);
     assign_float("selection_dependency_alpha", config.selection_dependency_alpha);
@@ -222,6 +239,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_float("road_width_scale", config.road_width_scale);
     assign_vec2(table, "road_width_range", config.road_width_range);
     assign_float("sidewalk_width", config.sidewalk_width);
+    assign_float("module_border_alpha", config.module_border_alpha);
     assign_float("dependency_route_layer_step", config.dependency_route_layer_step);
     assign_float("park_footprint", config.park_footprint);
     assign_float("park_height", config.park_height);
@@ -338,6 +356,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("clamp_semantic_metrics", config.clamp_semantic_metrics);
     table.insert_or_assign("hide_test_entities", config.hide_test_entities);
     table.insert_or_assign("hide_struct_entities", config.hide_struct_entities);
+    table.insert_or_assign("point_shadow_debug_scene", config.point_shadow_debug_scene);
     table.insert_or_assign("auto_rebuild", config.auto_rebuild);
     table.insert_or_assign("show_ui_panels", config.show_ui_panels);
     table.insert_or_assign("selection_dependency_alpha", static_cast<double>(config.selection_dependency_alpha));
@@ -364,6 +383,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("road_width_scale", static_cast<double>(config.road_width_scale));
     toml_support::insert_vec2(table, "road_width_range", config.road_width_range);
     table.insert_or_assign("sidewalk_width", static_cast<double>(config.sidewalk_width));
+    table.insert_or_assign("module_border_alpha", static_cast<double>(config.module_border_alpha));
     table.insert_or_assign("dependency_route_layer_step", static_cast<double>(config.dependency_route_layer_step));
     table.insert_or_assign("park_footprint", static_cast<double>(config.park_footprint));
     table.insert_or_assign("park_height", static_cast<double>(config.park_height));

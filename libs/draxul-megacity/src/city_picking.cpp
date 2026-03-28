@@ -90,10 +90,12 @@ std::optional<PickResult> pick_building(
             if (t >= 0.0f && t < best_t)
             {
                 best_t = t;
+                const glm::vec3 hit_point = ray_origin + t * ray_dir;
                 best = PickResult{
                     building.qualified_name,
                     building.module_path,
                     building.center,
+                    hit_point.y,
                 };
             }
         }

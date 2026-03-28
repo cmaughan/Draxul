@@ -35,10 +35,12 @@ layout(push_constant) uniform ObjectUniforms
 object_data;
 
 layout(location = 0) in vec3 in_position;
+layout(location = 0) out vec3 out_world_position;
 
 void main()
 {
     vec4 world_position = object_data.world * vec4(in_position, 1.0);
-    uint cascade_index = min(object_data.material_data.y, 2u);
-    gl_Position = frame.shadow_view_proj[cascade_index] * world_position;
+    uint face_index = min(object_data.material_data.z, 5u);
+    gl_Position = frame.point_shadow_view_proj[face_index] * world_position;
+    out_world_position = world_position.xyz;
 }

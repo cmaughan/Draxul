@@ -14,6 +14,13 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     vec4 ao_params; // x = radius_world, y = radius_pixels, z = bias, w = power
     vec4 debug_view;
     vec4 world_debug_bounds;
+    mat4 shadow_view_proj[3];
+    mat4 shadow_texture_matrix[3];
+    vec4 shadow_split_depths;
+    vec4 shadow_params;
+    mat4 point_shadow_view_proj[6];
+    mat4 point_shadow_texture_matrix[6];
+    vec4 point_shadow_params;
 }
 frame;
 layout(set = 0, binding = 1) uniform sampler2D ao_input;

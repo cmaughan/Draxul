@@ -38,6 +38,9 @@ struct alignas(16) FrameUniforms
     std::array<glm::mat4, kShadowCascadeCount> shadow_texture_matrix{};
     glm::vec4 shadow_split_depths{ 1.0f };
     glm::vec4 shadow_params{ static_cast<float>(kShadowCascadeCount), 0.0015f, 0.04f, 1.0f / 2048.0f };
+    std::array<glm::mat4, kPointShadowFaceCount> point_shadow_view_proj{};
+    std::array<glm::mat4, kPointShadowFaceCount> point_shadow_texture_matrix{};
+    glm::vec4 point_shadow_params{ 0.00075f, 0.004f, 1.0f / 1024.0f, 0.0f };
 };
 
 struct alignas(16) ObjectPushConstants
@@ -159,6 +162,14 @@ struct GBufferTargets
     std::array<VmaAllocation, kShadowCascadeCount> shadow_allocs{};
     std::array<VkImageView, kShadowCascadeCount> shadow_views{};
     std::array<VkFramebuffer, kShadowCascadeCount> shadow_framebuffers{};
+    VkImage point_shadow_image = VK_NULL_HANDLE; // R32Float cubemap with normalized radial depth
+    VmaAllocation point_shadow_alloc = VK_NULL_HANDLE;
+    VkImageView point_shadow_cube_view = VK_NULL_HANDLE;
+    std::array<VkImageView, kPointShadowFaceCount> point_shadow_face_views{};
+    std::array<VkFramebuffer, kPointShadowFaceCount> point_shadow_framebuffers{};
+    VkImage point_shadow_depth_image = VK_NULL_HANDLE;
+    VmaAllocation point_shadow_depth_alloc = VK_NULL_HANDLE;
+    VkImageView point_shadow_depth_view = VK_NULL_HANDLE;
 
     VkImage scene_color_msaa_image = VK_NULL_HANDLE; // RGBA16Float MSAA scene color
     VmaAllocation scene_color_msaa_alloc = VK_NULL_HANDLE;
@@ -189,6 +200,7 @@ struct GBufferTargets
     VkDescriptorSet imgui_ao_ds = VK_NULL_HANDLE;
     VkDescriptorSet imgui_depth_ds = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, kShadowCascadeCount> imgui_shadow_ds{};
+    std::array<VkDescriptorSet, kPointShadowFaceCount> imgui_point_shadow_ds{};
     VkDescriptorSet imgui_scene_hdr_ds = VK_NULL_HANDLE;
     VkDescriptorSet imgui_scene_final_ds = VK_NULL_HANDLE;
 
@@ -534,6 +546,66 @@ bool create_attachment_view(VkDevice device, VkImage image, VkFormat format, VkI
     return vkCreateImageView(device, &view_ci, nullptr, &view) == VK_SUCCESS;
 }
 
+bool create_cube_attachment_image(
+    VkDevice device,
+    VmaAllocator allocator,
+    int size,
+    VkFormat format,
+    VkImageUsageFlags usage,
+    VkImage& image,
+    VmaAllocation& allocation,
+    VkImageView& cube_view,
+    std::array<VkImageView, kPointShadowFaceCount>& face_views)
+{
+    VkImageCreateInfo image_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    image_ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    image_ci.imageType = VK_IMAGE_TYPE_2D;
+    image_ci.format = format;
+    image_ci.extent = {
+        static_cast<uint32_t>(size),
+        static_cast<uint32_t>(size),
+        1u
+    };
+    image_ci.mipLevels = 1;
+    image_ci.arrayLayers = kPointShadowFaceCount;
+    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_ci.usage = usage;
+    image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo alloc_ci = {};
+    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    if (vmaCreateImage(allocator, &image_ci, &alloc_ci, &image, &allocation, nullptr) != VK_SUCCESS)
+        return false;
+
+    VkImageViewCreateInfo cube_view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    cube_view_ci.image = image;
+    cube_view_ci.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    cube_view_ci.format = format;
+    cube_view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    cube_view_ci.subresourceRange.levelCount = 1;
+    cube_view_ci.subresourceRange.layerCount = kPointShadowFaceCount;
+    if (vkCreateImageView(device, &cube_view_ci, nullptr, &cube_view) != VK_SUCCESS)
+        return false;
+
+    for (uint32_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+    {
+        VkImageViewCreateInfo face_view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        face_view_ci.image = image;
+        face_view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        face_view_ci.format = format;
+        face_view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        face_view_ci.subresourceRange.levelCount = 1;
+        face_view_ci.subresourceRange.baseArrayLayer = face_index;
+        face_view_ci.subresourceRange.layerCount = 1;
+        if (vkCreateImageView(device, &face_view_ci, nullptr, &face_views[face_index]) != VK_SUCCESS)
+            return false;
+    }
+
+    return true;
+}
+
 void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
     uint32_t base_mip_level = 0, uint32_t level_count = 1)
 {
@@ -770,6 +842,8 @@ struct IsometricScenePass::State
     VkPipeline gbuffer_pipeline = VK_NULL_HANDLE;
     VkRenderPass shadow_render_pass = VK_NULL_HANDLE;
     VkPipeline shadow_pipeline = VK_NULL_HANDLE;
+    VkRenderPass point_shadow_render_pass = VK_NULL_HANDLE;
+    VkPipeline point_shadow_pipeline = VK_NULL_HANDLE;
     VkRenderPass ao_render_pass = VK_NULL_HANDLE;
     VkPipeline ao_pipeline = VK_NULL_HANDLE;
     VkPipeline ao_blur_pipeline = VK_NULL_HANDLE;
@@ -783,6 +857,7 @@ struct IsometricScenePass::State
     uint32_t last_prepass_frame = 0;
     VkSampleCountFlagBits scene_sample_count = VK_SAMPLE_COUNT_1_BIT;
     int shadow_map_resolution = 2048;
+    int point_shadow_map_resolution = 1024;
 
     // Tooltip overlay resources
     VkDescriptorSetLayout tooltip_descriptor_set_layout = VK_NULL_HANDLE;
@@ -798,7 +873,7 @@ struct IsometricScenePass::State
 
     bool create_device_resources(uint32_t frame_count)
     {
-        VkDescriptorSetLayoutBinding scene_bindings[6] = {};
+        VkDescriptorSetLayoutBinding scene_bindings[7] = {};
         scene_bindings[0].binding = 0;
         scene_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         scene_bindings[0].descriptorCount = 1;
@@ -823,9 +898,13 @@ struct IsometricScenePass::State
         scene_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         scene_bindings[5].descriptorCount = kShadowCascadeCount;
         scene_bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        scene_bindings[6].binding = 6;
+        scene_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        scene_bindings[6].descriptorCount = kPointShadowFaceCount;
+        scene_bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo layout_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layout_ci.bindingCount = 6;
+        layout_ci.bindingCount = 7;
         layout_ci.pBindings = scene_bindings;
         if (vkCreateDescriptorSetLayout(device, &layout_ci, nullptr, &descriptor_set_layout) != VK_SUCCESS)
         {
@@ -888,7 +967,8 @@ struct IsometricScenePass::State
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         pool_sizes[0].descriptorCount = frame_count * 2;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_sizes[1].descriptorCount = frame_count * (2 + kSceneMaterialTextureCount + kShadowCascadeCount);
+        pool_sizes[1].descriptorCount
+            = frame_count * (3 + kSceneMaterialTextureCount + kShadowCascadeCount + kPointShadowFaceCount);
 
         VkDescriptorPoolCreateInfo pool_ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_ci.maxSets = frame_count;
@@ -1302,6 +1382,20 @@ struct IsometricScenePass::State
                 shadow_infos[cascade_index].imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
             }
 
+            std::array<VkDescriptorImageInfo, kPointShadowFaceCount> point_shadow_infos{};
+            bool have_point_shadow = true;
+            for (size_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+            {
+                if (gbuffer.point_shadow_face_views[face_index] == VK_NULL_HANDLE)
+                {
+                    have_point_shadow = false;
+                    break;
+                }
+                point_shadow_infos[face_index].sampler = gbuffer_sampler;
+                point_shadow_infos[face_index].imageView = gbuffer.point_shadow_face_views[face_index];
+                point_shadow_infos[face_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            }
+
             std::array<VkDescriptorImageInfo, kSceneMaterialTextureCount> material_infos{};
             for (size_t texture_index = 0; texture_index < material_textures.size(); ++texture_index)
             {
@@ -1310,7 +1404,7 @@ struct IsometricScenePass::State
                 material_infos[texture_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 
-            VkWriteDescriptorSet writes[3] = {};
+            VkWriteDescriptorSet writes[4] = {};
             uint32_t write_count = 0;
 
             writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1340,6 +1434,17 @@ struct IsometricScenePass::State
                 writes[write_count].descriptorCount = static_cast<uint32_t>(shadow_infos.size());
                 writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 writes[write_count].pImageInfo = shadow_infos.data();
+                ++write_count;
+            }
+
+            if (have_point_shadow)
+            {
+                writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[write_count].dstSet = frame.descriptor_set;
+                writes[write_count].dstBinding = 6;
+                writes[write_count].descriptorCount = static_cast<uint32_t>(point_shadow_infos.size());
+                writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[write_count].pImageInfo = point_shadow_infos.data();
                 ++write_count;
             }
 
@@ -2091,6 +2196,11 @@ struct IsometricScenePass::State
                 if (shadow_ds != VK_NULL_HANDLE)
                     ImGui_ImplVulkan_RemoveTexture(shadow_ds);
             }
+            for (VkDescriptorSet point_shadow_ds : t.imgui_point_shadow_ds)
+            {
+                if (point_shadow_ds != VK_NULL_HANDLE)
+                    ImGui_ImplVulkan_RemoveTexture(point_shadow_ds);
+            }
             if (t.imgui_scene_hdr_ds != VK_NULL_HANDLE)
                 ImGui_ImplVulkan_RemoveTexture(t.imgui_scene_hdr_ds);
             if (t.imgui_scene_final_ds != VK_NULL_HANDLE)
@@ -2105,6 +2215,11 @@ struct IsometricScenePass::State
             {
                 if (shadow_fb != VK_NULL_HANDLE)
                     vkDestroyFramebuffer(device, shadow_fb, nullptr);
+            }
+            for (VkFramebuffer point_shadow_fb : t.point_shadow_framebuffers)
+            {
+                if (point_shadow_fb != VK_NULL_HANDLE)
+                    vkDestroyFramebuffer(device, point_shadow_fb, nullptr);
             }
             if (t.scene_framebuffer != VK_NULL_HANDLE)
                 vkDestroyFramebuffer(device, t.scene_framebuffer, nullptr);
@@ -2133,6 +2248,19 @@ struct IsometricScenePass::State
                 if (t.shadow_images[cascade_index] != VK_NULL_HANDLE)
                     vmaDestroyImage(allocator, t.shadow_images[cascade_index], t.shadow_allocs[cascade_index]);
             }
+            for (VkImageView point_shadow_face_view : t.point_shadow_face_views)
+            {
+                if (point_shadow_face_view != VK_NULL_HANDLE)
+                    vkDestroyImageView(device, point_shadow_face_view, nullptr);
+            }
+            if (t.point_shadow_cube_view != VK_NULL_HANDLE)
+                vkDestroyImageView(device, t.point_shadow_cube_view, nullptr);
+            if (t.point_shadow_image != VK_NULL_HANDLE)
+                vmaDestroyImage(allocator, t.point_shadow_image, t.point_shadow_alloc);
+            if (t.point_shadow_depth_view != VK_NULL_HANDLE)
+                vkDestroyImageView(device, t.point_shadow_depth_view, nullptr);
+            if (t.point_shadow_depth_image != VK_NULL_HANDLE)
+                vmaDestroyImage(allocator, t.point_shadow_depth_image, t.point_shadow_depth_alloc);
             if (t.scene_color_msaa_view != VK_NULL_HANDLE)
                 vkDestroyImageView(device, t.scene_color_msaa_view, nullptr);
             if (t.scene_color_msaa_image != VK_NULL_HANDLE)
@@ -2168,6 +2296,10 @@ struct IsometricScenePass::State
             vkDestroyPipeline(device, shadow_pipeline, nullptr);
         if (shadow_render_pass != VK_NULL_HANDLE)
             vkDestroyRenderPass(device, shadow_render_pass, nullptr);
+        if (point_shadow_pipeline != VK_NULL_HANDLE)
+            vkDestroyPipeline(device, point_shadow_pipeline, nullptr);
+        if (point_shadow_render_pass != VK_NULL_HANDLE)
+            vkDestroyRenderPass(device, point_shadow_render_pass, nullptr);
         if (ao_pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, ao_pipeline, nullptr);
         if (ao_blur_pipeline != VK_NULL_HANDLE)
@@ -2186,6 +2318,8 @@ struct IsometricScenePass::State
         gbuffer_point_sampler = VK_NULL_HANDLE;
         shadow_pipeline = VK_NULL_HANDLE;
         shadow_render_pass = VK_NULL_HANDLE;
+        point_shadow_pipeline = VK_NULL_HANDLE;
+        point_shadow_render_pass = VK_NULL_HANDLE;
         ao_pipeline = VK_NULL_HANDLE;
         ao_blur_pipeline = VK_NULL_HANDLE;
         ao_render_pass = VK_NULL_HANDLE;
@@ -2201,6 +2335,8 @@ struct IsometricScenePass::State
         if (gbuffer_initialized)
             return shadow_pipeline != VK_NULL_HANDLE
                 && shadow_render_pass != VK_NULL_HANDLE
+                && point_shadow_pipeline != VK_NULL_HANDLE
+                && point_shadow_render_pass != VK_NULL_HANDLE
                 && gbuffer_pipeline != VK_NULL_HANDLE
                 && ao_pipeline != VK_NULL_HANDLE
                 && ao_blur_pipeline != VK_NULL_HANDLE
@@ -2252,6 +2388,67 @@ struct IsometricScenePass::State
         if (vkCreateRenderPass(device, &shadow_rp_ci, nullptr, &shadow_render_pass) != VK_SUCCESS)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create shadow render pass");
+            return false;
+        }
+
+        VkAttachmentDescription point_shadow_attachments[2] = {};
+        point_shadow_attachments[0].format = VK_FORMAT_R32_SFLOAT;
+        point_shadow_attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+        point_shadow_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        point_shadow_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        point_shadow_attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        point_shadow_attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        point_shadow_attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        point_shadow_attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        point_shadow_attachments[1].format = VK_FORMAT_D32_SFLOAT;
+        point_shadow_attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+        point_shadow_attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        point_shadow_attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        point_shadow_attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        point_shadow_attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        point_shadow_attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        point_shadow_attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference point_shadow_color_ref = {};
+        point_shadow_color_ref.attachment = 0;
+        point_shadow_color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        VkAttachmentReference point_shadow_depth_ref = {};
+        point_shadow_depth_ref.attachment = 1;
+        point_shadow_depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription point_shadow_subpass = {};
+        point_shadow_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        point_shadow_subpass.colorAttachmentCount = 1;
+        point_shadow_subpass.pColorAttachments = &point_shadow_color_ref;
+        point_shadow_subpass.pDepthStencilAttachment = &point_shadow_depth_ref;
+
+        VkSubpassDependency point_shadow_deps[2] = {};
+        point_shadow_deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        point_shadow_deps[0].dstSubpass = 0;
+        point_shadow_deps[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        point_shadow_deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+            | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        point_shadow_deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+            | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        point_shadow_deps[1].srcSubpass = 0;
+        point_shadow_deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        point_shadow_deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+            | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        point_shadow_deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        point_shadow_deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        point_shadow_deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        VkRenderPassCreateInfo point_shadow_rp_ci = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+        point_shadow_rp_ci.attachmentCount = 2;
+        point_shadow_rp_ci.pAttachments = point_shadow_attachments;
+        point_shadow_rp_ci.subpassCount = 1;
+        point_shadow_rp_ci.pSubpasses = &point_shadow_subpass;
+        point_shadow_rp_ci.dependencyCount = 2;
+        point_shadow_rp_ci.pDependencies = point_shadow_deps;
+        if (vkCreateRenderPass(device, &point_shadow_rp_ci, nullptr, &point_shadow_render_pass) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create point shadow render pass");
             return false;
         }
 
@@ -2497,6 +2694,62 @@ struct IsometricScenePass::State
             return false;
         }
         vkDestroyShaderModule(device, shadow_vert, nullptr);
+
+        auto point_shadow_vert = load_shader(device, (shader_dir / "megacity_point_shadow.vert.spv").string());
+        auto point_shadow_frag = load_shader(device, (shader_dir / "megacity_point_shadow.frag.spv").string());
+        if (!point_shadow_vert || !point_shadow_frag)
+        {
+            if (point_shadow_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, point_shadow_vert, nullptr);
+            if (point_shadow_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, point_shadow_frag, nullptr);
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo point_shadow_stages[2] = {};
+        point_shadow_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        point_shadow_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        point_shadow_stages[0].module = point_shadow_vert;
+        point_shadow_stages[0].pName = "main";
+        point_shadow_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        point_shadow_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        point_shadow_stages[1].module = point_shadow_frag;
+        point_shadow_stages[1].pName = "main";
+
+        VkPipelineColorBlendAttachmentState point_shadow_blend_attachment = {};
+        point_shadow_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+
+        VkPipelineColorBlendStateCreateInfo point_shadow_blend = {
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+        };
+        point_shadow_blend.attachmentCount = 1;
+        point_shadow_blend.pAttachments = &point_shadow_blend_attachment;
+
+        VkGraphicsPipelineCreateInfo point_shadow_pipeline_ci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        point_shadow_pipeline_ci.stageCount = 2;
+        point_shadow_pipeline_ci.pStages = point_shadow_stages;
+        point_shadow_pipeline_ci.pVertexInputState = &vertex_input;
+        point_shadow_pipeline_ci.pInputAssemblyState = &input_assembly;
+        point_shadow_pipeline_ci.pViewportState = &viewport_state;
+        point_shadow_pipeline_ci.pRasterizationState = &shadow_raster;
+        point_shadow_pipeline_ci.pMultisampleState = &multisample;
+        point_shadow_pipeline_ci.pDepthStencilState = &depth_stencil;
+        point_shadow_pipeline_ci.pColorBlendState = &point_shadow_blend;
+        point_shadow_pipeline_ci.pDynamicState = &shadow_dynamic;
+        point_shadow_pipeline_ci.layout = prepass_pipeline_layout;
+        point_shadow_pipeline_ci.renderPass = point_shadow_render_pass;
+        point_shadow_pipeline_ci.subpass = 0;
+        if (vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &point_shadow_pipeline_ci, nullptr, &point_shadow_pipeline)
+            != VK_SUCCESS)
+        {
+            vkDestroyShaderModule(device, point_shadow_vert, nullptr);
+            vkDestroyShaderModule(device, point_shadow_frag, nullptr);
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create point shadow pipeline");
+            return false;
+        }
+        vkDestroyShaderModule(device, point_shadow_vert, nullptr);
+        vkDestroyShaderModule(device, point_shadow_frag, nullptr);
 
         VkGraphicsPipelineCreateInfo pipeline_ci = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
         pipeline_ci.stageCount = 2;
@@ -2868,6 +3121,28 @@ struct IsometricScenePass::State
             }
 
             if (!shadow_ok
+                || !create_cube_attachment_image(
+                    device,
+                    allocator,
+                    point_shadow_map_resolution,
+                    VK_FORMAT_R32_SFLOAT,
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    t.point_shadow_image,
+                    t.point_shadow_alloc,
+                    t.point_shadow_cube_view,
+                    t.point_shadow_face_views)
+                || !create_attachment_image(
+                    device,
+                    allocator,
+                    point_shadow_map_resolution,
+                    point_shadow_map_resolution,
+                    VK_FORMAT_D32_SFLOAT,
+                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                    VK_IMAGE_ASPECT_DEPTH_BIT,
+                    VK_SAMPLE_COUNT_1_BIT,
+                    t.point_shadow_depth_image,
+                    t.point_shadow_depth_alloc,
+                    t.point_shadow_depth_view)
                 || !create_attachment_image(
                     device,
                     allocator,
@@ -2991,6 +3266,29 @@ struct IsometricScenePass::State
                     != VK_SUCCESS)
                 {
                     DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create shadow framebuffer");
+                    destroy_gbuffer_targets();
+                    return false;
+                }
+            }
+
+            for (size_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+            {
+                VkImageView point_shadow_fb_views[] = {
+                    t.point_shadow_face_views[face_index],
+                    t.point_shadow_depth_view
+                };
+                VkFramebufferCreateInfo point_shadow_fb_ci = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+                point_shadow_fb_ci.renderPass = point_shadow_render_pass;
+                point_shadow_fb_ci.attachmentCount = 2;
+                point_shadow_fb_ci.pAttachments = point_shadow_fb_views;
+                point_shadow_fb_ci.width = static_cast<uint32_t>(point_shadow_map_resolution);
+                point_shadow_fb_ci.height = static_cast<uint32_t>(point_shadow_map_resolution);
+                point_shadow_fb_ci.layers = 1;
+                if (vkCreateFramebuffer(
+                        device, &point_shadow_fb_ci, nullptr, &t.point_shadow_framebuffers[face_index])
+                    != VK_SUCCESS)
+                {
+                    DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create point shadow framebuffer");
                     destroy_gbuffer_targets();
                     return false;
                 }
@@ -3261,6 +3559,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     frame.debug_view = scene_.camera.debug_view;
     frame.world_debug_bounds = scene_.camera.world_debug_bounds;
     const DirectionalShadowCascadeSet shadow_cascades = build_directional_shadow_cascades(scene_.camera, state_->shadow_map_resolution);
+    const PointShadowMapSet point_shadow = build_point_shadow_map(scene_.camera, state_->point_shadow_map_resolution);
     for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
     {
         const glm::mat4 shadow_proj = make_vulkan_projection(shadow_cascades.cascades[cascade_index].proj);
@@ -3278,6 +3577,17 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         shadow_cascades.sample_depth_bias,
         shadow_cascades.normal_bias,
         1.0f / static_cast<float>(std::max(shadow_cascades.resolution, 1)));
+    for (size_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+    {
+        const glm::mat4 point_world_to_clip = make_vulkan_projection(point_shadow.view_proj[face_index]);
+        frame.point_shadow_view_proj[face_index] = point_world_to_clip;
+        frame.point_shadow_texture_matrix[face_index] = shadow_texture_matrix(point_world_to_clip);
+    }
+    frame.point_shadow_params = glm::vec4(
+        point_shadow.sample_depth_bias,
+        point_shadow.normal_bias,
+        1.0f / static_cast<float>(std::max(point_shadow.resolution, 1)),
+        point_shadow.valid ? 1.0f : 0.0f);
     std::memcpy(frame_res.frame_uniforms.mapped, &frame, sizeof(frame));
     vmaFlushAllocation(vk_ctx->allocator(), frame_res.frame_uniforms.allocation, 0, sizeof(frame));
     const MaterialUniforms material_uniforms = build_material_uniforms(scene_);
@@ -3397,6 +3707,111 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         }
 
         vkCmdEndRenderPass(cmd);
+    }
+
+    if (point_shadow.valid)
+    {
+        VkViewport point_shadow_viewport = {};
+        point_shadow_viewport.width = static_cast<float>(state_->point_shadow_map_resolution);
+        point_shadow_viewport.height = static_cast<float>(state_->point_shadow_map_resolution);
+        point_shadow_viewport.maxDepth = 1.0f;
+
+        VkRect2D point_shadow_scissor = {};
+        point_shadow_scissor.extent = {
+            static_cast<uint32_t>(state_->point_shadow_map_resolution),
+            static_cast<uint32_t>(state_->point_shadow_map_resolution)
+        };
+
+        VkClearValue point_shadow_clears[2] = {};
+        point_shadow_clears[0].color = { { 1.0f, 0.0f, 0.0f, 0.0f } };
+        point_shadow_clears[1].depthStencil = { 1.0f, 0 };
+
+        for (uint32_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+        {
+            if (gbuffer.point_shadow_framebuffers[face_index] == VK_NULL_HANDLE)
+                continue;
+
+            VkRenderPassBeginInfo point_shadow_rpbi = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+            point_shadow_rpbi.renderPass = state_->point_shadow_render_pass;
+            point_shadow_rpbi.framebuffer = gbuffer.point_shadow_framebuffers[face_index];
+            point_shadow_rpbi.renderArea.extent = {
+                static_cast<uint32_t>(state_->point_shadow_map_resolution),
+                static_cast<uint32_t>(state_->point_shadow_map_resolution)
+            };
+            point_shadow_rpbi.clearValueCount = 2;
+            point_shadow_rpbi.pClearValues = point_shadow_clears;
+
+            vkCmdBeginRenderPass(cmd, &point_shadow_rpbi, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdSetViewport(cmd, 0, 1, &point_shadow_viewport);
+            vkCmdSetScissor(cmd, 0, 1, &point_shadow_scissor);
+            vkCmdSetDepthBias(cmd, 2.0f, 0.0f, 2.0f);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->point_shadow_pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->prepass_pipeline_layout,
+                0, 1, &frame_res.prepass_descriptor_set, 0, nullptr);
+
+            const MeshBuffers* last_point_shadow_mesh = nullptr;
+            for (uint32_t shadow_index = 0; shadow_index < shadow_opaque_count; ++shadow_index)
+            {
+                const SceneObject& obj = scene_.objects[shadow_index];
+                if (!object_casts_shadow(obj))
+                    continue;
+
+                const MeshBuffers* mesh = nullptr;
+                switch (obj.mesh)
+                {
+                case MeshId::Floor:
+                    mesh = &state_->floor_mesh;
+                    break;
+                case MeshId::Cube:
+                    mesh = &state_->cube_mesh;
+                    break;
+                case MeshId::TreeBark:
+                    mesh = &state_->tree_bark_mesh;
+                    break;
+                case MeshId::TreeLeaves:
+                    mesh = &state_->tree_leaf_mesh;
+                    break;
+                case MeshId::RoadSurface:
+                    mesh = &state_->road_surface_mesh;
+                    break;
+                case MeshId::RoofSign:
+                    mesh = &state_->roof_sign_mesh;
+                    break;
+                case MeshId::WallSign:
+                    mesh = &state_->wall_sign_mesh;
+                    break;
+                case MeshId::Custom:
+                    if (obj.custom_mesh_index < state_->custom_meshes.size())
+                        mesh = &state_->custom_meshes[obj.custom_mesh_index];
+                    break;
+                case MeshId::Grid:
+                    break;
+                }
+                if (!mesh || mesh->index_count == 0)
+                    continue;
+
+                if (mesh != last_point_shadow_mesh)
+                {
+                    VkBuffer vertex_buffer = mesh->vertices.buffer;
+                    VkDeviceSize vertex_offset = 0;
+                    vkCmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer, &vertex_offset);
+                    vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+                    last_point_shadow_mesh = mesh;
+                }
+
+                ObjectPushConstants push;
+                push.world = obj.world;
+                push.color = obj.color;
+                push.material_data = glm::uvec4(obj.material_index, 0u, face_index, 0u);
+                push.uv_rect = obj.uv_rect;
+                push.label_metrics = glm::vec4(0.0f);
+                vkCmdPushConstants(
+                    cmd, state_->prepass_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+                vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+            }
+
+            vkCmdEndRenderPass(cmd);
+        }
     }
 
     // Begin GBuffer render pass
@@ -3819,6 +4234,17 @@ void IsometricScenePass::render_gbuffer_debug_ui()
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
         }
     }
+    for (size_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+    {
+        if (t.imgui_point_shadow_ds[face_index] == VK_NULL_HANDLE
+            && t.point_shadow_face_views[face_index] != VK_NULL_HANDLE)
+        {
+            t.imgui_point_shadow_ds[face_index] = ImGui_ImplVulkan_AddTexture(
+                state_->gbuffer_sampler,
+                t.point_shadow_face_views[face_index],
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+    }
     if (t.imgui_scene_hdr_ds == VK_NULL_HANDLE && t.scene_hdr_view != VK_NULL_HANDLE)
     {
         t.imgui_scene_hdr_ds = ImGui_ImplVulkan_AddTexture(
@@ -3880,6 +4306,14 @@ void IsometricScenePass::render_gbuffer_debug_ui()
             ImGui::Text("Shadow %u", static_cast<unsigned>(cascade_index));
             if (t.imgui_shadow_ds[cascade_index] != VK_NULL_HANDLE)
                 ImGui::Image(static_cast<ImTextureID>(t.imgui_shadow_ds[cascade_index]), size);
+        }
+
+        for (size_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+        {
+            ImGui::TableNextColumn();
+            ImGui::Text("Point %u", static_cast<unsigned>(face_index));
+            if (t.imgui_point_shadow_ds[face_index] != VK_NULL_HANDLE)
+                ImGui::Image(static_cast<ImTextureID>(t.imgui_point_shadow_ds[face_index]), size);
         }
 
         ImGui::EndTable();

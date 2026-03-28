@@ -20,6 +20,21 @@ constexpr std::array<float, kShadowCascadeCount> kCascadeSplitDepths = {
     1.0f,
 };
 
+struct PointShadowFaceOrientation
+{
+    glm::vec3 direction;
+    glm::vec3 up;
+};
+
+constexpr std::array<PointShadowFaceOrientation, kPointShadowFaceCount> kPointShadowFaces = { {
+    { glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f) },
+    { glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f) },
+    { glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f) },
+    { glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f) },
+    { glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f) },
+    { glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f) },
+} };
+
 glm::vec3 unproject_corner(const glm::mat4& inv_view_proj, float ndc_x, float ndc_y, float ndc_z)
 {
     glm::vec4 world = inv_view_proj * glm::vec4(ndc_x, ndc_y, ndc_z, 1.0f);
@@ -110,6 +125,32 @@ DirectionalShadowCascadeSet build_directional_shadow_cascades(const SceneCameraD
     }
 
     return cascade_set;
+}
+
+PointShadowMapSet build_point_shadow_map(const SceneCameraData& camera, int resolution)
+{
+    PointShadowMapSet shadow_map;
+    shadow_map.resolution = std::max(resolution, 256);
+
+    const glm::vec3 light_position(camera.point_light_pos);
+    const float requested_radius = camera.point_light_pos.w;
+    if (requested_radius <= 0.0f)
+        return shadow_map;
+    const float radius = std::max(requested_radius, 1.0f);
+
+    const float near_plane = 0.1f;
+    const float far_plane = std::max(radius, near_plane + 1.0f);
+    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(90.0f), 1.0f, near_plane, far_plane);
+
+    for (size_t face_index = 0; face_index < kPointShadowFaces.size(); ++face_index)
+    {
+        const auto& face = kPointShadowFaces[face_index];
+        const glm::mat4 view = glm::lookAtRH(light_position, light_position + face.direction, face.up);
+        shadow_map.view_proj[face_index] = proj * view;
+    }
+
+    shadow_map.valid = true;
+    return shadow_map;
 }
 
 glm::mat4 shadow_texture_matrix(const glm::mat4& world_to_clip)

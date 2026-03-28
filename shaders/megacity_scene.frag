@@ -18,6 +18,9 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     mat4 shadow_texture_matrix[3];
     vec4 shadow_split_depths;
     vec4 shadow_params;
+    mat4 point_shadow_view_proj[6];
+    mat4 point_shadow_texture_matrix[6];
+    vec4 point_shadow_params;
 }
 frame;
 struct MaterialInstance
@@ -36,6 +39,7 @@ layout(set = 0, binding = 2) uniform sampler2D sign_atlas;
 layout(set = 0, binding = 3) uniform sampler2D ao_buffer;
 layout(set = 0, binding = 4) uniform sampler2D material_textures[25];
 layout(set = 0, binding = 5) uniform sampler2D shadow_maps[3];
+layout(set = 0, binding = 6) uniform sampler2D point_shadow_maps[6];
 
 layout(location = 0) in vec3 in_normal_ws;
 layout(location = 1) in vec3 in_base_color;
@@ -130,6 +134,37 @@ float directional_shadow_visibility(vec3 world_position, vec3 normal_ws, float n
     vec3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6);
     shadow_coord.z -= max(frame.shadow_params.y, 0.0);
     return sample_shadow_map(cascade_index, shadow_coord);
+}
+
+float point_shadow_visibility(vec3 world_position, vec3 normal_ws, vec3 point_dir)
+{
+    if (frame.point_shadow_params.w < 0.5)
+        return 1.0;
+
+    float radius = max(frame.point_light_pos.w, 1.0);
+    float sample_bias = max(frame.point_shadow_params.x, 0.0);
+    float normal_bias = max(frame.point_shadow_params.y, 0.0);
+    vec3 light_to_surface = world_position - frame.point_light_pos.xyz;
+    float current_depth = length(light_to_surface) / radius;
+    vec3 abs_dir = abs(light_to_surface);
+    int face_index = 0;
+    if (abs_dir.x >= abs_dir.y && abs_dir.x >= abs_dir.z)
+        face_index = light_to_surface.x >= 0.0 ? 0 : 1;
+    else if (abs_dir.y >= abs_dir.x && abs_dir.y >= abs_dir.z)
+        face_index = light_to_surface.y >= 0.0 ? 2 : 3;
+    else
+        face_index = light_to_surface.z >= 0.0 ? 4 : 5;
+
+    vec4 shadow_position = frame.point_shadow_texture_matrix[face_index] * vec4(world_position, 1.0);
+    vec3 shadow_coord = shadow_position.xyz / max(shadow_position.w, 1e-6);
+    if (shadow_coord.x <= 0.0 || shadow_coord.x >= 1.0 || shadow_coord.y <= 0.0 || shadow_coord.y >= 1.0)
+        return 1.0;
+    if (shadow_coord.z <= 0.0 || shadow_coord.z >= 1.0)
+        return 1.0;
+
+    float stored_depth = texture(point_shadow_maps[face_index], shadow_coord.xy).r;
+    float slope_bias = normal_bias * (1.0 - max(dot(normal_ws, point_dir), 0.0));
+    return current_depth - (sample_bias + slope_bias) <= stored_depth ? 1.0 : 0.0;
 }
 
 vec4 sample_material_texture(uint texture_index, vec2 uv)
@@ -244,6 +279,7 @@ void main()
     float point_ndotl = max(dot(normal_ws, point_dir), 0.0);
     if (point_ndotl > 0.0 && point_atten > 0.0)
     {
+        float point_shadow = point_shadow_visibility(in_world_position, normal_ws, point_dir);
         vec3 half_vec = normalize(view_dir + point_dir);
         vec3 fresnel = fresnel_schlick(max(dot(half_vec, view_dir), 0.0), f0);
         float ndf = distribution_ggx(normal_ws, half_vec, roughness);
@@ -254,11 +290,11 @@ void main()
         vec3 kd = (1.0 - fresnel) * (1.0 - metallic);
         vec3 radiance = vec3(1.05, 0.98, 0.90)
             * max(frame.render_tuning.y, 0.0) * point_atten * point_atten;
-        direct_lighting += (kd * albedo / kPi + specular) * radiance * point_ndotl;
+        direct_lighting += (kd * albedo / kPi + specular) * radiance * point_ndotl * point_shadow;
         if (leaf_scattering > 0.0)
         {
             float transmitted = max(dot(-normal_ws, point_dir), 0.0);
-            direct_lighting += albedo * radiance * (leaf_scattering * 0.60) * transmitted;
+            direct_lighting += albedo * radiance * (leaf_scattering * 0.60) * transmitted * point_shadow;
         }
     }
 

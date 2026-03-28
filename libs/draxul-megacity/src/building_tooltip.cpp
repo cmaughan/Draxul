@@ -110,12 +110,14 @@ TooltipBitmap rasterize_tooltip(TextService& text_service, const BuildingTooltip
         std::string label;
         std::string value;
     };
-    const std::vector<Row> rows = {
+    std::vector<Row> rows = {
         { "Name", data.name },
         { "Module", data.module_path },
         { "Functions", std::to_string(data.function_count) },
         { "Fields", std::to_string(data.field_count) },
     };
+    if (!data.hovered_function.empty())
+        rows.push_back({ "Function", data.hovered_function });
 
     // Measure column widths.
     int label_max_chars = 0;

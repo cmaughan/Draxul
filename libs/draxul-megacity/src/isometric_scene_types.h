@@ -75,6 +75,7 @@ enum class SceneTextureId : uint32_t
 constexpr uint32_t kSceneMaterialTextureCount = 25;
 constexpr uint32_t kMaxSceneMaterials = 64;
 constexpr uint32_t kShadowCascadeCount = 3;
+constexpr uint32_t kPointShadowFaceCount = 6;
 
 struct LabelAtlasData
 {

@@ -691,6 +691,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.height_multiplier = 2.25f;
     current.hide_test_entities = false;
     current.hide_struct_entities = true;
+    current.point_shadow_debug_scene = true;
     current.selection_dependency_alpha = 0.68f;
     current.selection_hidden_alpha = 0.22f;
     current.selection_hidden_hover_alpha = 0.46f;

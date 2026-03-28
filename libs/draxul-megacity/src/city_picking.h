@@ -15,6 +15,7 @@ struct PickResult
     std::string qualified_name;
     std::string module_path;
     glm::vec2 building_center{ 0.0f };
+    float hit_y = 0.0f;
 };
 
 // Pick a building by casting a ray from screen coordinates through the isometric camera.

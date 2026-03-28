@@ -15,6 +15,7 @@ struct BuildingTooltipData
     std::string module_path;
     int function_count = 0;
     int field_count = 0;
+    std::string hovered_function;
 };
 
 struct TooltipBitmap

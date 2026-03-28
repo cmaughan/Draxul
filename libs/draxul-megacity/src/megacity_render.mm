@@ -38,6 +38,9 @@ struct FrameUniforms
     simd_float4x4 shadow_texture_matrix[kShadowCascadeCount];
     simd_float4 shadow_split_depths; // x/y/z = cascade end depth in clip space [0,1]
     simd_float4 shadow_params; // x = cascade count, y = sample depth bias, z = normal bias, w = 1 / shadow resolution
+    simd_float4x4 point_shadow_view_proj[kPointShadowFaceCount];
+    simd_float4x4 point_shadow_texture_matrix[kPointShadowFaceCount];
+    simd_float4 point_shadow_params; // x = sample depth bias, y = normal bias, z = 1 / shadow resolution, w = enabled
 };
 
 struct ObjectUniforms
@@ -302,6 +305,9 @@ struct GBufferTargets
     ObjCRef<id<MTLTexture>> ao; // RGBA8Unorm — R ambient occlusion, GBA reserved
     ObjCRef<id<MTLTexture>> depth; // Depth32Float — hardware depth
     std::array<ObjCRef<id<MTLTexture>>, kShadowCascadeCount> shadow_maps; // Depth32Float directional shadow cascades
+    ObjCRef<id<MTLTexture>> point_shadow_cube; // R32Float cubemap storing normalized radial depth
+    std::array<ObjCRef<id<MTLTexture>>, kPointShadowFaceCount> point_shadow_faces; // 2D face views for render/debug
+    ObjCRef<id<MTLTexture>> point_shadow_depth; // Depth32Float point-light face depth
     ObjCRef<id<MTLTexture>> scene_color_msaa; // RGBA16Float MSAA scene color
     ObjCRef<id<MTLTexture>> scene_depth_msaa; // Depth32Float MSAA scene depth
     ObjCRef<id<MTLTexture>> scene_hdr; // RGBA16Float resolved HDR scene
@@ -342,6 +348,7 @@ struct IsometricScenePass::State
 
     // GBuffer pre-pass resources
     ObjCRef<id<MTLRenderPipelineState>> shadow_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> point_shadow_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> gbuffer_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ao_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ao_blur_pipeline;
@@ -354,6 +361,7 @@ struct IsometricScenePass::State
     uint32_t last_prepass_frame = 0;
     NSUInteger scene_sample_count = 4;
     int shadow_map_resolution = 2048;
+    int point_shadow_map_resolution = 1024;
 
     // Tooltip overlay resources
     ObjCRef<id<MTLRenderPipelineState>> tooltip_pipeline;
@@ -894,7 +902,8 @@ struct IsometricScenePass::State
     bool init_gbuffer(id<MTLDevice> device)
     {
         if (gbuffer_initialized)
-            return shadow_pipeline.get() != nil && gbuffer_pipeline.get() != nil
+            return shadow_pipeline.get() != nil && point_shadow_pipeline.get() != nil
+                && gbuffer_pipeline.get() != nil
                 && ao_pipeline.get() != nil && ao_blur_pipeline.get() != nil
                 && gbuffer_sampler.get() != nil && gbuffer_point_sampler.get() != nil;
 
@@ -918,7 +927,9 @@ struct IsometricScenePass::State
         id<MTLFunction> vert_fn = [library newFunctionWithName:@"gbuffer_vertex"];
         id<MTLFunction> frag_fn = [library newFunctionWithName:@"gbuffer_fragment"];
         id<MTLFunction> shadow_vert_fn = [library newFunctionWithName:@"shadow_vertex"];
-        if (!vert_fn || !frag_fn || !shadow_vert_fn)
+        id<MTLFunction> point_shadow_vert_fn = [library newFunctionWithName:@"point_shadow_vertex"];
+        id<MTLFunction> point_shadow_frag_fn = [library newFunctionWithName:@"point_shadow_fragment"];
+        if (!vert_fn || !frag_fn || !shadow_vert_fn || !point_shadow_vert_fn || !point_shadow_frag_fn)
         {
             DRAXUL_LOG_ERROR(LogCategory::App, "MegaCity: gbuffer/shadow shader functions not found");
             return false;
@@ -978,6 +989,25 @@ struct IsometricScenePass::State
             return false;
         }
         shadow_pipeline.reset(shadow_pso);
+
+        MTLRenderPipelineDescriptor* point_shadow_desc = [[MTLRenderPipelineDescriptor alloc] init];
+        point_shadow_desc.vertexFunction = point_shadow_vert_fn;
+        point_shadow_desc.fragmentFunction = point_shadow_frag_fn;
+        point_shadow_desc.vertexDescriptor = vertex_desc;
+        point_shadow_desc.colorAttachments[0].pixelFormat = MTLPixelFormatR32Float;
+        point_shadow_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+
+        id<MTLRenderPipelineState> point_shadow_pso =
+            [device newRenderPipelineStateWithDescriptor:point_shadow_desc
+                                                   error:&error];
+        if (!point_shadow_pso)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "MegaCity: failed to create point shadow pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        point_shadow_pipeline.reset(point_shadow_pso);
 
         NSString* aoLibPath = [exeDir stringByAppendingPathComponent:@"shaders/megacity_ao.metallib"];
         NSURL* aoLibURL = [NSURL fileURLWithPath:aoLibPath];
@@ -1085,6 +1115,21 @@ struct IsometricScenePass::State
             shadow_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
             shadow_desc.storageMode = MTLStorageModePrivate;
 
+            MTLTextureDescriptor* point_shadow_cube_desc = [MTLTextureDescriptor
+                textureCubeDescriptorWithPixelFormat:MTLPixelFormatR32Float
+                                                size:static_cast<NSUInteger>(point_shadow_map_resolution)
+                                           mipmapped:NO];
+            point_shadow_cube_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            point_shadow_cube_desc.storageMode = MTLStorageModePrivate;
+
+            MTLTextureDescriptor* point_shadow_depth_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                             width:static_cast<NSUInteger>(point_shadow_map_resolution)
+                                            height:static_cast<NSUInteger>(point_shadow_map_resolution)
+                                         mipmapped:NO];
+            point_shadow_depth_desc.usage = MTLTextureUsageRenderTarget;
+            point_shadow_depth_desc.storageMode = MTLStorageModePrivate;
+
             MTLTextureDescriptor* rgba8_desc = [MTLTextureDescriptor
                 texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                              width:static_cast<NSUInteger>(width)
@@ -1143,6 +1188,20 @@ struct IsometricScenePass::State
             targets.depth.reset([device newTextureWithDescriptor:depth_desc]);
             for (auto& shadow_map : targets.shadow_maps)
                 shadow_map.reset([device newTextureWithDescriptor:shadow_desc]);
+            targets.point_shadow_cube.reset([device newTextureWithDescriptor:point_shadow_cube_desc]);
+            targets.point_shadow_depth.reset([device newTextureWithDescriptor:point_shadow_depth_desc]);
+            if (targets.point_shadow_cube)
+            {
+                for (NSUInteger face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+                {
+                    targets.point_shadow_faces[face_index].reset(
+                        [targets.point_shadow_cube.get()
+                            newTextureViewWithPixelFormat:MTLPixelFormatR32Float
+                                              textureType:MTLTextureType2D
+                                                   levels:NSMakeRange(0, 1)
+                                                   slices:NSMakeRange(face_index, 1)]);
+                }
+            }
             targets.scene_color_msaa.reset([device newTextureWithDescriptor:scene_msaa_desc]);
             targets.scene_depth_msaa.reset([device newTextureWithDescriptor:scene_depth_desc]);
             targets.scene_hdr.reset([device newTextureWithDescriptor:scene_hdr_desc]);
@@ -1158,8 +1217,12 @@ struct IsometricScenePass::State
             const bool have_shadow_maps = std::all_of(
                 targets.shadow_maps.begin(), targets.shadow_maps.end(),
                 [](const ObjCRef<id<MTLTexture>>& texture) { return texture.get() != nil; });
+            const bool have_point_shadow_faces = std::all_of(
+                targets.point_shadow_faces.begin(), targets.point_shadow_faces.end(),
+                [](const ObjCRef<id<MTLTexture>>& texture) { return texture.get() != nil; });
 
             if (!targets.normal || !targets.ao_raw || !targets.ao || !targets.depth || !have_shadow_maps
+                || !targets.point_shadow_cube || !targets.point_shadow_depth || !have_point_shadow_faces
                 || !targets.scene_color_msaa || !targets.scene_depth_msaa
                 || !targets.scene_hdr || !targets.scene_final_srgb || !targets.scene_final_unorm)
             {
@@ -1298,6 +1361,18 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         shadow_cascades.sample_depth_bias,
         shadow_cascades.normal_bias,
         1.0f / static_cast<float>(std::max(shadow_cascades.resolution, 1)));
+    const PointShadowMapSet point_shadow = build_point_shadow_map(scene_.camera, state_->point_shadow_map_resolution);
+    for (size_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+    {
+        frame.point_shadow_view_proj[face_index] = to_simd_matrix(point_shadow.view_proj[face_index]);
+        frame.point_shadow_texture_matrix[face_index]
+            = to_simd_matrix(shadow_texture_matrix(point_shadow.view_proj[face_index]));
+    }
+    frame.point_shadow_params = simd_make_float4(
+        point_shadow.sample_depth_bias,
+        point_shadow.normal_bias,
+        1.0f / static_cast<float>(std::max(point_shadow.resolution, 1)),
+        point_shadow.valid ? 1.0f : 0.0f);
     std::memcpy([frame_resources.frame_uniforms.get() contents], &frame, sizeof(frame));
 
     const uint32_t gbuffer_opaque_count = std::min(scene_.opaque_count,
@@ -1409,6 +1484,111 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         }
 
         [shadowEncoder endEncoding];
+    }
+
+    if (point_shadow.valid && gbuffer.point_shadow_depth && gbuffer.point_shadow_cube)
+    {
+        for (uint32_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+        {
+            if (!gbuffer.point_shadow_faces[face_index])
+                continue;
+
+            MTLRenderPassDescriptor* pointShadowDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+            pointShadowDesc.colorAttachments[0].texture = gbuffer.point_shadow_faces[face_index].get();
+            pointShadowDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
+            pointShadowDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+            pointShadowDesc.colorAttachments[0].clearColor = MTLClearColorMake(1.0, 0.0, 0.0, 1.0);
+            pointShadowDesc.depthAttachment.texture = gbuffer.point_shadow_depth.get();
+            pointShadowDesc.depthAttachment.loadAction = MTLLoadActionClear;
+            pointShadowDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+            pointShadowDesc.depthAttachment.clearDepth = 1.0;
+
+            id<MTLRenderCommandEncoder> pointShadowEncoder =
+                [cmd_buf renderCommandEncoderWithDescriptor:pointShadowDesc];
+            if (!pointShadowEncoder)
+                return;
+
+            MTLViewport pointShadowViewport;
+            pointShadowViewport.originX = 0.0;
+            pointShadowViewport.originY = 0.0;
+            pointShadowViewport.width = static_cast<double>(state_->point_shadow_map_resolution);
+            pointShadowViewport.height = static_cast<double>(state_->point_shadow_map_resolution);
+            pointShadowViewport.znear = 0.0;
+            pointShadowViewport.zfar = 1.0;
+            [pointShadowEncoder setViewport:pointShadowViewport];
+
+            MTLScissorRect pointShadowScissor;
+            pointShadowScissor.x = 0;
+            pointShadowScissor.y = 0;
+            pointShadowScissor.width = static_cast<NSUInteger>(state_->point_shadow_map_resolution);
+            pointShadowScissor.height = static_cast<NSUInteger>(state_->point_shadow_map_resolution);
+            [pointShadowEncoder setScissorRect:pointShadowScissor];
+            [pointShadowEncoder setRenderPipelineState:state_->point_shadow_pipeline.get()];
+            [pointShadowEncoder setDepthStencilState:state_->depth_state.get()];
+            [pointShadowEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
+            [pointShadowEncoder setDepthBias:0.0 slopeScale:0.0 clamp:0.0];
+            [pointShadowEncoder setVertexBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
+            [pointShadowEncoder setFragmentBuffer:frame_resources.frame_uniforms.get() offset:0 atIndex:1];
+
+            for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
+            {
+                const SceneObject& obj = scene_.objects[gi];
+                if (!object_casts_shadow(obj))
+                    continue;
+
+                const MeshBuffers* mesh = nullptr;
+                switch (obj.mesh)
+                {
+                case MeshId::Floor:
+                    mesh = &state_->floor_mesh;
+                    break;
+                case MeshId::Cube:
+                    mesh = &state_->cube_mesh;
+                    break;
+                case MeshId::TreeBark:
+                    mesh = &state_->tree_bark_mesh;
+                    break;
+                case MeshId::TreeLeaves:
+                    mesh = &state_->tree_leaf_mesh;
+                    break;
+                case MeshId::RoadSurface:
+                    mesh = &state_->road_surface_mesh;
+                    break;
+                case MeshId::RoofSign:
+                    mesh = &state_->roof_sign_mesh;
+                    break;
+                case MeshId::WallSign:
+                    mesh = &state_->wall_sign_mesh;
+                    break;
+                case MeshId::Custom:
+                    if (obj.custom_mesh_index < state_->custom_meshes.size())
+                        mesh = &state_->custom_meshes[obj.custom_mesh_index];
+                    break;
+                case MeshId::Grid:
+                    break;
+                }
+                if (!mesh || mesh->index_count == 0)
+                    continue;
+
+                ObjectUniforms object;
+                object.world = to_simd_matrix(obj.world);
+                object.color = simd_make_float4(obj.color.x, obj.color.y, obj.color.z, obj.color.w);
+                object.material_data = simd_make_uint4(obj.material_index, 0u, face_index, 0u);
+                object.uv_rect = simd_make_float4(obj.uv_rect.x, obj.uv_rect.y, obj.uv_rect.z, obj.uv_rect.w);
+                object.label_metrics = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+                [pointShadowEncoder setCullMode:obj.double_sided ? MTLCullModeNone : MTLCullModeBack];
+                [pointShadowEncoder setVertexBuffer:mesh->vertex_buffer.get() offset:0 atIndex:0];
+                [pointShadowEncoder setVertexBytes:&object length:sizeof(object) atIndex:2];
+                [pointShadowEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                               indexCount:mesh->index_count
+                                                indexType:MTLIndexTypeUInt16
+                                              indexBuffer:mesh->index_buffer.get()
+                                        indexBufferOffset:0];
+            }
+
+            [pointShadowEncoder endEncoding];
+        }
     }
 
     // Build GBuffer render pass descriptor
@@ -1597,6 +1777,10 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         [sceneEncoder setFragmentTexture:state_->material_textures[texture_index].get() atIndex:2 + texture_index];
     for (NSUInteger cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
         [sceneEncoder setFragmentTexture:gbuffer.shadow_maps[cascade_index].get() atIndex:27 + cascade_index];
+    for (NSUInteger face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+    {
+        [sceneEncoder setFragmentTexture:gbuffer.point_shadow_faces[face_index].get() atIndex:30 + face_index];
+    }
     [sceneEncoder setFragmentSamplerState:state_->label_sampler.get() atIndex:0];
     [sceneEncoder setFragmentSamplerState:state_->gbuffer_sampler.get() atIndex:1];
     [sceneEncoder setFragmentSamplerState:state_->material_sampler.get() atIndex:2];
@@ -1833,7 +2017,7 @@ void IsometricScenePass::render_gbuffer_debug_ui()
 
     const uint32_t fi = state_->last_prepass_frame % static_cast<uint32_t>(state_->gbuffer_targets.size());
     auto& t = state_->gbuffer_targets[fi];
-    if (!t.normal || !t.ao_raw || !t.ao || !t.depth || !t.scene_hdr || !t.scene_final_unorm)
+    if (!t.normal || !t.ao_raw || !t.ao || !t.depth || !t.point_shadow_cube || !t.scene_hdr || !t.scene_final_unorm)
         return;
 
     if (!ImGui::Begin("GBuffer Debug"))
@@ -1883,6 +2067,14 @@ void IsometricScenePass::render_gbuffer_debug_ui()
             ImGui::TableNextColumn();
             ImGui::Text("Shadow %u", static_cast<unsigned>(cascade_index));
             ImGui::Image((__bridge void*)t.shadow_maps[cascade_index].get(), size);
+        }
+
+        for (NSUInteger face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
+        {
+            ImGui::TableNextColumn();
+            ImGui::Text("Point %u", static_cast<unsigned>(face_index));
+            if (t.point_shadow_faces[face_index].get())
+                ImGui::Image((__bridge void*)t.point_shadow_faces[face_index].get(), size);
         }
 
         ImGui::EndTable();

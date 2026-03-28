@@ -18,6 +18,9 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     mat4 shadow_texture_matrix[3];
     vec4 shadow_split_depths;
     vec4 shadow_params;
+    mat4 point_shadow_view_proj[6];
+    mat4 point_shadow_texture_matrix[6];
+    vec4 point_shadow_params;
 }
 frame;
 

@@ -26,7 +26,7 @@ namespace draxul
 namespace
 {
 
-constexpr int kSchemaVersion = 5;
+constexpr int kSchemaVersion = 6;
 
 class SqliteError final : public std::runtime_error
 {
@@ -396,6 +396,61 @@ std::string json_int_array(const std::vector<int>& values)
     return out.str();
 }
 
+std::string json_string_array(const std::vector<std::string>& values)
+{
+    std::ostringstream out;
+    out << "[";
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        if (i != 0)
+            out << ",";
+        out << "\"";
+        for (const char ch : values[i])
+        {
+            if (ch == '"' || ch == '\\')
+                out << '\\';
+            out << ch;
+        }
+        out << "\"";
+    }
+    out << "]";
+    return out.str();
+}
+
+std::vector<std::string> parse_json_string_array(std::string_view text)
+{
+    std::vector<std::string> values;
+    bool in_string = false;
+    bool escaped = false;
+    std::string current;
+    for (const char ch : text)
+    {
+        if (escaped)
+        {
+            current += ch;
+            escaped = false;
+        }
+        else if (ch == '\\' && in_string)
+        {
+            escaped = true;
+        }
+        else if (ch == '"')
+        {
+            if (in_string)
+            {
+                values.push_back(std::move(current));
+                current.clear();
+            }
+            in_string = !in_string;
+        }
+        else if (in_string)
+        {
+            current += ch;
+        }
+    }
+    return values;
+}
+
 std::vector<int> parse_json_int_array(std::string_view text)
 {
     std::vector<int> values;
@@ -589,6 +644,7 @@ void create_schema_v2(sqlite3* db)
             base_size INTEGER NOT NULL,
             building_functions INTEGER NOT NULL,
             building_function_sizes_json TEXT NOT NULL,
+            building_function_names_json TEXT NOT NULL,
             road_size INTEGER NOT NULL,
             height REAL NOT NULL,
             footprint_x REAL NOT NULL,
@@ -666,17 +722,28 @@ void create_schema_v5(sqlite3* db)
     exec(db, "PRAGMA user_version = 5");
 }
 
-void migrate_to_v5_destructive(sqlite3* db)
+void drop_all_tables(sqlite3* db)
 {
-    // The city DB is a derived cache, so a destructive migration is acceptable
-    // here and simpler than preserving the old intermediate layout.
     exec(db, "DROP TABLE IF EXISTS city_entity_dependencies");
     exec(db, "DROP TABLE IF EXISTS symbol_fields");
     exec(db, "DROP TABLE IF EXISTS city_modules");
     exec(db, "DROP TABLE IF EXISTS city_entities");
     exec(db, "DROP TABLE IF EXISTS symbols");
     exec(db, "DROP TABLE IF EXISTS files");
+}
+
+void create_schema_v6(sqlite3* db)
+{
     create_schema_v5(db);
+    exec(db, "PRAGMA user_version = 6");
+}
+
+void migrate_to_current_destructive(sqlite3* db)
+{
+    // The city DB is a derived cache, so a destructive migration is acceptable
+    // here and simpler than preserving the old intermediate layout.
+    drop_all_tables(db);
+    create_schema_v6(db);
 }
 
 void migrate_schema(sqlite3* db)
@@ -693,9 +760,9 @@ void migrate_schema(sqlite3* db)
     }
 
     if (version == 0)
-        create_schema_v5(db);
-    else if (version < 5)
-        migrate_to_v5_destructive(db);
+        create_schema_v6(db);
+    else if (version < kSchemaVersion)
+        migrate_to_current_destructive(db);
 
     {
         sqlite3_stmt* raw_stmt = nullptr;
@@ -813,6 +880,7 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
     {
         std::unordered_set<std::string> types_with_methods;
         std::unordered_map<std::string, std::vector<int>> method_sizes_by_type;
+        std::unordered_map<std::string, std::vector<std::string>> method_names_by_type;
         std::unordered_map<std::string, std::vector<std::string>> known_type_symbol_ids;
         std::unordered_map<std::string, std::vector<std::string>> direct_base_refs_by_symbol_id;
         for (const auto& file : snapshot.files)
@@ -835,6 +903,7 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                     const int function_size = static_cast<int>(
                         sym.end_line >= sym.line ? (sym.end_line - sym.line + 1) : 1);
                     method_sizes_by_type[sym.parent].push_back(function_size);
+                    method_names_by_type[sym.parent].push_back(sym.name);
                 }
             }
         }
@@ -854,8 +923,9 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
             "line_start, line_end, is_abstract, city_role, field_count) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         Statement insert_entity(impl_->db.get(),
             "INSERT INTO city_entities(entity_id, symbol_id, entity_kind, district, display_name, module_path, "
-            "source_file_path, source_line, base_size, building_functions, building_function_sizes_json, road_size, "
-            "height, footprint_x, footprint_y) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            "source_file_path, source_line, base_size, building_functions, building_function_sizes_json, "
+            "building_function_names_json, road_size, "
+            "height, footprint_x, footprint_y) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         Statement insert_field(impl_->db.get(),
             "INSERT INTO symbol_fields(field_id, symbol_id, field_name, field_type_name) VALUES(?, ?, ?, ?)");
         Statement insert_dependency(impl_->db.get(),
@@ -910,11 +980,15 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                     ? static_cast<int>(sym.field_count)
                     : 0;
                 std::vector<int> function_sizes;
+                std::vector<std::string> function_names;
                 if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
                 {
                     auto it = method_sizes_by_type.find(sym.name);
                     if (it != method_sizes_by_type.end())
                         function_sizes = it->second;
+                    auto name_it = method_names_by_type.find(sym.name);
+                    if (name_it != method_names_by_type.end())
+                        function_names = name_it->second;
                 }
                 const int building_functions = static_cast<int>(function_sizes.size());
                 const std::string symbol_id = make_symbol_id(file.path, sym.kind, qualified_name, sym.line);
@@ -973,10 +1047,11 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 insert_entity.bind_int(9, base_size);
                 insert_entity.bind_int(10, building_functions);
                 insert_entity.bind_text(11, json_int_array(function_sizes));
-                insert_entity.bind_int(12, road_size);
-                insert_entity.bind_double(13, spec.height);
-                insert_entity.bind_double(14, spec.footprint_x);
-                insert_entity.bind_double(15, spec.footprint_y);
+                insert_entity.bind_text(12, json_string_array(function_names));
+                insert_entity.bind_int(13, road_size);
+                insert_entity.bind_double(14, spec.height);
+                insert_entity.bind_double(15, spec.footprint_x);
+                insert_entity.bind_double(16, spec.footprint_y);
                 insert_entity.step_done();
                 ++entity_count;
             }
@@ -1158,7 +1233,8 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
     {
         Statement stmt(impl_->db.get(),
             "SELECT ce.display_name, s.name, ce.module_path, ce.source_file_path, ce.entity_kind, "
-            "ce.base_size, ce.building_functions, ce.building_function_sizes_json, ce.road_size, s.is_abstract, s.kind "
+            "ce.base_size, ce.building_functions, ce.building_function_sizes_json, "
+            "ce.building_function_names_json, ce.road_size, s.is_abstract, s.kind "
             "FROM city_entities ce "
             "JOIN symbols s ON s.symbol_id = ce.symbol_id "
             "WHERE ce.module_path = ? AND ce.entity_kind IN ('building', 'tower', 'block') "
@@ -1179,9 +1255,10 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
             row.base_size = sqlite3_column_int(stmt.raw(), 5);
             row.building_functions = sqlite3_column_int(stmt.raw(), 6);
             row.function_sizes = parse_json_int_array(read_text(7));
-            row.road_size = sqlite3_column_int(stmt.raw(), 8);
-            row.is_abstract = sqlite3_column_int(stmt.raw(), 9) != 0;
-            row.is_struct = read_text(10) == "struct";
+            row.function_names = parse_json_string_array(read_text(8));
+            row.road_size = sqlite3_column_int(stmt.raw(), 9);
+            row.is_abstract = sqlite3_column_int(stmt.raw(), 10) != 0;
+            row.is_struct = read_text(11) == "struct";
             rows.push_back(std::move(row));
         }
     }

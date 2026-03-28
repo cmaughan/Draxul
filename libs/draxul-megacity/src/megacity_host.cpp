@@ -973,6 +973,22 @@ void MegaCityHost::pump()
                             tooltip_data.function_count = bldg.function_count;
                             tooltip_data.field_count = bldg.base_size;
 
+                            // Determine which function layer the ray hit.
+                            if (!bldg.layers.empty() && hit->hit_y >= 0.0f)
+                            {
+                                float cumulative_y = 0.0f;
+                                for (const auto& layer : bldg.layers)
+                                {
+                                    cumulative_y += layer.height;
+                                    if (hit->hit_y <= cumulative_y)
+                                    {
+                                        if (!layer.function_name.empty())
+                                            tooltip_data.hovered_function = layer.function_name;
+                                        break;
+                                    }
+                                }
+                            }
+
                             auto bitmap = rasterize_tooltip(*tooltip_text_service_, tooltip_data);
                             if (bitmap.valid())
                             {

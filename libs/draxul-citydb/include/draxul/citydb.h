@@ -32,6 +32,7 @@ struct CityClassRecord
     int base_size = 0;
     int building_functions = 0;
     std::vector<int> function_sizes;
+    std::vector<std::string> function_names;
     int road_size = 0;
     bool is_abstract = false;
 };
