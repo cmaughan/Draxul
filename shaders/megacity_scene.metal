@@ -482,11 +482,9 @@ fragment float4 scene_post_fragment(
     texture2d<float> hdrScene [[texture(0)]],
     sampler linearSampler [[sampler(0)]])
 {
+    (void)frame;
     const float4 hdr = hdrScene.sample(linearSampler, in.uv);
-    const float output_gamma = max(frame.render_tuning.x, 1.0f);
-    const float gamma_adjust = 2.2f / output_gamma;
-    const float3 adjusted = pow(max(hdr.rgb, float3(0.0f)), float3(gamma_adjust));
-    return float4(clamp(adjusted, float3(0.0f), float3(1.0f)), clamp(hdr.a, 0.0f, 1.0f));
+    return float4(max(hdr.rgb, float3(0.0f)), clamp(hdr.a, 0.0f, 1.0f));
 }
 
 fragment float4 scene_present_fragment(

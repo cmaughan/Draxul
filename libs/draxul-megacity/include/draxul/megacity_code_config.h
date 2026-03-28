@@ -47,7 +47,6 @@ struct MegaCityCodeConfig
 {
     std::string selected_module_path;
     glm::vec2 sign_text_px_range{ 1.5f, 8.0f }; // (hidden, full)
-    float output_gamma = 1.0f;
     MegaCityDebugView debug_view = MegaCityDebugView::FinalScene;
     bool wireframe = false;
     bool ao_denoise = true;

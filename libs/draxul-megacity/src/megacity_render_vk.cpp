@@ -3228,7 +3228,7 @@ void IsometricScenePass::render_gbuffer_debug_ui()
         ImGui::TableNextColumn();
         ImGui::Text("Scene Final");
         if (t.imgui_scene_final_ds != VK_NULL_HANDLE)
-            ImGui::Image(static_cast<ImTextureID>(t.imgui_scene_final_ds), size);
+            ImGui::Image(static_cast<ImTextureID>(t.imgui_scene_final_ds), size, ImVec2(0, 1), ImVec2(1, 0));
 
         ImGui::EndTable();
     }

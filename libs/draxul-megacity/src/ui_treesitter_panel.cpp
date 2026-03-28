@@ -984,7 +984,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
                 config.point_light_position_valid = true;
             }
             edit_float("Point Light Brightness", config.point_light_brightness, 0.01f, 0.0f, 8.0f, "%.2f");
-            edit_float("Output Gamma", config.output_gamma, 0.01f, 0.1f, 4.0f, "%.2f");
             ImGui::TreePop();
         }
 
@@ -1037,7 +1036,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.68f, 0.68f, 0.68f, 1.0f));
     ImGui::TextUnformatted("Fade uses projected ink size on screen, not camera distance.");
-    ImGui::TextUnformatted("Gamma is a Megacity-only final output curve, not true sRGB backbuffer conversion.");
     ImGui::TextUnformatted("Point light position is in absolute world space.");
     ImGui::PopStyleColor();
 

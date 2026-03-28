@@ -25,8 +25,5 @@ layout(location = 0) out vec4 out_frag_color;
 void main()
 {
     vec4 hdr = texture(hdr_scene, out_uv);
-    float output_gamma = max(frame.render_tuning.x, 1.0);
-    float gamma_adjust = 2.2 / output_gamma;
-    vec3 adjusted = pow(max(hdr.rgb, vec3(0.0)), vec3(gamma_adjust));
-    out_frag_color = vec4(clamp(adjusted, vec3(0.0), vec3(1.0)), clamp(hdr.a, 0.0, 1.0));
+    out_frag_color = vec4(max(hdr.rgb, vec3(0.0)), clamp(hdr.a, 0.0, 1.0));
 }

@@ -166,7 +166,7 @@ SceneSnapshotResult build_scene_snapshot(
         0.0f,
         0.0f);
     scene.camera.render_tuning = glm::vec4(
-        config.output_gamma,
+        0.0f,
         config.point_light_brightness,
         config.ambient_strength,
         0.0f);

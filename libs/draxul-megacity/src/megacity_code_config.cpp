@@ -170,7 +170,6 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     if (auto selected_module_path = toml_support::get_string(table, "selected_module_path"); selected_module_path.has_value())
         config.selected_module_path = *selected_module_path;
     assign_vec2(table, "sign_text_px_range", config.sign_text_px_range);
-    assign_float("output_gamma", config.output_gamma);
     if (auto dv = toml_support::get_string(table, "debug_view"))
     {
         if (auto parsed = parse_megacity_debug_view(*dv); parsed.has_value())
@@ -320,7 +319,6 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     toml::table table;
     table.insert_or_assign("selected_module_path", config.selected_module_path);
     toml_support::insert_vec2(table, "sign_text_px_range", config.sign_text_px_range);
-    table.insert_or_assign("output_gamma", static_cast<double>(config.output_gamma));
     table.insert_or_assign("debug_view", std::string(format_megacity_debug_view(config.debug_view)));
     table.insert_or_assign("wireframe", config.wireframe);
     table.insert_or_assign("ao_denoise", config.ao_denoise);

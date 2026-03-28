@@ -1590,7 +1590,7 @@ void IsometricScenePass::render_gbuffer_debug_ui()
 
         ImGui::TableNextColumn();
         ImGui::Text("Scene Final");
-        ImGui::Image((__bridge void*)t.scene_final_unorm.get(), size);
+        ImGui::Image((__bridge void*)t.scene_final_unorm.get(), size, ImVec2(0, 1), ImVec2(1, 0));
 
         ImGui::EndTable();
     }

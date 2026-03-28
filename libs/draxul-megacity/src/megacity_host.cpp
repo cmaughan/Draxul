@@ -41,7 +41,6 @@ MegaCityCodeConfig world_rebuild_signature(MegaCityCodeConfig config)
 {
     config.auto_rebuild = false;
     config.sign_text_px_range = glm::vec2(0.0f);
-    config.output_gamma = 1.0f;
     config.debug_view = MegaCityDebugView::FinalScene;
     config.wireframe = false;
     config.ao_denoise = true;
