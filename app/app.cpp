@@ -390,6 +390,38 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
     return false;
 }
 
+std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay)
+{
+    if (!renderer_.capture())
+        return std::nullopt;
+
+    const auto start = std::chrono::steady_clock::now();
+    const auto capture_time = start + delay;
+    const auto deadline = capture_time + std::chrono::seconds(10);
+    bool capture_requested = false;
+
+    while (running_ && std::chrono::steady_clock::now() < deadline)
+    {
+        // Keep requesting frames so the main loop doesn't sleep in wait_events.
+        request_frame();
+
+        const auto next_wake = std::min(deadline,
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(100));
+        pump_once(next_wake);
+
+        if (auto captured = renderer_.capture()->take_captured_frame())
+            return captured;
+
+        if (!capture_requested && std::chrono::steady_clock::now() >= capture_time)
+        {
+            renderer_.capture()->request_frame_capture();
+            request_frame();
+            capture_requested = true;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)
 {
     const auto deadline = std::chrono::steady_clock::now() + timeout;

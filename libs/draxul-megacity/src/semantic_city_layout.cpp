@@ -731,7 +731,7 @@ SemanticCityModuleModel build_semantic_city_model(
 
     for (const auto& row : rows)
     {
-        if (row.entity_kind != "building" || row.is_abstract)
+        if ((row.entity_kind != "building" && row.entity_kind != "block") || row.is_abstract)
             continue;
         if (config.hide_test_entities && is_test_semantic_source(row.source_file_path))
             continue;

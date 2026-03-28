@@ -2,6 +2,7 @@
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <cstdio>
+#include <draxul/bmp.h>
 #include <draxul/log.h>
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
 #include <draxul/render_test.h>
@@ -79,6 +80,10 @@ struct ParsedArgs
     std::string host_command;
     std::string log_file;
     std::string log_level;
+    std::filesystem::path screenshot_path;
+    int screenshot_delay_ms = 6000;
+    int screenshot_width = 0;
+    int screenshot_height = 0;
 };
 
 ParsedArgs parse_args(const std::vector<std::string>& args)
@@ -129,6 +134,27 @@ ParsedArgs parse_args(const std::vector<std::string>& args)
         {
             ++i;
             parsed.log_level = args[i];
+        }
+        else if (args[i] == "--screenshot" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.screenshot_path = args[i];
+        }
+        else if (args[i] == "--screenshot-delay" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.screenshot_delay_ms = std::max(std::stoi(args[i]), 0);
+        }
+        else if (args[i] == "--screenshot-size" && i + 1 < args.size())
+        {
+            ++i;
+            const auto& size_str = args[i];
+            auto x_pos = size_str.find('x');
+            if (x_pos != std::string::npos)
+            {
+                parsed.screenshot_width = std::stoi(size_str.substr(0, x_pos));
+                parsed.screenshot_height = std::stoi(size_str.substr(x_pos + 1));
+            }
         }
     }
     return parsed;
@@ -248,6 +274,17 @@ static int draxul_main(std::vector<std::string> args)
         options.megacity_continuous_refresh = true;
     if (parsed.no_vblank)
         options.no_vblank = true;
+    if (!parsed.screenshot_path.empty())
+    {
+        if (parsed.screenshot_width > 0 && parsed.screenshot_height > 0)
+        {
+            options.config_overrides.window_width = parsed.screenshot_width;
+            options.config_overrides.window_height = parsed.screenshot_height;
+            options.render_target_pixel_width = parsed.screenshot_width;
+            options.render_target_pixel_height = parsed.screenshot_height;
+        }
+        options.save_user_config = false;
+    }
 
     const auto exe_dir = executable_dir(args);
     if (!options.config_overrides.font_path.has_value() && !exe_dir.empty())
@@ -263,9 +300,9 @@ static int draxul_main(std::vector<std::string> args)
     {
         DRAXUL_LOG_ERROR(draxul::LogCategory::App, "Failed to initialize draxul");
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
-        const bool ci_mode = parsed.smoke_test || !parsed.render_test_path.empty();
+        const bool ci_mode = parsed.smoke_test || !parsed.render_test_path.empty() || !parsed.screenshot_path.empty();
 #else
-        const bool ci_mode = parsed.smoke_test;
+        const bool ci_mode = parsed.smoke_test || !parsed.screenshot_path.empty();
 #endif
         if (!ci_mode)
         {
@@ -316,6 +353,24 @@ static int draxul_main(std::vector<std::string> args)
     {
         if (!app.run_smoke_test(std::chrono::seconds(3)))
             status = 1;
+    }
+    else if (!parsed.screenshot_path.empty())
+    {
+        auto frame = app.run_screenshot(std::chrono::milliseconds(parsed.screenshot_delay_ms));
+        if (frame)
+        {
+            if (!draxul::write_bmp_rgba(parsed.screenshot_path, *frame))
+            {
+                DRAXUL_LOG_ERROR(draxul::LogCategory::App, "Failed to write screenshot to %s",
+                    parsed.screenshot_path.string().c_str());
+                status = 1;
+            }
+        }
+        else
+        {
+            DRAXUL_LOG_ERROR(draxul::LogCategory::App, "Failed to capture screenshot");
+            status = 1;
+        }
     }
     else
     {

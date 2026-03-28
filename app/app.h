@@ -29,6 +29,7 @@ public:
     bool initialize();
     void run();
     bool run_smoke_test(std::chrono::milliseconds timeout);
+    std::optional<CapturedFrame> run_screenshot(std::chrono::milliseconds delay);
     std::optional<CapturedFrame> run_render_test(std::chrono::milliseconds timeout,
         std::chrono::milliseconds settle);
     const std::string& last_render_test_error() const
