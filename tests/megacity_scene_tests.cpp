@@ -1035,7 +1035,7 @@ TEST_CASE("megacity camera pitch is clamped to a sensible range", "[megacity]")
     CHECK(camera.pitch_angle() == Catch::Approx(1.22173048f));
 
     camera.adjust_pitch(-10.0f);
-    CHECK(camera.pitch_angle() == Catch::Approx(0.43633231f));
+    CHECK(camera.pitch_angle() == Catch::Approx(0.08726646f));
 }
 
 TEST_CASE("megacity camera state round-trips through apply_state", "[megacity]")

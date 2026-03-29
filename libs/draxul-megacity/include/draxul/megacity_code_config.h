@@ -131,7 +131,6 @@ struct MegaCityCodeConfig
     glm::vec3 module_sign_text_color{ 0.0f, 0.0f, 0.0f };
     glm::vec3 building_sign_board_color{ 1.0f, 1.0f, 1.0f };
     glm::vec3 building_sign_text_color{ 0.0f, 0.0f, 0.0f };
-    float roof_sign_gap = 0.15f;
     float roof_sign_thickness = 0.05f;
     float roof_sign_min_width_per_character = 0.16f;
     float wall_sign_thickness = 0.05f;

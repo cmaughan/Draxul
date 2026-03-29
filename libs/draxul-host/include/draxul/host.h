@@ -143,6 +143,11 @@ public:
     virtual void pump() = 0;
     virtual std::optional<std::chrono::steady_clock::time_point> next_deadline() const = 0;
 
+    virtual void on_focus_lost()
+    {
+        // Default no-op; hosts override to clear transient input state.
+    }
+
     virtual void on_key(const KeyEvent& /*event*/)
     {
         // Default no-op; hosts override only the input paths they consume.

@@ -57,10 +57,7 @@ public:
     void connect(IWindow& window);
 
     // Updates the host pointer (used when focus changes between panes).
-    void set_host(IHost* host)
-    {
-        deps_.host = host;
-    }
+    void set_host(IHost* host);
 
     // Updates the pixel scale (called when the display DPI changes).
     void set_pixel_scale(float scale)

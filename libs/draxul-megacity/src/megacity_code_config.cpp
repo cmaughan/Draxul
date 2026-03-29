@@ -274,7 +274,6 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_legacy_color3(table, "wall_sign_board_r", "wall_sign_board_g", "wall_sign_board_b", config.building_sign_board_color);
     assign_legacy_color3(table, "wall_sign_text_r", "wall_sign_text_g", "wall_sign_text_b", config.building_sign_text_color);
     assign_legacy_color3(table, "sign_text_r", "sign_text_g", "sign_text_b", config.module_sign_text_color);
-    assign_float("roof_sign_gap", config.roof_sign_gap);
     assign_float("roof_sign_thickness", config.roof_sign_thickness);
     assign_float("roof_sign_min_width_per_character", config.roof_sign_min_width_per_character);
     assign_float("wall_sign_thickness", config.wall_sign_thickness);
@@ -406,7 +405,6 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     toml_support::insert_vec3(table, "module_sign_text_color", config.module_sign_text_color);
     toml_support::insert_vec3(table, "building_sign_board_color", config.building_sign_board_color);
     toml_support::insert_vec3(table, "building_sign_text_color", config.building_sign_text_color);
-    table.insert_or_assign("roof_sign_gap", static_cast<double>(config.roof_sign_gap));
     table.insert_or_assign("roof_sign_thickness", static_cast<double>(config.roof_sign_thickness));
     table.insert_or_assign(
         "roof_sign_min_width_per_character",

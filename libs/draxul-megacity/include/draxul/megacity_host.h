@@ -58,6 +58,7 @@ public:
     std::string init_error() const override;
 
     void set_viewport(const HostViewport& viewport) override;
+    void on_focus_lost() override;
     void on_key(const KeyEvent& event) override;
     void on_font_metrics_changed() override
     {

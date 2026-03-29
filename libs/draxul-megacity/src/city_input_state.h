@@ -22,6 +22,9 @@ struct CameraMovement
 class CityInputState
 {
 public:
+    // Clear all pressed-key state (called when the host loses focus).
+    void reset_keys();
+
     // Returns true if the key was consumed and state changed.
     bool on_key(const KeyEvent& event);
     void on_mouse_button(const MouseButtonEvent& event);

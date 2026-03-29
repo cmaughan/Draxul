@@ -17,7 +17,7 @@ namespace
 {
 
 constexpr float kDefaultPitchAngle = 0.72425002f; // about 41.5 degrees
-constexpr float kMinPitchAngle = 0.43633231f; // 25 degrees
+constexpr float kMinPitchAngle = 0.08726646f; // 5 degrees
 constexpr float kMaxPitchAngle = 1.22173048f; // 70 degrees
 constexpr float kMinZoomWorldSpan = 5.0f;
 

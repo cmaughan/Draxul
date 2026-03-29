@@ -606,6 +606,11 @@ void MegaCityHost::reset_camera_to_default_frame()
     mark_scene_dirty();
 }
 
+void MegaCityHost::on_focus_lost()
+{
+    input_->reset_keys();
+}
+
 void MegaCityHost::on_key(const KeyEvent& event)
 {
     // F1 toggles UI panels (press only, not release)

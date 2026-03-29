@@ -230,6 +230,13 @@ void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
     }
 }
 
+void InputDispatcher::set_host(IHost* host)
+{
+    if (deps_.host && deps_.host != host)
+        deps_.host->on_focus_lost();
+    deps_.host = host;
+}
+
 void InputDispatcher::connect(IWindow& window)
 {
     window.on_key = [this](const KeyEvent& e) { on_key_event(e); };

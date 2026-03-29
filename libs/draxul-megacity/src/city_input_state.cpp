@@ -92,6 +92,20 @@ void clamp_small_orbit(float& orbit)
 
 } // namespace
 
+void CityInputState::reset_keys()
+{
+    move_left_ = false;
+    move_right_ = false;
+    move_up_ = false;
+    move_down_ = false;
+    orbit_left_ = false;
+    orbit_right_ = false;
+    zoom_in_ = false;
+    zoom_out_ = false;
+    pitch_up_ = false;
+    pitch_down_ = false;
+}
+
 bool CityInputState::on_key(const KeyEvent& event)
 {
     bool changed = false;

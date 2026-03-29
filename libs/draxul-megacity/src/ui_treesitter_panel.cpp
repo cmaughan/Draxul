@@ -980,7 +980,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         if (ImGui::TreeNodeEx("##signs_wall", ImGuiTreeNodeFlags_SpanAvailWidth, "Building Signs"))
         {
             edit_float("Thickness", config.wall_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
-            edit_float("Gap", config.roof_sign_gap, 0.01f, 0.0f, 2.0f, "%.2f");
             edit_float("Face Gap", config.wall_sign_face_gap, 0.001f, 0.0f, 1.0f, "%.3f");
             edit_float("Side Inset", config.wall_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
             edit_float("Min Width / Char", config.roof_sign_min_width_per_character, 0.01f, 0.0f, 4.0f, "%.2f");

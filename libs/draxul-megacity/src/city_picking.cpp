@@ -374,7 +374,6 @@ std::optional<PickResult> pick_building(
         = model && config ? std::optional(build_incident_connection_counts(*model)) : std::nullopt;
     const float middle_strip_scale = 1.0f + std::max(config ? config->building_middle_strip_push : 0.0f, 0.0f);
     const float base_elevation = config ? building_base_elevation(*config) : 0.0f;
-    const float sign_gap = config ? config->roof_sign_gap : 0.0f;
 
     float best_t = std::numeric_limits<float>::max();
     std::optional<PickResult> best;
@@ -392,11 +391,11 @@ std::optional<PickResult> pick_building(
                 continue;
             }
 
-            // Extend picking upward through the cap + gap + sign band above the building body.
+            // Extend picking upward through the cap + sign band above the building body.
             // Cap height is clamped to at most 15% of building height (see compute_building_sign_height),
-            // and the sign band has the same height, so the total extension is 2*cap + gap.
+            // and the sign band has the same height, so the total extension is 2*cap.
             const float cap_height = std::clamp(building.metrics.height * 0.15f, 0.24f, 2.0f);
-            const float sign_extension = cap_height * 2.0f + sign_gap;
+            const float sign_extension = cap_height * 2.0f;
 
             const int sides = building_side_count(
                 building,
@@ -413,6 +412,8 @@ std::optional<PickResult> pick_building(
             if (hit && hit->t < best_t)
             {
                 best_t = hit->t;
+                const float body_top = base_elevation + building.metrics.height;
+                const bool hit_on_body = hit->hit_y <= body_top + 1e-3f;
                 best = PickResult{
                     building.qualified_name,
                     building.module_path,
@@ -420,7 +421,7 @@ std::optional<PickResult> pick_building(
                     building.center,
                     hit->hit_y,
                     hit->layer_index,
-                    true,
+                    hit_on_body,
                 };
             }
         }
