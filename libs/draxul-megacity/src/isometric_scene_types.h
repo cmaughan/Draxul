@@ -149,6 +149,7 @@ struct SceneCameraData
     glm::vec4 point_light_pos{ 4.0f, 6.0f, 4.0f, 12.0f }; // xyz = position, w = radius
     glm::vec4 label_fade_px{ 1.5f, 8.0f, 0.0f, 0.68f }; // x/y = label fade range, z = perf mode enabled, w = perf blend
     glm::vec4 render_tuning{ 1.0f, 1.0f, 0.45f, 4.0f }; // x = tone map exposure, y = point brightness, z = ambient, w = tone map white point
+    glm::vec4 perf_tuning{ 0.0f, 0.0f, 0.0f, 0.0f }; // x = perf log scale
     glm::vec4 ao_settings{ 1.6f, 0.12f, 1.35f, 0.0f }; // x = radius (world units), y = bias, z = power
     glm::vec4 debug_view{ 0.0f, 1.0f, 16.0f, 0.0f }; // x = AO debug mode, y = AO denoise enabled, z = AO kernel size
     glm::vec4 world_debug_bounds{ -5.0f, 5.0f, -5.0f, 5.0f }; // x = min x, y = max x, z = min z, w = max z

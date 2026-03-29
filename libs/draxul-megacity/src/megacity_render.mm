@@ -31,6 +31,7 @@ struct FrameUniforms
     simd_float4 point_light_pos;
     simd_float4 label_fade_px;
     simd_float4 render_tuning;
+    simd_float4 perf_tuning;
     simd_float4 screen_params; // x = viewport origin x, y = viewport origin y, z = 1 / viewport width, w = 1 / viewport height
     simd_float4 ao_params; // x = radius world, y = radius pixels, z = bias, w = power
     simd_float4 debug_view; // x = AO debug mode, y = AO denoise enabled
@@ -1358,6 +1359,11 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         scene_.camera.render_tuning.y,
         scene_.camera.render_tuning.z,
         scene_.camera.render_tuning.w);
+    frame.perf_tuning = simd_make_float4(
+        scene_.camera.perf_tuning.x,
+        scene_.camera.perf_tuning.y,
+        scene_.camera.perf_tuning.z,
+        scene_.camera.perf_tuning.w);
     frame.screen_params = simd_make_float4(0.0f, 0.0f, 1.0f / std::max(vw, 1), 1.0f / std::max(vh, 1));
     frame.ao_params = simd_make_float4(
         scene_.camera.ao_settings.x,

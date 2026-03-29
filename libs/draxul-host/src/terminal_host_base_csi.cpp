@@ -1,6 +1,7 @@
 #include <draxul/terminal_host_base.h>
 
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/terminal_sgr.h>
 
 #include <algorithm>
@@ -13,6 +14,7 @@ namespace draxul
 
 void TerminalHostBase::handle_control(char ch)
 {
+    PERF_MEASURE();
     if (ch == '\r')
     {
         vt_.col = 0;
@@ -37,6 +39,7 @@ void TerminalHostBase::handle_control(char ch)
 
 void TerminalHostBase::handle_esc(char ch)
 {
+    PERF_MEASURE();
     if (ch == '7') // DECSC - Save Cursor
     {
         vt_.saved_col = vt_.col;
@@ -87,6 +90,7 @@ void TerminalHostBase::handle_esc(char ch)
 
 void TerminalHostBase::handle_csi(char final_char, std::string_view body)
 {
+    PERF_MEASURE();
     bool private_mode = !body.empty() && body.front() == '?';
     if (private_mode)
         body.remove_prefix(1);
@@ -167,6 +171,7 @@ void TerminalHostBase::handle_csi(char final_char, std::string_view body)
 
 void TerminalHostBase::csi_cursor_move(char final_char, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     auto param_or = [&](size_t index, int fallback) {
         return index < params.size() && params[index] > 0 ? params[index] : fallback;
     };
@@ -265,6 +270,7 @@ void TerminalHostBase::csi_cursor_move(char final_char, const std::vector<int>& 
 
 void TerminalHostBase::csi_erase(char final_char, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     auto param_or = [&](size_t index, int fallback) {
         return index < params.size() && params[index] > 0 ? params[index] : fallback;
     };
@@ -292,6 +298,7 @@ void TerminalHostBase::csi_erase(char final_char, const std::vector<int>& params
 
 void TerminalHostBase::csi_scroll(char final_char, bool private_mode, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     auto param_or = [&](size_t index, int fallback) {
         return index < params.size() && params[index] > 0 ? params[index] : fallback;
     };
@@ -319,6 +326,7 @@ void TerminalHostBase::csi_scroll(char final_char, bool private_mode, const std:
 
 void TerminalHostBase::csi_insert_delete(char final_char, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     auto param_or = [&](size_t index, int fallback) {
         return index < params.size() && params[index] > 0 ? params[index] : fallback;
     };
@@ -360,11 +368,13 @@ void TerminalHostBase::csi_insert_delete(char final_char, const std::vector<int>
 
 void TerminalHostBase::csi_sgr(const std::vector<int>& params)
 {
+    PERF_MEASURE();
     apply_sgr(current_attr_, params);
 }
 
 void TerminalHostBase::csi_mode(char final_char, bool private_mode, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     if (!private_mode)
         return;
 
@@ -417,6 +427,7 @@ void TerminalHostBase::csi_mode(char final_char, bool private_mode, const std::v
 
 void TerminalHostBase::csi_dsr(bool private_mode, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     if (private_mode)
         return;
     const int code = params.empty() ? 0 : params[0];
@@ -437,6 +448,7 @@ void TerminalHostBase::csi_dsr(bool private_mode, const std::vector<int>& params
 
 void TerminalHostBase::csi_da(bool private_mode, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     const int code = params.empty() ? 0 : params[0];
     if (!private_mode && code == 0)
     {
@@ -452,6 +464,7 @@ void TerminalHostBase::csi_da(bool private_mode, const std::vector<int>& params)
 
 void TerminalHostBase::csi_margins(bool private_mode, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     auto param_or = [&](size_t index, int fallback) {
         return index < params.size() && params[index] > 0 ? params[index] : fallback;
     };
@@ -532,6 +545,7 @@ static std::string extract_osc7_path(std::string_view uri)
 
 void TerminalHostBase::handle_osc(std::string_view body)
 {
+    PERF_MEASURE();
     const size_t semi = body.find(';');
     if (semi == std::string_view::npos)
         return;
@@ -566,6 +580,7 @@ void TerminalHostBase::handle_osc(std::string_view body)
 
 void TerminalHostBase::consume_output(std::string_view bytes)
 {
+    PERF_MEASURE();
     mark_activity();
     vt_parser_.feed(bytes);
 }

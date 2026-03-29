@@ -2,6 +2,7 @@
 #include <draxul/local_terminal_host.h>
 
 #include <draxul/host_kind.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -20,6 +21,7 @@ public:
 protected:
     bool initialize_host() override
     {
+        PERF_MEASURE();
         highlights().set_default_fg(
             launch_options().terminal_fg.value_or(Color(0.92f, 0.92f, 0.92f, 1.0f)));
         highlights().set_default_bg(
@@ -78,6 +80,7 @@ private:
 
 std::unique_ptr<IHost> create_shell_host()
 {
+    PERF_MEASURE();
     return std::make_unique<ShellHost>();
 }
 

@@ -254,16 +254,22 @@ SceneSnapshotResult build_scene_snapshot(
     scene.camera.inv_view_proj = glm::inverse(scene.camera.proj * scene.camera.view);
     scene.camera.camera_pos = glm::vec4(camera.position(), 1.0f);
     scene.camera.light_dir = glm::normalize(glm::vec4(config.directional_light_dir, 0.0f));
+    const bool performance_overlay_enabled = config.overlay_mode != OverlayMode::None;
     scene.camera.label_fade_px = glm::vec4(
         config.sign_text_px_range.x,
         config.sign_text_px_range.y,
-        config.performance_heat_mode ? 1.0f : 0.0f,
+        performance_overlay_enabled ? 1.0f : 0.0f,
         kPerformanceHeatBlend);
     scene.camera.render_tuning = glm::vec4(
         config.tone_map_exposure,
         config.point_light_brightness,
         config.ambient_strength,
         config.tone_map_white_point);
+    scene.camera.perf_tuning = glm::vec4(
+        std::max(config.performance_heat_log_scale, 0.0f),
+        0.0f,
+        0.0f,
+        0.0f);
     scene.camera.ao_settings = glm::vec4(
         config.ao_radius,
         config.ao_bias,

@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <csignal>
+#include <draxul/perf_timing.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -30,6 +31,7 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
     const std::string& working_dir, std::function<void()> on_output_available,
     int initial_cols, int initial_rows)
 {
+    PERF_MEASURE();
     shutdown();
 
     // Suppress SIGPIPE so writes to a closed PTY master return EPIPE instead
@@ -114,6 +116,7 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
 
 void UnixPtyProcess::shutdown()
 {
+    PERF_MEASURE();
     reader_running_ = false;
 
     // Signal the reader thread to wake up immediately via the shutdown pipe.
@@ -202,6 +205,7 @@ void UnixPtyProcess::shutdown()
 
 void UnixPtyProcess::request_close()
 {
+    PERF_MEASURE();
     reader_running_ = false;
 
     if (shutdown_pipe_[1] >= 0)
@@ -224,6 +228,7 @@ bool UnixPtyProcess::is_running() const
 
 bool UnixPtyProcess::resize(int cols, int rows) const
 {
+    PERF_MEASURE();
     if (master_fd_ < 0)
         return false;
     struct winsize ws = {};
@@ -234,6 +239,7 @@ bool UnixPtyProcess::resize(int cols, int rows) const
 
 bool UnixPtyProcess::write(std::string_view text) const
 {
+    PERF_MEASURE();
     if (master_fd_ < 0)
         return false;
     const char* ptr = text.data();
@@ -251,6 +257,7 @@ bool UnixPtyProcess::write(std::string_view text) const
 
 std::vector<std::string> UnixPtyProcess::drain_output()
 {
+    PERF_MEASURE();
     std::scoped_lock lock(output_mutex_);
     std::vector<std::string> drained;
     drained.swap(output_chunks_);
@@ -259,6 +266,7 @@ std::vector<std::string> UnixPtyProcess::drain_output()
 
 void UnixPtyProcess::reader_main()
 {
+    PERF_MEASURE();
     std::array<char, 4096> buffer{};
 
     struct pollfd fds[2];

@@ -886,10 +886,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             edit_int("Oct Threshold", config.connected_oct_building_threshold, 1, 2, 128);
             edit_float("Middle Strip Push", config.building_middle_strip_push, 0.005f, 0.0f, 0.25f, "%.3f");
             edit_float("Alternate Darken", config.building_alternate_darkening, 0.01f, 0.0f, 1.0f, "%.2f");
-            const bool perf_mode_changed = ImGui::Checkbox("Perf Mode", &config.performance_heat_mode);
-            changed |= perf_mode_changed;
-            if (perf_mode_changed)
-                controls.committed_edit = true;
             edit_float("Flat Roughness", config.flat_color_roughness, 0.01f, 0.04f, 1.0f, "%.2f");
             edit_float("Flat Metallic", config.flat_color_metallic, 0.01f, 0.0f, 1.0f, "%.2f");
             edit_float("Road Width Base", config.road_width_base, 0.01f, 0.0f, 16.0f, "%.2f");
@@ -1157,9 +1153,32 @@ bool render_treesitter_panel(
         ImGui::PopStyleColor();
     }
 
+    if (renderer_controls)
+    {
+        static constexpr const char* kOverlayLabels[] = { "None", "Perf", "Coverage" };
+        int overlay_index = static_cast<int>(renderer_controls->config.overlay_mode);
+        if (ImGui::Combo("Overlay", &overlay_index, kOverlayLabels, 3))
+        {
+            renderer_controls->config.overlay_mode = static_cast<OverlayMode>(overlay_index);
+            changed = true;
+            renderer_controls->committed_edit = true;
+        }
+        if (ImGui::SliderFloat(
+                "Perf Log Scale",
+                &renderer_controls->config.performance_heat_log_scale,
+                0.0f,
+                32.0f,
+                "%.1f"))
+        {
+            changed = true;
+            renderer_controls->committed_edit = true;
+        }
+
+        ImGui::Separator();
+    }
+
     const SnapshotUiCache& ui_cache = cached_snapshot_ui(snapshot);
 
-    ImGui::Separator();
     render_stats(ui_cache.stats);
     ImGui::Separator();
 

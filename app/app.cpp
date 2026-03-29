@@ -605,7 +605,10 @@ bool App::render_frame()
 
     const auto frame_start = std::chrono::steady_clock::now();
     if (!renderer_.grid()->begin_frame())
+    {
+        runtime_perf_collector().cancel_frame();
         return false;
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const float delta_seconds = std::chrono::duration<float>(now - last_panel_frame_time_).count();
@@ -615,6 +618,7 @@ bool App::render_frame()
 
     saw_frame_ = true;
     renderer_.grid()->end_frame();
+    runtime_perf_collector().end_frame();
     frame_timer_.record(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count());
     return true;
@@ -645,8 +649,13 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
                 on_resize(pw, ph);
         }
 
+        runtime_perf_collector().begin_frame();
+
         if (!close_dead_panes())
+        {
+            runtime_perf_collector().cancel_frame();
             return false;
+        }
         input_dispatcher_.set_host(host_manager_.focused_host());
 
         // Pump all hosts
@@ -657,7 +666,10 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         // Re-check after pumping (hosts can die during pump).
         if (!close_dead_panes())
+        {
+            runtime_perf_collector().cancel_frame();
             return false;
+        }
         input_dispatcher_.set_host(host_manager_.focused_host());
 
         if (frame_requested_)
@@ -666,11 +678,14 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             return running_;
         }
 
+        runtime_perf_collector().cancel_frame();
+
         if (wait_deadline && std::chrono::steady_clock::now() >= *wait_deadline)
             return running_;
 
         if (!window_->wait_events(wait_timeout_ms(wait_deadline)))
         {
+            runtime_perf_collector().cancel_frame();
             request_quit();
             return false;
         }

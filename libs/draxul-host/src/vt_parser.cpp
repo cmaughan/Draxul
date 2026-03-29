@@ -1,6 +1,7 @@
 #include <draxul/vt_parser.h>
 
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/unicode.h>
 
 namespace draxul
@@ -66,6 +67,7 @@ VtParser::VtParser(Callbacks cbs)
 
 void VtParser::feed(std::string_view bytes)
 {
+    PERF_MEASURE();
     for (char ch : bytes)
     {
         switch (state_)
@@ -171,6 +173,7 @@ void VtParser::feed(std::string_view bytes)
 
 void VtParser::reset()
 {
+    PERF_MEASURE();
     state_ = State::Ground;
     plain_text_.clear();
     csi_buffer_.clear();
@@ -179,6 +182,7 @@ void VtParser::reset()
 
 void VtParser::flush_plain_text()
 {
+    PERF_MEASURE();
     size_t offset = 0;
     while (offset < plain_text_.size())
     {

@@ -471,6 +471,51 @@ TEST_CASE("megacity live metrics snapshot matches header-owned buildings to impl
     CHECK(snapshot.functions[1].heat == Catch::Approx(0.0f));
 }
 
+TEST_CASE("megacity live metrics snapshot coverage mode lights touched functions fully", "[megacity]")
+{
+    SemanticMegacityModel model;
+    SemanticCityModuleModel module;
+    module.module_path = "app";
+
+    SemanticCityBuilding building;
+    building.module_path = "app";
+    building.display_name = "Renderer";
+    building.qualified_name = "Renderer";
+    building.source_file_path = "app/renderer.cpp";
+    building.layers = {
+        { "update", 10, 1.0f },
+        { "render", 20, 2.0f },
+        { "present", 30, 3.0f },
+    };
+    module.buildings.push_back(building);
+    model.modules.push_back(module);
+
+    RuntimePerfSnapshot perf_snapshot;
+    perf_snapshot.generation = 9;
+    perf_snapshot.frame_time_microseconds = 10000;
+    perf_snapshot.functions.push_back({
+        .source_file_path = "app/renderer.cpp",
+        .owner_qualified_name = "Renderer",
+        .function_name = "update",
+        .pretty_function = "void draxul::Renderer::update()",
+        .frame_microseconds = 2500,
+        .smoothed_microseconds = 2500,
+        .frame_fraction = 0.25f,
+        .smoothed_frame_fraction = 0.25f,
+        .normalized_heat = 0.02f,
+        .call_count = 1,
+    });
+
+    const LiveCityMetricsSnapshot snapshot = build_live_city_metrics_snapshot(model, &perf_snapshot, true);
+
+    REQUIRE(snapshot.buildings.size() == 1);
+    REQUIRE(snapshot.functions.size() == 3);
+    CHECK(snapshot.buildings[0].heat == Catch::Approx(1.0f));
+    CHECK(snapshot.functions[0].heat == Catch::Approx(1.0f));
+    CHECK(snapshot.functions[1].heat == Catch::Approx(0.0f));
+    CHECK(snapshot.functions[2].heat == Catch::Approx(0.0f));
+}
+
 TEST_CASE("megacity perf debug state reports matched and unmatched runtime functions", "[megacity]")
 {
     SemanticMegacityModel model;
@@ -584,7 +629,7 @@ TEST_CASE("megacity scene snapshot carries per-layer performance heat state for 
     camera.reframe_world_bounds(0.0f, 4.0f, 0.0f, 6.0f);
 
     MegaCityCodeConfig config;
-    config.performance_heat_mode = true;
+    config.overlay_mode = OverlayMode::Perf;
     SceneSnapshotResult result = build_scene_snapshot(camera, world, config, live_metrics, {}, nullptr, nullptr);
 
     REQUIRE(result.snapshot.camera.label_fade_px.z == Catch::Approx(1.0f));

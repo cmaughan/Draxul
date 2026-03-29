@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <functional>
 #include <imgui.h>
+#include <unordered_map>
 #include <unordered_set>
 
 #ifndef DRAXUL_REPO_ROOT
@@ -60,7 +61,8 @@ MegaCityCodeConfig world_rebuild_signature(MegaCityCodeConfig config)
     config.world_floor_grid_y_offset = 0.0f;
     config.world_floor_grid_tile_scale = 0.0f;
     config.world_floor_grid_line_width = 0.0f;
-    config.performance_heat_mode = false;
+    config.overlay_mode = OverlayMode::None;
+    config.performance_heat_log_scale = 0.0f;
     config.dependency_route_layer_step = 0.0f;
     config.ambient_strength = 0.0f;
     config.directional_light_dir = glm::vec3(0.0f);
@@ -167,6 +169,76 @@ bool is_module_context_object(const SceneObject& obj)
 {
     return obj.role == SceneObject::Role::ModuleOutline
         || obj.role == SceneObject::Role::ModuleLabel;
+}
+
+bool runtime_timing_has_activity(const RuntimePerfFunctionTiming& timing)
+{
+    return timing.frame_fraction > 0.0f
+        || timing.smoothed_frame_fraction > 0.0f
+        || timing.frame_microseconds > 0
+        || timing.smoothed_microseconds > 0
+        || timing.call_count > 0;
+}
+
+std::string runtime_perf_function_key(
+    std::string_view source_file_path,
+    std::string_view owner_qualified_name,
+    std::string_view function_name)
+{
+    std::string key;
+    key.reserve(source_file_path.size() + owner_qualified_name.size() + function_name.size() + 2);
+    key.append(source_file_path);
+    key.push_back('\n');
+    key.append(owner_qualified_name);
+    key.push_back('\n');
+    key.append(function_name);
+    return key;
+}
+
+void clear_coverage_snapshot(RuntimePerfSnapshot& snapshot)
+{
+    snapshot = RuntimePerfSnapshot{};
+}
+
+void merge_runtime_perf_coverage(RuntimePerfSnapshot& coverage_snapshot, const RuntimePerfSnapshot& latest_snapshot)
+{
+    coverage_snapshot.generation = latest_snapshot.generation;
+    coverage_snapshot.frame_index = latest_snapshot.frame_index;
+    coverage_snapshot.frame_time_microseconds = latest_snapshot.frame_time_microseconds;
+
+    std::unordered_map<std::string, size_t> indices_by_key;
+    indices_by_key.reserve(coverage_snapshot.functions.size());
+    for (size_t i = 0; i < coverage_snapshot.functions.size(); ++i)
+    {
+        const auto& function = coverage_snapshot.functions[i];
+        indices_by_key.emplace(
+            runtime_perf_function_key(
+                function.source_file_path,
+                function.owner_qualified_name,
+                function.function_name),
+            i);
+    }
+
+    for (const RuntimePerfFunctionTiming& timing : latest_snapshot.functions)
+    {
+        if (!runtime_timing_has_activity(timing))
+            continue;
+
+        const std::string key = runtime_perf_function_key(
+            timing.source_file_path,
+            timing.owner_qualified_name,
+            timing.function_name);
+        const auto existing = indices_by_key.find(key);
+        if (existing == indices_by_key.end())
+        {
+            coverage_snapshot.functions.push_back(timing);
+            indices_by_key.emplace(std::move(key), coverage_snapshot.functions.size() - 1);
+        }
+        else
+        {
+            coverage_snapshot.functions[existing->second] = timing;
+        }
+    }
 }
 
 const LiveCityBuildingMetric* find_building_metric(
@@ -331,7 +403,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     last_pump_time_ = last_activity_time_;
     last_live_perf_refresh_time_ = last_activity_time_;
     last_live_perf_generation_ = 0;
-    runtime_perf_collector().set_enabled(renderer_config_.performance_heat_mode);
+    runtime_perf_collector().set_enabled(renderer_config_.overlay_mode != OverlayMode::None);
     const std::filesystem::path city_db_path = megacity_db_path();
     if (!city_db_.open(city_db_path))
     {
@@ -676,8 +748,15 @@ void MegaCityHost::render_imgui(float dt)
     if (semantic_model_)
     {
         const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
+        const RuntimePerfSnapshot* debug_snapshot
+            = pending_renderer_config_.overlay_mode == OverlayMode::Coverage
+            ? &coverage_perf_snapshot_
+            : &perf_snapshot;
         perf_debug = std::make_shared<LiveCityPerfDebugState>(
-            build_live_city_perf_debug_state(*semantic_model_, &perf_snapshot));
+            build_live_city_perf_debug_state(
+                *semantic_model_,
+                debug_snapshot,
+                pending_renderer_config_.overlay_mode == OverlayMode::Coverage));
     }
 
     MegacityRendererControls renderer_controls{
@@ -704,7 +783,16 @@ void MegaCityHost::render_imgui(float dt)
             config_document_->save();
         };
         const bool pending_changed = previous_pending != pending_renderer_config_;
+        const bool coverage_mode_toggled
+            = (previous_pending.overlay_mode == OverlayMode::Coverage)
+            != (pending_renderer_config_.overlay_mode == OverlayMode::Coverage);
         const bool world_rebuild_needed = requires_world_rebuild(renderer_config_, pending_renderer_config_);
+
+        if (coverage_mode_toggled)
+        {
+            clear_coverage_snapshot(coverage_perf_snapshot_);
+            last_live_perf_generation_ = 0;
+        }
 
         if (world_rebuild_needed)
         {
@@ -989,7 +1077,7 @@ void MegaCityHost::pump()
     PERF_MEASURE();
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - last_pump_time_).count();
-    runtime_perf_collector().set_enabled(renderer_config_.performance_heat_mode);
+    runtime_perf_collector().set_enabled(renderer_config_.overlay_mode != OverlayMode::None);
     bool camera_changed = false;
 
     if (camera_)
@@ -1074,7 +1162,7 @@ void MegaCityHost::pump()
 
     consume_completed_routes();
 
-    if (renderer_config_.performance_heat_mode
+    if (renderer_config_.overlay_mode != OverlayMode::None
         && semantic_model_
         && now - last_live_perf_refresh_time_ >= kLivePerfRefreshTick)
     {
@@ -1082,8 +1170,17 @@ void MegaCityHost::pump()
         const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
         if (perf_snapshot.generation != last_live_perf_generation_)
         {
+            const RuntimePerfSnapshot* metrics_snapshot = &perf_snapshot;
+            if (renderer_config_.overlay_mode == OverlayMode::Coverage)
+            {
+                merge_runtime_perf_coverage(coverage_perf_snapshot_, perf_snapshot);
+                metrics_snapshot = &coverage_perf_snapshot_;
+            }
             live_metrics_ = std::make_shared<LiveCityMetricsSnapshot>(
-                build_live_city_metrics_snapshot(*semantic_model_, &perf_snapshot));
+                build_live_city_metrics_snapshot(
+                    *semantic_model_,
+                    metrics_snapshot,
+                    renderer_config_.overlay_mode == OverlayMode::Coverage));
             last_live_perf_generation_ = perf_snapshot.generation;
             mark_scene_dirty();
         }
@@ -1502,11 +1599,12 @@ std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline
     }
 
     if (!continuous_refresh_enabled_ && !input_->movement_active() && !input_->drag_smoothing_active()
-        && hidden_hover_blend_ <= 1e-3f && !renderer_config_.performance_heat_mode)
+        && hidden_hover_blend_ <= 1e-3f
+        && renderer_config_.overlay_mode == OverlayMode::None)
         return std::nullopt;
     if (input_->drag_smoothing_active())
         return std::chrono::steady_clock::now() + kDragSmoothingTick;
-    if (renderer_config_.performance_heat_mode)
+    if (renderer_config_.overlay_mode != OverlayMode::None)
         return std::chrono::steady_clock::now() + kLivePerfRefreshTick;
     return std::chrono::steady_clock::now() + kMovementTick;
 }

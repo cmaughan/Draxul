@@ -1,5 +1,7 @@
 #include "isometric_camera.h"
 
+#include <draxul/perf_timing.h>
+
 #include <algorithm>
 #include <cmath>
 #include <glm/ext/matrix_clip_space.hpp>
@@ -38,17 +40,20 @@ glm::vec2 normalized_planar(const glm::vec3& v, const glm::vec2& fallback)
 
 void IsometricCamera::set_viewport(int pixel_w, int pixel_h)
 {
+    PERF_MEASURE();
     viewport_pixel_h_ = std::max(pixel_h, 1);
     aspect_ = (pixel_h > 0) ? static_cast<float>(pixel_w) / static_cast<float>(pixel_h) : 1.0f;
 }
 
 void IsometricCamera::look_at_world_center(float world_w, float world_h)
 {
+    PERF_MEASURE();
     frame_world_bounds(0.0f, world_w, 0.0f, world_h);
 }
 
 void IsometricCamera::frame_world_bounds(float min_x, float max_x, float min_z, float max_z)
 {
+    PERF_MEASURE();
     if (min_x > max_x || min_z > max_z)
     {
         const float max_dim = kMinZoomWorldSpan;
@@ -78,6 +83,7 @@ void IsometricCamera::frame_world_bounds(float min_x, float max_x, float min_z, 
 
 void IsometricCamera::reframe_world_bounds(float min_x, float max_x, float min_z, float max_z)
 {
+    PERF_MEASURE();
     if (min_x > max_x || min_z > max_z)
     {
         const float max_dim = kMinZoomWorldSpan;
@@ -103,17 +109,20 @@ void IsometricCamera::reframe_world_bounds(float min_x, float max_x, float min_z
 
 void IsometricCamera::set_target(const glm::vec3& target)
 {
+    PERF_MEASURE();
     target_ = target;
     position_ = target_ + follow_offset_;
 }
 
 void IsometricCamera::translate_target(float dx, float dz)
 {
+    PERF_MEASURE();
     set_target(target_ + glm::vec3(dx, 0.0f, dz));
 }
 
 void IsometricCamera::orbit_target(float radians)
 {
+    PERF_MEASURE();
     if (orbit_radius_ <= 0.0f)
         return;
     yaw_angle_ += radians;
@@ -123,6 +132,7 @@ void IsometricCamera::orbit_target(float radians)
 
 void IsometricCamera::zoom_by(float log_delta)
 {
+    PERF_MEASURE();
     if (log_delta == 0.0f)
         return;
 
@@ -133,6 +143,7 @@ void IsometricCamera::zoom_by(float log_delta)
 
 void IsometricCamera::adjust_pitch(float radians)
 {
+    PERF_MEASURE();
     if (radians == 0.0f)
         return;
 
@@ -143,6 +154,7 @@ void IsometricCamera::adjust_pitch(float radians)
 
 glm::vec2 IsometricCamera::pan_delta_for_screen_drag(const glm::vec2& pixel_delta) const
 {
+    PERF_MEASURE();
     const glm::vec3 forward = glm::normalize(target_ - position_);
     const glm::vec3 right_3d = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
     const glm::vec3 up_3d = glm::normalize(glm::cross(right_3d, forward));
@@ -158,6 +170,7 @@ glm::vec2 IsometricCamera::pan_delta_for_screen_drag(const glm::vec2& pixel_delt
 
 glm::vec2 IsometricCamera::planar_right_vector() const
 {
+    PERF_MEASURE();
     const glm::vec3 forward = glm::normalize(target_ - position_);
     const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
     return normalized_planar(right, glm::vec2(1.0f, 0.0f));
@@ -165,6 +178,7 @@ glm::vec2 IsometricCamera::planar_right_vector() const
 
 glm::vec2 IsometricCamera::planar_up_vector() const
 {
+    PERF_MEASURE();
     const glm::vec3 forward = glm::normalize(target_ - position_);
     const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
     const glm::vec3 up = glm::normalize(glm::cross(right, forward));
@@ -173,11 +187,13 @@ glm::vec2 IsometricCamera::planar_up_vector() const
 
 glm::mat4 IsometricCamera::view_matrix() const
 {
+    PERF_MEASURE();
     return glm::lookAtRH(position_, target_, glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
 glm::mat4 IsometricCamera::proj_matrix() const
 {
+    PERF_MEASURE();
     const float half_width = ortho_half_height_ * aspect_;
     return glm::orthoRH_ZO(
         -half_width, half_width, -ortho_half_height_, ortho_half_height_, 0.1f, far_plane_);
@@ -185,6 +201,7 @@ glm::mat4 IsometricCamera::proj_matrix() const
 
 IsometricCameraState IsometricCamera::state() const
 {
+    PERF_MEASURE();
     return IsometricCameraState{
         .target = target_,
         .yaw = yaw_angle_,
@@ -196,6 +213,7 @@ IsometricCameraState IsometricCamera::state() const
 
 void IsometricCamera::apply_state(const IsometricCameraState& state)
 {
+    PERF_MEASURE();
     yaw_angle_ = state.yaw;
     pitch_angle_ = std::clamp(state.pitch, kMinPitchAngle, kMaxPitchAngle);
     orbit_radius_ = std::max(state.orbit_radius, 1e-3f);
@@ -206,6 +224,7 @@ void IsometricCamera::apply_state(const IsometricCameraState& state)
 
 GroundFootprint IsometricCamera::visible_ground_footprint(float plane_y) const
 {
+    PERF_MEASURE();
     const glm::mat4 inv_view_proj = glm::inverse(proj_matrix() * view_matrix());
 
     GroundFootprint footprint;
@@ -255,6 +274,7 @@ GroundFootprint IsometricCamera::visible_ground_footprint(float plane_y) const
 
 void IsometricCamera::update_follow_offset()
 {
+    PERF_MEASURE();
     const float planar_radius = std::max(orbit_radius_, 1e-3f);
     const float height = std::tan(pitch_angle_) * planar_radius;
     follow_offset_ = glm::vec3(
@@ -266,6 +286,7 @@ void IsometricCamera::update_follow_offset()
 
 void IsometricCamera::update_far_plane()
 {
+    PERF_MEASURE();
     far_plane_ = far_plane_for_view(follow_offset_, ortho_half_height_);
 }
 

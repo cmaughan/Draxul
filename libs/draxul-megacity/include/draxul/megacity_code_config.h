@@ -14,6 +14,13 @@
 namespace draxul
 {
 
+enum class OverlayMode : uint8_t
+{
+    None,
+    Perf,
+    Coverage,
+};
+
 enum class MegaCityDebugView : uint8_t
 {
     FinalScene,
@@ -77,7 +84,8 @@ struct MegaCityCodeConfig
     int connected_oct_building_threshold = 24;
     float building_middle_strip_push = 0.05f;
     float building_alternate_darkening = 0.28f;
-    bool performance_heat_mode = false;
+    OverlayMode overlay_mode = OverlayMode::None;
+    float performance_heat_log_scale = 0.0f;
     float flat_color_roughness = 0.65f;
     float flat_color_metallic = 0.0f;
 

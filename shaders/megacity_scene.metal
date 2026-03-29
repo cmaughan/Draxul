@@ -12,6 +12,7 @@ struct FrameUniforms
     float4 point_light_pos;
     float4 label_fade_px;
     float4 render_tuning;
+    float4 perf_tuning;
     float4 screen_params;
     float4 ao_params;
     float4 debug_view;
@@ -261,9 +262,16 @@ float performance_heat_blend(float heat)
     return clamp(0.20f + 0.80f * sqrt(heat), 0.0f, 1.0f);
 }
 
-float performance_heat_display_value(float heat)
+float performance_heat_display_value(float heat, float logScale)
 {
-    return clamp(heat, 0.0f, 1.0f);
+    heat = clamp(heat, 0.0f, 1.0f);
+    logScale = max(logScale, 0.0f);
+    if (logScale <= 0.0f)
+        return heat;
+    const float denom = log2(1.0f + logScale);
+    if (denom <= 1e-6f)
+        return heat;
+    return clamp(log2(1.0f + heat * logScale) / denom, 0.0f, 1.0f);
 }
 
 float point_shadow_current_depth(VertexOut in, constant FrameUniforms& frame)
@@ -405,8 +413,9 @@ fragment float4 scene_fragment(
         const uint heat_count = uint(max(in.label_metrics.w + 0.5f, 0.0f));
         const uint layer_index = min(uint(max(in.layer_id + 0.5f, 0.0f)), heat_count - 1u);
         const float heat = performanceHeatValues[heat_offset + layer_index];
-        const float heat_blend = clamp(frame.label_fade_px.w, 0.0f, 1.0f) * performance_heat_blend(heat);
-        albedo = mix(albedo, performance_heat_color(performance_heat_display_value(heat)), heat_blend);
+        const float display_heat = performance_heat_display_value(heat, frame.perf_tuning.x);
+        const float heat_blend = clamp(frame.label_fade_px.w, 0.0f, 1.0f) * performance_heat_blend(display_heat);
+        albedo = mix(albedo, performance_heat_color(display_heat), heat_blend);
     }
 
     const float2 screen_uv = clamp(

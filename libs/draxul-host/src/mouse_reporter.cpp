@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <draxul/input_types.h>
+#include <draxul/perf_timing.h>
 #include <string>
 
 namespace draxul
@@ -31,6 +32,7 @@ MouseReporter::MouseReporter(WriteFn write_fn)
 
 void MouseReporter::set_mode(int decset_mode, bool enable)
 {
+    PERF_MEASURE();
     switch (decset_mode)
     {
     case 1000: // X10/Normal tracking
@@ -52,6 +54,7 @@ void MouseReporter::set_mode(int decset_mode, bool enable)
 
 bool MouseReporter::on_button(int button, bool pressed, int mod_bits, int col, int row)
 {
+    PERF_MEASURE();
     // Track which buttons are held for DECSET 1002/1003 motion reporting.
     const int btn_idx = button - 1;
     if (btn_idx >= 0 && btn_idx <= 2)
@@ -79,6 +82,7 @@ bool MouseReporter::on_button(int button, bool pressed, int mod_bits, int col, i
 
 bool MouseReporter::on_move(int mod_bits, int col, int row) const
 {
+    PERF_MEASURE();
     // Button mode (1000) only reports press/release, never motion.
     if (mouse_mode_ == MouseMode::None || mouse_mode_ == MouseMode::Button)
         return false;
@@ -107,12 +111,14 @@ bool MouseReporter::on_move(int mod_bits, int col, int row) const
 
 void MouseReporter::on_wheel(int button_code, int mod_bits, int col, int row) const
 {
+    PERF_MEASURE();
     button_code = apply_mouse_modifiers(button_code, mod_bits);
     send_report(button_code, true, col, row);
 }
 
 void MouseReporter::reset()
 {
+    PERF_MEASURE();
     mouse_mode_ = MouseMode::None;
     mouse_sgr_ = false;
     mouse_btn_pressed_ = 0;
@@ -120,6 +126,7 @@ void MouseReporter::reset()
 
 void MouseReporter::send_report(int button_code, bool pressed, int col, int row) const
 {
+    PERF_MEASURE();
     if (mouse_sgr_)
     {
         std::string seq(32, '\0');

@@ -886,8 +886,8 @@ CityBuildResult build_city(
                             1.0f);
                     }
 
-                    const float total_height = building_base_elevation(config) + building.metrics.height + cap_height;
-                    const float sign_y = total_height - sign_metrics.height * 0.5f;
+                    const float building_top = building_base_elevation(config) + building.metrics.height;
+                    const float sign_y = building_top + sign_metrics.height * 0.5f;
                     world.create_sign(
                         roof_sign.center.x,
                         roof_sign.center.y,

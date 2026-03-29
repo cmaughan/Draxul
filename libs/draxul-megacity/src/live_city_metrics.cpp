@@ -51,12 +51,26 @@ std::string short_qualified_name(std::string_view qualified_name)
     return std::string(qualified_name.substr(last_scope + 2));
 }
 
+float display_heat_for_timing(const RuntimePerfFunctionTiming& timing, bool coverage_mode)
+{
+    if (!coverage_mode)
+        return timing.normalized_heat;
+    return (timing.frame_fraction > 0.0f
+               || timing.smoothed_frame_fraction > 0.0f
+               || timing.frame_microseconds > 0
+               || timing.smoothed_microseconds > 0
+               || timing.call_count > 0)
+        ? 1.0f
+        : 0.0f;
+}
+
 void accumulate_perf_function(
     std::unordered_map<std::string, PerfFunctionLookup>& lookup,
     std::string_view source_file_path,
     std::string_view owner_qualified_name,
     std::string_view function_name,
-    const RuntimePerfFunctionTiming& timing)
+    const RuntimePerfFunctionTiming& timing,
+    bool coverage_mode)
 {
     if (source_file_path.empty() || owner_qualified_name.empty() || function_name.empty())
         return;
@@ -65,14 +79,15 @@ void accumulate_perf_function(
         = lookup[perf_function_key(source_file_path, owner_qualified_name, function_name)];
     entry.frame_fraction = std::max(entry.frame_fraction, timing.frame_fraction);
     entry.smoothed_frame_fraction = std::max(entry.smoothed_frame_fraction, timing.smoothed_frame_fraction);
-    entry.heat = std::max(entry.heat, timing.normalized_heat);
+    entry.heat = std::max(entry.heat, display_heat_for_timing(timing, coverage_mode));
 }
 
 void accumulate_perf_function_without_file(
     std::unordered_map<std::string, PerfFunctionLookup>& lookup,
     std::string_view owner_qualified_name,
     std::string_view function_name,
-    const RuntimePerfFunctionTiming& timing)
+    const RuntimePerfFunctionTiming& timing,
+    bool coverage_mode)
 {
     if (owner_qualified_name.empty() || function_name.empty())
         return;
@@ -80,7 +95,7 @@ void accumulate_perf_function_without_file(
     PerfFunctionLookup& entry = lookup[perf_owner_function_key(owner_qualified_name, function_name)];
     entry.frame_fraction = std::max(entry.frame_fraction, timing.frame_fraction);
     entry.smoothed_frame_fraction = std::max(entry.smoothed_frame_fraction, timing.smoothed_frame_fraction);
-    entry.heat = std::max(entry.heat, timing.normalized_heat);
+    entry.heat = std::max(entry.heat, display_heat_for_timing(timing, coverage_mode));
 }
 
 struct PerfLookupSet
@@ -89,7 +104,7 @@ struct PerfLookupSet
     std::unordered_map<std::string, PerfFunctionLookup> by_owner_function;
 };
 
-PerfLookupSet build_perf_lookup(const RuntimePerfSnapshot* perf_snapshot)
+PerfLookupSet build_perf_lookup(const RuntimePerfSnapshot* perf_snapshot, bool coverage_mode)
 {
     PerfLookupSet lookup;
     if (!perf_snapshot)
@@ -107,12 +122,14 @@ PerfLookupSet build_perf_lookup(const RuntimePerfSnapshot* perf_snapshot)
             timing.source_file_path,
             timing.owner_qualified_name,
             timing.function_name,
-            timing);
+            timing,
+            coverage_mode);
         accumulate_perf_function_without_file(
             lookup.by_owner_function,
             timing.owner_qualified_name,
             timing.function_name,
-            timing);
+            timing,
+            coverage_mode);
 
         const std::string owner_short_name = short_qualified_name(timing.owner_qualified_name);
         if (owner_short_name != timing.owner_qualified_name)
@@ -122,12 +139,14 @@ PerfLookupSet build_perf_lookup(const RuntimePerfSnapshot* perf_snapshot)
                 timing.source_file_path,
                 owner_short_name,
                 timing.function_name,
-                timing);
+                timing,
+                coverage_mode);
             accumulate_perf_function_without_file(
                 lookup.by_owner_function,
                 owner_short_name,
                 timing.function_name,
-                timing);
+                timing,
+                coverage_mode);
         }
     }
 
@@ -168,7 +187,7 @@ bool has_non_zero_perf(const PerfFunctionLookup& perf)
         || perf.heat > 0.0f;
 }
 
-LiveCityPerfDebugFunction make_debug_function(const RuntimePerfFunctionTiming& timing)
+LiveCityPerfDebugFunction make_debug_function(const RuntimePerfFunctionTiming& timing, bool coverage_mode)
 {
     return {
         .source_file_path = timing.source_file_path,
@@ -176,7 +195,7 @@ LiveCityPerfDebugFunction make_debug_function(const RuntimePerfFunctionTiming& t
         .function_name = timing.function_name,
         .frame_fraction = timing.frame_fraction,
         .smoothed_frame_fraction = timing.smoothed_frame_fraction,
-        .heat = timing.normalized_heat,
+        .heat = display_heat_for_timing(timing, coverage_mode),
     };
 }
 
@@ -203,11 +222,12 @@ void sort_debug_functions(std::vector<LiveCityPerfDebugFunction>& functions)
 
 LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
     const SemanticMegacityModel& model,
-    const RuntimePerfSnapshot* perf_snapshot)
+    const RuntimePerfSnapshot* perf_snapshot,
+    bool coverage_mode)
 {
     LiveCityMetricsSnapshot snapshot;
     snapshot.generation = perf_snapshot ? perf_snapshot->generation : 0;
-    const auto perf_lookup = build_perf_lookup(perf_snapshot);
+    const auto perf_lookup = build_perf_lookup(perf_snapshot, coverage_mode);
 
     for (const auto& module : model.modules)
     {
@@ -263,7 +283,8 @@ LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
 
 LiveCityPerfDebugState build_live_city_perf_debug_state(
     const SemanticMegacityModel& model,
-    const RuntimePerfSnapshot* perf_snapshot)
+    const RuntimePerfSnapshot* perf_snapshot,
+    bool coverage_mode)
 {
     LiveCityPerfDebugState debug;
     if (!perf_snapshot)
@@ -282,7 +303,7 @@ LiveCityPerfDebugState build_live_city_perf_debug_state(
     debug.frame_time_microseconds = perf_snapshot->frame_time_microseconds;
     debug.runtime_function_count = static_cast<uint32_t>(perf_snapshot->functions.size());
 
-    const auto perf_lookup = build_perf_lookup(perf_snapshot);
+    const auto perf_lookup = build_perf_lookup(perf_snapshot, coverage_mode);
     std::unordered_set<std::string> matched_exact_runtime_keys;
     std::unordered_set<std::string> matched_owner_runtime_keys;
 
@@ -336,11 +357,11 @@ LiveCityPerfDebugState build_live_city_perf_debug_state(
         if (matched)
         {
             ++debug.matched_runtime_function_count;
-            debug.top_matched_functions.push_back(make_debug_function(timing));
+            debug.top_matched_functions.push_back(make_debug_function(timing, coverage_mode));
         }
         else
         {
-            debug.top_unmatched_functions.push_back(make_debug_function(timing));
+            debug.top_unmatched_functions.push_back(make_debug_function(timing, coverage_mode));
         }
     }
 

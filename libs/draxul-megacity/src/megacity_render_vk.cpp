@@ -31,6 +31,7 @@ struct alignas(16) FrameUniforms
     glm::vec4 point_light_pos{ 0.0f, 8.0f, 0.0f, 24.0f };
     glm::vec4 label_fade_px{ 1.0f, 15.0f, 0.0f, 0.0f };
     glm::vec4 render_tuning{ 1.0f, 1.0f, 0.45f, 4.0f };
+    glm::vec4 perf_tuning{ 0.0f };
     glm::vec4 screen_params{ 0.0f, 0.0f, 1.0f, 1.0f }; // x = viewport origin x, y = viewport origin y, z = 1 / viewport width, w = 1 / viewport height
     glm::vec4 ao_params{ 1.6f, 1.0f, 0.12f, 1.35f }; // x = radius world, y = radius pixels, z = bias, w = power
     glm::vec4 debug_view{ 0.0f, 1.0f, 0.0f, 0.0f }; // x = AO debug mode, y = AO denoise enabled
@@ -3828,6 +3829,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     frame.point_light_pos = scene_.camera.point_light_pos;
     frame.label_fade_px = scene_.camera.label_fade_px;
     frame.render_tuning = scene_.camera.render_tuning;
+    frame.perf_tuning = scene_.camera.perf_tuning;
     frame.screen_params = glm::vec4(0.0f, 0.0f, 1.0f / std::max(vw, 1), 1.0f / std::max(vh, 1));
     frame.ao_params = glm::vec4(
         scene_.camera.ao_settings.x,

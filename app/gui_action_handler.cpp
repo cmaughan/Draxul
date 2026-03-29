@@ -5,6 +5,7 @@
 #include <draxul/host.h>
 #include <draxul/imgui_host.h>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
 #include <draxul/ui_panel.h>
 
@@ -36,6 +37,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
 
 bool GuiActionHandler::execute(std::string_view action)
 {
+    PERF_MEASURE();
     const auto& map = action_map();
     if (const auto it = map.find(action); it != map.end())
     {
@@ -49,21 +51,25 @@ bool GuiActionHandler::execute(std::string_view action)
 
 void GuiActionHandler::font_increase()
 {
+    PERF_MEASURE();
     change_font_size(deps_.text_service->point_size() + 0.5f);
 }
 
 void GuiActionHandler::font_decrease()
 {
+    PERF_MEASURE();
     change_font_size(deps_.text_service->point_size() - 0.5f);
 }
 
 void GuiActionHandler::font_reset()
 {
+    PERF_MEASURE();
     change_font_size(TextService::DEFAULT_POINT_SIZE);
 }
 
 void GuiActionHandler::copy() const
 {
+    PERF_MEASURE();
     IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr;
     if (host)
         host->dispatch_action("copy");
@@ -71,6 +77,7 @@ void GuiActionHandler::copy() const
 
 void GuiActionHandler::paste() const
 {
+    PERF_MEASURE();
     IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr;
     if (host)
         host->dispatch_action("paste");
@@ -78,6 +85,7 @@ void GuiActionHandler::paste() const
 
 void GuiActionHandler::toggle_diagnostics() const
 {
+    PERF_MEASURE();
     deps_.ui_panel->toggle_visible();
     if (deps_.on_panel_toggled)
         deps_.on_panel_toggled();
@@ -85,24 +93,28 @@ void GuiActionHandler::toggle_diagnostics() const
 
 void GuiActionHandler::open_file_dialog() const
 {
+    PERF_MEASURE();
     if (deps_.on_open_file_dialog)
         deps_.on_open_file_dialog();
 }
 
 void GuiActionHandler::split_vertical() const
 {
+    PERF_MEASURE();
     if (deps_.on_split_vertical)
         deps_.on_split_vertical();
 }
 
 void GuiActionHandler::split_horizontal() const
 {
+    PERF_MEASURE();
     if (deps_.on_split_horizontal)
         deps_.on_split_horizontal();
 }
 
 void GuiActionHandler::change_font_size(float new_size)
 {
+    PERF_MEASURE();
     new_size = std::clamp(new_size, TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
     if (new_size == deps_.text_service->point_size())
         return;

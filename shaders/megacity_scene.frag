@@ -10,6 +10,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     vec4 point_light_pos;
     vec4 label_fade_px;
     vec4 render_tuning;
+    vec4 perf_tuning;
     vec4 screen_params;
     vec4 ao_params;
     vec4 debug_view;
@@ -194,9 +195,16 @@ float performance_heat_blend(float heat)
     return clamp(0.20 + 0.80 * sqrt(heat), 0.0, 1.0);
 }
 
-float performance_heat_display_value(float heat)
+float performance_heat_display_value(float heat, float log_scale)
 {
-    return clamp(heat, 0.0, 1.0);
+    heat = clamp(heat, 0.0, 1.0);
+    log_scale = max(log_scale, 0.0);
+    if (log_scale <= 0.0)
+        return heat;
+    float denom = log2(1.0 + log_scale);
+    if (denom <= 1e-6)
+        return heat;
+    return clamp(log2(1.0 + heat * log_scale) / denom, 0.0, 1.0);
 }
 
 void main()
@@ -263,8 +271,9 @@ void main()
         uint heat_count = uint(max(in_label_metrics.w + 0.5, 0.0));
         uint layer_index = min(uint(max(in_layer_id + 0.5, 0.0)), heat_count - 1u);
         float heat = performance_heat.heat_values[heat_offset + layer_index];
-        float heat_blend = clamp(frame.label_fade_px.w, 0.0, 1.0) * performance_heat_blend(heat);
-        albedo = mix(albedo, performance_heat_color(performance_heat_display_value(heat)), heat_blend);
+        float display_heat = performance_heat_display_value(heat, frame.perf_tuning.x);
+        float heat_blend = clamp(frame.label_fade_px.w, 0.0, 1.0) * performance_heat_blend(display_heat);
+        albedo = mix(albedo, performance_heat_color(display_heat), heat_blend);
     }
 
     vec2 screen_uv = clamp(

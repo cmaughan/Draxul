@@ -71,10 +71,12 @@ struct LiveCityPerfDebugState
 
 [[nodiscard]] LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
     const SemanticMegacityModel& model,
-    const RuntimePerfSnapshot* perf_snapshot = nullptr);
+    const RuntimePerfSnapshot* perf_snapshot = nullptr,
+    bool coverage_mode = false);
 
 [[nodiscard]] LiveCityPerfDebugState build_live_city_perf_debug_state(
     const SemanticMegacityModel& model,
-    const RuntimePerfSnapshot* perf_snapshot = nullptr);
+    const RuntimePerfSnapshot* perf_snapshot = nullptr,
+    bool coverage_mode = false);
 
 } // namespace draxul

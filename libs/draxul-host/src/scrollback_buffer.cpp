@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -13,6 +14,7 @@ ScrollbackBuffer::ScrollbackBuffer(Callbacks cbs)
 
 void ScrollbackBuffer::resize(int cols)
 {
+    PERF_MEASURE();
     if (cols == cols_)
         return;
     cols_ = cols;
@@ -34,6 +36,7 @@ Cell* ScrollbackBuffer::next_write_slot()
 
 void ScrollbackBuffer::commit_push()
 {
+    PERF_MEASURE();
     write_head_ = (write_head_ + 1) % kCapacity;
     if (count_ < kCapacity)
         ++count_;
@@ -51,6 +54,7 @@ std::span<const Cell> ScrollbackBuffer::row(int i) const
 
 void ScrollbackBuffer::scroll(int rows_delta)
 {
+    PERF_MEASURE();
     const int max_offset = count_;
     const int new_offset = std::clamp(offset_ + rows_delta, 0, max_offset);
     if (new_offset == offset_)
@@ -73,6 +77,7 @@ void ScrollbackBuffer::scroll(int rows_delta)
 
 void ScrollbackBuffer::scroll_to_live()
 {
+    PERF_MEASURE();
     if (offset_ == 0)
         return;
     offset_ = 0;
@@ -81,6 +86,7 @@ void ScrollbackBuffer::scroll_to_live()
 
 void ScrollbackBuffer::save_live_snapshot(int cols, int rows)
 {
+    PERF_MEASURE();
     live_snapshot_cols_ = cols;
     live_snapshot_rows_ = rows;
     live_snapshot_.resize((size_t)cols * rows);
@@ -91,6 +97,7 @@ void ScrollbackBuffer::save_live_snapshot(int cols, int rows)
 
 void ScrollbackBuffer::reset()
 {
+    PERF_MEASURE();
     write_head_ = 0;
     count_ = 0;
     offset_ = 0;
@@ -101,6 +108,7 @@ void ScrollbackBuffer::reset()
 
 void ScrollbackBuffer::restore_live_snapshot()
 {
+    PERF_MEASURE();
     const int rows = cbs_.grid_rows();
     const int cols = cbs_.grid_cols();
     for (int r = 0; r < rows; ++r)
@@ -127,6 +135,7 @@ void ScrollbackBuffer::restore_live_snapshot()
 
 void ScrollbackBuffer::update_display()
 {
+    PERF_MEASURE();
     const int rows = cbs_.grid_rows();
     const int cols = cbs_.grid_cols();
     const int sbsize = count_;

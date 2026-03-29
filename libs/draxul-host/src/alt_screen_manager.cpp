@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -14,6 +15,7 @@ AltScreenManager::AltScreenManager(GridAccessors accessors)
 void AltScreenManager::enter(int term_col, int term_row,
     int& scroll_top_out, int& scroll_bottom_out, bool& pending_wrap_out)
 {
+    PERF_MEASURE();
     if (in_alt_screen_)
         return;
 
@@ -39,6 +41,7 @@ void AltScreenManager::enter(int term_col, int term_row,
 void AltScreenManager::leave(int& term_col_out, int& term_row_out, bool& pending_wrap_out,
     int& scroll_top_out, int& scroll_bottom_out)
 {
+    PERF_MEASURE();
     if (!in_alt_screen_)
         return;
 
@@ -71,6 +74,7 @@ void AltScreenManager::leave(int& term_col_out, int& term_row_out, bool& pending
 
 void AltScreenManager::resize_snapshot(int new_cols, int new_rows, int prev_cols, int prev_rows)
 {
+    PERF_MEASURE();
     if (!in_alt_screen_ || saved_main_.cells.empty())
         return;
 
@@ -98,12 +102,14 @@ void AltScreenManager::resize_snapshot(int new_cols, int new_rows, int prev_cols
 
 void AltScreenManager::clamp_saved_cursor(int max_col, int max_row)
 {
+    PERF_MEASURE();
     saved_main_.col = std::clamp(saved_main_.col, 0, max_col);
     saved_main_.row = std::clamp(saved_main_.row, 0, max_row);
 }
 
 void AltScreenManager::reset()
 {
+    PERF_MEASURE();
     in_alt_screen_ = false;
     saved_main_.cells.clear();
     saved_main_.col = 0;

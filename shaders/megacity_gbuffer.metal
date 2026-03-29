@@ -12,6 +12,7 @@ struct FrameUniforms
     float4 point_light_pos;
     float4 label_fade_px;
     float4 render_tuning;
+    float4 perf_tuning;
     float4 screen_params;
     float4 ao_params;
     float4 debug_view;

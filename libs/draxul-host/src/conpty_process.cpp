@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <draxul/perf_timing.h>
 #include <mutex>
 #include <thread>
 
@@ -49,6 +50,7 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     const std::string& working_dir, int initial_cols, int initial_rows,
     std::function<void()> on_output_available)
 {
+    PERF_MEASURE();
     shutdown();
 
     SECURITY_ATTRIBUTES sa = {};
@@ -146,6 +148,7 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
 
 void ConPtyProcess::shutdown()
 {
+    PERF_MEASURE();
     reader_running_ = false;
 
     if (pty_)
@@ -190,6 +193,7 @@ void ConPtyProcess::shutdown()
 
 void ConPtyProcess::request_close()
 {
+    PERF_MEASURE();
     if (input_write_ != INVALID_HANDLE_VALUE)
     {
         CloseHandle(input_write_);
@@ -208,6 +212,7 @@ bool ConPtyProcess::is_running() const
 
 bool ConPtyProcess::resize(int cols, int rows)
 {
+    PERF_MEASURE();
     if (!pty_)
         return false;
     COORD size = {
@@ -219,6 +224,7 @@ bool ConPtyProcess::resize(int cols, int rows)
 
 bool ConPtyProcess::write(std::string_view text)
 {
+    PERF_MEASURE();
     if (input_write_ == INVALID_HANDLE_VALUE)
         return false;
     DWORD written = 0;
@@ -228,6 +234,7 @@ bool ConPtyProcess::write(std::string_view text)
 
 std::vector<std::string> ConPtyProcess::drain_output()
 {
+    PERF_MEASURE();
     std::scoped_lock lock(output_mutex_);
     std::vector<std::string> drained;
     drained.swap(output_chunks_);
@@ -236,6 +243,7 @@ std::vector<std::string> ConPtyProcess::drain_output()
 
 void ConPtyProcess::reader_main()
 {
+    PERF_MEASURE();
     char buffer[4096];
     while (reader_running_)
     {

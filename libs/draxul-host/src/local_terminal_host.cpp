@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/window.h>
 
 namespace draxul
@@ -102,6 +103,7 @@ LocalTerminalHost::LocalTerminalHost()
 
 void LocalTerminalHost::pump()
 {
+    PERF_MEASURE();
     auto chunks = do_process_drain();
     if (!chunks.empty())
     {
@@ -128,6 +130,7 @@ void LocalTerminalHost::pump()
 
 void LocalTerminalHost::on_key(const KeyEvent& event)
 {
+    PERF_MEASURE();
     if (event.pressed && scrollback_.is_scrolled_back())
         scrollback_.scroll_to_live();
     TerminalHostBase::on_key(event);
@@ -135,6 +138,7 @@ void LocalTerminalHost::on_key(const KeyEvent& event)
 
 void LocalTerminalHost::on_text_input(const TextInputEvent& event)
 {
+    PERF_MEASURE();
     if (!event.text.empty() && scrollback_.is_scrolled_back())
         scrollback_.scroll_to_live();
     TerminalHostBase::on_text_input(event);
@@ -142,6 +146,7 @@ void LocalTerminalHost::on_text_input(const TextInputEvent& event)
 
 bool LocalTerminalHost::dispatch_action(std::string_view action)
 {
+    PERF_MEASURE();
     if (action == "copy" && selection_.is_active())
     {
         const std::string text = selection_.extract_text();
@@ -163,6 +168,7 @@ bool LocalTerminalHost::dispatch_action(std::string_view action)
 
 void LocalTerminalHost::on_mouse_button(const MouseButtonEvent& event)
 {
+    PERF_MEASURE();
     const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
 
     if (mouse_reporter_.on_button(event.button, event.pressed, event.mod, pos.col, pos.row))
@@ -179,6 +185,7 @@ void LocalTerminalHost::on_mouse_button(const MouseButtonEvent& event)
 
 void LocalTerminalHost::on_mouse_move(const MouseMoveEvent& event)
 {
+    PERF_MEASURE();
     const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
 
     if (mouse_reporter_.on_move(event.mod, pos.col, pos.row))
@@ -189,6 +196,7 @@ void LocalTerminalHost::on_mouse_move(const MouseMoveEvent& event)
 
 void LocalTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
 {
+    PERF_MEASURE();
     if (mouse_reporter_.mode() != MouseReporter::MouseMode::None)
     {
         const GridPos pos = pixel_to_cell(event.pos.x, event.pos.y);
@@ -207,6 +215,7 @@ void LocalTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
 
 void LocalTerminalHost::on_viewport_changed()
 {
+    PERF_MEASURE();
     const int old_cols = grid_cols();
     const int old_rows = grid_rows();
     const int new_cols = std::max(1, viewport().grid_size.x);
@@ -231,6 +240,7 @@ void LocalTerminalHost::on_viewport_changed()
 
 void LocalTerminalHost::reset_terminal_state()
 {
+    PERF_MEASURE();
     TerminalHostBase::reset_terminal_state();
     mouse_reporter_.reset();
     scrollback_.reset();
@@ -243,6 +253,7 @@ void LocalTerminalHost::reset_terminal_state()
 
 void LocalTerminalHost::on_line_scrolled_off(int row)
 {
+    PERF_MEASURE();
     Cell* slot = scrollback_.next_write_slot();
     if (slot)
     {
@@ -259,6 +270,7 @@ void LocalTerminalHost::on_line_scrolled_off(int row)
 
 void LocalTerminalHost::on_mouse_mode_changed(int mode, bool enable)
 {
+    PERF_MEASURE();
     mouse_reporter_.set_mode(mode, enable);
 }
 

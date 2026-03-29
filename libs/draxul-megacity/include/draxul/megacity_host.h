@@ -6,6 +6,7 @@
 #include <draxul/citydb.h>
 #include <draxul/host.h>
 #include <draxul/megacity_code_config.h>
+#include <draxul/perf_timing.h>
 #include <draxul/treesitter.h>
 #include <memory>
 #include <mutex>
@@ -153,6 +154,7 @@ private:
     bool hidden_hover_active_ = false;
     float hidden_hover_blend_ = 0.0f;
     uint64_t last_live_perf_generation_ = 0;
+    RuntimePerfSnapshot coverage_perf_snapshot_;
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_live_perf_refresh_time_ = std::chrono::steady_clock::now();

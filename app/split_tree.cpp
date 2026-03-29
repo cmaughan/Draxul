@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -68,6 +69,7 @@ SplitTree& SplitTree::operator=(SplitTree&&) noexcept = default;
 // ---------------------------------------------------------------------------
 LeafId SplitTree::reset(int pixel_w, int pixel_h)
 {
+    PERF_MEASURE();
     next_id_ = 0;
     next_divider_id_ = 0;
     root_ = std::make_unique<Node>();
@@ -80,6 +82,7 @@ LeafId SplitTree::reset(int pixel_w, int pixel_h)
 
 LeafId SplitTree::split_leaf(LeafId id, SplitDirection dir)
 {
+    PERF_MEASURE();
     Node* target = find_leaf_node(id);
     if (!target)
         return kInvalidLeaf;
@@ -108,6 +111,7 @@ LeafId SplitTree::split_leaf(LeafId id, SplitDirection dir)
 
 bool SplitTree::close_leaf(LeafId id)
 {
+    PERF_MEASURE();
     if (leaf_count() <= 1)
         return false;
 
@@ -158,6 +162,7 @@ bool SplitTree::close_leaf(LeafId id)
 
 void SplitTree::recompute(int pixel_w, int pixel_h)
 {
+    PERF_MEASURE();
     total_w_ = pixel_w;
     total_h_ = pixel_h;
     if (root_)
@@ -166,6 +171,7 @@ void SplitTree::recompute(int pixel_w, int pixel_h)
 
 SplitTree::HitResult SplitTree::hit_test(int px, int py) const
 {
+    PERF_MEASURE();
     if (!root_)
         return std::monostate{};
     return hit_test_node(root_.get(), px, py, kDividerWidth);
@@ -173,6 +179,7 @@ SplitTree::HitResult SplitTree::hit_test(int px, int py) const
 
 void SplitTree::set_divider_ratio(DividerId id, float ratio)
 {
+    PERF_MEASURE();
     if (id == kInvalidDivider)
         return;
 
@@ -191,12 +198,14 @@ void SplitTree::set_divider_ratio(DividerId id, float ratio)
 
 void SplitTree::set_focused(LeafId id)
 {
+    PERF_MEASURE();
     if (find_leaf_node(id))
         focused_id_ = id;
 }
 
 PaneDescriptor SplitTree::descriptor_for(LeafId id) const
 {
+    PERF_MEASURE();
     if (const Node* node = find_leaf_node(id); node)
         return node->leaf().descriptor;
     return {};
@@ -205,12 +214,14 @@ PaneDescriptor SplitTree::descriptor_for(LeafId id) const
 void SplitTree::for_each_leaf(
     const std::function<void(LeafId, const PaneDescriptor&)>& fn) const
 {
+    PERF_MEASURE();
     if (root_)
         visit_leaves(root_.get(), fn);
 }
 
 int SplitTree::leaf_count() const
 {
+    PERF_MEASURE();
     return root_ ? count_leaves(root_.get()) : 0;
 }
 

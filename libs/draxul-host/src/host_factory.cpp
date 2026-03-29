@@ -1,6 +1,7 @@
 #include "nvim_host.h"
 
 #include <draxul/host.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -16,6 +17,7 @@ namespace draxul
 
 std::unique_ptr<IHost> create_host(HostKind kind)
 {
+    PERF_MEASURE();
     switch (kind)
     {
     case HostKind::Nvim:

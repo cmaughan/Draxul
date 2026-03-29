@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -13,6 +14,7 @@ SelectionManager::SelectionManager(Callbacks cbs)
 
 void SelectionManager::begin_drag(GridPos pos)
 {
+    PERF_MEASURE();
     clear();
     sel_dragging_ = true;
     sel_start_ = pos;
@@ -21,6 +23,7 @@ void SelectionManager::begin_drag(GridPos pos)
 
 bool SelectionManager::end_drag(GridPos pos)
 {
+    PERF_MEASURE();
     sel_end_ = pos;
     sel_dragging_ = false;
     if (sel_start_.pos.x != sel_end_.pos.x || sel_start_.pos.y != sel_end_.pos.y)
@@ -34,6 +37,7 @@ bool SelectionManager::end_drag(GridPos pos)
 
 void SelectionManager::update_drag(GridPos pos)
 {
+    PERF_MEASURE();
     if (!sel_dragging_)
         return;
     sel_end_ = pos;
@@ -44,6 +48,7 @@ void SelectionManager::update_drag(GridPos pos)
 
 void SelectionManager::clear()
 {
+    PERF_MEASURE();
     const bool was_active = sel_active_;
     sel_active_ = false;
     sel_dragging_ = false;
@@ -54,6 +59,7 @@ void SelectionManager::clear()
 
 std::string SelectionManager::extract_text() const
 {
+    PERF_MEASURE();
     if (!sel_active_)
         return {};
 
@@ -94,6 +100,7 @@ std::string SelectionManager::extract_text() const
 
 void SelectionManager::update_overlay() const
 {
+    PERF_MEASURE();
     if (!sel_active_)
     {
         cbs_.set_overlay_cells({});

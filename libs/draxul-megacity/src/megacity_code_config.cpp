@@ -191,7 +191,28 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_int("connected_oct_building_threshold", config.connected_oct_building_threshold);
     assign_float("building_middle_strip_push", config.building_middle_strip_push);
     assign_float("building_alternate_darkening", config.building_alternate_darkening);
-    assign_bool("performance_heat_mode", config.performance_heat_mode);
+    if (auto om = toml_support::get_string(table, "overlay_mode"))
+    {
+        if (*om == "perf")
+            config.overlay_mode = OverlayMode::Perf;
+        else if (*om == "coverage")
+            config.overlay_mode = OverlayMode::Coverage;
+        else
+            config.overlay_mode = OverlayMode::None;
+    }
+    else
+    {
+        // Legacy: migrate old booleans.
+        bool legacy_perf = false;
+        bool legacy_coverage = false;
+        assign_bool("performance_heat_mode", legacy_perf);
+        assign_bool("performance_heat_coverage_mode", legacy_coverage);
+        if (legacy_coverage)
+            config.overlay_mode = OverlayMode::Coverage;
+        else if (legacy_perf)
+            config.overlay_mode = OverlayMode::Perf;
+    }
+    assign_float("performance_heat_log_scale", config.performance_heat_log_scale);
     assign_float("flat_color_roughness", config.flat_color_roughness);
     assign_float("flat_color_metallic", config.flat_color_metallic);
 
@@ -330,7 +351,15 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     table.insert_or_assign("connected_oct_building_threshold", config.connected_oct_building_threshold);
     table.insert_or_assign("building_middle_strip_push", static_cast<double>(config.building_middle_strip_push));
     table.insert_or_assign("building_alternate_darkening", static_cast<double>(config.building_alternate_darkening));
-    table.insert_or_assign("performance_heat_mode", config.performance_heat_mode);
+    {
+        const char* om_str = "none";
+        if (config.overlay_mode == OverlayMode::Perf)
+            om_str = "perf";
+        else if (config.overlay_mode == OverlayMode::Coverage)
+            om_str = "coverage";
+        table.insert_or_assign("overlay_mode", std::string(om_str));
+    }
+    table.insert_or_assign("performance_heat_log_scale", static_cast<double>(config.performance_heat_log_scale));
     table.insert_or_assign("flat_color_roughness", static_cast<double>(config.flat_color_roughness));
     table.insert_or_assign("flat_color_metallic", static_cast<double>(config.flat_color_metallic));
     table.insert_or_assign("road_width_base", static_cast<double>(config.road_width_base));

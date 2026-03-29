@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <draxul/log.h>
 #include <draxul/pane_descriptor.h>
+#include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
 #include <memory>
@@ -12,6 +13,7 @@ namespace draxul
 
 bool GridHostBase::initialize(const HostContext& context, IHostCallbacks& callbacks)
 {
+    PERF_MEASURE();
     track_owner_lifetime_ = context.track_owner_lifetime;
     owner_lifetime_ = context.owner_lifetime;
     window_ = context.window;
@@ -39,6 +41,7 @@ bool GridHostBase::initialize(const HostContext& context, IHostCallbacks& callba
 
 void GridHostBase::set_viewport(const HostViewport& viewport)
 {
+    PERF_MEASURE();
     viewport_ = viewport;
     if (!dependencies_available("set_viewport"))
         return;
@@ -56,6 +59,7 @@ void GridHostBase::set_scroll_offset(float px)
 
 void GridHostBase::on_font_metrics_changed()
 {
+    PERF_MEASURE();
     if (!dependencies_available("on_font_metrics_changed"))
         return;
     refresh_renderer_metrics();
@@ -112,6 +116,7 @@ TextService& GridHostBase::text_service() const
 
 void GridHostBase::apply_grid_size(int cols, int rows)
 {
+    PERF_MEASURE();
     if (!dependencies_available("apply_grid_size"))
         return;
     cols = std::max(1, cols);
@@ -128,6 +133,7 @@ void GridHostBase::apply_grid_size(int cols, int rows)
 
 void GridHostBase::force_full_redraw()
 {
+    PERF_MEASURE();
     if (!dependencies_available("force_full_redraw"))
         return;
     grid_.mark_all_dirty();
@@ -136,6 +142,7 @@ void GridHostBase::force_full_redraw()
 
 void GridHostBase::flush_grid()
 {
+    PERF_MEASURE();
     if (!dependencies_available("flush_grid"))
         return;
     content_ready_ = true;
@@ -167,6 +174,7 @@ void GridHostBase::mark_activity()
 
 bool GridHostBase::advance_cursor_blink(std::chrono::steady_clock::time_point now)
 {
+    PERF_MEASURE();
     if (!cursor_blinker_.advance(now))
         return false;
     apply_cursor_visibility();
@@ -175,6 +183,7 @@ bool GridHostBase::advance_cursor_blink(std::chrono::steady_clock::time_point no
 
 void GridHostBase::set_cursor_position(int col, int row)
 {
+    PERF_MEASURE();
     if (!dependencies_available("set_cursor_position"))
         return;
     cursor_col_ = std::max(0, col);
@@ -185,6 +194,7 @@ void GridHostBase::set_cursor_position(int col, int row)
 
 void GridHostBase::set_cursor_style(const CursorStyle& style, const BlinkTiming& timing, bool busy)
 {
+    PERF_MEASURE();
     if (!dependencies_available("set_cursor_style"))
         return;
     cursor_style_ = style;
@@ -195,6 +205,7 @@ void GridHostBase::set_cursor_style(const CursorStyle& style, const BlinkTiming&
 
 void GridHostBase::set_cursor_busy(bool busy)
 {
+    PERF_MEASURE();
     if (!dependencies_available("set_cursor_busy"))
         return;
     cursor_busy_ = busy;
@@ -216,6 +227,7 @@ bool GridHostBase::dependencies_available(std::string_view operation) const
 
 void GridHostBase::apply_cursor_visibility()
 {
+    PERF_MEASURE();
     if (!dependencies_available("apply_cursor_visibility"))
         return;
     const int visible_col = cursor_blinker_.visible() ? cursor_col_ : -1;
@@ -227,12 +239,14 @@ void GridHostBase::apply_cursor_visibility()
 
 void GridHostBase::restart_cursor_blink(std::chrono::steady_clock::time_point now)
 {
+    PERF_MEASURE();
     cursor_blinker_.restart(now, cursor_busy_, blink_timing_);
     apply_cursor_visibility();
 }
 
 void GridHostBase::update_text_input_area() const
 {
+    PERF_MEASURE();
     if (!dependencies_available("update_text_input_area"))
         return;
     auto [cell_w, cell_h] = renderer_->cell_size_pixels();
@@ -243,6 +257,7 @@ void GridHostBase::update_text_input_area() const
 
 void GridHostBase::refresh_renderer_metrics()
 {
+    PERF_MEASURE();
     if (!dependencies_available("refresh_renderer_metrics"))
         return;
     const auto& metrics = text_service_->metrics();

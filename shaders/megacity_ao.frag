@@ -10,6 +10,7 @@ layout(set = 0, binding = 0) uniform FrameUniforms
     vec4 point_light_pos;
     vec4 label_fade_px;
     vec4 render_tuning;
+    vec4 perf_tuning;
     vec4 screen_params;
     vec4 ao_params; // x = radius_world, y = radius_pixels, z = bias, w = power
     vec4 debug_view;

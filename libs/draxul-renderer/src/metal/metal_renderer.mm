@@ -529,7 +529,6 @@ std::optional<CapturedFrame> MetalRenderer::take_captured_frame()
 bool MetalRenderer::begin_frame()
 {
     thread_checker_.assert_main_thread("MetalRenderer::begin_frame");
-    runtime_perf_collector().begin_frame();
 
     bool success = false;
     {
@@ -827,7 +826,6 @@ void MetalRenderer::end_frame()
         imgui_draw_data_ = nullptr;
         current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
     }
-    runtime_perf_collector().end_frame();
 }
 
 void MetalRenderer::register_render_pass(std::shared_ptr<IRenderPass> pass)

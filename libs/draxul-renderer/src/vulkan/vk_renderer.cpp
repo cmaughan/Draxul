@@ -660,7 +660,6 @@ std::optional<CapturedFrame> VkRenderer::take_captured_frame()
 
 bool VkRenderer::begin_frame()
 {
-    runtime_perf_collector().begin_frame();
     bool success = false;
     {
         PERF_MEASURE();
@@ -948,7 +947,6 @@ void VkRenderer::end_frame()
         current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
         imgui_draw_data_ = nullptr;
     }
-    runtime_perf_collector().end_frame();
 }
 
 } // namespace draxul

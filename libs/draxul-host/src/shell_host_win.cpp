@@ -2,6 +2,7 @@
 #include <draxul/local_terminal_host.h>
 
 #include <draxul/host_kind.h>
+#include <draxul/perf_timing.h>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -61,6 +62,7 @@ class ConPtyHostBase : public LocalTerminalHost
 protected:
     bool spawn_process(const std::string& command, const std::string& hint)
     {
+        PERF_MEASURE();
         if (!process_.spawn(command, launch_options().args, launch_options().working_dir, grid_cols(), grid_rows(), [this]() {
                 callbacks().wake_window();
             }))
@@ -101,6 +103,7 @@ protected:
 
     void init_colors()
     {
+        PERF_MEASURE();
         highlights().set_default_fg(
             launch_options().terminal_fg.value_or(Color(0.92f, 0.92f, 0.92f, 1.0f)));
         highlights().set_default_bg(
@@ -129,6 +132,7 @@ public:
 protected:
     bool initialize_host() override
     {
+        PERF_MEASURE();
         init_colors();
 
         std::string command = launch_options().command;
@@ -156,6 +160,7 @@ public:
 protected:
     bool initialize_host() override
     {
+        PERF_MEASURE();
         init_colors();
 
         std::string command = launch_options().command.empty() ? "pwsh.exe" : launch_options().command;
@@ -209,6 +214,7 @@ public:
 protected:
     bool initialize_host() override
     {
+        PERF_MEASURE();
         init_colors();
 
         std::string command = launch_options().command;
@@ -224,16 +230,19 @@ protected:
 
 std::unique_ptr<IHost> create_shell_host()
 {
+    PERF_MEASURE();
     return std::make_unique<ShellHost>();
 }
 
 std::unique_ptr<IHost> create_powershell_host()
 {
+    PERF_MEASURE();
     return std::make_unique<PowerShellHost>();
 }
 
 std::unique_ptr<IHost> create_wsl_host()
 {
+    PERF_MEASURE();
     return std::make_unique<WslHost>();
 }
 

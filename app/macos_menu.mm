@@ -2,6 +2,7 @@
 #include "gui_action_handler.h"
 #import <Cocoa/Cocoa.h>
 
+#include <draxul/perf_timing.h>
 #include <string>
 #include <unordered_map>
 
@@ -47,6 +48,7 @@ struct MacOsMenu::Impl
 
 std::vector<MenuItemDescriptor> MacOsMenu::default_menu_items()
 {
+    PERF_MEASURE();
     // NSEventModifierFlagCommand = 1 << 20 = 0x100000
     // NSEventModifierFlagShift   = 1 << 17 = 0x020000
     constexpr unsigned long kCmd = NSEventModifierFlagCommand;
@@ -75,6 +77,7 @@ std::vector<MenuItemDescriptor> MacOsMenu::default_menu_items()
 MacOsMenu::MacOsMenu(GuiActionHandler& handler)
     : impl_(std::make_unique<Impl>())
 {
+    PERF_MEASURE();
     impl_->action_targets = [NSMutableArray array];
 
     NSMenu* menubar = [NSMenu new];
@@ -142,6 +145,7 @@ MacOsMenu::MacOsMenu(GuiActionHandler& handler)
 
 MacOsMenu::~MacOsMenu()
 {
+    PERF_MEASURE();
     if (impl_ && impl_->menubar)
     {
         // Remove all items from the menu bar so no stale references remain.
