@@ -175,11 +175,19 @@ Toggle with F12.Shows : -Display DPI, cell size, grid dimensions, dirty cell cou
 |--------|----------|-------------|
 | `default` | Windows | Debug, VS 2022 x64 |
 | `release` | Windows | Release |
+| `win-ninja-debug` | Windows | Debug, Ninja Multi-Config local-iteration build in `build-ninja/` |
+| `win-ninja-release` | Windows | Release, Ninja Multi-Config local-iteration build in `build-ninja/` |
 | `mac-debug` | macOS | Debug |
 | `mac-release` | macOS | Release |
 | `mac-asan` | macOS | Debug + AddressSanitizer + UBSan |
 | `mac-coverage` | macOS | Debug + LLVM coverage |
 | `clang-tools` | macOS | Ninja, compile_commands.json only |
+
+### Convenience Scripts
+
+- `r.bat` now defaults to the Windows Ninja local-iteration preset and only builds the `draxul` target before launch
+- `r.bat --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
+- `r.bat --ninja` forces the Ninja local-iteration path explicitly
 
 ### CMake Options
 

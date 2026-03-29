@@ -607,6 +607,12 @@ void MegaCityHost::render_imgui(float dt)
         const MegaCityCodeConfig previous_pending = pending_renderer_config_;
         pending_renderer_config_ = renderer_controls.config;
         renderer_defaults_ = renderer_controls.defaults;
+        auto persist_renderer_config = [&]() {
+            if (!config_document_)
+                return;
+            store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
+            config_document_->save();
+        };
         const bool pending_changed = previous_pending != pending_renderer_config_;
         const bool world_rebuild_needed = requires_world_rebuild(renderer_config_, pending_renderer_config_);
 
@@ -637,25 +643,16 @@ void MegaCityHost::render_imgui(float dt)
         const bool auto_rebuild_requested = renderer_controls.committed_edit
             && pending_renderer_config_.auto_rebuild
             && world_rebuild_needed;
+        if (renderer_controls.committed_edit || renderer_controls.rebuild_requested || renderer_controls.set_defaults_requested)
+            persist_renderer_config();
         if (renderer_controls.rebuild_requested || auto_rebuild_requested)
         {
             renderer_config_ = pending_renderer_config_;
-            if (renderer_controls.rebuild_requested && config_document_)
-            {
-                store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
-                config_document_->save();
-            }
             refresh_sign_text_service();
             if (city_db_reconciled_)
                 rebuild_semantic_city();
             else
                 mark_world_rebuild_pending();
-        }
-
-        if (renderer_controls.set_defaults_requested && config_document_)
-        {
-            store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
-            config_document_->save();
         }
     }
 }
@@ -718,7 +715,10 @@ void MegaCityHost::shutdown()
 
     pending_renderer_config_.show_ui_panels = show_ui_panels_;
     if (config_document_)
+    {
         store_megacity_code_config(*config_document_, pending_renderer_config_, renderer_defaults_);
+        config_document_->save();
+    }
     scanner_.stop();
     city_db_.close();
     if (tooltip_text_service_)

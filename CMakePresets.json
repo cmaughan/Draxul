@@ -33,6 +33,34 @@
             }
         },
         {
+            "name": "win-ninja-debug",
+            "displayName": "Debug (Windows Ninja)",
+            "binaryDir": "${sourceDir}/build-ninja",
+            "generator": "Ninja Multi-Config",
+            "cacheVariables": {
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "win-ninja-release",
+            "displayName": "Release (Windows Ninja)",
+            "binaryDir": "${sourceDir}/build-ninja",
+            "generator": "Ninja Multi-Config",
+            "cacheVariables": {
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
             "name": "mac-debug",
             "displayName": "Debug (macOS)",
             "binaryDir": "${sourceDir}/build",
@@ -99,6 +127,16 @@
         {
             "name": "release",
             "configurePreset": "release",
+            "configuration": "Release"
+        },
+        {
+            "name": "win-ninja-debug",
+            "configurePreset": "win-ninja-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "win-ninja-release",
+            "configurePreset": "win-ninja-release",
             "configuration": "Release"
         },
         {

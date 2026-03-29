@@ -221,7 +221,10 @@ FetchContent_Declare(
     GIT_TAG v0.23.4
     GIT_SHALLOW TRUE
 )
-FetchContent_MakeAvailable(tree_sitter_cpp)
+FetchContent_GetProperties(tree_sitter_cpp)
+if(NOT tree_sitter_cpp_POPULATED)
+    FetchContent_Populate(tree_sitter_cpp)
+endif()
 
 add_library(tree_sitter_cpp_grammar STATIC
     ${tree_sitter_cpp_SOURCE_DIR}/src/parser.c
