@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #include <SDL3/SDL.h>
+#include <draxul/perf_timing.h>
 #include <draxul/types.h>
 
 namespace draxul
@@ -17,6 +18,7 @@ void disable_press_and_hold_macos()
 
 void apply_title_bar_color_macos(SDL_Window* window, Color color)
 {
+    PERF_MEASURE();
     NSWindow* ns_window = (__bridge NSWindow*)SDL_GetPointerProperty(
         SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
     if (!ns_window)

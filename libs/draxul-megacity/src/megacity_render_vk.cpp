@@ -230,6 +230,7 @@ bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
 
 MaterialUniforms build_material_uniforms(const SceneSnapshot& scene)
 {
+    PERF_MEASURE();
     MaterialUniforms uniforms{};
     const size_t material_count = std::min(scene.materials.size(), uniforms.materials.size());
     for (size_t index = 0; index < material_count; ++index)
@@ -265,6 +266,7 @@ void destroy_buffer(VmaAllocator allocator, Buffer& buffer)
 
 bool create_mapped_buffer(VmaAllocator allocator, size_t size, VkBufferUsageFlags usage, Buffer& buffer)
 {
+    PERF_MEASURE();
     VkBufferCreateInfo buf_ci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buf_ci.size = size;
     buf_ci.usage = usage;
@@ -299,6 +301,7 @@ bool create_mapped_buffer(VmaAllocator allocator, size_t size, VkBufferUsageFlag
 
 bool upload_mesh(VmaAllocator allocator, const MeshData& mesh, MeshBuffers& gpu_mesh)
 {
+    PERF_MEASURE();
     const size_t vertex_bytes = mesh.vertices.size() * sizeof(SceneVertex);
     const size_t index_bytes = mesh.indices.size() * sizeof(uint16_t);
 
@@ -333,6 +336,7 @@ size_t grow_capacity(size_t current_size, size_t required_size, size_t minimum_s
 bool ensure_mapped_buffer_capacity(VmaAllocator allocator, size_t required_size,
     VkBufferUsageFlags usage, Buffer& buffer, size_t minimum_size)
 {
+    PERF_MEASURE();
     if (required_size == 0 || required_size <= buffer.size)
         return true;
 
@@ -348,6 +352,7 @@ bool ensure_mapped_buffer_capacity(VmaAllocator allocator, size_t required_size,
 bool reserve_transient_buffer(VmaAllocator allocator, TransientBufferArena& arena, size_t size,
     size_t alignment, VkBufferUsageFlags usage, size_t minimum_size, BufferSlice& slice)
 {
+    PERF_MEASURE();
     if (size == 0)
     {
         slice = {};
@@ -370,6 +375,7 @@ bool reserve_transient_buffer(VmaAllocator allocator, TransientBufferArena& aren
 bool stream_transient_mesh(VmaAllocator allocator, const MeshData& mesh,
     TransientGeometryArena& arena, MeshSlice& slice)
 {
+    PERF_MEASURE();
     constexpr size_t kMinimumVertexArenaBytes = 16 * 1024;
     constexpr size_t kMinimumIndexArenaBytes = 4 * 1024;
 
@@ -429,6 +435,7 @@ void destroy_image(VkDevice device, VmaAllocator allocator, ImageResource& image
 bool create_sampled_image(VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator,
     int width, int height, VkFormat format, VkSamplerAddressMode address_mode, bool generate_mips, ImageResource& image)
 {
+    PERF_MEASURE();
     const uint32_t mip_levels = generate_mips
         ? static_cast<uint32_t>(std::floor(std::log2(static_cast<double>(std::max(width, height))))) + 1
         : 1u;
@@ -518,6 +525,7 @@ bool create_attachment_image(VkDevice device, VmaAllocator allocator, int width,
     VkSampleCountFlagBits samples, VkImage& image, VmaAllocation& allocation, VkImageView& view,
     VkImageCreateFlags flags = 0)
 {
+    PERF_MEASURE();
     VkImageCreateInfo image_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     image_ci.flags = flags;
     image_ci.imageType = VK_IMAGE_TYPE_2D;
@@ -577,6 +585,7 @@ bool create_cube_attachment_image(
     VkImageView& cube_view,
     std::array<VkImageView, kPointShadowFaceCount>& face_views)
 {
+    PERF_MEASURE();
     VkImageCreateInfo image_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     image_ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     image_ci.imageType = VK_IMAGE_TYPE_2D;
@@ -629,6 +638,7 @@ bool create_cube_attachment_image(
 void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
     uint32_t base_mip_level = 0, uint32_t level_count = 1)
 {
+    PERF_MEASURE();
     VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     barrier.oldLayout = old_layout;
     barrier.newLayout = new_layout;
@@ -663,6 +673,7 @@ void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layo
 
 bool generate_mipmaps(VkCommandBuffer cmd, const ImageResource& target)
 {
+    PERF_MEASURE();
     if (target.mip_levels <= 1)
         return true;
 
@@ -751,6 +762,7 @@ bool generate_mipmaps(VkCommandBuffer cmd, const ImageResource& target)
 bool upload_rgba_texture(VmaAllocator allocator, VkCommandBuffer cmd, Buffer& staging,
     size_t staging_offset, const LoadedTextureImage& image, ImageResource& target)
 {
+    PERF_MEASURE();
     const size_t bytes = static_cast<size_t>(image.width) * static_cast<size_t>(image.height) * 4;
     const size_t required_bytes = staging_offset + bytes;
     if (!ensure_mapped_buffer_capacity(
@@ -785,6 +797,7 @@ bool upload_rgba_texture(VmaAllocator allocator, VkCommandBuffer cmd, Buffer& st
 
 VkShaderModule load_shader(VkDevice device, const std::string& path)
 {
+    PERF_MEASURE();
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
@@ -910,6 +923,7 @@ struct IsometricScenePass::State
 
     bool create_device_resources(uint32_t frame_count)
     {
+        PERF_MEASURE();
         VkDescriptorSetLayoutBinding scene_bindings[8] = {};
         scene_bindings[0].binding = 0;
         scene_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1204,6 +1218,7 @@ struct IsometricScenePass::State
 
     bool ensure_floor_grid(const FloorGridSpec& spec)
     {
+        PERF_MEASURE();
         if (!spec.enabled)
         {
             cached_grid_mesh = {};
@@ -1222,6 +1237,7 @@ struct IsometricScenePass::State
 
     bool ensure_road_materials(const VkRenderContext& ctx, VkCommandBuffer cmd)
     {
+        PERF_MEASURE();
         if (std::all_of(material_textures.begin(), material_textures.end(),
                 [](const ImageResource& texture) { return texture.image != VK_NULL_HANDLE; }))
         {
@@ -1337,6 +1353,7 @@ struct IsometricScenePass::State
         const std::shared_ptr<const MeshData>& tree_bark_mesh_data,
         const std::shared_ptr<const MeshData>& tree_leaf_mesh_data)
     {
+        PERF_MEASURE();
         if (tree_bark_mesh_data
             && !(tree_bark_mesh_source == tree_bark_mesh_data.get() && tree_bark_mesh.index_count > 0))
         {
@@ -1368,6 +1385,7 @@ struct IsometricScenePass::State
 
     bool ensure_custom_meshes(const std::vector<std::shared_ptr<const MeshData>>& custom_mesh_data)
     {
+        PERF_MEASURE();
         if (custom_meshes.size() > custom_mesh_data.size())
         {
             for (size_t index = custom_mesh_data.size(); index < custom_meshes.size(); ++index)
@@ -1639,6 +1657,7 @@ struct IsometricScenePass::State
     bool ensure_label_atlas(const VkRenderContext& ctx, VkCommandBuffer cmd,
         const std::shared_ptr<const LabelAtlasData>& atlas)
     {
+        PERF_MEASURE();
         const bool has_atlas = atlas && atlas->valid();
         const int desired_size = has_atlas ? atlas->width : 1;
 
@@ -1685,6 +1704,7 @@ struct IsometricScenePass::State
 
     void destroy_present_resources()
     {
+        PERF_MEASURE();
         tooltip_image.sampler = VK_NULL_HANDLE;
         if (tooltip_sampler != VK_NULL_HANDLE)
             vkDestroySampler(device, tooltip_sampler, nullptr);
@@ -1715,6 +1735,7 @@ struct IsometricScenePass::State
 
     bool create_present_resources()
     {
+        PERF_MEASURE();
         if (render_pass == VK_NULL_HANDLE || present_pipeline != VK_NULL_HANDLE)
             return true;
 
@@ -2006,6 +2027,7 @@ struct IsometricScenePass::State
 
     bool create_pipeline()
     {
+        PERF_MEASURE();
         const auto shader_dir = bundled_asset_path("shaders");
         auto vert = load_shader(device, (shader_dir / "megacity_scene.vert.spv").string());
         auto frag = load_shader(device, (shader_dir / "megacity_scene.frag.spv").string());
@@ -2345,6 +2367,7 @@ struct IsometricScenePass::State
 
     bool ensure_tooltip_texture(VkCommandBuffer cmd, const TooltipOverlay& tooltip)
     {
+        PERF_MEASURE();
         if (!tooltip_initialized || !tooltip.valid())
             return false;
         if (tooltip_texture_revision == tooltip.revision && tooltip_image.image != VK_NULL_HANDLE)
@@ -2413,6 +2436,7 @@ struct IsometricScenePass::State
 
     bool ensure(const VkRenderContext& ctx)
     {
+        PERF_MEASURE();
         const uint32_t frame_count = std::max(1u, ctx.buffered_frame_count());
         const bool base_resources_ready = pipeline != VK_NULL_HANDLE
             && physical_device == ctx.physical_device()
@@ -2445,6 +2469,7 @@ struct IsometricScenePass::State
 
     void destroy_gbuffer_targets()
     {
+        PERF_MEASURE();
         for (auto& t : gbuffer_targets)
         {
             if (t.imgui_normal_ds != VK_NULL_HANDLE)
@@ -2549,6 +2574,7 @@ struct IsometricScenePass::State
 
     void destroy_gbuffer()
     {
+        PERF_MEASURE();
         if (device == VK_NULL_HANDLE)
             return;
         destroy_gbuffer_targets();
@@ -3373,6 +3399,7 @@ struct IsometricScenePass::State
 
     bool ensure_gbuffer_targets(uint32_t frame_count, int width, int height)
     {
+        PERF_MEASURE();
         if (width <= 0 || height <= 0)
             return false;
 
@@ -3666,6 +3693,7 @@ struct IsometricScenePass::State
 
     void destroy()
     {
+        PERF_MEASURE();
         if (allocator != VK_NULL_HANDLE)
         {
             destroy_mesh(allocator, cube_mesh);

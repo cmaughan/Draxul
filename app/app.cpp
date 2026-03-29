@@ -317,6 +317,7 @@ bool App::initialize_host()
 
 void App::wire_gui_actions()
 {
+    PERF_MEASURE();
     GuiActionHandler::Deps gui_deps;
     gui_deps.text_service = &text_service_;
     gui_deps.ui_panel = &ui_panel_;
@@ -354,6 +355,7 @@ void App::wire_gui_actions()
 
 void App::wire_window_callbacks()
 {
+    PERF_MEASURE();
     InputDispatcher::Deps disp_deps;
     disp_deps.keybindings = &config_.keybindings;
     disp_deps.gui_action_handler = &gui_action_handler_;
@@ -384,6 +386,7 @@ void App::run()
 
 bool App::run_smoke_test(std::chrono::milliseconds timeout)
 {
+    PERF_MEASURE();
     const auto start_time = std::chrono::steady_clock::now();
     const auto deadline = start_time + timeout;
     while (running_ && std::chrono::steady_clock::now() < deadline)
@@ -397,6 +400,7 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
 
 std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay)
 {
+    PERF_MEASURE();
     if (!renderer_.capture())
         return std::nullopt;
 
@@ -429,6 +433,7 @@ std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay
 
 std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)
 {
+    PERF_MEASURE();
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     last_render_test_error_.clear();
     bool capture_requested = false;
@@ -547,6 +552,12 @@ bool App::close_dead_panes()
         if (!h.is_running())
             dead.push_back(id);
     });
+    if (!dead.empty())
+    {
+        // Clear the input dispatcher's host pointer before destroying panes so
+        // set_host() can't call on_focus_lost() on a dangling pointer.
+        input_dispatcher_.set_host(nullptr);
+    }
     for (LeafId id : dead)
     {
         if (host_manager_.host_count() == 1)
@@ -805,6 +816,7 @@ void App::refresh_window_layout()
 
 HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
 {
+    PERF_MEASURE();
     const int padding = renderer_.grid()->padding();
     const auto [cell_w, cell_h] = renderer_.grid()->cell_size_pixels();
     const auto& layout = ui_panel_.layout();
@@ -824,6 +836,7 @@ HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
 
 int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const
 {
+    PERF_MEASURE();
     // Cap the wait so that output from a background reader thread is displayed
     // promptly even if SDL_PushEvent does not reliably wake SDL_WaitEvent on
     // every platform (observed on macOS with SDL 3.2.x when the reader thread's

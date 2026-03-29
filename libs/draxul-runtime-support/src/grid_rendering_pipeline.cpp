@@ -28,6 +28,7 @@ bool can_form_two_cell_ligature(const Cell& leader, const Cell& continuation)
 
 CellUpdate make_cell_update(int col, int row, const Cell& cell, HighlightTable& highlights)
 {
+    PERF_MEASURE();
     const auto& hl = highlights.get(cell.hl_attr_id);
 
     Color fg;
@@ -48,6 +49,7 @@ CellUpdate make_cell_update(int col, int row, const Cell& cell, HighlightTable& 
 void expand_dirty_cells_for_ligatures_impl(
     const Grid& grid, const std::vector<Grid::DirtyCell>& dirty, std::vector<Grid::DirtyCell>& expanded)
 {
+    PERF_MEASURE();
     expanded.clear();
     const size_t needed = dirty.size() * 3;
     if (expanded.capacity() < needed)
@@ -107,6 +109,7 @@ void GridRenderingPipeline::expand_dirty_cells_for_ligatures(const std::vector<G
 bool GridRenderingPipeline::try_shape_ligature(int col, int row, const Cell& cell, bool is_bold,
     bool is_italic, CellUpdate& update, std::vector<CellUpdate>& updates, bool& atlas_updated)
 {
+    PERF_MEASURE();
     if (col + 1 >= grid_.cols())
         return false;
 

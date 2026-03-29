@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <draxul/perf_timing.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -55,6 +56,7 @@ DirectionalShadowCascade build_cascade(
     float split_end,
     int resolution)
 {
+    PERF_MEASURE();
     std::array<glm::vec3, 8> corners{};
     size_t corner_index = 0;
     for (float ndc_z : { split_start, split_end })
@@ -113,6 +115,7 @@ DirectionalShadowCascade build_cascade(
 
 DirectionalShadowCascadeSet build_directional_shadow_cascades(const SceneCameraData& camera, int resolution)
 {
+    PERF_MEASURE();
     DirectionalShadowCascadeSet cascade_set;
     cascade_set.resolution = std::max(resolution, 256);
 
@@ -129,6 +132,7 @@ DirectionalShadowCascadeSet build_directional_shadow_cascades(const SceneCameraD
 
 PointShadowMapSet build_point_shadow_map(const SceneCameraData& camera, int resolution)
 {
+    PERF_MEASURE();
     PointShadowMapSet shadow_map;
     shadow_map.resolution = std::max(resolution, 256);
 
@@ -155,6 +159,7 @@ PointShadowMapSet build_point_shadow_map(const SceneCameraData& camera, int reso
 
 glm::mat4 shadow_texture_matrix(const glm::mat4& world_to_clip)
 {
+    PERF_MEASURE();
     glm::mat4 bias(1.0f);
     bias[0][0] = 0.5f;
     // Clip-space Y points up; sampled texture V points down.

@@ -1,12 +1,14 @@
 #include <draxul/sdl_imgui_input.h>
 
 #include <SDL3/SDL_scancode.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
 
 ImGuiKey sdl_scancode_to_imgui_key(int scancode)
 {
+    PERF_MEASURE();
     switch (scancode)
     {
     case SDL_SCANCODE_TAB:

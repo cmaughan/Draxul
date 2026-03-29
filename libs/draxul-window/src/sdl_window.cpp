@@ -19,6 +19,7 @@
 #include <SDL3/SDL_vulkan.h>
 #endif
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -31,6 +32,7 @@ extern void disable_press_and_hold_macos();
 #if defined(_WIN32) || defined(__APPLE__)
 static void log_display_info(SDL_Window* window)
 {
+    PERF_MEASURE();
     DRAXUL_LOG_DEBUG(LogCategory::Window, "Display / DPI diagnostics begin");
 
     // SDL window sizes
@@ -136,6 +138,7 @@ static void log_display_info(SDL_Window* window)
 
 bool SdlWindow::initialize(const std::string& title, int width, int height)
 {
+    PERF_MEASURE();
     SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "1");
     SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "1");
 
@@ -217,6 +220,7 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
 
 void SdlWindow::set_size_logical(int width, int height)
 {
+    PERF_MEASURE();
     if (!window_)
         return;
 
@@ -226,6 +230,7 @@ void SdlWindow::set_size_logical(int width, int height)
 
 void SdlWindow::activate()
 {
+    PERF_MEASURE();
     if (!window_)
         return;
 
@@ -261,6 +266,7 @@ void SdlWindow::activate()
 
 void SdlWindow::shutdown()
 {
+    PERF_MEASURE();
     if (window_)
     {
         SDL_DestroyWindow(window_);
@@ -271,6 +277,7 @@ void SdlWindow::shutdown()
 
 bool SdlWindow::handle_event(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type == wake_event_type_)
         return true;
 
@@ -347,6 +354,7 @@ bool SdlWindow::handle_event(const SDL_Event& event)
 
 bool SdlWindow::poll_events()
 {
+    PERF_MEASURE();
     SDL_Event event;
     while (SDL_PollEvent(&event))
     {
@@ -358,6 +366,7 @@ bool SdlWindow::poll_events()
 
 bool SdlWindow::wait_events(int timeout_ms)
 {
+    PERF_MEASURE();
     SDL_Event event;
     SDL_ClearError();
     bool got_event = timeout_ms < 0 ? SDL_WaitEvent(&event) : SDL_WaitEventTimeout(&event, timeout_ms);
@@ -379,6 +388,7 @@ bool SdlWindow::wait_events(int timeout_ms)
 
 void SdlWindow::wake()
 {
+    PERF_MEASURE();
     if (!window_ || wake_event_type_ == 0 || wake_event_type_ == static_cast<Uint32>(-1))
         return;
 
@@ -389,6 +399,7 @@ void SdlWindow::wake()
 
 std::pair<int, int> SdlWindow::size_pixels() const
 {
+    PERF_MEASURE();
     int w = 0, h = 0;
     if (window_)
     {
@@ -399,6 +410,7 @@ std::pair<int, int> SdlWindow::size_pixels() const
 
 std::pair<int, int> SdlWindow::size_logical() const
 {
+    PERF_MEASURE();
     int w = 0, h = 0;
     if (window_)
     {
@@ -409,6 +421,7 @@ std::pair<int, int> SdlWindow::size_logical() const
 
 float SdlWindow::display_ppi() const
 {
+    PERF_MEASURE();
     float scale = 1.0f;
     if (window_)
         scale = SDL_GetWindowDisplayScale(window_);
@@ -419,6 +432,7 @@ float SdlWindow::display_ppi() const
 
 void SdlWindow::set_title(const std::string& title)
 {
+    PERF_MEASURE();
     if (window_)
 #ifdef _WIN32
         SDL_SetWindowTitle(window_, title.c_str());
@@ -439,6 +453,7 @@ bool SdlWindow::set_clipboard_text(const std::string& text)
 
 void SdlWindow::set_text_input_area(int x, int y, int w, int h)
 {
+    PERF_MEASURE();
     if (!window_)
         return;
 
@@ -448,6 +463,7 @@ void SdlWindow::set_text_input_area(int x, int y, int w, int h)
 
 void SdlWindow::set_title_bar_color(Color color)
 {
+    PERF_MEASURE();
     if (!window_)
         return;
 
@@ -471,6 +487,7 @@ void SdlWindow::set_title_bar_color(Color color)
 
 void SdlWindow::show_open_file_dialog()
 {
+    PERF_MEASURE();
     if (!window_ || file_dialog_event_type_ == 0)
         return;
     sdl::show_open_file_dialog(window_, file_dialog_event_type_);
@@ -478,6 +495,7 @@ void SdlWindow::show_open_file_dialog()
 
 void SdlWindow::normalize_render_target_window_size(int target_pixel_width, int target_pixel_height)
 {
+    PERF_MEASURE();
     if (target_pixel_width <= 0 || target_pixel_height <= 0)
         return;
 

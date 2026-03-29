@@ -1,5 +1,7 @@
 #include <draxul/terminal_sgr.h>
 
+#include <draxul/perf_timing.h>
+
 #include <algorithm>
 #include <array>
 #include <vector>
@@ -35,6 +37,7 @@ Color ansi_color(int index)
 
 Color xterm_color(int index)
 {
+    PERF_MEASURE();
     if (index < 16)
         return ansi_color(index);
 
@@ -71,6 +74,7 @@ void set_color(HlAttr& attr, bool is_fg, Color color)
 
 bool apply_basic_sgr(HlAttr& attr, int value)
 {
+    PERF_MEASURE();
     switch (value)
     {
     case 0:
@@ -120,6 +124,7 @@ bool apply_basic_sgr(HlAttr& attr, int value)
 // Returns the number of extra parameter slots consumed (0 if not recognised).
 size_t try_apply_extended_color(HlAttr& attr, bool is_fg, const std::vector<int>& values, size_t i)
 {
+    PERF_MEASURE();
     if (i + 1 >= values.size())
         return 0;
     if (values[i + 1] == 5 && i + 2 < values.size())
@@ -144,6 +149,7 @@ size_t try_apply_extended_color(HlAttr& attr, bool is_fg, const std::vector<int>
 
 void apply_sgr(HlAttr& current_attr, const std::vector<int>& params)
 {
+    PERF_MEASURE();
     const std::vector<int> values = params.empty() ? std::vector<int>{ 0 } : params;
     for (size_t i = 0; i < values.size(); ++i)
     {

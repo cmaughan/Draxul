@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
 
 namespace draxul
@@ -34,6 +35,7 @@ void blit_text_line(
     uint8_t* dst_pixels, int dst_width, int dst_height,
     uint8_t r, uint8_t g, uint8_t b)
 {
+    PERF_MEASURE();
     const FontMetrics metrics = text_service.metrics();
     const int cell_width = std::max(metrics.cell_width, 1);
 
@@ -100,6 +102,7 @@ void blit_text_line(
 
 TooltipBitmap rasterize_tooltip(TextService& text_service, const BuildingTooltipData& data)
 {
+    PERF_MEASURE();
     const FontMetrics metrics = text_service.metrics();
     const int cell_width = std::max(metrics.cell_width, 1);
     const int cell_height = std::max(metrics.cell_height, 1);

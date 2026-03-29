@@ -2,6 +2,7 @@
 #include "live_city_metrics.h"
 #include "semantic_city_layout.h"
 
+#include <draxul/perf_timing.h>
 #include <imgui.h>
 
 #include <algorithm>
@@ -193,6 +194,7 @@ bool same_snapshot_identity(
 
 SnapshotStats build_snapshot_stats(const CodebaseSnapshot& snap)
 {
+    PERF_MEASURE();
     SnapshotStats stats;
     stats.file_count = snap.files.size();
     for (const auto& f : snap.files)
@@ -213,6 +215,7 @@ SnapshotStats build_snapshot_stats(const CodebaseSnapshot& snap)
 
 std::vector<FilesEntry> build_files_entries(const CodebaseSnapshot& snap)
 {
+    PERF_MEASURE();
     std::vector<FilesEntry> files;
     files.reserve(snap.files.size());
     for (const auto& file : snap.files)
@@ -238,6 +241,7 @@ std::vector<FilesEntry> build_files_entries(const CodebaseSnapshot& snap)
 
 void render_perf_debug_panel(const std::shared_ptr<const LiveCityPerfDebugState>& perf_debug)
 {
+    PERF_MEASURE();
     if (!perf_debug)
         return;
 
@@ -296,6 +300,7 @@ void render_perf_debug_panel(const std::shared_ptr<const LiveCityPerfDebugState>
 
 ObjectsTreeCache build_objects_tree_cache(const CodebaseSnapshot& snap)
 {
+    PERF_MEASURE();
     ObjectsTreeCache cache;
 
     std::set<std::string> types_with_methods;
@@ -356,6 +361,7 @@ ObjectsTreeCache build_objects_tree_cache(const CodebaseSnapshot& snap)
 const SnapshotUiCache& cached_snapshot_ui(
     const std::shared_ptr<const CodebaseSnapshot>& snapshot)
 {
+    PERF_MEASURE();
     static SnapshotUiCache cache;
     if (!snapshot)
         return cache;
@@ -374,6 +380,7 @@ const SnapshotUiCache& cached_snapshot_ui(
 
 void render_city_preview(const SemanticMegacityModel* semantic_model)
 {
+    PERF_MEASURE();
     if (!semantic_model || semantic_model->empty())
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
@@ -442,6 +449,7 @@ void render_city_preview(const SemanticMegacityModel* semantic_model)
 
 void render_stats(const SnapshotStats& stats)
 {
+    PERF_MEASURE();
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
     ImGui::Text(
         "%zu files  |  %zu functions  |  %zu classes  |  %zu structs",
@@ -460,6 +468,7 @@ void render_stats(const SnapshotStats& stats)
 
 void render_files_tree(const std::vector<FilesEntry>& files)
 {
+    PERF_MEASURE();
     for (const auto& file : files)
     {
         const ImGuiTreeNodeFlags file_flags = ImGuiTreeNodeFlags_SpanAvailWidth
@@ -542,6 +551,7 @@ void render_symbol_leaf(const char* id, const char* icon, ImVec4 color,
 
 void render_objects_tree(const ObjectsTreeCache& cache)
 {
+    PERF_MEASURE();
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
     ImGui::Text(
         "%zu modules  |  %zu concrete classes  |  %zu functions  |  %zu abstract classes  |  %zu data structs",
@@ -684,6 +694,7 @@ void render_objects_tree(const ObjectsTreeCache& cache)
 
 bool render_renderer_controls(MegacityRendererControls& controls)
 {
+    PERF_MEASURE();
     bool changed = false;
     controls.rebuild_requested = false;
     controls.reset_camera_requested = false;
@@ -1117,6 +1128,7 @@ bool render_treesitter_panel(
     const SemanticMegacityModel* semantic_model,
     MegacityRendererControls* renderer_controls)
 {
+    PERF_MEASURE();
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoBringToFrontOnFocus;
     bool changed = false;
 
@@ -1167,7 +1179,7 @@ bool render_treesitter_panel(
                 "Perf Log Scale",
                 &renderer_controls->config.performance_heat_log_scale,
                 0.0f,
-                32.0f,
+                100.0f,
                 "%.1f"))
         {
             changed = true;

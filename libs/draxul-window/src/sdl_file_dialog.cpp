@@ -1,5 +1,6 @@
 #include "sdl_file_dialog.h"
 #include <SDL3/SDL_dialog.h>
+#include <draxul/perf_timing.h>
 #include <memory>
 
 namespace draxul::sdl
@@ -7,6 +8,7 @@ namespace draxul::sdl
 
 void show_open_file_dialog(SDL_Window* window, Uint32 result_event_type)
 {
+    PERF_MEASURE();
     struct Ctx
     {
         SDL_Window* window;
@@ -47,6 +49,7 @@ bool handle_file_dialog_event(const SDL_Event& event,
     Uint32 file_dialog_event_type,
     const std::function<void(const std::string&)>& on_path)
 {
+    PERF_MEASURE();
     if (event.type != file_dialog_event_type)
         return false;
     std::unique_ptr<std::string> path(static_cast<std::string*>(event.user.data1));

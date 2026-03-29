@@ -2,6 +2,7 @@
 #include "isometric_camera.h"
 #include <SDL3/SDL.h>
 #include <cmath>
+#include <draxul/perf_timing.h>
 #include <glm/geometric.hpp>
 
 namespace draxul
@@ -108,6 +109,7 @@ void CityInputState::reset_keys()
 
 bool CityInputState::on_key(const KeyEvent& event)
 {
+    PERF_MEASURE();
     bool changed = false;
     if (is_left_arrow(event))
     {
@@ -165,6 +167,7 @@ bool CityInputState::on_key(const KeyEvent& event)
 
 void CityInputState::on_mouse_button(const MouseButtonEvent& event)
 {
+    PERF_MEASURE();
     if (event.button != SDL_BUTTON_LEFT)
         return;
 
@@ -185,6 +188,7 @@ void CityInputState::on_mouse_button(const MouseButtonEvent& event)
 
 bool CityInputState::on_mouse_move(const MouseMoveEvent& event, IsometricCamera& camera)
 {
+    PERF_MEASURE();
     if (!dragging_scene_)
         return false;
 
@@ -242,6 +246,7 @@ bool CityInputState::drag_smoothing_active() const
 
 CameraMovement CityInputState::movement() const
 {
+    PERF_MEASURE();
     CameraMovement m;
     if (move_left_)
         m.pan_input.x -= 1.0f;
@@ -272,6 +277,7 @@ CameraMovement CityInputState::movement() const
 
 bool CityInputState::apply_drag_smoothing(float dt, IsometricCamera& camera)
 {
+    PERF_MEASURE();
     if (!drag_smoothing_active())
         return false;
 

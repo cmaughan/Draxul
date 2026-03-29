@@ -122,6 +122,7 @@ struct FrameResources
 
 bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
 {
+    PERF_MEASURE();
     return a.enabled == b.enabled
         && a.min_x == b.min_x
         && a.max_x == b.max_x
@@ -138,6 +139,7 @@ bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
 
 simd_float4x4 to_simd_matrix(const glm::mat4& mat)
 {
+    PERF_MEASURE();
     simd_float4x4 out;
     for (int column = 0; column < 4; ++column)
     {
@@ -152,6 +154,7 @@ simd_float4x4 to_simd_matrix(const glm::mat4& mat)
 
 MaterialUniforms build_material_uniforms(const SceneSnapshot& scene)
 {
+    PERF_MEASURE();
     MaterialUniforms uniforms{};
     const size_t material_count = std::min(scene.materials.size(), uniforms.materials.size());
     for (size_t index = 0; index < material_count; ++index)
@@ -178,6 +181,7 @@ MaterialUniforms build_material_uniforms(const SceneSnapshot& scene)
 
 float compute_ao_radius_pixels(const glm::mat4& proj, float radius_world, int viewport_h)
 {
+    PERF_MEASURE();
     if (viewport_h <= 0)
         return 1.0f;
     const float ortho_scale_y = std::abs(proj[1][1]);
@@ -194,6 +198,7 @@ NSUInteger mip_level_count_for_size(int width, int height)
 
 bool upload_mesh(id<MTLDevice> device, const MeshData& mesh, MeshBuffers& buffers)
 {
+    PERF_MEASURE();
     id<MTLBuffer> vertex_buffer = [device newBufferWithBytes:mesh.vertices.data()
                                                       length:mesh.vertices.size() * sizeof(SceneVertex)
                                                      options:MTLResourceStorageModeShared];
@@ -226,6 +231,7 @@ NSUInteger grow_capacity(NSUInteger current_size, NSUInteger required_size)
 
 bool ensure_buffer_capacity(id<MTLDevice> device, NSUInteger required_size, ObjCRef<id<MTLBuffer>>& buffer)
 {
+    PERF_MEASURE();
     if (required_size == 0)
         return true;
     if (buffer && [buffer.get() length] >= required_size)
@@ -245,6 +251,7 @@ bool upload_performance_heat_values(
     const std::vector<float>& values,
     ObjCRef<id<MTLBuffer>>& buffer)
 {
+    PERF_MEASURE();
     const NSUInteger byte_count = static_cast<NSUInteger>(std::max<size_t>(values.size(), 1u) * sizeof(float));
     if (!ensure_buffer_capacity(device, byte_count, buffer))
         return false;
@@ -263,6 +270,7 @@ bool upload_performance_heat_values(
 bool reserve_transient_buffer(id<MTLDevice> device, TransientBufferArena& arena,
     NSUInteger size, NSUInteger alignment, NSUInteger minimum_size, BufferSlice& slice)
 {
+    PERF_MEASURE();
     if (size == 0)
     {
         slice = {};
@@ -284,6 +292,7 @@ bool reserve_transient_buffer(id<MTLDevice> device, TransientBufferArena& arena,
 bool stream_transient_mesh(id<MTLDevice> device, const MeshData& mesh,
     TransientGeometryArena& arena, MeshSlice& slice)
 {
+    PERF_MEASURE();
     constexpr NSUInteger kMinimumVertexArenaBytes = 16 * 1024;
     constexpr NSUInteger kMinimumIndexArenaBytes = 4 * 1024;
 
@@ -394,6 +403,7 @@ struct IsometricScenePass::State
 
     bool init(id<MTLDevice> device, int grid_width, int grid_height, float tile_size)
     {
+        PERF_MEASURE();
         if (initialized)
             return pipeline.get() != nil && debug_pipeline.get() != nil
                 && post_pipeline.get() != nil && present_pipeline.get() != nil
@@ -643,6 +653,7 @@ struct IsometricScenePass::State
 
     bool ensure_frame_resources(id<MTLDevice> device, uint32_t frame_count)
     {
+        PERF_MEASURE();
         frame_count = std::max(1u, frame_count);
         if (buffered_frame_count == frame_count && frame_resources.size() == frame_count)
             return true;
@@ -676,6 +687,7 @@ struct IsometricScenePass::State
         const std::shared_ptr<const MeshData>& tree_bark_mesh_data,
         const std::shared_ptr<const MeshData>& tree_leaf_mesh_data)
     {
+        PERF_MEASURE();
         if (tree_bark_mesh_data
             && !(tree_bark_mesh_source == tree_bark_mesh_data.get() && tree_bark_mesh.index_count > 0))
         {
@@ -707,6 +719,7 @@ struct IsometricScenePass::State
         id<MTLDevice> device,
         const std::vector<std::shared_ptr<const MeshData>>& custom_mesh_data)
     {
+        PERF_MEASURE();
         custom_meshes.resize(custom_mesh_data.size());
         custom_mesh_sources.resize(custom_mesh_data.size(), nullptr);
         for (size_t index = 0; index < custom_mesh_data.size(); ++index)
@@ -731,6 +744,7 @@ struct IsometricScenePass::State
 
     bool ensure_floor_grid(id<MTLDevice> device, const FloorGridSpec& spec)
     {
+        PERF_MEASURE();
         (void)device;
         if (!spec.enabled)
         {
@@ -750,6 +764,7 @@ struct IsometricScenePass::State
 
     bool ensure_label_atlas(id<MTLDevice> device, const std::shared_ptr<const LabelAtlasData>& atlas)
     {
+        PERF_MEASURE();
         if (!atlas || !atlas->valid())
         {
             if (label_atlas_texture)
@@ -797,6 +812,7 @@ struct IsometricScenePass::State
 
     id<MTLTexture> make_texture(id<MTLCommandBuffer> cmd_buf, MTLPixelFormat format, const LoadedTextureImage& image)
     {
+        PERF_MEASURE();
         id<MTLDevice> device = cmd_buf.device;
         const NSUInteger mip_count = mip_level_count_for_size(image.width, image.height);
         MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
@@ -833,6 +849,7 @@ struct IsometricScenePass::State
 
     id<MTLTexture> make_solid_texture(id<MTLCommandBuffer> cmd_buf, MTLPixelFormat format, std::array<uint8_t, 4> rgba)
     {
+        PERF_MEASURE();
         LoadedTextureImage image;
         image.width = 1;
         image.height = 1;
@@ -842,6 +859,7 @@ struct IsometricScenePass::State
 
     bool ensure_road_materials(id<MTLCommandBuffer> cmd_buf)
     {
+        PERF_MEASURE();
         if (std::all_of(material_textures.begin(), material_textures.end(),
                 [](const ObjCRef<id<MTLTexture>>& texture) { return texture.get() != nil; })
             && material_sampler)
@@ -927,6 +945,7 @@ struct IsometricScenePass::State
 
     bool init_gbuffer(id<MTLDevice> device)
     {
+        PERF_MEASURE();
         if (gbuffer_initialized)
             return shadow_pipeline.get() != nil && point_shadow_pipeline.get() != nil
                 && gbuffer_pipeline.get() != nil
@@ -1121,6 +1140,7 @@ struct IsometricScenePass::State
 
     bool ensure_gbuffer_targets(id<MTLDevice> device, uint32_t frame_count, int width, int height)
     {
+        PERF_MEASURE();
         if (width <= 0 || height <= 0)
             return false;
 

@@ -1,3 +1,4 @@
+#include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
 
 #include <string>
@@ -18,6 +19,7 @@ namespace draxul
 
 std::filesystem::path executable_directory()
 {
+    PERF_MEASURE();
 #ifdef _WIN32
     std::wstring exe_path(MAX_PATH, L'\0');
     for (;;)
@@ -61,6 +63,7 @@ std::filesystem::path executable_directory()
 
 std::filesystem::path bundled_asset_path(const std::filesystem::path& relative_path)
 {
+    PERF_MEASURE();
     if (relative_path.is_absolute())
         return relative_path;
 

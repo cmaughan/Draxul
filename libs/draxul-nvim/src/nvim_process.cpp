@@ -49,6 +49,7 @@ namespace
 
 std::string quote_windows_arg(const std::string& value)
 {
+    PERF_MEASURE();
     if (value.find_first_of(" \t\"") == std::string::npos)
         return value;
 

@@ -1,5 +1,6 @@
 #include <draxul/megacity_code_config.h>
 
+#include <draxul/perf_timing.h>
 #include <draxul/toml_support.h>
 
 namespace draxul
@@ -129,6 +130,7 @@ void assign_legacy_color3(
 
 void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& table)
 {
+    PERF_MEASURE();
     auto assign_float = [&](const char* key, float& target) {
         if (auto parsed = get_float(table, key); parsed.has_value())
             target = *parsed;
@@ -312,6 +314,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
 
 toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     toml::table table;
     table.insert_or_assign("selected_module_path", config.selected_module_path);
     toml_support::insert_vec2(table, "sign_text_px_range", config.sign_text_px_range);
@@ -444,6 +447,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
 
 MegaCityCodeConfig load_megacity_code_defaults(const ConfigDocument& document)
 {
+    PERF_MEASURE();
     MegaCityCodeConfig defaults;
     if (const toml::table* table = document.find_table("mega_city_code.defaults"))
         apply_megacity_code_table(defaults, *table);
@@ -452,6 +456,7 @@ MegaCityCodeConfig load_megacity_code_defaults(const ConfigDocument& document)
 
 MegaCityCodeConfig load_megacity_code_config(const ConfigDocument& document, const MegaCityCodeConfig& defaults)
 {
+    PERF_MEASURE();
     MegaCityCodeConfig config = defaults;
     if (const toml::table* table = document.find_table("mega_city_code"))
         apply_megacity_code_table(config, *table);
@@ -460,6 +465,7 @@ MegaCityCodeConfig load_megacity_code_config(const ConfigDocument& document, con
 
 void store_megacity_code_config(ConfigDocument& document, const MegaCityCodeConfig& current, const MegaCityCodeConfig& defaults)
 {
+    PERF_MEASURE();
     toml::table& section = document.ensure_table("mega_city_code");
     section = serialize_megacity_code_table(current);
     section.insert_or_assign("defaults", serialize_megacity_code_table(defaults));

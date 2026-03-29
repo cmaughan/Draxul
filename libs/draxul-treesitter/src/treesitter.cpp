@@ -1,3 +1,4 @@
+#include <draxul/perf_timing.h>
 #include <draxul/treesitter.h>
 
 #include <cstring>
@@ -68,6 +69,7 @@ static constexpr std::string_view kAbstractQuery = R"(
 // Directories to skip anywhere in the path
 bool should_skip_path(const std::filesystem::path& rel)
 {
+    PERF_MEASURE();
     for (const auto& part : rel)
     {
         const auto s = part.string();
@@ -92,6 +94,7 @@ bool is_cpp_source(const std::filesystem::path& path)
 // Strip surrounding quotes or angle brackets from an include path node's text.
 std::string strip_include_delimiters(std::string s)
 {
+    PERF_MEASURE();
     if (s.size() >= 2
         && ((s.front() == '"' && s.back() == '"')
             || (s.front() == '<' && s.back() == '>')))
@@ -106,6 +109,7 @@ std::string strip_include_delimiters(std::string s)
 // cannot extract meaningful symbols from it and would produce spurious errors.
 bool is_objc_source(const std::string& source)
 {
+    PERF_MEASURE();
     // Only look at the first 8 KB to keep it fast.
     const std::string_view head(source.data(), std::min(source.size(), size_t{ 8192 }));
     for (const char* kw : { "@interface", "@implementation", "@protocol", "@property", "@end" })
@@ -118,6 +122,7 @@ bool is_objc_source(const std::string& source)
 
 std::string read_file(const std::filesystem::path& path)
 {
+    PERF_MEASURE();
     std::ifstream f(path, std::ios::binary);
     if (!f)
         return {};
@@ -131,6 +136,7 @@ constexpr uint32_t kMaxErrorsPerFile = 50;
 // Walk the tree and collect positions of ERROR nodes (up to the cap).
 void collect_errors(TSNode node, std::vector<ParseError>& errors)
 {
+    PERF_MEASURE();
     if (errors.size() >= kMaxErrorsPerFile)
         return;
     if (ts_node_is_error(node))
@@ -151,6 +157,7 @@ bool node_type_is(TSNode node, const char* type)
 
 TSNode find_ancestor_of_type(TSNode node, const char* type)
 {
+    PERF_MEASURE();
     TSNode current = node;
     while (ts_node_is_null(current) == 0)
     {
@@ -163,6 +170,7 @@ TSNode find_ancestor_of_type(TSNode node, const char* type)
 
 TSNode find_named_child_of_type(TSNode node, const char* type)
 {
+    PERF_MEASURE();
     const uint32_t count = ts_node_named_child_count(node);
     for (uint32_t i = 0; i < count; ++i)
     {
@@ -175,6 +183,7 @@ TSNode find_named_child_of_type(TSNode node, const char* type)
 
 std::string node_text(const std::string& source, TSNode node)
 {
+    PERF_MEASURE();
     const uint32_t start_byte = ts_node_start_byte(node);
     const uint32_t end_byte = ts_node_end_byte(node);
     if (start_byte >= end_byte || end_byte > static_cast<uint32_t>(source.size()))
@@ -190,6 +199,7 @@ std::string class_name_from_node(const std::string& source, TSNode class_node)
 
 bool subtree_contains_type(TSNode node, const char* type)
 {
+    PERF_MEASURE();
     if (node_type_is(node, type))
         return true;
     const uint32_t count = ts_node_child_count(node);
@@ -203,6 +213,7 @@ bool subtree_contains_type(TSNode node, const char* type)
 
 uint32_t count_data_fields(TSNode class_node)
 {
+    PERF_MEASURE();
     const TSNode body = find_named_child_of_type(class_node, "field_declaration_list");
     if (ts_node_is_null(body))
         return 0;
@@ -233,6 +244,7 @@ bool is_type_like_node(TSNode node)
 
 std::string field_display_type_from_declaration(TSNode field_node, const std::string& source)
 {
+    PERF_MEASURE();
     const uint32_t child_count = ts_node_named_child_count(field_node);
     for (uint32_t i = 0; i < child_count; ++i)
     {
@@ -254,6 +266,7 @@ bool is_nested_type_definition_node(TSNode node)
 
 void collect_declared_field_names(TSNode node, const std::string& source, std::vector<std::string>& out)
 {
+    PERF_MEASURE();
     if (node_type_is(node, "function_declarator"))
         return;
     if (is_nested_type_definition_node(node))
@@ -273,6 +286,7 @@ void collect_declared_field_names(TSNode node, const std::string& source, std::v
 
 std::vector<SymbolRecord::FieldRecord> collect_data_field_records(TSNode class_node, const std::string& source)
 {
+    PERF_MEASURE();
     std::vector<SymbolRecord::FieldRecord> fields;
     const TSNode body = find_named_child_of_type(class_node, "field_declaration_list");
     if (ts_node_is_null(body))
@@ -309,6 +323,7 @@ std::vector<SymbolRecord::FieldRecord> collect_data_field_records(TSNode class_n
 std::vector<std::string> collect_direct_base_type_names(
     TSNode type_node, const std::string& source, std::string_view self_name)
 {
+    PERF_MEASURE();
     std::set<std::string> refs;
     const uint32_t child_count = ts_node_named_child_count(type_node);
     for (uint32_t i = 0; i < child_count; ++i)
@@ -329,6 +344,7 @@ bool has_type_definition_body(TSNode type_node)
 
 void collect_type_references(TSNode node, const std::string& source, std::set<std::string>& out)
 {
+    PERF_MEASURE();
     if (is_nested_type_definition_node(node))
         return;
 
@@ -360,12 +376,14 @@ CodebaseScanner::~CodebaseScanner()
 
 void CodebaseScanner::start(std::filesystem::path root)
 {
+    PERF_MEASURE();
     stop_flag_.store(false);
     thread_ = std::thread(&CodebaseScanner::scan_thread, this, std::move(root));
 }
 
 void CodebaseScanner::stop()
 {
+    PERF_MEASURE();
     stop_flag_.store(true);
     if (thread_.joinable())
         thread_.join();
@@ -373,18 +391,21 @@ void CodebaseScanner::stop()
 
 std::shared_ptr<const CodebaseSnapshot> CodebaseScanner::snapshot() const
 {
+    PERF_MEASURE();
     std::lock_guard<std::mutex> lock(mutex_);
     return snapshot_;
 }
 
 void CodebaseScanner::publish(std::shared_ptr<CodebaseSnapshot> snap)
 {
+    PERF_MEASURE();
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_ = std::move(snap);
 }
 
 void CodebaseScanner::scan_thread(std::filesystem::path root)
 {
+    PERF_MEASURE();
     const TSLanguage* lang = tree_sitter_cpp();
 
     TSParser* parser = ts_parser_new();

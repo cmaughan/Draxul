@@ -1,4 +1,5 @@
 #include <draxul/citydb.h>
+#include <draxul/perf_timing.h>
 
 #include <draxul/treesitter.h>
 
@@ -71,6 +72,7 @@ public:
 
     DbHandle& operator=(DbHandle&& other) noexcept
     {
+        PERF_MEASURE();
         if (this != &other)
         {
             close();
@@ -81,6 +83,7 @@ public:
 
     void open(const std::filesystem::path& path)
     {
+        PERF_MEASURE();
         close();
 
         sqlite3* db = nullptr;
@@ -99,6 +102,7 @@ public:
 
     void close()
     {
+        PERF_MEASURE();
         if (!db_)
             return;
         sqlite3_close(db_);
@@ -144,6 +148,7 @@ public:
 
     Statement& operator=(Statement&& other) noexcept
     {
+        PERF_MEASURE();
         if (this != &other)
         {
             reset();
@@ -154,6 +159,7 @@ public:
 
     void prepare(sqlite3* db, std::string_view sql)
     {
+        PERF_MEASURE();
         reset();
         sqlite3_stmt* stmt = nullptr;
         const int rc = sqlite3_prepare_v2(
@@ -165,6 +171,7 @@ public:
 
     void bind_text(int index, std::string_view value)
     {
+        PERF_MEASURE();
         const int rc = sqlite3_bind_text(
             stmt_, index, value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
         if (rc != SQLITE_OK)
@@ -173,6 +180,7 @@ public:
 
     void bind_int(int index, int value)
     {
+        PERF_MEASURE();
         const int rc = sqlite3_bind_int(stmt_, index, value);
         if (rc != SQLITE_OK)
             throw SqliteError(rc, sqlite3_errmsg(sqlite3_db_handle(stmt_)));
@@ -180,6 +188,7 @@ public:
 
     void bind_int64(int index, std::int64_t value)
     {
+        PERF_MEASURE();
         const int rc = sqlite3_bind_int64(stmt_, index, value);
         if (rc != SQLITE_OK)
             throw SqliteError(rc, sqlite3_errmsg(sqlite3_db_handle(stmt_)));
@@ -187,6 +196,7 @@ public:
 
     void bind_double(int index, double value)
     {
+        PERF_MEASURE();
         const int rc = sqlite3_bind_double(stmt_, index, value);
         if (rc != SQLITE_OK)
             throw SqliteError(rc, sqlite3_errmsg(sqlite3_db_handle(stmt_)));
@@ -194,6 +204,7 @@ public:
 
     [[nodiscard]] int step()
     {
+        PERF_MEASURE();
         const int rc = sqlite3_step(stmt_);
         if (rc != SQLITE_ROW && rc != SQLITE_DONE)
             throw SqliteError(rc, sqlite3_errmsg(sqlite3_db_handle(stmt_)));
@@ -202,6 +213,7 @@ public:
 
     void step_done()
     {
+        PERF_MEASURE();
         const int rc = step();
         if (rc != SQLITE_DONE)
             throw SqliteError(SQLITE_MISUSE, "expected SQLITE_DONE");
@@ -209,6 +221,7 @@ public:
 
     void clear_bindings()
     {
+        PERF_MEASURE();
         const int rc = sqlite3_clear_bindings(stmt_);
         if (rc != SQLITE_OK)
             throw SqliteError(rc, sqlite3_errmsg(sqlite3_db_handle(stmt_)));
@@ -216,6 +229,7 @@ public:
 
     void reset_step()
     {
+        PERF_MEASURE();
         const int rc = sqlite3_reset(stmt_);
         if (rc != SQLITE_OK)
             throw SqliteError(rc, sqlite3_errmsg(sqlite3_db_handle(stmt_)));
@@ -235,6 +249,7 @@ public:
 private:
     void reset()
     {
+        PERF_MEASURE();
         if (stmt_)
         {
             sqlite3_finalize(stmt_);
@@ -256,6 +271,7 @@ public:
 
     ~Transaction()
     {
+        PERF_MEASURE();
         if (!committed_)
         {
             try
@@ -270,6 +286,7 @@ public:
 
     void commit()
     {
+        PERF_MEASURE();
         if (committed_)
             return;
         exec("COMMIT");
@@ -279,6 +296,7 @@ public:
 private:
     void exec(const char* sql)
     {
+        PERF_MEASURE();
         char* err = nullptr;
         const int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &err);
         if (rc != SQLITE_OK)
@@ -296,6 +314,7 @@ private:
 
 void exec(sqlite3* db, std::string_view sql)
 {
+    PERF_MEASURE();
     char* err = nullptr;
     const int rc = sqlite3_exec(db, std::string(sql).c_str(), nullptr, nullptr, &err);
     if (rc != SQLITE_OK)
@@ -384,6 +403,7 @@ struct EntitySpec
 
 std::string json_int_array(const std::vector<int>& values)
 {
+    PERF_MEASURE();
     std::ostringstream out;
     out << "[";
     for (size_t i = 0; i < values.size(); ++i)
@@ -398,6 +418,7 @@ std::string json_int_array(const std::vector<int>& values)
 
 std::string json_string_array(const std::vector<std::string>& values)
 {
+    PERF_MEASURE();
     std::ostringstream out;
     out << "[";
     for (size_t i = 0; i < values.size(); ++i)
@@ -419,6 +440,7 @@ std::string json_string_array(const std::vector<std::string>& values)
 
 std::vector<std::string> parse_json_string_array(std::string_view text)
 {
+    PERF_MEASURE();
     std::vector<std::string> values;
     bool in_string = false;
     bool escaped = false;
@@ -453,6 +475,7 @@ std::vector<std::string> parse_json_string_array(std::string_view text)
 
 std::vector<int> parse_json_int_array(std::string_view text)
 {
+    PERF_MEASURE();
     std::vector<int> values;
     int current = 0;
     bool in_number = false;
@@ -490,6 +513,7 @@ std::vector<int> parse_json_int_array(std::string_view text)
 
 std::string module_path_for_file(std::string_view file_path)
 {
+    PERF_MEASURE();
     const std::filesystem::path path(file_path);
     // Group by library root: libs/<lib-name> or top-level directory (e.g. app).
     auto it = path.begin();
@@ -523,6 +547,7 @@ std::unordered_map<std::string, std::vector<std::string>> build_inheritance_comp
     const std::unordered_map<std::string, std::vector<std::string>>& direct_base_refs_by_symbol_id,
     const std::unordered_map<std::string, std::vector<std::string>>& known_type_symbol_ids)
 {
+    PERF_MEASURE();
     std::unordered_map<std::string, std::vector<std::string>> adjacency;
     adjacency.reserve(direct_base_refs_by_symbol_id.size() * 2);
 
@@ -581,6 +606,7 @@ std::vector<std::string> resolve_dependency_targets(
     const std::unordered_map<std::string, std::vector<std::string>>& known_type_symbol_ids,
     const std::unordered_map<std::string, std::vector<std::string>>& inheritance_component_members)
 {
+    PERF_MEASURE();
     const auto it = known_type_symbol_ids.find(std::string(referenced_type_name));
     if (it == known_type_symbol_ids.end() || it->second.size() != 1)
         return {};
@@ -604,6 +630,7 @@ std::vector<std::string> resolve_dependency_targets(
 
 void create_schema_v2(sqlite3* db)
 {
+    PERF_MEASURE();
     exec(db, R"sql(
         CREATE TABLE IF NOT EXISTS files (
             path TEXT PRIMARY KEY NOT NULL,
@@ -659,6 +686,7 @@ void create_schema_v2(sqlite3* db)
 
 void create_schema_v3(sqlite3* db)
 {
+    PERF_MEASURE();
     create_schema_v2(db);
 
     exec(db, R"sql(
@@ -676,6 +704,7 @@ void create_schema_v3(sqlite3* db)
 
 void create_schema_v4(sqlite3* db)
 {
+    PERF_MEASURE();
     create_schema_v2(db);
 
     exec(db, R"sql(
@@ -696,6 +725,7 @@ void create_schema_v4(sqlite3* db)
 
 void create_schema_v5(sqlite3* db)
 {
+    PERF_MEASURE();
     create_schema_v4(db);
 
     exec(db, R"sql(
@@ -724,6 +754,7 @@ void create_schema_v5(sqlite3* db)
 
 void drop_all_tables(sqlite3* db)
 {
+    PERF_MEASURE();
     exec(db, "DROP TABLE IF EXISTS city_entity_dependencies");
     exec(db, "DROP TABLE IF EXISTS symbol_fields");
     exec(db, "DROP TABLE IF EXISTS city_modules");
@@ -734,12 +765,14 @@ void drop_all_tables(sqlite3* db)
 
 void create_schema_v6(sqlite3* db)
 {
+    PERF_MEASURE();
     create_schema_v5(db);
     exec(db, "PRAGMA user_version = 6");
 }
 
 void migrate_to_current_destructive(sqlite3* db)
 {
+    PERF_MEASURE();
     // The city DB is a derived cache, so a destructive migration is acceptable
     // here and simpler than preserving the old intermediate layout.
     drop_all_tables(db);
@@ -748,6 +781,7 @@ void migrate_to_current_destructive(sqlite3* db)
 
 void migrate_schema(sqlite3* db)
 {
+    PERF_MEASURE();
     int version = 0;
     {
         sqlite3_stmt* raw_stmt = nullptr;
@@ -805,6 +839,7 @@ CityDatabase::CityDatabase(CityDatabase&& other) noexcept
 
 CityDatabase& CityDatabase::operator=(CityDatabase&& other) noexcept
 {
+    PERF_MEASURE();
     if (this != &other)
     {
         delete impl_;
@@ -815,6 +850,7 @@ CityDatabase& CityDatabase::operator=(CityDatabase&& other) noexcept
 
 bool CityDatabase::open(const std::filesystem::path& path)
 {
+    PERF_MEASURE();
     if (!impl_)
         return false;
 
@@ -843,6 +879,7 @@ bool CityDatabase::open(const std::filesystem::path& path)
 
 void CityDatabase::close()
 {
+    PERF_MEASURE();
     if (!impl_)
         return;
     impl_->db.close();
@@ -873,6 +910,7 @@ const CityDbStats& CityDatabase::stats() const
 
 bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
 {
+    PERF_MEASURE();
     if (!impl_ || !impl_->db)
         return false;
 
@@ -1200,6 +1238,7 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
 
 std::vector<std::string> CityDatabase::list_modules() const
 {
+    PERF_MEASURE();
     std::vector<std::string> modules;
     if (!impl_ || !impl_->db)
         return modules;
@@ -1225,6 +1264,7 @@ std::vector<std::string> CityDatabase::list_modules() const
 
 std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_view module_path) const
 {
+    PERF_MEASURE();
     std::vector<CityClassRecord> rows;
     if (!impl_ || !impl_->db)
         return rows;
@@ -1272,6 +1312,7 @@ std::vector<CityClassRecord> CityDatabase::list_classes_in_module(std::string_vi
 
 std::vector<CityDependencyRecord> CityDatabase::list_class_dependencies_in_module(std::string_view module_path) const
 {
+    PERF_MEASURE();
     std::vector<CityDependencyRecord> rows;
     if (!impl_ || !impl_->db)
         return rows;
@@ -1315,6 +1356,7 @@ std::vector<CityDependencyRecord> CityDatabase::list_class_dependencies_in_modul
 
 CityModuleRecord CityDatabase::module_record(std::string_view module_path) const
 {
+    PERF_MEASURE();
     CityModuleRecord record;
     record.module_path = std::string(module_path);
     if (!impl_ || !impl_->db)
@@ -1349,6 +1391,7 @@ CityModuleRecord CityDatabase::module_record(std::string_view module_path) const
 
 CodebaseHealthMetrics CityDatabase::codebase_health() const
 {
+    PERF_MEASURE();
     CodebaseHealthMetrics health;
     if (!impl_ || !impl_->db)
         return health;

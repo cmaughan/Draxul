@@ -1,4 +1,5 @@
 #include <draxul/building_generator.h>
+#include <draxul/perf_timing.h>
 
 #include <algorithm>
 #include <array>
@@ -33,6 +34,7 @@ bool can_append_vertices(const GeometryMesh& mesh, size_t additional_vertices)
 
 RingContour make_ring_contour(int sides, float footprint, float scale)
 {
+    PERF_MEASURE();
     RingContour contour;
     const int clamped_sides = std::max(sides, 3);
     const float clamped_scale = std::max(scale, 0.05f);
@@ -71,6 +73,7 @@ RingContour make_ring_contour(int sides, float footprint, float scale)
 void append_side_strip(GeometryMesh& mesh, const RingContour& lower_contour, const RingContour& upper_contour,
     float lower_y, float upper_y, float total_height, const glm::vec3& color, uint32_t layer_id)
 {
+    PERF_MEASURE();
     if (lower_contour.points.size() != upper_contour.points.size() || lower_contour.points.size() < 3)
         return;
 
@@ -132,6 +135,7 @@ void append_side_strip(GeometryMesh& mesh, const RingContour& lower_contour, con
 void append_cap(GeometryMesh& mesh, const RingContour& contour, float y, bool top, const glm::vec3& color, float footprint,
     uint32_t layer_id)
 {
+    PERF_MEASURE();
     if (contour.points.size() < 3 || !can_append_vertices(mesh, contour.points.size() + 1))
         return;
 
@@ -182,6 +186,7 @@ void append_cap(GeometryMesh& mesh, const RingContour& contour, float y, bool to
 
 GeometryMesh generate_draxul_building(const DraxulBuildingParams& input_params)
 {
+    PERF_MEASURE();
     DraxulBuildingParams params = input_params;
     params.footprint = std::max(params.footprint, 0.1f);
     params.sides = std::max(params.sides, 3);
@@ -265,6 +270,7 @@ GeometryMesh generate_sidewalk_ring(
     int sides, float inner_radius, float outer_radius, float y, float height,
     const glm::vec3& color)
 {
+    PERF_MEASURE();
     GeometryMesh mesh;
     const RingContour inner = make_ring_contour(sides, inner_radius * 2.0f, 1.0f);
     const RingContour outer = make_ring_contour(sides, outer_radius * 2.0f, 1.0f);

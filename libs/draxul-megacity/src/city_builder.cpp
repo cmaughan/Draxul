@@ -97,6 +97,7 @@ uint8_t color_channel_to_byte(float value)
 
 DraxulTreeParams make_central_park_tree_params(const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     DraxulTreeParams params = make_tree_params_from_age(config.central_park_tree_age_years);
     params.seed = static_cast<uint64_t>(std::max(config.central_park_tree_seed, 0));
     params.overall_scale *= std::max(config.central_park_tree_overall_scale, 0.1f);
@@ -136,6 +137,7 @@ namespace
 
 TreeMetrics tree_metrics_from_mesh(const GeometryMesh& mesh)
 {
+    PERF_MEASURE();
     TreeMetrics metrics{};
     if (mesh.vertices.empty())
         return metrics;
@@ -161,6 +163,7 @@ TreeMetrics tree_metrics_from_mesh(const GeometryMesh& mesh)
 
 TreeMetrics tree_metrics_from_meshes(const GeometryMesh& bark_mesh, const GeometryMesh& leaf_mesh)
 {
+    PERF_MEASURE();
     TreeMetrics bark_metrics = tree_metrics_from_mesh(bark_mesh);
     if (!leaf_mesh.vertices.empty())
     {
@@ -180,6 +183,7 @@ std::shared_ptr<const GeometryMesh> build_procedural_building_mesh(
     const MegaCityCodeConfig& config,
     int sides)
 {
+    PERF_MEASURE();
     DraxulBuildingParams params;
     params.footprint = building.metrics.footprint;
     params.sides = std::max(sides, 3);
@@ -221,6 +225,7 @@ std::shared_ptr<const GeometryMesh> build_procedural_building_cap_mesh(
     int sides,
     float height)
 {
+    PERF_MEASURE();
     DraxulBuildingParams params;
     params.footprint = building.metrics.footprint;
     params.sides = std::max(sides, 3);
@@ -234,6 +239,7 @@ std::shared_ptr<const GeometryMesh> build_procedural_building_cap_mesh(
 
 std::shared_ptr<const GeometryMesh> build_building_roof_sign_mesh(const RoofSignPlacementSpec& placement)
 {
+    PERF_MEASURE();
     DraxulRoofSignParams params;
     params.sides = std::max(placement.sides, 3);
     params.inner_radius = std::max(placement.inner_radius, 0.05f);
@@ -249,6 +255,7 @@ void build_point_shadow_debug_scene(
     const std::shared_ptr<const GeometryMesh>& tree_leaf_mesh,
     const TreeMetrics& tree_metrics)
 {
+    PERF_MEASURE();
     world.create_road_surface(
         0.0f,
         0.0f,
@@ -345,6 +352,7 @@ std::string building_connection_key(
 
 std::unordered_map<std::string, int> build_incident_connection_counts(const SemanticMegacityModel& model)
 {
+    PERF_MEASURE();
     std::unordered_map<std::string, int> connection_counts;
     connection_counts.reserve(model.dependencies.size() * 2);
     for (const SemanticCityDependency& dependency : model.dependencies)
@@ -363,6 +371,7 @@ std::unordered_map<std::string, int> build_incident_connection_counts(const Sema
 
 std::string module_display_name(std::string_view module_path)
 {
+    PERF_MEASURE();
     const std::filesystem::path path(module_path);
     const std::string leaf = path.filename().string();
     return !leaf.empty() ? leaf : std::string(module_path);
@@ -372,6 +381,7 @@ float compute_building_sign_height(
     const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
     const MegaCityCodeConfig& config, float face_width)
 {
+    PERF_MEASURE();
     const float clamped_face_width = std::max(face_width, 0.1f);
     float sign_height = clamped_face_width * 0.25f;
 
@@ -414,6 +424,7 @@ RoofSignPlacementSpec place_building_roof_sign(
     const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
     const MegaCityCodeConfig& config, int sides)
 {
+    PERF_MEASURE();
     RoofSignPlacementSpec placement;
     placement.center = building.center;
     placement.sides = std::max(sides, 3);
@@ -443,6 +454,7 @@ std::array<SignPlacementSpec, 2> place_module_boundary_signs(
     const SemanticCityModuleLayout& module_layout, std::string_view text, const TextService* text_service,
     const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     const std::array<ModuleBoundarySignPlacement, 2> placements
         = build_module_boundary_sign_placements(module_layout, config);
 
@@ -474,6 +486,7 @@ SignLabelRequest make_sign_request(
     std::string key, std::string_view text, const SignPlacementSpec& placement,
     const TextService* text_service, const MegaCityCodeConfig& config, bool building_sign)
 {
+    PERF_MEASURE();
     int pixel_width;
     int pixel_height;
     if (text_service && !text.empty())
@@ -561,6 +574,7 @@ CityBuildResult build_city(
     const MegaCityCodeConfig& config,
     uint64_t& sign_label_revision)
 {
+    PERF_MEASURE();
     CityBuildResult result;
 
     std::vector<SemanticCityModuleInput> modules;
@@ -1002,6 +1016,7 @@ void emit_route_entities(
     const std::vector<CityGrid::RoutePolyline>& routes,
     const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     const float route_width = std::max(
         config.placement_step * kDependencyRouteWidthScale,
         kDependencyRouteMinWidth);

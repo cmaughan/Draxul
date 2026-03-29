@@ -25,6 +25,7 @@ struct GridSnapshot
 
 GridSnapshot capture_grid_snapshot(const Grid& grid, int cols, int rows)
 {
+    PERF_MEASURE();
     GridSnapshot snapshot;
     snapshot.cols = cols;
     snapshot.rows = rows;
@@ -39,6 +40,7 @@ GridSnapshot capture_grid_snapshot(const Grid& grid, int cols, int rows)
 
 void restore_grid_snapshot(Grid& grid, int dst_cols, int dst_rows, const GridSnapshot& snapshot)
 {
+    PERF_MEASURE();
     if (snapshot.empty())
         return;
 
@@ -280,6 +282,7 @@ void LocalTerminalHost::on_mouse_mode_changed(int mode, bool enable)
 
 LocalTerminalHost::GridPos LocalTerminalHost::pixel_to_cell(int px, int py) const
 {
+    PERF_MEASURE();
     auto [cell_w, cell_h] = renderer().cell_size_pixels();
     const int pad = renderer().padding();
     if (cell_w <= 0)

@@ -493,6 +493,7 @@ void TerminalHostBase::csi_margins(bool private_mode, const std::vector<int>& pa
 // Only touches %XX sequences; all other characters pass through unchanged.
 static std::string percent_decode(std::string_view encoded)
 {
+    PERF_MEASURE();
     std::string out;
     out.reserve(encoded.size());
     for (size_t i = 0; i < encoded.size(); ++i)
@@ -528,6 +529,7 @@ static std::string percent_decode(std::string_view encoded)
 // Returns the decoded absolute path, or empty string if the URI is malformed.
 static std::string extract_osc7_path(std::string_view uri)
 {
+    PERF_MEASURE();
     // Strip the "file://" prefix.
     constexpr std::string_view kFilePrefix = "file://";
     if (!uri.starts_with(kFilePrefix))

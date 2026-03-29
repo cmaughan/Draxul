@@ -1,3 +1,4 @@
+#include <draxul/perf_timing.h>
 #include <draxul/roof_sign_generator.h>
 
 #include <algorithm>
@@ -29,6 +30,7 @@ bool can_append_vertices(const GeometryMesh& mesh, size_t additional_vertices)
 
 SignContour make_sign_contour(int sides, float radius)
 {
+    PERF_MEASURE();
     SignContour contour;
     const int clamped_sides = std::max(sides, 3);
     const float clamped_radius = std::max(radius, 0.05f);
@@ -64,6 +66,7 @@ void append_quad(GeometryMesh& mesh, const std::array<glm::vec3, 4>& positions, 
     } },
     float tex_blend = 0.0f, const glm::vec3& color = glm::vec3(1.0f))
 {
+    PERF_MEASURE();
     if (!can_append_vertices(mesh, 4))
         return;
 
@@ -92,6 +95,7 @@ void append_quad(GeometryMesh& mesh, const std::array<glm::vec3, 4>& positions, 
 
 GeometryMesh generate_draxul_roof_sign(const DraxulRoofSignParams& input_params)
 {
+    PERF_MEASURE();
     DraxulRoofSignParams params = input_params;
     params.sides = std::max(params.sides, 3);
     params.inner_radius = std::max(params.inner_radius, 0.05f);

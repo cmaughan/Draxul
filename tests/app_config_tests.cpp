@@ -685,7 +685,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.building_middle_strip_push = 0.09f;
     current.building_alternate_darkening = 0.41f;
     current.overlay_mode = OverlayMode::Coverage;
-    current.performance_heat_log_scale = 9.5f;
+    current.performance_heat_log_scale = 75.0f;
     current.flat_color_roughness = 0.58f;
     current.flat_color_metallic = 0.27f;
     current.central_park_tree_age_years = 48.0f;

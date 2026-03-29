@@ -1,6 +1,7 @@
 #include "vk_pipeline.h"
 
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
 #include <fstream>
 #include <utility>
@@ -11,6 +12,7 @@ namespace draxul
 
 VkShaderModule VkPipelineManager::load_shader(VkDevice device, const std::string& path)
 {
+    PERF_MEASURE();
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
@@ -38,6 +40,7 @@ VkShaderModule VkPipelineManager::load_shader(VkDevice device, const std::string
 
 bool VkPipelineManager::initialize(VkDevice device, VkRenderPass render_pass, const std::string& shader_dir)
 {
+    PERF_MEASURE();
     const auto resolved_shader_dir = bundled_asset_path(shader_dir);
     auto bg_vert = load_shader(device, (resolved_shader_dir / "grid_bg.vert.spv").string());
     auto bg_frag = load_shader(device, (resolved_shader_dir / "grid_bg.frag.spv").string());
@@ -254,6 +257,7 @@ bool VkPipelineManager::initialize(VkDevice device, VkRenderPass render_pass, co
 
 void VkPipelineManager::shutdown(VkDevice device)
 {
+    PERF_MEASURE();
     reset_objects(device);
 }
 
@@ -271,6 +275,7 @@ void VkPipelineManager::swap(VkPipelineManager& other) noexcept
 
 void VkPipelineManager::reset_objects(VkDevice device)
 {
+    PERF_MEASURE();
     if (bg_pipeline_)
         vkDestroyPipeline(device, bg_pipeline_, nullptr);
     if (fg_pipeline_)

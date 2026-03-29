@@ -3,6 +3,7 @@
 #include <SDL3/SDL_vulkan.h>
 #include <VkBootstrap.h>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
@@ -35,6 +36,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_log_callback(
     const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
     void* /*user_data*/)
 {
+    PERF_MEASURE();
     const char* severity_text = vkb::to_string_message_severity(message_severity);
     const char* type_text = vkb::to_string_message_type(message_type);
     const char* message_id_name = callback_data && callback_data->pMessageIdName
@@ -75,6 +77,7 @@ const char* present_mode_name(VkPresentModeKHR mode)
 
 void destroy_swapchain_info(VkDevice device, VmaAllocator allocator, SwapchainInfo& swapchain)
 {
+    PERF_MEASURE();
     for (auto fb : swapchain.framebuffers)
         vkDestroyFramebuffer(device, fb, nullptr);
     for (auto iv : swapchain.depth_image_views)
@@ -95,6 +98,7 @@ void destroy_swapchain_info(VkDevice device, VmaAllocator allocator, SwapchainIn
 
 bool VkContext::initialize(SDL_Window* window)
 {
+    PERF_MEASURE();
     window_ = window;
 
     vkb::InstanceBuilder instance_builder;
@@ -183,6 +187,7 @@ bool VkContext::initialize(SDL_Window* window)
 
 VkFormat VkContext::choose_depth_format() const
 {
+    PERF_MEASURE();
     constexpr VkFormat candidates[] = {
         VK_FORMAT_D32_SFLOAT,
         VK_FORMAT_D16_UNORM,
@@ -201,6 +206,7 @@ VkFormat VkContext::choose_depth_format() const
 
 bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format, VkRenderPass& render_pass)
 {
+    PERF_MEASURE();
     VkAttachmentDescription color_attachment = {};
     color_attachment.format = color_format;
     color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -263,6 +269,7 @@ bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format,
 
 bool VkContext::create_depth_resources(SwapchainInfo& swapchain)
 {
+    PERF_MEASURE();
     swapchain.depth_images.clear();
     swapchain.depth_allocations.clear();
     swapchain.depth_image_views.clear();
@@ -321,6 +328,7 @@ bool VkContext::create_depth_resources(SwapchainInfo& swapchain)
 
 bool VkContext::recreate_swapchain(int width, int height)
 {
+    PERF_MEASURE();
     PendingSwapchainResources pending;
     if (!build_swapchain_resources(width, height, pending))
         return false;
@@ -331,6 +339,7 @@ bool VkContext::recreate_swapchain(int width, int height)
 
 bool VkContext::build_swapchain_resources(int width, int height, PendingSwapchainResources& pending)
 {
+    PERF_MEASURE();
     destroy_pending_swapchain_resources(pending);
 
     vkb::SwapchainBuilder sc_builder(physical_device_, device_, surface_);
@@ -411,6 +420,7 @@ bool VkContext::build_swapchain_resources(int width, int height, PendingSwapchai
 
 void VkContext::commit_swapchain_resources(PendingSwapchainResources&& pending)
 {
+    PERF_MEASURE();
     vkDeviceWaitIdle(device_);
 
     destroy_swapchain();
@@ -427,6 +437,7 @@ void VkContext::commit_swapchain_resources(PendingSwapchainResources&& pending)
 
 bool VkContext::create_framebuffers(SwapchainInfo& swapchain, VkRenderPass render_pass)
 {
+    PERF_MEASURE();
     swapchain.framebuffers.clear();
     swapchain.framebuffers.reserve(swapchain.image_views.size());
 
@@ -462,6 +473,7 @@ bool VkContext::create_framebuffers(SwapchainInfo& swapchain, VkRenderPass rende
 
 void VkContext::destroy_pending_swapchain_resources(PendingSwapchainResources& pending)
 {
+    PERF_MEASURE();
     if (pending.render_pass != VK_NULL_HANDLE)
     {
         vkDestroyRenderPass(device_, pending.render_pass, nullptr);
@@ -473,11 +485,13 @@ void VkContext::destroy_pending_swapchain_resources(PendingSwapchainResources& p
 
 void VkContext::destroy_swapchain()
 {
+    PERF_MEASURE();
     destroy_swapchain_info(device_, allocator_, swapchain_);
 }
 
 void VkContext::shutdown()
 {
+    PERF_MEASURE();
     if (device_)
         vkDeviceWaitIdle(device_);
 

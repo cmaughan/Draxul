@@ -1,5 +1,7 @@
 #include <draxul/mpack_codec.h>
 
+#include <draxul/perf_timing.h>
+
 #include <mpack.h>
 
 namespace draxul
@@ -10,6 +12,7 @@ namespace
 
 size_t estimate_value_size(const MpackValue& value)
 {
+    PERF_MEASURE();
     switch (value.type())
     {
     case MpackValue::Nil:
@@ -45,6 +48,7 @@ size_t estimate_value_size(const MpackValue& value)
 
 void write_value(mpack_writer_t* writer, const MpackValue& val)
 {
+    PERF_MEASURE();
     switch (val.type())
     {
     case MpackValue::Nil:
@@ -88,6 +92,7 @@ void write_value(mpack_writer_t* writer, const MpackValue& val)
 
 MpackValue read_value(mpack_reader_t* reader)
 {
+    PERF_MEASURE();
     MpackValue val;
     mpack_tag_t tag = mpack_read_tag(reader);
 
@@ -197,6 +202,7 @@ MpackValue read_value(mpack_reader_t* reader)
 
 bool encode_mpack_value(const MpackValue& value, std::vector<char>& out)
 {
+    PERF_MEASURE();
     out.assign(estimate_value_size(value), '\0');
 
     mpack_writer_t writer;
@@ -214,6 +220,7 @@ bool encode_mpack_value(const MpackValue& value, std::vector<char>& out)
 
 bool decode_mpack_value(std::span<const uint8_t> bytes, MpackValue& value, size_t* consumed)
 {
+    PERF_MEASURE();
     if (bytes.empty())
         return false;
 
@@ -239,6 +246,7 @@ bool decode_mpack_value(std::span<const uint8_t> bytes, MpackValue& value, size_
 bool encode_rpc_request(
     uint32_t msgid, const std::string& method, const std::vector<MpackValue>& params, std::vector<char>& out)
 {
+    PERF_MEASURE();
     MpackValue payload = NvimRpc::make_array({
         NvimRpc::make_uint(0),
         NvimRpc::make_uint(msgid),
@@ -251,6 +259,7 @@ bool encode_rpc_request(
 bool encode_rpc_notification(
     const std::string& method, const std::vector<MpackValue>& params, std::vector<char>& out)
 {
+    PERF_MEASURE();
     MpackValue payload = NvimRpc::make_array({
         NvimRpc::make_uint(2),
         NvimRpc::make_str(method),
@@ -262,6 +271,7 @@ bool encode_rpc_notification(
 bool encode_rpc_response(
     uint32_t msgid, const MpackValue& error, const MpackValue& result, std::vector<char>& out)
 {
+    PERF_MEASURE();
     MpackValue payload = NvimRpc::make_array({
         NvimRpc::make_uint(1),
         NvimRpc::make_uint(msgid),

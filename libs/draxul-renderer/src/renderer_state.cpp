@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -25,6 +26,7 @@ size_t RendererState::dirty_cell_size_bytes() const
 
 void RendererState::copy_dirty_cells_to(std::byte* dst) const
 {
+    PERF_MEASURE();
     if (!has_dirty_cells())
         return;
 
@@ -48,6 +50,7 @@ size_t RendererState::overlay_region_size_bytes() const
 
 void RendererState::copy_overlay_region_to(std::byte* dst) const
 {
+    PERF_MEASURE();
     if (!overlay_cells_.empty())
     {
         std::memcpy(dst, overlay_cells_.data(), overlay_cell_count_ * sizeof(GpuCell));
@@ -73,6 +76,7 @@ void RendererState::clear_dirty()
 
 void RendererState::set_grid_size(int cols, int rows, int padding)
 {
+    PERF_MEASURE();
     const int old_cols = grid_cols_;
     const int old_rows = grid_rows_;
 
@@ -130,6 +134,7 @@ void RendererState::set_grid_size(int cols, int rows, int padding)
 
 void RendererState::set_cell_size(int w, int h)
 {
+    PERF_MEASURE();
     if (w == cell_w_ && h == cell_h_)
         return;
     cell_w_ = w;
@@ -149,6 +154,7 @@ void RendererState::set_default_background(Color bg)
 
 void RendererState::apply_update_to_cell(GpuCell& cell, const CellUpdate& u) const
 {
+    PERF_MEASURE();
     cell = {};
     cell.pos = { (float)(u.col * cell_w_ + padding_), (float)(u.row * cell_h_ + padding_) };
     cell.size = { (float)cell_w_, (float)cell_h_ };
@@ -163,6 +169,7 @@ void RendererState::apply_update_to_cell(GpuCell& cell, const CellUpdate& u) con
 
 void RendererState::relayout()
 {
+    PERF_MEASURE();
     std::ranges::fill(gpu_cells_, GpuCell{});
     std::ranges::fill(overlay_cells_, GpuCell{});
 
@@ -185,6 +192,7 @@ void RendererState::relayout()
 
 void RendererState::update_cells(std::span<const CellUpdate> updates)
 {
+    PERF_MEASURE();
     restore_cursor();
 
     for (const auto& u : updates)
@@ -200,6 +208,7 @@ void RendererState::update_cells(std::span<const CellUpdate> updates)
 
 void RendererState::set_overlay_cells(std::span<const CellUpdate> updates)
 {
+    PERF_MEASURE();
     overlay_cell_count_ = std::min(updates.size(), OVERLAY_CELL_CAPACITY);
     std::ranges::fill(overlay_cells_, GpuCell{});
 
@@ -211,6 +220,7 @@ void RendererState::set_overlay_cells(std::span<const CellUpdate> updates)
 
 void RendererState::set_cursor(int col, int row, const CursorStyle& style)
 {
+    PERF_MEASURE();
     restore_cursor();
     cursor_col_ = col;
     cursor_row_ = row;
@@ -219,6 +229,7 @@ void RendererState::set_cursor(int col, int row, const CursorStyle& style)
 
 void RendererState::restore_cursor()
 {
+    PERF_MEASURE();
     if (!cursor_applied_)
         return;
 
@@ -239,6 +250,7 @@ void RendererState::restore_cursor()
 
 void RendererState::apply_cursor()
 {
+    PERF_MEASURE();
     if (cursor_col_ < 0 || cursor_col_ >= grid_cols_ || cursor_row_ < 0 || cursor_row_ >= grid_rows_)
         return;
 
@@ -287,6 +299,7 @@ void RendererState::apply_cursor()
 
 void RendererState::copy_to(std::byte* dst) const
 {
+    PERF_MEASURE();
     if (!gpu_cells_.empty())
     {
         std::memcpy(dst, gpu_cells_.data(), gpu_cells_.size() * sizeof(GpuCell));
@@ -309,6 +322,7 @@ void RendererState::mark_all_cells_dirty()
 
 void RendererState::mark_cell_dirty(size_t index)
 {
+    PERF_MEASURE();
     if (index >= gpu_cells_.size())
         return;
 

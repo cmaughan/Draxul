@@ -1,3 +1,4 @@
+#include <draxul/perf_timing.h>
 #include <draxul/tree_generator.h>
 
 #include <glm/common.hpp>
@@ -152,6 +153,7 @@ std::vector<uint32_t> build_arc_indices(
     int segment_span,
     bool reverse)
 {
+    PERF_MEASURE();
     std::vector<uint32_t> indices;
     indices.reserve(static_cast<size_t>(segment_span * 2 + 1));
     if (!reverse)
@@ -172,6 +174,7 @@ void append_double_sided_bridge(
     const std::vector<uint32_t>& edge_a,
     const std::vector<uint32_t>& edge_b)
 {
+    PERF_MEASURE();
     if (edge_a.size() != edge_b.size() || edge_a.size() < 2)
         return;
 
@@ -204,6 +207,7 @@ void append_attachment_bridge(
     uint32_t child_ring_start,
     int radial_segments)
 {
+    PERF_MEASURE();
     if (!attachment.enabled || radial_segments < 3)
         return;
 
@@ -241,6 +245,7 @@ void prepend_attachment_ring(
     float length,
     const BranchAttachment& attachment)
 {
+    PERF_MEASURE();
     if (!attachment.enabled || frames.size() < 2)
         return;
 
@@ -282,6 +287,7 @@ void append_double_sided_quad(
     const glm::vec3& color,
     const glm::vec4& uv_rect)
 {
+    PERF_MEASURE();
     if (!can_append_vertices(mesh, 8U))
         return;
 
@@ -334,6 +340,7 @@ void append_double_sided_quad(
 
 std::vector<float> build_ring_distances(const DraxulTreeParams& params, float length, float spacing_scale)
 {
+    PERF_MEASURE();
     std::vector<float> distances;
     distances.reserve(static_cast<size_t>(std::ceil(length / std::max(params.base_ring_spacing, 0.05f))) + 2U);
     distances.push_back(0.0f);
@@ -366,6 +373,7 @@ std::vector<BranchFrame> build_branch_frames(
     int depth,
     uint32_t branch_id)
 {
+    PERF_MEASURE();
     const float trunk_reference = std::max(params.trunk_length * params.overall_scale, 0.1f);
     const float spacing_scale = std::clamp(length / trunk_reference, 0.25f, 1.0f);
     const std::vector<float> distances = build_ring_distances(params, length, spacing_scale);
@@ -462,6 +470,7 @@ bool append_branch_rings(
     uint32_t& out_tip_ring_start,
     int radial_segments)
 {
+    PERF_MEASURE();
     const size_t branch_vertex_count = frames.size() * static_cast<size_t>(radial_segments + 1);
     if (!can_append_vertices(bark_mesh, branch_vertex_count))
         return false;
@@ -570,6 +579,7 @@ void append_branch_leaves(
     int depth,
     uint32_t branch_id)
 {
+    PERF_MEASURE();
     if (params.leaf_density <= 0.0f || frames.size() < 3 || depth < params.leaf_start_depth)
         return;
 
@@ -696,6 +706,7 @@ void append_branch(
     bool close_base,
     const BranchAttachment* attachment = nullptr)
 {
+    PERF_MEASURE();
     if (depth > params.max_branch_depth)
         return;
     if (length <= 0.1f || base_radius <= 0.01f)
@@ -854,6 +865,7 @@ bool append_cap(
     float v_coord,
     bool flip_winding)
 {
+    PERF_MEASURE();
     if (!can_append_vertices(mesh, 1U))
         return false;
 
@@ -891,6 +903,7 @@ bool append_cap(
 
 DraxulTreeParams make_tree_params_from_age(float age_years)
 {
+    PERF_MEASURE();
     DraxulTreeParams params;
     const float clamped_age = std::clamp(age_years, 0.5f, 40.0f);
     const float t = (clamped_age - 0.5f) / (40.0f - 0.5f);
@@ -920,6 +933,7 @@ DraxulTreeParams make_tree_params_from_age(float age_years)
 
 DraxulTreeMeshes generate_draxul_tree_meshes(const DraxulTreeParams& input_params)
 {
+    PERF_MEASURE();
     DraxulTreeMeshes meshes;
 
     DraxulTreeParams params = input_params;
@@ -976,6 +990,7 @@ DraxulTreeMeshes generate_draxul_tree_meshes(const DraxulTreeParams& input_param
 
 GeometryMesh generate_draxul_tree(const DraxulTreeParams& params)
 {
+    PERF_MEASURE();
     DraxulTreeMeshes split = generate_draxul_tree_meshes(params);
     GeometryMesh merged = std::move(split.bark_mesh);
     if (split.leaf_mesh.vertices.empty())

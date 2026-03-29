@@ -1,4 +1,5 @@
 #include <draxul/json_util.h>
+#include <draxul/perf_timing.h>
 #include <draxul/render_test.h>
 #include <draxul/text_service.h>
 #include <draxul/toml_support.h>
@@ -37,6 +38,7 @@ std::string normalized_path_string(const std::filesystem::path& path)
 
 std::string expand_placeholders(std::string value, const std::filesystem::path& scenario_dir)
 {
+    PERF_MEASURE();
     const std::array replacements = {
         std::pair<std::string_view, std::string>{ "${SCENARIO_DIR}", normalized_path_string(scenario_dir) },
         std::pair<std::string_view, std::string>{ "${PROJECT_ROOT}", normalized_path_string(std::filesystem::path{ DRAXUL_PROJECT_ROOT }) },
@@ -66,6 +68,7 @@ struct RenderDiff
 
 RenderDiff compare_frames(const CapturedFrame& actual, const CapturedFrame& reference, int tolerance, double threshold_pct)
 {
+    PERF_MEASURE();
     RenderDiff diff;
     diff.diff_image.width = actual.width;
     diff.diff_image.height = actual.height;
@@ -105,6 +108,7 @@ RenderDiff compare_frames(const CapturedFrame& actual, const CapturedFrame& refe
 bool write_report(const std::filesystem::path& path, const RenderTestScenario& scenario, const CapturedFrame& actual,
     const std::optional<CapturedFrame>& reference, const RenderDiff* diff, bool blessed)
 {
+    PERF_MEASURE();
     std::filesystem::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::trunc);
     if (!out)
@@ -137,6 +141,7 @@ bool write_report(const std::filesystem::path& path, const RenderTestScenario& s
 
 void write_failure_report(const std::filesystem::path& path, const RenderTestScenario& scenario, std::string_view error_message)
 {
+    PERF_MEASURE();
     std::filesystem::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::trunc);
     if (!out)
@@ -154,6 +159,7 @@ void write_failure_report(const std::filesystem::path& path, const RenderTestSce
 
 std::filesystem::path default_output_path(const std::filesystem::path& scenario_path, std::string_view stem_suffix, std::string_view extension)
 {
+    PERF_MEASURE();
     const auto scenario_dir = scenario_path.parent_path();
     const auto stem = scenario_path.stem().string();
     return scenario_dir / "out" / (stem + "." + platform_suffix() + std::string(stem_suffix) + std::string(extension));
@@ -183,6 +189,7 @@ std::filesystem::path RenderTestScenario::report_path() const
 
 AppOptions RenderTestScenario::make_app_options() const
 {
+    PERF_MEASURE();
     AppOptions options;
     options.load_user_config = false;
     options.save_user_config = false;
@@ -208,6 +215,7 @@ AppOptions RenderTestScenario::make_app_options() const
 
 std::optional<RenderTestScenario> load_render_test_scenario(const std::filesystem::path& path, std::string* error_message)
 {
+    PERF_MEASURE();
     std::string parse_error;
     auto document = toml_support::parse_file(path, &parse_error);
     if (!document)
@@ -300,6 +308,7 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
 
 bool finalize_render_test_result(const RenderTestScenario& scenario, const CapturedFrame& frame, bool bless_reference, std::string* error_message)
 {
+    PERF_MEASURE();
     if (!frame.valid())
     {
         if (error_message)
@@ -368,6 +377,7 @@ bool finalize_render_test_result(const RenderTestScenario& scenario, const Captu
 
 bool export_render_test_frame(const std::filesystem::path& path, const CapturedFrame& frame, std::string* error_message)
 {
+    PERF_MEASURE();
     if (!frame.valid())
     {
         if (error_message)
@@ -387,6 +397,7 @@ bool export_render_test_frame(const std::filesystem::path& path, const CapturedF
 
 void write_render_test_failure_report(const RenderTestScenario& scenario, std::string_view error_message)
 {
+    PERF_MEASURE();
     write_failure_report(scenario.report_path(), scenario, error_message);
 }
 

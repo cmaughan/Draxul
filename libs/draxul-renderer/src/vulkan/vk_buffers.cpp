@@ -1,6 +1,7 @@
 #include "vk_buffers.h"
 #include "vk_context.h"
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -12,6 +13,7 @@ bool VkGridBuffer::initialize(VkContext& ctx, size_t initial_size)
 
 void VkGridBuffer::shutdown(VmaAllocator allocator)
 {
+    PERF_MEASURE();
     if (buffer_.buffer)
     {
         vmaDestroyBuffer(allocator, buffer_.buffer, buffer_.allocation);
@@ -21,6 +23,7 @@ void VkGridBuffer::shutdown(VmaAllocator allocator)
 
 BufferResizeResult VkGridBuffer::ensure_size(VmaAllocator allocator, size_t required_size)
 {
+    PERF_MEASURE();
     return ensure_buffer_size(buffer_, required_size, [&](size_t requested_size, BufferState& replacement) {
             VkBufferCreateInfo buf_ci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             buf_ci.size = requested_size;
@@ -45,6 +48,7 @@ BufferResizeResult VkGridBuffer::ensure_size(VmaAllocator allocator, size_t requ
 
 void VkGridBuffer::flush_range(VmaAllocator allocator, VkDeviceSize offset, VkDeviceSize size) const
 {
+    PERF_MEASURE();
     if (buffer_.buffer == VK_NULL_HANDLE)
         return;
 
@@ -53,6 +57,7 @@ void VkGridBuffer::flush_range(VmaAllocator allocator, VkDeviceSize offset, VkDe
 
 bool VkStagingBuffer::initialize(VmaAllocator allocator, size_t size)
 {
+    PERF_MEASURE();
     VkBufferCreateInfo buf_ci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     buf_ci.size = size;
     buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -75,6 +80,7 @@ bool VkStagingBuffer::initialize(VmaAllocator allocator, size_t size)
 
 void VkStagingBuffer::shutdown(VmaAllocator allocator)
 {
+    PERF_MEASURE();
     if (buffer_)
     {
         vmaDestroyBuffer(allocator, buffer_, allocation_);

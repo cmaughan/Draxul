@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <draxul/perf_timing.h>
 #include <string_view>
 #include <utility>
 
@@ -45,6 +46,7 @@ void write_colored_pixel(uint8_t* dst, uint8_t alpha, uint8_t r, uint8_t g, uint
 
 std::string elide_label(std::string_view label, int max_pixel_width, int cell_width)
 {
+    PERF_MEASURE();
     if (label.empty())
         return {};
 
@@ -64,6 +66,7 @@ std::string elide_label(std::string_view label, int max_pixel_width, int cell_wi
 
 LabelBitmap rasterize_label(TextService& text_service, const SignLabelRequest& request)
 {
+    PERF_MEASURE();
     LabelBitmap bitmap;
     bitmap.width = std::max(1, request.target_pixel_width);
     bitmap.height = std::max(1, request.target_pixel_height);
@@ -156,6 +159,7 @@ LabelBitmap rasterize_label(TextService& text_service, const SignLabelRequest& r
 
 bool try_pack_labels(std::vector<PackedLabel>& labels, int atlas_width, int& atlas_height)
 {
+    PERF_MEASURE();
     int x = kAtlasPadding;
     int y = kAtlasPadding;
     int row_height = 0;
@@ -187,6 +191,7 @@ bool try_pack_labels(std::vector<PackedLabel>& labels, int atlas_width, int& atl
 std::shared_ptr<SignLabelAtlas> build_sign_label_atlas(
     TextService& text_service, const std::vector<SignLabelRequest>& requests, uint64_t revision)
 {
+    PERF_MEASURE();
     auto atlas = std::make_shared<SignLabelAtlas>();
     atlas->image.width = 1;
     atlas->image.height = 1;

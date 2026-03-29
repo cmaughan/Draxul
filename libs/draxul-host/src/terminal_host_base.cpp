@@ -74,6 +74,7 @@ void TerminalHostBase::pump()
 
 void TerminalHostBase::on_key(const KeyEvent& event)
 {
+    PERF_MEASURE();
     if (!event.pressed)
         return;
     const std::string sequence = encode_terminal_key(event, vt_);
@@ -216,6 +217,7 @@ void TerminalHostBase::leave_alt_screen()
 
 uint16_t TerminalHostBase::attr_id()
 {
+    PERF_MEASURE();
     if (!current_attr_.has_fg && !current_attr_.has_bg && !current_attr_.has_sp
         && !current_attr_.bold && !current_attr_.italic && !current_attr_.underline
         && !current_attr_.undercurl && !current_attr_.strikethrough && !current_attr_.reverse)
@@ -314,6 +316,7 @@ void TerminalHostBase::clear_cell(int col, int row)
 
 void TerminalHostBase::newline(bool carriage_return)
 {
+    PERF_MEASURE();
     if (carriage_return)
         vt_.col = 0;
     vt_.pending_wrap = false;
@@ -338,6 +341,7 @@ void TerminalHostBase::newline(bool carriage_return)
 
 void TerminalHostBase::write_cluster(const std::string& cluster)
 {
+    PERF_MEASURE();
     int width = cluster_cell_width(cluster);
 
     if (vt_.pending_wrap && vt_.auto_wrap_mode)
@@ -380,6 +384,7 @@ void TerminalHostBase::write_cluster(const std::string& cluster)
 
 void TerminalHostBase::erase_line(int mode)
 {
+    PERF_MEASURE();
     int start = 0;
     int end = grid_cols() - 1;
     if (mode == 0)
@@ -392,6 +397,7 @@ void TerminalHostBase::erase_line(int mode)
 
 void TerminalHostBase::erase_display(int mode)
 {
+    PERF_MEASURE();
     if (mode == 2)
     {
         grid().clear();
@@ -420,6 +426,7 @@ void TerminalHostBase::erase_display(int mode)
 
 void TerminalHostBase::on_osc_cwd(const std::string& path)
 {
+    PERF_MEASURE();
     // Show the last path component (directory name) as the window title,
     // matching the convention used by most terminal emulators.
     std::string_view sv = path;

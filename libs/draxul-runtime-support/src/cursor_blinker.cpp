@@ -1,10 +1,12 @@
 #include <draxul/cursor_blinker.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
 
 void CursorBlinker::restart(std::chrono::steady_clock::time_point now, bool busy, const BlinkTiming& timing)
 {
+    PERF_MEASURE();
     timing_ = timing;
 
     if (busy)
@@ -30,6 +32,7 @@ void CursorBlinker::restart(std::chrono::steady_clock::time_point now, bool busy
 
 bool CursorBlinker::advance(std::chrono::steady_clock::time_point now)
 {
+    PERF_MEASURE();
     if (!next_deadline_ || now < *next_deadline_)
         return false;
 

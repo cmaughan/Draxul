@@ -1,6 +1,7 @@
 #include "megacity_material_assets.h"
 
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -14,6 +15,7 @@ namespace
 
 LoadedTextureImage load_rgba8_image(const std::filesystem::path& path)
 {
+    PERF_MEASURE();
     LoadedTextureImage image;
     int width = 0;
     int height = 0;
@@ -48,6 +50,7 @@ LoadedTextureImage make_solid_rgba8(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 
 std::filesystem::path resolve_megacity_asset_path(const std::filesystem::path& relative_path)
 {
+    PERF_MEASURE();
     const auto bundled = bundled_asset_path(std::filesystem::path("assets/megacity") / relative_path);
     if (std::filesystem::exists(bundled))
         return bundled;
@@ -63,6 +66,7 @@ std::filesystem::path resolve_megacity_asset_path(const std::filesystem::path& r
 
 AsphaltRoadMaterialImages load_asphalt_road_material_images()
 {
+    PERF_MEASURE();
     AsphaltRoadMaterialImages images;
     images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/Asphalt023S_1K-JPG_Color.jpg"));
     images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/Asphalt023S_1K-JPG_NormalGL.jpg"));
@@ -73,6 +77,7 @@ AsphaltRoadMaterialImages load_asphalt_road_material_images()
 
 PavingSidewalkMaterialImages load_paving_sidewalk_material_images()
 {
+    PERF_MEASURE();
     PavingSidewalkMaterialImages images;
     images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/PavingStones111_1K-JPG_Color.jpg"));
     images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/PavingStones111_1K-JPG_NormalGL.jpg"));
@@ -83,6 +88,7 @@ PavingSidewalkMaterialImages load_paving_sidewalk_material_images()
 
 WoodBuildingMaterialImages load_wood_building_material_images()
 {
+    PERF_MEASURE();
     WoodBuildingMaterialImages images;
     images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/Bricks060_1K-JPG_Color.jpg"));
     images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/Bricks060_1K-JPG_NormalGL.jpg"));
@@ -94,6 +100,7 @@ WoodBuildingMaterialImages load_wood_building_material_images()
 
 BarkTreeMaterialImages load_bark_tree_material_images()
 {
+    PERF_MEASURE();
     BarkTreeMaterialImages images;
     images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/Bark014_1K-JPG_Color.jpg"));
     images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/Bark014_1K-JPG_NormalGL.jpg"));
@@ -104,6 +111,7 @@ BarkTreeMaterialImages load_bark_tree_material_images()
 
 LeafAtlasMaterialImages load_leaf_atlas_material_images()
 {
+    PERF_MEASURE();
     LeafAtlasMaterialImages images;
     images.albedo = load_rgba8_image(resolve_megacity_asset_path("textures/LeafSet023_1K-JPG_Color.jpg"));
     images.normal = load_rgba8_image(resolve_megacity_asset_path("textures/LeafSet023_1K-JPG_NormalGL.jpg"));

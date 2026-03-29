@@ -6,6 +6,7 @@
 #include <cctype>
 #include <draxul/app_config_types.h>
 #include <draxul/events.h>
+#include <draxul/perf_timing.h>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@ constexpr std::array<std::string_view, 9> kKnownGuiActions = {
 
 ModifierFlags normalize_gui_modifiers(ModifierFlags mod)
 {
+    PERF_MEASURE();
     // Collapse each L/R pair: if either Left or Right of a group is set, treat as
     // the full group mask. This ensures Right Ctrl matches a binding requiring kModCtrl,
     // Right Shift matches kModShift, etc.
@@ -51,6 +53,7 @@ bool is_known_gui_action(std::string_view action)
 
 bool equals_ignore_case(std::string_view lhs, std::string_view rhs)
 {
+    PERF_MEASURE();
     if (lhs.size() != rhs.size())
         return false;
 
@@ -64,6 +67,7 @@ bool equals_ignore_case(std::string_view lhs, std::string_view rhs)
 
 std::vector<std::string_view> split_key_combo(std::string_view combo)
 {
+    PERF_MEASURE();
     std::vector<std::string_view> trimmed_parts;
     size_t part_start = 0;
     while (part_start <= combo.size())
@@ -91,6 +95,7 @@ std::vector<std::string_view> split_key_combo(std::string_view combo)
 
 std::optional<ModifierFlags> parse_modifier_token(std::string_view token)
 {
+    PERF_MEASURE();
     if (equals_ignore_case(token, "ctrl") || equals_ignore_case(token, "control"))
         return kModCtrl;
     if (equals_ignore_case(token, "shift"))
@@ -104,6 +109,7 @@ std::optional<ModifierFlags> parse_modifier_token(std::string_view token)
 
 std::optional<int32_t> parse_key_token(std::string_view token)
 {
+    PERF_MEASURE();
     if (token.empty())
         return std::nullopt;
 
@@ -130,6 +136,7 @@ std::optional<int32_t> parse_key_token(std::string_view token)
 
 std::string format_key_token(int32_t key)
 {
+    PERF_MEASURE();
     switch (key)
     {
     case SDLK_EQUALS:
@@ -152,6 +159,7 @@ std::string format_key_token(int32_t key)
 // Returns {key, modifiers} or nullopt on failure.
 std::optional<std::pair<int32_t, ModifierFlags>> parse_key_half(std::string_view half)
 {
+    PERF_MEASURE();
     // Trim leading/trailing whitespace.
     while (!half.empty() && std::isspace(static_cast<unsigned char>(half.front())))
         half.remove_prefix(1);
@@ -182,6 +190,7 @@ std::optional<std::pair<int32_t, ModifierFlags>> parse_key_half(std::string_view
 
 std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::string_view combo)
 {
+    PERF_MEASURE();
     if (!is_known_gui_action(action))
         return std::nullopt;
 
@@ -206,6 +215,7 @@ std::optional<GuiKeybinding> parse_gui_keybinding(std::string_view action, std::
 
 std::string format_gui_keybinding_combo(int32_t key, ModifierFlags modifiers)
 {
+    PERF_MEASURE();
     std::string combo;
     ModifierFlags normalized = normalize_gui_modifiers(modifiers);
     auto append_modifier = [&](ModifierFlags flag, std::string_view name) {
@@ -229,6 +239,7 @@ std::string format_gui_keybinding_combo(int32_t key, ModifierFlags modifiers)
 
 bool gui_keybinding_matches(const GuiKeybinding& binding, const KeyEvent& event)
 {
+    PERF_MEASURE();
     ModifierFlags expected_modifiers = normalize_gui_modifiers(binding.modifiers);
     ModifierFlags event_modifiers = normalize_gui_modifiers(event.mod);
 
@@ -244,6 +255,7 @@ bool gui_keybinding_matches(const GuiKeybinding& binding, const KeyEvent& event)
 
 bool gui_prefix_matches(const GuiKeybinding& binding, const KeyEvent& event)
 {
+    PERF_MEASURE();
     if (binding.prefix_key == 0)
         return false;
     return event.keycode == binding.prefix_key

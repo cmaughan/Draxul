@@ -2,6 +2,7 @@
 
 #include "semantic_city_layout.h"
 
+#include <draxul/perf_timing.h>
 #include <imgui.h>
 
 namespace draxul
@@ -9,6 +10,7 @@ namespace draxul
 
 void render_city_map_panel(const std::shared_ptr<const CityGrid>& grid, bool building_in_progress)
 {
+    PERF_MEASURE();
     if (!ImGui::Begin("City Map"))
     {
         ImGui::End();

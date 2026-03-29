@@ -5,6 +5,7 @@
 #include <climits>
 #include <cstring>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -42,6 +43,7 @@ uint8_t unpremultiply_channel(uint8_t value, uint8_t alpha)
 
 bool bitmap_to_rgba(const FT_Bitmap& bmp, std::vector<uint8_t>& out, bool& is_color)
 {
+    PERF_MEASURE();
     auto width = (int)bmp.width;
     auto height = (int)bmp.rows;
     if (width <= 0 || height <= 0)
@@ -118,6 +120,7 @@ bool bitmap_to_rgba(const FT_Bitmap& bmp, std::vector<uint8_t>& out, bool& is_co
 
 void expand_dirty_rect(GlyphCache::DirtyRect& dirty_rect, bool dirty, int x, int y, int w, int h)
 {
+    PERF_MEASURE();
     if (!dirty)
     {
         dirty_rect = { { x, y }, { w, h } };
@@ -135,6 +138,7 @@ void expand_dirty_rect(GlyphCache::DirtyRect& dirty_rect, bool dirty, int x, int
 
 bool GlyphCache::initialize(FT_Face face, int pixel_size, int atlas_size)
 {
+    PERF_MEASURE();
     face_ = face;
     pixel_size_ = pixel_size;
     atlas_size_ = std::max(1, atlas_size);
@@ -152,6 +156,7 @@ bool GlyphCache::initialize(FT_Face face, int pixel_size, int atlas_size)
 
 void GlyphCache::reset(FT_Face face, int pixel_size)
 {
+    PERF_MEASURE();
     face_ = face;
     pixel_size_ = pixel_size;
     cluster_cache_.clear();
@@ -174,6 +179,7 @@ size_t GlyphCache::ClusterKeyHash::operator()(const ClusterKey& key) const
 
 const AtlasRegion& GlyphCache::get_cluster(const std::string& text, FT_Face face, TextShaper& shaper)
 {
+    PERF_MEASURE();
     if (text.empty() || text == " ")
         return empty_region_;
 
@@ -194,6 +200,7 @@ const AtlasRegion& GlyphCache::get_cluster(const std::string& text, FT_Face face
 
 bool GlyphCache::reserve_region(int w, int h, int& atlas_x, int& atlas_y, const char* label)
 {
+    PERF_MEASURE();
     if (w <= 0 || h <= 0)
         return false;
 
@@ -220,6 +227,7 @@ bool GlyphCache::reserve_region(int w, int h, int& atlas_x, int& atlas_y, const 
 
 bool GlyphCache::rasterize_cluster(const std::string& text, FT_Face face, TextShaper& shaper, AtlasRegion& region)
 {
+    PERF_MEASURE();
     auto shaped = shaper.shape(text);
     if (shaped.empty())
     {

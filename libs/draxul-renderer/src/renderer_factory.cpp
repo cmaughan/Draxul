@@ -3,6 +3,8 @@
 
 #include <draxul/renderer.h>
 
+#include <draxul/perf_timing.h>
+
 #ifdef __APPLE__
 #include "metal/metal_renderer.h"
 #else
@@ -14,6 +16,7 @@ namespace draxul
 
 RendererBundle create_renderer(int atlas_size, RendererOptions options)
 {
+    PERF_MEASURE();
 #ifdef __APPLE__
     return RendererBundle{ std::make_unique<MetalRenderer>(atlas_size, options) };
 #else

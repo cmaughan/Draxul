@@ -239,6 +239,7 @@ void InputDispatcher::set_host(IHost* host)
 
 void InputDispatcher::connect(IWindow& window)
 {
+    PERF_MEASURE();
     window.on_key = [this](const KeyEvent& e) { on_key_event(e); };
 
     window.on_text_input = [this](const TextInputEvent& event) {
@@ -281,6 +282,7 @@ void InputDispatcher::connect(IWindow& window)
 
 std::optional<std::string_view> InputDispatcher::gui_action_for_key_event(const KeyEvent& event) const
 {
+    PERF_MEASURE();
     if (!deps_.keybindings)
         return std::nullopt;
     for (const auto& binding : *deps_.keybindings)

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <draxul/bmp.h>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
 #include <draxul/render_test.h>
 #endif
@@ -32,6 +33,7 @@ namespace
 #ifdef _WIN32
 std::vector<std::string> command_line_args()
 {
+    PERF_MEASURE();
     std::vector<std::string> args;
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -56,6 +58,7 @@ std::vector<std::string> command_line_args()
 #else
 std::vector<std::string> command_line_args(int argc, char* argv[])
 {
+    PERF_MEASURE();
     std::vector<std::string> args;
     args.reserve(static_cast<size_t>(argc));
     for (int i = 0; i < argc; ++i)
@@ -89,6 +92,7 @@ struct ParsedArgs
 
 ParsedArgs parse_args(const std::vector<std::string>& args)
 {
+    PERF_MEASURE();
     ParsedArgs parsed;
     for (size_t i = 1; i < args.size(); ++i)
     {
@@ -165,6 +169,7 @@ ParsedArgs parse_args(const std::vector<std::string>& args)
 
 std::filesystem::path executable_dir(const std::vector<std::string>& args)
 {
+    PERF_MEASURE();
 #ifdef _WIN32
     std::wstring exe_path(MAX_PATH, L'\0');
     for (;;)
@@ -216,6 +221,7 @@ std::filesystem::path executable_dir(const std::vector<std::string>& args)
 
 static int draxul_main(std::vector<std::string> args)
 {
+    PERF_MEASURE();
     ParsedArgs parsed = parse_args(args);
 
 #ifdef _WIN32

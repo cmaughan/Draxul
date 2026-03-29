@@ -1,4 +1,5 @@
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/string_util.h>
 
 #include <algorithm>
@@ -58,6 +59,7 @@ LoggerState& state()
 
 bool stderr_is_interactive()
 {
+    PERF_MEASURE();
 #ifdef _WIN32
     int fd = _fileno(stderr);
     return GetConsoleWindow() != nullptr || (fd >= 0 && _isatty(fd));
@@ -68,6 +70,7 @@ bool stderr_is_interactive()
 
 std::optional<LogLevel> parse_log_level(std::string_view value)
 {
+    PERF_MEASURE();
     std::string lowered = draxul::ascii_lower(value);
     if (lowered == "error")
         return LogLevel::Error;
@@ -84,6 +87,7 @@ std::optional<LogLevel> parse_log_level(std::string_view value)
 
 std::optional<LogCategory> parse_log_category(std::string_view value)
 {
+    PERF_MEASURE();
     std::string lowered = draxul::ascii_lower(value);
     if (lowered == "app")
         return LogCategory::App;
@@ -106,6 +110,7 @@ std::optional<LogCategory> parse_log_category(std::string_view value)
 
 std::vector<LogCategory> parse_category_list(std::string_view value)
 {
+    PERF_MEASURE();
     std::vector<LogCategory> categories;
     size_t start = 0;
     while (start < value.size())
@@ -135,6 +140,7 @@ bool category_enabled(const LoggerState& logger_state, LogCategory category)
 
 void write_line(FILE* stream, LogLevel level, LogCategory category, const std::string& message)
 {
+    PERF_MEASURE();
     if (!stream)
         return;
 
@@ -195,6 +201,7 @@ LogLevel parse_log_level_or(std::string_view value, LogLevel fallback)
 
 void configure_logging(const LogOptions& options)
 {
+    PERF_MEASURE();
     auto& logger_state = state();
     std::scoped_lock lock(logger_state.mutex);
 
@@ -230,6 +237,7 @@ void configure_logging(const LogOptions& options)
 
 void configure_default_logging(const char* default_file_name, bool prefer_file_when_no_console)
 {
+    PERF_MEASURE();
     LogOptions options;
 
     // Hoist all getenv calls before using their results — avoids an observed
@@ -266,6 +274,7 @@ void configure_default_logging(const char* default_file_name, bool prefer_file_w
 
 void shutdown_logging()
 {
+    PERF_MEASURE();
     auto& logger_state = state();
     std::scoped_lock lock(logger_state.mutex);
     if (logger_state.file)
@@ -278,6 +287,7 @@ void shutdown_logging()
 
 bool log_would_emit(LogLevel level, LogCategory category)
 {
+    PERF_MEASURE();
     auto& logger_state = state();
     // Lock-free fast path: read atomic mirrors with relaxed ordering.
     // Exact ordering is not critical — log level changes are infrequent and
@@ -292,6 +302,7 @@ bool log_would_emit(LogLevel level, LogCategory category)
 
 void set_log_sink(LogSink sink)
 {
+    PERF_MEASURE();
     auto& logger_state = state();
     std::scoped_lock lock(logger_state.mutex);
     logger_state.sink = std::move(sink);
@@ -304,6 +315,7 @@ void clear_log_sink()
 
 void log_message(LogLevel level, LogCategory category, std::string_view message)
 {
+    PERF_MEASURE();
     auto& logger_state = state();
     std::scoped_lock lock(logger_state.mutex);
     if ((int)level > (int)logger_state.min_level || !category_enabled(logger_state, category))
@@ -328,6 +340,7 @@ void log_message(LogLevel level, LogCategory category, std::string_view message)
 
 void log_printf(LogLevel level, LogCategory category, const char* fmt, ...)
 {
+    PERF_MEASURE();
     va_list args;
     va_start(args, fmt);
 

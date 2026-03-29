@@ -199,6 +199,7 @@ size_t NvimRpc::notification_queue_depth() const
 
 void NvimRpc::dispatch_rpc_response(const std::vector<MpackValue>& msg_array)
 {
+    PERF_MEASURE();
     RpcResponse resp;
     resp.msgid = (uint32_t)msg_array[1].as_int();
     resp.error = msg_array[2];
@@ -211,6 +212,7 @@ void NvimRpc::dispatch_rpc_response(const std::vector<MpackValue>& msg_array)
 
 void NvimRpc::dispatch_rpc_request(const std::vector<MpackValue>& msg_array)
 {
+    PERF_MEASURE();
     auto req_msgid = (uint32_t)msg_array[1].as_int();
     std::string method = msg_array[2].as_str();
     std::vector<MpackValue> params;
@@ -229,6 +231,7 @@ void NvimRpc::dispatch_rpc_request(const std::vector<MpackValue>& msg_array)
 
 void NvimRpc::dispatch_rpc_notification(const std::vector<MpackValue>& msg_array)
 {
+    PERF_MEASURE();
     RpcNotification notif;
     notif.method = msg_array[1].as_str();
     if (msg_array[2].type() == MpackValue::Array)
@@ -276,6 +279,7 @@ void NvimRpc::dispatch_rpc_message(const MpackValue& msg)
 
 void NvimRpc::reader_thread_func()
 {
+    PERF_MEASURE();
     std::vector<uint8_t> accum;
     accum.reserve(1024 * 1024);
     size_t read_pos = 0;
@@ -337,6 +341,7 @@ void NvimRpc::reader_thread_func()
 
 void NvimRpc::reply_to_request(uint32_t msgid, const MpackValue& error, const MpackValue& result)
 {
+    PERF_MEASURE();
     std::vector<char> encoded;
     if (!encode_rpc_response(msgid, error, result, encoded))
     {

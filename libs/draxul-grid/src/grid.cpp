@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <draxul/grid.h>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/unicode.h>
 
 namespace draxul
@@ -26,6 +27,7 @@ void clear_continuation(Cell& cell)
 
 void Grid::resize(int cols, int rows)
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::resize");
     cols_ = cols;
     rows_ = rows;
@@ -37,6 +39,7 @@ void Grid::resize(int cols, int rows)
 
 void Grid::clear()
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::clear");
     dirty_cells_.clear();
     std::fill(dirty_marks_.begin(), dirty_marks_.end(), (uint8_t)0);
@@ -49,6 +52,7 @@ void Grid::clear()
 
 void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, bool double_width)
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::set_cell");
     if (col < 0 || col >= cols_ || row < 0 || row >= rows_)
         return;
@@ -108,6 +112,7 @@ const Cell& Grid::get_cell(int col, int row) const
 
 void Grid::scroll(int top, int bot, int left, int right, int rows, int cols)
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::scroll");
     if (rows == 0 && cols == 0)
         return;
@@ -243,6 +248,7 @@ bool Grid::is_dirty(int col, int row) const
 
 void Grid::mark_dirty(int col, int row)
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::mark_dirty");
     if (col < 0 || col >= cols_ || row < 0 || row >= rows_)
         return;
@@ -251,6 +257,7 @@ void Grid::mark_dirty(int col, int row)
 
 void Grid::mark_all_dirty()
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::mark_all_dirty");
     dirty_cells_.clear();
     std::fill(dirty_marks_.begin(), dirty_marks_.end(), (uint8_t)0);
@@ -260,6 +267,7 @@ void Grid::mark_all_dirty()
 
 void Grid::clear_dirty()
 {
+    PERF_MEASURE();
     thread_checker_.assert_main_thread("Grid::clear_dirty");
     for (auto& c : cells_)
         c.dirty = false;
@@ -274,6 +282,7 @@ std::vector<Grid::DirtyCell> Grid::get_dirty_cells() const
 
 void Grid::mark_dirty_index(int index)
 {
+    PERF_MEASURE();
     if (index < 0 || index >= (int)cells_.size())
         return;
 

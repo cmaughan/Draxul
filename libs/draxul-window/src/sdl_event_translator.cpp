@@ -1,10 +1,13 @@
 #include "sdl_event_translator.h"
 
+#include <draxul/perf_timing.h>
+
 namespace draxul::sdl
 {
 
 std::optional<KeyEvent> translate_key(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
         return std::nullopt;
     return KeyEvent{
@@ -17,6 +20,7 @@ std::optional<KeyEvent> translate_key(const SDL_Event& event)
 
 std::optional<TextInputEvent> translate_text_input(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_TEXT_INPUT)
         return std::nullopt;
     return TextInputEvent{ event.text.text };
@@ -24,6 +28,7 @@ std::optional<TextInputEvent> translate_text_input(const SDL_Event& event)
 
 std::optional<TextEditingEvent> translate_text_editing(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_TEXT_EDITING)
         return std::nullopt;
     return TextEditingEvent{ event.edit.text, event.edit.start, event.edit.length };
@@ -31,6 +36,7 @@ std::optional<TextEditingEvent> translate_text_editing(const SDL_Event& event)
 
 std::optional<MouseButtonEvent> translate_mouse_button(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
         return std::nullopt;
     // SDL3's SDL_MouseButtonEvent does not carry a modifier field. We sample the
@@ -47,6 +53,7 @@ std::optional<MouseButtonEvent> translate_mouse_button(const SDL_Event& event)
 
 std::optional<MouseMoveEvent> translate_mouse_move(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_MOUSE_MOTION)
         return std::nullopt;
     // SDL3's SDL_MouseMotionEvent does not carry a modifier field. We sample the
@@ -62,6 +69,7 @@ std::optional<MouseMoveEvent> translate_mouse_move(const SDL_Event& event)
 
 std::optional<MouseWheelEvent> translate_mouse_wheel(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_MOUSE_WHEEL)
         return std::nullopt;
     // SDL3's SDL_MouseWheelEvent does not carry a modifier field. We sample the
@@ -77,6 +85,7 @@ std::optional<MouseWheelEvent> translate_mouse_wheel(const SDL_Event& event)
 
 std::optional<WindowResizeEvent> translate_resize(SDL_Window* window, const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
         return std::nullopt;
     int pw, ph;
@@ -86,6 +95,7 @@ std::optional<WindowResizeEvent> translate_resize(SDL_Window* window, const SDL_
 
 std::optional<DisplayScaleEvent> translate_display_scale(SDL_Window* window, const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)
         return std::nullopt;
     float scale = SDL_GetWindowDisplayScale(window);
@@ -96,6 +106,7 @@ std::optional<DisplayScaleEvent> translate_display_scale(SDL_Window* window, con
 
 std::optional<std::string> translate_file_drop(const SDL_Event& event)
 {
+    PERF_MEASURE();
     if (event.type != SDL_EVENT_DROP_FILE || !event.drop.data)
         return std::nullopt;
     return std::string(event.drop.data);

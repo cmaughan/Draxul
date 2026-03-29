@@ -1,5 +1,7 @@
 #include "scene_world.h"
 
+#include <draxul/perf_timing.h>
+
 namespace draxul
 {
 
@@ -30,6 +32,7 @@ void SceneWorld::clear()
 
 void SceneWorld::clear_route_segments()
 {
+    PERF_MEASURE();
     std::vector<entt::entity> entities;
     auto view = registry_.view<RouteSegmentMetrics>();
     for (const entt::entity entity : view)
@@ -42,6 +45,7 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
     const BuildingMetrics& metrics, const glm::vec4& color, SourceSymbol source,
     MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -90,6 +94,7 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
 entt::entity SceneWorld::create_tree_bark(float world_x, float world_z, float elevation,
     const TreeMetrics& metrics, const glm::vec4& color, SourceSymbol source)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -113,6 +118,7 @@ entt::entity SceneWorld::create_tree_bark(float world_x, float world_z, float el
 entt::entity SceneWorld::create_tree_leaves(float world_x, float world_z, float elevation,
     const TreeMetrics& metrics, const glm::vec4& color, SourceSymbol source)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -136,6 +142,7 @@ entt::entity SceneWorld::create_tree_leaves(float world_x, float world_z, float 
 entt::entity SceneWorld::create_road(float world_x, float world_z,
     const RoadMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -159,6 +166,7 @@ entt::entity SceneWorld::create_road(float world_x, float world_z,
 entt::entity SceneWorld::create_road_surface(float world_x, float world_z,
     const RoadSurfaceMetrics& metrics, SourceSymbol source, float elevation)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -179,6 +187,7 @@ entt::entity SceneWorld::create_route_segment(float world_x, float world_z,
     const RouteSegmentMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation,
     RouteLink route_link)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -194,6 +203,7 @@ entt::entity SceneWorld::create_route_segment(float world_x, float world_z,
 entt::entity SceneWorld::create_module_surface(float world_x, float world_z,
     const ModuleSurfaceMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
@@ -214,6 +224,7 @@ entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevati
     const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source,
     std::shared_ptr<const GeometryMesh> custom_mesh)
 {
+    PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);

@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -17,6 +18,7 @@ constexpr size_t kAtlasPixelSize = 4;
 
 bool VkAtlas::initialize(VkContext& ctx, int atlas_size)
 {
+    PERF_MEASURE();
     atlas_size_ = atlas_size;
     VkDevice device = ctx.device();
 
@@ -86,6 +88,7 @@ bool VkAtlas::initialize(VkContext& ctx, int atlas_size)
 
 void VkAtlas::shutdown(VkContext& ctx)
 {
+    PERF_MEASURE();
     VkDevice device = ctx.device();
     for (auto& staging : staging_)
     {
@@ -105,6 +108,7 @@ void VkAtlas::shutdown(VkContext& ctx)
 
 bool VkAtlas::ensure_staging_capacity(VkContext& ctx, uint32_t frame_index, size_t required_size)
 {
+    PERF_MEASURE();
     return ensure_buffer_size(staging_[frame_index], required_size, [&](size_t requested_size, BufferState& replacement) {
             VkBufferCreateInfo buf_ci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             buf_ci.size = requested_size;
@@ -128,6 +132,7 @@ bool VkAtlas::ensure_staging_capacity(VkContext& ctx, uint32_t frame_index, size
 
 bool VkAtlas::transition_to_shader_read(VkContext& ctx)
 {
+    PERF_MEASURE();
     VkCommandBuffer cmd = begin_single_command(ctx);
     if (cmd == VK_NULL_HANDLE)
         return false;
@@ -155,6 +160,7 @@ bool VkAtlas::transition_to_shader_read(VkContext& ctx)
 
 VkCommandBuffer VkAtlas::begin_single_command(VkContext& ctx)
 {
+    PERF_MEASURE();
     VkCommandBufferAllocateInfo alloc_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     alloc_info.commandPool = cmd_pool_;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -176,6 +182,7 @@ VkCommandBuffer VkAtlas::begin_single_command(VkContext& ctx)
 
 bool VkAtlas::end_single_command(VkContext& ctx, VkCommandBuffer cmd)
 {
+    PERF_MEASURE();
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
     {
         vkFreeCommandBuffers(ctx.device(), cmd_pool_, 1, &cmd);
@@ -205,6 +212,7 @@ bool VkAtlas::end_single_command(VkContext& ctx, VkCommandBuffer cmd)
 bool VkAtlas::record_uploads(VkContext& ctx, VkCommandBuffer cmd, uint32_t frame_index,
     std::span<const PendingAtlasUpload> uploads)
 {
+    PERF_MEASURE();
     if (uploads.empty())
         return true;
 

@@ -12,6 +12,7 @@ namespace
 
 bool has_complete_codepoint(std::string_view text, size_t offset)
 {
+    PERF_MEASURE();
     if (offset >= text.size())
         return false;
 
@@ -30,6 +31,7 @@ bool has_complete_codepoint(std::string_view text, size_t offset)
 
 std::optional<std::string> consume_cluster(std::string_view text, size_t& offset)
 {
+    PERF_MEASURE();
     if (!has_complete_codepoint(text, offset))
         return std::nullopt;
 

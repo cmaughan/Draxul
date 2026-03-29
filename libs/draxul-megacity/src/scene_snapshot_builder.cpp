@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <draxul/megacity_code_config.h>
+#include <draxul/perf_timing.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
 #include <unordered_map>
@@ -43,6 +44,7 @@ std::string performance_heat_key(
 
 PerformanceHeatTable build_performance_heat_table(const LiveCityMetricsSnapshot* snapshot)
 {
+    PERF_MEASURE();
     PerformanceHeatTable table;
     if (!snapshot)
         return table;
@@ -107,6 +109,7 @@ PerformanceHeatTable build_performance_heat_table(const LiveCityMetricsSnapshot*
 
 SceneMaterial build_scene_material(const Appearance& appearance, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     SceneMaterial material;
     switch (appearance.material)
     {
@@ -205,6 +208,7 @@ bool same_scene_material(const SceneMaterial& lhs, const SceneMaterial& rhs)
 
 uint32_t find_or_append_material(SceneSnapshot& scene, const Appearance& appearance, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     const SceneMaterial candidate = build_scene_material(appearance, config);
     for (uint32_t index = 0; index < scene.materials.size(); ++index)
     {
@@ -221,6 +225,7 @@ uint32_t find_or_append_material(SceneSnapshot& scene, const Appearance& appeara
 
 uint32_t find_or_append_custom_mesh(SceneSnapshot& scene, const std::shared_ptr<const MeshData>& mesh)
 {
+    PERF_MEASURE();
     for (uint32_t index = 0; index < scene.custom_meshes.size(); ++index)
     {
         if (scene.custom_meshes[index].get() == mesh.get())
@@ -242,6 +247,7 @@ SceneSnapshotResult build_scene_snapshot(
     const std::shared_ptr<const MeshData>& tree_bark_mesh,
     const std::shared_ptr<const MeshData>& tree_leaf_mesh)
 {
+    PERF_MEASURE();
     SceneSnapshotResult result;
     SceneSnapshot& scene = result.snapshot;
     const PerformanceHeatTable performance_heat_table = build_performance_heat_table(live_metrics.get());
@@ -488,6 +494,7 @@ SceneSnapshotResult build_scene_snapshot(
 
 void sort_scene_objects(SceneSnapshot& scene)
 {
+    PERF_MEASURE();
     const glm::vec3 cam_pos(scene.camera.camera_pos);
 
     // Partition: opaque objects first, then transparent.

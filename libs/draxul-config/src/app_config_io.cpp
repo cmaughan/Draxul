@@ -1,5 +1,6 @@
 #include <draxul/app_config_types.h>
 #include <draxul/keybinding_parser.h>
+#include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
 #include <draxul/toml_support.h>
 
@@ -56,6 +57,7 @@ constexpr std::array<std::string_view, 14> kKnownTopLevelKeys = {
 
 std::filesystem::path config_path()
 {
+    PERF_MEASURE();
 #ifdef _WIN32
     const char* appdata = std::getenv("APPDATA");
     std::filesystem::path base = appdata ? appdata : ".";
@@ -92,6 +94,7 @@ int clamp_window_dimension(int value, int fallback, int min_value, int max_value
 
 int floor_to_power_of_two(int value)
 {
+    PERF_MEASURE();
     if (value <= 0)
         return 0;
     int result = 1;
@@ -102,6 +105,7 @@ int floor_to_power_of_two(int value)
 
 int parse_atlas_size(const toml::table& document, int fallback)
 {
+    PERF_MEASURE();
     if (auto parsed = toml_support::get_int(document, "atlas_size"); parsed.has_value())
     {
         auto clamped = static_cast<int>(std::clamp(*parsed, static_cast<int64_t>(kMinAtlasSize), static_cast<int64_t>(kMaxAtlasSize)));
@@ -112,12 +116,14 @@ int parse_atlas_size(const toml::table& document, int fallback)
 
 void replace_gui_keybinding(std::vector<GuiKeybinding>& bindings, GuiKeybinding binding)
 {
+    PERF_MEASURE();
     std::erase_if(bindings, [&binding](const GuiKeybinding& existing) { return existing.action == binding.action; });
     bindings.push_back(std::move(binding));
 }
 
 bool remove_gui_keybinding(std::vector<GuiKeybinding>& bindings, std::string_view action)
 {
+    PERF_MEASURE();
     const size_t original_size = bindings.size();
     std::erase_if(bindings, [action](const GuiKeybinding& existing) { return existing.action == action; });
     return bindings.size() != original_size;
@@ -125,6 +131,7 @@ bool remove_gui_keybinding(std::vector<GuiKeybinding>& bindings, std::string_vie
 
 const GuiKeybinding* first_binding_for_action(const std::vector<GuiKeybinding>& bindings, std::string_view action)
 {
+    PERF_MEASURE();
     auto it = std::find_if(bindings.begin(), bindings.end(),
         [&](const GuiKeybinding& binding) { return binding.action == action; });
     return it != bindings.end() ? &*it : nullptr;
@@ -132,6 +139,7 @@ const GuiKeybinding* first_binding_for_action(const std::vector<GuiKeybinding>& 
 
 float parse_font_size(const toml::table& document, float fallback)
 {
+    PERF_MEASURE();
     // Accept both integer (font_size = 14) and float (font_size = 14.5) TOML values.
     if (auto parsed = toml_support::get_double(document, "font_size"); parsed.has_value())
         return std::clamp(static_cast<float>(*parsed), TextService::MIN_POINT_SIZE, TextService::MAX_POINT_SIZE);
@@ -147,6 +155,7 @@ bool parse_enable_ligatures(const toml::table& document, bool fallback)
 
 void apply_gui_keybindings(AppConfig& config, const toml::table& keybindings)
 {
+    PERF_MEASURE();
     for (const auto& [action_key, value] : keybindings)
     {
         if (!value.is_string())
@@ -174,6 +183,7 @@ void apply_gui_keybindings(AppConfig& config, const toml::table& keybindings)
 
 void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
 {
+    PERF_MEASURE();
     if (auto fg = toml_support::get_string(terminal, "fg"))
     {
         if (auto parsed = parse_hex_color(*fg); parsed.has_value())
@@ -193,6 +203,7 @@ void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
 
 AppConfig config_from_toml(const toml::table& document)
 {
+    PERF_MEASURE();
     AppConfig config;
 
     // Warn on type mismatches for integer keys
@@ -328,6 +339,7 @@ AppConfig config_from_toml(const toml::table& document)
 // Returns std::nullopt on malformed input.
 std::optional<Color> parse_hex_color(std::string_view hex)
 {
+    PERF_MEASURE();
     if (hex.empty() || hex[0] != '#')
         return std::nullopt;
 
@@ -398,6 +410,7 @@ AppConfig::AppConfig()
 
 AppConfig AppConfig::parse(std::string_view content)
 {
+    PERF_MEASURE();
     if (auto document = toml_support::parse_document(content))
         return config_from_toml(*document);
     return {};
@@ -405,6 +418,7 @@ AppConfig AppConfig::parse(std::string_view content)
 
 std::string AppConfig::serialize() const
 {
+    PERF_MEASURE();
     toml::table document;
     document.insert_or_assign("window_width", clamp_window_dimension(window_width, AppConfig{}.window_width, kMinWindowWidth, kMaxWindowWidth));
     document.insert_or_assign("window_height", clamp_window_dimension(window_height, AppConfig{}.window_height, kMinWindowHeight, kMaxWindowHeight));
@@ -473,6 +487,7 @@ void AppConfig::save() const
 
 AppConfig AppConfig::load_from_path(const std::filesystem::path& path)
 {
+    PERF_MEASURE();
     try
     {
         if (!std::filesystem::exists(path))
@@ -505,6 +520,7 @@ AppConfig AppConfig::load_from_path(const std::filesystem::path& path)
 
 void AppConfig::save_to_path(const std::filesystem::path& path) const
 {
+    PERF_MEASURE();
     try
     {
         std::filesystem::create_directories(path.parent_path());
@@ -531,6 +547,7 @@ void AppConfig::save_to_path(const std::filesystem::path& path) const
 
 void apply_overrides(AppConfig& config, const AppConfigOverrides& overrides)
 {
+    PERF_MEASURE();
     // Helper: copy the override value into the destination if the optional holds a value.
     auto apply = [](auto& dest, const auto& src) {
         if (src)

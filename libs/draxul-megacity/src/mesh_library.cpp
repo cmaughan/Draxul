@@ -1,5 +1,6 @@
 #include "mesh_library.h"
 
+#include <draxul/perf_timing.h>
 #include <draxul/primitive_meshes.h>
 #include <draxul/tree_generator.h>
 
@@ -20,6 +21,7 @@ void append_quad(MeshData& mesh, const std::array<glm::vec3, 4>& positions, cons
                             } },
     float tex_blend = 0.0f)
 {
+    PERF_MEASURE();
     const uint16_t base = static_cast<uint16_t>(mesh.vertices.size());
     for (size_t i = 0; i < positions.size(); ++i)
     {
@@ -54,6 +56,7 @@ MeshData build_floor_box_mesh()
 
 MeshData build_tree_bark_mesh()
 {
+    PERF_MEASURE();
     DraxulTreeParams params = make_tree_params_from_age(40.0f);
     params.seed = 7;
     params.radial_segments = 12;
@@ -68,6 +71,7 @@ MeshData build_tree_bark_mesh()
 
 MeshData build_tree_leaf_mesh()
 {
+    PERF_MEASURE();
     DraxulTreeParams params = make_tree_params_from_age(40.0f);
     params.seed = 7;
     params.radial_segments = 12;
@@ -84,6 +88,7 @@ MeshData build_road_surface_mesh()
 
 MeshData build_roof_sign_mesh()
 {
+    PERF_MEASURE();
     MeshData mesh;
     mesh.vertices.reserve(24);
     mesh.indices.reserve(36);
@@ -148,6 +153,7 @@ MeshData build_roof_sign_mesh()
 
 MeshData build_wall_sign_mesh()
 {
+    PERF_MEASURE();
     MeshData mesh;
     mesh.vertices.reserve(24);
     mesh.indices.reserve(36);
@@ -212,6 +218,7 @@ MeshData build_wall_sign_mesh()
 
 MeshData build_grid_mesh(int width, int height, float tile_size)
 {
+    PERF_MEASURE();
     MeshData mesh;
     mesh.vertices.reserve(static_cast<size_t>(width * height * 4));
     mesh.indices.reserve(static_cast<size_t>(width * height * 6));
@@ -242,6 +249,7 @@ MeshData build_grid_mesh(int width, int height, float tile_size)
 
 MeshData build_outline_grid_mesh(const FloorGridSpec& spec)
 {
+    PERF_MEASURE();
     MeshData mesh;
     if (!spec.enabled || spec.max_x < spec.min_x || spec.max_z < spec.min_z || spec.tile_size <= 0.0f)
         return mesh;

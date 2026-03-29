@@ -1,5 +1,6 @@
 #include <draxul/config_document.h>
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <draxul/toml_support.h>
 
 #include <array>
@@ -34,6 +35,7 @@ constexpr std::array<std::string_view, 14> kCoreTopLevelKeys = {
 
 std::vector<std::string_view> split_dotted_path(std::string_view dotted_path)
 {
+    PERF_MEASURE();
     std::vector<std::string_view> parts;
     while (!dotted_path.empty())
     {
@@ -53,6 +55,7 @@ std::vector<std::string_view> split_dotted_path(std::string_view dotted_path)
 
 std::filesystem::path ConfigDocument::default_path()
 {
+    PERF_MEASURE();
 #ifdef _WIN32
     const char* appdata = std::getenv("APPDATA");
     std::filesystem::path base = appdata ? appdata : ".";
@@ -76,6 +79,7 @@ ConfigDocument ConfigDocument::load()
 
 ConfigDocument ConfigDocument::load_from_path(const std::filesystem::path& path)
 {
+    PERF_MEASURE();
     ConfigDocument document;
     try
     {
@@ -115,6 +119,7 @@ void ConfigDocument::save() const
 
 void ConfigDocument::save_to_path(const std::filesystem::path& path) const
 {
+    PERF_MEASURE();
     try
     {
         std::filesystem::create_directories(path.parent_path());
@@ -141,6 +146,7 @@ void ConfigDocument::save_to_path(const std::filesystem::path& path) const
 
 const toml::table* ConfigDocument::find_table(std::string_view dotted_path) const
 {
+    PERF_MEASURE();
     const toml::table* current = &document_;
     for (const std::string_view part : split_dotted_path(dotted_path))
     {
@@ -156,6 +162,7 @@ const toml::table* ConfigDocument::find_table(std::string_view dotted_path) cons
 
 toml::table& ConfigDocument::ensure_table(std::string_view dotted_path)
 {
+    PERF_MEASURE();
     toml::table* current = &document_;
     for (const std::string_view part : split_dotted_path(dotted_path))
     {
@@ -175,6 +182,7 @@ toml::table& ConfigDocument::ensure_table(std::string_view dotted_path)
 
 void ConfigDocument::merge_core_config(const AppConfig& config)
 {
+    PERF_MEASURE();
     std::string parse_error;
     auto parsed = toml_support::parse_document(config.serialize(), &parse_error);
     if (!parsed)

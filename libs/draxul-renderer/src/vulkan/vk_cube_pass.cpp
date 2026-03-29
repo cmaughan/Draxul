@@ -1,6 +1,7 @@
 #include "vk_cube_pass.h"
 
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 #include <fstream>
 #include <vector>
 
@@ -12,6 +13,7 @@ namespace
 
 VkShaderModule load_cube_shader(VkDevice device, const std::string& path)
 {
+    PERF_MEASURE();
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
@@ -41,6 +43,7 @@ VkShaderModule load_cube_shader(VkDevice device, const std::string& path)
 
 bool VkCubePass::create(VkDevice device, VkRenderPass render_pass, const std::string& shader_dir)
 {
+    PERF_MEASURE();
     auto vert = load_cube_shader(device, shader_dir + "/megacity_cube.vert.spv");
     auto frag = load_cube_shader(device, shader_dir + "/megacity_cube.frag.spv");
     if (!vert || !frag)
@@ -146,6 +149,7 @@ bool VkCubePass::create(VkDevice device, VkRenderPass render_pass, const std::st
 
 void VkCubePass::destroy(VkDevice device)
 {
+    PERF_MEASURE();
     if (pipeline != VK_NULL_HANDLE)
     {
         vkDestroyPipeline(device, pipeline, nullptr);

@@ -1,6 +1,7 @@
 #include "live_city_metrics.h"
 
 #include <algorithm>
+#include <draxul/perf_timing.h>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -72,6 +73,7 @@ void accumulate_perf_function(
     const RuntimePerfFunctionTiming& timing,
     bool coverage_mode)
 {
+    PERF_MEASURE();
     if (source_file_path.empty() || owner_qualified_name.empty() || function_name.empty())
         return;
 
@@ -89,6 +91,7 @@ void accumulate_perf_function_without_file(
     const RuntimePerfFunctionTiming& timing,
     bool coverage_mode)
 {
+    PERF_MEASURE();
     if (owner_qualified_name.empty() || function_name.empty())
         return;
 
@@ -106,6 +109,7 @@ struct PerfLookupSet
 
 PerfLookupSet build_perf_lookup(const RuntimePerfSnapshot* perf_snapshot, bool coverage_mode)
 {
+    PERF_MEASURE();
     PerfLookupSet lookup;
     if (!perf_snapshot)
         return lookup;
@@ -159,6 +163,7 @@ PerfFunctionLookup find_perf_function(
     std::string_view owner_qualified_name,
     std::string_view function_name)
 {
+    PERF_MEASURE();
     const auto exact_it = lookup.by_file.find(perf_function_key(source_file_path, owner_qualified_name, function_name));
     if (exact_it != lookup.by_file.end())
         return exact_it->second;
@@ -201,6 +206,7 @@ LiveCityPerfDebugFunction make_debug_function(const RuntimePerfFunctionTiming& t
 
 void sort_debug_functions(std::vector<LiveCityPerfDebugFunction>& functions)
 {
+    PERF_MEASURE();
     std::sort(
         functions.begin(),
         functions.end(),
@@ -225,6 +231,7 @@ LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
     const RuntimePerfSnapshot* perf_snapshot,
     bool coverage_mode)
 {
+    PERF_MEASURE();
     LiveCityMetricsSnapshot snapshot;
     snapshot.generation = perf_snapshot ? perf_snapshot->generation : 0;
     const auto perf_lookup = build_perf_lookup(perf_snapshot, coverage_mode);
@@ -286,6 +293,7 @@ LiveCityPerfDebugState build_live_city_perf_debug_state(
     const RuntimePerfSnapshot* perf_snapshot,
     bool coverage_mode)
 {
+    PERF_MEASURE();
     LiveCityPerfDebugState debug;
     if (!perf_snapshot)
     {

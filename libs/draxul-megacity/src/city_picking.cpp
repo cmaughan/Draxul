@@ -5,6 +5,7 @@
 #include "semantic_city_layout.h"
 #include <cmath>
 #include <draxul/megacity_code_config.h>
+#include <draxul/perf_timing.h>
 #include <glm/geometric.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
@@ -38,6 +39,7 @@ bool ray_triangle_intersect(
     const glm::vec3& v2,
     float& out_t)
 {
+    PERF_MEASURE();
     constexpr float kEpsilon = 1e-7f;
     const glm::vec3 edge1 = v1 - v0;
     const glm::vec3 edge2 = v2 - v0;
@@ -67,6 +69,7 @@ bool ray_triangle_intersect(
 
 std::vector<glm::vec2> make_building_contour_points(const SemanticCityBuilding& building, int sides, float scale)
 {
+    PERF_MEASURE();
     std::vector<glm::vec2> points;
     const int clamped_sides = std::max(sides, 3);
     const float half = std::max(building.metrics.footprint, 0.1f) * 0.5f * std::max(scale, 0.05f);
@@ -93,6 +96,7 @@ std::vector<glm::vec2> make_building_contour_points(const SemanticCityBuilding& 
 
 std::vector<PickingLevel> make_picking_levels(const SemanticCityBuilding& building, float base_elevation)
 {
+    PERF_MEASURE();
     std::vector<PickingLevel> levels;
     if (building.layers.empty())
     {
@@ -132,6 +136,7 @@ std::vector<PickingLevel> make_picking_levels(const SemanticCityBuilding& buildi
 
 std::unordered_map<std::string, int> build_incident_connection_counts(const SemanticMegacityModel& model)
 {
+    PERF_MEASURE();
     std::unordered_map<std::string, int> connection_counts;
     connection_counts.reserve(model.dependencies.size() * 2);
     auto key_for = [](std::string_view source_file_path, std::string_view module_path, std::string_view qualified_name) {
@@ -178,6 +183,7 @@ int building_side_count(
     const std::unordered_map<std::string, int>* incident_connection_counts,
     const MegaCityCodeConfig* config)
 {
+    PERF_MEASURE();
     if (!incident_connection_counts || !config)
         return 4;
 
@@ -202,6 +208,7 @@ void consider_triangle_hit(
     uint32_t layer_index,
     RayBuildingHit& best_hit)
 {
+    PERF_MEASURE();
     float t = 0.0f;
     if (!ray_triangle_intersect(ray_origin, ray_dir, a, b, c, t))
         return;
@@ -225,6 +232,7 @@ void consider_strip_hit(
     uint32_t layer_index,
     RayBuildingHit& best_hit)
 {
+    PERF_MEASURE();
     if (lower_contour.size() != upper_contour.size() || lower_contour.size() < 3)
         return;
 
@@ -248,6 +256,7 @@ void consider_top_cap_hit(
     uint32_t layer_index,
     RayBuildingHit& best_hit)
 {
+    PERF_MEASURE();
     if (contour.size() < 3)
         return;
 
@@ -274,6 +283,7 @@ std::optional<RayBuildingHit> ray_building_intersect(
     float base_elevation,
     float sign_extension)
 {
+    PERF_MEASURE();
     const std::vector<glm::vec2> outer_contour = make_building_contour_points(building, sides, 1.0f);
     const std::vector<glm::vec2> middle_contour = make_building_contour_points(building, sides, middle_strip_scale);
     if (outer_contour.size() < 3 || middle_contour.size() != outer_contour.size())
@@ -353,6 +363,7 @@ std::optional<PickResult> pick_building(
     const SemanticMegacityModel* model,
     const MegaCityCodeConfig* config)
 {
+    PERF_MEASURE();
     if (viewport_width <= 0 || viewport_height <= 0)
         return std::nullopt;
 

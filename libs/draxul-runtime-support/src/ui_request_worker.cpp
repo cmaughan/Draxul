@@ -1,12 +1,14 @@
 #include <draxul/ui_request_worker.h>
 
 #include <draxul/log.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
 
 void UiRequestWorker::start(IRpcChannel* rpc)
 {
+    PERF_MEASURE();
     stop();
     rpc_ = rpc;
     state_.start();
@@ -15,6 +17,7 @@ void UiRequestWorker::start(IRpcChannel* rpc)
 
 void UiRequestWorker::stop()
 {
+    PERF_MEASURE();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state_.stop();
@@ -27,6 +30,7 @@ void UiRequestWorker::stop()
 
 void UiRequestWorker::request_resize(int cols, int rows, std::string reason)
 {
+    PERF_MEASURE();
     bool accepted = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -38,6 +42,7 @@ void UiRequestWorker::request_resize(int cols, int rows, std::string reason)
 
 void UiRequestWorker::thread_main()
 {
+    PERF_MEASURE();
     while (true)
     {
         PendingResizeRequest request;

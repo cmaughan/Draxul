@@ -1,3 +1,4 @@
+#include <draxul/perf_timing.h>
 #include <draxul/primitive_meshes.h>
 
 #include <array>
@@ -16,6 +17,7 @@ void append_quad(GeometryMesh& mesh, const std::array<glm::vec3, 4>& positions, 
                                   { 0.0f, 1.0f },
                               } })
 {
+    PERF_MEASURE();
     const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
     for (size_t i = 0; i < positions.size(); ++i)
     {
@@ -40,6 +42,7 @@ void append_quad(GeometryMesh& mesh, const std::array<glm::vec3, 4>& positions, 
 
 GeometryMesh build_unit_cube_geometry()
 {
+    PERF_MEASURE();
     GeometryMesh mesh;
     mesh.vertices.reserve(24);
     mesh.indices.reserve(36);

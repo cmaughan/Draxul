@@ -486,6 +486,7 @@ void MegaCityHost::request_routes_for_focus(
     std::string focus_module_path,
     std::string focus_qualified_name)
 {
+    PERF_MEASURE();
     if (focus_qualified_name.empty() || !semantic_layout_ || !semantic_model_)
         return;
 
@@ -567,6 +568,7 @@ void MegaCityHost::consume_completed_routes()
 
 void MegaCityHost::refresh_available_modules()
 {
+    PERF_MEASURE();
     available_modules_.clear();
     if (city_db_.is_open())
         available_modules_ = city_db_.list_modules();
@@ -574,6 +576,7 @@ void MegaCityHost::refresh_available_modules()
 
 void MegaCityHost::sync_camera_state_to_configs()
 {
+    PERF_MEASURE();
     if (!camera_)
         return;
 
@@ -593,6 +596,7 @@ void MegaCityHost::sync_camera_state_to_configs()
 
 void MegaCityHost::reset_camera_to_default_frame()
 {
+    PERF_MEASURE();
     if (!camera_)
         return;
 
@@ -613,6 +617,7 @@ void MegaCityHost::on_focus_lost()
 
 void MegaCityHost::on_key(const KeyEvent& event)
 {
+    PERF_MEASURE();
     // F1 toggles UI panels (press only, not release)
     if (event.pressed
         && (event.scancode == SDL_SCANCODE_F1 || event.keycode == SDLK_F1))
@@ -651,6 +656,7 @@ void MegaCityHost::on_key(const KeyEvent& event)
 
 void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
 {
+    PERF_MEASURE();
     if (!camera_)
         return;
 
@@ -695,6 +701,7 @@ void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
 
 void MegaCityHost::on_mouse_button(const MouseButtonEvent& event)
 {
+    PERF_MEASURE();
     input_->on_mouse_button(event);
     if (!event.pressed && callbacks_)
         callbacks_->request_frame();
@@ -872,6 +879,7 @@ void MegaCityHost::attach_3d_renderer(I3DRenderer& renderer)
 
 void MegaCityHost::detach_3d_renderer()
 {
+    PERF_MEASURE();
     if (renderer_3d_)
     {
         renderer_3d_->unregister_render_pass();
@@ -941,6 +949,7 @@ std::string MegaCityHost::init_error() const
 
 void MegaCityHost::set_viewport(const HostViewport& viewport)
 {
+    PERF_MEASURE();
     viewport_ = viewport;
     pixel_w_ = viewport.pixel_size.x > 0 ? viewport.pixel_size.x : pixel_w_;
     pixel_h_ = viewport.pixel_size.y > 0 ? viewport.pixel_size.y : pixel_h_;
@@ -1616,6 +1625,7 @@ std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline
 
 bool MegaCityHost::dispatch_action(std::string_view action)
 {
+    PERF_MEASURE();
     if (action == "quit" || action == "request_quit")
     {
         running_ = false;
@@ -1736,6 +1746,7 @@ void MegaCityHost::handle_click(const glm::ivec2& screen_pos)
 
 bool MegaCityHost::update_hidden_hover_blend(float dt, std::chrono::steady_clock::time_point now)
 {
+    PERF_MEASURE();
     (void)now;
     if (selected_building_name_.empty())
     {
@@ -1839,6 +1850,7 @@ void MegaCityHost::apply_selection_opacity()
 
 void MegaCityHost::clear_selection()
 {
+    PERF_MEASURE();
     if (selected_building_name_.empty())
         return;
 

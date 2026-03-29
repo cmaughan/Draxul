@@ -11,4 +11,5 @@ target_include_directories(draxul-geometry PUBLIC
 
 target_link_libraries(draxul-geometry PUBLIC
     glm
+    draxul-types
 )

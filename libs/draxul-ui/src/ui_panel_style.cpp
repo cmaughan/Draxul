@@ -1,5 +1,6 @@
 #include "ui_panel_style.h"
 
+#include <draxul/perf_timing.h>
 #include <imgui.h>
 
 namespace draxul
@@ -7,6 +8,7 @@ namespace draxul
 
 void apply_panel_style()
 {
+    PERF_MEASURE();
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding = ImVec2(12.0f, 10.0f);
     style.FramePadding = ImVec2(8.0f, 5.0f);

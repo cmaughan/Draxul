@@ -1,5 +1,7 @@
 #include <draxul/terminal_key_encoder.h>
 
+#include <draxul/perf_timing.h>
+
 #include <SDL3/SDL_keycode.h>
 
 namespace draxul
@@ -7,6 +9,7 @@ namespace draxul
 
 std::string encode_terminal_key(const KeyEvent& event, const VtState& vt)
 {
+    PERF_MEASURE();
     if ((event.mod & kModCtrl) != 0 && event.keycode >= SDLK_A && event.keycode <= SDLK_Z)
         return std::string(1, static_cast<char>((event.keycode - SDLK_A) + 1));
 

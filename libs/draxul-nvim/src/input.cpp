@@ -1,6 +1,7 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <draxul/nvim_ui.h>
+#include <draxul/perf_timing.h>
 
 namespace draxul
 {
@@ -14,6 +15,7 @@ void NvimInput::initialize(IRpcChannel* rpc, int cell_w, int cell_h)
 
 void NvimInput::send_input(const std::string& keys)
 {
+    PERF_MEASURE();
     if (keys.empty())
         return;
     rpc_->notify("nvim_input", { NvimRpc::make_str(keys) });
@@ -21,6 +23,7 @@ void NvimInput::send_input(const std::string& keys)
 
 std::string NvimInput::mouse_modifiers(ModifierFlags mod) const
 {
+    PERF_MEASURE();
     std::string result;
     if (mod & kModShift)
         result += "S";
@@ -33,6 +36,7 @@ std::string NvimInput::mouse_modifiers(ModifierFlags mod) const
 
 std::string NvimInput::translate_key(int keycode, ModifierFlags mod) const
 {
+    PERF_MEASURE();
     std::string key;
 
     switch (keycode)
@@ -165,6 +169,7 @@ std::string NvimInput::translate_key(int keycode, ModifierFlags mod) const
 
 void NvimInput::on_key(const KeyEvent& event)
 {
+    PERF_MEASURE();
     if (!event.pressed)
         return;
 
@@ -186,6 +191,7 @@ void NvimInput::on_key(const KeyEvent& event)
 
 void NvimInput::on_text_input(const TextInputEvent& event)
 {
+    PERF_MEASURE();
     if (suppress_next_text_)
     {
         suppress_next_text_ = false;
@@ -210,6 +216,7 @@ void NvimInput::on_text_editing(const TextEditingEvent& event) const
 
 void NvimInput::paste_text(const std::string& text)
 {
+    PERF_MEASURE();
     if (text.empty())
         return;
 
@@ -238,6 +245,7 @@ int NvimInput::pixel_to_row(int y) const
 
 void NvimInput::on_mouse_button(const MouseButtonEvent& event)
 {
+    PERF_MEASURE();
     int grid_col = pixel_to_col(event.pos.x);
     int grid_row = pixel_to_row(event.pos.y);
 
@@ -276,6 +284,7 @@ void NvimInput::on_mouse_button(const MouseButtonEvent& event)
 
 void NvimInput::on_mouse_move(const MouseMoveEvent& event)
 {
+    PERF_MEASURE();
     if (!mouse_pressed_ || mouse_button_.empty())
         return;
 
@@ -288,6 +297,7 @@ void NvimInput::on_mouse_move(const MouseMoveEvent& event)
 
 void NvimInput::on_mouse_wheel(const MouseWheelEvent& event)
 {
+    PERF_MEASURE();
     int grid_col = pixel_to_col(event.pos.x);
     int grid_row = pixel_to_row(event.pos.y);
 

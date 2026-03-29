@@ -1,5 +1,6 @@
 #include "font_engine.h"
 #include <array>
+#include <draxul/perf_timing.h>
 #include <hb-ft.h>
 #include <utility>
 
@@ -8,11 +9,13 @@ namespace draxul
 
 TextShaper::TextShaper(TextShaper&& other) noexcept
 {
+    PERF_MEASURE();
     *this = std::move(other);
 }
 
 TextShaper& TextShaper::operator=(TextShaper&& other) noexcept
 {
+    PERF_MEASURE();
     if (this == &other)
         return *this;
 
@@ -29,11 +32,13 @@ TextShaper& TextShaper::operator=(TextShaper&& other) noexcept
 
 TextShaper::~TextShaper()
 {
+    PERF_MEASURE();
     shutdown();
 }
 
 void TextShaper::initialize(hb_font_t* font, bool enable_ligatures)
 {
+    PERF_MEASURE();
     shutdown();
     font_ = font;
     buffer_ = hb_buffer_create();
@@ -42,6 +47,7 @@ void TextShaper::initialize(hb_font_t* font, bool enable_ligatures)
 
 void TextShaper::shutdown()
 {
+    PERF_MEASURE();
     if (buffer_)
     {
         hb_buffer_destroy(buffer_);
@@ -51,6 +57,7 @@ void TextShaper::shutdown()
 
 std::vector<ShapedGlyph> TextShaper::shape(const std::string& text)
 {
+    PERF_MEASURE();
     std::vector<ShapedGlyph> result;
     if (!font_ || !buffer_)
         return result;

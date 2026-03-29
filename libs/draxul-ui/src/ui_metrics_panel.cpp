@@ -1,5 +1,6 @@
 #include "ui_metrics_panel.h"
 
+#include <draxul/perf_timing.h>
 #include <draxul/ui_panel.h>
 
 #include <algorithm>
@@ -19,6 +20,7 @@ constexpr ImGuiTableFlags kMetricTableFlags = ImGuiTableFlags_SizingStretchProp
 
 void help_marker(const char* text)
 {
+    PERF_MEASURE();
     if (!text || !text[0])
         return;
 
@@ -35,6 +37,7 @@ void help_marker(const char* text)
 
 bool begin_metric_table(const char* id)
 {
+    PERF_MEASURE();
     if (!ImGui::BeginTable(id, 2, kMetricTableFlags))
         return false;
 
@@ -45,6 +48,7 @@ bool begin_metric_table(const char* id)
 
 void metric_label(const char* label, const char* help = nullptr)
 {
+    PERF_MEASURE();
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
@@ -61,6 +65,7 @@ void metric_label(const char* label, const char* help = nullptr)
 
 void render_window_sections(const PanelLayout& layout, const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     if (ImGui::CollapsingHeader("Help", ImGuiTreeNodeFlags_None))
     {
         ImGui::TextWrapped(
@@ -103,6 +108,7 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
 
 void render_renderer_sections(const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     ImGui::SeparatorText("Frame");
     if (begin_metric_table("renderer_frame"))
     {
@@ -141,6 +147,7 @@ void render_renderer_sections(const DiagnosticPanelState& state)
 
 void render_startup_sections(const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
 #ifndef NDEBUG
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.35f, 0.35f, 1.0f));
     ImGui::TextUnformatted("DEBUG BUILD — timings are not representative of release performance");

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <draxul/perf_timing.h>
 #include <functional>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
@@ -49,6 +50,7 @@ int function_mass(const CityClassRecord& row)
 
 std::vector<SemanticBuildingLayer> build_function_layers(const CityClassRecord& row, const BuildingMetrics& metrics)
 {
+    PERF_MEASURE();
     struct FunctionEntry
     {
         std::string name;
@@ -167,6 +169,7 @@ float lot_half_extent_z(const LotRect& lot)
 template <typename Fn>
 bool for_each_spiral_candidate(const MegaCityCodeConfig& config, Fn&& fn)
 {
+    PERF_MEASURE();
     const float placement_step = std::max(config.placement_step, 0.01f);
     const int max_spiral_rings = std::max(config.max_spiral_rings, 1);
     if (!fn(glm::vec2(0.0f)))
@@ -202,6 +205,7 @@ bool for_each_spiral_candidate(const MegaCityCodeConfig& config, Fn&& fn)
 
 void push_candidate(std::vector<glm::vec2>& candidates, const glm::vec2& candidate)
 {
+    PERF_MEASURE();
     constexpr float kDuplicateEpsilon = 1e-4f;
     const bool duplicate = std::any_of(candidates.begin(), candidates.end(), [&](const glm::vec2& existing) {
         return std::abs(existing.x - candidate.x) <= kDuplicateEpsilon
@@ -215,6 +219,7 @@ void add_contact_candidates_for_side(
     std::vector<glm::vec2>& candidates, float fixed_axis, float center_axis, float overlap_limit, bool fixed_x,
     const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     constexpr int kMaxEdgeSamplesPerSide = 24;
     push_candidate(candidates, fixed_x ? glm::vec2(fixed_axis, center_axis) : glm::vec2(center_axis, fixed_axis));
 
@@ -239,6 +244,7 @@ void add_contact_candidates_for_side(
 std::vector<glm::vec2> touching_lot_candidates(
     const std::vector<LotRect>& reserved_lots, const LotRect& local_lot, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     std::vector<glm::vec2> candidates;
     if (reserved_lots.empty())
     {
@@ -417,6 +423,7 @@ std::string route_port_group_key(std::string_view building_key_value, PortSide s
 std::optional<BuildingRoutePort> make_building_route_port(
     const SemanticCityBuilding& building, PortSide side, float tangent_offset, const CityGrid& grid)
 {
+    PERF_MEASURE();
     (void)grid;
     const float half_footprint = building.metrics.footprint * 0.5f;
     const float road_center_offset = half_footprint + building.metrics.sidewalk_width + building.metrics.road_width * 0.5f;
@@ -459,6 +466,7 @@ std::vector<RoutePair> collect_route_pairs(
     std::string_view focus_module_path,
     std::string_view focus_qualified_name)
 {
+    PERF_MEASURE();
     std::unordered_map<std::string, const SemanticCityBuilding*> buildings_by_key;
     for (const auto& module_layout : layout.modules)
     {
@@ -513,6 +521,7 @@ struct AssignedRoutePorts
 std::vector<AssignedRoutePorts> assign_route_ports(
     const std::vector<RoutePair>& route_pairs, const CityGrid& grid)
 {
+    PERF_MEASURE();
     std::unordered_map<std::string, std::vector<RouteEndpointRequest>> groups;
     groups.reserve(route_pairs.size() * 2);
 
@@ -605,6 +614,7 @@ void append_point_if_new(std::vector<glm::vec2>& points, const glm::vec2& point)
 
 void simplify_polyline(std::vector<glm::vec2>& points)
 {
+    PERF_MEASURE();
     if (points.size() < 3)
         return;
 
@@ -691,6 +701,7 @@ bool segment_intersects_obstacle_interior(const glm::vec2& a, const glm::vec2& b
 
 std::vector<RouteObstacle> build_route_obstacles(const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     std::vector<RouteObstacle> obstacles;
     obstacles.reserve(layout.building_count() + layout.modules.size() * 3);
 
@@ -753,6 +764,7 @@ bool segment_visible_in_road_space(
 std::vector<glm::vec2> build_static_visibility_nodes(
     const CitySurfaceBounds& bounds, const std::vector<RouteObstacle>& obstacles)
 {
+    PERF_MEASURE();
     constexpr float kPointMergeEpsilon = 1e-4f;
 
     std::vector<glm::vec2> nodes;
@@ -793,6 +805,7 @@ std::vector<glm::vec2> build_static_visibility_nodes(
 VisibilityGraph build_visibility_graph(
     const CitySurfaceBounds& bounds, std::vector<RouteObstacle> obstacles)
 {
+    PERF_MEASURE();
     VisibilityGraph graph;
     graph.bounds = bounds;
     graph.obstacles = std::move(obstacles);
@@ -820,6 +833,7 @@ int add_visibility_endpoint_node(
     std::vector<std::vector<std::pair<int, float>>>& adjacency,
     const glm::vec2& point)
 {
+    PERF_MEASURE();
     constexpr float kPointMergeEpsilon = 1e-4f;
 
     if (!point_within_bounds(point, graph.bounds))
@@ -857,6 +871,7 @@ bool find_visibility_path(
     const glm::vec2& goal,
     std::vector<glm::vec2>& path_out)
 {
+    PERF_MEASURE();
     path_out.clear();
     if (!point_within_bounds(start, graph.bounds) || !point_within_bounds(goal, graph.bounds))
         return false;
@@ -932,6 +947,7 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
     std::string_view focus_module_path,
     std::string_view focus_qualified_name)
 {
+    PERF_MEASURE();
     (void)grid;
     const std::vector<RoutePair> route_pairs = collect_route_pairs(
         layout,
@@ -1033,6 +1049,7 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
 
 BuildingMetrics derive_building_metrics(const CityClassRecord& row, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     const float base = static_cast<float>(std::max(row.base_size, 0));
     const float mass = static_cast<float>(std::max(function_mass(row), 0));
     const float funcs = static_cast<float>(std::max(row.building_functions, 0));
@@ -1066,6 +1083,7 @@ bool is_test_semantic_source(std::string_view source_file_path)
 
 std::array<RoadSegmentPlacement, 4> build_sidewalk_segments(const SemanticCityBuilding& building)
 {
+    PERF_MEASURE();
     const float half_footprint = building.metrics.footprint * 0.5f;
     const float sidewalk_width = building.metrics.sidewalk_width;
     const float sidewalk_outer_span = building.metrics.footprint + 2.0f * sidewalk_width;
@@ -1093,6 +1111,7 @@ std::array<RoadSegmentPlacement, 4> build_sidewalk_segments(const SemanticCityBu
 
 std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuilding& building)
 {
+    PERF_MEASURE();
     const float half_footprint = building.metrics.footprint * 0.5f;
     const float sidewalk_width = building.metrics.sidewalk_width;
     const float road_width = building.metrics.road_width;
@@ -1122,6 +1141,7 @@ std::array<RoadSegmentPlacement, 4> build_road_segments(const SemanticCityBuildi
 
 float compute_module_border_width(const SemanticCityModuleLayout& module_layout, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     const float extent_x = module_layout.max_x - module_layout.min_x;
     const float extent_z = module_layout.max_z - module_layout.min_z;
     if (extent_x <= 1e-4f || extent_z <= 1e-4f)
@@ -1135,6 +1155,7 @@ float compute_module_border_width(const SemanticCityModuleLayout& module_layout,
 std::array<ModuleBoundarySignPlacement, 2> build_module_boundary_sign_placements(
     const SemanticCityModuleLayout& module_layout, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     ModuleBoundarySignPlacement south;
     ModuleBoundarySignPlacement north;
 
@@ -1162,6 +1183,7 @@ std::array<ModuleBoundarySignPlacement, 2> build_module_boundary_sign_placements
 
 CitySurfaceBounds compute_city_road_surface_bounds(const SemanticMegacityLayout& layout)
 {
+    PERF_MEASURE();
     CitySurfaceBounds bounds;
     bool have_bounds = false;
 
@@ -1206,6 +1228,7 @@ CitySurfaceBounds compute_city_road_surface_bounds(const SemanticMegacityLayout&
 SemanticCityModuleModel build_semantic_city_model(
     std::string_view module_path, const std::vector<CityClassRecord>& rows, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     SemanticCityModuleModel module_model;
     module_model.module_path = std::string(module_path);
     module_model.buildings.reserve(rows.size());
@@ -1251,6 +1274,7 @@ SemanticCityModuleModel build_semantic_city_model(
 SemanticMegacityModel build_semantic_megacity_model(
     const std::vector<SemanticCityModuleInput>& modules, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     SemanticMegacityModel model;
     model.modules.reserve(modules.size());
 
@@ -1285,6 +1309,7 @@ SemanticMegacityModel build_semantic_megacity_model(
 SemanticCityLayout build_semantic_city_layout(
     const SemanticCityModuleModel& module_model, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     SemanticCityLayout layout;
     if (module_model.empty())
         return layout;
@@ -1376,6 +1401,7 @@ SemanticCityLayout build_semantic_city_layout(
 SemanticMegacityLayout build_semantic_megacity_layout(
     const SemanticMegacityModel& model, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     struct ModuleCandidate
     {
         std::string module_path;
@@ -1557,6 +1583,7 @@ CityGrid build_city_grid(const SemanticMegacityLayout& layout, const MegaCityCod
 CityGrid build_city_grid(
     const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     CityGrid grid;
     if (layout.empty())
         return grid;
@@ -1670,6 +1697,7 @@ CityGrid build_city_grid(
 std::vector<CityGrid::RoutePolyline> build_city_routes(
     const SemanticMegacityLayout& layout, const SemanticMegacityModel& model, const MegaCityCodeConfig& config)
 {
+    PERF_MEASURE();
     const CityGrid routing_grid = build_city_grid(layout, config);
     return build_city_routes_from_grid(layout, model, routing_grid, config, {}, {}, {});
 }
@@ -1681,6 +1709,7 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_for_selection(
     std::string_view focus_module_path,
     std::string_view focus_qualified_name)
 {
+    PERF_MEASURE();
     if (focus_qualified_name.empty())
         return {};
     return build_city_routes_from_grid(
@@ -1696,6 +1725,7 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_for_selection(
 std::vector<CityGrid::RouteRenderSegment> build_city_route_render_segments(
     const std::vector<CityGrid::RoutePolyline>& routes, float lane_spacing)
 {
+    PERF_MEASURE();
     (void)lane_spacing;
 
     std::vector<CityGrid::RouteRenderSegment> segments;

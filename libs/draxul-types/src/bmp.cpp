@@ -1,4 +1,5 @@
 #include <draxul/bmp.h>
+#include <draxul/perf_timing.h>
 
 #include <cmath>
 #include <cstdint>
@@ -38,6 +39,7 @@ void append_i32(std::vector<uint8_t>& out, int32_t value)
 
 bool write_bmp_rgba(const std::filesystem::path& path, const CapturedFrame& frame)
 {
+    PERF_MEASURE();
     if (!frame.valid())
         return false;
 
@@ -82,6 +84,7 @@ bool write_bmp_rgba(const std::filesystem::path& path, const CapturedFrame& fram
 
 std::optional<CapturedFrame> read_bmp_rgba(const std::filesystem::path& path)
 {
+    PERF_MEASURE();
     std::ifstream in(path, std::ios::binary);
     if (!in)
         return std::nullopt;

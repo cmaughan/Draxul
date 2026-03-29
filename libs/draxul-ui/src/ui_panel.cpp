@@ -2,6 +2,7 @@
 
 #include "ui_metrics_panel.h"
 #include "ui_panel_style.h"
+#include <draxul/perf_timing.h>
 #include <draxul/sdl_imgui_input.h>
 
 #include <algorithm>
@@ -24,6 +25,7 @@ constexpr const char* kStartupWindowName = "Startup";
 
 bool create_dock_space()
 {
+    PERF_MEASURE();
     const ImGuiID dockspace_id = ImGui::GetID(kDockspaceName);
     const bool first_render = ImGui::DockBuilderGetNode(dockspace_id) == nullptr;
 
@@ -52,6 +54,7 @@ bool create_dock_space()
 
 void render_window_tab(const PanelLayout& layout, const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     if (ImGui::Begin(kWindowTabName, nullptr, ImGuiWindowFlags_NoFocusOnAppearing))
         render_window_sections(layout, state);
     ImGui::End();
@@ -59,6 +62,7 @@ void render_window_tab(const PanelLayout& layout, const DiagnosticPanelState& st
 
 void render_renderer_window(const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     if (ImGui::Begin(kRendererWindowName, nullptr, ImGuiWindowFlags_NoFocusOnAppearing))
         render_renderer_sections(state);
     ImGui::End();
@@ -66,6 +70,7 @@ void render_renderer_window(const DiagnosticPanelState& state)
 
 void render_startup_window(const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     if (ImGui::Begin(kStartupWindowName, nullptr, ImGuiWindowFlags_NoFocusOnAppearing))
         render_startup_sections(state);
     ImGui::End();
@@ -73,6 +78,7 @@ void render_startup_window(const DiagnosticPanelState& state)
 
 void render_panel_windows(const PanelLayout& layout, const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     if (!layout.visible || layout.panel_height <= 0)
         return;
 
@@ -122,6 +128,7 @@ struct UiPanel::Impl
 
 PanelLayout compute_panel_layout(int pixel_w, int pixel_h, int cell_w, int cell_h, int padding, bool visible, float pixel_scale)
 {
+    PERF_MEASURE();
     PanelLayout layout;
     layout.visible = visible;
     layout.pixel_scale = pixel_scale > 0.0f ? pixel_scale : 1.0f;
@@ -170,11 +177,13 @@ UiPanel::UiPanel()
 
 UiPanel::~UiPanel()
 {
+    PERF_MEASURE();
     shutdown();
 }
 
 bool UiPanel::initialize()
 {
+    PERF_MEASURE();
     if (impl_->context)
         return true;
 
@@ -197,12 +206,14 @@ bool UiPanel::initialize()
 
 void UiPanel::activate_imgui_context()
 {
+    PERF_MEASURE();
     if (impl_->context)
         ImGui::SetCurrentContext(impl_->context);
 }
 
 void UiPanel::shutdown()
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return;
 
@@ -213,6 +224,7 @@ void UiPanel::shutdown()
 
 void UiPanel::set_font(const std::string& font_path, float size_pixels)
 {
+    PERF_MEASURE();
     impl_->font_path = font_path;
     impl_->font_size_pixels = size_pixels;
 
@@ -257,12 +269,14 @@ const PanelLayout& UiPanel::layout() const
 
 void UiPanel::update_diagnostic_state(const DiagnosticPanelState& state)
 {
+    PERF_MEASURE();
     impl_->debug_state = state;
     impl_->debug_state.visible = impl_->layout.visible;
 }
 
 void UiPanel::begin_frame(float delta_seconds)
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return;
 
@@ -275,6 +289,7 @@ void UiPanel::begin_frame(float delta_seconds)
 
 const ImDrawData* UiPanel::render()
 {
+    PERF_MEASURE();
     if (!impl_->context || !impl_->layout.visible || impl_->layout.panel_height <= 0)
         return nullptr;
 
@@ -285,6 +300,7 @@ const ImDrawData* UiPanel::render()
 
 const ImDrawData* UiPanel::end_frame() const
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return nullptr;
 
@@ -300,6 +316,7 @@ void UiPanel::render_into_current_context() const
 
 void UiPanel::on_mouse_move(const MouseMoveEvent& event)
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return;
 
@@ -310,6 +327,7 @@ void UiPanel::on_mouse_move(const MouseMoveEvent& event)
 
 void UiPanel::on_mouse_button(const MouseButtonEvent& event)
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return;
 
@@ -337,6 +355,7 @@ void UiPanel::on_mouse_button(const MouseButtonEvent& event)
 
 void UiPanel::on_mouse_wheel(const MouseWheelEvent& event)
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return;
 
@@ -346,6 +365,7 @@ void UiPanel::on_mouse_wheel(const MouseWheelEvent& event)
 
 void UiPanel::on_text_input(const TextInputEvent& event)
 {
+    PERF_MEASURE();
     if (!impl_->context || event.text.empty())
         return;
 
@@ -355,6 +375,7 @@ void UiPanel::on_text_input(const TextInputEvent& event)
 
 void UiPanel::on_key(const KeyEvent& event)
 {
+    PERF_MEASURE();
     if (!impl_->context)
         return;
 
