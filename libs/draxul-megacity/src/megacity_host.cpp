@@ -309,7 +309,7 @@ void MegaCityHost::route_worker_loop()
         RouteBuildRequest request;
         {
             std::unique_lock<std::mutex> lock(route_mutex_);
-            route_cv_.wait(lock, [&]() {
+            route_cv_.wait(lock, [this]() {
                 return route_worker_stop_ || pending_route_request_.has_value();
             });
             if (route_worker_stop_)

@@ -21,9 +21,7 @@ constexpr float kLeafAtlasScatteringStrength = 0.85f;
 
 } // namespace
 
-SceneWorld::SceneWorld()
-{
-}
+SceneWorld::SceneWorld() = default;
 
 void SceneWorld::clear()
 {

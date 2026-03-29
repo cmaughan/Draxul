@@ -1074,8 +1074,8 @@ CityBuildResult build_city(
                     building.qualified_name)]
                     = building.center;
 
-        for (auto& module : semantic_model->modules)
-            for (auto& building : module.buildings)
+        for (auto& mod : semantic_model->modules)
+            for (auto& building : mod.buildings)
             {
                 auto it = layout_centers.find(building_connection_key(
                     building.source_file_path,
