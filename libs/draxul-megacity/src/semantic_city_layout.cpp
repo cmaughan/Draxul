@@ -1004,7 +1004,7 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
         workers.reserve(worker_count);
         for (size_t worker_index = 0; worker_index < worker_count; ++worker_index)
         {
-            workers.emplace_back([&]() {
+            workers.emplace_back([&next_route_index, &route_pairs, &solve_route]() {
                 while (true)
                 {
                     const size_t route_index = next_route_index.fetch_add(1);
@@ -1332,7 +1332,7 @@ SemanticCityLayout build_semantic_city_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate(config, [&](const glm::vec2& center) {
+            for_each_spiral_candidate(config, [&reserved_lots, &local_lot, &chosen_center, &chosen_lot, &placed](const glm::vec2& center) {
                 if (!try_place_candidate(reserved_lots, local_lot, center, chosen_center, chosen_lot))
                     return true;
 
@@ -1488,7 +1488,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate(config, [&](const glm::vec2& offset) {
+            for_each_spiral_candidate(config, [&reserved_modules, &candidate, &chosen_offset, &chosen_lot, &placed](const glm::vec2& offset) {
                 if (!try_place_candidate(reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
                     return true;
 
@@ -1612,7 +1612,7 @@ CityGrid build_city_grid(
     }
 
     // Pass 2: sidewalks (overwrites roads within sidewalk areas)
-    for_each_building([&](const SemanticCityBuilding& building) {
+    for_each_building([&fill_rect](const SemanticCityBuilding& building) {
         const auto sidewalks = build_sidewalk_segments(building);
         for (const auto& sw : sidewalks)
             fill_rect(
@@ -1643,7 +1643,7 @@ CityGrid build_city_grid(
     }
 
     // Pass 3: building footprints + parks (parks never overlap buildings)
-    for_each_building([&](const SemanticCityBuilding& building) {
+    for_each_building([&fill_rect](const SemanticCityBuilding& building) {
         const float half_fp = building.metrics.footprint * 0.5f;
         const float cx = building.center.x;
         const float cz = building.center.y; // center.y is world Z

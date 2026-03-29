@@ -96,12 +96,12 @@ inline std::optional<glm::vec2> get_vec2(const toml::table& table, std::string_v
     glm::vec2 value{ 0.0f };
     for (size_t i = 0; i < 2; ++i)
     {
-        if (auto parsed = (*arr)[i].value<double>())
+        if (auto parsed = (*arr)[i].value<double>(); parsed.has_value())
         {
             value[i] = static_cast<float>(*parsed);
             continue;
         }
-        if (auto parsed = (*arr)[i].value<int64_t>())
+        if (auto parsed = (*arr)[i].value<int64_t>(); parsed.has_value())
         {
             value[i] = static_cast<float>(*parsed);
             continue;
@@ -133,12 +133,12 @@ inline std::optional<glm::vec3> get_vec3(const toml::table& table, std::string_v
     glm::vec3 value{ 0.0f };
     for (size_t i = 0; i < 3; ++i)
     {
-        if (auto parsed = (*arr)[i].value<double>())
+        if (auto parsed = (*arr)[i].value<double>(); parsed.has_value())
         {
             value[i] = static_cast<float>(*parsed);
             continue;
         }
-        if (auto parsed = (*arr)[i].value<int64_t>())
+        if (auto parsed = (*arr)[i].value<int64_t>(); parsed.has_value())
         {
             value[i] = static_cast<float>(*parsed);
             continue;
