@@ -186,6 +186,19 @@ vec3 performance_heat_color(float heat)
     return mix(vec3(0.98, 0.84, 0.18), vec3(0.92, 0.20, 0.16), (heat - 0.5) * 2.0);
 }
 
+float performance_heat_blend(float heat)
+{
+    heat = clamp(heat, 0.0, 1.0);
+    if (heat <= 0.0)
+        return 0.0;
+    return clamp(0.20 + 0.80 * sqrt(heat), 0.0, 1.0);
+}
+
+float performance_heat_display_value(float heat)
+{
+    return clamp(heat, 0.0, 1.0);
+}
+
 void main()
 {
     vec3 normal_ws = normalize(in_normal_ws);
@@ -250,7 +263,8 @@ void main()
         uint heat_count = uint(max(in_label_metrics.w + 0.5, 0.0));
         uint layer_index = min(uint(max(in_layer_id + 0.5, 0.0)), heat_count - 1u);
         float heat = performance_heat.heat_values[heat_offset + layer_index];
-        albedo = mix(albedo, performance_heat_color(heat), clamp(frame.label_fade_px.w, 0.0, 1.0));
+        float heat_blend = clamp(frame.label_fade_px.w, 0.0, 1.0) * performance_heat_blend(heat);
+        albedo = mix(albedo, performance_heat_color(performance_heat_display_value(heat)), heat_blend);
     }
 
     vec2 screen_uv = clamp(

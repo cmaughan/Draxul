@@ -115,6 +115,16 @@ TooltipBitmap rasterize_tooltip(TextService& text_service, const BuildingTooltip
         std::snprintf(buf, sizeof(buf), "%.1f", static_cast<double>(v));
         return std::string(buf);
     };
+    auto fmt_percent = [](float v) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f%%", static_cast<double>(v * 100.0f));
+        return std::string(buf);
+    };
+    auto fmt_heat = [](float v) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f", static_cast<double>(v));
+        return std::string(buf);
+    };
 
     std::vector<Row> rows;
     if (data.is_route())
@@ -154,6 +164,18 @@ TooltipBitmap rasterize_tooltip(TextService& text_service, const BuildingTooltip
         };
         if (!data.hovered_function.empty())
             rows.push_back({ "Function", data.hovered_function });
+        if (data.has_building_perf)
+        {
+            rows.push_back({ "Frame", fmt_percent(data.building_frame_fraction) });
+            rows.push_back({ "Avg", fmt_percent(data.building_smoothed_frame_fraction) });
+            rows.push_back({ "Heat", fmt_heat(data.building_heat) });
+        }
+        if (!data.hovered_function.empty() && data.has_function_perf)
+        {
+            rows.push_back({ "Fn Frame", fmt_percent(data.function_frame_fraction) });
+            rows.push_back({ "Fn Avg", fmt_percent(data.function_smoothed_frame_fraction) });
+            rows.push_back({ "Fn Heat", fmt_heat(data.function_heat) });
+        }
     }
 
     // Measure column widths.

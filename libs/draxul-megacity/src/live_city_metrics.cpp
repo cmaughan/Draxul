@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -150,6 +151,54 @@ PerfFunctionLookup find_perf_function(
     return {};
 }
 
+bool perf_lookup_contains(
+    const PerfLookupSet& lookup,
+    std::string_view source_file_path,
+    std::string_view owner_qualified_name,
+    std::string_view function_name)
+{
+    return lookup.by_file.contains(perf_function_key(source_file_path, owner_qualified_name, function_name))
+        || lookup.by_owner_function.contains(perf_owner_function_key(owner_qualified_name, function_name));
+}
+
+bool has_non_zero_perf(const PerfFunctionLookup& perf)
+{
+    return perf.frame_fraction > 0.0f
+        || perf.smoothed_frame_fraction > 0.0f
+        || perf.heat > 0.0f;
+}
+
+LiveCityPerfDebugFunction make_debug_function(const RuntimePerfFunctionTiming& timing)
+{
+    return {
+        .source_file_path = timing.source_file_path,
+        .owner_qualified_name = timing.owner_qualified_name,
+        .function_name = timing.function_name,
+        .frame_fraction = timing.frame_fraction,
+        .smoothed_frame_fraction = timing.smoothed_frame_fraction,
+        .heat = timing.normalized_heat,
+    };
+}
+
+void sort_debug_functions(std::vector<LiveCityPerfDebugFunction>& functions)
+{
+    std::sort(
+        functions.begin(),
+        functions.end(),
+        [](const LiveCityPerfDebugFunction& lhs, const LiveCityPerfDebugFunction& rhs) {
+            if (lhs.heat != rhs.heat)
+                return lhs.heat > rhs.heat;
+            if (lhs.smoothed_frame_fraction != rhs.smoothed_frame_fraction)
+                return lhs.smoothed_frame_fraction > rhs.smoothed_frame_fraction;
+            if (lhs.owner_qualified_name != rhs.owner_qualified_name)
+                return lhs.owner_qualified_name < rhs.owner_qualified_name;
+            return lhs.function_name < rhs.function_name;
+        });
+    constexpr size_t kMaxEntries = 10;
+    if (functions.size() > kMaxEntries)
+        functions.resize(kMaxEntries);
+}
+
 } // namespace
 
 LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
@@ -210,6 +259,94 @@ LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
     }
 
     return snapshot;
+}
+
+LiveCityPerfDebugState build_live_city_perf_debug_state(
+    const SemanticMegacityModel& model,
+    const RuntimePerfSnapshot* perf_snapshot)
+{
+    LiveCityPerfDebugState debug;
+    if (!perf_snapshot)
+    {
+        for (const auto& module : model.modules)
+        {
+            debug.semantic_building_count += static_cast<uint32_t>(module.buildings.size());
+            for (const auto& building : module.buildings)
+                debug.semantic_layer_count += static_cast<uint32_t>(building.layers.size());
+        }
+        return debug;
+    }
+
+    debug.generation = perf_snapshot->generation;
+    debug.frame_index = perf_snapshot->frame_index;
+    debug.frame_time_microseconds = perf_snapshot->frame_time_microseconds;
+    debug.runtime_function_count = static_cast<uint32_t>(perf_snapshot->functions.size());
+
+    const auto perf_lookup = build_perf_lookup(perf_snapshot);
+    std::unordered_set<std::string> matched_exact_runtime_keys;
+    std::unordered_set<std::string> matched_owner_runtime_keys;
+
+    for (const auto& module : model.modules)
+    {
+        debug.semantic_building_count += static_cast<uint32_t>(module.buildings.size());
+        for (const auto& building : module.buildings)
+        {
+            bool building_heated = false;
+            debug.semantic_layer_count += static_cast<uint32_t>(building.layers.size());
+            for (const auto& layer : building.layers)
+            {
+                const PerfFunctionLookup perf = find_perf_function(
+                    perf_lookup,
+                    building.source_file_path,
+                    building.qualified_name,
+                    layer.function_name);
+                if (perf_lookup_contains(
+                        perf_lookup,
+                        building.source_file_path,
+                        building.qualified_name,
+                        layer.function_name))
+                {
+                    ++debug.matched_layer_count;
+                    matched_exact_runtime_keys.insert(
+                        perf_function_key(building.source_file_path, building.qualified_name, layer.function_name));
+                    matched_owner_runtime_keys.insert(
+                        perf_owner_function_key(building.qualified_name, layer.function_name));
+                }
+                if (has_non_zero_perf(perf))
+                {
+                    ++debug.heated_layer_count;
+                    building_heated = true;
+                }
+            }
+            if (building_heated)
+                ++debug.heated_building_count;
+        }
+    }
+
+    for (const RuntimePerfFunctionTiming& timing : perf_snapshot->functions)
+    {
+        const bool matched = matched_exact_runtime_keys.contains(
+                                 perf_function_key(timing.source_file_path, timing.owner_qualified_name, timing.function_name))
+            || matched_owner_runtime_keys.contains(
+                perf_owner_function_key(timing.owner_qualified_name, timing.function_name))
+            || (!timing.owner_qualified_name.empty()
+                && matched_owner_runtime_keys.contains(
+                    perf_owner_function_key(short_qualified_name(timing.owner_qualified_name), timing.function_name)));
+
+        if (matched)
+        {
+            ++debug.matched_runtime_function_count;
+            debug.top_matched_functions.push_back(make_debug_function(timing));
+        }
+        else
+        {
+            debug.top_unmatched_functions.push_back(make_debug_function(timing));
+        }
+    }
+
+    sort_debug_functions(debug.top_matched_functions);
+    sort_debug_functions(debug.top_unmatched_functions);
+    return debug;
 }
 
 } // namespace draxul

@@ -16,6 +16,14 @@ struct BuildingTooltipData
     int function_count = 0;
     int field_count = 0;
     std::string hovered_function;
+    bool has_building_perf = false;
+    float building_frame_fraction = 0.0f;
+    float building_smoothed_frame_fraction = 0.0f;
+    float building_heat = 0.0f;
+    bool has_function_perf = false;
+    float function_frame_fraction = 0.0f;
+    float function_smoothed_frame_fraction = 0.0f;
+    float function_heat = 0.0f;
 
     // Route tooltip (when hovering a dependency connection).
     std::string route_source;

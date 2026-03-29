@@ -471,6 +471,70 @@ TEST_CASE("megacity live metrics snapshot matches header-owned buildings to impl
     CHECK(snapshot.functions[1].heat == Catch::Approx(0.0f));
 }
 
+TEST_CASE("megacity perf debug state reports matched and unmatched runtime functions", "[megacity]")
+{
+    SemanticMegacityModel model;
+    SemanticCityModuleModel module;
+    module.module_path = "libs/draxul-renderer";
+
+    SemanticCityBuilding building;
+    building.module_path = "libs/draxul-renderer";
+    building.display_name = "MetalRenderer";
+    building.qualified_name = "MetalRenderer";
+    building.source_file_path = "libs/draxul-renderer/src/metal/metal_renderer.h";
+    building.layers = {
+        { "begin_frame", 10, 1.0f },
+        { "end_frame", 20, 1.0f },
+    };
+    module.buildings.push_back(building);
+    model.modules.push_back(module);
+
+    RuntimePerfSnapshot perf_snapshot;
+    perf_snapshot.generation = 11;
+    perf_snapshot.frame_index = 17;
+    perf_snapshot.frame_time_microseconds = 10000;
+    perf_snapshot.functions.push_back({
+        .source_file_path = "libs/draxul-renderer/src/metal/metal_renderer.mm",
+        .owner_qualified_name = "MetalRenderer",
+        .function_name = "begin_frame",
+        .pretty_function = "bool draxul::MetalRenderer::begin_frame()",
+        .frame_microseconds = 5000,
+        .smoothed_microseconds = 5000,
+        .frame_fraction = 0.5f,
+        .smoothed_frame_fraction = 0.5f,
+        .normalized_heat = 1.0f,
+        .call_count = 1,
+    });
+    perf_snapshot.functions.push_back({
+        .source_file_path = "libs/draxul-renderer/src/metal/metal_renderer.mm",
+        .owner_qualified_name = "MetalRenderer",
+        .function_name = "unmatched_helper",
+        .pretty_function = "void draxul::MetalRenderer::unmatched_helper()",
+        .frame_microseconds = 1000,
+        .smoothed_microseconds = 1000,
+        .frame_fraction = 0.1f,
+        .smoothed_frame_fraction = 0.1f,
+        .normalized_heat = 0.2f,
+        .call_count = 1,
+    });
+
+    const LiveCityPerfDebugState debug = build_live_city_perf_debug_state(model, &perf_snapshot);
+
+    CHECK(debug.generation == 11);
+    CHECK(debug.frame_index == 17);
+    CHECK(debug.semantic_building_count == 1u);
+    CHECK(debug.semantic_layer_count == 2u);
+    CHECK(debug.runtime_function_count == 2u);
+    CHECK(debug.matched_runtime_function_count == 1u);
+    CHECK(debug.matched_layer_count == 1u);
+    CHECK(debug.heated_layer_count == 1u);
+    CHECK(debug.heated_building_count == 1u);
+    REQUIRE(debug.top_matched_functions.size() == 1u);
+    CHECK(debug.top_matched_functions[0].function_name == "begin_frame");
+    REQUIRE(debug.top_unmatched_functions.size() == 1u);
+    CHECK(debug.top_unmatched_functions[0].function_name == "unmatched_helper");
+}
+
 TEST_CASE("megacity scene snapshot carries per-layer performance heat state for buildings", "[megacity]")
 {
     SceneWorld world;

@@ -169,6 +169,46 @@ bool is_module_context_object(const SceneObject& obj)
         || obj.role == SceneObject::Role::ModuleLabel;
 }
 
+const LiveCityBuildingMetric* find_building_metric(
+    const LiveCityMetricsSnapshot& snapshot,
+    std::string_view source_file_path,
+    std::string_view module_path,
+    std::string_view qualified_name)
+{
+    for (const auto& building : snapshot.buildings)
+    {
+        if (building.source_file_path == source_file_path
+            && building.module_path == module_path
+            && building.qualified_name == qualified_name)
+        {
+            return &building;
+        }
+    }
+    return nullptr;
+}
+
+const LiveCityFunctionMetric* find_function_metric(
+    const LiveCityMetricsSnapshot& snapshot,
+    std::string_view source_file_path,
+    std::string_view module_path,
+    std::string_view qualified_name,
+    std::string_view function_name,
+    uint32_t layer_index)
+{
+    for (const auto& function : snapshot.functions)
+    {
+        if (function.source_file_path == source_file_path
+            && function.module_path == module_path
+            && function.qualified_name == qualified_name
+            && function.function_name == function_name
+            && function.layer_index == layer_index)
+        {
+            return &function;
+        }
+    }
+    return nullptr;
+}
+
 void preserve_visible_tooltip(const IsometricScenePass* scene_pass, bool hover_tooltip_visible, SceneSnapshot& snapshot)
 {
     if (!scene_pass || !hover_tooltip_visible)
@@ -632,10 +672,19 @@ void MegaCityHost::render_imgui(float dt)
         render_city_map_panel(grid, grid_build_in_progress_.load());
     }
 
+    std::shared_ptr<const LiveCityPerfDebugState> perf_debug;
+    if (semantic_model_)
+    {
+        const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
+        perf_debug = std::make_shared<LiveCityPerfDebugState>(
+            build_live_city_perf_debug_state(*semantic_model_, &perf_snapshot));
+    }
+
     MegacityRendererControls renderer_controls{
         .config = pending_renderer_config_,
         .defaults = renderer_defaults_,
         .available_modules = available_modules_,
+        .perf_debug = perf_debug,
         .rebuild_pending = world_rebuild_pending_
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
@@ -1136,7 +1185,15 @@ void MegaCityHost::pump()
                     };
                 }
 
-                auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_layout_, pick_filter);
+                auto hit = pick_building(
+                    local_pos,
+                    pixel_w_,
+                    pixel_h_,
+                    *camera_,
+                    *semantic_layout_,
+                    pick_filter,
+                    semantic_model_.get(),
+                    &renderer_config_);
                 if (hit)
                 {
                     // Look up full building data.
@@ -1155,19 +1212,68 @@ void MegaCityHost::pump()
                             tooltip_data.module_path = bldg.module_path;
                             tooltip_data.function_count = bldg.function_count;
                             tooltip_data.field_count = bldg.base_size;
-
-                            // Determine which function layer the ray hit.
-                            if (!bldg.layers.empty() && hit->hit_y >= 0.0f)
+                            if (live_metrics_)
                             {
-                                float cumulative_y = 0.0f;
-                                for (const auto& layer : bldg.layers)
+                                if (const auto* building_metric = find_building_metric(
+                                        *live_metrics_,
+                                        bldg.source_file_path,
+                                        bldg.module_path,
+                                        bldg.qualified_name))
                                 {
-                                    cumulative_y += layer.height;
-                                    if (hit->hit_y <= cumulative_y)
+                                    tooltip_data.has_building_perf = true;
+                                    tooltip_data.building_frame_fraction = building_metric->frame_fraction;
+                                    tooltip_data.building_smoothed_frame_fraction = building_metric->smoothed_frame_fraction;
+                                    tooltip_data.building_heat = building_metric->heat;
+                                }
+                            }
+
+                            // Determine which semantic function layer the pick hit.
+                            if (!bldg.layers.empty())
+                            {
+                                auto apply_layer_tooltip = [&](size_t layer_index) {
+                                    if (layer_index >= bldg.layers.size())
+                                        return false;
+
+                                    const auto& layer = bldg.layers[layer_index];
+                                    if (!layer.function_name.empty())
                                     {
-                                        if (!layer.function_name.empty())
-                                            tooltip_data.hovered_function = layer.function_name;
-                                        break;
+                                        tooltip_data.hovered_function = layer.function_name;
+                                        if (live_metrics_)
+                                        {
+                                            if (const auto* function_metric = find_function_metric(
+                                                    *live_metrics_,
+                                                    bldg.source_file_path,
+                                                    bldg.module_path,
+                                                    bldg.qualified_name,
+                                                    layer.function_name,
+                                                    static_cast<uint32_t>(layer_index)))
+                                            {
+                                                tooltip_data.has_function_perf = true;
+                                                tooltip_data.function_frame_fraction = function_metric->frame_fraction;
+                                                tooltip_data.function_smoothed_frame_fraction
+                                                    = function_metric->smoothed_frame_fraction;
+                                                tooltip_data.function_heat = function_metric->heat;
+                                            }
+                                        }
+                                    }
+                                    return true;
+                                };
+
+                                if (hit->has_layer_index)
+                                {
+                                    apply_layer_tooltip(static_cast<size_t>(hit->layer_index));
+                                }
+                                else if (hit->hit_y >= 0.0f)
+                                {
+                                    float cumulative_y = 0.0f;
+                                    for (size_t layer_index = 0; layer_index < bldg.layers.size(); ++layer_index)
+                                    {
+                                        cumulative_y += bldg.layers[layer_index].height;
+                                        if (hit->hit_y <= cumulative_y)
+                                        {
+                                            apply_layer_tooltip(layer_index);
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -1487,7 +1593,15 @@ void MegaCityHost::handle_click(const glm::ivec2& screen_pos)
         };
     }
 
-    auto hit = pick_building(local_pos, pixel_w_, pixel_h_, *camera_, *semantic_layout_, pick_filter);
+    auto hit = pick_building(
+        local_pos,
+        pixel_w_,
+        pixel_h_,
+        *camera_,
+        *semantic_layout_,
+        pick_filter,
+        semantic_model_.get(),
+        &renderer_config_);
     if (hit)
     {
         if (hit->qualified_name == selected_building_name_

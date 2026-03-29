@@ -10,12 +10,14 @@ namespace draxul
 {
 
 struct SemanticMegacityModel;
+struct LiveCityPerfDebugState;
 
 struct MegacityRendererControls
 {
     MegaCityCodeConfig config;
     MegaCityCodeConfig defaults;
     std::vector<std::string> available_modules;
+    std::shared_ptr<const LiveCityPerfDebugState> perf_debug;
     bool rebuild_pending = false;
     bool rebuild_requested = false;
     bool reset_camera_requested = false;
