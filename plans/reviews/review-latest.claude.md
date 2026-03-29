@@ -2,204 +2,257 @@ Here is the full review report:
 
 ---
 
-# Draxul — Comprehensive Code Review
+# Draxul Codebase Review
 
-> **Scope**: All source files under `app/`, `libs/`, `shaders/`, `tests/`, `scripts/`, `plans/`, and `docs/`. Active work items, completed items, and iceboxed items were cross-checked against this report to avoid duplication.
-
----
-
-## 1. Architecture & Module Layout
-
-Draxul is a modern C++20 Neovim GUI frontend targeting Metal (macOS) and Vulkan (Windows). It is built from 15 discrete CMake libraries with a clean acyclic dependency graph. The top-level orchestration lives in `app/`, with rendering, font, grid, host-emulation, and RPC concerns each in their own library. This is the primary architectural strength of the project.
-
-### Module Graph (documented in `docs/module-map.md`)
-
-```
-draxul-types (header-only, no deps)
-   ├── draxul-window
-   ├── draxul-renderer
-   ├── draxul-font
-   └── draxul-grid
-          └── draxul-nvim
-                 └── draxul-host
-                        └── draxul-app-support
-                               └── app (executable)
-```
-
-This ordering is honoured throughout the build system. No upward linkages were observed.
+*Review date: 2026-03-29. Source examined: `app/`, `libs/`, `shaders/`, `tests/`, `scripts/`, `plans/work-items/`, `docs/features.md`. Already-tracked work items and completed/iced items are noted inline but not counted as new findings.*
 
 ---
 
-## 2. Specific Code Smells & Maintainability Issues
+## Code Smells
 
-### 2.1 Large multi-responsibility functions
+### 1. Duplicated `param_or` Lambda in CSI Dispatch
+`libs/draxul-host/src/terminal_host_base_csi.cpp` — the same `param_or` lambda is independently defined inside `csi_cursor_move`, `csi_erase`, `csi_scroll`, `csi_insert_delete`, and `csi_margins`. Classic extract-to-free-function candidate; each copy can drift independently.
 
-| Function | File | Lines | Problem |
-|---|---|---|---|
-| `App::initialize()` | `app/app.cpp` | ~122 | Loads config, creates window, renderer, font, UI, host sequentially. Hard to unit-test the middle. |
-| `App::run_render_test()` | `app/app.cpp` | ~110 | 7+ `std::optional<>` state variables, no named state enum, silent hang on missed transition. |
-| `App::pump_once()` | `app/app.cpp` | ~57 | Mixes dead-pane cleanup, host pumping, window-event dispatch, and frame submission in one loop. |
-| `Grid::scroll()` | `libs/draxul-grid/src/grid.cpp` | ~126 | Four sibling if-branches for ±row/±col, each with nested loops; a `scroll_rows()`/`scroll_cols()` split would help. |
-| `TerminalHostBase` CSI dispatch | `libs/draxul-host/src/terminal_host_base_csi.cpp` | large | Large switch-per-final-byte; extensible but every new sequence adds to an already-long function. |
+### 2. `(void)pixel_h` Suppression Pattern
+`app/app.cpp` — structured bindings like `auto [pixel_w, pixel_h] = window_->size_pixels(); (void)pixel_h;` appear multiple times. The window API forces callers to destructure both dimensions even when only one is needed. A `width_pixels()` / `height_pixels()` accessor pair would remove the noise.
 
-### 2.2 Error handling inconsistency
+### 3. MegaCityHost as God Object
+`libs/draxul-megacity/include/draxul/megacity_host.h` — ~50 member variables spanning camera state, grid occupancy, route threading, hover tooltip, selection opacity, sign label atlas, tree meshes, semantic model, layout state, config documents, and UI panel flags. No single person can hold this invariant space in their head.
 
-Three incompatible error-reporting idioms coexist:
+### 4. `App` as God Orchestrator
+`app/app.cpp` (~867 lines) wires window, renderer, text service, UI panel, host manager, input dispatcher, and GUI action handler with no injection boundary of its own. Every other major subsystem has been given a `Deps` struct; `App` has not, making it untestable in isolation.
 
-- `bool + error_ member` — used by `HostManager`, `App::initialize`
-- `std::optional<Error>` — used in parts of the RPC layer
-- Silent early-return with warning log — used by `Grid::set_cell`, `Grid::scroll` on invalid bounds
+### 5. `static_cast<I3DRenderer*>` Downcast in HostManager
+`app/host_manager.cpp:283` — `static_cast<I3DRenderer*>(deps_.grid_renderer)` assumes `IGridRenderer` inherits from `I3DRenderer`. This compiles silently if the hierarchy ever changes but becomes UB. A `dynamic_cast` with a null check, or a typed accessor, is the correct tool here.
 
-The inconsistency makes call-site error handling unpredictable. A codebase-wide decision (e.g. "all public APIs return `expected<T, Error>`") would help.
+### 6. `dynamic_cast` Capability Probing
+`host_manager.cpp` uses `dynamic_cast<MegaCityHost*>` (lines 241, 274) and `dynamic_cast<I3DHost*>` (line 280) to detect host capabilities post-construction. This is a code smell indicating the creation path does not carry enough type information. A factory that returns tagged handles, or a `bool supports_3d()` query on `IHost`, would make the capability explicit without coupling to concrete types.
 
-### 2.3 Unsafe or unchecked operations
+### 7. Four HostContext Constructor Overloads
+`libs/draxul-host/include/draxul/host.h:78–117` — four positional constructors for a struct that has grown past the point where positional construction is clear. A named-field builder or designated initializers would be more readable.
 
-1. **Grid index overflow** — `row * cols_` in `grid.cpp` is not overflow-checked before the cast. For pathological terminal sizes this is silent UB.
-2. **`void*` command-buffer pointers** — `IRenderContext::native_command_buffer()` and `native_render_encoder()` in `base_renderer.h` return `void*`. Comments explain the cast, but this bypasses the type system entirely. A `std::variant<id<MTLCommandEncoder>, VkCommandBuffer*>` or a template CRTP approach would be safer.
-3. **`std::getenv("APPDATA")` empty string** — `app_config_io.cpp` null-checks but not empty-checks the env var; an empty APPDATA would produce a config path of just the filename.
-4. **`FT_Face` lifetime in `glyph_cache.cpp`** — the cache stores a raw `FT_Face` pointer from `TextService`; if `TextService` is reinitialized (font size change) and the old face freed, accessing the cached pointer is UB. No lifetime guard is present.
-5. **Signed-to-int truncation in `ui_events.cpp`** — `(int)value.as_int()` silently wraps if Neovim sends a very large attribute ID.
+### 8. `std::function` in Character-Frequency Paths
+The VT parser, alt screen manager, and selection manager wire callbacks via `std::function` + `std::bind_front`. These are invoked per-character (VT parser) or per-cell (alt screen remap). The type-erasure heap allocation is unnecessary since the concrete types are known at construction; a template parameter or direct virtual call would avoid the overhead without sacrificing the decoupling.
 
-### 2.4 Duplicated logic with no shared abstraction
+### 9. Notification Queue Drop with No Backpressure
+`libs/draxul-nvim/src/rpc.cpp` — the notification queue warns at 512 entries and silently drops after 4096. If the main thread stalls (font rebuild, long atlas reset), nvim output is lost. There is no backpressure signal to nvim and no persistent log of dropped notifications for diagnostics.
 
-| Pattern | Locations |
-|---|---|
-| "get or create highlight attr ID" | `terminal_host_base.cpp:attr_id()` and `ui_events.cpp:handle_grid_line()` — both walk a map, compact on threshold |
-| Font metrics recompute + apply | `App::initialize_text_service()`, `App::on_display_scale_changed()`, `App::apply_font_metrics()` — three call sites for the same cascade |
-| Physical-pixel scaling | `InputDispatcher::to_physical()` (private helper) vs. inline lambda in `App::wire_window_callbacks` |
-
-### 2.5 `void*` render-pass context
-
-`IRenderPass::record(IRenderContext&)` is a clean abstraction, but `IRenderContext` exposes `void*` handles that every pass author must bridge-cast correctly. This is the single weakest point in the otherwise excellent renderer hierarchy. A templated or platform-tagged variant would eliminate the footgun.
-
-### 2.6 State machine in `run_render_test`
-
-The render-test path uses at least 7 independent `std::optional<>` flags (`diagnostics_enabled`, `ready_since`, `quiet_since`, `capture_requested`, …) without a named state enum. A missed transition silently times out. This is a high-value refactor target and a testing blind spot.
-
-### 2.7 `CellText::kMaxLen = 32` truncation
-
-`grid.h` has a `TODO: consider std::string for >32-byte clusters`. A ZWJ sequence with many combining marks can exceed 32 bytes. The truncation is silent (cell is updated, excess bytes dropped). It should at minimum emit a `WARN`, and ideally be a small-string optimisation that upgrades to heap.
-
-### 2.8 Scrollback capacity is compile-time
-
-`kCapacity = 2000` in `scrollback_buffer.h` is a `static constexpr`. Making it runtime-configurable (from config) requires only a constructor argument, but currently nothing threads that through. The icebox item `configurable-scrollback-capacity` has noted this.
-
-### 2.9 `HostManager` uses `dynamic_cast` for `I3DHost`
-
-`host_manager.cpp` does a one-shot `dynamic_cast` at startup to detect 3D hosts and call `attach_3d_renderer()`. The icebox item `hostmanager-dynamic-cast-removal` already flags this. While it works, it makes the type hierarchy harder to extend.
-
-### 2.10 MegaCity is entangled with the core build
-
-`DRAXUL_ENABLE_MEGACITY` is ON by default. The demo host pulls in SQLite and tree-sitter, non-trivial dependencies for users who only want a Neovim frontend. The icebox item `megacity-removal-refactor` acknowledges this. Until it is actioned, first-time build times are unnecessarily long.
+### 10. Two Capability Detection Patterns in the Same Codebase
+`RendererBundle` uses SFINAE-based `reset<T>` to detect `IImGuiHost` / `ICaptureRenderer`, while `host_manager.cpp` uses raw `dynamic_cast`. Two separate capability detection idioms create confusion about which to follow for new code.
 
 ---
 
-## 3. Testing Holes
+## Testing Holes
 
-| Area | Gap |
-|---|---|
-| `App::initialize()` rollback | `InitRollback` RAII guard is not exercised by any test; a partial init failure (e.g. renderer success, font failure) is untested. |
-| `App::run_render_test()` state machine | The 7-state render-test loop is never exercised in unit tests; bugs here surface only in CI render-test runs. |
-| `InputDispatcher` chord prefix state | `prefix_active_` / `suppress_next_text_input_` transitions are not directly tested; icebox item `chord-prefix-stuck` already notes a known bug here. |
-| `Grid` out-of-bounds access | No test explicitly sends invalid row/col to `set_cell()` or `scroll()` to verify safe handling. |
-| Config parsing edge cases | No test for missing config file fallback, empty APPDATA, or malformed TOML (library error propagation). |
-| `ScrollbackBuffer` ring-wrap | Ring buffer wrap-around at exactly `kCapacity` rows is not tested; column mismatch on restore is tested only implicitly. |
-| `SdlEventTranslator` unit tests | Icebox item `sdl-event-translator-unit-tests` already calls this out. |
-| CSI cursor boundary | Icebox item `csi-cursor-boundary` calls this out. |
-| RPC pipe fragmentation | Icebox item `rpc-fragmentation-pipe-boundary` calls this out. |
-| Metal headless initialisation | Icebox item `metal-headless-init` calls this out. There is no test that exercises the Metal renderer init path without a real display. |
+### 1. App Class Has No Unit Tests
+`app/app.cpp` — initialization rollback, `pump_once` frame gating, and shutdown ordering are exercised only by end-to-end smoke/render tests, not isolated unit tests. Adding a `Deps`-injected `App` test fixture would close this gap.
 
----
+### 2. InputDispatcher Chord State Machine
+`app/input_dispatcher.cpp` — the tmux-style chord prefix state machine (partial chord cancellation, timeout behavior, modifier key interactions during an open chord) has no unit tests. Chord handling is a common source of regression in terminal GUIs.
 
-## 4. Separation-of-Concerns Opportunities
+### 3. SplitTree Edge Cases
+`app/split_tree.cpp` — deep nesting, divider drag ratio clamping, and hit-test boundary conditions on divider edges are not directly tested. `host_manager_tests.cpp` tests HostManager but not the underlying tree operations at their limits.
 
-1. **`TextServiceLifecycle`** — font metrics computation is scattered across three `App` methods. A small coordinator object would own the cascade and be testable in isolation.
-2. **`AttributeCache`** — the "get or create highlight attr, compact on threshold" pattern appears in both the terminal and Neovim paths. A shared cache class would remove the duplication.
-3. **`RenderTestStateMachine`** — the `run_render_test` optional-flag soup deserves an explicit state enum and a small state-machine class, making it testable and readable.
-4. **`PixelScaleHelper`** — physical/logical pixel conversion is reinvented in two places; a one-line utility struct would remove the duplication.
-5. **`GridScrollOps`** — `Grid::scroll()` four-branch implementation could be two free functions (`scroll_rows`, `scroll_cols`) called by a thin dispatcher, improving readability and testability.
+### 4. VT Parser Buffer Overflow Paths
+`terminal_vt_tests.cpp` covers standard CSI sequences well, but the 64 KB plain text buffer, 4 KB CSI buffer, and 8 KB OSC buffer overflow/truncation paths are not tested. Malformed or truncated escape sequences at buffer boundaries are a common source of terminal bugs.
 
----
+### 5. Grid Scroll with Double-Width Cell Fixup
+`grid.cpp scroll()` has special handling for double-width cells at row boundaries. This fixup logic is not directly tested — only the basic displacement is covered in `grid_tests.cpp`.
 
-## 5. Top 10 Good Things
+### 6. Renderer State Dirty Range Tracking
+`renderer_state.cpp` tracks dirty ranges for incremental GPU upload. The coalescing behavior when overlay regions interact, and the impact of cursor save/restore on dirty ranges, are untested.
 
-1. **Clean acyclic library graph** — 15 libraries with no upward dependencies, documented in `docs/module-map.md` and enforced by the build system. This is rare and valuable.
-2. **Render snapshot testing** — TOML scenario files, per-platform BMP references, and a `bless` workflow give high-confidence regression detection for visual output.
-3. **Two-pass instanced GPU rendering** — background and foreground drawn in minimal draw calls; glyph atlas is shelf-packed and incrementally uploaded; 112-byte cell layout is compact and coherent.
-4. **Comprehensive CI** — six GitHub Actions workflows cover build, ASan/UBSan, LLVM coverage, clang-format lint, SonarCloud, and docs generation on both Windows and macOS.
-5. **C++20 throughout** — structured bindings, `std::optional`, `std::span`, `string_view`, ranges, and concepts are used consistently. No legacy C cruft.
-6. **`IRenderPass` / `IRenderContext` abstraction** — external subsystems (MegaCity cube, future overlays) register render passes without touching renderer internals. Clean extension point.
-7. **Thread-check assertions** — `DRAXUL_ASSERT_THREAD` macros catch thread-affinity bugs at the point of violation, not as data corruption downstream.
-8. **Work-item discipline** — 100+ completed items tracked in `plans/work-items-complete/`, 37 iceboxed with rationale, 1 active. The project history is unusually legible.
-9. **`replay_fixture.h`** — lets VT-parsing and grid-update tests work without spawning Neovim. The redraw-event builder API is clean and reusable.
-10. **Keybinding chord system** — tmux-style `"ctrl+s, |"` syntax with conflict detection, full roundtrip config persistence, and a dedicated parser that is independently testable.
+### 7. GridRenderingPipeline Atlas Reset Retry
+`grid_rendering_pipeline.cpp flush()` has an atlas-reset retry loop (clears atlas and retries if it fills during a single frame). This recovery path has no test coverage.
+
+### 8. GlyphCache Face-Lifetime Hazard Regression
+*(Partially tracked as work item 00)* — there is no regression test that verifies GlyphCache rejects or gracefully handles a face pointer that has been invalidated by FontManager destroying its face. Without a test, a future refactor of face management could reintroduce this silently.
+
+### 9. Config Missing/Malformed Path *(tracked as work item 07)*
+`ConfigDocument` handles TOML parsing errors, merges defaults, and writes back values. Missing-key, malformed-value, and I/O-error paths are not unit-tested; only the happy path is exercised by the smoke test.
+
+### 10. Alt Screen Snapshot Save/Restore Across Scrollback Wrap *(tracked as work items 06/08)*
+Alt screen switching saves and restores cell state, and the scrollback ring wraps at 2000 rows. The interaction — switching to alt screen when the scrollback ring is mid-wrap, then restoring — is not tested. Combined state like this is a common source of visual corruption in terminal emulators.
 
 ---
 
-## 6. Top 10 Bad Things
+## Maintainability Issues
 
-1. **`void*` render context handles** — `IRenderContext::native_command_buffer()` / `native_render_encoder()` bypass the type system. Every render pass author must know the platform and cast correctly. A typed variant or platform-tagged accessor would eliminate this footgun.
-2. **`run_render_test()` state machine** — 7+ uncoordinated `std::optional<>` flags with no named state enum and no unit tests. A missed transition causes a silent timeout in CI.
-3. **Three incompatible error-reporting idioms** — `bool + error_ member`, `std::optional<Error>`, and silent early-return with a log message are all used. Call-site handling is inconsistent.
-4. **`FT_Face` lifetime hazard** — `glyph_cache.cpp` stores a raw `FT_Face` pointer from `TextService`. If the face is freed (font size change reinit), subsequent cache use is UB with no guard.
-5. **Chord prefix state machine untested, with known stuck-state bug** — the icebox item `chord-prefix-stuck` documents a known bug in prefix handling, yet there are no direct unit tests for the chord state machine.
-6. **`CellText` 32-byte silent truncation** — combining-heavy ZWJ sequences can exceed the limit; truncation is silent with no warning log. The `TODO` in `grid.h` has been there long enough to deserve promotion to a work item.
-7. **`dynamic_cast` for I3DHost detection** — one-shot runtime downcast in `HostManager` to discover 3D hosts. Fragile as the host hierarchy grows; icebox item exists but no plan to action it.
-8. **MegaCity ON by default** — pulls in SQLite and tree-sitter unconditionally, increasing first-build times and binary size for users who only need the Neovim frontend.
-9. **`App::initialize()` not unit-tested** — the `InitRollback` RAII guard is the safety net for partial-init failures, but it is never exercised by a test. A renderer-succeeds/font-fails scenario could silently leave resources in an invalid state.
-10. **Grid index arithmetic not overflow-checked** — `row * cols_` in `grid.cpp` is cast after multiplication. For large terminal dimensions this is undefined behaviour with no diagnostic.
+### 1. `CellText` 32-Byte Inline Buffer with Silent Truncation
+`libs/draxul-grid/include/draxul/grid.h` — UTF-8 sequences longer than 31 bytes (multi-codepoint emoji like family sequences can reach 25+ bytes) are silently truncated. The truncation can produce invalid UTF-8 at the cut point. The TODO comment acknowledges this but there is no diagnostic, fallback glyph, or compile-time explanation of why 32 bytes was chosen.
 
----
+### 2. Raw `FT_Face` Pointer as Hash Key *(tracked as work item 00)*
+`libs/draxul-font/src/font_engine.h` — `GlyphCache` uses raw `FT_Face` pointers as part of `ClusterKey`. If FontManager destroys and reallocates a face, the hash key silently becomes invalid, and a new face at the same address would collide with the old entries.
 
-## 7. Best 10 Quality-of-Life Features to Add
+### 3. `try_get_int` Narrowing Cast *(tracked as work item 03)*
+`libs/draxul-nvim/src/ui_events.cpp` — `int64_t → int` without range checking. For grid coordinates in practice this does not overflow, but the silent narrowing is a maintenance trap for anyone who refactors the type of the grid dimension fields.
 
-These are ranked by breadth of daily-use impact and are not present in `docs/features.md` or active/completed work items.
+### 4. 5-Second Hard-Coded RPC Timeout
+`libs/draxul-nvim/src/rpc.cpp` — the request timeout is a magic number with no named constant and no documentation of why five seconds was chosen. On slow machines or under nvim doing a large indexing operation, this produces spurious timeouts that are hard to distinguish from genuine hangs.
 
-1. **Live config reload** — watch `config.toml` for changes and hot-apply font size, scroll speed, and keybindings without restart. (Icebox: `live-config-reload`.) This would remove the most common reason to restart the app.
-2. **Per-pane font size** — allow independent font sizes per split pane via keybinding or config. Useful when comparing wide and narrow code side-by-side. (Icebox: `per-pane-font-size`.)
-3. **Searchable scrollback** — `/`-triggered incremental search through the scrollback ring buffer with highlight and jump. (Icebox: `searchable-scrollback`.) Critical for shell workflows.
-4. **URL detection and click-to-open** — parse hyperlinks in terminal output (OSC 8 or heuristic regex) and open with the system browser on click. (Icebox: `url-detection-click`.) A common expectation from every modern terminal.
-5. **Session restore** — persist split-tree layout, host types, and working directories to disk, restored on next launch. (Icebox: `session-restore`.) Single biggest friction reducer for power users.
-6. **Window title from Neovim** — forward `nvim_set_current_win` title and the active buffer filename to the OS window title bar. (Icebox: `window-title-from-neovim`.) Makes taskbar/Exposé switching useful.
-7. **Command palette** — fuzzy-search overlay for all bound actions plus recently opened files. (Icebox: `command-palette`.) Discoverability win for new users.
-8. **Per-monitor DPI font scaling** — automatically re-rasterize at the correct PPI when a window is dragged between displays of different density. (Icebox: `per-monitor-dpi-font-scaling`.) High-impact on mixed-DPI setups.
-9. **Configurable ANSI palette** — allow the 16 base ANSI colours to be remapped in `config.toml` instead of relying solely on the Neovim/shell colour scheme. (Icebox: `configurable-ansi-palette`.) Required for theme portability.
-10. **Performance HUD overlay** — extend the existing diagnostics panel with per-frame GPU time, atlas pressure graph, and dirty-cell rate over time. (Icebox: `performance-hud`.) Essential during font or theme changes that stress the glyph cache.
+### 5. Magic Overlay Capacity of 256 in RendererState
+`renderer_state.h` — 256 overlay cells is not explained. If a host ever emits more than 256 overlay regions in a single frame, the excess is silently ignored. A static_assert with a comment explaining the limit would at least make violations visible at compile time.
 
----
+### 6. O(n) Recursive `std::function` Traversal in SplitTree
+`app/split_tree.cpp` — `find_leaf_node`, `find_parent_of`, and `find_divider_node` all use recursive `std::function` lambdas for O(n) tree traversal. At current pane counts (<10) this is harmless, but the `std::function` indirection makes the code harder to follow in a debugger and the traversal is not short-circuit-capable.
 
-## 8. Best 10 Tests to Add for Stability
+### 7. Font Pipeline Atlas Reset Blocks Main Thread
+`gui_action_handler.cpp change_font_size()` triggers `text_service->set_point_size()` which resets the entire atlas and all caches synchronously on the main thread. For a warm atlas (e.g., after rendering a large file), this can cause a frame stall long enough for nvim notifications to pile up to the 4096-entry drop threshold.
 
-Items already in the icebox as test work items are included where they represent the highest-value gaps.
+### 8. No Compile-Time Shader/CPU Struct Parity Check
+The 112-byte `GpuCell` is verified by `static_assert` in C++, but nothing verifies that the Metal and GLSL shader struct layouts match the C++ layout at build time. A divergence would produce silent visual corruption rather than a build error.
 
-1. **`App::initialize()` partial-failure rollback** — exercise `InitRollback` by injecting a fake renderer that succeeds but a fake text-service that fails; assert no resource leak and a clean error message.
-2. **`run_render_test()` state-machine transitions** — unit-test each state change (startup → quiet → capture → compare) using a fake frame clock and fake renderer, asserting the correct outcome string.
-3. **Chord prefix stuck-state** — send a chord prefix key, then send a non-matching key, then verify normal input is unblocked and the prefix state is reset. (Icebox: `chord-prefix-stuck`.)
-4. **Grid out-of-bounds writes** — call `set_cell()` and `scroll()` with every combination of boundary-violation (negative row, col ≥ cols, scroll delta > region) and assert no crash, no dirty-flag corruption.
-5. **`ScrollbackBuffer` ring-wrap at capacity** — fill to exactly `kCapacity` rows, write one more, verify the oldest row is evicted correctly and viewport offset clamps.
-6. **`SdlEventTranslator` key mapping** — table-driven tests covering function keys, modifier combos, and media keys. (Icebox: `sdl-event-translator-unit-tests`.)
-7. **CSI cursor boundary clamping** — send cursor-move sequences that would place the cursor outside the grid and assert it is clamped to the last valid position, not wrapped or ignored. (Icebox: `csi-cursor-boundary`.)
-8. **RPC pipe fragmentation** — split a valid msgpack-RPC message at every byte boundary and feed it to the codec in two reads; assert correct decode. (Icebox: `rpc-fragmentation-pipe-boundary`.)
-9. **Config file not found** — delete `config.toml` and call `AppConfig::load()`; assert defaults are applied and no exception or crash occurs. Also test malformed TOML and an empty APPDATA env var.
-10. **Attribute cache compaction** — fill highlight table to just above `kAttrCompactionThreshold`, trigger a full grid scan, and verify no attr IDs present in the live grid are evicted.
+### 9. Platform Shader Parity Not Enforced
+29 shader files split between GLSL and Metal. There is no mechanism to verify the two backends produce equivalent output for the same input. The render test suite compares against platform-specific reference images, so Metal and Vulkan could diverge on a code path not exercised by an existing render test scenario.
+
+### 10. IHost Interface Is Too Wide
+`libs/draxul-host/include/draxul/host.h` — `IHost` has 16 virtual methods, 7 with default no-ops. Methods like `on_font_metrics_changed()` are irrelevant to `MegaCityHost` (which overrides it with an empty body and an explanatory comment). Splitting into `IHost` (lifecycle + input) and `IGridCapable` (font metrics, grid-specific) would reduce the no-op override noise and make the interface contract clearer.
 
 ---
 
-## 9. Worst 10 Existing Features
+## Architectural Issues
 
-Ranked by impact on daily usability, correctness, and maintainability.
+### 1. Two Renderer Capability Detection Patterns
+`RendererBundle::reset<T>` uses SFINAE for `IImGuiHost`/`ICaptureRenderer` capability detection. `host_manager.cpp` uses raw `dynamic_cast` for `I3DHost`/`MegaCityHost`. Mixing two idioms in the same codebase creates ambiguity about which pattern new code should follow.
 
-1. **`CellText` 32-byte hard truncation** — ZWJ emoji sequences beyond 32 bytes are silently dropped, corrupting cell content with no user-visible warning. This is a correctness defect masquerading as a limitation.
-2. **Fixed 2000-row scrollback** — the limit is a compile-time constant. Heavy shell users hit it quickly and there is no way to adjust without rebuilding from source.
-3. **Chord prefix stuck state** — a documented bug (icebox `chord-prefix-stuck`): after an unrecognised chord suffix, the prefix active flag is not always cleared, blocking subsequent input until focus change.
-4. **Font variant resolution by filename** — bold and italic are found by appending `-Bold`, `-Italic`, etc. to the font filename. This breaks for any font that doesn't follow that naming convention, requiring the user to specify all four paths manually.
-5. **`void*` render context** — `IRenderContext` exposes raw `void*` for the platform command buffer. A miscast (e.g. during a Vulkan/Metal port or test stub) produces a silent crash. The footgun is documented but not prevented.
-6. **Render tests gated on a CMake flag** — `DRAXUL_ENABLE_RENDER_TESTS` must be explicitly set; it is ON by default but the CLI bless workflow requires knowing this. A first-time contributor who builds with a custom preset may have render tests silently absent.
-7. **`open_file_dialog` unbound by default** — the feature exists, is wired up, and works, but ships with no default keybinding. Users who don't read the config reference never discover it.
-8. **No window-title feedback from Neovim** — the OS window title is always the static app name. Context-switching between multiple Draxul windows (different repos, different files) requires guessing from the taskbar thumbnail.
-9. **MegaCity is ON by default** — the 3D demo pulls in SQLite and tree-sitter, extending first-build time by tens of seconds and binary size noticeably, for functionality most users never access.
-10. **No configurable ANSI palette** — the 16 base terminal colours are fixed. Shell colour themes that rely on the host terminal's ANSI palette rather than explicit 256-colour or RGB codes will render with wrong colours.
+### 2. Circular Dependency Risk: Host ↔ Renderer
+The host layer depends on the renderer (`IGridRenderer`, `I3DRenderer`). `HostViewport` is defined in `host.h` (draxul-host), not in draxul-types. If any renderer source file ever needs to include `host.h` directly, a circular link dependency emerges that CMake cannot automatically detect.
+
+### 3. Threading Model Is Implicit
+`MainThreadChecker` asserts main-thread access in Grid and NvimRpc, but the threading model is not documented at the header level and there are no Clang thread-safety annotations. Each background worker (NvimRpc reader, UnixPtyProcess reader, MegaCityHost route_thread_, grid_thread_) implements its own mutex+CV+stop_flag pattern. A shared `BackgroundWorker<Request,Result>` template would enforce consistent shutdown semantics and reduce boilerplate.
+
+### 4. `void*` Render Context *(tracked as work item 19)*
+Metal and Vulkan renderers pass platform-specific contexts as `void*` in several places. This bypasses the type system entirely and relies on convention for correctness.
+
+### 5. No Abstraction for Background Worker Pattern
+NvimRpc, UnixPtyProcess, and MegaCityHost (route_thread_, grid_thread_) all independently implement thread + mutex + CV + stop flag + optional<Result>. A `BackgroundWorker<Request,Result>` template would give consistent shutdown semantics, consistent error handling, and a single place to add instrumentation (e.g., queue depth monitoring).
 
 ---
 
-*Report generated 2026-03-26 against branch `main` at commit `03b5afb`.*
+## Top 10 Good Things
+
+1. **Clean library decomposition** — draxul-types / draxul-window / draxul-renderer / draxul-font / draxul-grid / draxul-nvim / draxul-host / draxul-app-support are well-separated with a clear dependency graph. New host types and renderer backends can be added without touching unrelated libraries.
+
+2. **Comprehensive render test infrastructure** — TOML scenario files, platform-suffixed BMP references, pixel-diff with tolerance, bless scripts, and CI integration make rendering regressions detectable. This is unusually thorough for a personal project.
+
+3. **ASan/UBSan CI path** — the `mac-asan` preset and `asan.yml` workflow run the full test suite under AddressSanitizer and UBSan. Combined with the `FT_Face` lifetime work item already tracked, this shows active attention to memory safety.
+
+4. **Host hierarchy with clean capability extension** — `IHost → I3DHost → IGridHost → GridHostBase` allows MegaCityHost to register render passes without the grid stack knowing about 3D. `attach_3d_renderer()` is called once at startup via a single `dynamic_cast`, not repeatedly per frame.
+
+5. **Two-pass instanced GPU draw with no vertex buffers** — background quads and foreground glyphs generated procedurally in shaders, host-visible shared buffer with direct writes. The architecture avoids the staging buffer complexity that most GPU terminal renderers carry.
+
+6. **Replay fixture infrastructure** — `tests/support/replay_fixture.h` with msgpack builders and `grid_line` cell batch helpers makes it possible to write UI-parsing regression tests without launching Neovim. This is exactly the right abstraction for terminal emulator testing.
+
+7. **ConfigDocument with merge/defaults/validation** — `config.toml` parsing, range validation (with WARN fallback), section merging, and write-back are centralized. The `scroll_speed` range check and fallback documented in CLAUDE.md is a good example of defensive config handling.
+
+8. **Chord-style GUI keybindings** — the tmux-inspired prefix binding system (e.g. `ctrl+s, |`) gives power users a familiar mental model and avoids conflicts with Neovim keymaps. It is correctly kept in the Draxul layer only.
+
+9. **SonarCloud + clang-format CI** — static analysis and formatting are enforced in CI, with the pre-commit hook catching format issues before they reach review. The CLAUDE.md instructions to run a single clang-format pass at the end of each work item prevents piecemeal drift.
+
+10. **Explicit startup profiling** — the diagnostics panel shows per-step startup timings. This means performance regressions in initialization are visible to users without running a profiler, which makes it much easier to investigate startup slowdowns.
+
+---
+
+## Top 10 Bad Things
+
+1. **MegaCityHost is a ~50-member god object** that mixes camera state, routing threads, tooltip state, building selection, sign atlas, tree mesh, semantic model, config documents, and UI panel flags in a single class with no extractable subcomponents. It is the single largest maintenance risk in the codebase.
+
+2. **App has no injection boundary** — at ~867 lines it is untestable in isolation. Every other major subsystem has a `Deps` struct; App does not. Adding `AppDeps` and a `Deps`-injected constructor is the highest-leverage refactor not yet tracked.
+
+3. **Silent `CellText` truncation at 31 bytes** can produce invalid UTF-8 for complex emoji. There is no diagnostic, no replacement character fallback, and no comment explaining why 32 bytes was the chosen limit.
+
+4. **Two capability detection patterns** (SFINAE `reset<T>` vs raw `dynamic_cast`) in the same codebase create inconsistency. New contributors copying either pattern will increase the divergence.
+
+5. **Font atlas reset on the main thread** during font size change can stall the frame long enough to hit the nvim notification drop threshold (4096 entries), causing lost output. This is a latent correctness issue, not just a performance issue.
+
+6. **No compile-time shader/CPU struct parity verification** — `GpuCell` layout is verified by `static_assert` in C++ but nothing verifies Metal and GLSL shader structs match. A divergence produces silent visual corruption.
+
+7. **`param_or` lambda duplicated five times** in `terminal_host_base_csi.cpp` — the most straightforward code smell in the repository. Each copy is a divergence risk for future CSI sequence additions.
+
+8. **`static_cast` downcast in HostManager** (`static_cast<I3DRenderer*>(deps_.grid_renderer)`) is a latent UB bomb. At present the hierarchy makes it safe, but it will silently corrupt if the inheritance chain changes.
+
+9. **Five-second hard-coded RPC timeout** with no named constant and no documentation. Spurious timeout errors on slow machines or under heavy nvim load are hard to distinguish from genuine hangs.
+
+10. **No `BackgroundWorker` abstraction** — four separate mutex+CV+stop_flag patterns (NvimRpc, UnixPtyProcess, MegaCityHost route_thread_, grid_thread_) each implement their own shutdown logic. Inconsistent shutdown ordering is a common source of use-after-free in multi-threaded C++.
+
+---
+
+## Top 10 Quality-of-Life Features
+
+*(Checked against `docs/features.md` and `plans/work-items/` — none of these are already implemented or tracked as active work items unless noted.)*
+
+1. **Tab bar / named panes** — the split tree already supports multiple panes with independent hosts, but there is no tab bar or way to name/label panes. A tab bar would make the multi-pane workflow usable for daily driving and is the single highest-visibility missing UX element for a terminal frontend.
+
+2. **Session persistence** — save and restore the pane layout (split tree + host type per pane + CWD) across restarts. Most terminal users have a "morning setup" they recreate manually. This is a natural extension of the named launch profiles work item (23) already tracked.
+
+3. **URL detection and click-to-open** — the VT parser already handles OSC 8 hyperlinks (tracked as work item 20), but plain text URLs (http://, file://) could be detected by regex and made clickable/hoverable without OSC 8 support from the application. This would work immediately in all shell hosts.
+
+4. **Configurable color scheme** — `[terminal]` supports fg/bg, but there is no mechanism to set the 16 ANSI palette colors or apply a named color scheme (e.g., Solarized, Gruvbox, Catppuccin). Terminal color scheme support is the most-requested feature category in nearly every terminal emulator.
+
+5. **Shell integration breadcrumb / prompt tracking** — OSC 133 (tracked as work item 24) is the right foundation, but even without full shell integration, a simple "current command output region" highlight (shade the background of the most recent command's output) would improve navigation for long-running commands.
+
+6. **Find-in-scrollback** — a keyboard-invocable search bar that highlights matching text in the scrollback buffer and jumps between matches. The keyboard copy mode (work item 21) is related but find-in-scrollback is independently valuable and well-defined.
+
+7. **Zoom pane** — a keybinding to temporarily expand the focused pane to full window size. This is a common action in tmux/kitty/WezTerm workflows and is trivially reversible.
+
+8. **Per-pane title from OSC 2/0** — many shell integrations and terminal programs set the window title via `ESC]0;title\007`. Currently the window title is fixed. Routing OSC 0/2 to the focused pane and displaying it in the tab bar (feature 1) or title bar would make the host context visible.
+
+9. **Configurable cursor style** — bar, block, and underline cursor styles with configurable blink rate. The cursor is currently rendered as a fixed block. This is a low-implementation-cost feature with high personalization value.
+
+10. **Font fallback UI** — a diagnostics panel section showing which glyphs fell back to which fallback font, and which glyphs were replaced by a placeholder. Currently fallback chain failures are invisible to the user, making it hard to configure `fallback_paths` correctly.
+
+---
+
+## Top 10 Tests to Add for Stability
+
+*(Prioritized by likelihood of shipping a user-visible bug if missing.)*
+
+1. **InputDispatcher chord state machine** — test partial chord cancellation (prefix key then unrelated key), timeout expiry, modifier key held during chord, and the same prefix key pressed twice. Chord handling is the most user-visible input bug category with no current test coverage.
+
+2. **VT parser buffer boundary paths** — test sequences that exactly fill and overflow the 64 KB plain text buffer, 4 KB CSI buffer, and 8 KB OSC buffer. Include truncated escape sequences at the end of a read chunk. Buffer boundary bugs are a primary source of terminal display corruption.
+
+3. **Grid scroll double-width cell fixup** — tests for `scroll()` when a double-width cell straddles the scroll region boundary (the phantom half-cell at column 0 or at column width-1). This is the most common grid scroll correctness failure in terminal emulators.
+
+4. **Alt screen save/restore across scrollback wrap** — switch to alt screen when the ring is at capacity, push more rows, then restore. Verify the scrollback position and viewport offset are correct after the round-trip.
+
+5. **Atlas reset retry in GridRenderingPipeline** — fill the atlas to near-capacity, then flush a frame that requires more glyphs than fit in the remaining space. Verify the retry succeeds and the frame renders correctly rather than losing glyphs.
+
+6. **App initialization rollback** — test that `App::initialize()` handles renderer-init failure, text-service-init failure, and host-init failure without leaking resources. Requires extracting `AppDeps` first (see bad thing #2) but is the correct end state.
+
+7. **ConfigDocument range validation and fallback** — test that `scroll_speed` outside (0.1, 10.0], an `atlas_size` that is not a power of two, and a missing required key each produce the correct WARN and fallback value rather than UB or a hard crash.
+
+8. **HostManager SplitTree divider drag clamping** — drag a divider to the minimum and maximum ratio bounds and verify the tree does not produce zero-height or zero-width panes. Test deep nesting (3+ splits) to verify recursive layout is consistent.
+
+9. **GlyphCache face-pointer invalidation regression** — create a GlyphCache, populate it with entries for a face, destroy the face via FontManager, then request a glyph from the old face. Verify the cache returns a placeholder rather than dereferencing a dangling pointer. This is a regression guard for work item 00.
+
+10. **Renderer dirty range coalescing** — test that writing overlapping and adjacent dirty regions produces the correct minimal upload range. Verify that a cursor move (which invalidates a single cell) does not cause a full-buffer re-upload. This is both a correctness and a performance regression test.
+
+---
+
+## Top 10 Worst Features
+
+*(Evaluated against user-facing quality, correctness, and implementation risk.)*
+
+1. **Silent CellText truncation for long emoji** — from the user's perspective, complex family emoji or flag sequences can appear as garbage or replacement characters with no indication of why. The feature nominally "works" but produces invisible correctness failures for a growing category of Unicode text.
+
+2. **Font atlas reset on font size change** — the user presses `Ctrl+=` and the UI freezes for a perceptible interval while the atlas is rebuilt synchronously. On large files with many distinct glyphs this stall is tens of milliseconds. The feature works but the UX is noticeably rough.
+
+3. **Hard-coded 5-second RPC timeout** — on slow machines or under heavy nvim indexing, legitimate operations time out and are reported as errors. The feature cannot be tuned by the user and produces misleading diagnostics.
+
+4. **Config error handling via WARN + silent fallback** — when `config.toml` contains invalid values, Draxul silently falls back to defaults and logs a WARN. Users who don't run with `--log-level warn` or `--log-file` never see the error. A startup toast or diagnostics panel notice would make this visible.
+
+5. **Notification queue drop without user feedback** — if the main thread stalls long enough for the nvim notification queue to hit 4096 entries, nvim output is silently discarded. From the user's perspective, the editor display becomes incorrect without any indication of why or how to recover (other than restarting).
+
+6. **Chord prefix with no visual feedback** — when the user types the chord prefix key (e.g., `Ctrl+S`), there is no visual indicator that Draxul is waiting for the second key. If the prefix times out or is cancelled, the user has no way to know whether their key was consumed by the chord system or forwarded to nvim.
+
+7. **`fallback_paths` configuration requires file paths** — users must specify absolute paths to fallback font files in `config.toml`. There is no font name lookup (e.g., `fallback_fonts = ["Noto Color Emoji"]`) and no diagnostics panel indication of which glyphs are using the fallback chain. Configuring fallback fonts is effectively a trial-and-error process.
+
+8. **Scrollback limited to 2000 rows without user configuration** — the scrollback capacity is hard-coded. Power users routinely want 10 000–100 000 rows for long-running commands. The ring buffer implementation already supports arbitrary sizes; the capacity just needs to be a config key.
+
+9. **Split pane hosts always use platform default shell** — when the user splits a pane, the new pane always opens a Zsh (macOS) or PowerShell (Windows) shell regardless of what the primary host is doing. A user working in the nvim host cannot split to a second nvim instance, and there is no way to configure which host type new splits use.
+
+10. **MegaCity `--host megacity` is not guarded when Tree-sitter / SQLite are unavailable** — if the user specifies `--host megacity` but the required codebase index does not exist or is corrupt, the startup failure is a crash or opaque error rather than a graceful "no codebase found, building index..." message. Work item 12 tracks degraded-init testing but the user-facing fallback path does not yet exist.
+
+---
+
+*End of report.*

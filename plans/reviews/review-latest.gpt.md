@@ -1,69 +1,78 @@
-Static inspection only of `app/`, `libs/`, `shaders/`, `tests/`, `scripts/`, and `plans/`; no builds or tests were run. No obvious high-severity correctness bug jumped out from the current tree, but there are several maintainability hotspots and a few thinly tested complex areas.
+**Review**
+Static inspection only of the current tree at `HEAD fffa7af` from March 28, 2026. I scanned `app/`, `libs/`, `shaders/`, `tests/`, `scripts/`, `plans/`, and [`docs/features.md`](/Users/cmaughan/dev/Draxul/docs/features.md). I did not build, run, or edit anything. Outside the Megacity stack, the overall layout is good; Megacity is the clear architectural outlier.
 
 **Findings**
-1. Medium: `RendererState` exposes a fairly rich partial-upload contract, but both backends ignore it and memcpy the full packed state every upload. That leaves misleading API surface and unnecessary complexity in a hot path. See [renderer_state.h](/Users/cmaughan/dev/Draxul/libs/draxul-renderer/include/draxul/renderer_state.h):93, [vk_renderer.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-renderer/src/vulkan/vk_renderer.cpp):106, [metal_renderer.mm](/Users/cmaughan/dev/Draxul/libs/draxul-renderer/src/metal/metal_renderer.mm):107.
-2. Medium: The config layer still leaks renderer/window/font and optional-demo concerns despite the header comment promising the opposite. `draxul-config` publicly links those subsystems, `app_config_io.cpp` includes SDL and `TextService`, and core `AppConfig` carries `MegaCityCodeConfig`. That makes small config work fan out across unrelated modules. See [app_config_types.h](/Users/cmaughan/dev/Draxul/libs/draxul-config/include/draxul/app_config_types.h):3, [CMakeLists.txt](/Users/cmaughan/dev/Draxul/libs/draxul-config/CMakeLists.txt):14, [app_config_io.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-config/src/app_config_io.cpp):3, [app_config_types.h](/Users/cmaughan/dev/Draxul/libs/draxul-config/include/draxul/app_config_types.h):150.
-3. Medium: MegaCity is still the biggest architectural outlier. Its public host header pulls in `CityDatabase` and `CodebaseScanner`, its CMake wiring reaches into renderer-private headers, and the host implementation mixes input, background scan, DB reconcile, scene building, and ImGui in one large file. Optional demo code still has too much structural reach. See [megacity_host.h](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/include/draxul/megacity_host.h):4, [CMakeLists.txt](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/CMakeLists.txt):60, [megacity_host.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/src/megacity_host.cpp):559.
-4. Low-Medium: Font resolution remains a monolithic inline header implementation. Platform probing, filesystem heuristics, font loading, and shaper setup all sit in a transitive include, which increases rebuild cost and creates a merge hotspot for unrelated font work. See [font_resolver.h](/Users/cmaughan/dev/Draxul/libs/draxul-font/src/font_resolver.h):149, [font_resolver.h](/Users/cmaughan/dev/Draxul/libs/draxul-font/src/font_resolver.h):164.
-5. Low-Medium: Coverage is uneven where concurrency and persistence are most subtle. `CodebaseScanner` documents a brittle “start once” lifecycle and runs a background thread, but currently has one focused test; `CityDatabase` also has essentially one focused reconcile test despite schema, reopen, and idempotence risk. See [treesitter.h](/Users/cmaughan/dev/Draxul/libs/draxul-treesitter/include/draxul/treesitter.h):55, [treesitter.cpp](/Users/cmaughan/dev/Draxul/libs/draxul-treesitter/src/treesitter.cpp):257, [treesitter_tests.cpp](/Users/cmaughan/dev/Draxul/tests/treesitter_tests.cpp):47, [citydb_tests.cpp](/Users/cmaughan/dev/Draxul/tests/citydb_tests.cpp):64.
-6. Low: Review/process artifact hygiene is not fully trustworthy right now. `plans/reviews/review-consensus.md` is not an actual consensus note; it is meta-output claiming one was written. That weakens the planning workflow for humans and agents alike. See [review-consensus.md](/Users/cmaughan/dev/Draxul/plans/reviews/review-consensus.md):1.
+1. **Megacity is the main architectural hotspot.** [`megacity_host.h`](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/include/draxul/megacity_host.h#L38), [`megacity_host.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/src/megacity_host.cpp#L168), [`semantic_city_layout.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/src/semantic_city_layout.cpp#L455), [`megacity_render_vk.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/src/megacity_render_vk.cpp#L1), and [`megacity_render.mm`](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/src/megacity_render.mm#L1) are each large, high-conflict files. Host lifecycle, config persistence, DB/scanner orchestration, route/grid workers, UI state, and camera control are all concentrated there.
+2. **Megacity still pierces renderer encapsulation.** [`libs/draxul-megacity/CMakeLists.txt`](/Users/cmaughan/dev/Draxul/libs/draxul-megacity/CMakeLists.txt#L76) adds private Metal/Vulkan renderer source dirs to Megacity includes, and [`tests/CMakeLists.txt`](/Users/cmaughan/dev/Draxul/tests/CMakeLists.txt#L19) exposes `libs/draxul-megacity/src` to tests. The module split is therefore partly conventional, not enforced.
+3. **CLI parsing can hard-crash on malformed numeric input.** [`app/main.cpp`](/Users/cmaughan/dev/Draxul/app/main.cpp#L146) uses unchecked `std::stoi` for `--screenshot-delay` and `--screenshot-size`, and [`app/main.cpp`](/Users/cmaughan/dev/Draxul/app/main.cpp#L217) does not wrap `parse_args()` in error handling. Bad input currently looks like process termination, not a clean usage error.
+4. **Core interfaces still expose too much mutable state.** [`window.h`](/Users/cmaughan/dev/Draxul/libs/draxul-window/include/draxul/window.h#L73) publishes callback slots as public members, and [`host.h`](/Users/cmaughan/dev/Draxul/libs/draxul-host/include/draxul/host.h#L77) passes a broad `HostContext` bag containing window, renderer, text, config, ownership, launch, and DPI state. That raises coupling and lifetime risk for concurrent edits.
+5. **`SdlWindow` is carrying too many platform responsibilities.** [`sdl_window.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-window/src/sdl_window.cpp#L32), [`sdl_window.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-window/src/sdl_window.cpp#L137), [`sdl_window.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-window/src/sdl_window.cpp#L272), [`sdl_window.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-window/src/sdl_window.cpp#L380), and [`sdl_window.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-window/src/sdl_window.cpp#L472) combine DPI diagnostics, title policy, Win32 activation hacks, event dispatch, wake plumbing, and native file dialogs in one class.
+6. **Test ergonomics are weaker than the comments suggest.** [`tests/CMakeLists.txt`](/Users/cmaughan/dev/Draxul/tests/CMakeLists.txt#L6) says new `*_tests.cpp` files are auto-discovered, but it uses plain `file(GLOB ...)` without `CONFIGURE_DEPENDS`, so new files are missed until CMake re-configures. That is exactly the kind of silent failure that slows multi-agent work.
+7. **Some of the largest tests mirror the same monolith pattern as production hotspots.** [`tests/megacity_scene_tests.cpp`](/Users/cmaughan/dev/Draxul/tests/megacity_scene_tests.cpp#L1) is a large private-header integration block that even sleeps/pumps in the test body at [`tests/megacity_scene_tests.cpp`](/Users/cmaughan/dev/Draxul/tests/megacity_scene_tests.cpp#L54). It gives coverage, but it is expensive to refactor and easy to conflict in.
+8. **User-facing limits are still hard-coded into core code.** [`scrollback_buffer.h`](/Users/cmaughan/dev/Draxul/libs/draxul-host/include/draxul/scrollback_buffer.h#L35) fixes scrollback at 2000 rows, and [`selection_manager.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-host/src/selection_manager.cpp#L114) truncates overlays at `kSelectionMaxCells`. Even if acceptable today, these are policy decisions embedded in mechanics.
+9. **The current feature reference is malformed.** [`docs/features.md`](/Users/cmaughan/dev/Draxul/docs/features.md#L89) is broken around diagnostics, keybindings, and config tables. In a fast-moving repo, documentation drift becomes a coordination bug.
 
-**Top 10 Good**
-- The library split is strong for a C++ GUI app, and the dependency direction is clearly documented.
-- The host and renderer capability hierarchies are much cleaner than a typical ad hoc platform abstraction.
-- `GridHostBase`, `SelectionManager`, `ScrollbackBuffer`, `CursorBlinker`, and `UiRequestWorker` are good examples of concern separation.
-- The render-test scenario system is a serious asset for a graphics-heavy codebase.
-- `tests/support/replay_fixture.h` is a very good seam for redraw/parser regression tests.
-- The codebase has a real regression culture: many historical bugs were turned into tests instead of tribal knowledge.
-- Shader/layout contracts are guarded with shared constants and static asserts, which is the right instinct.
-- Diagnostics, startup timing capture, and structured logging are practical and developer-friendly.
-- Cross-host support is ambitious and mostly kept behind coherent abstractions.
-- The repo docs and agent instructions are unusually specific, which helps both humans and automated contributors.
+**Assumptions**
+- I treated Megacity as a supported part of the product, not a throwaway demo.
+- I avoided recommending items already open, complete, or explicitly iceboxed in `plans/work-items*`.
+- This review is static only, so runtime-only regressions may still exist.
 
-**Top 10 Bad**
-- MegaCity still concentrates too much complexity in one optional subsystem.
-- Core config is still broader than it should be and pulls optional concerns into common paths.
-- Renderer dirty-region APIs currently over-promise relative to production use.
-- Some files are still large enough to be merge-conflict magnets.
-- Font resolution is compile-heavy and not especially modular.
-- Tree-sitter and city DB complexity are under-tested relative to risk.
-- Important behaviors still live in a manual checklist rather than automation.
-- Planning/review artifacts are not all reliable source-of-truth documents.
-- Tooling scripts appear useful but largely untested.
-- There are still small hygiene leftovers like duplicate includes and manual ownership patterns.
+**Top 10 Good Things**
+- The non-Megacity core is genuinely modular, especially `grid`, `host`, `renderer`, `font`, `nvim`, and `window`.
+- [`split_tree.cpp`](/Users/cmaughan/dev/Draxul/app/split_tree.cpp#L13) is small, readable, and heavily tested.
+- [`grid_host_base.h`](/Users/cmaughan/dev/Draxul/libs/draxul-host/include/draxul/grid_host_base.h#L16) is a strong reusable seam for grid-based hosts.
+- [`grid_rendering_pipeline.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-runtime-support/src/grid_rendering_pipeline.cpp#L78) is focused and testable.
+- Terminal coverage is deep and broad, especially [`terminal_vt_tests.cpp`](/Users/cmaughan/dev/Draxul/tests/terminal_vt_tests.cpp#L18).
+- Config lifecycle/recovery coverage is stronger than most projects, especially [`config_lifecycle_tests.cpp`](/Users/cmaughan/dev/Draxul/tests/config_lifecycle_tests.cpp#L52).
+- Logging is well-structured and optimized for hot-path checks in [`log.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-types/src/log.cpp#L38).
+- Neovim redraw dispatch is data-driven and self-checking in [`ui_events.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-nvim/src/ui_events.cpp#L71).
+- App-level smoke testing with fakes is solid in [`app_smoke_tests.cpp`](/Users/cmaughan/dev/Draxul/tests/app_smoke_tests.cpp#L1).
+- The planning/review/work-item discipline is unusually mature and helps coordination.
 
-**10 QoL Features To Add**
-- OSC 8 hyperlink support for explicit clickable links from terminal apps.
-- Shell integration prompt marks and command boundaries, e.g. OSC 133-style navigation.
-- Keyboard-driven copy mode for terminal panes, not just mouse-first selection.
-- Pane labels plus a quick pane switcher.
-- “Equalize panes” and “maximize focused pane” actions.
-- Recent files and recent working directories picker.
-- Scrollback export/save for the focused pane.
-- Focused-pane-aware open-file flow, including “open here” vs “open in split”.
-- Named launch profiles for common hosts, args, cwd, and startup commands.
-- Non-blocking toast notifications for recoverable events like clipboard or spawn failures.
+**Top 10 Bad Things**
+- Megacity dominates the architectural risk budget.
+- Module boundaries still leak through private source includes.
+- Public callback/context surfaces are broader than they should be.
+- `SdlWindow` is a cross-platform kitchen sink.
+- `app/main.cpp` still has brittle CLI parsing.
+- Test auto-discovery is not actually automatic.
+- Several hotspot files are too large for low-conflict parallel work.
+- One of the largest test files is integration-heavy and private-header-dependent.
+- `docs/features.md` is currently not trustworthy.
+- The agent helper scripts duplicate path/prompt plumbing and add maintenance noise.
 
-**10 Tests To Add**
-- `CodebaseScanner` restart test: `start -> stop -> start` should behave safely and publish fresh snapshots.
-- `CodebaseScanner` skip test for hidden dirs, build dirs, and Objective-C sources.
-- `CodebaseScanner` parse-error cap test to verify bounded error collection and completed snapshots.
-- `CityDatabase` idempotent reconcile test covering deleted and renamed symbols across snapshots.
-- `CityDatabase` reopen/move/close semantics test.
-- `FontResolver` style-font auto-detection heuristic test.
-- `MegaCityHost` degraded init/shutdown test when city DB open fails and sign text service is unavailable.
-- `MegaCityHost` unchanged-snapshot test to ensure reconcile/rebuild does not loop needlessly.
-- SDL file-dialog event ownership test for `sdl_file_dialog.cpp`.
-- `App::run_render_test` settle/quiet-state logic test.
+**Top 10 QoL Features To Add**
+- `close_pane` action with a default keybinding and menu entry.
+- `duplicate_pane` that preserves host kind, command, cwd, and args.
+- `restart_host` or reconnect action for the focused pane.
+- Split the current pane into the same host type by default, with explicit “split to shell” as a separate action.
+- Recent files and recent working directories menus.
+- Pane headers or status chips showing host, cwd, and disconnected/busy state.
+- Keyboard shortcut/help overlay for GUI actions and pane control.
+- “Open current working directory” in Finder/Explorer.
+- Export diagnostics snapshot to markdown or JSON from the UI.
+- One-click capture/copy of the current frame from the UI.
+
+**Top 10 Tests To Add**
+- `app/main.cpp` invalid `--screenshot-delay` and `--screenshot-size` inputs fail cleanly instead of throwing.
+- `SdlWindow` native file-dialog result and cancel event routing.
+- `SdlWindow::wake()` plus `wait_events()` no-lost-wake behavior.
+- `SdlWindow` mixed event ordering: resize, display-scale, drop-file, and dialog-result in one queue.
+- City DB migration from older `PRAGMA user_version` values to current schema.
+- City DB behavior for future/unsupported schema versions.
+- `megacity_db_path()` resolution for repo-root versus app-support cases.
+- MegaCity stale route-result suppression during rapid reselection.
+- MegaCity shutdown while route/grid work is still in flight.
+- A docs smoke test that verifies `scripts/build_docs.py` does not corrupt `docs/features.md`-style markdown output.
 
 **Worst 10 Current Features**
-- MegaCity host overall: too much cost for too little core-product value.
-- MegaCity live scanner/database pipeline: clever, but structurally expensive.
-- MegaCity’s config tuning surface: too many knobs leaking into common config.
-- Remote clipboard interoperability: still incomplete for terminal-heavy remote workflows.
-- Selection/clipboard UX: functional, but still constrained and mouse-centric.
-- Native file dialog flow: minimal and not very context-aware.
-- Diagnostics panel as a user feature: useful data, limited actionability.
-- Scrollback UX as exposed today: history exists, but the ergonomics are still basic.
-- Font auto-discovery/fallback UX: capable, but opaque and heuristic-heavy.
-- Pane management UX beyond simple splits: functional foundation, weak finishing layer.
+- MegaCity as a first-class host: visually ambitious, but far too expensive relative to core editor value.
+- The MegaCity tuning surface is much larger than its stability and modularity budget.
+- Pane splits defaulting to a shell instead of inheriting active context.
+- Fixed 2000-row scrollback.
+- Fixed 8192-cell selection limit.
+- Non-Windows window titles getting an emoji prefix in [`sdl_window.cpp`](/Users/cmaughan/dev/Draxul/libs/draxul-window/src/sdl_window.cpp#L194).
+- The diagnostics panel trying to be a control room instead of a support panel.
+- Native file-open being a raw path handoff with no recent/history affordance.
+- Screenshot/render-test CLI flow being brittle on invalid numeric input.
+- Pane splitting feeling one-way: create is first-class, but close/duplicate/restart are not.

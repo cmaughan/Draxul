@@ -1,4 +1,4 @@
-All 25 new work items are in place alongside the existing `24 osc52-clipboard-read`. Here's a summary of what was produced:
+All 22 work items (WI 26–47) are in place. Here's a summary of everything produced:
 
 ---
 
@@ -6,31 +6,29 @@ All 25 new work items are in place alongside the existing `24 osc52-clipboard-re
 
 ### `plans/reviews/review-consensus.md` — full synthesis
 
-- **10 strong agreements** across all three reviewers (God Object `App`, untestable `run_render_test`, `void*` render context, MegaCity structural reach, error idiom inconsistency, `FT_Face` lifetime hazard, chord prefix stuck-state, `MegaCityCodeConfig` in core config, `Grid::scroll()` complexity, thin concurrency/persistence tests)
-- **Agent-specific findings** attributed by reviewer with `[C]`, `[G]`, `[P]` tags
-- **Disagreement table** with resolutions (error unification, App decomposition scope, MegaCity priority, `void*` strategy)
-- **Stale/already-fixed** issues called out explicitly (23 items already in complete or icebox, not re-planned)
-- **Recommended fix order** across all tiers
-- **Interdependency map** with sub-agent recommendations
+The consensus document contains:
+- **10 strong/partial agreements** across [C] Claude, [G] Gemini, [P] GPT — each attributed with agent tags
+- **Disagreement table** with 4 resolutions (App decomposition scope, MegaCity priority, `void*` strategy, error idiom unification)
+- **Stale/already-fixed items** called out explicitly (not re-planned)
+- **4-tier recommended fix order** (bugs → tests → refactors → features)
+- **Full interdependency map** with sub-agent recommendations
+- Signed by `claude-sonnet-4-6`
 
-### 25 new work items
+### 22 new work items (WI 26–47)
 
-| Range | Type | Count |
+| Range | Type | Items |
 |---|---|---|
-| `00–03` | Bugs | 4 |
-| `04–12` | Tests | 9 |
-| `13–19` | Refactors | 7 |
-| `20–24` | Features | 5 |
+| 26–28 | Bugs | CLI numeric crash, unsafe HostManager downcast, RPC magic timeout |
+| 29–35 | Tests | Chord state machine, dirty range coalescing, SDL wake ordering, city DB migration, CLI args, large paste stress, startup perf gate |
+| 36–43 | Refactors | `param_or` dedup, window size accessors, App::Deps injection, BackgroundWorker template, IHost split, CMake CONFIGURE_DEPENDS, features.md repair, HostContext named init |
+| 44–47 | Features | Pane zoom, pane close/duplicate/restart, chord visual indicator, diagnostics export |
 
 ### Key interdependencies flagged
 
-- `00` (FT_Face bug) → `11` (fontresolver test: add regression)
-- `01` (grid overflow) → `05` (grid OOB test covers it)
-- `02` (APPDATA bug) → `07` (config test covers it)
-- **`04 + 13`** = same agent pass (render-test refactor + test)
-- **`08 + 15`** = same agent pass (attr-cache refactor + test)
-- **`05 + 17`** = same agent pass (scroll split + OOB test)
-- **`09 + 10 + 12`** = same agent pass (MegaCity stability tests)
-- **`11 + 18`** = same agent pass (fontresolver extraction + test)
-- `19` (void* context) — coordinate scope with icebox `25 renderer-backend-parity-cleanup`
-- `20` (OSC 8) → `24` (OSC 133) share dispatch infrastructure; do OSC 8 first
+- **WI 41** (cmake CONFIGURE_DEPENDS) → must land before any new test file work (29–35)
+- **WI 26** (CLI crash) → **WI 33** (CLI test, regression guard)
+- **WI 38** (App::Deps) → **WI 40** (IHost split needs stable App boundary first)
+- **WI 29** (chord tests) → **WI 46** (chord indicator, build confidence first)
+- **WI 36 + WI 41** — same agent pass (both mechanical, low blast radius)
+- **WI 26 + WI 33** — same agent pass (fix + test)
+- **WI 44 + WI 45** — sequential (both touch HostManager)
