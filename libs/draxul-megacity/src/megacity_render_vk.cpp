@@ -842,6 +842,7 @@ struct IsometricScenePass::State
     VkDescriptorPool prepass_descriptor_pool = VK_NULL_HANDLE;
     VkPipelineLayout prepass_pipeline_layout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
+    VkPipeline pipeline_no_depth_write = VK_NULL_HANDLE;
     VkPipeline debug_pipeline = VK_NULL_HANDLE;
     VkPipeline wireframe_pipeline = VK_NULL_HANDLE;
     VkPipeline debug_wireframe_pipeline = VK_NULL_HANDLE;
@@ -2122,11 +2123,26 @@ struct IsometricScenePass::State
         pipeline_ci.subpass = 0;
 
         const VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
-        vkDestroyShaderModule(device, vert, nullptr);
-        vkDestroyShaderModule(device, frag, nullptr);
         if (result != VK_SUCCESS)
         {
+            vkDestroyShaderModule(device, vert, nullptr);
+            vkDestroyShaderModule(device, frag, nullptr);
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create graphics pipeline");
+            return false;
+        }
+
+        // Create a variant with depth test but no depth write for transparent objects.
+        VkPipelineDepthStencilStateCreateInfo depth_no_write = depth;
+        depth_no_write.depthWriteEnable = VK_FALSE;
+        pipeline_ci.pDepthStencilState = &depth_no_write;
+        const VkResult ndw_result = vkCreateGraphicsPipelines(
+            device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline_no_depth_write);
+        vkDestroyShaderModule(device, vert, nullptr);
+        vkDestroyShaderModule(device, frag, nullptr);
+        if (ndw_result != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                "MegaCity scene: failed to create no-depth-write pipeline");
             return false;
         }
 
@@ -3645,6 +3661,8 @@ struct IsometricScenePass::State
             vkDestroyPipeline(device, debug_pipeline, nullptr);
         if (post_pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, post_pipeline, nullptr);
+        if (pipeline_no_depth_write != VK_NULL_HANDLE)
+            vkDestroyPipeline(device, pipeline_no_depth_write, nullptr);
         if (pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(device, pipeline, nullptr);
         if (post_pipeline_layout != VK_NULL_HANDLE)
@@ -3679,6 +3697,7 @@ struct IsometricScenePass::State
         prepass_descriptor_pool = VK_NULL_HANDLE;
         prepass_pipeline_layout = VK_NULL_HANDLE;
         pipeline = VK_NULL_HANDLE;
+        pipeline_no_depth_write = VK_NULL_HANDLE;
         post_pipeline = VK_NULL_HANDLE;
         present_pipeline = VK_NULL_HANDLE;
         frame_resources.clear();
@@ -4059,10 +4078,14 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->pipeline_layout,
         0, 1, &frame_res.descriptor_set, 0, nullptr);
 
-    // Draw scene objects into GBuffer
+    // Draw scene objects into GBuffer (opaque only — transparent objects must not
+    // contribute to depth/normals so that AO ignores faded geometry).
+    const uint32_t gbuffer_opaque_count = std::min(scene_.opaque_count,
+        static_cast<uint32_t>(scene_.objects.size()));
     const MeshBuffers* last_mesh = nullptr;
-    for (const SceneObject& obj : scene_.objects)
+    for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
     {
+        const SceneObject& obj = scene_.objects[gi];
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
@@ -4216,8 +4239,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         0, 1, &frame_res.descriptor_set, 0, nullptr);
 
     const MeshBuffers* last_scene_mesh = nullptr;
-    for (const SceneObject& obj : scene_.objects)
-    {
+    auto draw_scene_object = [&](const SceneObject& obj) {
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
@@ -4247,10 +4269,10 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
                 mesh = &state_->custom_meshes[obj.custom_mesh_index];
             break;
         case MeshId::Grid:
-            continue;
+            return;
         }
         if (!mesh || mesh->index_count == 0)
-            continue;
+            return;
 
         if (mesh != last_scene_mesh)
         {
@@ -4269,6 +4291,21 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         push.label_metrics = glm::vec4(obj.label_ink_pixel_size, 0.0f, 0.0f);
         vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
         vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+    };
+
+    // Draw opaque objects with depth write enabled.
+    const uint32_t scene_opaque_count = std::min(scene_.opaque_count,
+        static_cast<uint32_t>(scene_.objects.size()));
+    for (uint32_t i = 0; i < scene_opaque_count; ++i)
+        draw_scene_object(scene_.objects[i]);
+
+    // Draw transparent objects with depth test but no depth write (back-to-front).
+    if (scene_opaque_count < scene_.objects.size()
+        && state_->pipeline_no_depth_write != VK_NULL_HANDLE && !use_debug && !use_wireframe)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->pipeline_no_depth_write);
+        for (uint32_t i = scene_opaque_count; i < scene_.objects.size(); ++i)
+            draw_scene_object(scene_.objects[i]);
     }
 
     if (grid_slice.index_count > 0)
