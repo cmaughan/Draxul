@@ -363,6 +363,84 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     std::filesystem::remove(db_path);
 }
 
+TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
+{
+    TextService text_service;
+    if (!init_text_service(text_service))
+        SKIP("bundled font not found");
+
+    const auto db_path = std::filesystem::path(DRAXUL_PROJECT_ROOT)
+        / "build"
+        / "test-artifacts"
+        / ("draxul-megacity-building-roof-sign-width-"
+            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
+            + ".sqlite3");
+    std::filesystem::create_directories(db_path.parent_path());
+    std::filesystem::remove(db_path);
+
+    CodebaseSnapshot snapshot;
+    snapshot.complete = true;
+    snapshot.scan_time = std::chrono::steady_clock::now();
+
+    ParsedFile file;
+    file.path = "src/example.cpp";
+    file.symbols.push_back(SymbolRecord{
+        SymbolKind::Class,
+        "VeryLongBuildingName",
+        "",
+        false,
+        1,
+        24,
+        1,
+        {},
+        {
+            { "count_", "int", {} },
+        },
+    });
+    snapshot.files.push_back(file);
+
+    CityDatabase city_db;
+    INFO(city_db.last_error());
+    REQUIRE(city_db.open(db_path));
+    REQUIRE(city_db.reconcile_snapshot(snapshot));
+
+    SceneWorld world;
+    MegaCityCodeConfig config;
+    config.roof_sign_min_width_per_character = 0.6f;
+    uint64_t sign_label_revision = 1;
+    const std::vector<std::string> modules = city_db.list_modules();
+    REQUIRE(modules.size() == 1);
+
+    build_city(
+        world,
+        city_db,
+        &text_service,
+        modules,
+        config,
+        sign_label_revision);
+
+    constexpr std::string_view kBuildingName = "VeryLongBuildingName";
+    const float expected_min_sign_width = static_cast<float>(kBuildingName.size()) * config.roof_sign_min_width_per_character
+        + 2.0f * config.wall_sign_side_inset;
+
+    bool found_building_sign = false;
+    auto sign_view = world.registry().view<const SignMetrics, const SourceSymbol>();
+    for (const entt::entity entity : sign_view)
+    {
+        const auto& metrics = sign_view.get<const SignMetrics>(entity);
+        const auto& source = sign_view.get<const SourceSymbol>(entity);
+        if (source.file != "src/example.cpp" || source.name != kBuildingName || source.module_path != "src")
+            continue;
+        found_building_sign = true;
+        CHECK(metrics.width == Catch::Approx(expected_min_sign_width).margin(1e-4f));
+    }
+    REQUIRE(found_building_sign);
+
+    text_service.shutdown();
+    city_db.close();
+    std::filesystem::remove(db_path);
+}
+
 TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]")
 {
     SceneWorld world;
@@ -549,10 +627,14 @@ TEST_CASE("megacity picking filter can skip disallowed duplicate-name buildings"
 
 TEST_CASE("procedural building side count becomes hex for heavily connected buildings", "[megacity]")
 {
-    CHECK(procedural_building_side_count(0, 12) == 4);
-    CHECK(procedural_building_side_count(11, 12) == 4);
-    CHECK(procedural_building_side_count(12, 12) == 6);
-    CHECK(procedural_building_side_count(9, 9) == 6);
+    CHECK(procedural_building_side_count(0, 12, 24) == 4);
+    CHECK(procedural_building_side_count(11, 12, 24) == 4);
+    CHECK(procedural_building_side_count(12, 12, 24) == 6);
+    CHECK(procedural_building_side_count(23, 12, 24) == 6);
+    CHECK(procedural_building_side_count(24, 12, 24) == 8);
+    CHECK(procedural_building_side_count(9, 9, 18) == 6);
+    CHECK(procedural_building_side_count(18, 9, 18) == 8);
+    CHECK(procedural_building_side_count(12, 12, 8) == 6);
 }
 
 TEST_CASE("route segment world transform follows its intended direction", "[megacity]")

@@ -354,21 +354,44 @@ std::string module_display_name(std::string_view module_path)
 
 float compute_building_sign_height(
     const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
-    const MegaCityCodeConfig& config)
+    const MegaCityCodeConfig& config, float face_width)
 {
-    const float footprint = building.metrics.footprint;
-    float sign_height = footprint * 0.25f;
+    const float clamped_face_width = std::max(face_width, 0.1f);
+    float sign_height = clamped_face_width * 0.25f;
 
     if (text_service && !text.empty())
     {
         const int cw = std::max(text_service->metrics().cell_width, 1);
         const int ch = std::max(text_service->metrics().cell_height, 1);
         const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
-        const float char_width = footprint / std::max(static_cast<float>(text.size()), 1.0f);
+        const float char_width = clamped_face_width / std::max(static_cast<float>(text.size()), 1.0f);
         sign_height = char_width * aspect + 2.0f * config.wall_sign_side_inset;
     }
 
     return std::clamp(sign_height, 0.24f, building.metrics.height * 0.15f);
+}
+
+float roof_sign_outer_radius_for_face_width(int sides, float face_width)
+{
+    const int clamped_sides = std::max(sides, 3);
+    const float clamped_face_width = std::max(face_width, 0.1f);
+    if (clamped_sides == 4)
+        return clamped_face_width * 0.5f;
+
+    const float half_angle = glm::pi<float>() / static_cast<float>(clamped_sides);
+    const float sin_half_angle = std::max(std::sin(half_angle), 1e-4f);
+    return clamped_face_width / (2.0f * sin_half_angle);
+}
+
+float roof_sign_face_width_for_outer_radius(int sides, float outer_radius)
+{
+    const int clamped_sides = std::max(sides, 3);
+    const float clamped_outer_radius = std::max(outer_radius, 0.05f);
+    if (clamped_sides == 4)
+        return clamped_outer_radius * 2.0f;
+
+    const float half_angle = glm::pi<float>() / static_cast<float>(clamped_sides);
+    return 2.0f * clamped_outer_radius * std::sin(half_angle);
 }
 
 RoofSignPlacementSpec place_building_roof_sign(
@@ -377,13 +400,24 @@ RoofSignPlacementSpec place_building_roof_sign(
 {
     RoofSignPlacementSpec placement;
     placement.center = building.center;
-    placement.height = compute_building_sign_height(building, text, text_service, config);
-    placement.band_depth = std::max(config.wall_sign_thickness, 0.02f);
-    placement.inner_radius = std::max(
-        building.metrics.footprint * 0.5f + config.wall_sign_face_gap,
-        0.05f);
-    placement.outer_diameter = (placement.inner_radius + placement.band_depth) * 2.0f;
     placement.sides = std::max(sides, 3);
+    placement.band_depth = std::max(config.wall_sign_thickness, 0.02f);
+    const float base_outer_radius
+        = std::max(building.metrics.footprint * 0.5f + config.wall_sign_face_gap + placement.band_depth, 0.05f);
+    const float min_face_width_for_text = std::max(
+        static_cast<float>(text.size()) * std::max(config.roof_sign_min_width_per_character, 0.0f)
+            + 2.0f * config.wall_sign_side_inset,
+        0.0f);
+    const float text_outer_radius = roof_sign_outer_radius_for_face_width(placement.sides, min_face_width_for_text);
+    const float outer_radius = std::max(base_outer_radius, text_outer_radius);
+    placement.inner_radius = std::max(outer_radius - placement.band_depth, 0.05f);
+    placement.outer_diameter = outer_radius * 2.0f;
+    placement.height = compute_building_sign_height(
+        building,
+        text,
+        text_service,
+        config,
+        roof_sign_face_width_for_outer_radius(placement.sides, outer_radius));
     return placement;
 }
 
@@ -489,10 +523,18 @@ SignMetrics make_sign_metrics(const RoofSignPlacementSpec& placement, const Sign
 
 } // namespace
 
-int procedural_building_side_count(int incident_connection_count, int connected_hex_building_threshold)
+int procedural_building_side_count(
+    int incident_connection_count,
+    int connected_hex_building_threshold,
+    int connected_oct_building_threshold)
 {
     const int hex_threshold = std::max(connected_hex_building_threshold, 1);
-    return incident_connection_count >= hex_threshold ? 6 : 4;
+    const int oct_threshold = std::max(connected_oct_building_threshold, hex_threshold + 1);
+    if (incident_connection_count >= oct_threshold)
+        return 8;
+    if (incident_connection_count >= hex_threshold)
+        return 6;
+    return 4;
 }
 
 CityBuildResult build_city(
@@ -774,7 +816,8 @@ CityBuildResult build_city(
                 = count_it != building_connection_counts.end() ? count_it->second : 0;
             const int building_side_count = procedural_building_side_count(
                 incident_connection_count,
-                config.connected_hex_building_threshold);
+                config.connected_hex_building_threshold,
+                config.connected_oct_building_threshold);
             world.create_building(
                 building.center.x,
                 building.center.y,

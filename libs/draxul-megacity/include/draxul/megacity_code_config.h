@@ -74,6 +74,7 @@ struct MegaCityCodeConfig
     glm::vec2 height_range{ 2.0f, 12.0f }; // (min, max)
     float height_unclamped_count_weight = 0.27f;
     int connected_hex_building_threshold = 12;
+    int connected_oct_building_threshold = 24;
     float building_middle_strip_push = 0.05f;
     float building_alternate_darkening = 0.28f;
     float flat_color_roughness = 0.65f;

@@ -188,6 +188,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_vec2(table, "height_range", config.height_range);
     assign_float("height_unclamped_count_weight", config.height_unclamped_count_weight);
     assign_int("connected_hex_building_threshold", config.connected_hex_building_threshold);
+    assign_int("connected_oct_building_threshold", config.connected_oct_building_threshold);
     assign_float("building_middle_strip_push", config.building_middle_strip_push);
     assign_float("building_alternate_darkening", config.building_alternate_darkening);
     assign_float("flat_color_roughness", config.flat_color_roughness);
@@ -325,6 +326,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     toml_support::insert_vec2(table, "height_range", config.height_range);
     table.insert_or_assign("height_unclamped_count_weight", static_cast<double>(config.height_unclamped_count_weight));
     table.insert_or_assign("connected_hex_building_threshold", config.connected_hex_building_threshold);
+    table.insert_or_assign("connected_oct_building_threshold", config.connected_oct_building_threshold);
     table.insert_or_assign("building_middle_strip_push", static_cast<double>(config.building_middle_strip_push));
     table.insert_or_assign("building_alternate_darkening", static_cast<double>(config.building_alternate_darkening));
     table.insert_or_assign("flat_color_roughness", static_cast<double>(config.flat_color_roughness));

@@ -681,6 +681,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.ao_power = 1.9f;
     current.ao_kernel_size = 24;
     current.connected_hex_building_threshold = 14;
+    current.connected_oct_building_threshold = 28;
     current.building_middle_strip_push = 0.09f;
     current.building_alternate_darkening = 0.41f;
     current.flat_color_roughness = 0.58f;
@@ -712,6 +713,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.module_sign_text_color = glm::vec3(0.15f, 0.10f, 0.05f);
     current.building_sign_board_color = glm::vec3(0.72f, 0.78f, 0.88f);
     current.building_sign_text_color = glm::vec3(0.08f, 0.09f, 0.15f);
+    current.roof_sign_min_width_per_character = 0.31f;
     current.ambient_strength = 0.62f;
     current.point_light_position_valid = true;
     current.point_light_position = { -14.0f, 18.5f, -9.5f };
