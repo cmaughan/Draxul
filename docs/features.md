@@ -35,7 +35,7 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **MegaCity park dressing**: Central park now includes a procedurally generated `DraxulTree` mesh with atlas-based PBR leaf cards
 - **MegaCity dependency routing**: The City Map panel now overlays routed building-to-building dependency lines driven by Tree-sitter field references and road-only semantic routing, and the same routed polylines are emitted into the 3D scene as thin raised connection strips with a directional green-to-red gradient from source to target, plus a configurable per-route layer step for stacked overlap readability
 - **MegaCity semantic filters**: The City Build UI can now hide test entities and struct-backed entities before layout/build
-- **MegaCity building shading controls**: The City Build UI includes `Flat Roughness` and `Flat Metallic` controls for non-textured procedural buildings, so flat-color shells can use configurable roughness and metallic values without affecting roads, routes, signs, or other flat overlays
+- **MegaCity building shading controls**: The City Build UI includes `Middle Strip Push`, `Flat Roughness`, and `Flat Metallic` controls for non-textured procedural buildings, so flat-color shells can get configurable per-level mid-band ripples plus roughness and metallic without affecting roads, routes, signs, or other flat overlays
 - **MegaCity selection tuning**: Selection fade now has configurable dependency, hidden, hover-hidden, and road hidden alpha controls, with configurable spacebar-held raise/fall timing for hidden buildings so the shared road layer can remain fully visible while selected-context buildings read clearly
 
 ---

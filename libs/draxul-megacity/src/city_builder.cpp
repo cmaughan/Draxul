@@ -11,6 +11,7 @@
 #include <draxul/citydb.h>
 #include <draxul/log.h>
 #include <draxul/megacity_code_config.h>
+#include <draxul/roof_sign_generator.h>
 #include <draxul/text_service.h>
 #include <draxul/tree_generator.h>
 #include <filesystem>
@@ -52,7 +53,18 @@ struct SignPlacementSpec
     float height = 0.05f;
     float depth = 0.25f;
     float yaw_radians = 0.0f;
-    MeshId mesh = MeshId::RoofSign;
+    MeshId mesh = MeshId::WallSign;
+};
+
+struct RoofSignPlacementSpec
+{
+    glm::vec2 center{ 0.0f };
+    float outer_diameter = 1.0f;
+    float inner_radius = 0.5f;
+    float height = 0.25f;
+    float band_depth = 0.08f;
+    float yaw_radians = 0.0f;
+    int sides = 4;
 };
 
 glm::vec4 color_with_alpha(const glm::vec3& color, float alpha = 1.0f)
@@ -62,11 +74,6 @@ glm::vec4 color_with_alpha(const glm::vec3& color, float alpha = 1.0f)
         std::clamp(color.g, 0.0f, 1.0f),
         std::clamp(color.b, 0.0f, 1.0f),
         alpha);
-}
-
-glm::vec4 module_sign_board_color(const MegaCityCodeConfig& config)
-{
-    return color_with_alpha(config.module_sign_board_color);
 }
 
 glm::vec4 building_sign_board_color(const MegaCityCodeConfig& config)
@@ -158,12 +165,13 @@ TreeMetrics tree_metrics_from_meshes(const GeometryMesh& bark_mesh, const Geomet
 std::shared_ptr<const GeometryMesh> build_procedural_building_mesh(
     const SemanticCityBuilding& building,
     const glm::vec4& module_color,
+    const MegaCityCodeConfig& config,
     int sides)
 {
     DraxulBuildingParams params;
     params.footprint = building.metrics.footprint;
     params.sides = std::max(sides, 3);
-    params.middle_strip_scale = 1.0f;
+    params.middle_strip_scale = 1.0f + std::max(config.building_middle_strip_push, 0.0f);
 
     if (building.layers.empty())
     {
@@ -193,15 +201,26 @@ std::shared_ptr<const GeometryMesh> build_procedural_building_mesh(
 std::shared_ptr<const GeometryMesh> build_procedural_building_cap_mesh(
     const SemanticCityBuilding& building,
     const glm::vec4& color,
+    const MegaCityCodeConfig& config,
     int sides,
     float height)
 {
     DraxulBuildingParams params;
     params.footprint = building.metrics.footprint;
     params.sides = std::max(sides, 3);
-    params.middle_strip_scale = 1.0f;
+    params.middle_strip_scale = 1.0f + std::max(config.building_middle_strip_push, 0.0f);
     params.levels.push_back({ std::max(height, 0.1f), glm::vec3(color) });
     return std::make_shared<GeometryMesh>(generate_draxul_building(params));
+}
+
+std::shared_ptr<const GeometryMesh> build_building_roof_sign_mesh(const RoofSignPlacementSpec& placement)
+{
+    DraxulRoofSignParams params;
+    params.sides = std::max(placement.sides, 3);
+    params.inner_radius = std::max(placement.inner_radius, 0.05f);
+    params.band_depth = std::max(placement.band_depth, 0.02f);
+    params.height = std::max(placement.height, 0.05f);
+    return std::make_shared<GeometryMesh>(generate_draxul_roof_sign(params));
 }
 
 void build_point_shadow_debug_scene(
@@ -244,6 +263,7 @@ void build_point_shadow_debug_scene(
                 .center = kPointShadowDebugPrimaryCenter,
             },
             glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
+            config,
             4),
         1.0f);
 
@@ -266,6 +286,7 @@ void build_point_shadow_debug_scene(
                 .center = kPointShadowDebugSecondaryCenter,
             },
             glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
+            config,
             4),
         1.0f);
 
@@ -328,127 +349,11 @@ std::string module_display_name(std::string_view module_path)
     return !leaf.empty() ? leaf : std::string(module_path);
 }
 
-float clamp_sign_width(float available_width, float inset)
-{
-    return std::max(0.35f, available_width - 2.0f * inset);
-}
-
-float clamp_sign_depth(float available_depth, float inset, const MegaCityCodeConfig& config)
-{
-    const float max_depth = std::max(0.16f, available_depth - 2.0f * inset);
-    return std::clamp(std::min(config.roof_sign_depth, max_depth), 0.16f, config.roof_sign_depth);
-}
-
-float clamp_wall_sign_height(const SemanticCityBuilding& building, const MegaCityCodeConfig& config)
-{
-    return std::max(0.6f, building.metrics.height - (config.wall_sign_top_inset + config.wall_sign_bottom_inset));
-}
-
-float clamp_wall_sign_width(const SemanticCityBuilding& building, const MegaCityCodeConfig& config)
-{
-    const float max_width = std::max(0.24f, building.metrics.footprint - 2.0f * config.wall_sign_side_inset);
-    return std::clamp(config.wall_sign_width, 0.24f, max_width);
-}
-
-SignPlacementSpec place_roof_sign(const SemanticCityBuilding& building, const MegaCityCodeConfig& config)
-{
-    SignPlacementSpec placement;
-    placement.width = clamp_sign_width(building.metrics.footprint, config.roof_sign_side_inset);
-    placement.height = config.roof_sign_thickness;
-    placement.depth = clamp_sign_depth(building.metrics.footprint, config.roof_sign_edge_inset, config);
-    placement.mesh = MeshId::RoofSign;
-
-    const float half_footprint = building.metrics.footprint * 0.5f;
-    const float center_offset = half_footprint - placement.depth * 0.5f - config.roof_sign_edge_inset;
-
-    switch (config.building_sign_placement)
-    {
-    case MegaCitySignPlacement::RoofNorth:
-        placement.center = { building.center.x, building.center.y + center_offset };
-        placement.yaw_radians = 0.0f;
-        break;
-    case MegaCitySignPlacement::RoofSouth:
-        placement.center = { building.center.x, building.center.y - center_offset };
-        placement.yaw_radians = 0.0f;
-        break;
-    case MegaCitySignPlacement::RoofEast:
-        placement.center = { building.center.x + center_offset, building.center.y };
-        placement.yaw_radians = glm::half_pi<float>();
-        break;
-    case MegaCitySignPlacement::RoofWest:
-        placement.center = { building.center.x - center_offset, building.center.y };
-        placement.yaw_radians = glm::half_pi<float>();
-        break;
-    default:
-        break;
-    }
-
-    return placement;
-}
-
-SignPlacementSpec place_wall_sign(
-    const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
-    const MegaCityCodeConfig& config)
-{
-    SignPlacementSpec placement;
-    const float footprint = building.metrics.footprint;
-    const float max_height = clamp_wall_sign_height(building, config);
-
-    const float char_height = footprint * 0.25f;
-    float sign_width = char_height + 2.0f * config.wall_sign_side_inset;
-    float sign_height = max_height;
-
-    if (text_service && !text.empty())
-    {
-        const int cw = std::max(text_service->metrics().cell_width, 1);
-        const int ch = std::max(text_service->metrics().cell_height, 1);
-        const float aspect = static_cast<float>(cw) / static_cast<float>(ch);
-        const float char_width = char_height * aspect;
-        const float text_run = static_cast<float>(text.size()) * char_width;
-        sign_height = std::min(max_height, text_run + 2.0f * config.wall_sign_side_inset);
-    }
-
-    placement.width = std::max(0.24f, sign_width);
-    placement.height = std::max(0.24f, sign_height);
-    placement.depth = config.wall_sign_thickness;
-    placement.mesh = MeshId::WallSign;
-
-    const float half_footprint = building.metrics.footprint * 0.5f;
-    const float wall_offset = half_footprint + placement.depth * 0.5f + config.wall_sign_face_gap;
-
-    switch (config.building_sign_placement)
-    {
-    case MegaCitySignPlacement::WallNorth:
-        placement.center = { building.center.x, building.center.y + wall_offset };
-        placement.yaw_radians = 0.0f;
-        break;
-    case MegaCitySignPlacement::WallSouth:
-        placement.center = { building.center.x, building.center.y - wall_offset };
-        placement.yaw_radians = glm::pi<float>();
-        break;
-    case MegaCitySignPlacement::WallEast:
-        placement.center = { building.center.x + wall_offset, building.center.y };
-        placement.yaw_radians = glm::half_pi<float>();
-        break;
-    case MegaCitySignPlacement::WallWest:
-        placement.center = { building.center.x - wall_offset, building.center.y };
-        placement.yaw_radians = -glm::half_pi<float>();
-        break;
-    default:
-        break;
-    }
-
-    return placement;
-}
-
-std::array<SignPlacementSpec, 4> place_building_signs(
+float compute_building_sign_height(
     const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
     const MegaCityCodeConfig& config)
 {
     const float footprint = building.metrics.footprint;
-    const float half_footprint = footprint * 0.5f;
-
-    float sign_width = footprint;
     float sign_height = footprint * 0.25f;
 
     if (text_service && !text.empty())
@@ -460,96 +365,22 @@ std::array<SignPlacementSpec, 4> place_building_signs(
         sign_height = char_width * aspect + 2.0f * config.wall_sign_side_inset;
     }
 
-    sign_width = std::max(0.35f, sign_width);
-    sign_height = std::clamp(sign_height, 0.24f, building.metrics.height * 0.15f);
-
-    const float wall_offset = half_footprint + config.wall_sign_thickness * 0.5f + config.wall_sign_face_gap;
-
-    std::array<SignPlacementSpec, 4> signs;
-    // North
-    signs[0].width = sign_width;
-    signs[0].height = sign_height;
-    signs[0].depth = config.wall_sign_thickness;
-    signs[0].mesh = MeshId::WallSign;
-    signs[0].center = { building.center.x, building.center.y + wall_offset };
-    signs[0].yaw_radians = 0.0f;
-    // South
-    signs[1].width = sign_width;
-    signs[1].height = sign_height;
-    signs[1].depth = config.wall_sign_thickness;
-    signs[1].mesh = MeshId::WallSign;
-    signs[1].center = { building.center.x, building.center.y - wall_offset };
-    signs[1].yaw_radians = glm::pi<float>();
-    // East
-    signs[2].width = sign_width;
-    signs[2].height = sign_height;
-    signs[2].depth = config.wall_sign_thickness;
-    signs[2].mesh = MeshId::WallSign;
-    signs[2].center = { building.center.x + wall_offset, building.center.y };
-    signs[2].yaw_radians = glm::half_pi<float>();
-    // West
-    signs[3].width = sign_width;
-    signs[3].height = sign_height;
-    signs[3].depth = config.wall_sign_thickness;
-    signs[3].mesh = MeshId::WallSign;
-    signs[3].center = { building.center.x - wall_offset, building.center.y };
-    signs[3].yaw_radians = -glm::half_pi<float>();
-
-    return signs;
+    return std::clamp(sign_height, 0.24f, building.metrics.height * 0.15f);
 }
 
-SignPlacementSpec place_module_road_sign(
+RoofSignPlacementSpec place_building_roof_sign(
     const SemanticCityBuilding& building, std::string_view text, const TextService* text_service,
-    const MegaCityCodeConfig& config)
+    const MegaCityCodeConfig& config, int sides)
 {
-    SignPlacementSpec placement;
-    const float sidewalk_width = building.metrics.sidewalk_width;
-
-    float sign_width = building.metrics.footprint;
-    float sign_depth = sign_width * 0.25f;
-    if (text_service && !text.empty())
-    {
-        const int cw = std::max(text_service->metrics().cell_width, 1);
-        const int ch = std::max(text_service->metrics().cell_height, 1);
-        const float aspect = static_cast<float>(ch) / static_cast<float>(cw);
-        const float char_width = sign_width / std::max(static_cast<float>(text.size()), 1.0f);
-        sign_depth = char_width * aspect + 2.0f * config.road_sign_edge_inset;
-    }
-
-    placement.width = std::max(0.35f, sign_width);
-    placement.height = config.roof_sign_thickness;
-    placement.depth = std::clamp(
-        sign_depth, config.minimum_road_sign_depth,
-        std::max(config.minimum_road_sign_depth, sidewalk_width - 2.0f * config.sidewalk_sign_edge_inset));
-    placement.mesh = MeshId::RoofSign;
-
-    const float half_footprint = building.metrics.footprint * 0.5f;
-    const float center_offset = half_footprint + sidewalk_width * 0.5f;
-
-    switch (config.building_sign_placement)
-    {
-    case MegaCitySignPlacement::RoofNorth:
-    case MegaCitySignPlacement::WallNorth:
-        placement.center = { building.center.x, building.center.y + center_offset };
-        placement.yaw_radians = 0.0f;
-        break;
-    case MegaCitySignPlacement::RoofSouth:
-    case MegaCitySignPlacement::WallSouth:
-        placement.center = { building.center.x, building.center.y - center_offset };
-        placement.yaw_radians = 0.0f;
-        break;
-    case MegaCitySignPlacement::RoofEast:
-    case MegaCitySignPlacement::WallEast:
-        placement.center = { building.center.x + center_offset, building.center.y };
-        placement.yaw_radians = glm::half_pi<float>();
-        break;
-    case MegaCitySignPlacement::RoofWest:
-    case MegaCitySignPlacement::WallWest:
-        placement.center = { building.center.x - center_offset, building.center.y };
-        placement.yaw_radians = glm::half_pi<float>();
-        break;
-    }
-
+    RoofSignPlacementSpec placement;
+    placement.center = building.center;
+    placement.height = compute_building_sign_height(building, text, text_service, config);
+    placement.band_depth = std::max(config.wall_sign_thickness, 0.02f);
+    placement.inner_radius = std::max(
+        building.metrics.footprint * 0.5f + config.wall_sign_face_gap,
+        0.05f);
+    placement.outer_diameter = (placement.inner_radius + placement.band_depth) * 2.0f;
+    placement.sides = std::max(sides, 3);
     return placement;
 }
 
@@ -641,6 +472,18 @@ SignMetrics make_sign_metrics(const SignPlacementSpec& placement, const SignAtla
     };
 }
 
+SignMetrics make_sign_metrics(const RoofSignPlacementSpec& placement, const SignAtlasEntry& entry)
+{
+    return SignMetrics{
+        .width = placement.outer_diameter,
+        .height = placement.height,
+        .depth = placement.band_depth,
+        .yaw_radians = placement.yaw_radians,
+        .uv_rect = entry.uv_rect,
+        .label_ink_pixel_size = glm::vec2(entry.ink_pixel_size),
+    };
+}
+
 } // namespace
 
 int procedural_building_side_count(int incident_connection_count, int connected_hex_building_threshold)
@@ -709,8 +552,7 @@ CityBuildResult build_city(
         for (const auto& building : module_layout.buildings)
         {
             const std::string& text = building.display_name.empty() ? building.qualified_name : building.display_name;
-            const auto signs = place_building_signs(building, text, text_service, config);
-            sign_requests.push_back(make_sign_request(building_sign_key(building), text, signs[0], text_service, config, true));
+            sign_requests.push_back(make_sign_request(building_sign_key(building), text, {}, text_service, config, true));
         }
 
         const float extent_x = module_layout.max_x - module_layout.min_x;
@@ -941,6 +783,7 @@ CityBuildResult build_city(
                 build_procedural_building_mesh(
                     building,
                     module_color,
+                    config,
                     building_side_count),
                 1.0f);
 
@@ -950,9 +793,10 @@ CityBuildResult build_city(
                 if (it != sign_label_atlas->entries.end())
                 {
                     const std::string& btext = building.display_name.empty() ? building.qualified_name : building.display_name;
-                    const auto face_signs = place_building_signs(building, btext, text_service, config);
-                    const SignMetrics first_sign = make_sign_metrics(face_signs[0], it->second);
-                    const float cap_height = first_sign.height;
+                    const RoofSignPlacementSpec roof_sign
+                        = place_building_roof_sign(building, btext, text_service, config, building_side_count);
+                    const SignMetrics sign_metrics = make_sign_metrics(roof_sign, it->second);
+                    const float cap_height = sign_metrics.height;
 
                     if (cap_height > 0.0f)
                     {
@@ -969,28 +813,23 @@ CityBuildResult build_city(
                             build_procedural_building_cap_mesh(
                                 building,
                                 module_color,
+                                config,
                                 building_side_count,
                                 cap_height),
                             1.0f);
                     }
 
                     const float total_height = building_base_elevation(config) + building.metrics.height + cap_height;
-                    for (const SignPlacementSpec& placement : face_signs)
-                    {
-                        const SignMetrics sign = make_sign_metrics(placement, it->second);
-                        const float sign_y = total_height - sign.height * 0.5f;
-                        const glm::vec4 sign_color
-                            = placement.mesh == MeshId::RoofSign ? module_sign_board_color(config)
-                                                                 : building_sign_board_color(config);
-                        world.create_sign(
-                            placement.center.x,
-                            placement.center.y,
-                            sign_y,
-                            sign,
-                            placement.mesh,
-                            sign_color,
-                            SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path });
-                    }
+                    const float sign_y = total_height - sign_metrics.height * 0.5f;
+                    world.create_sign(
+                        roof_sign.center.x,
+                        roof_sign.center.y,
+                        sign_y,
+                        sign_metrics,
+                        MeshId::Custom,
+                        building_sign_board_color(config),
+                        SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
+                        build_building_roof_sign_mesh(roof_sign));
                 }
             }
 

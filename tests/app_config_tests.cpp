@@ -660,7 +660,6 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     defaults.selected_module_path = "app";
     defaults.sign_text_px_range = { 2.5f, 12.0f };
     defaults.clamp_semantic_metrics = true;
-    defaults.building_sign_placement = MegaCitySignPlacement::WallNorth;
     defaults.auto_rebuild = true;
 
     MegaCityCodeConfig current = defaults;
@@ -682,6 +681,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     current.ao_power = 1.9f;
     current.ao_kernel_size = 24;
     current.connected_hex_building_threshold = 14;
+    current.building_middle_strip_push = 0.09f;
     current.flat_color_roughness = 0.58f;
     current.flat_color_metallic = 0.27f;
     current.central_park_tree_age_years = 48.0f;

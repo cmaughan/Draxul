@@ -5,51 +5,6 @@
 namespace draxul
 {
 
-std::optional<MegaCitySignPlacement> parse_megacity_sign_placement(std::string_view value)
-{
-    if (value == "roof_north")
-        return MegaCitySignPlacement::RoofNorth;
-    if (value == "roof_south")
-        return MegaCitySignPlacement::RoofSouth;
-    if (value == "roof_east")
-        return MegaCitySignPlacement::RoofEast;
-    if (value == "roof_west")
-        return MegaCitySignPlacement::RoofWest;
-    if (value == "wall_north")
-        return MegaCitySignPlacement::WallNorth;
-    if (value == "wall_south")
-        return MegaCitySignPlacement::WallSouth;
-    if (value == "wall_east")
-        return MegaCitySignPlacement::WallEast;
-    if (value == "wall_west")
-        return MegaCitySignPlacement::WallWest;
-    return std::nullopt;
-}
-
-std::string_view format_megacity_sign_placement(MegaCitySignPlacement value)
-{
-    switch (value)
-    {
-    case MegaCitySignPlacement::RoofNorth:
-        return "roof_north";
-    case MegaCitySignPlacement::RoofSouth:
-        return "roof_south";
-    case MegaCitySignPlacement::RoofEast:
-        return "roof_east";
-    case MegaCitySignPlacement::RoofWest:
-        return "roof_west";
-    case MegaCitySignPlacement::WallNorth:
-        return "wall_north";
-    case MegaCitySignPlacement::WallSouth:
-        return "wall_south";
-    case MegaCitySignPlacement::WallEast:
-        return "wall_east";
-    case MegaCitySignPlacement::WallWest:
-        return "wall_west";
-    }
-    return "wall_east";
-}
-
 std::optional<MegaCityDebugView> parse_megacity_debug_view(std::string_view value)
 {
     if (value == "final_scene")
@@ -233,6 +188,7 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_vec2(table, "height_range", config.height_range);
     assign_float("height_unclamped_count_weight", config.height_unclamped_count_weight);
     assign_int("connected_hex_building_threshold", config.connected_hex_building_threshold);
+    assign_float("building_middle_strip_push", config.building_middle_strip_push);
     assign_float("flat_color_roughness", config.flat_color_roughness);
     assign_float("flat_color_metallic", config.flat_color_metallic);
 
@@ -294,27 +250,15 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
     assign_legacy_color3(table, "wall_sign_board_r", "wall_sign_board_g", "wall_sign_board_b", config.building_sign_board_color);
     assign_legacy_color3(table, "wall_sign_text_r", "wall_sign_text_g", "wall_sign_text_b", config.building_sign_text_color);
     assign_legacy_color3(table, "sign_text_r", "sign_text_g", "sign_text_b", config.module_sign_text_color);
-    if (auto placement = toml_support::get_string(table, "building_sign_placement"))
-    {
-        if (auto parsed = parse_megacity_sign_placement(*placement); parsed.has_value())
-            config.building_sign_placement = *parsed;
-    }
     assign_float("roof_sign_thickness", config.roof_sign_thickness);
-    assign_float("roof_sign_depth", config.roof_sign_depth);
-    assign_float("roof_sign_edge_inset", config.roof_sign_edge_inset);
-    assign_float("roof_sign_side_inset", config.roof_sign_side_inset);
     assign_float("wall_sign_thickness", config.wall_sign_thickness);
     assign_float("wall_sign_face_gap", config.wall_sign_face_gap);
-    assign_float("wall_sign_width", config.wall_sign_width);
     assign_float("wall_sign_side_inset", config.wall_sign_side_inset);
-    assign_float("wall_sign_top_inset", config.wall_sign_top_inset);
-    assign_float("wall_sign_bottom_inset", config.wall_sign_bottom_inset);
     assign_int("wall_sign_text_padding", config.wall_sign_text_padding);
     assign_float("road_sign_edge_inset", config.road_sign_edge_inset);
     assign_float("minimum_road_sign_depth", config.minimum_road_sign_depth);
     assign_float("sidewalk_sign_edge_inset", config.sidewalk_sign_edge_inset);
     assign_float("road_sign_lift", config.road_sign_lift);
-    assign_float("roof_sign_pixels_per_world_unit", config.roof_sign_pixels_per_world_unit);
 
     assign_float("road_surface_height", config.road_surface_height);
     assign_float("sidewalk_surface_height", config.sidewalk_surface_height);
@@ -379,6 +323,7 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     toml_support::insert_vec2(table, "height_range", config.height_range);
     table.insert_or_assign("height_unclamped_count_weight", static_cast<double>(config.height_unclamped_count_weight));
     table.insert_or_assign("connected_hex_building_threshold", config.connected_hex_building_threshold);
+    table.insert_or_assign("building_middle_strip_push", static_cast<double>(config.building_middle_strip_push));
     table.insert_or_assign("flat_color_roughness", static_cast<double>(config.flat_color_roughness));
     table.insert_or_assign("flat_color_metallic", static_cast<double>(config.flat_color_metallic));
     table.insert_or_assign("road_width_base", static_cast<double>(config.road_width_base));
@@ -424,23 +369,15 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     toml_support::insert_vec3(table, "module_sign_text_color", config.module_sign_text_color);
     toml_support::insert_vec3(table, "building_sign_board_color", config.building_sign_board_color);
     toml_support::insert_vec3(table, "building_sign_text_color", config.building_sign_text_color);
-    table.insert_or_assign("building_sign_placement", std::string(format_megacity_sign_placement(config.building_sign_placement)));
     table.insert_or_assign("roof_sign_thickness", static_cast<double>(config.roof_sign_thickness));
-    table.insert_or_assign("roof_sign_depth", static_cast<double>(config.roof_sign_depth));
-    table.insert_or_assign("roof_sign_edge_inset", static_cast<double>(config.roof_sign_edge_inset));
-    table.insert_or_assign("roof_sign_side_inset", static_cast<double>(config.roof_sign_side_inset));
     table.insert_or_assign("wall_sign_thickness", static_cast<double>(config.wall_sign_thickness));
     table.insert_or_assign("wall_sign_face_gap", static_cast<double>(config.wall_sign_face_gap));
-    table.insert_or_assign("wall_sign_width", static_cast<double>(config.wall_sign_width));
     table.insert_or_assign("wall_sign_side_inset", static_cast<double>(config.wall_sign_side_inset));
-    table.insert_or_assign("wall_sign_top_inset", static_cast<double>(config.wall_sign_top_inset));
-    table.insert_or_assign("wall_sign_bottom_inset", static_cast<double>(config.wall_sign_bottom_inset));
     table.insert_or_assign("wall_sign_text_padding", config.wall_sign_text_padding);
     table.insert_or_assign("road_sign_edge_inset", static_cast<double>(config.road_sign_edge_inset));
     table.insert_or_assign("minimum_road_sign_depth", static_cast<double>(config.minimum_road_sign_depth));
     table.insert_or_assign("sidewalk_sign_edge_inset", static_cast<double>(config.sidewalk_sign_edge_inset));
     table.insert_or_assign("road_sign_lift", static_cast<double>(config.road_sign_lift));
-    table.insert_or_assign("roof_sign_pixels_per_world_unit", static_cast<double>(config.roof_sign_pixels_per_world_unit));
     table.insert_or_assign("road_surface_height", static_cast<double>(config.road_surface_height));
     table.insert_or_assign("sidewalk_surface_height", static_cast<double>(config.sidewalk_surface_height));
     table.insert_or_assign("sidewalk_surface_lift", static_cast<double>(config.sidewalk_surface_lift));

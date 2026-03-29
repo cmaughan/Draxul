@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <draxul/building_generator.h>
 #include <draxul/megacity_host.h>
+#include <draxul/roof_sign_generator.h>
 #include <draxul/text_service.h>
 #include <filesystem>
 #include <numbers>
@@ -392,6 +393,51 @@ TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]"
 
     IsometricCamera camera;
     camera.look_at_world_center(1.0f, 2.0f);
+    camera.set_viewport(800, 600);
+    MegaCityCodeConfig config;
+
+    const SceneSnapshotResult result = build_scene_snapshot(
+        camera,
+        world,
+        config,
+        {},
+        {},
+        {});
+
+    REQUIRE(result.snapshot.objects.size() == 1);
+    REQUIRE(result.snapshot.custom_meshes.size() == 1);
+    CHECK(result.snapshot.objects[0].mesh == MeshId::Custom);
+    CHECK(result.snapshot.objects[0].custom_mesh_index == 0);
+    CHECK(result.snapshot.custom_meshes[0].get() == custom_mesh.get());
+}
+
+TEST_CASE("megacity scene snapshot carries custom sign meshes", "[megacity]")
+{
+    SceneWorld world;
+    DraxulRoofSignParams params;
+    params.sides = 6;
+    params.inner_radius = 1.8f;
+    params.band_depth = 0.2f;
+    params.height = 0.6f;
+    auto custom_mesh = std::make_shared<GeometryMesh>(generate_draxul_roof_sign(params));
+
+    const SignMetrics sign{
+        .width = (params.inner_radius + params.band_depth) * 2.0f,
+        .height = params.height,
+        .depth = params.band_depth,
+    };
+    world.create_sign(
+        0.0f,
+        0.0f,
+        3.0f,
+        sign,
+        MeshId::Custom,
+        glm::vec4(1.0f),
+        SourceSymbol{ "src/app.cpp", "App" },
+        custom_mesh);
+
+    IsometricCamera camera;
+    camera.look_at_world_center(0.0f, 0.0f);
     camera.set_viewport(800, 600);
     MegaCityCodeConfig config;
 

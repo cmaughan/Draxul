@@ -14,18 +14,6 @@
 namespace draxul
 {
 
-enum class MegaCitySignPlacement : uint8_t
-{
-    RoofNorth,
-    RoofSouth,
-    RoofEast,
-    RoofWest,
-    WallNorth,
-    WallSouth,
-    WallEast,
-    WallWest,
-};
-
 enum class MegaCityDebugView : uint8_t
 {
     FinalScene,
@@ -86,6 +74,7 @@ struct MegaCityCodeConfig
     glm::vec2 height_range{ 2.0f, 12.0f }; // (min, max)
     float height_unclamped_count_weight = 0.27f;
     int connected_hex_building_threshold = 12;
+    float building_middle_strip_push = 0.05f;
     float flat_color_roughness = 0.65f;
     float flat_color_metallic = 0.0f;
 
@@ -131,23 +120,15 @@ struct MegaCityCodeConfig
     glm::vec3 module_sign_text_color{ 0.0f, 0.0f, 0.0f };
     glm::vec3 building_sign_board_color{ 1.0f, 1.0f, 1.0f };
     glm::vec3 building_sign_text_color{ 0.0f, 0.0f, 0.0f };
-    MegaCitySignPlacement building_sign_placement = MegaCitySignPlacement::WallEast;
     float roof_sign_thickness = 0.05f;
-    float roof_sign_depth = 0.42f;
-    float roof_sign_edge_inset = 0.08f;
-    float roof_sign_side_inset = 0.12f;
     float wall_sign_thickness = 0.05f;
     float wall_sign_face_gap = 0.02f;
-    float wall_sign_width = 1.92f;
     float wall_sign_side_inset = 0.12f;
-    float wall_sign_top_inset = 0.18f;
-    float wall_sign_bottom_inset = 0.28f;
     int wall_sign_text_padding = 4;
     float road_sign_edge_inset = 0.06f;
     float minimum_road_sign_depth = 0.16f;
     float sidewalk_sign_edge_inset = 0.04f;
     float road_sign_lift = 0.006f;
-    float roof_sign_pixels_per_world_unit = 192.0f;
 
     float road_surface_height = 0.03f;
     float sidewalk_surface_height = 0.18f;
@@ -177,8 +158,6 @@ struct MegaCityCodeConfig
     bool operator==(const MegaCityCodeConfig&) const = default;
 };
 
-[[nodiscard]] std::optional<MegaCitySignPlacement> parse_megacity_sign_placement(std::string_view value);
-[[nodiscard]] std::string_view format_megacity_sign_placement(MegaCitySignPlacement value);
 [[nodiscard]] std::optional<MegaCityDebugView> parse_megacity_debug_view(std::string_view value);
 [[nodiscard]] std::string_view format_megacity_debug_view(MegaCityDebugView value);
 

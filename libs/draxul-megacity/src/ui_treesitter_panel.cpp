@@ -824,6 +824,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             edit_vec2("Height Range", config.height_range, 0.05f, 0.0f, 64.0f, "%.2f");
             edit_float("Height Unclamped Count Weight", config.height_unclamped_count_weight, 0.01f, 0.0f, 8.0f, "%.2f");
             edit_int("Hex Threshold", config.connected_hex_building_threshold, 1, 1, 64);
+            edit_float("Middle Strip Push", config.building_middle_strip_push, 0.005f, 0.0f, 0.25f, "%.3f");
             edit_float("Flat Roughness", config.flat_color_roughness, 0.01f, 0.04f, 1.0f, "%.2f");
             edit_float("Flat Metallic", config.flat_color_metallic, 0.01f, 0.0f, 1.0f, "%.2f");
             edit_float("Road Width Base", config.road_width_base, 0.01f, 0.0f, 16.0f, "%.2f");
@@ -894,7 +895,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             edit_vec2("Fade px Range", config.sign_text_px_range, 0.1f, 0.0f, 64.0f, "%.1f");
             edit_float("Label Point Size", config.sign_label_point_size, 0.25f, 1.0f, 72.0f, "%.1f");
             edit_float("Tooltip Point Size", config.tooltip_point_size, 0.25f, 4.0f, 72.0f, "%.1f");
-            edit_float("Pixels / World Unit", config.roof_sign_pixels_per_world_unit, 1.0f, 8.0f, 2048.0f, "%.1f");
             ImGui::TreePop();
         }
 
@@ -908,42 +908,19 @@ bool render_renderer_controls(MegacityRendererControls& controls)
             ImGui::TreePop();
         }
 
-        // Floor / Module Signs
-        if (ImGui::TreeNodeEx("##signs_floor", ImGuiTreeNodeFlags_SpanAvailWidth, "Floor / Module Signs"))
+        // Module Signs
+        if (ImGui::TreeNodeEx("##signs_floor", ImGuiTreeNodeFlags_SpanAvailWidth, "Module Signs"))
         {
             edit_float("Thickness", config.roof_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
-            edit_float("Depth", config.roof_sign_depth, 0.01f, 0.01f, 8.0f, "%.2f");
-            edit_float("Edge Inset", config.roof_sign_edge_inset, 0.01f, 0.0f, 4.0f, "%.2f");
-            edit_float("Side Inset", config.roof_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
             ImGui::TreePop();
         }
 
-        // Wall Signs
-        if (ImGui::TreeNodeEx("##signs_wall", ImGuiTreeNodeFlags_SpanAvailWidth, "Wall Signs"))
+        // Building Signs
+        if (ImGui::TreeNodeEx("##signs_wall", ImGuiTreeNodeFlags_SpanAvailWidth, "Building Signs"))
         {
-            static constexpr std::array<const char*, 8> kPlacementLabels = {
-                "Roof North",
-                "Roof South",
-                "Roof East",
-                "Roof West",
-                "Wall North",
-                "Wall South",
-                "Wall East",
-                "Wall West",
-            };
-            int placement = static_cast<int>(config.building_sign_placement);
-            if (ImGui::Combo("Placement", &placement, kPlacementLabels.data(), static_cast<int>(kPlacementLabels.size())))
-            {
-                config.building_sign_placement = static_cast<MegaCitySignPlacement>(std::clamp(placement, 0, 7));
-                changed = true;
-                controls.committed_edit = true;
-            }
             edit_float("Thickness", config.wall_sign_thickness, 0.005f, 0.001f, 2.0f, "%.3f");
             edit_float("Face Gap", config.wall_sign_face_gap, 0.001f, 0.0f, 1.0f, "%.3f");
-            edit_float("Width", config.wall_sign_width, 0.01f, 0.05f, 16.0f, "%.2f");
             edit_float("Side Inset", config.wall_sign_side_inset, 0.01f, 0.0f, 4.0f, "%.2f");
-            edit_float("Top Inset", config.wall_sign_top_inset, 0.01f, 0.0f, 8.0f, "%.2f");
-            edit_float("Bottom Inset", config.wall_sign_bottom_inset, 0.01f, 0.0f, 8.0f, "%.2f");
             edit_int("Text Padding", config.wall_sign_text_padding, 1, 0, 64);
             ImGui::TreePop();
         }

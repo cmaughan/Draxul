@@ -211,13 +211,17 @@ entt::entity SceneWorld::create_module_surface(float world_x, float world_z,
 }
 
 entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevation,
-    const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source)
+    const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source,
+    std::shared_ptr<const GeometryMesh> custom_mesh)
 {
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<SignMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, mesh, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    const MeshId mesh_id = custom_mesh ? MeshId::Custom : mesh;
+    registry_.emplace<Appearance>(entity, mesh_id, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    if (custom_mesh)
+        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;

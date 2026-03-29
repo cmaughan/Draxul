@@ -307,11 +307,20 @@ SceneSnapshotResult build_scene_snapshot(
             {
                 obj.role = SceneObject::Role::ModuleLabel;
             }
-            const bool quarter_turn = std::abs(std::sin(sm->yaw_radians)) > 0.70710678f;
-            extent_x = quarter_turn ? sm->depth : sm->width;
-            extent_z = quarter_turn ? sm->width : sm->depth;
-            transform = glm::rotate(transform, sm->yaw_radians, glm::vec3(0.0f, 1.0f, 0.0f));
-            transform = glm::scale(transform, glm::vec3(sm->width, sm->height, sm->depth));
+            if (obj.mesh == MeshId::Custom)
+            {
+                extent_x = sm->width;
+                extent_z = sm->width;
+                transform = glm::rotate(transform, sm->yaw_radians, glm::vec3(0.0f, 1.0f, 0.0f));
+            }
+            else
+            {
+                const bool quarter_turn = std::abs(std::sin(sm->yaw_radians)) > 0.70710678f;
+                extent_x = quarter_turn ? sm->depth : sm->width;
+                extent_z = quarter_turn ? sm->width : sm->depth;
+                transform = glm::rotate(transform, sm->yaw_radians, glm::vec3(0.0f, 1.0f, 0.0f));
+                transform = glm::scale(transform, glm::vec3(sm->width, sm->height, sm->depth));
+            }
             obj.uv_rect = sm->uv_rect;
             obj.label_ink_pixel_size = sm->label_ink_pixel_size;
         }

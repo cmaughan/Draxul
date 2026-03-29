@@ -54,7 +54,8 @@ public:
 
     // Create a sign entity at the given world-space center position.
     entt::entity create_sign(float world_x, float world_z, float elevation,
-        const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source = {});
+        const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source = {},
+        std::shared_ptr<const GeometryMesh> custom_mesh = nullptr);
 
     // --- Coordinate helpers ---
 

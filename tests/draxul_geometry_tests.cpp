@@ -4,6 +4,7 @@
 
 #include <draxul/building_generator.h>
 #include <draxul/primitive_meshes.h>
+#include <draxul/roof_sign_generator.h>
 #include <draxul/tree_generator.h>
 
 #include <glm/geometric.hpp>
@@ -305,6 +306,50 @@ TEST_CASE("building generator carries per-level colors into the mesh", "[geometr
 
     CHECK(found_first);
     CHECK(found_second);
+}
+
+TEST_CASE("roof sign generator emits a textured outer ring", "[geometry]")
+{
+    DraxulRoofSignParams params;
+    params.sides = 4;
+    params.inner_radius = 2.0f;
+    params.band_depth = 0.3f;
+    params.height = 0.8f;
+
+    const GeometryMesh mesh = generate_draxul_roof_sign(params);
+
+    REQUIRE_FALSE(mesh.vertices.empty());
+    REQUIRE_FALSE(mesh.indices.empty());
+    REQUIRE(mesh.indices.size() % 3 == 0);
+
+    size_t textured_vertices = 0;
+    size_t outward_textured_vertices = 0;
+    for (const GeometryVertex& vertex : mesh.vertices)
+    {
+        if (vertex.tex_blend > 0.5f)
+        {
+            ++textured_vertices;
+            if (glm::length(glm::vec2(vertex.normal.x, vertex.normal.z)) > 0.9f)
+                ++outward_textured_vertices;
+        }
+    }
+
+    CHECK(textured_vertices == static_cast<size_t>(params.sides * 4));
+    CHECK(outward_textured_vertices == textured_vertices);
+}
+
+TEST_CASE("roof sign generator supports polygonal sides", "[geometry]")
+{
+    DraxulRoofSignParams params;
+    params.sides = 5;
+    params.inner_radius = 1.5f;
+    params.band_depth = 0.25f;
+    params.height = 0.5f;
+
+    const GeometryMesh mesh = generate_draxul_roof_sign(params);
+
+    REQUIRE(mesh.vertices.size() == static_cast<size_t>(params.sides * 16));
+    REQUIRE(mesh.indices.size() == static_cast<size_t>(params.sides * 24));
 }
 
 #endif
