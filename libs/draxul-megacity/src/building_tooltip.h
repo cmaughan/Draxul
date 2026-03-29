@@ -22,9 +22,27 @@ struct BuildingTooltipData
     std::string route_target;
     std::string route_field_name;
     std::string route_field_type;
+
+    // Park tooltip.
+    std::string park_module;
+    float park_quality = 0.0f;
+    float park_footprint = 0.0f;
+
+    // Tree tooltip.
+    float tree_height = 0.0f;
+    float tree_canopy_radius = 0.0f;
+
     [[nodiscard]] bool is_route() const
     {
         return !route_source.empty();
+    }
+    [[nodiscard]] bool is_park() const
+    {
+        return !park_module.empty();
+    }
+    [[nodiscard]] bool is_tree() const
+    {
+        return tree_height > 0.0f;
     }
 };
 

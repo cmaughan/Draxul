@@ -110,6 +110,12 @@ TooltipBitmap rasterize_tooltip(TextService& text_service, const BuildingTooltip
         std::string label;
         std::string value;
     };
+    auto fmt_float = [](float v) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f", static_cast<double>(v));
+        return std::string(buf);
+    };
+
     std::vector<Row> rows;
     if (data.is_route())
     {
@@ -118,6 +124,24 @@ TooltipBitmap rasterize_tooltip(TextService& text_service, const BuildingTooltip
             { "Type", data.route_field_type },
             { "From", data.route_source },
             { "To", data.route_target },
+        };
+    }
+    else if (data.is_tree())
+    {
+        rows = {
+            { "Name", data.name },
+            { "Module", data.module_path },
+            { "Height", fmt_float(data.tree_height) },
+            { "Canopy", fmt_float(data.tree_canopy_radius) },
+        };
+    }
+    else if (data.is_park())
+    {
+        rows = {
+            { "Name", data.name },
+            { "Module", data.park_module },
+            { "Quality", fmt_float(data.park_quality * 100.0f) + "%" },
+            { "Size", fmt_float(data.park_footprint) },
         };
     }
     else

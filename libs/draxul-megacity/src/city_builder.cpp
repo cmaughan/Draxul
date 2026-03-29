@@ -127,6 +127,11 @@ DraxulTreeParams make_central_park_tree_params(const MegaCityCodeConfig& config)
     return params;
 }
 
+} // namespace
+
+namespace
+{
+
 TreeMetrics tree_metrics_from_mesh(const GeometryMesh& mesh)
 {
     TreeMetrics metrics{};
@@ -150,6 +155,8 @@ TreeMetrics tree_metrics_from_mesh(const GeometryMesh& mesh)
     return metrics;
 }
 
+} // namespace
+
 TreeMetrics tree_metrics_from_meshes(const GeometryMesh& bark_mesh, const GeometryMesh& leaf_mesh)
 {
     TreeMetrics bark_metrics = tree_metrics_from_mesh(bark_mesh);
@@ -161,6 +168,9 @@ TreeMetrics tree_metrics_from_meshes(const GeometryMesh& bark_mesh, const Geomet
     }
     return bark_metrics;
 }
+
+namespace
+{
 
 std::shared_ptr<const GeometryMesh> build_procedural_building_mesh(
     const SemanticCityBuilding& building,

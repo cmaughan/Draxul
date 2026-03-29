@@ -39,6 +39,9 @@ struct CityBuildResult
     std::shared_ptr<const GeometryMesh> tree_leaf_mesh;
 };
 
+[[nodiscard]] TreeMetrics tree_metrics_from_meshes(
+    const GeometryMesh& bark_mesh, const GeometryMesh& leaf_mesh);
+
 [[nodiscard]] int procedural_building_side_count(
     int incident_connection_count,
     int connected_hex_building_threshold,

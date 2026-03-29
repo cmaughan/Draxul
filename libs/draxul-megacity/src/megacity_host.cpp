@@ -1,5 +1,6 @@
 #include "building_tooltip.h"
 #include "city_builder.h"
+#include "city_helpers.h"
 #include "city_input_state.h"
 #include "city_picking.h"
 #include "isometric_camera.h"
@@ -1109,68 +1110,194 @@ void MegaCityHost::pump()
                         break;
                     }
                 }
-                else if (hover_shift_held_)
+                else
                 {
-                    // No building hit — try picking a route segment.
-                    std::shared_ptr<const CityGrid> grid;
-                    {
-                        std::lock_guard<std::mutex> lock(grid_mutex_);
-                        grid = city_grid_;
-                    }
-                    if (grid && !grid->routes.empty())
-                    {
-                        // Unproject mouse to XZ ground plane (Y=0).
-                        const float ndc_x = 2.0f * static_cast<float>(local_pos.x) / static_cast<float>(pixel_w_) - 1.0f;
-                        const float ndc_y = 1.0f - 2.0f * static_cast<float>(local_pos.y) / static_cast<float>(pixel_h_);
-                        const glm::mat4 inv_vp = glm::inverse(camera_->proj_matrix() * camera_->view_matrix());
-                        glm::vec4 near_h = inv_vp * glm::vec4(ndc_x, ndc_y, 0.0f, 1.0f);
-                        glm::vec4 far_h = inv_vp * glm::vec4(ndc_x, ndc_y, 1.0f, 1.0f);
-                        near_h /= near_h.w;
-                        far_h /= far_h.w;
-                        const glm::vec3 ray_origin(near_h);
-                        const glm::vec3 ray_dir = glm::normalize(glm::vec3(far_h) - glm::vec3(near_h));
+                    // No building hit — try picking a park or tree.
+                    const float ndc_x = 2.0f * static_cast<float>(local_pos.x) / static_cast<float>(pixel_w_) - 1.0f;
+                    const float ndc_y = 1.0f - 2.0f * static_cast<float>(local_pos.y) / static_cast<float>(pixel_h_);
+                    const glm::mat4 inv_vp = glm::inverse(camera_->proj_matrix() * camera_->view_matrix());
+                    glm::vec4 near_h = inv_vp * glm::vec4(ndc_x, ndc_y, 0.0f, 1.0f);
+                    glm::vec4 far_h = inv_vp * glm::vec4(ndc_x, ndc_y, 1.0f, 1.0f);
+                    near_h /= near_h.w;
+                    far_h /= far_h.w;
+                    const glm::vec3 ray_origin(near_h);
+                    const glm::vec3 ray_dir = glm::normalize(glm::vec3(far_h) - glm::vec3(near_h));
 
-                        // Intersect ray with Y=0 plane.
-                        if (std::abs(ray_dir.y) > 1e-6f)
+                    bool picked_park_or_tree = false;
+                    for (const auto& mod : semantic_layout_->modules)
+                    {
+                        if (mod.park_footprint <= 0.0f)
+                            continue;
+
+                        const float park_half = mod.park_footprint * 0.5f;
+                        const float park_base = building_base_elevation(renderer_config_);
+                        const float park_top = park_base + renderer_config_.park_height;
+
+                        // Check tree first (sits on top of park, only for central park).
+                        if (mod.is_central_park && tree_bark_mesh_ && tree_leaf_mesh_)
                         {
-                            const float t = -ray_origin.y / ray_dir.y;
-                            const glm::vec2 ground_pos(ray_origin.x + t * ray_dir.x, ray_origin.z + t * ray_dir.z);
+                            const TreeMetrics tm = tree_metrics_from_meshes(*tree_bark_mesh_, *tree_leaf_mesh_);
+                            const float tree_base = park_top;
+                            const glm::vec3 tree_min(
+                                mod.park_center.x - tm.canopy_radius,
+                                tree_base,
+                                mod.park_center.y - tm.canopy_radius);
+                            const glm::vec3 tree_max(
+                                mod.park_center.x + tm.canopy_radius,
+                                tree_base + tm.height,
+                                mod.park_center.y + tm.canopy_radius);
 
-                            // Find the nearest route segment.
-                            float best_dist_sq = std::numeric_limits<float>::max();
-                            const CityGrid::RoutePolyline* best_route = nullptr;
-                            constexpr float kMaxPickDist = 1.0f;
-
-                            for (const auto& route : grid->routes)
+                            // Inline ray-AABB test.
+                            float t_min_r = -std::numeric_limits<float>::max();
+                            float t_max_r = std::numeric_limits<float>::max();
+                            bool tree_hit = true;
+                            for (int axis = 0; axis < 3; ++axis)
                             {
-                                for (size_t i = 1; i < route.world_points.size(); ++i)
+                                if (std::abs(ray_dir[axis]) < 1e-8f)
                                 {
-                                    const glm::vec2 a = route.world_points[i - 1];
-                                    const glm::vec2 b = route.world_points[i];
-                                    const glm::vec2 ab = b - a;
-                                    const float seg_len_sq = glm::dot(ab, ab);
-                                    float proj_t = 0.0f;
-                                    if (seg_len_sq > 1e-8f)
-                                        proj_t = std::clamp(glm::dot(ground_pos - a, ab) / seg_len_sq, 0.0f, 1.0f);
-                                    const glm::vec2 closest = a + proj_t * ab;
-                                    const float dist_sq = glm::dot(ground_pos - closest, ground_pos - closest);
-                                    if (dist_sq < best_dist_sq)
+                                    if (ray_origin[axis] < tree_min[axis] || ray_origin[axis] > tree_max[axis])
                                     {
-                                        best_dist_sq = dist_sq;
-                                        best_route = &route;
+                                        tree_hit = false;
+                                        break;
+                                    }
+                                }
+                                else
+                                {
+                                    float inv_d = 1.0f / ray_dir[axis];
+                                    float t1 = (tree_min[axis] - ray_origin[axis]) * inv_d;
+                                    float t2 = (tree_max[axis] - ray_origin[axis]) * inv_d;
+                                    if (t1 > t2)
+                                        std::swap(t1, t2);
+                                    t_min_r = std::max(t_min_r, t1);
+                                    t_max_r = std::min(t_max_r, t2);
+                                    if (t_min_r > t_max_r)
+                                    {
+                                        tree_hit = false;
+                                        break;
                                     }
                                 }
                             }
-
-                            if (best_route && best_dist_sq <= kMaxPickDist * kMaxPickDist)
+                            if (tree_hit && t_min_r >= 0.0f)
                             {
                                 BuildingTooltipData tooltip_data;
-                                tooltip_data.route_source = best_route->source_qualified_name;
-                                tooltip_data.route_target = best_route->target_qualified_name;
-                                tooltip_data.route_field_name = best_route->field_name;
-                                tooltip_data.route_field_type = best_route->field_type_name;
+                                tooltip_data.name = "Central Park Tree";
+                                tooltip_data.module_path = mod.module_path;
+                                tooltip_data.tree_height = tm.height;
+                                tooltip_data.tree_canopy_radius = tm.canopy_radius;
                                 auto bitmap = rasterize_tooltip(*tooltip_text_service_, tooltip_data);
                                 show_tooltip_bitmap(bitmap);
+                                picked_park_or_tree = true;
+                                break;
+                            }
+                        }
+
+                        // Check park slab AABB.
+                        const glm::vec3 park_min(
+                            mod.park_center.x - park_half, park_base,
+                            mod.park_center.y - park_half);
+                        const glm::vec3 park_max(
+                            mod.park_center.x + park_half, park_top,
+                            mod.park_center.y + park_half);
+
+                        float t_min_r = -std::numeric_limits<float>::max();
+                        float t_max_r = std::numeric_limits<float>::max();
+                        bool park_hit = true;
+                        for (int axis = 0; axis < 3; ++axis)
+                        {
+                            if (std::abs(ray_dir[axis]) < 1e-8f)
+                            {
+                                if (ray_origin[axis] < park_min[axis] || ray_origin[axis] > park_max[axis])
+                                {
+                                    park_hit = false;
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                float inv_d = 1.0f / ray_dir[axis];
+                                float t1 = (park_min[axis] - ray_origin[axis]) * inv_d;
+                                float t2 = (park_max[axis] - ray_origin[axis]) * inv_d;
+                                if (t1 > t2)
+                                    std::swap(t1, t2);
+                                t_min_r = std::max(t_min_r, t1);
+                                t_max_r = std::min(t_max_r, t2);
+                                if (t_min_r > t_max_r)
+                                {
+                                    park_hit = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (park_hit && t_min_r >= 0.0f)
+                        {
+                            BuildingTooltipData tooltip_data;
+                            tooltip_data.name = mod.is_central_park ? "Central Park" : "Module Park";
+                            tooltip_data.park_module = mod.module_path;
+                            tooltip_data.park_quality = mod.quality;
+                            tooltip_data.park_footprint = mod.park_footprint;
+                            auto bitmap = rasterize_tooltip(*tooltip_text_service_, tooltip_data);
+                            show_tooltip_bitmap(bitmap);
+                            picked_park_or_tree = true;
+                            break;
+                        }
+                    }
+
+                    if (!picked_park_or_tree && hover_shift_held_)
+                    {
+                        // No park/tree hit — try picking a route segment (shift only).
+                        std::shared_ptr<const CityGrid> grid;
+                        {
+                            std::lock_guard<std::mutex> lock(grid_mutex_);
+                            grid = city_grid_;
+                        }
+                        if (grid && !grid->routes.empty())
+                        {
+                            // Intersect ray with Y=0 plane.
+                            if (std::abs(ray_dir.y) > 1e-6f)
+                            {
+                                const float t = -ray_origin.y / ray_dir.y;
+                                const glm::vec2 ground_pos(
+                                    ray_origin.x + t * ray_dir.x,
+                                    ray_origin.z + t * ray_dir.z);
+
+                                // Find the nearest route segment.
+                                float best_dist_sq = std::numeric_limits<float>::max();
+                                const CityGrid::RoutePolyline* best_route = nullptr;
+                                constexpr float kMaxPickDist = 1.0f;
+
+                                for (const auto& route : grid->routes)
+                                {
+                                    for (size_t i = 1; i < route.world_points.size(); ++i)
+                                    {
+                                        const glm::vec2 a = route.world_points[i - 1];
+                                        const glm::vec2 b = route.world_points[i];
+                                        const glm::vec2 ab = b - a;
+                                        const float seg_len_sq = glm::dot(ab, ab);
+                                        float proj_t = 0.0f;
+                                        if (seg_len_sq > 1e-8f)
+                                            proj_t = std::clamp(
+                                                glm::dot(ground_pos - a, ab) / seg_len_sq, 0.0f, 1.0f);
+                                        const glm::vec2 closest = a + proj_t * ab;
+                                        const float dist_sq
+                                            = glm::dot(ground_pos - closest, ground_pos - closest);
+                                        if (dist_sq < best_dist_sq)
+                                        {
+                                            best_dist_sq = dist_sq;
+                                            best_route = &route;
+                                        }
+                                    }
+                                }
+
+                                if (best_route && best_dist_sq <= kMaxPickDist * kMaxPickDist)
+                                {
+                                    BuildingTooltipData tooltip_data;
+                                    tooltip_data.route_source = best_route->source_qualified_name;
+                                    tooltip_data.route_target = best_route->target_qualified_name;
+                                    tooltip_data.route_field_name = best_route->field_name;
+                                    tooltip_data.route_field_type = best_route->field_type_name;
+                                    auto bitmap = rasterize_tooltip(*tooltip_text_service_, tooltip_data);
+                                    show_tooltip_bitmap(bitmap);
+                                }
                             }
                         }
                     }
