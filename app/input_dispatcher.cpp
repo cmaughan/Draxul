@@ -131,7 +131,8 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
     }
     deps_.ui_panel->on_key(event);
     request_imgui_frame_if_needed(deps_);
-    if (!deps_.ui_panel->wants_keyboard() && deps_.host)
+    const bool is_f1 = event.scancode == SDL_SCANCODE_F1 || event.keycode == SDLK_F1;
+    if ((!deps_.ui_panel->wants_keyboard() || is_f1) && deps_.host)
         deps_.host->on_key(event);
 }
 
