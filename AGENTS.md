@@ -115,7 +115,7 @@ All fetched automatically via CMake FetchContent: SDL3, FreeType, HarfBuzz, MPac
 - After implementing a user-facing feature or rendering-affecting change, run the render smoke/snapshot suite with `t.bat` or `ctest` and confirm the relevant `draxul-render-*` scenario still passes.
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessligatures`, or `py do.py blessall` from the repo root.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
-- After every completed work item, run one final `clang-format` pass across all touched source files. The pre-commit hook runs `clang-format` automatically on staged files.
+- Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
 - When you complete a work item from `plans/work-items/*.md`, tick the completed entries and move it to `plans/work-items-complete/`.
 - After implementing a new user-facing feature, configuration option, CLI flag, or build/CI change, update `docs/features.md`.
 - Before creating new work items, check `docs/features.md` to verify the proposed feature or capability is not already implemented.

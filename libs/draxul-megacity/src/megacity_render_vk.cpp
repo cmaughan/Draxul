@@ -3933,7 +3933,8 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     performance_heat_write.descriptorCount = 1;
     performance_heat_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     performance_heat_write.pBufferInfo = &performance_heat_buffer_info;
-    vkUpdateDescriptorSets(device, 1, &performance_heat_write, 0, nullptr);
+    vkUpdateDescriptorSets(
+        vk_ctx->device(), 1, &performance_heat_write, 0, nullptr);
 
     const uint32_t shadow_opaque_count = std::min(scene_.opaque_count,
         static_cast<uint32_t>(scene_.objects.size()));
