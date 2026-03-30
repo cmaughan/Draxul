@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1420" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="11">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1440" font-family="JetBrains Mono, Menlo, Consolas, monospace" font-size="11">
   <defs>
     <marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="10" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 0 L 10 3 L 0 6 z" fill="#555"/>
@@ -46,7 +46,7 @@
   </defs>
 
   <!-- Background -->
-  <rect width="1400" height="1420" fill="#fafafa" rx="8"/>
+  <rect width="1400" height="1440" fill="#fafafa" rx="8"/>
 
   <!-- Title -->
   <text x="700" y="32" text-anchor="middle" font-size="18" font-weight="bold" fill="#222">Draxul Architecture</text>
@@ -69,137 +69,89 @@
   </g>
 
   <!-- ============================================================ -->
-  <!-- WINDOW (far left)                                             -->
+  <!-- RENDERER HIERARCHY (left column)                              -->
   <!-- ============================================================ -->
 
-  <text x="77" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Window</text>
-  <line x1="32" y1="114" x2="122" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
-
-  <!-- IWindow -->
-  <g filter="url(#shadow)">
-    <rect x="17" y="125" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="77" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IWindow</text>
-    <text x="77" y="160" text-anchor="middle" font-size="8.5" fill="#666">events, clipboard, title</text>
-  </g>
-
-  <!-- SdlWindow -->
-  <g filter="url(#shadow)">
-    <rect x="17" y="195" width="120" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="77" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">SdlWindow</text>
-    <text x="77" y="230" text-anchor="middle" font-size="8.5" fill="#666">SDL3 impl</text>
-  </g>
-  <line x1="77" y1="169" x2="77" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- ============================================================ -->
-  <!-- RENDERER HIERARCHY (left-center column)                      -->
-  <!-- ============================================================ -->
-
-  <text x="300" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Renderer</text>
-  <line x1="220" y1="114" x2="380" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
+  <text x="250" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Renderer</text>
+  <line x1="170" y1="114" x2="330" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
 
   <!-- IBaseRenderer -->
   <g filter="url(#shadow)">
-    <rect x="205" y="125" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="300" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IBaseRenderer</text>
-    <text x="300" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, begin/end_frame</text>
+    <rect x="155" y="125" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IBaseRenderer</text>
+    <text x="250" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, begin/end_frame</text>
   </g>
 
   <!-- I3DRenderer -->
   <g filter="url(#shadow)">
-    <rect x="205" y="195" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="300" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">I3DRenderer</text>
-    <text x="300" y="230" text-anchor="middle" font-size="8.5" fill="#666">register_render_pass, 3D viewport</text>
+    <rect x="155" y="195" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="213" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">I3DRenderer</text>
+    <text x="250" y="230" text-anchor="middle" font-size="8.5" fill="#666">register_render_pass, 3D viewport</text>
   </g>
-  <line x1="300" y1="169" x2="300" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+  <line x1="250" y1="169" x2="250" y2="195" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
 
   <!-- IGridRenderer -->
   <g filter="url(#shadow)">
-    <rect x="205" y="265" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="300" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridRenderer</text>
-    <text x="300" y="300" text-anchor="middle" font-size="8.5" fill="#666">create_grid_handle, atlas, cell_size</text>
+    <rect x="155" y="265" width="190" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="250" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridRenderer</text>
+    <text x="250" y="300" text-anchor="middle" font-size="8.5" fill="#666">create_grid_handle, atlas, cell_size</text>
   </g>
-  <line x1="300" y1="239" x2="300" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- IRenderPass (left of I3DRenderer) -->
-  <g filter="url(#shadow)">
-    <rect x="155" y="270" width="40" height="0" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="0"/>
-  </g>
-
-  <!-- IRenderPass -->
-  <g filter="url(#shadow)">
-    <rect x="420" y="195" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="480" y="217" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IRenderPass</text>
-  </g>
-  <!-- I3DRenderer registers IRenderPass -->
-  <line x1="395" y1="214" x2="420" y2="214" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- IRenderContext -->
-  <g filter="url(#shadow)">
-    <rect x="420" y="245" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="480" y="267" text-anchor="middle" font-weight="bold" font-size="10" fill="#1a56db">IRenderContext</text>
-  </g>
-
-  <!-- IGridHandle -->
-  <g filter="url(#shadow)">
-    <rect x="420" y="295" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="480" y="313" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridHandle</text>
-    <text x="480" y="330" text-anchor="middle" font-size="8.5" fill="#666">per-host GPU buffer</text>
-  </g>
-  <!-- IGridRenderer creates IGridHandle -->
-  <line x1="395" y1="300" x2="420" y2="310" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="250" y1="239" x2="250" y2="265" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
 
   <!-- IImGuiHost -->
   <g filter="url(#shadow)">
-    <rect x="420" y="355" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="480" y="378" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IImGuiHost</text>
+    <rect x="375" y="335" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="435" y="358" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IImGuiHost</text>
   </g>
 
   <!-- ICaptureRenderer -->
   <g filter="url(#shadow)">
-    <rect x="420" y="405" width="130" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="485" y="428" text-anchor="middle" font-weight="bold" font-size="10" fill="#1a56db">ICaptureRenderer</text>
+    <rect x="375" y="385" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="435" y="408" text-anchor="middle" font-weight="bold" font-size="10" fill="#1a56db">ICaptureRenderer</text>
   </g>
 
   <!-- MetalRenderer -->
   <g filter="url(#shadow)">
-    <rect x="155" y="360" width="145" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="227" y="378" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">MetalRenderer</text>
-    <text x="227" y="395" text-anchor="middle" font-size="8.5" fill="#666">macOS Metal backend</text>
+    <rect x="105" y="360" width="145" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="177" y="378" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">MetalRenderer</text>
+    <text x="177" y="395" text-anchor="middle" font-size="8.5" fill="#666">macOS Metal backend</text>
   </g>
   <!-- VkRenderer -->
   <g filter="url(#shadow)">
-    <rect x="310" y="360" width="100" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="360" y="378" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">VkRenderer</text>
-    <text x="360" y="395" text-anchor="middle" font-size="8.5" fill="#666">Windows Vulkan</text>
+    <rect x="265" y="360" width="100" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="315" y="378" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">VkRenderer</text>
+    <text x="315" y="395" text-anchor="middle" font-size="8.5" fill="#666">Windows Vulkan</text>
   </g>
   <!-- Inherit: IGridRenderer -> MetalRenderer -->
-  <line x1="270" y1="309" x2="227" y2="360" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+  <line x1="220" y1="309" x2="177" y2="360" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
   <!-- Inherit: IGridRenderer -> VkRenderer -->
-  <line x1="330" y1="309" x2="360" y2="360" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-  <!-- Inherit: IImGuiHost -> MetalRenderer/VkRenderer -->
-  <line x1="420" y1="373" x2="300" y2="380" stroke="#333" stroke-width="1" marker-end="url(#arrow-inherit)"/>
+  <line x1="280" y1="309" x2="315" y2="360" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
+  <!-- Inherit: IImGuiHost -> MetalRenderer/VkRenderer (horizontal) -->
+  <line x1="375" y1="353" x2="250" y2="380" stroke="#333" stroke-width="1" marker-end="url(#arrow-inherit)"/>
   <!-- Inherit: ICaptureRenderer -> MetalRenderer/VkRenderer -->
-  <line x1="420" y1="423" x2="300" y2="400" stroke="#333" stroke-width="1" marker-end="url(#arrow-inherit)"/>
+  <line x1="375" y1="403" x2="250" y2="395" stroke="#333" stroke-width="1" marker-end="url(#arrow-inherit)"/>
 
-  <!-- MetalRenderContext -->
+  <!-- IGridHandle -->
   <g filter="url(#shadow)">
-    <rect x="155" y="420" width="135" height="30" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="222" y="440" text-anchor="middle" font-weight="bold" font-size="9" fill="#137333">MetalRenderContext</text>
+    <rect x="17" y="265" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="77" y="283" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGridHandle</text>
+    <text x="77" y="300" text-anchor="middle" font-size="8.5" fill="#666">per-host GPU buffer</text>
   </g>
-  <!-- VkRenderContext -->
+  <line x1="155" y1="287" x2="137" y2="287" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- IRenderPass -->
   <g filter="url(#shadow)">
-    <rect x="310" y="420" width="100" height="30" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="360" y="440" text-anchor="middle" font-weight="bold" font-size="9" fill="#137333">VkRenderContext</text>
+    <rect x="17" y="195" width="120" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="77" y="217" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IRenderPass</text>
   </g>
-  <!-- IRenderContext implements -->
-  <line x1="420" y1="263" x2="300" y2="435" stroke="#333" stroke-width="0.8" stroke-dasharray="3,3" marker-end="url(#arrow-inherit)"/>
+  <line x1="155" y1="214" x2="137" y2="214" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- RendererBundle -->
   <g filter="url(#shadow)">
-    <rect x="205" y="470" width="190" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="300" y="493" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">RendererBundle</text>
+    <rect x="155" y="430" width="190" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="250" y="453" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">RendererBundle</text>
   </g>
-  <line x1="300" y1="450" x2="300" y2="470" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="250" y1="404" x2="250" y2="430" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- ============================================================ -->
   <!-- HOST HIERARCHY (center)                                      -->
@@ -208,17 +160,18 @@
   <text x="770" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Hosts</text>
   <line x1="700" y1="114" x2="840" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
 
-  <!-- IHostCallbacks -->
-  <g filter="url(#shadow)">
-    <rect x="563" y="125" width="130" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="628" y="148" text-anchor="middle" font-weight="bold" font-size="10" fill="#1a56db">IHostCallbacks</text>
-  </g>
-
   <!-- IHost -->
   <g filter="url(#shadow)">
     <rect x="670" y="125" width="200" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
     <text x="770" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IHost</text>
     <text x="770" y="160" text-anchor="middle" font-size="8.5" fill="#666">initialize, pump, input, shutdown</text>
+  </g>
+
+  <!-- IHostCallbacks -->
+  <g filter="url(#shadow)">
+    <rect x="510" y="125" width="145" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="582" y="143" text-anchor="middle" font-weight="bold" font-size="10" fill="#1a56db">IHostCallbacks</text>
+    <text x="582" y="160" text-anchor="middle" font-size="8" fill="#666">request_frame, quit, nvim</text>
   </g>
 
   <!-- I3DHost -->
@@ -271,64 +224,172 @@
 
   <!-- LocalTerminalHost -->
   <g filter="url(#shadow)">
-    <rect x="545" y="478" width="195" height="52" rx="5" fill="url(#gAbstract)" stroke="#f9ab00" stroke-width="1.2"/>
-    <text x="642" y="496" text-anchor="middle" font-weight="bold" font-size="11" fill="#8a6d00">LocalTerminalHost</text>
-    <text x="642" y="513" text-anchor="middle" font-size="8.5" fill="#666">scrollback, selection, mouse</text>
-    <text x="642" y="524" text-anchor="middle" font-size="8.5" fill="#666">ConPTY (Win) / PTY (Unix)</text>
+    <rect x="545" y="478" width="195" height="52" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="642" y="496" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">LocalTerminalHost</text>
+    <text x="642" y="513" text-anchor="middle" font-size="8.5" fill="#666">bash/zsh/powershell/WSL</text>
+    <text x="642" y="524" text-anchor="middle" font-size="8.5" fill="#666">scrollback, selection, mouse</text>
   </g>
   <line x1="642" y1="449" x2="642" y2="478" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
 
-  <!-- Shell host variants (below LocalTerminalHost) -->
+  <!-- PTY process boxes (below LocalTerminalHost) -->
   <g filter="url(#shadow)">
-    <rect x="515" y="555" width="90" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="560" y="577" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">ShellHost</text>
+    <rect x="515" y="555" width="115" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="572" y="577" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">UnixPtyProcess</text>
   </g>
   <g filter="url(#shadow)">
-    <rect x="615" y="555" width="100" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="665" y="572" text-anchor="middle" font-weight="bold" font-size="9" fill="#137333">PowerShellHost</text>
-    <text x="665" y="584" text-anchor="middle" font-size="8" fill="#666">Windows</text>
+    <rect x="645" y="555" width="115" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="702" y="577" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">ConPtyProcess</text>
   </g>
-  <g filter="url(#shadow)">
-    <rect x="725" y="555" width="80" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="765" y="577" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">WslHost</text>
-  </g>
-  <line x1="610" y1="530" x2="560" y2="555" stroke="#333" stroke-width="1.2" marker-end="url(#arrow-inherit)"/>
-  <line x1="642" y1="530" x2="665" y2="555" stroke="#333" stroke-width="1.2" marker-end="url(#arrow-inherit)"/>
-  <line x1="670" y1="530" x2="765" y2="555" stroke="#333" stroke-width="1.2" marker-end="url(#arrow-inherit)"/>
-  <text x="560" y="603" text-anchor="middle" font-size="8" fill="#888">Unix/Win</text>
-  <text x="665" y="603" text-anchor="middle" font-size="8" fill="#888">Windows</text>
-  <text x="765" y="603" text-anchor="middle" font-size="8" fill="#888">Windows</text>
+  <line x1="620" y1="530" x2="572" y2="555" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="665" y1="530" x2="702" y2="555" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="572" y="603" text-anchor="middle" font-size="8" fill="#888">macOS</text>
+  <text x="702" y="603" text-anchor="middle" font-size="8" fill="#888">Windows</text>
 
   <!-- NvimProcess + NvimRpc (below NvimHost) -->
   <g filter="url(#shadow)">
-    <rect x="765" y="478" width="95" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="812" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">NvimProcess</text>
+    <rect x="765" y="478" width="95" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="812" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">NvimProcess</text>
   </g>
   <g filter="url(#shadow)">
-    <rect x="870" y="478" width="85" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="912" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">NvimRpc</text>
+    <rect x="870" y="478" width="85" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="912" y="500" text-anchor="middle" font-weight="bold" font-size="10" fill="#137333">NvimRpc</text>
   </g>
   <line x1="812" y1="449" x2="812" y2="478" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
   <line x1="850" y1="449" x2="912" y2="478" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
-  <!-- IRpcChannel (above NvimRpc) -->
-  <g filter="url(#shadow)">
-    <rect x="880" y="440" width="90" height="28" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="925" y="458" text-anchor="middle" font-weight="bold" font-size="9" fill="#1a56db">IRpcChannel</text>
-  </g>
-  <line x1="912" y1="468" x2="912" y2="478" stroke="#333" stroke-width="1" marker-end="url(#arrow-inherit)"/>
+  <!-- ============================================================ -->
+  <!-- MEGACITY SUBSYSTEM (right column)                             -->
+  <!-- ============================================================ -->
 
-  <!-- UiEventHandler + NvimInput (below NvimRpc) -->
+  <text x="1120" y="268" text-anchor="middle" font-size="12" font-weight="bold" fill="#2d6a4f">MegaCity Subsystem</text>
+  <line x1="1020" y1="274" x2="1220" y2="274" stroke="#2d6a4f" stroke-width="0.5"/>
+
+  <!-- SceneWorld -->
   <g filter="url(#shadow)">
-    <rect x="765" y="530" width="105" height="30" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="817" y="549" text-anchor="middle" font-weight="bold" font-size="9" fill="#6b21a8">UiEventHandler</text>
+    <rect x="1020" y="285" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1120" y="303" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">SceneWorld</text>
+    <text x="1120" y="320" text-anchor="middle" font-size="8.5" fill="#666">EnTT ECS registry</text>
   </g>
+  <!-- Compose: MegaCityHost -> SceneWorld -->
+  <line x1="985" y1="295" x2="1020" y2="300" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- IsometricCamera -->
   <g filter="url(#shadow)">
-    <rect x="880" y="530" width="85" height="30" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="922" y="549" text-anchor="middle" font-weight="bold" font-size="9" fill="#6b21a8">NvimInput</text>
+    <rect x="1020" y="345" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1120" y="363" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">IsometricCamera</text>
+    <text x="1120" y="380" text-anchor="middle" font-size="8.5" fill="#666">ortho projection, orbit, zoom</text>
   </g>
-  <line x1="812" y1="514" x2="817" y2="530" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
-  <line x1="912" y1="514" x2="922" y2="530" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
+
+  <!-- IsometricScenePass -->
+  <g filter="url(#shadow)">
+    <rect x="1020" y="405" width="200" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1120" y="423" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">IsometricScenePass</text>
+    <text x="1120" y="440" text-anchor="middle" font-size="8.5" fill="#666">implements IRenderPass</text>
+  </g>
+
+  <!-- CityInputState -->
+  <g filter="url(#shadow)">
+    <rect x="1020" y="465" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1120" y="483" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">CityInputState</text>
+    <text x="1120" y="500" text-anchor="middle" font-size="8.5" fill="#666">click, double-click, drag, keys</text>
+  </g>
+
+  <!-- SemanticCityLayout -->
+  <g filter="url(#shadow)">
+    <rect x="1020" y="525" width="200" height="52" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1120" y="546" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">SemanticCityLayout</text>
+    <text x="1120" y="560" text-anchor="middle" font-size="8.5" fill="#666">lot placement, road gen</text>
+    <text x="1120" y="571" text-anchor="middle" font-size="8.5" fill="#666">spiral layout per module</text>
+  </g>
+
+  <!-- CityGrid -->
+  <g filter="url(#shadow)">
+    <rect x="1020" y="593" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1120" y="611" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">CityGrid</text>
+    <text x="1120" y="628" text-anchor="middle" font-size="8.5" fill="#666">2D occupancy grid (bg thread)</text>
+  </g>
+
+  <!-- CodebaseScanner -->
+  <g filter="url(#shadow)">
+    <rect x="1240" y="285" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="1315" y="303" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">CodebaseScanner</text>
+    <text x="1315" y="320" text-anchor="middle" font-size="8.5" fill="#666">background tree-sitter</text>
+  </g>
+
+  <!-- CityDatabase -->
+  <g filter="url(#shadow)">
+    <rect x="1240" y="345" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="1315" y="363" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">CityDatabase</text>
+    <text x="1315" y="380" text-anchor="middle" font-size="8.5" fill="#666">SQLite symbol storage</text>
+  </g>
+
+  <!-- SignLabelAtlas -->
+  <g filter="url(#shadow)">
+    <rect x="1240" y="405" width="150" height="36" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1315" y="428" text-anchor="middle" font-weight="bold" font-size="10" fill="#1b5e20">SignLabelAtlas</text>
+  </g>
+
+  <!-- LcovCoverage -->
+  <g filter="url(#shadow)">
+    <rect x="1240" y="455" width="150" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1315" y="473" text-anchor="middle" font-weight="bold" font-size="10" fill="#1b5e20">LcovCoverage</text>
+    <text x="1315" y="490" text-anchor="middle" font-size="8" fill="#666">parse + function lookup</text>
+  </g>
+
+  <!-- MegaCityCodeConfig -->
+  <g filter="url(#shadow)">
+    <rect x="1240" y="513" width="150" height="36" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1315" y="530" text-anchor="middle" font-weight="bold" font-size="9" fill="#1b5e20">MegaCityCodeConfig</text>
+    <text x="1315" y="542" text-anchor="middle" font-size="8" fill="#666">tuning params + overlay</text>
+  </g>
+
+  <!-- CityMapPanel -->
+  <g filter="url(#shadow)">
+    <rect x="1240" y="563" width="150" height="36" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1315" y="586" text-anchor="middle" font-weight="bold" font-size="10" fill="#1b5e20">CityMapPanel</text>
+  </g>
+  <!-- CityGrid -> CityMapPanel -->
+  <line x1="1220" y1="620" x2="1240" y2="580" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
+  <text x="1230" y="610" text-anchor="middle" font-size="7" fill="#888">renders</text>
+
+  <!-- ECS Components box -->
+  <g filter="url(#shadow)">
+    <rect x="1020" y="655" width="370" height="60" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
+    <text x="1205" y="675" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">ECS Components</text>
+    <text x="1205" y="690" text-anchor="middle" font-size="8.5" fill="#666">WorldPosition | Elevation | Appearance | BuildingMetrics | RoadMetrics</text>
+    <text x="1205" y="703" text-anchor="middle" font-size="8.5" fill="#666">RoadSurfaceMetrics | TreeMetrics | SignMetrics | SourceSymbol</text>
+  </g>
+  <!-- Compose: SceneWorld stores ECS components -->
+  <line x1="1120" y1="329" x2="1120" y2="655" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
+  <text x="1100" y="555" text-anchor="end" font-size="8" fill="#888">stores</text>
+
+  <!-- CodebaseScanner -> CityDatabase -->
+  <line x1="1315" y1="329" x2="1315" y2="345" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <!-- CityDatabase -> SemanticCityLayout -->
+  <line x1="1240" y1="370" x2="1220" y2="540" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
+  <text x="1248" y="460" text-anchor="start" font-size="8" fill="#888">queries</text>
+
+  <!-- ============================================================ -->
+  <!-- WINDOW (far left)                                             -->
+  <!-- ============================================================ -->
+
+  <text x="77" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Window</text>
+  <line x1="32" y1="114" x2="122" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
+
+  <!-- IWindow -->
+  <g filter="url(#shadow)">
+    <rect x="17" y="125" width="120" height="44" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
+    <text x="77" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IWindow</text>
+    <text x="77" y="160" text-anchor="middle" font-size="8.5" fill="#666">events, clipboard, title</text>
+  </g>
+
+  <!-- SdlWindow -->
+  <g filter="url(#shadow)">
+    <rect x="430" y="125" width="120" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="490" y="143" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">SdlWindow</text>
+    <text x="490" y="160" text-anchor="middle" font-size="8.5" fill="#666">SDL3 impl</text>
+  </g>
+  <line x1="137" y1="147" x2="430" y2="147" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
 
   <!-- ============================================================ -->
   <!-- FONT / TEXT (right column, upper)                             -->
@@ -337,349 +398,275 @@
   <text x="1120" y="108" text-anchor="middle" font-size="12" font-weight="bold" fill="#4a6fa5">Font &amp; Grid</text>
   <line x1="1050" y1="114" x2="1190" y2="114" stroke="#4a6fa5" stroke-width="0.5"/>
 
-  <!-- IGlyphAtlas -->
-  <g filter="url(#shadow)">
-    <rect x="1040" y="125" width="160" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="1120" y="148" text-anchor="middle" font-weight="bold" font-size="11" fill="#1a56db">IGlyphAtlas</text>
-  </g>
-
   <!-- TextService -->
   <g filter="url(#shadow)">
-    <rect x="1040" y="175" width="160" height="52" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="1120" y="196" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">TextService</text>
-    <text x="1120" y="210" text-anchor="middle" font-size="8.5" fill="#666">FreeType + HarfBuzz</text>
-    <text x="1120" y="221" text-anchor="middle" font-size="8.5" fill="#666">glyph atlas, metrics</text>
-  </g>
-  <line x1="1120" y1="161" x2="1120" y2="175" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
-
-  <!-- IGridSink -->
-  <g filter="url(#shadow)">
-    <rect x="1220" y="125" width="100" height="36" rx="5" fill="url(#gInterface)" stroke="#7baaf7" stroke-width="1.2"/>
-    <text x="1270" y="148" text-anchor="middle" font-weight="bold" font-size="10" fill="#1a56db">IGridSink</text>
+    <rect x="1040" y="125" width="160" height="52" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1120" y="146" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">TextService</text>
+    <text x="1120" y="160" text-anchor="middle" font-size="8.5" fill="#666">FreeType + HarfBuzz</text>
+    <text x="1120" y="171" text-anchor="middle" font-size="8.5" fill="#666">glyph atlas, metrics</text>
   </g>
 
   <!-- Grid -->
   <g filter="url(#shadow)">
-    <rect x="1220" y="175" width="160" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="1300" y="193" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">Grid</text>
-    <text x="1300" y="210" text-anchor="middle" font-size="8.5" fill="#666">2D Cell array, dirty tracking</text>
+    <rect x="1040" y="200" width="160" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1120" y="218" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">Grid</text>
+    <text x="1120" y="235" text-anchor="middle" font-size="8.5" fill="#666">2D Cell array, dirty tracking</text>
   </g>
-  <line x1="1270" y1="161" x2="1300" y2="175" stroke="#333" stroke-width="1.5" marker-end="url(#arrow-inherit)"/>
 
   <!-- HighlightTable -->
   <g filter="url(#shadow)">
-    <rect x="1220" y="230" width="160" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1300" y="253" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">HighlightTable</text>
+    <rect x="1220" y="200" width="160" height="36" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
+    <text x="1300" y="223" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">HighlightTable</text>
   </g>
 
   <!-- GridRenderingPipeline -->
   <g filter="url(#shadow)">
-    <rect x="1040" y="240" width="170" height="52" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1125" y="261" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">GridRenderingPipeline</text>
-    <text x="1125" y="275" text-anchor="middle" font-size="8.5" fill="#666">Grid + TextService</text>
-    <text x="1125" y="286" text-anchor="middle" font-size="8.5" fill="#666">-&gt; CellUpdate -&gt; IGridHandle</text>
+    <rect x="1220" y="125" width="170" height="52" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="1305" y="146" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">GridRenderingPipeline</text>
+    <text x="1305" y="160" text-anchor="middle" font-size="8.5" fill="#666">Grid + TextService</text>
+    <text x="1305" y="171" text-anchor="middle" font-size="8.5" fill="#666">-> CellUpdate -> IGridHandle</text>
   </g>
 
   <!-- Show that GridHostBase owns Pipeline, Grid, HighlightTable -->
-  <line x1="800" y1="350" x2="1040" y2="260" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="910" y="295" text-anchor="middle" font-size="8" fill="#888">owns</text>
-
-  <!-- ============================================================ -->
-  <!-- MEGACITY SUBSYSTEM (right column)                             -->
-  <!-- ============================================================ -->
-
-  <text x="1120" y="318" text-anchor="middle" font-size="12" font-weight="bold" fill="#2d6a4f">MegaCity Subsystem</text>
-  <line x1="1020" y1="324" x2="1220" y2="324" stroke="#2d6a4f" stroke-width="0.5"/>
-
-  <!-- SceneWorld -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="335" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1120" y="353" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">SceneWorld</text>
-    <text x="1120" y="370" text-anchor="middle" font-size="8.5" fill="#666">EnTT ECS registry</text>
-  </g>
-  <!-- Compose: MegaCityHost -> SceneWorld -->
-  <line x1="985" y1="295" x2="1020" y2="350" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-
-  <!-- IsometricCamera -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="395" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1120" y="413" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">IsometricCamera</text>
-    <text x="1120" y="430" text-anchor="middle" font-size="8.5" fill="#666">ortho projection, orbit, zoom</text>
-  </g>
-
-  <!-- IsometricScenePass -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="455" width="200" height="44" rx="5" fill="url(#gConcrete)" stroke="#5bb974" stroke-width="1.2"/>
-    <text x="1120" y="473" text-anchor="middle" font-weight="bold" font-size="11" fill="#137333">IsometricScenePass</text>
-    <text x="1120" y="490" text-anchor="middle" font-size="8.5" fill="#666">implements IRenderPass</text>
-  </g>
-
-  <!-- SemanticMegacityLayout -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="515" width="200" height="52" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1120" y="533" text-anchor="middle" font-weight="bold" font-size="10" fill="#1b5e20">SemanticMegacityLayout</text>
-    <text x="1120" y="547" text-anchor="middle" font-size="8.5" fill="#666">lot placement, road gen</text>
-    <text x="1120" y="558" text-anchor="middle" font-size="8.5" fill="#666">spiral layout per module</text>
-  </g>
-
-  <!-- CityGrid -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="583" width="200" height="44" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1120" y="601" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">CityGrid</text>
-    <text x="1120" y="618" text-anchor="middle" font-size="8.5" fill="#666">2D occupancy grid (bg thread)</text>
-  </g>
-
-  <!-- CodebaseScanner -->
-  <g filter="url(#shadow)">
-    <rect x="1240" y="335" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1315" y="353" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">CodebaseScanner</text>
-    <text x="1315" y="370" text-anchor="middle" font-size="8.5" fill="#666">background tree-sitter</text>
-  </g>
-
-  <!-- CityDatabase -->
-  <g filter="url(#shadow)">
-    <rect x="1240" y="395" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1315" y="413" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">CityDatabase</text>
-    <text x="1315" y="430" text-anchor="middle" font-size="8.5" fill="#666">SQLite symbol storage</text>
-  </g>
-
-  <!-- SignLabelAtlas -->
-  <g filter="url(#shadow)">
-    <rect x="1240" y="455" width="150" height="36" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1315" y="478" text-anchor="middle" font-weight="bold" font-size="10" fill="#1b5e20">SignLabelAtlas</text>
-  </g>
-
-  <!-- MegaCityCodeConfig -->
-  <g filter="url(#shadow)">
-    <rect x="1240" y="505" width="150" height="36" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1315" y="522" text-anchor="middle" font-weight="bold" font-size="9" fill="#1b5e20">MegaCityCodeConfig</text>
-    <text x="1315" y="534" text-anchor="middle" font-size="8" fill="#666">tuning params</text>
-  </g>
-
-  <!-- CityInputState -->
-  <g filter="url(#shadow)">
-    <rect x="1240" y="555" width="150" height="36" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1315" y="578" text-anchor="middle" font-weight="bold" font-size="10" fill="#1b5e20">CityInputState</text>
-  </g>
-
-  <!-- ECS Components box -->
-  <g filter="url(#shadow)">
-    <rect x="1020" y="645" width="370" height="60" rx="5" fill="url(#gMegaCity)" stroke="#2d6a4f" stroke-width="1.2"/>
-    <text x="1205" y="665" text-anchor="middle" font-weight="bold" font-size="11" fill="#1b5e20">ECS Components</text>
-    <text x="1205" y="680" text-anchor="middle" font-size="8.5" fill="#666">WorldPosition | Elevation | Appearance | BuildingMetrics | RoadMetrics</text>
-    <text x="1205" y="693" text-anchor="middle" font-size="8.5" fill="#666">RoadSurfaceMetrics | TreeMetrics | SignMetrics | SourceSymbol</text>
-  </g>
-  <!-- Compose: SceneWorld stores ECS components -->
-  <line x1="1120" y1="379" x2="1120" y2="645" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
-  <text x="1100" y="545" text-anchor="end" font-size="8" fill="#888">stores</text>
-
-  <!-- CodebaseScanner -> CityDatabase -->
-  <line x1="1315" y1="379" x2="1315" y2="395" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <!-- CityDatabase -> SemanticMegacityLayout -->
-  <line x1="1240" y1="420" x2="1220" y2="530" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
-  <text x="1248" y="480" text-anchor="start" font-size="8" fill="#888">queries</text>
+  <line x1="800" y1="350" x2="1040" y2="220" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="910" y="275" text-anchor="middle" font-size="8" fill="#888">owns</text>
 
   <!-- ============================================================ -->
   <!-- APP LAYER (bottom)                                            -->
   <!-- ============================================================ -->
 
-  <text x="700" y="718" text-anchor="middle" font-size="12" font-weight="bold" fill="#c0392b">App Layer</text>
-  <line x1="400" y1="724" x2="1000" y2="724" stroke="#c0392b" stroke-width="0.5"/>
+  <text x="700" y="668" text-anchor="middle" font-size="12" font-weight="bold" fill="#c0392b">App Layer</text>
+  <line x1="400" y1="674" x2="1000" y2="674" stroke="#c0392b" stroke-width="0.5"/>
 
   <!-- App -->
   <g filter="url(#shadow)">
-    <rect x="530" y="740" width="340" height="60" rx="6" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.5"/>
-    <text x="700" y="762" text-anchor="middle" font-weight="bold" font-size="13" fill="#a52714">App</text>
-    <text x="700" y="777" text-anchor="middle" font-size="9" fill="#666">Main loop: SDL events -> nvim RPC -> Grid -> Renderer</text>
-    <text x="700" y="790" text-anchor="middle" font-size="9" fill="#666">Owns all subsystems below  |  implements IHostCallbacks</text>
+    <rect x="530" y="690" width="340" height="60" rx="6" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.5"/>
+    <text x="700" y="712" text-anchor="middle" font-weight="bold" font-size="13" fill="#a52714">App</text>
+    <text x="700" y="727" text-anchor="middle" font-size="9" fill="#666">Main loop: SDL events -> nvim RPC -> Grid -> Renderer</text>
+    <text x="700" y="740" text-anchor="middle" font-size="9" fill="#666">Implements IHostCallbacks  |  Owns all subsystems below</text>
   </g>
+
+  <!-- IHostCallbacks -> App (implements) -->
+  <line x1="582" y1="169" x2="620" y2="690" stroke="#333" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-inherit)"/>
+  <text x="580" y="440" text-anchor="end" font-size="8" fill="#888">implements</text>
 
   <!-- HostManager -->
   <g filter="url(#shadow)">
-    <rect x="380" y="830" width="190" height="52" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
-    <text x="475" y="851" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">HostManager</text>
-    <text x="475" y="865" text-anchor="middle" font-size="8.5" fill="#666">multi-pane lifecycle</text>
-    <text x="475" y="876" text-anchor="middle" font-size="8.5" fill="#666">map&lt;LeafId, IHost&gt;</text>
+    <rect x="380" y="780" width="190" height="52" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
+    <text x="475" y="801" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">HostManager</text>
+    <text x="475" y="815" text-anchor="middle" font-size="8.5" fill="#666">multi-pane lifecycle</text>
+    <text x="475" y="826" text-anchor="middle" font-size="8.5" fill="#666">map&lt;LeafId, IHost&gt;</text>
   </g>
-  <line x1="630" y1="800" x2="475" y2="830" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="630" y1="750" x2="475" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- SplitTree -->
   <g filter="url(#shadow)">
-    <rect x="380" y="910" width="190" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="475" y="928" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">SplitTree</text>
-    <text x="475" y="945" text-anchor="middle" font-size="8.5" fill="#666">binary tree pane layout</text>
+    <rect x="380" y="860" width="190" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="475" y="878" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">SplitTree</text>
+    <text x="475" y="895" text-anchor="middle" font-size="8.5" fill="#666">binary tree pane layout</text>
   </g>
-  <line x1="475" y1="882" x2="475" y2="910" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="475" y1="832" x2="475" y2="860" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- InputDispatcher -->
   <g filter="url(#shadow)">
-    <rect x="610" y="830" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
-    <text x="700" y="848" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">InputDispatcher</text>
-    <text x="700" y="865" text-anchor="middle" font-size="8.5" fill="#666">routes SDL events, chord keys</text>
+    <rect x="610" y="780" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
+    <text x="700" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">InputDispatcher</text>
+    <text x="700" y="815" text-anchor="middle" font-size="8.5" fill="#666">routes SDL events, chord keys</text>
   </g>
-  <line x1="700" y1="800" x2="700" y2="830" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="700" y1="750" x2="700" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- GuiActionHandler -->
   <g filter="url(#shadow)">
-    <rect x="830" y="830" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
-    <text x="920" y="848" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">GuiActionHandler</text>
-    <text x="920" y="865" text-anchor="middle" font-size="8.5" fill="#666">font, copy, paste, split</text>
+    <rect x="830" y="780" width="180" height="44" rx="5" fill="url(#gApp)" stroke="#e8715a" stroke-width="1.2"/>
+    <text x="920" y="798" text-anchor="middle" font-weight="bold" font-size="11" fill="#a52714">GuiActionHandler</text>
+    <text x="920" y="815" text-anchor="middle" font-size="8.5" fill="#666">font, copy, paste, split</text>
   </g>
-  <line x1="770" y1="800" x2="920" y2="830" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="770" y1="750" x2="920" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- UiPanel + DiagnosticsCollector -->
   <g filter="url(#shadow)">
-    <rect x="1050" y="830" width="200" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1150" y="848" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">UiPanel + DiagnosticsCollector</text>
-    <text x="1150" y="865" text-anchor="middle" font-size="8.5" fill="#666">ImGui diagnostics + startup timing</text>
+    <rect x="1050" y="780" width="200" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="1150" y="798" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">UiPanel + DiagnosticsCollector</text>
+    <text x="1150" y="815" text-anchor="middle" font-size="8.5" fill="#666">ImGui diagnostics + startup timing</text>
   </g>
-  <line x1="830" y1="800" x2="1150" y2="830" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="830" y1="750" x2="1150" y2="780" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
-  <!-- AppConfig -->
+  <!-- AppConfig + ConfigDocument -->
   <g filter="url(#shadow)">
-    <rect x="830" y="910" width="130" height="36" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="895" y="933" text-anchor="middle" font-weight="bold" font-size="11" fill="#6b21a8">AppConfig</text>
+    <rect x="830" y="860" width="190" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
+    <text x="925" y="878" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">AppConfig + ConfigDocument</text>
+    <text x="925" y="895" text-anchor="middle" font-size="8.5" fill="#666">TOML config, live persistence</text>
   </g>
-  <line x1="760" y1="800" x2="895" y2="910" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
+  <line x1="760" y1="750" x2="925" y2="860" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
 
   <!-- Composition lines from App to major subsystems -->
   <!-- App -> RendererBundle -->
-  <line x1="570" y1="740" x2="350" y2="506" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="440" y="620" text-anchor="middle" font-size="8" fill="#888">owns</text>
+  <line x1="570" y1="690" x2="300" y2="466" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="415" y="575" text-anchor="middle" font-size="8" fill="#888">owns</text>
 
   <!-- App -> SdlWindow -->
-  <line x1="530" y1="760" x2="77" y2="239" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="530" y1="710" x2="490" y2="169" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- App -> TextService -->
-  <line x1="870" y1="760" x2="1100" y2="227" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <line x1="870" y1="710" x2="1100" y2="177" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
 
   <!-- HostManager -> IHost (hosts) -->
-  <line x1="475" y1="830" x2="642" y2="530" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <text x="548" y="680" text-anchor="middle" font-size="8" fill="#888">owns hosts</text>
+  <line x1="475" y1="780" x2="642" y2="530" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
+  <text x="548" y="650" text-anchor="middle" font-size="8" fill="#888">owns hosts</text>
+
+  <!-- ============================================================ -->
+  <!-- CROSS-HOST COMMUNICATION (MegaCity -> NvimHost via callbacks) -->
+  <!-- ============================================================ -->
+  <line x1="907" y1="309" x2="855" y2="405" stroke="#e8715a" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="900" y="360" text-anchor="start" font-size="7.5" fill="#e8715a">dispatch_to_nvim_host</text>
+  <text x="900" y="370" text-anchor="start" font-size="7.5" fill="#e8715a">(via IHostCallbacks)</text>
 
   <!-- ============================================================ -->
   <!-- DATA FLOW (bottom section)                                    -->
   <!-- ============================================================ -->
 
-  <text x="700" y="985" text-anchor="middle" font-size="12" font-weight="bold" fill="#555">Data Flow</text>
-  <line x1="200" y1="991" x2="1200" y2="991" stroke="#555" stroke-width="0.5"/>
+  <text x="700" y="940" text-anchor="middle" font-size="12" font-weight="bold" fill="#555">Data Flow</text>
+  <line x1="200" y1="946" x2="1200" y2="946" stroke="#555" stroke-width="0.5"/>
 
   <!-- Nvim data flow -->
-  <text x="50" y="1020" text-anchor="middle" font-size="8" fill="#1565c0" font-weight="bold">nvim</text>
-  <g transform="translate(80, 1002)">
+  <text x="50" y="975" text-anchor="middle" font-size="8" fill="#1565c0" font-weight="bold">nvim</text>
+  <g transform="translate(80, 957)">
     <rect width="150" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="75" y="20" text-anchor="middle" font-size="9" fill="#1565c0">nvim --embed</text>
   </g>
-  <g transform="translate(265, 1002)">
+  <g transform="translate(265, 957)">
     <rect width="130" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="65" y="20" text-anchor="middle" font-size="9" fill="#1565c0">msgpack-RPC</text>
   </g>
-  <g transform="translate(430, 1002)">
+  <g transform="translate(430, 957)">
     <rect width="140" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="70" y="20" text-anchor="middle" font-size="9" fill="#1565c0">UiEventHandler</text>
   </g>
-  <g transform="translate(605, 1002)">
+  <g transform="translate(605, 957)">
     <rect width="100" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="50" y="20" text-anchor="middle" font-size="9" fill="#1565c0">Grid</text>
   </g>
-  <g transform="translate(740, 1002)">
+  <g transform="translate(740, 957)">
     <rect width="155" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="77" y="20" text-anchor="middle" font-size="9" fill="#1565c0">GridRenderPipeline</text>
   </g>
-  <g transform="translate(930, 1002)">
+  <g transform="translate(930, 957)">
     <rect width="130" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="65" y="20" text-anchor="middle" font-size="9" fill="#1565c0">GPU Buffer</text>
   </g>
-  <g transform="translate(1095, 1002)">
+  <g transform="translate(1095, 957)">
     <rect width="140" height="32" rx="4" fill="#e3f2fd" stroke="#90caf9" stroke-width="1"/>
     <text x="70" y="20" text-anchor="middle" font-size="9" fill="#1565c0">Metal / Vulkan</text>
   </g>
-  <line x1="230" y1="1018" x2="265" y2="1018" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="395" y1="1018" x2="430" y2="1018" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="570" y1="1018" x2="605" y2="1018" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="705" y1="1018" x2="740" y2="1018" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="895" y1="1018" x2="930" y2="1018" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="1060" y1="1018" x2="1095" y2="1018" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="230" y1="973" x2="265" y2="973" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="395" y1="973" x2="430" y2="973" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="973" x2="605" y2="973" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="705" y1="973" x2="740" y2="973" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="895" y1="973" x2="930" y2="973" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="1060" y1="973" x2="1095" y2="973" stroke="#1565c0" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <!-- Terminal data flow -->
-  <text x="50" y="1070" text-anchor="middle" font-size="8" fill="#c62828" font-weight="bold">shell</text>
-  <g transform="translate(80, 1052)">
+  <text x="50" y="1025" text-anchor="middle" font-size="8" fill="#c62828" font-weight="bold">shell</text>
+  <g transform="translate(80, 1007)">
     <rect width="150" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
     <text x="75" y="20" text-anchor="middle" font-size="9" fill="#c62828">PTY (zsh/bash)</text>
   </g>
-  <g transform="translate(265, 1052)">
+  <g transform="translate(265, 1007)">
     <rect width="130" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
     <text x="65" y="20" text-anchor="middle" font-size="9" fill="#c62828">VT escape seqs</text>
   </g>
-  <g transform="translate(430, 1052)">
+  <g transform="translate(430, 1007)">
     <rect width="140" height="32" rx="4" fill="#fce4ec" stroke="#f48fb1" stroke-width="1"/>
     <text x="70" y="20" text-anchor="middle" font-size="9" fill="#c62828">VtParser</text>
   </g>
-  <line x1="230" y1="1068" x2="265" y2="1068" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="395" y1="1068" x2="430" y2="1068" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="570" y1="1068" x2="605" y2="1068" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="230" y1="1023" x2="265" y2="1023" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="395" y1="1023" x2="430" y2="1023" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="1023" x2="605" y2="1023" stroke="#c62828" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <!-- MegaCity data flow -->
-  <text x="50" y="1120" text-anchor="middle" font-size="8" fill="#2d6a4f" font-weight="bold">megacity</text>
-  <g transform="translate(80, 1102)">
+  <text x="50" y="1075" text-anchor="middle" font-size="8" fill="#2d6a4f" font-weight="bold">megacity</text>
+  <g transform="translate(80, 1057)">
     <rect width="150" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="75" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">CodebaseScanner</text>
   </g>
-  <g transform="translate(265, 1102)">
+  <g transform="translate(265, 1057)">
     <rect width="130" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="65" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">CityDatabase</text>
   </g>
-  <g transform="translate(430, 1102)">
+  <g transform="translate(430, 1057)">
     <rect width="140" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="70" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">CityLayout</text>
   </g>
-  <g transform="translate(605, 1102)">
+  <g transform="translate(605, 1057)">
     <rect width="100" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="50" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">SceneWorld</text>
   </g>
-  <g transform="translate(740, 1102)">
+  <g transform="translate(740, 1057)">
     <rect width="155" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="77" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">SceneSnapshot</text>
   </g>
-  <g transform="translate(930, 1102)">
+  <g transform="translate(930, 1057)">
     <rect width="130" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="65" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">IsometricPass</text>
   </g>
-  <g transform="translate(1095, 1102)">
+  <g transform="translate(1095, 1057)">
     <rect width="140" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="70" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">Metal / Vulkan</text>
   </g>
-  <line x1="230" y1="1118" x2="265" y2="1118" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="395" y1="1118" x2="430" y2="1118" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="570" y1="1118" x2="605" y2="1118" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="705" y1="1118" x2="740" y2="1118" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="895" y1="1118" x2="930" y2="1118" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="1060" y1="1118" x2="1095" y2="1118" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="230" y1="1073" x2="265" y2="1073" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="395" y1="1073" x2="430" y2="1073" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="1073" x2="605" y2="1073" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="705" y1="1073" x2="740" y2="1073" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="895" y1="1073" x2="930" y2="1073" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="1060" y1="1073" x2="1095" y2="1073" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <!-- CityGrid data flow (sub-row of megacity) -->
-  <text x="50" y="1165" text-anchor="middle" font-size="8" fill="#2d6a4f" font-weight="bold">grid</text>
-  <g transform="translate(430, 1147)">
+  <text x="50" y="1120" text-anchor="middle" font-size="8" fill="#2d6a4f" font-weight="bold">grid</text>
+  <g transform="translate(430, 1102)">
     <rect width="140" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="70" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">CityLayout</text>
   </g>
-  <g transform="translate(605, 1147)">
+  <g transform="translate(605, 1102)">
     <rect width="100" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
     <text x="50" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">CityGrid</text>
   </g>
-  <g transform="translate(740, 1147)">
+  <g transform="translate(740, 1102)">
     <rect width="155" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
-    <text x="77" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">ImGui overview</text>
+    <text x="77" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">CityMapPanel</text>
   </g>
-  <line x1="570" y1="1161" x2="605" y2="1161" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="705" y1="1161" x2="740" y2="1161" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="655" y="1145" text-anchor="middle" font-size="7.5" fill="#888">bg thread</text>
+  <line x1="570" y1="1116" x2="605" y2="1116" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="705" y1="1116" x2="740" y2="1116" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="655" y="1100" text-anchor="middle" font-size="7.5" fill="#888">bg thread</text>
+
+  <!-- LCOV coverage data flow -->
+  <text x="50" y="1160" text-anchor="middle" font-size="8" fill="#2d6a4f" font-weight="bold">coverage</text>
+  <g transform="translate(80, 1142)">
+    <rect width="150" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
+    <text x="75" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">coverage.lcov</text>
+  </g>
+  <g transform="translate(265, 1142)">
+    <rect width="130" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
+    <text x="65" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">LcovCoverage</text>
+  </g>
+  <g transform="translate(430, 1142)">
+    <rect width="140" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
+    <text x="70" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">PerformanceHeat</text>
+  </g>
+  <g transform="translate(605, 1142)">
+    <rect width="155" height="28" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
+    <text x="77" y="18" text-anchor="middle" font-size="9" fill="#2e7d32">IsometricPass</text>
+  </g>
+  <line x1="230" y1="1156" x2="265" y2="1156" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="395" y1="1156" x2="430" y2="1156" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="1156" x2="605" y2="1156" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <!-- Threading note -->
-  <g transform="translate(80, 1195)">
-    <rect width="1155" height="55" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="0.5"/>
+  <g transform="translate(80, 1190)">
+    <rect width="1155" height="56" rx="4" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="0.5"/>
     <text x="577" y="14" text-anchor="middle" font-size="9" fill="#616161">Main thread: SDL events + nvim/PTY message processing + grid mutation + GPU rendering</text>
     <text x="577" y="28" text-anchor="middle" font-size="9" fill="#616161">Reader thread: blocking reads from nvim stdout  |  Scanner thread: background tree-sitter codebase scan</text>
     <text x="577" y="42" text-anchor="middle" font-size="9" fill="#616161">Grid thread: CityGrid built on background thread after layout completes, published via mutex</text>
+    <text x="577" y="56" text-anchor="middle" font-size="9" fill="#616161">Route thread: pathfinding routes built on background thread for selected building dependencies</text>
   </g>
 
 </svg>
