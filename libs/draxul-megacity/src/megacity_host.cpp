@@ -837,21 +837,37 @@ void MegaCityHost::render_imgui(float dt)
 
         if (lcov_mode_toggled && pending_renderer_config_.overlay_mode == OverlayMode::LcovCoverage)
         {
-            // Load LCOV report on activation
+            // Load LCOV report on activation — pick the most recent of
+            // db/coverage.lcov (committed by CI) and build/coverage.lcov (local).
             const std::filesystem::path repo_root(DRAXUL_REPO_ROOT);
-            const std::filesystem::path lcov_path = repo_root / "build" / "coverage.lcov";
-            const auto report = load_lcov_file(lcov_path);
+            const std::filesystem::path db_lcov = repo_root / "db" / "coverage.lcov";
+            const std::filesystem::path build_lcov = repo_root / "build" / "coverage.lcov";
+            std::filesystem::path lcov_path;
+            {
+                std::error_code ec;
+                const auto db_time = std::filesystem::last_write_time(db_lcov, ec);
+                const bool db_ok = !ec;
+                const auto build_time = std::filesystem::last_write_time(build_lcov, ec);
+                const bool build_ok = !ec;
+                if (db_ok && build_ok)
+                    lcov_path = (build_time >= db_time) ? build_lcov : db_lcov;
+                else if (build_ok)
+                    lcov_path = build_lcov;
+                else if (db_ok)
+                    lcov_path = db_lcov;
+            }
+            const auto report = lcov_path.empty() ? LcovCoverageReport{} : load_lcov_file(lcov_path);
             if (report.total_functions > 0)
             {
                 lcov_lookup_ = std::make_shared<LcovFunctionLookup>(build_lcov_lookup(report, repo_root));
                 DRAXUL_LOG_DEBUG(LogCategory::App,
-                    "LCOV loaded: %u total functions, %u covered",
-                    report.total_functions, report.covered_functions);
+                    "LCOV loaded from %s: %u total functions, %u covered",
+                    lcov_path.string().c_str(), report.total_functions, report.covered_functions);
             }
             else
             {
                 lcov_lookup_.reset();
-                DRAXUL_LOG_WARN(LogCategory::App, "LCOV file empty or not found: %s", lcov_path.string().c_str());
+                DRAXUL_LOG_WARN(LogCategory::App, "No LCOV file found (checked db/ and build/)");
             }
             // Build LCOV metrics immediately
             if (semantic_model_ && lcov_lookup_)
