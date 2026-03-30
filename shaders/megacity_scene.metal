@@ -413,9 +413,20 @@ fragment float4 scene_fragment(
         const uint heat_count = uint(max(in.label_metrics.w + 0.5f, 0.0f));
         const uint layer_index = min(uint(max(in.layer_id + 0.5f, 0.0f)), heat_count - 1u);
         const float heat = performanceHeatValues[heat_offset + layer_index];
-        const float display_heat = performance_heat_display_value(heat, frame.perf_tuning.x);
-        const float heat_blend = clamp(frame.label_fade_px.w, 0.0f, 1.0f) * performance_heat_blend(display_heat);
-        albedo = mix(albedo, performance_heat_color(display_heat), heat_blend);
+        const bool lcov_mode = frame.perf_tuning.y > 0.5f;
+        if (lcov_mode)
+        {
+            const float brightness = dot(albedo, float3(0.299f, 0.587f, 0.114f));
+            const float3 uncovered_color = float3(0.25f, 0.45f, 0.85f);
+            const float3 covered_color = float3(0.95f, 0.85f, 0.25f);
+            albedo = mix(uncovered_color, covered_color, heat) * (0.6f + 0.4f * brightness);
+        }
+        else
+        {
+            const float display_heat = performance_heat_display_value(heat, frame.perf_tuning.x);
+            const float heat_blend = clamp(frame.label_fade_px.w, 0.0f, 1.0f) * performance_heat_blend(display_heat);
+            albedo = mix(albedo, performance_heat_color(display_heat), heat_blend);
+        }
     }
 
     const float2 screen_uv = clamp(

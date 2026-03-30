@@ -271,9 +271,10 @@ SceneSnapshotResult build_scene_snapshot(
         config.point_light_brightness,
         config.ambient_strength,
         config.tone_map_white_point);
+    const bool lcov_mode = config.overlay_mode == OverlayMode::LcovCoverage;
     scene.camera.perf_tuning = glm::vec4(
         std::max(config.performance_heat_log_scale, 0.0f),
-        0.0f,
+        lcov_mode ? 1.0f : 0.0f,
         0.0f,
         0.0f);
     scene.camera.ao_settings = glm::vec4(

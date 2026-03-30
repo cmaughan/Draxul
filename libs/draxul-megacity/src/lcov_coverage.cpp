@@ -5,6 +5,10 @@
 #include <fstream>
 #include <sstream>
 
+#if defined(__GNUC__) || defined(__clang__)
+#include <cxxabi.h>
+#endif
+
 namespace draxul
 {
 
@@ -19,6 +23,25 @@ std::string file_function_key(std::string_view file, std::string_view function)
     key.push_back('\n');
     key.append(function);
     return key;
+}
+
+/// Attempt to demangle a C++ mangled name. Returns the original string if demangling fails.
+std::string try_demangle(const std::string& name)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    if (name.empty() || !name.starts_with("_Z"))
+        return name;
+    int status = 0;
+    char* demangled = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status);
+    if (status == 0 && demangled)
+    {
+        std::string result(demangled);
+        std::free(demangled);
+        return result;
+    }
+    std::free(demangled);
+#endif
+    return name;
 }
 
 /// Extract the unqualified function name from a possibly mangled/qualified LCOV function name.
@@ -165,12 +188,15 @@ LcovFunctionLookup build_lcov_lookup(
         {
             const LcovFunctionLookup::Entry entry{ fn.hit_count };
 
-            // Exact: relative_file + full LCOV function name
-            lookup.by_file_function[file_function_key(relative_file, fn.function_name)] = entry;
+            // Demangle if the LCOV name is a mangled C++ symbol
+            const std::string demangled = try_demangle(fn.function_name);
+
+            // Exact: relative_file + demangled function name
+            lookup.by_file_function[file_function_key(relative_file, demangled)] = entry;
 
             // Short name variant: relative_file + unqualified function name
-            const std::string short_name = extract_short_function_name(fn.function_name);
-            if (short_name != fn.function_name)
+            const std::string short_name = extract_short_function_name(demangled);
+            if (short_name != demangled)
                 lookup.by_file_function[file_function_key(relative_file, short_name)] = entry;
 
             // Function-only fallback (short name)

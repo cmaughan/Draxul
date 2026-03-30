@@ -1065,6 +1065,30 @@ void MegaCityHost::rebuild_semantic_city()
     live_metrics_ = std::move(result.live_metrics);
     last_live_perf_generation_ = 0;
     semantic_model_ = std::move(result.semantic_model);
+
+    // If LCOV overlay is active, (re)load coverage data now that the model is available
+    if (renderer_config_.overlay_mode == OverlayMode::LcovCoverage && semantic_model_)
+    {
+        if (!lcov_lookup_)
+        {
+            const std::filesystem::path repo_root(DRAXUL_REPO_ROOT);
+            const std::filesystem::path lcov_path = repo_root / "build" / "coverage.lcov";
+            const auto report = load_lcov_file(lcov_path);
+            if (report.total_functions > 0)
+            {
+                lcov_lookup_ = std::make_shared<LcovFunctionLookup>(build_lcov_lookup(report, repo_root));
+                DRAXUL_LOG_DEBUG(LogCategory::App,
+                    "LCOV loaded on world rebuild: %u total functions, %u covered",
+                    report.total_functions, report.covered_functions);
+            }
+        }
+        if (lcov_lookup_)
+        {
+            live_metrics_ = std::make_shared<LiveCityMetricsSnapshot>(
+                build_lcov_city_metrics_snapshot(*semantic_model_, *lcov_lookup_));
+        }
+    }
+
     semantic_layout_ = result.layout
         ? std::make_shared<SemanticMegacityLayout>(*result.layout)
         : nullptr;

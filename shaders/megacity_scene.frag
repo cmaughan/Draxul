@@ -271,9 +271,20 @@ void main()
         uint heat_count = uint(max(in_label_metrics.w + 0.5, 0.0));
         uint layer_index = min(uint(max(in_layer_id + 0.5, 0.0)), heat_count - 1u);
         float heat = performance_heat.heat_values[heat_offset + layer_index];
-        float display_heat = performance_heat_display_value(heat, frame.perf_tuning.x);
-        float heat_blend = clamp(frame.label_fade_px.w, 0.0, 1.0) * performance_heat_blend(display_heat);
-        albedo = mix(albedo, performance_heat_color(display_heat), heat_blend);
+        bool lcov_mode = frame.perf_tuning.y > 0.5;
+        if (lcov_mode)
+        {
+            float brightness = dot(albedo, vec3(0.299, 0.587, 0.114));
+            vec3 uncovered_color = vec3(0.25, 0.45, 0.85);
+            vec3 covered_color = vec3(0.95, 0.85, 0.25);
+            albedo = mix(uncovered_color, covered_color, heat) * (0.6 + 0.4 * brightness);
+        }
+        else
+        {
+            float display_heat = performance_heat_display_value(heat, frame.perf_tuning.x);
+            float heat_blend = clamp(frame.label_fade_px.w, 0.0, 1.0) * performance_heat_blend(display_heat);
+            albedo = mix(albedo, performance_heat_color(display_heat), heat_blend);
+        }
     }
 
     vec2 screen_uv = clamp(
