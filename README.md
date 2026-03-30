@@ -41,24 +41,24 @@ _Click any image to view full size._
 <td align="center"><a href="screenshots/tree_mac.png"><img src="screenshots/tree_mac.png" width="400"/></a><br><em>City view with debug overlays</em></td>
 </tr>
 <tr>
-<td align="center"><a href="screenshots/tree_mac_2.png"><img src="screenshots/tree_mac_2.png" width="400"/></a><br><em>City view with tooltip inspection</em></td>
 <td align="center"><a href="screenshots/inspection_mac.png"><img src="screenshots/inspection_mac.png" width="400"/></a><br><em>Building inspection panel</em></td>
-</tr>
-<tr>
 <td align="center"><a href="screenshots/app_connections_mac.png"><img src="screenshots/app_connections_mac.png" width="400"/></a><br><em>App module connections</em></td>
+</tr>
+<tr>
 <td align="center"><a href="screenshots/renderer_connections_mac.png"><img src="screenshots/renderer_connections_mac.png" width="400"/></a><br><em>Renderer module connections</em></td>
-</tr>
-<tr>
 <td align="center"><a href="screenshots/coverage_connections_mac.png"><img src="screenshots/coverage_connections_mac.png" width="400"/></a><br><em>Coverage overlay connections</em></td>
+</tr>
+<tr>
 <td align="center"><a href="screenshots/tooltip_link_mac.png"><img src="screenshots/tooltip_link_mac.png" width="400"/></a><br><em>Tooltip with source link</em></td>
-</tr>
-<tr>
 <td align="center"><a href="screenshots/live_coverage_pc.png"><img src="screenshots/live_coverage_pc.png" width="400"/></a><br><em>Live coverage overlay (Windows)</em></td>
-<td align="center"><a href="screenshots/test_coverage_mac.png"><img src="screenshots/test_coverage_mac.png" width="400"/></a><br><em>Test coverage heatmap</em></td>
 </tr>
 <tr>
+<td align="center"><a href="screenshots/test_coverage_mac.png"><img src="screenshots/test_coverage_mac.png" width="400"/></a><br><em>Test coverage heatmap</em></td>
 <td align="center"><a href="screenshots/test_coverage_2_mac.png"><img src="screenshots/test_coverage_2_mac.png" width="400"/></a><br><em>Test coverage detail</em></td>
+</tr>
+<tr>
 <td align="center"><a href="screenshots/draxul-overlay-mac.png"><img src="screenshots/draxul-overlay-mac.png" width="400"/></a><br><em>Diagnostics panel</em></td>
+<td></td>
 </tr>
 </table>
 
