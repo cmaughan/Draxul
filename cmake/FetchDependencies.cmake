@@ -116,7 +116,9 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(tomlplusplus)
-include_directories(${tomlplusplus_SOURCE_DIR}/include)
+# Mark toml++ headers as SYSTEM to suppress third-party warnings
+get_target_property(_toml_inc tomlplusplus_tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(tomlplusplus_tomlplusplus PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_toml_inc}")
 
 # GLM (OpenGL Mathematics — header-only vector/matrix library)
 FetchContent_Declare(
@@ -145,6 +147,9 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(EnTT)
+# Mark EnTT headers as SYSTEM to suppress third-party warnings
+get_target_property(_entt_inc EnTT INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(EnTT PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_entt_inc}")
 
 # Catch2 (test framework)
 FetchContent_Declare(
@@ -170,7 +175,7 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
 )
-target_include_directories(imgui PUBLIC
+target_include_directories(imgui SYSTEM PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )

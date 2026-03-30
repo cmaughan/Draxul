@@ -28,12 +28,13 @@ jobs:
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
         run: |
-          LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/build/coverage-%p.profraw" \
+          LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/build/coverage-%m.profraw" \
             ctest --test-dir build -R draxul-tests --output-on-failure
 
       - name: Merge profiles
         run: |
           xcrun llvm-profdata merge \
+            --failure-mode=warn \
             "$GITHUB_WORKSPACE"/build/coverage-*.profraw \
             -o build/coverage.profdata
 

@@ -17,6 +17,7 @@ target_link_libraries(draxul-config PUBLIC
     draxul-renderer
     draxul-types
     draxul-window
+    tomlplusplus::tomlplusplus
 )
 
 target_link_libraries(draxul-config PRIVATE
