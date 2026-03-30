@@ -14,7 +14,7 @@ An experimental **Dark Factory Agentic** project with deep visualization of gene
 
 - **GPU-accelerated terminal host** — cross-platform (Vulkan on Windows, Metal on macOS) terminal for PowerShell, WSL, Bash, Zsh, Git, and more
 - **Neovim GUI frontend** — a full-featured replacement for nvim-qt, with deep `nvim --embed` integration over msgpack-RPC
-- **Interactive city view of a codebase** — a living 3D city where buildings represent code modules, with live performance and test coverage overlays, clickable links back to source. The city is a human metaphor for the code an agent is building: interactive, informative, and introspective
+- **Interactive city view of a codebase** — a living 3D city where buildings represent code modules, with live performance and test coverage overlays, clickable links back to source. The city is a human metaphor for the code an agent is building: interactive, informative, and introspective. Richard Wettle tried this back in 2007; we are giving it another go! Here's his site: https://wettel.github.io/codecity.html
 - **High-end renderer** — a cross-platform game engine-style rendering pipeline with ambient occlusion, shadow maps, anti-aliasing, HDR, and more
 
 **None of the code has been human-written.** Draxul is 100% agentically coded using multiple agents on Claude, Codex, and Gemini. Code reviews, feature updates, and planning are managed by agents with a human arbiter. A part-time project, built in less than 3 weeks at time of writing — several person-years of equivalent effort.
@@ -29,7 +29,7 @@ An experimental **Dark Factory Agentic** project with deep visualization of gene
 
 ## Gallery
 
-*Click any image to view full size.*
+_Click any image to view full size._
 
 <table>
 <tr>
