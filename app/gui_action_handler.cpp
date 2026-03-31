@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/host.h>
+#include <draxul/host_kind.h>
 #include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
@@ -21,29 +22,30 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
 {
     // clang-format off
     static const std::unordered_map<std::string_view, ActionFn> map = {
-        {"toggle_diagnostics", [](auto& h) { h.toggle_diagnostics(); }},
-        {"copy",               [](auto& h) { h.copy(); }},
-        {"paste",              [](auto& h) { h.paste(); }},
-        {"font_increase",      [](auto& h) { h.font_increase(); }},
-        {"font_decrease",      [](auto& h) { h.font_decrease(); }},
-        {"font_reset",         [](auto& h) { h.font_reset(); }},
-        {"open_file_dialog",   [](auto& h) { h.open_file_dialog(); }},
-        {"split_vertical",     [](auto& h) { h.split_vertical(); }},
-        {"split_horizontal",   [](auto& h) { h.split_horizontal(); }},
-        {"toggle_host_ui",     [](auto& h) { h.toggle_host_ui(); }},
-        {"command_palette",    [](auto& h) { if (h.deps_.on_command_palette) h.deps_.on_command_palette(); }},
+        {"toggle_diagnostics", [](auto& h, auto) { h.toggle_diagnostics(); }},
+        {"copy",               [](auto& h, auto) { h.copy(); }},
+        {"paste",              [](auto& h, auto) { h.paste(); }},
+        {"font_increase",      [](auto& h, auto) { h.font_increase(); }},
+        {"font_decrease",      [](auto& h, auto) { h.font_decrease(); }},
+        {"font_reset",         [](auto& h, auto) { h.font_reset(); }},
+        {"open_file_dialog",   [](auto& h, auto) { h.open_file_dialog(); }},
+        {"split_vertical",     [](auto& h, auto args) { h.split_vertical(args); }},
+        {"split_horizontal",   [](auto& h, auto args) { h.split_horizontal(args); }},
+        {"toggle_host_ui",     [](auto& h, auto) { h.toggle_host_ui(); }},
+        {"command_palette",    [](auto& h, auto) { if (h.deps_.on_command_palette) h.deps_.on_command_palette(); }},
+        {"edit_config",        [](auto& h, auto) { if (h.deps_.on_edit_config) h.deps_.on_edit_config(); }},
     };
     // clang-format on
     return map;
 }
 
-bool GuiActionHandler::execute(std::string_view action)
+bool GuiActionHandler::execute(std::string_view action, std::string_view args)
 {
     PERF_MEASURE();
     const auto& map = action_map();
     if (const auto it = map.find(action); it != map.end())
     {
-        it->second(*this);
+        it->second(*this, args);
         return true;
     }
     DRAXUL_LOG_WARN(LogCategory::App, "Unknown GUI action: '%.*s'",
@@ -111,18 +113,18 @@ void GuiActionHandler::open_file_dialog() const
         deps_.on_open_file_dialog();
 }
 
-void GuiActionHandler::split_vertical() const
+void GuiActionHandler::split_vertical(std::string_view args) const
 {
     PERF_MEASURE();
     if (deps_.on_split_vertical)
-        deps_.on_split_vertical();
+        deps_.on_split_vertical(parse_host_kind(args));
 }
 
-void GuiActionHandler::split_horizontal() const
+void GuiActionHandler::split_horizontal(std::string_view args) const
 {
     PERF_MEASURE();
     if (deps_.on_split_horizontal)
-        deps_.on_split_horizontal();
+        deps_.on_split_horizontal(parse_host_kind(args));
 }
 
 void GuiActionHandler::toggle_host_ui() const

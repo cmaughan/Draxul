@@ -121,6 +121,7 @@ private:
 
     GuiActionHandler gui_action_handler_{ GuiActionHandler::Deps{} };
     CommandPalette command_palette_;
+    bool palette_was_open_ = false;
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };
 #ifdef __APPLE__
     std::unique_ptr<MacOsMenu> macos_menu_;

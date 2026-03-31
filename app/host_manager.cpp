@@ -140,6 +140,13 @@ LeafId HostManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
 
 LeafId HostManager::split_focused(SplitDirection dir, HostKind kind, IHostCallbacks& callbacks)
 {
+    HostLaunchOptions launch;
+    launch.kind = kind;
+    return split_focused(dir, std::move(launch), callbacks);
+}
+
+LeafId HostManager::split_focused(SplitDirection dir, HostLaunchOptions launch, IHostCallbacks& callbacks)
+{
     PERF_MEASURE();
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
@@ -149,14 +156,12 @@ LeafId HostManager::split_focused(SplitDirection dir, HostKind kind, IHostCallba
     if (new_id == kInvalidLeaf)
         return kInvalidLeaf;
 
-    HostLaunchOptions launch;
-    launch.kind = kind;
     launch.enable_ligatures = deps_.config->enable_ligatures;
     if (!deps_.config->terminal.fg.empty())
         launch.terminal_fg = parse_hex_color(deps_.config->terminal.fg);
     if (!deps_.config->terminal.bg.empty())
         launch.terminal_bg = parse_hex_color(deps_.config->terminal.bg);
-    if (deps_.options)
+    if (deps_.options && launch.working_dir.empty())
         launch.working_dir = deps_.options->host_working_dir;
 
     if (!create_host_for_leaf(new_id, callbacks, std::move(launch), false))
@@ -258,7 +263,7 @@ bool HostManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     {
         new_host = deps_.options->host_factory(launch.kind);
     }
-    else if (is_primary && launch.kind == HostKind::MegaCity)
+    else if (launch.kind == HostKind::MegaCity)
     {
 #ifdef DRAXUL_ENABLE_MEGACITY
         new_host = create_megacity_host();

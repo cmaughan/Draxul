@@ -58,6 +58,7 @@ struct AppConfig
     std::string italic_font_path;
     std::string bold_italic_font_path;
     std::vector<std::string> fallback_paths;
+    float palette_bg_alpha = 1.0f; // command palette background opacity [0.0, 1.0]
     std::vector<GuiKeybinding> keybindings = {}; // populated by AppConfig()
     TerminalConfig terminal; // [terminal] section -- fg/bg hex colors
 

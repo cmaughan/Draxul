@@ -7,8 +7,6 @@
 #include <draxul/app_config.h>
 #include <draxul/events.h>
 #include <draxul/keybinding_parser.h>
-#include <draxul/perf_timing.h>
-#include <imgui.h>
 
 namespace draxul
 {
@@ -25,7 +23,6 @@ void CommandPalette::open()
     if (open_)
         return;
     open_ = true;
-    focus_input_ = true;
     query_.clear();
     selected_index_ = 0;
 
@@ -44,14 +41,9 @@ void CommandPalette::open()
 
 void CommandPalette::close()
 {
-    if (open_)
-        needs_close_frame_ = true;
     open_ = false;
-}
-
-bool CommandPalette::needs_render() const
-{
-    return open_ || needs_close_frame_;
+    if (deps_.request_frame)
+        deps_.request_frame();
 }
 
 bool CommandPalette::is_open() const
@@ -68,6 +60,7 @@ bool CommandPalette::on_key(const KeyEvent& event)
         return true; // consume key-up too
 
     const bool ctrl = (event.mod & kModCtrl) != 0;
+    const bool shift = (event.mod & kModShift) != 0;
 
     if (event.keycode == SDLK_ESCAPE)
     {
@@ -100,8 +93,20 @@ bool CommandPalette::on_key(const KeyEvent& event)
         }
         return true;
     }
-    // Ctrl+P while open = close (toggle)
-    if (ctrl && event.keycode == SDLK_P)
+    // Tab: autocomplete query to selected entry name.
+    if (event.keycode == SDLK_TAB)
+    {
+        if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_.size()))
+        {
+            query_ = std::string(filtered_[static_cast<size_t>(selected_index_)].action_name);
+            refilter();
+            if (deps_.request_frame)
+                deps_.request_frame();
+        }
+        return true;
+    }
+    // Ctrl+Shift+P while open = close (toggle)
+    if (ctrl && shift && event.keycode == SDLK_P)
     {
         close();
         return true;
@@ -123,24 +128,35 @@ bool CommandPalette::on_text_input(const TextInputEvent& event)
     return true;
 }
 
+std::pair<std::string_view, std::string_view> CommandPalette::split_query() const
+{
+    auto pos = query_.find(' ');
+    if (pos == std::string::npos)
+        return { query_, {} };
+    return { std::string_view(query_).substr(0, pos),
+        std::string_view(query_).substr(pos + 1) };
+}
+
 void CommandPalette::refilter()
 {
     filtered_.clear();
+    const auto [command, args] = split_query();
+
     for (auto name : all_actions_)
     {
-        if (query_.empty())
+        if (command.empty())
         {
             filtered_.push_back({ name, shortcut_for_action(name), 0, {} });
         }
         else
         {
-            auto result = fuzzy_match(query_, name);
+            auto result = fuzzy_match(command, name);
             if (result.matched)
                 filtered_.push_back({ name, shortcut_for_action(name), result.score, std::move(result.positions) });
         }
     }
 
-    if (!query_.empty())
+    if (!command.empty())
     {
         std::sort(filtered_.begin(), filtered_.end(), [](const FilteredEntry& a, const FilteredEntry& b) {
             if (a.score != b.score)
@@ -159,9 +175,10 @@ void CommandPalette::execute_selected()
     if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_.size()))
     {
         const auto action = filtered_[static_cast<size_t>(selected_index_)].action_name;
+        const auto [command, args] = split_query();
         close();
         if (deps_.gui_action_handler)
-            deps_.gui_action_handler->execute(action);
+            deps_.gui_action_handler->execute(action, args);
     }
     else
     {
@@ -197,150 +214,28 @@ std::string CommandPalette::shortcut_for_action(std::string_view action) const
     return {};
 }
 
-void CommandPalette::render(int window_width, int window_height)
+gui::PaletteViewState CommandPalette::view_state(int grid_cols, int grid_rows, float panel_bg_alpha)
 {
-    // Clear close-frame flag — the ImGui frame running now will reset WantCaptureKeyboard.
-    needs_close_frame_ = false;
-
-    if (!open_)
-        return;
-
-    PERF_MEASURE();
-
-    const float w = static_cast<float>(window_width);
-    const float h = static_cast<float>(window_height);
-
-    // Semi-transparent background dim (behind the palette window, not on top)
-    ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), ImVec2(w, h), IM_COL32(0, 0, 0, 120));
-
-    // Palette window: 50% width, up to 40% height, centered
-    const float palette_w = w * 0.5f;
-    const float palette_max_h = h * 0.4f;
-    const float palette_x = (w - palette_w) * 0.5f;
-    const float palette_y = h * 0.2f;
-
-    ImGui::SetNextWindowPos(ImVec2(palette_x, palette_y));
-    ImGui::SetNextWindowSize(ImVec2(palette_w, palette_max_h));
-
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
-        | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoResize
-        | ImGuiWindowFlags_NoSavedSettings;
-
-    if (!ImGui::Begin("##CommandPalette", nullptr, flags))
+    // Build PaletteEntry views from filtered entries.
+    view_entries_.clear();
+    view_entries_.reserve(filtered_.size());
+    for (const auto& f : filtered_)
     {
-        ImGui::End();
-        return;
+        view_entries_.push_back({
+            f.action_name,
+            f.shortcut_hint,
+            f.match_positions,
+        });
     }
 
-    // Results region (fills available space above the input line)
-    const float input_line_height = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-    const float results_height = ImGui::GetContentRegionAvail().y - input_line_height;
-
-    if (results_height > 0 && ImGui::BeginChild("##Results", ImVec2(0, results_height), ImGuiChildFlags_None))
-    {
-        for (int i = 0; i < static_cast<int>(filtered_.size()); ++i)
-        {
-            const auto& entry = filtered_[static_cast<size_t>(i)];
-            const bool is_selected = (i == selected_index_);
-
-            ImGui::PushID(i);
-
-            if (is_selected)
-            {
-                const ImVec4 sel_color(0.25f, 0.45f, 0.85f, 0.6f);
-                ImGui::PushStyleColor(ImGuiCol_Header, sel_color);
-                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, sel_color);
-            }
-
-            // Render action name with highlighted match characters
-            if (ImGui::Selectable("##entry", is_selected, ImGuiSelectableFlags_SpanAllColumns))
-            {
-                selected_index_ = i;
-                execute_selected();
-            }
-
-            // Draw the text on top of the selectable
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::SetCursorPosX(ImGui::GetStyle().ItemSpacing.x);
-
-            const std::string name_str(entry.action_name);
-            for (size_t ci = 0; ci < name_str.size(); ++ci)
-            {
-                if (ci > 0)
-                    ImGui::SameLine(0.0f, 0.0f);
-
-                bool is_match = false;
-                for (size_t pos : entry.match_positions)
-                {
-                    if (pos == ci)
-                    {
-                        is_match = true;
-                        break;
-                    }
-                }
-
-                if (is_match)
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.25f, 1.0f));
-
-                char buf[2] = { name_str[ci], '\0' };
-                ImGui::TextUnformatted(buf, buf + 1);
-
-                if (is_match)
-                    ImGui::PopStyleColor();
-            }
-
-            // Right-aligned shortcut hint
-            if (!entry.shortcut_hint.empty())
-            {
-                const float hint_width = ImGui::CalcTextSize(entry.shortcut_hint.c_str()).x;
-                const float avail = ImGui::GetContentRegionAvail().x;
-                ImGui::SameLine(0.0f, 0.0f);
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - hint_width);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-                ImGui::TextUnformatted(entry.shortcut_hint.c_str());
-                ImGui::PopStyleColor();
-            }
-
-            if (is_selected)
-                ImGui::PopStyleColor(2);
-
-            // Auto-scroll to selected
-            if (is_selected)
-                ImGui::SetItemDefaultFocus();
-
-            ImGui::PopID();
-        }
-    }
-    ImGui::EndChild();
-
-    // Separator between results and input
-    ImGui::Separator();
-
-    // Input line: "> " prompt + text field
-    ImGui::TextUnformatted(">");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-
-    if (focus_input_)
-    {
-        ImGui::SetKeyboardFocusHere();
-        focus_input_ = false;
-    }
-
-    // Display: show query while typing, or selected action name if navigating
-    const std::string& display = query_;
-    // Use a static buffer for InputText compatibility
-    static char input_buf[256] = {};
-    const size_t copy_len = std::min(display.size(), sizeof(input_buf) - 1);
-    std::memcpy(input_buf, display.data(), copy_len);
-    input_buf[copy_len] = '\0';
-
-    // Read-only display — actual input is handled by on_key/on_text_input
-    ImGui::InputText("##input", input_buf, sizeof(input_buf), ImGuiInputTextFlags_ReadOnly);
-
-    ImGui::End();
+    gui::PaletteViewState vs;
+    vs.grid_cols = grid_cols;
+    vs.grid_rows = grid_rows;
+    vs.query = query_;
+    vs.selected_index = selected_index_;
+    vs.entries = view_entries_;
+    vs.panel_bg_alpha = panel_bg_alpha;
+    return vs;
 }
 
 } // namespace draxul

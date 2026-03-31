@@ -1,6 +1,8 @@
 #pragma once
 
+#include <draxul/host_kind.h>
 #include <functional>
+#include <optional>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -33,21 +35,24 @@ public:
         std::function<void()> on_panel_toggled; // refresh layout, set viewport, update panel, request_frame
         std::function<void()> on_config_changed; // persist config when save_user_config is enabled
         std::function<void()> on_open_file_dialog; // show the native file-open dialog
-        std::function<void()> on_split_vertical; // create a vertical 2-pane split
-        std::function<void()> on_split_horizontal; // create a horizontal 2-pane split
+        std::function<void(std::optional<HostKind>)> on_split_vertical; // create a vertical split
+        std::function<void(std::optional<HostKind>)> on_split_horizontal; // create a horizontal split
         std::function<void()> on_command_palette; // toggle command palette
+        std::function<void()> on_edit_config; // open config in nvim side split
     };
 
     explicit GuiActionHandler(Deps deps);
 
     // Returns true if the action was recognised and handled.
-    bool execute(std::string_view action);
+    // Optional args are forwarded to actions that accept parameters (e.g. split commands
+    // accept a host kind like "zsh" or "megacity").
+    bool execute(std::string_view action, std::string_view args = {});
 
     // Returns a sorted list of all registered action names.
     static std::vector<std::string_view> action_names();
 
 private:
-    using ActionFn = std::function<void(GuiActionHandler&)>;
+    using ActionFn = std::function<void(GuiActionHandler&, std::string_view args)>;
     static const std::unordered_map<std::string_view, ActionFn>& action_map();
 
     void font_increase();
@@ -57,8 +62,8 @@ private:
     void paste() const;
     void toggle_diagnostics() const;
     void open_file_dialog() const;
-    void split_vertical() const;
-    void split_horizontal() const;
+    void split_vertical(std::string_view args) const;
+    void split_horizontal(std::string_view args) const;
     void toggle_host_ui() const;
     void change_font_size(float new_size);
 

@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
+#include <draxul/grid_host_base.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/pixel_scale.h>
@@ -390,16 +392,20 @@ void App::wire_gui_actions()
     gui_deps.config = &config_;
     gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
     gui_deps.on_open_file_dialog = [this]() { window_->show_open_file_dialog(); };
-    gui_deps.on_split_vertical = [this]() {
-        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Vertical, *this);
+    gui_deps.on_split_vertical = [this](std::optional<HostKind> kind) {
+        LeafId new_leaf = kind
+            ? host_manager_.split_focused(SplitDirection::Vertical, *kind, *this)
+            : host_manager_.split_focused(SplitDirection::Vertical, *this);
         if (new_leaf != kInvalidLeaf)
         {
             input_dispatcher_.set_host(host_manager_.focused_host());
             request_frame();
         }
     };
-    gui_deps.on_split_horizontal = [this]() {
-        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Horizontal, *this);
+    gui_deps.on_split_horizontal = [this](std::optional<HostKind> kind) {
+        LeafId new_leaf = kind
+            ? host_manager_.split_focused(SplitDirection::Horizontal, *kind, *this)
+            : host_manager_.split_focused(SplitDirection::Horizontal, *this);
         if (new_leaf != kInvalidLeaf)
         {
             input_dispatcher_.set_host(host_manager_.focused_host());
@@ -418,6 +424,17 @@ void App::wire_gui_actions()
         else
             command_palette_.open();
         request_frame();
+    };
+    gui_deps.on_edit_config = [this]() {
+        HostLaunchOptions launch;
+        launch.kind = HostKind::Nvim;
+        launch.args = { ConfigDocument::default_path().string() };
+        LeafId new_leaf = host_manager_.split_focused(SplitDirection::Vertical, std::move(launch), *this);
+        if (new_leaf != kInvalidLeaf)
+        {
+            input_dispatcher_.set_host(host_manager_.focused_host());
+            request_frame();
+        }
     };
     gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
 
@@ -714,7 +731,7 @@ void App::render_imgui_overlay(float delta_seconds)
             any_host_imgui = true;
     });
 
-    const bool need_imgui = ui_panel_.visible() || any_host_imgui || command_palette_.needs_render();
+    const bool need_imgui = ui_panel_.visible() || any_host_imgui;
     if (need_imgui && renderer_.imgui())
     {
         ui_panel_.activate_imgui_context();
@@ -727,13 +744,54 @@ void App::render_imgui_overlay(float delta_seconds)
             if (h.has_imgui())
                 h.render_imgui(delta_seconds);
         });
-        command_palette_.render(last_pixel_w_, last_pixel_h_);
         renderer_.imgui()->set_imgui_draw_data(ui_panel_.end_frame());
     }
     else if (renderer_.imgui())
     {
         renderer_.imgui()->set_imgui_draw_data(nullptr);
     }
+
+    // Render command palette as overlay cells (no ImGui).
+    if (auto* host = dynamic_cast<GridHostBase*>(host_manager_.focused_host()))
+    {
+        if (command_palette_.is_open())
+        {
+            auto vs = command_palette_.view_state(host->grid_cols(), host->grid_rows(), config_.palette_bg_alpha);
+            auto overlay = gui::render_palette(vs, text_service_);
+            host->set_overlay_cells(overlay);
+
+            // render_palette() may rasterize new glyphs (e.g. the full-block used
+            // for panel occlusion) after GridRenderingPipeline already uploaded and
+            // cleared the atlas. Flush any new dirty region to the GPU now so the
+            // draw calls this frame sample correct atlas data.
+            if (text_service_.atlas_dirty())
+            {
+                const auto dirty = text_service_.atlas_dirty_rect();
+                if (dirty.size.x > 0 && dirty.size.y > 0)
+                {
+                    constexpr size_t kPixelSize = 4;
+                    const size_t row_bytes = static_cast<size_t>(dirty.size.x) * kPixelSize;
+                    std::vector<uint8_t> scratch(row_bytes * dirty.size.y);
+                    const uint8_t* atlas = text_service_.atlas_data();
+                    const int atlas_w = text_service_.atlas_width();
+                    for (int r = 0; r < dirty.size.y; ++r)
+                    {
+                        const uint8_t* src = atlas
+                            + (static_cast<size_t>(dirty.pos.y + r) * atlas_w + dirty.pos.x) * kPixelSize;
+                        std::memcpy(scratch.data() + static_cast<size_t>(r) * row_bytes, src, row_bytes);
+                    }
+                    renderer_.grid()->update_atlas_region(
+                        dirty.pos.x, dirty.pos.y, dirty.size.x, dirty.size.y, scratch.data());
+                }
+                text_service_.clear_atlas_dirty();
+            }
+        }
+        else if (palette_was_open_)
+        {
+            host->set_overlay_cells({});
+        }
+    }
+    palette_was_open_ = command_palette_.is_open();
 }
 
 bool App::render_frame()

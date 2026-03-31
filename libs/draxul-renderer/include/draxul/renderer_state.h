@@ -42,7 +42,7 @@ static_assert(offsetof(GpuCell, style_flags) == 96, "GpuCell layout mismatch: st
 class RendererState
 {
 public:
-    static constexpr size_t OVERLAY_CELL_CAPACITY = 256;
+    static constexpr size_t OVERLAY_CELL_CAPACITY = 16384;
 
     void set_grid_size(int cols, int rows, int padding);
     void set_cell_size(int w, int h);

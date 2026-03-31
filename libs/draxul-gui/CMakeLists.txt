@@ -1,5 +1,6 @@
 add_library(draxul-gui STATIC
     src/tooltip.cpp
+    src/palette_renderer.cpp
 )
 
 target_include_directories(draxul-gui PUBLIC

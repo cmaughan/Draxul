@@ -64,7 +64,7 @@ TEST_CASE("app config parse returns defaults for empty content", "[config]")
     INFO("default fallback_paths is empty");
     REQUIRE(config.fallback_paths.empty());
     INFO("default GUI keybindings are present");
-    REQUIRE(static_cast<int>(config.keybindings.size()) == 9);
+    REQUIRE(static_cast<int>(config.keybindings.size()) == 10);
 }
 
 TEST_CASE("app config parse reads all fields", "[config]")

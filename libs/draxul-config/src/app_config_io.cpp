@@ -30,7 +30,7 @@ constexpr int kMaxAtlasSize = 8192;
 constexpr float kMinFontPointSize = 6.0f;
 constexpr float kMaxFontPointSize = 72.0f;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
-constexpr std::array<std::string_view, 9> kKnownGuiActions = {
+constexpr std::array<std::string_view, 10> kKnownGuiActions = {
     "toggle_diagnostics",
     "copy",
     "paste",
@@ -40,8 +40,9 @@ constexpr std::array<std::string_view, 9> kKnownGuiActions = {
     "open_file_dialog",
     "split_vertical",
     "split_horizontal",
+    "command_palette",
 };
-constexpr std::array<std::string_view, 14> kKnownTopLevelKeys = {
+constexpr std::array<std::string_view, 15> kKnownTopLevelKeys = {
     "window_width",
     "window_height",
     "font_size",
@@ -49,6 +50,7 @@ constexpr std::array<std::string_view, 14> kKnownTopLevelKeys = {
     "enable_ligatures",
     "smooth_scroll",
     "scroll_speed",
+    "palette_bg_alpha",
     "font_path",
     "bold_font_path",
     "italic_font_path",
@@ -270,6 +272,7 @@ AppConfig config_from_toml(const toml::table& document)
     check_bool_type("enable_ligatures");
     check_bool_type("smooth_scroll");
     check_float_type("scroll_speed");
+    check_float_type("palette_bg_alpha");
     check_string_type("font_path");
     check_string_type("bold_font_path");
     check_string_type("italic_font_path");
@@ -306,6 +309,11 @@ AppConfig config_from_toml(const toml::table& document)
                 config.scroll_speed = raw_speed;
             }
         }
+    }
+
+    {
+        if (auto parsed = toml_support::get_double(document, "palette_bg_alpha"); parsed.has_value())
+            config.palette_bg_alpha = std::clamp(static_cast<float>(*parsed), 0.0f, 1.0f);
     }
 
     if (auto font_path = toml_support::get_string(document, "font_path"))
@@ -422,7 +430,7 @@ AppConfig::AppConfig()
         { "font_increase", 0, kModNone, static_cast<int32_t>(SDLK_EQUALS), kModCtrl },
         { "font_decrease", 0, kModNone, static_cast<int32_t>(SDLK_MINUS), kModCtrl },
         { "font_reset", 0, kModNone, static_cast<int32_t>(SDLK_0), kModCtrl },
-        { "command_palette", 0, kModNone, static_cast<int32_t>(SDLK_P), kModCtrl },
+        { "command_palette", 0, kModNone, static_cast<int32_t>(SDLK_P), kModCtrl | kModShift },
         // Chord bindings: prefix key Ctrl+S (tmux-style prefix).
         // split_vertical = Ctrl+S, | (Shift+Backslash on US keyboard; SDL3 reports SDLK_BACKSLASH + kModShift)
         { "split_vertical", static_cast<int32_t>(SDLK_S), kModCtrl,
@@ -452,6 +460,7 @@ std::string AppConfig::serialize() const
     document.insert_or_assign("enable_ligatures", enable_ligatures);
     document.insert_or_assign("smooth_scroll", smooth_scroll);
     document.insert_or_assign("scroll_speed", static_cast<double>(std::clamp(scroll_speed, 0.1f, 10.0f)));
+    document.insert_or_assign("palette_bg_alpha", static_cast<double>(std::clamp(palette_bg_alpha, 0.0f, 1.0f)));
     if (!font_path.empty())
         document.insert_or_assign("font_path", font_path);
     if (!bold_font_path.empty())

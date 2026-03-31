@@ -846,18 +846,26 @@ void MegaCityHost::render_imgui(float dt)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::Begin("##dockspace_root", nullptr, ds_flags);
     ImGui::PopStyleVar(3);
-    ImGui::DockSpace(ImGui::GetID("MegaCityDock"), ImVec2(0.0f, 0.0f),
-        ImGuiDockNodeFlags_PassthruCentralNode);
+    const ImGuiID dock_id = ImGui::GetID("MegaCityDock");
+    ImGuiWindowClass mc_class;
+    mc_class.ClassId = ImGui::GetID("MegaCityPanelClass");
+    mc_class.DockingAllowUnclassed = false;
+    ImGui::DockSpace(dock_id, ImVec2(0.0f, 0.0f),
+        ImGuiDockNodeFlags_PassthruCentralNode, &mc_class);
     ImGui::End();
 
     if (!show_ui_panels_)
         return;
 
     if (scene_pass_)
+    {
+        ImGui::SetNextWindowClass(&mc_class);
         scene_pass_->render_gbuffer_debug_ui();
+    }
 
     // City map overview panel
     {
+        ImGui::SetNextWindowClass(&mc_class);
         std::shared_ptr<const CityGrid> grid;
         {
             std::lock_guard<std::mutex> lock(grid_mutex_);
@@ -897,6 +905,7 @@ void MegaCityHost::render_imgui(float dt)
         .rebuild_pending = world_rebuild_pending_
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
+    ImGui::SetNextWindowClass(&mc_class);
     if (render_treesitter_panel(
             viewport_.pixel_pos.x,
             viewport_.pixel_pos.y,

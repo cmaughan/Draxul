@@ -35,6 +35,17 @@ public:
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;
 
+    // Public accessors for grid dimensions and overlay cell pushing.
+    int grid_cols() const
+    {
+        return grid_cols_;
+    }
+    int grid_rows() const
+    {
+        return grid_rows_;
+    }
+    void set_overlay_cells(std::span<const CellUpdate> cells);
+
 protected:
     virtual bool initialize_host() = 0;
     virtual void on_viewport_changed() = 0;
@@ -73,14 +84,6 @@ protected:
         assert(callbacks_ != nullptr);
         return *callbacks_;
     }
-    int grid_cols() const
-    {
-        return grid_cols_;
-    }
-    int grid_rows() const
-    {
-        return grid_rows_;
-    }
     int cursor_col() const
     {
         return cursor_col_;
@@ -93,7 +96,6 @@ protected:
     void apply_grid_size(int cols, int rows);
     void force_full_redraw();
     void flush_grid();
-    void set_overlay_cells(std::span<const CellUpdate> cells);
     void mark_activity();
     bool advance_cursor_blink(std::chrono::steady_clock::time_point now);
     void set_cursor_position(int col, int row);
