@@ -1,5 +1,6 @@
 #include "input_dispatcher.h"
 
+#include "command_palette.h"
 #include "gui_action_handler.h"
 #include "host_manager.h"
 #include <SDL3/SDL.h>
@@ -68,6 +69,16 @@ void request_imgui_frame_if_needed(const Deps& deps)
 void InputDispatcher::on_key_event(const KeyEvent& event)
 {
     PERF_MEASURE();
+
+    // Command palette intercepts all input when open.
+    if (deps_.command_palette && deps_.command_palette->is_open())
+    {
+        deps_.command_palette->on_key(event);
+        deps_.ui_panel->on_key(event);
+        request_imgui_frame_if_needed(deps_);
+        return;
+    }
+
     if (event.pressed)
     {
         if (prefix_active_)
@@ -237,6 +248,13 @@ void InputDispatcher::connect(IWindow& window)
         if (suppress_next_text_input_)
         {
             suppress_next_text_input_ = false;
+            return;
+        }
+        // Command palette consumes text input when open.
+        if (deps_.command_palette && deps_.command_palette->is_open())
+        {
+            deps_.command_palette->on_text_input(event);
+            request_imgui_frame_if_needed(deps_);
             return;
         }
         deps_.ui_panel->on_text_input(event);

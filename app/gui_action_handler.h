@@ -3,6 +3,7 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace draxul
 {
@@ -34,12 +35,16 @@ public:
         std::function<void()> on_open_file_dialog; // show the native file-open dialog
         std::function<void()> on_split_vertical; // create a vertical 2-pane split
         std::function<void()> on_split_horizontal; // create a horizontal 2-pane split
+        std::function<void()> on_command_palette; // toggle command palette
     };
 
     explicit GuiActionHandler(Deps deps);
 
     // Returns true if the action was recognised and handled.
     bool execute(std::string_view action);
+
+    // Returns a sorted list of all registered action names.
+    static std::vector<std::string_view> action_names();
 
 private:
     using ActionFn = std::function<void(GuiActionHandler&)>;

@@ -84,6 +84,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Smooth scroll**: Trackpad momentum accumulation (configurable speed multiplier)
 - **File drop**: Native drag-and-drop dispatched to host as `open_file:` action
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
+- **Command palette**: `Ctrl+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, and keybinding hints
 
 ---
 
@@ -122,6 +123,7 @@ Toggle with F12. Shows:
 | `font_reset` | `Ctrl + 0` |
 | `split_vertical` | `Ctrl + S, Shift + \` |
 | `split_horizontal` | `Ctrl + S, -` |
+| `command_palette` | `Ctrl + P` |
 | `open_file_dialog` | (unbound) |
 
 Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key"`. Set to empty string to unbind.

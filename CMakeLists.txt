@@ -154,6 +154,8 @@ endif()
 
 add_library(draxul-app
     app/app.cpp
+    app/command_palette.cpp
+    app/fuzzy_match.cpp
     app/gui_action_handler.cpp
     app/input_dispatcher.cpp
     app/host_manager.cpp

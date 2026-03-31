@@ -1,4 +1,5 @@
 #pragma once
+#include "command_palette.h"
 #include "frame_timer.h"
 #include "gui_action_handler.h"
 #include "host_manager.h"
@@ -119,6 +120,7 @@ private:
     HostManager host_manager_{ HostManager::Deps{} };
 
     GuiActionHandler gui_action_handler_{ GuiActionHandler::Deps{} };
+    CommandPalette command_palette_;
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };
 #ifdef __APPLE__
     std::unique_ptr<MacOsMenu> macos_menu_;

@@ -31,6 +31,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"split_vertical",     [](auto& h) { h.split_vertical(); }},
         {"split_horizontal",   [](auto& h) { h.split_horizontal(); }},
         {"toggle_host_ui",     [](auto& h) { h.toggle_host_ui(); }},
+        {"command_palette",    [](auto& h) { if (h.deps_.on_command_palette) h.deps_.on_command_palette(); }},
     };
     // clang-format on
     return map;
@@ -48,6 +49,17 @@ bool GuiActionHandler::execute(std::string_view action)
     DRAXUL_LOG_WARN(LogCategory::App, "Unknown GUI action: '%.*s'",
         static_cast<int>(action.size()), action.data());
     return false;
+}
+
+std::vector<std::string_view> GuiActionHandler::action_names()
+{
+    const auto& map = action_map();
+    std::vector<std::string_view> names;
+    names.reserve(map.size());
+    for (const auto& [name, _] : map)
+        names.push_back(name);
+    std::sort(names.begin(), names.end());
+    return names;
 }
 
 void GuiActionHandler::font_increase()

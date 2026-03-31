@@ -10,6 +10,7 @@ namespace draxul
 {
 
 struct GuiKeybinding;
+class CommandPalette;
 class GuiActionHandler;
 class UiPanel;
 class IHost;
@@ -36,6 +37,7 @@ public:
     {
         const std::vector<GuiKeybinding>* keybindings = nullptr;
         GuiActionHandler* gui_action_handler = nullptr;
+        CommandPalette* command_palette = nullptr;
         UiPanel* ui_panel = nullptr;
         IHost* host = nullptr;
         // Multi-pane: if set, mouse events are hit-tested via HostManager's SplitTree.

@@ -412,7 +412,21 @@ void App::wire_gui_actions()
         update_diagnostics_panel();
         request_frame();
     };
+    gui_deps.on_command_palette = [this]() {
+        if (command_palette_.is_open())
+            command_palette_.close();
+        else
+            command_palette_.open();
+        request_frame();
+    };
     gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
+
+    // Wire command palette deps (must be after gui_action_handler_ is constructed)
+    CommandPalette::Deps palette_deps;
+    palette_deps.gui_action_handler = &gui_action_handler_;
+    palette_deps.keybindings = &config_.keybindings;
+    palette_deps.request_frame = [this]() { request_frame(); };
+    command_palette_ = CommandPalette(std::move(palette_deps));
 }
 
 void App::wire_window_callbacks()
@@ -421,6 +435,7 @@ void App::wire_window_callbacks()
     InputDispatcher::Deps disp_deps;
     disp_deps.keybindings = &config_.keybindings;
     disp_deps.gui_action_handler = &gui_action_handler_;
+    disp_deps.command_palette = &command_palette_;
     disp_deps.ui_panel = &ui_panel_;
     disp_deps.host = host_manager_.host();
     disp_deps.host_manager = &host_manager_;
@@ -699,7 +714,8 @@ void App::render_imgui_overlay(float delta_seconds)
             any_host_imgui = true;
     });
 
-    if ((ui_panel_.visible() || any_host_imgui) && renderer_.imgui())
+    const bool need_imgui = ui_panel_.visible() || any_host_imgui || command_palette_.needs_render();
+    if (need_imgui && renderer_.imgui())
     {
         ui_panel_.activate_imgui_context();
         renderer_.imgui()->begin_imgui_frame();
@@ -711,6 +727,7 @@ void App::render_imgui_overlay(float delta_seconds)
             if (h.has_imgui())
                 h.render_imgui(delta_seconds);
         });
+        command_palette_.render(last_pixel_w_, last_pixel_h_);
         renderer_.imgui()->set_imgui_draw_data(ui_panel_.end_frame());
     }
     else if (renderer_.imgui())
