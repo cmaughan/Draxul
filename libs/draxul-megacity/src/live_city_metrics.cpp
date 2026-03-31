@@ -236,10 +236,10 @@ LiveCityMetricsSnapshot build_live_city_metrics_snapshot(
     snapshot.generation = perf_snapshot ? perf_snapshot->generation : 0;
     const auto perf_lookup = build_perf_lookup(perf_snapshot, coverage_mode);
 
-    for (const auto& module : model.modules)
+    for (const auto& mod : model.modules)
     {
-        snapshot.buildings.reserve(snapshot.buildings.size() + module.buildings.size());
-        for (const auto& building : module.buildings)
+        snapshot.buildings.reserve(snapshot.buildings.size() + mod.buildings.size());
+        for (const auto& building : mod.buildings)
         {
             float building_frame_fraction = 0.0f;
             float building_smoothed_fraction = 0.0f;
@@ -297,10 +297,10 @@ LiveCityPerfDebugState build_live_city_perf_debug_state(
     LiveCityPerfDebugState debug;
     if (!perf_snapshot)
     {
-        for (const auto& module : model.modules)
+        for (const auto& mod : model.modules)
         {
-            debug.semantic_building_count += static_cast<uint32_t>(module.buildings.size());
-            for (const auto& building : module.buildings)
+            debug.semantic_building_count += static_cast<uint32_t>(mod.buildings.size());
+            for (const auto& building : mod.buildings)
                 debug.semantic_layer_count += static_cast<uint32_t>(building.layers.size());
         }
         return debug;
@@ -315,10 +315,10 @@ LiveCityPerfDebugState build_live_city_perf_debug_state(
     std::unordered_set<std::string> matched_exact_runtime_keys;
     std::unordered_set<std::string> matched_owner_runtime_keys;
 
-    for (const auto& module : model.modules)
+    for (const auto& mod : model.modules)
     {
-        debug.semantic_building_count += static_cast<uint32_t>(module.buildings.size());
-        for (const auto& building : module.buildings)
+        debug.semantic_building_count += static_cast<uint32_t>(mod.buildings.size());
+        for (const auto& building : mod.buildings)
         {
             bool building_heated = false;
             debug.semantic_layer_count += static_cast<uint32_t>(building.layers.size());
@@ -386,10 +386,10 @@ LiveCityMetricsSnapshot build_lcov_city_metrics_snapshot(
     LiveCityMetricsSnapshot snapshot;
     snapshot.generation = 1; // static import — single generation
 
-    for (const auto& module : model.modules)
+    for (const auto& mod : model.modules)
     {
-        snapshot.buildings.reserve(snapshot.buildings.size() + module.buildings.size());
-        for (const auto& building : module.buildings)
+        snapshot.buildings.reserve(snapshot.buildings.size() + mod.buildings.size());
+        for (const auto& building : mod.buildings)
         {
             float building_heat = 0.0f;
 
@@ -445,10 +445,10 @@ LiveCityPerfDebugState build_lcov_city_perf_debug_state(
     debug.lcov_report_functions = lcov_lookup.total_report_functions;
     debug.lcov_covered_functions = lcov_lookup.covered_report_functions;
 
-    for (const auto& module : model.modules)
+    for (const auto& mod : model.modules)
     {
-        debug.semantic_building_count += static_cast<uint32_t>(module.buildings.size());
-        for (const auto& building : module.buildings)
+        debug.semantic_building_count += static_cast<uint32_t>(mod.buildings.size());
+        for (const auto& building : mod.buildings)
         {
             bool building_heated = false;
             debug.semantic_layer_count += static_cast<uint32_t>(building.layers.size());
