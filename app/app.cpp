@@ -275,6 +275,10 @@ bool App::initialize()
 
     wire_gui_actions();
 
+    // Create a renderer-level overlay handle for the command palette so it
+    // draws on top of all hosts (including MegaCity's 3D scene).
+    palette_handle_ = renderer_.grid()->create_overlay_handle();
+
 #ifdef __APPLE__
     macos_menu_ = std::make_unique<MacOsMenu>(gui_action_handler_);
 #endif
@@ -751,14 +755,17 @@ void App::render_imgui_overlay(float delta_seconds)
         renderer_.imgui()->set_imgui_draw_data(nullptr);
     }
 
-    // Render command palette as overlay cells (no ImGui).
-    if (auto* host = dynamic_cast<GridHostBase*>(host_manager_.focused_host()))
+    // Render command palette via its own overlay handle (host-independent).
+    if (palette_handle_)
     {
         if (command_palette_.is_open())
         {
-            auto vs = command_palette_.view_state(host->grid_cols(), host->grid_rows(), config_.palette_bg_alpha);
+            const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
+            const int grid_cols = cw > 0 ? last_pixel_w_ / cw : 0;
+            const int grid_rows = ch > 0 ? last_pixel_h_ / ch : 0;
+            auto vs = command_palette_.view_state(grid_cols, grid_rows, config_.palette_bg_alpha);
             auto overlay = gui::render_palette(vs, text_service_);
-            host->set_overlay_cells(overlay);
+            palette_handle_->set_overlay_cells(overlay);
 
             // render_palette() may rasterize new glyphs (e.g. the full-block used
             // for panel occlusion) after GridRenderingPipeline already uploaded and
@@ -788,7 +795,7 @@ void App::render_imgui_overlay(float delta_seconds)
         }
         else if (palette_was_open_)
         {
-            host->set_overlay_cells({});
+            palette_handle_->set_overlay_cells({});
         }
     }
     palette_was_open_ = command_palette_.is_open();

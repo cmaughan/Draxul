@@ -67,6 +67,11 @@ public:
         return handle;
     }
 
+    std::unique_ptr<IGridHandle> create_overlay_handle() override
+    {
+        return std::make_unique<FakeGridPipelineHandle>();
+    }
+
     void set_atlas_texture(const uint8_t*, int, int) override
     {
         ++full_atlas_uploads;

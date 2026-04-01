@@ -40,6 +40,7 @@ public:
     bool begin_frame() override;
     void end_frame() override;
     std::unique_ptr<IGridHandle> create_grid_handle() override;
+    std::unique_ptr<IGridHandle> create_overlay_handle() override;
     void set_atlas_texture(const uint8_t* data, int w, int h) override;
     void update_atlas_region(int x, int y, int w, int h, const uint8_t* data) override;
     void resize(int pixel_w, int pixel_h) override;
@@ -74,6 +75,8 @@ private:
 
     // Non-owning list of active grid handles; handles register/deregister themselves.
     std::vector<MetalGridHandle*> grid_handles_;
+    // Overlay handle drawn after all regular grid handles (e.g. command palette).
+    MetalGridHandle* overlay_handle_ = nullptr;
 
     // Metal object handles — typed under ObjC++ (ARC-managed via ObjCRef),
     // opaque void* in plain C++ translation units.

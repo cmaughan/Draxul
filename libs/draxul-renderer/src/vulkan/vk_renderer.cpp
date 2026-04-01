@@ -23,17 +23,29 @@ namespace draxul
 class VkGridHandle final : public IGridHandle
 {
 public:
-    VkGridHandle(VkRenderer& renderer, int padding)
+    VkGridHandle(VkRenderer& renderer, int padding, bool is_overlay = false)
         : renderer_(renderer)
         , padding_(padding)
+        , is_overlay_(is_overlay)
     {
-        renderer_.grid_handles_.push_back(this);
+        if (is_overlay_)
+            renderer_.overlay_handle_ = this;
+        else
+            renderer_.grid_handles_.push_back(this);
     }
 
     ~VkGridHandle() override
     {
-        auto& handles = renderer_.grid_handles_;
-        handles.erase(std::remove(handles.begin(), handles.end(), this), handles.end());
+        if (is_overlay_)
+        {
+            if (renderer_.overlay_handle_ == this)
+                renderer_.overlay_handle_ = nullptr;
+        }
+        else
+        {
+            auto& handles = renderer_.grid_handles_;
+            handles.erase(std::remove(handles.begin(), handles.end(), this), handles.end());
+        }
     }
 
     void set_grid_size(int cols, int rows) override
@@ -72,6 +84,7 @@ public:
 private:
     VkRenderer& renderer_;
     int padding_ = 4;
+    bool is_overlay_ = false;
 };
 
 namespace
@@ -111,6 +124,8 @@ void VkRenderer::upload_dirty_state()
     size_t total_size = 0;
     for (auto* handle : grid_handles_)
         total_size += handle->state_.buffer_size_bytes();
+    if (overlay_handle_)
+        total_size += overlay_handle_->state_.buffer_size_bytes();
 
     if (total_size == 0)
         return;
@@ -135,6 +150,12 @@ void VkRenderer::upload_dirty_state()
         handle->state_.copy_to(mapped + byte_offset);
         handle->state_.clear_dirty();
         byte_offset += handle->state_.buffer_size_bytes();
+    }
+    if (overlay_handle_)
+    {
+        overlay_handle_->state_.copy_to(mapped + byte_offset);
+        overlay_handle_->state_.clear_dirty();
+        byte_offset += overlay_handle_->state_.buffer_size_bytes();
     }
     grid_buffer.flush_range(ctx_.allocator(), 0, total_size);
 }
@@ -542,6 +563,8 @@ void VkRenderer::set_cell_size(int w, int h)
     cell_h_ = h;
     for (auto* handle : grid_handles_)
         handle->state_.set_cell_size(w, h);
+    if (overlay_handle_)
+        overlay_handle_->state_.set_cell_size(w, h);
 }
 
 void VkRenderer::set_ascender(int a)
@@ -550,12 +573,23 @@ void VkRenderer::set_ascender(int a)
     ascender_ = a;
     for (auto* handle : grid_handles_)
         handle->state_.set_ascender(a);
+    if (overlay_handle_)
+        overlay_handle_->state_.set_ascender(a);
 }
 
 std::unique_ptr<IGridHandle> VkRenderer::create_grid_handle()
 {
     PERF_MEASURE();
     return std::make_unique<VkGridHandle>(*this, padding_);
+}
+
+std::unique_ptr<IGridHandle> VkRenderer::create_overlay_handle()
+{
+    PERF_MEASURE();
+    auto handle = std::make_unique<VkGridHandle>(*this, padding_, /*is_overlay=*/true);
+    handle->state_.set_cell_size(cell_w_, cell_h_);
+    handle->state_.set_ascender(ascender_);
+    return handle;
 }
 
 void VkRenderer::set_default_background(Color bg)
@@ -706,6 +740,8 @@ bool VkRenderer::begin_frame()
 
         for (auto* handle : grid_handles_)
             handle->state_.restore_cursor();
+        if (overlay_handle_)
+            overlay_handle_->state_.restore_cursor();
         upload_dirty_state();
 
         VkResult result = vkAcquireNextImageKHR(
@@ -879,6 +915,39 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
         render_pass_->record(ctx);
     }
 
+    // Draw overlay handle last (after 3D pass) so it appears on top of everything.
+    if (overlay_handle_)
+    {
+        const int bg_instances = overlay_handle_->state_.bg_instances();
+        const int fg_instances = overlay_handle_->state_.fg_instances();
+        if (bg_instances > 0)
+        {
+            // Restore full-window viewport and scissor for overlay.
+            vkCmdSetViewport(cmd, 0, 1, &viewport);
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+            float push_data[7] = {
+                (float)ctx_.swapchain().extent.width,
+                (float)ctx_.swapchain().extent.height,
+                (float)cell_w_,
+                (float)cell_h_,
+                0.f, 0.f, 0.f
+            };
+
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_pipeline());
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.bg_layout(),
+                0, 1, &bg_desc_sets_[current_frame_], 0, nullptr);
+            vkCmdPushConstants(cmd, pipeline_.bg_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), push_data);
+            vkCmdDraw(cmd, 6, bg_instances, 0, instance_offset);
+
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.fg_pipeline());
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.fg_layout(),
+                0, 1, &fg_desc_sets_[current_frame_], 0, nullptr);
+            vkCmdPushConstants(cmd, pipeline_.fg_layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_data), push_data);
+            vkCmdDraw(cmd, 6, fg_instances, 0, instance_offset);
+        }
+    }
+
     if (imgui_initialized_ && imgui_draw_data_)
     {
         vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -938,6 +1007,8 @@ void VkRenderer::end_frame()
         PERF_MEASURE();
         for (auto* handle : grid_handles_)
             handle->state_.apply_cursor();
+        if (overlay_handle_)
+            overlay_handle_->state_.apply_cursor();
         upload_dirty_state();
         if (capture_requested_ && !ensure_capture_buffer(static_cast<size_t>(ctx_.swapchain().extent.width) * ctx_.swapchain().extent.height * 4))
         {

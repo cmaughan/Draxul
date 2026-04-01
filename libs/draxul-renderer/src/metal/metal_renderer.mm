@@ -37,17 +37,29 @@ NSUInteger align_capture_row_bytes(NSUInteger width)
 class MetalGridHandle final : public IGridHandle
 {
 public:
-    explicit MetalGridHandle(MetalRenderer& renderer, int padding)
+    explicit MetalGridHandle(MetalRenderer& renderer, int padding, bool is_overlay = false)
         : renderer_(renderer)
         , padding_(padding)
+        , is_overlay_(is_overlay)
     {
-        renderer_.grid_handles_.push_back(this);
+        if (is_overlay_)
+            renderer_.overlay_handle_ = this;
+        else
+            renderer_.grid_handles_.push_back(this);
     }
 
     ~MetalGridHandle() override
     {
-        auto& handles = renderer_.grid_handles_;
-        handles.erase(std::remove(handles.begin(), handles.end(), this), handles.end());
+        if (is_overlay_)
+        {
+            if (renderer_.overlay_handle_ == this)
+                renderer_.overlay_handle_ = nullptr;
+        }
+        else
+        {
+            auto& handles = renderer_.grid_handles_;
+            handles.erase(std::remove(handles.begin(), handles.end(), this), handles.end());
+        }
     }
 
     void set_grid_size(int cols, int rows) override
@@ -92,6 +104,7 @@ public:
 private:
     MetalRenderer& renderer_;
     int padding_ = 4;
+    bool is_overlay_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -113,6 +126,8 @@ void MetalRenderer::upload_dirty_state()
     size_t total_size = 0;
     for (auto* handle : grid_handles_)
         total_size += handle->state_.buffer_size_bytes();
+    if (overlay_handle_)
+        total_size += overlay_handle_->state_.buffer_size_bytes();
 
     if (total_size == 0)
         return;
@@ -137,6 +152,12 @@ void MetalRenderer::upload_dirty_state()
         handle->state_.copy_to(mapped + byte_offset);
         handle->state_.clear_dirty();
         byte_offset += handle->state_.buffer_size_bytes();
+    }
+    if (overlay_handle_)
+    {
+        overlay_handle_->state_.copy_to(mapped + byte_offset);
+        overlay_handle_->state_.clear_dirty();
+        byte_offset += overlay_handle_->state_.buffer_size_bytes();
     }
 }
 
@@ -389,6 +410,15 @@ std::unique_ptr<IGridHandle> MetalRenderer::create_grid_handle()
     return std::make_unique<MetalGridHandle>(*this, padding_);
 }
 
+std::unique_ptr<IGridHandle> MetalRenderer::create_overlay_handle()
+{
+    PERF_MEASURE();
+    auto handle = std::make_unique<MetalGridHandle>(*this, padding_, /*is_overlay=*/true);
+    handle->state_.set_cell_size(cell_w_, cell_h_);
+    handle->state_.set_ascender(ascender_);
+    return handle;
+}
+
 void MetalRenderer::set_atlas_texture(const uint8_t* data, int w, int h)
 {
     PERF_MEASURE();
@@ -426,6 +456,8 @@ void MetalRenderer::set_cell_size(int w, int h)
     cell_h_ = h;
     for (auto* handle : grid_handles_)
         handle->state_.set_cell_size(w, h);
+    if (overlay_handle_)
+        overlay_handle_->state_.set_cell_size(w, h);
 }
 
 void MetalRenderer::set_ascender(int a)
@@ -434,6 +466,8 @@ void MetalRenderer::set_ascender(int a)
     ascender_ = a;
     for (auto* handle : grid_handles_)
         handle->state_.set_ascender(a);
+    if (overlay_handle_)
+        overlay_handle_->state_.set_ascender(a);
 }
 
 void MetalRenderer::set_default_background(Color bg)
@@ -538,6 +572,8 @@ bool MetalRenderer::begin_frame()
 
         for (auto* handle : grid_handles_)
             handle->state_.restore_cursor();
+        if (overlay_handle_)
+            overlay_handle_->state_.restore_cursor();
         upload_dirty_state();
 
         id<CAMetalDrawable> drawable = [layer_.get() nextDrawable];
@@ -625,6 +661,8 @@ void MetalRenderer::end_frame()
         PERF_MEASURE();
         for (auto* handle : grid_handles_)
             handle->state_.apply_cursor();
+        if (overlay_handle_)
+            overlay_handle_->state_.apply_cursor();
         upload_dirty_state();
 
         id<CAMetalDrawable> drawable = current_drawable_.take();
@@ -751,6 +789,55 @@ void MetalRenderer::end_frame()
             MetalRenderContext ctx(cmdBuf, encoder, current_frame_, MAX_FRAMES_IN_FLIGHT,
                 pixel_w_, pixel_h_, vx, vy, vw, vh);
             render_pass_->record(ctx);
+        }
+
+        // Draw overlay handle last (after 3D pass) so it appears on top of everything.
+        if (overlay_handle_ && gridBuf)
+        {
+            const int bg_instances = overlay_handle_->state_.bg_instances();
+            const int fg_instances = overlay_handle_->state_.fg_instances();
+            if (bg_instances > 0)
+            {
+                // Full-window scissor for overlay (no pane clipping).
+                if (pixel_w_ > 0 && pixel_h_ > 0)
+                {
+                    MTLScissorRect full_scissor;
+                    full_scissor.x = 0;
+                    full_scissor.y = 0;
+                    full_scissor.width = static_cast<NSUInteger>(pixel_w_);
+                    full_scissor.height = static_cast<NSUInteger>(pixel_h_);
+                    [encoder setScissorRect:full_scissor];
+                }
+
+                struct
+                {
+                    float screen_w, screen_h, cell_w, cell_h, scroll_offset_px, viewport_x, viewport_y;
+                } push_data = {
+                    (float)pixel_w_, (float)pixel_h_,
+                    (float)cell_w_, (float)cell_h_,
+                    0.f, 0.f, 0.f
+                };
+
+                [encoder setRenderPipelineState:bg_pipeline_.get()];
+                [encoder setVertexBuffer:gridBuf offset:0 atIndex:0];
+                [encoder setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:0
+                            vertexCount:6
+                          instanceCount:static_cast<NSUInteger>(bg_instances)
+                           baseInstance:instance_offset];
+
+                [encoder setRenderPipelineState:fg_pipeline_.get()];
+                [encoder setVertexBuffer:gridBuf offset:0 atIndex:0];
+                [encoder setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
+                [encoder setFragmentTexture:atlasTex atIndex:0];
+                [encoder setFragmentSamplerState:sampler atIndex:0];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:0
+                            vertexCount:6
+                          instanceCount:static_cast<NSUInteger>(fg_instances)
+                           baseInstance:instance_offset];
+            }
         }
 
         if (imgui_initialized_ && imgui_draw_data_)

@@ -25,6 +25,7 @@ public:
     bool begin_frame() override;
     void end_frame() override;
     std::unique_ptr<IGridHandle> create_grid_handle() override;
+    std::unique_ptr<IGridHandle> create_overlay_handle() override;
     void set_atlas_texture(const uint8_t* data, int w, int h) override;
     void update_atlas_region(int x, int y, int w, int h, const uint8_t* data) override;
     void resize(int pixel_w, int pixel_h) override;
@@ -118,6 +119,7 @@ private:
 
     std::shared_ptr<IRenderPass> render_pass_;
     std::vector<VkGridHandle*> grid_handles_;
+    VkGridHandle* overlay_handle_ = nullptr;
 };
 
 } // namespace draxul

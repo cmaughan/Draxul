@@ -56,6 +56,11 @@ public:
     // The caller (GridHostBase) owns the returned unique_ptr.
     virtual std::unique_ptr<IGridHandle> create_grid_handle() = 0;
 
+    // Create an overlay handle that always renders after all regular grid handles.
+    // Used for global UI overlays (e.g. command palette) that must appear on top
+    // of all hosts regardless of type.
+    virtual std::unique_ptr<IGridHandle> create_overlay_handle() = 0;
+
     // Global (shared across all handles) — atlas texture and cell metrics.
     virtual void set_atlas_texture(const uint8_t* data, int w, int h) = 0;
     virtual void update_atlas_region(int x, int y, int w, int h, const uint8_t* data) = 0;

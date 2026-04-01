@@ -62,6 +62,10 @@ public:
         last_handle = handle.get();
         return handle;
     }
+    std::unique_ptr<IGridHandle> create_overlay_handle() override
+    {
+        return std::make_unique<FakeGridHandle>();
+    }
     void set_atlas_texture(const uint8_t*, int, int) override {}
     void update_atlas_region(int, int, int, int, const uint8_t*) override {}
     void resize(int, int) override {}
