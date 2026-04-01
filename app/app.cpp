@@ -971,7 +971,7 @@ bool App::dispatch_to_nvim_host(std::string_view action)
     // Find an existing NvimHost (identified by debug name, no side effects).
     IHost* nvim_host = nullptr;
     LeafId nvim_leaf = kInvalidLeaf;
-    host_manager_.for_each_host([&](LeafId id, IHost& host) {
+    host_manager_.for_each_host([&nvim_host, &nvim_leaf](LeafId id, IHost& host) {
         if (!nvim_host && host.debug_state().name == "nvim")
         {
             nvim_host = &host;

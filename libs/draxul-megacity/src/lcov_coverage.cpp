@@ -3,6 +3,7 @@
 #include <draxul/log.h>
 
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -32,14 +33,10 @@ std::string try_demangle(const std::string& name)
     if (name.empty() || !name.starts_with("_Z"))
         return name;
     int status = 0;
-    char* demangled = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status);
+    std::unique_ptr<char, decltype(&std::free)> demangled(
+        abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status), std::free);
     if (status == 0 && demangled)
-    {
-        std::string result(demangled);
-        std::free(demangled);
-        return result;
-    }
-    std::free(demangled);
+        return std::string(demangled.get());
 #endif
     return name;
 }

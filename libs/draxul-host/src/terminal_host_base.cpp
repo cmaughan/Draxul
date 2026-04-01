@@ -241,7 +241,7 @@ void TerminalHostBase::compact_attr_ids()
     }
 
     alt_screen_.for_each_saved_cell(
-        [&](const Cell& cell) {
+        [&active_attrs, this](const Cell& cell) {
             if (cell.hl_attr_id == 0)
                 return;
             active_attrs.try_emplace(cell.hl_attr_id, highlights().get(cell.hl_attr_id));
