@@ -546,6 +546,11 @@ void MetalRenderer::set_imgui_draw_data(const ImDrawData* draw_data)
     imgui_draw_data_ = draw_data;
 }
 
+void MetalRenderer::set_host_imgui_draw_data(const ImDrawData* draw_data)
+{
+    host_imgui_draw_data_ = draw_data;
+}
+
 void MetalRenderer::request_frame_capture()
 {
     PERF_MEASURE();
@@ -791,14 +796,17 @@ void MetalRenderer::end_frame()
             render_pass_->record(ctx);
         }
 
-        // Draw overlay handle last (after 3D pass) so it appears on top of everything.
+        // Host ImGui (MegaCity panels) — on top of 3D scene, below overlay + diagnostics.
+        if (host_imgui_draw_data_)
+            ImGui_ImplMetal_RenderDrawData(const_cast<ImDrawData*>(host_imgui_draw_data_), cmdBuf, encoder);
+
+        // Overlay handle (command palette) — on top of host ImGui, below diagnostics.
         if (overlay_handle_ && gridBuf)
         {
             const int bg_instances = overlay_handle_->state_.bg_instances();
             const int fg_instances = overlay_handle_->state_.fg_instances();
             if (bg_instances > 0)
             {
-                // Full-window scissor for overlay (no pane clipping).
                 if (pixel_w_ > 0 && pixel_h_ > 0)
                 {
                     MTLScissorRect full_scissor;
@@ -840,6 +848,7 @@ void MetalRenderer::end_frame()
             }
         }
 
+        // Diagnostics ImGui — topmost layer.
         if (imgui_initialized_ && imgui_draw_data_)
             ImGui_ImplMetal_RenderDrawData(const_cast<ImDrawData*>(imgui_draw_data_), cmdBuf, encoder);
 
@@ -911,6 +920,7 @@ void MetalRenderer::end_frame()
         }
 
         imgui_draw_data_ = nullptr;
+        host_imgui_draw_data_ = nullptr;
         current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 }

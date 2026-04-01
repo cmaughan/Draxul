@@ -16,6 +16,8 @@
 #include <thread>
 #include <vector>
 
+struct ImGuiContext;
+
 namespace draxul
 {
 
@@ -80,11 +82,12 @@ public:
     // I3DHost
     void attach_3d_renderer(I3DRenderer& renderer) override;
     void detach_3d_renderer() override;
+    void attach_imgui_host(IImGuiHost& host) override;
     bool has_imgui() const override
     {
         return true;
     }
-    void render_imgui(float dt) override;
+    const ImDrawData* render_imgui(float dt) override;
     void set_imgui_font(const std::string& path, float size_pixels) override;
 
 private:
@@ -150,6 +153,8 @@ private:
     float city_max_z_ = 2.5f;
     bool show_ui_panels_ = true;
     std::string imgui_ini_path_;
+    ImGuiContext* imgui_context_ = nullptr;
+    IImGuiHost* imgui_backend_ = nullptr;
     bool continuous_refresh_enabled_ = false;
     std::string selected_building_name_;
     std::string selected_building_module_path_;

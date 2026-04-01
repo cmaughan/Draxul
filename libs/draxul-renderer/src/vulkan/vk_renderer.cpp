@@ -717,6 +717,11 @@ void VkRenderer::set_imgui_draw_data(const ImDrawData* draw_data)
     imgui_draw_data_ = draw_data;
 }
 
+void VkRenderer::set_host_imgui_draw_data(const ImDrawData* draw_data)
+{
+    host_imgui_draw_data_ = draw_data;
+}
+
 void VkRenderer::request_frame_capture()
 {
     PERF_MEASURE();
@@ -915,14 +920,21 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
         render_pass_->record(ctx);
     }
 
-    // Draw overlay handle last (after 3D pass) so it appears on top of everything.
+    // Host ImGui (MegaCity panels) — on top of 3D scene, below overlay + diagnostics.
+    if (host_imgui_draw_data_)
+    {
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        ImGui_ImplVulkan_RenderDrawData(const_cast<ImDrawData*>(host_imgui_draw_data_), cmd);
+    }
+
+    // Overlay handle (command palette) — on top of host ImGui, below diagnostics.
     if (overlay_handle_)
     {
         const int bg_instances = overlay_handle_->state_.bg_instances();
         const int fg_instances = overlay_handle_->state_.fg_instances();
         if (bg_instances > 0)
         {
-            // Restore full-window viewport and scissor for overlay.
             vkCmdSetViewport(cmd, 0, 1, &viewport);
             vkCmdSetScissor(cmd, 0, 1, &scissor);
 
@@ -948,6 +960,7 @@ void VkRenderer::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index
         }
     }
 
+    // Diagnostics ImGui — topmost layer.
     if (imgui_initialized_ && imgui_draw_data_)
     {
         vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -1056,6 +1069,7 @@ void VkRenderer::end_frame()
 
         current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
         imgui_draw_data_ = nullptr;
+        host_imgui_draw_data_ = nullptr;
     }
 }
 

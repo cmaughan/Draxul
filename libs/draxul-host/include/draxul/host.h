@@ -159,9 +159,9 @@ public:
     {
         return false;
     }
-    virtual void render_imgui(float /*dt*/)
+    virtual const ImDrawData* render_imgui(float /*dt*/)
     {
-        // Default no-op; only hosts with extra ImGui chrome override this.
+        return nullptr;
     }
     virtual void set_imgui_font(const std::string& /*path*/, float /*size_pixels*/)
     {
@@ -182,13 +182,10 @@ public:
     virtual void attach_3d_renderer(I3DRenderer& renderer) = 0;
     virtual void detach_3d_renderer() = 0;
 
-    // Optional ImGui contribution. The app owns the ImGui frame lifecycle and
-    // calls render_imgui() after it has already begun a frame on the shared
-    // application ImGui context. Hosts may add windows or other chrome to the
-    // current frame but must not call NewFrame() or Render() themselves.
+    // Hosts with their own ImGui context use the backend to initialize and
+    // render. HostManager wires this after initialize() succeeds.
     virtual void attach_imgui_host(IImGuiHost& /*host*/)
     {
-        // Default no-op; hosts with app-level ImGui integration may override this.
     }
 };
 

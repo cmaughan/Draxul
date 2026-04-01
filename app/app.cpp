@@ -79,26 +79,6 @@ void normalize_render_target_window_size(IWindow& window, const AppOptions& opti
         options.render_target_pixel_height);
 }
 
-void render_app_imgui_dockspace(const PanelLayout& layout)
-{
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking
-        | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse
-        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus
-        | ImGuiWindowFlags_NoBackground;
-    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(layout.window_size.x),
-        static_cast<float>(layout.window_size.y)));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::Begin("##app_dockspace_root", nullptr, flags);
-    ImGui::PopStyleVar(3);
-    ImGui::DockSpace(ImGui::GetID("DraxulAppDock"),
-        ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
-    ImGui::End();
-}
-
 } // namespace
 
 AppDeps AppDeps::from_options(AppOptions opts)
@@ -729,25 +709,26 @@ bool App::close_dead_panes()
 void App::render_imgui_overlay(float delta_seconds)
 {
     PERF_MEASURE();
-    bool any_host_imgui = false;
-    host_manager_.for_each_host([&any_host_imgui](LeafId, const IHost& h) {
-        if (h.has_imgui())
-            any_host_imgui = true;
-    });
 
-    const bool need_imgui = ui_panel_.visible() || any_host_imgui;
-    if (need_imgui && renderer_.imgui())
+    // Phase 1: Host ImGui — each host owns its own context and frame lifecycle.
+    if (renderer_.imgui())
+    {
+        const ImDrawData* host_dd = nullptr;
+        host_manager_.for_each_host([delta_seconds, &host_dd](LeafId, IHost& h) {
+            if (h.has_imgui())
+                if (auto* dd = h.render_imgui(delta_seconds))
+                    host_dd = dd;
+        });
+        renderer_.imgui()->set_host_imgui_draw_data(host_dd);
+    }
+
+    // Phase 2: Diagnostics panel — UiPanel's own context, separate from hosts.
+    if (ui_panel_.visible() && renderer_.imgui())
     {
         ui_panel_.activate_imgui_context();
         renderer_.imgui()->begin_imgui_frame();
         ui_panel_.begin_frame(delta_seconds);
-        render_app_imgui_dockspace(ui_panel_.layout());
-        if (ui_panel_.visible())
-            ui_panel_.render_into_current_context();
-        host_manager_.for_each_host([delta_seconds](LeafId, IHost& h) {
-            if (h.has_imgui())
-                h.render_imgui(delta_seconds);
-        });
+        ui_panel_.render_into_current_context();
         renderer_.imgui()->set_imgui_draw_data(ui_panel_.end_frame());
     }
     else if (renderer_.imgui())

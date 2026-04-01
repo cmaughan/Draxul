@@ -334,6 +334,8 @@ bool HostManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
             DRAXUL_LOG_WARN(LogCategory::App,
                 "grid_renderer does not implement I3DRenderer; "
                 "3D host will have no renderer attached");
+        if (deps_.imgui_host)
+            h3d->attach_imgui_host(*deps_.imgui_host);
     }
 
     if (is_primary)

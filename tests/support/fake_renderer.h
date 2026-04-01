@@ -123,6 +123,7 @@ public:
         last_imgui_draw_data = draw_data;
         ++set_imgui_draw_data_calls;
     }
+    void set_host_imgui_draw_data(const ImDrawData*) override {}
     void request_frame_capture() override {}
     std::optional<CapturedFrame> take_captured_frame() override
     {

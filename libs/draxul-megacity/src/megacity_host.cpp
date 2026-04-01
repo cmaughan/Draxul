@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/megacity_host.h>
 #include <draxul/perf_timing.h>
@@ -483,11 +484,22 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     show_ui_panels_ = renderer_config_.show_ui_panels;
     restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
 
-    // Enable ImGui layout persistence alongside config.toml
+    // Create MegaCity's own ImGui context for isolated docking and layout.
     {
         std::filesystem::path ini_path = ConfigDocument::default_path().parent_path() / "megacity_imgui.ini";
         imgui_ini_path_ = ini_path.string();
-        if (ImGui::GetCurrentContext() != nullptr && std::filesystem::exists(ini_path))
+
+        imgui_context_ = ImGui::CreateContext();
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGuiIO& mc_io = ImGui::GetIO();
+        mc_io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        mc_io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
+        mc_io.ConfigWindowsResizeFromEdges = true;
+        mc_io.IniFilename = nullptr;
+        mc_io.LogFilename = nullptr;
+        ImGui::StyleColorsDark();
+
+        if (std::filesystem::exists(ini_path))
             ImGui::LoadIniSettingsFromDisk(imgui_ini_path_.c_str());
     }
     sign_font_path_ = context.text_service->primary_font_path();
@@ -824,15 +836,45 @@ void MegaCityHost::on_mouse_wheel(const MouseWheelEvent& /*event*/)
     // The Megacity view currently has no wheel-driven zoom behavior.
 }
 
-void MegaCityHost::set_imgui_font(const std::string&, float)
+void MegaCityHost::set_imgui_font(const std::string& path, float size_pixels)
 {
-    // Megacity uses the shared app ImGui context and does not own fonts itself.
+    if (!imgui_context_)
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    if (!path.empty() && size_pixels > 0.0f)
+        io.Fonts->AddFontFromFileTTF(path.c_str(), size_pixels);
+    if (io.Fonts->Fonts.empty())
+        io.Fonts->AddFontDefault();
+    if (imgui_backend_)
+        imgui_backend_->rebuild_imgui_font_texture();
 }
 
-void MegaCityHost::render_imgui(float dt)
+void MegaCityHost::attach_imgui_host(IImGuiHost& host)
+{
+    imgui_backend_ = &host;
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        host.initialize_imgui_backend();
+        host.rebuild_imgui_font_texture();
+    }
+}
+
+const ImDrawData* MegaCityHost::render_imgui(float dt)
 {
     PERF_MEASURE();
-    (void)dt;
+    if (!imgui_context_)
+        return nullptr;
+
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(static_cast<float>(pixel_w_), static_cast<float>(pixel_h_));
+    io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
+    if (imgui_backend_)
+        imgui_backend_->begin_imgui_frame();
+    ImGui::NewFrame();
 
     const ImGuiWindowFlags ds_flags = ImGuiWindowFlags_NoDocking
         | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse
@@ -855,7 +897,10 @@ void MegaCityHost::render_imgui(float dt)
     ImGui::End();
 
     if (!show_ui_panels_)
-        return;
+    {
+        ImGui::Render();
+        return ImGui::GetDrawData();
+    }
 
     if (scene_pass_)
     {
@@ -1029,6 +1074,9 @@ void MegaCityHost::render_imgui(float dt)
                 mark_world_rebuild_pending();
         }
     }
+
+    ImGui::Render();
+    return ImGui::GetDrawData();
 }
 
 void MegaCityHost::attach_3d_renderer(I3DRenderer& renderer)
@@ -1088,9 +1136,18 @@ void MegaCityHost::shutdown()
     city_grid_.reset();
     semantic_layout_.reset();
 
-    // Save ImGui layout state
-    if (ImGui::GetCurrentContext() != nullptr && !imgui_ini_path_.empty())
-        ImGui::SaveIniSettingsToDisk(imgui_ini_path_.c_str());
+    // Tear down our own ImGui context.
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        if (!imgui_ini_path_.empty())
+            ImGui::SaveIniSettingsToDisk(imgui_ini_path_.c_str());
+        if (imgui_backend_)
+            imgui_backend_->shutdown_imgui_backend();
+        ImGui::DestroyContext(imgui_context_);
+        imgui_context_ = nullptr;
+        imgui_backend_ = nullptr;
+    }
 
     pending_renderer_config_.show_ui_panels = show_ui_panels_;
     if (config_document_)

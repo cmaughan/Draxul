@@ -52,6 +52,7 @@ public:
     void rebuild_imgui_font_texture() override;
     void begin_imgui_frame() override;
     void set_imgui_draw_data(const ImDrawData* draw_data) override;
+    void set_host_imgui_draw_data(const ImDrawData* draw_data) override;
     void request_frame_capture() override;
     std::optional<CapturedFrame> take_captured_frame() override;
     int padding() const override
@@ -139,6 +140,7 @@ private:
     size_t capture_bytes_per_row_ = 0;
 
     const ImDrawData* imgui_draw_data_ = nullptr;
+    const ImDrawData* host_imgui_draw_data_ = nullptr;
     bool imgui_initialized_ = false;
 
     std::shared_ptr<IRenderPass> render_pass_;
