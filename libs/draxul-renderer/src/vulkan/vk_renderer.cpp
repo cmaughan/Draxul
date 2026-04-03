@@ -1061,7 +1061,9 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
     VkRenderContext prepass_ctx(active_cmd_buffer_, ctx_.physical_device(), ctx_.device(), ctx_.allocator(), VK_NULL_HANDLE,
         current_frame_, MAX_FRAMES_IN_FLIGHT,
         static_cast<int>(ctx_.swapchain().extent.width), static_cast<int>(ctx_.swapchain().extent.height),
-        vx, vy, vw, vh);
+        vx, vy, vw, vh,
+        ctx_.swapchain().images[current_image_], ctx_.swapchain().image_views[current_image_],
+        ctx_.swapchain().format, ctx_.graphics_queue(), ctx_.graphics_queue_family());
     pass.record_prepass(prepass_ctx);
 
     if (!begin_main_render_pass())

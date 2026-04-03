@@ -17,7 +17,10 @@ class VkRenderContext : public IRenderContext
 public:
     VkRenderContext(VkCommandBuffer cmd, VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator, VkRenderPass render_pass,
         uint32_t frame_index, uint32_t buffered_frame_count,
-        int w, int h, int viewport_x = 0, int viewport_y = 0, int viewport_w = 0, int viewport_h = 0)
+        int w, int h, int viewport_x = 0, int viewport_y = 0, int viewport_w = 0, int viewport_h = 0,
+        VkImage swapchain_image = VK_NULL_HANDLE, VkImageView swapchain_image_view = VK_NULL_HANDLE,
+        VkFormat swapchain_format = VK_FORMAT_UNDEFINED,
+        VkQueue graphics_queue = VK_NULL_HANDLE, uint32_t graphics_queue_family = 0)
         : cmd_(cmd)
         , physical_device_(physical_device)
         , device_(device)
@@ -31,6 +34,11 @@ public:
         , viewport_y_(viewport_y)
         , viewport_w_(viewport_w > 0 ? viewport_w : w)
         , viewport_h_(viewport_h > 0 ? viewport_h : h)
+        , swapchain_image_(swapchain_image)
+        , swapchain_image_view_(swapchain_image_view)
+        , swapchain_format_(swapchain_format)
+        , graphics_queue_(graphics_queue)
+        , graphics_queue_family_(graphics_queue_family)
     {
     }
 
@@ -82,6 +90,26 @@ public:
     {
         return render_pass_;
     }
+    VkImage swapchain_image() const
+    {
+        return swapchain_image_;
+    }
+    VkImageView swapchain_image_view() const
+    {
+        return swapchain_image_view_;
+    }
+    VkFormat swapchain_format() const
+    {
+        return swapchain_format_;
+    }
+    VkQueue graphics_queue() const
+    {
+        return graphics_queue_;
+    }
+    uint32_t graphics_queue_family() const
+    {
+        return graphics_queue_family_;
+    }
     uint32_t frame_index() const override
     {
         return frame_index_;
@@ -105,6 +133,11 @@ private:
     int viewport_y_;
     int viewport_w_;
     int viewport_h_;
+    VkImage swapchain_image_ = VK_NULL_HANDLE;
+    VkImageView swapchain_image_view_ = VK_NULL_HANDLE;
+    VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;
+    VkQueue graphics_queue_ = VK_NULL_HANDLE;
+    uint32_t graphics_queue_family_ = 0;
 };
 
 } // namespace draxul
