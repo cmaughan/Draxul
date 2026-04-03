@@ -151,6 +151,7 @@ private:
     bool create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
         HostLaunchOptions launch, bool is_primary);
     void update_all_viewports();
+    void update_focus(LeafId new_id);
 
     Deps deps_;
     SplitTree tree_;

@@ -53,6 +53,10 @@ public:
     {
         state_.set_cursor(col, row, style);
     }
+    void set_cursor_visible(bool visible) override
+    {
+        state_.set_cursor_visible(visible);
+    }
     void set_default_background(Color bg) override
     {
         state_.set_default_background(bg);

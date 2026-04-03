@@ -26,6 +26,7 @@ public:
         last_overlay.assign(updates.begin(), updates.end());
     }
     void set_cursor(int, int, const CursorStyle&) override {}
+    void set_cursor_visible(bool) override {}
     void set_default_background(Color) override {}
     void set_scroll_offset(float) override {}
     void set_viewport(const PaneDescriptor&) override {}

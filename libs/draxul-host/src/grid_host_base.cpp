@@ -63,6 +63,18 @@ void GridHostBase::draw(IFrameContext& frame)
         frame.draw_grid_handle(*grid_handle_);
 }
 
+void GridHostBase::on_focus_gained()
+{
+    if (grid_handle_)
+        grid_handle_->set_cursor_visible(true);
+}
+
+void GridHostBase::on_focus_lost()
+{
+    if (grid_handle_)
+        grid_handle_->set_cursor_visible(false);
+}
+
 void GridHostBase::on_font_metrics_changed()
 {
     PERF_MEASURE();

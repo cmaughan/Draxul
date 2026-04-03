@@ -57,6 +57,10 @@ public:
     void update_cells(std::span<const CellUpdate> updates);
     void set_overlay_cells(std::span<const CellUpdate> updates);
     void set_cursor(int col, int row, const CursorStyle& style);
+    void set_cursor_visible(bool visible)
+    {
+        cursor_visible_ = visible;
+    }
     void restore_cursor();
     void apply_cursor();
 
@@ -129,6 +133,7 @@ private:
     size_t overlay_cell_count_ = 0;
     GpuCell overlay_cell_ = {};
     GpuCell cursor_saved_cell_ = {};
+    bool cursor_visible_ = true;
     bool cursor_applied_ = false;
     bool cursor_overlay_active_ = false;
     size_t dirty_cell_begin_ = 0;

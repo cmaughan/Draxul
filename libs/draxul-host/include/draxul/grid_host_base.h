@@ -22,6 +22,8 @@ public:
     void on_config_reloaded(const HostReloadConfig& config) override;
     void set_scroll_offset(float px) override;
     void draw(IFrameContext& frame) override;
+    void on_focus_gained() override;
+    void on_focus_lost() override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
 
     Color default_background() const override;

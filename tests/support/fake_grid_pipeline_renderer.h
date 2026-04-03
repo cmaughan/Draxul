@@ -27,6 +27,7 @@ public:
     {
         last_cursor = { col, row };
     }
+    void set_cursor_visible(bool) override {}
     void set_default_background(Color) override {}
     void set_scroll_offset(float) override {}
     void set_viewport(const PaneDescriptor& desc) override

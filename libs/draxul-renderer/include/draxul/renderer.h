@@ -30,6 +30,7 @@ public:
     virtual void update_cells(std::span<const CellUpdate> updates) = 0;
     virtual void set_overlay_cells(std::span<const CellUpdate> updates) = 0;
     virtual void set_cursor(int col, int row, const CursorStyle& style) = 0;
+    virtual void set_cursor_visible(bool visible) = 0;
     virtual void set_default_background(Color bg) = 0;
     virtual void set_scroll_offset(float px) = 0;
     // Update the screen region (scissor rect) for this host's draw calls.

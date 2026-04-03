@@ -134,7 +134,7 @@ LeafId HostManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
     update_all_viewports();
 
     // Focus the new pane
-    tree_.set_focused(new_id);
+    update_focus(new_id);
 
     return new_id;
 }
@@ -172,7 +172,7 @@ LeafId HostManager::split_focused(SplitDirection dir, HostLaunchOptions launch, 
     }
 
     update_all_viewports();
-    tree_.set_focused(new_id);
+    update_focus(new_id);
     return new_id;
 }
 
@@ -331,7 +331,7 @@ IHost* HostManager::focused_host() const
 
 void HostManager::set_focused(LeafId id)
 {
-    tree_.set_focused(id);
+    update_focus(id);
 }
 
 bool HostManager::focus_direction(FocusDirection direction)
@@ -345,8 +345,23 @@ bool HostManager::focus_direction(FocusDirection direction)
     if (neighbor == kInvalidLeaf)
         return false;
 
-    tree_.set_focused(neighbor);
+    update_focus(neighbor);
     return true;
+}
+
+void HostManager::update_focus(LeafId new_id)
+{
+    LeafId old_id = tree_.focused();
+    if (old_id == new_id)
+        return;
+
+    if (IHost* old_host = host_for(old_id))
+        old_host->on_focus_lost();
+
+    tree_.set_focused(new_id);
+
+    if (IHost* new_host = host_for(new_id))
+        new_host->on_focus_gained();
 }
 
 IHost* HostManager::host_for(LeafId id) const
@@ -361,7 +376,7 @@ IHost* HostManager::host_at_point(int px, int py)
     auto result = tree_.hit_test(px, py);
     if (const auto* leaf_hit = std::get_if<SplitTree::LeafHit>(&result))
     {
-        tree_.set_focused(leaf_hit->id);
+        update_focus(leaf_hit->id);
         return host_for(leaf_hit->id);
     }
     // If divider hit or miss, return focused host

@@ -251,6 +251,8 @@ void RendererState::restore_cursor()
 void RendererState::apply_cursor()
 {
     PERF_MEASURE();
+    if (!cursor_visible_)
+        return;
     if (cursor_col_ < 0 || cursor_col_ >= grid_cols_ || cursor_row_ < 0 || cursor_row_ >= grid_rows_)
         return;
 

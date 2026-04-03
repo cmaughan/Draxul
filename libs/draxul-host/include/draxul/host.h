@@ -130,6 +130,10 @@ public:
     }
     virtual std::optional<std::chrono::steady_clock::time_point> next_deadline() const = 0;
 
+    virtual void on_focus_gained()
+    {
+        // Default no-op; hosts override to update visual state (e.g. show cursor).
+    }
     virtual void on_focus_lost()
     {
         // Default no-op; hosts override to clear transient input state.
