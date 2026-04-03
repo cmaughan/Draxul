@@ -14,7 +14,7 @@ namespace
 constexpr Color kPanelBg{ 0.12f, 0.12f, 0.14f, 1.0f };
 constexpr Color kTextFg{ 0.9f, 0.9f, 0.92f, 1.0f };
 constexpr Color kHighlightFg{ 1.0f, 0.85f, 0.25f, 1.0f };
-constexpr Color kSelectedBg{ 0.25f, 0.45f, 0.85f, 0.6f };
+constexpr Color kSelectedBg{ 0.20f, 0.33f, 0.58f, 1.0f };
 constexpr Color kHintFg{ 0.5f, 0.5f, 0.5f, 1.0f };
 constexpr Color kSeparatorFg{ 0.35f, 0.35f, 0.38f, 1.0f };
 constexpr Color kCursorBg{ 0.8f, 0.8f, 0.8f, 0.8f };
