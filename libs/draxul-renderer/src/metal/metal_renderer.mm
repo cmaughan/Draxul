@@ -873,7 +873,22 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     if (!frame_active_ || !active_command_buffer_)
         return false;
 
-    end_main_render_encoder();
+    // If no main render encoder has run yet this frame, the drawable has not been
+    // cleared.  Issue a lightweight clear pass so the prepass (which uses
+    // LoadAction::Load) starts from a known background rather than stale data.
+    if (!main_render_encoder_started_)
+    {
+        end_main_render_encoder();
+        if (!ensure_main_render_encoder(false))
+            return false;
+        end_main_render_encoder();
+        // ensure_main_render_encoder set main_render_encoder_started_ = true,
+        // so subsequent encoders will use LoadAction::Load.
+    }
+    else
+    {
+        end_main_render_encoder();
+    }
 
     const int vx = viewport.x;
     const int vy = viewport.y;
@@ -884,6 +899,11 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     MetalRenderContext prepass_ctx(active_command_buffer_.get(), nil, current_frame_, MAX_FRAMES_IN_FLIGHT,
         pixel_w_, pixel_h_, vx, vy, vw, vh, device_.get(), drawable_tex);
     pass.record_prepass(prepass_ctx);
+
+    // A prepass may have rendered directly to the drawable (e.g. NanoVG creates
+    // its own render encoder).  Mark the drawable as touched so that the next
+    // main render encoder uses LoadAction::Load instead of Clear.
+    main_render_encoder_started_ = true;
 
     if (!ensure_main_render_encoder(pass.requires_main_depth_attachment()))
         return false;

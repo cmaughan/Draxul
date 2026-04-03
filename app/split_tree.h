@@ -32,6 +32,15 @@ class SplitTree
 public:
     static constexpr int kDividerWidth = 4;
 
+    struct DividerRect
+    {
+        int x = 0;
+        int y = 0;
+        int w = 0;
+        int h = 0;
+        SplitDirection direction = SplitDirection::Vertical;
+    };
+
     struct LeafHit
     {
         LeafId id;
@@ -95,6 +104,9 @@ public:
     void for_each_leaf(const std::function<void(LeafId, const PaneDescriptor&)>& fn) const;
 
     int leaf_count() const;
+
+    // Visit all dividers in the tree. Only called when there are splits.
+    void for_each_divider(const std::function<void(const DividerRect&)>& fn) const;
 
 private:
     struct Node;

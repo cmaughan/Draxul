@@ -155,6 +155,7 @@ endif()
 
 add_library(draxul-app
     app/app.cpp
+    app/chrome_host.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
     app/diagnostics_panel_host.cpp
@@ -327,7 +328,6 @@ if(BUILD_TESTING)
             unicode-view
             panel-view
             ligatures-view
-            nanovg-demo
         )
         foreach(DRAXUL_RENDER_NAME IN LISTS DRAXUL_RENDER_SCENARIOS)
             set(DRAXUL_RENDER_SCENARIO ${CMAKE_SOURCE_DIR}/tests/render/${DRAXUL_RENDER_NAME}.toml)

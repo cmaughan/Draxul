@@ -506,4 +506,23 @@ LeafId SplitTree::find_neighbor(LeafId id, FocusDirection direction) const
     return kInvalidLeaf;
 }
 
+void SplitTree::for_each_divider(const std::function<void(const DividerRect&)>& fn) const
+{
+    std::function<void(const Node*)> visit = [&](const Node* node) {
+        if (!node || node->is_leaf())
+            return;
+        const auto& s = node->split();
+        DividerRect r;
+        r.x = s.div_x;
+        r.y = s.div_y;
+        r.w = s.div_w;
+        r.h = s.div_h;
+        r.direction = s.direction;
+        fn(r);
+        visit(s.first.get());
+        visit(s.second.get());
+    };
+    visit(root_.get());
+}
+
 } // namespace draxul

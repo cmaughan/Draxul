@@ -10,7 +10,6 @@
 #include <draxul/config_document.h>
 #include <draxul/diagnostics_collector.h>
 #include <draxul/host.h>
-#include <draxul/nanovg_pass.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
@@ -140,7 +139,7 @@ private:
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     std::string last_render_test_error_;
     std::string last_init_error_;
-    std::unique_ptr<INanoVGPass> nanovg_demo_pass_;
+    std::unique_ptr<class ChromeHost> chrome_host_;
     DiagnosticsCollector diagnostics_collector_;
 };
 

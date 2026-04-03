@@ -210,7 +210,6 @@ AppOptions RenderTestScenario::make_app_options() const
     options.host_command = host_command;
     options.host_args = host_args;
     options.startup_commands = commands;
-    options.nanovg_demo = nanovg_demo;
     return options;
 }
 
@@ -255,8 +254,6 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
         scenario.debug_overlay = *debug_overlay;
     if (auto enable_ligatures = toml_support::get_bool(*document, "enable_ligatures"); enable_ligatures.has_value())
         scenario.enable_ligatures = *enable_ligatures;
-    if (auto nanovg_demo = toml_support::get_bool(*document, "nanovg_demo"); nanovg_demo.has_value())
-        scenario.nanovg_demo = *nanovg_demo;
     if (auto font_path = toml_support::get_string(*document, "font_path"))
         scenario.font_path = std::filesystem::path(expand_placeholders(*font_path, scenario_dir));
     if (auto fallback_paths = toml_support::get_string_array(*document, "fallback_paths"))

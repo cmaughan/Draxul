@@ -30,7 +30,6 @@ struct RenderTestScenario
     float display_ppi = 0.0f;
     bool debug_overlay = false;
     bool enable_ligatures = true;
-    bool nanovg_demo = false;
 
     std::filesystem::path reference_image_path() const;
     std::filesystem::path actual_image_path() const;
