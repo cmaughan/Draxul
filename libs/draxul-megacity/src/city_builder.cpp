@@ -1042,30 +1042,45 @@ void emit_route_entities(
             if (length <= 1e-4f)
                 continue;
 
-            const float segment_mid_length = traversed_length + length * 0.5f;
-            const float color_t = std::clamp(segment_mid_length / total_length, 0.0f, 1.0f);
-            const glm::vec4 color = glm::mix(route.source_color, route.target_color, color_t);
+            // Subdivide the segment so the color gradient is smooth rather than
+            // stepping at each bend point.
+            const float color_t_start = std::clamp(traversed_length / total_length, 0.0f, 1.0f);
+            const float color_t_end = std::clamp((traversed_length + length) / total_length, 0.0f, 1.0f);
+            constexpr float kMaxSubSegmentLength = 0.5f;
+            const int sub_count = std::max(1, static_cast<int>(std::ceil(length / kMaxSubSegmentLength)));
+            const float sub_length = length / static_cast<float>(sub_count);
+            const glm::vec2 dir = delta / length;
 
-            world.create_route_segment(
-                (a.x + b.x) * 0.5f,
-                (a.y + b.y) * 0.5f,
-                RouteSegmentMetrics{
-                    std::max(length, route_width),
-                    route_width,
-                    kDependencyRouteHeight,
-                    -std::atan2(delta.y, delta.x),
-                },
-                color,
-                SourceSymbol{},
-                layered_route_elevation,
-                RouteLink{
-                    route.source_file_path,
-                    route.source_module_path,
-                    route.source_qualified_name,
-                    route.target_file_path,
-                    route.target_module_path,
-                    route.target_qualified_name,
-                });
+            for (int sub = 0; sub < sub_count; ++sub)
+            {
+                const float frac0 = static_cast<float>(sub) / static_cast<float>(sub_count);
+                const float frac1 = static_cast<float>(sub + 1) / static_cast<float>(sub_count);
+                const glm::vec2 sub_a = a + dir * (frac0 * length);
+                const glm::vec2 sub_b = a + dir * (frac1 * length);
+                const float sub_mid_t = glm::mix(color_t_start, color_t_end, (frac0 + frac1) * 0.5f);
+                const glm::vec4 color = glm::mix(route.source_color, route.target_color, sub_mid_t);
+
+                world.create_route_segment(
+                    (sub_a.x + sub_b.x) * 0.5f,
+                    (sub_a.y + sub_b.y) * 0.5f,
+                    RouteSegmentMetrics{
+                        std::max(sub_length, route_width),
+                        route_width,
+                        kDependencyRouteHeight,
+                        -std::atan2(delta.y, delta.x),
+                    },
+                    color,
+                    SourceSymbol{},
+                    layered_route_elevation,
+                    RouteLink{
+                        route.source_file_path,
+                        route.source_module_path,
+                        route.source_qualified_name,
+                        route.target_file_path,
+                        route.target_module_path,
+                        route.target_qualified_name,
+                    });
+            }
 
             traversed_length += length;
         }
