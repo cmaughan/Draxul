@@ -27,7 +27,7 @@ namespace draxul
 namespace
 {
 
-constexpr int kSchemaVersion = 7;
+constexpr int kSchemaVersion = 8;
 
 class SqliteError final : public std::runtime_error
 {
@@ -792,13 +792,20 @@ void create_schema_v7(sqlite3* db)
     exec(db, "PRAGMA user_version = 7");
 }
 
+void create_schema_v8(sqlite3* db)
+{
+    PERF_MEASURE();
+    create_schema_v7(db);
+    exec(db, "PRAGMA user_version = 8");
+}
+
 void migrate_to_current_destructive(sqlite3* db)
 {
     PERF_MEASURE();
     // The city DB is a derived cache, so a destructive migration is acceptable
     // here and simpler than preserving the old intermediate layout.
     drop_all_tables(db);
-    create_schema_v7(db);
+    create_schema_v8(db);
 }
 
 // Returns true if a destructive migration was performed (all data rebuilt).
@@ -818,7 +825,7 @@ bool migrate_schema(sqlite3* db)
 
     bool migrated = false;
     if (version == 0)
-        create_schema_v7(db);
+        create_schema_v8(db);
     else if (version < kSchemaVersion)
     {
         migrate_to_current_destructive(db);
