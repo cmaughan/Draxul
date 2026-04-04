@@ -388,7 +388,11 @@ void App::apply_font_metrics()
         host.on_font_metrics_changed();
     });
     refresh_window_layout();
-    chrome_host_->active_host_manager().recompute_viewports(window_->width_pixels(), diagnostics_host_->layout().terminal_height);
+    {
+        const int tab_y = chrome_host_->tab_bar_height();
+        chrome_host_->active_host_manager().recompute_viewports(
+            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
+    }
     request_frame();
 }
 
@@ -531,7 +535,9 @@ void App::wire_gui_actions()
     };
     gui_deps.on_panel_toggled = [this]() {
         refresh_window_layout();
-        chrome_host_->active_host_manager().recompute_viewports(window_->width_pixels(), diagnostics_host_->layout().terminal_height);
+        const int tab_y = chrome_host_->tab_bar_height();
+        chrome_host_->active_host_manager().recompute_viewports(
+            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
         update_diagnostics_panel();
         request_frame();
     };
@@ -552,7 +558,9 @@ void App::wire_gui_actions()
     };
     gui_deps.on_reload_config = [this]() { reload_config(); };
     gui_deps.on_toggle_zoom = [this]() {
-        chrome_host_->active_host_manager().toggle_zoom(window_->width_pixels(), diagnostics_host_->layout().terminal_height);
+        const int tab_y = chrome_host_->tab_bar_height();
+        chrome_host_->active_host_manager().toggle_zoom(
+            window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
         input_dispatcher_.set_host(chrome_host_->active_host_manager().focused_host());
         request_frame();
     };
@@ -599,9 +607,19 @@ void App::wire_gui_actions()
     gui_deps.on_focus_up = [focus_pane]() { focus_pane(FocusDirection::Up); };
     gui_deps.on_focus_down = [focus_pane]() { focus_pane(FocusDirection::Down); };
     gui_deps.on_new_tab = [this]() {
-        int id = chrome_host_->add_workspace(*this, window_->width_pixels(), diagnostics_host_->layout().terminal_height);
+        const int pw = window_->width_pixels();
+        const int th = diagnostics_host_->layout().terminal_height;
+        // Pre-compute tab bar height after adding (will be non-zero if going from 1→2).
+        const bool was_single = (chrome_host_->workspace_count() == 1);
+        int id = chrome_host_->add_workspace(*this, pw, th);
         if (id >= 0)
         {
+            // If the tab bar just appeared, recompute all workspaces' viewports.
+            if (was_single)
+            {
+                const int tab_y = chrome_host_->tab_bar_height();
+                chrome_host_->active_host_manager().recompute_viewports(0, tab_y, pw, th - tab_y);
+            }
             input_dispatcher_.set_host(chrome_host_->active_host_manager().focused_host());
             request_frame();
         }
@@ -609,9 +627,17 @@ void App::wire_gui_actions()
     gui_deps.on_close_tab = [this]() {
         if (chrome_host_->workspace_count() <= 1)
             return;
+        const bool will_become_single = (chrome_host_->workspace_count() == 2);
         int closing = chrome_host_->active_workspace_id();
         input_dispatcher_.set_host(nullptr);
         chrome_host_->close_workspace(closing, *this);
+        // If the tab bar just disappeared, recompute viewports at full height.
+        if (will_become_single)
+        {
+            const int pw = window_->width_pixels();
+            const int th = diagnostics_host_->layout().terminal_height;
+            chrome_host_->active_host_manager().recompute_viewports(pw, th);
+        }
         input_dispatcher_.set_host(chrome_host_->active_host_manager().focused_host());
         request_frame();
     };
@@ -783,8 +809,11 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
                     // Enable the diagnostics panel and wait for it to render.
                     diagnostics_host_->set_visible(true);
                     refresh_window_layout();
-                    chrome_host_->active_host_manager().recompute_viewports(
-                        window_->width_pixels(), diagnostics_host_->layout().terminal_height);
+                    {
+                        const int tab_y = chrome_host_->tab_bar_height();
+                        chrome_host_->active_host_manager().recompute_viewports(
+                            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
+                    }
                     update_diagnostics_panel();
                     request_frame();
                     ctx.diagnostics_enabled_at = now;
@@ -1057,7 +1086,11 @@ void App::on_resize(int pixel_w, int pixel_h)
     last_pixel_h_ = pixel_h;
     renderer_.grid()->resize(pixel_w, pixel_h);
     refresh_window_layout();
-    chrome_host_->active_host_manager().recompute_viewports(pixel_w, diagnostics_host_->layout().terminal_height);
+    {
+        const int tab_y = chrome_host_->tab_bar_height();
+        chrome_host_->active_host_manager().recompute_viewports(
+            0, tab_y, pixel_w, diagnostics_host_->layout().terminal_height - tab_y);
+    }
     if (chrome_host_)
     {
         HostViewport vp;

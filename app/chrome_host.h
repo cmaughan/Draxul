@@ -5,6 +5,7 @@
 #include <draxul/base_renderer.h>
 #include <draxul/host.h>
 #include <draxul/nanovg_pass.h>
+#include <draxul/renderer.h>
 #include <vector>
 
 struct NVGcontext;
@@ -111,6 +112,10 @@ public:
 
 private:
     HostManager::Deps make_host_manager_deps() const;
+    void draw_dividers_and_focus(IFrameContext& frame);
+    void draw_tab_bar(IFrameContext& frame);
+    void update_tab_grid();
+    void flush_atlas_if_dirty();
 
     Deps deps_;
     std::vector<std::unique_ptr<Workspace>> workspaces_;
@@ -118,6 +123,7 @@ private:
     int next_workspace_id_ = 0;
 
     std::unique_ptr<INanoVGPass> nanovg_pass_;
+    std::unique_ptr<IGridHandle> tab_handle_;
     HostViewport viewport_{};
     bool running_ = false;
     std::string last_create_error_;

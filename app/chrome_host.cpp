@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <draxul/text_service.h>
 #include <nanovg.h>
 
 namespace draxul
@@ -26,6 +28,7 @@ void ChromeHost::shutdown()
         ws->host_manager.shutdown();
     workspaces_.clear();
     active_workspace_ = -1;
+    tab_handle_.reset();
     nanovg_pass_.reset();
     running_ = false;
 }
@@ -182,8 +185,13 @@ const SplitTree& ChromeHost::active_tree() const
 
 int ChromeHost::tab_bar_height() const
 {
-    // Single workspace: no tab bar.
-    return 0;
+    if (workspaces_.size() <= 1)
+        return 0;
+    if (!deps_.grid_renderer)
+        return 0;
+    const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
+    // One cell row height plus a small padding for the accent line.
+    return ch + 4;
 }
 
 int ChromeHost::active_workspace_id() const
@@ -212,6 +220,227 @@ void ChromeHost::draw(IFrameContext& frame)
     if (!nanovg_pass_)
         return;
 
+    // Draw tab bar when multiple workspaces exist.
+    if (workspaces_.size() > 1)
+        draw_tab_bar(frame);
+
+    // Draw dividers and focus indicator when there are splits.
+    draw_dividers_and_focus(frame);
+}
+
+// ---------------------------------------------------------------------------
+// Tab bar: NanoVG shapes + grid handle text
+// ---------------------------------------------------------------------------
+
+namespace
+{
+constexpr Color kTabBarBg{ 0.08f, 0.08f, 0.10f, 1.0f };
+constexpr Color kActiveTabBg{ 0.16f, 0.16f, 0.20f, 1.0f };
+constexpr Color kInactiveTabBg{ 0.10f, 0.10f, 0.13f, 1.0f };
+constexpr Color kActiveTabFg{ 0.92f, 0.92f, 0.94f, 1.0f };
+constexpr Color kInactiveTabFg{ 0.50f, 0.50f, 0.55f, 1.0f };
+constexpr Color kAccentColor{ 0.55f, 0.20f, 0.22f, 1.0f }; // muted burgundy
+constexpr int kTabPadCols = 1; // padding cells on each side of tab label
+constexpr float kTabGap = 2.0f; // pixel gap between tabs
+constexpr float kTabRadius = 4.0f; // top corner radius
+constexpr float kAccentHeight = 2.0f; // accent line thickness
+} // namespace
+
+void ChromeHost::draw_tab_bar(IFrameContext& frame)
+{
+    if (!deps_.grid_renderer || !deps_.text_service)
+        return;
+
+    const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
+    if (cw <= 0 || ch <= 0)
+        return;
+
+    const int bar_h = tab_bar_height();
+    const int bar_w = viewport_.pixel_size.x;
+
+    // --- Build tab geometry for NanoVG ---
+    struct TabRect
+    {
+        float x, y, w, h;
+        bool active;
+    };
+    std::vector<TabRect> tabs;
+    float x_cursor = kTabGap;
+    for (const auto& ws : workspaces_)
+    {
+        const int label_cols = static_cast<int>(ws->name.size()) + kTabPadCols * 2;
+        const float tab_w = static_cast<float>(label_cols * cw);
+        const float tab_h = static_cast<float>(ch);
+        bool is_active = (ws->id == active_workspace_);
+        tabs.push_back({ x_cursor, kTabGap, tab_w, tab_h, is_active });
+        x_cursor += tab_w + kTabGap;
+    }
+
+    // NanoVG draws: bar background, tab rects, accent line under active tab.
+    nanovg_pass_->set_draw_callback(
+        [tabs, bar_w, bar_h](NVGcontext* vg, int /*w*/, int /*h*/) {
+            // Bar background
+            nvgBeginPath(vg);
+            nvgRect(vg, 0, 0, static_cast<float>(bar_w), static_cast<float>(bar_h));
+            nvgFillColor(vg, nvgRGBAf(kTabBarBg.r, kTabBarBg.g, kTabBarBg.b, kTabBarBg.a));
+            nvgFill(vg);
+
+            for (const auto& tab : tabs)
+            {
+                const auto& bg = tab.active ? kActiveTabBg : kInactiveTabBg;
+
+                // Tab body — rounded top corners.
+                nvgBeginPath(vg);
+                nvgRoundedRectVarying(vg, tab.x, tab.y, tab.w, tab.h,
+                    kTabRadius, kTabRadius, 0.0f, 0.0f);
+                nvgFillColor(vg, nvgRGBAf(bg.r, bg.g, bg.b, bg.a));
+                nvgFill(vg);
+
+                // Accent line under active tab.
+                if (tab.active)
+                {
+                    nvgBeginPath(vg);
+                    nvgRect(vg, tab.x, tab.y + tab.h, tab.w, kAccentHeight);
+                    nvgFillColor(vg, nvgRGBAf(kAccentColor.r, kAccentColor.g, kAccentColor.b, kAccentColor.a));
+                    nvgFill(vg);
+                }
+            }
+        });
+
+    RenderViewport vp;
+    vp.width = bar_w;
+    vp.height = bar_h;
+    frame.record_render_pass(*nanovg_pass_, vp);
+
+    // --- Grid handle draws tab label text ---
+    update_tab_grid();
+    if (tab_handle_)
+        frame.draw_grid_handle(*tab_handle_);
+}
+
+void ChromeHost::update_tab_grid()
+{
+    if (!deps_.grid_renderer || !deps_.text_service)
+        return;
+
+    const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
+    if (cw <= 0 || ch <= 0)
+        return;
+
+    const int bar_w = viewport_.pixel_size.x;
+    const int bar_h = tab_bar_height();
+    const int grid_cols = bar_w / cw;
+    const int grid_rows = bar_h / ch;
+
+    if (grid_cols <= 0 || grid_rows <= 0)
+        return;
+
+    if (!tab_handle_)
+    {
+        tab_handle_ = deps_.grid_renderer->create_grid_handle();
+        PaneDescriptor desc;
+        desc.pixel_pos = { 0, 0 };
+        desc.pixel_size = { bar_w, bar_h };
+        tab_handle_->set_viewport(desc);
+    }
+    else
+    {
+        PaneDescriptor desc;
+        desc.pixel_pos = { 0, 0 };
+        desc.pixel_size = { bar_w, bar_h };
+        tab_handle_->set_viewport(desc);
+    }
+
+    tab_handle_->set_grid_size(grid_cols, grid_rows);
+    tab_handle_->set_cursor(-1, -1, CursorStyle{});
+
+    // Build CellUpdates for tab labels.
+    std::vector<CellUpdate> cells;
+    const Color transparent{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+    // Fill all cells transparent so NanoVG shapes show through.
+    for (int r = 0; r < grid_rows; ++r)
+    {
+        for (int c = 0; c < grid_cols; ++c)
+        {
+            CellUpdate cell{};
+            cell.col = c;
+            cell.row = r;
+            cell.bg = transparent;
+            cell.fg = transparent;
+            cells.push_back(cell);
+        }
+    }
+
+    // Write tab labels into row 0, positioned to match the NanoVG tab rects.
+    int col_cursor = 0;
+    // kTabGap is in pixels; convert to columns (round up to avoid overlap).
+    const int gap_cols = std::max(1, static_cast<int>(std::ceil(kTabGap / cw)));
+    col_cursor += gap_cols;
+
+    for (const auto& ws : workspaces_)
+    {
+        const bool is_active = (ws->id == active_workspace_);
+        const Color& fg = is_active ? kActiveTabFg : kInactiveTabFg;
+
+        col_cursor += kTabPadCols; // left padding
+
+        for (size_t ci = 0; ci < ws->name.size(); ++ci)
+        {
+            const int col = col_cursor + static_cast<int>(ci);
+            if (col >= grid_cols)
+                break;
+
+            const std::string cluster(1, ws->name[ci]);
+            AtlasRegion glyph = deps_.text_service->resolve_cluster(cluster);
+
+            // Overwrite the transparent cell at this position.
+            auto& cell = cells[static_cast<size_t>(col)]; // row 0
+            cell.fg = fg;
+            cell.glyph = glyph;
+        }
+
+        col_cursor += static_cast<int>(ws->name.size()) + kTabPadCols; // text + right pad
+        col_cursor += gap_cols; // gap to next tab
+    }
+
+    tab_handle_->update_cells(cells);
+    flush_atlas_if_dirty();
+}
+
+void ChromeHost::flush_atlas_if_dirty()
+{
+    if (!deps_.text_service || !deps_.grid_renderer)
+        return;
+    if (!deps_.text_service->atlas_dirty())
+        return;
+
+    const auto dirty = deps_.text_service->atlas_dirty_rect();
+    if (dirty.size.x <= 0 || dirty.size.y <= 0)
+        return;
+
+    constexpr size_t kPixelSize = 4;
+    const size_t row_bytes = static_cast<size_t>(dirty.size.x) * kPixelSize;
+    std::vector<uint8_t> scratch(row_bytes * dirty.size.y);
+    const uint8_t* atlas = deps_.text_service->atlas_data();
+    const int atlas_w = deps_.text_service->atlas_width();
+    for (int r = 0; r < dirty.size.y; ++r)
+    {
+        const uint8_t* src = atlas
+            + (static_cast<size_t>(dirty.pos.y + r) * atlas_w + dirty.pos.x) * kPixelSize;
+        std::memcpy(scratch.data() + static_cast<size_t>(r) * row_bytes, src, row_bytes);
+    }
+    deps_.grid_renderer->update_atlas_region(
+        dirty.pos.x, dirty.pos.y, dirty.size.x, dirty.size.y, scratch.data());
+    deps_.text_service->clear_atlas_dirty();
+}
+
+// ---------------------------------------------------------------------------
+// Dividers and focus indicator (NanoVG only)
+// ---------------------------------------------------------------------------
+
+void ChromeHost::draw_dividers_and_focus(IFrameContext& frame)
+{
     const auto& tree = active_tree();
     if (tree.leaf_count() < 2)
         return;
@@ -276,8 +505,6 @@ void ChromeHost::draw(IFrameContext& frame)
             }
 
             // Focus indicator — muted burgundy on right and bottom edges only.
-            // At divider boundaries, draw on the divider centre line;
-            // at window edges, inset so the stroke stays visible.
             if (focus_rect)
             {
                 constexpr float border = 2.0f;
