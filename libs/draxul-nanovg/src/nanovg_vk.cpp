@@ -150,6 +150,9 @@ struct VkNVGcontext
     std::vector<NVGvertex> verts;
     std::vector<uint8_t> uniforms;
 
+    // Reused each frame to avoid per-frame heap allocation.
+    std::unordered_map<int, VkDescriptorSet> textureDescriptorSets;
+
     // Texture management
     std::vector<VkNVGtexture> textures;
     int textureIdCounter = 0;
@@ -602,13 +605,13 @@ static int vknvg__renderCreate(void* uptr)
     {
         VkDescriptorPoolSize poolSizes[2] = {};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        poolSizes[0].descriptorCount = 256;
+        poolSizes[0].descriptorCount = 1024;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[1].descriptorCount = 256;
+        poolSizes[1].descriptorCount = 1024;
 
         VkDescriptorPoolCreateInfo ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        ci.maxSets = 256;
+        ci.maxSets = 1024;
         ci.poolSizeCount = 2;
         ci.pPoolSizes = poolSizes;
 
@@ -1506,7 +1509,7 @@ static void vknvg__renderFlush(void* uptr)
     vkCmdSetStencilCompareMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
     vkCmdSetStencilWriteMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
 
-    std::unordered_map<int, VkDescriptorSet> textureDescriptorSets;
+    vk->textureDescriptorSets.clear();
 
     // Dispatch calls
     for (const auto& call : vk->calls)
@@ -1517,15 +1520,15 @@ static void vknvg__renderFlush(void* uptr)
             VkNVGtexture* t = vknvg__findTexture(vk, call.image);
             if (t && t->imageView != VK_NULL_HANDLE)
             {
-                const auto it = textureDescriptorSets.find(call.image);
-                if (it != textureDescriptorSets.end())
+                const auto it = vk->textureDescriptorSets.find(call.image);
+                if (it != vk->textureDescriptorSets.end())
                 {
                     drawDS = it->second;
                 }
                 else if (VkDescriptorSet textureDS = allocDrawDescriptorSet(t->imageView);
                          textureDS != VK_NULL_HANDLE)
                 {
-                    textureDescriptorSets.emplace(call.image, textureDS);
+                    vk->textureDescriptorSets.emplace(call.image, textureDS);
                     drawDS = textureDS;
                 }
             }

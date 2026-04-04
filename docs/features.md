@@ -280,7 +280,7 @@ SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA
 |----------|-------------|
 | `build.yml` | Windows + macOS build, test, render-test artifacts |
 | `asan.yml` | AddressSanitizer builds (macOS) |
-| `coverage.yml` | LLVM coverage collection (macOS) |
+| `coverage.yml` | LLVM coverage collection (macOS), uploads `build/coverage.lcov` as an artifact and to Codecov |
 | `format.yml` | clang-format lint |
 | `sonar.yml` | SonarCloud code quality |
 | `docs.yml` | Documentation generation |

@@ -111,7 +111,7 @@ Single-word shortcuts:
                Run consensus synthesis on the latest reviews (default: claude)
   consensus-bugs [claude|gpt|gemini]
                Run bug triage consensus on the latest bug reviews (default: claude)
-  coverage     Build with LLVM coverage, run tests, export build/coverage.lcov
+  coverage     macOS: build with LLVM coverage, run tests, export build/coverage.lcov
   syncboard    Sync work-items and icebox to the GitHub project board
 
 Deterministic render snapshots:
@@ -263,6 +263,9 @@ def main() -> int:
         return run(cmd, root)
 
     if command == "coverage":
+        if not sys.platform.startswith("darwin"):
+            print("ERROR: coverage export is currently supported only on macOS; the local output path is build/coverage.lcov.")
+            return 1
         bd = build_dir(root)
         # 1. Configure with coverage preset
         rc = run(["cmake", "--preset", "mac-coverage"], root)
