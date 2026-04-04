@@ -546,6 +546,60 @@ std::vector<AssignedRoutePorts> assign_route_ports(
     const std::vector<RoutePair>& route_pairs, const CityGrid& grid)
 {
     PERF_MEASURE();
+
+    // Pre-compute a shared source side for abstract fan-out clusters.
+    // All routes from the same source building + field that are abstract refs
+    // exit from the same side (toward the centroid of their targets).
+    struct AbstractClusterKey
+    {
+        std::string source_key;
+        std::string field_name;
+        bool operator==(const AbstractClusterKey& other) const
+        {
+            return source_key == other.source_key && field_name == other.field_name;
+        }
+    };
+    struct AbstractClusterKeyHash
+    {
+        size_t operator()(const AbstractClusterKey& k) const
+        {
+            size_t h1 = std::hash<std::string>{}(k.source_key);
+            size_t h2 = std::hash<std::string>{}(k.field_name);
+            return h1 ^ (h2 * 2654435761u);
+        }
+    };
+    struct ClusterAccum
+    {
+        const SemanticCityBuilding* source = nullptr;
+        glm::vec2 target_centroid_sum{ 0.0f };
+        int count = 0;
+    };
+    std::unordered_map<AbstractClusterKey, ClusterAccum, AbstractClusterKeyHash> abstract_clusters;
+    for (const auto& route : route_pairs)
+    {
+        if (!route.is_abstract_ref || route.source == nullptr || route.target == nullptr)
+            continue;
+        AbstractClusterKey key{
+            building_key(route.source->source_file_path, route.source->module_path, route.source->qualified_name),
+            route.field_name
+        };
+        auto& accum = abstract_clusters[key];
+        accum.source = route.source;
+        accum.target_centroid_sum += route.target->center;
+        ++accum.count;
+    }
+    // Resolve each cluster with 2+ targets to a shared side.
+    std::unordered_map<AbstractClusterKey, PortSide, AbstractClusterKeyHash> abstract_shared_side;
+    for (const auto& [key, accum] : abstract_clusters)
+    {
+        if (accum.count < 2)
+            continue;
+        const glm::vec2 centroid = accum.target_centroid_sum / static_cast<float>(accum.count);
+        SemanticCityBuilding centroid_building;
+        centroid_building.center = centroid;
+        abstract_shared_side[key] = side_towards(*accum.source, centroid_building);
+    }
+
     std::unordered_map<std::string, std::vector<RouteEndpointRequest>> groups;
     groups.reserve(route_pairs.size() * 2);
 
@@ -555,7 +609,18 @@ std::vector<AssignedRoutePorts> assign_route_ports(
         if (route.source == nullptr || route.target == nullptr)
             continue;
 
-        const PortSide source_side = side_towards(*route.source, *route.target);
+        PortSide source_side = side_towards(*route.source, *route.target);
+        // Override with shared side for abstract fan-out clusters.
+        if (route.is_abstract_ref)
+        {
+            AbstractClusterKey key{
+                building_key(route.source->source_file_path, route.source->module_path, route.source->qualified_name),
+                route.field_name
+            };
+            const auto shared_it = abstract_shared_side.find(key);
+            if (shared_it != abstract_shared_side.end())
+                source_side = shared_it->second;
+        }
         const PortSide target_side = side_towards(*route.target, *route.source);
 
         groups[route_port_group_key(
