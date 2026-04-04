@@ -100,6 +100,9 @@ public:
     // Tab bar height in pixels. Returns 0 when there is only one workspace.
     int tab_bar_height() const;
 
+    // Recompute viewports for ALL workspaces (not just active).
+    void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
+
     int workspace_count() const
     {
         return static_cast<int>(workspaces_.size());

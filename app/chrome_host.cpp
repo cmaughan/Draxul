@@ -200,6 +200,12 @@ int ChromeHost::tab_bar_height() const
     return ch + 4;
 }
 
+void ChromeHost::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
+{
+    for (auto& ws : workspaces_)
+        ws->host_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
+}
+
 int ChromeHost::active_workspace_id() const
 {
     return active_workspace_;
@@ -229,10 +235,10 @@ namespace
 {
 // Catppuccin Mocha
 constexpr Color kTabBarBg{ 0.118f, 0.118f, 0.180f, 1.0f }; // #1e1e2e Base
-constexpr Color kActiveTabBg{ 0.271f, 0.278f, 0.353f, 1.0f }; // #45475a Surface1
-constexpr Color kInactiveTabBg{ 0.192f, 0.196f, 0.267f, 1.0f }; // #313244 Surface0
+constexpr Color kActiveTabBg{ 0.341f, 0.345f, 0.431f, 1.0f }; // #585b6e Surface2 (brighter)
+constexpr Color kInactiveTabBg{ 0.231f, 0.235f, 0.318f, 1.0f }; // #3b3c51 between Surface0-1
 constexpr Color kActiveTabFg{ 0.804f, 0.839f, 0.957f, 1.0f }; // #cdd6f4 Text
-constexpr Color kInactiveTabFg{ 0.424f, 0.439f, 0.525f, 1.0f }; // #6c7086 Overlay0
+constexpr Color kInactiveTabFg{ 0.533f, 0.545f, 0.631f, 1.0f }; // #888ba1 Overlay1
 constexpr Color kAccentColor{ 0.796f, 0.651f, 0.969f, 1.0f }; // #cba6f7 Mauve
 constexpr int kTabPadCols = 1; // padding cells on each side of tab label
 constexpr float kTabGap = 2.0f; // pixel gap between tabs
@@ -453,7 +459,10 @@ void ChromeHost::update_tab_grid()
         return;
 
     if (!tab_handle_)
+    {
         tab_handle_ = deps_.grid_renderer->create_grid_handle();
+        tab_handle_->set_default_background({ 0, 0, 0, 0 });
+    }
 
     PaneDescriptor desc;
     desc.pixel_pos = { 0, 0 };
