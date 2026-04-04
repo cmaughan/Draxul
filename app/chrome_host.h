@@ -112,8 +112,6 @@ public:
 
 private:
     HostManager::Deps make_host_manager_deps() const;
-    void draw_dividers_and_focus(IFrameContext& frame);
-    void draw_tab_bar(IFrameContext& frame);
     void update_tab_grid();
     void flush_atlas_if_dirty();
 

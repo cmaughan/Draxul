@@ -52,7 +52,10 @@ bool ChromeHost::create_initial_workspace(IHostCallbacks& callbacks, int pixel_w
         return false;
     }
     ws->initialized = true;
-    ws->name = "Tab 1";
+    if (IHost* h = ws->host_manager.host())
+        ws->name = h->debug_state().name;
+    else
+        ws->name = "tab";
     active_workspace_ = ws->id;
     workspaces_.push_back(std::move(ws));
     return true;
@@ -67,7 +70,10 @@ int ChromeHost::add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_
         return -1;
     }
     ws->initialized = true;
-    ws->name = "Tab " + std::to_string(workspaces_.size() + 1);
+    if (IHost* h = ws->host_manager.host())
+        ws->name = h->debug_state().name;
+    else
+        ws->name = "tab";
     int id = ws->id;
     workspaces_.push_back(std::move(ws));
     activate_workspace(id);
@@ -215,107 +221,218 @@ HostManager::Deps ChromeHost::make_host_manager_deps() const
     return hm_deps;
 }
 
+// ---------------------------------------------------------------------------
+// Tab bar: Catppuccin Mocha palette
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// Catppuccin Mocha
+constexpr Color kTabBarBg{ 0.118f, 0.118f, 0.180f, 1.0f }; // #1e1e2e Base
+constexpr Color kActiveTabBg{ 0.271f, 0.278f, 0.353f, 1.0f }; // #45475a Surface1
+constexpr Color kInactiveTabBg{ 0.192f, 0.196f, 0.267f, 1.0f }; // #313244 Surface0
+constexpr Color kActiveTabFg{ 0.804f, 0.839f, 0.957f, 1.0f }; // #cdd6f4 Text
+constexpr Color kInactiveTabFg{ 0.424f, 0.439f, 0.525f, 1.0f }; // #6c7086 Overlay0
+constexpr Color kAccentColor{ 0.796f, 0.651f, 0.969f, 1.0f }; // #cba6f7 Mauve
+constexpr int kTabPadCols = 1; // padding cells on each side of tab label
+constexpr float kTabGap = 2.0f; // pixel gap between tabs
+constexpr float kTabRadius = 4.0f; // top corner radius
+constexpr float kAccentHeight = 2.0f; // accent line thickness
+
+std::string tab_label(size_t index, const std::string& name)
+{
+    return std::to_string(index + 1) + ": " + name;
+}
+} // namespace
+
 void ChromeHost::draw(IFrameContext& frame)
 {
     if (!nanovg_pass_)
         return;
 
-    // Draw tab bar when multiple workspaces exist.
-    if (workspaces_.size() > 1)
-        draw_tab_bar(frame);
+    const bool show_tabs = workspaces_.size() > 1;
+    const bool show_dividers = active_tree().leaf_count() >= 2;
 
-    // Draw dividers and focus indicator when there are splits.
-    draw_dividers_and_focus(frame);
-}
-
-// ---------------------------------------------------------------------------
-// Tab bar: NanoVG shapes + grid handle text
-// ---------------------------------------------------------------------------
-
-namespace
-{
-constexpr Color kTabBarBg{ 0.08f, 0.08f, 0.10f, 1.0f };
-constexpr Color kActiveTabBg{ 0.16f, 0.16f, 0.20f, 1.0f };
-constexpr Color kInactiveTabBg{ 0.10f, 0.10f, 0.13f, 1.0f };
-constexpr Color kActiveTabFg{ 0.92f, 0.92f, 0.94f, 1.0f };
-constexpr Color kInactiveTabFg{ 0.50f, 0.50f, 0.55f, 1.0f };
-constexpr Color kAccentColor{ 0.55f, 0.20f, 0.22f, 1.0f }; // muted burgundy
-constexpr int kTabPadCols = 1; // padding cells on each side of tab label
-constexpr float kTabGap = 2.0f; // pixel gap between tabs
-constexpr float kTabRadius = 4.0f; // top corner radius
-constexpr float kAccentHeight = 2.0f; // accent line thickness
-} // namespace
-
-void ChromeHost::draw_tab_bar(IFrameContext& frame)
-{
-    if (!deps_.grid_renderer || !deps_.text_service)
+    if (!show_tabs && !show_dividers)
         return;
 
-    const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
-    if (cw <= 0 || ch <= 0)
-        return;
+    // --- Collect all NanoVG geometry into a single callback ---
 
-    const int bar_h = tab_bar_height();
-    const int bar_w = viewport_.pixel_size.x;
-
-    // --- Build tab geometry for NanoVG ---
+    // Tab bar geometry.
     struct TabRect
     {
         float x, y, w, h;
         bool active;
     };
-    std::vector<TabRect> tabs;
-    float x_cursor = kTabGap;
-    for (const auto& ws : workspaces_)
+    std::vector<TabRect> tab_rects;
+    int bar_w = viewport_.pixel_size.x;
+    int bar_h = 0;
+
+    if (show_tabs && deps_.grid_renderer)
     {
-        const int label_cols = static_cast<int>(ws->name.size()) + kTabPadCols * 2;
-        const float tab_w = static_cast<float>(label_cols * cw);
-        const float tab_h = static_cast<float>(ch);
-        bool is_active = (ws->id == active_workspace_);
-        tabs.push_back({ x_cursor, kTabGap, tab_w, tab_h, is_active });
-        x_cursor += tab_w + kTabGap;
+        const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
+        if (cw > 0 && ch > 0)
+        {
+            bar_h = tab_bar_height();
+            float x_cursor = kTabGap;
+            for (size_t wi = 0; wi < workspaces_.size(); ++wi)
+            {
+                const auto& ws = workspaces_[wi];
+                const std::string label = tab_label(wi, ws->name);
+                const int label_cols = static_cast<int>(label.size()) + kTabPadCols * 2;
+                const float tab_w = static_cast<float>(label_cols * cw);
+                const float tab_h = static_cast<float>(ch);
+                tab_rects.push_back({ x_cursor, kTabGap, tab_w, tab_h, ws->id == active_workspace_ });
+                x_cursor += tab_w + kTabGap;
+            }
+        }
     }
 
-    // NanoVG draws: bar background, tab rects, accent line under active tab.
-    nanovg_pass_->set_draw_callback(
-        [tabs, bar_w, bar_h](NVGcontext* vg, int /*w*/, int /*h*/) {
-            // Bar background
-            nvgBeginPath(vg);
-            nvgRect(vg, 0, 0, static_cast<float>(bar_w), static_cast<float>(bar_h));
-            nvgFillColor(vg, nvgRGBAf(kTabBarBg.r, kTabBarBg.g, kTabBarBg.b, kTabBarBg.a));
-            nvgFill(vg);
+    // Divider geometry.
+    struct Divider
+    {
+        float x, y, w, h;
+        SplitDirection dir;
+    };
+    std::vector<Divider> dividers;
+    struct FocusRect
+    {
+        float x, y, w, h;
+    };
+    std::optional<FocusRect> focus_rect;
 
-            for (const auto& tab : tabs)
+    if (show_dividers)
+    {
+        const auto& tree = active_tree();
+        tree.for_each_divider([&](const SplitTree::DividerRect& r) {
+            dividers.push_back({ static_cast<float>(r.x), static_cast<float>(r.y),
+                static_cast<float>(r.w), static_cast<float>(r.h), r.direction });
+        });
+
+        const LeafId focused = tree.focused();
+        if (focused != kInvalidLeaf)
+        {
+            const auto desc = tree.descriptor_for(focused);
+            if (desc.pixel_size.x > 0 && desc.pixel_size.y > 0)
             {
-                const auto& bg = tab.active ? kActiveTabBg : kInactiveTabBg;
+                focus_rect = FocusRect{
+                    static_cast<float>(desc.pixel_pos.x),
+                    static_cast<float>(desc.pixel_pos.y),
+                    static_cast<float>(desc.pixel_size.x),
+                    static_cast<float>(desc.pixel_size.y)
+                };
+            }
+        }
+    }
 
-                // Tab body — rounded top corners.
+    // Single NanoVG callback draws everything: tab bar shapes + dividers + focus.
+    nanovg_pass_->set_draw_callback(
+        [tab_rects = std::move(tab_rects), bar_w, bar_h,
+            dividers = std::move(dividers), focus_rect](NVGcontext* vg, int /*w*/, int /*h*/) {
+            // --- Tab bar ---
+            if (!tab_rects.empty())
+            {
+                // Bar background
                 nvgBeginPath(vg);
-                nvgRoundedRectVarying(vg, tab.x, tab.y, tab.w, tab.h,
-                    kTabRadius, kTabRadius, 0.0f, 0.0f);
-                nvgFillColor(vg, nvgRGBAf(bg.r, bg.g, bg.b, bg.a));
+                nvgRect(vg, 0, 0, static_cast<float>(bar_w), static_cast<float>(bar_h));
+                nvgFillColor(vg, nvgRGBAf(kTabBarBg.r, kTabBarBg.g, kTabBarBg.b, kTabBarBg.a));
                 nvgFill(vg);
 
-                // Accent line under active tab.
-                if (tab.active)
+                for (const auto& tab : tab_rects)
                 {
+                    const auto& bg = tab.active ? kActiveTabBg : kInactiveTabBg;
+
+                    // Tab body — rounded top corners.
                     nvgBeginPath(vg);
-                    nvgRect(vg, tab.x, tab.y + tab.h, tab.w, kAccentHeight);
-                    nvgFillColor(vg, nvgRGBAf(kAccentColor.r, kAccentColor.g, kAccentColor.b, kAccentColor.a));
+                    nvgRoundedRectVarying(vg, tab.x, tab.y, tab.w, tab.h,
+                        kTabRadius, kTabRadius, 0.0f, 0.0f);
+                    nvgFillColor(vg, nvgRGBAf(bg.r, bg.g, bg.b, bg.a));
                     nvgFill(vg);
+
+                    // Accent line under active tab.
+                    if (tab.active)
+                    {
+                        nvgBeginPath(vg);
+                        nvgRect(vg, tab.x, tab.y + tab.h, tab.w, kAccentHeight);
+                        nvgFillColor(vg, nvgRGBAf(kAccentColor.r, kAccentColor.g, kAccentColor.b, kAccentColor.a));
+                        nvgFill(vg);
+                    }
                 }
+            }
+
+            // --- Divider lines ---
+            for (const auto& d : dividers)
+            {
+                nvgBeginPath(vg);
+                if (d.dir == SplitDirection::Vertical)
+                {
+                    float cx = d.x + d.w * 0.5f;
+                    nvgMoveTo(vg, cx, d.y);
+                    nvgLineTo(vg, cx, d.y + d.h);
+                }
+                else
+                {
+                    float cy = d.y + d.h * 0.5f;
+                    nvgMoveTo(vg, d.x, cy);
+                    nvgLineTo(vg, d.x + d.w, cy);
+                }
+                nvgStrokeColor(vg, nvgRGBA(120, 120, 140, 220));
+                nvgStrokeWidth(vg, 1.0f);
+                nvgStroke(vg);
+            }
+
+            // --- Focus indicator ---
+            if (focus_rect)
+            {
+                constexpr float border = 2.0f;
+                constexpr float half = border * 0.5f;
+                constexpr float div_half = static_cast<float>(SplitTree::kDividerWidth) * 0.5f;
+
+                const float pane_right = focus_rect->x + focus_rect->w;
+                const float pane_bottom = focus_rect->y + focus_rect->h;
+
+                bool has_right_divider = false;
+                bool has_bottom_divider = false;
+                for (const auto& d : dividers)
+                {
+                    if (d.dir == SplitDirection::Vertical
+                        && std::abs(d.x - pane_right) < 1.0f)
+                        has_right_divider = true;
+                    if (d.dir == SplitDirection::Horizontal
+                        && std::abs(d.y - pane_bottom) < 1.0f)
+                        has_bottom_divider = true;
+                }
+                const float right = has_right_divider ? (pane_right + div_half) : (pane_right - half);
+                const float bottom = has_bottom_divider ? (pane_bottom + div_half) : (pane_bottom - half);
+
+                nvgStrokeColor(vg, nvgRGBA(140, 50, 55, 200));
+                nvgStrokeWidth(vg, border);
+
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, right, focus_rect->y);
+                nvgLineTo(vg, right, bottom);
+                nvgStroke(vg);
+
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, focus_rect->x, bottom);
+                nvgLineTo(vg, right, bottom);
+                nvgStroke(vg);
             }
         });
 
+    // NanoVG pass covers the full viewport (tab bar + content area).
     RenderViewport vp;
-    vp.width = bar_w;
-    vp.height = bar_h;
+    vp.width = viewport_.pixel_size.x;
+    vp.height = viewport_.pixel_size.y;
     frame.record_render_pass(*nanovg_pass_, vp);
 
-    // --- Grid handle draws tab label text ---
-    update_tab_grid();
-    if (tab_handle_)
-        frame.draw_grid_handle(*tab_handle_);
+    // Grid handle draws tab label text on top of NanoVG shapes.
+    if (show_tabs)
+    {
+        update_tab_grid();
+        if (tab_handle_)
+            frame.draw_grid_handle(*tab_handle_);
+    }
 }
 
 void ChromeHost::update_tab_grid()
@@ -330,29 +447,21 @@ void ChromeHost::update_tab_grid()
     const int bar_w = viewport_.pixel_size.x;
     const int bar_h = tab_bar_height();
     const int grid_cols = bar_w / cw;
-    const int grid_rows = bar_h / ch;
+    const int grid_rows = std::max(1, bar_h / ch);
 
-    if (grid_cols <= 0 || grid_rows <= 0)
+    if (grid_cols <= 0)
         return;
 
     if (!tab_handle_)
-    {
         tab_handle_ = deps_.grid_renderer->create_grid_handle();
-        PaneDescriptor desc;
-        desc.pixel_pos = { 0, 0 };
-        desc.pixel_size = { bar_w, bar_h };
-        tab_handle_->set_viewport(desc);
-    }
-    else
-    {
-        PaneDescriptor desc;
-        desc.pixel_pos = { 0, 0 };
-        desc.pixel_size = { bar_w, bar_h };
-        tab_handle_->set_viewport(desc);
-    }
 
+    PaneDescriptor desc;
+    desc.pixel_pos = { 0, 0 };
+    desc.pixel_size = { bar_w, bar_h };
+    tab_handle_->set_viewport(desc);
     tab_handle_->set_grid_size(grid_cols, grid_rows);
     tab_handle_->set_cursor(-1, -1, CursorStyle{});
+    tab_handle_->set_cursor_visible(false);
 
     // Build CellUpdates for tab labels.
     std::vector<CellUpdate> cells;
@@ -374,34 +483,36 @@ void ChromeHost::update_tab_grid()
 
     // Write tab labels into row 0, positioned to match the NanoVG tab rects.
     int col_cursor = 0;
-    // kTabGap is in pixels; convert to columns (round up to avoid overlap).
     const int gap_cols = std::max(1, static_cast<int>(std::ceil(kTabGap / cw)));
     col_cursor += gap_cols;
 
-    for (const auto& ws : workspaces_)
+    for (size_t wi = 0; wi < workspaces_.size(); ++wi)
     {
+        const auto& ws = workspaces_[wi];
         const bool is_active = (ws->id == active_workspace_);
         const Color& fg = is_active ? kActiveTabFg : kInactiveTabFg;
 
+        // Build label: "1: nvim", "2: zsh", etc.
+        std::string label = std::to_string(wi + 1) + ": " + ws->name;
+
         col_cursor += kTabPadCols; // left padding
 
-        for (size_t ci = 0; ci < ws->name.size(); ++ci)
+        for (size_t ci = 0; ci < label.size(); ++ci)
         {
             const int col = col_cursor + static_cast<int>(ci);
             if (col >= grid_cols)
                 break;
 
-            const std::string cluster(1, ws->name[ci]);
+            const std::string cluster(1, label[ci]);
             AtlasRegion glyph = deps_.text_service->resolve_cluster(cluster);
 
-            // Overwrite the transparent cell at this position.
             auto& cell = cells[static_cast<size_t>(col)]; // row 0
             cell.fg = fg;
             cell.glyph = glyph;
         }
 
-        col_cursor += static_cast<int>(ws->name.size()) + kTabPadCols; // text + right pad
-        col_cursor += gap_cols; // gap to next tab
+        col_cursor += static_cast<int>(label.size()) + kTabPadCols; // text + right pad
+        col_cursor += gap_cols;
     }
 
     tab_handle_->update_cells(cells);
@@ -433,122 +544,6 @@ void ChromeHost::flush_atlas_if_dirty()
     deps_.grid_renderer->update_atlas_region(
         dirty.pos.x, dirty.pos.y, dirty.size.x, dirty.size.y, scratch.data());
     deps_.text_service->clear_atlas_dirty();
-}
-
-// ---------------------------------------------------------------------------
-// Dividers and focus indicator (NanoVG only)
-// ---------------------------------------------------------------------------
-
-void ChromeHost::draw_dividers_and_focus(IFrameContext& frame)
-{
-    const auto& tree = active_tree();
-    if (tree.leaf_count() < 2)
-        return;
-
-    // Collect divider rects from the active workspace's split tree.
-    struct Divider
-    {
-        float x, y, w, h;
-        SplitDirection dir;
-    };
-    std::vector<Divider> dividers;
-    tree.for_each_divider([&](const SplitTree::DividerRect& r) {
-        dividers.push_back({ static_cast<float>(r.x), static_cast<float>(r.y),
-            static_cast<float>(r.w), static_cast<float>(r.h), r.direction });
-    });
-
-    if (dividers.empty())
-        return;
-
-    // Focused pane border rect (in pixels).
-    struct FocusRect
-    {
-        float x, y, w, h;
-    };
-    std::optional<FocusRect> focus_rect;
-    const LeafId focused = tree.focused();
-    if (focused != kInvalidLeaf)
-    {
-        const auto desc = tree.descriptor_for(focused);
-        if (desc.pixel_size.x > 0 && desc.pixel_size.y > 0)
-        {
-            focus_rect = FocusRect{
-                static_cast<float>(desc.pixel_pos.x),
-                static_cast<float>(desc.pixel_pos.y),
-                static_cast<float>(desc.pixel_size.x),
-                static_cast<float>(desc.pixel_size.y)
-            };
-        }
-    }
-
-    nanovg_pass_->set_draw_callback(
-        [dividers = std::move(dividers), focus_rect](NVGcontext* vg, int /*w*/, int /*h*/) {
-            // Divider lines
-            for (const auto& d : dividers)
-            {
-                nvgBeginPath(vg);
-                if (d.dir == SplitDirection::Vertical)
-                {
-                    float cx = d.x + d.w * 0.5f;
-                    nvgMoveTo(vg, cx, d.y);
-                    nvgLineTo(vg, cx, d.y + d.h);
-                }
-                else
-                {
-                    float cy = d.y + d.h * 0.5f;
-                    nvgMoveTo(vg, d.x, cy);
-                    nvgLineTo(vg, d.x + d.w, cy);
-                }
-                nvgStrokeColor(vg, nvgRGBA(120, 120, 140, 220));
-                nvgStrokeWidth(vg, 1.0f);
-                nvgStroke(vg);
-            }
-
-            // Focus indicator — muted burgundy on right and bottom edges only.
-            if (focus_rect)
-            {
-                constexpr float border = 2.0f;
-                constexpr float half = border * 0.5f;
-                constexpr float div_half = static_cast<float>(SplitTree::kDividerWidth) * 0.5f;
-
-                const float pane_right = focus_rect->x + focus_rect->w;
-                const float pane_bottom = focus_rect->y + focus_rect->h;
-
-                bool has_right_divider = false;
-                bool has_bottom_divider = false;
-                for (const auto& d : dividers)
-                {
-                    if (d.dir == SplitDirection::Vertical
-                        && std::abs(d.x - pane_right) < 1.0f)
-                        has_right_divider = true;
-                    if (d.dir == SplitDirection::Horizontal
-                        && std::abs(d.y - pane_bottom) < 1.0f)
-                        has_bottom_divider = true;
-                }
-                const float right = has_right_divider ? (pane_right + div_half) : (pane_right - half);
-                const float bottom = has_bottom_divider ? (pane_bottom + div_half) : (pane_bottom - half);
-
-                nvgStrokeColor(vg, nvgRGBA(140, 50, 55, 200));
-                nvgStrokeWidth(vg, border);
-
-                // Right edge
-                nvgBeginPath(vg);
-                nvgMoveTo(vg, right, focus_rect->y);
-                nvgLineTo(vg, right, bottom);
-                nvgStroke(vg);
-
-                // Bottom edge
-                nvgBeginPath(vg);
-                nvgMoveTo(vg, focus_rect->x, bottom);
-                nvgLineTo(vg, right, bottom);
-                nvgStroke(vg);
-            }
-        });
-
-    RenderViewport vp;
-    vp.width = viewport_.pixel_size.x;
-    vp.height = viewport_.pixel_size.y;
-    frame.record_render_pass(*nanovg_pass_, vp);
 }
 
 } // namespace draxul
