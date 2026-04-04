@@ -48,10 +48,11 @@ public:
         std::function<void()> on_focus_right; // move focus to right pane
         std::function<void()> on_focus_up; // move focus to upper pane
         std::function<void()> on_focus_down; // move focus to lower pane
-        std::function<void()> on_new_tab; // create a new workspace tab
+        std::function<void(std::optional<HostKind>)> on_new_tab; // create a new workspace tab
         std::function<void()> on_close_tab; // close the active workspace tab
         std::function<void()> on_next_tab; // switch to the next tab
         std::function<void()> on_prev_tab; // switch to the previous tab
+        std::function<void(int)> on_activate_tab; // switch to tab by 1-based index
     };
 
     explicit GuiActionHandler(Deps deps);
@@ -86,10 +87,11 @@ private:
     void focus_right() const;
     void focus_up() const;
     void focus_down() const;
-    void new_tab() const;
+    void new_tab(std::string_view args) const;
     void close_tab() const;
     void next_tab() const;
     void prev_tab() const;
+    void activate_tab(std::string_view args) const;
     void change_font_size(float new_size);
 
     Deps deps_;

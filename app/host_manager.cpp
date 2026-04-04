@@ -67,7 +67,8 @@ HostKind HostManager::split_host_kind_for(HostKind primary_kind)
     return platform_default_split_host_kind_impl();
 }
 
-bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h)
+bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+    std::optional<HostKind> host_kind_override)
 {
     PERF_MEASURE();
     error_.clear();
@@ -77,7 +78,7 @@ bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h)
     LeafId root_id = tree_.reset(pixel_w, pixel_h);
 
     HostLaunchOptions launch;
-    launch.kind = deps_.options->host_kind;
+    launch.kind = host_kind_override.value_or(deps_.options->host_kind);
     launch.command = deps_.options->host_command;
     launch.args = deps_.options->host_args;
     launch.working_dir = deps_.options->host_working_dir;

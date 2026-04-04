@@ -54,6 +54,10 @@ public:
         std::function<void()> request_frame;
         std::function<void(int, int)> on_resize;
         std::function<void(float)> on_display_scale_changed;
+        // Tab bar click: returns 1-based tab index if (px, py) hits a tab, else 0.
+        std::function<int(int, int)> hit_test_tab;
+        // Activate tab by 1-based index.
+        std::function<void(int)> activate_tab;
     };
 
     explicit InputDispatcher(Deps deps);

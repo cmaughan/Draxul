@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <draxul/app_config.h>
 #include <draxul/text_service.h>
 #include <nanovg.h>
 
@@ -61,10 +62,13 @@ bool ChromeHost::create_initial_workspace(IHostCallbacks& callbacks, int pixel_w
     return true;
 }
 
-int ChromeHost::add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h)
+int ChromeHost::add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+    std::optional<HostKind> host_kind)
 {
     auto ws = std::make_unique<Workspace>(next_workspace_id_++, make_host_manager_deps());
-    if (!ws->host_manager.create(callbacks, pixel_w, pixel_h))
+    // Default to the platform shell when no explicit kind is given.
+    const HostKind kind = host_kind.value_or(HostManager::platform_default_split_host_kind());
+    if (!ws->host_manager.create(callbacks, pixel_w, pixel_h, kind))
     {
         last_create_error_ = ws->host_manager.error();
         return -1;
@@ -161,6 +165,14 @@ void ChromeHost::prev_workspace()
     }
 }
 
+void ChromeHost::activate_workspace_by_index(int one_based_index)
+{
+    const int idx = one_based_index - 1;
+    if (idx < 0 || idx >= static_cast<int>(workspaces_.size()))
+        return;
+    activate_workspace(workspaces_[static_cast<size_t>(idx)]->id);
+}
+
 HostManager& ChromeHost::active_host_manager()
 {
     for (auto& ws : workspaces_)
@@ -196,8 +208,7 @@ int ChromeHost::tab_bar_height() const
     if (!deps_.grid_renderer)
         return 0;
     const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
-    // One cell row height plus a small padding for the accent line.
-    return ch + 4;
+    return ch;
 }
 
 void ChromeHost::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
@@ -233,23 +244,42 @@ HostManager::Deps ChromeHost::make_host_manager_deps() const
 
 namespace
 {
-// Catppuccin Mocha
-constexpr Color kTabBarBg{ 0.118f, 0.118f, 0.180f, 1.0f }; // #1e1e2e Base
-constexpr Color kActiveTabBg{ 0.341f, 0.345f, 0.431f, 1.0f }; // #585b6e Surface2 (brighter)
-constexpr Color kInactiveTabBg{ 0.231f, 0.235f, 0.318f, 1.0f }; // #3b3c51 between Surface0-1
-constexpr Color kActiveTabFg{ 0.804f, 0.839f, 0.957f, 1.0f }; // #cdd6f4 Text
-constexpr Color kInactiveTabFg{ 0.533f, 0.545f, 0.631f, 1.0f }; // #888ba1 Overlay1
-constexpr Color kAccentColor{ 0.796f, 0.651f, 0.969f, 1.0f }; // #cba6f7 Mauve
+// Catppuccin Mocha palette
+constexpr Color kTabBarBg{ 0.094f, 0.094f, 0.145f, 1.0f }; // #181825 Mantle
+constexpr Color kActiveTabBg{ 0.796f, 0.651f, 0.969f, 1.0f }; // #cba6f7 Mauve
+constexpr Color kInactiveTabBg{ 0.271f, 0.278f, 0.353f, 1.0f }; // #45475a Surface1
+constexpr Color kActiveTabFg{ 0.118f, 0.118f, 0.180f, 1.0f }; // #1e1e2e Base (dark on bright)
+constexpr Color kInactiveTabFg{ 0.651f, 0.678f, 0.780f, 1.0f }; // #a6adc8 Subtext0
 constexpr int kTabPadCols = 1; // padding cells on each side of tab label
-constexpr float kTabGap = 2.0f; // pixel gap between tabs
-constexpr float kTabRadius = 4.0f; // top corner radius
-constexpr float kAccentHeight = 2.0f; // accent line thickness
+constexpr int kGridPadding = 4; // renderer internal cell padding
 
 std::string tab_label(size_t index, const std::string& name)
 {
     return std::to_string(index + 1) + ": " + name;
 }
 } // namespace
+
+int ChromeHost::hit_test_tab(int px, int py) const
+{
+    if (workspaces_.size() <= 1 || !deps_.grid_renderer)
+        return 0;
+    const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
+    if (cw <= 0 || ch <= 0 || py < 0 || py >= ch)
+        return 0;
+
+    int col_cursor = 0;
+    for (size_t wi = 0; wi < workspaces_.size(); ++wi)
+    {
+        const std::string label = tab_label(wi, workspaces_[wi]->name);
+        const int total_cols = static_cast<int>(label.size()) + kTabPadCols * 2;
+        const int tab_left = col_cursor * cw + kGridPadding;
+        const int tab_right = (col_cursor + total_cols) * cw + kGridPadding;
+        if (px >= tab_left && px < tab_right)
+            return static_cast<int>(wi) + 1; // 1-based
+        col_cursor += total_cols;
+    }
+    return 0;
+}
 
 void ChromeHost::draw(IFrameContext& frame)
 {
@@ -262,35 +292,70 @@ void ChromeHost::draw(IFrameContext& frame)
     if (!show_tabs && !show_dividers)
         return;
 
-    // --- Collect all NanoVG geometry into a single callback ---
-
-    // Tab bar geometry.
-    struct TabRect
-    {
-        float x, y, w, h;
-        bool active;
-    };
-    std::vector<TabRect> tab_rects;
+    // --- Shared tab layout (used by both NanoVG and grid) ---
+    // Grid cells are positioned at: pixel_x = col * cw + padding.
+    // We compute tab spans in column space, then derive NanoVG pill pixel coords.
+    std::vector<TabLayout> tabs;
     int bar_w = viewport_.pixel_size.x;
     int bar_h = 0;
+    int cw_shared = 0;
+    int ch_shared = 0;
 
     if (show_tabs && deps_.grid_renderer)
     {
         const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
+        cw_shared = cw;
+        ch_shared = ch;
         if (cw > 0 && ch > 0)
         {
             bar_h = tab_bar_height();
-            float x_cursor = kTabGap;
+            int col_cursor = 0; // start at column 0
             for (size_t wi = 0; wi < workspaces_.size(); ++wi)
             {
                 const auto& ws = workspaces_[wi];
                 const std::string label = tab_label(wi, ws->name);
-                const int label_cols = static_cast<int>(label.size()) + kTabPadCols * 2;
-                const float tab_w = static_cast<float>(label_cols * cw);
-                const float tab_h = static_cast<float>(ch);
-                tab_rects.push_back({ x_cursor, kTabGap, tab_w, tab_h, ws->id == active_workspace_ });
-                x_cursor += tab_w + kTabGap;
+                const int label_cols = static_cast<int>(label.size());
+                const int total_cols = label_cols + kTabPadCols * 2;
+
+                TabLayout tl;
+                tl.col_begin = col_cursor;
+                tl.col_end = col_cursor + total_cols;
+                tl.text_col = col_cursor + kTabPadCols;
+                tl.text_len = label_cols;
+                tl.active = (ws->id == active_workspace_);
+                tl.label = label;
+                tabs.push_back(std::move(tl));
+
+                col_cursor += total_cols;
             }
+        }
+    }
+
+    // Build NanoVG pill rects from the column-based layout.
+    struct TabRect
+    {
+        float x, y, w, h;
+        float accent_w; // width of the burgundy accent region (number portion)
+        bool active;
+    };
+    std::vector<TabRect> tab_rects;
+    if (!tabs.empty() && cw_shared > 0)
+    {
+        const float pill_h = static_cast<float>(ch_shared) - 4.0f; // 2px margin top+bottom
+        const float pill_y = 2.0f;
+        const float half_gap = static_cast<float>(cw_shared) * 0.25f; // 0.5 col gap between tabs
+        for (size_t i = 0; i < tabs.size(); ++i)
+        {
+            const auto& tl = tabs[i];
+            // Derive pixel position from grid column: pixel_x = col * cw + padding
+            const float px = static_cast<float>(tl.col_begin * cw_shared + kGridPadding) + half_gap;
+            const float pw = static_cast<float>((tl.col_end - tl.col_begin) * cw_shared) - half_gap * 2.0f;
+            // Accent covers left padding + number + ": " (e.g. "1: " = kTabPadCols + digits + 1 cols).
+            // The colon is included; the space after it is not.
+            const int num_str_len = static_cast<int>(std::to_string(i + 1).size()); // digits
+            const int accent_cols = kTabPadCols + num_str_len + 1; // pad + digits + ":"
+            const float aw = static_cast<float>(accent_cols * cw_shared);
+            tab_rects.push_back({ px, pill_y, pw, pill_h, aw, tl.active });
         }
     }
 
@@ -332,9 +397,10 @@ void ChromeHost::draw(IFrameContext& frame)
     }
 
     // Single NanoVG callback draws everything: tab bar shapes + dividers + focus.
+    const float focus_border = deps_.config ? deps_.config->focus_border_width : 3.0f;
     nanovg_pass_->set_draw_callback(
         [tab_rects = std::move(tab_rects), bar_w, bar_h,
-            dividers = std::move(dividers), focus_rect](NVGcontext* vg, int /*w*/, int /*h*/) {
+            dividers = std::move(dividers), focus_rect, focus_border](NVGcontext* vg, int /*w*/, int /*h*/) {
             // --- Tab bar ---
             if (!tab_rects.empty())
             {
@@ -346,22 +412,26 @@ void ChromeHost::draw(IFrameContext& frame)
 
                 for (const auto& tab : tab_rects)
                 {
-                    const auto& bg = tab.active ? kActiveTabBg : kInactiveTabBg;
+                    const float radius = tab.h * 0.5f; // pill shape
 
-                    // Tab body — rounded top corners.
+                    // Full pill body — inactive bg for all tabs.
                     nvgBeginPath(vg);
-                    nvgRoundedRectVarying(vg, tab.x, tab.y, tab.w, tab.h,
-                        kTabRadius, kTabRadius, 0.0f, 0.0f);
-                    nvgFillColor(vg, nvgRGBAf(bg.r, bg.g, bg.b, bg.a));
+                    nvgRoundedRect(vg, tab.x, tab.y, tab.w, tab.h, radius);
+                    nvgFillColor(vg, nvgRGBAf(kInactiveTabBg.r, kInactiveTabBg.g, kInactiveTabBg.b, kInactiveTabBg.a));
                     nvgFill(vg);
 
-                    // Accent line under active tab.
+                    // Active tab: burgundy accent on the number portion (left side).
                     if (tab.active)
                     {
+                        nvgSave(vg);
+                        // Scissor to the pill bounds so the accent respects the rounded left end.
+                        nvgIntersectScissor(vg, tab.x, tab.y, tab.w, tab.h);
+                        // Draw accent rect covering the number portion.
                         nvgBeginPath(vg);
-                        nvgRect(vg, tab.x, tab.y + tab.h, tab.w, kAccentHeight);
-                        nvgFillColor(vg, nvgRGBAf(kAccentColor.r, kAccentColor.g, kAccentColor.b, kAccentColor.a));
+                        nvgRoundedRect(vg, tab.x, tab.y, tab.accent_w, tab.h, radius);
+                        nvgFillColor(vg, nvgRGBA(140, 50, 55, 200));
                         nvgFill(vg);
+                        nvgRestore(vg);
                     }
                 }
             }
@@ -390,8 +460,8 @@ void ChromeHost::draw(IFrameContext& frame)
             // --- Focus indicator ---
             if (focus_rect)
             {
-                constexpr float border = 2.0f;
-                constexpr float half = border * 0.5f;
+                const float border = focus_border;
+                const float half = border * 0.5f;
                 constexpr float div_half = static_cast<float>(SplitTree::kDividerWidth) * 0.5f;
 
                 const float pane_right = focus_rect->x + focus_rect->w;
@@ -433,15 +503,15 @@ void ChromeHost::draw(IFrameContext& frame)
     frame.record_render_pass(*nanovg_pass_, vp);
 
     // Grid handle draws tab label text on top of NanoVG shapes.
-    if (show_tabs)
+    if (show_tabs && !tabs.empty())
     {
-        update_tab_grid();
+        update_tab_grid(tabs);
         if (tab_handle_)
             frame.draw_grid_handle(*tab_handle_);
     }
 }
 
-void ChromeHost::update_tab_grid()
+void ChromeHost::update_tab_grid(std::span<const TabLayout> tabs)
 {
     if (!deps_.grid_renderer || !deps_.text_service)
         return;
@@ -451,9 +521,9 @@ void ChromeHost::update_tab_grid()
         return;
 
     const int bar_w = viewport_.pixel_size.x;
-    const int bar_h = tab_bar_height();
+    const int grid_h = ch; // grid covers cell row, accent line below
     const int grid_cols = bar_w / cw;
-    const int grid_rows = std::max(1, bar_h / ch);
+    const int grid_rows = 1;
 
     if (grid_cols <= 0)
         return;
@@ -465,63 +535,53 @@ void ChromeHost::update_tab_grid()
     }
 
     PaneDescriptor desc;
-    desc.pixel_pos = { 0, 0 };
-    desc.pixel_size = { bar_w, bar_h };
+    desc.pixel_pos = { 0, -kGridPadding }; // shift grid up so text centers in pills
+    desc.pixel_size = { bar_w, grid_h + kGridPadding };
     tab_handle_->set_viewport(desc);
     tab_handle_->set_grid_size(grid_cols, grid_rows);
     tab_handle_->set_cursor(-1, -1, CursorStyle{});
     tab_handle_->set_cursor_visible(false);
 
-    // Build CellUpdates for tab labels.
+    // Transparent cells — NanoVG pill shapes provide the tab backgrounds.
+    // Grid cells only carry foreground text glyphs.
     std::vector<CellUpdate> cells;
     const Color transparent{ 0.0f, 0.0f, 0.0f, 0.0f };
 
-    // Fill all cells transparent so NanoVG shapes show through.
-    for (int r = 0; r < grid_rows; ++r)
+    for (int c = 0; c < grid_cols; ++c)
     {
-        for (int c = 0; c < grid_cols; ++c)
-        {
-            CellUpdate cell{};
-            cell.col = c;
-            cell.row = r;
-            cell.bg = transparent;
-            cell.fg = transparent;
-            cells.push_back(cell);
-        }
+        CellUpdate cell{};
+        cell.col = c;
+        cell.row = 0;
+        cell.bg = transparent;
+        cell.fg = transparent;
+        cells.push_back(cell);
     }
 
-    // Write tab labels into row 0, positioned to match the NanoVG tab rects.
-    int col_cursor = 0;
-    const int gap_cols = std::max(1, static_cast<int>(std::ceil(kTabGap / cw)));
-    col_cursor += gap_cols;
-
-    for (size_t wi = 0; wi < workspaces_.size(); ++wi)
+    // Write text into grid cells using the shared column-based layout.
+    // Light text on burgundy accent (number portion), standard text elsewhere.
+    constexpr Color kAccentFg{ 0.85f, 0.85f, 0.90f, 1.0f }; // light text on burgundy
+    for (size_t ti = 0; ti < tabs.size(); ++ti)
     {
-        const auto& ws = workspaces_[wi];
-        const bool is_active = (ws->id == active_workspace_);
-        const Color& fg = is_active ? kActiveTabFg : kInactiveTabFg;
+        const auto& tl = tabs[ti];
+        // Number prefix length: digits of (index+1) + ":" (the space after is name territory).
+        const int num_prefix_len = static_cast<int>(std::to_string(ti + 1).size()) + 1; // digits + ":"
 
-        // Build label: "1: nvim", "2: zsh", etc.
-        std::string label = std::to_string(wi + 1) + ": " + ws->name;
-
-        col_cursor += kTabPadCols; // left padding
-
-        for (size_t ci = 0; ci < label.size(); ++ci)
+        for (int ci = 0; ci < tl.text_len; ++ci)
         {
-            const int col = col_cursor + static_cast<int>(ci);
-            if (col >= grid_cols)
-                break;
+            const int col = tl.text_col + ci;
+            if (col < 0 || col >= grid_cols)
+                continue;
 
-            const std::string cluster(1, label[ci]);
+            // Active tab: number chars on burgundy get light fg, rest gets inactive fg.
+            const Color& fg = (tl.active && ci < num_prefix_len) ? kAccentFg : kInactiveTabFg;
+
+            const std::string cluster(1, tl.label[static_cast<size_t>(ci)]);
             AtlasRegion glyph = deps_.text_service->resolve_cluster(cluster);
 
-            auto& cell = cells[static_cast<size_t>(col)]; // row 0
+            auto& cell = cells[static_cast<size_t>(col)];
             cell.fg = fg;
             cell.glyph = glyph;
         }
-
-        col_cursor += static_cast<int>(label.size()) + kTabPadCols; // text + right pad
-        col_cursor += gap_cols;
     }
 
     tab_handle_->update_cells(cells);

@@ -145,6 +145,19 @@ void InputDispatcher::on_key_event(const KeyEvent& event)
 void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
 {
     PERF_MEASURE();
+
+    // Tab bar click — check before anything else.
+    if (event.pressed && deps_.hit_test_tab && deps_.activate_tab)
+    {
+        const int phys_x = deps_.pixel_scale.to_physical(event.pos.x);
+        const int phys_y = deps_.pixel_scale.to_physical(event.pos.y);
+        if (int tab_index = deps_.hit_test_tab(phys_x, phys_y); tab_index > 0)
+        {
+            deps_.activate_tab(tab_index);
+            return;
+        }
+    }
+
     deps_.ui_panel->on_mouse_button(event);
     IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y);
     if (deps_.ui_panel->wants_mouse() && deps_.request_frame)

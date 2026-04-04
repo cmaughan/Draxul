@@ -59,6 +59,7 @@ struct AppConfig
     std::string bold_italic_font_path;
     std::vector<std::string> fallback_paths;
     float palette_bg_alpha = 0.9f; // command palette background opacity [0.0, 1.0]
+    float focus_border_width = 3.0f; // pane focus indicator thickness in pixels
     std::vector<GuiKeybinding> keybindings = {}; // populated by AppConfig()
     TerminalConfig terminal; // [terminal] section -- fg/bg hex colors
 

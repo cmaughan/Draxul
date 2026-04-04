@@ -43,10 +43,11 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"focus_right",        [](auto& h, auto) { h.focus_right(); }},
         {"focus_up",           [](auto& h, auto) { h.focus_up(); }},
         {"focus_down",         [](auto& h, auto) { h.focus_down(); }},
-        {"new_tab",            [](auto& h, auto) { h.new_tab(); }},
+        {"new_tab",            [](auto& h, auto args) { h.new_tab(args); }},
         {"close_tab",          [](auto& h, auto) { h.close_tab(); }},
         {"next_tab",           [](auto& h, auto) { h.next_tab(); }},
         {"prev_tab",           [](auto& h, auto) { h.prev_tab(); }},
+        {"activate_tab",       [](auto& h, auto args) { h.activate_tab(args); }},
     };
     // clang-format on
     return map;
@@ -56,9 +57,22 @@ bool GuiActionHandler::execute(std::string_view action, std::string_view args)
 {
     PERF_MEASURE();
     const auto& map = action_map();
-    if (const auto it = map.find(action); it != map.end())
+
+    // Support "action:args" syntax in the action string (e.g. "activate_tab:1").
+    std::string_view action_name = action;
+    std::string_view embedded_args = args;
+    if (args.empty())
     {
-        it->second(*this, args);
+        if (const auto colon = action.find(':'); colon != std::string_view::npos)
+        {
+            action_name = action.substr(0, colon);
+            embedded_args = action.substr(colon + 1);
+        }
+    }
+
+    if (const auto it = map.find(action_name); it != map.end())
+    {
+        it->second(*this, embedded_args);
         return true;
     }
     DRAXUL_LOG_WARN(LogCategory::App, "Unknown GUI action: '%.*s'",
@@ -204,10 +218,10 @@ void GuiActionHandler::focus_down() const
         deps_.on_focus_down();
 }
 
-void GuiActionHandler::new_tab() const
+void GuiActionHandler::new_tab(std::string_view args) const
 {
     if (deps_.on_new_tab)
-        deps_.on_new_tab();
+        deps_.on_new_tab(parse_host_kind(args));
 }
 
 void GuiActionHandler::close_tab() const
@@ -226,6 +240,22 @@ void GuiActionHandler::prev_tab() const
 {
     if (deps_.on_prev_tab)
         deps_.on_prev_tab();
+}
+
+void GuiActionHandler::activate_tab(std::string_view args) const
+{
+    if (!deps_.on_activate_tab || args.empty())
+        return;
+    int index = 0;
+    for (char c : args)
+    {
+        if (c >= '0' && c <= '9')
+            index = index * 10 + (c - '0');
+        else
+            break;
+    }
+    if (index > 0)
+        deps_.on_activate_tab(index);
 }
 
 void GuiActionHandler::change_font_size(float new_size)

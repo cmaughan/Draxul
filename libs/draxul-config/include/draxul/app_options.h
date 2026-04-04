@@ -38,7 +38,13 @@ struct AppOptions
     std::optional<float> override_display_ppi;
     int render_target_pixel_width = 0;
     int render_target_pixel_height = 0;
-    HostKind host_kind = HostKind::Nvim;
+    // Default host is the platform's default shell (Zsh on macOS, PowerShell on Windows).
+    // Override with --host on the command line.
+#ifdef _WIN32
+    HostKind host_kind = HostKind::PowerShell;
+#else
+    HostKind host_kind = HostKind::Zsh;
+#endif
     std::string host_command;
     std::vector<std::string> host_args;
     std::vector<std::string> startup_commands;

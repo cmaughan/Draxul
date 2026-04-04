@@ -53,7 +53,7 @@ constexpr std::array<std::string_view, 21> kKnownGuiActions = {
     "focus_up",
     "focus_down",
 };
-constexpr std::array<std::string_view, 15> kKnownTopLevelKeys = {
+constexpr std::array<std::string_view, 16> kKnownTopLevelKeys = {
     "window_width",
     "window_height",
     "font_size",
@@ -67,6 +67,7 @@ constexpr std::array<std::string_view, 15> kKnownTopLevelKeys = {
     "italic_font_path",
     "bold_italic_font_path",
     "fallback_paths",
+    "focus_border_width",
     "keybindings",
     "terminal",
 };
@@ -284,6 +285,7 @@ AppConfig config_from_toml(const toml::table& document)
     check_bool_type("smooth_scroll");
     check_float_type("scroll_speed");
     check_float_type("palette_bg_alpha");
+    check_float_type("focus_border_width");
     check_string_type("font_path");
     check_string_type("bold_font_path");
     check_string_type("italic_font_path");
@@ -325,6 +327,13 @@ AppConfig config_from_toml(const toml::table& document)
     {
         if (auto parsed = toml_support::get_double(document, "palette_bg_alpha"); parsed.has_value())
             config.palette_bg_alpha = std::clamp(static_cast<float>(*parsed), 0.0f, 1.0f);
+    }
+
+    {
+        if (auto parsed = toml_support::get_double(document, "focus_border_width"); parsed.has_value())
+            config.focus_border_width = std::clamp(static_cast<float>(*parsed), 1.0f, 10.0f);
+        else if (auto parsed_int = toml_support::get_int(document, "focus_border_width"); parsed_int.has_value())
+            config.focus_border_width = std::clamp(static_cast<float>(*parsed_int), 1.0f, 10.0f);
     }
 
     if (auto font_path = toml_support::get_string(document, "font_path"))
@@ -479,6 +488,16 @@ AppConfig::AppConfig()
         // prev_tab = Ctrl+S, P
         { "prev_tab", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_P), kModNone },
+        // activate_tab:N = Ctrl+S, 1-9
+        { "activate_tab:1", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_1), kModNone },
+        { "activate_tab:2", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_2), kModNone },
+        { "activate_tab:3", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_3), kModNone },
+        { "activate_tab:4", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_4), kModNone },
+        { "activate_tab:5", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_5), kModNone },
+        { "activate_tab:6", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_6), kModNone },
+        { "activate_tab:7", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_7), kModNone },
+        { "activate_tab:8", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_8), kModNone },
+        { "activate_tab:9", static_cast<int32_t>(SDLK_S), kModCtrl, static_cast<int32_t>(SDLK_9), kModNone },
     };
 }
 
@@ -502,6 +521,7 @@ std::string AppConfig::serialize() const
     document.insert_or_assign("smooth_scroll", smooth_scroll);
     document.insert_or_assign("scroll_speed", static_cast<double>(std::clamp(scroll_speed, 0.1f, 10.0f)));
     document.insert_or_assign("palette_bg_alpha", static_cast<double>(std::clamp(palette_bg_alpha, 0.0f, 1.0f)));
+    document.insert_or_assign("focus_border_width", static_cast<double>(std::clamp(focus_border_width, 1.0f, 10.0f)));
     if (!font_path.empty())
         document.insert_or_assign("font_path", font_path);
     if (!bold_font_path.empty())

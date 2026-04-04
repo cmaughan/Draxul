@@ -4,8 +4,11 @@
 
 #include <draxul/base_renderer.h>
 #include <draxul/host.h>
+#include <draxul/host_kind.h>
 #include <draxul/nanovg_pass.h>
 #include <draxul/renderer.h>
+#include <optional>
+#include <span>
 #include <vector>
 
 struct NVGcontext;
@@ -77,8 +80,10 @@ public:
     bool create_initial_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h);
 
     // Creates a new workspace, initializes its primary host, and activates it.
+    // If host_kind is set, that host is launched; otherwise the platform default shell.
     // Returns the workspace ID, or -1 on failure.
-    int add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h);
+    int add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+        std::optional<HostKind> host_kind = std::nullopt);
 
     // Closes a workspace by ID. Returns false if it's the last workspace or ID not found.
     bool close_workspace(int workspace_id, IHostCallbacks& callbacks);
@@ -90,6 +95,9 @@ public:
     void next_workspace();
     void prev_workspace();
 
+    // Activate workspace by 1-based display index. No-op if out of range.
+    void activate_workspace_by_index(int one_based_index);
+
     // Access the active workspace's HostManager.
     HostManager& active_host_manager();
     const HostManager& active_host_manager() const;
@@ -99,6 +107,10 @@ public:
 
     // Tab bar height in pixels. Returns 0 when there is only one workspace.
     int tab_bar_height() const;
+
+    // Hit-test a point (physical pixels) against the tab bar.
+    // Returns the 1-based tab index if hit, or 0 if not in the tab bar.
+    int hit_test_tab(int px, int py) const;
 
     // Recompute viewports for ALL workspaces (not just active).
     void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
@@ -113,9 +125,19 @@ public:
         return last_create_error_;
     }
 
+    struct TabLayout
+    {
+        int col_begin; // first column of tab
+        int col_end; // one past last column
+        int text_col; // first column of label text
+        int text_len; // label char count
+        bool active;
+        std::string label;
+    };
+
 private:
     HostManager::Deps make_host_manager_deps() const;
-    void update_tab_grid();
+    void update_tab_grid(std::span<const TabLayout> tabs);
     void flush_atlas_if_dirty();
 
     Deps deps_;

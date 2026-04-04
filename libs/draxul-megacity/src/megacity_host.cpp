@@ -980,7 +980,13 @@ void MegaCityHost::render_host_imgui(float dt)
     ImGui::SetCurrentContext(imgui_context_);
     imgui_backend_->begin_imgui_frame();
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(static_cast<float>(pixel_w_), static_cast<float>(pixel_h_));
+    // DisplaySize must cover from screen origin to the pane's bottom-right corner.
+    // ImGui_ImplMetal sets its Metal viewport to (0, 0, DisplaySize), so using the
+    // pane size alone would render the ImGui at screen (0,0) instead of at the pane
+    // position — causing a gap at the bottom equal to the pane's Y offset (tab bar).
+    io.DisplaySize = ImVec2(
+        static_cast<float>(viewport_.pixel_pos.x + pixel_w_),
+        static_cast<float>(viewport_.pixel_pos.y + pixel_h_));
     io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
     ImGui::NewFrame();
 
