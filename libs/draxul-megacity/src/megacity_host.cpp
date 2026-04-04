@@ -546,6 +546,8 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         DRAXUL_LOG_WARN(LogCategory::App, "MegaCityHost: failed to open city DB at %s: %s",
             city_db_path.string().c_str(), city_db_.last_error().c_str());
     }
+    if (city_db_.schema_migrated())
+        restore_camera_after_initial_build_ = false;
     refresh_available_modules();
     scan_root_ = std::filesystem::canonical(DRAXUL_REPO_ROOT);
     scanner_.start(scan_root_);
@@ -1750,64 +1752,6 @@ void MegaCityHost::pump()
                         const float park_base = building_base_elevation(renderer_config_);
                         const float park_top = park_base + renderer_config_.park_height;
 
-                        // Check tree first (sits on top of park, only for central park).
-                        if (mod.is_central_park && tree_bark_mesh_ && tree_leaf_mesh_)
-                        {
-                            const TreeMetrics tm = tree_metrics_from_meshes(*tree_bark_mesh_, *tree_leaf_mesh_);
-                            const float tree_base = park_top;
-                            const glm::vec3 tree_min(
-                                mod.park_center.x - tm.canopy_radius,
-                                tree_base,
-                                mod.park_center.y - tm.canopy_radius);
-                            const glm::vec3 tree_max(
-                                mod.park_center.x + tm.canopy_radius,
-                                tree_base + tm.height,
-                                mod.park_center.y + tm.canopy_radius);
-
-                            // Inline ray-AABB test.
-                            float t_min_r = -std::numeric_limits<float>::max();
-                            float t_max_r = std::numeric_limits<float>::max();
-                            bool tree_hit = true;
-                            for (int axis = 0; axis < 3; ++axis)
-                            {
-                                if (std::abs(ray_dir[axis]) < 1e-8f)
-                                {
-                                    if (ray_origin[axis] < tree_min[axis] || ray_origin[axis] > tree_max[axis])
-                                    {
-                                        tree_hit = false;
-                                        break;
-                                    }
-                                }
-                                else
-                                {
-                                    float inv_d = 1.0f / ray_dir[axis];
-                                    float t1 = (tree_min[axis] - ray_origin[axis]) * inv_d;
-                                    float t2 = (tree_max[axis] - ray_origin[axis]) * inv_d;
-                                    if (t1 > t2)
-                                        std::swap(t1, t2);
-                                    t_min_r = std::max(t_min_r, t1);
-                                    t_max_r = std::min(t_max_r, t2);
-                                    if (t_min_r > t_max_r)
-                                    {
-                                        tree_hit = false;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (tree_hit && t_min_r >= 0.0f)
-                            {
-                                BuildingTooltipData tooltip_data;
-                                tooltip_data.name = "Central Park Tree";
-                                tooltip_data.module_path = mod.module_path;
-                                tooltip_data.tree_height = tm.height;
-                                tooltip_data.tree_canopy_radius = tm.canopy_radius;
-                                auto bitmap = rasterize_building_tooltip(*tooltip_text_service_, tooltip_data);
-                                show_tooltip_bitmap(bitmap);
-                                picked_park_or_tree = true;
-                                break;
-                            }
-                        }
-
                         // Check park slab AABB.
                         const glm::vec3 park_min(
                             mod.park_center.x - park_half, park_base,
@@ -1869,19 +1813,20 @@ void MegaCityHost::pump()
                         }
                         if (grid && !grid->routes.empty() && std::abs(ray_dir.y) > 1e-6f)
                         {
-                            // Intersect ray with Y=0 plane.
-                            const float t = -ray_origin.y / ray_dir.y;
-                            const glm::vec2 ground_pos(
-                                ray_origin.x + t * ray_dir.x,
-                                ray_origin.z + t * ray_dir.z);
-
-                            // Find the nearest route segment.
+                            // Find the nearest route segment using each route's own elevation.
                             float best_dist_sq = std::numeric_limits<float>::max();
                             const CityGrid::RoutePolyline* best_route = nullptr;
                             constexpr float kMaxPickDist = 1.0f;
 
                             for (const auto& route : grid->routes)
                             {
+                                const float t = (route.elevation - ray_origin.y) / ray_dir.y;
+                                if (t < 0.0f)
+                                    continue;
+                                const glm::vec2 hit_pos(
+                                    ray_origin.x + t * ray_dir.x,
+                                    ray_origin.z + t * ray_dir.z);
+
                                 for (size_t i = 1; i < route.world_points.size(); ++i)
                                 {
                                     const glm::vec2 a = route.world_points[i - 1];
@@ -1891,10 +1836,10 @@ void MegaCityHost::pump()
                                     float proj_t = 0.0f;
                                     if (seg_len_sq > 1e-8f)
                                         proj_t = std::clamp(
-                                            glm::dot(ground_pos - a, ab) / seg_len_sq, 0.0f, 1.0f);
+                                            glm::dot(hit_pos - a, ab) / seg_len_sq, 0.0f, 1.0f);
                                     const glm::vec2 closest = a + proj_t * ab;
                                     const float dist_sq
-                                        = glm::dot(ground_pos - closest, ground_pos - closest);
+                                        = glm::dot(hit_pos - closest, hit_pos - closest);
                                     if (dist_sq < best_dist_sq)
                                     {
                                         best_dist_sq = dist_sq;

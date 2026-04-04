@@ -48,6 +48,7 @@ struct SemanticCityDependency
     std::string target_qualified_name;
     std::string source_file_path;
     std::string target_file_path;
+    bool is_abstract_ref = false;
 };
 
 struct SemanticCityModuleModel
@@ -226,6 +227,7 @@ struct CityGrid
         glm::vec4 source_color{ 1.0f };
         glm::vec4 target_color{ 1.0f };
         std::vector<glm::vec2> world_points;
+        float elevation = 0.0f;
     };
 
     struct RouteRenderSegment

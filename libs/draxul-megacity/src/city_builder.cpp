@@ -30,14 +30,12 @@ namespace
 {
 
 constexpr glm::vec4 kSidewalkSurfaceColor(0.72f, 0.72f, 0.74f, 1.0f);
-constexpr float kRoadSurfaceTextureLift = 0.002f;
 constexpr float kRoadMaterialUvScale = 0.28f;
 constexpr float kModuleSurfaceHeight = 0.018f;
 constexpr float kModuleSurfaceLift = 0.003f;
 constexpr float kDependencyRouteWidthScale = 0.27f;
 constexpr float kDependencyRouteMinWidth = 0.135f;
 constexpr float kDependencyRouteHeight = 0.045f;
-constexpr float kDependencyRouteLift = 0.01f;
 constexpr int kHexBuildingIncidentConnectionThreshold = 6;
 constexpr float kPointShadowDebugSceneHalfExtent = 9.0f;
 constexpr float kPointShadowDebugPrimaryFootprint = 2.5f;
@@ -1020,26 +1018,6 @@ void emit_route_entities(
     const float route_width = std::max(
         config.placement_step * kDependencyRouteWidthScale,
         kDependencyRouteMinWidth);
-    const float route_elevation = std::max(
-                                      kRoadSurfaceTextureLift + config.road_surface_height,
-                                      config.sidewalk_surface_lift + config.sidewalk_surface_height)
-        + kDependencyRouteLift;
-
-    // Assign per-side layer indices so each building side's routes stack from the bottom.
-    // Key: source building name + departure side → next layer index.
-    std::unordered_map<std::string, int> side_layer_counters;
-    const auto side_key = [](const CityGrid::RoutePolyline& route) -> std::string {
-        if (route.world_points.size() < 2)
-            return {};
-        const glm::vec2 edge = route.world_points.front();
-        const glm::vec2 road = route.world_points[1];
-        const glm::vec2 dir = road - edge;
-        // Classify departure direction into N/S/E/W.
-        char side = std::abs(dir.x) > std::abs(dir.y)
-            ? (dir.x > 0.0f ? 'E' : 'W')
-            : (dir.y > 0.0f ? 'N' : 'S');
-        return route.source_file_path + "#" + route.source_module_path + "#" + route.source_qualified_name + '#' + side;
-    };
 
     for (size_t route_index = 0; route_index < routes.size(); ++route_index)
     {
@@ -1053,9 +1031,7 @@ void emit_route_entities(
         if (total_length <= 1e-4f)
             continue;
 
-        const int side_layer = side_layer_counters[side_key(route)]++;
-        const float layered_route_elevation
-            = route_elevation + static_cast<float>(side_layer) * std::max(config.dependency_route_layer_step, 0.0f);
+        const float layered_route_elevation = route.elevation;
         float traversed_length = 0.0f;
         for (size_t point_index = 1; point_index < route.world_points.size(); ++point_index)
         {

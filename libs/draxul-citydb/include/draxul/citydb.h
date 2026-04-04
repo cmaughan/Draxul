@@ -47,6 +47,7 @@ struct CityDependencyRecord
     std::string target_module_path;
     std::string source_file_path;
     std::string target_file_path;
+    bool is_abstract_ref = false;
 };
 
 struct CodebaseHealthMetrics
@@ -83,6 +84,7 @@ public:
     void close();
 
     [[nodiscard]] bool is_open() const;
+    [[nodiscard]] bool schema_migrated() const;
     [[nodiscard]] const std::filesystem::path& path() const;
     [[nodiscard]] const std::string& last_error() const;
     [[nodiscard]] const CityDbStats& stats() const;

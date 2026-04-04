@@ -27,7 +27,7 @@ namespace draxul
 namespace
 {
 
-constexpr int kSchemaVersion = 6;
+constexpr int kSchemaVersion = 7;
 
 class SqliteError final : public std::runtime_error
 {
@@ -543,14 +543,18 @@ std::string module_path_for_file(std::string_view file_path)
     return std::string(symbol_id) + "|field|" + std::string(field_name) + "|" + std::to_string(ordinal);
 }
 
-std::unordered_map<std::string, std::vector<std::string>> build_inheritance_component_members(
+// Build a directed parent→children map from the inheritance graph, then for each
+// type that has children compute all transitive descendants.  This replaces the old
+// undirected connected-component approach which flooded across multiple-inheritance
+// boundaries (e.g. IImGuiHost → MetalRenderer → IGridRenderer → entire renderer tree).
+std::unordered_map<std::string, std::vector<std::string>> build_inheritance_descendants(
     const std::unordered_map<std::string, std::vector<std::string>>& direct_base_refs_by_symbol_id,
     const std::unordered_map<std::string, std::vector<std::string>>& known_type_symbol_ids)
 {
     PERF_MEASURE();
-    std::unordered_map<std::string, std::vector<std::string>> adjacency;
-    adjacency.reserve(direct_base_refs_by_symbol_id.size() * 2);
-
+    // child → parent edges already exist in direct_base_refs_by_symbol_id.
+    // Invert to parent → [children].
+    std::unordered_map<std::string, std::vector<std::string>> children_of;
     for (const auto& [symbol_id, base_refs] : direct_base_refs_by_symbol_id)
     {
         for (const std::string& base_ref : base_refs)
@@ -558,53 +562,52 @@ std::unordered_map<std::string, std::vector<std::string>> build_inheritance_comp
             const auto it = known_type_symbol_ids.find(base_ref);
             if (it == known_type_symbol_ids.end() || it->second.size() != 1)
                 continue;
-            const std::string& target_symbol_id = it->second.front();
-            if (target_symbol_id == symbol_id)
+            const std::string& parent_symbol_id = it->second.front();
+            if (parent_symbol_id == symbol_id)
                 continue;
-            adjacency[symbol_id].push_back(target_symbol_id);
-            adjacency[target_symbol_id].push_back(symbol_id);
+            children_of[parent_symbol_id].push_back(symbol_id);
         }
     }
 
-    std::unordered_map<std::string, std::vector<std::string>> component_members;
-    std::unordered_set<std::string> visited;
-    visited.reserve(adjacency.size());
-    for (const auto& [root_symbol_id, _] : adjacency)
+    // For each parent, BFS to collect itself + all transitive descendants.
+    std::unordered_map<std::string, std::vector<std::string>> descendants;
+    for (const auto& [parent, direct_children] : children_of)
     {
-        (void)_;
-        if (!visited.insert(root_symbol_id).second)
-            continue;
-
-        std::vector<std::string> component;
-        std::vector<std::string> frontier{ root_symbol_id };
+        std::vector<std::string> all;
+        all.push_back(parent);
+        std::unordered_set<std::string> visited;
+        visited.insert(parent);
+        std::vector<std::string> frontier = direct_children;
         while (!frontier.empty())
         {
             const std::string current = frontier.back();
             frontier.pop_back();
-            component.push_back(current);
-
-            const auto neighbors_it = adjacency.find(current);
-            if (neighbors_it == adjacency.end())
+            if (!visited.insert(current).second)
                 continue;
-            for (const std::string& neighbor : neighbors_it->second)
-            {
-                if (visited.insert(neighbor).second)
-                    frontier.push_back(neighbor);
-            }
+            all.push_back(current);
+            const auto it = children_of.find(current);
+            if (it != children_of.end())
+                for (const std::string& child : it->second)
+                    frontier.push_back(child);
         }
-
-        for (const std::string& member : component)
-            component_members[member] = component;
+        descendants[parent] = std::move(all);
     }
 
-    return component_members;
+    return descendants;
 }
 
-std::vector<std::string> resolve_dependency_targets(
+struct ResolvedTargets
+{
+    std::vector<std::string> symbol_ids;
+    bool is_abstract_ref = false;
+};
+
+ResolvedTargets resolve_dependency_targets(
     std::string_view source_symbol_id,
     std::string_view referenced_type_name,
     const std::unordered_map<std::string, std::vector<std::string>>& known_type_symbol_ids,
-    const std::unordered_map<std::string, std::vector<std::string>>& inheritance_component_members)
+    const std::unordered_map<std::string, std::vector<std::string>>& inheritance_descendants,
+    const std::unordered_set<std::string>& abstract_symbol_ids)
 {
     PERF_MEASURE();
     const auto it = known_type_symbol_ids.find(std::string(referenced_type_name));
@@ -612,12 +615,23 @@ std::vector<std::string> resolve_dependency_targets(
         return {};
 
     const std::string& direct_target_symbol_id = it->second.front();
+    const bool is_abstract = abstract_symbol_ids.contains(direct_target_symbol_id);
     std::vector<std::string> targets;
-    const auto component_it = inheritance_component_members.find(direct_target_symbol_id);
-    if (component_it != inheritance_component_members.end())
-        targets = component_it->second;
+
+    // Only fan out to descendants for abstract/interface types.
+    // Concrete types get a single direct edge.
+    if (is_abstract)
+    {
+        const auto component_it = inheritance_descendants.find(direct_target_symbol_id);
+        if (component_it != inheritance_descendants.end())
+            targets = component_it->second;
+        else
+            targets = { direct_target_symbol_id };
+    }
     else
+    {
         targets = { direct_target_symbol_id };
+    }
 
     targets.erase(
         std::remove_if(
@@ -625,7 +639,7 @@ std::vector<std::string> resolve_dependency_targets(
             targets.end(),
             [&](const std::string& target_symbol_id) { return target_symbol_id == source_symbol_id; }),
         targets.end());
-    return targets;
+    return { std::move(targets), is_abstract };
 }
 
 void create_schema_v2(sqlite3* db)
@@ -743,6 +757,7 @@ void create_schema_v5(sqlite3* db)
             target_entity_id TEXT NOT NULL REFERENCES city_entities(entity_id) ON DELETE CASCADE,
             field_name TEXT NOT NULL,
             field_type_name TEXT NOT NULL,
+            is_abstract_ref INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(source_entity_id, target_entity_id, field_name, field_type_name)
         );
 
@@ -770,16 +785,24 @@ void create_schema_v6(sqlite3* db)
     exec(db, "PRAGMA user_version = 6");
 }
 
+void create_schema_v7(sqlite3* db)
+{
+    PERF_MEASURE();
+    create_schema_v6(db);
+    exec(db, "PRAGMA user_version = 7");
+}
+
 void migrate_to_current_destructive(sqlite3* db)
 {
     PERF_MEASURE();
     // The city DB is a derived cache, so a destructive migration is acceptable
     // here and simpler than preserving the old intermediate layout.
     drop_all_tables(db);
-    create_schema_v6(db);
+    create_schema_v7(db);
 }
 
-void migrate_schema(sqlite3* db)
+// Returns true if a destructive migration was performed (all data rebuilt).
+bool migrate_schema(sqlite3* db)
 {
     PERF_MEASURE();
     int version = 0;
@@ -793,10 +816,14 @@ void migrate_schema(sqlite3* db)
             version = sqlite3_column_int(stmt.get(), 0);
     }
 
+    bool migrated = false;
     if (version == 0)
-        create_schema_v6(db);
+        create_schema_v7(db);
     else if (version < kSchemaVersion)
+    {
         migrate_to_current_destructive(db);
+        migrated = true;
+    }
 
     {
         sqlite3_stmt* raw_stmt = nullptr;
@@ -810,6 +837,7 @@ void migrate_schema(sqlite3* db)
 
     if (version != kSchemaVersion)
         throw SqliteError(SQLITE_SCHEMA, "unsupported city database schema version");
+    return migrated;
 }
 
 } // namespace
@@ -820,6 +848,7 @@ struct CityDatabase::Impl
     std::filesystem::path path;
     std::string last_error;
     CityDbStats stats;
+    bool schema_migrated = false;
 };
 
 CityDatabase::CityDatabase()
@@ -866,7 +895,7 @@ bool CityDatabase::open(const std::filesystem::path& path)
         exec(impl_->db.get(), "PRAGMA journal_mode = WAL");
         exec(impl_->db.get(), "PRAGMA synchronous = NORMAL");
         sqlite3_busy_timeout(impl_->db.get(), 1000);
-        migrate_schema(impl_->db.get());
+        impl_->schema_migrated = migrate_schema(impl_->db.get());
         return true;
     }
     catch (const std::exception& ex)
@@ -888,6 +917,11 @@ void CityDatabase::close()
 bool CityDatabase::is_open() const
 {
     return impl_ && static_cast<bool>(impl_->db);
+}
+
+bool CityDatabase::schema_migrated() const
+{
+    return impl_ && impl_->schema_migrated;
 }
 
 const std::filesystem::path& CityDatabase::path() const
@@ -921,6 +955,7 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
         std::unordered_map<std::string, std::vector<std::string>> method_names_by_type;
         std::unordered_map<std::string, std::vector<std::string>> known_type_symbol_ids;
         std::unordered_map<std::string, std::vector<std::string>> direct_base_refs_by_symbol_id;
+        std::unordered_set<std::string> abstract_symbol_ids;
         for (const auto& file : snapshot.files)
         {
             for (const auto& sym : file.symbols)
@@ -932,6 +967,8 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                         : (sym.parent + "::" + sym.name);
                     const std::string symbol_id = make_symbol_id(file.path, sym.kind, qualified_name, sym.line);
                     known_type_symbol_ids[sym.name].push_back(symbol_id);
+                    if (sym.is_abstract)
+                        abstract_symbol_ids.insert(symbol_id);
                     if (!sym.inherited_types.empty())
                         direct_base_refs_by_symbol_id.emplace(symbol_id, sym.inherited_types);
                 }
@@ -945,8 +982,8 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 }
             }
         }
-        const std::unordered_map<std::string, std::vector<std::string>> inheritance_component_members
-            = build_inheritance_component_members(direct_base_refs_by_symbol_id, known_type_symbol_ids);
+        const std::unordered_map<std::string, std::vector<std::string>> inheritance_descendants
+            = build_inheritance_descendants(direct_base_refs_by_symbol_id, known_type_symbol_ids);
 
         Transaction txn(impl_->db.get());
         exec(impl_->db.get(), "DELETE FROM city_entities");
@@ -967,8 +1004,8 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
         Statement insert_field(impl_->db.get(),
             "INSERT INTO symbol_fields(field_id, symbol_id, field_name, field_type_name) VALUES(?, ?, ?, ?)");
         Statement insert_dependency(impl_->db.get(),
-            "INSERT OR IGNORE INTO city_entity_dependencies(source_entity_id, target_entity_id, field_name, field_type_name) "
-            "VALUES(?, ?, ?, ?)");
+            "INSERT OR IGNORE INTO city_entity_dependencies(source_entity_id, target_entity_id, field_name, field_type_name, is_abstract_ref) "
+            "VALUES(?, ?, ?, ?, ?)");
 
         struct PendingFieldRows
         {
@@ -1039,12 +1076,13 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                         {
                             if (ref == sym.name)
                                 continue;
-                            const std::vector<std::string> resolved_targets = resolve_dependency_targets(
+                            const auto resolved = resolve_dependency_targets(
                                 symbol_id,
                                 ref,
                                 known_type_symbol_ids,
-                                inheritance_component_members);
-                            dependency_targets.insert(resolved_targets.begin(), resolved_targets.end());
+                                inheritance_descendants,
+                                abstract_symbol_ids);
+                            dependency_targets.insert(resolved.symbol_ids.begin(), resolved.symbol_ids.end());
                         }
                     }
                 }
@@ -1109,18 +1147,20 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
 
                 for (const auto& ref : field.referenced_types)
                 {
-                    const std::vector<std::string> resolved_targets = resolve_dependency_targets(
+                    const auto resolved = resolve_dependency_targets(
                         pending.symbol_id,
                         ref,
                         known_type_symbol_ids,
-                        inheritance_component_members);
-                    for (const std::string& target_symbol_id : resolved_targets)
+                        inheritance_descendants,
+                        abstract_symbol_ids);
+                    for (const std::string& target_symbol_id : resolved.symbol_ids)
                     {
                         insert_dependency.reuse();
                         insert_dependency.bind_text(1, pending.symbol_id);
                         insert_dependency.bind_text(2, target_symbol_id);
                         insert_dependency.bind_text(3, field.name);
                         insert_dependency.bind_text(4, field.type_name);
+                        insert_dependency.bind_int(5, resolved.is_abstract_ref ? 1 : 0);
                         insert_dependency.step_done();
                     }
                 }
@@ -1321,7 +1361,8 @@ std::vector<CityDependencyRecord> CityDatabase::list_class_dependencies_in_modul
     {
         Statement stmt(impl_->db.get(),
             "SELECT src.display_name, src.module_path, dep.field_name, dep.field_type_name, "
-            "dst.display_name, dst.module_path, src.source_file_path, dst.source_file_path "
+            "dst.display_name, dst.module_path, src.source_file_path, dst.source_file_path, "
+            "dep.is_abstract_ref "
             "FROM city_entity_dependencies dep "
             "JOIN city_entities src ON src.entity_id = dep.source_entity_id "
             "JOIN city_entities dst ON dst.entity_id = dep.target_entity_id "
@@ -1343,6 +1384,7 @@ std::vector<CityDependencyRecord> CityDatabase::list_class_dependencies_in_modul
             row.target_module_path = read_text(5);
             row.source_file_path = read_text(6);
             row.target_file_path = read_text(7);
+            row.is_abstract_ref = sqlite3_column_int(stmt.raw(), 8) != 0;
             rows.push_back(std::move(row));
         }
     }

@@ -26,6 +26,7 @@ namespace
 {
 
 constexpr glm::vec4 kOutgoingRouteColor{ 0.20f, 0.88f, 0.30f, 1.0f };
+constexpr glm::vec4 kAbstractOutgoingRouteColor{ 0.25f, 0.50f, 0.95f, 1.0f };
 constexpr glm::vec4 kIncomingRouteColor{ 0.92f, 0.22f, 0.18f, 1.0f };
 constexpr float kModuleSurfaceBorderWidthScale = 0.5f;
 constexpr float kModuleSurfaceBorderWidthMin = 0.2f;
@@ -363,6 +364,7 @@ struct RoutePair
     std::string target_qualified_name;
     std::string field_name;
     std::string field_type_name;
+    bool is_abstract_ref = false;
 };
 
 struct RouteEndpointRequest
@@ -373,6 +375,8 @@ struct RouteEndpointRequest
     const SemanticCityBuilding* other = nullptr;
     PortSide side = PortSide::North;
     float sort_key = 0.0f;
+    std::string field_name;
+    bool is_abstract_ref = false;
 };
 
 struct RouteObstacle
@@ -479,6 +483,10 @@ std::vector<RoutePair> collect_route_pairs(
     const std::string focus_key = focus_qualified_name.empty()
         ? std::string()
         : building_key(focus_source_file_path, focus_module_path, focus_qualified_name);
+
+    // Deduplicate by (source, target) — keep the first non-std::function match per pair.
+    // Abstract fan-outs (same source, same field, multiple targets) are NOT deduped.
+    std::unordered_map<std::string, size_t> seen_pairs; // edge_key → index in route_pairs
     std::vector<RoutePair> route_pairs;
     route_pairs.reserve(model.dependencies.size());
     for (const auto& dep : model.dependencies)
@@ -499,6 +507,21 @@ std::vector<RoutePair> collect_route_pairs(
         if (source_it == buildings_by_key.end() || target_it == buildings_by_key.end())
             continue;
 
+        const std::string edge_key = source_key + "→" + target_key;
+        const bool is_function_type = dep.field_type_name.find("function") != std::string::npos;
+        auto [it, inserted] = seen_pairs.emplace(edge_key, route_pairs.size());
+        if (!inserted)
+        {
+            // Duplicate (source, target). Replace if the existing one is a function type and this one isn't.
+            if (is_function_type)
+                continue;
+            auto& existing = route_pairs[it->second];
+            if (existing.field_type_name.find("function") != std::string::npos)
+                existing = { source_it->second, target_it->second, dep.source_qualified_name, dep.target_qualified_name,
+                    dep.field_name, dep.field_type_name, dep.is_abstract_ref };
+            continue;
+        }
+
         route_pairs.push_back({
             source_it->second,
             target_it->second,
@@ -506,6 +529,7 @@ std::vector<RoutePair> collect_route_pairs(
             dep.target_qualified_name,
             dep.field_name,
             dep.field_type_name,
+            dep.is_abstract_ref,
         });
     }
 
@@ -544,6 +568,8 @@ std::vector<AssignedRoutePorts> assign_route_ports(
                 route.target,
                 source_side,
                 side_sort_key(source_side, *route.target),
+                route.field_name,
+                route.is_abstract_ref,
             });
         groups[route_port_group_key(
                    building_key(route.target->source_file_path, route.target->module_path, route.target->qualified_name),
@@ -555,6 +581,8 @@ std::vector<AssignedRoutePorts> assign_route_ports(
                 route.source,
                 target_side,
                 side_sort_key(target_side, *route.source),
+                route.field_name,
+                route.is_abstract_ref,
             });
     }
 
@@ -579,10 +607,31 @@ std::vector<AssignedRoutePorts> assign_route_ports(
         const float usable_half_span = std::max(grid.cell_size * 0.25f, half_footprint - edge_margin);
         const size_t count = requests.size();
 
+        // Abstract source endpoints with the same field_name share a port slot.
+        std::vector<size_t> slot_indices(count);
+        size_t next_slot = 0;
+        std::unordered_map<std::string, size_t> abstract_source_slots;
         for (size_t index = 0; index < count; ++index)
         {
-            const float fraction = static_cast<float>(index + 1) / static_cast<float>(count + 1);
-            const float tangent_offset = count == 1
+            const auto& req = requests[index];
+            if (req.source_endpoint && req.is_abstract_ref)
+            {
+                auto [it, inserted] = abstract_source_slots.emplace(req.field_name, next_slot);
+                if (inserted)
+                    ++next_slot;
+                slot_indices[index] = it->second;
+            }
+            else
+            {
+                slot_indices[index] = next_slot++;
+            }
+        }
+        const size_t total_slots = next_slot;
+
+        for (size_t index = 0; index < count; ++index)
+        {
+            const float fraction = static_cast<float>(slot_indices[index] + 1) / static_cast<float>(total_slots + 1);
+            const float tangent_offset = total_slots == 1
                 ? 0.0f
                 : glm::mix(-usable_half_span, usable_half_span, fraction);
             const std::optional<BuildingRoutePort> port
@@ -998,7 +1047,7 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
             pair.target_qualified_name,
             pair.field_name,
             pair.field_type_name,
-            kOutgoingRouteColor,
+            pair.is_abstract_ref ? kAbstractOutgoingRouteColor : kOutgoingRouteColor,
             kIncomingRouteColor,
             std::move(world_points),
         };
@@ -1040,6 +1089,29 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
     {
         if (route_result.has_value())
             routes.push_back(std::move(*route_result));
+    }
+
+    // Assign per-route stacked elevation so pick code can use it per-route.
+    const float base_elev = route_base_elevation(config);
+    const float layer_step = std::max(config.dependency_route_layer_step, 0.0f);
+    std::unordered_map<std::string, int> side_layer_counters;
+    for (auto& route : routes)
+    {
+        if (route.world_points.size() < 2)
+        {
+            route.elevation = base_elev;
+            continue;
+        }
+        const glm::vec2 edge = route.world_points.front();
+        const glm::vec2 road = route.world_points[1];
+        const glm::vec2 dir = road - edge;
+        const char side = std::abs(dir.x) > std::abs(dir.y)
+            ? (dir.x > 0.0f ? 'E' : 'W')
+            : (dir.y > 0.0f ? 'N' : 'S');
+        const std::string key = route.source_file_path + "#" + route.source_module_path + "#"
+            + route.source_qualified_name + '#' + side;
+        const int side_layer = side_layer_counters[key]++;
+        route.elevation = base_elev + static_cast<float>(side_layer) * layer_step;
     }
 
     return routes;
@@ -1299,6 +1371,7 @@ SemanticMegacityModel build_semantic_megacity_model(
                 dep.target_qualified_name,
                 dep.source_file_path,
                 dep.target_file_path,
+                dep.is_abstract_ref,
             });
         }
     }

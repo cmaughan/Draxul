@@ -73,9 +73,20 @@ inline glm::vec4 module_building_layer_color(const glm::vec4& module_color, size
     return glm::vec4(glm::clamp(dark_band, glm::vec3(0.0f), glm::vec3(1.0f)), module_color.a);
 }
 
+inline constexpr float kRoadSurfaceTextureLift = 0.002f;
+inline constexpr float kDependencyRouteLift = 0.01f;
+
 inline float building_base_elevation(const MegaCityCodeConfig& config)
 {
     return config.sidewalk_surface_lift + config.sidewalk_surface_height;
+}
+
+inline float route_base_elevation(const MegaCityCodeConfig& config)
+{
+    return std::max(
+               kRoadSurfaceTextureLift + config.road_surface_height,
+               config.sidewalk_surface_lift + config.sidewalk_surface_height)
+        + kDependencyRouteLift;
 }
 
 inline float world_floor_height(const MegaCityCodeConfig& config)
