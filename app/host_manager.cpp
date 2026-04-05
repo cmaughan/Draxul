@@ -18,6 +18,7 @@ namespace draxul
 #ifdef DRAXUL_ENABLE_MEGACITY
 std::unique_ptr<IHost> create_megacity_host();
 #endif
+std::unique_ptr<IHost> create_nanovg_demo_host();
 
 namespace
 {
@@ -34,6 +35,7 @@ bool is_terminal_shell_host(HostKind kind)
         return true;
     case Nvim:
     case MegaCity:
+    case NanoVGDemo:
         return false;
     }
     return false;
@@ -407,6 +409,10 @@ bool HostManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
         error_ = "The Megacity host was disabled at build time (DRAXUL_ENABLE_MEGACITY=OFF).";
         return false;
 #endif
+    }
+    else if (launch.kind == HostKind::NanoVGDemo)
+    {
+        new_host = create_nanovg_demo_host();
     }
     else
         new_host = create_host(launch.kind);

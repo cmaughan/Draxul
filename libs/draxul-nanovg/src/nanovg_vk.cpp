@@ -6,6 +6,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <draxul/log.h>
+#include <draxul/runtime_path.h>
+#include <fstream>
+#include <unordered_map>
 #include <vector>
 
 namespace draxul
@@ -113,6 +117,8 @@ struct VkNVGcontext
     VkPipeline pipelineFillAA = VK_NULL_HANDLE;
     VkPipeline pipelineFillNoAA = VK_NULL_HANDLE;
     VkPipeline pipelineStencilOnly = VK_NULL_HANDLE;
+    VkPipeline pipelineStencilFringe = VK_NULL_HANDLE;
+    VkPipeline pipelineStencilCover = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     VkSampler sampler = VK_NULL_HANDLE;
@@ -144,6 +150,9 @@ struct VkNVGcontext
     std::vector<NVGvertex> verts;
     std::vector<uint8_t> uniforms;
 
+    // Reused each frame to avoid per-frame heap allocation.
+    std::unordered_map<int, VkDescriptorSet> textureDescriptorSets;
+
     // Texture management
     std::vector<VkNVGtexture> textures;
     int textureIdCounter = 0;
@@ -159,6 +168,7 @@ struct VkNVGcontext
         std::vector<VkBuffer> buffers;
         std::vector<VmaAllocation> allocations;
         std::vector<VkFramebuffer> framebuffers;
+        std::vector<VkDescriptorSet> descriptorSets;
     };
     FrameResources frameResources[kMaxFramesInFlight];
 };
@@ -414,33 +424,30 @@ static void vknvg__ensureStencilImage(VkNVGcontext* vk, int w, int h)
 // Shader loading helper
 // ---------------------------------------------------------------------------
 
-// Find shader SPIR-V file relative to executable
-static std::vector<char> vknvg__findShaderPath(const char* name)
+static std::vector<char> vknvg__loadShaderBytes(const char* name)
 {
-    // Try common locations relative to executable
-    const char* prefixes[] = { "shaders/", "../shaders/", "" };
-    for (auto prefix : prefixes)
+    const auto shader_dir = bundled_asset_path("shaders");
+    const auto shader_path = shader_dir / name;
+
+    std::ifstream file(shader_path, std::ios::ate | std::ios::binary);
+    if (!file.is_open())
     {
-        char path[512];
-        snprintf(path, sizeof(path), "%s%s", prefix, name);
-        FILE* f = fopen(path, "rb");
-        if (f)
-        {
-            fseek(f, 0, SEEK_END);
-            long size = ftell(f);
-            fseek(f, 0, SEEK_SET);
-            std::vector<char> data(size);
-            fread(data.data(), 1, size, f);
-            fclose(f);
-            return data;
-        }
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan failed to open shader: %s",
+            shader_path.string().c_str());
+        return {};
     }
-    return {};
+
+    const size_t size = static_cast<size_t>(file.tellg());
+    std::vector<char> data(size);
+    file.seekg(0);
+    file.read(data.data(), static_cast<std::streamsize>(size));
+    return data;
 }
 
 static VkShaderModule vknvg__loadShader(VkDevice device, const char* name)
 {
-    auto data = vknvg__findShaderPath(name);
+    auto data = vknvg__loadShaderBytes(name);
     if (data.empty())
         return VK_NULL_HANDLE;
 
@@ -449,7 +456,11 @@ static VkShaderModule vknvg__loadShader(VkDevice device, const char* name)
     ci.pCode = reinterpret_cast<const uint32_t*>(data.data());
 
     VkShaderModule mod = VK_NULL_HANDLE;
-    vkCreateShaderModule(device, &ci, nullptr, &mod);
+    if (vkCreateShaderModule(device, &ci, nullptr, &mod) != VK_SUCCESS)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create shader module: %s", name);
+        return VK_NULL_HANDLE;
+    }
     return mod;
 }
 
@@ -459,15 +470,16 @@ static VkShaderModule vknvg__loadShader(VkDevice device, const char* name)
 
 static void vknvg__destroyTexture(VkNVGcontext* vk, VkNVGtexture& tex)
 {
+    if (tex.descriptorSet != VK_NULL_HANDLE)
+        vkFreeDescriptorSets(vk->device, vk->descriptorPool, 1, &tex.descriptorSet);
     if (tex.imageView != VK_NULL_HANDLE)
         vkDestroyImageView(vk->device, tex.imageView, nullptr);
     if (tex.image != VK_NULL_HANDLE)
         vmaDestroyImage(vk->allocator, tex.image, tex.allocation);
-    // descriptorSet is freed when pool is destroyed
     tex = {};
 }
 
-static VkDescriptorSet vknvg__allocDescriptorSet(VkNVGcontext* vk, VkImageView imageView)
+static VkDescriptorSet vknvg__allocDescriptorSet(VkNVGcontext* vk)
 {
     VkDescriptorSetAllocateInfo allocInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
     allocInfo.descriptorPool = vk->descriptorPool;
@@ -477,21 +489,6 @@ static VkDescriptorSet vknvg__allocDescriptorSet(VkNVGcontext* vk, VkImageView i
     VkDescriptorSet ds = VK_NULL_HANDLE;
     if (vkAllocateDescriptorSets(vk->device, &allocInfo, &ds) != VK_SUCCESS)
         return VK_NULL_HANDLE;
-
-    // Write the combined image sampler
-    VkDescriptorImageInfo imgInfo = {};
-    imgInfo.sampler = vk->sampler;
-    imgInfo.imageView = imageView;
-    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    write.dstSet = ds;
-    write.dstBinding = 1;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.pImageInfo = &imgInfo;
-
-    vkUpdateDescriptorSets(vk->device, 1, &write, 0, nullptr);
     return ds;
 }
 
@@ -507,7 +504,10 @@ static int vknvg__renderCreate(void* uptr)
     vk->vertModule = vknvg__loadShader(vk->device, "nanovg.vert.spv");
     vk->fragModule = vknvg__loadShader(vk->device, "nanovg.frag.spv");
     if (vk->vertModule == VK_NULL_HANDLE || vk->fragModule == VK_NULL_HANDLE)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to load shaders");
         return 0;
+    }
 
     // Find stencil format
     VkFormat stencilFormat = vknvg__findStencilFormat(vk->physicalDevice);
@@ -573,7 +573,10 @@ static int vknvg__renderCreate(void* uptr)
         rpCI.pDependencies = deps;
 
         if (vkCreateRenderPass(vk->device, &rpCI, nullptr, &vk->renderPass) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create render pass");
             return 0;
+        }
     }
 
     // Descriptor set layout: binding 0 = uniform buffer (dynamic), binding 1 = combined image sampler
@@ -593,25 +596,31 @@ static int vknvg__renderCreate(void* uptr)
         ci.pBindings = bindings;
 
         if (vkCreateDescriptorSetLayout(vk->device, &ci, nullptr, &vk->descriptorSetLayout) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create descriptor set layout");
             return 0;
+        }
     }
 
     // Descriptor pool
     {
         VkDescriptorPoolSize poolSizes[2] = {};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        poolSizes[0].descriptorCount = 256;
+        poolSizes[0].descriptorCount = 1024;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[1].descriptorCount = 256;
+        poolSizes[1].descriptorCount = 1024;
 
         VkDescriptorPoolCreateInfo ci = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        ci.maxSets = 256;
+        ci.maxSets = 1024;
         ci.poolSizeCount = 2;
         ci.pPoolSizes = poolSizes;
 
         if (vkCreateDescriptorPool(vk->device, &ci, nullptr, &vk->descriptorPool) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create descriptor pool");
             return 0;
+        }
     }
 
     // Pipeline layout: push constants for viewSize, one descriptor set
@@ -628,7 +637,10 @@ static int vknvg__renderCreate(void* uptr)
         ci.pPushConstantRanges = &pushRange;
 
         if (vkCreatePipelineLayout(vk->device, &ci, nullptr, &vk->pipelineLayout) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create pipeline layout");
             return 0;
+        }
     }
 
     // Sampler
@@ -642,7 +654,10 @@ static int vknvg__renderCreate(void* uptr)
         ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
         if (vkCreateSampler(vk->device, &ci, nullptr, &vk->sampler) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create sampler");
             return 0;
+        }
     }
 
     // Shared pipeline state
@@ -688,7 +703,10 @@ static int vknvg__renderCreate(void* uptr)
     VkPipelineRasterizationStateCreateInfo rasterizer = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    // NanoVG emits 2D UI geometry with a mix of triangle lists and strips. The
+    // Vulkan backend does not need face culling here, and disabling it avoids
+    // platform-specific winding differences making UI chrome disappear.
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
     VkPipelineMultisampleStateCreateInfo multisampling = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
@@ -705,13 +723,11 @@ static int vknvg__renderCreate(void* uptr)
     dynamicState.dynamicStateCount = 5;
     dynamicState.pDynamicStates = dynamicStates;
 
-    // Common depth-stencil: stencil enabled, depth disabled
+    // Base depth/stencil state used for normal non-stencil draws.
     VkPipelineDepthStencilStateCreateInfo depthStencil = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     depthStencil.depthTestEnable = VK_FALSE;
     depthStencil.depthWriteEnable = VK_FALSE;
-    depthStencil.stencilTestEnable = VK_TRUE;
-    // Default front/back stencil: always pass, keep on all operations (overridden dynamically won't work—
-    // but we use different pipelines and set stencil state via dynamic state commands)
+    depthStencil.stencilTestEnable = VK_FALSE;
     depthStencil.front.compareOp = VK_COMPARE_OP_ALWAYS;
     depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
     depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
@@ -719,6 +735,25 @@ static int vknvg__renderCreate(void* uptr)
     depthStencil.front.compareMask = 0xFF;
     depthStencil.front.writeMask = 0xFF;
     depthStencil.back = depthStencil.front;
+
+    // Non-convex fills rely on the same stencil phases as the GL/Metal backends.
+    VkPipelineDepthStencilStateCreateInfo depthStencilFill = depthStencil;
+    depthStencilFill.stencilTestEnable = VK_TRUE;
+    depthStencilFill.front.passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP;
+    depthStencilFill.back.passOp = VK_STENCIL_OP_DECREMENT_AND_WRAP;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencilFringe = depthStencil;
+    depthStencilFringe.stencilTestEnable = VK_TRUE;
+    depthStencilFringe.front.compareOp = VK_COMPARE_OP_EQUAL;
+    depthStencilFringe.back.compareOp = VK_COMPARE_OP_EQUAL;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencilCover = depthStencil;
+    depthStencilCover.stencilTestEnable = VK_TRUE;
+    depthStencilCover.front.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+    depthStencilCover.front.failOp = VK_STENCIL_OP_ZERO;
+    depthStencilCover.front.depthFailOp = VK_STENCIL_OP_ZERO;
+    depthStencilCover.front.passOp = VK_STENCIL_OP_ZERO;
+    depthStencilCover.back = depthStencilCover.front;
 
     // Create fill AA pipeline
     {
@@ -753,14 +788,11 @@ static int vknvg__renderCreate(void* uptr)
         pipeCI.subpass = 0;
 
         if (vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &vk->pipelineFillAA) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create fill pipeline");
             return 0;
+        }
     }
-
-    // Create fill no-AA pipeline (same but with triangle strip topology for strokes)
-    // Actually we share the pipeline and switch topology dynamically... no, Vulkan doesn't support
-    // dynamic topology in core. We'll use triangle list everywhere and use the same pipeline.
-    // The Metal backend also uses one pipeline for both fills and strokes.
-    vk->pipelineFillNoAA = vk->pipelineFillAA; // reuse for now
 
     // Create stencil-only pipeline (no color writes)
     {
@@ -784,7 +816,7 @@ static int vknvg__renderCreate(void* uptr)
         pipeCI.pViewportState = &viewportState;
         pipeCI.pRasterizationState = &stencilRaster;
         pipeCI.pMultisampleState = &multisampling;
-        pipeCI.pDepthStencilState = &depthStencil;
+        pipeCI.pDepthStencilState = &depthStencilFill;
         pipeCI.pColorBlendState = &blendState;
         pipeCI.pDynamicState = &dynamicState;
         pipeCI.layout = vk->pipelineLayout;
@@ -792,25 +824,13 @@ static int vknvg__renderCreate(void* uptr)
         pipeCI.subpass = 0;
 
         if (vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &vk->pipelineStencilOnly) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create stencil-only pipeline");
             return 0;
+        }
     }
 
-    // Create a triangle strip pipeline for strokes
-    // Actually, NanoVG stroke verts are triangle strips but we need triangle strip topology.
-    // We need a separate pipeline with VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP.
-    // Let's create it. We'll store it as pipelineFillNoAA (rename later if needed).
-    // For now, let's just always use triangle list and convert strips to lists too.
-    // WAIT — that's wasteful. Let's create two pipelines: one TRIANGLE_LIST, one TRIANGLE_STRIP.
-
-    // Actually, let me rethink. The Metal backend uses:
-    // - MTLPrimitiveTypeTriangle for fills (converted from fans)
-    // - MTLPrimitiveTypeTriangleStrip for strokes
-    // - MTLPrimitiveTypeTriangleStrip for bounding box quads (4 verts)
-    //
-    // In Vulkan we need separate pipelines for different topologies.
-    // Let's create a triangle strip variant of the fill AA pipeline.
-
-    // We already have pipelineFillAA for triangle lists. Create a strip variant.
+    // Triangle strips are used for strokes and the non-convex cover quad.
     {
         VkPipelineColorBlendAttachmentState colorBlend = {};
         colorBlend.blendEnable = VK_TRUE;
@@ -846,7 +866,94 @@ static int vknvg__renderCreate(void* uptr)
         pipeCI.subpass = 0;
 
         if (vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &vk->pipelineFillNoAA) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create strip pipeline");
             return 0;
+        }
+    }
+
+    // Fringes for non-convex fills only draw where the fill stencil is still zero.
+    {
+        VkPipelineColorBlendAttachmentState colorBlend = {};
+        colorBlend.blendEnable = VK_TRUE;
+        colorBlend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+        colorBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+            | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+        VkPipelineColorBlendStateCreateInfo blendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        blendState.attachmentCount = 1;
+        blendState.pAttachments = &colorBlend;
+
+        VkPipelineInputAssemblyStateCreateInfo stripAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        stripAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+
+        VkGraphicsPipelineCreateInfo pipeCI = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        pipeCI.stageCount = 2;
+        pipeCI.pStages = stages;
+        pipeCI.pVertexInputState = &vertexInput;
+        pipeCI.pInputAssemblyState = &stripAssembly;
+        pipeCI.pViewportState = &viewportState;
+        pipeCI.pRasterizationState = &rasterizer;
+        pipeCI.pMultisampleState = &multisampling;
+        pipeCI.pDepthStencilState = &depthStencilFringe;
+        pipeCI.pColorBlendState = &blendState;
+        pipeCI.pDynamicState = &dynamicState;
+        pipeCI.layout = vk->pipelineLayout;
+        pipeCI.renderPass = vk->renderPass;
+        pipeCI.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &vk->pipelineStencilFringe) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create stencil fringe pipeline");
+            return 0;
+        }
+    }
+
+    // Cover pass draws where stencil != 0 and zeroes it so later calls start clean.
+    {
+        VkPipelineColorBlendAttachmentState colorBlend = {};
+        colorBlend.blendEnable = VK_TRUE;
+        colorBlend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+        colorBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+            | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+        VkPipelineColorBlendStateCreateInfo blendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+        blendState.attachmentCount = 1;
+        blendState.pAttachments = &colorBlend;
+
+        VkPipelineInputAssemblyStateCreateInfo stripAssembly = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        stripAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+
+        VkGraphicsPipelineCreateInfo pipeCI = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+        pipeCI.stageCount = 2;
+        pipeCI.pStages = stages;
+        pipeCI.pVertexInputState = &vertexInput;
+        pipeCI.pInputAssemblyState = &stripAssembly;
+        pipeCI.pViewportState = &viewportState;
+        pipeCI.pRasterizationState = &rasterizer;
+        pipeCI.pMultisampleState = &multisampling;
+        pipeCI.pDepthStencilState = &depthStencilCover;
+        pipeCI.pColorBlendState = &blendState;
+        pipeCI.pDynamicState = &dynamicState;
+        pipeCI.layout = vk->pipelineLayout;
+        pipeCI.renderPass = vk->renderPass;
+        pipeCI.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &vk->pipelineStencilCover) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create stencil cover pipeline");
+            return 0;
+        }
     }
 
     // Create dummy 1x1 white texture
@@ -865,7 +972,10 @@ static int vknvg__renderCreate(void* uptr)
         allocCI.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
 
         if (vmaCreateImage(vk->allocator, &imgCI, &allocCI, &vk->dummyTex.image, &vk->dummyTex.allocation, nullptr) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create dummy texture image");
             return 0;
+        }
 
         // Write white pixel
         void* mapped = nullptr;
@@ -883,9 +993,11 @@ static int vknvg__renderCreate(void* uptr)
         viewCI.subresourceRange.layerCount = 1;
 
         if (vkCreateImageView(vk->device, &viewCI, nullptr, &vk->dummyTex.imageView) != VK_SUCCESS)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create dummy texture image view");
             return 0;
+        }
 
-        vk->dummyTex.descriptorSet = vknvg__allocDescriptorSet(vk, vk->dummyTex.imageView);
         vk->dummyTex.width = 1;
         vk->dummyTex.height = 1;
         vk->dummyTex.texId = -1; // internal
@@ -916,7 +1028,12 @@ static int vknvg__renderCreateTexture(void* uptr, int type, int w, int h, int im
 
     VkNVGtexture tex;
     if (vmaCreateImage(vk->allocator, &imgCI, &allocCI, &tex.image, &tex.allocation, nullptr) != VK_SUCCESS)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan failed to create texture image (%dx%d type=%d flags=0x%x)",
+            w, h, type, imageFlags);
         return 0;
+    }
 
     if (data)
     {
@@ -936,6 +1053,9 @@ static int vknvg__renderCreateTexture(void* uptr, int type, int w, int h, int im
 
     if (vkCreateImageView(vk->device, &viewCI, nullptr, &tex.imageView) != VK_SUCCESS)
     {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan failed to create texture image view (%dx%d type=%d flags=0x%x)",
+            w, h, type, imageFlags);
         vmaDestroyImage(vk->allocator, tex.image, tex.allocation);
         return 0;
     }
@@ -945,8 +1065,6 @@ static int vknvg__renderCreateTexture(void* uptr, int type, int w, int h, int im
     tex.height = h;
     tex.type = type;
     tex.flags = imageFlags;
-    tex.descriptorSet = vknvg__allocDescriptorSet(vk, tex.imageView);
-
     vk->textures.push_back(tex);
     return tex.texId;
 }
@@ -1173,10 +1291,14 @@ static void vknvg__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 static void vknvg__cleanupFrameResources(VkNVGcontext* vk, int slot)
 {
     auto& fr = vk->frameResources[slot];
+    if (!fr.descriptorSets.empty())
+        vkFreeDescriptorSets(vk->device, vk->descriptorPool,
+            static_cast<uint32_t>(fr.descriptorSets.size()), fr.descriptorSets.data());
     for (size_t i = 0; i < fr.buffers.size(); i++)
         vmaDestroyBuffer(vk->allocator, fr.buffers[i], fr.allocations[i]);
     for (auto fb : fr.framebuffers)
         vkDestroyFramebuffer(vk->device, fb, nullptr);
+    fr.descriptorSets.clear();
     fr.buffers.clear();
     fr.allocations.clear();
     fr.framebuffers.clear();
@@ -1228,6 +1350,16 @@ static void vknvg__renderFlush(void* uptr)
     vmaUnmapMemory(vk->allocator, vertAlloc);
 
     // Create uniform buffer
+    if (vk->uniforms.empty())
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan flush produced %zu calls and %zu verts but no uniforms; skipping frame",
+            vk->calls.size(), vk->verts.size());
+        vmaDestroyBuffer(vk->allocator, vertBuf, vertAlloc);
+        vknvg__renderCancel(uptr);
+        return;
+    }
+
     VkBufferCreateInfo uniformBufCI = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     uniformBufCI.size = vk->uniforms.size();
     uniformBufCI.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
@@ -1248,25 +1380,60 @@ static void vknvg__renderFlush(void* uptr)
     memcpy(uniformMapped, vk->uniforms.data(), vk->uniforms.size());
     vmaUnmapMemory(vk->allocator, uniformAlloc);
 
-    // Allocate a descriptor set for the uniform buffer + dummy texture
-    // We need to update the UBO binding each frame
-    VkDescriptorSet frameDS = vknvg__allocDescriptorSet(vk, vk->dummyTex.imageView);
-
-    // Write uniform buffer to binding 0
+    if (uniformBuf == VK_NULL_HANDLE)
     {
-        VkDescriptorBufferInfo bufInfo = {};
-        bufInfo.buffer = uniformBuf;
-        bufInfo.offset = 0;
-        bufInfo.range = sizeof(VkNVGfragUniforms);
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan created a null uniform buffer (size=%zu, calls=%zu, uniforms=%zu)",
+            vk->uniforms.size(), vk->calls.size(), vk->uniforms.size());
+        vmaDestroyBuffer(vk->allocator, vertBuf, vertAlloc);
+        vknvg__renderCancel(uptr);
+        return;
+    }
 
-        VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-        write.dstSet = frameDS;
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        write.pBufferInfo = &bufInfo;
+    auto& fr = vk->frameResources[slot];
 
-        vkUpdateDescriptorSets(vk->device, 1, &write, 0, nullptr);
+    VkDescriptorBufferInfo bufInfo = {};
+    bufInfo.buffer = uniformBuf;
+    bufInfo.offset = 0;
+    bufInfo.range = sizeof(VkNVGfragUniforms);
+
+    auto allocDrawDescriptorSet = [&](VkImageView imageView) -> VkDescriptorSet {
+        VkDescriptorSet ds = vknvg__allocDescriptorSet(vk);
+        if (ds == VK_NULL_HANDLE)
+            return VK_NULL_HANDLE;
+
+        VkDescriptorImageInfo imgInfo = {};
+        imgInfo.sampler = vk->sampler;
+        imgInfo.imageView = imageView;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet writes[2] = {};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = ds;
+        writes[0].dstBinding = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        writes[0].pBufferInfo = &bufInfo;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = ds;
+        writes[1].dstBinding = 1;
+        writes[1].descriptorCount = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].pImageInfo = &imgInfo;
+
+        vkUpdateDescriptorSets(vk->device, 2, writes, 0, nullptr);
+        fr.descriptorSets.push_back(ds);
+        return ds;
+    };
+
+    VkDescriptorSet frameDS = allocDrawDescriptorSet(vk->dummyTex.imageView);
+    if (frameDS == VK_NULL_HANDLE)
+    {
+        vmaDestroyBuffer(vk->allocator, vertBuf, vertAlloc);
+        vmaDestroyBuffer(vk->allocator, uniformBuf, uniformAlloc);
+        vknvg__renderCancel(uptr);
+        return;
     }
 
     // Create per-frame framebuffer
@@ -1343,64 +1510,46 @@ static void vknvg__renderFlush(void* uptr)
     vkCmdSetStencilCompareMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
     vkCmdSetStencilWriteMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
 
+    vk->textureDescriptorSets.clear();
+
     // Dispatch calls
     for (const auto& call : vk->calls)
     {
-        // Determine which descriptor set to use for the texture
-        VkDescriptorSet texDS = frameDS;
+        VkDescriptorSet drawDS = frameDS;
         if (call.image != 0)
         {
             VkNVGtexture* t = vknvg__findTexture(vk, call.image);
-            if (t && t->descriptorSet != VK_NULL_HANDLE)
+            if (t && t->imageView != VK_NULL_HANDLE)
             {
-                // Need to update the UBO binding in this descriptor set too
-                // For simplicity, we just use the frame DS which already has the UBO
-                // and bind the texture via a separate mechanism... actually Vulkan
-                // requires all bindings in a set to be valid. Let's rewrite the
-                // texture binding in the frame DS instead.
-                VkDescriptorImageInfo imgInfo = {};
-                imgInfo.sampler = vk->sampler;
-                imgInfo.imageView = t->imageView;
-                imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-                write.dstSet = frameDS;
-                write.dstBinding = 1;
-                write.descriptorCount = 1;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write.pImageInfo = &imgInfo;
-
-                vkUpdateDescriptorSets(vk->device, 1, &write, 0, nullptr);
+                const auto it = vk->textureDescriptorSets.find(call.image);
+                if (it != vk->textureDescriptorSets.end())
+                {
+                    drawDS = it->second;
+                }
+                else if (VkDescriptorSet textureDS = allocDrawDescriptorSet(t->imageView);
+                    textureDS != VK_NULL_HANDLE)
+                {
+                    vk->textureDescriptorSets.emplace(call.image, textureDS);
+                    drawDS = textureDS;
+                }
             }
-        }
-        else
-        {
-            // Restore dummy texture
-            VkDescriptorImageInfo imgInfo = {};
-            imgInfo.sampler = vk->sampler;
-            imgInfo.imageView = vk->dummyTex.imageView;
-            imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-            VkWriteDescriptorSet write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            write.dstSet = frameDS;
-            write.dstBinding = 1;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write.pImageInfo = &imgInfo;
-
-            vkUpdateDescriptorSets(vk->device, 1, &write, 0, nullptr);
+            else
+            {
+                DRAXUL_LOG_WARN(LogCategory::Renderer,
+                    "NanoVG Vulkan could not resolve image %d for a draw call; using dummy texture",
+                    call.image);
+            }
         }
 
         switch (call.type)
         {
         case VNVG_CONVEXFILL:
         {
-            // Bind fill pipeline (triangle list)
             vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineFillAA);
 
             uint32_t dynOffset = static_cast<uint32_t>(call.uniformOffset);
             vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
 
             for (int i = 0; i < call.pathCount; i++)
             {
@@ -1411,7 +1560,7 @@ static void vknvg__renderFlush(void* uptr)
             // Stroke (AA fringe) — triangle strip
             vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineFillNoAA);
             vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
             for (int i = 0; i < call.pathCount; i++)
             {
                 const auto& p = vk->paths[call.pathOffset + i];
@@ -1426,9 +1575,8 @@ static void vknvg__renderFlush(void* uptr)
             vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineStencilOnly);
             uint32_t dynOffset = static_cast<uint32_t>(call.uniformOffset);
             vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
 
-            // Set stencil: front incr wrap, back decr wrap, always pass
             vkCmdSetStencilWriteMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
             vkCmdSetStencilCompareMask(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0xFF);
             vkCmdSetStencilReference(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
@@ -1444,11 +1592,10 @@ static void vknvg__renderFlush(void* uptr)
             int paintOffset = call.uniformOffset + static_cast<int>(sizeof(VkNVGfragUniforms));
             if (vk->flags & NVG_ANTIALIAS)
             {
-                // Use strip pipeline for strokes
-                vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineFillNoAA);
+                vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineStencilFringe);
                 dynOffset = static_cast<uint32_t>(paintOffset);
                 vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                    vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
 
                 for (int i = 0; i < call.pathCount; i++)
                 {
@@ -1459,11 +1606,10 @@ static void vknvg__renderFlush(void* uptr)
             }
 
             // Pass 3: cover (where stencil != 0, zero stencil)
-            // Use strip pipeline for quad
-            vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineFillNoAA);
+            vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineStencilCover);
             dynOffset = static_cast<uint32_t>(paintOffset);
             vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
 
             vkCmdSetStencilReference(vk->commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, 0);
 
@@ -1476,11 +1622,10 @@ static void vknvg__renderFlush(void* uptr)
         }
         case VNVG_STROKE:
         {
-            // Use strip pipeline for strokes
             vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineFillNoAA);
             uint32_t dynOffset = static_cast<uint32_t>(call.uniformOffset);
             vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
 
             for (int i = 0; i < call.pathCount; i++)
             {
@@ -1495,7 +1640,7 @@ static void vknvg__renderFlush(void* uptr)
             vkCmdBindPipeline(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipelineFillAA);
             uint32_t dynOffset = static_cast<uint32_t>(call.uniformOffset);
             vkCmdBindDescriptorSets(vk->commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                vk->pipelineLayout, 0, 1, &frameDS, 1, &dynOffset);
+                vk->pipelineLayout, 0, 1, &drawDS, 1, &dynOffset);
 
             if (call.triangleCount > 0)
                 vkCmdDraw(vk->commandBuffer, call.triangleCount, 1, call.triangleOffset, 0);
@@ -1507,9 +1652,6 @@ static void vknvg__renderFlush(void* uptr)
     }
 
     vkCmdEndRenderPass(vk->commandBuffer);
-
-    // Track resources for deferred cleanup when this frame slot is reused.
-    auto& fr = vk->frameResources[slot];
     fr.buffers.push_back(vertBuf);
     fr.allocations.push_back(vertAlloc);
     fr.buffers.push_back(uniformBuf);
@@ -1541,10 +1683,14 @@ static void vknvg__renderDelete(void* uptr)
 
     if (vk->pipelineFillAA != VK_NULL_HANDLE)
         vkDestroyPipeline(vk->device, vk->pipelineFillAA, nullptr);
-    if (vk->pipelineFillNoAA != VK_NULL_HANDLE && vk->pipelineFillNoAA != vk->pipelineFillAA)
+    if (vk->pipelineFillNoAA != VK_NULL_HANDLE)
         vkDestroyPipeline(vk->device, vk->pipelineFillNoAA, nullptr);
     if (vk->pipelineStencilOnly != VK_NULL_HANDLE)
         vkDestroyPipeline(vk->device, vk->pipelineStencilOnly, nullptr);
+    if (vk->pipelineStencilFringe != VK_NULL_HANDLE)
+        vkDestroyPipeline(vk->device, vk->pipelineStencilFringe, nullptr);
+    if (vk->pipelineStencilCover != VK_NULL_HANDLE)
+        vkDestroyPipeline(vk->device, vk->pipelineStencilCover, nullptr);
     if (vk->pipelineLayout != VK_NULL_HANDLE)
         vkDestroyPipelineLayout(vk->device, vk->pipelineLayout, nullptr);
     if (vk->descriptorPool != VK_NULL_HANDLE)
@@ -1559,8 +1705,6 @@ static void vknvg__renderDelete(void* uptr)
         vkDestroyShaderModule(vk->device, vk->vertModule, nullptr);
     if (vk->fragModule != VK_NULL_HANDLE)
         vkDestroyShaderModule(vk->device, vk->fragModule, nullptr);
-
-    delete vk;
 }
 
 // ---------------------------------------------------------------------------
@@ -1597,6 +1741,7 @@ NVGcontext* nvgCreateVk(VkPhysicalDevice physicalDevice, VkDevice device, VmaAll
     NVGcontext* ctx = nvgCreateInternal(&params);
     if (!ctx)
     {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan context creation failed");
         delete vk;
         return nullptr;
     }
@@ -1605,7 +1750,12 @@ NVGcontext* nvgCreateVk(VkPhysicalDevice physicalDevice, VkDevice device, VmaAll
 
 void nvgDeleteVk(NVGcontext* ctx)
 {
+    if (!ctx)
+        return;
+    NVGparams* params = nvgInternalParams(ctx);
+    VkNVGcontext* vk = static_cast<VkNVGcontext*>(params->userPtr);
     nvgDeleteInternal(ctx);
+    delete vk;
 }
 
 void nvgVkSetFrameState(NVGcontext* ctx,

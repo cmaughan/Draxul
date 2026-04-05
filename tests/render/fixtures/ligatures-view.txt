@@ -1,4 +1,0 @@
-Ligature baseline
--> => == != <= >=
-lhs->rhs  lhs=>rhs  lhs<=rhs  lhs>=rhs
-alpha!=beta  total==2  next->node  opt=>value

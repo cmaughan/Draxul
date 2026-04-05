@@ -163,6 +163,7 @@ add_library(draxul-app
     app/gui_action_handler.cpp
     app/input_dispatcher.cpp
     app/host_manager.cpp
+    app/nanovg_demo_host.cpp
     app/split_tree.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )

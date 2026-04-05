@@ -194,7 +194,7 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - If you touch RPC, redraw handling, or input translation, run `ctest`.
 - If you touch renderer code, build the platform-specific app target and verify startup at least once.
 - After implementing a user-facing feature or rendering-affecting change, run the render smoke/snapshot suite with `t.bat` or `ctest` and confirm the relevant `draxul-render-*` scenario still passes.
-- When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessligatures`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
+- When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessnanovg`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
 - When you complete a work item or a concrete subtask from `plans/work-items/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.

@@ -1,0 +1,10 @@
+name = "nanovg-demo"
+host = "nanovg-demo"
+width = 1200
+height = 760
+display_ppi = 192
+timeout_ms = 5000
+settle_ms = 200
+pixel_tolerance = 8
+changed_pixels_threshold_pct = 0.5
+commands = ["noop"]

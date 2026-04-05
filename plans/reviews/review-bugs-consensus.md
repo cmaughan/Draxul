@@ -1,33 +1,37 @@
-All files are written. Here's a summary of what was produced:
+All 18 work items (WI 82–99) and the consensus file are in place. Here's a summary:
 
 ---
 
-## Consensus complete
+## What was produced
 
-**`plans/reviews/review-bugs-consensus.md`** — 19 confirmed bugs, 6 false positives, interdependency map, and fix order.
+**`plans/reviews/review-bugs-consensus.md`** — verified triage of all three agent reviews.
 
-**19 work items filed in `plans/work-items/` (48–66):**
+### 5 FALSE POSITIVES dismissed
+- Claude BUG-14 (scrollback restore): code is correct — the `idx < size()` guard gives blank cells as intended
+- Gemini BUG-2 (App data race): `on_notification_available` → `wake_window()` → SDL push, never writes `frame_requested_`
+- Gemini BUG-6 (dirty tracking broken): `mark_cell_dirty` correctly sets `dirty_cell_begin_ = index` on the first dirty cell via the `!has_dirty_cells()` branch
+- Claude BUG-21 (`is_running` reaps child): `shutdown()` calls `waitpid(WNOHANG)` first; gets `ECHILD`, skips SIGTERM — correct behavior
+- Claude BUG-7 (signed index): max index at `kMaxGridDim=10000` is 100M < INT_MAX, no practical risk
 
-| # | File | Severity | Bug |
-|---|------|----------|-----|
-| 48 | megacity-host-renderer-config-data-race | CRITICAL | Data race on `renderer_config_` |
-| 49 | bmp-signed-integer-ub | CRITICAL | Signed overflow in write:46 and read_u32:97 |
-| 50 | sdl-file-dialog-window-use-after-free | CRITICAL | `SDL_Window*` UAF in async callback |
-| 51 | sdl-file-dialog-path-leak-on-push-failure | MEDIUM | Path leaked on `SDL_PushEvent` failure |
-| 52 | perf-timing-unsigned-underflow | HIGH | Unsigned wrap corrupts EMA timing display |
-| 53 | megacity-render-image-size-wrong | HIGH | `ImageResource::size` stores width not bytes |
-| 54 | megacity-render-create-sampled-image-resource-leak | HIGH | VMA/ImageView/Sampler leak on partial failure |
-| 55 | megacity-render-upload-mesh-empty-input-vulkan-violation | HIGH | `vkCreateBuffer(size=0)` spec violation |
-| 56 | compact-attr-ids-excludes-scrollback | HIGH | Scrollback loses all colors after compaction |
-| 57 | scrollback-restore-stale-stride-after-resize | HIGH | Visual corruption after resize+restore |
-| 58 | unix-pty-poll-exits-on-eintr | HIGH | Terminal silenced by SIGWINCH/SIGCHLD |
-| 59 | unix-pty-write-silent-fail-on-eintr | HIGH | Keypress/paste dropped on interrupted write |
-| 60 | mpack-unbounded-reserve-oom | HIGH | OOM crash on large msgpack count |
-| 61 | vk-sync-object-partial-create-leak | MEDIUM | Semaphore/fence leak on init failure |
-| 62 | glyph-cache-signed-overflow-empty-cluster | MEDIUM | UB on `INT_MIN - INT_MAX` in bbox |
-| 63 | unix-pty-shutdown-master-fd-close-ordering | MEDIUM | Close-before-join fd race on shutdown |
-| 64 | megacity-host-callbacks-raw-pointer-lifetime | MEDIUM | Raw `callbacks_` pointer UAF on teardown |
-| 65 | rpc-late-response-memory-leak | MEDIUM | Late RPC responses accumulate forever |
-| 66 | app-ppi-float-equality-relayout | MEDIUM | Float equality misses DPI relayout |
+### 18 Work Items filed (WI 82–99)
 
-**Key false positives dropped:** Claude BUG-11 (`waitpid` blocking — already fixed with WNOHANG loop), Gemini `csi_dsr` buffer overrun (max 14 chars in 32-byte buffer), Gemini `grid_handles_` race (main-thread only lifecycle).
+| WI | Severity | Description |
+|----|----------|-------------|
+| 82 | CRITICAL | Palette OOB write — `grid_rows < 2` or `grid_cols < 5` → heap corruption |
+| 83 | CRITICAL | SDL clipboard called from RPC reader thread (data race) |
+| 84 | CRITICAL | ConPTY `quote_windows_arg` drops trailing backslashes → arg corruption |
+| 85 | CRITICAL | Metal capture semaphore signaled before readback completes |
+| 86 | CRITICAL | Signed int overflow in `CapturedFrame::valid()` and `bmp.cpp` row offsets |
+| 87 | HIGH | `MetalGridHandle` dangling reference to parent renderer (UAF on shutdown) |
+| 88 | HIGH | PTY reader breaks on `POLLHUP` before draining `POLLIN` — data loss |
+| 89 | HIGH | `on_notification_available` called under `notif_mutex_` — deadlock risk |
+| 90 | HIGH | Child process inherits `SIGPIPE = SIG_IGN` — breaks shell pipelines |
+| 91 | HIGH | SDL3 file-drop data pointer never freed — memory leak per drop |
+| 92 | HIGH | O(4096) `vector::erase(begin())` under `notif_mutex_` — main-thread stall |
+| 93 | HIGH | Windows `WideCharToMultiByte` undersized buffer — all CLI args silently empty |
+| 94 | MEDIUM | Unbounded `repeat` in `grid_line` — CPU DoS |
+| 95 | MEDIUM | `double_width_cont` at column 0 never cleared — rendering corruption |
+| 96 | MEDIUM | `HighlightTable::attrs_` never pruned on compaction — unbounded growth |
+| 97 | MEDIUM | `NvimRpc::notify()` ignores write failure — silent input discard |
+| 98 | MEDIUM | Scrollback buffer wiped entirely on horizontal resize |
+| 99 | MEDIUM | `vt_parser` calls `flush_plain_text()` per character — O(K²) for clusters |

@@ -119,16 +119,16 @@ Deterministic render snapshots:
   cmdline      Run cmdline-view compare
   unicode      Run unicode-view compare
   panel        Run panel-view compare
-  ligatures    Run ligatures-view compare
-  renderall    Run all five compare snapshots
+  nanovg       Run nanovg-demo compare
+  renderall    Run all compare snapshots
 
 Bless render references:
   blessbasic   Bless basic-view
   blesscmdline Bless cmdline-view
   blessunicode Bless unicode-view
   blesspanel   Bless panel-view
-  blessligatures Bless ligatures-view
-  blessall     Bless all five deterministic references
+  blessnanovg  Bless nanovg-demo
+  blessall     Bless all deterministic references
 
 Examples:
   python do.py smoke
@@ -339,12 +339,12 @@ def main() -> int:
         "cmdline": ("cmdline-view", False),
         "unicode": ("unicode-view", False),
         "panel": ("panel-view", False),
-        "ligatures": ("ligatures-view", False),
         "blessbasic": ("basic-view", True),
         "blesscmdline": ("cmdline-view", True),
         "blessunicode": ("unicode-view", True),
         "blesspanel": ("panel-view", True),
-        "blessligatures": ("ligatures-view", True),
+        "nanovg": ("nanovg-demo", False),
+        "blessnanovg": ("nanovg-demo", True),
     }
 
     if command in render_map:
@@ -364,7 +364,7 @@ def main() -> int:
         if ensure_built(root) != 0:
             return 1
         overall_rc = 0
-        for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "ligatures-view"):
+        for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "nanovg-demo"):
             rc = run([str(draxul_path(root)), "--console", "--render-test",
                       str(scenario_path(root, scenario_name)), "--show-render-test-window"], root)
             print_render_report(root, scenario_name)
@@ -375,7 +375,7 @@ def main() -> int:
     if command == "blessall":
         if ensure_built(root) != 0:
             return 1
-        for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "ligatures-view"):
+        for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "nanovg-demo"):
             rc = run(
                 [str(draxul_path(root)), "--console", "--render-test",
                  str(scenario_path(root, scenario_name)), "--show-render-test-window", "--bless-render-test"],

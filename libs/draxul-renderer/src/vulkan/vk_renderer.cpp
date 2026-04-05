@@ -197,6 +197,14 @@ private:
         const auto& buffer = buffers_[frame_index];
         if (bg_desc_sets_[frame_index] == VK_NULL_HANDLE || fg_desc_sets_[frame_index] == VK_NULL_HANDLE)
             return false;
+        if (buffer.buffer() == VK_NULL_HANDLE)
+        {
+            DRAXUL_LOG_TRACE(
+                LogCategory::Renderer,
+                "Deferring Vulkan grid descriptor update for frame %u until the grid buffer exists",
+                frame_index);
+            return true;
+        }
 
         VkDescriptorBufferInfo buf_info = {};
         buf_info.buffer = buffer.buffer();
@@ -1053,6 +1061,18 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
     if (main_render_pass_active_)
         end_main_render_pass();
 
+    // Vulkan prepasses such as NanoVG can render straight into the swapchain
+    // image before the regular renderer has touched it for this frame. Prime
+    // the main render pass once up front so the image is cleared and left in
+    // COLOR_ATTACHMENT_OPTIMAL; subsequent main-pass resumes will then load the
+    // prepass content instead of clearing over it.
+    if (!main_render_pass_started_)
+    {
+        if (!begin_main_render_pass())
+            return false;
+        end_main_render_pass();
+    }
+
     const int vx = viewport.x;
     const int vy = viewport.y;
     const int vw = viewport.width > 0 ? viewport.width : pixel_w_;
@@ -1065,6 +1085,25 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
         ctx_.swapchain().images[current_image_], ctx_.swapchain().image_views[current_image_],
         ctx_.swapchain().format, ctx_.graphics_queue(), ctx_.graphics_queue_family());
     pass.record_prepass(prepass_ctx);
+
+    // Prepasses such as NanoVG render directly into the swapchain image using
+    // their own render pass. Make those color writes visible before we resume
+    // the renderer's main pass and load from the same attachment.
+    VkImageMemoryBarrier prepass_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    prepass_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    prepass_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    prepass_barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    prepass_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    prepass_barrier.image = ctx_.swapchain().images[current_image_];
+    prepass_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    prepass_barrier.subresourceRange.baseMipLevel = 0;
+    prepass_barrier.subresourceRange.levelCount = 1;
+    prepass_barrier.subresourceRange.baseArrayLayer = 0;
+    prepass_barrier.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(active_cmd_buffer_,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &prepass_barrier);
 
     if (!begin_main_render_pass())
         return false;

@@ -39,6 +39,8 @@ std::unique_ptr<IHost> create_host(HostKind kind)
 #endif
     case HostKind::MegaCity:
         return nullptr; // Created via create_megacity_host() in host_manager.cpp
+    case HostKind::NanoVGDemo:
+        return nullptr; // Created via create_nanovg_demo_host() in app layer
     }
     return nullptr;
 }
