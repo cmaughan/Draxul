@@ -603,14 +603,14 @@ struct ResolvedTargets
 };
 
 ResolvedTargets resolve_dependency_targets(
-    std::string_view source_symbol_id,
-    std::string_view referenced_type_name,
+    const std::string& source_symbol_id,
+    const std::string& referenced_type_name,
     const std::unordered_map<std::string, std::vector<std::string>>& known_type_symbol_ids,
     const std::unordered_map<std::string, std::vector<std::string>>& inheritance_descendants,
     const std::unordered_set<std::string>& abstract_symbol_ids)
 {
     PERF_MEASURE();
-    const auto it = known_type_symbol_ids.find(std::string(referenced_type_name));
+    const auto it = known_type_symbol_ids.find(referenced_type_name);
     if (it == known_type_symbol_ids.end() || it->second.size() != 1)
         return {};
 
@@ -960,6 +960,7 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
         std::unordered_set<std::string> types_with_methods;
         std::unordered_map<std::string, std::vector<int>> method_sizes_by_type;
         std::unordered_map<std::string, std::vector<std::string>> method_names_by_type;
+        std::unordered_map<std::string, int> method_line_totals_by_type;
         std::unordered_map<std::string, std::vector<std::string>> known_type_symbol_ids;
         std::unordered_map<std::string, std::vector<std::string>> direct_base_refs_by_symbol_id;
         std::unordered_set<std::string> abstract_symbol_ids;
@@ -986,6 +987,7 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                         sym.end_line >= sym.line ? (sym.end_line - sym.line + 1) : 1);
                     method_sizes_by_type[sym.parent].push_back(function_size);
                     method_names_by_type[sym.parent].push_back(sym.name);
+                    method_line_totals_by_type[sym.parent] += function_size;
                 }
             }
         }
@@ -993,8 +995,6 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
             = build_inheritance_descendants(direct_base_refs_by_symbol_id, known_type_symbol_ids);
 
         Transaction txn(impl_->db.get());
-        exec(impl_->db.get(), "DELETE FROM city_entities");
-        exec(impl_->db.get(), "DELETE FROM symbols");
         exec(impl_->db.get(), "DELETE FROM files");
 
         Statement insert_file(impl_->db.get(),
@@ -1017,9 +1017,32 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
         struct PendingFieldRows
         {
             std::string symbol_id;
-            std::vector<SymbolRecord::FieldRecord> fields;
+            struct DependencyRow
+            {
+                std::string target_symbol_id;
+                bool is_abstract_ref = false;
+            };
+            struct FieldRow
+            {
+                std::string field_id;
+                std::string field_name;
+                std::string field_type_name;
+                std::vector<DependencyRow> dependencies;
+            };
+            std::vector<FieldRow> fields;
         };
         std::vector<PendingFieldRows> pending_field_rows;
+
+        struct ModuleAgg
+        {
+            int building_count = 0;
+            int total_functions = 0;
+            int total_function_lines = 0;
+            int total_fields = 0;
+            int total_road_size = 0;
+        };
+        std::unordered_map<std::string, ModuleAgg> module_agg;
+        const std::string empty_json_array = "[]";
 
         const auto reconcile_wall_time = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch())
@@ -1061,25 +1084,38 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 const int base_size = (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
                     ? static_cast<int>(sym.field_count)
                     : 0;
-                std::vector<int> function_sizes;
-                std::vector<std::string> function_names;
+                const std::vector<int>* function_sizes = nullptr;
+                const std::vector<std::string>* function_names = nullptr;
+                int function_line_total = 0;
                 if (sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct)
                 {
                     auto it = method_sizes_by_type.find(sym.name);
                     if (it != method_sizes_by_type.end())
-                        function_sizes = it->second;
+                        function_sizes = &it->second;
                     auto name_it = method_names_by_type.find(sym.name);
                     if (name_it != method_names_by_type.end())
-                        function_names = name_it->second;
+                        function_names = &name_it->second;
+                    auto total_it = method_line_totals_by_type.find(sym.name);
+                    if (total_it != method_line_totals_by_type.end())
+                        function_line_total = total_it->second;
                 }
-                const int building_functions = static_cast<int>(function_sizes.size());
+                const int building_functions = function_sizes ? static_cast<int>(function_sizes->size()) : 0;
                 const std::string symbol_id = make_symbol_id(file.path, sym.kind, qualified_name, sym.line);
                 std::unordered_set<std::string> dependency_targets;
+                PendingFieldRows pending_symbol_fields;
                 if ((sym.kind == SymbolKind::Class || sym.kind == SymbolKind::Struct) && !sym.fields.empty())
                 {
-                    for (const auto& field : sym.fields)
+                    pending_symbol_fields.symbol_id = symbol_id;
+                    pending_symbol_fields.fields.reserve(sym.fields.size());
+                    for (size_t field_index = 0; field_index < sym.fields.size(); ++field_index)
                     {
-                        for (const auto& ref : field.referenced_types)
+                        const auto& field = sym.fields[field_index];
+                        PendingFieldRows::FieldRow pending_field;
+                        pending_field.field_id = make_field_id(symbol_id, field.name, field_index);
+                        pending_field.field_name = field.name;
+                        pending_field.field_type_name = field.type_name;
+
+                        for (const std::string& ref : field.referenced_types)
                         {
                             if (ref == sym.name)
                                 continue;
@@ -1089,8 +1125,16 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                                 known_type_symbol_ids,
                                 inheritance_descendants,
                                 abstract_symbol_ids);
-                            dependency_targets.insert(resolved.symbol_ids.begin(), resolved.symbol_ids.end());
+                            for (const std::string& target_symbol_id : resolved.symbol_ids)
+                            {
+                                dependency_targets.insert(target_symbol_id);
+                                pending_field.dependencies.push_back({
+                                    target_symbol_id,
+                                    resolved.is_abstract_ref,
+                                });
+                            }
                         }
+                        pending_symbol_fields.fields.push_back(std::move(pending_field));
                     }
                 }
                 const int road_size = static_cast<int>(dependency_targets.size());
@@ -1111,8 +1155,8 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 insert_symbol.step_done();
                 ++symbol_count;
 
-                if (!sym.fields.empty())
-                    pending_field_rows.push_back({ symbol_id, sym.fields });
+                if (!pending_symbol_fields.fields.empty())
+                    pending_field_rows.push_back(std::move(pending_symbol_fields));
 
                 if (role == CityRole::Method || role == CityRole::Include)
                     continue;
@@ -1129,47 +1173,49 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
                 insert_entity.bind_int(8, static_cast<int>(sym.line));
                 insert_entity.bind_int(9, base_size);
                 insert_entity.bind_int(10, building_functions);
-                insert_entity.bind_text(11, json_int_array(function_sizes));
-                insert_entity.bind_text(12, json_string_array(function_names));
+                insert_entity.bind_text(11, function_sizes ? json_int_array(*function_sizes) : empty_json_array);
+                insert_entity.bind_text(12, function_names ? json_string_array(*function_names) : empty_json_array);
                 insert_entity.bind_int(13, road_size);
                 insert_entity.bind_double(14, spec.height);
                 insert_entity.bind_double(15, spec.footprint_x);
                 insert_entity.bind_double(16, spec.footprint_y);
                 insert_entity.step_done();
                 ++entity_count;
+
+                if (role == CityRole::ConcreteClass
+                    || role == CityRole::AbstractClass
+                    || role == CityRole::DataStruct)
+                {
+                    auto& agg = module_agg[module_path];
+                    ++agg.building_count;
+                    agg.total_functions += building_functions;
+                    agg.total_function_lines += function_line_total;
+                    agg.total_fields += base_size;
+                    agg.total_road_size += road_size;
+                }
             }
         }
 
         for (const auto& pending : pending_field_rows)
         {
-            for (size_t field_index = 0; field_index < pending.fields.size(); ++field_index)
+            for (const auto& field : pending.fields)
             {
-                const auto& field = pending.fields[field_index];
                 insert_field.reuse();
-                insert_field.bind_text(1, make_field_id(pending.symbol_id, field.name, field_index));
+                insert_field.bind_text(1, field.field_id);
                 insert_field.bind_text(2, pending.symbol_id);
-                insert_field.bind_text(3, field.name);
-                insert_field.bind_text(4, field.type_name);
+                insert_field.bind_text(3, field.field_name);
+                insert_field.bind_text(4, field.field_type_name);
                 insert_field.step_done();
 
-                for (const auto& ref : field.referenced_types)
+                for (const auto& dependency : field.dependencies)
                 {
-                    const auto resolved = resolve_dependency_targets(
-                        pending.symbol_id,
-                        ref,
-                        known_type_symbol_ids,
-                        inheritance_descendants,
-                        abstract_symbol_ids);
-                    for (const std::string& target_symbol_id : resolved.symbol_ids)
-                    {
-                        insert_dependency.reuse();
-                        insert_dependency.bind_text(1, pending.symbol_id);
-                        insert_dependency.bind_text(2, target_symbol_id);
-                        insert_dependency.bind_text(3, field.name);
-                        insert_dependency.bind_text(4, field.type_name);
-                        insert_dependency.bind_int(5, resolved.is_abstract_ref ? 1 : 0);
-                        insert_dependency.step_done();
-                    }
+                    insert_dependency.reuse();
+                    insert_dependency.bind_text(1, pending.symbol_id);
+                    insert_dependency.bind_text(2, dependency.target_symbol_id);
+                    insert_dependency.bind_text(3, field.field_name);
+                    insert_dependency.bind_text(4, field.field_type_name);
+                    insert_dependency.bind_int(5, dependency.is_abstract_ref ? 1 : 0);
+                    insert_dependency.step_done();
                 }
             }
         }
@@ -1180,42 +1226,6 @@ bool CityDatabase::reconcile_snapshot(const CodebaseSnapshot& snapshot)
             "INSERT INTO city_modules(module_path, building_count, total_functions, "
             "total_function_lines, avg_function_size, quality, complexity, cohesion, coupling) "
             "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-        // We need per-module function size lists, but SQL can't easily parse JSON arrays.
-        // So group by module_path and accumulate from the per-entity JSON in a second pass.
-        struct ModuleAgg
-        {
-            int building_count = 0;
-            int total_functions = 0;
-            int total_function_lines = 0;
-            int total_fields = 0;
-            int total_road_size = 0;
-        };
-        std::unordered_map<std::string, ModuleAgg> module_agg;
-
-        {
-            Statement entity_scan(impl_->db.get(),
-                "SELECT module_path, building_functions, building_function_sizes_json, "
-                "base_size, road_size "
-                "FROM city_entities WHERE entity_kind IN ('building', 'tower', 'block')");
-            const auto col_text = [&](int index) -> std::string {
-                const auto* t = sqlite3_column_text(entity_scan.raw(), index);
-                return t ? std::string(reinterpret_cast<const char*>(t)) : std::string();
-            };
-            while (entity_scan.step() == SQLITE_ROW)
-            {
-                const std::string mp = col_text(0);
-                auto& agg = module_agg[mp];
-                agg.building_count++;
-                const int funcs = sqlite3_column_int(entity_scan.raw(), 1);
-                agg.total_functions += funcs;
-                const std::vector<int> sizes = parse_json_int_array(col_text(2));
-                for (const int sz : sizes)
-                    agg.total_function_lines += sz;
-                agg.total_fields += sqlite3_column_int(entity_scan.raw(), 3);
-                agg.total_road_size += sqlite3_column_int(entity_scan.raw(), 4);
-            }
-        }
 
         for (const auto& [mp, agg] : module_agg)
         {

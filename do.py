@@ -167,8 +167,9 @@ def _parse_build_args(args: list[str]) -> tuple[str, bool, str, bool, list[str]]
     i = 0
     while i < len(args):
         a = args[i]
-        if a in ("debug", "release"):
-            mode = a
+        mode_arg = a.lower()
+        if mode_arg in ("debug", "release", "relwithdebinfo"):
+            mode = mode_arg
         elif a == "--reconfigure":
             force_reconfigure = True
         elif a == "--vs":
@@ -197,18 +198,32 @@ def _configure_and_build(
 
     if is_win:
         if build_system == "ninja":
-            config = "Debug" if mode == "debug" else "Release"
+            config = {
+                "debug": "Debug",
+                "release": "Release",
+                "relwithdebinfo": "RelWithDebInfo",
+            }[mode]
             preset = "win-ninja-debug" if mode == "debug" else "win-ninja-release"
             bd = root / "build-ninja"
         else:
-            config = "Debug" if mode == "debug" else "Release"
+            config = {
+                "debug": "Debug",
+                "release": "Release",
+                "relwithdebinfo": "RelWithDebInfo",
+            }[mode]
             preset = "default" if mode == "debug" else "release"
             bd = root / "build"
     elif is_mac:
+        if mode == "relwithdebinfo":
+            print("RelWithDebInfo is currently supported only on Windows in do.py. Use raw cmake if you need it on macOS.", file=sys.stderr)
+            return 1, root / "build", "RelWithDebInfo", None
         config = "Debug" if mode == "debug" else "Release"
         preset = f"mac-{mode}"
         bd = root / "build"
     else:
+        if mode == "relwithdebinfo":
+            print("RelWithDebInfo is currently supported only on Windows in do.py. Use raw cmake if you need it on this platform.", file=sys.stderr)
+            return 1, root / "build", "RelWithDebInfo", None
         config = "Debug" if mode == "debug" else "Release"
         preset = f"mac-{mode}"
         bd = root / "build"
@@ -346,9 +361,9 @@ def help_text() -> str:
   do <command> [options]
 
 Single-word shortcuts:
-  build [debug|release] [--reconfigure] [--vs|--ninja]
+  build [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
                Configure and build Draxul (default: debug, ninja on Windows)
-  run [debug|release] [--reconfigure] [--vs|--ninja] [--console] [-- app-args...]
+  run [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--console] [-- app-args...]
                Configure, build, and run Draxul
   smoke        Run the app smoke test
   test         Run the full local test suite (t.bat / run_tests.sh)
@@ -386,8 +401,10 @@ Bless render references:
   blessall     Bless all deterministic references
 
 Examples:
+  do build relwithdebinfo  # Optimized build + symbols (Windows)
   do run                   # Debug build + run (ninja on Windows, make on macOS)
   do run release           # Release build + run
+  do run relwithdebinfo    # Release-ish build + symbols (Windows)
   do run release --vs      # Release build with VS generator (Windows)
   do run --reconfigure     # Force CMake reconfigure
   do smoke

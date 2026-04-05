@@ -232,8 +232,10 @@ The root `do.py` script is the recommended entry point for common tasks:
 On Windows, use `do <command>` (via `do.bat`) instead of `./do.py`.
 
 ```bash
+do build relwithdebinfo  # Windows: optimized build with PDB symbols
 do run                   # Debug build + run (ninja on Windows, make on macOS)
 do run release           # Release build + run
+do run relwithdebinfo    # Windows: optimized build with PDB symbols
 do run release --vs      # Release build with VS generator (Windows)
 do run --console         # Attach a debug console (Windows)
 do smoke                 # Smoke test

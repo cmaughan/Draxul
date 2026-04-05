@@ -248,6 +248,7 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 ### Convenience Scripts
 
 - `do run` configures, builds, and runs — defaults to Ninja on Windows, only builds the `draxul` target
+- `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
 
