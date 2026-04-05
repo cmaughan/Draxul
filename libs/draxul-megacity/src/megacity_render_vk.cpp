@@ -80,6 +80,8 @@ struct MeshBuffers
     Buffer vertices;
     Buffer indices;
     uint32_t index_count = 0;
+    uint32_t first_index = 0;
+    int32_t vertex_offset = 0;
 };
 
 struct ImageResource
@@ -915,7 +917,8 @@ struct IsometricScenePass::State
     const MeshData* tree_bark_mesh_source = nullptr;
     const MeshData* tree_leaf_mesh_source = nullptr;
     std::vector<MeshBuffers> custom_meshes;
-    std::vector<const MeshData*> custom_mesh_sources;
+    Buffer custom_vertex_pool;
+    Buffer custom_index_pool;
     MeshData cached_grid_mesh;
     FloorGridSpec cached_grid_spec;
     bool has_cached_grid_mesh = false;
@@ -1582,31 +1585,79 @@ struct IsometricScenePass::State
     bool ensure_custom_meshes(const std::vector<std::shared_ptr<const MeshData>>& custom_mesh_data, uint32_t current_frame_index)
     {
         PERF_MEASURE();
-        if (custom_meshes.size() > custom_mesh_data.size())
+
+        // Compute total vertex and index bytes across all custom meshes.
+        size_t total_vertex_bytes = 0;
+        size_t total_index_bytes = 0;
+        for (const auto& mesh_data : custom_mesh_data)
         {
-            for (size_t index = custom_mesh_data.size(); index < custom_meshes.size(); ++index)
-                retire_mesh(custom_meshes[index], current_frame_index);
-        }
-        custom_meshes.resize(custom_mesh_data.size());
-        custom_mesh_sources.resize(custom_mesh_data.size(), nullptr);
-        for (size_t index = 0; index < custom_mesh_data.size(); ++index)
-        {
-            const auto& mesh_data = custom_mesh_data[index];
-            if (!mesh_data)
+            if (!mesh_data || mesh_data->vertices.empty() || mesh_data->indices.empty())
                 continue;
-            if (custom_mesh_sources[index] == mesh_data.get() && custom_meshes[index].index_count > 0)
+            total_vertex_bytes = align_up(total_vertex_bytes, sizeof(SceneVertex));
+            total_vertex_bytes += mesh_data->vertices.size() * sizeof(SceneVertex);
+            total_index_bytes = align_up(total_index_bytes, sizeof(uint16_t));
+            total_index_bytes += mesh_data->indices.size() * sizeof(uint16_t);
+        }
+
+        // Clear non-owning MeshBuffers before touching pool buffers.
+        custom_meshes.clear();
+
+        if (total_vertex_bytes == 0 || total_index_bytes == 0)
+        {
+            retire_buffer(custom_vertex_pool, current_frame_index);
+            retire_buffer(custom_index_pool, current_frame_index);
+            return true;
+        }
+
+        // Ensure pool buffers are large enough.
+        if (total_vertex_bytes > custom_vertex_pool.size)
+        {
+            if (!ensure_retired_mapped_buffer_capacity(
+                    total_vertex_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    custom_vertex_pool, total_vertex_bytes, current_frame_index))
+                return false;
+        }
+        if (total_index_bytes > custom_index_pool.size)
+        {
+            if (!ensure_retired_mapped_buffer_capacity(
+                    total_index_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                    custom_index_pool, total_index_bytes, current_frame_index))
+                return false;
+        }
+
+        // Pack all mesh data into the consolidated buffers and build per-mesh slices.
+        custom_meshes.resize(custom_mesh_data.size());
+        size_t vertex_cursor = 0;
+        size_t index_cursor = 0;
+        for (size_t i = 0; i < custom_mesh_data.size(); ++i)
+        {
+            const auto& mesh_data = custom_mesh_data[i];
+            if (!mesh_data || mesh_data->vertices.empty() || mesh_data->indices.empty())
                 continue;
 
-            MeshBuffers replacement;
-            if (!upload_mesh(allocator, *mesh_data, replacement))
-            {
-                DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural custom mesh");
-                return false;
-            }
-            retire_mesh(custom_meshes[index], current_frame_index);
-            custom_meshes[index] = std::move(replacement);
-            custom_mesh_sources[index] = mesh_data.get();
+            vertex_cursor = align_up(vertex_cursor, sizeof(SceneVertex));
+            index_cursor = align_up(index_cursor, sizeof(uint16_t));
+
+            const size_t vbytes = mesh_data->vertices.size() * sizeof(SceneVertex);
+            const size_t ibytes = mesh_data->indices.size() * sizeof(uint16_t);
+            std::memcpy(static_cast<uint8_t*>(custom_vertex_pool.mapped) + vertex_cursor,
+                mesh_data->vertices.data(), vbytes);
+            std::memcpy(static_cast<uint8_t*>(custom_index_pool.mapped) + index_cursor,
+                mesh_data->indices.data(), ibytes);
+
+            MeshBuffers& entry = custom_meshes[i];
+            entry.vertices.buffer = custom_vertex_pool.buffer;
+            entry.indices.buffer = custom_index_pool.buffer;
+            entry.index_count = static_cast<uint32_t>(mesh_data->indices.size());
+            entry.first_index = static_cast<uint32_t>(index_cursor / sizeof(uint16_t));
+            entry.vertex_offset = static_cast<int32_t>(vertex_cursor / sizeof(SceneVertex));
+
+            vertex_cursor += vbytes;
+            index_cursor += ibytes;
         }
+
+        vmaFlushAllocation(allocator, custom_vertex_pool.allocation, 0, vertex_cursor);
+        vmaFlushAllocation(allocator, custom_index_pool.allocation, 0, index_cursor);
         return true;
     }
 
@@ -3928,8 +3979,9 @@ struct IsometricScenePass::State
             destroy_mesh(allocator, floor_mesh);
             destroy_mesh(allocator, tree_bark_mesh);
             destroy_mesh(allocator, tree_leaf_mesh);
-            for (auto& mesh : custom_meshes)
-                destroy_mesh(allocator, mesh);
+            custom_meshes.clear(); // Non-owning views — don't destroy individually
+            destroy_buffer(allocator, custom_vertex_pool);
+            destroy_buffer(allocator, custom_index_pool);
             destroy_mesh(allocator, road_surface_mesh);
             destroy_mesh(allocator, roof_sign_mesh);
             destroy_mesh(allocator, wall_sign_mesh);
@@ -4286,7 +4338,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
             push.uv_rect = obj.uv_rect;
             push.label_metrics = glm::vec4(0.0f);
             vkCmdPushConstants(cmd, state_->prepass_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
-            vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+            vkCmdDrawIndexed(cmd, mesh->index_count, 1, mesh->first_index, mesh->vertex_offset, 0);
         }
 
         vkCmdEndRenderPass(cmd);
@@ -4390,7 +4442,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
                 push.label_metrics = glm::vec4(0.0f);
                 vkCmdPushConstants(
                     cmd, state_->prepass_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
-                vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+                vkCmdDrawIndexed(cmd, mesh->index_count, 1, mesh->first_index, mesh->vertex_offset, 0);
             }
 
             vkCmdEndRenderPass(cmd);
@@ -4483,7 +4535,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         push.uv_rect = obj.uv_rect;
         push.label_metrics = glm::vec4(0.0f);
         vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
-        vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+        vkCmdDrawIndexed(cmd, mesh->index_count, 1, mesh->first_index, mesh->vertex_offset, 0);
     }
 
     // Draw floor grid
@@ -4641,7 +4693,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
             static_cast<float>(obj.performance_heat_offset),
             static_cast<float>(obj.performance_heat_count));
         vkCmdPushConstants(cmd, state_->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
-        vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
+        vkCmdDrawIndexed(cmd, mesh->index_count, 1, mesh->first_index, mesh->vertex_offset, 0);
     };
 
     // Draw opaque objects with depth write enabled.

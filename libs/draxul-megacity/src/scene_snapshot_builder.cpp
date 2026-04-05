@@ -223,17 +223,19 @@ uint32_t find_or_append_material(SceneSnapshot& scene, const Appearance& appeara
     return static_cast<uint32_t>(scene.materials.size() - 1);
 }
 
-uint32_t find_or_append_custom_mesh(SceneSnapshot& scene, const std::shared_ptr<const MeshData>& mesh)
+uint32_t find_or_append_custom_mesh(SceneSnapshot& scene,
+    std::unordered_map<const MeshData*, uint32_t>& mesh_index_map,
+    const std::shared_ptr<const MeshData>& mesh)
 {
     PERF_MEASURE();
-    for (uint32_t index = 0; index < scene.custom_meshes.size(); ++index)
-    {
-        if (scene.custom_meshes[index].get() == mesh.get())
-            return index;
-    }
+    const auto it = mesh_index_map.find(mesh.get());
+    if (it != mesh_index_map.end())
+        return it->second;
 
+    const uint32_t index = static_cast<uint32_t>(scene.custom_meshes.size());
     scene.custom_meshes.push_back(mesh);
-    return static_cast<uint32_t>(scene.custom_meshes.size() - 1);
+    mesh_index_map.emplace(mesh.get(), index);
+    return index;
 }
 
 } // namespace
@@ -311,6 +313,7 @@ SceneSnapshotResult build_scene_snapshot(
     scene.materials.clear();
     scene.materials.push_back(SceneMaterial{});
     scene.custom_meshes.clear();
+    std::unordered_map<const MeshData*, uint32_t> mesh_index_map;
 
     // Query the ECS registry for all entities with position + appearance.
     const auto& reg = world.registry();
@@ -340,7 +343,7 @@ SceneSnapshotResult build_scene_snapshot(
         if (custom_mesh && custom_mesh->mesh)
         {
             obj.mesh = MeshId::Custom;
-            obj.custom_mesh_index = find_or_append_custom_mesh(scene, custom_mesh->mesh);
+            obj.custom_mesh_index = find_or_append_custom_mesh(scene, mesh_index_map, custom_mesh->mesh);
         }
 
         if (const auto* bm = reg.try_get<BuildingMetrics>(entity))
