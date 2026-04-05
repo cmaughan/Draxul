@@ -623,13 +623,17 @@ CityBuildResult build_city(
     }
 
     // Build sign label requests.
+    constexpr size_t kMaxSignChars = 15;
     std::vector<SignLabelRequest> sign_requests;
     sign_requests.reserve(layout->building_count() + layout->modules.size());
     for (const auto& module_layout : layout->modules)
     {
         for (const auto& building : module_layout.buildings)
         {
-            const std::string& text = building.display_name.empty() ? building.qualified_name : building.display_name;
+            const std::string& full_text = building.display_name.empty() ? building.qualified_name : building.display_name;
+            const std::string text = full_text.size() <= kMaxSignChars
+                ? full_text
+                : full_text.substr(0, kMaxSignChars - 3) + "...";
             sign_requests.push_back(make_sign_request(building_sign_key(building), text, {}, text_service, config, true));
         }
 
@@ -871,7 +875,10 @@ CityBuildResult build_city(
                 const auto it = sign_label_atlas->entries.find(building_sign_key(building));
                 if (it != sign_label_atlas->entries.end())
                 {
-                    const std::string& btext = building.display_name.empty() ? building.qualified_name : building.display_name;
+                    const std::string& btext_full = building.display_name.empty() ? building.qualified_name : building.display_name;
+                    const std::string btext = btext_full.size() <= kMaxSignChars
+                        ? btext_full
+                        : btext_full.substr(0, kMaxSignChars - 3) + "...";
                     const RoofSignPlacementSpec roof_sign
                         = place_building_roof_sign(building, btext, text_service, config, building_side_count);
                     const SignMetrics sign_metrics = make_sign_metrics(roof_sign, it->second);
