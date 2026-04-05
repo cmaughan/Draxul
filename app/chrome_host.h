@@ -35,6 +35,10 @@ public:
         const float* display_ppi = nullptr;
         std::weak_ptr<void> owner_lifetime;
         std::function<HostViewport(const PaneDescriptor&)> compute_viewport;
+
+        // Read-only workspace info for tab bar / divider rendering (owned by App).
+        const std::vector<std::unique_ptr<Workspace>>* workspaces = nullptr;
+        const int* active_workspace_id = nullptr;
     };
 
     explicit ChromeHost(Deps deps);
@@ -74,37 +78,6 @@ public:
         return { "chrome" };
     }
 
-    // --- Workspace / Tab API ---
-
-    // Creates the first workspace with a primary host. Called once during init.
-    bool create_initial_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h);
-
-    // Creates a new workspace, initializes its primary host, and activates it.
-    // If host_kind is set, that host is launched; otherwise the platform default shell.
-    // Returns the workspace ID, or -1 on failure.
-    int add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
-        std::optional<HostKind> host_kind = std::nullopt);
-
-    // Closes a workspace by ID. Returns false if it's the last workspace or ID not found.
-    bool close_workspace(int workspace_id, IHostCallbacks& callbacks);
-
-    // Activates a workspace by ID.
-    void activate_workspace(int workspace_id);
-
-    // Cycle to the next or previous workspace.
-    void next_workspace();
-    void prev_workspace();
-
-    // Activate workspace by 1-based display index. No-op if out of range.
-    void activate_workspace_by_index(int one_based_index);
-
-    // Access the active workspace's HostManager.
-    HostManager& active_host_manager();
-    const HostManager& active_host_manager() const;
-
-    // The active workspace's SplitTree (convenience).
-    const SplitTree& active_tree() const;
-
     // Tab bar height in pixels. Returns 0 when there is only one workspace.
     int tab_bar_height() const;
 
@@ -112,18 +85,8 @@ public:
     // Returns the 1-based tab index if hit, or 0 if not in the tab bar.
     int hit_test_tab(int px, int py) const;
 
-    // Recompute viewports for ALL workspaces (not just active).
-    void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
-
-    int workspace_count() const
-    {
-        return static_cast<int>(workspaces_.size());
-    }
-    int active_workspace_id() const;
-    const std::string& last_create_error() const
-    {
-        return last_create_error_;
-    }
+    // Access the active workspace's tree for divider/focus rendering.
+    const SplitTree& active_tree() const;
 
     struct TabLayout
     {
@@ -136,20 +99,14 @@ public:
     };
 
 private:
-    HostManager::Deps make_host_manager_deps() const;
     void update_tab_grid(std::span<const TabLayout> tabs);
     void flush_atlas_if_dirty();
 
     Deps deps_;
-    std::vector<std::unique_ptr<Workspace>> workspaces_;
-    int active_workspace_ = -1;
-    int next_workspace_id_ = 0;
-
     std::unique_ptr<INanoVGPass> nanovg_pass_;
     std::unique_ptr<IGridHandle> tab_handle_;
     HostViewport viewport_{};
     bool running_ = false;
-    std::string last_create_error_;
 };
 
 } // namespace draxul

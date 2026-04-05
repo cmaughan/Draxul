@@ -6,6 +6,7 @@
 #include "host_manager.h"
 #include "input_dispatcher.h"
 #include "render_tree.h"
+#include "workspace.h"
 #include <chrono>
 #include <draxul/app_config.h>
 #include <draxul/config_document.h>
@@ -107,6 +108,22 @@ private:
     bool render_frame();
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
 
+    // --- Workspace management (moved from ChromeHost) ---
+    HostManager::Deps make_host_manager_deps();
+    bool create_initial_workspace(int pixel_w, int pixel_h);
+    int add_workspace(int pixel_w, int pixel_h, std::optional<HostKind> host_kind = std::nullopt);
+    bool close_workspace(int workspace_id);
+    void activate_workspace(int workspace_id);
+    void next_workspace();
+    void prev_workspace();
+    void activate_workspace_by_index(int one_based_index);
+    void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
+    HostManager& active_host_manager();
+    const HostManager& active_host_manager() const;
+    const SplitTree& active_tree() const;
+    int workspace_count() const;
+    int active_workspace_id() const;
+
     AppOptions options_;
     // Dependency factories — populated from AppDeps or from AppOptions' factory fields.
     std::function<std::unique_ptr<IWindow>()> window_factory_;
@@ -140,6 +157,9 @@ private:
     std::string last_render_test_error_;
     std::string last_init_error_;
     std::unique_ptr<class ChromeHost> chrome_host_;
+    std::vector<std::unique_ptr<Workspace>> workspaces_;
+    int active_workspace_ = -1;
+    int next_workspace_id_ = 0;
     RenderNode render_root_;
     DiagnosticsCollector diagnostics_collector_;
 };

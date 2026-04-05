@@ -1,6 +1,5 @@
 #include "chrome_host.h"
 
-#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <draxul/app_config.h>
@@ -25,10 +24,6 @@ bool ChromeHost::initialize(const HostContext& context, IHostCallbacks& /*callba
 
 void ChromeHost::shutdown()
 {
-    for (auto& ws : workspaces_)
-        ws->host_manager.shutdown();
-    workspaces_.clear();
-    active_workspace_ = -1;
     tab_handle_.reset();
     nanovg_pass_.reset();
     running_ = false;
@@ -44,198 +39,30 @@ void ChromeHost::set_viewport(const HostViewport& viewport)
     viewport_ = viewport;
 }
 
-bool ChromeHost::create_initial_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h)
-{
-    auto ws = std::make_unique<Workspace>(next_workspace_id_++, make_host_manager_deps());
-    if (!ws->host_manager.create(callbacks, pixel_w, pixel_h))
-    {
-        last_create_error_ = ws->host_manager.error();
-        return false;
-    }
-    ws->initialized = true;
-    if (IHost* h = ws->host_manager.host())
-        ws->name = h->debug_state().name;
-    else
-        ws->name = "tab";
-    active_workspace_ = ws->id;
-    workspaces_.push_back(std::move(ws));
-    return true;
-}
-
-int ChromeHost::add_workspace(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
-    std::optional<HostKind> host_kind)
-{
-    auto ws = std::make_unique<Workspace>(next_workspace_id_++, make_host_manager_deps());
-    // Default to the platform shell when no explicit kind is given.
-    const HostKind kind = host_kind.value_or(HostManager::platform_default_split_host_kind());
-    if (!ws->host_manager.create(callbacks, pixel_w, pixel_h, kind))
-    {
-        last_create_error_ = ws->host_manager.error();
-        return -1;
-    }
-    ws->initialized = true;
-    if (IHost* h = ws->host_manager.host())
-        ws->name = h->debug_state().name;
-    else
-        ws->name = "tab";
-    int id = ws->id;
-    workspaces_.push_back(std::move(ws));
-    activate_workspace(id);
-    return id;
-}
-
-bool ChromeHost::close_workspace(int workspace_id, IHostCallbacks& /*callbacks*/)
-{
-    if (workspaces_.size() <= 1)
-        return false;
-
-    auto it = std::find_if(workspaces_.begin(), workspaces_.end(),
-        [workspace_id](const auto& ws) { return ws->id == workspace_id; });
-    if (it == workspaces_.end())
-        return false;
-
-    (*it)->host_manager.shutdown();
-
-    bool was_active = (workspace_id == active_workspace_);
-    workspaces_.erase(it);
-
-    if (was_active)
-        activate_workspace(workspaces_.front()->id);
-
-    return true;
-}
-
-void ChromeHost::activate_workspace(int workspace_id)
-{
-    if (workspace_id == active_workspace_)
-        return;
-
-    // Notify old workspace's focused host of focus loss.
-    for (auto& ws : workspaces_)
-    {
-        if (ws->id == active_workspace_)
-        {
-            if (IHost* h = ws->host_manager.focused_host())
-                h->on_focus_lost();
-            break;
-        }
-    }
-
-    active_workspace_ = workspace_id;
-
-    // Notify new workspace's focused host of focus gain.
-    for (auto& ws : workspaces_)
-    {
-        if (ws->id == active_workspace_)
-        {
-            if (IHost* h = ws->host_manager.focused_host())
-                h->on_focus_gained();
-            break;
-        }
-    }
-}
-
-void ChromeHost::next_workspace()
-{
-    if (workspaces_.size() <= 1)
-        return;
-    for (size_t i = 0; i < workspaces_.size(); ++i)
-    {
-        if (workspaces_[i]->id == active_workspace_)
-        {
-            size_t next = (i + 1) % workspaces_.size();
-            activate_workspace(workspaces_[next]->id);
-            return;
-        }
-    }
-}
-
-void ChromeHost::prev_workspace()
-{
-    if (workspaces_.size() <= 1)
-        return;
-    for (size_t i = 0; i < workspaces_.size(); ++i)
-    {
-        if (workspaces_[i]->id == active_workspace_)
-        {
-            size_t prev = (i == 0) ? workspaces_.size() - 1 : i - 1;
-            activate_workspace(workspaces_[prev]->id);
-            return;
-        }
-    }
-}
-
-void ChromeHost::activate_workspace_by_index(int one_based_index)
-{
-    const int idx = one_based_index - 1;
-    if (idx < 0 || idx >= static_cast<int>(workspaces_.size()))
-        return;
-    activate_workspace(workspaces_[static_cast<size_t>(idx)]->id);
-}
-
-HostManager& ChromeHost::active_host_manager()
-{
-    for (auto& ws : workspaces_)
-    {
-        if (ws->id == active_workspace_)
-            return ws->host_manager;
-    }
-    // Should never happen — caller must ensure at least one workspace exists.
-    static HostManager dummy(HostManager::Deps{});
-    return dummy;
-}
-
-const HostManager& ChromeHost::active_host_manager() const
-{
-    for (const auto& ws : workspaces_)
-    {
-        if (ws->id == active_workspace_)
-            return ws->host_manager;
-    }
-    static const HostManager dummy(HostManager::Deps{});
-    return dummy;
-}
-
 const SplitTree& ChromeHost::active_tree() const
 {
-    return active_host_manager().tree();
+    if (!deps_.workspaces || !deps_.active_workspace_id)
+    {
+        static const SplitTree dummy;
+        return dummy;
+    }
+    for (const auto& ws : *deps_.workspaces)
+    {
+        if (ws->id == *deps_.active_workspace_id)
+            return ws->host_manager.tree();
+    }
+    static const SplitTree dummy;
+    return dummy;
 }
 
 int ChromeHost::tab_bar_height() const
 {
-    if (workspaces_.size() <= 1)
+    if (!deps_.workspaces || deps_.workspaces->size() <= 1)
         return 0;
     if (!deps_.grid_renderer)
         return 0;
     const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
     return ch;
-}
-
-void ChromeHost::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
-{
-    for (auto& ws : workspaces_)
-        ws->host_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
-}
-
-int ChromeHost::active_workspace_id() const
-{
-    return active_workspace_;
-}
-
-HostManager::Deps ChromeHost::make_host_manager_deps() const
-{
-    HostManager::Deps hm_deps;
-    hm_deps.options = deps_.options;
-    hm_deps.config = deps_.config;
-    hm_deps.config_document = deps_.config_document;
-    hm_deps.window = deps_.window;
-    hm_deps.grid_renderer = deps_.grid_renderer;
-    hm_deps.imgui_host = deps_.imgui_host;
-    hm_deps.text_service = deps_.text_service;
-    hm_deps.display_ppi = deps_.display_ppi;
-    hm_deps.owner_lifetime = deps_.owner_lifetime;
-    hm_deps.compute_viewport = deps_.compute_viewport;
-    return hm_deps;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,16 +88,17 @@ std::string tab_label(size_t index, const std::string& name)
 
 int ChromeHost::hit_test_tab(int px, int py) const
 {
-    if (workspaces_.size() <= 1 || !deps_.grid_renderer)
+    if (!deps_.workspaces || deps_.workspaces->size() <= 1 || !deps_.grid_renderer)
         return 0;
+    const auto& workspaces = *deps_.workspaces;
     const auto [cw, ch] = deps_.grid_renderer->cell_size_pixels();
     if (cw <= 0 || ch <= 0 || py < 0 || py >= ch)
         return 0;
 
     int col_cursor = 0;
-    for (size_t wi = 0; wi < workspaces_.size(); ++wi)
+    for (size_t wi = 0; wi < workspaces.size(); ++wi)
     {
-        const std::string label = tab_label(wi, workspaces_[wi]->name);
+        const std::string label = tab_label(wi, workspaces[wi]->name);
         const int total_cols = static_cast<int>(label.size()) + kTabPadCols * 2;
         const int tab_left = col_cursor * cw + kGridPadding;
         const int tab_right = (col_cursor + total_cols) * cw + kGridPadding;
@@ -286,7 +114,10 @@ void ChromeHost::draw(IFrameContext& frame)
     if (!nanovg_pass_)
         return;
 
-    const bool show_tabs = workspaces_.size() > 1;
+    static const std::vector<std::unique_ptr<Workspace>> kEmpty;
+    const auto& workspaces = deps_.workspaces ? *deps_.workspaces : kEmpty;
+    const int active_ws_id = deps_.active_workspace_id ? *deps_.active_workspace_id : -1;
+    const bool show_tabs = workspaces.size() > 1;
     const bool show_dividers = active_tree().leaf_count() >= 2;
 
     if (!show_tabs && !show_dividers)
@@ -310,9 +141,9 @@ void ChromeHost::draw(IFrameContext& frame)
         {
             bar_h = tab_bar_height();
             int col_cursor = 0; // start at column 0
-            for (size_t wi = 0; wi < workspaces_.size(); ++wi)
+            for (size_t wi = 0; wi < workspaces.size(); ++wi)
             {
-                const auto& ws = workspaces_[wi];
+                const auto& ws = workspaces[wi];
                 const std::string label = tab_label(wi, ws->name);
                 const int label_cols = static_cast<int>(label.size());
                 const int total_cols = label_cols + kTabPadCols * 2;
@@ -322,7 +153,7 @@ void ChromeHost::draw(IFrameContext& frame)
                 tl.col_end = col_cursor + total_cols;
                 tl.text_col = col_cursor + kTabPadCols;
                 tl.text_len = label_cols;
-                tl.active = (ws->id == active_workspace_);
+                tl.active = (ws->id == active_ws_id);
                 tl.label = label;
                 tabs.push_back(std::move(tl));
 
