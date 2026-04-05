@@ -334,6 +334,7 @@ bool App::initialize()
     // Render one initial composite frame after init so hosts that only request
     // redraws on state changes do not start on a blank window.
     request_frame();
+    rebuild_render_tree();
 
     init_completed_ = true;
     rollback.armed = false;
@@ -990,6 +991,45 @@ bool App::close_dead_panes()
         chrome_host_->active_host_manager().close_leaf(id);
     }
     return chrome_host_->active_host_manager().host() != nullptr;
+}
+
+void App::rebuild_render_tree()
+{
+    render_root_ = RenderNode{};
+    render_root_.tag = "root";
+
+    // Chrome host draws pane dividers / tab bar (underneath content hosts).
+    if (chrome_host_)
+        render_root_.children.push_back({ chrome_host_.get(), true, "chrome", {} });
+
+    // Active workspace's hosts.
+    // For now, each workspace is a container node with host leaves.
+    for (int wi = 0; wi < chrome_host_->workspace_count(); ++wi)
+    {
+        // Only the active workspace is visible.
+        const bool is_active = (wi == 0); // index-based; refined in Stage 4
+        RenderNode ws_node{ nullptr, is_active, "workspace", {} };
+
+        // Stage 2 doesn't move ownership yet — just snapshot host pointers.
+        // The active workspace is always index 0 in the workspace list because
+        // chrome_host_ keeps it that way internally. We populate only the active
+        // workspace here; Stage 4 will populate all workspaces.
+        if (is_active)
+        {
+            chrome_host_->active_host_manager().for_each_host([&ws_node](LeafId, IHost& h) {
+                ws_node.children.push_back({ &h, true, "host", {} });
+            });
+        }
+        render_root_.children.push_back(std::move(ws_node));
+    }
+
+    // Diagnostics overlay.
+    if (diagnostics_host_)
+        render_root_.children.push_back({ diagnostics_host_.get(), diagnostics_host_->visible(), "diagnostics", {} });
+
+    // Command palette (topmost layer).
+    if (palette_host_)
+        render_root_.children.push_back({ palette_host_.get(), true, "palette", {} });
 }
 
 void App::render_imgui_overlay(IFrameContext& frame, float /*delta_seconds*/)

@@ -163,6 +163,7 @@ add_library(draxul-app
     app/gui_action_handler.cpp
     app/input_dispatcher.cpp
     app/host_manager.cpp
+    app/render_tree.cpp
     app/split_tree.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )

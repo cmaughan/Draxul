@@ -5,6 +5,7 @@
 #include "gui_action_handler.h"
 #include "host_manager.h"
 #include "input_dispatcher.h"
+#include "render_tree.h"
 #include <chrono>
 #include <draxul/app_config.h>
 #include <draxul/config_document.h>
@@ -102,6 +103,7 @@ private:
     HostViewport viewport_from_descriptor(const PaneDescriptor& desc) const;
     void wire_gui_actions();
     bool close_dead_panes();
+    void rebuild_render_tree();
     void render_imgui_overlay(IFrameContext& frame, float delta_seconds);
     bool render_frame();
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
@@ -139,6 +141,7 @@ private:
     std::string last_render_test_error_;
     std::string last_init_error_;
     std::unique_ptr<class ChromeHost> chrome_host_;
+    RenderNode render_root_;
     DiagnosticsCollector diagnostics_collector_;
 };
 
