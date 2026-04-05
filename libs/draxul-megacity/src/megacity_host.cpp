@@ -586,6 +586,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         restore_camera_after_initial_build_ = false;
     refresh_available_modules();
     scanner_.start(scan_root_);
+    scan_start_time_ = std::chrono::steady_clock::now();
     route_worker_stop_ = false;
     route_thread_ = std::thread([this]() { route_worker_loop(); });
     mark_scene_dirty();
@@ -1518,18 +1519,29 @@ void MegaCityHost::pump()
     {
         if (const auto snapshot = scanner_.snapshot(); snapshot && snapshot->complete)
         {
+            const auto scan_end = std::chrono::steady_clock::now();
+            const auto scan_ms = std::chrono::duration<double, std::milli>(scan_end - scan_start_time_).count();
+            const auto reconcile_start = std::chrono::steady_clock::now();
             if (city_db_.reconcile_snapshot(*snapshot))
             {
+                const auto reconcile_end = std::chrono::steady_clock::now();
                 city_db_reconciled_ = true;
                 refresh_available_modules();
+                const auto layout_start = std::chrono::steady_clock::now();
                 rebuild_semantic_city();
+                const auto layout_end = std::chrono::steady_clock::now();
                 const auto& stats = city_db_.stats();
+                const auto reconcile_ms = std::chrono::duration<double, std::milli>(reconcile_end - reconcile_start).count();
+                const auto layout_ms = std::chrono::duration<double, std::milli>(layout_end - layout_start).count();
                 DRAXUL_LOG_INFO(LogCategory::App,
                     "MegaCityHost: reconciled Tree-sitter snapshot into %s (%zu files, %zu symbols, %zu entities)",
                     city_db_.path().string().c_str(),
                     stats.file_count,
                     stats.symbol_count,
                     stats.city_entity_count);
+                DRAXUL_LOG_DEBUG(LogCategory::App,
+                    "MegaCityHost: scan %.0fms, DB reconcile %.0fms, city layout %.0fms",
+                    scan_ms, reconcile_ms, layout_ms);
             }
             else
             {

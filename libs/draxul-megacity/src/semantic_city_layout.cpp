@@ -257,15 +257,16 @@ float lot_half_extent_z(const LotRect& lot)
 }
 
 template <typename Fn>
-bool for_each_spiral_candidate(const MegaCityCodeConfig& config, Fn&& fn)
+bool for_each_spiral_candidate(float placement_step, int max_spiral_rings, Fn&& fn, int start_ring = 0)
 {
     PERF_MEASURE();
-    const float placement_step = std::max(config.placement_step, 0.01f);
-    const int max_spiral_rings = std::max(config.max_spiral_rings, 1);
-    if (!fn(glm::vec2(0.0f)))
-        return false;
+    if (start_ring <= 0)
+    {
+        if (!fn(glm::vec2(0.0f)))
+            return false;
+    }
 
-    for (int ring = 1; ring < max_spiral_rings; ++ring)
+    for (int ring = std::max(1, start_ring); ring < max_spiral_rings; ++ring)
     {
         const float radius = static_cast<float>(ring) * placement_step;
         for (int ix = -ring; ix <= ring; ++ix)
@@ -339,8 +340,15 @@ std::vector<glm::vec2> touching_lot_candidates(
     const float local_center_z = lot_center_z(local_lot);
     const float local_half_extent_x = lot_half_extent_x(local_lot);
     const float local_half_extent_z = lot_half_extent_z(local_lot);
-    for (const LotRect& occupied : grid.lots)
+
+    // Only check recent lots (frontier). Buildings spiral outward, so recently placed
+    // lots are on the outer ring. Interior lots produce candidates that always collide.
+    constexpr size_t kMaxFrontierLots = 256;
+    const size_t frontier_start = grid.lots.size() > kMaxFrontierLots ? grid.lots.size() - kMaxFrontierLots : 0;
+    candidates.reserve((grid.lots.size() - frontier_start) * 200);
+    for (size_t i = frontier_start; i < grid.lots.size(); ++i)
     {
+        const LotRect& occupied = grid.lots[i];
         const float center_x = lot_center_x(occupied);
         const float center_z = lot_center_z(occupied);
         const float overlap_limit_z = lot_half_extent_z(occupied) + local_half_extent_z;
@@ -1597,13 +1605,17 @@ SemanticCityLayout build_semantic_city_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate(config, [&grid, &local_lot, &chosen_center, &chosen_lot, &placed](const glm::vec2& center) {
+            const float spiral_step = std::max(config.placement_step, 0.01f);
+            // Start the spiral near the city frontier — inner rings are fully occupied.
+            const float city_extent = std::max(layout.max_x - layout.min_x, layout.max_z - layout.min_z) * 0.5f;
+            const float local_extent = std::max(local_lot.max_x - local_lot.min_x, local_lot.max_z - local_lot.min_z) * 0.5f;
+            const int frontier_ring = std::max(0, static_cast<int>((city_extent - local_extent) / spiral_step) - 2);
+            for_each_spiral_candidate(spiral_step, config.max_spiral_rings, [&grid, &local_lot, &chosen_center, &chosen_lot, &placed](const glm::vec2& center) {
                 if (!try_place_candidate(grid, local_lot, center, chosen_center, chosen_lot))
                     return true;
 
                 placed = true;
-                return false;
-            });
+                return false; }, frontier_ring);
         }
 
         if (!placed)
@@ -1754,7 +1766,10 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate(config, [&module_grid, &candidate, &chosen_offset, &chosen_lot, &placed](const glm::vec2& offset) {
+            const float lot_width = candidate.local_lot.max_x - candidate.local_lot.min_x;
+            const float lot_depth = candidate.local_lot.max_z - candidate.local_lot.min_z;
+            const float module_step = std::max(std::min(lot_width, lot_depth) * 0.5f, std::max(config.placement_step, 0.01f));
+            for_each_spiral_candidate(module_step, config.max_spiral_rings, [&module_grid, &candidate, &chosen_offset, &chosen_lot, &placed](const glm::vec2& offset) {
                 if (!try_place_candidate(module_grid, candidate.local_lot, offset, chosen_offset, chosen_lot))
                     return true;
 
