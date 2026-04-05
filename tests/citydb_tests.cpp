@@ -27,8 +27,7 @@ public:
 
     ~SqliteReadHandle()
     {
-        if (db_)
-            sqlite3_close(db_);
+        close();
     }
 
     [[nodiscard]] sqlite3* get() const
@@ -36,9 +35,39 @@ public:
         return db_;
     }
 
+    void close()
+    {
+        if (db_)
+        {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        }
+    }
+
 private:
     sqlite3* db_ = nullptr;
 };
+
+void remove_sqlite_artifacts(const std::filesystem::path& db_path)
+{
+    std::error_code ec;
+    std::filesystem::remove(db_path, ec);
+    INFO("remove " << db_path.string() << ": " << ec.message());
+    REQUIRE(!ec);
+
+    auto remove_sidecar = [&](const char* suffix) {
+        std::filesystem::path sidecar = db_path;
+        sidecar += suffix;
+
+        std::error_code sidecar_ec;
+        std::filesystem::remove(sidecar, sidecar_ec);
+        INFO("remove " << sidecar.string() << ": " << sidecar_ec.message());
+        REQUIRE(!sidecar_ec);
+    };
+
+    remove_sidecar("-wal");
+    remove_sidecar("-shm");
+}
 
 int scalar_int(sqlite3* db, const char* sql)
 {
@@ -80,7 +109,7 @@ std::shared_ptr<const CodebaseSnapshot> wait_for_complete_snapshot(
 TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", "[citydb]")
 {
     const auto db_path = std::filesystem::temp_directory_path() / "draxul-citydb-tests.sqlite3";
-    std::filesystem::remove(db_path);
+    remove_sqlite_artifacts(db_path);
 
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
@@ -149,47 +178,49 @@ TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", 
     CHECK(stats.city_entity_count == 4);
     CHECK(stats.has_reconciled_snapshot);
 
-    SqliteReadHandle raw(db_path);
-    CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM files") == 1);
-    CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM symbols") == 5);
-    CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM city_entities") == 4);
-    CHECK(scalar_text(raw.get(),
-              "SELECT city_role FROM symbols WHERE qualified_name = 'Tower'")
-        == "concrete_class");
-    CHECK(scalar_text(raw.get(),
-              "SELECT module_path FROM city_entities WHERE display_name = 'Tower'")
-        == "src");
-    CHECK(scalar_text(raw.get(),
-              "SELECT entity_kind FROM city_entities WHERE display_name = 'build_city'")
-        == "tree");
-    CHECK(scalar_int(raw.get(),
-              "SELECT base_size FROM city_entities WHERE display_name = 'Tower'")
-        == 3);
-    CHECK(scalar_int(raw.get(),
-              "SELECT building_functions FROM city_entities WHERE display_name = 'Tower'")
-        == 1);
-    CHECK(scalar_text(raw.get(),
-              "SELECT building_function_sizes_json FROM city_entities WHERE display_name = 'Tower'")
-        == "[7]");
-    CHECK(scalar_int(raw.get(),
-              "SELECT road_size FROM city_entities WHERE display_name = 'Tower'")
-        == 2);
-    CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM symbol_fields WHERE symbol_id LIKE '%|Tower|10'") == 3);
-    CHECK(scalar_int(raw.get(),
-              "SELECT COUNT(*) FROM city_entity_dependencies WHERE source_entity_id LIKE '%|Tower|10'")
-        == 2);
-    CHECK(scalar_text(raw.get(),
-              "SELECT city_role FROM symbols WHERE qualified_name = 'IView'")
-        == "abstract_class");
-    CHECK(scalar_text(raw.get(),
-              "SELECT city_role FROM symbols WHERE qualified_name = 'PlainData'")
-        == "data_struct");
-    CHECK(scalar_text(raw.get(),
-              "SELECT city_role FROM symbols WHERE qualified_name = 'Tower::tick'")
-        == "method");
-    CHECK(scalar_text(raw.get(),
-              "SELECT entity_kind FROM city_entities WHERE display_name = 'Tower'")
-        == "building");
+    {
+        SqliteReadHandle raw(db_path);
+        CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM files") == 1);
+        CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM symbols") == 5);
+        CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM city_entities") == 4);
+        CHECK(scalar_text(raw.get(),
+                  "SELECT city_role FROM symbols WHERE qualified_name = 'Tower'")
+            == "concrete_class");
+        CHECK(scalar_text(raw.get(),
+                  "SELECT module_path FROM city_entities WHERE display_name = 'Tower'")
+            == "src");
+        CHECK(scalar_text(raw.get(),
+                  "SELECT entity_kind FROM city_entities WHERE display_name = 'build_city'")
+            == "tree");
+        CHECK(scalar_int(raw.get(),
+                  "SELECT base_size FROM city_entities WHERE display_name = 'Tower'")
+            == 3);
+        CHECK(scalar_int(raw.get(),
+                  "SELECT building_functions FROM city_entities WHERE display_name = 'Tower'")
+            == 1);
+        CHECK(scalar_text(raw.get(),
+                  "SELECT building_function_sizes_json FROM city_entities WHERE display_name = 'Tower'")
+            == "[7]");
+        CHECK(scalar_int(raw.get(),
+                  "SELECT road_size FROM city_entities WHERE display_name = 'Tower'")
+            == 2);
+        CHECK(scalar_int(raw.get(), "SELECT COUNT(*) FROM symbol_fields WHERE symbol_id LIKE '%|Tower|10'") == 3);
+        CHECK(scalar_int(raw.get(),
+                  "SELECT COUNT(*) FROM city_entity_dependencies WHERE source_entity_id LIKE '%|Tower|10'")
+            == 2);
+        CHECK(scalar_text(raw.get(),
+                  "SELECT city_role FROM symbols WHERE qualified_name = 'IView'")
+            == "abstract_class");
+        CHECK(scalar_text(raw.get(),
+                  "SELECT city_role FROM symbols WHERE qualified_name = 'PlainData'")
+            == "data_struct");
+        CHECK(scalar_text(raw.get(),
+                  "SELECT city_role FROM symbols WHERE qualified_name = 'Tower::tick'")
+            == "method");
+        CHECK(scalar_text(raw.get(),
+                  "SELECT entity_kind FROM city_entities WHERE display_name = 'Tower'")
+            == "building");
+    }
 
     const std::vector<std::string> modules = db.list_modules();
     REQUIRE(modules.size() == 1);
@@ -240,7 +271,8 @@ TEST_CASE("city database reconciles tree-sitter snapshot into semantic tables", 
     CHECK(global.cohesion == mod.health.cohesion);
     CHECK(global.coupling == mod.health.coupling);
 
-    std::filesystem::remove(db_path);
+    db.close();
+    remove_sqlite_artifacts(db_path);
 }
 
 TEST_CASE("city database does not cross-product nested type fields onto the parent class", "[citydb]")
@@ -248,7 +280,7 @@ TEST_CASE("city database does not cross-product nested type fields onto the pare
     const auto temp_root = std::filesystem::temp_directory_path() / "draxul-citydb-nested-fields";
     const auto db_path = std::filesystem::temp_directory_path() / "draxul-citydb-nested-fields.sqlite3";
     std::filesystem::remove_all(temp_root);
-    std::filesystem::remove(db_path);
+    remove_sqlite_artifacts(db_path);
     std::filesystem::create_directories(temp_root);
 
     const auto source_path = temp_root / "nested_fields.h";
@@ -297,14 +329,15 @@ TEST_CASE("city database does not cross-product nested type fields onto the pare
         CHECK(dep.target_qualified_name != "Bar");
     }
 
+    db.close();
     std::filesystem::remove_all(temp_root);
-    std::filesystem::remove(db_path);
+    remove_sqlite_artifacts(db_path);
 }
 
 TEST_CASE("city database expands interface-typed field dependencies across the inheritance graph", "[citydb]")
 {
     const auto db_path = std::filesystem::temp_directory_path() / "draxul-citydb-inheritance.sqlite3";
-    std::filesystem::remove(db_path);
+    remove_sqlite_artifacts(db_path);
 
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
@@ -368,12 +401,15 @@ TEST_CASE("city database expands interface-typed field dependencies across the i
     CHECK(deps[1].field_name == "renderer_");
     CHECK(deps[1].target_qualified_name == "VkRenderDevice");
 
-    SqliteReadHandle raw(db_path);
-    CHECK(scalar_int(raw.get(),
-              "SELECT road_size FROM city_entities WHERE display_name = 'App'")
-        == 2);
+    {
+        SqliteReadHandle raw(db_path);
+        CHECK(scalar_int(raw.get(),
+                  "SELECT road_size FROM city_entities WHERE display_name = 'App'")
+            == 2);
+    }
 
-    std::filesystem::remove(db_path);
+    db.close();
+    remove_sqlite_artifacts(db_path);
 }
 
 } // namespace draxul
