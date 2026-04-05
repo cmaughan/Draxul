@@ -82,6 +82,20 @@ std::string read_text_file(const std::filesystem::path& path)
     return std::string(std::istreambuf_iterator<char>(in), {});
 }
 
+std::shared_ptr<const CodebaseSnapshot> wait_for_complete_snapshot(
+    CodebaseScanner& scanner,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(2000))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (const auto snapshot = scanner.snapshot(); snapshot && snapshot->complete)
+            return snapshot;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return scanner.snapshot();
+}
+
 struct ShutdownOrderImGuiHost : IImGuiHost
 {
     MegaCityHost* owner = nullptr;
@@ -2306,6 +2320,52 @@ TEST_CASE("megacity host destroys scene pass before shutting down its imgui back
     host.shutdown();
 
     CHECK_FALSE(imgui_host.scene_pass_alive_during_shutdown);
+}
+
+TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[megacity]")
+{
+    tests::TempDir temp("draxul-megacity-source-root");
+    const auto scan_root = temp.path / "linux";
+    std::filesystem::create_directories(scan_root);
+    {
+        std::ofstream out(scan_root / "sample.cpp", std::ios::trunc);
+        out << "int sample_function() { return 7; }\n";
+    }
+
+    tests::FakeWindow window;
+    tests::TestHostCallbacks callbacks;
+    TextService text_service;
+    tests::FakeTermRenderer renderer;
+    MegaCityHost host;
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::MegaCity;
+    launch.source_path = scan_root.string();
+
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    viewport.grid_size = { 1, 1 };
+
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = std::move(launch),
+        .initial_viewport = viewport,
+        .display_ppi = window.display_ppi_,
+    };
+
+    REQUIRE(host.initialize(context, callbacks));
+    CHECK(host.scan_root_ == std::filesystem::weakly_canonical(scan_root));
+
+    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+    CHECK(std::any_of(snapshot->files.begin(), snapshot->files.end(), [](const ParsedFile& file) {
+        return file.path == "sample.cpp";
+    }));
+
+    host.shutdown();
 }
 
 TEST_CASE("megacity host preserves externally edited core config when saving megacity settings", "[megacity][config]")

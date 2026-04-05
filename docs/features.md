@@ -13,7 +13,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Zsh | `--host zsh` | PTY-based terminal (Unix) |
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
 | WSL | `--host wsl` | Windows Subsystem for Linux shell |
-| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache) |
+| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache, optional `--source` Tree-sitter scan-root override) |
 
 Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
 
@@ -211,6 +211,7 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 |------|-------------|
 | `--host <type>` | Host type: nvim, powershell, bash, zsh, wsl, megacity |
 | `--command <cmd>` | Override host command path |
+| `--source <path>` | Override the MegaCity Tree-sitter scan root when launching `--host megacity` |
 | `--continuous-refresh` | Keep the MegaCity host rendering continuously and, on Vulkan, prefer unsynced presentation so frames do not wait for vblank |
 | `--log-file <path>` | Write logs to file |
 | `--log-level <level>` | Minimum level: error, warn, info, debug, trace |

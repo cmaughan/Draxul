@@ -119,6 +119,36 @@ std::vector<std::filesystem::path> candidate_impl_files(const std::filesystem::p
     return candidates;
 }
 
+std::optional<std::filesystem::path> resolve_scan_root(const HostLaunchOptions& launch, std::string* error_message)
+{
+    const std::filesystem::path requested = launch.source_path.empty()
+        ? std::filesystem::path(DRAXUL_REPO_ROOT)
+        : std::filesystem::path(launch.source_path);
+
+    std::error_code ec;
+    if (!std::filesystem::exists(requested, ec) || ec)
+    {
+        if (error_message)
+            *error_message = "MegaCity source path does not exist: " + requested.string();
+        return std::nullopt;
+    }
+    if (!std::filesystem::is_directory(requested, ec) || ec)
+    {
+        if (error_message)
+            *error_message = "MegaCity source path is not a directory: " + requested.string();
+        return std::nullopt;
+    }
+
+    const std::filesystem::path canonical = std::filesystem::weakly_canonical(requested, ec);
+    if (ec)
+    {
+        if (error_message)
+            *error_message = "MegaCity source path could not be resolved: " + requested.string();
+        return std::nullopt;
+    }
+    return canonical;
+}
+
 /// Find the best file to open for a given source_file_path and function_name.
 /// If source is a header, looks for a matching .cpp that contains the function.
 /// Returns {file_to_open, function_to_search}.
@@ -488,6 +518,7 @@ void MegaCityHost::refresh_sign_text_service()
 bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    init_error_.clear();
     callbacks_ = &callbacks;
     config_document_ = context.config_document;
     renderer_defaults_ = config_document_
@@ -499,6 +530,11 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     pending_renderer_config_ = renderer_config_;
     show_ui_panels_ = renderer_config_.show_ui_panels;
     restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
+
+    const auto resolved_scan_root = resolve_scan_root(context.launch_options, &init_error_);
+    if (!resolved_scan_root)
+        return false;
+    scan_root_ = *resolved_scan_root;
 
     // Create MegaCity's own ImGui context for isolated docking and layout.
     {
@@ -549,14 +585,13 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     if (city_db_.schema_migrated())
         restore_camera_after_initial_build_ = false;
     refresh_available_modules();
-    scan_root_ = std::filesystem::canonical(DRAXUL_REPO_ROOT);
     scanner_.start(scan_root_);
     route_worker_stop_ = false;
     route_thread_ = std::thread([this]() { route_worker_loop(); });
     mark_scene_dirty();
 
     DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost initialized (%dx%d), scanning %s, city DB %s",
-        pixel_w_, pixel_h_, DRAXUL_REPO_ROOT, city_db_path.string().c_str());
+        pixel_w_, pixel_h_, scan_root_.string().c_str(), city_db_path.string().c_str());
     return true;
 }
 
@@ -1251,7 +1286,7 @@ bool MegaCityHost::is_running() const
 
 std::string MegaCityHost::init_error() const
 {
-    return {};
+    return init_error_;
 }
 
 void MegaCityHost::set_viewport(const HostViewport& viewport)

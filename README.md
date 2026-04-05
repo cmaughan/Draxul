@@ -150,6 +150,7 @@ To run as a plain terminal instead, use `--host`:
 .\build\Release\draxul.exe                     # Neovim (default)
 .\build\Release\draxul.exe --host powershell   # PowerShell terminal
 .\build\Release\draxul.exe --host bash         # Bash (WSL)
+.\build\Release\draxul.exe --host megacity --source C:\dev\linux  # MegaCity scan root override
 .\build\Release\draxul.exe --console           # allocate a debug console for log output
 ```
 
@@ -161,6 +162,7 @@ For a Debug build, replace `Release` with `Debug`.
 ./build/draxul.app/Contents/MacOS/draxul                # Neovim (default)
 ./build/draxul.app/Contents/MacOS/draxul --host zsh     # Zsh terminal
 ./build/draxul.app/Contents/MacOS/draxul --host bash    # Bash terminal
+./build/draxul.app/Contents/MacOS/draxul --host megacity --source ~/dev/linux  # MegaCity scan root override
 ```
 
 Or launch via Finder / `open`:
@@ -169,7 +171,9 @@ Or launch via Finder / `open`:
 open ./build/draxul.app
 ```
 
-Supported `--host` values: `nvim`, `zsh`, `bash`, `powershell` / `pwsh` (Windows), `wsl` (Windows).
+Supported `--host` values: `nvim`, `zsh`, `bash`, `powershell` / `pwsh` (Windows), `wsl` (Windows), `megacity`.
+
+`--source <path>` overrides the MegaCity Tree-sitter scan root when launching `--host megacity`.
 
 ## Configuration
 

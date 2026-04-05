@@ -82,6 +82,7 @@ struct ParsedArgs
 #endif
     std::optional<draxul::HostKind> host_kind;
     std::string host_command;
+    std::filesystem::path host_source_path;
     std::string log_file;
     std::string log_level;
     std::filesystem::path screenshot_path;
@@ -131,6 +132,11 @@ ParsedArgs parse_args(const std::vector<std::string>& args)
         {
             ++i;
             parsed.host_command = args[i];
+        }
+        else if (args[i] == "--source" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.host_source_path = args[i];
         }
         else if (args[i] == "--log-file" && i + 1 < args.size())
         {
@@ -306,6 +312,8 @@ static int draxul_main(std::vector<std::string> args)
         options.host_kind = *parsed.host_kind;
     if (!parsed.host_command.empty())
         options.host_command = parsed.host_command;
+    if (!parsed.host_source_path.empty())
+        options.host_source_path = parsed.host_source_path.string();
     if (parsed.continuous_refresh)
         options.megacity_continuous_refresh = true;
     if (parsed.no_vblank)

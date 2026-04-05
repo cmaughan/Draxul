@@ -83,6 +83,7 @@ bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     launch.kind = host_kind_override.value_or(deps_.options->host_kind);
     launch.command = deps_.options->host_command;
     launch.args = deps_.options->host_args;
+    launch.source_path = deps_.options->host_source_path;
     launch.working_dir = deps_.options->host_working_dir;
     launch.startup_commands = deps_.options->startup_commands;
     launch.enable_ligatures = deps_.config->enable_ligatures;

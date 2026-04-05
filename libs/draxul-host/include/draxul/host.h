@@ -29,6 +29,7 @@ struct HostLaunchOptions
     std::string command;
     std::vector<std::string> args;
     std::string working_dir;
+    std::string source_path;
     std::vector<std::string> startup_commands;
     bool enable_ligatures = true;
 
