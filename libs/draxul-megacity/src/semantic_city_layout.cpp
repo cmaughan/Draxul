@@ -119,6 +119,100 @@ struct LotRect
     float max_z = 0.0f;
 };
 
+bool overlaps(const LotRect& a, const LotRect& b)
+{
+    return a.min_x < b.max_x && a.max_x > b.min_x && a.min_z < b.max_z && a.max_z > b.min_z;
+}
+
+// Uniform spatial grid for fast AABB overlap queries against placed lots.
+// Replaces O(n) linear scans in try_place_candidate and touching_lot_candidates.
+struct SpatialLotGrid
+{
+    static constexpr float kCellSize = 10.0f;
+
+    struct CellKey
+    {
+        int x = 0;
+        int z = 0;
+        bool operator==(const CellKey&) const = default;
+    };
+
+    struct CellKeyHash
+    {
+        size_t operator()(const CellKey& k) const
+        {
+            return std::hash<int>()(k.x) ^ (std::hash<int>()(k.z) << 16);
+        }
+    };
+
+    std::vector<LotRect> lots;
+    std::unordered_map<CellKey, std::vector<size_t>, CellKeyHash> cells;
+
+    void clear()
+    {
+        lots.clear();
+        cells.clear();
+    }
+
+    void reserve(size_t n)
+    {
+        lots.reserve(n);
+    }
+
+    size_t insert(const LotRect& lot)
+    {
+        const size_t idx = lots.size();
+        lots.push_back(lot);
+        const int min_cx = static_cast<int>(std::floor(lot.min_x / kCellSize));
+        const int max_cx = static_cast<int>(std::floor(lot.max_x / kCellSize));
+        const int min_cz = static_cast<int>(std::floor(lot.min_z / kCellSize));
+        const int max_cz = static_cast<int>(std::floor(lot.max_z / kCellSize));
+        for (int cx = min_cx; cx <= max_cx; ++cx)
+            for (int cz = min_cz; cz <= max_cz; ++cz)
+                cells[{ cx, cz }].push_back(idx);
+        return idx;
+    }
+
+    bool any_overlap(const LotRect& query) const
+    {
+        const int min_cx = static_cast<int>(std::floor(query.min_x / kCellSize));
+        const int max_cx = static_cast<int>(std::floor(query.max_x / kCellSize));
+        const int min_cz = static_cast<int>(std::floor(query.min_z / kCellSize));
+        const int max_cz = static_cast<int>(std::floor(query.max_z / kCellSize));
+        for (int cx = min_cx; cx <= max_cx; ++cx)
+            for (int cz = min_cz; cz <= max_cz; ++cz)
+            {
+                auto it = cells.find({ cx, cz });
+                if (it == cells.end())
+                    continue;
+                for (const size_t idx : it->second)
+                    if (overlaps(query, lots[idx]))
+                        return true;
+            }
+        return false;
+    }
+
+    // Visit indices of lots whose cells overlap the expanded query AABB.
+    // Visitor may see the same index multiple times; caller deduplicates if needed.
+    template <typename Fn>
+    void for_each_nearby(const LotRect& query, float expansion, Fn&& fn) const
+    {
+        const int min_cx = static_cast<int>(std::floor((query.min_x - expansion) / kCellSize));
+        const int max_cx = static_cast<int>(std::floor((query.max_x + expansion) / kCellSize));
+        const int min_cz = static_cast<int>(std::floor((query.min_z - expansion) / kCellSize));
+        const int max_cz = static_cast<int>(std::floor((query.max_z + expansion) / kCellSize));
+        for (int cx = min_cx; cx <= max_cx; ++cx)
+            for (int cz = min_cz; cz <= max_cz; ++cz)
+            {
+                auto it = cells.find({ cx, cz });
+                if (it == cells.end())
+                    continue;
+                for (const size_t idx : it->second)
+                    fn(idx);
+            }
+    }
+};
+
 LotRect centered_building_lot(const BuildingMetrics& metrics, const MegaCityCodeConfig& config)
 {
     const float step = std::max(config.placement_step, 0.01f);
@@ -140,11 +234,6 @@ LotRect translate_lot(const LotRect& local_lot, const glm::vec2& offset)
         local_lot.min_z + offset.y,
         local_lot.max_z + offset.y,
     };
-}
-
-bool overlaps(const LotRect& a, const LotRect& b)
-{
-    return a.min_x < b.max_x && a.max_x > b.min_x && a.min_z < b.max_z && a.max_z > b.min_z;
 }
 
 float lot_center_x(const LotRect& lot)
@@ -206,14 +295,7 @@ bool for_each_spiral_candidate(const MegaCityCodeConfig& config, Fn&& fn)
 
 void push_candidate(std::vector<glm::vec2>& candidates, const glm::vec2& candidate)
 {
-    PERF_MEASURE();
-    constexpr float kDuplicateEpsilon = 1e-4f;
-    const bool duplicate = std::any_of(candidates.begin(), candidates.end(), [&](const glm::vec2& existing) {
-        return std::abs(existing.x - candidate.x) <= kDuplicateEpsilon
-            && std::abs(existing.y - candidate.y) <= kDuplicateEpsilon;
-    });
-    if (!duplicate)
-        candidates.push_back(candidate);
+    candidates.push_back(candidate);
 }
 
 void add_contact_candidates_for_side(
@@ -243,11 +325,11 @@ void add_contact_candidates_for_side(
 }
 
 std::vector<glm::vec2> touching_lot_candidates(
-    const std::vector<LotRect>& reserved_lots, const LotRect& local_lot, const MegaCityCodeConfig& config)
+    const SpatialLotGrid& grid, const LotRect& local_lot, const MegaCityCodeConfig& config)
 {
     PERF_MEASURE();
     std::vector<glm::vec2> candidates;
-    if (reserved_lots.empty())
+    if (grid.lots.empty())
     {
         candidates.push_back(glm::vec2(0.0f));
         return candidates;
@@ -257,7 +339,7 @@ std::vector<glm::vec2> touching_lot_candidates(
     const float local_center_z = lot_center_z(local_lot);
     const float local_half_extent_x = lot_half_extent_x(local_lot);
     const float local_half_extent_z = lot_half_extent_z(local_lot);
-    for (const LotRect& occupied : reserved_lots)
+    for (const LotRect& occupied : grid.lots)
     {
         const float center_x = lot_center_x(occupied);
         const float center_z = lot_center_z(occupied);
@@ -272,6 +354,20 @@ std::vector<glm::vec2> touching_lot_candidates(
             candidates, occupied.min_z - local_lot.max_z, center_x - local_center_x, overlap_limit_x, false, config);
         add_contact_candidates_for_side(
             candidates, occupied.max_z - local_lot.min_z, center_x - local_center_x, overlap_limit_x, false, config);
+    }
+
+    // Cheaply partition the nearest candidates (O(n)) then sort only those (O(k log k)).
+    // Far-away candidates almost never succeed — the spiral fallback handles edge cases.
+    constexpr size_t kMaxSortedCandidates = 512;
+    auto distance_less = [](const glm::vec2& a, const glm::vec2& b) {
+        return glm::dot(a, a) < glm::dot(b, b);
+    };
+
+    if (candidates.size() > kMaxSortedCandidates)
+    {
+        std::nth_element(
+            candidates.begin(), candidates.begin() + kMaxSortedCandidates, candidates.end(), distance_less);
+        candidates.resize(kMaxSortedCandidates);
     }
 
     std::sort(candidates.begin(), candidates.end(), [](const glm::vec2& a, const glm::vec2& b) {
@@ -289,21 +385,26 @@ std::vector<glm::vec2> touching_lot_candidates(
         return angle_a < angle_b;
     });
 
+    constexpr float kDuplicateEpsilon = 1e-4f;
+    candidates.erase(
+        std::unique(candidates.begin(), candidates.end(),
+            [](const glm::vec2& a, const glm::vec2& b) {
+                return std::abs(a.x - b.x) <= kDuplicateEpsilon && std::abs(a.y - b.y) <= kDuplicateEpsilon;
+            }),
+        candidates.end());
+
     return candidates;
 }
 
 bool try_place_candidate(
-    const std::vector<LotRect>& reserved_lots,
+    const SpatialLotGrid& grid,
     const LotRect& local_lot,
     const glm::vec2& offset,
     glm::vec2& chosen_offset,
     LotRect& chosen_lot)
 {
     const LotRect lot = translate_lot(local_lot, offset);
-    const bool collides = std::any_of(reserved_lots.begin(), reserved_lots.end(), [&](const LotRect& occupied) {
-        return overlaps(lot, occupied);
-    });
-    if (collides)
+    if (grid.any_overlap(lot))
         return false;
 
     chosen_offset = offset;
@@ -1452,8 +1553,8 @@ SemanticCityLayout build_semantic_city_layout(
     if (module_model.empty())
         return layout;
 
-    std::vector<LotRect> reserved_lots;
-    reserved_lots.reserve(module_model.buildings.size() + 1);
+    SpatialLotGrid grid;
+    grid.reserve(module_model.buildings.size() + 1);
     layout.min_x = std::numeric_limits<float>::max();
     layout.max_x = std::numeric_limits<float>::lowest();
     layout.min_z = std::numeric_limits<float>::max();
@@ -1470,7 +1571,7 @@ SemanticCityLayout build_semantic_city_layout(
         layout.park_footprint = park_fp;
         layout.park_sidewalk_width = config.park_sidewalk_width;
         layout.park_road_width = config.park_road_width;
-        reserved_lots.push_back({ -park_lot_half, park_lot_half, -park_lot_half, park_lot_half });
+        grid.insert({ -park_lot_half, park_lot_half, -park_lot_half, park_lot_half });
         layout.min_x = -park_lot_half;
         layout.max_x = park_lot_half;
         layout.min_z = -park_lot_half;
@@ -1484,10 +1585,10 @@ SemanticCityLayout build_semantic_city_layout(
         LotRect chosen_lot{};
         bool placed = false;
 
-        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(reserved_lots, local_lot, config);
+        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(grid, local_lot, config);
         for (const glm::vec2& center : contact_candidates)
         {
-            if (try_place_candidate(reserved_lots, local_lot, center, chosen_center, chosen_lot))
+            if (try_place_candidate(grid, local_lot, center, chosen_center, chosen_lot))
             {
                 placed = true;
                 break;
@@ -1496,8 +1597,8 @@ SemanticCityLayout build_semantic_city_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate(config, [&reserved_lots, &local_lot, &chosen_center, &chosen_lot, &placed](const glm::vec2& center) {
-                if (!try_place_candidate(reserved_lots, local_lot, center, chosen_center, chosen_lot))
+            for_each_spiral_candidate(config, [&grid, &local_lot, &chosen_center, &chosen_lot, &placed](const glm::vec2& center) {
+                if (!try_place_candidate(grid, local_lot, center, chosen_center, chosen_lot))
                     return true;
 
                 placed = true;
@@ -1508,7 +1609,7 @@ SemanticCityLayout build_semantic_city_layout(
         if (!placed)
             continue;
 
-        reserved_lots.push_back(chosen_lot);
+        grid.insert(chosen_lot);
         SemanticCityBuilding placed_building = building;
         placed_building.center = chosen_center;
         layout.buildings.push_back(std::move(placed_building));
@@ -1591,8 +1692,8 @@ SemanticMegacityLayout build_semantic_megacity_layout(
     if (candidates.empty())
         return megacity;
 
-    std::vector<LotRect> reserved_modules;
-    reserved_modules.reserve(candidates.size() + 1);
+    SpatialLotGrid module_grid;
+    module_grid.reserve(candidates.size() + 1);
     megacity.min_x = std::numeric_limits<float>::max();
     megacity.max_x = std::numeric_limits<float>::lowest();
     megacity.min_z = std::numeric_limits<float>::max();
@@ -1627,7 +1728,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         central.park_sidewalk_width = park_sw;
         central.park_road_width = park_rw;
 
-        reserved_modules.push_back({ -park_lot_half, park_lot_half, -park_lot_half, park_lot_half });
+        module_grid.insert({ -park_lot_half, park_lot_half, -park_lot_half, park_lot_half });
         megacity.modules.push_back(std::move(central));
         megacity.min_x = -park_lot_half;
         megacity.max_x = park_lot_half;
@@ -1641,10 +1742,10 @@ SemanticMegacityLayout build_semantic_megacity_layout(
         LotRect chosen_lot{};
         bool placed = false;
 
-        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(reserved_modules, candidate.local_lot, config);
+        const std::vector<glm::vec2> contact_candidates = touching_lot_candidates(module_grid, candidate.local_lot, config);
         for (const glm::vec2& offset : contact_candidates)
         {
-            if (try_place_candidate(reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
+            if (try_place_candidate(module_grid, candidate.local_lot, offset, chosen_offset, chosen_lot))
             {
                 placed = true;
                 break;
@@ -1653,8 +1754,8 @@ SemanticMegacityLayout build_semantic_megacity_layout(
 
         if (!placed)
         {
-            for_each_spiral_candidate(config, [&reserved_modules, &candidate, &chosen_offset, &chosen_lot, &placed](const glm::vec2& offset) {
-                if (!try_place_candidate(reserved_modules, candidate.local_lot, offset, chosen_offset, chosen_lot))
+            for_each_spiral_candidate(config, [&module_grid, &candidate, &chosen_offset, &chosen_lot, &placed](const glm::vec2& offset) {
+                if (!try_place_candidate(module_grid, candidate.local_lot, offset, chosen_offset, chosen_lot))
                     return true;
 
                 placed = true;
@@ -1686,7 +1787,7 @@ SemanticMegacityLayout build_semantic_megacity_layout(
             module_layout.buildings.push_back(std::move(translated));
         }
 
-        reserved_modules.push_back(chosen_lot);
+        module_grid.insert(chosen_lot);
         megacity.modules.push_back(std::move(module_layout));
         megacity.min_x = std::min(megacity.min_x, chosen_lot.min_x);
         megacity.max_x = std::max(megacity.max_x, chosen_lot.max_x);
