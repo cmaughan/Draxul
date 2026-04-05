@@ -1200,9 +1200,22 @@ TEST_CASE("semantic building metrics can bypass clamping", "[megacity]")
     row.function_sizes = { 200, 180, 160, 140, 120, 100, 80 };
     row.road_size = 80;
 
+    // Use explicit config values so the test is independent of struct defaults.
     MegaCityCodeConfig clamped_config;
     clamped_config.clamp_semantic_metrics = true;
-    MegaCityCodeConfig unclamped_config;
+    clamped_config.footprint_base = 1.0f;
+    clamped_config.footprint_range = { 1.0f, 9.0f };
+    clamped_config.footprint_unclamped_scale = 0.15f;
+    clamped_config.height_base = 2.0f;
+    clamped_config.height_mass_weight = 1.35f;
+    clamped_config.height_count_weight = 0.45f;
+    clamped_config.height_range = { 2.0f, 12.0f };
+    clamped_config.height_unclamped_count_weight = 0.27f;
+    clamped_config.road_width_base = 0.6f;
+    clamped_config.road_width_scale = 0.85f;
+    clamped_config.road_width_range = { 0.6f, 3.0f };
+
+    MegaCityCodeConfig unclamped_config = clamped_config;
     unclamped_config.clamp_semantic_metrics = false;
     const BuildingMetrics clamped = derive_building_metrics(row, clamped_config);
     const BuildingMetrics unclamped = derive_building_metrics(row, unclamped_config);
