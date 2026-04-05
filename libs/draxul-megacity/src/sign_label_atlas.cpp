@@ -18,7 +18,7 @@ constexpr int kLabelPadding = 2;
 constexpr int kTopAlignedLabelPadding = 10;
 constexpr int kAtlasPadding = 2;
 constexpr int kInitialAtlasWidth = 512;
-constexpr int kMaxAtlasDimension = 4096;
+constexpr int kMaxAtlasDimension = 8192;
 
 struct LabelBitmap
 {
@@ -157,22 +157,36 @@ LabelBitmap rasterize_label(TextService& text_service, const SignLabelRequest& r
     return bitmap;
 }
 
-bool try_pack_labels(std::vector<PackedLabel>& labels, int atlas_width, int& atlas_height)
+// Pack labels row-by-row. Labels that don't fit within max_height get x = -1
+// (skipped during blit/entry creation). Returns true if ALL labels fit.
+bool pack_labels(std::vector<PackedLabel>& labels, int atlas_width, int max_height, int& atlas_height)
 {
     PERF_MEASURE();
     int x = kAtlasPadding;
     int y = kAtlasPadding;
     int row_height = 0;
+    bool all_fit = true;
 
     for (auto& label : labels)
     {
         if (label.bitmap.width + kAtlasPadding * 2 > atlas_width)
-            return false;
+        {
+            label.x = -1;
+            all_fit = false;
+            continue;
+        }
 
         if (x + label.bitmap.width + kAtlasPadding > atlas_width)
         {
+            const int new_y = y + row_height + kAtlasPadding;
+            if (new_y + label.bitmap.height + kAtlasPadding > max_height)
+            {
+                label.x = -1;
+                all_fit = false;
+                continue;
+            }
             x = kAtlasPadding;
-            y += row_height + kAtlasPadding;
+            y = new_y;
             row_height = 0;
         }
 
@@ -183,7 +197,7 @@ bool try_pack_labels(std::vector<PackedLabel>& labels, int atlas_width, int& atl
     }
 
     atlas_height = y + row_height + kAtlasPadding;
-    return atlas_height <= kMaxAtlasDimension;
+    return all_fit;
 }
 
 } // namespace
@@ -215,36 +229,47 @@ std::shared_ptr<SignLabelAtlas> build_sign_label_atlas(
     for (const SignLabelRequest& request : filtered_requests)
         packed.push_back({ request.key, rasterize_label(text_service, request), 0, 0 });
 
+    // Find the narrowest width where all labels fit. If even kMaxAtlasDimension
+    // isn't enough, use it anyway — pack_labels gracefully skips overflow labels.
     int atlas_width = kInitialAtlasWidth;
     int atlas_height = 1;
-    while (atlas_width <= kMaxAtlasDimension && !try_pack_labels(packed, atlas_width, atlas_height))
+    while (atlas_width < kMaxAtlasDimension && !pack_labels(packed, atlas_width, kMaxAtlasDimension, atlas_height))
         atlas_width *= 2;
-    if (atlas_width > kMaxAtlasDimension || atlas_height <= 0)
+    if (atlas_width >= kMaxAtlasDimension)
+    {
+        atlas_width = kMaxAtlasDimension;
+        pack_labels(packed, atlas_width, kMaxAtlasDimension, atlas_height);
+    }
+    if (atlas_height <= 0)
         return atlas;
 
-    const int atlas_size = std::max(atlas_width, atlas_height);
-    atlas->image.width = atlas_size;
-    atlas->image.height = atlas_size;
-    atlas->image.rgba.assign(static_cast<size_t>(atlas_size * atlas_size * 4), 0);
+    atlas->image.width = atlas_width;
+    atlas->image.height = atlas_height;
+    atlas->image.rgba.assign(static_cast<size_t>(atlas_width) * atlas_height * 4, 0);
+
+    const float inv_width = 1.0f / static_cast<float>(atlas_width);
+    const float inv_height = 1.0f / static_cast<float>(atlas_height);
 
     for (const PackedLabel& label : packed)
     {
+        if (label.x < 0)
+            continue; // Didn't fit — building gets no sign
+
         for (int row = 0; row < label.bitmap.height; ++row)
         {
             const uint8_t* src = label.bitmap.rgba.data() + (static_cast<size_t>(row * label.bitmap.width) * 4);
             uint8_t* dst = atlas->image.rgba.data()
-                + (static_cast<size_t>(((label.y + row) * atlas_size) + label.x) * 4);
+                + (static_cast<size_t>(((label.y + row) * atlas_width) + label.x) * 4);
             std::memcpy(dst, src, static_cast<size_t>(label.bitmap.width * 4));
         }
 
-        const float inv_size = 1.0f / static_cast<float>(atlas_size);
         atlas->entries.emplace(label.key,
             SignAtlasEntry{
                 {
-                    static_cast<float>(label.x) * inv_size,
-                    static_cast<float>(label.y) * inv_size,
-                    static_cast<float>(label.x + label.bitmap.width) * inv_size,
-                    static_cast<float>(label.y + label.bitmap.height) * inv_size,
+                    static_cast<float>(label.x) * inv_width,
+                    static_cast<float>(label.y) * inv_height,
+                    static_cast<float>(label.x + label.bitmap.width) * inv_width,
+                    static_cast<float>(label.y + label.bitmap.height) * inv_height,
                 },
                 { label.bitmap.width, label.bitmap.height },
                 {

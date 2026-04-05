@@ -488,24 +488,6 @@ struct RouteEndpointRequest
     bool is_abstract_ref = false;
 };
 
-struct RouteObstacle
-{
-    float min_x = 0.0f;
-    float max_x = 0.0f;
-    float min_z = 0.0f;
-    float max_z = 0.0f;
-};
-
-constexpr float kModuleSignObstaclePadding = 0.08f;
-
-struct VisibilityGraph
-{
-    CitySurfaceBounds bounds;
-    std::vector<RouteObstacle> obstacles;
-    std::vector<glm::vec2> nodes;
-    std::vector<std::vector<std::pair<int, float>>> adjacency;
-};
-
 PortSide side_towards(const SemanticCityBuilding& from, const SemanticCityBuilding& to)
 {
     const glm::vec2 delta = to.center - from.center;
@@ -861,305 +843,151 @@ void simplify_polyline(std::vector<glm::vec2>& points)
     points = std::move(simplified);
 }
 
-bool point_within_bounds(const glm::vec2& point, const CitySurfaceBounds& bounds)
+// ---------------------------------------------------------------------------
+// Grid-based A* pathfinder — replaces the old O(n^2*m) visibility graph.
+// Routes through road and sidewalk cells, avoiding buildings and parks.
+// ---------------------------------------------------------------------------
+
+bool is_walkable_cell(uint8_t cell)
 {
-    constexpr float kEpsilon = 1e-4f;
-    return point.x >= bounds.min_x - kEpsilon && point.x <= bounds.max_x + kEpsilon
-        && point.y >= bounds.min_z - kEpsilon && point.y <= bounds.max_z + kEpsilon;
+    return cell == kCityGridRoad || cell == kCityGridSidewalk;
 }
 
-bool point_strictly_inside_obstacle(const glm::vec2& point, const RouteObstacle& obstacle)
+glm::ivec2 nearest_walkable_cell(const CityGrid& grid, const glm::vec2& world_pos)
 {
-    constexpr float kEpsilon = 1e-4f;
-    return point.x > obstacle.min_x + kEpsilon && point.x < obstacle.max_x - kEpsilon
-        && point.y > obstacle.min_z + kEpsilon && point.y < obstacle.max_z - kEpsilon;
-}
+    int col = static_cast<int>(std::floor((world_pos.x - grid.origin_x) / grid.cell_size));
+    int row = static_cast<int>(std::floor((world_pos.y - grid.origin_z) / grid.cell_size));
+    col = std::clamp(col, 0, grid.cols - 1);
+    row = std::clamp(row, 0, grid.rows - 1);
 
-bool liang_barsky_clip(float p, float q, float& t0, float& t1)
-{
-    constexpr float kEpsilon = 1e-6f;
-    if (std::abs(p) <= kEpsilon)
-        return q >= 0.0f;
+    if (is_walkable_cell(grid.at(col, row)))
+        return { col, row };
 
-    const float r = q / p;
-    if (p < 0.0f)
+    // Spiral outward to find the nearest walkable cell.
+    constexpr int kMaxSearch = 16;
+    for (int radius = 1; radius <= kMaxSearch; ++radius)
     {
-        if (r > t1)
-            return false;
-        if (r > t0)
-            t0 = r;
-    }
-    else
-    {
-        if (r < t0)
-            return false;
-        if (r < t1)
-            t1 = r;
-    }
-    return true;
-}
-
-bool segment_intersects_obstacle_interior(const glm::vec2& a, const glm::vec2& b, const RouteObstacle& obstacle)
-{
-    if (point_strictly_inside_obstacle(a, obstacle) || point_strictly_inside_obstacle(b, obstacle))
-        return true;
-
-    float t0 = 0.0f;
-    float t1 = 1.0f;
-    const glm::vec2 delta = b - a;
-    if (!liang_barsky_clip(-delta.x, a.x - obstacle.min_x, t0, t1))
-        return false;
-    if (!liang_barsky_clip(delta.x, obstacle.max_x - a.x, t0, t1))
-        return false;
-    if (!liang_barsky_clip(-delta.y, a.y - obstacle.min_z, t0, t1))
-        return false;
-    if (!liang_barsky_clip(delta.y, obstacle.max_z - a.y, t0, t1))
-        return false;
-    if (t1 < t0)
-        return false;
-
-    const glm::vec2 sample = glm::mix(a, b, (t0 + t1) * 0.5f);
-    return point_strictly_inside_obstacle(sample, obstacle);
-}
-
-std::vector<RouteObstacle> build_route_obstacles(const SemanticMegacityLayout& layout, const MegaCityCodeConfig& config)
-{
-    PERF_MEASURE();
-    std::vector<RouteObstacle> obstacles;
-    obstacles.reserve(layout.building_count() + layout.modules.size() * 3);
-
-    for (const auto& module_layout : layout.modules)
-    {
-        for (const auto& building : module_layout.buildings)
+        for (int dc = -radius; dc <= radius; ++dc)
         {
-            const float half_extent = building.metrics.footprint * 0.5f + building.metrics.sidewalk_width;
-            obstacles.push_back({
-                building.center.x - half_extent,
-                building.center.x + half_extent,
-                building.center.y - half_extent,
-                building.center.y + half_extent,
-            });
-        }
-
-        if (module_layout.park_footprint > 0.0f)
-        {
-            const float half_extent = module_layout.park_footprint * 0.5f + module_layout.park_sidewalk_width;
-            obstacles.push_back({
-                module_layout.park_center.x - half_extent,
-                module_layout.park_center.x + half_extent,
-                module_layout.park_center.y - half_extent,
-                module_layout.park_center.y + half_extent,
-            });
-        }
-
-        if (!module_layout.is_central_park && !module_layout.buildings.empty())
-        {
-            for (const ModuleBoundarySignPlacement& sign : build_module_boundary_sign_placements(module_layout, config))
+            for (int dr = -radius; dr <= radius; ++dr)
             {
-                obstacles.push_back({
-                    sign.center.x - sign.width * 0.5f - kModuleSignObstaclePadding,
-                    sign.center.x + sign.width * 0.5f + kModuleSignObstaclePadding,
-                    sign.center.y - sign.depth * 0.5f - kModuleSignObstaclePadding,
-                    sign.center.y + sign.depth * 0.5f + kModuleSignObstaclePadding,
-                });
+                if (std::abs(dc) != radius && std::abs(dr) != radius)
+                    continue;
+                const int c = col + dc;
+                const int r = row + dr;
+                if (c >= 0 && c < grid.cols && r >= 0 && r < grid.rows
+                    && is_walkable_cell(grid.at(c, r)))
+                    return { c, r };
             }
         }
     }
-
-    return obstacles;
+    return { -1, -1 };
 }
 
-bool segment_visible_in_road_space(
-    const glm::vec2& a, const glm::vec2& b, const CitySurfaceBounds& bounds, const std::vector<RouteObstacle>& obstacles)
-{
-    if (!point_within_bounds(a, bounds) || !point_within_bounds(b, bounds))
-        return false;
-
-    for (const RouteObstacle& obstacle : obstacles)
-    {
-        if (segment_intersects_obstacle_interior(a, b, obstacle))
-            return false;
-    }
-
-    return true;
-}
-
-std::vector<glm::vec2> build_static_visibility_nodes(
-    const CitySurfaceBounds& bounds, const std::vector<RouteObstacle>& obstacles)
-{
-    PERF_MEASURE();
-    constexpr float kPointMergeEpsilon = 1e-4f;
-
-    std::vector<glm::vec2> nodes;
-    nodes.reserve(obstacles.size() * 4 + 4);
-
-    const auto add_unique = [&](const glm::vec2& point) {
-        if (!point_within_bounds(point, bounds))
-            return;
-        for (const RouteObstacle& obstacle : obstacles)
-        {
-            if (point_strictly_inside_obstacle(point, obstacle))
-                return;
-        }
-        for (const glm::vec2& existing : nodes)
-        {
-            if (glm::distance2(existing, point) <= kPointMergeEpsilon * kPointMergeEpsilon)
-                return;
-        }
-        nodes.push_back(point);
-    };
-
-    add_unique({ bounds.min_x, bounds.min_z });
-    add_unique({ bounds.min_x, bounds.max_z });
-    add_unique({ bounds.max_x, bounds.min_z });
-    add_unique({ bounds.max_x, bounds.max_z });
-
-    for (const RouteObstacle& obstacle : obstacles)
-    {
-        add_unique({ obstacle.min_x, obstacle.min_z });
-        add_unique({ obstacle.min_x, obstacle.max_z });
-        add_unique({ obstacle.max_x, obstacle.min_z });
-        add_unique({ obstacle.max_x, obstacle.max_z });
-    }
-
-    return nodes;
-}
-
-VisibilityGraph build_visibility_graph(
-    const CitySurfaceBounds& bounds, std::vector<RouteObstacle> obstacles)
-{
-    PERF_MEASURE();
-    VisibilityGraph graph;
-    graph.bounds = bounds;
-    graph.obstacles = std::move(obstacles);
-    graph.nodes = build_static_visibility_nodes(graph.bounds, graph.obstacles);
-    graph.adjacency.resize(graph.nodes.size());
-
-    for (size_t i = 0; i < graph.nodes.size(); ++i)
-    {
-        for (size_t j = i + 1; j < graph.nodes.size(); ++j)
-        {
-            if (!segment_visible_in_road_space(graph.nodes[i], graph.nodes[j], graph.bounds, graph.obstacles))
-                continue;
-            const float length = glm::length(graph.nodes[j] - graph.nodes[i]);
-            graph.adjacency[i].push_back({ static_cast<int>(j), length });
-            graph.adjacency[j].push_back({ static_cast<int>(i), length });
-        }
-    }
-
-    return graph;
-}
-
-int add_visibility_endpoint_node(
-    const VisibilityGraph& graph,
-    std::vector<glm::vec2>& nodes,
-    std::vector<std::vector<std::pair<int, float>>>& adjacency,
-    const glm::vec2& point)
-{
-    PERF_MEASURE();
-    constexpr float kPointMergeEpsilon = 1e-4f;
-
-    if (!point_within_bounds(point, graph.bounds))
-        return -1;
-    for (const RouteObstacle& obstacle : graph.obstacles)
-    {
-        if (point_strictly_inside_obstacle(point, obstacle))
-            return -1;
-    }
-
-    for (size_t index = 0; index < nodes.size(); ++index)
-    {
-        if (glm::distance2(nodes[index], point) <= kPointMergeEpsilon * kPointMergeEpsilon)
-            return static_cast<int>(index);
-    }
-
-    const int node_index = static_cast<int>(nodes.size());
-    nodes.push_back(point);
-    adjacency.emplace_back();
-    for (int existing_index = 0; existing_index < node_index; ++existing_index)
-    {
-        if (!segment_visible_in_road_space(point, nodes[static_cast<size_t>(existing_index)], graph.bounds, graph.obstacles))
-            continue;
-        const float length = glm::length(point - nodes[static_cast<size_t>(existing_index)]);
-        adjacency[static_cast<size_t>(node_index)].push_back({ existing_index, length });
-        adjacency[static_cast<size_t>(existing_index)].push_back({ node_index, length });
-    }
-
-    return node_index;
-}
-
-bool find_visibility_path(
-    const VisibilityGraph& graph,
-    const glm::vec2& start,
-    const glm::vec2& goal,
+bool find_grid_path(
+    const CityGrid& grid,
+    const glm::vec2& start_world,
+    const glm::vec2& goal_world,
     std::vector<glm::vec2>& path_out)
 {
     PERF_MEASURE();
     path_out.clear();
-    if (!point_within_bounds(start, graph.bounds) || !point_within_bounds(goal, graph.bounds))
+    if (grid.cols <= 0 || grid.rows <= 0 || grid.cells.empty())
         return false;
 
-    std::vector<glm::vec2> nodes = graph.nodes;
-    std::vector<std::vector<std::pair<int, float>>> adjacency = graph.adjacency;
-    const int start_index = add_visibility_endpoint_node(graph, nodes, adjacency, start);
-    const int goal_index = add_visibility_endpoint_node(graph, nodes, adjacency, goal);
-    if (start_index < 0 || goal_index < 0)
+    const glm::ivec2 sc = nearest_walkable_cell(grid, start_world);
+    const glm::ivec2 gc = nearest_walkable_cell(grid, goal_world);
+    if (sc.x < 0 || gc.x < 0)
         return false;
-    if (start_index == goal_index)
+    if (sc == gc)
     {
-        path_out.push_back(nodes[static_cast<size_t>(start_index)]);
+        path_out.push_back(start_world);
         return true;
     }
 
-    const size_t node_count = nodes.size();
+    const int total = grid.cols * grid.rows;
+    const auto idx = [&](int c, int r) { return r * grid.cols + c; };
 
-    std::vector<float> g_score(node_count, std::numeric_limits<float>::max());
-    std::vector<int> predecessor(node_count, -1);
-    using QueueEntry = std::pair<float, int>;
-    std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> frontier;
+    std::vector<float> g_score(total, std::numeric_limits<float>::max());
+    std::vector<int> predecessor(total, -1);
 
-    g_score[start_index] = 0.0f;
-    frontier.push({ glm::distance(start, goal), start_index });
+    const auto heuristic = [&](int c, int r) {
+        const float dx = static_cast<float>(std::abs(c - gc.x));
+        const float dy = static_cast<float>(std::abs(r - gc.y));
+        return std::max(dx, dy) + (1.41421356f - 1.0f) * std::min(dx, dy);
+    };
+
+    using QE = std::pair<float, int>;
+    std::priority_queue<QE, std::vector<QE>, std::greater<QE>> frontier;
+
+    const int start_idx = idx(sc.x, sc.y);
+    const int goal_idx = idx(gc.x, gc.y);
+    g_score[start_idx] = 0.0f;
+    frontier.push({ heuristic(sc.x, sc.y), start_idx });
+
+    static constexpr int kDx[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+    static constexpr int kDy[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+    static constexpr float kCost[] = { 1.41421356f, 1.0f, 1.41421356f, 1.0f, 1.0f, 1.41421356f, 1.0f, 1.41421356f };
 
     while (!frontier.empty())
     {
-        const auto [f_score, current] = frontier.top();
-        (void)f_score;
+        const auto [f, ci] = frontier.top();
         frontier.pop();
-
-        if (current == goal_index)
+        if (ci == goal_idx)
             break;
 
-        for (const auto& [next, edge_cost] : adjacency[current])
+        const int cc = ci % grid.cols;
+        const int cr = ci / grid.cols;
+        if (f > g_score[ci] + heuristic(cc, cr) + 0.01f)
+            continue;
+
+        for (int d = 0; d < 8; ++d)
         {
-            const float tentative_g = g_score[current] + edge_cost;
-            if (tentative_g + 1e-5f >= g_score[next])
+            const int nc = cc + kDx[d];
+            const int nr = cr + kDy[d];
+            if (nc < 0 || nc >= grid.cols || nr < 0 || nr >= grid.rows)
                 continue;
-            g_score[next] = tentative_g;
-            predecessor[next] = current;
-            const float heuristic = glm::length(nodes[goal_index] - nodes[next]);
-            frontier.push({ tentative_g + heuristic, next });
+            if (!is_walkable_cell(grid.at(nc, nr)))
+                continue;
+            // Diagonal: both cardinal neighbors must be walkable to prevent corner-cutting.
+            if (kDx[d] != 0 && kDy[d] != 0)
+            {
+                if (!is_walkable_cell(grid.at(cc + kDx[d], cr))
+                    || !is_walkable_cell(grid.at(cc, cr + kDy[d])))
+                    continue;
+            }
+            const int ni = idx(nc, nr);
+            const float tg = g_score[ci] + kCost[d];
+            if (tg + 1e-5f >= g_score[ni])
+                continue;
+            g_score[ni] = tg;
+            predecessor[ni] = ci;
+            frontier.push({ tg + heuristic(nc, nr), ni });
         }
     }
 
-    if (g_score[goal_index] == std::numeric_limits<float>::max())
+    if (g_score[goal_idx] == std::numeric_limits<float>::max())
         return false;
 
-    int current = goal_index;
-    while (current >= 0)
+    // Reconstruct cell path.
+    std::vector<glm::ivec2> cells;
+    for (int ci = goal_idx; ci >= 0; ci = (ci == start_idx) ? -1 : predecessor[ci])
     {
-        path_out.push_back(nodes[current]);
-        if (current == start_index)
+        cells.push_back({ ci % grid.cols, ci / grid.cols });
+        if (ci == start_idx)
             break;
-        current = predecessor[current];
     }
-    if (path_out.empty() || glm::distance2(path_out.back(), start) > 1e-8f)
-    {
-        path_out.clear();
-        return false;
-    }
+    std::reverse(cells.begin(), cells.end());
 
-    std::reverse(path_out.begin(), path_out.end());
+    // Convert to world coordinates (cell centers).
+    path_out.reserve(cells.size());
+    for (const glm::ivec2& c : cells)
+    {
+        path_out.push_back({
+            grid.origin_x + (c.x + 0.5f) * grid.cell_size,
+            grid.origin_z + (c.y + 0.5f) * grid.cell_size,
+        });
+    }
     return true;
 }
 
@@ -1171,7 +999,6 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
     std::string_view focus_qualified_name)
 {
     PERF_MEASURE();
-    (void)grid;
     const std::vector<RoutePair> route_pairs = collect_route_pairs(
         layout,
         model,
@@ -1179,8 +1006,6 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
         focus_module_path,
         focus_qualified_name);
     const std::vector<AssignedRoutePorts> assigned_ports = assign_route_ports(route_pairs, grid);
-    const CitySurfaceBounds road_bounds = compute_city_road_surface_bounds(layout);
-    const VisibilityGraph visibility_graph = build_visibility_graph(road_bounds, build_route_obstacles(layout, config));
 
     std::vector<std::optional<CityGrid::RoutePolyline>> route_results(route_pairs.size());
     const auto solve_route = [&](size_t route_index) {
@@ -1188,14 +1013,14 @@ std::vector<CityGrid::RoutePolyline> build_city_routes_from_grid(
         const AssignedRoutePorts& ports = assigned_ports[route_index];
         if (pair.source == nullptr || pair.target == nullptr
             || !ports.source_port.has_value() || !ports.target_port.has_value()
-            || !visibility_graph.bounds.valid())
+            || grid.cols <= 0 || grid.rows <= 0)
         {
             return;
         }
 
         std::vector<glm::vec2> road_path;
-        if (!find_visibility_path(
-                visibility_graph,
+        if (!find_grid_path(
+                grid,
                 ports.source_port->road_entry_world,
                 ports.target_port->road_entry_world,
                 road_path))

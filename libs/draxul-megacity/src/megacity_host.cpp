@@ -457,14 +457,14 @@ MegaCityHost::MegaCityHost()
 
 MegaCityHost::~MegaCityHost()
 {
-    if (grid_thread_.joinable())
-        grid_thread_.join();
     {
         std::lock_guard<std::mutex> lock(route_mutex_);
         route_worker_stop_ = true;
         pending_route_request_.reset();
     }
     route_cv_.notify_all();
+    if (grid_thread_.joinable())
+        grid_thread_.join();
     if (route_thread_.joinable())
         route_thread_.join();
 }
@@ -1227,8 +1227,9 @@ void MegaCityHost::render_host_imgui(float dt)
 void MegaCityHost::shutdown()
 {
     PERF_MEASURE();
-    if (grid_thread_.joinable())
-        grid_thread_.join();
+
+    // Signal all worker threads to stop FIRST, before joining any.
+    // This lets them wind down in parallel while we wait for each join.
     {
         std::lock_guard<std::mutex> lock(route_mutex_);
         route_worker_stop_ = true;
@@ -1236,6 +1237,10 @@ void MegaCityHost::shutdown()
         completed_route_result_.reset();
     }
     route_cv_.notify_all();
+    scanner_.stop();
+
+    if (grid_thread_.joinable())
+        grid_thread_.join();
     if (route_thread_.joinable())
         route_thread_.join();
     city_grid_.reset();
@@ -1259,7 +1264,6 @@ void MegaCityHost::shutdown()
 
     pending_renderer_config_.show_ui_panels = show_ui_panels_;
     save_merged_megacity_config(config_document_, pending_renderer_config_, renderer_defaults_);
-    scanner_.stop();
     city_db_.close();
     if (tooltip_text_service_)
     {
