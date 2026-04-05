@@ -1,5 +1,6 @@
 add_library(draxul-render-test
     src/render_test.cpp
+    src/nanovg_demo_host.cpp
 )
 
 target_include_directories(draxul-render-test PUBLIC
@@ -17,5 +18,7 @@ endif()
 target_link_libraries(draxul-render-test PUBLIC
     draxul-config
     draxul-font
+    draxul-host
+    draxul-nanovg
     draxul-renderer
 )

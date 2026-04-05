@@ -9,6 +9,7 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
+#include <draxul/nanovg_demo_host.h>
 #include <draxul/renderer.h>
 #include <draxul/text_service.h>
 
@@ -18,7 +19,6 @@ namespace draxul
 #ifdef DRAXUL_ENABLE_MEGACITY
 std::unique_ptr<IHost> create_megacity_host();
 #endif
-std::unique_ptr<IHost> create_nanovg_demo_host();
 
 namespace
 {
