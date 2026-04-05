@@ -225,28 +225,16 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py coverage     # macOS: export build/coverage.lcov and refresh db/coverage.lcov
 ```
 
-On Windows, use `python do.py <command>` instead of `./do.py`.
-
-## Convenience Scripts (lower-level)
-
-The raw build/run wrappers are still available:
-
-```powershell
-r.bat
-r.bat --console
-r.bat release --console
-t.bat
-t.bat both
-```
+On Windows, use `do <command>` (via `do.bat`) instead of `./do.py`.
 
 ```bash
-sh ./r.sh
-sh ./r.sh release
-sh ./t.sh
-sh ./t.sh both
+do run                   # Debug build + run (ninja on Windows, make on macOS)
+do run release           # Release build + run
+do run release --vs      # Release build with VS generator (Windows)
+do run --console         # Attach a debug console (Windows)
+do smoke                 # Smoke test
+do test                  # Full test suite
 ```
-
-These delegate to the scripts under `scripts/`.
 
 ## Testing
 

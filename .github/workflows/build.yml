@@ -14,6 +14,8 @@ jobs:
     runs-on: windows-latest
     env:
       VULKAN_SDK_VERSION: 1.3.283.0
+      BUILD_MODE: debug
+      BUILD_CONFIG: Debug
     steps:
       - uses: actions/checkout@v4
 
@@ -45,16 +47,18 @@ jobs:
       - name: Build and test
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
-        run: cmd /c scripts\run_tests.bat debug
+        run: cmd /c scripts\run_tests.bat %BUILD_MODE%
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: draxul-windows
+          name: draxul-windows-${{ env.BUILD_MODE }}
           path: |
-            build/Release/draxul.exe
-            build/Release/shaders/
-            build/Release/fonts/
+            build/${{ env.BUILD_CONFIG }}/draxul.exe
+            build/${{ env.BUILD_CONFIG }}/draxul.pdb
+            build/${{ env.BUILD_CONFIG }}/shaders/
+            build/${{ env.BUILD_CONFIG }}/fonts/
+          if-no-files-found: error
 
       - name: Upload render test outputs
         if: always()

@@ -246,9 +246,9 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 
 ### Convenience Scripts
 
-- `r.bat` now defaults to the Windows Ninja local-iteration preset and only builds the `draxul` target before launch
-- `r.bat --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
-- `r.bat --ninja` forces the Ninja local-iteration path explicitly
+- `do run` configures, builds, and runs — defaults to Ninja on Windows, only builds the `draxul` target
+- `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
+- `do run --ninja` forces the Ninja local-iteration path explicitly
 
 ### CMake Options
 
@@ -278,7 +278,7 @@ SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA
 
 | Workflow | Description |
 |----------|-------------|
-| `build.yml` | Windows + macOS build, test, render-test artifacts |
+| `build.yml` | Windows + macOS build/test pipeline; uploads config-matched app artifacts and render-test outputs |
 | `asan.yml` | AddressSanitizer builds (macOS) |
 | `coverage.yml` | LLVM coverage collection (macOS), uploads `build/coverage.lcov` as an artifact and to Codecov |
 | `format.yml` | clang-format lint |

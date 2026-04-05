@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -15,7 +17,18 @@ def build_dir(root: pathlib.Path) -> pathlib.Path:
     return root / "build"
 
 
+def draxul_exe(bd: pathlib.Path, config: str) -> pathlib.Path:
+    """Return the expected executable path for a given build dir and config."""
+    if sys.platform.startswith("win"):
+        return bd / config / "draxul.exe"
+    bundle_exe = bd / "draxul.app" / "Contents" / "MacOS" / "draxul"
+    if bundle_exe.exists():
+        return bundle_exe
+    return bd / "draxul"
+
+
 def draxul_path(root: pathlib.Path) -> pathlib.Path:
+    """Legacy helper — probe common locations for the executable."""
     if sys.platform.startswith("win"):
         release = build_dir(root) / "Release" / "draxul.exe"
         if release.exists():
@@ -24,12 +37,238 @@ def draxul_path(root: pathlib.Path) -> pathlib.Path:
         if debug.exists():
             return debug
         return release
-    # macOS bundle layout (when MACOSX_BUNDLE is set)
     bundle_exe = build_dir(root) / "draxul.app" / "Contents" / "MacOS" / "draxul"
     if bundle_exe.exists():
         return bundle_exe
-    # Non-bundle fallback (legacy builds or Linux)
     return build_dir(root) / "draxul"
+
+
+# ---------------------------------------------------------------------------
+# Build helpers for the `run` command
+# ---------------------------------------------------------------------------
+
+_VSDEVCMD_SEARCH_PATHS = [
+    r"C:\Program Files\Microsoft Visual Studio\2022\Preview\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Preview\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Professional\Common7\Tools\VsDevCmd.bat",
+    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat",
+]
+
+
+def _capture_msvc_env(bat_path: str, bat_args: list[str]) -> dict[str, str] | None:
+    """Run a VS env-setup .bat file and capture the resulting environment.
+
+    Uses a temporary batch file to avoid quoting issues when subprocess
+    launches cmd.exe from Git Bash or other non-cmd shells.
+    """
+    import tempfile
+
+    args_str = " ".join(bat_args)
+    bat_content = f'@call "{bat_path}" {args_str} >nul 2>&1\r\nset\r\n'
+    tmp_bat = os.path.join(tempfile.gettempdir(), "_draxul_env.bat")
+    try:
+        with open(tmp_bat, "wb") as f:
+            f.write(bat_content.encode("ascii"))
+        result = subprocess.run(
+            ["cmd", "/c", tmp_bat],
+            capture_output=True, text=True, check=False,
+            encoding="utf-8", errors="replace",
+        )
+    finally:
+        if os.path.isfile(tmp_bat):
+            os.unlink(tmp_bat)
+
+    if result.returncode != 0:
+        return None
+    env: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            env[k] = v
+    if not env:
+        return None
+    # Verify that cl.exe is actually on the resulting PATH.
+    path_val = env.get("Path", env.get("PATH", ""))
+    for d in path_val.split(";"):
+        if os.path.isfile(os.path.join(d, "cl.exe")):
+            return env
+    return None
+
+
+def _ensure_msvc_env() -> dict[str, str]:
+    """If `cl.exe` is not on PATH, find VsDevCmd.bat and capture its env."""
+    if shutil.which("cl"):
+        return dict(os.environ)
+
+    for p in _VSDEVCMD_SEARCH_PATHS:
+        if not os.path.isfile(p):
+            continue
+        env = _capture_msvc_env(p, ["-arch=x64", "-host_arch=x64"])
+        if env:
+            return env
+
+    # Also try vcvarsall.bat (more reliable when vswhere is missing).
+    for p in _VSDEVCMD_SEARCH_PATHS:
+        vcvars = pathlib.Path(p).parents[2] / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
+        if not vcvars.is_file():
+            continue
+        env = _capture_msvc_env(str(vcvars), ["x64"])
+        if env:
+            return env
+
+    print("\nFailed to initialise the MSVC toolchain for Ninja builds.")
+    print("Use --vs to fall back to the Visual Studio generator.")
+    sys.exit(1)
+
+
+def _cache_build_type(cache_file: pathlib.Path) -> str | None:
+    """Read CMAKE_BUILD_TYPE from an existing CMakeCache.txt."""
+    if not cache_file.exists():
+        return None
+    for line in cache_file.read_text().splitlines():
+        if line.startswith("CMAKE_BUILD_TYPE:STRING="):
+            return line.split("=", 1)[1]
+    return None
+
+
+def _check_metal_toolchain() -> None:
+    if sys.platform != "darwin":
+        return
+    if shutil.which("xcrun") is None:
+        print("Missing xcrun. Install Xcode Command Line Tools.", file=sys.stderr)
+        sys.exit(1)
+    r = subprocess.run(["xcrun", "--find", "metal"], capture_output=True, check=False)
+    if r.returncode != 0:
+        print("Missing Metal compiler. Install Xcode Command Line Tools and the Metal toolchain.", file=sys.stderr)
+        print("Suggested fix: xcodebuild -downloadComponent MetalToolchain", file=sys.stderr)
+        sys.exit(1)
+    r = subprocess.run(["xcrun", "-sdk", "macosx", "metal", "-v"], capture_output=True, check=False)
+    if r.returncode != 0:
+        print("The Metal compiler is present but not runnable because the Metal Toolchain is missing.", file=sys.stderr)
+        print("Suggested fix: xcodebuild -downloadComponent MetalToolchain", file=sys.stderr)
+        sys.exit(1)
+
+
+def _parse_build_args(args: list[str]) -> tuple[str, bool, str, bool, list[str]]:
+    """Parse shared build/run arguments.
+
+    Returns (mode, force_reconfigure, build_system, use_console, app_args).
+    """
+    mode = "debug"
+    force_reconfigure = False
+    build_system = "ninja"
+    use_console = False
+    app_args: list[str] = []
+
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("debug", "release"):
+            mode = a
+        elif a == "--reconfigure":
+            force_reconfigure = True
+        elif a == "--vs":
+            build_system = "vs"
+        elif a == "--ninja":
+            build_system = "ninja"
+        elif a == "--console":
+            use_console = True
+            app_args.append(a)
+        elif a == "--":
+            app_args.extend(args[i + 1:])
+            break
+        else:
+            app_args.append(a)
+        i += 1
+
+    return mode, force_reconfigure, build_system, use_console, app_args
+
+
+def _configure_and_build(
+    root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
+) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
+    """Configure + build.  Returns (rc, build_dir, config, env)."""
+    is_win = sys.platform.startswith("win")
+    is_mac = sys.platform.startswith("darwin")
+
+    if is_win:
+        if build_system == "ninja":
+            config = "Debug" if mode == "debug" else "Release"
+            preset = "win-ninja-debug" if mode == "debug" else "win-ninja-release"
+            bd = root / "build-ninja"
+        else:
+            config = "Debug" if mode == "debug" else "Release"
+            preset = "default" if mode == "debug" else "release"
+            bd = root / "build"
+    elif is_mac:
+        config = "Debug" if mode == "debug" else "Release"
+        preset = f"mac-{mode}"
+        bd = root / "build"
+    else:
+        config = "Debug" if mode == "debug" else "Release"
+        preset = f"mac-{mode}"
+        bd = root / "build"
+
+    cache_file = bd / "CMakeCache.txt"
+
+    print(f"\n=== {config} / {build_system if is_win else 'make'} ===")
+
+    env: dict[str, str] | None = None
+    if is_win and build_system == "ninja":
+        env = _ensure_msvc_env()
+
+    if is_mac:
+        _check_metal_toolchain()
+
+    need_configure = force_reconfigure or not cache_file.exists()
+    if not need_configure:
+        cached = _cache_build_type(cache_file)
+        if cached and cached != config:
+            need_configure = True
+
+    if need_configure:
+        rc = run(["cmake", "--preset", preset], root, env=env)
+        if rc != 0:
+            return rc, bd, config, env
+    else:
+        print(f"\n> using existing CMake cache: {cache_file}")
+
+    build_cmd = ["cmake", "--build", str(bd), "--config", config, "--target", "draxul", "--parallel"]
+    rc = run(build_cmd, root, env=env)
+    return rc, bd, config, env
+
+
+def cmd_build(root: pathlib.Path, args: list[str]) -> int:
+    """Configure + build only (no run)."""
+    mode, force_reconfigure, build_system, _, _ = _parse_build_args(args)
+    rc, _, _, _ = _configure_and_build(root, mode, force_reconfigure, build_system)
+    return rc
+
+
+def cmd_run(root: pathlib.Path, args: list[str]) -> int:
+    """Full configure + build + run cycle (replaces r.bat / r.sh)."""
+    mode, force_reconfigure, build_system, use_console, app_args = _parse_build_args(args)
+    rc, bd, config, env = _configure_and_build(root, mode, force_reconfigure, build_system)
+    if rc != 0:
+        return rc
+
+    exe = draxul_exe(bd, config)
+    if not exe.exists():
+        print(f"\nMissing executable: {exe}")
+        return 1
+
+    is_win = sys.platform.startswith("win")
+    cmd: list[str] = [str(exe)] + app_args
+    if is_win and not use_console:
+        print(f"\n> start /wait {' '.join(cmd)}")
+        proc = subprocess.run(["cmd", "/c", "start", "", "/wait"] + cmd, cwd=root, check=False, env=env)
+        return proc.returncode
+    else:
+        return run(cmd, root, env=env)
 
 
 def scenario_path(root: pathlib.Path, name: str) -> pathlib.Path:
@@ -73,10 +312,23 @@ def print_render_report(root: pathlib.Path, scenario_name: str) -> None:
         print(f"  [{scenario_name}] blessed ({data['width']}x{data['height']})")
 
 
-def run(command: list[str], cwd: pathlib.Path) -> int:
+def run(command: list[str], cwd: pathlib.Path, *, env: dict[str, str] | None = None) -> int:
     print("> " + " ".join(command))
-    completed = subprocess.run(command, cwd=cwd, check=False)
+    completed = subprocess.run(command, cwd=cwd, check=False, env=env)
     return completed.returncode
+
+
+def build_shortcut_exe(root: pathlib.Path) -> tuple[int, pathlib.Path | None, dict[str, str] | None]:
+    """Build the app for smoke/render shortcuts using the current default pipeline."""
+    rc, bd, config, env = _configure_and_build(root, "debug", False, "ninja")
+    if rc != 0:
+        return rc, None, env
+
+    exe = draxul_exe(bd, config)
+    if not exe.exists():
+        print(f"\nMissing executable: {exe}")
+        return 1, None, env
+    return 0, exe, env
 
 
 def ensure_built(root: pathlib.Path) -> int:
@@ -91,10 +343,13 @@ def ensure_built(root: pathlib.Path) -> int:
 
 def help_text() -> str:
     return """Usage:
-  python do.py <command> [--skip-build]
+  do <command> [options]
 
 Single-word shortcuts:
-  run          Run Draxul normally with a console
+  build [debug|release] [--reconfigure] [--vs|--ninja]
+               Configure and build Draxul (default: debug, ninja on Windows)
+  run [debug|release] [--reconfigure] [--vs|--ninja] [--console] [-- app-args...]
+               Configure, build, and run Draxul
   smoke        Run the app smoke test
   test         Run the full local test suite (t.bat / run_tests.sh)
   shot         Regenerate the README hero screenshot
@@ -131,12 +386,13 @@ Bless render references:
   blessall     Bless all deterministic references
 
 Examples:
-  python do.py smoke
-  python do.py basic
-  python do.py blessall
-  python do.py shot
-  python do.py api
-  python do.py test
+  do run                   # Debug build + run (ninja on Windows, make on macOS)
+  do run release           # Release build + run
+  do run release --vs      # Release build with VS generator (Windows)
+  do run --reconfigure     # Force CMake reconfigure
+  do smoke
+  do basic
+  do blessall
 """
 
 
@@ -328,18 +584,17 @@ def main() -> int:
     if command == "syncboard":
         return run([sys.executable, str(root / "scripts" / "sync_project_board.py")], root)
 
+    if command == "build":
+        return cmd_build(root, args[1:])
+
     if command == "run":
-        if ensure_built(root) != 0:
-            return 1
-        exe = draxul_path(root)
-        extra = [a for a in args[1:] if a != "--skip-build"]
-        return run([str(exe), "--console"] + extra, root)
+        return cmd_run(root, args[1:])
 
     if command == "smoke":
-        if ensure_built(root) != 0:
+        rc, exe, env = build_shortcut_exe(root)
+        if rc != 0 or exe is None:
             return 1
-        exe = draxul_path(root)
-        return run([str(exe), "--console", "--smoke-test"], root)
+        return run([str(exe), "--console", "--smoke-test"], root, env=env)
 
     render_map = {
         "basic": ("basic-view", False),
@@ -355,38 +610,41 @@ def main() -> int:
     }
 
     if command in render_map:
-        if ensure_built(root) != 0:
+        rc, exe, env = build_shortcut_exe(root)
+        if rc != 0 or exe is None:
             return 1
         scenario_name, bless = render_map[command]
-        exe = draxul_path(root)
         cmd = [str(exe), "--console", "--render-test", str(scenario_path(root, scenario_name)),
                "--show-render-test-window"]
         if bless:
             cmd.append("--bless-render-test")
-        rc = run(cmd, root)
+        rc = run(cmd, root, env=env)
         print_render_report(root, scenario_name)
         return rc
 
     if command == "renderall":
-        if ensure_built(root) != 0:
+        rc, exe, env = build_shortcut_exe(root)
+        if rc != 0 or exe is None:
             return 1
         overall_rc = 0
         for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "nanovg-demo"):
-            rc = run([str(draxul_path(root)), "--console", "--render-test",
-                      str(scenario_path(root, scenario_name)), "--show-render-test-window"], root)
+            rc = run([str(exe), "--console", "--render-test",
+                      str(scenario_path(root, scenario_name)), "--show-render-test-window"], root, env=env)
             print_render_report(root, scenario_name)
             if rc != 0:
                 overall_rc = rc
         return overall_rc
 
     if command == "blessall":
-        if ensure_built(root) != 0:
+        rc, exe, env = build_shortcut_exe(root)
+        if rc != 0 or exe is None:
             return 1
         for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "nanovg-demo"):
             rc = run(
-                [str(draxul_path(root)), "--console", "--render-test",
+                [str(exe), "--console", "--render-test",
                  str(scenario_path(root, scenario_name)), "--show-render-test-window", "--bless-render-test"],
                 root,
+                env=env,
             )
             if rc != 0:
                 return rc
@@ -394,11 +652,7 @@ def main() -> int:
 
     # If the "command" looks like a flag, the user probably meant `run <flags>`.
     if command.startswith("-"):
-        if ensure_built(root) != 0:
-            return 1
-        exe = draxul_path(root)
-        extra = [a for a in args if a != "--skip-build"]
-        return run([str(exe), "--console"] + extra, root)
+        return cmd_run(root, args)
 
     print(f"Unknown command: {command}\n")
     print(help_text())

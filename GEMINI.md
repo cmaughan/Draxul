@@ -53,7 +53,7 @@ The project uses CMake Presets for configuration.
 - **Flags:** `--console` (Windows only, opens log console), `--smoke-test` (brief startup check), `--host <type>` (nvim/bash/zsh/powershell/wsl/megacity), `--log-file <path>`, `--log-level <level>`
 
 ### Convenience Scripts
-- `r.bat` / `r.sh`: Build and run the application.
+- `do run`: Configure, build, and run the application (supports `debug`/`release`, `--vs`/`--ninja`, `--reconfigure`).
 - `t.bat` / `t.sh`: Build and run the test suite.
 
 ### Debugging / Logging

@@ -39,7 +39,7 @@ ASan test run: `cmake --preset mac-asan && cmake --build build --target draxul-t
 
 ### Convenience Scripts
 
-- `r.bat` / `r.sh`: Build and run the application.
+- `do run`: Configure, build, and run the application (supports `debug`/`release`, `--vs`/`--ninja`, `--reconfigure`).
 - `t.bat` / `t.sh`: Build and run the test suite.
 
 ### Debugging / Logging
