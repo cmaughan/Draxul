@@ -56,11 +56,11 @@ struct PanelLayout
     glm::ivec2 grid_size{ 1 };
     float pixel_scale = 1.0f;
 
+    // x, y must be in physical pixels (callers convert from SDL logical via PixelScale).
+    // window_size, panel_y, panel_height are already in physical pixels.
     bool contains_panel_point(int x, int y) const
     {
-        const auto px = static_cast<int>(static_cast<float>(x) * pixel_scale);
-        const auto py = static_cast<int>(static_cast<float>(y) * pixel_scale);
-        return visible && px >= 0 && px < window_size.x && py >= panel_y && py < panel_y + panel_height;
+        return visible && x >= 0 && x < window_size.x && y >= panel_y && y < panel_y + panel_height;
     }
 };
 
