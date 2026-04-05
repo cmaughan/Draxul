@@ -1877,6 +1877,13 @@ void MegaCityHost::draw(IFrameContext& frame)
     if (!scene_pass_)
         return;
 
+    if (imgui_settle_frames_ > 0)
+    {
+        --imgui_settle_frames_;
+        if (callbacks_)
+            callbacks_->request_frame();
+    }
+
     if (scene_dirty_ && camera_ && world_)
     {
         auto result = build_scene_snapshot(
@@ -1905,6 +1912,7 @@ void MegaCityHost::draw(IFrameContext& frame)
     render_host_imgui(last_imgui_delta_seconds_);
     if (imgui_context_ && imgui_backend_)
         frame.render_imgui(ImGui::GetDrawData(), imgui_context_);
+    frame.flush_submit_chunk();
 }
 
 std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline() const
@@ -1919,6 +1927,9 @@ std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline
         if (tooltip_deadline > std::chrono::steady_clock::now())
             return tooltip_deadline;
     }
+
+    if (imgui_settle_frames_ > 0)
+        return std::chrono::steady_clock::now();
 
     if (!continuous_refresh_enabled_ && !input_->movement_active() && !input_->drag_smoothing_active()
         && hidden_hover_blend_ <= 1e-3f
@@ -1944,6 +1955,8 @@ bool MegaCityHost::dispatch_action(std::string_view action)
     if (action == "toggle_ui_panels")
     {
         show_ui_panels_ = !show_ui_panels_;
+        // ImGui docking layout changes need multiple frames to settle.
+        imgui_settle_frames_ = 3;
         if (callbacks_)
             callbacks_->request_frame();
         return true;

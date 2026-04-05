@@ -121,7 +121,7 @@ private:
     ConPtyProcess process_;
 };
 
-class ShellHost : public ConPtyHostBase
+class WinShellHost : public ConPtyHostBase
 {
 public:
     std::string_view host_name() const override
@@ -231,7 +231,7 @@ protected:
 std::unique_ptr<IHost> create_shell_host()
 {
     PERF_MEASURE();
-    return std::make_unique<ShellHost>();
+    return std::make_unique<WinShellHost>();
 }
 
 std::unique_ptr<IHost> create_powershell_host()

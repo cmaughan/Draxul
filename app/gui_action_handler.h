@@ -53,6 +53,7 @@ public:
         std::function<void()> on_next_tab; // switch to the next tab
         std::function<void()> on_prev_tab; // switch to the previous tab
         std::function<void(int)> on_activate_tab; // switch to tab by 1-based index
+        std::function<void(std::string_view)> broadcast_action; // dispatch action to all hosts
     };
 
     explicit GuiActionHandler(Deps deps);

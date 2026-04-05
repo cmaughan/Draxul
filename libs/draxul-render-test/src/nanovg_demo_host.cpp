@@ -253,6 +253,7 @@ void NanoVGDemoHost::draw(IFrameContext& frame)
     vp.width = viewport_.pixel_size.x;
     vp.height = viewport_.pixel_size.y;
     frame.record_render_pass(*nanovg_pass_, vp);
+    frame.flush_submit_chunk();
 }
 
 std::unique_ptr<IHost> create_nanovg_demo_host()

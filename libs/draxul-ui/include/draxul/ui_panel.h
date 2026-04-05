@@ -22,6 +22,13 @@ struct StartupStep
     double ms = 0.0;
 };
 
+struct HostPaneDimensions
+{
+    std::string name;
+    glm::ivec2 pixel_pos{ 0 };
+    glm::ivec2 pixel_size{ 0 };
+};
+
 struct DiagnosticPanelState
 {
     bool visible = false;
@@ -36,6 +43,7 @@ struct DiagnosticPanelState
     int atlas_reset_count = 0;
     std::vector<StartupStep> startup_steps;
     double startup_total_ms = 0.0;
+    std::vector<HostPaneDimensions> host_panes;
 };
 
 struct PanelLayout

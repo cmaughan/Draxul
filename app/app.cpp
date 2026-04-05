@@ -678,6 +678,11 @@ void App::wire_gui_actions()
         input_dispatcher_.set_host(chrome_host_->active_host_manager().focused_host());
         request_frame();
     };
+    gui_deps.broadcast_action = [this](std::string_view action) {
+        chrome_host_->active_host_manager().for_each_host(
+            [action](LeafId, IHost& h) { h.dispatch_action(action); });
+        request_frame();
+    };
     gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
 
     // CommandPalette deps are now wired inside CommandPaletteHost::initialize().
@@ -995,7 +1000,6 @@ void App::render_imgui_overlay(IFrameContext& frame, float /*delta_seconds*/)
     if (diagnostics_host_)
     {
         diagnostics_host_->draw(frame);
-        frame.flush_submit_chunk();
     }
 
     if (palette_host_)
@@ -1032,7 +1036,6 @@ bool App::render_frame()
     if (chrome_host_ && chrome_host_->is_running() && !chrome_host_->active_host_manager().is_zoomed())
     {
         chrome_host_->draw(*frame);
-        frame->flush_submit_chunk();
     }
 
     chrome_host_->active_host_manager().for_each_host([frame, this](LeafId id, IHost& h) {
@@ -1042,7 +1045,6 @@ bool App::render_frame()
         if (chrome_host_->active_host_manager().is_zoomed() && id != chrome_host_->active_host_manager().zoomed_leaf())
             return;
         h.draw(*frame);
-        frame->flush_submit_chunk();
     });
 
     render_imgui_overlay(*frame, 0.0f);
@@ -1265,6 +1267,21 @@ void App::update_diagnostics_panel()
         const HostDebugState host_state = chrome_host_->active_host_manager().host()->debug_state();
         panel.grid_size = { host_state.grid_cols, host_state.grid_rows };
         panel.dirty_cells = host_state.dirty_cells;
+    }
+
+    panel.host_panes.push_back({ "ChromeHost", { 0, 0 }, { last_pixel_w_, last_pixel_h_ } });
+
+    auto& hm = chrome_host_->active_host_manager();
+    hm.for_each_host([&panel, &hm](LeafId id, IHost& h) {
+        const auto dbg = h.debug_state();
+        const auto pd = hm.tree().descriptor_for(id);
+        panel.host_panes.push_back({ dbg.name, pd.pixel_pos, pd.pixel_size });
+    });
+
+    if (diagnostics_host_ && diagnostics_host_->visible())
+    {
+        const auto& dl = diagnostics_host_->layout();
+        panel.host_panes.push_back({ "Diagnostics", { 0, dl.panel_y }, { dl.window_size.x, dl.panel_height } });
     }
 
     if (diagnostics_host_)

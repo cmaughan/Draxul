@@ -141,6 +141,7 @@ private:
     float city_min_z_ = -2.5f;
     float city_max_z_ = 2.5f;
     bool show_ui_panels_ = true;
+    int imgui_settle_frames_ = 0;
     std::string imgui_ini_path_;
     ImGuiContext* imgui_context_ = nullptr;
     IImGuiHost* imgui_backend_ = nullptr;

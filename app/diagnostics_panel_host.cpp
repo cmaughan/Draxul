@@ -1,5 +1,6 @@
 #include "diagnostics_panel_host.h"
 
+#include <draxul/base_renderer.h>
 #include <draxul/imgui_host.h>
 
 namespace draxul
@@ -52,6 +53,7 @@ void DiagnosticsPanelHost::draw(IFrameContext& frame)
     panel_.render(frame, delta_seconds);
     last_draw_time_ = now;
     last_render_time_ = now;
+    frame.flush_submit_chunk();
     if (first_visible_draw && callbacks_)
         callbacks_->request_frame();
 }

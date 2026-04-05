@@ -104,6 +104,7 @@ void CommandPaletteHost::draw(IFrameContext& frame)
 {
     if (handle_ && palette_.is_open())
         frame.draw_grid_handle(*handle_);
+    frame.flush_submit_chunk();
 }
 
 PaneDescriptor CommandPaletteHost::palette_pane_descriptor() const

@@ -10,7 +10,7 @@ namespace draxul
 namespace
 {
 
-class ShellHost : public LocalTerminalHost
+class UnixShellHost : public LocalTerminalHost
 {
 public:
     std::string_view host_name() const override
@@ -81,7 +81,7 @@ private:
 std::unique_ptr<IHost> create_shell_host()
 {
     PERF_MEASURE();
-    return std::make_unique<ShellHost>();
+    return std::make_unique<UnixShellHost>();
 }
 
 } // namespace draxul

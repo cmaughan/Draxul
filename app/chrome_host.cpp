@@ -509,6 +509,8 @@ void ChromeHost::draw(IFrameContext& frame)
         if (tab_handle_)
             frame.draw_grid_handle(*tab_handle_);
     }
+
+    frame.flush_submit_chunk();
 }
 
 void ChromeHost::update_tab_grid(std::span<const TabLayout> tabs)

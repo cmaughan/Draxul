@@ -61,6 +61,7 @@ void GridHostBase::draw(IFrameContext& frame)
 {
     if (grid_handle_)
         frame.draw_grid_handle(*grid_handle_);
+    frame.flush_submit_chunk();
 }
 
 void GridHostBase::on_focus_gained()

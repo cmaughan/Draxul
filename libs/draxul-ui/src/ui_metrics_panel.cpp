@@ -91,6 +91,21 @@ void render_window_sections(const PanelLayout& layout, const DiagnosticPanelStat
         ImGui::EndTable();
     }
 
+    if (!state.host_panes.empty())
+    {
+        ImGui::SeparatorText("Host Panes");
+        if (begin_metric_table("host_panes"))
+        {
+            for (const auto& pane : state.host_panes)
+            {
+                metric_label(pane.name.c_str());
+                ImGui::Text("%d,%d  %dx%d", pane.pixel_pos.x, pane.pixel_pos.y,
+                    pane.pixel_size.x, pane.pixel_size.y);
+            }
+            ImGui::EndTable();
+        }
+    }
+
     ImGui::SeparatorText("Grid");
     if (begin_metric_table("window_grid"))
     {

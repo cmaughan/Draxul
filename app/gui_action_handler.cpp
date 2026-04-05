@@ -157,9 +157,8 @@ void GuiActionHandler::split_horizontal(std::string_view args) const
 void GuiActionHandler::toggle_megacity_ui() const
 {
     PERF_MEASURE();
-    IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr;
-    if (host)
-        host->dispatch_action("toggle_ui_panels");
+    if (deps_.broadcast_action)
+        deps_.broadcast_action("toggle_ui_panels");
 }
 
 void GuiActionHandler::toggle_zoom() const
