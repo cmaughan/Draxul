@@ -104,7 +104,6 @@ private:
     void wire_gui_actions();
     bool close_dead_panes();
     void rebuild_render_tree();
-    void render_imgui_overlay(IFrameContext& frame, float delta_seconds);
     bool render_frame();
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
 

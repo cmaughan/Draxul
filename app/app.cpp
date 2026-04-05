@@ -998,30 +998,20 @@ void App::rebuild_render_tree()
     render_root_ = RenderNode{};
     render_root_.tag = "root";
 
-    // Chrome host draws pane dividers / tab bar (underneath content hosts).
+    const auto& hm = chrome_host_->active_host_manager();
+    const bool zoomed = hm.is_zoomed();
+
+    // Chrome host draws pane dividers / tab bar — hidden when zoomed.
     if (chrome_host_)
-        render_root_.children.push_back({ chrome_host_.get(), true, "chrome", {} });
+        render_root_.children.push_back({ chrome_host_.get(), !zoomed, "chrome", {} });
 
     // Active workspace's hosts.
-    // For now, each workspace is a container node with host leaves.
-    for (int wi = 0; wi < chrome_host_->workspace_count(); ++wi)
-    {
-        // Only the active workspace is visible.
-        const bool is_active = (wi == 0); // index-based; refined in Stage 4
-        RenderNode ws_node{ nullptr, is_active, "workspace", {} };
-
-        // Stage 2 doesn't move ownership yet — just snapshot host pointers.
-        // The active workspace is always index 0 in the workspace list because
-        // chrome_host_ keeps it that way internally. We populate only the active
-        // workspace here; Stage 4 will populate all workspaces.
-        if (is_active)
-        {
-            chrome_host_->active_host_manager().for_each_host([&ws_node](LeafId, IHost& h) {
-                ws_node.children.push_back({ &h, true, "host", {} });
-            });
-        }
-        render_root_.children.push_back(std::move(ws_node));
-    }
+    RenderNode ws_node{ nullptr, true, "workspace", {} };
+    hm.for_each_host([&ws_node, zoomed, &hm](LeafId id, IHost& h) {
+        const bool vis = !zoomed || id == hm.zoomed_leaf();
+        ws_node.children.push_back({ &h, vis, "host", {} });
+    });
+    render_root_.children.push_back(std::move(ws_node));
 
     // Diagnostics overlay.
     if (diagnostics_host_)
@@ -1030,23 +1020,6 @@ void App::rebuild_render_tree()
     // Command palette (topmost layer).
     if (palette_host_)
         render_root_.children.push_back({ palette_host_.get(), true, "palette", {} });
-}
-
-void App::render_imgui_overlay(IFrameContext& frame, float /*delta_seconds*/)
-{
-    PERF_MEASURE();
-
-    // Diagnostics host draws above pane hosts but below the command palette overlay.
-    if (diagnostics_host_)
-    {
-        diagnostics_host_->draw(frame);
-    }
-
-    if (palette_host_)
-    {
-        palette_host_->pump();
-        palette_host_->draw(frame);
-    }
 }
 
 bool App::render_frame()
@@ -1064,6 +1037,8 @@ bool App::render_frame()
         host->set_scroll_offset(input_dispatcher_.scroll_fraction() * static_cast<float>(ch));
     input_dispatcher_.clear_scroll_event();
 
+    rebuild_render_tree();
+
     const auto frame_start = std::chrono::steady_clock::now();
     IFrameContext* frame = renderer_.grid()->begin_frame();
     if (!frame)
@@ -1072,22 +1047,7 @@ bool App::render_frame()
         return false;
     }
 
-    // ChromeHost draws pane dividers first (underneath content hosts).
-    if (chrome_host_ && chrome_host_->is_running() && !chrome_host_->active_host_manager().is_zoomed())
-    {
-        chrome_host_->draw(*frame);
-    }
-
-    chrome_host_->active_host_manager().for_each_host([frame, this](LeafId id, IHost& h) {
-        if (!h.is_running())
-            return;
-        // When zoomed, only draw the zoomed pane.
-        if (chrome_host_->active_host_manager().is_zoomed() && id != chrome_host_->active_host_manager().zoomed_leaf())
-            return;
-        h.draw(*frame);
-    });
-
-    render_imgui_overlay(*frame, 0.0f);
+    walk_draw(render_root_, *frame);
 
     saw_frame_ = true;
     renderer_.grid()->end_frame();
@@ -1131,11 +1091,9 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         }
         input_dispatcher_.set_host(chrome_host_->active_host_manager().focused_host());
 
-        // Pump all hosts
-        chrome_host_->active_host_manager().for_each_host([](LeafId, IHost& h) {
-            if (h.is_running())
-                h.pump();
-        });
+        // Pump all visible hosts via tree walk.
+        rebuild_render_tree();
+        walk_pump(render_root_);
 
         // Re-check after pumping (hosts can die during pump).
         if (!close_dead_panes())
@@ -1368,15 +1326,8 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
     // wakeup event fires between SDL_PeepEvents and the platform wait entry).
     static constexpr int kHostPollIntervalMs = 50;
 
-    std::optional<std::chrono::steady_clock::time_point> deadline;
-    bool any_host_running = false;
-    chrome_host_->active_host_manager().for_each_host([&deadline, &any_host_running](LeafId, const IHost& host) {
-        if (host.is_running())
-            any_host_running = true;
-        auto d = host.next_deadline();
-        if (d && (!deadline || *d < *deadline))
-            deadline = d;
-    });
+    auto deadline = walk_deadline(render_root_);
+    bool any_host_running = walk_any_running(render_root_);
     if (wait_deadline && (!deadline || *wait_deadline < *deadline))
         deadline = wait_deadline;
 
