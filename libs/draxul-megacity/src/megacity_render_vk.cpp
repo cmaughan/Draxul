@@ -536,15 +536,15 @@ bool create_sampled_image(VkPhysicalDevice physical_device, VkDevice device, Vma
     return true;
 }
 
-bool create_label_image(VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator, int size,
-    ImageResource& image)
+bool create_label_image(VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator,
+    int width, int height, ImageResource& image)
 {
     return create_sampled_image(
         physical_device,
         device,
         allocator,
-        size,
-        size,
+        width,
+        height,
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         false,
@@ -1833,12 +1833,14 @@ struct IsometricScenePass::State
     {
         PERF_MEASURE();
         const bool has_atlas = atlas && atlas->valid();
-        const int desired_size = has_atlas ? atlas->width : 1;
+        const int desired_width = has_atlas ? atlas->width : 1;
+        const int desired_height = has_atlas ? atlas->height : 1;
 
-        if (label_atlas.size != desired_size || label_atlas.image == VK_NULL_HANDLE)
+        if (label_atlas.width != desired_width || label_atlas.height != desired_height
+            || label_atlas.image == VK_NULL_HANDLE)
         {
             retire_image(label_atlas, current_frame_index);
-            if (!create_label_image(physical_device, device, allocator, desired_size, label_atlas))
+            if (!create_label_image(physical_device, device, allocator, desired_width, desired_height, label_atlas))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create label atlas image");
                 return false;
@@ -1855,7 +1857,7 @@ struct IsometricScenePass::State
 
         const uint8_t clear_pixel[4] = { 0, 0, 0, 0 };
         const uint8_t* pixels = has_atlas ? atlas->rgba.data() : clear_pixel;
-        const size_t bytes = static_cast<size_t>(desired_size) * static_cast<size_t>(desired_size) * 4;
+        const size_t bytes = static_cast<size_t>(desired_width) * static_cast<size_t>(desired_height) * 4;
         if (!ensure_retired_mapped_buffer_capacity(
                 bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, label_staging, bytes, current_frame_index))
             return false;
@@ -1867,7 +1869,7 @@ struct IsometricScenePass::State
         VkBufferImageCopy copy = {};
         copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         copy.imageSubresource.layerCount = 1;
-        copy.imageExtent = { static_cast<uint32_t>(desired_size), static_cast<uint32_t>(desired_size), 1 };
+        copy.imageExtent = { static_cast<uint32_t>(desired_width), static_cast<uint32_t>(desired_height), 1 };
         vkCmdCopyBufferToImage(cmd, label_staging.buffer, label_atlas.image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         transition_image(cmd, label_atlas.image,
