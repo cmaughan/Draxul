@@ -222,6 +222,7 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py api          # build local Doxygen API docs
 ./do.py docs         # build all documentation artifacts
 ./do.py shot         # regenerate the README hero screenshot
+./do.py coverage     # macOS: export build/coverage.lcov and refresh db/coverage.lcov
 ```
 
 On Windows, use `python do.py <command>` instead of `./do.py`.

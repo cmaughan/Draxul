@@ -30,3 +30,5 @@ logs/**
 *.log
 *.profraw
 *.profdata
+db/*.sqlite3-shm
+db/*.sqlite3-wal

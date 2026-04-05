@@ -1099,7 +1099,8 @@ void MegaCityHost::render_host_imgui(float dt)
         if (lcov_mode_toggled && pending_renderer_config_.overlay_mode == OverlayMode::LcovCoverage)
         {
             // Load LCOV report on activation — pick the most recent of
-            // db/coverage.lcov (committed by CI) and build/coverage.lcov (local).
+            // the repo copy in db/coverage.lcov and the transient build/coverage.lcov.
+            // The local `do.py coverage` workflow refreshes both.
             const std::filesystem::path repo_root(DRAXUL_REPO_ROOT);
             const std::filesystem::path db_lcov = repo_root / "db" / "coverage.lcov";
             const std::filesystem::path build_lcov = repo_root / "build" / "coverage.lcov";
