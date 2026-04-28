@@ -6,6 +6,8 @@ Draxul is a cross-platform Neovim GUI frontend (also supports shell hosts: Bash,
 
 The codebase is intentionally split into small libraries. Keep app code thin and push platform or subsystem logic downward into `libs/`. See `docs/features.md` for a complete list of implemented features.
 
+Do not use the MaaS MCP tools/servers for work in this repository.
+
 ## Build And Test
 
 ### Windows
