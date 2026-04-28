@@ -821,8 +821,8 @@ static int draxul_main(std::vector<std::string> args)
     {
         options.activate_window_on_startup = false;
     }
-    // --session-owner is no longer used (single-process model) but we still
-    // accept the flag silently so old scripts/shortcuts don't break.
+    // --session-owner is the legacy spelling for the opt-in persistent app
+    // mode. Keep it quiet so old shortcuts still behave like they used to.
 
     if (parsed.host_kind)
     {
@@ -868,30 +868,35 @@ static int draxul_main(std::vector<std::string> args)
     {
         const auto picker_exe_path = executable_path(args);
         options.enable_session_attach = false;
+        options.enable_session_restore = false;
         options.host_factory = [picker_exe_path](draxul::HostKind /*kind*/) {
             return std::make_unique<draxul::SessionPickerHost>(picker_exe_path);
         };
     }
 
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
-    const bool allow_session_attach = !parsed.smoke_test
+    const bool allow_session_restore = !parsed.smoke_test
         && !render_test.has_value()
         && parsed.screenshot_path.empty()
         && !parsed.pick_session;
 #else
-    const bool allow_session_attach = !parsed.smoke_test
+    const bool allow_session_restore = !parsed.smoke_test
         && parsed.screenshot_path.empty()
         && !parsed.pick_session;
 #endif
-    if (allow_session_attach)
+    const bool enable_live_session_attach
+        = allow_session_restore && (parsed.persistent_app || parsed.session_owner);
+    options.enable_session_restore = allow_session_restore;
+    options.enable_session_attach = enable_live_session_attach;
+
+    if (enable_live_session_attach)
     {
-        // Single-process model: if another instance is already running for
-        // this session, tell it to show its window and exit. This also
-        // applies to legacy shortcuts that still pass --session-owner; the
-        // flag is accepted for compatibility but no longer changes startup.
+        // Persistent-app mode: if another live owner is already running for
+        // this session, tell it to show its window and exit.
         DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-            "Startup attach probe for session '%s' (session_owner=%d)",
+            "Startup attach probe for session '%s' (persistent_app=%d, session_owner=%d)",
             parsed.session_id.c_str(),
+            parsed.persistent_app ? 1 : 0,
             parsed.session_owner ? 1 : 0);
         std::string attach_error;
         const auto attach_status = draxul::SessionAttachServer::try_attach(
@@ -911,13 +916,12 @@ static int draxul_main(std::vector<std::string> args)
             static_cast<int>(attach_status),
             attach_error.c_str());
     }
-    options.enable_session_attach = allow_session_attach;
 
     draxul::App app(std::move(options));
 
     if (!app.initialize())
     {
-        if (allow_session_attach
+        if (enable_live_session_attach
             && app.init_error().find("session-attach") != std::string::npos)
         {
             DRAXUL_LOG_WARN(draxul::LogCategory::App,

@@ -130,6 +130,7 @@ private:
     // (OSC 7) when the user has not explicitly renamed the tab. Cheap to
     // call every frame — bails out as soon as the cwd basename matches.
     void refresh_workspace_default_names();
+    bool can_snapshot_session_state() const;
     bool can_detach_window() const;
     void detach_window();
     void reattach_window();

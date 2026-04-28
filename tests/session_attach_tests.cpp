@@ -68,6 +68,7 @@ AppOptions make_attach_options()
     opts.renderer_create_fn = &make_fake_renderer;
     opts.host_factory = &make_attach_host;
     opts.host_kind = HostKind::PowerShell;
+    opts.enable_session_restore = true;
     opts.enable_session_attach = true;
     return opts;
 }
@@ -288,6 +289,46 @@ TEST_CASE("app session attach: close request detaches a shell session", "[sessio
     REQUIRE(live_info.detached);
     REQUIRE(g_last_attach_host->shutdown_calls == 0);
     REQUIRE(g_last_attach_host->request_close_calls == 0);
+
+    app.shutdown();
+}
+
+TEST_CASE("app session restore: non-persistent close exits instead of hiding", "[session_attach][app]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp_dir("app-session-nonpersistent-close");
+    HomeDirRedirect redirect(temp_dir.path);
+
+    FakeWindow* created_window = nullptr;
+    g_last_attach_host = nullptr;
+
+    AppOptions opts = make_attach_options();
+    opts.enable_session_attach = false;
+    opts.window_factory = [&]() {
+        auto window = std::make_unique<FakeWindow>();
+        created_window = window.get();
+        return window;
+    };
+
+    App app(std::move(opts));
+    if (!app.initialize())
+        SKIP("app.initialize() failed — no renderer or shell available in CI");
+    REQUIRE(created_window != nullptr);
+    REQUIRE(g_last_attach_host != nullptr);
+    REQUIRE(SessionAttachServer::try_attach("default") == SessionAttachServer::AttachStatus::NoServer);
+
+    auto metadata = load_session_runtime_metadata("default");
+    REQUIRE(metadata);
+    REQUIRE_FALSE(metadata->live);
+
+    created_window->queue_close_request();
+    app.run();
+
+    REQUIRE(created_window->is_visible());
+    REQUIRE(g_last_attach_host->request_close_calls == 1);
 
     app.shutdown();
 }

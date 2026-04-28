@@ -103,7 +103,21 @@ std::string narrow_utf8(std::wstring_view text)
 
 bool path_looks_like_windows_apps(std::wstring_view path)
 {
-    return path.find(L"\\WindowsApps\\") != std::wstring_view::npos;
+    return path.find(L"\\WindowsApps\\") != std::wstring_view::npos
+        || path.find(L"/WindowsApps/") != std::wstring_view::npos;
+}
+
+std::string try_local_app_exec_alias(std::string_view package_family_name, std::string_view exe_name)
+{
+    const char* local_app_data = std::getenv("LOCALAPPDATA");
+    if (!local_app_data)
+        return {};
+
+    const std::filesystem::path path = std::filesystem::path(local_app_data)
+        / "Microsoft" / "WindowsApps" / std::string(package_family_name) / std::string(exe_name);
+    if (std::filesystem::exists(path))
+        return path.string();
+    return {};
 }
 
 std::string search_path_executable(std::string_view command)
@@ -143,8 +157,18 @@ std::string find_pwsh()
 
     const std::string path_hit = search_path_executable("pwsh.exe");
     const std::wstring path_hit_w = widen_utf8(path_hit);
-    if (!path_hit.empty() && !path_looks_like_windows_apps(path_hit_w))
+    if (!path_hit.empty())
+    {
+        if (path_looks_like_windows_apps(path_hit_w))
+            return "pwsh.exe";
         return path_hit;
+    }
+
+    if (!try_local_app_exec_alias("Microsoft.PowerShell_8wekyb3d8bbwe", "pwsh.exe").empty()
+        || !try_local_app_exec_alias("Microsoft.PowerShellPreview_8wekyb3d8bbwe", "pwsh.exe").empty())
+    {
+        return "pwsh.exe";
+    }
 
     return {};
 }
@@ -292,9 +316,6 @@ protected:
         {
             args = {
                 "-NoLogo",
-                "-NoExit",
-                "-Command",
-                "[Console]::InputEncoding=[System.Text.UTF8Encoding]::UTF8; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::UTF8"
             };
         }
 
@@ -308,7 +329,6 @@ protected:
         else
         {
             append_unique(candidates, find_pwsh());
-            append_unique(candidates, "pwsh.exe");
             append_unique(candidates, find_windows_powershell());
         }
 

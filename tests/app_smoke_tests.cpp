@@ -728,7 +728,7 @@ TEST_CASE("app smoke: restoring a multi-workspace session reapplies chrome offse
     FakeWindow* created_window = nullptr;
 
     AppOptions opts = make_smoke_options();
-    opts.enable_session_attach = true;
+    opts.enable_session_restore = true;
     opts.session_id = state.session_id;
     opts.window_factory = [&created_window]() {
         auto window = std::make_unique<FakeWindow>();

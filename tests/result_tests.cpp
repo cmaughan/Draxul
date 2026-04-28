@@ -162,10 +162,12 @@ TEST_CASE("NvimProcess::spawn forces TERM=dumb for embedded nvim", "[result][nvi
 
     process.shutdown();
 
-    std::ifstream in(dump_path);
-    REQUIRE(in.good());
     std::string term;
-    std::getline(in, term);
+    {
+        std::ifstream in(dump_path);
+        REQUIRE(in.good());
+        std::getline(in, term);
+    }
     REQUIRE(term == "dumb");
 
     std::filesystem::remove(dump_path);

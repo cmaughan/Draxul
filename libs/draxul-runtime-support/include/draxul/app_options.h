@@ -34,10 +34,14 @@ struct AppOptions
     bool show_diagnostics_in_render_test = false;
     bool clamp_window_to_display = true;
     bool show_render_test_window = false;
-    // When true, a normal desktop launch participates in the lightweight
-    // single-session attach flow: closing the main window detaches shell
-    // sessions into a hidden background instance, and a later Draxul launch
-    // reactivates that instance instead of starting a second one.
+    // When true, Draxul loads/saves restorable shell-session topology for the
+    // selected session id. This is file-backed restore; it does not keep the
+    // process alive after the window is closed.
+    bool enable_session_restore = false;
+    // When true, a desktop launch participates in the live attach flow:
+    // closing the main window detaches shell sessions into a hidden background
+    // instance, and a later launch with the same option reactivates that
+    // instance instead of starting a second process. Implies session restore.
     bool enable_session_attach = false;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind

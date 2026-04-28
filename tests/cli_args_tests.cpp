@@ -154,6 +154,13 @@ TEST_CASE("cli: --session-owner sets the internal owner flag", "[cli]")
     REQUIRE(r.args.session_owner);
 }
 
+TEST_CASE("cli: --persistent-app sets the persistent app flag", "[cli]")
+{
+    auto r = parse({ "--persistent-app" });
+    REQUIRE_FALSE(r.error.has_value());
+    REQUIRE(r.args.persistent_app);
+}
+
 TEST_CASE("cli: --attach-session sets the flag", "[cli]")
 {
     auto r = parse({ "--attach-session" });

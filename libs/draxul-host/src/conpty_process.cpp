@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <filesystem>
+#include <iterator>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -85,7 +88,69 @@ bool command_looks_like_path(std::string_view command)
 
 bool path_looks_like_windows_apps_alias(std::wstring_view path)
 {
-    return path.find(L"\\WindowsApps\\") != std::wstring_view::npos;
+    if (path.find(L"\\WindowsApps\\") == std::wstring_view::npos)
+        return false;
+
+    std::wstring path_z(path);
+    const DWORD attrs = GetFileAttributesW(path_z.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES)
+        return true;
+
+    return (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+BOOL CALLBACK collect_console_window(HWND hwnd, LPARAM context)
+{
+    auto* windows = reinterpret_cast<std::unordered_set<HWND>*>(context);
+    wchar_t class_name[64] = {};
+    if (GetClassNameW(hwnd, class_name, static_cast<int>(std::size(class_name)))
+        && wcscmp(class_name, L"ConsoleWindowClass") == 0)
+    {
+        windows->insert(hwnd);
+    }
+    return TRUE;
+}
+
+std::unordered_set<HWND> console_window_snapshot()
+{
+    std::unordered_set<HWND> windows;
+    EnumWindows(collect_console_window, reinterpret_cast<LPARAM>(&windows));
+    return windows;
+}
+
+struct ConsoleWindowHideContext
+{
+    const std::unordered_set<HWND>* existing = nullptr;
+};
+
+BOOL CALLBACK hide_new_console_window(HWND hwnd, LPARAM context)
+{
+    auto* hide_context = reinterpret_cast<ConsoleWindowHideContext*>(context);
+    if (hide_context && hide_context->existing && hide_context->existing->contains(hwnd))
+        return TRUE;
+
+    wchar_t class_name[64] = {};
+    if (!GetClassNameW(hwnd, class_name, static_cast<int>(std::size(class_name)))
+        || wcscmp(class_name, L"ConsoleWindowClass") != 0)
+    {
+        return TRUE;
+    }
+
+    ShowWindowAsync(hwnd, SW_HIDE);
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+        SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return TRUE;
+}
+
+void hide_new_console_windows_for_startup(std::unordered_set<HWND> existing)
+{
+    ConsoleWindowHideContext context{ &existing };
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        EnumWindows(hide_new_console_window, reinterpret_cast<LPARAM>(&context));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 }
 
 std::wstring resolve_application_path(std::string_view command)
@@ -181,11 +246,6 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
 
     STARTUPINFOEXW startup = {};
     startup.StartupInfo.cb = sizeof(startup);
-    // When attaching a child to a pseudoconsole, leave the standard handles
-    // explicitly null so Windows doesn't duplicate the GUI parent's stdio into
-    // the child behind our backs. Also ask Windows to hide any transient
-    // console window if the child momentarily falls back to normal console
-    // startup before the pseudoconsole path fully settles.
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     startup.StartupInfo.wShowWindow = SW_HIDE;
     startup.StartupInfo.hStdInput = nullptr;
@@ -237,8 +297,14 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
             command.c_str(),
             application_path_utf8.c_str());
     }
+
+    auto existing_console_windows = console_window_snapshot();
+    std::thread([existing = std::move(existing_console_windows)]() mutable {
+        hide_new_console_windows_for_startup(std::move(existing));
+    }).detach();
+
     const bool created = CreateProcessW(
-        application_path_w.empty() ? nullptr : application_path_w.c_str(),
+        nullptr,
         command_line_buffer.data(),
         nullptr,
         nullptr,
@@ -250,7 +316,6 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
         &proc_info_);
 
     DeleteProcThreadAttributeList(startup.lpAttributeList);
-    attribute_storage_.clear();
     CloseHandle(pty_input_read);
     pty_input_read = INVALID_HANDLE_VALUE;
     CloseHandle(pty_output_write);
@@ -328,6 +393,7 @@ void ConPtyProcess::shutdown()
         CloseHandle(proc_info_.hThread);
         proc_info_.hThread = nullptr;
     }
+    attribute_storage_.clear();
 
     std::scoped_lock lock(output_mutex_);
     output_chunks_.clear();

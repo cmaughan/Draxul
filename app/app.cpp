@@ -185,6 +185,8 @@ App::App(AppDeps deps)
 {
     // HostManager reads options_.host_factory to create hosts.  Sync our
     // canonical factory back so the two sources stay consistent.
+    if (options_.enable_session_attach)
+        options_.enable_session_restore = true;
     options_.host_factory = host_factory_;
     pending_window_activation_ = options_.activate_window_on_startup;
 }
@@ -402,11 +404,11 @@ bool App::initialize()
     // redraws on state changes do not start on a blank window.
     request_frame();
     rebuild_render_tree();
-    if (options_.enable_session_attach)
+    if (options_.enable_session_restore)
     {
         mark_session_attached();
         persist_session_state();
-        persist_session_runtime_metadata(true);
+        persist_session_runtime_metadata(options_.enable_session_attach);
         last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     }
 
@@ -674,7 +676,7 @@ bool App::initialize_chrome_host()
     session_name_ = options_.session_name.empty() ? options_.session_id : options_.session_name;
 
     bool restored_session = false;
-    if (options_.enable_session_attach)
+    if (options_.enable_session_restore)
     {
         std::string metadata_error;
         if (auto metadata = load_session_runtime_metadata(options_.session_id, &metadata_error))
@@ -864,7 +866,10 @@ void App::wire_gui_actions()
                 for (auto& ws : workspaces_)
                     ws->host_manager.shutdown();
                 workspaces_.clear();
-                window_->hide();
+                if (options_.enable_session_attach)
+                    window_->hide();
+                else
+                    running_ = false;
                 return;
             }
             // Last pane in this workspace — close the workspace, switch to another.
@@ -1122,10 +1127,10 @@ void App::wire_window_callbacks()
     window_->on_close_requested = [this]() { on_window_close_requested(); };
     window_->on_quit_requested = [this]() { request_quit(); };
     window_->on_dock_reopen = [this]() {
-        // Fires when the user clicks the Dock icon with no visible windows.
-        // Works both when detached (session alive) and when the session was
-        // killed (all panes closed, window hidden).
-        external_attach_requested_ = true;
+        // Fires when the user clicks the Dock icon with no visible windows in
+        // the opt-in persistent-app mode.
+        if (options_.enable_session_attach)
+            external_attach_requested_ = true;
     };
 }
 
@@ -1404,8 +1409,8 @@ bool App::close_dead_panes()
             // Last pane in this workspace died.
             if (workspace_count() <= 1)
             {
-                // Last pane in the last workspace — Ghostty-style: stay
-                // alive with no window so the Dock/tray icon can reopen.
+                // Last pane in the last workspace. Persistent-app mode keeps a
+                // hidden owner around; normal mode exits after clearing state.
                 session_killed_ = true;
                 delete_session_state(options_.session_id);
                 delete_session_runtime_metadata(options_.session_id);
@@ -1414,7 +1419,10 @@ bool App::close_dead_panes()
                 for (auto& ws : workspaces_)
                     ws->host_manager.shutdown();
                 workspaces_.clear();
-                window_->hide();
+                if (options_.enable_session_attach)
+                    window_->hide();
+                else
+                    running_ = false;
                 return false;
             }
             // Close this workspace and switch to another.
@@ -1972,9 +1980,9 @@ void App::refresh_workspace_default_names()
     }
 }
 
-bool App::can_detach_window() const
+bool App::can_snapshot_session_state() const
 {
-    if (!options_.enable_session_attach || workspaces_.empty())
+    if (!options_.enable_session_restore || workspaces_.empty())
         return false;
 
     for (const auto& ws : workspaces_)
@@ -1984,6 +1992,11 @@ bool App::can_detach_window() const
     }
 
     return true;
+}
+
+bool App::can_detach_window() const
+{
+    return options_.enable_session_attach && can_snapshot_session_state();
 }
 
 void App::detach_window()
@@ -2102,14 +2115,14 @@ void App::rename_session(std::string name)
 
     session_name_ = std::move(name);
     persist_session_state();
-    persist_session_runtime_metadata(true);
+    persist_session_runtime_metadata(options_.enable_session_attach);
     request_frame();
 }
 
 std::optional<AppSessionState> App::snapshot_session_state() const
 {
     PERF_MEASURE();
-    if (!can_detach_window())
+    if (!can_snapshot_session_state())
         return std::nullopt;
 
     AppSessionState state;
@@ -2138,7 +2151,7 @@ std::optional<AppSessionState> App::snapshot_session_state() const
 void App::persist_session_state()
 {
     PERF_MEASURE();
-    if (!options_.enable_session_attach || session_killed_)
+    if (!options_.enable_session_restore || session_killed_)
         return;
 
     auto state = snapshot_session_state();
@@ -2170,7 +2183,7 @@ SessionRuntimeMetadata App::snapshot_session_runtime_metadata(bool live) const
 void App::persist_session_runtime_metadata(bool live)
 {
     PERF_MEASURE();
-    if (!options_.enable_session_attach || session_killed_ || !can_detach_window())
+    if (!options_.enable_session_restore || session_killed_ || !can_snapshot_session_state())
         return;
 
     std::string error;
@@ -2194,14 +2207,14 @@ void App::mark_session_detached()
 
 void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
 {
-    if (!options_.enable_session_attach || detached_ || session_killed_ || !can_detach_window())
+    if (!options_.enable_session_restore || detached_ || session_killed_ || !can_snapshot_session_state())
         return;
     if (last_session_checkpoint_time_.time_since_epoch().count() != 0
         && now - last_session_checkpoint_time_ < options_.session_checkpoint_interval)
         return;
 
     persist_session_state();
-    persist_session_runtime_metadata(true);
+    persist_session_runtime_metadata(options_.enable_session_attach);
     last_session_checkpoint_time_ = now;
 }
 
