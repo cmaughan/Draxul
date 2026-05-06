@@ -188,6 +188,11 @@ target_include_directories(imgui SYSTEM PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
+if(MSVC)
+    target_compile_options(imgui PRIVATE /w)
+else()
+    target_compile_options(imgui PRIVATE -w)
+endif()
 
 # SQLite3 (amalgamation — single-file build)
 FetchContent_Declare(

@@ -4,6 +4,11 @@ set(DRAXUL_RENDERER_PUBLIC_DEPS
     SDL3::SDL3
     imgui
 )
+set(DRAXUL_IMGUI_BACKEND_WARNING_OPTIONS
+    "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/w>"
+    "$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang,GNU>:-w>"
+    "$<$<COMPILE_LANG_AND_ID:OBJCXX,Clang,AppleClang,GNU>:-w>"
+)
 
 add_library(draxul-renderer-core OBJECT
     src/renderer_state.cpp
@@ -15,6 +20,9 @@ target_include_directories(draxul-renderer-core
 target_link_libraries(draxul-renderer-core PUBLIC ${DRAXUL_RENDERER_PUBLIC_DEPS})
 
 if(APPLE)
+    set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm
+        PROPERTIES COMPILE_OPTIONS "${DRAXUL_IMGUI_BACKEND_WARNING_OPTIONS}"
+    )
     add_library(draxul-renderer-metal OBJECT
         src/metal/metal_renderer.mm
         ${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm
@@ -42,6 +50,9 @@ if(APPLE)
         ${FOUNDATION_FRAMEWORK}
     )
 else()
+    set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+        PROPERTIES COMPILE_OPTIONS "${DRAXUL_IMGUI_BACKEND_WARNING_OPTIONS}"
+    )
     add_library(draxul-renderer-vulkan OBJECT
         src/vulkan/vk_renderer.cpp
         src/vulkan/vk_context.cpp
