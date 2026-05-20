@@ -140,6 +140,7 @@ add_subdirectory(libs/draxul-runtime-support)
 add_subdirectory(libs/draxul-render-test)
 add_subdirectory(libs/draxul-app-support)
 add_subdirectory(libs/draxul-host)
+add_subdirectory(libs/draxul-kanban)
 add_subdirectory(libs/draxul-nanovg)
 if(DRAXUL_ENABLE_MEGACITY)
     add_subdirectory(modules/megacity)
@@ -149,7 +150,7 @@ endif()
 foreach(_draxul_lib
     draxul-types draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
-    draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-runtime-support draxul-render-test
+    draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
     draxul_apply_sanitizers(${_draxul_lib})
     draxul_apply_coverage(${_draxul_lib})
@@ -266,7 +267,7 @@ draxul_apply_sanitizers(draxul)
 draxul_apply_coverage(draxul)
 draxul_apply_msvc_parallel_pdb_fix(draxul)
 
-target_link_libraries(draxul PRIVATE draxul-app draxul-markdown-host)
+target_link_libraries(draxul PRIVATE draxul-app draxul-markdown-host draxul-kanban)
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)

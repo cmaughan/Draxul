@@ -265,6 +265,14 @@ void MarkdownHost::on_mouse_wheel(const MouseWheelEvent& event)
 
 bool MarkdownHost::dispatch_action(std::string_view action)
 {
+    constexpr std::string_view open_file_prefix = "open_file:";
+    if (action.starts_with(open_file_prefix))
+    {
+        HostLaunchOptions launch;
+        launch.kind = HostKind::Markdown;
+        launch.source_path = std::string(action.substr(open_file_prefix.size()));
+        return load_source(launch);
+    }
     if (action == "reload")
         return load_source(HostLaunchOptions{ .kind = HostKind::Markdown, .source_path = source_path_.string() });
     if (action == "font_increase")
@@ -279,6 +287,11 @@ bool MarkdownHost::dispatch_action(std::string_view action)
 void MarkdownHost::request_close()
 {
     running_ = false;
+}
+
+bool MarkdownHost::is_markdown_host() const
+{
+    return true;
 }
 
 std::string MarkdownHost::status_text() const
@@ -334,6 +347,11 @@ bool MarkdownHost::load_source(const HostLaunchOptions& launch_options)
     source_path_ = path;
     document_ = std::move(parsed.document);
     status_ = "markdown | " + source_path_.filename().string();
+    scroll_.home();
+    navigation_.reset();
+    scrollbar_dragging_ = false;
+    if (callbacks_)
+        callbacks_->set_window_title(source_path_.filename().string());
     mark_layout_dirty();
     return true;
 }

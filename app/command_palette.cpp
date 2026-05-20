@@ -37,6 +37,7 @@ void CommandPalette::open()
     // Platform-available host kinds.
     std::vector<HostKind> host_kinds = {
         HostKind::Nvim,
+        HostKind::Kanban,
         HostKind::MegaCity,
 #ifdef _WIN32
         HostKind::PowerShell,

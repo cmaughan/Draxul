@@ -19,6 +19,7 @@ enum class HostKind
     MegaCity,
     NanoVGDemo,
     Markdown,
+    Kanban,
 };
 
 inline std::optional<HostKind> parse_host_kind(std::string_view value)
@@ -44,6 +45,8 @@ inline std::optional<HostKind> parse_host_kind(std::string_view value)
         return HostKind::NanoVGDemo;
     if (normalized == "markdown" || normalized == "md")
         return HostKind::Markdown;
+    if (normalized == "kanban" || normalized == "kb")
+        return HostKind::Kanban;
     return std::nullopt;
 }
 
@@ -67,6 +70,8 @@ inline const char* to_string(HostKind kind)
         return "nanovg-demo";
     case HostKind::Markdown:
         return "markdown";
+    case HostKind::Kanban:
+        return "kanban";
     }
     return "nvim";
 }

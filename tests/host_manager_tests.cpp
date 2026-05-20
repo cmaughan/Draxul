@@ -56,6 +56,20 @@ private:
     std::optional<int> exit_code_;
 };
 
+class LaunchCaptureHost final : public draxul::tests::FakeHost
+{
+public:
+    using FakeHost::FakeHost;
+
+    bool initialize(const HostContext& ctx, IHostCallbacks& callbacks) override
+    {
+        captured_launch = ctx.launch_options;
+        return FakeHost::initialize(ctx, callbacks);
+    }
+
+    HostLaunchOptions captured_launch;
+};
+
 struct HostManagerHarness
 {
     FakeWindow window;
@@ -181,6 +195,60 @@ TEST_CASE("host manager: split panes preserve explicit shell host choices", "[ho
     REQUIRE(HostManager::split_host_kind_for(HostKind::Bash) == HostKind::Bash);
     REQUIRE(HostManager::split_host_kind_for(HostKind::Zsh) == HostKind::Zsh);
     REQUIRE(HostManager::split_host_kind_for(HostKind::Wsl) == HostKind::Wsl);
+}
+
+TEST_CASE("host manager: explicit primary host override does not inherit incompatible source options",
+    "[host_manager]")
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+
+    TestHostCallbacks callbacks;
+    AppConfig config;
+    AppOptions options;
+    options.host_kind = HostKind::Markdown;
+    options.host_source_path = "notes/example.md";
+    options.host_command = "custom-command";
+    options.host_args = { "--custom" };
+    options.startup_commands = { "echo inherited" };
+    options.host_working_dir = "D:/work";
+
+    std::vector<LaunchCaptureHost*> created_hosts;
+    options.host_factory = [&created_hosts](HostKind) -> std::unique_ptr<IHost> {
+        auto host = std::make_unique<LaunchCaptureHost>("launch-capture");
+        created_hosts.push_back(host.get());
+        return host;
+    };
+
+    HostManager::Deps deps;
+    deps.options = &options;
+    deps.config = &config;
+    deps.window = &window;
+    deps.grid_renderer = &renderer;
+    deps.text_service = &text_service;
+    deps.compute_viewport = [](const PaneDescriptor& desc) {
+        HostViewport viewport;
+        viewport.pixel_pos = desc.pixel_pos;
+        viewport.pixel_size = desc.pixel_size;
+        viewport.grid_size = { 80, 24 };
+        return viewport;
+    };
+
+    HostManager manager(deps);
+    REQUIRE(manager.create(callbacks, 800, 600, HostKind::Kanban));
+    REQUIRE(created_hosts.size() == 1);
+
+    const HostLaunchOptions& launch = created_hosts.front()->captured_launch;
+    REQUIRE(launch.kind == HostKind::Kanban);
+    REQUIRE(launch.source_path.empty());
+    REQUIRE(launch.command.empty());
+    REQUIRE(launch.args.empty());
+    REQUIRE(launch.startup_commands.empty());
+    REQUIRE(launch.working_dir == "D:/work");
 }
 
 // --- SplitTree-level lifecycle tests ---

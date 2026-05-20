@@ -43,17 +43,23 @@ std::string bundled_font_path()
 }
 
 // ---------------------------------------------------------------------------
-// IHost stub built on top of the shared FakeHost. Adds a two-arg constructor
-// (is_nvim, debug_name) and method-style accessors for the existing test
+// IHost stub built on top of the shared FakeHost. Adds capability flags
+// and method-style accessors for the existing test
 // call sites without duplicating all the IHost plumbing.
 // ---------------------------------------------------------------------------
 class DispatchTrackingHost final : public tests::FakeHost
 {
 public:
-    DispatchTrackingHost(bool is_nvim_flag, std::string debug_name)
+    DispatchTrackingHost(bool is_nvim_flag, bool is_markdown_flag, std::string debug_name)
         : FakeHost(std::move(debug_name))
+        , is_markdown_(is_markdown_flag)
     {
         is_nvim = is_nvim_flag;
+    }
+
+    bool is_markdown_host() const override
+    {
+        return is_markdown_;
     }
 
     // Method-style accessor wrapping the base vector member.
@@ -65,6 +71,9 @@ public:
     {
         FakeHost::dispatched_actions.clear();
     }
+
+private:
+    bool is_markdown_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -74,17 +83,27 @@ public:
 struct DispatchHostRegistry
 {
     std::vector<DispatchTrackingHost*> nvim_hosts;
+    std::vector<DispatchTrackingHost*> markdown_hosts;
     std::vector<DispatchTrackingHost*> terminal_hosts;
 
     std::unique_ptr<IHost> make_host(HostKind kind)
     {
         if (kind == HostKind::Nvim)
         {
-            auto host = std::make_unique<DispatchTrackingHost>(/*is_nvim=*/true, "nvim");
+            auto host = std::make_unique<DispatchTrackingHost>(
+                /*is_nvim=*/true, /*is_markdown=*/false, "nvim");
             nvim_hosts.push_back(host.get());
             return host;
         }
-        auto host = std::make_unique<DispatchTrackingHost>(/*is_nvim=*/false, "terminal");
+        if (kind == HostKind::Markdown)
+        {
+            auto host = std::make_unique<DispatchTrackingHost>(
+                /*is_nvim=*/false, /*is_markdown=*/true, "markdown");
+            markdown_hosts.push_back(host.get());
+            return host;
+        }
+        auto host = std::make_unique<DispatchTrackingHost>(
+            /*is_nvim=*/false, /*is_markdown=*/false, "terminal");
         terminal_hosts.push_back(host.get());
         return host;
     }
@@ -305,6 +324,35 @@ TEST_CASE("app dispatch: no-nvim workspace spawns a new NvimHost on dispatch",
 
     // The pre-existing terminal host must not have received the nvim action.
     REQUIRE(term->dispatched_actions().empty());
+
+    app.shutdown();
+}
+
+TEST_CASE("app dispatch: markdown source callback reuses existing MarkdownHost pane",
+    "[app_dispatch][markdown]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    DispatchHostRegistry registry;
+    App app(make_app_options(registry, HostKind::Markdown));
+    REQUIRE(app.initialize());
+    REQUIRE(registry.markdown_hosts.size() == 1);
+    REQUIRE(registry.nvim_hosts.empty());
+    REQUIRE(registry.terminal_hosts.empty());
+
+    DispatchTrackingHost* markdown = registry.markdown_hosts.front();
+    REQUIRE(markdown->callbacks() != nullptr);
+
+    const bool ok = markdown->callbacks()->open_markdown_source("notes/task.md");
+    REQUIRE(ok);
+
+    REQUIRE(registry.markdown_hosts.size() == 1);
+    REQUIRE(registry.nvim_hosts.empty());
+    REQUIRE(registry.terminal_hosts.empty());
+    REQUIRE(markdown->dispatched_actions().size() == 1);
+    REQUIRE(markdown->dispatched_actions().front() == "open_file:notes/task.md");
 
     app.shutdown();
 }

@@ -33,6 +33,7 @@ bool is_terminal_shell_host(HostKind kind)
     case MegaCity:
     case NanoVGDemo:
     case Markdown:
+    case Kanban:
         return false;
     }
     return false;
@@ -158,11 +159,15 @@ bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
 
     HostLaunchOptions launch;
     launch.kind = host_kind_override.value_or(deps_.options->host_kind);
-    launch.command = deps_.options->host_command;
-    launch.args = deps_.options->host_args;
-    launch.source_path = deps_.options->host_source_path;
+    const bool inherit_host_specific_options = !host_kind_override || *host_kind_override == deps_.options->host_kind;
+    if (inherit_host_specific_options)
+    {
+        launch.command = deps_.options->host_command;
+        launch.args = deps_.options->host_args;
+        launch.source_path = deps_.options->host_source_path;
+        launch.startup_commands = deps_.options->startup_commands;
+    }
     launch.working_dir = deps_.options->host_working_dir;
-    launch.startup_commands = deps_.options->startup_commands;
     launch.enable_ligatures = deps_.config->enable_ligatures;
     apply_terminal_config(launch, *deps_.config);
     if (deps_.options)

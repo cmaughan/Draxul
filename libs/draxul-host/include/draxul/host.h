@@ -114,6 +114,13 @@ public:
         return false;
     }
 
+    // Request that a Markdown source file be opened in a Markdown host.
+    // Returns false when the app cannot route or create such a host.
+    virtual bool open_markdown_source(std::string_view /*path*/)
+    {
+        return false;
+    }
+
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}
 };
@@ -198,6 +205,12 @@ public:
     // App::dispatch_to_nvim_host to locate a target pane without relying on
     // debug-string heuristics. Override in NvimHost to return true.
     virtual bool is_nvim_host() const
+    {
+        return false;
+    }
+
+    // Capability query: returns true if this host can display Markdown sources.
+    virtual bool is_markdown_host() const
     {
         return false;
     }

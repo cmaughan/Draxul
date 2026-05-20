@@ -25,6 +25,7 @@ target_link_libraries(draxul-tests PRIVATE
     draxul-app
     draxul-markdown
     draxul-markdown-host
+    draxul-kanban
     Catch2::Catch2
 )
 if(DRAXUL_ENABLE_MEGACITY)

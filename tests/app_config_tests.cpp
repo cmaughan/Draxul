@@ -877,6 +877,8 @@ TEST_CASE("host kind parser accepts nvim and powershell spellings", "[config]")
     auto nvim = parse_host_kind("nvim");
     auto powershell = parse_host_kind("powershell");
     auto pwsh = parse_host_kind("pwsh");
+    auto kanban = parse_host_kind("kanban");
+    auto kb = parse_host_kind("kb");
     auto invalid = parse_host_kind("not-a-host");
 
     INFO("nvim should parse");
@@ -885,6 +887,10 @@ TEST_CASE("host kind parser accepts nvim and powershell spellings", "[config]")
     REQUIRE(powershell.has_value());
     INFO("pwsh alias should parse");
     REQUIRE(pwsh.has_value());
+    INFO("kanban host should parse");
+    REQUIRE(kanban.has_value());
+    INFO("kb alias should parse");
+    REQUIRE(kb.has_value());
     INFO("unknown hosts should be rejected");
     REQUIRE(!invalid.has_value());
     INFO("nvim maps correctly");
@@ -893,8 +899,13 @@ TEST_CASE("host kind parser accepts nvim and powershell spellings", "[config]")
     REQUIRE(*powershell == HostKind::PowerShell);
     INFO("pwsh maps correctly");
     REQUIRE(*pwsh == HostKind::PowerShell);
+    INFO("kanban maps correctly");
+    REQUIRE(*kanban == HostKind::Kanban);
+    INFO("kb maps correctly");
+    REQUIRE(*kb == HostKind::Kanban);
     INFO("host kind stringifies");
     REQUIRE(std::string(to_string(*powershell)) == std::string("powershell"));
+    REQUIRE(std::string(to_string(*kanban)) == std::string("kanban"));
 }
 
 // ---------------------------------------------------------------------------

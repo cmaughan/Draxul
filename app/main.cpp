@@ -11,6 +11,7 @@
 #include <ctime>
 #include <draxul/bmp.h>
 #include <draxul/host_registry.h>
+#include <draxul/kanban/kanban_host.h>
 #include <draxul/log.h>
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
@@ -626,6 +627,7 @@ static int draxul_main(std::vector<std::string> args)
     draxul::register_builtin_host_providers(host_registry);
     draxul::register_nanovg_demo_host_provider(host_registry);
     draxul::markdown::register_markdown_host_provider(host_registry);
+    draxul::kanban::register_kanban_host_provider(host_registry);
 #ifdef DRAXUL_ENABLE_MEGACITY
     draxul::register_megacity_host_provider(host_registry);
 #endif

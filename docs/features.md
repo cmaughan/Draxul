@@ -10,6 +10,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 |------|------|-------------|
 | Neovim | `--host nvim` (default) | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes |
 | Markdown | `--host markdown --source <file.md>` | Native Draxul markdown viewer host using the FreeType/HarfBuzz font pipeline, MD4C parsing, variable-height document rows, configurable body text size/margins, restrained styled headings, section indentation, front matter/code/list/table decorations, mouse wheel/PageUp/PageDown/Home/End plus Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G` scrolling, and a draggable proportional scrollbar |
+| Kanban | `--host kanban [--source <folder>]` | Native grid-backed kanban viewer for a `kanban/` folder. Subfolders become columns, Markdown files become cards, `.draxul-kanban.toml` stores ordering, Vim-style `h/j/k/l` moves selection, shifted movement reorders cards or moves files between column folders, and Enter opens the selected card in a Markdown pane |
 | Bash | `--host bash` | PTY-based terminal (Unix) |
 | Zsh | `--host zsh` | PTY-based terminal (Unix) |
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
@@ -98,6 +99,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **MegaCity camera**: Left-drag in the render view pans the scene, `Alt` + left-drag scrubs orbit
 - **Smooth scroll**: Trackpad momentum accumulation (configurable speed multiplier)
 - **File drop**: Native drag-and-drop dispatched to host as `open_file:` action
+- **Kanban navigation**: Kanban panes support Vim-style card selection with `h/j/k/l`, shifted `H/J/K/L`/arrow movement for reordering cards and moving files between columns, `r` reload, and Enter to open the selected Markdown card.
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
 - **Command palette**: `Ctrl+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, and keybinding hints
 - **Config reload**: `reload_config` rereads `config.toml` on demand so palette alpha, keybindings, scroll settings, ligatures, terminal font changes, and Markdown font/margin changes can be applied without a restart

@@ -1790,6 +1790,51 @@ bool App::dispatch_to_nvim_host(std::string_view action)
     return true;
 }
 
+bool App::open_markdown_source(std::string_view path)
+{
+    IHost* markdown_host = nullptr;
+    LeafId markdown_leaf = kInvalidLeaf;
+    active_host_manager().for_each_host([&markdown_host, &markdown_leaf](LeafId id, IHost& host) {
+        if (!markdown_host && host.is_markdown_host())
+        {
+            markdown_host = &host;
+            markdown_leaf = id;
+        }
+    });
+
+    if (markdown_host)
+    {
+        std::string action = "open_file:";
+        action.append(path);
+        if (!markdown_host->dispatch_action(action))
+        {
+            push_toast(2, "Failed to open Markdown source: " + std::string(path));
+            return false;
+        }
+
+        active_host_manager().set_focused(markdown_leaf);
+        input_dispatcher_.set_host(active_host_manager().focused_host());
+        request_frame();
+        return true;
+    }
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::Markdown;
+    launch.source_path = std::string(path);
+    LeafId new_leaf = active_host_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
+    if (new_leaf == kInvalidLeaf)
+    {
+        const std::string& err = active_host_manager().error();
+        push_toast(2, err.empty() ? std::string("Failed to spawn markdown host") : err);
+        return false;
+    }
+
+    refresh_window_layout();
+    input_dispatcher_.set_host(active_host_manager().focused_host());
+    request_frame();
+    return true;
+}
+
 void App::push_toast(int level, std::string_view message)
 {
     if (!config_.enable_toast_notifications)

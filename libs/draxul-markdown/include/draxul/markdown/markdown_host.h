@@ -48,6 +48,7 @@ public:
 
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
+    bool is_markdown_host() const override;
     std::string status_text() const override;
     draxul::Color default_background() const override;
     draxul::HostRuntimeState runtime_state() const override;

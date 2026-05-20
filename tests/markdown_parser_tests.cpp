@@ -1,10 +1,20 @@
 #include <catch2/catch_all.hpp>
 
+#include "support/temp_dir.h"
+#include "support/test_host_callbacks.h"
+
+#include <draxul/app_config.h>
+#include <draxul/host_kind.h>
+#include <draxul/markdown/markdown_host.h>
 #include <draxul/markdown/markdown_parser.h>
 
+#include <filesystem>
+#include <fstream>
 #include <ranges>
 #include <string>
 
+using namespace draxul;
+using namespace draxul::tests;
 using namespace draxul::markdown;
 
 namespace
@@ -130,4 +140,44 @@ TEST_CASE("markdown parser recognizes pipe table rows cells and alignment",
     REQUIRE(body.children[0].table_alignment == TableCellAlignment::Left);
     REQUIRE(body.children[1].table_alignment == TableCellAlignment::Center);
     REQUIRE(body.children[2].table_alignment == TableCellAlignment::Right);
+}
+
+TEST_CASE("markdown host opens another source from dispatch action", "[markdown][host]")
+{
+    const std::string font = std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-markdown-open-file");
+    const auto first = temp.path / "first.md";
+    const auto second = temp.path / "second.md";
+    {
+        std::ofstream out(first, std::ios::trunc);
+        out << "# First\n";
+    }
+    {
+        std::ofstream out(second, std::ios::trunc);
+        out << "# Second\n";
+    }
+
+    AppConfig config;
+    config.font_path = font;
+
+    MarkdownHost host;
+    CHECK(host.is_markdown_host());
+
+    HostContext ctx;
+    ctx.config = &config;
+    ctx.launch_options.kind = HostKind::Markdown;
+    ctx.launch_options.source_path = first.string();
+    ctx.initial_viewport.pixel_size = { 800, 600 };
+    ctx.display_ppi = 96.0f;
+    TestHostCallbacks callbacks;
+    REQUIRE(host.initialize(ctx, callbacks));
+    REQUIRE(host.status_text() == "markdown | first.md");
+    REQUIRE(callbacks.last_window_title == "first.md");
+
+    REQUIRE(host.dispatch_action("open_file:" + second.string()));
+    CHECK(host.status_text() == "markdown | second.md");
+    CHECK(callbacks.last_window_title == "second.md");
 }
