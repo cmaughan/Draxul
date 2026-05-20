@@ -52,6 +52,7 @@ private:
     HANDLE input_write_ = INVALID_HANDLE_VALUE;
     HANDLE output_read_ = INVALID_HANDLE_VALUE;
     PROCESS_INFORMATION proc_info_ = {};
+    HANDLE job_ = nullptr;
     HPCON pty_ = nullptr;
     std::vector<unsigned char> attribute_storage_;
     std::thread reader_thread_;

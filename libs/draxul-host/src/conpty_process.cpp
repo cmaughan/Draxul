@@ -332,6 +332,31 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
         return false;
     }
 
+    job_ = CreateJobObjectW(nullptr, nullptr);
+    if (job_)
+    {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_limits = {};
+        job_limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(
+                job_, JobObjectExtendedLimitInformation, &job_limits, sizeof(job_limits))
+            || !AssignProcessToJobObject(job_, proc_info_.hProcess))
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "ConPTY failed to attach child pid=%lu to cleanup job (error=%lu); using direct termination fallback",
+                static_cast<unsigned long>(proc_info_.dwProcessId),
+                static_cast<unsigned long>(GetLastError()));
+            CloseHandle(job_);
+            job_ = nullptr;
+        }
+    }
+    else
+    {
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "ConPTY failed to create cleanup job for child pid=%lu (error=%lu); using direct termination fallback",
+            static_cast<unsigned long>(proc_info_.dwProcessId),
+            static_cast<unsigned long>(GetLastError()));
+    }
+
     DRAXUL_LOG_DEBUG(LogCategory::App,
         "ConPTY child started: pid=%lu command='%s' resolved='%s'",
         static_cast<unsigned long>(proc_info_.dwProcessId),
@@ -376,22 +401,29 @@ void ConPtyProcess::shutdown()
 
     if (proc_info_.hProcess)
     {
-        // Offload the timed wait + TerminateProcess escalation to a detached
-        // thread so we never block the main/UI thread on a stuck child.
-        // CLAUDE.md: "Keep shutdown paths non-blocking; a stuck Neovim child
-        // must not hang the UI on exit."
+        // Keep teardown synchronous and bounded: a detached reaper can be
+        // destroyed during app exit before it terminates the shell process.
         HANDLE process_handle = proc_info_.hProcess;
-        std::thread([process_handle]() {
-            if (WaitForSingleObject(process_handle, 1000) == WAIT_TIMEOUT)
-                TerminateProcess(process_handle, 0);
-            CloseHandle(process_handle);
-        }).detach();
         proc_info_.hProcess = nullptr;
+        DWORD exit_code = 0;
+        if (GetExitCodeProcess(process_handle, &exit_code))
+        {
+            if (exit_code == STILL_ACTIVE)
+                TerminateProcess(process_handle, 0);
+            else
+                last_exit_code_ = static_cast<int>(exit_code);
+        }
+        CloseHandle(process_handle);
     }
     if (proc_info_.hThread)
     {
         CloseHandle(proc_info_.hThread);
         proc_info_.hThread = nullptr;
+    }
+    if (job_)
+    {
+        CloseHandle(job_);
+        job_ = nullptr;
     }
     attribute_storage_.clear();
 

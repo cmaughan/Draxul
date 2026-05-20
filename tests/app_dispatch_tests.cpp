@@ -356,3 +356,44 @@ TEST_CASE("app dispatch: markdown source callback reuses existing MarkdownHost p
 
     app.shutdown();
 }
+
+TEST_CASE("app dispatch: markdown source callback opens split without stealing focus",
+    "[app_dispatch][markdown]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    DispatchHostRegistry registry;
+    FakeWindow* created_window = nullptr;
+
+    AppOptions opts = make_app_options(registry, HostKind::Kanban);
+    opts.window_factory = [&created_window]() {
+        auto window = std::make_unique<FakeWindow>();
+        created_window = window.get();
+        return window;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(created_window != nullptr);
+    REQUIRE(registry.markdown_hosts.empty());
+    REQUIRE(registry.terminal_hosts.size() == 1);
+
+    DispatchTrackingHost* caller = registry.terminal_hosts.front();
+    REQUIRE(caller->callbacks() != nullptr);
+
+    const bool ok = caller->callbacks()->open_markdown_source("notes/card.md");
+    REQUIRE(ok);
+    REQUIRE(registry.markdown_hosts.size() == 1);
+
+    DispatchTrackingHost* markdown = registry.markdown_hosts.front();
+
+    REQUIRE(created_window->on_key != nullptr);
+    created_window->on_key(KeyEvent{ 0, SDLK_A, kModNone, true });
+
+    REQUIRE(caller->key_events.size() == 1);
+    REQUIRE(markdown->key_events.empty());
+
+    app.shutdown();
+}

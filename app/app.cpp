@@ -1792,13 +1792,18 @@ bool App::dispatch_to_nvim_host(std::string_view action)
 
 bool App::open_markdown_source(std::string_view path)
 {
+    const LeafId caller_leaf = active_host_manager().focused_leaf();
+    auto restore_caller_focus = [this, caller_leaf]() {
+        if (caller_leaf != kInvalidLeaf && active_host_manager().host_for(caller_leaf))
+            active_host_manager().set_focused(caller_leaf);
+        input_dispatcher_.set_host(active_host_manager().focused_host());
+    };
+
     IHost* markdown_host = nullptr;
-    LeafId markdown_leaf = kInvalidLeaf;
-    active_host_manager().for_each_host([&markdown_host, &markdown_leaf](LeafId id, IHost& host) {
+    active_host_manager().for_each_host([&markdown_host](LeafId, IHost& host) {
         if (!markdown_host && host.is_markdown_host())
         {
             markdown_host = &host;
-            markdown_leaf = id;
         }
     });
 
@@ -1812,8 +1817,7 @@ bool App::open_markdown_source(std::string_view path)
             return false;
         }
 
-        active_host_manager().set_focused(markdown_leaf);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        restore_caller_focus();
         request_frame();
         return true;
     }
@@ -1830,7 +1834,7 @@ bool App::open_markdown_source(std::string_view path)
     }
 
     refresh_window_layout();
-    input_dispatcher_.set_host(active_host_manager().focused_host());
+    restore_caller_focus();
     request_frame();
     return true;
 }
