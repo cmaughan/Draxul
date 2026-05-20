@@ -223,6 +223,7 @@ void KanbanHost::on_viewport_changed()
 {
     apply_grid_size(std::max(1, viewport().grid_size.x), std::max(1, viewport().grid_size.y));
     keep_selection_visible();
+    clear_before_redraw_ = true;
     redraw_needed_ = true;
 }
 
@@ -277,6 +278,7 @@ bool KanbanHost::reload_board()
     clamp_selection(board_, selection_);
     keep_selection_visible();
     update_status();
+    clear_before_redraw_ = true;
     redraw_needed_ = true;
     callbacks().request_frame();
     return true;
@@ -284,7 +286,11 @@ bool KanbanHost::reload_board()
 
 void KanbanHost::redraw_board()
 {
-    grid().clear();
+    if (clear_before_redraw_)
+    {
+        grid().clear();
+        clear_before_redraw_ = false;
+    }
     const int cols = grid_cols();
     const int rows = grid_rows();
     if (cols <= 0 || rows <= 0)
@@ -312,11 +318,11 @@ void KanbanHost::redraw_board()
         draw_text(column_layout.x + 1, 0, truncate_to_cells(header, column_layout.width - 2), header_hl,
             column_layout.width - 2);
         for (int col = column_layout.x; col < column_layout.x + column_layout.width; ++col)
-            grid().set_cell(col, 1, "-", HlBorder, false);
+            set_cell_if_changed(col, 1, "-", HlBorder, false);
         if (column_layout.x > 0)
         {
             for (int row = 0; row < status_row; ++row)
-                grid().set_cell(column_layout.x, row, "|", HlBorder, false);
+                set_cell_if_changed(column_layout.x, row, "|", HlBorder, false);
         }
 
         if (column.cards.empty() && layout.visible_card_rows > 0 && rows > 3)
@@ -327,8 +333,7 @@ void KanbanHost::redraw_board()
     {
         const auto& card = board_.columns[static_cast<size_t>(row.column)].cards[static_cast<size_t>(row.card)];
         const uint16_t card_hl = row.selected ? HlSelected : HlCard;
-        if (row.selected)
-            fill_row(row.y, row.x, row.width, HlSelected);
+        fill_row(row.y, row.x, row.width, card_hl);
 
         const std::string icon = icon_for_kind(card.kind);
         const int icon_cells = text_cell_width(icon);
@@ -421,7 +426,10 @@ void KanbanHost::move_selection(int column_delta, int card_delta)
     if (selection_.column == before.column && selection_.card == before.card)
         return;
 
+    const int before_scroll = scroll_row_;
     keep_selection_visible();
+    if (scroll_row_ != before_scroll)
+        clear_before_redraw_ = true;
     update_status();
     redraw_needed_ = true;
     callbacks().request_frame();
@@ -473,6 +481,7 @@ void KanbanHost::move_card(int column_delta, int row_delta)
 
     keep_selection_visible();
     update_status();
+    clear_before_redraw_ = true;
     redraw_needed_ = true;
     callbacks().request_frame();
 }
@@ -509,7 +518,7 @@ void KanbanHost::draw_text(int col, int row, std::string_view text, uint16_t hl,
         if (used + cluster_cells > max_cells || col + used >= grid_cols())
             break;
 
-        grid().set_cell(col + used, row, std::string(cluster), hl, cluster_cells == 2);
+        set_cell_if_changed(col + used, row, cluster, hl, cluster_cells == 2);
         used += cluster_cells;
     }
 }
@@ -522,7 +531,24 @@ void KanbanHost::fill_row(int row, int col, int width, uint16_t hl)
     const int begin = std::max(0, col);
     const int end = std::min(grid_cols(), col + width);
     for (int x = begin; x < end; ++x)
-        grid().set_cell(x, row, " ", hl, false);
+        set_cell_if_changed(x, row, " ", hl, false);
+}
+
+void KanbanHost::set_cell_if_changed(int col, int row, std::string_view text, uint16_t hl, bool double_width)
+{
+    if (col < 0 || col >= grid_cols() || row < 0 || row >= grid_rows())
+        return;
+
+    const auto& current = grid().get_cell(col, row);
+    if (!current.double_width_cont
+        && current.text.view() == text
+        && current.hl_attr_id == hl
+        && current.double_width == double_width)
+    {
+        return;
+    }
+
+    grid().set_cell(col, row, std::string(text), hl, double_width);
 }
 
 void KanbanHost::notify_error(std::string_view message)

@@ -47,6 +47,7 @@ private:
     void keep_selection_visible();
     void draw_text(int col, int row, std::string_view text, uint16_t hl, int max_cells);
     void fill_row(int row, int col, int width, uint16_t hl);
+    void set_cell_if_changed(int col, int row, std::string_view text, uint16_t hl, bool double_width);
     void notify_error(std::string_view message);
 
     std::filesystem::path root_;
@@ -57,6 +58,7 @@ private:
     std::string status_;
     bool running_ = false;
     bool redraw_needed_ = true;
+    bool clear_before_redraw_ = true;
     int scroll_row_ = 0;
 };
 
