@@ -3,6 +3,7 @@
 #include <draxul/host_registry.h>
 #include <draxul/kanban/kanban_layout.h>
 #include <draxul/kanban/kanban_store.h>
+#include <draxul/log.h>
 #include <draxul/unicode.h>
 
 #include <algorithm>
@@ -166,11 +167,58 @@ bool is_repeatable_selection_command(KanbanNavigationCommand command)
 constexpr auto kInitialKeyRepeatDelay = std::chrono::milliseconds(150);
 constexpr auto kKeyRepeatInterval = std::chrono::milliseconds(35);
 
+const char* command_name(KanbanNavigationCommand command)
+{
+    switch (command)
+    {
+    case KanbanNavigationCommand::None:
+        return "none";
+    case KanbanNavigationCommand::SelectLeft:
+        return "select_left";
+    case KanbanNavigationCommand::SelectRight:
+        return "select_right";
+    case KanbanNavigationCommand::SelectUp:
+        return "select_up";
+    case KanbanNavigationCommand::SelectDown:
+        return "select_down";
+    case KanbanNavigationCommand::MoveLeft:
+        return "move_left";
+    case KanbanNavigationCommand::MoveRight:
+        return "move_right";
+    case KanbanNavigationCommand::MoveUp:
+        return "move_up";
+    case KanbanNavigationCommand::MoveDown:
+        return "move_down";
+    case KanbanNavigationCommand::Open:
+        return "open";
+    case KanbanNavigationCommand::Reload:
+        return "reload";
+    }
+    return "unknown";
+}
+
+long long elapsed_us(std::chrono::steady_clock::time_point start)
+{
+    return static_cast<long long>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+}
+
+std::optional<KanbanCardRowLayout> find_card_row(const KanbanLayout& layout, KanbanSelection selection)
+{
+    for (const auto& row : layout.rows)
+    {
+        if (row.column == selection.column && row.card == selection.card)
+            return row;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 bool KanbanHost::initialize_host()
 {
     configure_highlights();
+    grid_pipeline().set_enable_ligatures(false);
     if (!reload_board())
         return false;
 
@@ -207,7 +255,21 @@ void KanbanHost::pump()
     suppress_cursor_until(now + std::chrono::hours(24));
     pump_key_repeat(now);
     if (redraw_needed_)
-        redraw_board();
+    {
+        if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+        {
+            log_printf(LogLevel::Trace,
+                LogCategory::Input,
+                "kanban trace: pump redraw_needed selection=(%d,%d) scroll=%d",
+                selection_.column,
+                selection_.card,
+                scroll_row_);
+        }
+        if (selection_before_redraw_ && !clear_before_redraw_)
+            redraw_selection_change(*selection_before_redraw_);
+        else
+            redraw_board();
+    }
     advance_cursor_blink(now);
 }
 
@@ -227,6 +289,9 @@ void KanbanHost::on_focus_gained()
 
 void KanbanHost::on_key(const KeyEvent& event)
 {
+    const auto started = std::chrono::steady_clock::now();
+    const KanbanSelection before = selection_;
+    const int before_scroll = scroll_row_;
     const KanbanNavigationCommand command = navigation_.on_key(event);
     const bool duplicate_held_keydown = event.pressed
         && held_selection_command_
@@ -235,11 +300,60 @@ void KanbanHost::on_key(const KeyEvent& event)
     update_key_repeat(event, command);
 
     if (!event.pressed)
+    {
+        if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+        {
+            log_printf(LogLevel::Trace,
+                LogCategory::Input,
+                "kanban trace: on_key key=%d mod=0x%X pressed=0 command=%s selection=(%d,%d) scroll=%d elapsed_us=%lld",
+                event.keycode,
+                static_cast<unsigned int>(event.mod),
+                command_name(command),
+                selection_.column,
+                selection_.card,
+                scroll_row_,
+                elapsed_us(started));
+        }
         return;
+    }
     if (duplicate_held_keydown)
+    {
+        if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+        {
+            log_printf(LogLevel::Trace,
+                LogCategory::Input,
+                "kanban trace: on_key key=%d mod=0x%X pressed=1 command=%s duplicate=1 selection=(%d,%d) scroll=%d elapsed_us=%lld",
+                event.keycode,
+                static_cast<unsigned int>(event.mod),
+                command_name(command),
+                selection_.column,
+                selection_.card,
+                scroll_row_,
+                elapsed_us(started));
+        }
         return;
+    }
 
     apply_navigation_command(command);
+    if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+    {
+        log_printf(LogLevel::Trace,
+            LogCategory::Input,
+            "kanban trace: on_key key=%d mod=0x%X pressed=%d command=%s duplicate=%d selection=(%d,%d)->(%d,%d) scroll=%d->%d redraw_needed=%d elapsed_us=%lld",
+            event.keycode,
+            static_cast<unsigned int>(event.mod),
+            event.pressed ? 1 : 0,
+            command_name(command),
+            duplicate_held_keydown ? 1 : 0,
+            before.column,
+            before.card,
+            selection_.column,
+            selection_.card,
+            before_scroll,
+            scroll_row_,
+            redraw_needed_ ? 1 : 0,
+            elapsed_us(started));
+    }
 }
 
 bool KanbanHost::dispatch_action(std::string_view action)
@@ -264,12 +378,14 @@ void KanbanHost::on_viewport_changed()
 {
     apply_grid_size(std::max(1, viewport().grid_size.x), std::max(1, viewport().grid_size.y));
     keep_selection_visible();
+    selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;
 }
 
 void KanbanHost::on_font_metrics_changed_impl()
 {
+    selection_before_redraw_.reset();
     redraw_needed_ = true;
 }
 
@@ -319,6 +435,7 @@ bool KanbanHost::reload_board()
     clamp_selection(board_, selection_);
     keep_selection_visible();
     update_status();
+    selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;
     callbacks().request_frame();
@@ -327,6 +444,7 @@ bool KanbanHost::reload_board()
 
 void KanbanHost::redraw_board()
 {
+    const auto redraw_start = std::chrono::steady_clock::now();
     if (clear_before_redraw_)
     {
         grid().clear();
@@ -337,11 +455,14 @@ void KanbanHost::redraw_board()
     if (cols <= 0 || rows <= 0)
         return;
 
+    const auto layout_start = std::chrono::steady_clock::now();
     const KanbanLayout layout = layout_kanban_board(board_, selection_, KanbanLayoutOptions{
                                                                         .grid_cols = cols,
                                                                         .grid_rows = rows,
                                                                         .scroll_row = scroll_row_,
                                                                     });
+    const long long layout_us = elapsed_us(layout_start);
+    const auto draw_start = std::chrono::steady_clock::now();
 
     const int status_row = std::max(0, rows - 1);
     for (const auto& column_layout : layout.columns)
@@ -350,40 +471,144 @@ void KanbanHost::redraw_board()
             continue;
 
         const auto& column = board_.columns[static_cast<size_t>(column_layout.index)];
-        const bool active = column_layout.index == selection_.column;
-        const uint16_t header_hl = active ? HlHeaderActive : HlHeader;
-        fill_row(0, column_layout.x, column_layout.width, header_hl);
-        fill_row(1, column_layout.x, column_layout.width, HlBorder);
-
-        std::string header = column.name + " (" + std::to_string(column.cards.size()) + ")";
-        draw_text(column_layout.x + 1, 0, truncate_to_cells(header, column_layout.width - 2), header_hl,
-            column_layout.width - 2);
-        for (int col = column_layout.x; col < column_layout.x + column_layout.width; ++col)
-            set_cell_if_changed(col, 1, "-", HlBorder, false);
-        if (column_layout.x > 0)
-        {
-            for (int row = 0; row < status_row; ++row)
-                set_cell_if_changed(column_layout.x, row, "|", HlBorder, false);
-        }
+        draw_column_header(column_layout, status_row);
 
         if (column.cards.empty() && layout.visible_card_rows > 0 && rows > 3)
             draw_text(column_layout.x + 1, 3, "(empty)", HlMuted, column_layout.width - 2);
     }
 
     for (const auto& row : layout.rows)
-    {
-        const auto& card = board_.columns[static_cast<size_t>(row.column)].cards[static_cast<size_t>(row.card)];
-        const uint16_t card_hl = row.selected ? HlSelected : HlCard;
-        fill_row(row.y, row.x, row.width, card_hl);
+        draw_card_row(row);
 
-        const std::string icon = icon_for_kind(card.kind);
-        const int icon_cells = text_cell_width(icon);
-        draw_text(row.x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width);
-        const int text_x = row.x + icon_cells + 1;
-        const int text_width = row.width - icon_cells - 1;
-        draw_text(text_x, row.y, truncate_to_cells(card.file_name, text_width), card_hl, text_width);
+    draw_status_row(layout);
+
+    set_cursor_display_override(std::pair<int, int>{ 0, 0 });
+    const long long draw_us = elapsed_us(draw_start);
+    const size_t dirty_before_flush = grid().dirty_cell_count();
+    const auto flush_start = std::chrono::steady_clock::now();
+    flush_grid();
+    const long long flush_us = elapsed_us(flush_start);
+    selection_before_redraw_.reset();
+    redraw_needed_ = false;
+    if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+    {
+        log_printf(LogLevel::Trace,
+            LogCategory::Input,
+            "kanban trace: redraw grid=%dx%d columns=%zu rows=%zu dirty=%zu layout_us=%lld draw_us=%lld flush_us=%lld total_us=%lld",
+            cols,
+            rows,
+            board_.columns.size(),
+            layout.rows.size(),
+            dirty_before_flush,
+            layout_us,
+            draw_us,
+            flush_us,
+            elapsed_us(redraw_start));
+    }
+}
+
+void KanbanHost::redraw_selection_change(KanbanSelection previous_selection)
+{
+    const auto redraw_start = std::chrono::steady_clock::now();
+    const int cols = grid_cols();
+    const int rows = grid_rows();
+    if (cols <= 0 || rows <= 0)
+        return;
+
+    const auto layout_start = std::chrono::steady_clock::now();
+    const KanbanLayout layout = layout_kanban_board(board_, selection_, KanbanLayoutOptions{
+                                                                        .grid_cols = cols,
+                                                                        .grid_rows = rows,
+                                                                        .scroll_row = scroll_row_,
+                                                                    });
+    const long long layout_us = elapsed_us(layout_start);
+
+    const auto previous_row = find_card_row(layout, previous_selection);
+    const auto current_row = find_card_row(layout, selection_);
+    if (!previous_row || !current_row)
+    {
+        selection_before_redraw_.reset();
+        redraw_board();
+        return;
     }
 
+    const auto draw_start = std::chrono::steady_clock::now();
+    const int status_row = std::max(0, rows - 1);
+    if (previous_selection.column != selection_.column)
+    {
+        for (const auto& column_layout : layout.columns)
+        {
+            if (column_layout.index == previous_selection.column || column_layout.index == selection_.column)
+                draw_column_header(column_layout, status_row);
+        }
+    }
+
+    draw_card_row(*previous_row);
+    if (previous_row->column != current_row->column || previous_row->card != current_row->card)
+        draw_card_row(*current_row);
+    draw_status_row(layout);
+
+    set_cursor_display_override(std::pair<int, int>{ 0, 0 });
+    const long long draw_us = elapsed_us(draw_start);
+    const size_t dirty_before_flush = grid().dirty_cell_count();
+    const auto flush_start = std::chrono::steady_clock::now();
+    flush_grid();
+    const long long flush_us = elapsed_us(flush_start);
+    selection_before_redraw_.reset();
+    redraw_needed_ = false;
+    if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+    {
+        log_printf(LogLevel::Trace,
+            LogCategory::Input,
+            "kanban trace: redraw_selection grid=%dx%d dirty=%zu layout_us=%lld draw_us=%lld flush_us=%lld total_us=%lld",
+            cols,
+            rows,
+            dirty_before_flush,
+            layout_us,
+            draw_us,
+            flush_us,
+            elapsed_us(redraw_start));
+    }
+}
+
+void KanbanHost::draw_column_header(const KanbanColumnLayout& column_layout, int status_row)
+{
+    const auto& column = board_.columns[static_cast<size_t>(column_layout.index)];
+    const bool active = column_layout.index == selection_.column;
+    const uint16_t header_hl = active ? HlHeaderActive : HlHeader;
+    fill_row(0, column_layout.x, column_layout.width, header_hl);
+    fill_row(1, column_layout.x, column_layout.width, HlBorder);
+
+    std::string header = column.name + " (" + std::to_string(column.cards.size()) + ")";
+    draw_text(column_layout.x + 1, 0, truncate_to_cells(header, column_layout.width - 2), header_hl,
+        column_layout.width - 2);
+    for (int col = column_layout.x; col < column_layout.x + column_layout.width; ++col)
+        set_cell_if_changed(col, 1, "-", HlBorder, false);
+    if (column_layout.x > 0)
+    {
+        for (int row = 0; row < status_row; ++row)
+            set_cell_if_changed(column_layout.x, row, "|", HlBorder, false);
+    }
+}
+
+void KanbanHost::draw_card_row(const KanbanCardRowLayout& row)
+{
+    const auto& card = board_.columns[static_cast<size_t>(row.column)].cards[static_cast<size_t>(row.card)];
+    const uint16_t card_hl = row.selected ? HlSelected : HlCard;
+    fill_row(row.y, row.x, row.width, card_hl);
+
+    const std::string icon = icon_for_kind(card.kind);
+    const int icon_cells = text_cell_width(icon);
+    draw_text(row.x, row.y, icon, row.selected ? HlSelected : icon_highlight(card.kind), row.width);
+    const int text_x = row.x + icon_cells + 1;
+    const int text_width = row.width - icon_cells - 1;
+    draw_text(text_x, row.y, truncate_to_cells(card.file_name, text_width), card_hl, text_width);
+}
+
+void KanbanHost::draw_status_row(const KanbanLayout& layout)
+{
+    const int cols = grid_cols();
+    const int status_row = std::max(0, grid_rows() - 1);
     fill_row(status_row, 0, cols, HlStatus);
     std::string status = status_;
     if (layout.content_rows > layout.visible_card_rows && layout.visible_card_rows > 0)
@@ -396,10 +621,6 @@ void KanbanHost::redraw_board()
         status += std::to_string(layout.content_rows);
     }
     draw_text(0, status_row, truncate_to_cells(status, cols), HlStatus, cols);
-
-    set_cursor_display_override(std::pair<int, int>{ 0, 0 });
-    flush_grid();
-    redraw_needed_ = false;
 }
 
 void KanbanHost::update_status()
@@ -495,6 +716,7 @@ void KanbanHost::move_selection(int column_delta, int card_delta)
         return;
 
     const KanbanSelection before = selection_;
+    const int before_scroll = scroll_row_;
     selection_.column = std::clamp(
         selection_.column + column_delta,
         0,
@@ -506,13 +728,33 @@ void KanbanHost::move_selection(int column_delta, int card_delta)
     if (selection_.column == before.column && selection_.card == before.card)
         return;
 
-    const int before_scroll = scroll_row_;
     keep_selection_visible();
     if (scroll_row_ != before_scroll)
+    {
+        selection_before_redraw_.reset();
         clear_before_redraw_ = true;
+    }
+    else if (!selection_before_redraw_)
+    {
+        selection_before_redraw_ = before;
+    }
     update_status();
     redraw_needed_ = true;
     callbacks().request_frame();
+    if (log_would_emit(LogLevel::Trace, LogCategory::Input))
+    {
+        log_printf(LogLevel::Trace,
+            LogCategory::Input,
+            "kanban trace: move_selection delta=(%d,%d) selection=(%d,%d)->(%d,%d) scroll=%d->%d request_frame=1",
+            column_delta,
+            card_delta,
+            before.column,
+            before.card,
+            selection_.column,
+            selection_.card,
+            before_scroll,
+            scroll_row_);
+    }
 }
 
 void KanbanHost::move_card(int column_delta, int row_delta)
@@ -561,6 +803,7 @@ void KanbanHost::move_card(int column_delta, int row_delta)
 
     keep_selection_visible();
     update_status();
+    selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;
     callbacks().request_frame();

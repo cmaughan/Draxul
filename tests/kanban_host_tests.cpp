@@ -77,16 +77,21 @@ struct KanbanHostFixture
     KanbanHost host;
     std::filesystem::path card_path;
 
-    explicit KanbanHostFixture(int card_count = 1)
+    explicit KanbanHostFixture(int card_count = 1, int column_count = 1, glm::ivec2 grid_size = { 80, 12 })
     {
-        const auto todo = temp.path / "todo";
-        std::filesystem::create_directories(todo);
-        for (int i = 0; i < card_count; ++i)
+        for (int column = 0; column < column_count; ++column)
         {
-            const auto path = todo / ("card-" + std::to_string(i + 1) + "-feature.md");
-            std::ofstream(path) << "# Card " << (i + 1) << "\n";
-            if (i == 0)
-                card_path = path;
+            const auto column_dir = temp.path / (column_count == 1
+                                                     ? std::string("todo")
+                                                     : ("column-" + std::to_string(column + 1)));
+            std::filesystem::create_directories(column_dir);
+            for (int i = 0; i < card_count; ++i)
+            {
+                const auto path = column_dir / ("card-" + std::to_string(i + 1) + "-feature.md");
+                std::ofstream(path) << "# Card " << (i + 1) << "\n";
+                if (column == 0 && i == 0)
+                    card_path = path;
+            }
         }
 
         TextServiceConfig text_config;
@@ -101,7 +106,7 @@ struct KanbanHostFixture
         launch.source_path = temp.path.string();
 
         HostViewport viewport;
-        viewport.grid_size = { 80, 12 };
+        viewport.grid_size = grid_size;
 
         HostContext context{
             .window = &window,
@@ -161,6 +166,25 @@ TEST_CASE("kanban host selection movement updates a small dirty region", "[kanba
     const auto& updates = fixture.renderer.last_handle->update_batches.back();
     INFO("single-row selection move should not redraw the full 80x12 pane");
     REQUIRE(updates.size() < 400);
+}
+
+TEST_CASE("kanban host selection movement stays bounded on a large visible board", "[kanban][host][perf]")
+{
+    KanbanHostFixture fixture(200, 3, { 177, 35 });
+    REQUIRE(fixture.renderer.last_handle != nullptr);
+    fixture.renderer.last_handle->update_batches.clear();
+
+    const auto start = std::chrono::steady_clock::now();
+    fixture.host.on_key(key_event(SDLK_J));
+    fixture.host.pump();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+
+    REQUIRE(!fixture.renderer.last_handle->update_batches.empty());
+    const auto& updates = fixture.renderer.last_handle->update_batches.back();
+    INFO("selection movement should redraw touched card rows and status, not every visible card");
+    REQUIRE(updates.size() < 1000);
+    REQUIRE(elapsed < std::chrono::milliseconds(250));
 }
 
 TEST_CASE("kanban host repeats held selection keys without waiting for OS repeat", "[kanban][host][input]")
