@@ -149,6 +149,23 @@ int max_scroll_row(const KanbanBoard& board, int grid_rows)
     return std::max(0, layout.content_rows - layout.visible_card_rows);
 }
 
+bool is_repeatable_selection_command(KanbanNavigationCommand command)
+{
+    switch (command)
+    {
+    case KanbanNavigationCommand::SelectLeft:
+    case KanbanNavigationCommand::SelectRight:
+    case KanbanNavigationCommand::SelectUp:
+    case KanbanNavigationCommand::SelectDown:
+        return true;
+    default:
+        return false;
+    }
+}
+
+constexpr auto kInitialKeyRepeatDelay = std::chrono::milliseconds(150);
+constexpr auto kKeyRepeatInterval = std::chrono::milliseconds(35);
+
 } // namespace
 
 bool KanbanHost::initialize_host()
@@ -167,6 +184,7 @@ bool KanbanHost::initialize_host()
 
 void KanbanHost::shutdown()
 {
+    held_selection_command_.reset();
     running_ = false;
 }
 
@@ -185,10 +203,20 @@ void KanbanHost::pump()
     if (!running_)
         return;
 
-    suppress_cursor_until(std::chrono::steady_clock::now() + std::chrono::hours(24));
+    const auto now = std::chrono::steady_clock::now();
+    suppress_cursor_until(now + std::chrono::hours(24));
+    pump_key_repeat(now);
     if (redraw_needed_)
         redraw_board();
-    advance_cursor_blink(std::chrono::steady_clock::now());
+    advance_cursor_blink(now);
+}
+
+std::optional<std::chrono::steady_clock::time_point> KanbanHost::next_deadline() const
+{
+    auto deadline = GridHostBase::next_deadline();
+    if (held_selection_command_ && (!deadline || next_repeat_at_ < *deadline))
+        deadline = next_repeat_at_;
+    return deadline;
 }
 
 void KanbanHost::on_focus_gained()
@@ -199,7 +227,19 @@ void KanbanHost::on_focus_gained()
 
 void KanbanHost::on_key(const KeyEvent& event)
 {
-    apply_navigation_command(navigation_.on_key(event));
+    const KanbanNavigationCommand command = navigation_.on_key(event);
+    const bool duplicate_held_keydown = event.pressed
+        && held_selection_command_
+        && command == *held_selection_command_
+        && event.keycode == held_keycode_;
+    update_key_repeat(event, command);
+
+    if (!event.pressed)
+        return;
+    if (duplicate_held_keydown)
+        return;
+
+    apply_navigation_command(command);
 }
 
 bool KanbanHost::dispatch_action(std::string_view action)
@@ -211,6 +251,7 @@ bool KanbanHost::dispatch_action(std::string_view action)
 
 void KanbanHost::request_close()
 {
+    held_selection_command_.reset();
     running_ = false;
 }
 
@@ -407,6 +448,45 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
     case KanbanNavigationCommand::None:
         break;
     }
+}
+
+void KanbanHost::update_key_repeat(const KeyEvent& event, KanbanNavigationCommand command)
+{
+    if (!event.pressed)
+    {
+        if (event.keycode == held_keycode_)
+        {
+            held_selection_command_.reset();
+            held_keycode_ = 0;
+        }
+        return;
+    }
+
+    if (!is_repeatable_selection_command(command))
+    {
+        if (command != KanbanNavigationCommand::None)
+        {
+            held_selection_command_.reset();
+            held_keycode_ = 0;
+        }
+        return;
+    }
+
+    if (held_selection_command_ && command == *held_selection_command_ && event.keycode == held_keycode_)
+        return;
+
+    held_selection_command_ = command;
+    held_keycode_ = event.keycode;
+    next_repeat_at_ = std::chrono::steady_clock::now() + kInitialKeyRepeatDelay;
+}
+
+void KanbanHost::pump_key_repeat(std::chrono::steady_clock::time_point now)
+{
+    if (!held_selection_command_ || now < next_repeat_at_)
+        return;
+
+    apply_navigation_command(*held_selection_command_);
+    next_repeat_at_ = now + kKeyRepeatInterval;
 }
 
 void KanbanHost::move_selection(int column_delta, int card_delta)

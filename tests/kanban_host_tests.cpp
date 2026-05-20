@@ -8,8 +8,10 @@
 #include <draxul/text_service.h>
 
 #include <SDL3/SDL.h>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 using namespace draxul;
 using namespace draxul::kanban;
@@ -159,4 +161,36 @@ TEST_CASE("kanban host selection movement updates a small dirty region", "[kanba
     const auto& updates = fixture.renderer.last_handle->update_batches.back();
     INFO("single-row selection move should not redraw the full 80x12 pane");
     REQUIRE(updates.size() < 400);
+}
+
+TEST_CASE("kanban host repeats held selection keys without waiting for OS repeat", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(4);
+
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    fixture.host.pump();
+
+    REQUIRE(fixture.host.status_text().find("card-3-feature.md") != std::string::npos);
+}
+
+TEST_CASE("kanban host stops held-key repeat on key release", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(4);
+
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
+
+    fixture.host.on_key(KeyEvent{
+        .scancode = 0,
+        .keycode = SDLK_J,
+        .mod = kModNone,
+        .pressed = false,
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    fixture.host.pump();
+
+    REQUIRE(fixture.host.status_text().find("card-2-feature.md") != std::string::npos);
 }

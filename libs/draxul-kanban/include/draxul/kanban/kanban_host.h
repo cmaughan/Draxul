@@ -4,8 +4,10 @@
 #include <draxul/kanban/kanban_board.h>
 #include <draxul/kanban/kanban_navigation.h>
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -24,6 +26,7 @@ public:
     bool is_running() const override;
     std::string init_error() const override;
     void pump() override;
+    std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
     void on_focus_gained() override;
     void on_key(const draxul::KeyEvent& event) override;
     bool dispatch_action(std::string_view action) override;
@@ -41,6 +44,8 @@ private:
     void redraw_board();
     void update_status();
     void apply_navigation_command(KanbanNavigationCommand command);
+    void update_key_repeat(const draxul::KeyEvent& event, KanbanNavigationCommand command);
+    void pump_key_repeat(std::chrono::steady_clock::time_point now);
     void move_selection(int column_delta, int card_delta);
     void move_card(int column_delta, int row_delta);
     void open_selected_card();
@@ -60,6 +65,9 @@ private:
     bool redraw_needed_ = true;
     bool clear_before_redraw_ = true;
     int scroll_row_ = 0;
+    std::optional<KanbanNavigationCommand> held_selection_command_;
+    int held_keycode_ = 0;
+    std::chrono::steady_clock::time_point next_repeat_at_{};
 };
 
 std::unique_ptr<draxul::IHost> create_kanban_host();
