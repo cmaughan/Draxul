@@ -52,6 +52,12 @@ struct TerminalConfig
     int paste_confirm_lines = 5;
 };
 
+struct MarkdownConfig
+{
+    float font_size = kDefaultFontPointSize;
+    float margin_columns = 2.0f;
+};
+
 struct AppConfig
 {
     AppConfig(); // defined in app_config_io.cpp; populates default keybindings
@@ -85,6 +91,7 @@ struct AppConfig
     std::string weather_location;
     std::vector<GuiKeybinding> keybindings = {}; // populated by AppConfig()
     TerminalConfig terminal; // [terminal] section -- fg/bg hex colors
+    MarkdownConfig markdown; // [markdown] section -- markdown viewer layout/font options
 
     // Warnings collected during parse() — e.g. unknown top-level keys. Drained by App and
     // surfaced to the user via toast notifications.
@@ -109,6 +116,8 @@ struct AppConfigOverrides
     std::optional<int> window_width;
     std::optional<int> window_height;
     std::optional<float> font_size;
+    std::optional<float> markdown_font_size;
+    std::optional<float> markdown_margin_columns;
     std::optional<int> atlas_size;
     std::optional<bool> enable_ligatures;
     std::optional<std::string> font_path;

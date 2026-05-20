@@ -172,8 +172,11 @@ void RendererState::apply_update_to_cell(GpuCell& cell, const CellUpdate& u) con
     cell.fg = { u.fg.r, u.fg.g, u.fg.b, u.fg.a };
     cell.sp = { u.sp.r, u.sp.g, u.sp.b, u.sp.a };
     cell.uv = u.glyph.uv;
-    cell.glyph_offset = { (float)u.glyph.bearing.x, (float)(cell_h_ - ascender_ + u.glyph.bearing.y) };
-    cell.glyph_size = glm::vec2(u.glyph.size);
+    cell.glyph_offset = {
+        (float)u.glyph.bitmap_bearing.x,
+        (float)(cell_h_ - ascender_ + u.glyph.bitmap_bearing.y)
+    };
+    cell.glyph_size = glm::vec2(u.glyph.bitmap_size);
     cell.style_flags = u.style_flags;
 }
 

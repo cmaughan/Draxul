@@ -16,7 +16,7 @@ namespace draxul
 namespace
 {
 
-constexpr std::array<std::string_view, 15> kCoreTopLevelKeys = {
+constexpr std::array<std::string_view, 16> kCoreTopLevelKeys = {
     "window_width",
     "window_height",
     "font_size",
@@ -32,6 +32,7 @@ constexpr std::array<std::string_view, 15> kCoreTopLevelKeys = {
     "fallback_paths",
     "keybindings",
     "terminal",
+    "markdown",
 };
 
 std::vector<std::string_view> split_dotted_path(std::string_view dotted_path)

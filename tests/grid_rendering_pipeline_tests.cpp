@@ -78,9 +78,9 @@ TEST_CASE("grid rendering pipeline retries once after an atlas reset", "[grid]")
     INFO("both dirty cells should be sent to the renderer");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("first glyph survives the retry");
-    REQUIRE(handle.update_batches[0][0].glyph.size.x == 7);
+    REQUIRE(handle.update_batches[0][0].glyph.bitmap_size.x == 7);
     INFO("second glyph survives the retry");
-    REQUIRE(handle.update_batches[0][1].glyph.size.x == 8);
+    REQUIRE(handle.update_batches[0][1].glyph.bitmap_size.x == 8);
     INFO("successful retry clears the grid dirty set");
     REQUIRE(grid.dirty_cell_count() == size_t(0));
 }
@@ -133,9 +133,9 @@ TEST_CASE("grid rendering pipeline combines two-cell ligatures into a leader and
     INFO("leader and continuation cells should both be updated");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("leader cell stores the ligature atlas region");
-    REQUIRE(handle.update_batches[0][0].glyph.size.x == 18);
+    REQUIRE(handle.update_batches[0][0].glyph.bitmap_size.x == 18);
     INFO("continuation cell renders no glyph");
-    REQUIRE(handle.update_batches[0][1].glyph.size.x == 0);
+    REQUIRE(handle.update_batches[0][1].glyph.bitmap_size.x == 0);
 }
 
 TEST_CASE("grid rendering pipeline redraws the leader when a continuation change breaks a ligature", "[grid]")
@@ -172,9 +172,9 @@ TEST_CASE("grid rendering pipeline redraws the leader when a continuation change
     INFO("both cells are updated to clear the old ligature");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 2);
     INFO("leader redraw restores a standalone glyph");
-    REQUIRE(handle.update_batches[0][0].glyph.size.x > 0);
+    REQUIRE(handle.update_batches[0][0].glyph.bitmap_size.x > 0);
     INFO("changed cell restores its standalone glyph");
-    REQUIRE(handle.update_batches[0][1].glyph.size.x > 0);
+    REQUIRE(handle.update_batches[0][1].glyph.bitmap_size.x > 0);
 }
 
 Grid make_three_cell_ligature_grid()
@@ -209,7 +209,7 @@ TEST_CASE("grid rendering pipeline combines three-cell ligatures", "[grid]")
     Grid grid = make_three_cell_ligature_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    atlas.register_glyph("===", { { 0.0f, 0.5f, 0.5f, 1.0f }, { 1, 2 }, { 27, 9 }, false });
+    atlas.register_glyph("===", { { 0.0f, 0.5f, 0.5f, 1.0f }, { 1, 2 }, { 27, 9 }, 0, false });
     atlas.set_ligature_span("===", 3);
     FakeGridPipelineRenderer renderer;
     FakeGridPipelineHandle handle;
@@ -228,11 +228,11 @@ TEST_CASE("grid rendering pipeline combines three-cell ligatures", "[grid]")
     INFO("leader + 2 continuation cells + 2 space cells should all be updated");
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 5);
     INFO("leader cell stores the 3-cell ligature atlas region");
-    REQUIRE(handle.update_batches[0][0].glyph.size.x == 27);
+    REQUIRE(handle.update_batches[0][0].glyph.bitmap_size.x == 27);
     INFO("first continuation cell renders no glyph");
-    REQUIRE(handle.update_batches[0][1].glyph.size.x == 0);
+    REQUIRE(handle.update_batches[0][1].glyph.bitmap_size.x == 0);
     INFO("second continuation cell renders no glyph");
-    REQUIRE(handle.update_batches[0][2].glyph.size.x == 0);
+    REQUIRE(handle.update_batches[0][2].glyph.bitmap_size.x == 0);
 }
 
 TEST_CASE("grid rendering pipeline breaks ligature at highlight boundary", "[grid]")
@@ -240,10 +240,10 @@ TEST_CASE("grid rendering pipeline breaks ligature at highlight boundary", "[gri
     Grid grid = make_highlight_boundary_ligature_grid();
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    atlas.register_glyph("=", { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 7, 9 }, false });
-    atlas.register_glyph("===", { { 0.0f, 0.5f, 0.5f, 1.0f }, { 1, 2 }, { 27, 9 }, false });
+    atlas.register_glyph("=", { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 7, 9 }, 0, false });
+    atlas.register_glyph("===", { { 0.0f, 0.5f, 0.5f, 1.0f }, { 1, 2 }, { 27, 9 }, 0, false });
     atlas.set_ligature_span("===", 3);
-    atlas.register_glyph("==", { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, false });
+    atlas.register_glyph("==", { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, 0, false });
     atlas.set_ligature_span("==", 2);
     FakeGridPipelineRenderer renderer;
     FakeGridPipelineHandle handle;
@@ -267,9 +267,9 @@ TEST_CASE("grid rendering pipeline breaks ligature at highlight boundary", "[gri
     bool found_ligature = false;
     for (auto& u : batch)
     {
-        if (u.col == 0 && u.glyph.size.x == 7)
+        if (u.col == 0 && u.glyph.bitmap_size.x == 7)
             found_standalone = true;
-        if (u.col == 1 && u.glyph.size.x == 18)
+        if (u.col == 1 && u.glyph.bitmap_size.x == 18)
             found_ligature = true;
     }
     INFO("cell 0 should render as standalone glyph");
@@ -290,10 +290,10 @@ TEST_CASE("grid rendering pipeline prefers longest ligature match", "[grid]")
 
     HighlightTable highlights;
     FakeGlyphAtlas atlas;
-    atlas.register_glyph("=", { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 7, 9 }, false });
-    atlas.register_glyph("==", { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, false });
+    atlas.register_glyph("=", { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 7, 9 }, 0, false });
+    atlas.register_glyph("==", { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, 0, false });
     atlas.set_ligature_span("==", 2);
-    atlas.register_glyph("===", { { 0.0f, 0.5f, 0.5f, 1.0f }, { 1, 2 }, { 27, 9 }, false });
+    atlas.register_glyph("===", { { 0.0f, 0.5f, 0.5f, 1.0f }, { 1, 2 }, { 27, 9 }, 0, false });
     atlas.set_ligature_span("===", 3);
     FakeGridPipelineRenderer renderer;
     FakeGridPipelineHandle handle;
@@ -309,7 +309,7 @@ TEST_CASE("grid rendering pipeline prefers longest ligature match", "[grid]")
     REQUIRE(atlas.resolved_texts[0] == std::string("==="));
     // 3 cells for the ligature + 1 trailing space = 4 total updates
     REQUIRE(static_cast<int>(handle.update_batches[0].size()) == 4);
-    REQUIRE(handle.update_batches[0][0].glyph.size.x == 27);
+    REQUIRE(handle.update_batches[0][0].glyph.bitmap_size.x == 27);
 }
 
 TEST_CASE("grid rendering pipeline reuses scratch capacity for ligature expansion", "[grid]")

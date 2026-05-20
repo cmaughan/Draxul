@@ -61,6 +61,10 @@ TEST_CASE("app config parse returns defaults for empty content", "[config]")
     REQUIRE(config.window_height == defaults.window_height);
     INFO("default font_size");
     REQUIRE(config.font_size == defaults.font_size);
+    INFO("default markdown font_size follows global font_size");
+    REQUIRE(config.markdown.font_size == defaults.font_size);
+    INFO("default markdown margin starts at two body character widths");
+    REQUIRE(config.markdown.margin_columns == 2.0f);
     INFO("default enable_ligatures");
     REQUIRE(config.enable_ligatures == defaults.enable_ligatures);
     INFO("default font_path is empty");
@@ -89,7 +93,10 @@ TEST_CASE("app config parse reads all fields", "[config]")
                           "chord_indicator_fade_ms = 2800\n"
                           "enable_ligatures = false\n"
                           "font_path = \"/usr/share/fonts/mono.ttf\"\n"
-                          "fallback_paths = [\"/fonts/a.ttf\", \"/fonts/b.ttf\"]\n";
+                          "fallback_paths = [\"/fonts/a.ttf\", \"/fonts/b.ttf\"]\n"
+                          "[markdown]\n"
+                          "font_size = 10.5\n"
+                          "margin_columns = 3.25\n";
 
     AppConfig config = AppConfig::parse(content);
     INFO("window_width parsed");
@@ -112,6 +119,19 @@ TEST_CASE("app config parse reads all fields", "[config]")
     REQUIRE(config.fallback_paths[0] == std::string("/fonts/a.ttf"));
     INFO("second fallback path");
     REQUIRE(config.fallback_paths[1] == std::string("/fonts/b.ttf"));
+    INFO("markdown font_size parsed from [markdown]");
+    REQUIRE(config.markdown.font_size == 10.5f);
+    INFO("markdown margin_columns parsed from [markdown]");
+    REQUIRE(config.markdown.margin_columns == 3.25f);
+}
+
+TEST_CASE("app config markdown font size defaults to global font size when section is absent", "[config]")
+{
+    AppConfig config = AppConfig::parse("font_size = 13\n");
+
+    REQUIRE(config.font_size == 13.0f);
+    REQUIRE(config.markdown.font_size == 13.0f);
+    REQUIRE(config.markdown.margin_columns == 2.0f);
 }
 
 TEST_CASE("gui keybinding parser handles modifier chords and symbolic keys", "[config]")
@@ -297,6 +317,8 @@ TEST_CASE("app config serialize/parse round-trip preserves all fields", "[config
     original.window_width = 1440;
     original.window_height = 900;
     original.font_size = 13.0f;
+    original.markdown.font_size = 10.5f;
+    original.markdown.margin_columns = 3.0f;
     original.enable_ligatures = false;
     original.font_path = "/home/user/fonts/mono.ttf";
     original.fallback_paths = { "/fonts/emoji.ttf", "/fonts/cjk.ttf" };
@@ -309,6 +331,10 @@ TEST_CASE("app config serialize/parse round-trip preserves all fields", "[config
     REQUIRE(round_tripped.window_height == original.window_height);
     INFO("font_size survives round-trip");
     REQUIRE(round_tripped.font_size == original.font_size); // float == float
+    INFO("markdown font_size survives round-trip");
+    REQUIRE(round_tripped.markdown.font_size == original.markdown.font_size);
+    INFO("markdown margin_columns survives round-trip");
+    REQUIRE(round_tripped.markdown.margin_columns == original.markdown.margin_columns);
     INFO("enable_ligatures survives round-trip");
     REQUIRE(round_tripped.enable_ligatures == original.enable_ligatures);
     INFO("font_path survives round-trip");

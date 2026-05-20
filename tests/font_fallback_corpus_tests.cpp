@@ -150,8 +150,8 @@ TEST_CASE("font fallback corpus: basic and extended Latin", "[font][fallback]")
         INFO("resolving: " + text);
         const auto region = service.resolve_cluster(text);
         // Must not crash. Primary font covers Latin, so we expect real glyphs.
-        REQUIRE(region.size.x > 0);
-        REQUIRE(region.size.y > 0);
+        REQUIRE(region.bitmap_size.x > 0);
+        REQUIRE(region.bitmap_size.y > 0);
     }
 
     service.shutdown();
@@ -182,7 +182,7 @@ TEST_CASE("font fallback corpus: CJK ideographs", "[font][fallback]")
         const auto region = service.resolve_cluster(text);
         // Primary guarantee: no crash. A zero-width result means the font
         // returned a placeholder or blank, which is acceptable.
-        if (region.size.x > 0)
+        if (region.bitmap_size.x > 0)
             ++resolved;
     }
 
@@ -225,7 +225,7 @@ TEST_CASE("font fallback corpus: basic emoji", "[font][fallback]")
         INFO("Emoji U+" + std::to_string(cp));
         const auto region = service.resolve_cluster(text);
         // Must not crash. At least produce a tofu block or real glyph.
-        if (region.size.x > 0)
+        if (region.bitmap_size.x > 0)
             ++resolved;
     }
 
@@ -256,7 +256,7 @@ TEST_CASE("font fallback corpus: emoji ZWJ sequence", "[font][fallback]")
     // Must not crash. Result is either a single composite glyph
     // or a multi-glyph sequence. Both are acceptable.
     // If no emoji font is available, even a zero-width result is fine.
-    INFO("ZWJ sequence resolved (size.x=" + std::to_string(region.size.x) + ")");
+    INFO("ZWJ sequence resolved (size.x=" + std::to_string(region.bitmap_size.x) + ")");
     SUCCEED();
 
     // Also test a simpler skin-tone sequence: waving hand + medium skin tone
@@ -265,7 +265,7 @@ TEST_CASE("font fallback corpus: emoji ZWJ sequence", "[font][fallback]")
 
     INFO("resolving waving hand with skin tone modifier");
     const auto region2 = service.resolve_cluster(wave_medium);
-    INFO("skin tone sequence resolved (size.x=" + std::to_string(region2.size.x) + ")");
+    INFO("skin tone sequence resolved (size.x=" + std::to_string(region2.bitmap_size.x) + ")");
     SUCCEED();
 
     service.shutdown();
@@ -287,10 +287,10 @@ TEST_CASE("font fallback corpus: RTL Arabic characters", "[font][fallback]")
     const auto region = service.resolve_cluster(arabic_salam);
 
     // Must not crash and produce > 0 glyphs if Arabic font is available.
-    if (region.size.x > 0)
+    if (region.bitmap_size.x > 0)
     {
         INFO("Arabic text resolved with visible glyphs");
-        REQUIRE(region.size.y > 0);
+        REQUIRE(region.bitmap_size.y > 0);
     }
     else
     {
@@ -327,8 +327,8 @@ TEST_CASE("font fallback corpus: combining marks", "[font][fallback]")
 
     // Must not crash. The primary font (JetBrains Mono) covers Latin
     // combining marks, so we expect a real glyph.
-    REQUIRE(region.size.x > 0);
-    REQUIRE(region.size.y > 0);
+    REQUIRE(region.bitmap_size.x > 0);
+    REQUIRE(region.bitmap_size.y > 0);
 
     // Width should not exceed roughly two cell widths (it's a single
     // character with a combining mark). Get the cell width from metrics.
@@ -336,9 +336,9 @@ TEST_CASE("font fallback corpus: combining marks", "[font][fallback]")
     int cell_width = static_cast<int>(metrics.cell_width + 0.5f);
     if (cell_width > 0)
     {
-        INFO("combining mark glyph width (" + std::to_string(region.size.x)
+        INFO("combining mark glyph width (" + std::to_string(region.bitmap_size.x)
             + ") should not exceed 2x cell width (" + std::to_string(cell_width * 2) + ")");
-        REQUIRE(region.size.x <= cell_width * 2);
+        REQUIRE(region.bitmap_size.x <= cell_width * 2);
     }
 
     // Also test 'a' + combining acute (U+0301) + combining tilde (U+0303)
@@ -346,7 +346,7 @@ TEST_CASE("font fallback corpus: combining marks", "[font][fallback]")
     const std::string stacked = std::string("a") + codepoint_to_utf8(0x0301) + codepoint_to_utf8(0x0303);
     INFO("resolving 'a' + combining acute + combining tilde");
     const auto region2 = service.resolve_cluster(stacked);
-    REQUIRE(region2.size.x > 0);
+    REQUIRE(region2.bitmap_size.x > 0);
 
     service.shutdown();
 }
@@ -372,8 +372,8 @@ TEST_CASE("font fallback corpus: missing glyph does not crash", "[font][fallback
     // Must not crash. Second call should be at least as fast (cached).
 
     // Both calls should return the same result (cached).
-    REQUIRE(region1.size.x == region2.size.x);
-    REQUIRE(region1.size.y == region2.size.y);
+    REQUIRE(region1.bitmap_size.x == region2.bitmap_size.x);
+    REQUIRE(region1.bitmap_size.y == region2.bitmap_size.y);
 
     // NOTE: Verifying that the second call is faster (cached miss) would
     // require a test hook in GlyphCache to inspect the cache directly.
@@ -419,7 +419,7 @@ TEST_CASE("font fallback corpus: 500 BMP codepoints stress test", "[font][fallba
     for (const auto& text : codepoints)
     {
         const auto region = service.resolve_cluster(text);
-        if (region.size.x > 0)
+        if (region.bitmap_size.x > 0)
             ++resolved;
     }
 

@@ -66,6 +66,8 @@ struct HostReloadConfig
     bool smooth_scroll = true;
     float scroll_speed = 1.0f;
     float palette_bg_alpha = 0.9f;
+    float markdown_font_size = 11.0f;
+    float markdown_margin_columns = 2.0f;
     int selection_max_cells = 65536;
     bool copy_on_select = true;
     int paste_confirm_lines = 0;

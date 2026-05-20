@@ -138,6 +138,8 @@ HostReloadConfig host_reload_config_from_app_config(const AppConfig& config)
     reload.smooth_scroll = config.smooth_scroll;
     reload.scroll_speed = config.scroll_speed;
     reload.palette_bg_alpha = config.palette_bg_alpha;
+    reload.markdown_font_size = config.markdown.font_size;
+    reload.markdown_margin_columns = config.markdown.margin_columns;
     reload.selection_max_cells = config.terminal.selection_max_cells;
     reload.copy_on_select = config.terminal.copy_on_select;
     reload.paste_confirm_lines = config.terminal.paste_confirm_lines;
@@ -2507,6 +2509,7 @@ void App::shutdown()
             config_to_save.window_height = window_h;
         }
         config_to_save.font_size = text_service_.point_size();
+        config_to_save.markdown = config_.markdown;
         config_to_save.font_path = text_service_.primary_font_path();
         config_ = config_to_save;
         config_document_.merge_core_config(config_to_save);

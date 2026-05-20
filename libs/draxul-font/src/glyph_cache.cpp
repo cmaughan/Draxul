@@ -25,6 +25,19 @@ struct RasterizedGlyph
 
 constexpr int ATLAS_PIXEL_SIZE = 4;
 
+int snapped_advance(int pen_x, FT_Face face)
+{
+    if (pen_x <= 0)
+        return 0;
+
+    const auto face_cell_w = face != nullptr ? static_cast<int>(face->size->metrics.max_advance >> 6) : 0;
+    if (face_cell_w <= 0)
+        return pen_x;
+
+    const int n_cells = std::max(1, (pen_x + face_cell_w - 1) / face_cell_w);
+    return n_cells * face_cell_w;
+}
+
 const uint8_t* bitmap_row_ptr(const FT_Bitmap& bmp, int row)
 {
     if (bmp.pitch >= 0)
@@ -276,8 +289,15 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
         pen_x += shaped_glyph.x_advance;
     }
 
+    const int natural_advance_px = std::max(0, pen_x);
+    const int snapped_advance_px = snapped_advance(pen_x, face);
+
     if (glyphs.empty())
-        return AtlasRegion{};
+    {
+        AtlasRegion region{};
+        region.advance_px = natural_advance_px;
+        return region;
+    }
 
     // If no glyphs had ink (all zero-size bitmaps), reset sentinels to avoid
     // signed overflow in cluster_height = bbox_top - bbox_bottom.
@@ -297,16 +317,7 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     // font_manager) to snap bbox_right to a whole-cell boundary. HarfBuzz
     // x_advance >> 6 can be 1 px less than max_advance >> 6 due to independent
     // 26.6 truncation, which would leave a 1-pixel gap.
-    const auto face_cell_w = static_cast<int>(face->size->metrics.max_advance >> 6);
-    if (face_cell_w > 0)
-    {
-        const int n_cells = std::max(1, (pen_x + face_cell_w - 1) / face_cell_w);
-        bbox_right = std::max(bbox_right, n_cells * face_cell_w);
-    }
-    else
-    {
-        bbox_right = std::max(bbox_right, pen_x);
-    }
+    bbox_right = std::max(bbox_right, snapped_advance_px);
     bbox_left = std::min(bbox_left, 0);
 
     int cluster_width = bbox_right - bbox_left;
@@ -372,8 +383,9 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
         static_cast<float>(atlas_x + cluster_width) * inv_size,
         static_cast<float>(atlas_y + cluster_height) * inv_size
     };
-    region.bearing = { bbox_left, bbox_top };
-    region.size = { cluster_width, cluster_height };
+    region.bitmap_bearing = { bbox_left, bbox_top };
+    region.bitmap_size = { cluster_width, cluster_height };
+    region.advance_px = natural_advance_px;
     region.is_color = cluster_is_color;
 
     expand_dirty_rect(dirty_rect_, dirty_, atlas_x, atlas_y, cluster_width, cluster_height);

@@ -139,18 +139,24 @@ std::vector<std::string_view> GuiActionHandler::action_names()
 void GuiActionHandler::font_increase()
 {
     PERF_MEASURE();
+    if (dispatch_to_focused_host("font_increase"))
+        return;
     change_font_size(deps_.text_service->point_size() + 0.5f);
 }
 
 void GuiActionHandler::font_decrease()
 {
     PERF_MEASURE();
+    if (dispatch_to_focused_host("font_decrease"))
+        return;
     change_font_size(deps_.text_service->point_size() - 0.5f);
 }
 
 void GuiActionHandler::font_reset()
 {
     PERF_MEASURE();
+    if (dispatch_to_focused_host("font_reset"))
+        return;
     change_font_size(TextService::DEFAULT_POINT_SIZE);
 }
 
@@ -389,6 +395,12 @@ void GuiActionHandler::change_font_size(float new_size)
         if (deps_.on_config_changed)
             deps_.on_config_changed();
     }
+}
+
+bool GuiActionHandler::dispatch_to_focused_host(std::string_view action) const
+{
+    IHost* host = deps_.focused_host ? deps_.focused_host() : nullptr;
+    return host != nullptr && host->dispatch_action(action);
 }
 
 } // namespace draxul

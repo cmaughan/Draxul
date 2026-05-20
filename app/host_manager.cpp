@@ -32,6 +32,7 @@ bool is_terminal_shell_host(HostKind kind)
     case Nvim:
     case MegaCity:
     case NanoVGDemo:
+    case Markdown:
         return false;
     }
     return false;

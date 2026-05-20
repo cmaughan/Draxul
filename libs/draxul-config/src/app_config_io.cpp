@@ -12,6 +12,7 @@
 #include <draxul/log.h>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 namespace draxul
@@ -30,10 +31,12 @@ constexpr int kMaxAtlasSize = 8192;
 // link draxul-font. Keep in sync with text_service.h if those values change.
 constexpr float kMinFontPointSize = 6.0f;
 constexpr float kMaxFontPointSize = 72.0f;
+constexpr float kMinMarkdownMarginColumns = 0.0f;
+constexpr float kMaxMarkdownMarginColumns = 24.0f;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
 // The list of known GUI action keys lives in <draxul/gui_actions.h> as the canonical
 // source of truth. Use is_known_gui_action_config_key() / for_each_gui_action_config_key().
-constexpr std::array<std::string_view, 22> kKnownTopLevelKeys = {
+constexpr std::array<std::string_view, 23> kKnownTopLevelKeys = {
     "window_width",
     "window_height",
     "font_size",
@@ -56,6 +59,7 @@ constexpr std::array<std::string_view, 22> kKnownTopLevelKeys = {
     "weather_location",
     "keybindings",
     "terminal",
+    "markdown",
 };
 
 std::filesystem::path config_path()
@@ -171,6 +175,15 @@ float parse_font_size(const toml::table& document, float fallback)
     return fallback;
 }
 
+std::optional<float> parse_float_value(const toml::table& document, const char* key)
+{
+    if (auto parsed = toml_support::get_double(document, key); parsed.has_value())
+        return static_cast<float>(*parsed);
+    if (auto parsed = toml_support::get_int(document, key); parsed.has_value())
+        return static_cast<float>(*parsed);
+    return std::nullopt;
+}
+
 bool parse_enable_ligatures(const toml::table& document, bool fallback)
 {
     return toml_support::get_bool(document, "enable_ligatures").value_or(fallback);
@@ -257,6 +270,18 @@ void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
     }
 }
 
+void apply_markdown_overrides(AppConfig& config, const toml::table& markdown)
+{
+    PERF_MEASURE();
+    if (auto parsed = parse_float_value(markdown, "font_size"); parsed.has_value())
+        config.markdown.font_size = std::clamp(*parsed, kMinFontPointSize, kMaxFontPointSize);
+    if (auto parsed = parse_float_value(markdown, "margin_columns"); parsed.has_value())
+        config.markdown.margin_columns = std::clamp(
+            *parsed,
+            kMinMarkdownMarginColumns,
+            kMaxMarkdownMarginColumns);
+}
+
 AppConfig config_from_toml(const toml::table& document)
 {
     PERF_MEASURE();
@@ -295,6 +320,13 @@ AppConfig config_from_toml(const toml::table& document)
         if (node && !node.is_integer() && !node.is_floating_point())
             DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s' has wrong type (expected integer or float) -- using default", key);
     };
+    auto check_nested_float_type = [&](const toml::table* table, const char* table_name, const char* key) {
+        if (table == nullptr)
+            return;
+        auto node = (*table)[key];
+        if (node && !node.is_integer() && !node.is_floating_point())
+            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s.%s' has wrong type (expected integer or float) -- using default", table_name, key);
+    };
 
     check_int_type("window_width");
     check_int_type("window_height");
@@ -313,10 +345,16 @@ AppConfig config_from_toml(const toml::table& document)
     check_string_type("italic_font_path");
     check_string_type("bold_italic_font_path");
     check_array_type("fallback_paths");
+    const toml::table* markdown_table = document["markdown"].as_table();
+    if (document["markdown"] && markdown_table == nullptr)
+        DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key 'markdown' has wrong type (expected table) -- using default");
+    check_nested_float_type(markdown_table, "markdown", "font_size");
+    check_nested_float_type(markdown_table, "markdown", "margin_columns");
 
     config.window_width = parse_window_dimension(document, "window_width", config.window_width, kMinWindowWidth, kMaxWindowWidth);
     config.window_height = parse_window_dimension(document, "window_height", config.window_height, kMinWindowHeight, kMaxWindowHeight);
     config.font_size = parse_font_size(document, config.font_size);
+    config.markdown.font_size = config.font_size;
     config.atlas_size = parse_atlas_size(document, config.atlas_size);
     config.enable_ligatures = parse_enable_ligatures(document, config.enable_ligatures);
     if (auto parsed = toml_support::get_bool(document, "smooth_scroll"); parsed.has_value())
@@ -414,6 +452,8 @@ AppConfig config_from_toml(const toml::table& document)
     // [terminal] section -- optional fg/bg hex color overrides for shell panes.
     if (const auto* terminal = document["terminal"].as_table())
         apply_terminal_overrides(config, *terminal);
+    if (markdown_table != nullptr)
+        apply_markdown_overrides(config, *markdown_table);
 
     // Warn about unknown top-level keys
     for (const auto& [key, value] : document)
@@ -587,6 +627,19 @@ std::string AppConfig::serialize() const
     document.insert_or_assign("window_width", clamp_window_dimension(window_width, AppConfig{}.window_width, kMinWindowWidth, kMaxWindowWidth));
     document.insert_or_assign("window_height", clamp_window_dimension(window_height, AppConfig{}.window_height, kMinWindowHeight, kMaxWindowHeight));
     document.insert_or_assign("font_size", static_cast<double>(std::clamp(font_size, kMinFontPointSize, kMaxFontPointSize)));
+    {
+        toml::table markdown_table;
+        markdown_table.insert_or_assign(
+            "font_size",
+            static_cast<double>(std::clamp(markdown.font_size, kMinFontPointSize, kMaxFontPointSize)));
+        markdown_table.insert_or_assign(
+            "margin_columns",
+            static_cast<double>(std::clamp(
+                markdown.margin_columns,
+                kMinMarkdownMarginColumns,
+                kMaxMarkdownMarginColumns)));
+        document.insert_or_assign("markdown", std::move(markdown_table));
+    }
     document.insert_or_assign("atlas_size", floor_to_power_of_two(std::clamp(atlas_size, kMinAtlasSize, kMaxAtlasSize)));
     document.insert_or_assign("enable_ligatures", enable_ligatures);
     document.insert_or_assign("smooth_scroll", smooth_scroll);
@@ -741,6 +794,8 @@ void apply_overrides(AppConfig& config, const AppConfigOverrides& overrides)
     apply(config.window_width, overrides.window_width);
     apply(config.window_height, overrides.window_height);
     apply(config.font_size, overrides.font_size);
+    apply(config.markdown.font_size, overrides.markdown_font_size);
+    apply(config.markdown.margin_columns, overrides.markdown_margin_columns);
     apply(config.atlas_size, overrides.atlas_size);
     apply(config.enable_ligatures, overrides.enable_ligatures);
     apply(config.font_path, overrides.font_path);

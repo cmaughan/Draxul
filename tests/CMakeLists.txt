@@ -23,6 +23,8 @@ if(DRAXUL_ENABLE_MEGACITY)
 endif()
 target_link_libraries(draxul-tests PRIVATE
     draxul-app
+    draxul-markdown
+    draxul-markdown-host
     Catch2::Catch2
 )
 if(DRAXUL_ENABLE_MEGACITY)

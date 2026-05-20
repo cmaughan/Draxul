@@ -18,6 +18,7 @@ enum class HostKind
     Wsl,
     MegaCity,
     NanoVGDemo,
+    Markdown,
 };
 
 inline std::optional<HostKind> parse_host_kind(std::string_view value)
@@ -41,6 +42,8 @@ inline std::optional<HostKind> parse_host_kind(std::string_view value)
         return HostKind::MegaCity;
     if (normalized == "nanovg" || normalized == "nanovg-demo")
         return HostKind::NanoVGDemo;
+    if (normalized == "markdown" || normalized == "md")
+        return HostKind::Markdown;
     return std::nullopt;
 }
 
@@ -62,6 +65,8 @@ inline const char* to_string(HostKind kind)
         return "megacity";
     case HostKind::NanoVGDemo:
         return "nanovg-demo";
+    case HostKind::Markdown:
+        return "markdown";
     }
     return "nvim";
 }

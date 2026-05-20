@@ -42,6 +42,7 @@ struct MouseMoveEvent
     ModifierFlags mod;
     glm::ivec2 pos{ 0 };
     glm::vec2 delta{ 0.0f };
+    uint32_t buttons = 0;
 };
 struct MouseWheelEvent
 {

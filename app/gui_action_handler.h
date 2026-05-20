@@ -113,6 +113,7 @@ private:
     void activate_tab(std::string_view args) const;
     void test_toast() const;
     void change_font_size(float new_size);
+    bool dispatch_to_focused_host(std::string_view action) const;
 
     Deps deps_;
 };

@@ -17,12 +17,12 @@ public:
         : resets_remaining_(resets_remaining)
     {
         atlas_.assign(16, 0x7F);
-        register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
-        register_glyph("B", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false });
-        register_glyph("-", { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 6, 3 }, false });
-        register_glyph(">", { { 0.625f, 0.0f, 0.75f, 0.5f }, { 1, 1 }, { 6, 8 }, false });
-        register_glyph("X", { { 0.75f, 0.0f, 0.875f, 0.5f }, { 1, 2 }, { 7, 9 }, false });
-        register_glyph("->", { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, false });
+        register_glyph("A", { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, 0, false });
+        register_glyph("B", { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, 0, false });
+        register_glyph("-", { { 0.5f, 0.0f, 0.625f, 0.5f }, { 1, 1 }, { 6, 3 }, 0, false });
+        register_glyph(">", { { 0.625f, 0.0f, 0.75f, 0.5f }, { 1, 1 }, { 6, 8 }, 0, false });
+        register_glyph("X", { { 0.75f, 0.0f, 0.875f, 0.5f }, { 1, 2 }, { 7, 9 }, 0, false });
+        register_glyph("->", { { 0.0f, 0.5f, 0.375f, 1.0f }, { 1, 2 }, { 18, 9 }, 0, false });
         set_ligature_span("->", 2);
     }
 

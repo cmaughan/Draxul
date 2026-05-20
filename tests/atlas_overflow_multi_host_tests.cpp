@@ -35,10 +35,10 @@ public:
         : overflow_after_(overflow_after)
     {
         atlas_.assign(16, 0x7F);
-        glyphs_["A"] = { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, false };
-        glyphs_["B"] = { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, false };
-        glyphs_["C"] = { { 0.5f, 0.0f, 0.75f, 0.5f }, { 1, 1 }, { 6, 8 }, false };
-        glyphs_["D"] = { { 0.75f, 0.0f, 1.0f, 0.5f }, { 1, 2 }, { 7, 9 }, false };
+        glyphs_["A"] = { { 0.0f, 0.0f, 0.25f, 0.5f }, { 1, 2 }, { 7, 9 }, 0, false };
+        glyphs_["B"] = { { 0.25f, 0.0f, 0.5f, 0.5f }, { 2, 3 }, { 8, 10 }, 0, false };
+        glyphs_["C"] = { { 0.5f, 0.0f, 0.75f, 0.5f }, { 1, 1 }, { 6, 8 }, 0, false };
+        glyphs_["D"] = { { 0.75f, 0.0f, 1.0f, 0.5f }, { 1, 2 }, { 7, 9 }, 0, false };
     }
 
     AtlasRegion resolve_cluster(const std::string& text, bool /*is_bold*/, bool /*is_italic*/) override
@@ -170,7 +170,7 @@ TEST_CASE("atlas overflow multi-host: both handles receive cell updates after at
     INFO("pipeline A should update both cells");
     REQUIRE(handle_a.total_cell_updates() == 2);
     INFO("pipeline A cell 0 should have correct glyph from re-rasterisation");
-    REQUIRE(handle_a.update_batches.back()[0].glyph.size.x == 7); // "A" glyph
+    REQUIRE(handle_a.update_batches.back()[0].glyph.bitmap_size.x == 7); // "A" glyph
 
     // Pipeline A consumed the reset. Pipeline B flushes next.
     // Since the reset was already consumed, pipeline B should still flush its
@@ -182,9 +182,9 @@ TEST_CASE("atlas overflow multi-host: both handles receive cell updates after at
     INFO("pipeline B should update both cells");
     REQUIRE(handle_b.total_cell_updates() == 2);
     INFO("pipeline B cell 0 should have correct glyph");
-    REQUIRE(handle_b.update_batches.back()[0].glyph.size.x == 6); // "C" glyph
+    REQUIRE(handle_b.update_batches.back()[0].glyph.bitmap_size.x == 6); // "C" glyph
     INFO("pipeline B cell 1 should have correct glyph");
-    REQUIRE(handle_b.update_batches.back()[1].glyph.size.x == 7); // "D" glyph
+    REQUIRE(handle_b.update_batches.back()[1].glyph.bitmap_size.x == 7); // "D" glyph
 }
 
 TEST_CASE("atlas overflow multi-host: reset during pipeline A flush does not corrupt pipeline B", "[grid][multi-host]")
@@ -243,9 +243,9 @@ TEST_CASE("atlas overflow multi-host: reset during pipeline A flush does not cor
     INFO("pipeline B should resolve its 2 cells normally");
     REQUIRE(atlas.total_resolve_calls == resolves_before_b + 2);
     INFO("pipeline B cell 0 should have correct glyph");
-    REQUIRE(handle_b.update_batches.back()[0].glyph.size.x == 6); // "C"
+    REQUIRE(handle_b.update_batches.back()[0].glyph.bitmap_size.x == 6); // "C"
     INFO("pipeline B cell 1 should have correct glyph");
-    REQUIRE(handle_b.update_batches.back()[1].glyph.size.x == 7); // "D"
+    REQUIRE(handle_b.update_batches.back()[1].glyph.bitmap_size.x == 7); // "D"
 }
 
 TEST_CASE("atlas overflow multi-host: app-layer marks all grids dirty after reset", "[grid][multi-host]")
@@ -312,16 +312,16 @@ TEST_CASE("atlas overflow multi-host: app-layer marks all grids dirty after rese
     INFO("pipeline A should re-upload all cells");
     REQUIRE(handle_a.total_cell_updates() == 2);
     INFO("pipeline A cell 0 should have correct glyph after re-rasterisation");
-    REQUIRE(handle_a.update_batches.back()[0].glyph.size.x == 7); // "A"
+    REQUIRE(handle_a.update_batches.back()[0].glyph.bitmap_size.x == 7); // "A"
     INFO("pipeline A cell 1 should have correct glyph after re-rasterisation");
-    REQUIRE(handle_a.update_batches.back()[1].glyph.size.x == 8); // "B"
+    REQUIRE(handle_a.update_batches.back()[1].glyph.bitmap_size.x == 8); // "B"
 
     INFO("pipeline B should re-upload all cells");
     REQUIRE(handle_b.total_cell_updates() == 2);
     INFO("pipeline B cell 0 should have correct glyph after re-rasterisation");
-    REQUIRE(handle_b.update_batches.back()[0].glyph.size.x == 6); // "C"
+    REQUIRE(handle_b.update_batches.back()[0].glyph.bitmap_size.x == 6); // "C"
     INFO("pipeline B cell 1 should have correct glyph after re-rasterisation");
-    REQUIRE(handle_b.update_batches.back()[1].glyph.size.x == 7); // "D"
+    REQUIRE(handle_b.update_batches.back()[1].glyph.bitmap_size.x == 7); // "D"
 
     INFO("full atlas uploads should have occurred for both pipelines");
     REQUIRE(renderer.full_atlas_uploads >= 1);
@@ -372,15 +372,15 @@ TEST_CASE("atlas overflow multi-host: concurrent dirty cells across handles are 
     // Verify specific glyph data to ensure re-rasterisation produced correct results.
     const auto& batch_a = handle_a.update_batches.back();
     INFO("handle A cell 0 has correct glyph (A)");
-    REQUIRE(batch_a[0].glyph.size.x == 7);
+    REQUIRE(batch_a[0].glyph.bitmap_size.x == 7);
     INFO("handle A cell 1 has correct glyph (B)");
-    REQUIRE(batch_a[1].glyph.size.x == 8);
+    REQUIRE(batch_a[1].glyph.bitmap_size.x == 8);
     INFO("handle A cell 2 has correct glyph (C)");
-    REQUIRE(batch_a[2].glyph.size.x == 6);
+    REQUIRE(batch_a[2].glyph.bitmap_size.x == 6);
 
     const auto& batch_b = handle_b.update_batches.back();
     INFO("handle B cell 0 has correct glyph (D)");
-    REQUIRE(batch_b[0].glyph.size.x == 7);
+    REQUIRE(batch_b[0].glyph.bitmap_size.x == 7);
     INFO("handle B cell 1 has correct glyph (A)");
-    REQUIRE(batch_b[1].glyph.size.x == 7);
+    REQUIRE(batch_b[1].glyph.bitmap_size.x == 7);
 }

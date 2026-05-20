@@ -51,7 +51,7 @@ public:
         auto sel = selector.select(text, resolver, is_bold, is_italic);
         AtlasRegion region = glyph_cache_.get_cluster(text, sel.face, *sel.shaper);
 
-        if (region.size.x > 0 || region.size.y > 0 || !glyph_cache_.consume_overflowed())
+        if (region.bitmap_size.x > 0 || region.bitmap_size.y > 0 || !glyph_cache_.consume_overflowed())
             return region;
 
         // Atlas overflowed — reset and retry once.

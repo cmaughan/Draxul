@@ -9,6 +9,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Host | Flag | Description |
 |------|------|-------------|
 | Neovim | `--host nvim` (default) | Embeds `nvim --embed` via msgpack-RPC over stdin/stdout pipes |
+| Markdown | `--host markdown --source <file.md>` | Native Draxul markdown viewer host using the FreeType/HarfBuzz font pipeline, MD4C parsing, variable-height document rows, configurable body text size/margins, restrained styled headings, section indentation, front matter/code/list/table decorations, mouse wheel/PageUp/PageDown/Home/End plus Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G` scrolling, and a draggable proportional scrollbar |
 | Bash | `--host bash` | PTY-based terminal (Unix) |
 | Zsh | `--host zsh` | PTY-based terminal (Unix) |
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
@@ -42,6 +43,7 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **MegaCity sign sizing controls**: Building roof-sign rings can now enforce a configurable `Min Width / Char`, so long class/module labels can expand the repeated sign band instead of being squeezed into the default building footprint
 - **MegaCity building shape thresholds**: The City Build UI now exposes both `Hex Threshold` and `Oct Threshold`, letting connected buildings step from 4-sided to 6-sided to 8-sided procedural shells based on total incident dependency count
 - **MegaCity selection tuning**: Selection fade now has configurable dependency, hidden, hover-hidden, and road hidden alpha controls, with configurable spacebar-held raise/fall timing for hidden buildings so the shared road layer can remain fully visible while selected-context buildings read clearly
+- **Markdown viewer pipeline**: Markdown panes are rendered by Draxul itself rather than through the terminal grid or ImGui. The host parses Markdown into document blocks, lays them out as variable-height rows, builds a GPU draw list of styled rectangles and glyph runs, uploads rich-text atlas regions incrementally, and renders directly through the platform hardware renderer. GitHub/Obsidian pipe tables render with header/body styling, cell borders, wrapped cell text, left/center/right column alignment, and content-aware column widths that balance required and preferred cell sizes. Markdown body size is controlled independently through `[markdown].font_size`, headings scale relative to it, focused Markdown panes consume `font_increase`, `font_decrease`, and `font_reset`, and `[markdown].margin_columns` controls the document margin in body character widths. Navigation supports PageUp/PageDown/Home/End, wheel scrolling, Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G`, and mouse dragging on the wider scrollbar thumb.
 
 ## GUI (draxul-gui)
 
@@ -62,6 +64,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Emoji**: Color glyph rendering, variation selectors (VS-16), ZWJ sequences
 - **Wide characters**: CJK double-width, combining characters
 - **Bundled fonts**: JetBrains Mono Nerd Font (regular/bold/italic/bold-italic), Cascadia Code
+- **Rich text service**: Markdown viewing can resolve separate point sizes and bold/italic style keys through pooled `TextService` instances, enabling larger heading rows without forcing the terminal grid to adopt variable-sized cells.
 
 ---
 
@@ -97,7 +100,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **File drop**: Native drag-and-drop dispatched to host as `open_file:` action
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
 - **Command palette**: `Ctrl+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, and keybinding hints
-- **Config reload**: `reload_config` rereads `config.toml` on demand so palette alpha, keybindings, scroll settings, ligatures, and font changes can be applied without a restart
+- **Config reload**: `reload_config` rereads `config.toml` on demand so palette alpha, keybindings, scroll settings, ligatures, terminal font changes, and Markdown font/margin changes can be applied without a restart
 
 ---
 
@@ -192,7 +195,7 @@ Toggle with F12. Shows:
 | `toggle_copy_mode` | `Ctrl + S, Return` |
 | `test_toast` | (unbound) |
 
-Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key"`. Set to empty string to unbind.
+Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key"`. Set to empty string to unbind. The font actions adjust the focused Markdown pane when it accepts them; otherwise they adjust the shared terminal/grid font.
 
 ---
 
@@ -216,6 +219,13 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 | `bold_italic_font_path` | (none) | | Bold + italic variant |
 | `fallback_paths` | [] | | Array of fallback font paths |
 | `enable_ligatures` | true | | Programming ligature combining |
+
+### Markdown (`[markdown]` section)
+
+| Key | Default | Range | Notes |
+|-----|---------|-------|-------|
+| `font_size` | `font_size` | 6.0--72.0 | Markdown body text size in points. If `[markdown]` is omitted, it follows the global `font_size`; headings and other markdown styles scale relative to this value. |
+| `margin_columns` | 2.0 | 0.0--24.0 | Left/right document margin measured in Markdown body character widths |
 
 ### Rendering
 
@@ -261,9 +271,9 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 
 | Flag | Description |
 |------|-------------|
-| `--host <type>` | Host type: nvim, powershell, bash, zsh, wsl, megacity |
+| `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity |
 | `--command <cmd>` | Override host command path |
-| `--source <path>` | Override the MegaCity Tree-sitter scan root when launching `--host megacity` |
+| `--source <path>` | Markdown file to view when launching `--host markdown`; MegaCity Tree-sitter scan root when launching `--host megacity` |
 | `--session <id>` | Select which saved shell session to restore |
 | `--persistent-app` | Opt into live detach/reattach: closing the window hides Draxul, and a later launch with this flag reattaches to the running instance |
 | `--pick-session` | Open the session picker UI to browse, attach, restore, create, or kill shell sessions |

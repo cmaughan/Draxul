@@ -95,7 +95,7 @@ LabelBitmap rasterize_label(TextService& text_service, const SignLabelRequest& r
     {
         const std::string cluster(1, static_cast<char>(ch));
         const AtlasRegion region = text_service.resolve_cluster(cluster);
-        if (region.size.x <= 0 || region.size.y <= 0)
+        if (region.bitmap_size.x <= 0 || region.bitmap_size.y <= 0)
         {
             pen_x += cell_width;
             continue;
@@ -112,20 +112,20 @@ LabelBitmap rasterize_label(TextService& text_service, const SignLabelRequest& r
 
         const int src_x0 = std::clamp(static_cast<int>(std::lround(region.uv.x * atlas_width)), 0, atlas_width - 1);
         const int src_y0 = std::clamp(static_cast<int>(std::lround(region.uv.y * atlas_height)), 0, atlas_height - 1);
-        const int dst_x0 = pen_x + region.bearing.x;
+        const int dst_x0 = pen_x + region.bitmap_bearing.x;
         const int baseline_y = request.vertical_align == SignLabelVerticalAlign::Top
             ? kTopAlignedLabelPadding + metrics.ascender
             : (bitmap.height - metrics.cell_height) / 2 + metrics.ascender;
-        const int dst_y0 = baseline_y - region.bearing.y;
+        const int dst_y0 = baseline_y - region.bitmap_bearing.y;
 
-        for (int row = 0; row < region.size.y; ++row)
+        for (int row = 0; row < region.bitmap_size.y; ++row)
         {
             const int dst_y = dst_y0 + row;
             const int src_y = src_y0 + row;
             if (dst_y < 0 || dst_y >= bitmap.height || src_y < 0 || src_y >= atlas_height)
                 continue;
 
-            for (int col = 0; col < region.size.x; ++col)
+            for (int col = 0; col < region.bitmap_size.x; ++col)
             {
                 const int dst_x = dst_x0 + col;
                 const int src_x = src_x0 + col;

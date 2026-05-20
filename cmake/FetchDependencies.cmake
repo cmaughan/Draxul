@@ -108,6 +108,16 @@ add_library(mpack_lib STATIC ${MPACK_SOURCES})
 target_include_directories(mpack_lib PUBLIC ${mpack_SOURCE_DIR}/src/mpack)
 target_compile_definitions(mpack_lib PUBLIC MPACK_EXTENSIONS=1)
 
+# MD4C (CommonMark parser only; HTML renderer is not used)
+FetchContent_Declare(
+    md4c
+    GIT_REPOSITORY https://github.com/mity/md4c.git
+    GIT_TAG release-0.5.2
+    GIT_SHALLOW TRUE
+)
+set(BUILD_MD2HTML_EXECUTABLE OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(md4c)
+
 # toml++
 FetchContent_Declare(
     tomlplusplus

@@ -29,8 +29,9 @@ inline Color color_from_rgba(uint32_t rgba)
 struct AtlasRegion
 {
     glm::vec4 uv = {}; // UV coordinates in atlas (x=u0, y=v0, z=u1, w=v1)
-    glm::ivec2 bearing = {}; // Glyph bearing from baseline
-    glm::ivec2 size = {}; // Pixel dimensions
+    glm::ivec2 bitmap_bearing = {}; // Bitmap offset from baseline
+    glm::ivec2 bitmap_size = {}; // Atlas bitmap coverage in pixels
+    int advance_px = 0; // Text advance, independent from ink/bearing extents
     bool is_color = false;
 };
 

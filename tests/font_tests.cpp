@@ -92,9 +92,9 @@ TEST_CASE("bundled nerd font shapes and rasterizes current lazy icon", "[font]")
     const std::string lazy_icon = "\xF3\xB0\x92\xB2"; // U+F04B2
     const auto region = service.resolve_cluster(lazy_icon);
     INFO("lazy icon rasterizes");
-    REQUIRE(region.size.x > 0);
+    REQUIRE(region.bitmap_size.x > 0);
     INFO("lazy icon has height");
-    REQUIRE(region.size.y > 0);
+    REQUIRE(region.bitmap_size.y > 0);
     INFO("configured font path is used");
     REQUIRE(service.primary_font_path() == font_path.string());
     service.shutdown();
@@ -120,7 +120,7 @@ TEST_CASE("glyph cache dirty rect accumulates newly rasterized glyphs", "[font]"
     int l_x = static_cast<int>(region_l.uv.x * atlas_width);
     int a_x = static_cast<int>(region_a.uv.x * atlas_width);
     int left = std::min(l_x, a_x);
-    int right = std::max(l_x + region_l.size.x, a_x + region_a.size.x);
+    int right = std::max(l_x + region_l.bitmap_size.x, a_x + region_a.bitmap_size.x);
 
     INFO("dirty rect starts at the leftmost new glyph");
     REQUIRE(dirty.pos.x == left);
@@ -184,9 +184,9 @@ TEST_CASE("emoji fallback preserves color glyph pixels in the atlas", "[font]")
     const std::string sleep_emoji = "\xF0\x9F\x92\xA4"; // U+1F4A4
     const auto region = service.resolve_cluster(sleep_emoji);
     INFO("emoji rasterizes");
-    REQUIRE(region.size.x > 0);
+    REQUIRE(region.bitmap_size.x > 0);
     INFO("emoji has height");
-    REQUIRE(region.size.y > 0);
+    REQUIRE(region.bitmap_size.y > 0);
     INFO("emoji region is flagged as color");
     REQUIRE(region.is_color);
 
@@ -196,9 +196,9 @@ TEST_CASE("emoji fallback preserves color glyph pixels in the atlas", "[font]")
     const int atlas_y = static_cast<int>(region.uv.y * atlas_width + 0.5f);
 
     bool found_colored_pixel = false;
-    for (int row = 0; row < region.size.y && !found_colored_pixel; row++)
+    for (int row = 0; row < region.bitmap_size.y && !found_colored_pixel; row++)
     {
-        for (int col = 0; col < region.size.x; col++)
+        for (int col = 0; col < region.bitmap_size.x; col++)
         {
             const size_t pixel_index = (((size_t)(atlas_y + row) * atlas_width) + atlas_x + col) * 4;
             const uint8_t r = atlas[pixel_index + 0];
@@ -238,9 +238,9 @@ TEST_CASE("wide japanese text resolves through CJK fallback fonts", "[font]")
     const std::string japanese = japanese_bytes;
     const auto region = service.resolve_cluster(japanese);
     INFO("japanese text rasterizes");
-    REQUIRE(region.size.x > 0);
+    REQUIRE(region.bitmap_size.x > 0);
     INFO("japanese text has height");
-    REQUIRE(region.size.y > 0);
+    REQUIRE(region.bitmap_size.y > 0);
     service.shutdown();
 }
 
@@ -288,7 +288,7 @@ TEST_CASE("ligature shaping can be disabled from text service config", "[font]")
     REQUIRE(ligatures_enabled.ligature_cell_span(ligature) == 2);
     const auto ligature_region = ligatures_enabled.resolve_cluster(ligature);
     INFO("expected ligature rasterizes");
-    REQUIRE(ligature_region.size.x > 0);
+    REQUIRE(ligature_region.bitmap_size.x > 0);
 
     TextService ligatures_disabled;
     TextServiceConfig disabled_config;

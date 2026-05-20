@@ -46,6 +46,30 @@ add_custom_command(
 
 add_custom_target(compile_gui_shaders DEPENDS ${GUI_METAL_LIB})
 
+# Markdown shader
+set(MARKDOWN_METAL_SOURCE ${SHADER_SOURCE_DIR}/markdown.metal)
+set(MARKDOWN_METAL_AIR    ${SHADER_OUTPUT_DIR}/markdown.air)
+set(MARKDOWN_METAL_LIB    ${SHADER_OUTPUT_DIR}/markdown.metallib)
+
+add_custom_command(
+    OUTPUT ${MARKDOWN_METAL_AIR}
+    COMMAND xcrun -sdk macosx metal -c ${MARKDOWN_METAL_SOURCE} -I ${SHADER_SOURCE_DIR} -o ${MARKDOWN_METAL_AIR}
+    DEPENDS
+        ${MARKDOWN_METAL_SOURCE}
+        ${SHADER_SOURCE_DIR}/decoration_constants_shared.h
+        ${SHADER_SOURCE_DIR}/quad_offsets_shared.h
+    COMMENT "Compiling Metal shader: markdown.metal"
+)
+
+add_custom_command(
+    OUTPUT ${MARKDOWN_METAL_LIB}
+    COMMAND xcrun -sdk macosx metallib ${MARKDOWN_METAL_AIR} -o ${MARKDOWN_METAL_LIB}
+    DEPENDS ${MARKDOWN_METAL_AIR}
+    COMMENT "Linking Metal shader library: markdown.metallib"
+)
+
+add_custom_target(compile_markdown_shaders DEPENDS ${MARKDOWN_METAL_LIB})
+
 # MegaCity scene shader
 set(MEGACITY_METAL_SOURCE ${SHADER_SOURCE_DIR}/megacity_scene.metal)
 set(MEGACITY_METAL_AIR    ${SHADER_OUTPUT_DIR}/megacity_scene.air)

@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <functional>
 
+#include "support/fake_host.h"
+
 // GuiActionHandler lives under app/ — not an installed library header.  The app/
 // directory is added to the test binary's include paths in CMakeLists.txt so we
 // can include it as a plain header.
@@ -190,6 +192,56 @@ TEST_CASE("gui action handler: font_reset updates config to default point size a
     INFO("in-memory font_size should be reset to DEFAULT_POINT_SIZE by font_reset");
     REQUIRE(config.font_size == TextService::DEFAULT_POINT_SIZE);
     INFO("on_config_changed should fire exactly once for font_reset");
+    REQUIRE(save_count == 1);
+}
+
+TEST_CASE("gui action handler: focused host can consume font size actions", "[config]")
+{
+    TextService ts;
+    if (!init_text_service(ts))
+        SKIP("bundled font not found");
+
+    AppConfig config;
+    config.font_size = TextService::DEFAULT_POINT_SIZE;
+
+    tests::FakeHost host("markdown");
+    host.dispatch_action_result = true;
+
+    int save_count = 0;
+    auto deps = make_deps(ts, config, [&save_count]() { ++save_count; });
+    deps.focused_host = [&host]() -> IHost* { return &host; };
+    GuiActionHandler handler(std::move(deps));
+
+    handler.execute("font_increase");
+
+    REQUIRE(host.dispatched_actions.size() == 1);
+    REQUIRE(host.dispatched_actions.front() == "font_increase");
+    REQUIRE(config.font_size == TextService::DEFAULT_POINT_SIZE);
+    REQUIRE(save_count == 0);
+}
+
+TEST_CASE("gui action handler: font size actions fall back when focused host declines them", "[config]")
+{
+    TextService ts;
+    if (!init_text_service(ts))
+        SKIP("bundled font not found");
+
+    AppConfig config;
+    config.font_size = TextService::DEFAULT_POINT_SIZE;
+
+    tests::FakeHost host("terminal");
+    host.dispatch_action_result = false;
+
+    int save_count = 0;
+    auto deps = make_deps(ts, config, [&save_count]() { ++save_count; });
+    deps.focused_host = [&host]() -> IHost* { return &host; };
+    GuiActionHandler handler(std::move(deps));
+
+    handler.execute("font_increase");
+
+    REQUIRE(host.dispatched_actions.size() == 1);
+    REQUIRE(host.dispatched_actions.front() == "font_increase");
+    REQUIRE(config.font_size == TextService::DEFAULT_POINT_SIZE + 0.5f);
     REQUIRE(save_count == 1);
 }
 
