@@ -112,6 +112,11 @@ public:
 
     const AtlasRegion& get_cluster(const std::string& text, FT_Face face, TextShaper& shaper);
 
+    // Synthesized box-drawing / block-element glyph drawn procedurally at
+    // exactly cell_w x cell_h so adjacent cells tile without seams. cp must
+    // come from synthesized_box_codepoint(text).
+    const AtlasRegion& get_box_glyph(uint32_t cp, const std::string& text, int cell_w, int cell_h, int ascender);
+
     bool atlas_dirty() const
     {
         return dirty_;

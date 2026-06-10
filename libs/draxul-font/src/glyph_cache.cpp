@@ -1,3 +1,4 @@
+#include "box_drawing.h"
 #include "font_engine.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -212,6 +213,59 @@ const AtlasRegion& GlyphCache::get_cluster(const std::string& text, FT_Face face
 
     DRAXUL_LOG_DEBUG(LogCategory::Font, "rasterize_cluster failed: %s", result.error().message.c_str());
     return empty_region_;
+}
+
+const AtlasRegion& GlyphCache::get_box_glyph(uint32_t cp, const std::string& text, int cell_w, int cell_h, int ascender)
+{
+    PERF_MEASURE();
+    if (cell_w <= 0 || cell_h <= 0)
+        return empty_region_;
+
+    ClusterKey key = { face_, text };
+    auto it = cluster_cache_.find(key);
+    if (it != cluster_cache_.end())
+        return it->second;
+
+    int atlas_x = 0;
+    int atlas_y = 0;
+    if (!reserve_region(cell_w, cell_h, atlas_x, atlas_y, "box glyph"))
+        return empty_region_;
+    used_pixels_ += (size_t)cell_w * cell_h;
+
+    const std::vector<uint8_t> coverage = render_box_glyph(cp, cell_w, cell_h);
+    for (int row = 0; row < cell_h; row++)
+    {
+        uint8_t* dst = atlas_.data() + (((size_t)(atlas_y + row) * atlas_size_) + atlas_x) * ATLAS_PIXEL_SIZE;
+        const uint8_t* src = coverage.data() + (size_t)row * cell_w;
+        for (int col = 0; col < cell_w; col++)
+        {
+            dst[col * 4 + 0] = 255;
+            dst[col * 4 + 1] = 255;
+            dst[col * 4 + 2] = 255;
+            dst[col * 4 + 3] = src[col];
+        }
+    }
+
+    AtlasRegion region{};
+    const float inv_size = 1.0f / static_cast<float>(atlas_size_);
+    region.uv = {
+        static_cast<float>(atlas_x) * inv_size,
+        static_cast<float>(atlas_y) * inv_size,
+        static_cast<float>(atlas_x + cell_w) * inv_size,
+        static_cast<float>(atlas_y + cell_h) * inv_size
+    };
+    // Bearing anchors the bitmap so it covers the cell exactly: the renderer
+    // places the glyph top at ascender - bearing.y = 0 px from the cell top.
+    region.bitmap_bearing = { 0, ascender };
+    region.bitmap_size = { cell_w, cell_h };
+    region.advance_px = cell_w;
+    region.is_color = false;
+
+    expand_dirty_rect(dirty_rect_, dirty_, atlas_x, atlas_y, cell_w, cell_h);
+    dirty_ = true;
+
+    auto [ins, _] = cluster_cache_.try_emplace(std::move(key), region);
+    return ins->second;
 }
 
 bool GlyphCache::reserve_region(int w, int h, int& atlas_x, int& atlas_y, const char* label)

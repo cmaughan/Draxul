@@ -61,7 +61,8 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **FreeType** loads faces, **HarfBuzz** shapes text, glyph cache rasterizes on demand
 - **Ligatures**: Programming ligatures via HarfBuzz (configurable, default on); supports multi-cell ligatures up to 6 cells (e.g. `===`, `!==`, `>>=`, `<<=`), with correct highlight-boundary breaking
 - **Multi-weight**: Bold, italic, bold+italic via separate font files
-- **Fallback chain**: Primary font + configurable fallback paths for missing glyphs
+- **Fallback chain**: Primary font + configurable fallback paths for missing glyphs. macOS defaults include STIX Two Math for technical symbols (e.g. `⏵` U+23F5) absent from Apple Symbols
+- **Synthesized box drawing**: Box Drawing (U+2500–257F) and Block Elements (U+2580–259F) are drawn procedurally at exact cell size instead of rasterized from the font, so adjacent cells tile seamlessly at any size/DPI (no anti-aliased gaps in TUI borders, progress bars, or logos)
 - **Emoji**: Color glyph rendering, variation selectors (VS-16), ZWJ sequences
 - **Wide characters**: CJK double-width, combining characters
 - **Bundled fonts**: JetBrains Mono Nerd Font (regular/bold/italic/bold-italic), Cascadia Code

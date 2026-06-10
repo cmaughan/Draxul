@@ -1,5 +1,6 @@
 #pragma once
 
+#include "box_drawing.h"
 #include "font_engine.h"
 #include "font_resolver.h"
 #include "font_selector.h"
@@ -48,19 +49,28 @@ public:
             reset_atlas(resolver.primary().face(), static_cast<int>(resolver.primary().point_size()));
         }
 
+        // Box drawing / block elements are synthesized at exact cell size so
+        // they tile without seams; font selection is bypassed entirely.
+        if (const uint32_t box_cp = synthesized_box_codepoint(text))
+        {
+            const FontMetrics& metrics = resolver.primary().metrics();
+            AtlasRegion region = glyph_cache_.get_box_glyph(
+                box_cp, text, metrics.cell_width, metrics.cell_height, metrics.ascender);
+            if (region.bitmap_size.x > 0 || !glyph_cache_.consume_overflowed())
+                return region;
+
+            reset_after_overflow(resolver);
+            return glyph_cache_.get_box_glyph(
+                box_cp, text, metrics.cell_width, metrics.cell_height, metrics.ascender);
+        }
+
         auto sel = selector.select(text, resolver, is_bold, is_italic);
         AtlasRegion region = glyph_cache_.get_cluster(text, sel.face, *sel.shaper);
 
         if (region.bitmap_size.x > 0 || region.bitmap_size.y > 0 || !glyph_cache_.consume_overflowed())
             return region;
 
-        // Atlas overflowed — reset and retry once.
-        glyph_cache_.reset(resolver.primary().face(), static_cast<int>(resolver.primary().point_size()));
-        atlas_reset_pending_ = true;
-        atlas_reset_count_++;
-        DRAXUL_LOG_WARN(
-            LogCategory::Font, "Glyph atlas reset after exhaustion (count=%d)", atlas_reset_count_);
-
+        reset_after_overflow(resolver);
         sel = selector.select(text, resolver, is_bold, is_italic);
         return glyph_cache_.get_cluster(text, sel.face, *sel.shaper);
     }
@@ -87,6 +97,16 @@ public:
     }
 
 private:
+    // Atlas overflowed — reset so the caller can retry once.
+    void reset_after_overflow(FontResolver& resolver)
+    {
+        glyph_cache_.reset(resolver.primary().face(), static_cast<int>(resolver.primary().point_size()));
+        atlas_reset_pending_ = true;
+        atlas_reset_count_++;
+        DRAXUL_LOG_WARN(
+            LogCategory::Font, "Glyph atlas reset after exhaustion (count=%d)", atlas_reset_count_);
+    }
+
     GlyphCache glyph_cache_;
     FT_Face expected_primary_face_ = nullptr;
     bool atlas_reset_pending_ = false;

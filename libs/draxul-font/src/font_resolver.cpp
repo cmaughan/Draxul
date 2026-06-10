@@ -32,6 +32,10 @@ std::vector<std::string> default_fallback_font_candidates()
     return {
         "/System/Library/Fonts/Apple Color Emoji.ttc",
         "/System/Library/Fonts/Apple Symbols.ttf",
+        // Apple Symbols lacks several technical symbols (e.g. U+23F5 ⏵ used
+        // by Claude Code's status line); STIX Two Math is the only system
+        // font that covers them.
+        "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
         "/System/Library/Fonts/Apple Braille.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Hiragino Sans GB.ttc",
