@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <draxul/types.h>
 #include <string_view>
+#include <vector>
 
 namespace draxul
 {
@@ -132,6 +133,29 @@ inline uint32_t utf8_first_codepoint(std::string_view text)
     uint32_t cp = ' ';
     utf8_decode_next(text, offset, cp);
     return cp;
+}
+
+// Maps every byte offset in `text` to the index of the codepoint containing
+// it. The returned vector has text.size() + 1 entries; the final entry is the
+// total codepoint count. Useful for translating HarfBuzz cluster values
+// (byte offsets) into character/cell indices.
+inline std::vector<int> utf8_codepoint_indices(std::string_view text)
+{
+    std::vector<int> indices(text.size() + 1, 0);
+    size_t offset = 0;
+    int index = 0;
+    while (offset < text.size())
+    {
+        const size_t start = offset;
+        uint32_t cp = 0;
+        if (!utf8_decode_next(text, offset, cp))
+            offset = text.size();
+        for (size_t b = start; b < offset; ++b)
+            indices[b] = index;
+        ++index;
+    }
+    indices[text.size()] = index;
+    return indices;
 }
 
 inline bool is_east_asian_wide(uint32_t cp)

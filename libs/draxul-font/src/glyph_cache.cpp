@@ -1,5 +1,6 @@
 #include "box_drawing.h"
 #include "font_engine.h"
+#include <draxul/unicode.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <algorithm>
@@ -311,8 +312,34 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     int bbox_top = INT_MIN;
     int bbox_bottom = INT_MAX;
 
+    // The grid places cells every max_advance pixels, but glyph advances are
+    // typically fractionally smaller (e.g. 17.6px ink in an 18px cell). Pin
+    // each codepoint's glyphs to its cell origin so multi-cell clusters
+    // (ligatures, contextual alternates) keep the same pitch as standalone
+    // cells; otherwise the cluster compresses and its glyphs shift in X
+    // relative to neighbouring cells. Rich text opts out: proportional
+    // chunks need the font's natural additive advances.
+    const int face_cell_w = (cell_aligned_clusters_ && face != nullptr)
+        ? static_cast<int>(face->size->metrics.max_advance >> 6)
+        : 0;
+    const std::vector<int> cp_indices = cell_aligned_clusters_
+        ? utf8_codepoint_indices(text)
+        : std::vector<int>{};
+    int prev_cp_index = -1;
+
     for (const auto& shaped_glyph : shaped)
     {
+        if (face_cell_w > 0)
+        {
+            const size_t cluster_byte = std::min((size_t)std::max(shaped_glyph.cluster, 0), text.size());
+            const int cp_index = cp_indices[cluster_byte];
+            if (cp_index != prev_cp_index)
+            {
+                pen_x = cp_index * face_cell_w;
+                prev_cp_index = cp_index;
+            }
+        }
+
         if (FT_Load_Glyph(face, shaped_glyph.glyph_id, FT_LOAD_DEFAULT | FT_LOAD_COLOR))
             return Result<AtlasRegion, Error>::err(
                 Error{ ErrorKind::AtlasOverflow, "FT_Load_Glyph failed for cluster: " + text });

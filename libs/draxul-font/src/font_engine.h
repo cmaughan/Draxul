@@ -164,6 +164,12 @@ public:
         return overflowed;
     }
 
+    // See TextServiceConfig::cell_aligned_clusters.
+    void set_cell_aligned_clusters(bool enabled)
+    {
+        cell_aligned_clusters_ = enabled;
+    }
+
 private:
     struct ClusterKey
     {
@@ -201,6 +207,7 @@ private:
     bool dirty_ = false;
     DirtyRect dirty_rect_ = {};
     bool overflowed_ = false;
+    bool cell_aligned_clusters_ = true;
     AtlasRegion empty_region_ = {};
 };
 

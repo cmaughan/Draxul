@@ -50,6 +50,34 @@ inline bool shaping_differs(
     return false;
 }
 
+// Per-cell glyph signature: which glyphs (and at what offsets) a single
+// codepoint cell receives from a shaping run.
+struct CellGlyphSignature
+{
+    std::vector<ShapedGlyph> glyphs;
+
+    bool operator==(const CellGlyphSignature& other) const
+    {
+        return !shaping_differs(glyphs, other.glyphs);
+    }
+};
+
+// Groups shaped glyphs by the codepoint cell their cluster maps to.
+inline std::vector<CellGlyphSignature> group_glyphs_by_cell(
+    const std::vector<ShapedGlyph>& shaped, const std::vector<int>& cp_indices, int cp_count)
+{
+    std::vector<CellGlyphSignature> cells((size_t)std::max(cp_count, 0));
+    const size_t max_byte = cp_indices.empty() ? 0 : cp_indices.size() - 1;
+    for (const auto& glyph : shaped)
+    {
+        const size_t byte = std::min((size_t)std::max(glyph.cluster, 0), max_byte);
+        const int cell = cp_indices.empty() ? 0 : cp_indices[byte];
+        if (cell >= 0 && cell < cp_count)
+            cells[(size_t)cell].glyphs.push_back(glyph);
+    }
+    return cells;
+}
+
 } // namespace
 
 // Detects eligible ligature spans in a cluster sequence.
@@ -128,13 +156,21 @@ public:
             return 0;
         }
 
-        int advance = 0;
-        for (const auto& glyph : shaped)
-            advance += std::max(0, glyph.x_advance);
+        // Shaping differs somewhere, but only the contiguous run of cells that
+        // actually changed — starting at the leader — forms the ligature.
+        // Without this, any candidate containing a ligature pair anywhere
+        // (e.g. "--rend" while typing "--render-test") would be grouped into a
+        // single cluster, displacing the unrelated trailing glyphs.
+        const auto cp_indices = utf8_codepoint_indices(text);
+        const auto shaped_cells = group_glyphs_by_cell(shaped, cp_indices, codepoint_count);
+        const auto plain_cells = group_glyphs_by_cell(plain, cp_indices, codepoint_count);
 
-        const int cell_width = std::max(1, resolver.primary().metrics().cell_width);
-        const int span = std::max(1, (advance + cell_width - 1) / cell_width);
-        const int ligature_span = (span >= 2 && span <= MAX_LIGATURE_CELLS) ? span : 0;
+        int diff_run = 0;
+        while (diff_run < codepoint_count
+            && !(shaped_cells[(size_t)diff_run] == plain_cells[(size_t)diff_run]))
+            ++diff_run;
+
+        const int ligature_span = (diff_run >= 2 && diff_run <= MAX_LIGATURE_CELLS) ? diff_run : 0;
         store(text, ligature_span);
         return ligature_span;
     }

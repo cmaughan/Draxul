@@ -162,13 +162,13 @@ struct RichTextService::Impl
             return {};
 
         return { style_service.atlas_id,
-                 style_service.generation,
-                 service->atlas_data(),
-                 service->atlas_width(),
-                 service->atlas_height(),
-                 service->atlas_dirty_rect(),
-                 service->atlas_dirty(),
-                 style_service.reset_pending };
+            style_service.generation,
+            service->atlas_data(),
+            service->atlas_width(),
+            service->atlas_height(),
+            service->atlas_dirty_rect(),
+            service->atlas_dirty(),
+            style_service.reset_pending };
     }
 };
 
@@ -188,6 +188,9 @@ bool RichTextService::initialize(const TextServiceConfig& config, float base_poi
     shutdown();
 
     impl_->config = config;
+    // Rich text chunks are positioned by their natural additive advances;
+    // grid-cell pitch alignment would distort proportional layout.
+    impl_->config.cell_aligned_clusters = false;
     impl_->display_ppi = display_ppi;
     impl_->base_style = normalize_style({ base_point_size, false, false });
     impl_->active_style = impl_->base_style;
@@ -316,8 +319,8 @@ int RichTextService::ligature_cell_span(const std::string& text, bool is_bold, b
 {
     auto* style_service = impl_->base_service();
     return style_service != nullptr && style_service->service != nullptr
-               ? style_service->service->ligature_cell_span(text, is_bold, is_italic)
-               : 0;
+        ? style_service->service->ligature_cell_span(text, is_bold, is_italic)
+        : 0;
 }
 
 bool RichTextService::atlas_dirty() const
@@ -369,7 +372,7 @@ AtlasDirtyRect RichTextService::atlas_dirty_rect() const
 {
     const auto* style_service = impl_->base_service();
     return style_service != nullptr && style_service->service != nullptr ? style_service->service->atlas_dirty_rect()
-                                                                        : AtlasDirtyRect{};
+                                                                         : AtlasDirtyRect{};
 }
 
 } // namespace draxul

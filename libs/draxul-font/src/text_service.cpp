@@ -32,6 +32,7 @@ struct TextService::Impl
 
         if (!atlas_manager.initialize(resolver.primary().face(), static_cast<int>(resolver.primary().point_size())))
             return false;
+        atlas_manager.cache().set_cell_aligned_clusters(config.cell_aligned_clusters);
 
         return true;
     }

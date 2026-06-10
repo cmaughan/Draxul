@@ -325,8 +325,9 @@ TEST_CASE("grid rendering pipeline reuses scratch capacity for ligature expansio
     pipeline.set_enable_ligatures(true);
 
     pipeline.flush();
+    // Run-based expansion covers the whole 2-cell shaping run.
     const size_t first_capacity = pipeline.expanded_scratch_capacity_for_testing();
-    REQUIRE(first_capacity >= 6);
+    REQUIRE(first_capacity >= 2);
 
     grid.mark_all_dirty();
     pipeline.flush();

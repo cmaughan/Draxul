@@ -49,27 +49,57 @@ CellUpdate make_cell_update(int col, int row, const Cell& cell, HighlightTable& 
     return update;
 }
 
+bool cell_chainable(const Cell& cell)
+{
+    return !cell.double_width && !cell.double_width_cont && should_shape_cell_text(cell);
+}
+
+bool cells_chain(const Cell& lhs, const Cell& rhs)
+{
+    return cell_chainable(lhs) && cell_chainable(rhs) && lhs.hl_attr_id == rhs.hl_attr_id;
+}
+
 void expand_dirty_cells_for_ligatures_impl(
     const Grid& grid, const std::vector<Grid::DirtyCell>& dirty, std::vector<Grid::DirtyCell>& expanded)
 {
     PERF_MEASURE();
     expanded.clear();
-    // Each dirty cell can expand by up to (kMaxLigatureCells - 1) in each direction.
-    const int expand_radius = kMaxLigatureCells - 1;
-    const size_t needed = dirty.size() * (1 + 2 * expand_radius);
-    if (expanded.capacity() < needed)
-        expanded.reserve(needed);
-    expanded.insert(expanded.end(), dirty.begin(), dirty.end());
+    if (expanded.capacity() < dirty.size())
+        expanded.reserve(dirty.size());
 
+    // Ligature grouping is anchored at the start of each shaping run (a
+    // maximal stretch of chainable cells with the same highlight). A changed
+    // cell can regroup its entire run — e.g. typing the 4th '/' of "////"
+    // breaks the previous "///" cluster — so expand every dirty cell to the
+    // full runs touching it. A fixed radius is not enough: it can land
+    // mid-run, re-anchoring groups at an arbitrary column and leaving stale
+    // overlapping cluster glyphs behind.
     for (const auto& cell : dirty)
     {
-        for (int d = 1; d <= expand_radius; ++d)
+        // The left-adjacent run is included even when the dirty cell itself
+        // no longer chains to it: an edit can split or shorten that run
+        // (e.g. deleting the last '/' of "/////"), which regroups it.
+        int left = cell.col;
+        if (left > 0)
         {
-            if (cell.col - d >= 0)
-                expanded.push_back({ cell.col - d, cell.row });
-            if (cell.col + d < grid.cols())
-                expanded.push_back({ cell.col + d, cell.row });
+            int run = left - 1;
+            while (run > 0 && cells_chain(grid.get_cell(run - 1, cell.row), grid.get_cell(run, cell.row)))
+                --run;
+            left = run;
         }
+
+        int right = cell.col;
+        if (right + 1 < grid.cols())
+        {
+            int run = right + 1;
+            while (run + 1 < grid.cols()
+                && cells_chain(grid.get_cell(run, cell.row), grid.get_cell(run + 1, cell.row)))
+                ++run;
+            right = run;
+        }
+
+        for (int c = left; c <= right; ++c)
+            expanded.push_back({ c, cell.row });
     }
 
     std::sort(expanded.begin(), expanded.end(), [](const Grid::DirtyCell& lhs, const Grid::DirtyCell& rhs) {

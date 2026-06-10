@@ -22,6 +22,12 @@ struct TextServiceConfig
     std::vector<std::string> fallback_paths;
     size_t font_choice_cache_limit = DEFAULT_FONT_CHOICE_CACHE_LIMIT;
     bool enable_ligatures = true;
+    // Pin each codepoint of a multi-cell cluster to grid cell boundaries
+    // (cell pitch) instead of the font's natural advances. Required for the
+    // terminal grid so ligature clusters keep the same pitch as standalone
+    // cells; disabled for rich text where natural proportional advances
+    // matter (see RichTextService).
+    bool cell_aligned_clusters = true;
 };
 
 class TextService : public IGlyphAtlas
