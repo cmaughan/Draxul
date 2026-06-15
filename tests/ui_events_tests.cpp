@@ -6,6 +6,8 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <limits>
+
 using namespace draxul;
 using namespace draxul::tests;
 
@@ -628,6 +630,23 @@ TEST_CASE("ui event handler tolerates type-mismatched redraw payloads", "[ui]")
     INFO("previously-written cells are not overwritten by malformed grid_line");
     REQUIRE(grid.get_cell(0, 0).text == std::string("A"));
     REQUIRE(grid.get_cell(1, 0).text == std::string("B"));
+}
+
+TEST_CASE("ui event handler rejects out-of-range integer redraw payloads", "[ui]")
+{
+    UiEventHandler handler;
+
+    handler.process_redraw({
+        redraw_event("mode_change", { arr({ s("normal"), i(42) }) }),
+    });
+    REQUIRE(handler.current_mode() == 42);
+
+    REQUIRE_NOTHROW(handler.process_redraw({
+        redraw_event("mode_change", { arr({ s("normal"), NvimRpc::make_uint(std::numeric_limits<uint64_t>::max()) }) }),
+        redraw_event("mode_change", { arr({ s("normal"), i(std::numeric_limits<int64_t>::max()) }) }),
+    }));
+
+    REQUIRE(handler.current_mode() == 42);
 }
 
 TEST_CASE("ui event handler does not crash when both grid and highlights are null", "[ui]")

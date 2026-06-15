@@ -1,13 +1,17 @@
 #include "support/scoped_env_var.h"
+#include "support/temp_dir.h"
 #include "support/test_support.h"
 
 #include <catch2/catch_all.hpp>
+#include <atomic>
 #include <chrono>
 #include <draxul/log.h>
 #include <draxul/nvim.h>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
+#include <utility>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -234,4 +238,52 @@ TEST_CASE("nvim rpc logs a warning when the transport aborts before a response a
     REQUIRE(result.error().kind == ErrorKind::IoError);
     INFO("aborted request should emit an rpc warning");
     REQUIRE(has_log_message(capture.records, LogLevel::Warn, LogCategory::Rpc, "Request timed out or aborted: fake_method"));
+}
+
+TEST_CASE("nvim rpc notify write failure does not signal notification availability", "[rpc]")
+{
+    ScopedEnvVar env("DRAXUL_RPC_FAKE_MODE", "close_stdin_until_release");
+    TempDir temp("draxul-rpc-notify-write-failure");
+    const std::filesystem::path ready_file = temp.path / "ready.txt";
+    const std::filesystem::path release_file = temp.path / "release.txt";
+    const std::string ready_file_string = ready_file.string();
+    const std::string release_file_string = release_file.string();
+    ScopedEnvVar ready_env("DRAXUL_RPC_FAKE_READY_FILE", ready_file_string.c_str());
+    ScopedEnvVar release_env("DRAXUL_RPC_FAKE_RELEASE_FILE", release_file_string.c_str());
+
+    NvimProcess process;
+    INFO("fake RPC server spawns");
+    REQUIRE(process.spawn(helper_path()));
+
+    std::atomic<int> notification_callbacks = 0;
+    NvimRpc rpc;
+    RpcCallbacks callbacks;
+    callbacks.on_notification_available = [&]() {
+        ++notification_callbacks;
+    };
+
+    INFO("rpc initializes");
+    REQUIRE(rpc.initialize(process, std::move(callbacks)));
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!std::filesystem::exists(ready_file) && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    REQUIRE(std::filesystem::exists(ready_file));
+
+    rpc.notify("fake_notification", { NvimRpc::make_int(7) });
+
+    INFO("write failure is tracked as a connection failure");
+    REQUIRE(rpc.connection_failed());
+    INFO("no notification was queued, so the notification callback must not fire");
+    REQUIRE(notification_callbacks.load() == 0);
+    INFO("draining notifications after write failure is empty");
+    REQUIRE(rpc.drain_notifications().empty());
+
+    {
+        std::ofstream release(release_file, std::ios::binary);
+        release << "release";
+    }
+
+    rpc.shutdown();
+    process.shutdown();
 }

@@ -117,6 +117,7 @@ All fetched automatically via CMake FetchContent: SDL3, FreeType, HarfBuzz, MPac
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessligatures`, or `py do.py blessall` from the repo root.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
+- Keep planning artifacts under `plans/`. Superpowers plans belong under `plans/superpowers/`, not under `docs/`.
 - When you complete a work item from `plans/work-items/*.md`, tick the completed entries and move it to `plans/work-items-complete/`.
 - After implementing a new user-facing feature, configuration option, CLI flag, or build/CI change, update `docs/features.md`.
 - Before creating new work items, check `docs/features.md` to verify the proposed feature or capability is not already implemented.

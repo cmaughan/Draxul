@@ -105,6 +105,23 @@ TEST_CASE("corrupt config: garbage binary content produces WARN and defaults", "
     REQUIRE(has_warn_log(capture.records, "Failed to parse config"));
 }
 
+TEST_CASE("corrupt config: parse failure warning includes source line number", "[config][corrupt]")
+{
+    TempConfigFile tmp("window_width = 1280\n"
+                       "window_height = 720\n"
+                       "[terminal]\n"
+                       "fg = \"#ffffff\n");
+
+    ScopedLogCapture capture(LogLevel::Warn);
+    AppConfig config = AppConfig::load_from_path(tmp.file);
+
+    assert_defaults(config);
+    INFO("Expected a WARN about parse failure");
+    REQUIRE(has_warn_log(capture.records, "Failed to parse config"));
+    INFO("Expected parse failure to include the TOML source line number");
+    REQUIRE(has_warn_log(capture.records, "line 4"));
+}
+
 TEST_CASE("corrupt config: parse() with garbage string returns defaults", "[config][corrupt]")
 {
     // Test the in-memory parse path (no file I/O).

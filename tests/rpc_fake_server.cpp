@@ -2,7 +2,9 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -20,6 +22,39 @@ std::string mode()
     if (const char* value = std::getenv("DRAXUL_RPC_FAKE_MODE"))
         return value;
     return "success";
+}
+
+void write_marker_file(const char* path, const char* text)
+{
+    if (!path || path[0] == '\0')
+        return;
+
+    if (FILE* out = std::fopen(path, "wb"))
+    {
+        std::fputs(text, out);
+        std::fclose(out);
+    }
+}
+
+bool marker_file_exists(const char* path)
+{
+    if (!path || path[0] == '\0')
+        return false;
+
+    if (FILE* in = std::fopen(path, "rb"))
+    {
+        std::fclose(in);
+        return true;
+    }
+    return false;
+}
+
+void wait_for_release_file()
+{
+    const char* path = std::getenv("DRAXUL_RPC_FAKE_RELEASE_FILE");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!marker_file_exists(path) && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
 bool write_all(const std::vector<char>& bytes)
@@ -90,6 +125,14 @@ int main()
 #endif
 
     const std::string current_mode = mode();
+    if (current_mode == "close_stdin_until_release")
+    {
+        std::fclose(stdin);
+        write_marker_file(std::getenv("DRAXUL_RPC_FAKE_READY_FILE"), "ready");
+        wait_for_release_file();
+        return 0;
+    }
+
     if (current_mode == "dump_term_and_exit")
     {
         if (const char* path = std::getenv("DRAXUL_RPC_FAKE_TERM_DUMP"))

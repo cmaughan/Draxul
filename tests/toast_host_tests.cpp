@@ -11,16 +11,17 @@
 
 #include <array>
 #include <chrono>
-#include <array>
 #include <draxul/app_config.h>
 #include <draxul/gui/toast_renderer.h>
 #include <draxul/text_service.h>
 #include <filesystem>
+#include <thread>
 
 #include "support/fake_clock.h"
 #include "support/fake_grid_pipeline_renderer.h"
 #include "support/fake_window.h"
 #include "support/test_host_callbacks.h"
+#include "support/test_support.h"
 
 using namespace draxul;
 using namespace std::chrono_literals;
@@ -292,10 +293,15 @@ TEST_CASE("ToastHost: a toast pushed from a background thread forces an immediat
 
     REQUIRE_FALSE(h.host.next_deadline().has_value());
 
-    // Simulate a push from another thread (the ToastHost push() contract
-    // explicitly allows any thread). We don't need real thread scheduling to
-    // exercise next_deadline's treatment of the pending queue.
-    h.host.push(gui::ToastLevel::Info, "from worker", 4.0f);
+    const int baseline_frames = h.callbacks.request_frame_calls;
+
+    // Exercise the real cross-thread push path. ToastHost::push() only queues
+    // into pending_; the app-level wake is what gets the main loop moving, and
+    // next_deadline() must make the queued toast visible on that wake.
+    std::thread worker([&h]() {
+        h.host.push(gui::ToastLevel::Info, "from worker", 4.0f);
+    });
+    worker.join();
 
     const auto deadline = h.host.next_deadline();
     REQUIRE(deadline.has_value());
@@ -307,6 +313,11 @@ TEST_CASE("ToastHost: a toast pushed from a background thread forces an immediat
     // After pumping, the pending queue drains into active_ and the deadline
     // switches back to the animation cadence (roughly +33ms).
     h.host.pump();
+    const auto& active = h.host.active_toasts_for_test();
+    REQUIRE(active.size() == 1);
+    CHECK(active[0].message == "from worker");
+    CHECK(h.callbacks.request_frame_calls > baseline_frames);
+
     const auto after_pump = h.host.next_deadline();
     REQUIRE(after_pump.has_value());
     CHECK(*after_pump > std::chrono::steady_clock::now());
@@ -361,8 +372,11 @@ TEST_CASE("ToastHost: initialize() returns false gracefully when create_grid_han
     };
 
     // Must return false (not crash) when the renderer hands back a null handle.
+    tests::ScopedLogCapture capture(LogLevel::Error);
     CHECK_FALSE(h.host.initialize(context, h.callbacks));
     CHECK(h.renderer.create_grid_handle_calls == 1);
+    REQUIRE(capture.records.size() == 1);
+    CHECK(capture.records[0].message.find("create_grid_handle() returned null") != std::string::npos);
 
     // And subsequent pump()/refresh() calls must not dereference the null handle.
     h.host.push(gui::ToastLevel::Info, "post-fail", 4.0f);

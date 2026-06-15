@@ -12,13 +12,30 @@ Verify that `ToastHost::initialize()` returns gracefully (no crash, no null-dere
 
 ---
 
+## Completion Evidence
+
+Implemented in `tests/toast_host_tests.cpp`:
+
+- `ToastHost: initialize() returns false gracefully when create_grid_handle() is null`
+- Uses `FakeGridPipelineRenderer::fail_create_grid_handle`
+- Verifies `initialize()` returns `false`, logs the null-handle error, and `pump()` after failed init does not dereference `handle_`
+
+Verified with:
+
+```powershell
+cmake --build build --config Debug --target draxul-tests -- /m:4
+.\build\tests\Debug\draxul-tests.exe "[toast]"
+```
+
+---
+
 ## What to test
 
-- [ ] Construct a `ToastHost` backed by a fake renderer that injects a `nullptr` from `create_grid_handle()`.
-- [ ] Call `initialize()` and assert it returns `false` (not true, not an exception, not a crash).
-- [ ] Assert no subsequent method on `handle_` is called (check with an `EXPECT_CALL`-style mock or a crash-on-deref sentinel).
-- [ ] Assert that the error is logged (`DRAXUL_LOG_ERROR` with an identifiable message).
-- [ ] After the failed init, verify that `ToastHost` can be safely destroyed without a double-free or crash.
+- [x] Construct a `ToastHost` backed by a fake renderer that injects a `nullptr` from `create_grid_handle()`.
+- [x] Call `initialize()` and assert it returns `false` (not true, not an exception, not a crash).
+- [x] Assert no subsequent method on `handle_` is called (check with an `EXPECT_CALL`-style mock or a crash-on-deref sentinel).
+- [x] Assert that the error is logged (`DRAXUL_LOG_ERROR` with an identifiable message).
+- [x] After the failed init, verify that `ToastHost` can be safely destroyed without a double-free or crash.
 
 ---
 

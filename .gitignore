@@ -8,6 +8,7 @@ docs/deps/deps.dot.*
 .cache/
 .claude/
 .draxul/
+.superpowers/
 *.sqlite3
 Testing/
 *.user

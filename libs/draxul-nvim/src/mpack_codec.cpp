@@ -2,6 +2,9 @@
 
 #include <draxul/perf_timing.h>
 
+#include <cassert>
+#include <limits>
+
 #include <mpack.h>
 
 namespace draxul
@@ -76,16 +79,27 @@ void write_value(mpack_writer_t* writer, const MpackValue& val)
         mpack_write_double(writer, std::get<double>(val.storage));
         break;
     case MpackValue::String:
-        mpack_write_str(writer, val.as_str().c_str(), (uint32_t)val.as_str().size());
+    {
+        const size_t size = val.as_str().size();
+        assert(size <= std::numeric_limits<uint32_t>::max());
+        mpack_write_str(writer, val.as_str().c_str(), static_cast<uint32_t>(size));
         break;
+    }
     case MpackValue::Array:
-        mpack_start_array(writer, (uint32_t)val.as_array().size());
+    {
+        const size_t size = val.as_array().size();
+        assert(size <= std::numeric_limits<uint32_t>::max());
+        mpack_start_array(writer, static_cast<uint32_t>(size));
         for (const auto& child : val.as_array())
             write_value(writer, child);
         mpack_finish_array(writer);
         break;
+    }
     case MpackValue::Map:
-        mpack_start_map(writer, (uint32_t)val.as_map().size());
+    {
+        const size_t size = val.as_map().size();
+        assert(size <= std::numeric_limits<uint32_t>::max());
+        mpack_start_map(writer, static_cast<uint32_t>(size));
         for (const auto& [key, child] : val.as_map())
         {
             write_value(writer, key);
@@ -93,6 +107,7 @@ void write_value(mpack_writer_t* writer, const MpackValue& val)
         }
         mpack_finish_map(writer);
         break;
+    }
     default:
         mpack_write_nil(writer);
         break;

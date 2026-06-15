@@ -271,8 +271,6 @@ void NvimRpc::notify(const std::string& method, const std::vector<MpackValue>& p
         DRAXUL_LOG_ERROR(LogCategory::Rpc, "Write failed for notification %s", method.c_str());
         impl_->read_failed_ = true;
         impl_->response_cv_.notify_all();
-        if (callbacks_.on_notification_available)
-            callbacks_.on_notification_available();
     }
 }
 

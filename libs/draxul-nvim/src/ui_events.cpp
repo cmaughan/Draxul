@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <exception>
 #include <cstdio>
 #include <draxul/log.h>
 #include <draxul/nvim_ui.h>
 #include <draxul/perf_timing.h>
 #include <draxul/unicode.h>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -50,8 +52,19 @@ bool try_get_int(const MpackValue& value, int& out)
 {
     if (value.type() != MpackValue::Int && value.type() != MpackValue::UInt)
         return false;
-    out = (int)value.as_int();
-    return true;
+    try
+    {
+        const int64_t raw = value.as_int();
+        if (raw < static_cast<int64_t>(std::numeric_limits<int>::min())
+            || raw > static_cast<int64_t>(std::numeric_limits<int>::max()))
+            return false;
+        out = static_cast<int>(raw);
+        return true;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
 }
 
 enum class RedrawEventType

@@ -12,13 +12,31 @@ Verify that a toast pushed from a background thread while the app is idle is del
 
 ---
 
+## Completion Evidence
+
+Implemented in `tests/toast_host_tests.cpp`:
+
+- `ToastHost: a toast pushed from a background thread forces an immediate deadline`
+- Uses a real `std::thread` push into `ToastHost::push()`
+- Verifies `next_deadline()` wakes immediately while `pending_` is non-empty
+- Verifies `pump()` drains the queued toast into the active list and requests a frame
+
+Verified with:
+
+```powershell
+cmake --build build --config Debug --target draxul-tests -- /m:4
+.\build\tests\Debug\draxul-tests.exe "[toast]"
+```
+
+---
+
 ## What to test
 
-- [ ] Construct a `ToastHost` with a fake scheduler/clock and a fake frame-request callback.
-- [ ] Call `push_toast()` from a background thread while the main-loop clock is frozen (no events arriving).
-- [ ] Assert that the fake frame-request callback is invoked promptly (within one scheduler tick).
-- [ ] Assert that `next_deadline()` returns a near-future time when `pending_` is non-empty.
-- [ ] Assert that after the frame is processed, the toast appears in the rendered output (or at minimum in `ToastHost`'s active list).
+- [x] Construct a `ToastHost` with a fake scheduler/clock and a fake frame-request callback.
+- [x] Call `push_toast()` from a background thread while the main-loop clock is frozen (no events arriving).
+- [x] Assert that the fake frame-request callback is invoked promptly (within one scheduler tick).
+- [x] Assert that `next_deadline()` returns a near-future time when `pending_` is non-empty.
+- [x] Assert that after the frame is processed, the toast appears in the rendered output (or at minimum in `ToastHost`'s active list).
 
 ---
 
