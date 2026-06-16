@@ -6,6 +6,7 @@
 #include <fstream>
 #include <numeric>
 #include <set>
+#include <utility>
 
 namespace draxul
 {
@@ -103,6 +104,26 @@ struct GraphLink
 {
     const std::string label = clean_graphify_symbol_label(node_label_or_id(target_node, target_id));
     return label.empty() ? fallback_label_for_id(target_id) : label;
+}
+
+[[nodiscard]] CityDependencyRecord make_class_dependency_record(const GraphNode* source_node,
+    std::string_view source_id, const GraphNode* target_node, std::string_view target_id,
+    std::string_view source_fallback_file, std::string_view target_fallback_file, std::string field_name,
+    std::string field_type_name)
+{
+    const std::string source_file = node_source_file_or_link(source_node, source_id, source_fallback_file);
+    const std::string target_file = node_source_file_or_link(target_node, target_id, target_fallback_file);
+
+    CityDependencyRecord dep;
+    dep.source_qualified_name = std::string(source_id);
+    dep.source_module_path = node_module_or_source(source_node, source_id, source_file);
+    dep.field_name = std::move(field_name);
+    dep.field_type_name = std::move(field_type_name);
+    dep.target_qualified_name = std::string(target_id);
+    dep.target_module_path = node_module_or_source(target_node, target_id, target_file);
+    dep.source_file_path = source_file;
+    dep.target_file_path = target_file;
+    return dep;
 }
 
 [[nodiscard]] CodebaseHealthMetrics module_health(int building_count, int total_functions, int total_function_lines,
@@ -269,6 +290,44 @@ bool GraphifySemanticSource::load(const std::filesystem::path& path)
             }
         }
 
+        std::unordered_map<std::string, std::string> method_owner_by_method;
+        for (const GraphLink& link : links)
+        {
+            if (link.relation == "method")
+                method_owner_by_method[link.target] = link.source;
+        }
+
+        std::unordered_map<std::string, int> call_dependency_counts_by_owner;
+        for (const GraphLink& link : links)
+        {
+            if (link.relation != "calls")
+                continue;
+
+            const auto source_owner_it = method_owner_by_method.find(link.source);
+            const auto target_owner_it = method_owner_by_method.find(link.target);
+            if (source_owner_it == method_owner_by_method.end() || target_owner_it == method_owner_by_method.end())
+                continue;
+
+            const std::string& source_owner_id = source_owner_it->second;
+            const std::string& target_owner_id = target_owner_it->second;
+            if (source_owner_id == target_owner_id)
+                continue;
+
+            const GraphNode* source_owner_node = find_node(nodes, source_owner_id);
+            const GraphNode* target_owner_node = find_node(nodes, target_owner_id);
+            CityDependencyRecord dep = make_class_dependency_record(source_owner_node,
+                source_owner_id,
+                target_owner_node,
+                target_owner_id,
+                link.source_file,
+                std::string_view{},
+                {},
+                {});
+            const std::string source_module_path = dep.source_module_path;
+            deps_by_module_[source_module_path].push_back(std::move(dep));
+            ++call_dependency_counts_by_owner[source_owner_id];
+        }
+
         std::set<std::string> class_like_ids;
         for (const GraphLink& link : links)
         {
@@ -336,8 +395,27 @@ bool GraphifySemanticSource::load(const std::filesystem::path& path)
                     else if (link->relation == "inherits")
                     {
                         ++row.road_size;
+                        if (link->target != row.qualified_name)
+                        {
+                            const GraphNode* target_node = find_node(nodes, link->target);
+                            CityDependencyRecord dep = make_class_dependency_record(source_node,
+                                row.qualified_name,
+                                target_node,
+                                link->target,
+                                row.source_file_path,
+                                std::string_view{},
+                                {},
+                                {});
+                            deps_by_module_[row.module_path].push_back(std::move(dep));
+                        }
                     }
                 }
+            }
+
+            if (const auto call_count_it = call_dependency_counts_by_owner.find(id);
+                call_count_it != call_dependency_counts_by_owner.end())
+            {
+                row.road_size += call_count_it->second;
             }
 
             row.building_functions = static_cast<int>(row.function_names.size());
