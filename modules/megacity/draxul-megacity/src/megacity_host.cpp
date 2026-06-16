@@ -3,6 +3,7 @@
 #include "city_helpers.h"
 #include "city_input_state.h"
 #include "city_picking.h"
+#include "city_semantic_source.h"
 #include "isometric_camera.h"
 #include "isometric_scene_pass.h"
 #include "lcov_coverage.h"
@@ -1511,10 +1512,11 @@ void MegaCityHost::rebuild_semantic_city()
         return;
 
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
-    refresh_available_modules();
+    CityDatabaseSemanticSource semantic_source(city_db_);
+    available_modules_ = semantic_source.list_modules();
 
     auto result = build_city(
-        *world_, city_db_, sign_text_service_.get(),
+        *world_, semantic_source, sign_text_service_.get(),
         available_modules_, renderer_config_, sign_label_revision_);
     tree_bark_mesh_ = result.tree_bark_mesh;
     tree_leaf_mesh_ = result.tree_leaf_mesh;

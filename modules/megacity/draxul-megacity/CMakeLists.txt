@@ -4,6 +4,7 @@ if(APPLE)
     set(MEGACITY_SOURCES
         src/building_tooltip.cpp
         src/city_builder.cpp
+        src/city_semantic_source.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
         src/isometric_camera.cpp
@@ -26,6 +27,7 @@ else()
     set(MEGACITY_SOURCES
         src/building_tooltip.cpp
         src/city_builder.cpp
+        src/city_semantic_source.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
         src/isometric_camera.cpp

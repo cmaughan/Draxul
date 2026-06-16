@@ -1,5 +1,6 @@
 #include "city_builder.h"
 #include "city_helpers.h"
+#include "city_semantic_source.h"
 #include "live_city_metrics.h"
 #include "scene_world.h"
 #include "semantic_city_layout.h"
@@ -617,7 +618,7 @@ int procedural_building_side_count(
 
 CityBuildResult build_city(
     SceneWorld& world,
-    CityDatabase& city_db,
+    ICitySemanticSource& semantic_source,
     TextService* text_service,
     const std::vector<std::string>& available_modules,
     const MegaCityCodeConfig& config,
@@ -632,11 +633,11 @@ CityBuildResult build_city(
         if (!config.selected_module_path.empty()
             && module_path != config.selected_module_path)
             continue;
-        const CityModuleRecord mod_record = city_db.module_record(module_path);
+        const CityModuleRecord mod_record = semantic_source.module_record(module_path);
         modules.push_back({
             module_path,
-            city_db.list_classes_in_module(module_path),
-            city_db.list_class_dependencies_in_module(module_path),
+            semantic_source.list_classes_in_module(module_path),
+            semantic_source.list_class_dependencies_in_module(module_path),
             mod_record.quality,
             mod_record.health,
         });
@@ -644,7 +645,7 @@ CityBuildResult build_city(
 
     auto semantic_model = std::make_shared<SemanticMegacityModel>(
         build_semantic_megacity_model(modules, config));
-    semantic_model->codebase_health = city_db.codebase_health();
+    semantic_model->codebase_health = semantic_source.codebase_health();
     const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
     result.live_metrics = std::make_shared<LiveCityMetricsSnapshot>(
         build_live_city_metrics_snapshot(

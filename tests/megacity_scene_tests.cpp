@@ -5,6 +5,7 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_picking.h"
+#include "city_semantic_source.h"
 #include "isometric_camera.h"
 #include "isometric_scene_pass.h"
 #include "live_city_metrics.h"
@@ -38,6 +39,22 @@ using namespace draxul;
 
 namespace
 {
+
+class TestSemanticSource final : public draxul::ICitySemanticSource
+{
+public:
+    std::vector<std::string> modules{ "app" };
+    draxul::CityModuleRecord module;
+    std::vector<draxul::CityClassRecord> rows;
+    std::vector<draxul::CityDependencyRecord> deps;
+    draxul::CodebaseHealthMetrics health;
+
+    std::vector<std::string> list_modules() const override { return modules; }
+    draxul::CityModuleRecord module_record(std::string_view) const override { return module; }
+    std::vector<draxul::CityClassRecord> list_classes_in_module(std::string_view) const override { return rows; }
+    std::vector<draxul::CityDependencyRecord> list_class_dependencies_in_module(std::string_view) const override { return deps; }
+    draxul::CodebaseHealthMetrics codebase_health() const override { return health; }
+};
 
 float triangle_up_normal_y(const MeshData& mesh, size_t triangle_index)
 {
@@ -325,6 +342,40 @@ TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
     CHECK(elevation.value == Catch::Approx(0.25f));
 }
 
+TEST_CASE("MegaCity build_city consumes a semantic source adapter", "[megacity]")
+{
+    SceneWorld world;
+    TestSemanticSource source;
+    source.module.module_path = "app";
+    source.module.building_count = 1;
+    source.module.quality = 0.8f;
+    source.rows.push_back({
+        "Widget",
+        "app::Widget",
+        "app",
+        "app/widget.cpp",
+        "building",
+        false,
+        2,
+        1,
+        { 7 },
+        { "draw" },
+        1,
+        false,
+    });
+
+    MegaCityCodeConfig config;
+    uint64_t sign_revision = 0;
+    const CityBuildResult result = build_city(
+        world, source, nullptr, source.list_modules(), config, sign_revision);
+
+    REQUIRE(result.semantic_model);
+    REQUIRE(result.semantic_model->modules.size() == 1);
+    REQUIRE(result.semantic_model->modules[0].module_path == "app");
+    REQUIRE(result.semantic_model->modules[0].buildings.size() == 1);
+    REQUIRE(result.semantic_model->modules[0].buildings[0].qualified_name == "app::Widget");
+}
+
 TEST_CASE("megacity world creates module surface entities", "[megacity]")
 {
     SceneWorld world;
@@ -397,12 +448,13 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     SceneWorld world;
     MegaCityCodeConfig config;
     uint64_t sign_label_revision = 1;
-    const std::vector<std::string> modules = city_db.list_modules();
+    CityDatabaseSemanticSource semantic_source(city_db);
+    const std::vector<std::string> modules = semantic_source.list_modules();
     REQUIRE(modules.size() == 1);
 
     CityBuildResult build = build_city(
         world,
-        city_db,
+        semantic_source,
         &text_service,
         modules,
         config,
@@ -829,12 +881,13 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
     MegaCityCodeConfig config;
     config.roof_sign_min_width_per_character = 0.6f;
     uint64_t sign_label_revision = 1;
-    const std::vector<std::string> modules = city_db.list_modules();
+    CityDatabaseSemanticSource semantic_source(city_db);
+    const std::vector<std::string> modules = semantic_source.list_modules();
     REQUIRE(modules.size() == 1);
 
     build_city(
         world,
-        city_db,
+        semantic_source,
         &text_service,
         modules,
         config,

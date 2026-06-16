@@ -17,7 +17,7 @@ struct LiveCityMetricsSnapshot;
 struct SemanticMegacityModel;
 struct SemanticMegacityLayout;
 struct SignLabelAtlas;
-class CityDatabase;
+class ICitySemanticSource;
 class SceneWorld;
 class TextService;
 
@@ -61,7 +61,7 @@ void emit_route_entities(
 // The returned CityBuildResult owns the layout (for use by launch_grid_build).
 CityBuildResult build_city(
     SceneWorld& world,
-    CityDatabase& city_db,
+    ICitySemanticSource& semantic_source,
     TextService* text_service,
     const std::vector<std::string>& available_modules,
     const MegaCityCodeConfig& config,
