@@ -222,6 +222,8 @@ do run release           # Release build + run
 do run relwithdebinfo    # Windows: optimized build with PDB symbols
 do run release --vs      # Release build with VS generator (Windows)
 do run --console         # Attach a debug console (Windows)
+do run release --host megacity --parser graphify
+                         # Configure MegaCity to use graphify-out/graph.json, then launch
 do smoke                 # Smoke test
 do test                  # Full test suite
 ```

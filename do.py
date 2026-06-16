@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -189,6 +190,128 @@ def _parse_build_args(args: list[str]) -> tuple[str, bool, str, bool, list[str]]
     return mode, force_reconfigure, build_system, use_console, app_args
 
 
+def _normalize_megacity_parser(parser: str) -> str:
+    parser = parser.lower().replace("-", "_")
+    if parser == "graphify":
+        return "graphify"
+    if parser in ("treesitter", "tree_sitter", "treesitter_db", "tree_sitter_db"):
+        return "treesitter_db"
+    raise ValueError("--parser must be one of: graphify, treesitter, treesitter_db")
+
+
+def _has_megacity_host(app_args: list[str]) -> bool:
+    for i, arg in enumerate(app_args):
+        if arg == "--host" and i + 1 < len(app_args):
+            return app_args[i + 1].lower() == "megacity"
+    return False
+
+
+def _consume_megacity_parser_args(app_args: list[str]) -> tuple[list[str], str | None]:
+    """Consume do.py's MegaCity parser helper flag from app args."""
+    parser: str | None = None
+    stripped_args: list[str] = []
+    i = 0
+    while i < len(app_args):
+        arg = app_args[i]
+        if arg == "--parser":
+            if i + 1 >= len(app_args):
+                raise ValueError("--parser requires a value")
+            if parser is not None:
+                raise ValueError("--parser may be specified only once")
+            parser = _normalize_megacity_parser(app_args[i + 1])
+            i += 2
+            continue
+        stripped_args.append(arg)
+        i += 1
+
+    if parser is not None and not _has_megacity_host(stripped_args):
+        raise ValueError("--parser is only supported with --host megacity")
+    return stripped_args, parser
+
+
+def _default_config_path() -> pathlib.Path:
+    if sys.platform.startswith("win"):
+        base = pathlib.Path(os.environ.get("APPDATA") or ".")
+        return base / "draxul" / "config.toml"
+    if sys.platform == "darwin":
+        base = pathlib.Path(os.environ.get("HOME") or ".")
+        return base / "Library" / "Application Support" / "draxul" / "config.toml"
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        base = pathlib.Path(xdg)
+    else:
+        base = pathlib.Path(os.environ.get("HOME") or ".") / ".config"
+    return base / "draxul" / "config.toml"
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(value)
+
+
+def _merge_key_value(lines: list[str], start: int, end: int, key: str, value: str, newline: str) -> None:
+    pattern = re.compile(rf"^(\s*){re.escape(key)}\s*=")
+    replacement = f"{key} = {_toml_string(value)}{newline}"
+    for index in range(start, end):
+        match = pattern.match(lines[index])
+        if match:
+            indent = match.group(1)
+            lines[index] = f"{indent}{replacement}"
+            return
+    insert_at = end
+    while insert_at > start and lines[insert_at - 1].strip() == "":
+        insert_at -= 1
+    lines.insert(insert_at, replacement)
+
+
+def _merge_megacity_parser_config(text: str, parser: str) -> str:
+    parser = _normalize_megacity_parser(parser)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines(keepends=True)
+    section_start: int | None = None
+    section_end = len(lines)
+
+    for index, line in enumerate(lines):
+        if line.strip() == "[mega_city_code]":
+            section_start = index
+            break
+
+    if section_start is None:
+        prefix = "" if not text else newline
+        if text and not text.endswith(("\n", "\r")):
+            prefix = newline + prefix
+        merged = f"{text}{prefix}[mega_city_code]{newline}"
+        merged += f"code_source = {_toml_string(parser)}{newline}"
+        if parser == "graphify":
+            merged += f"graphify_graph_path = {_toml_string('graphify-out/graph.json')}{newline}"
+        return merged
+
+    for index in range(section_start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section_end = index
+            break
+
+    _merge_key_value(lines, section_start + 1, section_end, "code_source", parser, newline)
+    if parser == "graphify":
+        section_end = len(lines)
+        for index in range(section_start + 1, len(lines)):
+            stripped = lines[index].strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                section_end = index
+                break
+        _merge_key_value(lines, section_start + 1, section_end, "graphify_graph_path", "graphify-out/graph.json", newline)
+    return "".join(lines)
+
+
+def _apply_megacity_parser_config(parser: str) -> pathlib.Path:
+    config_path = _default_config_path()
+    text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    merged = _merge_megacity_parser_config(text, parser)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(merged, encoding="utf-8")
+    return config_path
+
+
 def _configure_and_build(
     root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
 ) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
@@ -267,6 +390,12 @@ def cmd_build(root: pathlib.Path, args: list[str]) -> int:
 def cmd_run(root: pathlib.Path, args: list[str]) -> int:
     """Full configure + build + run cycle (replaces r.bat / r.sh)."""
     mode, force_reconfigure, build_system, use_console, app_args = _parse_build_args(args)
+    try:
+        app_args, megacity_parser = _consume_megacity_parser_args(app_args)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
     rc, bd, config, env = _configure_and_build(root, mode, force_reconfigure, build_system)
     if rc != 0:
         return rc
@@ -275,6 +404,10 @@ def cmd_run(root: pathlib.Path, args: list[str]) -> int:
     if not exe.exists():
         print(f"\nMissing executable: {exe}")
         return 1
+
+    if megacity_parser is not None:
+        config_path = _apply_megacity_parser_config(megacity_parser)
+        print(f"\n> megacity parser: {megacity_parser} ({config_path})")
 
     is_win = sys.platform.startswith("win")
     cmd: list[str] = [str(exe)] + app_args
@@ -363,7 +496,8 @@ def help_text() -> str:
 Single-word shortcuts:
   build [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
                Configure and build Draxul (default: debug, ninja on Windows)
-  run [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--console] [-- app-args...]
+  run [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--console]
+      [--host megacity --parser graphify|treesitter|treesitter_db] [-- app-args...]
                Configure, build, and run Draxul
   smoke        Run the app smoke test
   test         Run the full local test suite (t.bat / run_tests.sh)
@@ -407,6 +541,8 @@ Examples:
   do run release           # Release build + run
   do run relwithdebinfo    # Release-ish build + symbols (Windows)
   do run release --vs      # Release build with VS generator (Windows)
+  do run release --host megacity --parser graphify
+                             # MegaCity with Graphify semantic source config
   do run --reconfigure     # Force CMake reconfigure
   do smoke
   do basic

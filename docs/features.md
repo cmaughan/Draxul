@@ -336,6 +336,7 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 - `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
+- `do run release --host megacity --parser graphify` updates `[mega_city_code]` to use `code_source = "graphify"` with `graphify-out/graph.json`, strips the helper flag before launching, and starts MegaCity from that semantic source. `--parser treesitter` / `--parser treesitter_db` switches the same config back to the Tree-sitter SQLite source
 - `do review` / `do review-bugs` run Codex + Claude review passes by default, add Gemini on macOS, and use Codex for the final consensus pass
 - `do consensus` / `do consensus-bugs` default to Codex; `claude`, `gemini`, and legacy `gpt` selector arguments are also accepted
 - `do review-codex` runs just the Codex review helper; `do review-gpt` remains as a compatibility alias
