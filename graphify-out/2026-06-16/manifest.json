@@ -1,0 +1,1117 @@
+{
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\app_config.h": {
+    "mtime": 1775999557.1937003,
+    "ast_hash": "7370be0a90699d0d728f919adad15086",
+    "semantic_hash": "7370be0a90699d0d728f919adad15086"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\app_config_io.h": {
+    "mtime": 1774357047.8936749,
+    "ast_hash": "5e12b91f4df39a0e08e70ef7446e435f",
+    "semantic_hash": "5e12b91f4df39a0e08e70ef7446e435f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\app_config_types.h": {
+    "mtime": 1781535754.161469,
+    "ast_hash": "86fc175da77e628b38c2a7d07402ef25",
+    "semantic_hash": "86fc175da77e628b38c2a7d07402ef25"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\config_document.h": {
+    "mtime": 1775391811.411797,
+    "ast_hash": "0945b045f563a2f9429b610354bf50c1",
+    "semantic_hash": "0945b045f563a2f9429b610354bf50c1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\gui_actions.h": {
+    "mtime": 1775999557.1957033,
+    "ast_hash": "10c4fd1020dade9245dfdced5f876258",
+    "semantic_hash": "10c4fd1020dade9245dfdced5f876258"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\keybinding_parser.h": {
+    "mtime": 1774357047.8956778,
+    "ast_hash": "082c4ae9bf21ac1b34b9671d93d766b8",
+    "semantic_hash": "082c4ae9bf21ac1b34b9671d93d766b8"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\include\\draxul\\toml_support.h": {
+    "mtime": 1775391811.4137955,
+    "ast_hash": "7e96573e67a945af3c48667e51910fa9",
+    "semantic_hash": "7e96573e67a945af3c48667e51910fa9"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\src\\app_config_io.cpp": {
+    "mtime": 1781535754.1624682,
+    "ast_hash": "518ac51db5438964046eb5e5b5f5ec8e",
+    "semantic_hash": "518ac51db5438964046eb5e5b5f5ec8e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\src\\config_document.cpp": {
+    "mtime": 1781535754.1634676,
+    "ast_hash": "ec460b54faf60ad72cb237ed966ddbf4",
+    "semantic_hash": "ec460b54faf60ad72cb237ed966ddbf4"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\src\\keybinding_parser.cpp": {
+    "mtime": 1775574047.8543112,
+    "ast_hash": "c63e4e2bd440276c2317a21061339942",
+    "semantic_hash": "c63e4e2bd440276c2317a21061339942"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\include\\draxul\\font_metrics.h": {
+    "mtime": 1773834147.3005345,
+    "ast_hash": "557d7ab031cdbea23a094d1430836272",
+    "semantic_hash": "557d7ab031cdbea23a094d1430836272"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\include\\draxul\\rich_text_service.h": {
+    "mtime": 1781535754.1644683,
+    "ast_hash": "541f8c987bbca1180eb73eb417503d1d",
+    "semantic_hash": "541f8c987bbca1180eb73eb417503d1d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\include\\draxul\\text_service.h": {
+    "mtime": 1781535754.1664689,
+    "ast_hash": "302a8981206da38b9159ed9357dd3d96",
+    "semantic_hash": "302a8981206da38b9159ed9357dd3d96"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\box_drawing.cpp": {
+    "mtime": 1781535754.1674714,
+    "ast_hash": "015de5f827a1dae0687583e08ee5724d",
+    "semantic_hash": "015de5f827a1dae0687583e08ee5724d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\box_drawing.h": {
+    "mtime": 1781535754.168472,
+    "ast_hash": "4c833d78ca2f7dfdf04456bf1355727b",
+    "semantic_hash": "4c833d78ca2f7dfdf04456bf1355727b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\font_engine.h": {
+    "mtime": 1781535754.1699314,
+    "ast_hash": "f04f13f45e590027feb431cee8cf20d4",
+    "semantic_hash": "f04f13f45e590027feb431cee8cf20d4"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\font_manager.cpp": {
+    "mtime": 1775391811.425799,
+    "ast_hash": "1730e9e0d634ce545baa6139ca683361",
+    "semantic_hash": "1730e9e0d634ce545baa6139ca683361"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\font_resolver.cpp": {
+    "mtime": 1781535754.1709342,
+    "ast_hash": "cd8448bdc1d83ef03cd9f2cb05d0d920",
+    "semantic_hash": "cd8448bdc1d83ef03cd9f2cb05d0d920"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\font_resolver.h": {
+    "mtime": 1775574047.856306,
+    "ast_hash": "1ad5e2af367523887fd1d0356df1f2f6",
+    "semantic_hash": "1ad5e2af367523887fd1d0356df1f2f6"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\font_selector.h": {
+    "mtime": 1775391811.431796,
+    "ast_hash": "22951210733769da03870ebae489409d",
+    "semantic_hash": "22951210733769da03870ebae489409d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\glyph_atlas_manager.h": {
+    "mtime": 1781535754.1719353,
+    "ast_hash": "77d3b56ab3172ddeb12acb5d90f1f0d9",
+    "semantic_hash": "77d3b56ab3172ddeb12acb5d90f1f0d9"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\glyph_cache.cpp": {
+    "mtime": 1781535754.1729307,
+    "ast_hash": "002fe17917448f2ffe9a29b628c9a013",
+    "semantic_hash": "002fe17917448f2ffe9a29b628c9a013"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\ligature_analyser.h": {
+    "mtime": 1781535754.174932,
+    "ast_hash": "d5a8eada547d857f9ee002c731b1f9e4",
+    "semantic_hash": "d5a8eada547d857f9ee002c731b1f9e4"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\rich_text_service.cpp": {
+    "mtime": 1781535754.1759346,
+    "ast_hash": "eb4e7f2330e4fdf200673574775df8c3",
+    "semantic_hash": "eb4e7f2330e4fdf200673574775df8c3"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\text_service.cpp": {
+    "mtime": 1781535754.1769326,
+    "ast_hash": "953353ce4a2fe784b8b1bbb4cdb8cf39",
+    "semantic_hash": "953353ce4a2fe784b8b1bbb4cdb8cf39"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\src\\text_shaper.cpp": {
+    "mtime": 1775391811.4377952,
+    "ast_hash": "de15e053bcd34d8322779a0bebcebc64",
+    "semantic_hash": "de15e053bcd34d8322779a0bebcebc64"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-grid\\include\\draxul\\attribute_cache.h": {
+    "mtime": 1775574047.8593066,
+    "ast_hash": "6633099864eb5be08656bf90d1108698",
+    "semantic_hash": "6633099864eb5be08656bf90d1108698"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-grid\\include\\draxul\\grid.h": {
+    "mtime": 1775999557.1987002,
+    "ast_hash": "03464680b600a90b93b1adc57532979d",
+    "semantic_hash": "03464680b600a90b93b1adc57532979d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-grid\\src\\grid.cpp": {
+    "mtime": 1775999557.1997044,
+    "ast_hash": "4963ae17399cbe3dd45477b7fd9cc3ee",
+    "semantic_hash": "4963ae17399cbe3dd45477b7fd9cc3ee"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\include\\draxul\\gui\\palette_renderer.h": {
+    "mtime": 1775391811.4617972,
+    "ast_hash": "391ad5ab92dc19f37f13419cc6ba1950",
+    "semantic_hash": "391ad5ab92dc19f37f13419cc6ba1950"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\include\\draxul\\gui\\toast_renderer.h": {
+    "mtime": 1775574047.8623064,
+    "ast_hash": "8d464ef7b3f18052b6d4a5bbe9e26a44",
+    "semantic_hash": "8d464ef7b3f18052b6d4a5bbe9e26a44"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\include\\draxul\\gui\\tooltip.h": {
+    "mtime": 1775574047.8623064,
+    "ast_hash": "92c1dcaf2586c2f79bb94be22dbac46f",
+    "semantic_hash": "92c1dcaf2586c2f79bb94be22dbac46f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\src\\palette_renderer.cpp": {
+    "mtime": 1775574047.8638117,
+    "ast_hash": "f41602ee76edf6b000f3796306379245",
+    "semantic_hash": "f41602ee76edf6b000f3796306379245"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\src\\toast_renderer.cpp": {
+    "mtime": 1775574047.8638117,
+    "ast_hash": "4d29677b3b823f9ee0b01c2247ed51b0",
+    "semantic_hash": "4d29677b3b823f9ee0b01c2247ed51b0"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\src\\tooltip.cpp": {
+    "mtime": 1781535754.1769326,
+    "ast_hash": "435bd89fbdd2632d0ff64465dc6369e1",
+    "semantic_hash": "435bd89fbdd2632d0ff64465dc6369e1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\alt_screen_manager.h": {
+    "mtime": 1774357047.9041862,
+    "ast_hash": "a149d4b9778b26323df90adae2f985a7",
+    "semantic_hash": "a149d4b9778b26323df90adae2f985a7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\base64.h": {
+    "mtime": 1775574160.5493543,
+    "ast_hash": "c6602d1453eb5652df78a2641ab51578",
+    "semantic_hash": "c6602d1453eb5652df78a2641ab51578"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\clipboard_util.h": {
+    "mtime": 1774357047.9051886,
+    "ast_hash": "2b39d5c95b6ae77a5e235b79b2a8f243",
+    "semantic_hash": "2b39d5c95b6ae77a5e235b79b2a8f243"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\grid_host_base.h": {
+    "mtime": 1781535754.178439,
+    "ast_hash": "5a4970ab652c87d9917b348892bd2feb",
+    "semantic_hash": "5a4970ab652c87d9917b348892bd2feb"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\host.h": {
+    "mtime": 1781535754.1794443,
+    "ast_hash": "7f5d4f0701afd79051bdbeba484a2fd4",
+    "semantic_hash": "7f5d4f0701afd79051bdbeba484a2fd4"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\host_registry.h": {
+    "mtime": 1775999557.2027063,
+    "ast_hash": "0b08e72ec7c93ac3819bbc596723f56d",
+    "semantic_hash": "0b08e72ec7c93ac3819bbc596723f56d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\local_terminal_host.h": {
+    "mtime": 1781535754.1804442,
+    "ast_hash": "13cb5431da05455290121629be779fba",
+    "semantic_hash": "13cb5431da05455290121629be779fba"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\mouse_reporter.h": {
+    "mtime": 1774357047.9061868,
+    "ast_hash": "981d7b4de3e4f153b9fe362a1ffaa10c",
+    "semantic_hash": "981d7b4de3e4f153b9fe362a1ffaa10c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\scrollback_buffer.h": {
+    "mtime": 1775999557.203705,
+    "ast_hash": "c557309993e62dc75c1ef52e2e8c971f",
+    "semantic_hash": "c557309993e62dc75c1ef52e2e8c971f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\selection_manager.h": {
+    "mtime": 1781535754.1814468,
+    "ast_hash": "06b45ce93acfab3980bbe7871f0f2a08",
+    "semantic_hash": "06b45ce93acfab3980bbe7871f0f2a08"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\terminal_host_base.h": {
+    "mtime": 1781535754.1814468,
+    "ast_hash": "bb242b8ef4c2a236f293b155894be462",
+    "semantic_hash": "bb242b8ef4c2a236f293b155894be462"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\terminal_key_encoder.h": {
+    "mtime": 1774039880.5232728,
+    "ast_hash": "8a225cb433bf723b164a149dd3954829",
+    "semantic_hash": "8a225cb433bf723b164a149dd3954829"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\terminal_sgr.h": {
+    "mtime": 1774039880.524274,
+    "ast_hash": "be5c1ce64e5e6fdaa65803382130d188",
+    "semantic_hash": "be5c1ce64e5e6fdaa65803382130d188"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\vt_parser.h": {
+    "mtime": 1774170057.9458194,
+    "ast_hash": "e3ef378eca6ac39cfbc7b5b99984a433",
+    "semantic_hash": "e3ef378eca6ac39cfbc7b5b99984a433"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\include\\draxul\\vt_state.h": {
+    "mtime": 1775999557.205705,
+    "ast_hash": "184b0b2d6ed1dcd9bc681979b69f6b28",
+    "semantic_hash": "184b0b2d6ed1dcd9bc681979b69f6b28"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\alt_screen_manager.cpp": {
+    "mtime": 1775391811.4817963,
+    "ast_hash": "d4395ede8262837c64afacd7b567922f",
+    "semantic_hash": "d4395ede8262837c64afacd7b567922f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\conpty_process.cpp": {
+    "mtime": 1781535754.1834464,
+    "ast_hash": "48050778b207b3160e84f5a9e8c4c66d",
+    "semantic_hash": "48050778b207b3160e84f5a9e8c4c66d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\conpty_process.h": {
+    "mtime": 1781535754.1839514,
+    "ast_hash": "9ea0e74de86233daae3448c41b71e7c0",
+    "semantic_hash": "9ea0e74de86233daae3448c41b71e7c0"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\grid_host_base.cpp": {
+    "mtime": 1781535754.1849597,
+    "ast_hash": "6d1c6893f1be3aa29d48c32c94084a00",
+    "semantic_hash": "6d1c6893f1be3aa29d48c32c94084a00"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\host_factory.cpp": {
+    "mtime": 1775999557.2097046,
+    "ast_hash": "5017d2bfd6ac3dff7e42e3f5b00ec5ac",
+    "semantic_hash": "5017d2bfd6ac3dff7e42e3f5b00ec5ac"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\host_registry.cpp": {
+    "mtime": 1775999557.2097046,
+    "ast_hash": "1958970198a907d31d6e67975af27434",
+    "semantic_hash": "1958970198a907d31d6e67975af27434"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\local_terminal_host.cpp": {
+    "mtime": 1781535754.1859584,
+    "ast_hash": "1b15dd8aaf5c0ee398197b7268ef8331",
+    "semantic_hash": "1b15dd8aaf5c0ee398197b7268ef8331"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\mouse_reporter.cpp": {
+    "mtime": 1775593304.984393,
+    "ast_hash": "0a5b802b85a5ecfa54e5b2137725c22e",
+    "semantic_hash": "0a5b802b85a5ecfa54e5b2137725c22e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\nvim_host.cpp": {
+    "mtime": 1775999557.2117078,
+    "ast_hash": "3707b5116d7916c1239a9276d661c65a",
+    "semantic_hash": "3707b5116d7916c1239a9276d661c65a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\nvim_host.h": {
+    "mtime": 1775593304.985394,
+    "ast_hash": "4f326ba18e54799003d722499af82c44",
+    "semantic_hash": "4f326ba18e54799003d722499af82c44"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\scrollback_buffer.cpp": {
+    "mtime": 1775999557.2117078,
+    "ast_hash": "1dd155d97b49ca6fd0d443d0ac192c7e",
+    "semantic_hash": "1dd155d97b49ca6fd0d443d0ac192c7e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\selection_manager.cpp": {
+    "mtime": 1781535754.1859584,
+    "ast_hash": "34f32da34f9c8c7450174c0dde85a4dc",
+    "semantic_hash": "34f32da34f9c8c7450174c0dde85a4dc"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\shell_host_unix.cpp": {
+    "mtime": 1775999557.212705,
+    "ast_hash": "ece40973792fd55bf06667ab082d36d6",
+    "semantic_hash": "ece40973792fd55bf06667ab082d36d6"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\shell_host_win.cpp": {
+    "mtime": 1781535754.1874664,
+    "ast_hash": "7626f43cd3e5affbfa6ddefd1cd3f92a",
+    "semantic_hash": "7626f43cd3e5affbfa6ddefd1cd3f92a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\terminal_host_base.cpp": {
+    "mtime": 1781535754.188473,
+    "ast_hash": "0eb3f30f9ed2aab0ea59416c60bae8c3",
+    "semantic_hash": "0eb3f30f9ed2aab0ea59416c60bae8c3"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\terminal_host_base_csi.cpp": {
+    "mtime": 1781535754.1894786,
+    "ast_hash": "45c8e83e09fe7ed93d0e881f2b6c0a03",
+    "semantic_hash": "45c8e83e09fe7ed93d0e881f2b6c0a03"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\terminal_key_encoder.cpp": {
+    "mtime": 1775391811.5098062,
+    "ast_hash": "e2a4253ff116d35aebc4fc8c2520d376",
+    "semantic_hash": "e2a4253ff116d35aebc4fc8c2520d376"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\terminal_sgr.cpp": {
+    "mtime": 1775391811.511313,
+    "ast_hash": "59f5dfc479cafde8cd9f4663c7956f0c",
+    "semantic_hash": "59f5dfc479cafde8cd9f4663c7956f0c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\unix_pty_process.cpp": {
+    "mtime": 1781535754.1894786,
+    "ast_hash": "c5859bc63918c20039e7055065ce49f7",
+    "semantic_hash": "c5859bc63918c20039e7055065ce49f7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\unix_pty_process.h": {
+    "mtime": 1775999557.2182155,
+    "ast_hash": "b743d0f01353f1810f0fd7069700303b",
+    "semantic_hash": "b743d0f01353f1810f0fd7069700303b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\src\\vt_parser.cpp": {
+    "mtime": 1775999557.2192159,
+    "ast_hash": "e96610ce8c2cff8f0ff992a8a51d21f5",
+    "semantic_hash": "e96610ce8c2cff8f0ff992a8a51d21f5"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\include\\draxul\\kanban\\kanban_board.h": {
+    "mtime": 1781535754.191486,
+    "ast_hash": "41637ecea2d987c95e0ea2d0a34121e7",
+    "semantic_hash": "41637ecea2d987c95e0ea2d0a34121e7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\include\\draxul\\kanban\\kanban_host.h": {
+    "mtime": 1781535754.192484,
+    "ast_hash": "9977810e393aad3ea754c3973e95ffe2",
+    "semantic_hash": "9977810e393aad3ea754c3973e95ffe2"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\include\\draxul\\kanban\\kanban_layout.h": {
+    "mtime": 1781535754.1934884,
+    "ast_hash": "2b76656a45eda0310ea53422dc5f5a78",
+    "semantic_hash": "2b76656a45eda0310ea53422dc5f5a78"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\include\\draxul\\kanban\\kanban_navigation.h": {
+    "mtime": 1781535754.1934884,
+    "ast_hash": "adaa87200d4ede56606a8c6d56220d0d",
+    "semantic_hash": "adaa87200d4ede56606a8c6d56220d0d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\include\\draxul\\kanban\\kanban_store.h": {
+    "mtime": 1781535754.1944854,
+    "ast_hash": "30919a5cbdb7379d3cb08ef71d0efca7",
+    "semantic_hash": "30919a5cbdb7379d3cb08ef71d0efca7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\src\\kanban_board.cpp": {
+    "mtime": 1781535754.195486,
+    "ast_hash": "afaea74bdddbb7df6a5f7b578df9227f",
+    "semantic_hash": "afaea74bdddbb7df6a5f7b578df9227f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\src\\kanban_host.cpp": {
+    "mtime": 1781535754.1964865,
+    "ast_hash": "113b6d60ff460068feafcf0968d53cef",
+    "semantic_hash": "113b6d60ff460068feafcf0968d53cef"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\src\\kanban_layout.cpp": {
+    "mtime": 1781535754.1964865,
+    "ast_hash": "018fc43614e0835d6e78892bdb94f21a",
+    "semantic_hash": "018fc43614e0835d6e78892bdb94f21a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\src\\kanban_navigation.cpp": {
+    "mtime": 1781535754.1974838,
+    "ast_hash": "488c8a6760d2a0c65276b8f10209bc68",
+    "semantic_hash": "488c8a6760d2a0c65276b8f10209bc68"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\src\\kanban_store.cpp": {
+    "mtime": 1781535754.1984847,
+    "ast_hash": "d9aae53c8555485f4efa08c7917297e1",
+    "semantic_hash": "d9aae53c8555485f4efa08c7917297e1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_document.h": {
+    "mtime": 1781535754.200662,
+    "ast_hash": "2987d3930e1be4bba00fa2d903e61c6b",
+    "semantic_hash": "2987d3930e1be4bba00fa2d903e61c6b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_draw_list.h": {
+    "mtime": 1781535754.200662,
+    "ast_hash": "a8af9f7485e027d0796e77c79f9786ee",
+    "semantic_hash": "a8af9f7485e027d0796e77c79f9786ee"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_host.h": {
+    "mtime": 1781535754.201662,
+    "ast_hash": "addd9ba66c33e50198cb5ec5130d92e3",
+    "semantic_hash": "addd9ba66c33e50198cb5ec5130d92e3"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_layout.h": {
+    "mtime": 1781535754.201662,
+    "ast_hash": "05f5a4d67b0fe49a26ad90a6f5a7dc6f",
+    "semantic_hash": "05f5a4d67b0fe49a26ad90a6f5a7dc6f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_navigation.h": {
+    "mtime": 1781535754.2026627,
+    "ast_hash": "fec43a7d575e599c4ae4499afd8c37f0",
+    "semantic_hash": "fec43a7d575e599c4ae4499afd8c37f0"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_parser.h": {
+    "mtime": 1781535754.2026627,
+    "ast_hash": "aabf47569be5989b7cafd7ed3fd4ac86",
+    "semantic_hash": "aabf47569be5989b7cafd7ed3fd4ac86"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_render_pass.h": {
+    "mtime": 1781535754.2036624,
+    "ast_hash": "eef9439e258c05e84d766becd9c7fe8b",
+    "semantic_hash": "eef9439e258c05e84d766becd9c7fe8b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_scroll.h": {
+    "mtime": 1781535754.2036624,
+    "ast_hash": "4b7df49c054b5619a3f1b9be5c532634",
+    "semantic_hash": "4b7df49c054b5619a3f1b9be5c532634"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\include\\draxul\\markdown\\markdown_theme.h": {
+    "mtime": 1781535754.2046616,
+    "ast_hash": "628c9169019f862f63ee99dee15d9cf4",
+    "semantic_hash": "628c9169019f862f63ee99dee15d9cf4"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_document.cpp": {
+    "mtime": 1781535754.2046616,
+    "ast_hash": "148bf462e2b7b38d777e6ab9b7dc5313",
+    "semantic_hash": "148bf462e2b7b38d777e6ab9b7dc5313"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_draw_list.cpp": {
+    "mtime": 1781535754.2056618,
+    "ast_hash": "15a58131db7573daeb18c944af52342f",
+    "semantic_hash": "15a58131db7573daeb18c944af52342f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_front_matter.cpp": {
+    "mtime": 1781535754.2056618,
+    "ast_hash": "307ea065f2261bfc1836dd457997b9db",
+    "semantic_hash": "307ea065f2261bfc1836dd457997b9db"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_host.cpp": {
+    "mtime": 1781535754.2066627,
+    "ast_hash": "1359212b1fc5abe9f221106ec2578bcd",
+    "semantic_hash": "1359212b1fc5abe9f221106ec2578bcd"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_layout.cpp": {
+    "mtime": 1781535754.2076616,
+    "ast_hash": "3dc11d7dd175e886a7015b700018199b",
+    "semantic_hash": "3dc11d7dd175e886a7015b700018199b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_navigation.cpp": {
+    "mtime": 1781535754.208667,
+    "ast_hash": "cf9cbe61dc7fdf70e0e2a301a6c27f9c",
+    "semantic_hash": "cf9cbe61dc7fdf70e0e2a301a6c27f9c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_parser_md4c.cpp": {
+    "mtime": 1781535754.208667,
+    "ast_hash": "8b7b3177b46b80ddab3f2e7674c202af",
+    "semantic_hash": "8b7b3177b46b80ddab3f2e7674c202af"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_render_pass.cpp": {
+    "mtime": 1781535754.2096748,
+    "ast_hash": "1f90c0fbf9a62cdb0eeae8d2cf099c1f",
+    "semantic_hash": "1f90c0fbf9a62cdb0eeae8d2cf099c1f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_render_pass_metal.mm": {
+    "mtime": 1781535754.2106771,
+    "ast_hash": "598568a3ea2446a76d95f17196665841",
+    "semantic_hash": "598568a3ea2446a76d95f17196665841"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_render_pass_vk.cpp": {
+    "mtime": 1781535754.2106771,
+    "ast_hash": "a3c3060adca7a1d2ff0b71658a4b11ae",
+    "semantic_hash": "a3c3060adca7a1d2ff0b71658a4b11ae"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_scroll.cpp": {
+    "mtime": 1781535754.211677,
+    "ast_hash": "fd7fecab3d53290e26581ef3c0562429",
+    "semantic_hash": "fd7fecab3d53290e26581ef3c0562429"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\src\\markdown_theme.cpp": {
+    "mtime": 1781535754.211677,
+    "ast_hash": "8484e312a68fb6397a4697e83e49c18f",
+    "semantic_hash": "8484e312a68fb6397a4697e83e49c18f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\include\\draxul\\nanovg_pass.h": {
+    "mtime": 1775391811.6635914,
+    "ast_hash": "61f8527f9726184b9d51405f09e79585",
+    "semantic_hash": "61f8527f9726184b9d51405f09e79585"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_mtl.h": {
+    "mtime": 1775391811.664592,
+    "ast_hash": "60399ab1ca68288aeb8ab97184c6a9e1",
+    "semantic_hash": "60399ab1ca68288aeb8ab97184c6a9e1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_mtl.mm": {
+    "mtime": 1775391811.6665924,
+    "ast_hash": "35d9e5bdbfc5453fdfadd7b1d455a568",
+    "semantic_hash": "35d9e5bdbfc5453fdfadd7b1d455a568"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_mtl_shaders.h": {
+    "mtime": 1775391811.6675909,
+    "ast_hash": "a4c0341b0842af8cc994bc3184ef1a64",
+    "semantic_hash": "a4c0341b0842af8cc994bc3184ef1a64"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_pass_metal.mm": {
+    "mtime": 1775574047.897822,
+    "ast_hash": "f53405460a5899f853b0da58b026257e",
+    "semantic_hash": "f53405460a5899f853b0da58b026257e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_pass_vk.cpp": {
+    "mtime": 1775574047.8988276,
+    "ast_hash": "447c95edb324db29f73c1726cac0280d",
+    "semantic_hash": "447c95edb324db29f73c1726cac0280d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_vk.cpp": {
+    "mtime": 1775391811.6715903,
+    "ast_hash": "3653c4028416d9ed5f7e4d23940d1077",
+    "semantic_hash": "3653c4028416d9ed5f7e4d23940d1077"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_vk.h": {
+    "mtime": 1775391811.672591,
+    "ast_hash": "76620316e571fae0d72ecbcd0d71e841",
+    "semantic_hash": "76620316e571fae0d72ecbcd0d71e841"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\src\\nanovg_wrapper.c": {
+    "mtime": 1775391811.673591,
+    "ast_hash": "07f746c2298823859908ab3aef8ae239",
+    "semantic_hash": "07f746c2298823859908ab3aef8ae239"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\include\\draxul\\mpack_codec.h": {
+    "mtime": 1775593304.990403,
+    "ast_hash": "607f2edd4c4a57bbc01dc10af02a962f",
+    "semantic_hash": "607f2edd4c4a57bbc01dc10af02a962f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\include\\draxul\\nvim.h": {
+    "mtime": 1773834147.3105333,
+    "ast_hash": "ebfcf1978523eba649150635e4a3cf7a",
+    "semantic_hash": "ebfcf1978523eba649150635e4a3cf7a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\include\\draxul\\nvim_rpc.h": {
+    "mtime": 1775999557.2202148,
+    "ast_hash": "ee2c7bbf894068a01bd6263f4b99499d",
+    "semantic_hash": "ee2c7bbf894068a01bd6263f4b99499d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\include\\draxul\\nvim_ui.h": {
+    "mtime": 1774357047.9291868,
+    "ast_hash": "497471355f9e7140bdf21607a81cbd48",
+    "semantic_hash": "497471355f9e7140bdf21607a81cbd48"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\src\\input.cpp": {
+    "mtime": 1775391811.6765902,
+    "ast_hash": "a427f9e70aa9f06634ebbf09b050af29",
+    "semantic_hash": "a427f9e70aa9f06634ebbf09b050af29"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\src\\mpack_codec.cpp": {
+    "mtime": 1781535754.2131863,
+    "ast_hash": "fb20ece5828d42af2f3287e26fec9561",
+    "semantic_hash": "fb20ece5828d42af2f3287e26fec9561"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\src\\nvim_process.cpp": {
+    "mtime": 1781535754.2131863,
+    "ast_hash": "c250fd02ebc9731c359b601b7a76534b",
+    "semantic_hash": "c250fd02ebc9731c359b601b7a76534b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\src\\rpc.cpp": {
+    "mtime": 1781535754.215196,
+    "ast_hash": "4cda042135cc03b75f88dd2c11a0bdfe",
+    "semantic_hash": "4cda042135cc03b75f88dd2c11a0bdfe"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\src\\ui_events.cpp": {
+    "mtime": 1781535754.2161925,
+    "ast_hash": "43bbf199aa45881d29f261ba4337c547",
+    "semantic_hash": "43bbf199aa45881d29f261ba4337c547"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-render-test\\include\\draxul\\json_util.h": {
+    "mtime": 1774357047.9341867,
+    "ast_hash": "acf7d43011290c44da800fe1498ab802",
+    "semantic_hash": "acf7d43011290c44da800fe1498ab802"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-render-test\\include\\draxul\\nanovg_demo_host.h": {
+    "mtime": 1775999557.2222145,
+    "ast_hash": "aaff7363856e742e2d2c6e950753dc51",
+    "semantic_hash": "aaff7363856e742e2d2c6e950753dc51"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-render-test\\include\\draxul\\render_test.h": {
+    "mtime": 1774357047.9351878,
+    "ast_hash": "7f7c50bdc59e6b0e38b3e4948ff03077",
+    "semantic_hash": "7f7c50bdc59e6b0e38b3e4948ff03077"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-render-test\\src\\nanovg_demo_host.cpp": {
+    "mtime": 1775999557.2232144,
+    "ast_hash": "53cf4acabcd53fa85d09ab3052f6c4ec",
+    "semantic_hash": "53cf4acabcd53fa85d09ab3052f6c4ec"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-render-test\\src\\render_test.cpp": {
+    "mtime": 1775594093.432782,
+    "ast_hash": "eba5d449069e28a0ec2815e20cd172b1",
+    "semantic_hash": "eba5d449069e28a0ec2815e20cd172b1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\base_renderer.h": {
+    "mtime": 1775391811.695592,
+    "ast_hash": "d1594712f965e2c280079b2225f82937",
+    "semantic_hash": "d1594712f965e2c280079b2225f82937"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\capture_renderer.h": {
+    "mtime": 1774357047.9371905,
+    "ast_hash": "1da515d0529af058373a4fd4eef18587",
+    "semantic_hash": "1da515d0529af058373a4fd4eef18587"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\imgui_host.h": {
+    "mtime": 1775574047.9018207,
+    "ast_hash": "bb7953453885484486ca5cf044b9517c",
+    "semantic_hash": "bb7953453885484486ca5cf044b9517c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\metal\\metal_render_context.h": {
+    "mtime": 1775574047.9028196,
+    "ast_hash": "d85a93f0ed422f697e668ec529e822e1",
+    "semantic_hash": "d85a93f0ed422f697e668ec529e822e1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\metal\\objc_ref.h": {
+    "mtime": 1775574047.903819,
+    "ast_hash": "47d3b54b7480b1270612874f6c635d3d",
+    "semantic_hash": "47d3b54b7480b1270612874f6c635d3d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\pane_descriptor.h": {
+    "mtime": 1774357047.9381883,
+    "ast_hash": "9ad35426dc13f1dcef9f8f976675d8cd",
+    "semantic_hash": "9ad35426dc13f1dcef9f8f976675d8cd"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\pending_atlas_upload.h": {
+    "mtime": 1775391811.6976023,
+    "ast_hash": "f9d808c6ddcaa843488abc6900e07365",
+    "semantic_hash": "f9d808c6ddcaa843488abc6900e07365"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\renderer.h": {
+    "mtime": 1775593304.9924006,
+    "ast_hash": "03610cba62e7ba83f4d5719fbfa052e6",
+    "semantic_hash": "03610cba62e7ba83f4d5719fbfa052e6"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\renderer_state.h": {
+    "mtime": 1781535754.2176974,
+    "ast_hash": "413b1d073bf7ad18ca14de1028515feb",
+    "semantic_hash": "413b1d073bf7ad18ca14de1028515feb"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\vulkan\\vk_render_context.h": {
+    "mtime": 1775574047.9048214,
+    "ast_hash": "df77d0a9f939aae8d3f480a42a5f0e92",
+    "semantic_hash": "df77d0a9f939aae8d3f480a42a5f0e92"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\include\\draxul\\vulkan\\vk_resource_helpers.h": {
+    "mtime": 1775391811.7015984,
+    "ast_hash": "19220d6dc77da68b2eabfcb05f176896",
+    "semantic_hash": "19220d6dc77da68b2eabfcb05f176896"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\metal\\metal_renderer.h": {
+    "mtime": 1775593304.9934042,
+    "ast_hash": "4ea3df77b4181b7386726c29d8e7446b",
+    "semantic_hash": "4ea3df77b4181b7386726c29d8e7446b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\metal\\metal_renderer.mm": {
+    "mtime": 1781535754.218202,
+    "ast_hash": "0cc447be7804b943aaadd4476e44c678",
+    "semantic_hash": "0cc447be7804b943aaadd4476e44c678"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\metal\\metal_renderer_factory.h": {
+    "mtime": 1775593304.9944031,
+    "ast_hash": "bb76140166d2633c38652ed2bc8a8911",
+    "semantic_hash": "bb76140166d2633c38652ed2bc8a8911"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\renderer_factory.cpp": {
+    "mtime": 1775593304.9954045,
+    "ast_hash": "74e7dff73251cb3e6103e63d303ec5d2",
+    "semantic_hash": "74e7dff73251cb3e6103e63d303ec5d2"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\renderer_state.cpp": {
+    "mtime": 1781535754.2192137,
+    "ast_hash": "c0212b40705417dbad08589a02d26efe",
+    "semantic_hash": "c0212b40705417dbad08589a02d26efe"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_atlas.cpp": {
+    "mtime": 1775391811.713114,
+    "ast_hash": "cece5553f23299b8c18f37aae01f5ea7",
+    "semantic_hash": "cece5553f23299b8c18f37aae01f5ea7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_atlas.h": {
+    "mtime": 1775391811.714116,
+    "ast_hash": "70e7a0b4c3c6709b1cd815fea703e79e",
+    "semantic_hash": "70e7a0b4c3c6709b1cd815fea703e79e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_buffers.cpp": {
+    "mtime": 1775391811.7151163,
+    "ast_hash": "46880ac362626ff5443c43a6b505524c",
+    "semantic_hash": "46880ac362626ff5443c43a6b505524c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_buffers.h": {
+    "mtime": 1775391811.7171156,
+    "ast_hash": "88ca8f5194fd6fe8687b40ea758cb98d",
+    "semantic_hash": "88ca8f5194fd6fe8687b40ea758cb98d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_context.cpp": {
+    "mtime": 1775391811.719115,
+    "ast_hash": "ddc9b4a1e02475db0f7ee2b8c4cf08c7",
+    "semantic_hash": "ddc9b4a1e02475db0f7ee2b8c4cf08c7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_context.h": {
+    "mtime": 1775391811.7211132,
+    "ast_hash": "f2ee4be2ba4bbfccb2aca0f9c5112c34",
+    "semantic_hash": "f2ee4be2ba4bbfccb2aca0f9c5112c34"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_cube_pass.cpp": {
+    "mtime": 1775391811.7231154,
+    "ast_hash": "9da807258a8bebdc36e9fcf3ed78635d",
+    "semantic_hash": "9da807258a8bebdc36e9fcf3ed78635d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_cube_pass.h": {
+    "mtime": 1774039880.5462735,
+    "ast_hash": "578eca5d03c2bcf03f840d3360f881f0",
+    "semantic_hash": "578eca5d03c2bcf03f840d3360f881f0"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_pipeline.cpp": {
+    "mtime": 1775391811.7251153,
+    "ast_hash": "b069d398a649f05a97e1ef0849971fb9",
+    "semantic_hash": "b069d398a649f05a97e1ef0849971fb9"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_pipeline.h": {
+    "mtime": 1773834147.3295376,
+    "ast_hash": "d4e543545d4573df69999bcd634b487a",
+    "semantic_hash": "d4e543545d4573df69999bcd634b487a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_renderer.cpp": {
+    "mtime": 1781535754.2202091,
+    "ast_hash": "76a3ef8f14d16ab08c577d31b55662ab",
+    "semantic_hash": "76a3ef8f14d16ab08c577d31b55662ab"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\src\\vulkan\\vk_renderer.h": {
+    "mtime": 1775391811.733115,
+    "ast_hash": "dc6af6dea4834d695bab9422cc249d57",
+    "semantic_hash": "dc6af6dea4834d695bab9422cc249d57"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\app_options.h": {
+    "mtime": 1781535754.2212105,
+    "ast_hash": "cabe7749f2623ff31b022d29bc015674",
+    "semantic_hash": "cabe7749f2623ff31b022d29bc015674"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\atlas_upload.h": {
+    "mtime": 1775999557.2272155,
+    "ast_hash": "3133d750cdc198ae49d4a77e5a06a579",
+    "semantic_hash": "3133d750cdc198ae49d4a77e5a06a579"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\cursor_blinker.h": {
+    "mtime": 1774357047.9481885,
+    "ast_hash": "98409aed6a54aeb4b5062dbf1607c656",
+    "semantic_hash": "98409aed6a54aeb4b5062dbf1607c656"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\grid_rendering_pipeline.h": {
+    "mtime": 1774362943.0630136,
+    "ast_hash": "b74b3f6cf6c95fe4f56478ae82e35800",
+    "semantic_hash": "b74b3f6cf6c95fe4f56478ae82e35800"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\session_attach.h": {
+    "mtime": 1775999557.2282155,
+    "ast_hash": "4ff3ce5b2483bc2074123535dd210da1",
+    "semantic_hash": "4ff3ce5b2483bc2074123535dd210da1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\startup_resize_state.h": {
+    "mtime": 1774357047.9491875,
+    "ast_hash": "5f085576e526afc39725e26b7016a4d3",
+    "semantic_hash": "5f085576e526afc39725e26b7016a4d3"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\system_resource_monitor.h": {
+    "mtime": 1775593304.9964058,
+    "ast_hash": "c20b25bc520a8ec49d91dac69eb4ab57",
+    "semantic_hash": "c20b25bc520a8ec49d91dac69eb4ab57"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\ui_request_worker.h": {
+    "mtime": 1775999557.2292163,
+    "ast_hash": "7ac7b45c7318af3498719dd08ca27663",
+    "semantic_hash": "7ac7b45c7318af3498719dd08ca27663"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\include\\draxul\\ui_request_worker_state.h": {
+    "mtime": 1775148300.2339957,
+    "ast_hash": "8cc448f98b846e23deafd12a228010bb",
+    "semantic_hash": "8cc448f98b846e23deafd12a228010bb"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\src\\cursor_blinker.cpp": {
+    "mtime": 1775391811.7351172,
+    "ast_hash": "c0f56a96ee2f8003ce08ced2ed122b92",
+    "semantic_hash": "c0f56a96ee2f8003ce08ced2ed122b92"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\src\\grid_rendering_pipeline.cpp": {
+    "mtime": 1781535754.2222123,
+    "ast_hash": "be691aa26f6c12e7f100eeaeae87f2d3",
+    "semantic_hash": "be691aa26f6c12e7f100eeaeae87f2d3"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\src\\session_attach.cpp": {
+    "mtime": 1781535754.223214,
+    "ast_hash": "9156d9b5f2b80274d4faa02da99f9395",
+    "semantic_hash": "9156d9b5f2b80274d4faa02da99f9395"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\src\\system_resource_monitor.cpp": {
+    "mtime": 1775593398.8754435,
+    "ast_hash": "20255020346a6f67ec23d1a2584b2525",
+    "semantic_hash": "20255020346a6f67ec23d1a2584b2525"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\src\\ui_request_worker.cpp": {
+    "mtime": 1775999557.2312167,
+    "ast_hash": "7a3fc7ef2805248442aff3afd016d9c2",
+    "semantic_hash": "7a3fc7ef2805248442aff3afd016d9c2"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\bmp.h": {
+    "mtime": 1773914276.8516154,
+    "ast_hash": "7a1d97ae9af81a88e0813428df76687c",
+    "semantic_hash": "7a1d97ae9af81a88e0813428df76687c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\events.h": {
+    "mtime": 1781535754.2242124,
+    "ast_hash": "8dbd8bf991b87ec091fa69bc698f4d5f",
+    "semantic_hash": "8dbd8bf991b87ec091fa69bc698f4d5f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\glyph_atlas.h": {
+    "mtime": 1774357047.9571905,
+    "ast_hash": "24262871dad443fa5e2ff006a2beaa21",
+    "semantic_hash": "24262871dad443fa5e2ff006a2beaa21"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\grid_sink.h": {
+    "mtime": 1774170057.9518185,
+    "ast_hash": "11a784b59c6a98e5b399125df7510c74",
+    "semantic_hash": "11a784b59c6a98e5b399125df7510c74"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\highlight.h": {
+    "mtime": 1775574047.9098203,
+    "ast_hash": "0ad5a96f5101b4ccfd5a2b862be63530",
+    "semantic_hash": "0ad5a96f5101b4ccfd5a2b862be63530"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\host_kind.h": {
+    "mtime": 1781535754.2242124,
+    "ast_hash": "8366f1f0cbe4a1b242baf924e514e8d2",
+    "semantic_hash": "8366f1f0cbe4a1b242baf924e514e8d2"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\input_types.h": {
+    "mtime": 1774094254.8856883,
+    "ast_hash": "f6cba06d44f36c91f61b2ebcf3b170e2",
+    "semantic_hash": "f6cba06d44f36c91f61b2ebcf3b170e2"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\log.h": {
+    "mtime": 1774276873.6181943,
+    "ast_hash": "e8bfb790b741d460a3a886cd13e6d356",
+    "semantic_hash": "e8bfb790b741d460a3a886cd13e6d356"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\perf_timing.h": {
+    "mtime": 1775391811.7511175,
+    "ast_hash": "96804611adbf1c1e0bd9d9399b3a2fb9",
+    "semantic_hash": "96804611adbf1c1e0bd9d9399b3a2fb9"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\pixel_scale.h": {
+    "mtime": 1775391811.7521164,
+    "ast_hash": "045b2c7f990d80ab788cae1774384ee8",
+    "semantic_hash": "045b2c7f990d80ab788cae1774384ee8"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\result.h": {
+    "mtime": 1775999557.2312167,
+    "ast_hash": "49927de05eed5b3d50150be75e9460dc",
+    "semantic_hash": "49927de05eed5b3d50150be75e9460dc"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\runtime_path.h": {
+    "mtime": 1774359503.680406,
+    "ast_hash": "84d54d70642fa030358e68bc7b708c4e",
+    "semantic_hash": "84d54d70642fa030358e68bc7b708c4e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\string_util.h": {
+    "mtime": 1773834147.3365352,
+    "ast_hash": "2996fb8b09fa82cbaea78460c0386ef0",
+    "semantic_hash": "2996fb8b09fa82cbaea78460c0386ef0"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\thread_check.h": {
+    "mtime": 1774362943.0650115,
+    "ast_hash": "8d52269f49c64c34e1352ea2f324321a",
+    "semantic_hash": "8d52269f49c64c34e1352ea2f324321a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\types.h": {
+    "mtime": 1781535754.2252111,
+    "ast_hash": "d5866bbb7953b8e657697cfdc15b4802",
+    "semantic_hash": "d5866bbb7953b8e657697cfdc15b4802"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\include\\draxul\\unicode.h": {
+    "mtime": 1781535754.2262132,
+    "ast_hash": "bfc52f857de88d5a1e286b8ac7b63916",
+    "semantic_hash": "bfc52f857de88d5a1e286b8ac7b63916"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\src\\bmp.cpp": {
+    "mtime": 1775999557.2332163,
+    "ast_hash": "1811412e90baa1c306343ceb633e7242",
+    "semantic_hash": "1811412e90baa1c306343ceb633e7242"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\src\\log.cpp": {
+    "mtime": 1775391811.756116,
+    "ast_hash": "b21264652ee19038e7a7d6bafc4c9012",
+    "semantic_hash": "b21264652ee19038e7a7d6bafc4c9012"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\src\\perf_timing.cpp": {
+    "mtime": 1775391811.7571144,
+    "ast_hash": "603e215adaf34b1b38d1a18089c04db3",
+    "semantic_hash": "603e215adaf34b1b38d1a18089c04db3"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\src\\runtime_path.cpp": {
+    "mtime": 1775391811.7591166,
+    "ast_hash": "83fb7e2d5aa3a9ffbcf6ab5866ac5c20",
+    "semantic_hash": "83fb7e2d5aa3a9ffbcf6ab5866ac5c20"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\include\\draxul\\diagnostics_collector.h": {
+    "mtime": 1774362943.066012,
+    "ast_hash": "46f14a7dc1c4faf07f8f970e6bc55c09",
+    "semantic_hash": "46f14a7dc1c4faf07f8f970e6bc55c09"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\include\\draxul\\sdl_imgui_input.h": {
+    "mtime": 1774167694.2251713,
+    "ast_hash": "05db9693e2247b82029c0cdff843e822",
+    "semantic_hash": "05db9693e2247b82029c0cdff843e822"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\include\\draxul\\ui_panel.h": {
+    "mtime": 1775399016.834566,
+    "ast_hash": "ff28974b792df31a8b429b33ee764d89",
+    "semantic_hash": "ff28974b792df31a8b429b33ee764d89"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\src\\sdl_imgui_input.cpp": {
+    "mtime": 1775391811.7651145,
+    "ast_hash": "981de13089e70209814f0af66350562e",
+    "semantic_hash": "981de13089e70209814f0af66350562e"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\src\\ui_metrics_panel.cpp": {
+    "mtime": 1775391811.7671156,
+    "ast_hash": "558a017d2f9ef14c8c4059e9be46829f",
+    "semantic_hash": "558a017d2f9ef14c8c4059e9be46829f"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\src\\ui_metrics_panel.h": {
+    "mtime": 1774167694.227172,
+    "ast_hash": "a299b9f4d66c9292de1e6306b0cb0a0a",
+    "semantic_hash": "a299b9f4d66c9292de1e6306b0cb0a0a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\src\\ui_panel.cpp": {
+    "mtime": 1775574047.9118211,
+    "ast_hash": "5a669c046e5bae1b940891689c8e02f7",
+    "semantic_hash": "5a669c046e5bae1b940891689c8e02f7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\src\\ui_panel_style.cpp": {
+    "mtime": 1775391811.7701159,
+    "ast_hash": "10b2d3b4071fe7f6a57dacf30b6bd605",
+    "semantic_hash": "10b2d3b4071fe7f6a57dacf30b6bd605"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\src\\ui_panel_style.h": {
+    "mtime": 1774167694.2291708,
+    "ast_hash": "b68cbc032697a7d51e99b82e6985f723",
+    "semantic_hash": "b68cbc032697a7d51e99b82e6985f723"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\include\\draxul\\sdl_window.h": {
+    "mtime": 1775999557.2342162,
+    "ast_hash": "7e076082cb6afc9f14a406b224be2e27",
+    "semantic_hash": "7e076082cb6afc9f14a406b224be2e27"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\include\\draxul\\window.h": {
+    "mtime": 1775999557.2352164,
+    "ast_hash": "1a8609c0bca1ed7c76af55221574e24a",
+    "semantic_hash": "1a8609c0bca1ed7c76af55221574e24a"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_clipboard.cpp": {
+    "mtime": 1775391811.7741158,
+    "ast_hash": "a8644e962bc109aabea41c6b89998f87",
+    "semantic_hash": "a8644e962bc109aabea41c6b89998f87"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_clipboard.h": {
+    "mtime": 1774094254.8916864,
+    "ast_hash": "dd9977a5e1aef001a8c5cc4deb7ed9c2",
+    "semantic_hash": "dd9977a5e1aef001a8c5cc4deb7ed9c2"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_event_translator.cpp": {
+    "mtime": 1781535754.2277203,
+    "ast_hash": "574fbc65a397d073b4774927b59dcce1",
+    "semantic_hash": "574fbc65a397d073b4774927b59dcce1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_event_translator.h": {
+    "mtime": 1774094254.8926868,
+    "ast_hash": "f4e9fc96f8a580d56b2f794a7ab77299",
+    "semantic_hash": "f4e9fc96f8a580d56b2f794a7ab77299"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_file_dialog.cpp": {
+    "mtime": 1775391811.777114,
+    "ast_hash": "0148e82ab33da23a77634b3e17610f32",
+    "semantic_hash": "0148e82ab33da23a77634b3e17610f32"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_file_dialog.h": {
+    "mtime": 1774094254.8936868,
+    "ast_hash": "b98bc731fb2bf3a1b87ae46c4e086407",
+    "semantic_hash": "b98bc731fb2bf3a1b87ae46c4e086407"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_window.cpp": {
+    "mtime": 1781535754.2282295,
+    "ast_hash": "8f33877396e117dc0ae7763cea41fd8c",
+    "semantic_hash": "8f33877396e117dc0ae7763cea41fd8c"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_window_macos.mm": {
+    "mtime": 1775999557.2372184,
+    "ast_hash": "b2751fc135ef917ae514e925340ebb93",
+    "semantic_hash": "b2751fc135ef917ae514e925340ebb93"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\src\\sdl_window_win32.cpp": {
+    "mtime": 1775999557.2382176,
+    "ast_hash": "06bd7a87c37d23d6915cd4e957e0361b",
+    "semantic_hash": "06bd7a87c37d23d6915cd4e957e0361b"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-app-support\\CMakeLists.txt": {
+    "mtime": 1774357047.891676,
+    "ast_hash": "0724bb680620e8949a2aa35753f2484d",
+    "semantic_hash": "0724bb680620e8949a2aa35753f2484d"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-config\\CMakeLists.txt": {
+    "mtime": 1775999557.1937003,
+    "ast_hash": "f018c5ce1184970ba85f44b929d60af9",
+    "semantic_hash": "f018c5ce1184970ba85f44b929d60af9"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-font\\CMakeLists.txt": {
+    "mtime": 1781535754.1644683,
+    "ast_hash": "cac7d45ef5b1fcc356cacbfc5fb481e7",
+    "semantic_hash": "cac7d45ef5b1fcc356cacbfc5fb481e7"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-grid\\CMakeLists.txt": {
+    "mtime": 1773834147.307535,
+    "ast_hash": "41a780f61142d1577ef0df1940307038",
+    "semantic_hash": "41a780f61142d1577ef0df1940307038"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-gui\\CMakeLists.txt": {
+    "mtime": 1775574047.8613074,
+    "ast_hash": "d32a1e5601277197f2825562868c6ddf",
+    "semantic_hash": "d32a1e5601277197f2825562868c6ddf"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-host\\CMakeLists.txt": {
+    "mtime": 1775999557.1997044,
+    "ast_hash": "71a5dc35fd95468861364e5ca3cbd9e1",
+    "semantic_hash": "71a5dc35fd95468861364e5ca3cbd9e1"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-kanban\\CMakeLists.txt": {
+    "mtime": 1781535754.1904852,
+    "ast_hash": "7eed227112055b29f45dbe7dcc84e5de",
+    "semantic_hash": "7eed227112055b29f45dbe7dcc84e5de"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-markdown\\CMakeLists.txt": {
+    "mtime": 1781535754.1996624,
+    "ast_hash": "52396bd51f7c25e6196e2bac37cf3981",
+    "semantic_hash": "52396bd51f7c25e6196e2bac37cf3981"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nanovg\\CMakeLists.txt": {
+    "mtime": 1775574047.8968222,
+    "ast_hash": "fe9d3068e35a73e6ab2171677a67fbf5",
+    "semantic_hash": "fe9d3068e35a73e6ab2171677a67fbf5"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-nvim\\CMakeLists.txt": {
+    "mtime": 1773834147.3095348,
+    "ast_hash": "28bc1ed985ce8caae90e5748ce490782",
+    "semantic_hash": "28bc1ed985ce8caae90e5748ce490782"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-render-test\\CMakeLists.txt": {
+    "mtime": 1775391811.688592,
+    "ast_hash": "475873d01b9dfb05fc1b4189848c55cf",
+    "semantic_hash": "475873d01b9dfb05fc1b4189848c55cf"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-renderer\\CMakeLists.txt": {
+    "mtime": 1781535754.2161925,
+    "ast_hash": "d602e433aab27029067393a498c81711",
+    "semantic_hash": "d602e433aab27029067393a498c81711"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-runtime-support\\CMakeLists.txt": {
+    "mtime": 1775999557.2262158,
+    "ast_hash": "5af613cb0b956801195353d3702cde46",
+    "semantic_hash": "5af613cb0b956801195353d3702cde46"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-types\\CMakeLists.txt": {
+    "mtime": 1775391811.7461147,
+    "ast_hash": "3905ca236796b12c0de0107a850cc608",
+    "semantic_hash": "3905ca236796b12c0de0107a850cc608"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-ui\\CMakeLists.txt": {
+    "mtime": 1775574047.9118211,
+    "ast_hash": "1ac883ba2a265c9ca7796c8a59257df0",
+    "semantic_hash": "1ac883ba2a265c9ca7796c8a59257df0"
+  },
+  "D:\\dev\\Draxul\\libs\\draxul-window\\CMakeLists.txt": {
+    "mtime": 1775999557.2332163,
+    "ast_hash": "ca04a3cb412e651365d3ef2684ebe09f",
+    "semantic_hash": "ca04a3cb412e651365d3ef2684ebe09f"
+  }
+}
