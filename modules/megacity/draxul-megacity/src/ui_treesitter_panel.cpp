@@ -6,7 +6,9 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
@@ -834,6 +836,35 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         // Module / View
         if (ImGui::TreeNodeEx("##build_module", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "Module / View"))
         {
+            static constexpr const char* kCodeSourceLabels[] = {
+                "Tree-sitter DB",
+                "Graphify",
+            };
+            int code_source_index = config.code_source == MegaCityCodeSource::Graphify ? 1 : 0;
+            ImGui::SetNextItemWidth(180.0f);
+            if (ImGui::Combo("Source", &code_source_index, kCodeSourceLabels, IM_ARRAYSIZE(kCodeSourceLabels)))
+            {
+                config.code_source = code_source_index == 1
+                    ? MegaCityCodeSource::Graphify
+                    : MegaCityCodeSource::TreeSitterDb;
+                changed = true;
+                controls.committed_edit = true;
+            }
+
+            if (config.code_source == MegaCityCodeSource::Graphify)
+            {
+                std::array<char, 1024> graph_path_buffer{};
+                const size_t copy_size = std::min(config.graphify_graph_path.size(), graph_path_buffer.size() - 1);
+                std::memcpy(graph_path_buffer.data(), config.graphify_graph_path.data(), copy_size);
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::InputText("Graphify Graph", graph_path_buffer.data(), graph_path_buffer.size()))
+                {
+                    config.graphify_graph_path = graph_path_buffer.data();
+                    changed = true;
+                }
+                note_commit();
+            }
+
             const bool module_selection_missing = !config.selected_module_path.empty()
                 && std::find(
                        controls.available_modules.begin(),
@@ -1218,25 +1249,10 @@ bool render_treesitter_panel(
         return false;
     }
 
-    if (!snapshot)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-        ImGui::Text("(starting...)");
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(2);
-        ImGui::End();
-        return false;
-    }
+    auto render_overlay_controls = [&]() {
+        if (!renderer_controls)
+            return;
 
-    if (!snapshot->complete)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.9f, 0.6f, 1.0f));
-        ImGui::Text("Scanning... %zu files", snapshot->files.size());
-        ImGui::PopStyleColor();
-    }
-
-    if (renderer_controls)
-    {
         static constexpr const char* kOverlayLabels[] = { "None", "Perf", "Coverage", "LCOV Coverage" };
         int overlay_index = static_cast<int>(renderer_controls->config.overlay_mode);
         if (ImGui::Combo("Overlay", &overlay_index, kOverlayLabels, 4))
@@ -1257,6 +1273,36 @@ bool render_treesitter_panel(
         }
 
         ImGui::Separator();
+    };
+
+    render_overlay_controls();
+
+    if (!snapshot)
+    {
+        const bool graphify_source = renderer_controls
+            && renderer_controls->config.code_source == MegaCityCodeSource::Graphify;
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+        ImGui::TextUnformatted(graphify_source ? "Graphify source" : "(starting...)");
+        ImGui::PopStyleColor();
+
+        ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), false,
+            ImGuiWindowFlags_HorizontalScrollbar);
+        if (renderer_controls)
+            changed |= render_renderer_controls(*renderer_controls);
+        if (renderer_controls)
+            render_perf_debug_panel(renderer_controls->perf_debug);
+        ImGui::EndChild();
+
+        ImGui::PopStyleVar(2);
+        ImGui::End();
+        return changed;
+    }
+
+    if (!snapshot->complete)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.9f, 0.6f, 1.0f));
+        ImGui::Text("Scanning... %zu files", snapshot->files.size());
+        ImGui::PopStyleColor();
     }
 
     const SnapshotUiCache& ui_cache = cached_snapshot_ui(snapshot);
