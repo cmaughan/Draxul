@@ -33,13 +33,15 @@ TEST_CASE("GraphifySemanticSource maps classes methods and fields into city reco
             { "id": "app::widget", "label": "Widget", "file_type": "code", "source_file": "widget.cpp", "source_location": "L10", "community": 1, "community_name": "App Core" },
             { "id": "app::widget_draw", "label": "draw()", "file_type": "code", "source_file": "widget.cpp", "source_location": "L21", "community": 1, "community_name": "App Core" },
             { "id": "app::widget_width", "label": "width_", "file_type": "code", "source_file": "widget.cpp", "source_location": "L15", "community": 1, "community_name": "App Core" },
-            { "id": "app::renderer", "label": "Renderer", "file_type": "code", "source_file": "renderer.h", "source_location": "L7", "community": 1, "community_name": "App Core" }
+            { "id": "app::renderer", "label": "Renderer", "file_type": "code", "source_file": "renderer.h", "source_location": "L7", "community": 1, "community_name": "App Core" },
+            { "id": "app::renderer_draw", "label": "draw()", "file_type": "code", "source_file": "renderer.cpp", "source_location": "L15", "community": 1, "community_name": "App Core" }
           ],
           "links": [
             { "source": "app::widget_file", "target": "app::widget", "relation": "contains", "source_file": "widget.cpp", "source_location": "L10" },
             { "source": "app::widget", "target": "app::widget_draw", "relation": "method", "source_file": "widget.cpp", "source_location": "L21" },
             { "source": "app::widget", "target": "app::widget_width", "relation": "defines", "context": "field", "source_file": "widget.cpp", "source_location": "L15" },
-            { "source": "app::widget", "target": "app::renderer", "relation": "references", "context": "field", "source_file": "widget.cpp", "source_location": "L16" }
+            { "source": "app::widget", "target": "app::renderer", "relation": "references", "context": "field", "source_file": "widget.cpp", "source_location": "L16" },
+            { "source": "app::renderer", "target": "app::renderer_draw", "relation": "method", "source_file": "renderer.cpp", "source_location": "L15" }
           ]
         })json");
 
@@ -48,17 +50,20 @@ TEST_CASE("GraphifySemanticSource maps classes methods and fields into city reco
 
     REQUIRE(source.list_modules() == std::vector<std::string>{ "app" });
     const auto rows = source.list_classes_in_module("app");
-    REQUIRE(rows.size() == 1);
-    CHECK(rows[0].name == "Widget");
-    CHECK(rows[0].qualified_name == "app::widget");
-    CHECK(rows[0].module_path == "app");
-    CHECK(rows[0].source_file_path == "app/widget.cpp");
-    CHECK(rows[0].entity_kind == "building");
-    CHECK(rows[0].base_size == 1);
-    CHECK(rows[0].building_functions == 1);
-    CHECK(rows[0].function_names == std::vector<std::string>{ "draw" });
-    CHECK(rows[0].function_sizes == std::vector<int>{ 1 });
-    CHECK(rows[0].road_size == 1);
+    REQUIRE(rows.size() == 2);
+    const auto widget_it = std::find_if(rows.begin(), rows.end(), [](const draxul::CityClassRecord& row) {
+        return row.qualified_name == "app::widget";
+    });
+    REQUIRE(widget_it != rows.end());
+    CHECK(widget_it->name == "Widget");
+    CHECK(widget_it->module_path == "app");
+    CHECK(widget_it->source_file_path == "app/widget.cpp");
+    CHECK(widget_it->entity_kind == "building");
+    CHECK(widget_it->base_size == 1);
+    CHECK(widget_it->building_functions == 1);
+    CHECK(widget_it->function_names == std::vector<std::string>{ "draw" });
+    CHECK(widget_it->function_sizes == std::vector<int>{ 1 });
+    CHECK(widget_it->road_size == 1);
 
     const auto deps = source.list_class_dependencies_in_module("app");
     REQUIRE(deps.size() == 1);
@@ -109,6 +114,32 @@ TEST_CASE("GraphifySemanticSource maps method calls to owning class dependencies
     CHECK(deps[0].target_qualified_name == "app::service");
     CHECK(deps[0].source_module_path == "app");
     CHECK(deps[0].target_module_path == "app");
+}
+
+TEST_CASE("GraphifySemanticSource ignores field references to unmodeled targets", "[megacity][graphify]")
+{
+    const std::filesystem::path path = write_graphify_fixture(
+        "draxul-graphify-semantic-source-unmodeled-field-target.json",
+        R"json({
+          "nodes": [
+            { "id": "app::widget", "label": "Widget", "source_file": "widget.cpp", "source_location": "L3" },
+            { "id": "app::widget_draw", "label": "draw()", "source_file": "widget.cpp", "source_location": "L7" },
+            { "id": "std::string", "label": "std::string", "source_file": "", "source_location": "" }
+          ],
+          "links": [
+            { "source": "app::widget", "target": "app::widget_draw", "relation": "method" },
+            { "source": "app::widget", "target": "std::string", "relation": "references", "context": "field" }
+          ]
+        })json");
+
+    draxul::GraphifySemanticSource source;
+    REQUIRE(source.load(path));
+
+    const auto rows = source.list_classes_in_module("app");
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].qualified_name == "app::widget");
+    CHECK(rows[0].road_size == 0);
+    CHECK(source.list_class_dependencies_in_module("app").empty());
 }
 
 TEST_CASE("GraphifySemanticSource maps inheritance edges to class dependencies", "[megacity][graphify]")

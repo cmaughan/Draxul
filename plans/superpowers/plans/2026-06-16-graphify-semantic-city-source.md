@@ -24,40 +24,40 @@ Build only the first optional source path:
 
 ## File Structure
 
-- Create `modules/megacity/draxul-megacity/src/city_semantic_source.h`  
+- Create `modules/megacity/draxul-megacity/src/city_semantic_source.h`
   Defines `ICitySemanticSource` and `CityDatabaseSemanticSource`, the common record provider used by `build_city()`.
 
-- Create `modules/megacity/draxul-megacity/src/city_semantic_source.cpp`  
+- Create `modules/megacity/draxul-megacity/src/city_semantic_source.cpp`
   Implements the `CityDatabase` adapter by forwarding to the existing DB query API.
 
-- Modify `modules/megacity/draxul-megacity/src/city_builder.h` and `modules/megacity/draxul-megacity/src/city_builder.cpp`  
+- Modify `modules/megacity/draxul-megacity/src/city_builder.h` and `modules/megacity/draxul-megacity/src/city_builder.cpp`
   Change `build_city()` to consume `ICitySemanticSource&` instead of `CityDatabase&`.
 
-- Create `modules/megacity/draxul-megacity/src/graphify_semantic_source.h` and `modules/megacity/draxul-megacity/src/graphify_semantic_source.cpp`  
+- Create `modules/megacity/draxul-megacity/src/graphify_semantic_source.h` and `modules/megacity/draxul-megacity/src/graphify_semantic_source.cpp`
   Loads Graphify JSON, normalizes paths, infers class records and dependency records, and exposes them through `ICitySemanticSource`.
 
-- Modify `modules/megacity/draxul-megacity/include/draxul/megacity_code_config.h` and `modules/megacity/draxul-megacity/src/megacity_code_config.cpp`  
+- Modify `modules/megacity/draxul-megacity/include/draxul/megacity_code_config.h` and `modules/megacity/draxul-megacity/src/megacity_code_config.cpp`
   Add `MegaCityCodeSource`, `code_source`, and `graphify_graph_path` config support.
 
-- Modify `modules/megacity/draxul-megacity/include/draxul/megacity_host.h` and `modules/megacity/draxul-megacity/src/megacity_host.cpp`  
+- Modify `modules/megacity/draxul-megacity/include/draxul/megacity_host.h` and `modules/megacity/draxul-megacity/src/megacity_host.cpp`
   Select the semantic source at runtime, skip scanner/DB reconciliation in Graphify mode, and rebuild once the graph loads.
 
-- Modify `modules/megacity/draxul-megacity/src/ui_treesitter_panel.cpp` and `modules/megacity/draxul-megacity/src/ui_treesitter_panel.h`  
+- Modify `modules/megacity/draxul-megacity/src/ui_treesitter_panel.cpp` and `modules/megacity/draxul-megacity/src/ui_treesitter_panel.h`
   Add a source selector and graph path field to the existing MegaCity diagnostics/config panel.
 
-- Modify `modules/megacity/draxul-megacity/CMakeLists.txt` and `cmake/FetchDependencies.cmake`  
+- Modify `modules/megacity/draxul-megacity/CMakeLists.txt` and `cmake/FetchDependencies.cmake`
   Add new source files and a JSON parser dependency.
 
-- Create `tests/graphify_semantic_source_tests.cpp`  
+- Create `tests/graphify_semantic_source_tests.cpp`
   Unit tests for Graphify path normalization, class/method/field mapping, call dependencies, and module records.
 
-- Modify `tests/megacity_scene_tests.cpp`  
+- Modify `tests/megacity_scene_tests.cpp`
   Update existing `build_city()` tests to pass a semantic source adapter instead of a raw `CityDatabase`.
 
-- Modify `tests/app_config_tests.cpp`  
+- Modify `tests/app_config_tests.cpp`
   Verify config parse/save round trips for `code_source` and `graphify_graph_path`.
 
-- Modify `docs/features.md`  
+- Modify `docs/features.md`
   Document Graphify-backed MegaCity import as an optional feature.
 
 ---

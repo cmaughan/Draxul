@@ -279,6 +279,20 @@ std::optional<std::filesystem::path> resolve_scan_root(const HostLaunchOptions& 
     return canonical;
 }
 
+std::filesystem::path fallback_scan_root()
+{
+    std::error_code ec;
+    std::filesystem::path root = std::filesystem::weakly_canonical(std::filesystem::path(DRAXUL_REPO_ROOT), ec);
+    if (!ec && !root.empty())
+        return root;
+
+    root = std::filesystem::current_path(ec);
+    if (!ec && !root.empty())
+        return root;
+
+    return ".";
+}
+
 /// Find the best file to open for a given source_file_path and function_name.
 /// If source is a header, looks for a matching .cpp that contains the function.
 /// Returns {file_to_open, function_to_search}.
@@ -698,10 +712,17 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     continuous_refresh_enabled_ = context.launch_options.request_continuous_refresh;
     restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
 
-    const auto resolved_scan_root = resolve_scan_root(context.launch_options, &init_error_);
-    if (!resolved_scan_root)
-        return false;
-    scan_root_ = *resolved_scan_root;
+    if (renderer_config_.code_source == MegaCityCodeSource::TreeSitterDb)
+    {
+        const auto resolved_scan_root = resolve_scan_root(context.launch_options, &init_error_);
+        if (!resolved_scan_root)
+            return false;
+        scan_root_ = *resolved_scan_root;
+    }
+    else
+    {
+        scan_root_ = fallback_scan_root();
+    }
 
     // Create MegaCity's own ImGui context for isolated docking and layout.
     {

@@ -2712,6 +2712,60 @@ TEST_CASE("megacity host reports graphify load failure during initialization", "
     CHECK_FALSE(host.is_running());
 }
 
+TEST_CASE("megacity host graphify mode does not require a valid scan root", "[megacity][graphify]")
+{
+    tests::TempDir temp("draxul-megacity-graphify-no-scan-root");
+    const auto graph_path = temp.path / "graph.json";
+    {
+        std::ofstream out(graph_path, std::ios::binary | std::ios::trunc);
+        out << R"json({
+          "nodes": [
+            { "id": "app::view", "label": "View", "source_file": "view.cpp", "source_location": "L3" },
+            { "id": "app::view_draw", "label": "draw()", "source_file": "view.cpp", "source_location": "L7" }
+          ],
+          "links": [
+            { "source": "app::view", "target": "app::view_draw", "relation": "method" }
+          ]
+        })json";
+    }
+
+    ConfigDocument document;
+    toml::table& code_table = document.ensure_table("mega_city_code");
+    code_table.insert_or_assign("code_source", "graphify");
+    code_table.insert_or_assign("graphify_graph_path", graph_path.string());
+
+    tests::FakeWindow window;
+    tests::TestHostCallbacks callbacks;
+    TextService text_service;
+    tests::FakeTermRenderer renderer;
+    MegaCityHost host;
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::MegaCity;
+    launch.source_path = (temp.path / "missing-source-root").string();
+
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    viewport.grid_size = { 1, 1 };
+
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .config_document = &document,
+        .launch_options = std::move(launch),
+        .initial_viewport = viewport,
+        .display_ppi = window.display_ppi_,
+    };
+
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(host.semantic_model_ != nullptr);
+    REQUIRE(host.semantic_model_->modules.size() == 1);
+    CHECK(host.semantic_model_->modules[0].module_path == "app");
+
+    host.shutdown();
+}
+
 TEST_CASE("megacity host retries focused routes once the grid becomes available", "[megacity]")
 {
     tests::FakeWindow window;

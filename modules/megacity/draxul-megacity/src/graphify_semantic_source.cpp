@@ -290,6 +290,17 @@ bool GraphifySemanticSource::load(const std::filesystem::path& path)
             }
         }
 
+        std::set<std::string> class_like_ids;
+        for (const GraphLink& link : links)
+        {
+            if (link.relation == "method" || link.relation == "inherits"
+                || (link.relation == "defines" && link.context == "field")
+                || (link.relation == "references" && link.context == "field"))
+            {
+                class_like_ids.insert(link.source);
+            }
+        }
+
         std::unordered_map<std::string, std::string> method_owner_by_method;
         for (const GraphLink& link : links)
         {
@@ -326,17 +337,6 @@ bool GraphifySemanticSource::load(const std::filesystem::path& path)
             const std::string source_module_path = dep.source_module_path;
             deps_by_module_[source_module_path].push_back(std::move(dep));
             ++call_dependency_counts_by_owner[source_owner_id];
-        }
-
-        std::set<std::string> class_like_ids;
-        for (const GraphLink& link : links)
-        {
-            if (link.relation == "method" || link.relation == "inherits"
-                || (link.relation == "defines" && link.context == "field")
-                || (link.relation == "references" && link.context == "field"))
-            {
-                class_like_ids.insert(link.source);
-            }
         }
 
         std::unordered_map<std::string, std::vector<const GraphLink*>> outgoing_by_source;
@@ -377,6 +377,9 @@ bool GraphifySemanticSource::load(const std::filesystem::path& path)
                     }
                     else if (link->relation == "references" && link->context == "field")
                     {
+                        if (!class_like_ids.contains(link->target))
+                            continue;
+
                         ++row.road_size;
 
                         const std::string target_file
