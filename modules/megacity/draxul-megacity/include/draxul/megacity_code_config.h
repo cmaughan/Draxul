@@ -50,9 +50,17 @@ enum class MegaCityProjectionMode : uint8_t
     Perspective,
 };
 
+enum class MegaCityCodeSource : uint8_t
+{
+    TreeSitterDb,
+    Graphify,
+};
+
 struct MegaCityCodeConfig
 {
     std::string selected_module_path;
+    MegaCityCodeSource code_source = MegaCityCodeSource::TreeSitterDb;
+    std::string graphify_graph_path = "graphify-out/graph.json";
     glm::vec2 sign_text_px_range{ 1.5f, 8.0f }; // (hidden, full)
     MegaCityDebugView debug_view = MegaCityDebugView::FinalScene;
     bool wireframe = false;

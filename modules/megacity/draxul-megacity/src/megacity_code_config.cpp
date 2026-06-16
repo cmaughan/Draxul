@@ -115,6 +115,25 @@ std::string_view format_megacity_projection_mode(MegaCityProjectionMode value)
 namespace
 {
 
+MegaCityCodeSource code_source_from_string(std::string_view text)
+{
+    if (text == "graphify")
+        return MegaCityCodeSource::Graphify;
+    return MegaCityCodeSource::TreeSitterDb;
+}
+
+std::string_view code_source_to_string(MegaCityCodeSource source)
+{
+    switch (source)
+    {
+    case MegaCityCodeSource::Graphify:
+        return "graphify";
+    case MegaCityCodeSource::TreeSitterDb:
+    default:
+        return "treesitter_db";
+    }
+}
+
 std::optional<float> get_float(const toml::table& table, const char* key)
 {
     if (auto parsed = toml_support::get_double(table, key); parsed.has_value())
@@ -167,6 +186,10 @@ void apply_megacity_code_table(MegaCityCodeConfig& config, const toml::table& ta
 
     if (auto selected_module_path = toml_support::get_string(table, "selected_module_path"); selected_module_path.has_value())
         config.selected_module_path = *selected_module_path;
+    if (auto code_source = toml_support::get_string(table, "code_source"); code_source.has_value())
+        config.code_source = code_source_from_string(*code_source);
+    if (auto graphify_graph_path = toml_support::get_string(table, "graphify_graph_path"); graphify_graph_path.has_value())
+        config.graphify_graph_path = *graphify_graph_path;
     assign_vec2(table, "sign_text_px_range", config.sign_text_px_range);
     if (auto dv = toml_support::get_string(table, "debug_view"))
     {
@@ -356,6 +379,8 @@ toml::table serialize_megacity_code_table(const MegaCityCodeConfig& config)
     PERF_MEASURE();
     toml::table table;
     table.insert_or_assign("selected_module_path", config.selected_module_path);
+    table.insert_or_assign("code_source", std::string(code_source_to_string(config.code_source)));
+    table.insert_or_assign("graphify_graph_path", config.graphify_graph_path);
     toml_support::insert_vec2(table, "sign_text_px_range", config.sign_text_px_range);
     table.insert_or_assign("debug_view", std::string(format_megacity_debug_view(config.debug_view)));
     table.insert_or_assign("wireframe", config.wireframe);

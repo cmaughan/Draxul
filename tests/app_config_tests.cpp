@@ -817,6 +817,32 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     REQUIRE(loaded_defaults == defaults);
     REQUIRE(loaded_current == current);
 }
+
+TEST_CASE("MegaCity code source config supports graphify", "[config][megacity]")
+{
+    ConfigDocument document;
+    toml::table& table = document.ensure_table("mega_city_code");
+    table.insert_or_assign("code_source", "graphify");
+    table.insert_or_assign("graphify_graph_path", "graphify-out/graph.json");
+
+    const MegaCityCodeConfig defaults;
+    const MegaCityCodeConfig loaded = load_megacity_code_config(document, defaults);
+
+    CHECK(loaded.code_source == MegaCityCodeSource::Graphify);
+    CHECK(loaded.graphify_graph_path == "graphify-out/graph.json");
+
+    ConfigDocument saved;
+    store_megacity_code_config(saved, loaded, defaults);
+    TempDir temp("draxul-megacity-code-source-config");
+    const std::filesystem::path path = temp.path / "config.toml";
+    saved.save_to_path(path);
+
+    const ConfigDocument round_tripped = ConfigDocument::load_from_path(path);
+    const MegaCityCodeConfig saved_defaults = load_megacity_code_defaults(round_tripped);
+    const MegaCityCodeConfig saved_current = load_megacity_code_config(round_tripped, saved_defaults);
+    CHECK(saved_current.code_source == MegaCityCodeSource::Graphify);
+    CHECK(saved_current.graphify_graph_path == "graphify-out/graph.json");
+}
 #endif // DRAXUL_ENABLE_MEGACITY
 
 TEST_CASE("config duplicate keybinding: same key+modifier for two actions produces warning", "[config]")
