@@ -15,7 +15,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | Zsh | `--host zsh` | PTY-based terminal (Unix) |
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
 | WSL | `--host wsl` | Windows Subsystem for Linux shell |
-| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache, optional `--source` Tree-sitter scan-root override) |
+| MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, local SQLite city snapshot cache, optional `--source` Tree-sitter scan-root override, optional Graphify graph source) |
 
 Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
 
@@ -40,6 +40,7 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **MegaCity stacked struct plates**: Same-footprint structs within a module are stacked vertically into compact square-section plate buildings with configurable gap, max-per-stack, and sign colors; each plate remains independently clickable with full dependency routing and per-plate tooltips
 - **MegaCity building shading controls**: The City Build UI includes `Middle Strip Push`, `Alternate Darken`, `Flat Roughness`, and `Flat Metallic` controls for non-textured procedural buildings, so flat-color shells can get configurable per-level mid-band ripples, alternating-band darkening, roughness, and metallic without affecting roads, routes, signs, or other flat overlays
 - **MegaCity projection toggle**: The renderer panel can switch the MegaCity camera between `Orthographic` and `Perspective`; the choice persists in config, keeps the existing orbit/pan/zoom interactions, and also drives perspective-aware cascade splits and screen-space zoom scaling
+- **MegaCity code source modes**: The City Build UI can build the semantic city from the default Tree-sitter -> SQLite snapshot path or directly from a Graphify graph JSON. Graphify mode defaults to `graphify-out/graph.json`, skips the scanner/database import path, and still feeds the same semantic-city builder, module filtering, dependency routing, labels, and metrics pipeline
 - **MegaCity performance preview and coverage modes**: The Codebase Analysis panel now exposes saved top-level `Perf`, `Coverage`, `LCOV Coverage`, and `Perf Log Scale` controls. `Perf` blends flat-color buildings toward a green-to-red heat palette per semantic building layer using smoothed live timing heat, while `Coverage` forces any touched/matched function layer to full heat so executed code lights up clearly. `LCOV Coverage` imports a static LLVM `lcov` tracefile from `db/coverage.lcov` or `build/coverage.lcov` and lights semantic function layers based on function-level test coverage from the LLVM coverage report — covered functions render as hot, uncovered stay at base color. The local `do.py coverage` flow exports `build/coverage.lcov` and refreshes `db/coverage.lcov` for app use. The debug panel shows LCOV-specific diagnostics (report functions, covered functions, matched/heated layers/buildings), and the building tooltip reports per-function coverage status. `Perf Log Scale` applies a visual logarithmic boost to low heat values so more active layers move toward the warm end without changing the underlying timing data. All modes are driven by a live or imported metrics snapshot for every building and function, indexed in the shader by stable building/layer ids, and accompanied by an in-panel matched/unmatched perf debug readout plus tooltip timing details for hovered functions
 - **MegaCity sign sizing controls**: Building roof-sign rings can now enforce a configurable `Min Width / Char`, so long class/module labels can expand the repeated sign band instead of being squeezed into the default building footprint
 - **MegaCity building shape thresholds**: The City Build UI now exposes both `Hex Threshold` and `Oct Threshold`, letting connected buildings step from 4-sided to 6-sided to 8-sided procedural shells based on total incident dependency count
@@ -152,7 +153,7 @@ Toggle with F12. Shows:
 - Frame timing (current + average)
 - Atlas usage ratio and glyph count
 - Startup profiling step timings
-- MegaCity renderer controls, including module filtering (`All Modules` or a selected module), a `Point Shadow Debug Scene` toggle, debug views (`Final Scene`, `Ambient Occlusion`, `Normals`, `World Position`, `Roughness`, `Metallic`, `Albedo`, `Tangents`, `UV`, `Depth`, `Bitangents`, `TBN Packed`, `Directional Shadow`, `Point Shadow`, `Point Shadow Face`, `Point Shadow Stored Depth`, `Point Shadow Depth Delta`), tone-mapping controls, AO tuning, shadow-map inspection, and configurable connected-building hex/oct thresholds
+- MegaCity renderer controls, including code source selection (`Tree-sitter DB` or `Graphify`), Graphify graph path editing, module filtering (`All Modules` or a selected module), a `Point Shadow Debug Scene` toggle, debug views (`Final Scene`, `Ambient Occlusion`, `Normals`, `World Position`, `Roughness`, `Metallic`, `Albedo`, `Tangents`, `UV`, `Depth`, `Bitangents`, `TBN Packed`, `Directional Shadow`, `Point Shadow`, `Point Shadow Face`, `Point Shadow Stored Depth`, `Point Shadow Depth Delta`), tone-mapping controls, AO tuning, shadow-map inspection, and configurable connected-building hex/oct thresholds
 - MegaCity sign styling controls, including separate module-sign and building-sign board/text colors
 - MegaCity central-park tree controls, including age, seed, branch depth/count, curvature, trunk/branch wander, bend frequency/deviation, leaf density/orientation randomness, leaf size range, leaf start depth, bark colors, and atlas-based leaf cards with PBR normal/roughness/opacity/scattering textures
 
@@ -257,6 +258,13 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 | Key | Default | Range | Notes |
 |-----|---------|-------|-------|
 | `show_pane_status` | true | | One-cell-tall status strip below each pane showing host kind, dimensions, and (for shell hosts) cwd from OSC 7 |
+
+### MegaCity (`[mega_city_code]` section)
+
+| Key | Default | Range | Notes |
+|-----|---------|-------|-------|
+| `code_source` | `treesitter_db` | `treesitter_db`, `graphify` | Selects whether MegaCity reads the semantic city from Tree-sitter through the local SQLite cache or directly from a Graphify graph JSON |
+| `graphify_graph_path` | `graphify-out/graph.json` | | Graphify graph JSON path; relative paths resolve from the Draxul repository root |
 
 ### Terminal (`[terminal]` section)
 
