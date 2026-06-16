@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -131,8 +132,11 @@ TEST_CASE("GraphifySemanticSource maps inheritance edges to class dependencies",
 
     const auto rows = source.list_classes_in_module("app");
     REQUIRE(rows.size() == 2);
-    CHECK(rows[1].qualified_name == "app::derived");
-    CHECK(rows[1].road_size == 1);
+    const auto derived_it = std::find_if(rows.begin(), rows.end(), [](const draxul::CityClassRecord& row) {
+        return row.qualified_name == "app::derived";
+    });
+    REQUIRE(derived_it != rows.end());
+    CHECK(derived_it->road_size == 1);
 
     const auto deps = source.list_class_dependencies_in_module("app");
     REQUIRE(deps.size() == 1);
@@ -142,6 +146,7 @@ TEST_CASE("GraphifySemanticSource maps inheritance edges to class dependencies",
     CHECK(deps[0].target_module_path == "app");
     CHECK(deps[0].field_name.empty());
     CHECK(deps[0].field_type_name.empty());
+    CHECK(deps[0].is_abstract_ref);
 }
 
 #endif

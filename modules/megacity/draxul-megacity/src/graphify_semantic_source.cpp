@@ -406,6 +406,7 @@ bool GraphifySemanticSource::load(const std::filesystem::path& path)
                                 std::string_view{},
                                 {},
                                 {});
+                            dep.is_abstract_ref = true;
                             deps_by_module_[row.module_path].push_back(std::move(dep));
                         }
                     }
