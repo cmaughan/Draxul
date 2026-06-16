@@ -72,6 +72,7 @@ target_link_libraries(draxul-megacity PUBLIC
 target_link_libraries(draxul-megacity PRIVATE
     draxul-geometry
     draxul-ui
+    nlohmann_json::nlohmann_json
 )
 
 # Bake in the source root so the scanner can find the repo at runtime.

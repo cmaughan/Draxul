@@ -130,6 +130,15 @@ FetchContent_MakeAvailable(tomlplusplus)
 get_target_property(_toml_inc tomlplusplus_tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
 set_target_properties(tomlplusplus_tomlplusplus PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_toml_inc}")
 
+# nlohmann/json (header-only JSON parser)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # NanoVG (antialiased 2D vector graphics — core library only, custom backends)
 FetchContent_Declare(
     nanovg
