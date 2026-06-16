@@ -22,6 +22,7 @@ namespace draxul
 {
 
 class CityInputState;
+class GraphifySemanticSource;
 struct GeometryMesh;
 class IsometricCamera;
 class IsometricScenePass;
@@ -88,6 +89,10 @@ private:
         std::string focus_function_name = {});
     void consume_completed_routes();
     void clear_active_routes(bool request_frame = true);
+    void clear_semantic_city();
+    void start_tree_sitter_semantic_source();
+    void stop_tree_sitter_semantic_source();
+    bool load_graphify_semantic_source();
     void refresh_available_modules();
     void rebuild_semantic_city();
     void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
@@ -104,6 +109,7 @@ private:
     CodebaseScanner scanner_;
     std::filesystem::path scan_root_;
     CityDatabase city_db_;
+    std::unique_ptr<GraphifySemanticSource> graphify_source_;
     std::unique_ptr<TextService> sign_text_service_;
     std::unique_ptr<TextService> tooltip_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
@@ -127,6 +133,7 @@ private:
     bool scene_dirty_ = true;
     bool world_rebuild_pending_ = false;
     bool city_db_reconciled_ = false;
+    bool scanner_started_ = false;
     bool restore_camera_after_initial_build_ = false;
     bool city_bounds_valid_ = false;
     float city_min_x_ = -2.5f;

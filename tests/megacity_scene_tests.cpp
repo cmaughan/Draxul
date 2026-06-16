@@ -2614,6 +2614,66 @@ TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[
     host.shutdown();
 }
 
+TEST_CASE("megacity host can build semantic city directly from graphify", "[megacity][graphify]")
+{
+    tests::TempDir temp("draxul-megacity-graphify-host");
+    const auto graph_path = temp.path / "graph.json";
+    {
+        std::ofstream out(graph_path, std::ios::binary | std::ios::trunc);
+        out << R"json({
+          "nodes": [
+            { "id": "app::window", "label": "Window", "source_file": "window.cpp", "source_location": "L3" },
+            { "id": "app::window_draw", "label": "draw()", "source_file": "window.cpp", "source_location": "L7" }
+          ],
+          "links": [
+            { "source": "app::window", "target": "app::window_draw", "relation": "method" }
+          ]
+        })json";
+    }
+
+    ConfigDocument document;
+    toml::table& code_table = document.ensure_table("mega_city_code");
+    code_table.insert_or_assign("code_source", "graphify");
+    code_table.insert_or_assign("graphify_graph_path", graph_path.string());
+
+    tests::FakeWindow window;
+    tests::TestHostCallbacks callbacks;
+    TextService text_service;
+    tests::FakeTermRenderer renderer;
+    MegaCityHost host;
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::MegaCity;
+
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    viewport.grid_size = { 1, 1 };
+
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .config_document = &document,
+        .launch_options = std::move(launch),
+        .initial_viewport = viewport,
+        .display_ppi = window.display_ppi_,
+    };
+
+    REQUIRE(host.initialize(context, callbacks));
+
+    CHECK_FALSE(host.city_db_.is_open());
+    CHECK(host.city_db_reconciled_);
+    CHECK(host.scanner_.snapshot() == nullptr);
+    REQUIRE(host.semantic_model_ != nullptr);
+    REQUIRE(host.semantic_model_->modules.size() == 1);
+    CHECK(host.semantic_model_->modules[0].module_path == "app");
+    REQUIRE(host.semantic_model_->modules[0].buildings.size() == 1);
+    CHECK(host.semantic_model_->modules[0].buildings[0].qualified_name == "app::window");
+    CHECK(host.available_modules_ == std::vector<std::string>{ "app" });
+
+    host.shutdown();
+}
+
 TEST_CASE("megacity host retries focused routes once the grid becomes available", "[megacity]")
 {
     tests::FakeWindow window;
