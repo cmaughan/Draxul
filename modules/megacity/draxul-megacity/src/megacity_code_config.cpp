@@ -129,9 +129,9 @@ std::string_view code_source_to_string(MegaCityCodeSource source)
     case MegaCityCodeSource::Graphify:
         return "graphify";
     case MegaCityCodeSource::TreeSitterDb:
-    default:
         return "treesitter_db";
     }
+    return "treesitter_db";
 }
 
 std::optional<float> get_float(const toml::table& table, const char* key)

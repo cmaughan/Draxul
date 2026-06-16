@@ -823,13 +823,13 @@ TEST_CASE("MegaCity code source config supports graphify", "[config][megacity]")
     ConfigDocument document;
     toml::table& table = document.ensure_table("mega_city_code");
     table.insert_or_assign("code_source", "graphify");
-    table.insert_or_assign("graphify_graph_path", "graphify-out/graph.json");
+    table.insert_or_assign("graphify_graph_path", "custom/merged-graph.json");
 
     const MegaCityCodeConfig defaults;
     const MegaCityCodeConfig loaded = load_megacity_code_config(document, defaults);
 
     CHECK(loaded.code_source == MegaCityCodeSource::Graphify);
-    CHECK(loaded.graphify_graph_path == "graphify-out/graph.json");
+    CHECK(loaded.graphify_graph_path == "custom/merged-graph.json");
 
     ConfigDocument saved;
     store_megacity_code_config(saved, loaded, defaults);
@@ -841,7 +841,7 @@ TEST_CASE("MegaCity code source config supports graphify", "[config][megacity]")
     const MegaCityCodeConfig saved_defaults = load_megacity_code_defaults(round_tripped);
     const MegaCityCodeConfig saved_current = load_megacity_code_config(round_tripped, saved_defaults);
     CHECK(saved_current.code_source == MegaCityCodeSource::Graphify);
-    CHECK(saved_current.graphify_graph_path == "graphify-out/graph.json");
+    CHECK(saved_current.graphify_graph_path == "custom/merged-graph.json");
 }
 #endif // DRAXUL_ENABLE_MEGACITY
 
