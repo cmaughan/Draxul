@@ -90,6 +90,55 @@ TEST_CASE("tree-sitter snapshot excludes forward class and struct declarations",
     std::filesystem::remove_all(temp_root);
 }
 
+TEST_CASE("tree-sitter scanner restart does not expose stale snapshots", "[treesitter]")
+{
+    const auto temp_root
+        = std::filesystem::temp_directory_path() / "draxul-treesitter-restart";
+    const auto first_root = temp_root / "first";
+    const auto second_root = temp_root / "second";
+    std::filesystem::remove_all(temp_root);
+    std::filesystem::create_directories(first_root);
+    std::filesystem::create_directories(second_root);
+
+    {
+        std::ofstream out(first_root / "old.cpp");
+        REQUIRE(out.is_open());
+        out << "int old_function() { return 1; }\n";
+    }
+    {
+        std::ofstream out(second_root / "new.cpp");
+        REQUIRE(out.is_open());
+        out << "int new_function() { return 2; }\n";
+    }
+
+    CodebaseScanner scanner;
+    scanner.start(first_root);
+    const auto first_snapshot = wait_for_complete_snapshot(scanner);
+    scanner.stop();
+
+    REQUIRE(first_snapshot);
+    REQUIRE(first_snapshot->complete);
+    REQUIRE(first_snapshot->files.size() == 1);
+    REQUIRE(first_snapshot->files[0].path == "old.cpp");
+
+    scanner.start(second_root);
+    if (const auto after_restart = scanner.snapshot())
+    {
+        CHECK(std::none_of(after_restart->files.begin(), after_restart->files.end(), [](const ParsedFile& file) {
+            return file.path == "old.cpp";
+        }));
+    }
+    const auto second_snapshot = wait_for_complete_snapshot(scanner);
+    scanner.stop();
+
+    REQUIRE(second_snapshot);
+    REQUIRE(second_snapshot->complete);
+    REQUIRE(second_snapshot->files.size() == 1);
+    CHECK(second_snapshot->files[0].path == "new.cpp");
+
+    std::filesystem::remove_all(temp_root);
+}
+
 TEST_CASE("tree-sitter snapshot captures direct fields with type references", "[treesitter]")
 {
     const auto temp_root

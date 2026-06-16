@@ -441,6 +441,10 @@ CodebaseScanner::~CodebaseScanner()
 void CodebaseScanner::start(std::filesystem::path root)
 {
     PERF_MEASURE();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.reset();
+    }
     stop_flag_.store(false);
     thread_ = std::thread(&CodebaseScanner::scan_thread, this, std::move(root));
 }

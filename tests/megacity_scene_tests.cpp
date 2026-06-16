@@ -2674,6 +2674,44 @@ TEST_CASE("megacity host can build semantic city directly from graphify", "[mega
     host.shutdown();
 }
 
+TEST_CASE("megacity host reports graphify load failure during initialization", "[megacity][graphify]")
+{
+    tests::TempDir temp("draxul-megacity-graphify-missing");
+    const auto missing_graph_path = temp.path / "missing-graph.json";
+
+    ConfigDocument document;
+    toml::table& code_table = document.ensure_table("mega_city_code");
+    code_table.insert_or_assign("code_source", "graphify");
+    code_table.insert_or_assign("graphify_graph_path", missing_graph_path.string());
+
+    tests::FakeWindow window;
+    tests::TestHostCallbacks callbacks;
+    TextService text_service;
+    tests::FakeTermRenderer renderer;
+    MegaCityHost host;
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::MegaCity;
+
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    viewport.grid_size = { 1, 1 };
+
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .config_document = &document,
+        .launch_options = std::move(launch),
+        .initial_viewport = viewport,
+        .display_ppi = window.display_ppi_,
+    };
+
+    CHECK_FALSE(host.initialize(context, callbacks));
+    CHECK(host.init_error().find("failed to load Graphify graph") != std::string::npos);
+    CHECK_FALSE(host.is_running());
+}
+
 TEST_CASE("megacity host retries focused routes once the grid becomes available", "[megacity]")
 {
     tests::FakeWindow window;

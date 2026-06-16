@@ -735,7 +735,6 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     scene_pass_ = std::make_shared<IsometricScenePass>(1, 1, world_->tile_size());
     refresh_sign_text_service();
 
-    running_ = true;
     city_db_reconciled_ = false;
     world_rebuild_pending_ = false;
     city_bounds_valid_ = false;
@@ -749,12 +748,41 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
     {
         city_db_reconciled_ = true;
-        rebuild_semantic_city();
+        if (!load_graphify_semantic_source())
+        {
+            init_error_ = "failed to load Graphify graph: " + resolve_graphify_graph_path(
+                renderer_config_.graphify_graph_path).string();
+            if (tooltip_text_service_)
+            {
+                tooltip_text_service_->shutdown();
+                tooltip_text_service_.reset();
+            }
+            if (sign_text_service_)
+            {
+                sign_text_service_->shutdown();
+                sign_text_service_.reset();
+            }
+            scene_pass_.reset();
+            camera_.reset();
+            world_.reset();
+            if (imgui_context_)
+            {
+                ImGui::DestroyContext(imgui_context_);
+                imgui_context_ = nullptr;
+            }
+            callbacks_ = nullptr;
+            config_document_ = nullptr;
+            return false;
+        }
     }
     else
     {
         start_tree_sitter_semantic_source();
     }
+
+    running_ = true;
+    if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
+        rebuild_semantic_city();
 
     route_thread_ = std::thread([this]() { route_worker_loop(); });
     mark_scene_dirty();
