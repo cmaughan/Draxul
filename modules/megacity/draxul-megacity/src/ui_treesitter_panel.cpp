@@ -837,7 +837,7 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         if (ImGui::TreeNodeEx("##build_module", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "Module / View"))
         {
             static constexpr const char* kCodeSourceLabels[] = {
-                "Tree-sitter DB",
+                "Tree-sitter",
                 "Graphify",
             };
             int code_source_index = config.code_source == MegaCityCodeSource::Graphify ? 1 : 0;

@@ -55,7 +55,7 @@ void emit_route_entities(
     const MegaCityCodeConfig& config);
 
 // Build (or rebuild) the semantic city into the given SceneWorld.
-// Clears the world, queries the city DB, lays out modules, creates all ECS
+// Clears the world, queries the semantic source, lays out modules, creates all ECS
 // entities (buildings, parks, signs, sidewalks, road surfaces).
 //
 // The returned CityBuildResult owns the layout (for use by launch_grid_build).
