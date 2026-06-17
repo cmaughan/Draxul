@@ -3,11 +3,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <draxul/citydb.h>
 #include <draxul/host.h>
 #include <draxul/megacity_code_config.h>
 #include <draxul/perf_timing.h>
 #include <draxul/treesitter.h>
+#include <draxul/treesitter_semantic_source.h>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -113,7 +113,8 @@ private:
     std::unique_ptr<IsometricCamera> camera_;
     CodebaseScanner scanner_;
     std::filesystem::path scan_root_;
-    CityDatabase city_db_;
+    std::unique_ptr<TreeSitterSemanticSource> treesitter_source_;
+    std::shared_ptr<const CodebaseSnapshot> applied_treesitter_snapshot_;
     std::unique_ptr<GraphifySemanticSource> graphify_source_;
     std::unique_ptr<TextService> sign_text_service_;
     std::unique_ptr<TextService> tooltip_text_service_;
@@ -137,7 +138,7 @@ private:
     float world_span_ = 5.0f;
     bool scene_dirty_ = true;
     bool world_rebuild_pending_ = false;
-    bool city_db_reconciled_ = false;
+    bool treesitter_source_ready_ = false;
     bool scanner_started_ = false;
     bool restore_camera_after_initial_build_ = false;
     bool city_bounds_valid_ = false;

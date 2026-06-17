@@ -2677,8 +2677,9 @@ TEST_CASE("megacity host can build semantic city directly from graphify", "[mega
 
     REQUIRE(host.initialize(context, callbacks));
 
-    CHECK_FALSE(host.city_db_.is_open());
-    CHECK(host.city_db_reconciled_);
+    CHECK(host.treesitter_source_ == nullptr);
+    CHECK(host.applied_treesitter_snapshot_ == nullptr);
+    CHECK_FALSE(host.treesitter_source_ready_);
     CHECK(host.scanner_.snapshot() == nullptr);
     REQUIRE(host.semantic_model_ != nullptr);
     REQUIRE(host.semantic_model_->modules.size() == 1);
@@ -2686,6 +2687,62 @@ TEST_CASE("megacity host can build semantic city directly from graphify", "[mega
     REQUIRE(host.semantic_model_->modules[0].buildings.size() == 1);
     CHECK(host.semantic_model_->modules[0].buildings[0].qualified_name == "app::window");
     CHECK(host.available_modules_ == std::vector<std::string>{ "app" });
+
+    host.shutdown();
+}
+
+TEST_CASE("megacity host starts tree-sitter semantic source without citydb state", "[megacity][treesitter]")
+{
+    tests::TempDir temp("draxul-megacity-treesitter-source-state");
+    const auto scan_root = temp.path / "src";
+    std::filesystem::create_directories(scan_root);
+    {
+        std::ofstream out(scan_root / "widget.cpp", std::ios::trunc);
+        out << "class Widget { int count_; };\n";
+    }
+
+    tests::FakeWindow window;
+    tests::TestHostCallbacks callbacks;
+    TextService text_service;
+    tests::FakeTermRenderer renderer;
+    MegaCityHost host;
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::MegaCity;
+    launch.source_path = temp.path.string();
+
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    viewport.grid_size = { 1, 1 };
+
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = std::move(launch),
+        .initial_viewport = viewport,
+        .display_ppi = window.display_ppi_,
+    };
+
+    REQUIRE(host.initialize(context, callbacks));
+    CHECK(host.scanner_started_);
+    CHECK(host.treesitter_source_ == nullptr);
+    CHECK(host.applied_treesitter_snapshot_ == nullptr);
+    CHECK_FALSE(host.treesitter_source_ready_);
+
+    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+
+    host.pump();
+
+    CHECK(host.treesitter_source_ready_);
+    CHECK(host.treesitter_source_ != nullptr);
+    CHECK(host.applied_treesitter_snapshot_ == snapshot);
+    CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
+    REQUIRE(host.semantic_model_ != nullptr);
+    REQUIRE(host.semantic_model_->modules.size() == 1);
+    CHECK(host.semantic_model_->modules[0].module_path == "src");
 
     host.shutdown();
 }
