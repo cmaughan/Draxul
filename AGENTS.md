@@ -70,7 +70,7 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging.
 - `libs/draxul-host`: Host abstraction (`IHost` / `I3DHost` / `IGridHost` / `GridHostBase`), HostManager, terminal emulation
 - `libs/draxul-app-support`: Reusable app-layer helpers (config, grid rendering pipeline, render tests)
 - `libs/draxul-ui`: ImGui-based diagnostics panel
-- `modules/megacity/`: Optional megacity module (gated by `DRAXUL_ENABLE_MEGACITY`). Contains internal libraries — `draxul-megacity` (3D code-city host), `draxul-citymodel` (semantic city records and direct Tree-sitter projection), `draxul-citydb` (SQLite persistence/debug snapshot support), `draxul-treesitter` (codebase scan), `draxul-geometry` (procedural meshes). The terminal product has zero source-level dependency on this directory; megacity self-registers via `HostProviderRegistry` from `app/main.cpp` under `#ifdef DRAXUL_ENABLE_MEGACITY`.
+- `modules/megacity/`: Optional megacity module (gated by `DRAXUL_ENABLE_MEGACITY`). Contains internal libraries — `draxul-megacity` (3D code-city host), `draxul-citymodel` (semantic city records and direct Tree-sitter projection), `draxul-treesitter` (codebase scan), `draxul-geometry` (procedural meshes). The terminal product has zero source-level dependency on this directory; megacity self-registers via `HostProviderRegistry` from `app/main.cpp` under `#ifdef DRAXUL_ENABLE_MEGACITY`.
 - `app/`: Orchestration only — owns subsystems and runs main loop
 
 ### Dependency Direction

@@ -316,11 +316,11 @@
     <text x="1315" y="320" text-anchor="middle" font-size="8.5" fill="#666">background tree-sitter</text>
   </g>
 
-  <!-- CityDatabase -->
+  <!-- TreeSitterSemanticSource -->
   <g filter="url(#shadow)">
     <rect x="1240" y="345" width="150" height="44" rx="5" fill="url(#gSupport)" stroke="#a368d5" stroke-width="1.2"/>
-    <text x="1315" y="363" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">CityDatabase</text>
-    <text x="1315" y="380" text-anchor="middle" font-size="8.5" fill="#666">SQLite symbol storage</text>
+    <text x="1315" y="363" text-anchor="middle" font-weight="bold" font-size="10" fill="#6b21a8">TreeSitterSource</text>
+    <text x="1315" y="380" text-anchor="middle" font-size="8.5" fill="#666">semantic records</text>
   </g>
 
   <!-- SignLabelAtlas -->
@@ -363,11 +363,11 @@
   <line x1="1120" y1="329" x2="1120" y2="655" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
   <text x="1100" y="555" text-anchor="end" font-size="8" fill="#888">stores</text>
 
-  <!-- CodebaseScanner -> CityDatabase -->
+  <!-- CodebaseScanner -> TreeSitterSemanticSource -->
   <line x1="1315" y1="329" x2="1315" y2="345" stroke="#888" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#arrow-compose)"/>
-  <!-- CityDatabase -> SemanticCityLayout -->
+  <!-- TreeSitterSemanticSource -> SemanticCityLayout -->
   <line x1="1240" y1="370" x2="1220" y2="540" stroke="#888" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-compose)"/>
-  <text x="1248" y="460" text-anchor="start" font-size="8" fill="#888">queries</text>
+  <text x="1248" y="460" text-anchor="start" font-size="8" fill="#888">records</text>
 
   <!-- ============================================================ -->
   <!-- WINDOW (far left)                                             -->
@@ -591,7 +591,7 @@
   </g>
   <g transform="translate(265, 1057)">
     <rect width="130" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>
-    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">CityDatabase</text>
+    <text x="65" y="20" text-anchor="middle" font-size="9" fill="#2e7d32">SemanticSource</text>
   </g>
   <g transform="translate(430, 1057)">
     <rect width="140" height="32" rx="4" fill="#e8f5e9" stroke="#81c784" stroke-width="1"/>

@@ -3,7 +3,7 @@
 #include <draxul/city_semantic_records.h>
 #include <draxul/city_semantic_source.h>
 
-TEST_CASE("semantic city records are available without citydb", "[megacity][citymodel]")
+TEST_CASE("semantic city records are available from citymodel", "[megacity][citymodel]")
 {
     draxul::CityClassRecord row;
     row.name = "Widget";

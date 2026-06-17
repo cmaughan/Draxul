@@ -12,7 +12,7 @@
 2. **Directory skipping**: hidden directories (`.git`, `.build`, `node_modules`), build artifact directories, and Objective-C (`.mm`) sources should be skipped per the scanner's documented behaviour.
 3. **Parse-error bounding**: if many files contain parse errors, the error count should be capped and a completed snapshot still delivered (the scanner must not stall indefinitely on errors).
 
-**Note:** Do this alongside `10 citydb-reconcile-robustness -test` and `12 megacity-degraded-init -test` — a single agent can share fixture setup across all three.
+**Note:** This can share fixture setup with MegaCity degraded-init tests that exercise scanner-driven semantic sources.
 
 ## Investigation steps
 
@@ -54,7 +54,7 @@ Add to `tests/treesitter_tests.cpp` or create `tests/codebasescanner_tests.cpp`.
 
 ## Interdependencies
 
-- **`10 citydb-reconcile-robustness -test`** and **`12 megacity-degraded-init -test`**: share fixture setup, do in same agent pass.
+- **MegaCity degraded-init tests**: share scanner fixture setup where practical.
 
 ---
 *Filed by `claude-sonnet-4-6` · 2026-03-26*

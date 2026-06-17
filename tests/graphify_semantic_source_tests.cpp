@@ -74,15 +74,17 @@ TEST_CASE("GraphifySemanticSource maps classes methods and fields into city reco
 TEST_CASE("GraphifySemanticSource normalizes merged graph paths", "[megacity][graphify]")
 {
     CHECK(draxul::normalize_graphify_source_file("app::main", "main.cpp") == "app/main.cpp");
-    CHECK(draxul::normalize_graphify_source_file("modules::src_citydb", "megacity/draxul-citydb/src/citydb.cpp")
-        == "modules/megacity/draxul-citydb/src/citydb.cpp");
+    CHECK(draxul::normalize_graphify_source_file(
+              "modules::src_citymodel", "megacity/draxul-citymodel/src/treesitter_semantic_source.cpp")
+        == "modules/megacity/draxul-citymodel/src/treesitter_semantic_source.cpp");
     CHECK(draxul::normalize_graphify_source_file("::src_grid", "libs/draxul-grid/src/grid.cpp")
         == "libs/draxul-grid/src/grid.cpp");
 
     CHECK(draxul::module_path_for_graphify_source("app::main", "app/main.cpp") == "app");
     CHECK(draxul::module_path_for_graphify_source(
-              "modules::src_citydb", "modules/megacity/draxul-citydb/src/citydb.cpp")
-        == "modules/megacity/draxul-citydb");
+              "modules::src_citymodel",
+              "modules/megacity/draxul-citymodel/src/treesitter_semantic_source.cpp")
+        == "modules/megacity/draxul-citymodel");
     CHECK(draxul::module_path_for_graphify_source("::src_grid", "libs/draxul-grid/src/grid.cpp")
         == "libs/draxul-grid");
 }

@@ -21,7 +21,6 @@
 #include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/building_generator.h>
-#include <draxul/city_database_semantic_source.h>
 #include <draxul/config_document.h>
 #include <draxul/imgui_host.h>
 #define private public
@@ -29,6 +28,7 @@
 #undef private
 #include <draxul/roof_sign_generator.h>
 #include <draxul/text_service.h>
+#include <draxul/treesitter_semantic_source.h>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -426,15 +426,6 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     if (!init_text_service(text_service))
         SKIP("bundled font not found");
 
-    const auto db_path = std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "build"
-        / "test-artifacts"
-        / ("draxul-megacity-module-signs-"
-            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
-            + ".sqlite3");
-    std::filesystem::create_directories(db_path.parent_path());
-    std::filesystem::remove(db_path);
-
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
     snapshot.scan_time = std::chrono::steady_clock::now();
@@ -456,15 +447,10 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     });
     snapshot.files.push_back(file);
 
-    CityDatabase city_db;
-    INFO(city_db.last_error());
-    REQUIRE(city_db.open(db_path));
-    REQUIRE(city_db.reconcile_snapshot(snapshot));
-
     SceneWorld world;
     MegaCityCodeConfig config;
     uint64_t sign_label_revision = 1;
-    CityDatabaseSemanticSource semantic_source(city_db);
+    TreeSitterSemanticSource semantic_source(snapshot);
     const std::vector<std::string> modules = semantic_source.list_modules();
     REQUIRE(modules.size() == 1);
 
@@ -571,8 +557,6 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     }
 
     text_service.shutdown();
-    city_db.close();
-    std::filesystem::remove(db_path);
 }
 
 TEST_CASE("megacity live metrics snapshot includes buildings and functions", "[megacity]")
@@ -858,15 +842,6 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
     if (!init_text_service(text_service))
         SKIP("bundled font not found");
 
-    const auto db_path = std::filesystem::path(DRAXUL_PROJECT_ROOT)
-        / "build"
-        / "test-artifacts"
-        / ("draxul-megacity-building-roof-sign-width-"
-            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
-            + ".sqlite3");
-    std::filesystem::create_directories(db_path.parent_path());
-    std::filesystem::remove(db_path);
-
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
     snapshot.scan_time = std::chrono::steady_clock::now();
@@ -888,16 +863,11 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
     });
     snapshot.files.push_back(file);
 
-    CityDatabase city_db;
-    INFO(city_db.last_error());
-    REQUIRE(city_db.open(db_path));
-    REQUIRE(city_db.reconcile_snapshot(snapshot));
-
     SceneWorld world;
     MegaCityCodeConfig config;
     config.roof_sign_min_width_per_character = 0.6f;
     uint64_t sign_label_revision = 1;
-    CityDatabaseSemanticSource semantic_source(city_db);
+    TreeSitterSemanticSource semantic_source(snapshot);
     const std::vector<std::string> modules = semantic_source.list_modules();
     REQUIRE(modules.size() == 1);
 
@@ -929,8 +899,6 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
     REQUIRE(found_building_sign);
 
     text_service.shutdown();
-    city_db.close();
-    std::filesystem::remove(db_path);
 }
 
 TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]")
@@ -2691,7 +2659,7 @@ TEST_CASE("megacity host can build semantic city directly from graphify", "[mega
     host.shutdown();
 }
 
-TEST_CASE("megacity host starts tree-sitter semantic source without citydb state", "[megacity][treesitter]")
+TEST_CASE("megacity host starts tree-sitter semantic source without database state", "[megacity][treesitter]")
 {
     tests::TempDir temp("draxul-megacity-treesitter-source-state");
     const auto scan_root = temp.path / "src";

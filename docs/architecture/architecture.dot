@@ -472,9 +472,9 @@ digraph DraxulArchitecture {
       immutable parse result
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
-    CityDatabase [label=<
-      <b>CityDatabase</b><br/>
-      SQLite symbol storage
+    TreeSitterSemanticSource [label=<
+      <b>TreeSitterSemanticSource</b><br/>
+      snapshot-to-city records
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
     CityClassRecord [label=<
@@ -488,8 +488,8 @@ digraph DraxulArchitecture {
     >, fillcolor="#eadbff", color="#7a4cc2"];
 
     CodebaseScanner -> CodebaseSnapshot [style=invis, weight=30];
-    CodebaseSnapshot -> CityDatabase [style=invis, weight=30];
-    CityDatabase -> CityClassRecord [style=invis, weight=30];
+    CodebaseSnapshot -> TreeSitterSemanticSource [style=invis, weight=30];
+    TreeSitterSemanticSource -> CityClassRecord [style=invis, weight=30];
     CityClassRecord -> CityModuleRecord [style=invis, weight=30];
   }
 
@@ -631,7 +631,7 @@ digraph DraxulArchitecture {
   MegaCityHost -> IsometricScenePass [style=dashed, arrowhead=vee, label="owns (shared)"];
   MegaCityHost -> CubeRenderPass [style=dashed, arrowhead=vee, label="owns (shared)"];
   MegaCityHost -> CodebaseScanner [style=dashed, arrowhead=vee, label="owns"];
-  MegaCityHost -> CityDatabase [style=dashed, arrowhead=vee, label="owns"];
+  MegaCityHost -> TreeSitterSemanticSource [style=dashed, arrowhead=vee, label="builds"];
   MegaCityHost -> SignLabelAtlas [style=dashed, arrowhead=vee, label="owns (shared)"];
   MegaCityHost -> MegaCityCodeConfig [style=dashed, arrowhead=vee, label="owns"];
   MegaCityHost -> CityGrid [style=dashed, arrowhead=vee, label="builds (bg thread)"];
@@ -694,9 +694,9 @@ digraph DraxulArchitecture {
   SemanticCityLayout -> CityGrid [label="produces", constraint=false, color="#94a3b8"];
   CityGrid -> CityMapPanel [label="rendered by", constraint=false, color="#94a3b8"];
   CodebaseScanner -> CodebaseSnapshot [label="produces", constraint=false, color="#94a3b8"];
-  CityDatabase -> CodebaseSnapshot [label="reconciles", constraint=false, color="#94a3b8"];
-  CityDatabase -> CityClassRecord [label="queries", constraint=false, color="#94a3b8"];
-  CityDatabase -> CityModuleRecord [label="queries", constraint=false, color="#94a3b8"];
+  TreeSitterSemanticSource -> CodebaseSnapshot [label="projects", constraint=false, color="#94a3b8"];
+  TreeSitterSemanticSource -> CityClassRecord [label="emits", constraint=false, color="#94a3b8"];
+  TreeSitterSemanticSource -> CityModuleRecord [label="emits", constraint=false, color="#94a3b8"];
   SignLabelAtlas -> TextService [label="rasterizes via", constraint=false, color="#94a3b8"];
   TreesitterPanel -> CodebaseSnapshot [label="displays", constraint=false, color="#94a3b8"];
 
@@ -728,7 +728,7 @@ digraph DraxulArchitecture {
 
     MegaCityPath [label=<
       <b>megacity path</b><br/>
-      CodebaseScanner -&gt; CodebaseSnapshot -&gt; CityDatabase -&gt; CityClassRecord<br align="left"/>
+      CodebaseScanner -&gt; CodebaseSnapshot -&gt; TreeSitterSemanticSource -&gt; CityClassRecord<br align="left"/>
       SemanticCityLayout -&gt; SceneWorld (ECS) -&gt; SceneSnapshot -&gt; IsometricScenePass -&gt; Renderer<br align="left"/>
       SemanticCityLayout -&gt; CityGrid (bg thread) -&gt; CityMapPanel (ImGui)
     >, fillcolor="#fff6d6", color="#c7981d"];

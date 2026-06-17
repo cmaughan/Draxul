@@ -126,8 +126,8 @@
 **MegaCity / Code City Visualization**
 
 93. MegaCity is an agent-management and code-analysis host, not a demo — it provides a 3D city metaphor for codebase structure with live performance and coverage overlays.
-94. The city DB is a derived cache, not a source of truth — schema migrations can be destructive because data is always rebuildable from Tree-sitter scans.
-95. Type identity in the city DB is still based on simple names, not namespaces — duplicate type names in different scopes can collide.
+94. Derived semantic city records are not a source of truth — they are always rebuildable from Tree-sitter scans or another source adapter.
+95. Type identity in semantic city records is still based on simple names, not namespaces — duplicate type names in different scopes can collide.
 96. Normalized render metrics (`sqrt(base_size)` for footprint, `log1p(function_mass)` for height) compress outliers while preserving ordering.
 97. Free functions are shown as trees rather than buildings — a different visual metaphor with a separate `tree_height` formula.
 98. The procedural building generator uses rings of quads per floor section (3 quad strips per level) rather than stacked cubes — eliminates inner quads and allows per-level ripples.

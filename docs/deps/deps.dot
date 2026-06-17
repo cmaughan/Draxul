@@ -118,39 +118,56 @@ subgraph clusterLegend {
     "node27" -> "node18"  // draxul-ui -> imgui
     "node6" -> "node27"  // draxul-app -> draxul-ui
     "node5" -> "node6" [ style = dotted ] // draxul -> draxul-app
-    "node28" [ label = "draxul-megacity", shape = octagon ];
-    "node29" [ label = "draxul-citydb", shape = octagon ];
-    "node30" [ label = "draxul-treesitter", shape = octagon ];
-    "node30" -> "node8"  // draxul-treesitter -> draxul-types
-    "node31" [ label = "tree_sitter_core", shape = octagon ];
-    "node30" -> "node31"  // draxul-treesitter -> tree_sitter_core
-    "node32" [ label = "tree_sitter_cpp_grammar", shape = octagon ];
-    "node30" -> "node32"  // draxul-treesitter -> tree_sitter_cpp_grammar
-    "node29" -> "node30"  // draxul-citydb -> draxul-treesitter
-    "node29" -> "node8"  // draxul-citydb -> draxul-types
-    "node33" [ label = "sqlite3_lib", shape = octagon ];
-    "node29" -> "node33"  // draxul-citydb -> sqlite3_lib
-    "node28" -> "node29"  // draxul-megacity -> draxul-citydb
-    "node28" -> "node7"  // draxul-megacity -> draxul-config
-    "node28" -> "node10"  // draxul-megacity -> draxul-font
-    "node34" [ label = "draxul-geometry", shape = octagon ];
-    "node34" -> "node8"  // draxul-geometry -> draxul-types
-    "node34" -> "node9"  // draxul-geometry -> glm
-    "node28" -> "node34" [ style = dotted ] // draxul-megacity -> draxul-geometry
-    "node28" -> "node14"  // draxul-megacity -> draxul-gui
-    "node28" -> "node21"  // draxul-megacity -> draxul-host
-    "node28" -> "node15"  // draxul-megacity -> draxul-renderer
-    "node28" -> "node30"  // draxul-megacity -> draxul-treesitter
-    "node28" -> "node8"  // draxul-megacity -> draxul-types
-    "node28" -> "node27" [ style = dotted ] // draxul-megacity -> draxul-ui
-    "node28" -> "node18"  // draxul-megacity -> imgui
-    "node5" -> "node28" [ style = dotted ] // draxul -> draxul-megacity
-    "node35" [ label = "draxul-rpc-fake", shape = egg ];
-    "node35" -> "node23" [ style = dotted ] // draxul-rpc-fake -> draxul-nvim
-    "node36" [ label = "draxul-tests", shape = egg ];
-    "node36" -> "node0" [ style = dotted ] // draxul-tests -> Catch2
-    "node36" -> "node6" [ style = dotted ] // draxul-tests -> draxul-app
-    "node36" -> "node34" [ style = dotted ] // draxul-tests -> draxul-geometry
-    "node36" -> "node28" [ style = dotted ] // draxul-tests -> draxul-megacity
-    "node36" -> "node35"  // draxul-tests -> draxul-rpc-fake
+    "node28" [ label = "draxul-kanban", shape = octagon ];
+    "node28" -> "node2" [ style = dotted ] // draxul-kanban -> SDL3-static
+    "node28" -> "node21"  // draxul-kanban -> draxul-host
+    "node28" -> "node8"  // draxul-kanban -> draxul-types
+    "node5" -> "node28" [ style = dotted ] // draxul -> draxul-kanban
+    "node29" [ label = "draxul-markdown-host", shape = octagon ];
+    "node29" -> "node21"  // draxul-markdown-host -> draxul-host
+    "node30" [ label = "draxul-markdown", shape = octagon ];
+    "node30" -> "node10"  // draxul-markdown -> draxul-font
+    "node31" [ label = "md4c", shape = octagon ];
+    "node30" -> "node31" [ style = dotted ] // draxul-markdown -> md4c
+    "node29" -> "node30"  // draxul-markdown-host -> draxul-markdown
+    "node29" -> "node15"  // draxul-markdown-host -> draxul-renderer
+    "node5" -> "node29" [ style = dotted ] // draxul -> draxul-markdown-host
+    "node32" [ label = "draxul-megacity", shape = octagon ];
+    "node33" [ label = "draxul-citymodel", shape = octagon ];
+    "node34" [ label = "draxul-treesitter", shape = octagon ];
+    "node34" -> "node8"  // draxul-treesitter -> draxul-types
+    "node35" [ label = "tree_sitter_core", shape = octagon ];
+    "node34" -> "node35"  // draxul-treesitter -> tree_sitter_core
+    "node36" [ label = "tree_sitter_cpp_grammar", shape = octagon ];
+    "node34" -> "node36"  // draxul-treesitter -> tree_sitter_cpp_grammar
+    "node33" -> "node34"  // draxul-citymodel -> draxul-treesitter
+    "node33" -> "node8"  // draxul-citymodel -> draxul-types
+    "node32" -> "node33"  // draxul-megacity -> draxul-citymodel
+    "node32" -> "node7"  // draxul-megacity -> draxul-config
+    "node32" -> "node10"  // draxul-megacity -> draxul-font
+    "node37" [ label = "draxul-geometry", shape = octagon ];
+    "node37" -> "node8"  // draxul-geometry -> draxul-types
+    "node37" -> "node9"  // draxul-geometry -> glm
+    "node32" -> "node37" [ style = dotted ] // draxul-megacity -> draxul-geometry
+    "node32" -> "node14"  // draxul-megacity -> draxul-gui
+    "node32" -> "node21"  // draxul-megacity -> draxul-host
+    "node32" -> "node15"  // draxul-megacity -> draxul-renderer
+    "node32" -> "node34"  // draxul-megacity -> draxul-treesitter
+    "node32" -> "node8"  // draxul-megacity -> draxul-types
+    "node32" -> "node27" [ style = dotted ] // draxul-megacity -> draxul-ui
+    "node32" -> "node18"  // draxul-megacity -> imgui
+    "node5" -> "node32" [ style = dotted ] // draxul -> draxul-megacity
+    "node38" [ label = "draxul-rpc-fake", shape = egg ];
+    "node38" -> "node23" [ style = dotted ] // draxul-rpc-fake -> draxul-nvim
+    "node39" [ label = "draxul-tests", shape = egg ];
+    "node39" -> "node0" [ style = dotted ] // draxul-tests -> Catch2
+    "node39" -> "node6" [ style = dotted ] // draxul-tests -> draxul-app
+    "node39" -> "node37" [ style = dotted ] // draxul-tests -> draxul-geometry
+    "node39" -> "node28" [ style = dotted ] // draxul-tests -> draxul-kanban
+    "node39" -> "node30" [ style = dotted ] // draxul-tests -> draxul-markdown
+    "node39" -> "node29" [ style = dotted ] // draxul-tests -> draxul-markdown-host
+    "node39" -> "node32" [ style = dotted ] // draxul-tests -> draxul-megacity
+    "node39" -> "node38"  // draxul-tests -> draxul-rpc-fake
+    "node40" [ label = "md4c-html", shape = octagon ];
+    "node40" -> "node31"  // md4c-html -> md4c
 }
