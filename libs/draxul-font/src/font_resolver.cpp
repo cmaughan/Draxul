@@ -152,6 +152,8 @@ std::string auto_detect_bold_italic_path(const std::string& regular_path)
 
 bool FontResolver::initialize(const TextServiceConfig& config, float point_size, float display_ppi)
 {
+    shutdown();
+
     config_ = &config;
     display_ppi_ = display_ppi;
     warnings_.clear();
@@ -172,7 +174,10 @@ bool FontResolver::initialize(const TextServiceConfig& config, float point_size,
         font_path_ = "fonts/JetBrainsMonoNerdFont-Regular.ttf";
 
     if (!primary_.initialize(font_path_, point_size, display_ppi))
+    {
+        primary_.shutdown();
         return false;
+    }
 
     primary_shaper_.initialize(primary_.hb_font(), config.enable_ligatures);
     primary_unligated_shaper_.initialize(primary_.hb_font(), false);
@@ -193,6 +198,7 @@ bool FontResolver::initialize(const TextServiceConfig& config, float point_size,
         }
         else
         {
+            bold_.shutdown();
             DRAXUL_LOG_WARN(LogCategory::Font, "Bold font not found: %s", bold_path.c_str());
             warnings_.push_back("Bold font not found: " + bold_path);
         }
@@ -223,6 +229,7 @@ bool FontResolver::initialize(const TextServiceConfig& config, float point_size,
         }
         else
         {
+            italic_.shutdown();
             DRAXUL_LOG_WARN(LogCategory::Font, "Italic font not found: %s", italic_path.c_str());
             warnings_.push_back("Italic font not found: " + italic_path);
         }
@@ -253,6 +260,7 @@ bool FontResolver::initialize(const TextServiceConfig& config, float point_size,
         }
         else
         {
+            bold_italic_.shutdown();
             DRAXUL_LOG_WARN(LogCategory::Font, "Bold-italic font not found: %s", bold_italic_path.c_str());
             warnings_.push_back("Bold-italic font not found: " + bold_italic_path);
         }
@@ -285,27 +293,26 @@ void FontResolver::shutdown()
     }
     fallbacks_.clear();
     primary_.shutdown();
-    if (bold_loaded_)
-    {
-        bold_shaper_.shutdown();
-        bold_unligated_shaper_.shutdown();
-        bold_.shutdown();
-        bold_loaded_ = false;
-    }
-    if (italic_loaded_)
-    {
-        italic_shaper_.shutdown();
-        italic_unligated_shaper_.shutdown();
-        italic_.shutdown();
-        italic_loaded_ = false;
-    }
-    if (bold_italic_loaded_)
-    {
-        bold_italic_shaper_.shutdown();
-        bold_italic_unligated_shaper_.shutdown();
-        bold_italic_.shutdown();
-        bold_italic_loaded_ = false;
-    }
+    font_path_.clear();
+    config_ = nullptr;
+
+    bold_shaper_.shutdown();
+    bold_unligated_shaper_.shutdown();
+    bold_.shutdown();
+    bold_loaded_ = false;
+    bold_font_path_.clear();
+
+    italic_shaper_.shutdown();
+    italic_unligated_shaper_.shutdown();
+    italic_.shutdown();
+    italic_loaded_ = false;
+    italic_font_path_.clear();
+
+    bold_italic_shaper_.shutdown();
+    bold_italic_unligated_shaper_.shutdown();
+    bold_italic_.shutdown();
+    bold_italic_loaded_ = false;
+    bold_italic_font_path_.clear();
 }
 
 bool FontResolver::set_point_size(float point_size)

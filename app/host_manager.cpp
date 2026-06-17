@@ -57,6 +57,10 @@ void apply_terminal_config(HostLaunchOptions& launch, const AppConfig& config)
     launch.selection_max_cells = config.terminal.selection_max_cells;
     launch.copy_on_select = config.terminal.copy_on_select;
     launch.paste_confirm_lines = config.terminal.paste_confirm_lines;
+    launch.url_detection = config.terminal.url_detection;
+    launch.enable_osc8_hyperlinks = config.terminal.enable_osc8_hyperlinks;
+    launch.enable_shell_integration_marks = config.terminal.enable_shell_integration_marks;
+    launch.scrollback_lines = config.scrollback_lines;
 }
 
 void apply_global_host_options(HostLaunchOptions& launch, const AppOptions& options)

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
+#include <draxul/process_util.h>
 #include <filesystem>
 #include <iterator>
 #include <mutex>
@@ -16,34 +17,6 @@ namespace draxul
 
 namespace
 {
-
-std::string quote_windows_arg(const std::string& value)
-{
-    if (value.find_first_of(" \t\"") == std::string::npos)
-        return value;
-
-    std::string quoted = "\"";
-    size_t backslashes = 0;
-    for (char ch : value)
-    {
-        if (ch == '\\')
-        {
-            ++backslashes;
-            quoted.push_back(ch);
-            continue;
-        }
-        if (ch == '"')
-        {
-            quoted.append(backslashes, '\\');
-            quoted.push_back('\\');
-        }
-        backslashes = 0;
-        quoted.push_back(ch);
-    }
-    quoted.append(backslashes, '\\');
-    quoted.push_back('"');
-    return quoted;
-}
 
 std::wstring widen_utf8(std::string_view text)
 {
@@ -476,9 +449,20 @@ bool ConPtyProcess::write(std::string_view text)
     PERF_MEASURE();
     if (input_write_ == INVALID_HANDLE_VALUE)
         return false;
-    DWORD written = 0;
-    return WriteFile(input_write_, text.data(), static_cast<DWORD>(text.size()), &written, nullptr)
-        && written == static_cast<DWORD>(text.size());
+
+    size_t total_written = 0;
+    while (total_written < text.size())
+    {
+        DWORD written = 0;
+        const DWORD to_write = static_cast<DWORD>(
+            std::min<size_t>(text.size() - total_written, MAXDWORD));
+        if (!WriteFile(input_write_, text.data() + total_written, to_write, &written, nullptr))
+            return false;
+        if (written == 0)
+            return false;
+        total_written += written;
+    }
+    return true;
 }
 
 std::vector<std::string> ConPtyProcess::drain_output()

@@ -22,6 +22,26 @@ public:
         drained_chunks_.push_back(std::move(bytes));
     }
 
+    std::string cell_text(int col, int row)
+    {
+        return std::string(grid().get_cell(col, row).text.view());
+    }
+
+    void flush_for_test()
+    {
+        flush_grid();
+    }
+
+    int col() const
+    {
+        return vt_state().col;
+    }
+
+    int row() const
+    {
+        return vt_state().row;
+    }
+
     std::string written;
 
     int cols_ = 20;

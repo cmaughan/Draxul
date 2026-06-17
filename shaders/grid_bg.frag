@@ -13,11 +13,12 @@ layout(location = 0) out vec4 out_color;
 void main() {
     vec4 color = frag_bg;
     bool underline = (frag_style_flags & STYLE_FLAG_UNDERLINE) != 0u;
+    bool hyperlink = (frag_style_flags & STYLE_FLAG_HYPERLINK) != 0u;
     bool strikethrough = (frag_style_flags & STYLE_FLAG_STRIKETHROUGH) != 0u;
     bool undercurl = (frag_style_flags & STYLE_FLAG_UNDERCURL) != 0u;
     vec4 accent = frag_sp.a > 0.0 ? frag_sp : frag_fg;
 
-    if (underline && frag_local_uv.y >= UNDERLINE_TOP && frag_local_uv.y <= UNDERLINE_BOTTOM)
+    if ((underline || hyperlink) && frag_local_uv.y >= UNDERLINE_TOP && frag_local_uv.y <= UNDERLINE_BOTTOM)
         color = accent;
     else if (strikethrough && frag_local_uv.y >= STRIKETHROUGH_TOP && frag_local_uv.y <= STRIKETHROUGH_BOTTOM)
         color = frag_fg;

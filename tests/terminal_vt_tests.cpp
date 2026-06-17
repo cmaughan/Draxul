@@ -1191,6 +1191,34 @@ TEST_CASE("terminal: OSC 7 remote host URI updates CWD correctly", "[terminal]")
     REQUIRE(ts.callbacks.last_window_title == "work");
 }
 
+TEST_CASE("terminal: OSC 8 assigns hyperlink ids to printed cells", "[terminal][osc8]")
+{
+    VtTerminalSetup ts;
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B]8;;https://example.com\x1B\\click\x1B]8;;\x1B\\ plain");
+
+    for (int col = 0; col < 5; ++col)
+    {
+        REQUIRE(ts.host.cell_link(col, 0) != 0);
+        REQUIRE(ts.host.cell_link_uri(col, 0) == "https://example.com");
+    }
+    REQUIRE(ts.host.cell_link(5, 0) == 0);
+}
+
+TEST_CASE("terminal: OSC 8 empty URI clears current hyperlink", "[terminal][osc8]")
+{
+    VtTerminalSetup ts;
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B]8;;https://example.com\x07"
+                 "A\x1B]8;;\x07"
+                 "B");
+
+    REQUIRE(ts.host.cell_link_uri(0, 0) == "https://example.com");
+    REQUIRE(ts.host.cell_link(1, 0) == 0);
+}
+
 // ---------------------------------------------------------------------------
 // DECSTBM (CSI r) scroll region bounds tests
 // ---------------------------------------------------------------------------

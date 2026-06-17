@@ -1,5 +1,6 @@
 add_library(draxul-render-test
     src/render_test.cpp
+    src/render_test_driver.cpp
     src/nanovg_demo_host.cpp
 )
 

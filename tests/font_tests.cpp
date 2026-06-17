@@ -158,6 +158,38 @@ TEST_CASE("font choice cache stays bounded under many unique clusters", "[font]"
     service.shutdown();
 }
 
+TEST_CASE("font resolver clears stale style variants on reinitialize", "[font]")
+{
+    auto jetbrains_regular = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
+    auto cascadia_regular = repo_root() / "fonts" / "CascadiaCode-Regular.ttf";
+    INFO("bundled regular font with style variants exists");
+    REQUIRE(std::filesystem::exists(jetbrains_regular));
+    INFO("bundled regular-only font exists");
+    REQUIRE(std::filesystem::exists(cascadia_regular));
+
+    FontResolver resolver;
+    TextServiceConfig with_variants;
+    with_variants.font_path = jetbrains_regular.string();
+    INFO("font resolver initializes with auto-detected variants");
+    REQUIRE(resolver.initialize(with_variants, 11, 96.0f));
+    REQUIRE(resolver.has_bold());
+    REQUIRE(resolver.has_italic());
+    REQUIRE(resolver.has_bold_italic());
+
+    TextServiceConfig regular_only;
+    regular_only.font_path = cascadia_regular.string();
+    INFO("font resolver reinitializes with a regular-only font");
+    REQUIRE(resolver.initialize(regular_only, 11, 96.0f));
+    INFO("bold face state from the previous font must not survive reinitialize");
+    REQUIRE_FALSE(resolver.has_bold());
+    INFO("italic face state from the previous font must not survive reinitialize");
+    REQUIRE_FALSE(resolver.has_italic());
+    INFO("bold-italic face state from the previous font must not survive reinitialize");
+    REQUIRE_FALSE(resolver.has_bold_italic());
+
+    resolver.shutdown();
+}
+
 TEST_CASE("emoji fallback preserves color glyph pixels in the atlas", "[font]")
 {
     auto primary_font_path = repo_root() / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";

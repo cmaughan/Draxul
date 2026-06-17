@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace draxul::tests
 {
@@ -69,6 +70,11 @@ public:
         clipboard_ = text;
         return true;
     }
+    bool open_url(std::string_view url) override
+    {
+        opened_urls_.emplace_back(url);
+        return true;
+    }
     void set_text_input_area(int, int, int, int) override {}
     void activate() override
     {
@@ -97,6 +103,7 @@ public:
     // Recorded state — read by tests.
     std::string clipboard_;
     std::string last_title_;
+    std::vector<std::string> opened_urls_;
     bool visible_ = true;
     bool queued_close_request_ = false;
     std::optional<std::pair<int, int>> queued_resize_;
@@ -105,6 +112,7 @@ public:
     {
         clipboard_.clear();
         last_title_.clear();
+        opened_urls_.clear();
         visible_ = true;
         queued_close_request_ = false;
         queued_resize_.reset();

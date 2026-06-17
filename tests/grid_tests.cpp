@@ -65,6 +65,45 @@ TEST_CASE("grid tracks double-width continuations", "[grid]")
     REQUIRE(cont.hl_attr_id == static_cast<uint16_t>(7));
 }
 
+TEST_CASE("grid detects http urls on dirty rows", "[grid][url]")
+{
+    Grid grid;
+    grid.resize(32, 1);
+    const std::string text = "go https://example.test/a";
+    for (int col = 0; col < static_cast<int>(text.size()); ++col)
+        grid.set_cell(col, 0, std::string(1, text[static_cast<size_t>(col)]), 0, false);
+
+    grid.refresh_url_detection_for_dirty_rows(true);
+
+    const int start = 3;
+    const int end = static_cast<int>(text.size());
+    for (int col = 0; col < start; ++col)
+        REQUIRE(grid.effective_link_id(col, 0) == 0);
+    for (int col = start; col < end; ++col)
+    {
+        REQUIRE(grid.effective_link_id(col, 0) != 0);
+        REQUIRE(grid.link_uri(grid.effective_link_id(col, 0)) == "https://example.test/a");
+    }
+}
+
+TEST_CASE("grid url detection does not overwrite explicit OSC hyperlink ids", "[grid][url]")
+{
+    Grid grid;
+    grid.resize(24, 1);
+    const uint16_t explicit_link = grid.link_id_for_uri("https://explicit.test");
+    const std::string text = "https://visible.test";
+    for (int col = 0; col < static_cast<int>(text.size()); ++col)
+    {
+        grid.set_cell(col, 0, std::string(1, text[static_cast<size_t>(col)]), 0, false);
+        grid.set_cell_hyperlink_id(col, 0, explicit_link);
+    }
+
+    grid.refresh_url_detection_for_dirty_rows(true);
+
+    REQUIRE(grid.effective_link_id(0, 0) == explicit_link);
+    REQUIRE(grid.link_uri(grid.effective_link_id(0, 0)) == "https://explicit.test");
+}
+
 TEST_CASE("grid scroll shifts rows and blanks the tail", "[grid]")
 {
     Grid grid;

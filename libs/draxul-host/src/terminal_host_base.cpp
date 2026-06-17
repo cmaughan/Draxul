@@ -271,6 +271,8 @@ void TerminalHostBase::on_config_reloaded(const HostReloadConfig& config)
 
     launch_options().terminal_fg = config.terminal_fg;
     launch_options().terminal_bg = config.terminal_bg;
+    launch_options().enable_osc8_hyperlinks = config.enable_osc8_hyperlinks;
+    launch_options().enable_shell_integration_marks = config.enable_shell_integration_marks;
 
     highlights().set_default_fg(
         launch_options().terminal_fg.value_or(Color(0.92f, 0.92f, 0.92f, 1.0f)));
@@ -456,9 +458,15 @@ void TerminalHostBase::on_viewport_changed()
         alt_screen_.clamp_saved_cursor(std::max(0, new_cols - 1), std::max(0, new_rows - 1));
     }
 
+    const auto target_cursor = resize_preserved_cursor_.value_or(std::pair<int, int>{ vt_.col, vt_.row });
+    if (target_cursor.first >= new_cols || target_cursor.second >= new_rows)
+        resize_preserved_cursor_ = target_cursor;
+    else
+        resize_preserved_cursor_.reset();
+
     apply_grid_size(new_cols, new_rows);
-    vt_.col = std::clamp(vt_.col, 0, std::max(0, grid_cols() - 1));
-    vt_.row = std::clamp(vt_.row, 0, std::max(0, grid_rows() - 1));
+    vt_.col = std::clamp(target_cursor.first, 0, std::max(0, grid_cols() - 1));
+    vt_.row = std::clamp(target_cursor.second, 0, std::max(0, grid_rows() - 1));
     vt_.saved_col = std::clamp(vt_.saved_col, 0, std::max(0, grid_cols() - 1));
     vt_.saved_row = std::clamp(vt_.saved_row, 0, std::max(0, grid_rows() - 1));
     vt_.scroll_top = 0;
@@ -506,6 +514,8 @@ void TerminalHostBase::reset_terminal_state()
     gl_uses_g1_charset_ = false;
     pending_charset_designation_ = '\0';
     focus_reporting_mode_ = false;
+    current_hyperlink_id_ = 0;
+    shell_marks_.clear();
     output_cursor_batch_active_ = false;
     output_cursor_batch_saw_hide_ = false;
     output_cursor_batch_saw_show_ = false;
@@ -554,6 +564,13 @@ void TerminalHostBase::update_cursor_style()
         blink.blinkoff = 530;
     }
     set_cursor_style(style, blink, !vt_.cursor_visible);
+}
+
+void TerminalHostBase::set_logical_cursor_position(int col, int row, CursorBlinkUpdate blink_update)
+{
+    vt_.col = std::clamp(col, 0, std::max(0, grid_cols() - 1));
+    vt_.row = std::clamp(row, 0, std::max(0, grid_rows() - 1));
+    set_cursor_position(vt_.col, vt_.row, blink_update);
 }
 
 void TerminalHostBase::trace_cursor_presentation_state(std::string_view stage, bool saw_output) const
@@ -898,6 +915,7 @@ void TerminalHostBase::write_cluster(const std::string& cluster)
         if (vt_.auto_wrap_mode)
         {
             grid().set_cell(vt_.col, vt_.row, " ", attr_id(), false);
+            grid().set_cell_hyperlink_id(vt_.col, vt_.row, current_hyperlink_id_);
             newline(true);
         }
         else
@@ -907,6 +925,7 @@ void TerminalHostBase::write_cluster(const std::string& cluster)
     }
 
     grid().set_cell(vt_.col, vt_.row, rendered_cluster, attr_id(), width == 2);
+    grid().set_cell_hyperlink_id(vt_.col, vt_.row, current_hyperlink_id_);
     const int new_col = vt_.col + width;
 
     if (new_col >= grid_cols())

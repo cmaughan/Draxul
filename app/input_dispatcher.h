@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <draxul/pixel_scale.h>
+#include <draxul/types.h>
 #include <functional>
 #include <optional>
 #include <string>
@@ -25,6 +26,26 @@ struct KeyEvent;
 struct MouseButtonEvent;
 struct MouseMoveEvent;
 struct MouseWheelEvent;
+
+class IInputRouter
+{
+public:
+    virtual ~IInputRouter() = default;
+    virtual IHost* overlay_host() = 0;
+    virtual HostManager* host_manager() = 0;
+    virtual int hit_test_tab(int phys_x, int phys_y) = 0;
+    virtual LeafId hit_test_pane_pill(int phys_x, int phys_y) = 0;
+    virtual int tab_bar_height_phys() = 0;
+    virtual std::pair<int, int> cell_size_phys() = 0;
+    virtual void activate_tab(int one_based_index) = 0;
+    virtual void activate_pane(int one_based_index) = 0;
+    virtual void begin_tab_rename(int one_based_index) = 0;
+    virtual void begin_pane_rename(LeafId leaf) = 0;
+    virtual bool is_editing() = 0;
+    virtual bool rename_text_input(const std::string& text) = 0;
+    virtual bool rename_key(int keycode) = 0;
+    virtual void commit_rename() = 0;
+};
 
 // Wires SDL window input callbacks and routes events:
 //   - Key events: checks GUI keybindings first (via GuiActionHandler), then forwards to
@@ -54,14 +75,10 @@ public:
         GuiActionHandler* gui_action_handler = nullptr;
         // Window used for cursor changes and pixel size queries during divider drag.
         IWindow* window = nullptr;
-        // Returns the active overlay host (e.g. command palette) when it should
-        // intercept all input, or null when no overlay is active.
-        std::function<IHost*()> overlay_host;
+        // Typed routing interface for chrome, overlay, and split-tree hit tests.
+        IInputRouter* router = nullptr;
         UiPanel* ui_panel = nullptr;
         IHost* host = nullptr;
-        // Multi-pane: if set, mouse events are hit-tested via HostManager's SplitTree.
-        // Function-based so it always returns the active workspace's HostManager.
-        std::function<HostManager*()> host_manager;
         bool smooth_scroll = false;
         float scroll_speed = 1.0f;
         // Ratio of physical pixels to logical pixels (1.0 on non-HiDPI, 2.0 on Retina).
@@ -72,39 +89,6 @@ public:
         std::function<void()> request_frame;
         std::function<void(int, int)> on_resize;
         std::function<void(float)> on_display_scale_changed;
-        // Tab bar click: returns 1-based tab index if (px, py) hits a tab, else 0.
-        std::function<int(int, int)> hit_test_tab;
-        // Pane status pill click: returns the leaf id if (px, py) hits a pill,
-        // else kInvalidLeaf. Used to drive double-click pane rename and to
-        // suppress drag selection from spilling into the underlying host.
-        std::function<LeafId(int, int)> hit_test_pane_pill;
-        // Begin a rename session for the pane identified by leaf id.
-        std::function<void(LeafId)> begin_pane_rename;
-        // Height of the top chrome (tab bar) in physical pixels. Mouse events
-        // with phys_y < this height never reach the underlying host so the
-        // tab bar cannot start drag selections in the terminal beneath.
-        std::function<int()> tab_bar_height_phys;
-        // Cell size in physical pixels. Used to quantize divider drag in
-        // cell-aligned (tmux-style) steps so terminal grids don't visually
-        // jitter when crossing pixel-row thresholds.
-        std::function<std::pair<int, int>()> cell_size_phys;
-        // Activate tab by 1-based index.
-        std::function<void(int)> activate_tab;
-        // Activate pane by 1-based visual index within the active workspace.
-        std::function<void(int)> activate_pane;
-        // ----- Inline tab rename (WI 128) -------------------------------
-        // Begin a rename session for the tab at 1-based index.
-        std::function<void(int)> begin_tab_rename;
-        // True while ChromeHost has a rename session in progress.
-        std::function<bool()> is_editing_tab;
-        // Forward a typed UTF-8 chunk to the rename buffer. Returns true if
-        // the rename layer consumed it.
-        std::function<bool(const std::string&)> rename_text_input;
-        // Forward an SDL keycode to the rename layer. Returns true if
-        // consumed (Enter/Escape/Backspace/etc.).
-        std::function<bool(int)> rename_key;
-        // Commit the active rename buffer (used on click-outside).
-        std::function<void()> commit_tab_rename;
     };
 
     explicit InputDispatcher(Deps deps);
@@ -167,6 +151,7 @@ private:
     // Update mouse cursor based on whether (phys_x, phys_y) is over a divider.
     // Returns true if a divider is under the point. Skipped while dragging.
     bool update_cursor_for_divider(int phys_x, int phys_y);
+    void set_active_mouse_cursor(MouseCursor cursor);
     // Shared mouse-event tail used by all three on_mouse_*_event handlers.
     // Resolves target via host_for_mouse_pos, runs the UiPanel wants_mouse
     // short-circuit (with request_frame side effect), the contains_panel_point
@@ -182,7 +167,7 @@ private:
     Deps deps_;
     // Divider drag state.
     int drag_divider_id_ = -1; // kInvalidDivider
-    int active_mouse_cursor_ = 0; // 0=default, 1=ew, 2=ns — avoids redundant calls
+    MouseCursor active_mouse_cursor_ = MouseCursor::Default;
     float pending_scroll_y_ = 0.0f;
     bool had_scroll_event_ = false;
     // Chord (tmux-style prefix) state: true when a prefix key has been consumed and

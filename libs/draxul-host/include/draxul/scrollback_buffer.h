@@ -36,6 +36,8 @@ public:
 
     explicit ScrollbackBuffer(Callbacks cbs, int capacity = kDefaultCapacity);
 
+    void set_capacity(int capacity);
+
     // (Re-)allocate ring-buffer storage for rows of `cols` cells.
     // Discards all existing scrollback content.  Must be called once before
     // any push, and again whenever the terminal column count changes.

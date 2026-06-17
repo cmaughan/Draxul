@@ -1,10 +1,12 @@
 #include <draxul/log.h>
 #include <draxul/nvim_rpc.h>
 #include <draxul/perf_timing.h>
+#include <draxul/process_util.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <string_view>
@@ -22,6 +24,10 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#endif
+
+#ifndef _WIN32
+extern char** environ;
 #endif
 
 namespace draxul
@@ -55,35 +61,6 @@ NvimProcess::~NvimProcess() = default;
 
 namespace
 {
-
-std::string quote_windows_arg(const std::string& value)
-{
-    PERF_MEASURE();
-    if (value.find_first_of(" \t\"") == std::string::npos)
-        return value;
-
-    std::string quoted = "\"";
-    size_t backslashes = 0;
-    for (char ch : value)
-    {
-        if (ch == '\\')
-        {
-            ++backslashes;
-            quoted.push_back(ch);
-            continue;
-        }
-        if (ch == '"')
-        {
-            quoted.append(backslashes, '\\');
-            quoted.push_back('\\');
-        }
-        backslashes = 0;
-        quoted.push_back(ch);
-    }
-    quoted.append(backslashes, '\\');
-    quoted.push_back('"');
-    return quoted;
-}
 
 bool ascii_iequals(std::string_view lhs, std::string_view rhs)
 {
@@ -305,6 +282,67 @@ bool NvimProcess::is_running() const
 
 #else // POSIX (macOS, Linux)
 
+namespace
+{
+
+bool starts_with(std::string_view text, std::string_view prefix)
+{
+    return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
+}
+
+std::vector<std::string> build_nvim_child_environment()
+{
+    std::vector<std::string> env;
+    for (char** current = environ; current != nullptr && *current != nullptr; ++current)
+    {
+        const std::string_view entry(*current);
+        if (starts_with(entry, "TERM="))
+            continue;
+        env.emplace_back(entry);
+    }
+
+    env.emplace_back("TERM=dumb");
+    return env;
+}
+
+std::vector<std::string> resolve_exec_paths(const std::string& command)
+{
+    if (command.find('/') != std::string::npos)
+        return { command };
+
+    const char* raw_path = std::getenv("PATH");
+    const std::string_view path
+        = (raw_path != nullptr && *raw_path != '\0')
+        ? std::string_view(raw_path)
+        : std::string_view("/usr/bin:/bin:/usr/sbin:/sbin");
+
+    std::vector<std::string> candidates;
+    size_t start = 0;
+    while (start <= path.size())
+    {
+        const size_t end = path.find(':', start);
+        std::string_view dir = (end == std::string_view::npos)
+            ? path.substr(start)
+            : path.substr(start, end - start);
+        if (dir.empty())
+            dir = ".";
+
+        std::string candidate(dir);
+        if (!candidate.empty() && candidate.back() != '/')
+            candidate.push_back('/');
+        candidate += command;
+        candidates.push_back(std::move(candidate));
+
+        if (end == std::string_view::npos)
+            break;
+        start = end + 1;
+    }
+
+    return candidates;
+}
+
+} // namespace
+
 Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::vector<std::string>& extra_args, const std::string& working_dir)
 {
     PERF_MEASURE();
@@ -353,6 +391,32 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
         return Result<void, Error>::err(Error::io(
             std::string("Failed to configure exec-status pipe: ") + strerror(e)));
     }
+
+    std::vector<std::string> argv_storage;
+    argv_storage.reserve(extra_args.size() + 2);
+    argv_storage.push_back(nvim_path);
+    argv_storage.emplace_back("--embed");
+    for (const auto& arg : extra_args)
+        argv_storage.push_back(arg);
+
+    std::vector<char*> child_argv;
+    child_argv.reserve(argv_storage.size() + 1);
+    for (auto& arg : argv_storage)
+        child_argv.push_back(arg.data());
+    child_argv.push_back(nullptr);
+
+    std::vector<std::string> child_env = build_nvim_child_environment();
+    std::vector<char*> child_envp;
+    child_envp.reserve(child_env.size() + 1);
+    for (auto& entry : child_env)
+        child_envp.push_back(entry.data());
+    child_envp.push_back(nullptr);
+
+    std::vector<std::string> exec_paths = resolve_exec_paths(nvim_path);
+    std::vector<const char*> exec_path_ptrs;
+    exec_path_ptrs.reserve(exec_paths.size());
+    for (const auto& path : exec_paths)
+        exec_path_ptrs.push_back(path.c_str());
 
     pid_t pid = fork();
     if (pid < 0)
@@ -408,12 +472,6 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
         // on broken pipes. The parent GUI may have set SIG_IGN.
         signal(SIGPIPE, SIG_DFL);
 
-        // Embedded Neovim is an RPC child, not a terminal UI attached to our
-        // PTY emulator. Advertising a real terminal type here can trigger TUI-
-        // specific startup paths in user config and plugins, which is both
-        // unnecessary and actively harmful for --embed.
-        setenv("TERM", "dumb", 1);
-
         if (!working_dir.empty() && chdir(working_dir.c_str()) != 0)
         {
             int chdir_errno = errno;
@@ -422,21 +480,13 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
             _exit(127);
         }
 
-        std::vector<std::string> argv_storage;
-        argv_storage.reserve(extra_args.size() + 2);
-        argv_storage.push_back(nvim_path);
-        argv_storage.emplace_back("--embed");
-        for (const auto& arg : extra_args)
-            argv_storage.push_back(arg);
-
-        std::vector<char*> argv;
-        argv.reserve(argv_storage.size() + 1);
-        for (auto& arg : argv_storage)
-            argv.push_back(arg.data());
-        argv.push_back(nullptr);
-
-        execvp(nvim_path.c_str(), argv.data());
-        int exec_errno = errno;
+        int exec_errno = ENOENT;
+        for (const char* path : exec_path_ptrs)
+        {
+            execve(path, child_argv.data(), child_envp.data());
+            if (errno != ENOENT && errno != ENOTDIR)
+                exec_errno = errno;
+        }
         (void)!::write(exec_status_pipe[1], &exec_errno, sizeof(exec_errno));
         close(exec_status_pipe[1]);
         _exit(127);

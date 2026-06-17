@@ -13,6 +13,45 @@ ScrollbackBuffer::ScrollbackBuffer(Callbacks cbs, int capacity)
 {
 }
 
+void ScrollbackBuffer::set_capacity(int capacity)
+{
+    PERF_MEASURE();
+    const int new_capacity = capacity > 0 ? capacity : kDefaultCapacity;
+    if (new_capacity == capacity_)
+        return;
+
+    if (cols_ <= 0)
+    {
+        capacity_ = new_capacity;
+        return;
+    }
+
+    const int keep = std::min(count_, new_capacity);
+    std::vector<Cell> retained(static_cast<size_t>(keep) * cols_);
+    const int first = count_ - keep;
+    for (int i = 0; i < keep; ++i)
+    {
+        const auto src = row(first + i);
+        auto* dst = &retained[static_cast<size_t>(i) * cols_];
+        for (int col = 0; col < cols_; ++col)
+            dst[col] = src[col];
+    }
+
+    capacity_ = new_capacity;
+    storage_.assign(static_cast<size_t>(capacity_) * cols_, Cell{});
+    for (int i = 0; i < keep; ++i)
+    {
+        const auto* src = &retained[static_cast<size_t>(i) * cols_];
+        auto* dst = &storage_[static_cast<size_t>(i) * cols_];
+        for (int col = 0; col < cols_; ++col)
+            dst[col] = src[col];
+    }
+
+    write_head_ = keep % capacity_;
+    count_ = keep;
+    offset_ = std::min(offset_, count_);
+}
+
 void ScrollbackBuffer::resize(int cols)
 {
     PERF_MEASURE();

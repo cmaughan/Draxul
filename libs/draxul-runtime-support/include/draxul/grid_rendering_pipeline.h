@@ -16,6 +16,7 @@ public:
     void set_renderer(IGridRenderer* renderer);
     void set_grid_handle(IGridHandle* handle);
     void set_enable_ligatures(bool enable);
+    void set_url_detection_enabled(bool enable);
     void flush();
     void force_full_atlas_upload();
 
@@ -41,6 +42,7 @@ private:
 
     bool force_full_atlas_upload_ = true;
     bool enable_ligatures_ = true;
+    bool url_detection_enabled_ = true;
     std::vector<uint8_t> atlas_upload_scratch_;
     std::vector<Grid::DirtyCell> expanded_scratch_;
     MainThreadChecker thread_checker_;

@@ -5,6 +5,7 @@
 #include <draxul/grid_host_base.h>
 #include <draxul/vt_parser.h>
 #include <draxul/vt_state.h>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -89,6 +90,10 @@ protected:
     {
         return vt_;
     }
+    void set_logical_cursor_position(
+        int col,
+        int row,
+        CursorBlinkUpdate blink_update = CursorBlinkUpdate::Preserve);
     size_t attr_cache_size() const
     {
         return attr_cache_.size();
@@ -167,6 +172,8 @@ private:
     void handle_esc(char ch);
     void handle_csi(char final_char, std::string_view body);
     void handle_osc(std::string_view body);
+    void handle_osc8(std::string_view payload);
+    void handle_osc133(std::string_view payload);
 
     // CSI dispatch helpers — each handles one logical group of sequences.
     // Called from handle_csi(); pure behavioral extraction, no logic changes.
@@ -184,6 +191,21 @@ private:
 
     void enter_alt_screen();
     void leave_alt_screen();
+
+    enum class ShellMarkType
+    {
+        PromptStart,
+        CommandStart,
+        OutputStart,
+        OutputEnd,
+    };
+
+    struct ShellMark
+    {
+        ShellMarkType type = ShellMarkType::PromptStart;
+        int row = 0;
+        int exit_code = -1;
+    };
 
     // SGR / highlight state
     HlAttr current_attr_ = {};
@@ -214,6 +236,7 @@ private:
     bool stable_cursor_known_ = false;
     int stable_cursor_col_ = 0;
     int stable_cursor_row_ = 0;
+    std::optional<std::pair<int, int>> resize_preserved_cursor_;
     bool synchronized_output_mode_ = false;
     bool synchronized_output_saw_hide_ = false;
     bool synchronized_output_saw_show_ = false;
@@ -222,6 +245,8 @@ private:
     bool gl_uses_g1_charset_ = false;
     char pending_charset_designation_ = '\0';
     bool focus_reporting_mode_ = false;
+    uint16_t current_hyperlink_id_ = 0;
+    std::vector<ShellMark> shell_marks_;
     bool pty_capture_config_loaded_ = false;
     bool pty_capture_header_checked_ = false;
     bool pty_capture_failure_reported_ = false;

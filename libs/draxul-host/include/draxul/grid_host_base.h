@@ -73,6 +73,10 @@ protected:
     {
         return grid_;
     }
+    const Grid& grid() const
+    {
+        return grid_;
+    }
     HighlightTable& highlights()
     {
         return highlights_;

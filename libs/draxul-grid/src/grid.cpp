@@ -1,9 +1,11 @@
 #include <algorithm>
+#include <cctype>
 #include <draxul/grid.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/unicode.h>
 #include <functional>
+#include <limits>
 
 namespace draxul
 {
@@ -124,6 +126,35 @@ void clear_continuation(Cell& cell)
 {
     cell = Cell{};
     cell.dirty = true;
+}
+
+bool is_url_terminator(unsigned char ch)
+{
+    return std::isspace(ch) != 0 || ch == '<' || ch == '>';
+}
+
+bool is_trailing_url_punctuation(char ch)
+{
+    switch (ch)
+    {
+    case '.':
+    case ',':
+    case ';':
+    case ':':
+    case '!':
+    case '?':
+    case ')':
+    case ']':
+    case '}':
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool starts_with_at(std::string_view text, size_t offset, std::string_view prefix)
+{
+    return offset + prefix.size() <= text.size() && text.substr(offset, prefix.size()) == prefix;
 }
 
 // Helper type for computing flat cell indices from (row, col) pairs.
@@ -337,6 +368,8 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
             text.size(), static_cast<unsigned>(CellText::kMaxLen));
     cell.text.assign(text);
     cell.hl_attr_id = hl_id;
+    cell.hyperlink_id = 0;
+    cell.detected_url_id = 0;
     cell.dirty = false;
     cell.double_width = double_width;
     cell.double_width_cont = false;
@@ -347,6 +380,8 @@ void Grid::set_cell(int col, int row, const std::string& text, uint16_t hl_id, b
         auto& next = cells_[index + 1];
         next.text = CellText{};
         next.hl_attr_id = hl_id;
+        next.hyperlink_id = 0;
+        next.detected_url_id = 0;
         next.dirty = false;
         next.double_width = false;
         next.double_width_cont = true;
@@ -359,6 +394,178 @@ const Cell& Grid::get_cell(int col, int row) const
     if (col < 0 || col >= cols_ || row < 0 || row >= rows_)
         return empty_cell_;
     return cells_[static_cast<size_t>(row) * static_cast<size_t>(cols_) + static_cast<size_t>(col)];
+}
+
+void Grid::set_cell_hyperlink_id(int col, int row, uint16_t link_id)
+{
+    PERF_MEASURE();
+    thread_checker_.assert_main_thread("Grid::set_cell_hyperlink_id");
+    if (col < 0 || col >= cols_ || row < 0 || row >= rows_)
+        return;
+    const size_t index = static_cast<size_t>(row) * static_cast<size_t>(cols_) + static_cast<size_t>(col);
+    auto& cell = cells_[index];
+    if (cell.hyperlink_id != link_id)
+    {
+        cell.hyperlink_id = link_id;
+        mark_dirty_index(static_cast<int>(index));
+    }
+    if (cell.double_width && col + 1 < cols_)
+    {
+        auto& next = cells_[index + 1];
+        if (next.hyperlink_id != link_id)
+        {
+            next.hyperlink_id = link_id;
+            mark_dirty_index(static_cast<int>(index + 1));
+        }
+    }
+}
+
+uint16_t Grid::link_id_for_uri(std::string_view uri)
+{
+    PERF_MEASURE();
+    thread_checker_.assert_main_thread("Grid::link_id_for_uri");
+    if (uri.empty())
+        return 0;
+
+    std::string key(uri);
+    if (auto it = link_ids_.find(key); it != link_ids_.end())
+        return it->second;
+
+    if (link_uris_.empty())
+        link_uris_.emplace_back();
+    if (link_uris_.size() >= static_cast<size_t>(std::numeric_limits<uint16_t>::max()))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "Grid: hyperlink table exhausted, dropping URI");
+        return 0;
+    }
+
+    const auto id = static_cast<uint16_t>(link_uris_.size());
+    link_uris_.push_back(key);
+    link_ids_.emplace(std::move(key), id);
+    return id;
+}
+
+std::string_view Grid::link_uri(uint16_t link_id) const
+{
+    if (link_id == 0 || link_id >= link_uris_.size())
+        return {};
+    return link_uris_[link_id];
+}
+
+uint16_t Grid::effective_link_id(int col, int row) const
+{
+    const Cell& cell = get_cell(col, row);
+    return cell.hyperlink_id != 0 ? cell.hyperlink_id : cell.detected_url_id;
+}
+
+bool Grid::cell_has_explicit_hyperlink(int col, int row) const
+{
+    return get_cell(col, row).hyperlink_id != 0;
+}
+
+void Grid::clear_detected_url_ids_for_row(int row)
+{
+    if (row < 0 || row >= rows_)
+        return;
+    const int row_start = row * cols_;
+    for (int col = 0; col < cols_; ++col)
+    {
+        auto& cell = cells_[static_cast<size_t>(row_start + col)];
+        if (cell.detected_url_id == 0)
+            continue;
+        cell.detected_url_id = 0;
+        mark_dirty_index(row_start + col);
+    }
+}
+
+void Grid::detect_urls_for_row(int row)
+{
+    PERF_MEASURE();
+    if (row < 0 || row >= rows_)
+        return;
+
+    clear_detected_url_ids_for_row(row);
+
+    std::string text;
+    std::vector<int> byte_to_col;
+    text.reserve(static_cast<size_t>(cols_));
+    byte_to_col.reserve(static_cast<size_t>(cols_));
+
+    for (int col = 0; col < cols_; ++col)
+    {
+        const Cell& cell = get_cell(col, row);
+        if (cell.double_width_cont)
+            continue;
+        const std::string_view view = cell.text.view();
+        for (char ch : view)
+        {
+            text.push_back(ch);
+            byte_to_col.push_back(col);
+        }
+    }
+
+    size_t pos = 0;
+    while (pos < text.size())
+    {
+        const bool has_scheme = starts_with_at(text, pos, "http://") || starts_with_at(text, pos, "https://");
+        if (!has_scheme)
+        {
+            ++pos;
+            continue;
+        }
+
+        size_t end = pos;
+        while (end < text.size() && !is_url_terminator(static_cast<unsigned char>(text[end])))
+            ++end;
+        while (end > pos && is_trailing_url_punctuation(text[end - 1]))
+            --end;
+        if (end <= pos)
+        {
+            ++pos;
+            continue;
+        }
+
+        const uint16_t link_id = link_id_for_uri(std::string_view(text).substr(pos, end - pos));
+        for (size_t i = pos; i < end && i < byte_to_col.size(); ++i)
+        {
+            const int col = byte_to_col[i];
+            auto& cell = cells_[static_cast<size_t>(row) * static_cast<size_t>(cols_) + static_cast<size_t>(col)];
+            if (cell.hyperlink_id != 0 || cell.detected_url_id == link_id)
+                continue;
+            cell.detected_url_id = link_id;
+            mark_dirty_index(static_cast<int>(static_cast<size_t>(row) * static_cast<size_t>(cols_) + static_cast<size_t>(col)));
+        }
+        pos = end;
+    }
+}
+
+void Grid::refresh_url_detection_for_dirty_rows(bool enable)
+{
+    PERF_MEASURE();
+    thread_checker_.assert_main_thread("Grid::refresh_url_detection_for_dirty_rows");
+    std::vector<uint8_t> rows(static_cast<size_t>(rows_), 0);
+    if (!enable || full_dirty_)
+    {
+        std::fill(rows.begin(), rows.end(), 1);
+    }
+    else
+    {
+        for (const auto& dirty : dirty_cells_)
+        {
+            if (dirty.row >= 0 && dirty.row < rows_)
+                rows[static_cast<size_t>(dirty.row)] = 1;
+        }
+    }
+
+    for (int row = 0; row < rows_; ++row)
+    {
+        if (!rows[static_cast<size_t>(row)])
+            continue;
+        if (enable)
+            detect_urls_for_row(row);
+        else
+            clear_detected_url_ids_for_row(row);
+    }
 }
 
 void Grid::scroll(int top, int bot, int left, int right, int rows, int cols)

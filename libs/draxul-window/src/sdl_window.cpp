@@ -382,6 +382,11 @@ void SdlWindow::shutdown()
         SDL_DestroyCursor(cursor_ns_);
         cursor_ns_ = nullptr;
     }
+    if (cursor_pointer_)
+    {
+        SDL_DestroyCursor(cursor_pointer_);
+        cursor_pointer_ = nullptr;
+    }
     if (window_)
     {
         SDL_DestroyWindow(window_);
@@ -405,6 +410,10 @@ SDL_Cursor* SdlWindow::ensure_cursor(MouseCursor cursor)
         if (!cursor_ns_)
             cursor_ns_ = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE);
         return cursor_ns_;
+    case MouseCursor::Pointer:
+        if (!cursor_pointer_)
+            cursor_pointer_ = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
+        return cursor_pointer_;
     case MouseCursor::Default:
     default:
         if (!cursor_default_)
@@ -659,6 +668,12 @@ std::string SdlWindow::clipboard_text() const
 bool SdlWindow::set_clipboard_text(const std::string& text)
 {
     return sdl::set_clipboard_text(text);
+}
+
+bool SdlWindow::open_url(std::string_view url)
+{
+    std::string owned(url);
+    return SDL_OpenURL(owned.c_str());
 }
 
 void SdlWindow::set_text_input_area(int x, int y, int w, int h)

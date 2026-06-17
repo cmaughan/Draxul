@@ -43,6 +43,10 @@ public:
     virtual void set_title(const std::string& title) = 0;
     virtual std::string clipboard_text() const = 0;
     virtual bool set_clipboard_text(const std::string& text) = 0;
+    virtual bool open_url(std::string_view)
+    {
+        return false;
+    }
     virtual void set_text_input_area(int x, int y, int w, int h) = 0;
     virtual void show()
     {

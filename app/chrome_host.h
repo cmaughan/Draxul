@@ -3,6 +3,7 @@
 #include "workspace.h"
 
 #include <chrono>
+#include <draxul/app_config_types.h>
 #include <draxul/base_renderer.h>
 #include <draxul/host.h>
 #include <draxul/host_kind.h>
@@ -195,6 +196,7 @@ private:
 
     void update_tab_grid(std::span<const TabLayout> tabs, std::span<const RightPillLayout> right_pills);
     void update_pane_status_grids(IFrameContext& frame, std::span<const PaneStatusEntry> entries);
+    const ChromeTheme& theme() const;
 
     // Inline rename state. Either targets a workspace (Workspace) or a
     // pane (Pane); EditTarget::None means no rename in progress.

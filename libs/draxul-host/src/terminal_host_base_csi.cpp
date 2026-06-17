@@ -674,6 +674,10 @@ void TerminalHostBase::handle_osc(std::string_view body)
     {
         callbacks().set_window_title(std::string(payload));
     }
+    else if (code == "8")
+    {
+        handle_osc8(payload);
+    }
     else if (code == "52")
     {
         // OSC 52: clipboard manipulation. Format:
@@ -740,6 +744,68 @@ void TerminalHostBase::handle_osc(std::string_view body)
                 static_cast<int>(payload.size()), payload.data());
         }
     }
+    else if (code == "133")
+    {
+        handle_osc133(payload);
+    }
+}
+
+void TerminalHostBase::handle_osc8(std::string_view payload)
+{
+    PERF_MEASURE();
+    if (!launch_options().enable_osc8_hyperlinks)
+    {
+        current_hyperlink_id_ = 0;
+        return;
+    }
+
+    const size_t inner = payload.find(';');
+    const std::string_view uri = inner == std::string_view::npos ? payload : payload.substr(inner + 1);
+    if (uri.empty())
+    {
+        current_hyperlink_id_ = 0;
+        return;
+    }
+
+    current_hyperlink_id_ = grid().link_id_for_uri(uri);
+}
+
+void TerminalHostBase::handle_osc133(std::string_view payload)
+{
+    PERF_MEASURE();
+    if (!launch_options().enable_shell_integration_marks || payload.empty())
+        return;
+
+    ShellMark mark;
+    mark.row = vt_.row;
+
+    switch (payload.front())
+    {
+    case 'A':
+        mark.type = ShellMarkType::PromptStart;
+        break;
+    case 'B':
+        mark.type = ShellMarkType::CommandStart;
+        break;
+    case 'C':
+        mark.type = ShellMarkType::OutputStart;
+        break;
+    case 'D':
+        mark.type = ShellMarkType::OutputEnd;
+        if (payload.size() > 2 && payload[1] == ';')
+        {
+            int exit_code = -1;
+            const std::string_view code = payload.substr(2);
+            const auto [ptr, ec] = std::from_chars(code.data(), code.data() + code.size(), exit_code);
+            if (ec == std::errc{} && ptr == code.data() + code.size())
+                mark.exit_code = exit_code;
+        }
+        break;
+    default:
+        return;
+    }
+
+    shell_marks_.push_back(mark);
 }
 
 void TerminalHostBase::consume_output(std::string_view bytes)
@@ -747,6 +813,7 @@ void TerminalHostBase::consume_output(std::string_view bytes)
     PERF_MEASURE();
     if (bytes.empty())
         return;
+    resize_preserved_cursor_.reset();
     const bool scoped_batch = !output_cursor_batch_active_;
     if (scoped_batch)
         begin_output_cursor_batch();

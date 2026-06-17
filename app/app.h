@@ -181,6 +181,7 @@ private:
     std::unique_ptr<DiagnosticsPanelHost> diagnostics_host_;
     std::unique_ptr<CommandPaletteHost> palette_host_;
     std::unique_ptr<ToastHost> toast_host_;
+    std::unique_ptr<IInputRouter> input_router_;
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };
 #ifdef __APPLE__
     std::unique_ptr<MacOsMenu> macos_menu_;

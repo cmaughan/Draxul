@@ -46,6 +46,10 @@ struct HostLaunchOptions
     // Minimum line count in a paste payload to trigger user confirmation
     // (0 = no confirmation).
     int paste_confirm_lines = 0;
+    bool url_detection = true;
+    bool enable_osc8_hyperlinks = true;
+    bool enable_shell_integration_marks = true;
+    int scrollback_lines = 10000;
 
     // Generic optional host capabilities. Hosts that don't care ignore them.
     // request_continuous_refresh: host wants the renderer presenting every
@@ -71,6 +75,10 @@ struct HostReloadConfig
     int selection_max_cells = 65536;
     bool copy_on_select = true;
     int paste_confirm_lines = 0;
+    bool url_detection = true;
+    bool enable_osc8_hyperlinks = true;
+    bool enable_shell_integration_marks = true;
+    int scrollback_lines = 10000;
 };
 
 struct HostViewport
@@ -196,6 +204,10 @@ public:
     virtual void on_mouse_wheel(const MouseWheelEvent& /*event*/)
     {
         // Default no-op; hosts override only the input paths they consume.
+    }
+    virtual std::optional<MouseCursor> mouse_cursor_at(int /*px*/, int /*py*/) const
+    {
+        return std::nullopt;
     }
 
     virtual bool dispatch_action(std::string_view action) = 0;

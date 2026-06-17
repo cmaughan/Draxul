@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <draxul/log.h>
 #include <filesystem>
@@ -27,6 +28,8 @@ constexpr int kMaxWindowWidth = 3840;
 constexpr int kMaxWindowHeight = 2160;
 constexpr int kMinAtlasSize = 1024;
 constexpr int kMaxAtlasSize = 8192;
+constexpr int kMinScrollbackLines = 1;
+constexpr int kMaxScrollbackLines = 1000000;
 // Mirror TextService::MIN/MAX_POINT_SIZE so that draxul-config does not need to
 // link draxul-font. Keep in sync with text_service.h if those values change.
 constexpr float kMinFontPointSize = 6.0f;
@@ -36,7 +39,7 @@ constexpr float kMaxMarkdownMarginColumns = 24.0f;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
 // The list of known GUI action keys lives in <draxul/gui_actions.h> as the canonical
 // source of truth. Use is_known_gui_action_config_key() / for_each_gui_action_config_key().
-constexpr std::array<std::string_view, 23> kKnownTopLevelKeys = {
+constexpr std::array<std::string_view, 25> kKnownTopLevelKeys = {
     "window_width",
     "window_height",
     "font_size",
@@ -44,6 +47,7 @@ constexpr std::array<std::string_view, 23> kKnownTopLevelKeys = {
     "enable_ligatures",
     "smooth_scroll",
     "scroll_speed",
+    "scrollback_lines",
     "palette_bg_alpha",
     "font_path",
     "bold_font_path",
@@ -59,7 +63,31 @@ constexpr std::array<std::string_view, 23> kKnownTopLevelKeys = {
     "weather_location",
     "keybindings",
     "terminal",
+    "chrome",
     "markdown",
+};
+
+constexpr std::array<std::string_view, 20> kKnownChromeKeys = {
+    "tab_bar_bg",
+    "tab_active_fg",
+    "tab_inactive_fg",
+    "tab_active_bg",
+    "tab_inactive_bg",
+    "tab_editing_bg",
+    "divider",
+    "focus_border",
+    "status_bar_bg",
+    "status_bar_fg",
+    "status_focused_accent_bg",
+    "status_inactive_accent_bg",
+    "status_editing_bg",
+    "resource_pill_bg",
+    "resource_pill_fg",
+    "resource_pill_warn_bg",
+    "resource_pill_hot_bg",
+    "chord_pill_bg",
+    "weather_pill_bg",
+    "editing_outline",
 };
 
 std::filesystem::path config_path()
@@ -141,6 +169,22 @@ int parse_atlas_size(const toml::table& document, int fallback)
     return fallback;
 }
 
+int parse_scrollback_lines(const toml::table& document, int fallback)
+{
+    if (auto parsed = toml_support::get_int(document, "scrollback_lines"); parsed.has_value())
+    {
+        if (*parsed < kMinScrollbackLines || *parsed > kMaxScrollbackLines)
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "[config] scrollback_lines %lld out of range [%d,%d] -- using default",
+                static_cast<long long>(*parsed), kMinScrollbackLines, kMaxScrollbackLines);
+            return fallback;
+        }
+        return static_cast<int>(*parsed);
+    }
+    return fallback;
+}
+
 void replace_gui_keybinding(std::vector<GuiKeybinding>& bindings, GuiKeybinding binding)
 {
     PERF_MEASURE();
@@ -182,6 +226,17 @@ std::optional<float> parse_float_value(const toml::table& document, const char* 
     if (auto parsed = toml_support::get_int(document, key); parsed.has_value())
         return static_cast<float>(*parsed);
     return std::nullopt;
+}
+
+std::string color_to_hex(const Color& color)
+{
+    const auto channel = [](float value) {
+        return static_cast<int>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+    };
+    char buffer[8];
+    std::snprintf(buffer, sizeof(buffer), "#%02x%02x%02x",
+        channel(color.r), channel(color.g), channel(color.b));
+    return std::string(buffer);
 }
 
 bool parse_enable_ligatures(const toml::table& document, bool fallback)
@@ -254,6 +309,12 @@ void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
 
     if (auto cos = toml_support::get_bool(terminal, "copy_on_select"))
         config.terminal.copy_on_select = *cos;
+    if (auto enabled = toml_support::get_bool(terminal, "url_detection"))
+        config.terminal.url_detection = *enabled;
+    if (auto enabled = toml_support::get_bool(terminal, "enable_osc8_hyperlinks"))
+        config.terminal.enable_osc8_hyperlinks = *enabled;
+    if (auto enabled = toml_support::get_bool(terminal, "enable_shell_integration_marks"))
+        config.terminal.enable_shell_integration_marks = *enabled;
 
     if (auto pcl = toml_support::get_int(terminal, "paste_confirm_lines"))
     {
@@ -267,6 +328,64 @@ void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
         {
             config.terminal.paste_confirm_lines = static_cast<int>(*pcl);
         }
+    }
+    if (auto parsed = toml_support::get_bool(terminal, "url_detection"))
+        config.terminal.url_detection = *parsed;
+    if (auto parsed = toml_support::get_bool(terminal, "enable_osc8_hyperlinks"))
+        config.terminal.enable_osc8_hyperlinks = *parsed;
+    if (auto parsed = toml_support::get_bool(terminal, "enable_shell_integration_marks"))
+        config.terminal.enable_shell_integration_marks = *parsed;
+}
+
+void apply_chrome_overrides(AppConfig& config, const toml::table& chrome)
+{
+    PERF_MEASURE();
+    auto apply_color = [&](const char* key, Color& target) {
+        if (auto value = toml_support::get_string(chrome, key))
+        {
+            if (auto parsed = parse_hex_color(*value); parsed.has_value())
+                target = *parsed;
+            else
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "[config] chrome.%s '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring",
+                    key, value->c_str());
+        }
+    };
+
+    apply_color("tab_bar_bg", config.chrome.tab_bar_bg);
+    apply_color("tab_active_fg", config.chrome.tab_active_fg);
+    apply_color("tab_inactive_fg", config.chrome.tab_inactive_fg);
+    apply_color("tab_active_bg", config.chrome.tab_active_bg);
+    apply_color("tab_inactive_bg", config.chrome.tab_inactive_bg);
+    apply_color("tab_editing_bg", config.chrome.tab_editing_bg);
+    apply_color("divider", config.chrome.divider);
+    apply_color("focus_border", config.chrome.focus_border);
+    apply_color("status_bar_bg", config.chrome.status_bar_bg);
+    apply_color("status_bar_fg", config.chrome.status_bar_fg);
+    apply_color("status_focused_accent_bg", config.chrome.status_focused_accent_bg);
+    apply_color("status_inactive_accent_bg", config.chrome.status_inactive_accent_bg);
+    apply_color("status_editing_bg", config.chrome.status_editing_bg);
+    apply_color("resource_pill_bg", config.chrome.resource_pill_bg);
+    apply_color("resource_pill_fg", config.chrome.resource_pill_fg);
+    apply_color("resource_pill_warn_bg", config.chrome.resource_pill_warn_bg);
+    apply_color("resource_pill_hot_bg", config.chrome.resource_pill_hot_bg);
+    apply_color("chord_pill_bg", config.chrome.chord_pill_bg);
+    apply_color("weather_pill_bg", config.chrome.weather_pill_bg);
+    apply_color("editing_outline", config.chrome.editing_outline);
+
+    for (const auto& [key, value] : chrome)
+    {
+        std::string_view key_sv = key.str();
+        const bool known = std::find(kKnownChromeKeys.begin(), kKnownChromeKeys.end(), key_sv) != kKnownChromeKeys.end();
+        if (!known)
+        {
+            DRAXUL_LOG_WARN(LogCategory::App, "[config] Unknown chrome key 'chrome.%.*s' -- check spelling",
+                static_cast<int>(key_sv.size()), key_sv.data());
+            std::string warning = "Unknown chrome config key: ";
+            warning.append(key_sv);
+            config.warnings.push_back(std::move(warning));
+        }
+        (void)value;
     }
 }
 
@@ -332,6 +451,7 @@ AppConfig config_from_toml(const toml::table& document)
     check_int_type("window_height");
     check_font_size_type();
     check_int_type("atlas_size");
+    check_int_type("scrollback_lines");
     check_bool_type("enable_ligatures");
     check_bool_type("smooth_scroll");
     check_bool_type("show_pane_status");
@@ -348,6 +468,9 @@ AppConfig config_from_toml(const toml::table& document)
     const toml::table* markdown_table = document["markdown"].as_table();
     if (document["markdown"] && markdown_table == nullptr)
         DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key 'markdown' has wrong type (expected table) -- using default");
+    const toml::table* chrome_table = document["chrome"].as_table();
+    if (document["chrome"] && chrome_table == nullptr)
+        DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key 'chrome' has wrong type (expected table) -- using default");
     check_nested_float_type(markdown_table, "markdown", "font_size");
     check_nested_float_type(markdown_table, "markdown", "margin_columns");
 
@@ -356,6 +479,7 @@ AppConfig config_from_toml(const toml::table& document)
     config.font_size = parse_font_size(document, config.font_size);
     config.markdown.font_size = config.font_size;
     config.atlas_size = parse_atlas_size(document, config.atlas_size);
+    config.scrollback_lines = parse_scrollback_lines(document, config.scrollback_lines);
     config.enable_ligatures = parse_enable_ligatures(document, config.enable_ligatures);
     if (auto parsed = toml_support::get_bool(document, "smooth_scroll"); parsed.has_value())
         config.smooth_scroll = *parsed;
@@ -452,6 +576,8 @@ AppConfig config_from_toml(const toml::table& document)
     // [terminal] section -- optional fg/bg hex color overrides for shell panes.
     if (const auto* terminal = document["terminal"].as_table())
         apply_terminal_overrides(config, *terminal);
+    if (chrome_table != nullptr)
+        apply_chrome_overrides(config, *chrome_table);
     if (markdown_table != nullptr)
         apply_markdown_overrides(config, *markdown_table);
 
@@ -644,6 +770,8 @@ std::string AppConfig::serialize() const
     document.insert_or_assign("enable_ligatures", enable_ligatures);
     document.insert_or_assign("smooth_scroll", smooth_scroll);
     document.insert_or_assign("scroll_speed", static_cast<double>(std::clamp(scroll_speed, 0.1f, 10.0f)));
+    document.insert_or_assign("scrollback_lines",
+        static_cast<int64_t>(std::clamp(scrollback_lines, kMinScrollbackLines, kMaxScrollbackLines)));
     document.insert_or_assign("palette_bg_alpha", static_cast<double>(std::clamp(palette_bg_alpha, 0.0f, 1.0f)));
     document.insert_or_assign("focus_border_width", static_cast<double>(std::clamp(focus_border_width, 1.0f, 10.0f)));
     document.insert_or_assign("show_pane_status", show_pane_status);
@@ -688,7 +816,10 @@ std::string AppConfig::serialize() const
         const bool emit_terminal = !terminal.fg.empty() || !terminal.bg.empty()
             || terminal.selection_max_cells != defaults.selection_max_cells
             || terminal.copy_on_select != defaults.copy_on_select
-            || terminal.paste_confirm_lines != defaults.paste_confirm_lines;
+            || terminal.paste_confirm_lines != defaults.paste_confirm_lines
+            || terminal.url_detection != defaults.url_detection
+            || terminal.enable_osc8_hyperlinks != defaults.enable_osc8_hyperlinks
+            || terminal.enable_shell_integration_marks != defaults.enable_shell_integration_marks;
         if (emit_terminal)
         {
             toml::table terminal_table;
@@ -704,8 +835,48 @@ std::string AppConfig::serialize() const
             if (terminal.paste_confirm_lines != defaults.paste_confirm_lines)
                 terminal_table.insert_or_assign("paste_confirm_lines",
                     static_cast<int64_t>(terminal.paste_confirm_lines));
+            if (terminal.url_detection != defaults.url_detection)
+                terminal_table.insert_or_assign("url_detection", terminal.url_detection);
+            if (terminal.enable_osc8_hyperlinks != defaults.enable_osc8_hyperlinks)
+                terminal_table.insert_or_assign("enable_osc8_hyperlinks", terminal.enable_osc8_hyperlinks);
+            if (terminal.enable_shell_integration_marks != defaults.enable_shell_integration_marks)
+                terminal_table.insert_or_assign(
+                    "enable_shell_integration_marks", terminal.enable_shell_integration_marks);
             document.insert_or_assign("terminal", std::move(terminal_table));
         }
+    }
+
+    {
+        const ChromeTheme defaults;
+        toml::table chrome_table;
+        auto maybe_emit = [&](const char* key, const Color& value, const Color& fallback) {
+            if (value != fallback)
+                chrome_table.insert_or_assign(key, color_to_hex(value));
+        };
+
+        maybe_emit("tab_bar_bg", chrome.tab_bar_bg, defaults.tab_bar_bg);
+        maybe_emit("tab_active_fg", chrome.tab_active_fg, defaults.tab_active_fg);
+        maybe_emit("tab_inactive_fg", chrome.tab_inactive_fg, defaults.tab_inactive_fg);
+        maybe_emit("tab_active_bg", chrome.tab_active_bg, defaults.tab_active_bg);
+        maybe_emit("tab_inactive_bg", chrome.tab_inactive_bg, defaults.tab_inactive_bg);
+        maybe_emit("tab_editing_bg", chrome.tab_editing_bg, defaults.tab_editing_bg);
+        maybe_emit("divider", chrome.divider, defaults.divider);
+        maybe_emit("focus_border", chrome.focus_border, defaults.focus_border);
+        maybe_emit("status_bar_bg", chrome.status_bar_bg, defaults.status_bar_bg);
+        maybe_emit("status_bar_fg", chrome.status_bar_fg, defaults.status_bar_fg);
+        maybe_emit("status_focused_accent_bg", chrome.status_focused_accent_bg, defaults.status_focused_accent_bg);
+        maybe_emit("status_inactive_accent_bg", chrome.status_inactive_accent_bg, defaults.status_inactive_accent_bg);
+        maybe_emit("status_editing_bg", chrome.status_editing_bg, defaults.status_editing_bg);
+        maybe_emit("resource_pill_bg", chrome.resource_pill_bg, defaults.resource_pill_bg);
+        maybe_emit("resource_pill_fg", chrome.resource_pill_fg, defaults.resource_pill_fg);
+        maybe_emit("resource_pill_warn_bg", chrome.resource_pill_warn_bg, defaults.resource_pill_warn_bg);
+        maybe_emit("resource_pill_hot_bg", chrome.resource_pill_hot_bg, defaults.resource_pill_hot_bg);
+        maybe_emit("chord_pill_bg", chrome.chord_pill_bg, defaults.chord_pill_bg);
+        maybe_emit("weather_pill_bg", chrome.weather_pill_bg, defaults.weather_pill_bg);
+        maybe_emit("editing_outline", chrome.editing_outline, defaults.editing_outline);
+
+        if (!chrome_table.empty())
+            document.insert_or_assign("chrome", std::move(chrome_table));
     }
 
     std::ostringstream out;

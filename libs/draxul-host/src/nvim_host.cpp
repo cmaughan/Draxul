@@ -1,6 +1,8 @@
 #include "nvim_host.h"
+#include "nvim_lua_scripts.h"
 #include <draxul/clipboard_util.h>
 
+#include <array>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
@@ -17,6 +19,42 @@ void apply_ui_option(UiOptions& options, const std::string& name, const MpackVal
 {
     if (name == "ambiwidth" && value.type() == MpackValue::String)
         options.ambiwidth = (value.as_str() == "double") ? AmbiWidth::Double : AmbiWidth::Single;
+}
+
+struct DispatchEntry
+{
+    std::string_view name;
+    bool (NvimHost::*handler)(std::string_view);
+};
+
+template <size_t ExactCount, size_t PrefixedCount>
+constexpr bool unique_dispatch_names(const std::array<DispatchEntry, ExactCount>& exact_dispatch,
+    const std::array<DispatchEntry, PrefixedCount>& prefixed_dispatch)
+{
+    for (size_t i = 0; i < exact_dispatch.size(); ++i)
+    {
+        for (size_t j = i + 1; j < exact_dispatch.size(); ++j)
+        {
+            if (exact_dispatch[i].name == exact_dispatch[j].name)
+                return false;
+        }
+        for (const auto& prefixed : prefixed_dispatch)
+        {
+            if (exact_dispatch[i].name == prefixed.name)
+                return false;
+        }
+    }
+
+    for (size_t i = 0; i < prefixed_dispatch.size(); ++i)
+    {
+        for (size_t j = i + 1; j < prefixed_dispatch.size(); ++j)
+        {
+            if (prefixed_dispatch[i].name == prefixed_dispatch[j].name)
+                return false;
+        }
+    }
+
+    return true;
 }
 
 } // namespace
@@ -149,13 +187,7 @@ void NvimHost::pump()
     if (!nvim_process_.is_running())
         return;
 
-    // Refresh the clipboard cache on the main thread so that
-    // handle_rpc_request() (reader thread) never calls SDL directly.
-    {
-        auto text = window().clipboard_text();
-        std::lock_guard<std::mutex> lock(clipboard_mutex_);
-        clipboard_cache_ = std::move(text);
-    }
+    refresh_clipboard_cache_if_due(ClipboardPollGate::Clock::now());
 
     auto notifications = rpc_.drain_notifications();
     for (auto& notification : notifications)
@@ -202,104 +234,93 @@ void NvimHost::on_mouse_wheel(const MouseWheelEvent& event)
 bool NvimHost::dispatch_action(std::string_view action)
 {
     PERF_MEASURE();
-    if (action == "copy")
+    constexpr std::array exact_dispatch = {
+        DispatchEntry{ "copy", &NvimHost::handle_copy_action },
+        DispatchEntry{ "paste", &NvimHost::handle_paste_action },
+    };
+    constexpr std::array prefixed_dispatch = {
+        DispatchEntry{ "open_file_at_function:", &NvimHost::handle_open_file_at_function_action },
+        DispatchEntry{ "open_file_at_type:", &NvimHost::handle_open_file_at_type_action },
+        DispatchEntry{ "open_file:", &NvimHost::handle_open_file_action },
+    };
+    static_assert(unique_dispatch_names(exact_dispatch, prefixed_dispatch));
+
+    for (const auto& entry : exact_dispatch)
     {
-        if (clipboard_channel_id_ >= 0)
-        {
-            static constexpr const char* kCopyLua = R"(
-local ch = ...
-local lines = vim.fn.getreg('"', true, true)
-local regtype = vim.fn.getregtype('"')
-vim.fn.rpcnotify(ch, 'clipboard_set', '"', lines, regtype)
-)";
-            rpc_.notify("nvim_exec_lua",
-                { NvimRpc::make_str(kCopyLua), NvimRpc::make_array({ NvimRpc::make_int(clipboard_channel_id_) }) });
-        }
-        return true;
+        if (action == entry.name)
+            return (this->*entry.handler)(action);
     }
 
-    if (action == "paste")
+    for (const auto& entry : prefixed_dispatch)
     {
-        input_.paste_text(window().clipboard_text());
-        return true;
-    }
-
-    if (action.starts_with("open_file_at_function:"))
-    {
-        // Format: open_file_at_function:path|qualified_name|function_name
-        const std::string_view rest = std::string_view(action).substr(22);
-        const size_t sep2 = rest.rfind('|');
-        const size_t sep1 = (sep2 != std::string_view::npos) ? rest.rfind('|', sep2 - 1) : std::string_view::npos;
-        if (sep1 != std::string_view::npos && sep2 != std::string_view::npos && sep1 < sep2)
-        {
-            const std::string path(rest.substr(0, sep1));
-            const std::string qualified(rest.substr(sep1 + 1, sep2 - sep1 - 1));
-            const std::string func(rest.substr(sep2 + 1));
-            // Try qualified definition first (e.g. "Class::func("), then bare "func(",
-            // then struct/class definition (e.g. "struct func").
-            static constexpr const char* kOpenAndSearchLua = R"(
-local path, qualified, func = ...
-vim.cmd.edit(vim.fn.fnameescape(path))
-vim.cmd('normal! gg')
-if qualified ~= '' then
-    local qualified_pat = qualified .. '::' .. func .. [[\s*(]]
-    if vim.fn.search(qualified_pat) > 0 then return end
-end
-local bare_pat = [[\<]] .. func .. [[\s*(]]
-if vim.fn.search(bare_pat) > 0 then return end
-local struct_pat = [[\<\(struct\|class\|enum\|union\)\s\+]] .. func .. [[\>]]
-vim.fn.search(struct_pat)
-)";
-            rpc_.notify("nvim_exec_lua",
-                { NvimRpc::make_str(kOpenAndSearchLua),
-                    NvimRpc::make_array({ NvimRpc::make_str(path), NvimRpc::make_str(qualified),
-                        NvimRpc::make_str(func) }) });
-        }
-        return true;
-    }
-
-    if (action.starts_with("open_file_at_type:"))
-    {
-        // Format: open_file_at_type:path|qualified_name
-        const std::string_view rest = std::string_view(action).substr(18);
-        const size_t sep = rest.rfind('|');
-        if (sep != std::string_view::npos)
-        {
-            const std::string path(rest.substr(0, sep));
-            const std::string qualified(rest.substr(sep + 1));
-            static constexpr const char* kOpenAndSearchTypeLua = R"(
-local path, qualified = ...
-vim.cmd.edit(vim.fn.fnameescape(path))
-vim.cmd('normal! gg')
-local name = qualified
-local last = qualified:match(".*::([^:]+)$")
-if last ~= nil and last ~= '' then
-    name = last
-end
-local type_pat = [[\<\(struct\|class\|enum\|union\)\s\+]] .. name .. [[\>]]
-if vim.fn.search(type_pat) > 0 then return end
-local using_pat = [[\<using\s\+]] .. name .. [[\>]]
-if vim.fn.search(using_pat) > 0 then return end
-local typedef_pat = [[\<typedef\>.\{-}\<]] .. name .. [[\>]]
-vim.fn.search(typedef_pat)
-)";
-            rpc_.notify("nvim_exec_lua",
-                { NvimRpc::make_str(kOpenAndSearchTypeLua),
-                    NvimRpc::make_array({ NvimRpc::make_str(path), NvimRpc::make_str(qualified) }) });
-        }
-        return true;
-    }
-
-    if (action.starts_with("open_file:"))
-    {
-        const std::string path(action.substr(10));
-        rpc_.notify("nvim_exec_lua",
-            { NvimRpc::make_str("vim.cmd.edit(vim.fn.fnameescape(...))"),
-                NvimRpc::make_array({ NvimRpc::make_str(path) }) });
-        return true;
+        if (action.starts_with(entry.name))
+            return (this->*entry.handler)(action);
     }
 
     return false;
+}
+
+bool NvimHost::handle_copy_action(std::string_view)
+{
+    if (clipboard_channel_id_ >= 0)
+    {
+        rpc_.notify("nvim_exec_lua",
+            { NvimRpc::make_str(nvim_lua::kCopySelection),
+                NvimRpc::make_array({ NvimRpc::make_int(clipboard_channel_id_) }) });
+    }
+    return true;
+}
+
+bool NvimHost::handle_paste_action(std::string_view)
+{
+    input_.paste_text(window().clipboard_text());
+    return true;
+}
+
+bool NvimHost::handle_open_file_at_function_action(std::string_view action)
+{
+    constexpr std::string_view kPrefix = "open_file_at_function:";
+    // Format: open_file_at_function:path|qualified_name|function_name
+    const std::string_view rest = action.substr(kPrefix.size());
+    const size_t sep2 = rest.rfind('|');
+    const size_t sep1 = (sep2 != std::string_view::npos) ? rest.rfind('|', sep2 - 1) : std::string_view::npos;
+    if (sep1 != std::string_view::npos && sep2 != std::string_view::npos && sep1 < sep2)
+    {
+        const std::string path(rest.substr(0, sep1));
+        const std::string qualified(rest.substr(sep1 + 1, sep2 - sep1 - 1));
+        const std::string func(rest.substr(sep2 + 1));
+        rpc_.notify("nvim_exec_lua",
+            { NvimRpc::make_str(nvim_lua::kOpenFileAtFunction),
+                NvimRpc::make_array(
+                    { NvimRpc::make_str(path), NvimRpc::make_str(qualified), NvimRpc::make_str(func) }) });
+    }
+    return true;
+}
+
+bool NvimHost::handle_open_file_at_type_action(std::string_view action)
+{
+    constexpr std::string_view kPrefix = "open_file_at_type:";
+    // Format: open_file_at_type:path|qualified_name
+    const std::string_view rest = action.substr(kPrefix.size());
+    const size_t sep = rest.rfind('|');
+    if (sep != std::string_view::npos)
+    {
+        const std::string path(rest.substr(0, sep));
+        const std::string qualified(rest.substr(sep + 1));
+        rpc_.notify("nvim_exec_lua",
+            { NvimRpc::make_str(nvim_lua::kOpenFileAtType),
+                NvimRpc::make_array({ NvimRpc::make_str(path), NvimRpc::make_str(qualified) }) });
+    }
+    return true;
+}
+
+bool NvimHost::handle_open_file_action(std::string_view action)
+{
+    constexpr std::string_view kPrefix = "open_file:";
+    const std::string path(action.substr(kPrefix.size()));
+    rpc_.notify("nvim_exec_lua",
+        { NvimRpc::make_str(nvim_lua::kOpenFile), NvimRpc::make_array({ NvimRpc::make_str(path) }) });
+    return true;
 }
 
 void NvimHost::request_close()
@@ -393,25 +414,10 @@ bool NvimHost::setup_clipboard_provider()
         return true;
 
     clipboard_channel_id_ = api_info.value().as_array()[0].as_int();
-
-    static constexpr const char* kClipboardLua = R"(
-local channel = ...
-vim.g.clipboard = {
-  name = 'draxul',
-  copy = {
-    ['+'] = function(lines, regtype) vim.fn.rpcnotify(channel, 'clipboard_set', '+', lines, regtype) end,
-    ['*'] = function(lines, regtype) vim.fn.rpcnotify(channel, 'clipboard_set', '*', lines, regtype) end,
-  },
-  paste = {
-    ['+'] = function() return vim.fn.rpcrequest(channel, 'clipboard_get', '+') end,
-    ['*'] = function() return vim.fn.rpcrequest(channel, 'clipboard_get', '*') end,
-  },
-  cache_enabled = 0,
-}
-)";
+    refresh_clipboard_cache();
 
     auto result = rpc_.request("nvim_exec_lua", {
-                                                    NvimRpc::make_str(kClipboardLua),
+                                                    NvimRpc::make_str(nvim_lua::kClipboardProvider),
                                                     NvimRpc::make_array({ NvimRpc::make_int(clipboard_channel_id_) }),
                                                 });
     return result.has_value();
@@ -503,10 +509,37 @@ MpackValue NvimHost::handle_rpc_request(const std::string& method, const std::ve
     return NvimRpc::make_nil();
 }
 
-void NvimHost::handle_clipboard_set(const std::vector<MpackValue>& params) const
+void NvimHost::handle_clipboard_set(const std::vector<MpackValue>& params)
 {
-    if (!window().set_clipboard_text(clipboard_params_to_text(params)))
+    const std::string text = clipboard_params_to_text(params);
+    if (!window().set_clipboard_text(text))
+    {
         callbacks().push_toast(1, "Clipboard write failed");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(clipboard_mutex_);
+    clipboard_cache_ = text;
+}
+
+void NvimHost::refresh_clipboard_cache()
+{
+    // Keep SDL clipboard access on the main thread; RPC request handlers read
+    // only this cache from the reader thread.
+    auto text = window().clipboard_text();
+    std::lock_guard<std::mutex> lock(clipboard_mutex_);
+    clipboard_cache_ = std::move(text);
+    clipboard_poll_gate_.mark_polled(ClipboardPollGate::Clock::now());
+}
+
+void NvimHost::refresh_clipboard_cache_if_due(ClipboardPollGate::Clock::time_point now)
+{
+    if (!clipboard_poll_gate_.should_poll(now))
+        return;
+
+    auto text = window().clipboard_text();
+    std::lock_guard<std::mutex> lock(clipboard_mutex_);
+    clipboard_cache_ = std::move(text);
 }
 
 void NvimHost::wire_ui_callbacks()

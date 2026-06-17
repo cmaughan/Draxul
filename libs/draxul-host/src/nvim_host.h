@@ -1,5 +1,6 @@
 #pragma once
 
+#include <draxul/clipboard_poll_gate.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/nvim.h>
 #include <draxul/startup_resize_state.h>
@@ -50,8 +51,15 @@ private:
     void refresh_cursor_style();
     BlinkTiming current_blink_timing() const;
     MpackValue handle_rpc_request(const std::string& method, const std::vector<MpackValue>& params) const;
-    void handle_clipboard_set(const std::vector<MpackValue>& params) const;
+    void handle_clipboard_set(const std::vector<MpackValue>& params);
     void wire_ui_callbacks();
+    void refresh_clipboard_cache();
+    void refresh_clipboard_cache_if_due(ClipboardPollGate::Clock::time_point now);
+    bool handle_copy_action(std::string_view action);
+    bool handle_paste_action(std::string_view action);
+    bool handle_open_file_at_function_action(std::string_view action);
+    bool handle_open_file_at_type_action(std::string_view action);
+    bool handle_open_file_action(std::string_view action);
 
     NvimProcess nvim_process_;
     NvimRpc rpc_;
@@ -68,6 +76,7 @@ private:
     // APIs (main-thread-only) from the reader thread.
     mutable std::mutex clipboard_mutex_;
     std::string clipboard_cache_;
+    ClipboardPollGate clipboard_poll_gate_;
 };
 
 } // namespace draxul

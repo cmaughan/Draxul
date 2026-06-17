@@ -74,7 +74,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 ## Terminal Emulation (shell hosts)
 
 - **VT100+** escape sequence support (ANSI/256/24-bit SGR colors, cursor control, DECSTBM scroll regions)
-- **Scrollback**: 2000-row ring buffer with viewport offset
+- **Scrollback**: Configurable row ring buffer with viewport offset (default 10000)
 - **Alt screen**: Main/alt switching with snapshot restore
 - **Mouse modes**: None, button-click, drag, all-motion (SGR encoding)
 - **xterm focus reporting**: DECSET `?1004` emits `CSI I` / `CSI O` on pane focus gain/loss
@@ -82,7 +82,9 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Bracketed paste**: VT-wrapped clipboard paste
 - **Paste confirmation**: Pastes ≥ `paste_confirm_lines` newlines stash the payload and surface a toast; `confirm_paste` (default `Ctrl+Shift+Enter`) sends it, `cancel_paste` (default `Ctrl+Shift+Escape`) discards it. Set `paste_confirm_lines = 0` to disable
 - **OSC 7**: Current working directory tracking from shell
+- **OSC 8**: Terminal hyperlink regions are tracked per grid cell, underlined, and open on click
 - **OSC 52**: Clipboard read (`?` query) and write (base64 payload) for tmux/SSH/Neovim remote clipboard integration
+- **URL detection**: HTTP/HTTPS text is underlined and can be opened with Ctrl/Cmd-click; explicit OSC 8 hyperlinks take priority
 - **Shell TERM identity**: Unix PTY shell hosts advertise `TERM=xterm-256color`, `COLORTERM=truecolor`, and `TERM_PROGRAM=draxul`
 - **Selection**: Click-and-drag with system clipboard integration; configurable cell cap (`selection_max_cells`, default 65536)
 - **Word/line selection**: Double-click selects the word at the cursor (contiguous non-whitespace), triple-click selects the entire row
@@ -243,6 +245,7 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 |-----|---------|-------|-------|
 | `smooth_scroll` | true | | Trackpad momentum accumulation |
 | `scroll_speed` | 1.0 | 0.1--10.0 | Multiplier; out-of-range logs WARN and resets to 1.0 |
+| `scrollback_lines` | 10000 | 1--1000000 | Shell-host scrollback capacity; out-of-range logs WARN and resets to default |
 
 ### Notifications
 
@@ -275,6 +278,35 @@ Customizable in `config.toml` under `[keybindings]`. Chord syntax: `"prefix, key
 | `selection_max_cells` | 65536 | 256--1048576 | Maximum cells in a single selection before truncation |
 | `copy_on_select` | true | | Auto-copy completed selections to the system clipboard |
 | `paste_confirm_lines` | 5 | 0--100000 | Pastes with this many lines or more require `confirm_paste`. `0` disables |
+| `url_detection` | true | | Detect HTTP/HTTPS URLs in grid text and make them clickable with Ctrl/Cmd-click |
+| `enable_osc8_hyperlinks` | true | | Enable OSC 8 terminal hyperlink regions |
+
+### Chrome (`[chrome]` section)
+
+All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the built-in Catppuccin Mocha-inspired defaults.
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `tab_bar_bg` | `#181825` | Top tab/status strip background |
+| `tab_active_fg` | `#f5e0dc` | Active tab label text |
+| `tab_inactive_fg` | `#cdd6f4` | Inactive tab label text |
+| `tab_active_bg` | `#b93c3c` | Active tab number/accent fill |
+| `tab_inactive_bg` | `#45475a` | Inactive tab and dim accent fill |
+| `tab_editing_bg` | `#8c90af` | Tab rename field fill |
+| `divider` | `#78788c` | Split divider line |
+| `focus_border` | `#b93c3c` | Focused pane border |
+| `status_bar_bg` | `#45475a` | Pane status pill body |
+| `status_bar_fg` | `#cdd6f4` | Pane status text |
+| `status_focused_accent_bg` | `#3ca55f` | Focused pane status number/accent fill |
+| `status_inactive_accent_bg` | `#6e738c` | Unfocused pane status number/accent fill |
+| `status_editing_bg` | `#8c90af` | Pane rename field fill |
+| `resource_pill_bg` | `#f9e2af` | Normal CPU/RAM pill fill |
+| `resource_pill_fg` | `#1a1a1f` | CPU/RAM pill text |
+| `resource_pill_warn_bg` | `#f5c282` | CPU/RAM warning fill |
+| `resource_pill_hot_bg` | `#f45656` | CPU/RAM hot fill |
+| `chord_pill_bg` | `#45475a` | Active chord indicator fill |
+| `weather_pill_bg` | `#474d61` | Weather pill fill |
+| `editing_outline` | `#ffffff` | Rename caret and outline |
 
 ---
 

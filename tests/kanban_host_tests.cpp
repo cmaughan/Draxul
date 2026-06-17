@@ -81,9 +81,7 @@ struct KanbanHostFixture
     {
         for (int column = 0; column < column_count; ++column)
         {
-            const auto column_dir = temp.path / (column_count == 1
-                                                     ? std::string("todo")
-                                                     : ("column-" + std::to_string(column + 1)));
+            const auto column_dir = temp.path / (column_count == 1 ? std::string("todo") : ("column-" + std::to_string(column + 1)));
             std::filesystem::create_directories(column_dir);
             for (int i = 0; i < card_count; ++i)
             {
@@ -96,8 +94,8 @@ struct KanbanHostFixture
 
         TextServiceConfig text_config;
         text_config.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT)
-                                    / "fonts"
-                                    / "JetBrainsMonoNerdFont-Regular.ttf")
+            / "fonts"
+            / "JetBrainsMonoNerdFont-Regular.ttf")
                                     .string();
         REQUIRE(text_service.initialize(text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
 
@@ -139,7 +137,8 @@ TEST_CASE("kanban host opens selected card through markdown callback", "[kanban]
 
     fixture.host.on_key(key_event(SDLK_RETURN));
 
-    REQUIRE(fixture.callbacks.opened_markdown_path == fixture.card_path.string());
+    REQUIRE(std::filesystem::weakly_canonical(fixture.callbacks.opened_markdown_path)
+        == std::filesystem::weakly_canonical(fixture.card_path));
 }
 
 TEST_CASE("kanban host reports toast when markdown open callback fails", "[kanban][host]")

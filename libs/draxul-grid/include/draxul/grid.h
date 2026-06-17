@@ -7,6 +7,7 @@
 #include <draxul/thread_check.h>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace draxul
@@ -56,6 +57,8 @@ struct Cell
     bool dirty = true;
     bool double_width = false;
     bool double_width_cont = false;
+    uint16_t hyperlink_id = 0;
+    uint16_t detected_url_id = 0;
 };
 
 class Grid : public IGridSink
@@ -66,6 +69,12 @@ public:
 
     void set_cell(int col, int row, const std::string& text, uint16_t hl_id, bool double_width) override;
     const Cell& get_cell(int col, int row) const;
+    void set_cell_hyperlink_id(int col, int row, uint16_t link_id);
+    uint16_t link_id_for_uri(std::string_view uri);
+    std::string_view link_uri(uint16_t link_id) const;
+    uint16_t effective_link_id(int col, int row) const;
+    bool cell_has_explicit_hyperlink(int col, int row) const;
+    void refresh_url_detection_for_dirty_rows(bool enable);
 
     void scroll(int top, int bot, int left, int right, int rows, int cols = 0) override;
 
@@ -112,10 +121,14 @@ public:
 
 private:
     void mark_dirty_index(int index);
+    void clear_detected_url_ids_for_row(int row);
+    void detect_urls_for_row(int row);
 
     int cols_ = 0;
     int rows_ = 0;
     std::vector<Cell> cells_;
+    std::vector<std::string> link_uris_;
+    std::unordered_map<std::string, uint16_t> link_ids_;
     std::vector<DirtyCell> dirty_cells_;
     std::vector<uint8_t> dirty_marks_;
     bool full_dirty_ = false;

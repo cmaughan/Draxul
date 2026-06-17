@@ -32,6 +32,16 @@ public:
         return grid().get_cell(col, row).hl_attr_id;
     }
 
+    uint16_t cell_link(int col, int row)
+    {
+        return grid().effective_link_id(col, row);
+    }
+
+    std::string cell_link_uri(int col, int row)
+    {
+        return std::string(grid().link_uri(grid().effective_link_id(col, row)));
+    }
+
     int col() const
     {
         return vt_state().col;

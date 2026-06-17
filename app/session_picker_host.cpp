@@ -6,6 +6,7 @@
 #include <cstring>
 #include <draxul/gui/palette_renderer.h>
 #include <draxul/log.h>
+#include <draxul/process_util.h>
 #include <draxul/session_attach.h>
 #include <draxul/text_service.h>
 #include <vector>
@@ -38,35 +39,6 @@ std::wstring widen_utf8(std::string_view text)
     return wide;
 }
 
-std::string quote_windows_arg(std::string_view arg)
-{
-    const bool needs_quotes = arg.empty()
-        || arg.find_first_of(" \t\n\v\"") != std::string_view::npos;
-    if (!needs_quotes)
-        return std::string(arg);
-
-    std::string quoted;
-    quoted.push_back('"');
-    size_t pending_backslashes = 0;
-    for (char ch : arg)
-    {
-        if (ch == '\\')
-        {
-            ++pending_backslashes;
-            continue;
-        }
-
-        if (ch == '"')
-            quoted.append(pending_backslashes * 2 + 1, '\\');
-        else
-            quoted.append(pending_backslashes, '\\');
-        pending_backslashes = 0;
-        quoted.push_back(ch);
-    }
-    quoted.append(pending_backslashes * 2, '\\');
-    quoted.push_back('"');
-    return quoted;
-}
 #endif
 
 } // namespace
@@ -90,27 +62,18 @@ bool SessionPickerHost::initialize(const HostContext& context, IHostCallbacks& c
 
     picker_ = SessionPicker(SessionPicker::Deps{
         .list_sessions = [](std::string* error) { return list_known_sessions(error); },
-        .activate_session = [this](std::string_view session_id, std::string* error) {
-            return activate_or_restore_session(session_id, error);
-        },
-        .create_session = [this](std::string_view session_name, std::string* error) {
-            return create_new_session(session_name, error);
-        },
-        .kill_session = [this](std::string_view session_id, std::string* error) {
-            return kill_session(session_id, error);
-        },
+        .activate_session = [this](std::string_view session_id, std::string* error) { return activate_or_restore_session(session_id, error); },
+        .create_session = [this](std::string_view session_name, std::string* error) { return create_new_session(session_name, error); },
+        .kill_session = [this](std::string_view session_id, std::string* error) { return kill_session(session_id, error); },
         .report_error = [this](std::string_view message) {
             if (callbacks_)
-                callbacks_->push_toast(2, message);
-        },
+                callbacks_->push_toast(2, message); },
         .request_frame = [this]() {
             if (callbacks_)
-                callbacks_->request_frame();
-        },
+                callbacks_->request_frame(); },
         .request_quit = [this]() {
             if (callbacks_)
-                callbacks_->request_quit();
-        },
+                callbacks_->request_quit(); },
     });
 
     callbacks_->set_window_title("Draxul Session Picker");

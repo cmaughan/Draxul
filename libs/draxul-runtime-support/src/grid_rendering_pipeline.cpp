@@ -29,7 +29,7 @@ bool can_extend_ligature(const Cell& leader, const Cell& next)
         && leader.hl_attr_id == next.hl_attr_id;
 }
 
-CellUpdate make_cell_update(int col, int row, const Cell& cell, HighlightTable& highlights)
+CellUpdate make_cell_update(int col, int row, const Cell& cell, const Grid& grid, HighlightTable& highlights)
 {
     PERF_MEASURE();
     const auto& hl = highlights.get(cell.hl_attr_id);
@@ -46,6 +46,8 @@ CellUpdate make_cell_update(int col, int row, const Cell& cell, HighlightTable& 
     update.fg = fg;
     update.sp = sp;
     update.style_flags = hl.style_flags();
+    if (grid.effective_link_id(col, row) != 0)
+        update.style_flags |= STYLE_FLAG_HYPERLINK;
     return update;
 }
 
@@ -138,6 +140,14 @@ void GridRenderingPipeline::set_enable_ligatures(bool enable)
     enable_ligatures_ = enable;
 }
 
+void GridRenderingPipeline::set_url_detection_enabled(bool enable)
+{
+    if (url_detection_enabled_ == enable)
+        return;
+    url_detection_enabled_ = enable;
+    grid_.mark_all_dirty();
+}
+
 void GridRenderingPipeline::expand_dirty_cells_for_ligatures(const std::vector<Grid::DirtyCell>& dirty)
 {
     PERF_MEASURE();
@@ -202,7 +212,7 @@ bool GridRenderingPipeline::try_shape_ligature(int col, int row, const Cell& cel
 
         // Emit blank continuation updates for the remaining cells in the ligature.
         for (int c = col + 1; c < try_end; ++c)
-            updates.push_back(make_cell_update(c, row, grid_.get_cell(c, row), highlights_));
+            updates.push_back(make_cell_update(c, row, grid_.get_cell(c, row), grid_, highlights_));
 
         return true;
     }
@@ -225,7 +235,7 @@ void GridRenderingPipeline::build_cell_updates(const std::vector<Grid::DirtyCell
             continue;
 
         const auto& cell = grid_.get_cell(col, row);
-        CellUpdate update = make_cell_update(col, row, cell, highlights_);
+        CellUpdate update = make_cell_update(col, row, cell, grid_, highlights_);
 
         const bool is_bold = (update.style_flags & STYLE_FLAG_BOLD) != 0;
         const bool is_italic = (update.style_flags & STYLE_FLAG_ITALIC) != 0;
@@ -263,6 +273,7 @@ void GridRenderingPipeline::flush()
 
     for (int attempt = 0; attempt < 2; attempt++)
     {
+        grid_.refresh_url_detection_for_dirty_rows(url_detection_enabled_);
         if (attempt > 0)
         {
             grid_.mark_all_dirty();

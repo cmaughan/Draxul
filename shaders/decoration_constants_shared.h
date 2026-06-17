@@ -19,3 +19,4 @@
 #define STYLE_FLAG_STRIKETHROUGH 8u // 1u << 3
 #define STYLE_FLAG_UNDERCURL 16u // 1u << 4
 #define STYLE_FLAG_COLOR_GLYPH 32u // 1u << 5
+#define STYLE_FLAG_HYPERLINK 64u // 1u << 6

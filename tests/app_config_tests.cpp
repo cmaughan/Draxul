@@ -84,6 +84,18 @@ TEST_CASE("app config parse returns defaults for empty content", "[config]")
     REQUIRE(copy_mode->modifiers == kModNone);
 }
 
+TEST_CASE("app config parse reads terminal hyperlink toggles", "[config]")
+{
+    AppConfig config = AppConfig::parse("[terminal]\n"
+                                        "url_detection = false\n"
+                                        "enable_osc8_hyperlinks = false\n"
+                                        "enable_shell_integration_marks = false\n");
+
+    REQUIRE(config.terminal.url_detection == false);
+    REQUIRE(config.terminal.enable_osc8_hyperlinks == false);
+    REQUIRE(config.terminal.enable_shell_integration_marks == false);
+}
+
 TEST_CASE("app config parse reads all fields", "[config]")
 {
     const char* content = "window_width = 1920\n"
@@ -1085,4 +1097,79 @@ TEST_CASE("terminal config section omitted from serialization when both fields e
     std::string serialized = config.serialize();
     INFO("terminal section not emitted when both fields are empty");
     REQUIRE(serialized.find("terminal") == std::string::npos);
+}
+
+TEST_CASE("chrome config section parses partial color overrides", "[config][chrome]")
+{
+    const char* content = "[chrome]\n"
+                          "tab_bar_bg = \"#010203\"\n"
+                          "tab_active_fg = \"#abc\"\n"
+                          "divider = \"#ddeeff\"\n";
+
+    AppConfig config = AppConfig::parse(content);
+    AppConfig defaults;
+
+    INFO("tab_bar_bg override is parsed as Color");
+    REQUIRE(config.chrome.tab_bar_bg.r == Catch::Approx(1.0f / 255.0f));
+    REQUIRE(config.chrome.tab_bar_bg.g == Catch::Approx(2.0f / 255.0f));
+    REQUIRE(config.chrome.tab_bar_bg.b == Catch::Approx(3.0f / 255.0f));
+    REQUIRE(config.chrome.tab_bar_bg.a == Catch::Approx(1.0f));
+
+    INFO("#RGB shorthand is accepted for chrome colors");
+    REQUIRE(config.chrome.tab_active_fg.r == Catch::Approx(170.0f / 255.0f).margin(0.01f));
+    REQUIRE(config.chrome.tab_active_fg.g == Catch::Approx(187.0f / 255.0f).margin(0.01f));
+    REQUIRE(config.chrome.tab_active_fg.b == Catch::Approx(204.0f / 255.0f).margin(0.01f));
+
+    INFO("unspecified chrome keys keep defaults");
+    REQUIRE(config.chrome.tab_inactive_fg == defaults.chrome.tab_inactive_fg);
+}
+
+TEST_CASE("chrome config section warns on unknown and invalid keys", "[config][chrome]")
+{
+    ScopedLogCapture capture;
+    const char* content = "[chrome]\n"
+                          "tab_bar_bg = \"not-a-color\"\n"
+                          "future_color = \"#ffffff\"\n";
+
+    AppConfig config = AppConfig::parse(content);
+    AppConfig defaults;
+
+    INFO("invalid chrome color falls back to the default");
+    REQUIRE(config.chrome.tab_bar_bg == defaults.chrome.tab_bar_bg);
+    INFO("invalid color warning is logged");
+    REQUIRE(contains_message(capture.records, "chrome.tab_bar_bg"));
+    INFO("unknown chrome key warning is collected for toasts");
+    REQUIRE(contains_message(capture.records, "chrome.future_color"));
+    REQUIRE(std::find(config.warnings.begin(), config.warnings.end(),
+                "Unknown chrome config key: future_color")
+        != config.warnings.end());
+}
+
+TEST_CASE("chrome config section round-trips through serialize/parse", "[config][chrome]")
+{
+    AppConfig original;
+    original.chrome.tab_bar_bg = color_from_rgb(0x010203);
+    original.chrome.tab_active_fg = color_from_rgb(0xabcdef);
+    original.chrome.resource_pill_bg = color_from_rgb(0x445566);
+
+    AppConfig round_tripped = AppConfig::parse(original.serialize());
+    REQUIRE(round_tripped.chrome.tab_bar_bg == original.chrome.tab_bar_bg);
+    REQUIRE(round_tripped.chrome.tab_active_fg == original.chrome.tab_active_fg);
+    REQUIRE(round_tripped.chrome.resource_pill_bg == original.chrome.resource_pill_bg);
+}
+
+TEST_CASE("app config scrollback_lines parses clamps and round-trips", "[config][scrollback]")
+{
+    AppConfig config = AppConfig::parse("scrollback_lines = 1234\n");
+    REQUIRE(config.scrollback_lines == 1234);
+
+    ScopedLogCapture capture;
+    AppConfig invalid = AppConfig::parse("scrollback_lines = -1\n");
+    REQUIRE(invalid.scrollback_lines == AppConfig{}.scrollback_lines);
+    REQUIRE(contains_message(capture.records, "scrollback_lines"));
+
+    AppConfig original;
+    original.scrollback_lines = 321;
+    AppConfig round_tripped = AppConfig::parse(original.serialize());
+    REQUIRE(round_tripped.scrollback_lines == 321);
 }

@@ -172,6 +172,7 @@ bool LocalTerminalHost::initialize(const HostContext& context, IHostCallbacks& c
 {
     if (!TerminalHostBase::initialize(context, callbacks))
         return false;
+    scrollback_.set_capacity(launch_options().scrollback_lines);
     if (launch_options().selection_max_cells > 0)
         selection_.set_max_cells(launch_options().selection_max_cells);
     return true;
@@ -183,6 +184,8 @@ void LocalTerminalHost::on_config_reloaded(const HostReloadConfig& config)
     launch_options().selection_max_cells = config.selection_max_cells;
     launch_options().copy_on_select = config.copy_on_select;
     launch_options().paste_confirm_lines = config.paste_confirm_lines;
+    launch_options().scrollback_lines = config.scrollback_lines;
+    scrollback_.set_capacity(config.scrollback_lines);
     if (config.selection_max_cells > 0)
         selection_.set_max_cells(config.selection_max_cells);
 }
@@ -462,6 +465,9 @@ void LocalTerminalHost::on_mouse_button(const MouseButtonEvent& event)
             pending_selection_copy_click_.has_value() ? 1 : 0);
     }
 
+    if (event.button == 1 && event.pressed && open_link_at(pos, event.mod))
+        return;
+
     if (mouse_reporter_.on_button(event.button, event.pressed, event.mod, pos.col, pos.row))
         return;
 
@@ -568,6 +574,13 @@ void LocalTerminalHost::on_mouse_wheel(const MouseWheelEvent& event)
 
     const int lines = std::max(1, static_cast<int>(std::abs(event.delta.y) * 3.0f + 0.5f));
     scrollback_.scroll(event.delta.y > 0 ? lines : -lines);
+}
+
+std::optional<MouseCursor> LocalTerminalHost::mouse_cursor_at(int px, int py) const
+{
+    const GridPos pos = pixel_to_cell(px, py);
+    return grid().effective_link_id(pos.col, pos.row) != 0 ? std::optional<MouseCursor>(MouseCursor::Pointer)
+                                                           : std::nullopt;
 }
 
 void LocalTerminalHost::set_scroll_offset(float /*px*/)
@@ -716,7 +729,7 @@ void LocalTerminalHost::on_viewport_changed()
 
         // Adjust cursor position: it shifted down by `pull` rows.
         const int new_cursor_row = std::min(vt_state().row + pull, grid_rows() - 1);
-        set_cursor_position(vt_state().col, new_cursor_row);
+        set_logical_cursor_position(vt_state().col, new_cursor_row);
     }
     else
     {
@@ -782,6 +795,26 @@ LocalTerminalHost::GridPos LocalTerminalHost::pixel_to_cell(int px, int py) cons
     const int row = std::clamp(
         (py - viewport().pixel_pos.y - pad) / cell_h, 0, std::max(0, grid_rows() - 1));
     return { col, row };
+}
+
+bool LocalTerminalHost::open_link_at(const GridPos& pos, ModifierFlags mod)
+{
+    const uint16_t link_id = grid().effective_link_id(pos.col, pos.row);
+    if (link_id == 0)
+        return false;
+
+    const bool explicit_link = grid().cell_has_explicit_hyperlink(pos.col, pos.row);
+    const bool url_modifier = (mod & kModCtrl) || (mod & kModSuper);
+    if (!explicit_link && !url_modifier)
+        return false;
+
+    const std::string_view uri = grid().link_uri(link_id);
+    if (uri.empty())
+        return false;
+
+    if (!window().open_url(uri))
+        callbacks().push_toast(2, "Failed to open link.");
+    return true;
 }
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,7 @@ public:
     void set_title_bar_color(Color color) override;
     std::string clipboard_text() const override;
     bool set_clipboard_text(const std::string& text) override;
+    bool open_url(std::string_view url) override;
     void set_text_input_area(int x, int y, int w, int h) override;
     void show_open_file_dialog() override;
     void set_mouse_cursor(MouseCursor cursor) override;
@@ -56,6 +57,7 @@ private:
     SDL_Cursor* cursor_default_ = nullptr;
     SDL_Cursor* cursor_ew_ = nullptr;
     SDL_Cursor* cursor_ns_ = nullptr;
+    SDL_Cursor* cursor_pointer_ = nullptr;
     MouseCursor active_cursor_ = MouseCursor::Default;
     bool visible_ = true;
     bool text_input_area_dirty_ = false;

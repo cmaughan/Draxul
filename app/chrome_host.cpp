@@ -24,6 +24,12 @@ ChromeHost::ChromeHost(Deps deps)
 {
 }
 
+const ChromeTheme& ChromeHost::theme() const
+{
+    static const ChromeTheme defaults;
+    return deps_.config ? deps_.config->chrome : defaults;
+}
+
 bool ChromeHost::initialize(const HostContext& context, IHostCallbacks& /*callbacks*/)
 {
     viewport_ = context.initial_viewport;
@@ -74,29 +80,11 @@ int ChromeHost::tab_bar_height() const
 }
 
 // ---------------------------------------------------------------------------
-// Tab bar: Catppuccin Mocha palette
+// Tab bar / window chrome helpers
 // ---------------------------------------------------------------------------
 
 namespace
 {
-// Catppuccin Mocha palette
-constexpr Color kTabBarBg{ 0.094f, 0.094f, 0.145f, 1.0f }; // #181825 Mantle
-constexpr Color kActiveTabBg{ 0.796f, 0.651f, 0.969f, 1.0f }; // #cba6f7 Mauve
-constexpr Color kInactiveTabBg{ 0.271f, 0.278f, 0.353f, 1.0f }; // #45475a Surface1
-constexpr Color kActiveTabFg{ 0.118f, 0.118f, 0.180f, 1.0f }; // #1e1e2e Base (dark on bright)
-constexpr Color kResourcePillBg{ 0.976f, 0.886f, 0.686f, 1.0f }; // #f9e2af Yellow
-constexpr Color kResourcePillWarnBg{ 0.973f, 0.761f, 0.510f, 1.0f }; // orange
-constexpr Color kResourcePillHotBg{ 0.957f, 0.337f, 0.337f, 1.0f }; // red
-constexpr Color kChordPillBg{ 0.271f, 0.278f, 0.353f, 0.95f }; // inactive-tab grey
-
-// Named bg colors that mirror the NanoVG fill values used by the chrome
-// callback. Centralised so the grid label loops can run them through
-// text_for_bg() and pick a contrasting fg without re-typing magic numbers.
-constexpr Color kTabActiveAccentBg{ 0.725f, 0.235f, 0.235f, 0.863f }; // 185,60,60,220
-constexpr Color kTabInactiveAccentBg{ 0.431f, 0.451f, 0.549f, 0.784f }; // 110,115,140,200
-constexpr Color kTabEditingBodyBg{ 0.549f, 0.565f, 0.686f, 1.0f }; // 140,144,175,255
-constexpr Color kPaneFocusedAccentBg{ 0.235f, 0.647f, 0.373f, 0.863f }; // 60,165,95,220
-
 // BT.709 relative luminance (glm has no built-in helper). Alpha ignored.
 inline float relative_luminance(const Color& c)
 {
@@ -162,17 +150,6 @@ inline int columns_to_offset(const std::string& buffer, size_t pos)
 // Pane status pill margin from the right edge of the pane (in cells).
 constexpr int kPaneStatusRightMarginCols = 1;
 
-// Pane status accent: Catppuccin-tinted green, same brightness/alpha as the
-// burgundy used for active workspace tabs so the two pill kinds visually rhyme
-// without being confusable.
-constexpr unsigned char kPaneAccentR = 60;
-constexpr unsigned char kPaneAccentG = 165;
-constexpr unsigned char kPaneAccentB = 95;
-constexpr unsigned char kPaneAccentA = 220;
-constexpr unsigned char kInactiveAccentR = 110;
-constexpr unsigned char kInactiveAccentG = 115;
-constexpr unsigned char kInactiveAccentB = 140;
-constexpr unsigned char kInactiveAccentA = 200;
 constexpr int kGridPadding = 4; // renderer internal cell padding
 
 std::string tab_label(size_t index, const std::string& name)
@@ -293,13 +270,13 @@ std::string format_resource_percent_value(int percent)
     return std::string(buffer);
 }
 
-Color resource_pill_background_color(const SystemResourceSnapshot& snapshot)
+Color resource_pill_background_color(const SystemResourceSnapshot& snapshot, const ChromeTheme& theme)
 {
     if (snapshot.cpu_percent >= 100)
-        return kResourcePillHotBg;
+        return theme.resource_pill_hot_bg;
     if (snapshot.cpu_percent >= 90 || snapshot.memory_percent >= 90)
-        return kResourcePillWarnBg;
-    return kResourcePillBg;
+        return theme.resource_pill_warn_bg;
+    return theme.resource_pill_bg;
 }
 
 void append_resource_metric(std::vector<ChromeHost::LabelCluster>& out, const char* label, int percent,
@@ -358,6 +335,7 @@ void ChromeHost::draw(IFrameContext& frame)
     const bool show_top_bar = deps_.grid_renderer && (show_tabs || show_resource_pill);
     const bool show_dividers = active_tree().leaf_count() >= 2;
     const bool show_status = deps_.config && deps_.config->show_pane_status;
+    const ChromeTheme chrome_theme = theme();
 
     // Collect per-pane status entries (WI 78). One row of cells (cell_h tall)
     // is reserved at the bottom of every pane by App::viewport_from_descriptor.
@@ -441,9 +419,9 @@ void ChromeHost::draw(IFrameContext& frame)
             if (show_resource_pill && grid_cols > 0)
             {
                 RightPillLayout layout;
-                layout.bg = resource_pill_background_color(*deps_.system_resource_snapshot);
+                layout.bg = resource_pill_background_color(*deps_.system_resource_snapshot, chrome_theme);
                 layout.flat_right_edge = true;
-                const Color value_fg = text_for_bg(layout.bg);
+                const Color value_fg = chrome_theme.resource_pill_fg;
                 const Color label_fg = apply_alpha(value_fg, 0.68f);
                 append_resource_metric(layout.clusters, "CPU",
                     deps_.system_resource_snapshot->cpu_percent, value_fg, label_fg, true);
@@ -465,9 +443,9 @@ void ChromeHost::draw(IFrameContext& frame)
                 if (!temp.empty())
                 {
                     RightPillLayout layout;
-                    layout.bg = Color(0.28f, 0.30f, 0.38f, 1.0f); // dark grey
+                    layout.bg = chrome_theme.weather_pill_bg;
                     layout.flat_right_edge = false;
-                    const Color fg = Color(1.0f, 1.0f, 1.0f, 1.0f);
+                    const Color fg = text_for_bg(layout.bg);
                     if (!emoji.empty())
                     {
                         append_label_clusters(layout.clusters, emoji, fg);
@@ -489,10 +467,10 @@ void ChromeHost::draw(IFrameContext& frame)
                 if (auto state = deps_.chord_indicator(); state && state->second > 0.0f)
                 {
                     RightPillLayout layout;
-                    layout.bg = apply_alpha(kChordPillBg, state->second);
+                    layout.bg = apply_alpha(chrome_theme.chord_pill_bg, state->second);
                     layout.flat_right_edge = false;
                     append_label_clusters(layout.clusters, state->first,
-                        apply_alpha(text_for_bg(kChordPillBg), state->second));
+                        apply_alpha(text_for_bg(chrome_theme.chord_pill_bg), state->second));
 
                     const int total_cols = label_cluster_columns(layout.clusters) + kTabPadCols * 2;
                     layout.col_end = right_col_cursor;
@@ -764,7 +742,8 @@ void ChromeHost::draw(IFrameContext& frame)
             right_pill_rects = std::move(right_pill_rects),
             dividers = std::move(dividers), focus_rect, focus_border,
             status_pill_rects = std::move(status_pill_rects),
-            caret_rect, pane_caret_rect, edit_started_at](NVGcontext* vg, int /*w*/, int /*h*/) {
+            caret_rect, pane_caret_rect, edit_started_at,
+            chrome_theme](NVGcontext* vg, int /*w*/, int /*h*/) {
             // --- Pane status pills (drawn first so dividers/focus border go on top) ---
             for (const auto& s : status_pill_rects)
             {
@@ -775,9 +754,9 @@ void ChromeHost::draw(IFrameContext& frame)
                 nvgBeginPath(vg);
                 nvgRoundedRect(vg, s.x, s.y, s.w, s.h, radius);
                 if (s.editing)
-                    nvgFillColor(vg, nvgRGBA(140, 144, 175, 255)); // brightened Surface2
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.status_editing_bg.r, chrome_theme.status_editing_bg.g, chrome_theme.status_editing_bg.b, chrome_theme.status_editing_bg.a));
                 else
-                    nvgFillColor(vg, nvgRGBAf(kInactiveTabBg.r, kInactiveTabBg.g, kInactiveTabBg.b, kInactiveTabBg.a));
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.status_bar_bg.r, chrome_theme.status_bar_bg.g, chrome_theme.status_bar_bg.b, chrome_theme.status_bar_bg.a));
                 nvgFill(vg);
 
                 // Number-prefix accent — bright green when focused, dimmed
@@ -788,9 +767,9 @@ void ChromeHost::draw(IFrameContext& frame)
                 nvgBeginPath(vg);
                 nvgRoundedRect(vg, s.x, s.y, s.accent_w, s.h, radius);
                 if (s.focused)
-                    nvgFillColor(vg, nvgRGBA(kPaneAccentR, kPaneAccentG, kPaneAccentB, kPaneAccentA));
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.status_focused_accent_bg.r, chrome_theme.status_focused_accent_bg.g, chrome_theme.status_focused_accent_bg.b, chrome_theme.status_focused_accent_bg.a));
                 else
-                    nvgFillColor(vg, nvgRGBA(kInactiveAccentR, kInactiveAccentG, kInactiveAccentB, kInactiveAccentA));
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.status_inactive_accent_bg.r, chrome_theme.status_inactive_accent_bg.g, chrome_theme.status_inactive_accent_bg.b, chrome_theme.status_inactive_accent_bg.a));
                 nvgFill(vg);
                 nvgRestore(vg);
 
@@ -799,7 +778,7 @@ void ChromeHost::draw(IFrameContext& frame)
                     // White outline so the rename target is unmistakable.
                     nvgBeginPath(vg);
                     nvgRoundedRect(vg, s.x, s.y, s.w, s.h, radius);
-                    nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 230));
+                    nvgStrokeColor(vg, nvgRGBAf(chrome_theme.editing_outline.r, chrome_theme.editing_outline.g, chrome_theme.editing_outline.b, chrome_theme.editing_outline.a));
                     nvgStrokeWidth(vg, 1.5f);
                     nvgStroke(vg);
                 }
@@ -816,7 +795,7 @@ void ChromeHost::draw(IFrameContext& frame)
                 {
                     nvgBeginPath(vg);
                     nvgRect(vg, pane_caret_rect->x, pane_caret_rect->y, 1.5f, pane_caret_rect->h);
-                    nvgFillColor(vg, nvgRGBA(255, 255, 255, 230));
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.editing_outline.r, chrome_theme.editing_outline.g, chrome_theme.editing_outline.b, chrome_theme.editing_outline.a));
                     nvgFill(vg);
                 }
             }
@@ -827,7 +806,7 @@ void ChromeHost::draw(IFrameContext& frame)
                 // Bar background
                 nvgBeginPath(vg);
                 nvgRect(vg, 0, 0, static_cast<float>(bar_w), static_cast<float>(bar_h));
-                nvgFillColor(vg, nvgRGBAf(kTabBarBg.r, kTabBarBg.g, kTabBarBg.b, kTabBarBg.a));
+                nvgFillColor(vg, nvgRGBAf(chrome_theme.tab_bar_bg.r, chrome_theme.tab_bar_bg.g, chrome_theme.tab_bar_bg.b, chrome_theme.tab_bar_bg.a));
                 nvgFill(vg);
             }
 
@@ -841,9 +820,9 @@ void ChromeHost::draw(IFrameContext& frame)
                 nvgBeginPath(vg);
                 nvgRoundedRect(vg, tab.x, tab.y, tab.w, tab.h, radius);
                 if (tab.editing)
-                    nvgFillColor(vg, nvgRGBA(140, 144, 175, 255)); // brightened Surface2
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.tab_editing_bg.r, chrome_theme.tab_editing_bg.g, chrome_theme.tab_editing_bg.b, chrome_theme.tab_editing_bg.a));
                 else
-                    nvgFillColor(vg, nvgRGBAf(kInactiveTabBg.r, kInactiveTabBg.g, kInactiveTabBg.b, kInactiveTabBg.a));
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.tab_inactive_bg.r, chrome_theme.tab_inactive_bg.g, chrome_theme.tab_inactive_bg.b, chrome_theme.tab_inactive_bg.a));
                 nvgFill(vg);
 
                 // Number-prefix accent.
@@ -852,9 +831,9 @@ void ChromeHost::draw(IFrameContext& frame)
                 nvgBeginPath(vg);
                 nvgRoundedRect(vg, tab.x, tab.y, tab.accent_w, tab.h, radius);
                 if (tab.active)
-                    nvgFillColor(vg, nvgRGBA(185, 60, 60, 220)); // bright red
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.tab_active_bg.r, chrome_theme.tab_active_bg.g, chrome_theme.tab_active_bg.b, chrome_theme.tab_active_bg.a));
                 else
-                    nvgFillColor(vg, nvgRGBA(110, 115, 140, 200)); // dimmed
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.tab_inactive_bg.r, chrome_theme.tab_inactive_bg.g, chrome_theme.tab_inactive_bg.b, chrome_theme.tab_inactive_bg.a));
                 nvgFill(vg);
                 nvgRestore(vg);
 
@@ -864,7 +843,7 @@ void ChromeHost::draw(IFrameContext& frame)
                     // user immediately reads the tab as "in edit mode".
                     nvgBeginPath(vg);
                     nvgRoundedRect(vg, tab.x, tab.y, tab.w, tab.h, radius);
-                    nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 230));
+                    nvgStrokeColor(vg, nvgRGBAf(chrome_theme.editing_outline.r, chrome_theme.editing_outline.g, chrome_theme.editing_outline.b, chrome_theme.editing_outline.a));
                     nvgStrokeWidth(vg, 1.5f);
                     nvgStroke(vg);
                 }
@@ -898,7 +877,7 @@ void ChromeHost::draw(IFrameContext& frame)
                 {
                     nvgBeginPath(vg);
                     nvgRect(vg, caret_rect->x, caret_rect->y, 1.5f, caret_rect->h);
-                    nvgFillColor(vg, nvgRGBA(255, 255, 255, 230));
+                    nvgFillColor(vg, nvgRGBAf(chrome_theme.editing_outline.r, chrome_theme.editing_outline.g, chrome_theme.editing_outline.b, chrome_theme.editing_outline.a));
                     nvgFill(vg);
                 }
             }
@@ -919,7 +898,7 @@ void ChromeHost::draw(IFrameContext& frame)
                     nvgMoveTo(vg, d.x, cy);
                     nvgLineTo(vg, d.x + d.w, cy);
                 }
-                nvgStrokeColor(vg, nvgRGBA(120, 120, 140, 220));
+                nvgStrokeColor(vg, nvgRGBAf(chrome_theme.divider.r, chrome_theme.divider.g, chrome_theme.divider.b, chrome_theme.divider.a));
                 nvgStrokeWidth(vg, 1.0f);
                 nvgStroke(vg);
             }
@@ -948,7 +927,7 @@ void ChromeHost::draw(IFrameContext& frame)
                 const float right = has_right_divider ? (pane_right + div_half) : (pane_right - half);
                 const float bottom = has_bottom_divider ? (pane_bottom + div_half) : (pane_bottom - half);
 
-                nvgStrokeColor(vg, nvgRGBA(185, 60, 60, 220));
+                nvgStrokeColor(vg, nvgRGBAf(chrome_theme.focus_border.r, chrome_theme.focus_border.g, chrome_theme.focus_border.b, chrome_theme.focus_border.a));
                 nvgStrokeWidth(vg, border);
 
                 nvgBeginPath(vg);
@@ -1014,10 +993,11 @@ void ChromeHost::update_pane_status_grids(IFrameContext& frame, std::span<const 
     // Pick fg from the underlying NanoVG fill color via luminance contrast.
     // Body matches the workspace-tab inactive bg; the number-prefix accent
     // is green when focused or dimmed grey otherwise (mirrors draw()).
-    const Color body_fg_normal = text_for_bg(kInactiveTabBg);
-    const Color body_fg_editing = text_for_bg(kTabEditingBodyBg);
-    const Color focused_accent_fg = text_for_bg(kPaneFocusedAccentBg);
-    const Color inactive_accent_fg = text_for_bg(kTabInactiveAccentBg);
+    const ChromeTheme chrome_theme = theme();
+    const Color body_fg_normal = chrome_theme.status_bar_fg;
+    const Color body_fg_editing = text_for_bg(chrome_theme.status_editing_bg);
+    const Color focused_accent_fg = text_for_bg(chrome_theme.status_focused_accent_bg);
+    const Color inactive_accent_fg = text_for_bg(chrome_theme.status_inactive_accent_bg);
 
     for (const auto& e : entries)
     {
@@ -1166,6 +1146,7 @@ void ChromeHost::update_tab_grid(std::span<const TabLayout> tabs, std::span<cons
 
     if (grid_cols <= 0)
         return;
+    const ChromeTheme chrome_theme = theme();
 
     if (!tab_handle_)
     {
@@ -1223,10 +1204,11 @@ void ChromeHost::update_tab_grid(std::span<const TabLayout> tabs, std::span<cons
         const auto& tl = tabs[ti];
         // Number prefix width: digits of (index+1) + ":" (the space after is name territory).
         const int num_prefix_cols = static_cast<int>(std::to_string(ti + 1).size()) + 1; // digits + ":"
-        const Color accent_bg = tl.active ? kTabActiveAccentBg : kTabInactiveAccentBg;
-        const Color body_bg = tl.editing ? kTabEditingBodyBg : kInactiveTabBg;
+        const Color accent_bg = tl.active ? chrome_theme.tab_active_bg : chrome_theme.tab_inactive_bg;
+        const Color body_fg = tl.editing
+            ? text_for_bg(chrome_theme.tab_editing_bg)
+            : (tl.active ? chrome_theme.tab_active_fg : chrome_theme.tab_inactive_fg);
         const Color accent_fg = text_for_bg(accent_bg);
-        const Color body_fg = text_for_bg(body_bg);
         int label_col = tl.text_col;
         int consumed_cols = 0;
         for (const auto& cluster_text : split_display_clusters(tl.label))

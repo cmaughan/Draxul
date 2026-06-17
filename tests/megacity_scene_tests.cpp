@@ -31,6 +31,7 @@
 #include <draxul/text_service.h>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <imgui_internal.h>
 #include <numbers>
 #include <thread>
@@ -49,11 +50,26 @@ public:
     std::vector<draxul::CityDependencyRecord> deps;
     draxul::CodebaseHealthMetrics health;
 
-    std::vector<std::string> list_modules() const override { return modules; }
-    draxul::CityModuleRecord module_record(std::string_view) const override { return module; }
-    std::vector<draxul::CityClassRecord> list_classes_in_module(std::string_view) const override { return rows; }
-    std::vector<draxul::CityDependencyRecord> list_class_dependencies_in_module(std::string_view) const override { return deps; }
-    draxul::CodebaseHealthMetrics codebase_health() const override { return health; }
+    std::vector<std::string> list_modules() const override
+    {
+        return modules;
+    }
+    draxul::CityModuleRecord module_record(std::string_view) const override
+    {
+        return module;
+    }
+    std::vector<draxul::CityClassRecord> list_classes_in_module(std::string_view) const override
+    {
+        return rows;
+    }
+    std::vector<draxul::CityDependencyRecord> list_class_dependencies_in_module(std::string_view) const override
+    {
+        return deps;
+    }
+    draxul::CodebaseHealthMetrics codebase_health() const override
+    {
+        return health;
+    }
 };
 
 float triangle_up_normal_y(const MeshData& mesh, size_t triangle_index)
@@ -2841,6 +2857,31 @@ TEST_CASE("megacity host retries focused routes once the grid becomes available"
     CHECK(routed_grid->routes[0].target_qualified_name == kRoofSignStructName);
 
     host.shutdown();
+}
+
+TEST_CASE("megacity grid rebuild request does not join an in-flight worker", "[megacity]")
+{
+    MegaCityHost host;
+    std::atomic<bool> release_worker{ false };
+    host.grid_build_in_progress_ = true;
+    host.grid_thread_ = std::thread([&release_worker]() {
+        while (!release_worker.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    });
+
+    SemanticMegacityLayout empty_layout;
+    SemanticMegacityModel empty_model;
+    auto rebuild = std::async(std::launch::async, [&host, &empty_layout, &empty_model]() {
+        host.launch_grid_build(empty_layout, empty_model);
+    });
+
+    const auto status = rebuild.wait_for(std::chrono::milliseconds(50));
+    release_worker = true;
+    REQUIRE(rebuild.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+    rebuild.get();
+    host.shutdown();
+
+    CHECK(status == std::future_status::ready);
 }
 
 TEST_CASE("megacity host scene click on roof sign function emits focused dependency route", "[megacity][integration]")

@@ -63,6 +63,7 @@ bool GridHostBase::initialize(const HostContext& context, IHostCallbacks& callba
     grid_pipeline_->set_renderer(renderer_);
     grid_pipeline_->set_grid_handle(grid_handle_.get());
     grid_pipeline_->set_enable_ligatures(launch_options_.enable_ligatures);
+    grid_pipeline_->set_url_detection_enabled(launch_options_.url_detection);
     refresh_renderer_metrics();
     on_viewport_changed();
     return initialize_host();
@@ -124,8 +125,12 @@ void GridHostBase::on_font_metrics_changed()
 void GridHostBase::on_config_reloaded(const HostReloadConfig& config)
 {
     launch_options_.enable_ligatures = config.enable_ligatures;
+    launch_options_.url_detection = config.url_detection;
     if (grid_pipeline_)
+    {
         grid_pipeline_->set_enable_ligatures(config.enable_ligatures);
+        grid_pipeline_->set_url_detection_enabled(config.url_detection);
+    }
 }
 
 std::optional<std::chrono::steady_clock::time_point> GridHostBase::next_deadline() const
@@ -258,8 +263,8 @@ bool GridHostBase::advance_cursor_blink(std::chrono::steady_clock::time_point no
             cursor_blinker_.visible() ? 1 : 0,
             cursor_blinker_.next_deadline()
                 ? static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                             *cursor_blinker_.next_deadline() - now)
-                                             .count())
+                      *cursor_blinker_.next_deadline() - now)
+                          .count())
                 : -1LL);
     }
     if (!blink_changed && !suppression_changed)
@@ -455,8 +460,8 @@ void GridHostBase::restart_cursor_blink(std::chrono::steady_clock::time_point no
             cursor_blinker_.visible() ? 1 : 0,
             cursor_blinker_.next_deadline()
                 ? static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                             *cursor_blinker_.next_deadline() - now)
-                                             .count())
+                      *cursor_blinker_.next_deadline() - now)
+                          .count())
                 : -1LL);
     }
     apply_cursor_visibility();

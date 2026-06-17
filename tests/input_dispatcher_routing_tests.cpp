@@ -32,6 +32,71 @@ std::vector<GuiKeybinding> make_ctrl_c_copy_bindings()
     };
 }
 
+class TestInputRouter final : public IInputRouter
+{
+public:
+    std::function<IHost*()> overlay_host_fn;
+    std::function<void(int)> activate_pane_fn;
+
+    IHost* overlay_host() override
+    {
+        return overlay_host_fn ? overlay_host_fn() : nullptr;
+    }
+
+    HostManager* host_manager() override
+    {
+        return nullptr;
+    }
+
+    int hit_test_tab(int, int) override
+    {
+        return 0;
+    }
+
+    LeafId hit_test_pane_pill(int, int) override
+    {
+        return kInvalidLeaf;
+    }
+
+    int tab_bar_height_phys() override
+    {
+        return 0;
+    }
+
+    std::pair<int, int> cell_size_phys() override
+    {
+        return { 0, 0 };
+    }
+
+    void activate_tab(int) override {}
+
+    void activate_pane(int one_based_index) override
+    {
+        if (activate_pane_fn)
+            activate_pane_fn(one_based_index);
+    }
+
+    void begin_tab_rename(int) override {}
+    void begin_pane_rename(LeafId) override {}
+
+    bool is_editing() override
+    {
+        return false;
+    }
+
+    bool rename_text_input(const std::string&) override
+    {
+        return false;
+    }
+
+    bool rename_key(int) override
+    {
+        return false;
+    }
+
+    void commit_rename() override {}
+};
+
 // Minimal fake deps: no SDL, no UiPanel, no host
 // Just keybindings + null everything else
 InputDispatcher make_test_dispatcher(const std::vector<GuiKeybinding>& bindings)
@@ -416,6 +481,7 @@ struct OverlayE2ESetup
     UiPanel panel;
     StubHost host;
     StubHost overlay;
+    TestInputRouter router;
     bool overlay_active = true;
     std::vector<GuiKeybinding> bindings;
     std::unique_ptr<GuiActionHandler> action_handler;
@@ -436,9 +502,10 @@ struct OverlayE2ESetup
         deps.ui_panel = &panel;
         deps.host = &host;
         deps.pixel_scale = 1.0f;
-        deps.overlay_host = [this]() -> IHost* {
+        router.overlay_host_fn = [this]() -> IHost* {
             return overlay_active ? &overlay : nullptr;
         };
+        deps.router = &router;
         dispatcher = std::make_unique<InputDispatcher>(std::move(deps));
         dispatcher->connect(window);
     }
@@ -583,6 +650,7 @@ struct ChordE2ESetup
     UiPanel panel;
     StubHost host;
     StubHost other_host;
+    TestInputRouter router;
     std::vector<GuiKeybinding> bindings;
     std::unique_ptr<GuiActionHandler> action_handler;
     std::unique_ptr<InputDispatcher> dispatcher;
@@ -611,7 +679,8 @@ struct ChordE2ESetup
         deps.ui_panel = &panel;
         deps.host = &host;
         deps.pixel_scale = 1.0f;
-        deps.activate_pane = [this](int index) { activate_pane_calls.push_back(index); };
+        router.activate_pane_fn = [this](int index) { activate_pane_calls.push_back(index); };
+        deps.router = &router;
         dispatcher = std::make_unique<InputDispatcher>(std::move(deps));
         dispatcher->connect(window);
     }

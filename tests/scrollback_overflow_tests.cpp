@@ -4,6 +4,8 @@
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
 #include "support/test_host_callbacks.h"
+#include "support/test_local_terminal_host.h"
+#include <SDL3/SDL_keycode.h>
 #include <draxul/host.h>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
@@ -127,6 +129,52 @@ struct SbSetup
     }
 };
 
+KeyEvent shift_key(int keycode)
+{
+    return KeyEvent{ 0, keycode, kModShift, true };
+}
+
+struct LocalSbSetup
+{
+    SbFakeWindow window;
+    SbFakeRenderer renderer;
+    TextService text_service;
+    draxul::tests::TestLocalTerminalHost host;
+    draxul::tests::TestHostCallbacks callbacks;
+    bool ok = false;
+
+    LocalSbSetup(int cols = 4, int rows = 3, int scrollback_lines = ScrollbackBuffer::kDefaultCapacity)
+    {
+        host.cols_ = cols;
+        host.rows_ = rows;
+
+        TextServiceConfig ts_cfg;
+        ts_cfg.font_path = (std::filesystem::path(DRAXUL_PROJECT_ROOT) / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf").string();
+        text_service.initialize(ts_cfg, TextService::DEFAULT_POINT_SIZE, 96.0f);
+
+        HostLaunchOptions launch;
+        launch.scrollback_lines = scrollback_lines;
+
+        HostViewport vp;
+        vp.grid_size.x = cols;
+        vp.grid_size.y = rows;
+
+        HostContext ctx{
+            .window = &window,
+            .grid_renderer = &renderer,
+            .text_service = &text_service,
+            .launch_options = launch,
+            .initial_viewport = vp,
+        };
+        ok = host.initialize(ctx, callbacks);
+    }
+
+    void scroll_home()
+    {
+        host.on_key(shift_key(SDLK_HOME));
+    }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -246,4 +294,95 @@ TEST_CASE("scrollback: alternate screen does not accumulate scrollback", "[termi
     // screen should be restored and we just check for no crash.
     INFO("no crash after alt-screen writes and exit");
     REQUIRE(true);
+}
+
+TEST_CASE("scrollback: IND captures the row scrolled off the top", "[terminal][scrollback]")
+{
+    LocalSbSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("AAAA\r\nBBBB\r\nCCCC");
+    ts.host.feed("\x1B[3;1H"
+                 "\x1B"
+                 "D");
+    ts.scroll_home();
+
+    REQUIRE(ts.host.cell_text(0, 0) == "A");
+    REQUIRE(ts.host.cell_text(0, 1) == "B");
+}
+
+TEST_CASE("scrollback: CSI SU captures all rows scrolled off the top", "[terminal][scrollback]")
+{
+    LocalSbSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("AAAA\r\nBBBB\r\nCCCC");
+    ts.host.feed("\x1B[2S");
+    ts.scroll_home();
+
+    REQUIRE(ts.host.cell_text(0, 0) == "A");
+    REQUIRE(ts.host.cell_text(0, 1) == "B");
+}
+
+TEST_CASE("scrollback: DL at row 0 captures deleted full-screen rows", "[terminal][scrollback]")
+{
+    LocalSbSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("AAAA\r\nBBBB\r\nCCCC");
+    ts.host.feed("\x1B[1;1H\x1B[2M");
+    ts.scroll_home();
+
+    REQUIRE(ts.host.cell_text(0, 0) == "A");
+    REQUIRE(ts.host.cell_text(0, 1) == "B");
+}
+
+TEST_CASE("scrollback: shrink grow round trip preserves visible content and cursor", "[terminal][scrollback]")
+{
+    LocalSbSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("AAAA\r\nBBBB\r\nCCCC");
+    const int initial_row = ts.host.row();
+    const int initial_col = ts.host.col();
+    REQUIRE(initial_row == 2);
+
+    HostViewport smaller;
+    smaller.grid_size = { 4, 2 };
+    ts.host.set_viewport(smaller);
+    HostViewport larger;
+    larger.grid_size = { 4, 3 };
+    ts.host.set_viewport(larger);
+
+    REQUIRE(ts.host.cell_text(0, 0) == "A");
+    REQUIRE(ts.host.cell_text(0, 1) == "B");
+    REQUIRE(ts.host.cell_text(0, 2) == "C");
+    REQUIRE(ts.host.row() == initial_row);
+    REQUIRE(ts.host.col() == initial_col);
+}
+
+TEST_CASE("scrollback: erase display 2 preserves nonblank visible rows", "[terminal][scrollback]")
+{
+    LocalSbSetup ts(4, 3);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("AAAA\r\nBBBB\r\nCCCC");
+    ts.host.feed("\x1B[2J");
+    ts.scroll_home();
+
+    REQUIRE(ts.host.cell_text(0, 0) == "A");
+    REQUIRE(ts.host.cell_text(0, 1) == "B");
+    REQUIRE(ts.host.cell_text(0, 2) == "C");
+}
+
+TEST_CASE("scrollback: launch option controls retained row capacity", "[terminal][scrollback]")
+{
+    LocalSbSetup ts(4, 1, 2);
+    REQUIRE(ts.ok);
+
+    ts.host.feed("AAAA\r\nBBBB\r\nCCCC\r\nDDDD");
+    ts.scroll_home();
+
+    INFO("capacity 2 evicts the oldest scrolled-off row");
+    REQUIRE(ts.host.cell_text(0, 0) == "B");
 }

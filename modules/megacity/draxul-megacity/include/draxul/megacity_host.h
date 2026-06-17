@@ -95,6 +95,10 @@ private:
     bool load_graphify_semantic_source();
     void refresh_available_modules();
     void rebuild_semantic_city();
+    void request_grid_build_cancel();
+    void retire_grid_thread();
+    void join_finished_grid_threads();
+    void join_all_grid_threads();
     void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
     void refresh_sign_text_service();
     void sync_camera_state_to_configs();
@@ -176,7 +180,19 @@ private:
     mutable std::mutex grid_mutex_;
     std::shared_ptr<const CityGrid> city_grid_;
     std::thread grid_thread_;
+    std::atomic<bool> cancel_build_{ false };
+    std::atomic<uint64_t> grid_build_generation_{ 0 };
     std::atomic<bool> grid_build_in_progress_{ false };
+    std::shared_ptr<std::atomic<bool>> grid_thread_cancel_;
+    std::shared_ptr<std::atomic<bool>> grid_thread_finished_;
+
+    struct RetiredGridThread
+    {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> cancel;
+        std::shared_ptr<std::atomic<bool>> finished;
+    };
+    std::vector<RetiredGridThread> retired_grid_threads_;
 
     struct RouteBuildRequest
     {

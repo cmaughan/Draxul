@@ -122,6 +122,27 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
     ws.ws_row = static_cast<unsigned short>(std::clamp(initial_rows, 1, 200));
     std::vector<std::string> child_env = build_child_environment();
     std::vector<std::string> exec_paths = resolve_exec_paths(command);
+    std::string login_argv0 = "-";
+    const auto slash = command.rfind('/');
+    login_argv0 += (slash == std::string::npos) ? command : command.substr(slash + 1);
+
+    std::vector<char*> child_argv;
+    child_argv.reserve(args.size() + 2);
+    child_argv.push_back(login_argv0.data());
+    for (const auto& arg : args)
+        child_argv.push_back(const_cast<char*>(arg.c_str()));
+    child_argv.push_back(nullptr);
+
+    std::vector<char*> child_envp;
+    child_envp.reserve(child_env.size() + 1);
+    for (auto& entry : child_env)
+        child_envp.push_back(entry.data());
+    child_envp.push_back(nullptr);
+
+    std::vector<const char*> exec_path_ptrs;
+    exec_path_ptrs.reserve(exec_paths.size());
+    for (const auto& path : exec_paths)
+        exec_path_ptrs.push_back(path.c_str());
 
     int slave_fd = -1;
     if (openpty(&master_fd_, &slave_fd, nullptr, nullptr, &ws) < 0)
@@ -179,31 +200,12 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
         if (!working_dir.empty() && chdir(working_dir.c_str()) != 0)
             _exit(127);
 
-        // POSIX convention: argv[0] starting with '-' signals a login shell so
-        // the shell sources its full profile (e.g. ~/.zprofile, /etc/zprofile).
-        // This gives the same $PATH the user sees in a normal terminal window.
-        std::string login_argv0 = "-";
-        const auto slash = command.rfind('/');
-        login_argv0 += (slash == std::string::npos) ? command : command.substr(slash + 1);
-
-        std::vector<const char*> argv;
-        argv.push_back(login_argv0.c_str());
-        for (const auto& a : args)
-            argv.push_back(a.c_str());
-        argv.push_back(nullptr);
-
-        std::vector<char*> envp;
-        envp.reserve(child_env.size() + 1);
-        for (auto& entry : child_env)
-            envp.push_back(entry.data());
-        envp.push_back(nullptr);
-
         int exec_errno = ENOENT;
-        for (const auto& path : exec_paths)
+        for (const char* path : exec_path_ptrs)
         {
-            execve(path.c_str(),
-                const_cast<char* const*>(argv.data()),
-                envp.data());
+            execve(path,
+                child_argv.data(),
+                child_envp.data());
             if (errno != ENOENT && errno != ENOTDIR)
                 exec_errno = errno;
         }
@@ -230,10 +232,9 @@ void UnixPtyProcess::shutdown()
         (void)::write(shutdown_pipe_[1], "x", 1);
     }
 
-    // Capture all state that the background reaper thread needs, then clear
-    // the member variables so the object is safe for reuse or destruction.
-    // The blocking waitpid loops and reader-thread join are offloaded to a
-    // detached thread so the main (UI) thread returns within microseconds.
+    // Capture all state that the background reaper thread needs. Join the
+    // reader synchronously before member fds/callbacks can be reused or
+    // destroyed; the shutdown pipe makes this return promptly.
     // CLAUDE.md: "Keep shutdown paths non-blocking; a stuck Neovim child
     // must not hang the UI on exit."
     const pid_t pid_copy = pid_;
@@ -242,6 +243,9 @@ void UnixPtyProcess::shutdown()
     const int pipe0_copy = shutdown_pipe_[0];
     const int pipe1_copy = shutdown_pipe_[1];
     std::thread reader_copy = std::move(reader_thread_);
+
+    if (reader_copy.joinable())
+        reader_copy.join();
 
     pid_ = -1;
     master_fd_ = -1;
@@ -259,8 +263,7 @@ void UnixPtyProcess::shutdown()
         // Offload the timed wait + SIGKILL escalation + fd cleanup to a
         // detached background thread.
         std::thread(
-            [pid_copy, fg_pgid, master_fd_copy, pipe0_copy, pipe1_copy,
-                reader = std::move(reader_copy)]() mutable {
+            [pid_copy, fg_pgid, master_fd_copy, pipe0_copy, pipe1_copy]() {
                 // Grace period: wait up to ~100ms for the direct child to exit.
                 bool child_reaped = false;
                 int status = 0;
@@ -295,11 +298,6 @@ void UnixPtyProcess::shutdown()
                     }
                 }
 
-                // Join the reader thread BEFORE closing master_fd_ to avoid racing
-                // on the fd.
-                if (reader.joinable())
-                    reader.join();
-
                 if (master_fd_copy >= 0)
                     close(master_fd_copy);
                 if (pipe0_copy >= 0)
@@ -311,10 +309,7 @@ void UnixPtyProcess::shutdown()
     }
     else
     {
-        // No child process — clean up reader thread and fds synchronously
-        // (these return immediately when there is no child).
-        if (reader_copy.joinable())
-            reader_copy.join();
+        // No child process — clean up fds synchronously.
         if (master_fd_copy >= 0)
             close(master_fd_copy);
         if (pipe0_copy >= 0)

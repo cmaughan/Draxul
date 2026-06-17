@@ -251,6 +251,55 @@ TEST_CASE("host manager: explicit primary host override does not inherit incompa
     REQUIRE(launch.working_dir == "D:/work");
 }
 
+TEST_CASE("host manager: shell launch options inherit configured scrollback capacity",
+    "[host_manager][scrollback]")
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+
+    TestHostCallbacks callbacks;
+    AppConfig config;
+    config.scrollback_lines = 77;
+    AppOptions options;
+    options.host_kind = HostKind::Zsh;
+    options.load_user_config = false;
+    options.save_user_config = false;
+
+    std::vector<LaunchCaptureHost*> created_hosts;
+    options.host_factory = [&created_hosts](HostKind) -> std::unique_ptr<IHost> {
+        auto host = std::make_unique<LaunchCaptureHost>("launch-capture");
+        created_hosts.push_back(host.get());
+        return host;
+    };
+
+    HostManager::Deps deps;
+    deps.options = &options;
+    deps.config = &config;
+    deps.window = &window;
+    deps.grid_renderer = &renderer;
+    deps.text_service = &text_service;
+    deps.compute_viewport = [](const PaneDescriptor& desc) {
+        HostViewport viewport;
+        viewport.pixel_pos = desc.pixel_pos;
+        viewport.pixel_size = desc.pixel_size;
+        viewport.grid_size = { 80, 24 };
+        return viewport;
+    };
+
+    HostManager manager(deps);
+    REQUIRE(manager.create(callbacks, 800, 600));
+    REQUIRE(created_hosts.size() == 1);
+    REQUIRE(created_hosts.front()->captured_launch.scrollback_lines == 77);
+
+    REQUIRE(manager.split_focused(SplitDirection::Vertical, HostKind::Zsh, callbacks) != kInvalidLeaf);
+    REQUIRE(created_hosts.size() == 2);
+    REQUIRE(created_hosts.back()->captured_launch.scrollback_lines == 77);
+}
+
 // --- SplitTree-level lifecycle tests ---
 // These test the SplitTree that HostManager uses for layout and lifecycle.
 

@@ -125,6 +125,33 @@ TEST_CASE("mouse: local terminal host ignores fractional renderer scroll offsets
     REQUIRE(ts.renderer.last_handle->last_scroll_offset == Catch::Approx(0.0f));
 }
 
+TEST_CASE("mouse: OSC 8 hyperlink opens on plain left press", "[terminal][osc8]")
+{
+    MouseTerminalSetup ts;
+    REQUIRE(ts.ok);
+
+    ts.host.feed("\x1B]8;;https://example.com\x1B\\x\x1B]8;;\x1B\\");
+    ts.press(1, 0, 0);
+
+    REQUIRE(ts.window.opened_urls_.size() == 1);
+    REQUIRE(ts.window.opened_urls_[0] == "https://example.com");
+}
+
+TEST_CASE("mouse: detected URL opens only with command modifier", "[terminal][url]")
+{
+    MouseTerminalSetup ts;
+    REQUIRE(ts.ok);
+
+    ts.host.feed("https://example.com");
+    ts.host.flush_for_test();
+    ts.press(1, 0, 0);
+    REQUIRE(ts.window.opened_urls_.empty());
+
+    ts.press(1, 0, 0, kModCtrl);
+    REQUIRE(ts.window.opened_urls_.size() == 1);
+    REQUIRE(ts.window.opened_urls_[0] == "https://example.com");
+}
+
 TEST_CASE("mouse: DECSET 1000 — button press emits X10 report", "[terminal]")
 {
     MouseTerminalSetup ts;

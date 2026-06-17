@@ -79,11 +79,12 @@ fragment float4 bg_fragment(BgVertexOut in [[stage_in]])
 {
     float4 color = in.bg_color;
     bool underline = (in.style_flags & STYLE_FLAG_UNDERLINE) != 0u;
+    bool hyperlink = (in.style_flags & STYLE_FLAG_HYPERLINK) != 0u;
     bool strikethrough = (in.style_flags & STYLE_FLAG_STRIKETHROUGH) != 0u;
     bool undercurl = (in.style_flags & STYLE_FLAG_UNDERCURL) != 0u;
     float4 accent = in.sp_color.a > 0.0 ? in.sp_color : in.fg_color;
 
-    if (underline && in.local_uv.y >= UNDERLINE_TOP && in.local_uv.y <= UNDERLINE_BOTTOM)
+    if ((underline || hyperlink) && in.local_uv.y >= UNDERLINE_TOP && in.local_uv.y <= UNDERLINE_BOTTOM)
     {
         color = accent;
     }

@@ -643,8 +643,7 @@ MegaCityHost::~MegaCityHost()
         pending_route_request_.reset();
     }
     route_cv_.notify_all();
-    if (grid_thread_.joinable())
-        grid_thread_.join();
+    join_all_grid_threads();
     if (route_thread_.joinable())
         route_thread_.join();
 }
@@ -771,8 +770,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
         city_db_reconciled_ = true;
         if (!load_graphify_semantic_source())
         {
-            init_error_ = "failed to load Graphify graph: " + resolve_graphify_graph_path(
-                renderer_config_.graphify_graph_path).string();
+            init_error_ = "failed to load Graphify graph: " + resolve_graphify_graph_path(renderer_config_.graphify_graph_path).string();
             if (tooltip_text_service_)
             {
                 tooltip_text_service_->shutdown();
@@ -1012,8 +1010,11 @@ void MegaCityHost::consume_completed_routes()
 void MegaCityHost::clear_semantic_city()
 {
     PERF_MEASURE();
-    if (grid_thread_.joinable())
-        grid_thread_.join();
+    request_grid_build_cancel();
+    grid_build_generation_.fetch_add(1);
+    retire_grid_thread();
+    join_finished_grid_threads();
+    grid_build_in_progress_ = false;
     if (world_)
         world_->clear();
     semantic_model_ = std::make_shared<SemanticMegacityModel>();
@@ -1030,6 +1031,84 @@ void MegaCityHost::clear_semantic_city()
     clear_active_routes(false);
     world_rebuild_pending_ = false;
     mark_scene_dirty();
+}
+
+void MegaCityHost::request_grid_build_cancel()
+{
+    cancel_build_ = true;
+    if (grid_thread_cancel_)
+        grid_thread_cancel_->store(true);
+    for (auto& retired : retired_grid_threads_)
+    {
+        if (retired.cancel)
+            retired.cancel->store(true);
+    }
+}
+
+void MegaCityHost::retire_grid_thread()
+{
+    if (!grid_thread_.joinable())
+    {
+        grid_thread_cancel_.reset();
+        grid_thread_finished_.reset();
+        return;
+    }
+
+    if (grid_thread_finished_ && grid_thread_finished_->load())
+    {
+        grid_thread_.join();
+    }
+    else
+    {
+        retired_grid_threads_.push_back(RetiredGridThread{
+            std::move(grid_thread_),
+            std::move(grid_thread_cancel_),
+            std::move(grid_thread_finished_),
+        });
+    }
+
+    grid_thread_cancel_.reset();
+    grid_thread_finished_.reset();
+}
+
+void MegaCityHost::join_finished_grid_threads()
+{
+    auto it = retired_grid_threads_.begin();
+    while (it != retired_grid_threads_.end())
+    {
+        if (!it->thread.joinable())
+        {
+            it = retired_grid_threads_.erase(it);
+            continue;
+        }
+
+        if (it->finished && it->finished->load())
+        {
+            it->thread.join();
+            it = retired_grid_threads_.erase(it);
+            continue;
+        }
+
+        ++it;
+    }
+}
+
+void MegaCityHost::join_all_grid_threads()
+{
+    request_grid_build_cancel();
+    grid_build_generation_.fetch_add(1);
+    if (grid_thread_.joinable())
+        grid_thread_.join();
+    grid_thread_cancel_.reset();
+    grid_thread_finished_.reset();
+
+    for (auto& retired : retired_grid_threads_)
+    {
+        if (retired.thread.joinable())
+            retired.thread.join();
+    }
+    retired_grid_threads_.clear();
+    grid_build_in_progress_ = false;
 }
 
 void MegaCityHost::start_tree_sitter_semantic_source()
@@ -1454,7 +1533,7 @@ void MegaCityHost::render_host_imgui(float dt)
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
     const auto scanner_snapshot = pending_renderer_config_.code_source == MegaCityCodeSource::TreeSitterDb
-        && scanner_started_
+            && scanner_started_
         ? scanner_.snapshot()
         : nullptr;
     if (render_treesitter_panel(
@@ -1612,8 +1691,7 @@ void MegaCityHost::shutdown()
         scanner_started_ = false;
     }
 
-    if (grid_thread_.joinable())
-        grid_thread_.join();
+    join_all_grid_threads();
     if (route_thread_.joinable())
         route_thread_.join();
     city_grid_.reset();
@@ -1805,25 +1883,51 @@ void MegaCityHost::rebuild_semantic_city()
 void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model)
 {
     PERF_MEASURE();
-    // Wait for any previous grid build to finish.
-    if (grid_thread_.joinable())
-        grid_thread_.join();
+    request_grid_build_cancel();
+    retire_grid_thread();
+    join_finished_grid_threads();
+    const uint64_t generation = grid_build_generation_.fetch_add(1) + 1;
+    cancel_build_ = false;
 
     if (layout.empty())
     {
         std::lock_guard<std::mutex> lock(grid_mutex_);
         city_grid_.reset();
+        grid_build_in_progress_ = false;
         return;
     }
 
     // Copy the layout and config so the thread owns its data.
     auto layout_copy = std::make_shared<SemanticMegacityLayout>(layout);
+    auto model_copy = std::make_shared<SemanticMegacityModel>(model);
     const MegaCityCodeConfig config = renderer_config_;
+    auto cancel_token = std::make_shared<std::atomic<bool>>(false);
+    auto finished_token = std::make_shared<std::atomic<bool>>(false);
 
+    grid_thread_cancel_ = cancel_token;
+    grid_thread_finished_ = finished_token;
     grid_build_in_progress_ = true;
-    grid_thread_ = std::thread([this, layout_copy, config]() {
+    grid_thread_ = std::thread([this, layout_copy, model_copy, config, generation, cancel_token, finished_token]() {
         PERF_MEASURE();
-        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, config));
+        auto finish = [&]() {
+            if (generation == grid_build_generation_.load() && cancel_token && !cancel_token->load())
+                grid_build_in_progress_ = false;
+            finished_token->store(true);
+        };
+
+        if (cancel_token->load() || generation != grid_build_generation_.load())
+        {
+            finish();
+            return;
+        }
+
+        auto grid = std::make_shared<CityGrid>(build_city_grid(*layout_copy, *model_copy, config));
+
+        if (cancel_token->load() || generation != grid_build_generation_.load())
+        {
+            finish();
+            return;
+        }
 
         DRAXUL_LOG_DEBUG(LogCategory::App,
             "MegaCityHost: city grid built: %dx%d cells (%.1f x %.1f world units)",
@@ -1834,7 +1938,7 @@ void MegaCityHost::launch_grid_build(const SemanticMegacityLayout& layout, const
             std::lock_guard<std::mutex> lock(grid_mutex_);
             city_grid_ = std::move(grid);
         }
-        grid_build_in_progress_ = false;
+        finish();
         if (callbacks_)
             callbacks_->request_frame();
     });

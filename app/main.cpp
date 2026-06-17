@@ -16,6 +16,7 @@
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
 #include <draxul/perf_timing.h>
+#include <draxul/process_util.h>
 #include <draxul/session_attach.h>
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
@@ -396,35 +397,6 @@ std::wstring widen_utf8(std::string_view text)
     return wide;
 }
 
-std::string quote_windows_arg(std::string_view arg)
-{
-    const bool needs_quotes = arg.empty()
-        || arg.find_first_of(" \t\n\v\"") != std::string_view::npos;
-    if (!needs_quotes)
-        return std::string(arg);
-
-    std::string quoted;
-    quoted.push_back('"');
-    size_t pending_backslashes = 0;
-    for (char ch : arg)
-    {
-        if (ch == '\\')
-        {
-            ++pending_backslashes;
-            continue;
-        }
-
-        if (ch == '"')
-            quoted.append(pending_backslashes * 2 + 1, '\\');
-        else
-            quoted.append(pending_backslashes, '\\');
-        pending_backslashes = 0;
-        quoted.push_back(ch);
-    }
-    quoted.append(pending_backslashes * 2, '\\');
-    quoted.push_back('"');
-    return quoted;
-}
 #endif
 
 bool spawn_session_owner_process(
@@ -437,7 +409,7 @@ bool spawn_session_owner_process(
     {
         if (!command_line_utf8.empty())
             command_line_utf8.push_back(' ');
-        command_line_utf8 += quote_windows_arg(arg);
+        command_line_utf8 += draxul::quote_windows_arg(arg);
     }
 
     std::wstring exe_path_w = exe_path.wstring();

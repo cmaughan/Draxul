@@ -6,6 +6,7 @@
 // subsystems (e.g. AppOptions), include <draxul/app_options.h>.
 
 #include <cstdint>
+#include <draxul/chrome_theme.h>
 #include <draxul/input_types.h>
 #include <draxul/types.h>
 #include <filesystem>
@@ -50,6 +51,9 @@ struct TerminalConfig
     // Minimum line count in a pasted clipboard payload before the user is
     // prompted to confirm. Set to 0 to disable the confirmation prompt.
     int paste_confirm_lines = 5;
+    bool url_detection = true;
+    bool enable_osc8_hyperlinks = true;
+    bool enable_shell_integration_marks = true;
 };
 
 struct MarkdownConfig
@@ -69,6 +73,7 @@ struct AppConfig
     bool enable_ligatures = true;
     bool smooth_scroll = true;
     float scroll_speed = 1.0f;
+    int scrollback_lines = 10000;
     std::string font_path;
     std::string bold_font_path;
     std::string italic_font_path;
@@ -91,6 +96,7 @@ struct AppConfig
     std::string weather_location;
     std::vector<GuiKeybinding> keybindings = {}; // populated by AppConfig()
     TerminalConfig terminal; // [terminal] section -- fg/bg hex colors
+    ChromeTheme chrome; // [chrome] section -- UI chrome color theme
     MarkdownConfig markdown; // [markdown] section -- markdown viewer layout/font options
 
     // Warnings collected during parse() — e.g. unknown top-level keys. Drained by App and

@@ -17,9 +17,9 @@
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/pixel_scale.h>
+#include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
 #include <imgui.h>
-#include <sstream>
 #include <utility>
 
 #ifdef _WIN32
@@ -35,51 +35,6 @@ namespace draxul
 
 namespace
 {
-
-// State machine for run_render_test(). Replaces the previous set of scattered optional flags
-// with an explicit enum + context struct so the current phase is always unambiguous.
-enum class RenderTestPhase
-{
-    kWaitingForContent, // Host has not yet reported content_ready + a rendered frame.
-    kSettlingContent, // Content is ready; waiting for the settle period to elapse.
-    kEnablingDiagnostics, // Diagnostics panel just turned on; waiting for first panel frame + settle.
-    kSettlingForCapture, // Diagnostics done (or skipped); quiet period before capture.
-    kCapturing, // Frame capture requested; waiting for the GPU readback.
-};
-
-const char* render_test_phase_name(RenderTestPhase p)
-{
-    switch (p)
-    {
-    case RenderTestPhase::kWaitingForContent:
-        return "WaitingForContent";
-    case RenderTestPhase::kSettlingContent:
-        return "SettlingContent";
-    case RenderTestPhase::kEnablingDiagnostics:
-        return "EnablingDiagnostics";
-    case RenderTestPhase::kSettlingForCapture:
-        return "SettlingForCapture";
-    case RenderTestPhase::kCapturing:
-        return "Capturing";
-    }
-    return "Unknown";
-}
-
-struct RenderTestContext
-{
-    RenderTestPhase phase = RenderTestPhase::kWaitingForContent;
-
-    // Timestamp of the event that starts the current settle window.
-    std::chrono::steady_clock::time_point settle_start{};
-
-    // True once content has been observed "quiet" (ready + no pending frames) in
-    // the kSettlingForCapture phase. Reset when quiet is lost so the settle
-    // timer restarts on the next quiet observation.
-    bool quiet_observed = false;
-
-    // When diagnostics were enabled (for the timeout diagnostic message).
-    std::optional<std::chrono::steady_clock::time_point> diagnostics_enabled_at;
-};
 
 // Compute the pixel size for ImGui fonts from actual font metrics.
 //
@@ -124,6 +79,100 @@ void restore_text_service_config(AppConfig& target, const AppConfig& source)
     target.fallback_paths = source.fallback_paths;
 }
 
+class CallbackInputRouter final : public IInputRouter
+{
+public:
+    std::function<IHost*()> overlay_host_fn;
+    std::function<HostManager*()> host_manager_fn;
+    std::function<int(int, int)> hit_test_tab_fn;
+    std::function<LeafId(int, int)> hit_test_pane_pill_fn;
+    std::function<int()> tab_bar_height_phys_fn;
+    std::function<std::pair<int, int>()> cell_size_phys_fn;
+    std::function<void(int)> activate_tab_fn;
+    std::function<void(int)> activate_pane_fn;
+    std::function<void(int)> begin_tab_rename_fn;
+    std::function<void(LeafId)> begin_pane_rename_fn;
+    std::function<bool()> is_editing_fn;
+    std::function<bool(const std::string&)> rename_text_input_fn;
+    std::function<bool(int)> rename_key_fn;
+    std::function<void()> commit_rename_fn;
+
+    IHost* overlay_host() override
+    {
+        return overlay_host_fn ? overlay_host_fn() : nullptr;
+    }
+
+    HostManager* host_manager() override
+    {
+        return host_manager_fn ? host_manager_fn() : nullptr;
+    }
+
+    int hit_test_tab(int phys_x, int phys_y) override
+    {
+        return hit_test_tab_fn ? hit_test_tab_fn(phys_x, phys_y) : 0;
+    }
+
+    LeafId hit_test_pane_pill(int phys_x, int phys_y) override
+    {
+        return hit_test_pane_pill_fn ? hit_test_pane_pill_fn(phys_x, phys_y) : kInvalidLeaf;
+    }
+
+    int tab_bar_height_phys() override
+    {
+        return tab_bar_height_phys_fn ? tab_bar_height_phys_fn() : 0;
+    }
+
+    std::pair<int, int> cell_size_phys() override
+    {
+        return cell_size_phys_fn ? cell_size_phys_fn() : std::pair<int, int>{ 0, 0 };
+    }
+
+    void activate_tab(int one_based_index) override
+    {
+        if (activate_tab_fn)
+            activate_tab_fn(one_based_index);
+    }
+
+    void activate_pane(int one_based_index) override
+    {
+        if (activate_pane_fn)
+            activate_pane_fn(one_based_index);
+    }
+
+    void begin_tab_rename(int one_based_index) override
+    {
+        if (begin_tab_rename_fn)
+            begin_tab_rename_fn(one_based_index);
+    }
+
+    void begin_pane_rename(LeafId leaf) override
+    {
+        if (begin_pane_rename_fn)
+            begin_pane_rename_fn(leaf);
+    }
+
+    bool is_editing() override
+    {
+        return is_editing_fn && is_editing_fn();
+    }
+
+    bool rename_text_input(const std::string& text) override
+    {
+        return rename_text_input_fn && rename_text_input_fn(text);
+    }
+
+    bool rename_key(int keycode) override
+    {
+        return rename_key_fn && rename_key_fn(keycode);
+    }
+
+    void commit_rename() override
+    {
+        if (commit_rename_fn)
+            commit_rename_fn();
+    }
+};
+
 HostReloadConfig host_reload_config_from_app_config(const AppConfig& config)
 {
     HostReloadConfig reload;
@@ -143,6 +192,10 @@ HostReloadConfig host_reload_config_from_app_config(const AppConfig& config)
     reload.selection_max_cells = config.terminal.selection_max_cells;
     reload.copy_on_select = config.terminal.copy_on_select;
     reload.paste_confirm_lines = config.terminal.paste_confirm_lines;
+    reload.url_detection = config.terminal.url_detection;
+    reload.enable_osc8_hyperlinks = config.terminal.enable_osc8_hyperlinks;
+    reload.enable_shell_integration_marks = config.terminal.enable_shell_integration_marks;
+    reload.scrollback_lines = config.scrollback_lines;
     return reload;
 }
 
@@ -1067,34 +1120,35 @@ void App::wire_window_callbacks()
     disp_deps.keybindings = &config_.keybindings;
     disp_deps.gui_action_handler = &gui_action_handler_;
     disp_deps.window = window_.get();
-    disp_deps.overlay_host = [this]() -> IHost* {
+    auto router = std::make_unique<CallbackInputRouter>();
+    router->overlay_host_fn = [this]() -> IHost* {
         return (palette_host_ && palette_host_->is_active()) ? palette_host_.get() : nullptr;
     };
     disp_deps.ui_panel = diagnostics_host_ ? &diagnostics_host_->panel() : nullptr;
     disp_deps.host = active_host_manager().host();
-    disp_deps.host_manager = [this]() -> HostManager* { return &active_host_manager(); };
+    router->host_manager_fn = [this]() -> HostManager* { return &active_host_manager(); };
     disp_deps.smooth_scroll = config_.smooth_scroll;
     disp_deps.scroll_speed = config_.scroll_speed;
     disp_deps.pixel_scale = PixelScale::from_window(window_->width_pixels(), window_->width_logical());
     disp_deps.request_frame = [this]() { request_frame(); };
     disp_deps.on_resize = [this](int w, int h) { on_resize(w, h); };
     disp_deps.on_display_scale_changed = [this](float ppi) { on_display_scale_changed(ppi); };
-    disp_deps.hit_test_tab = [this](int px, int py) { return chrome_host_->hit_test_tab(px, py); };
-    disp_deps.tab_bar_height_phys = [this]() { return chrome_host_ ? chrome_host_->tab_bar_height() : 0; };
-    disp_deps.cell_size_phys = [this]() {
+    router->hit_test_tab_fn = [this](int px, int py) { return chrome_host_ ? chrome_host_->hit_test_tab(px, py) : 0; };
+    router->tab_bar_height_phys_fn = [this]() { return chrome_host_ ? chrome_host_->tab_bar_height() : 0; };
+    router->cell_size_phys_fn = [this]() {
         return renderer_.grid() ? renderer_.grid()->cell_size_pixels() : std::pair<int, int>{ 0, 0 };
     };
-    disp_deps.activate_tab = [this](int index) {
+    router->activate_tab_fn = [this](int index) {
         activate_workspace_by_index(index);
         input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
-    disp_deps.activate_pane = [this](int index) {
+    router->activate_pane_fn = [this](int index) {
         activate_pane_by_index(index);
         input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
-    disp_deps.begin_tab_rename = [this](int tab_index) {
+    router->begin_tab_rename_fn = [this](int tab_index) {
         // Activate the tab before editing so the user always edits the
         // visually-active workspace.
         activate_workspace_by_index(tab_index);
@@ -1104,25 +1158,27 @@ void App::wire_window_callbacks()
     };
     // Reports any active rename session (tab OR pane) so the dispatcher's
     // click-outside-commit and key-routing logic apply uniformly to both.
-    disp_deps.is_editing_tab = [this]() { return chrome_host_ && chrome_host_->is_editing(); };
-    disp_deps.hit_test_pane_pill = [this](int px, int py) -> LeafId {
+    router->is_editing_fn = [this]() { return chrome_host_ && chrome_host_->is_editing(); };
+    router->hit_test_pane_pill_fn = [this](int px, int py) -> LeafId {
         return chrome_host_ ? chrome_host_->hit_test_pane_status_pill(px, py) : kInvalidLeaf;
     };
-    disp_deps.begin_pane_rename = [this](LeafId leaf) {
+    router->begin_pane_rename_fn = [this](LeafId leaf) {
         if (chrome_host_)
             chrome_host_->begin_pane_rename(leaf);
         request_frame();
     };
-    disp_deps.rename_text_input = [this](const std::string& text) {
+    router->rename_text_input_fn = [this](const std::string& text) {
         return chrome_host_ && chrome_host_->on_rename_text_input(text);
     };
-    disp_deps.rename_key = [this](int keycode) {
+    router->rename_key_fn = [this](int keycode) {
         return chrome_host_ && chrome_host_->on_rename_key(keycode);
     };
-    disp_deps.commit_tab_rename = [this]() {
+    router->commit_rename_fn = [this]() {
         if (chrome_host_)
             chrome_host_->commit_tab_rename();
     };
+    input_router_ = std::move(router);
+    disp_deps.router = input_router_.get();
     input_dispatcher_ = InputDispatcher(std::move(disp_deps));
     input_dispatcher_.set_chord_indicator_fade_ms(config_.chord_indicator_fade_ms);
     input_dispatcher_.connect(*window_);
@@ -1192,183 +1248,43 @@ std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay
 std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)
 {
     PERF_MEASURE();
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
     last_render_test_error_.clear();
 
-    if (!renderer_.capture())
-    {
-        last_render_test_error_ = "Renderer does not support frame capture";
+    RenderTestDriverEnv env;
+    env.pump_once = [this](std::optional<std::chrono::steady_clock::time_point> wait_deadline) {
+        return pump_once(wait_deadline);
+    };
+    env.request_frame = [this]() { request_frame(); };
+    env.is_running = [this]() { return running_; };
+    env.saw_frame = [this]() { return saw_frame_; };
+    env.frame_requested = [this]() { return frame_requested_; };
+    env.active_host_state = [this]() -> std::optional<HostRuntimeState> {
+        if (auto* host = active_host_manager().host())
+            return host->runtime_state();
         return std::nullopt;
-    }
+    };
+    env.capture = [this]() { return renderer_.capture(); };
+    env.enable_diagnostics_panel = [this]() {
+        diagnostics_host_->set_visible(true);
+        refresh_window_layout();
+        const int tab_y = chrome_host_->tab_bar_height();
+        recompute_all_viewports(0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
+        update_diagnostics_panel();
+        request_frame();
+    };
+    env.diagnostics_panel_render_time = [this]() -> std::optional<std::chrono::steady_clock::time_point> {
+        if (!diagnostics_host_)
+            return std::nullopt;
+        return diagnostics_host_->last_render_time();
+    };
 
-    // When show_diagnostics_in_render_test is false we skip the diagnostics
-    // phase entirely and jump straight to settling for capture once content is
-    // ready. When true, the diagnostics panel is enabled after the initial
-    // settle and we wait for an additional settle before capturing.
-    const bool want_diagnostics = options_.show_diagnostics_in_render_test;
-
-    RenderTestContext ctx;
-    // If diagnostics are not wanted, we still need to eventually capture. The
-    // flow is: WaitingForContent -> SettlingForCapture -> Capturing.
-    // If diagnostics ARE wanted: WaitingForContent -> SettlingContent ->
-    // EnablingDiagnostics -> SettlingForCapture -> Capturing.
-
-    while (running_ && std::chrono::steady_clock::now() < deadline)
-    {
-        // Compute a tight wait_deadline so pump_once wakes when the current
-        // settle window expires rather than sleeping until the outer deadline.
-        auto wait_deadline = deadline;
-        if (ctx.phase == RenderTestPhase::kSettlingContent
-            || ctx.phase == RenderTestPhase::kEnablingDiagnostics
-            || ctx.phase == RenderTestPhase::kSettlingForCapture)
-        {
-            wait_deadline = std::min(wait_deadline, ctx.settle_start + settle);
-        }
-
-        pump_once(wait_deadline);
-
-        // Check for a completed capture before anything else — if the GPU
-        // readback finished we are done regardless of phase.
-        if (auto captured = renderer_.capture()->take_captured_frame())
-            return captured;
-
-        if (!active_host_manager().host())
-            continue;
-
-        const HostRuntimeState host_state = active_host_manager().host()->runtime_state();
-        const auto now = std::chrono::steady_clock::now();
-        const bool content_ready = host_state.content_ready && saw_frame_;
-        const bool content_quiet = content_ready && !frame_requested_;
-
-        switch (ctx.phase)
-        {
-        case RenderTestPhase::kWaitingForContent:
-        {
-            if (content_ready)
-            {
-                ctx.settle_start = now;
-                ctx.phase = RenderTestPhase::kSettlingContent;
-            }
-            break;
-        }
-
-        case RenderTestPhase::kSettlingContent:
-        {
-            if (!content_ready)
-            {
-                // Content lost — go back and wait again.
-                ctx.phase = RenderTestPhase::kWaitingForContent;
-                break;
-            }
-            if (now - ctx.settle_start >= settle)
-            {
-                if (want_diagnostics)
-                {
-                    // Enable the diagnostics panel and wait for it to render.
-                    diagnostics_host_->set_visible(true);
-                    refresh_window_layout();
-                    {
-                        const int tab_y = chrome_host_->tab_bar_height();
-                        recompute_all_viewports(
-                            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
-                    }
-                    update_diagnostics_panel();
-                    request_frame();
-                    ctx.diagnostics_enabled_at = now;
-                    ctx.settle_start = now;
-                    ctx.phase = RenderTestPhase::kEnablingDiagnostics;
-                }
-                else
-                {
-                    // No diagnostics — go straight to settling for capture.
-                    // Reset settle_start since we need to observe quiet from now.
-                    if (content_quiet)
-                        ctx.settle_start = now;
-                    ctx.phase = RenderTestPhase::kSettlingForCapture;
-                }
-            }
-            break;
-        }
-
-        case RenderTestPhase::kEnablingDiagnostics:
-        {
-            // Wait for the diagnostics panel to actually render (panel frame
-            // time must advance past the enable timestamp) AND for the settle
-            // period to elapse.
-            const bool panel_rendered = diagnostics_host_ && diagnostics_host_->last_render_time()
-                && *diagnostics_host_->last_render_time() > *ctx.diagnostics_enabled_at;
-            if (panel_rendered && now - ctx.settle_start >= settle)
-            {
-                // Diagnostics panel is stable — request capture.
-                renderer_.capture()->request_frame_capture();
-                request_frame();
-                ctx.phase = RenderTestPhase::kCapturing;
-            }
-            break;
-        }
-
-        case RenderTestPhase::kSettlingForCapture:
-        {
-            // In the non-diagnostics path we need content to be "quiet"
-            // (ready + no pending frames) for the settle period.
-            if (!content_quiet)
-            {
-                // Not quiet -- reset so the settle timer restarts when quiet resumes.
-                ctx.quiet_observed = false;
-                break;
-            }
-            if (!ctx.quiet_observed)
-            {
-                // First iteration where content is quiet -- start the settle timer.
-                ctx.quiet_observed = true;
-                ctx.settle_start = now;
-                break;
-            }
-            if (now - ctx.settle_start >= settle)
-            {
-                renderer_.capture()->request_frame_capture();
-                request_frame();
-                ctx.phase = RenderTestPhase::kCapturing;
-            }
-            break;
-        }
-
-        case RenderTestPhase::kCapturing:
-            // Waiting for take_captured_frame() at the top of the loop.
-            break;
-        }
-    }
-
-    // Timeout — build a diagnostic error message.
-    if (active_host_manager().host())
-    {
-        const HostRuntimeState host_state = active_host_manager().host()->runtime_state();
-        const bool post_diagnostics_frame = ctx.diagnostics_enabled_at
-            && diagnostics_host_ && diagnostics_host_->last_render_time()
-            && *diagnostics_host_->last_render_time() > *ctx.diagnostics_enabled_at;
-        const auto diagnostics_age_ms = ctx.diagnostics_enabled_at
-            ? std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::steady_clock::now() - *ctx.diagnostics_enabled_at)
-                  .count()
-            : -1;
-        std::ostringstream oss;
-        oss << "Timed out waiting for a stable render capture"
-            << " (phase=" << render_test_phase_name(ctx.phase)
-            << ", content_ready=" << (host_state.content_ready ? "true" : "false")
-            << ", saw_frame=" << (saw_frame_ ? "true" : "false")
-            << ", frame_requested=" << (frame_requested_ ? "true" : "false")
-            << ", diagnostics_enabled=" << (ctx.diagnostics_enabled_at.has_value() ? "true" : "false")
-            << ", capture_requested="
-            << (ctx.phase == RenderTestPhase::kCapturing ? "true" : "false")
-            << ", post_diagnostics_frame=" << (post_diagnostics_frame ? "true" : "false")
-            << ", diagnostics_age_ms=" << diagnostics_age_ms << ")";
-        last_render_test_error_ = oss.str();
-    }
-    else
-    {
-        last_render_test_error_ = "Timed out waiting for a stable render capture (no host)";
-    }
-    return std::nullopt;
+    RenderTestDriverOptions driver_options;
+    driver_options.timeout = timeout;
+    driver_options.settle = settle;
+    driver_options.want_diagnostics = options_.show_diagnostics_in_render_test;
+    auto result = run_render_test_driver(env, driver_options);
+    last_render_test_error_ = std::move(result.error);
+    return std::move(result.frame);
 }
 
 bool App::close_dead_panes()

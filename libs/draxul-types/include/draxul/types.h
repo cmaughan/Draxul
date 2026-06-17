@@ -59,7 +59,8 @@ enum class MouseCursor
 {
     Default,
     ResizeLeftRight, // EW resize for vertical splits
-    ResizeUpDown // NS resize for horizontal splits
+    ResizeUpDown, // NS resize for horizontal splits
+    Pointer
 };
 
 struct CursorStyle
@@ -79,6 +80,7 @@ inline constexpr uint32_t STYLE_FLAG_UNDERLINE = 1u << 2;
 inline constexpr uint32_t STYLE_FLAG_STRIKETHROUGH = 1u << 3;
 inline constexpr uint32_t STYLE_FLAG_UNDERCURL = 1u << 4;
 inline constexpr uint32_t STYLE_FLAG_COLOR_GLYPH = 1u << 5;
+inline constexpr uint32_t STYLE_FLAG_HYPERLINK = 1u << 6;
 
 struct CellUpdate
 {
