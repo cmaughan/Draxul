@@ -64,6 +64,7 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-renderer
     draxul-font
     draxul-config
+    draxul-citymodel
     draxul-treesitter
     draxul-citydb
     draxul-gui

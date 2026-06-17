@@ -8,5 +8,6 @@
 
 add_subdirectory(draxul-geometry)
 add_subdirectory(draxul-treesitter)
+add_subdirectory(draxul-citymodel)
 add_subdirectory(draxul-citydb)
 add_subdirectory(draxul-megacity)

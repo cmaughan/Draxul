@@ -10,6 +10,7 @@ target_include_directories(draxul-citydb
 )
 
 target_link_libraries(draxul-citydb PUBLIC
+    draxul-citymodel
     draxul-treesitter
     draxul-types
     sqlite3_lib

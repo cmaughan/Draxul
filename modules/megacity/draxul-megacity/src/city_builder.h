@@ -1,5 +1,6 @@
 #pragma once
 
+#include <draxul/city_semantic_source.h>
 #include <draxul/geometry_mesh.h>
 
 #include "semantic_city_layout.h"
@@ -17,7 +18,6 @@ struct LiveCityMetricsSnapshot;
 struct SemanticMegacityModel;
 struct SemanticMegacityLayout;
 struct SignLabelAtlas;
-class ICitySemanticSource;
 class SceneWorld;
 class TextService;
 

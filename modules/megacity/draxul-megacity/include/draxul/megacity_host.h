@@ -69,6 +69,8 @@ public:
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;
 
+    void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
+
     void attach_imgui_host(IImGuiHost& host) override;
     void set_imgui_font(const std::string& path, float size_pixels) override;
 
@@ -99,7 +101,6 @@ private:
     void retire_grid_thread();
     void join_finished_grid_threads();
     void join_all_grid_threads();
-    void launch_grid_build(const SemanticMegacityLayout& layout, const SemanticMegacityModel& model);
     void refresh_sign_text_service();
     void sync_camera_state_to_configs();
     void reset_camera_to_default_frame();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "city_semantic_source.h"
+#include <draxul/city_semantic_source.h>
 
 #include <filesystem>
 #include <string>
