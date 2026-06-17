@@ -46,7 +46,7 @@
 ## Interdependencies
 
 - No upstream blockers; self-contained.
-- Icebox: configurable-scrollback-capacity (34) — independent; can be done in any order.
+- Existing configurable scrollback capacity should remain unchanged by search.
 
 ---
 

@@ -41,6 +41,5 @@ See item 20
 |--------|-------|
 | 19 | `guicursor-full-support`, `per-monitor-dpi-font-scaling` |
 | 22 | `agent-scripts-deduplication-refactor` *(url-detection duplicate removed)* |
-| 34 | `background-transparency`, `configurable-scrollback-capacity` |
 
 These will be renumbered when the items are promoted to active `work-items/`.

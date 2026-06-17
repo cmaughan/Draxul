@@ -39,7 +39,6 @@ Characterise and verify the glyph cache's behaviour when the 2048×2048 atlas fi
 ## Interdependencies
 
 - WI 109 (atlas-upload-dedup, active) should land before or alongside this — the test will be cleaner once upload ownership is unified.
-- WI 108 icebox (atlas-dirty-multi-subsystem) is a related test covering the dirty-tracking path.
 - WI 27 (atlas-dynamic-growth feature) depends on this test characterising the failure mode first.
 
 ---

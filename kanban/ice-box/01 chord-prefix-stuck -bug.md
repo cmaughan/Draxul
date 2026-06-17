@@ -1,43 +1,30 @@
-# 01 chord-prefix-stuck -bug
+# 01 chord-prefix-release-cancel -bug
 
-**Priority:** HIGH
-**Type:** Bug (UX, input handling)
-**Raised by:** Claude
-**Model:** claude-sonnet-4-6
+**Priority:** Medium
+**Type:** Bug / UX polish
 
----
+## Current State
 
-## Problem
+Chord prefix mode no longer stays armed forever: `InputDispatcher::update()` times out a pending prefix, and `tests/input_dispatcher_routing_tests.cpp` covers the timeout and indicator fade behavior.
 
-`InputDispatcher` has a chord-prefix mode: pressing the configured prefix key sets a flag, and the next key-down is interpreted as a chord action. However, if the user presses the prefix key and releases it without pressing a chord key (accidental activation, or UI focus lost between events), the dispatcher remains permanently in prefix mode. The next unrelated key-down is silently consumed as a (likely mismatched) chord lookup rather than passed through to Neovim. The code has a comment acknowledging this but leaves it unresolved.
+What remains is a narrower UX issue. Releasing the prefix key without pressing a chord key does not immediately cancel prefix mode; the dispatcher waits for the timeout. That is safe, but it can surprise users who tap the prefix accidentally and then type before the timeout expires.
 
----
+## Goal
 
-## Fix Plan
+Cancel a pending chord immediately when the same physical prefix key is released and no chord key has been pressed.
 
-- [ ] Read `libs/draxul-nvim/src/input_dispatcher.cpp` (or wherever chord prefix state lives) and understand the current state machine.
-- [ ] Identify the key-release handler path (or the absence of one).
-- [ ] Add a handler for the prefix key's `SDL_KEYUP` event that resets `prefix_active = false`.
-  - Guard: only reset on the *same* key that activated the prefix, not any key-up.
-  - Alternative: if the prefix is a modifier (Ctrl, Alt), reset on any key-up if the modifier is no longer held.
-- [ ] Ensure the fix does not break normal chord sequences where the prefix key is held while the chord key is pressed.
-- [ ] Build and run smoke test.
+## Tasks
 
----
+- [ ] Read `app/input_dispatcher.cpp` around the chord state machine and key-release path.
+- [ ] Track the key/modifier combination that armed the current prefix.
+- [ ] On key release, cancel prefix mode only when the released key matches the active prefix key.
+- [ ] Keep modifier-only intermediate keys from breaking valid chords.
+- [ ] Preserve existing timeout behavior as a fallback for missed key-up events or focus loss.
+- [ ] Add a focused test in `tests/input_dispatcher_routing_tests.cpp`.
 
-## Acceptance
+## Acceptance Criteria
 
-- Pressing the prefix key and releasing without a chord key leaves the dispatcher in normal (non-prefix) state.
-- Normal chord sequences (prefix down → chord key down → prefix up) still work.
-- No key events are swallowed in non-prefix mode.
-
----
-
-## Interdependencies
-
-- `06-test` (InputDispatcher prefix-stuck test) — the test covers this fix and should be written in the same pass or immediately after.
-- No upstream blockers.
-
----
-
-*claude-sonnet-4-6*
+- Tapping and releasing the prefix key cancels prefix mode immediately.
+- Prefix down -> chord key down still fires the chord action.
+- Prefix down -> modifier-only key events still allow a modified chord key.
+- Existing chord timeout and fade tests continue to pass.

@@ -1,34 +1,29 @@
-# 56 Live Config Reload
+# 56 Auto Config Reload
 
-## Why This Exists
+## Current State
 
-Currently, any change to `config.toml` — font family, font size, ligatures, keybindings — requires a full Draxul restart to take effect. This makes font and keybinding iteration slow and annoying. All three reviewers note this as a quality-of-life gap.
+Manual config reload is implemented. The `reload_config` action rereads `config.toml` and applies terminal font settings, Markdown font/margins, keybindings, scroll settings, ligatures, palette alpha, and host reload settings without restarting Draxul.
 
-Identified by: **Claude** (QoL #2), implied by **GPT** (config GUI), **Gemini** (config GUI).
+The remaining quality-of-life gap is automatic reload when the config file changes on disk.
 
 ## Goal
 
-Watch `config.toml` for filesystem changes and reload relevant config fields at runtime without requiring a restart. Font-affecting changes (family, size) trigger the font-size cascade (atlas reset, grid dirty, nvim resize). Keybinding changes reload the action map. Ligature changes reload the ligature enable flag.
+Watch the active user config file and call the existing `App::reload_config()` path after changes settle.
 
 ## Implementation Plan
 
-- [ ] Read `app/app_config.h` and `app/app_config.cpp` for the `AppConfig` structure and load path.
-- [ ] Read `app/app.cpp` for `change_font_size`, `dispatch_gui_action`, and ligature enable paths.
-- [ ] Choose a filesystem watcher strategy:
-  - Option A: Poll `config.toml` mtime on each frame (simple, no dependency).
-  - Option B: Use SDL's file watch events if available.
-  - Option C: Add `efsw` or similar via FetchContent.
-  - **Recommended**: Option A (poll on every 60th frame / ~1 second) to avoid a new dependency.
-- [ ] Add a `ConfigWatcher` helper that checks mtime and calls a callback on change.
-- [ ] In `App::run()`, after draining the nvim queue, call `config_watcher_.check()`.
-- [ ] On change: reload `AppConfig`, diff against current config, apply changed fields:
-  - Font family/size changed → `change_font_size()` equivalent + `reload_font()`.
-  - Ligatures changed → update the ligature enable flag.
-  - Keybindings changed → rebuild the action map.
-- [ ] Log a message on successful reload.
-- [ ] Add a test for `ConfigWatcher` using a temp file.
-- [ ] Run `ctest` and `clang-format`.
+- [ ] Confirm the active config path used by `AppOptions` and startup config loading.
+- [ ] Add a small `ConfigWatcher` helper that polls file `mtime` periodically; avoid adding a new dependency.
+- [ ] Debounce rapid saves so an editor writing through a temporary file does not trigger multiple reloads.
+- [ ] Wire the watcher into the app loop only when user config loading is enabled.
+- [ ] On change, call the existing `App::reload_config()` rather than duplicating config diff/apply logic.
+- [ ] Surface reload success/failure via log and, if appropriate, a toast.
+- [ ] Add unit tests for the watcher using a temp file.
+- [ ] Add an app smoke test proving an on-disk config change is picked up without invoking the `reload_config` action.
 
-## Sub-Agent Split
+## Acceptance Criteria
 
-Single agent. `ConfigWatcher` is self-contained; the App wiring is a few lines.
+- Editing the active `config.toml` applies through the same behavior as `reload_config`.
+- Multiple fast writes produce at most one reload after the debounce window.
+- Invalid config leaves the previous runtime config intact and reports the failure.
+- Manual `reload_config` continues to work.

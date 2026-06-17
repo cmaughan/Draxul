@@ -53,7 +53,7 @@ When the 2048×2048 glyph atlas fills up, allocate a second atlas page rather th
 
 - **Requires WI 17 (atlas exhaustion test)** to characterise the failure before implementing the fix.
 - WI 109 (atlas-upload-dedup, active) should land first to simplify the dirty-tracking extension.
-- WI 108 icebox (atlas-dirty-multi-subsystem test) should be updated alongside this.
+- Existing multi-host atlas dirty coverage should be revisited after dynamic growth lands.
 
 ---
 

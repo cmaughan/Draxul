@@ -11,7 +11,7 @@
 
 `ChromeHost` computes tab-bar pixel geometry (tab widths, positions, hit-test regions) from cell widths and DPI scale. This math is not tested across resize and DPI change events. Regressions in tab hit-testing or pane pill positioning can silently break mouse interaction after a DPI change or window resize.
 
-This is distinct from WI 20 (chromehost-utf8-layout), which focuses on whether tab label *content* is correct. This WI focuses on whether tab *geometry* (bounding boxes, click regions) is self-consistent before and after dynamic events.
+This WI focuses on whether tab geometry (bounding boxes, click regions) is self-consistent before and after dynamic events.
 
 ---
 
