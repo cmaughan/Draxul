@@ -338,3 +338,14 @@ TEST_CASE("keybinding parser: right-only modifier bits are normalized", "[keybin
     shift_evt.pressed = true;
     CHECK(gui_keybinding_matches(shift_binding, shift_evt));
 }
+
+TEST_CASE("keybinding parser: Return bindings also match keypad Enter", "[keybinding][parser]")
+{
+    GuiKeybinding binding{ "toggle_copy_mode", SDLK_S, kModCtrl, SDLK_RETURN, kModNone };
+
+    KeyEvent evt{};
+    evt.keycode = SDLK_KP_ENTER;
+    evt.mod = kModNone;
+    evt.pressed = true;
+    CHECK(gui_keybinding_matches(binding, evt));
+}

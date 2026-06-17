@@ -753,6 +753,20 @@ TEST_CASE("chord: modifier-only keys during prefix do not cancel chord state",
     REQUIRE(setup.host.key_events.empty());
 }
 
+TEST_CASE("chord: Return binding also fires on keypad Enter",
+    "[input_dispatcher][chord]")
+{
+    E2ESetup setup({
+        { "toggle_copy_mode", SDLK_S, kModCtrl, SDLK_RETURN, kModNone },
+    });
+
+    setup.window.on_key(KeyEvent{ 0, SDLK_S, kModCtrl, true });
+    setup.window.on_key(KeyEvent{ 0, SDLK_KP_ENTER, kModNone, true });
+
+    REQUIRE(setup.host.dispatched_actions == std::vector<std::string>{ "toggle_copy_mode" });
+    REQUIRE(setup.host.key_events.empty());
+}
+
 TEST_CASE("chord: state is cleared after a successful chord — next chord-key alone is inert",
     "[input_dispatcher][chord]")
 {

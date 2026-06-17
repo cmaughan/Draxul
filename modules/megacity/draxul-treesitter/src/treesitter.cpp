@@ -77,7 +77,7 @@ bool should_skip_path(const std::filesystem::path& rel)
         const auto s = part.string();
         if (!s.empty() && s[0] == '.')
             return true;
-        if (s == "build" || s == "_deps" || s == "CMakeFiles")
+        if (s == "build" || s == "_deps" || s == "CMakeFiles" || s == "vcpkg")
             return true;
     }
     return false;

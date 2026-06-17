@@ -52,6 +52,18 @@ bool equals_ignore_case(std::string_view lhs, std::string_view rhs)
     return true;
 }
 
+bool keycodes_match_for_binding(int32_t binding_key, int32_t event_key)
+{
+    if (binding_key == event_key)
+        return true;
+
+    const bool binding_is_return = binding_key == static_cast<int32_t>(SDLK_RETURN)
+        || binding_key == static_cast<int32_t>(SDLK_KP_ENTER);
+    const bool event_is_return = event_key == static_cast<int32_t>(SDLK_RETURN)
+        || event_key == static_cast<int32_t>(SDLK_KP_ENTER);
+    return binding_is_return && event_is_return;
+}
+
 std::vector<std::string_view> split_key_combo(std::string_view combo)
 {
     PERF_MEASURE();
@@ -230,7 +242,8 @@ bool gui_keybinding_matches(const GuiKeybinding& binding, const KeyEvent& event)
     ModifierFlags expected_modifiers = normalize_gui_modifiers(binding.modifiers);
     ModifierFlags event_modifiers = normalize_gui_modifiers(event.mod);
 
-    if (event.keycode == binding.key && event_modifiers == expected_modifiers)
+    if (keycodes_match_for_binding(binding.key, event.keycode)
+        && event_modifiers == expected_modifiers)
         return true;
 
     // Preserve the historical Ctrl+= / Ctrl+Plus zoom-in behavior with a single canonical binding.

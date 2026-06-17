@@ -322,6 +322,47 @@ TEST_CASE("tree-sitter captures inline methods defined inside class body", "[tre
     std::filesystem::remove_all(temp_root);
 }
 
+TEST_CASE("tree-sitter snapshot skips vcpkg directories by default", "[treesitter]")
+{
+    const auto temp_root
+        = std::filesystem::temp_directory_path() / "draxul-treesitter-skip-vcpkg";
+    std::filesystem::remove_all(temp_root);
+    std::filesystem::create_directories(temp_root / "src");
+    std::filesystem::create_directories(temp_root / "vcpkg");
+    std::filesystem::create_directories(temp_root / "third_party" / "vcpkg");
+
+    {
+        std::ofstream out(temp_root / "src" / "kept.h");
+        REQUIRE(out.is_open());
+        out << "class Kept {};\n";
+    }
+    {
+        std::ofstream out(temp_root / "vcpkg" / "ignored.h");
+        REQUIRE(out.is_open());
+        out << "class IgnoredTopLevel {};\n";
+    }
+    {
+        std::ofstream out(temp_root / "third_party" / "vcpkg" / "ignored_nested.h");
+        REQUIRE(out.is_open());
+        out << "class IgnoredNested {};\n";
+    }
+
+    CodebaseScanner scanner;
+    scanner.start(temp_root);
+    const auto snapshot = wait_for_complete_snapshot(scanner);
+    scanner.stop();
+
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+    REQUIRE(snapshot->files.size() == 1);
+    CHECK(snapshot->files[0].path == "src/kept.h");
+
+    const std::vector<std::string> type_names = collect_type_names(snapshot->files[0]);
+    CHECK(type_names == std::vector<std::string>{ "Kept" });
+
+    std::filesystem::remove_all(temp_root);
+}
+
 } // namespace draxul
 
 #endif // DRAXUL_ENABLE_MEGACITY
