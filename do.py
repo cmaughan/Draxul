@@ -5,9 +5,35 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
+
+
+REVIEW_MODES = {
+    "all": "All",
+    "codex": "Codex",
+    "gpt": "Codex",
+    "agy": "Agy",
+    "gemini": "Agy",
+    "claude": "Claude",
+}
+
+CODEX_REVIEW_MODEL = "gpt-5.5"
+CLAUDE_REVIEW_MODEL = "opus"
+
+REVIEW_FAILURE_PATTERNS = (
+    "CreateProcessAsUserW failed: 1312",
+    "Agy produced no stdout",
+    "You are not logged into Antigravity",
+    "failed to get model config",
+    "failed to get load code assist response",
+    "Failed to get OAuth token",
+    "permission denied",
+    "not recognized as",
+)
 
 
 def repo_root() -> pathlib.Path:
@@ -466,6 +492,541 @@ def run(command: list[str], cwd: pathlib.Path, *, env: dict[str, str] | None = N
     return completed.returncode
 
 
+def command_text(command: list[str]) -> str:
+    return " ".join(shlex.quote(str(part)) for part in command)
+
+
+def _unexpected_review_arg(arg: str) -> None:
+    print(f"Unexpected review argument: {arg}\n")
+    print(help_text())
+    raise SystemExit(2)
+
+
+def parse_review_args(args: list[str]) -> SimpleNamespace:
+    review_target = "all"
+    agy_timeout_seconds = 900
+    dry_run = False
+    index = 0
+
+    while index < len(args):
+        arg = args[index]
+        lowered = arg.lower()
+        if lowered in REVIEW_MODES:
+            if review_target != "all":
+                _unexpected_review_arg(arg)
+            review_target = lowered
+            index += 1
+            continue
+        if arg == "--dry-run":
+            dry_run = True
+            index += 1
+            continue
+        if arg in {"--agy-timeout", "--agy-timeout-seconds"}:
+            if index + 1 >= len(args):
+                _unexpected_review_arg(arg)
+            try:
+                agy_timeout_seconds = int(args[index + 1])
+            except ValueError:
+                _unexpected_review_arg(args[index + 1])
+            index += 2
+            continue
+        for prefix in ("--agy-timeout=", "--agy-timeout-seconds="):
+            if arg.startswith(prefix):
+                try:
+                    agy_timeout_seconds = int(arg[len(prefix):])
+                except ValueError:
+                    _unexpected_review_arg(arg)
+                index += 1
+                break
+        else:
+            _unexpected_review_arg(arg)
+
+    if agy_timeout_seconds <= 0:
+        print("agy timeout must be positive\n")
+        print(help_text())
+        raise SystemExit(2)
+
+    return SimpleNamespace(
+        review_target=review_target,
+        agy_timeout_seconds=agy_timeout_seconds,
+        dry_run=dry_run,
+    )
+
+
+def parse_consensus_args(args: list[str]) -> SimpleNamespace:
+    dry_run = False
+    for arg in args:
+        lowered = arg.lower()
+        if arg == "--dry-run":
+            dry_run = True
+            continue
+        if lowered in {"codex", "gpt"}:
+            continue
+        if lowered in {"claude", "gemini", "agy"}:
+            print("Consensus now runs through Codex only. Use `do consensus [--dry-run]`.\n")
+            print(help_text())
+            raise SystemExit(2)
+        _unexpected_review_arg(arg)
+    return SimpleNamespace(dry_run=dry_run)
+
+
+def _consensus_basename_for_prompt(prompt_stem: str) -> str:
+    if prompt_stem == "review":
+        return "review-consensus"
+    if prompt_stem == "review_bugs":
+        return "review-bugs-consensus"
+    return f"{prompt_stem.replace('_', '-')}-consensus"
+
+
+def create_review_plan(
+    root: pathlib.Path,
+    agy_timeout_seconds: int = 900,
+    review_target: str = "all",
+    *,
+    prompt_stem: str = "review",
+    review_basename: str = "review-latest",
+    consensus_basename: str | None = None,
+) -> SimpleNamespace:
+    if agy_timeout_seconds <= 0:
+        raise ValueError("agy_timeout_seconds must be positive")
+
+    normalized_target = review_target.lower()
+    if normalized_target not in REVIEW_MODES:
+        raise ValueError(f"Unsupported review target: {review_target}")
+
+    if consensus_basename is None:
+        consensus_basename = _consensus_basename_for_prompt(prompt_stem)
+
+    reviews_dir = root / "plans" / "reviews"
+    review_prompt_path = root / "plans" / "prompts" / f"{prompt_stem}.md"
+    consensus_prompt_name = "consensus_review.md" if prompt_stem == "review" else f"consensus_{prompt_stem}.md"
+    consensus_prompt_path = root / "plans" / "prompts" / consensus_prompt_name
+    codex_review_path = reviews_dir / f"{review_basename}.gpt.md"
+    gemini_review_path = reviews_dir / f"{review_basename}.gemini.md"
+    claude_review_path = reviews_dir / f"{review_basename}.claude.md"
+    consensus_review_path = reviews_dir / f"{consensus_basename}.md"
+    codex_run_log_path = reviews_dir / f"{review_basename}.gpt.run.log"
+    gemini_run_log_path = reviews_dir / f"{review_basename}.gemini.agy.log"
+    gemini_stdio_log_path = reviews_dir / f"{review_basename}.gemini.stdio.log"
+    claude_run_json_path = reviews_dir / f"{review_basename}.claude.run.json"
+    consensus_codex_message_path = reviews_dir / f"{consensus_basename}.codex-message.md"
+    consensus_run_log_path = reviews_dir / f"{consensus_basename}.codex.run.log"
+    review_script_path = root / "scripts" / "Run-Review.ps1"
+
+    return SimpleNamespace(
+        repo_root=root,
+        reviews_dir=reviews_dir,
+        review_prompt_path=review_prompt_path,
+        consensus_prompt_path=consensus_prompt_path,
+        codex_review_path=codex_review_path,
+        gemini_review_path=gemini_review_path,
+        claude_review_path=claude_review_path,
+        consensus_review_path=consensus_review_path,
+        codex_run_log_path=codex_run_log_path,
+        gemini_run_log_path=gemini_run_log_path,
+        gemini_stdio_log_path=gemini_stdio_log_path,
+        claude_run_json_path=claude_run_json_path,
+        consensus_codex_message_path=consensus_codex_message_path,
+        consensus_run_log_path=consensus_run_log_path,
+        review_script_path=review_script_path,
+        mode=REVIEW_MODES[normalized_target],
+        agy_timeout_seconds=agy_timeout_seconds,
+    )
+
+
+def create_consensus_plan(
+    root: pathlib.Path,
+    *,
+    prompt_stem: str = "review",
+    review_basename: str = "review-latest",
+    consensus_basename: str | None = None,
+) -> SimpleNamespace:
+    plan = create_review_plan(
+        root,
+        prompt_stem=prompt_stem,
+        review_basename=review_basename,
+        consensus_basename=consensus_basename,
+    )
+    plan.mode = "Consensus"
+    return plan
+
+
+def resolve_required_command(command: str, install_hint: str, dry_run: bool = False) -> str:
+    resolved = shutil.which(command)
+    if resolved:
+        return resolved
+    if dry_run:
+        return command
+    raise RuntimeError(f"Could not find {command} on PATH. {install_hint}")
+
+
+def resolve_codex_command(dry_run: bool = False) -> str:
+    if sys.platform.startswith("win"):
+        application = None
+        for candidate in ("codex.cmd", "codex.exe"):
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+        shim = shutil.which("codex")
+        if shim and pathlib.Path(shim).suffix.lower() in {".exe", ".cmd"}:
+            application = shim
+        if application:
+            return application
+        if shim and not dry_run:
+            raise RuntimeError(
+                f"Found {shim}, but review needs codex.cmd or codex.exe to avoid PowerShell stderr shim failures."
+            )
+        if dry_run:
+            return "codex"
+        raise RuntimeError("Could not find codex.cmd or codex.exe on PATH. Install or add the Codex CLI to PATH.")
+    return resolve_required_command("codex", "Install or add the Codex CLI to PATH.", dry_run)
+
+
+def resolve_agy_command(dry_run: bool = False) -> str:
+    resolved = shutil.which("agy")
+    if resolved:
+        return resolved
+
+    if sys.platform.startswith("win"):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        fallback = pathlib.Path(local_app_data) / "agy" / "bin" / "agy.exe" if local_app_data else None
+        if fallback and fallback.exists():
+            return str(fallback)
+        if dry_run:
+            return "agy"
+        fallback_text = str(fallback) if fallback else r"%LOCALAPPDATA%\agy\bin\agy.exe"
+        raise RuntimeError(f"Could not find agy on PATH or at {fallback_text}.")
+
+    if dry_run:
+        return "agy"
+    raise RuntimeError("Could not find agy on PATH.")
+
+
+def run_native_command(
+    command: list[str],
+    cwd: pathlib.Path,
+    *,
+    input_text: str | None = None,
+    log_path: pathlib.Path | None = None,
+    dry_run: bool = False,
+    display_command: list[str] | None = None,
+) -> SimpleNamespace:
+    print("> " + command_text(display_command or command))
+    if dry_run:
+        return SimpleNamespace(returncode=0, stdout="", stderr="", output="", output_lines=[])
+
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    output = stdout + stderr
+
+    if log_path is not None:
+        log_path.write_text(output, encoding="utf-8")
+    if output:
+        print(output, end="" if output.endswith("\n") else "\n")
+
+    return SimpleNamespace(
+        returncode=result.returncode,
+        stdout=stdout,
+        stderr=stderr,
+        output=output,
+        output_lines=output.splitlines(),
+    )
+
+
+def assert_path_exists(path: pathlib.Path, description: str) -> None:
+    if not path.exists():
+        raise RuntimeError(f"{description} not found: {path}")
+
+
+def ensure_review_workspace(plan: SimpleNamespace, dry_run: bool) -> None:
+    if dry_run:
+        return
+
+    plan.reviews_dir.mkdir(parents=True, exist_ok=True)
+    for folder in ("ice-box", "pending", "done"):
+        (plan.repo_root / "kanban" / folder).mkdir(parents=True, exist_ok=True)
+
+
+def assert_meaningful_review(path: pathlib.Path, name: str) -> None:
+    if not path.exists():
+        raise RuntimeError(f"{name} review did not produce {path}")
+
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if not text.strip():
+        raise RuntimeError(f"{name} review output is empty: {path}")
+
+    if len(text.strip()) < 500:
+        raise RuntimeError(f"{name} review output is too short to be a useful review: {path}")
+
+    for pattern in REVIEW_FAILURE_PATTERNS:
+        if pattern in text:
+            raise RuntimeError(f"{name} review output looks like a failure ({pattern}): {path}")
+
+
+def clean_agy_output(output_lines: list[str]) -> list[str]:
+    ignored = {
+        "YOLO mode is enabled. All tool calls will be automatically approved.",
+        "Loaded cached credentials.",
+    }
+    return [line for line in output_lines if line and line.strip() not in ignored]
+
+
+def review_prompt_with_instruction(prompt_path: pathlib.Path, instruction: str) -> str:
+    review_prompt = prompt_path.read_text(encoding="utf-8")
+    return f"{review_prompt}\n\n{instruction}\n"
+
+
+def reset_review_output(path: pathlib.Path, dry_run: bool) -> None:
+    if not dry_run and path.exists():
+        path.unlink()
+
+
+def run_codex_review(plan: SimpleNamespace, dry_run: bool) -> None:
+    print("Running Codex review...")
+    codex_command = resolve_codex_command(dry_run)
+    prompt = review_prompt_with_instruction(
+        plan.review_prompt_path,
+        "Host instruction: perform review only. Do not edit repository files. Return the full review as markdown.",
+    )
+    command = [
+        codex_command,
+        "exec",
+        "--skip-git-repo-check",
+        "-C",
+        str(plan.repo_root),
+        "--model",
+        CODEX_REVIEW_MODEL,
+        "--sandbox",
+        "danger-full-access",
+        "-o",
+        str(plan.codex_review_path),
+        "-",
+    ]
+    result = run_native_command(command, plan.repo_root, input_text=prompt, log_path=plan.codex_run_log_path, dry_run=dry_run)
+    if dry_run:
+        return
+    if result.returncode != 0:
+        raise RuntimeError(f"Codex review failed with exit code {result.returncode}. See {plan.codex_run_log_path}")
+    assert_meaningful_review(plan.codex_review_path, "Codex")
+
+
+def run_gemini_review(plan: SimpleNamespace, dry_run: bool) -> None:
+    print("Running Gemini review through agy...")
+    agy_command = resolve_agy_command(dry_run)
+    reset_review_output(plan.gemini_run_log_path, dry_run)
+    reset_review_output(plan.gemini_stdio_log_path, dry_run)
+    reset_review_output(plan.gemini_review_path, dry_run)
+
+    prompt = review_prompt_with_instruction(
+        plan.review_prompt_path,
+        "\n".join(
+            [
+                "Host instruction: perform review only. Write the complete review to this exact file path:",
+                str(plan.gemini_review_path),
+                "",
+                "Also print the same markdown to stdout. Do not modify any other repository files.",
+            ]
+        ),
+    )
+    command = [
+        agy_command,
+        "--log-file",
+        str(plan.gemini_run_log_path),
+        "--print",
+        prompt,
+        "--print-timeout",
+        f"{plan.agy_timeout_seconds}s",
+        "--dangerously-skip-permissions",
+    ]
+    display_command = [
+        agy_command,
+        "--log-file",
+        str(plan.gemini_run_log_path),
+        "--print",
+        "<review prompt>",
+        "--print-timeout",
+        f"{plan.agy_timeout_seconds}s",
+        "--dangerously-skip-permissions",
+    ]
+    result = run_native_command(
+        command,
+        plan.repo_root,
+        log_path=plan.gemini_stdio_log_path,
+        dry_run=dry_run,
+        display_command=display_command,
+    )
+    if dry_run:
+        return
+
+    if result.returncode != 0:
+        output_text = result.output.strip()
+        failure_text = f"""# Gemini review failed
+
+Agy exited with code {result.returncode}.
+
+Stdio log: {plan.gemini_stdio_log_path}
+Agy log: {plan.gemini_run_log_path}
+
+Output:
+
+{output_text}
+"""
+        plan.gemini_review_path.write_text(failure_text, encoding="utf-8")
+        raise RuntimeError(f"Gemini review failed with exit code {result.returncode}. See {plan.gemini_review_path}")
+
+    if plan.gemini_review_path.exists():
+        try:
+            assert_meaningful_review(plan.gemini_review_path, "Gemini")
+            return
+        except RuntimeError as error:
+            print(f"Agy wrote {plan.gemini_review_path}, but it did not validate: {error}")
+
+    clean_output = clean_agy_output(result.output_lines)
+    if not clean_output:
+        log_text = plan.gemini_run_log_path.read_text(encoding="utf-8", errors="ignore") if plan.gemini_run_log_path.exists() else ""
+        log_lines = log_text.splitlines()
+        log_tail = "\n".join(log_lines[-80:]) if log_lines else "<no agy log was written>"
+        failure_text = f"""# Gemini review failed
+
+Agy produced no stdout.
+
+Stdio log: {plan.gemini_stdio_log_path}
+Agy log: {plan.gemini_run_log_path}
+
+Log tail:
+
+{log_tail}
+"""
+        plan.gemini_review_path.write_text(failure_text, encoding="utf-8")
+        raise RuntimeError(f"Gemini review failed because agy produced no stdout. See {plan.gemini_review_path}")
+
+    plan.gemini_review_path.write_text("\n".join(clean_output) + "\n", encoding="utf-8")
+    assert_meaningful_review(plan.gemini_review_path, "Gemini")
+
+
+def find_claude_plan_path(text: str) -> pathlib.Path | None:
+    patterns = (
+        r"[A-Za-z]:\\[^\r\n\"`]*?\\.claude\\plans\\[^\r\n\"`]+?\.md",
+        r"/[^\r\n\"`]*?\.claude/plans/[^\r\n\"`]+?\.md",
+        r"~[^\r\n\"`]*?\.claude/plans/[^\r\n\"`]+?\.md",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            path = pathlib.Path(match.group(0)).expanduser()
+            if path.exists():
+                return path
+    return None
+
+
+def run_claude_review(plan: SimpleNamespace, dry_run: bool) -> None:
+    print("Running Claude review...")
+    claude_command = resolve_required_command("claude", "Install or add the Claude CLI to PATH.", dry_run)
+    prompt = review_prompt_with_instruction(
+        plan.review_prompt_path,
+        "Host instruction: perform review only. Do not edit repository files. Return the full review as markdown in your final result.",
+    )
+    command = [
+        claude_command,
+        "-p",
+        "--model",
+        CLAUDE_REVIEW_MODEL,
+        "--output-format",
+        "json",
+        "--permission-mode",
+        "bypassPermissions",
+        "--allowedTools",
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+    ]
+    result = run_native_command(command, plan.repo_root, input_text=prompt, dry_run=dry_run)
+    if dry_run:
+        return
+
+    plan.claude_run_json_path.write_text(result.stdout, encoding="utf-8")
+    if result.returncode != 0:
+        raise RuntimeError(f"Claude review failed with exit code {result.returncode}. See {plan.claude_run_json_path}")
+
+    try:
+        claude_json = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Claude review returned invalid JSON. See {plan.claude_run_json_path}") from error
+
+    claude_result = str(claude_json.get("result", ""))
+    claude_plan_path = find_claude_plan_path(claude_result)
+    if claude_plan_path is not None:
+        shutil.copy2(claude_plan_path, plan.claude_review_path)
+    else:
+        plan.claude_review_path.write_text(claude_result, encoding="utf-8")
+
+    assert_meaningful_review(plan.claude_review_path, "Claude")
+
+
+def run_consensus_review(plan: SimpleNamespace, dry_run: bool) -> None:
+    print("Running consensus review...")
+    codex_command = resolve_codex_command(dry_run)
+    consensus_prompt = plan.consensus_prompt_path.read_text(encoding="utf-8")
+    command = [
+        codex_command,
+        "exec",
+        "--skip-git-repo-check",
+        "-C",
+        str(plan.repo_root),
+        "--model",
+        CODEX_REVIEW_MODEL,
+        "--sandbox",
+        "danger-full-access",
+        "-o",
+        str(plan.consensus_codex_message_path),
+        "-",
+    ]
+    result = run_native_command(command, plan.repo_root, input_text=consensus_prompt, log_path=plan.consensus_run_log_path, dry_run=dry_run)
+    if dry_run:
+        return
+    if result.returncode != 0:
+        raise RuntimeError(f"Consensus review failed with exit code {result.returncode}. See {plan.consensus_run_log_path}")
+    assert_meaningful_review(plan.consensus_review_path, "Consensus")
+
+
+def run_review(plan: SimpleNamespace, dry_run: bool) -> int:
+    try:
+        assert_path_exists(plan.review_prompt_path, "Review prompt")
+        assert_path_exists(plan.consensus_prompt_path, "Consensus prompt")
+        ensure_review_workspace(plan, dry_run)
+
+        if plan.mode == "All":
+            run_codex_review(plan, dry_run)
+            run_gemini_review(plan, dry_run)
+            run_claude_review(plan, dry_run)
+            print("All reviews succeeded; running consensus...")
+            run_consensus_review(plan, dry_run)
+        elif plan.mode == "Codex":
+            run_codex_review(plan, dry_run)
+        elif plan.mode == "Agy":
+            run_gemini_review(plan, dry_run)
+        elif plan.mode == "Claude":
+            run_claude_review(plan, dry_run)
+        elif plan.mode == "Consensus":
+            run_consensus_review(plan, dry_run)
+        else:
+            raise RuntimeError(f"Unsupported review mode: {plan.mode}")
+    except RuntimeError as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    return 0
+
+
 def build_shortcut_exe(root: pathlib.Path) -> tuple[int, pathlib.Path | None, dict[str, str] | None]:
     """Build the app for smoke/render shortcuts using the current default pipeline."""
     rc, bd, config, env = _configure_and_build(root, "debug", False, "ninja")
@@ -504,18 +1065,18 @@ Single-word shortcuts:
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
   docs         Build all docs artifacts
-  review       Run AI code review (Codex + Claude; Gemini added on macOS), then
-               synthesise a consensus — all in one shot
-  review-bugs  Run bug-focused AI review (Codex + Claude; Gemini on macOS), then
-               synthesise a bug triage consensus — all in one shot
+  review [all|codex|agy|gemini|claude] [--agy-timeout seconds] [--dry-run]
+               Run AI code review with the native Codex/Claude/Agy flow
+  review-bugs [all|codex|agy|gemini|claude] [--agy-timeout seconds] [--dry-run]
+               Run bug-focused AI review with the native Codex/Claude/Agy flow
   review-codex Run only the Codex reviewer
   review-gemini  Run only the Gemini reviewer
   review-claude  Run only the Claude reviewer
   review-gpt     Alias for review-codex
-  consensus [codex|claude|gemini|gpt]
-               Run consensus synthesis on the latest reviews (default: codex)
-  consensus-bugs [codex|claude|gemini|gpt]
-               Run bug triage consensus on the latest bug reviews (default: codex)
+  consensus [--dry-run]
+               Run consensus synthesis on the latest reviews through Codex
+  consensus-bugs [--dry-run]
+               Run bug triage consensus on the latest bug reviews through Codex
   coverage     macOS: build with LLVM coverage, export build/coverage.lcov, copy to db/coverage.lcov
   syncboard    Sync work-items and icebox to the GitHub project board
 
@@ -579,97 +1140,48 @@ def main() -> int:
         return run([sys.executable, str(root / "scripts" / "build_docs.py")], root)
 
     if command == "review":
-        rc = run([sys.executable, str(root / "scripts" / "do_review.py"), *args[1:]], root)
-        if rc != 0:
-            return rc
-        prompt_file = root / "plans" / "prompts" / "consensus_review.md"
-        output_file = root / "plans" / "reviews" / "review-consensus.md"
-        return run([
-            sys.executable,
-            str(root / "scripts" / "ask_agent_gpt.py"),
-            "--prompt-file", str(prompt_file),
-            "--output-file", str(output_file),
-        ], root)
+        parsed = parse_review_args(args[1:])
+        plan = create_review_plan(root, parsed.agy_timeout_seconds, parsed.review_target)
+        return run_review(plan, parsed.dry_run)
 
     if command == "review-bugs":
-        rc = run([sys.executable, str(root / "scripts" / "do_review_bugs.py"), *args[1:]], root)
-        if rc != 0:
-            return rc
-        prompt_file = root / "plans" / "prompts" / "consensus_review_bugs.md"
-        output_file = root / "plans" / "reviews" / "review-bugs-consensus.md"
-        return run([
-            sys.executable,
-            str(root / "scripts" / "ask_agent_gpt.py"),
-            "--prompt-file", str(prompt_file),
-            "--output-file", str(output_file),
-        ], root)
+        parsed = parse_review_args(args[1:])
+        plan = create_review_plan(
+            root,
+            parsed.agy_timeout_seconds,
+            parsed.review_target,
+            prompt_stem="review_bugs",
+            review_basename="review-bugs-latest",
+            consensus_basename="review-bugs-consensus",
+        )
+        return run_review(plan, parsed.dry_run)
 
     if command in {"review-gemini", "review-claude", "review-gpt", "review-codex"}:
-        agent = command.split("-", 1)[1]
-        script_map = {
-            "gemini": ("ask_agent_gemini.py", "review-latest.gemini.md", ["--full-auto"]),
-            "claude": ("ask_agent_claude.py", "review-latest.claude.md", ["--full-auto"]),
-            "codex":  ("ask_agent_gpt.py",    "review-latest.gpt.md",    ["--review-safe"]),
-            "gpt":    ("ask_agent_gpt.py",    "review-latest.gpt.md",    ["--review-safe"]),
-        }
-        script_name, output_name, extra_flags = script_map[agent]
-        prompt_file = root / "plans" / "prompts" / "review.md"
-        output_file = root / "plans" / "reviews" / output_name
-        cmd = [
-            sys.executable,
-            str(root / "scripts" / script_name),
-            "--prompt-file", str(prompt_file),
-            "--output-file", str(output_file),
-            *extra_flags,
-            *args[1:],
-        ]
-        return run(cmd, root)
+        agent = command.split("-", 1)[1].lower()
+        review_target = {
+            "gemini": "gemini",
+            "claude": "claude",
+            "codex": "codex",
+            "gpt": "gpt",
+        }[agent]
+        parsed = parse_review_args([review_target, *args[1:]])
+        plan = create_review_plan(root, parsed.agy_timeout_seconds, parsed.review_target)
+        return run_review(plan, parsed.dry_run)
 
     if command == "consensus":
-        agent_scripts = {
-            "codex": "ask_agent_gpt.py",
-            "claude": "ask_agent_claude.py",
-            "gpt": "ask_agent_gpt.py",
-            "gemini": "ask_agent_gemini.py",
-        }
-        extra = args[1:]
-        agent = "codex"
-        if extra and extra[0] in agent_scripts:
-            agent = extra[0]
-            extra = extra[1:]
-        prompt_file = root / "plans" / "prompts" / "consensus_review.md"
-        output_file = root / "plans" / "reviews" / "review-consensus.md"
-        cmd = [
-            sys.executable,
-            str(root / "scripts" / agent_scripts[agent]),
-            "--prompt-file", str(prompt_file),
-            "--output-file", str(output_file),
-            *extra,
-        ]
-        return run(cmd, root)
+        parsed = parse_consensus_args(args[1:])
+        plan = create_consensus_plan(root)
+        return run_review(plan, parsed.dry_run)
 
     if command == "consensus-bugs":
-        agent_scripts = {
-            "codex": "ask_agent_gpt.py",
-            "claude": "ask_agent_claude.py",
-            "gpt": "ask_agent_gpt.py",
-            "gemini": "ask_agent_gemini.py",
-        }
-        extra = args[1:]
-        agent = "codex"
-        if extra and extra[0] in agent_scripts:
-            agent = extra[0]
-            extra = extra[1:]
-        prompt_file = root / "plans" / "prompts" / "consensus_review_bugs.md"
-        output_file = root / "plans" / "reviews" / "review-bugs-consensus.md"
-        cmd = [
-            sys.executable,
-            str(root / "scripts" / agent_scripts[agent]),
-            "--prompt-file", str(prompt_file),
-            "--output-file", str(output_file),
-            *extra,
-        ]
-        return run(cmd, root)
+        parsed = parse_consensus_args(args[1:])
+        plan = create_consensus_plan(
+            root,
+            prompt_stem="review_bugs",
+            review_basename="review-bugs-latest",
+            consensus_basename="review-bugs-consensus",
+        )
+        return run_review(plan, parsed.dry_run)
 
     if command == "coverage":
         if not sys.platform.startswith("darwin"):

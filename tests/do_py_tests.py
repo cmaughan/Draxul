@@ -76,5 +76,54 @@ class MegacityConfigMergeTests(unittest.TestCase):
         )
 
 
+class ReviewArgumentParsingTests(unittest.TestCase):
+    def test_review_defaults_to_all_with_default_timeout(self) -> None:
+        parsed = draxul_do.parse_review_args([])
+
+        self.assertEqual("all", parsed.review_target)
+        self.assertEqual(900, parsed.agy_timeout_seconds)
+        self.assertFalse(parsed.dry_run)
+
+    def test_review_accepts_target_timeout_and_dry_run(self) -> None:
+        parsed = draxul_do.parse_review_args(["gemini", "--agy-timeout", "1200", "--dry-run"])
+
+        self.assertEqual("gemini", parsed.review_target)
+        self.assertEqual(1200, parsed.agy_timeout_seconds)
+        self.assertTrue(parsed.dry_run)
+
+    def test_review_rejects_non_positive_timeout(self) -> None:
+        with self.assertRaises(SystemExit):
+            draxul_do.parse_review_args(["--agy-timeout", "0"])
+
+
+class ReviewPlanTests(unittest.TestCase):
+    def test_default_review_plan_preserves_draxul_review_filenames(self) -> None:
+        plan = draxul_do.create_review_plan(ROOT)
+
+        self.assertEqual("All", plan.mode)
+        self.assertEqual(ROOT / "plans" / "prompts" / "review.md", plan.review_prompt_path)
+        self.assertEqual(ROOT / "plans" / "prompts" / "consensus_review.md", plan.consensus_prompt_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-latest.gpt.md", plan.codex_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-latest.gemini.md", plan.gemini_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-latest.claude.md", plan.claude_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-consensus.md", plan.consensus_review_path)
+
+    def test_bug_review_plan_uses_bug_prompt_and_outputs(self) -> None:
+        plan = draxul_do.create_review_plan(ROOT, prompt_stem="review_bugs", review_basename="review-bugs-latest")
+
+        self.assertEqual(ROOT / "plans" / "prompts" / "review_bugs.md", plan.review_prompt_path)
+        self.assertEqual(ROOT / "plans" / "prompts" / "consensus_review_bugs.md", plan.consensus_prompt_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-bugs-latest.gpt.md", plan.codex_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-bugs-latest.gemini.md", plan.gemini_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-bugs-latest.claude.md", plan.claude_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-bugs-consensus.md", plan.consensus_review_path)
+
+    def test_consensus_plan_sets_consensus_mode(self) -> None:
+        plan = draxul_do.create_consensus_plan(ROOT, prompt_stem="review_bugs", review_basename="review-bugs-latest")
+
+        self.assertEqual("Consensus", plan.mode)
+        self.assertEqual(ROOT / "plans" / "prompts" / "consensus_review_bugs.md", plan.consensus_prompt_path)
+
+
 if __name__ == "__main__":
     unittest.main()
