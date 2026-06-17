@@ -2,7 +2,7 @@
 
 #include "scene_components.h"
 
-#include <draxul/citydb.h>
+#include <draxul/city_semantic_records.h>
 #include <draxul/megacity_code_config.h>
 
 #include <array>

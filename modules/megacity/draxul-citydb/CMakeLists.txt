@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 add_library(draxul-citydb STATIC
+    src/city_database_semantic_source.cpp
     src/citydb.cpp
 )
 

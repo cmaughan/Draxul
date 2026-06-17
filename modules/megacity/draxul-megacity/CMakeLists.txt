@@ -4,7 +4,6 @@ if(APPLE)
     set(MEGACITY_SOURCES
         src/building_tooltip.cpp
         src/city_builder.cpp
-        src/city_semantic_source.cpp
         src/graphify_semantic_source.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
@@ -28,7 +27,6 @@ else()
     set(MEGACITY_SOURCES
         src/building_tooltip.cpp
         src/city_builder.cpp
-        src/city_semantic_source.cpp
         src/graphify_semantic_source.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
@@ -66,7 +64,6 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-config
     draxul-citymodel
     draxul-treesitter
-    draxul-citydb
     draxul-gui
     imgui
     EnTT::EnTT

@@ -29,7 +29,7 @@ target_link_libraries(draxul-tests PRIVATE
     Catch2::Catch2
 )
 if(DRAXUL_ENABLE_MEGACITY)
-    target_link_libraries(draxul-tests PRIVATE draxul-geometry draxul-megacity)
+    target_link_libraries(draxul-tests PRIVATE draxul-geometry draxul-megacity draxul-citydb)
 endif()
 target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"

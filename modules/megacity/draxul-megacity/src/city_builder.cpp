@@ -1,6 +1,5 @@
 #include "city_builder.h"
 #include "city_helpers.h"
-#include "city_semantic_source.h"
 #include "live_city_metrics.h"
 #include "scene_world.h"
 #include "semantic_city_layout.h"
@@ -10,7 +9,6 @@
 #include <cmath>
 #include <cstdint>
 #include <draxul/building_generator.h>
-#include <draxul/citydb.h>
 #include <draxul/log.h>
 #include <draxul/megacity_code_config.h>
 #include <draxul/perf_timing.h>

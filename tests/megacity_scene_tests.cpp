@@ -5,7 +5,6 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_picking.h"
-#include "city_semantic_source.h"
 #include "isometric_camera.h"
 #include "isometric_scene_pass.h"
 #include "live_city_metrics.h"
@@ -22,6 +21,7 @@
 #include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/building_generator.h>
+#include <draxul/city_database_semantic_source.h>
 #include <draxul/config_document.h>
 #include <draxul/imgui_host.h>
 #define private public
