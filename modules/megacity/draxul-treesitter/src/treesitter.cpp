@@ -524,15 +524,18 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
             break;
 
         const auto& entry = *it;
-        if (!entry.is_regular_file())
-            continue;
-
         const auto rel = entry.path().lexically_relative(root);
         if (should_skip_path(rel))
         {
-            it.disable_recursion_pending();
+            std::error_code dir_ec;
+            if (entry.is_directory(dir_ec))
+                it.disable_recursion_pending();
             continue;
         }
+
+        std::error_code file_ec;
+        if (!entry.is_regular_file(file_ec))
+            continue;
 
         if (!is_cpp_source(entry.path()))
             continue;

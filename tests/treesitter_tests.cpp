@@ -322,14 +322,24 @@ TEST_CASE("tree-sitter captures inline methods defined inside class body", "[tre
     std::filesystem::remove_all(temp_root);
 }
 
-TEST_CASE("tree-sitter snapshot skips vcpkg directories by default", "[treesitter]")
+TEST_CASE("tree-sitter snapshot skips generated and dependency directories by default", "[treesitter]")
 {
     const auto temp_root
         = std::filesystem::temp_directory_path() / "draxul-treesitter-skip-vcpkg";
     std::filesystem::remove_all(temp_root);
     std::filesystem::create_directories(temp_root / "src");
+    std::filesystem::create_directories(temp_root / "build" / "generated");
+    std::filesystem::create_directories(temp_root / "_deps" / "generated");
+    std::filesystem::create_directories(temp_root / "CMakeFiles" / "generated");
     std::filesystem::create_directories(temp_root / "vcpkg");
     std::filesystem::create_directories(temp_root / "third_party" / "vcpkg");
+    std::filesystem::create_directories(temp_root / ".cache");
+    const auto skipped_relative_link_parent = temp_root / ".cache" / "vcpkg" / "buildtrees"
+        / "sdl2" / "src" / "sdl.clean" / "android-project-ant";
+    std::filesystem::create_directories(skipped_relative_link_parent);
+    const auto skipped_file_style_relative_link_parent = temp_root / ".cache" / "vcpkg" / "buildtrees"
+        / "sdl2" / "src" / "sdl.clean" / "android-project-ant-file-style";
+    std::filesystem::create_directories(skipped_file_style_relative_link_parent);
 
     {
         std::ofstream out(temp_root / "src" / "kept.h");
@@ -346,6 +356,56 @@ TEST_CASE("tree-sitter snapshot skips vcpkg directories by default", "[treesitte
         REQUIRE(out.is_open());
         out << "class IgnoredNested {};\n";
     }
+    {
+        std::ofstream out(temp_root / "build" / "generated" / "ignored_build.h");
+        REQUIRE(out.is_open());
+        out << "class IgnoredBuild {};\n";
+    }
+    {
+        std::ofstream out(temp_root / "_deps" / "generated" / "ignored_deps.h");
+        REQUIRE(out.is_open());
+        out << "class IgnoredDeps {};\n";
+    }
+    {
+        std::ofstream out(temp_root / "CMakeFiles" / "generated" / "ignored_cmake.h");
+        REQUIRE(out.is_open());
+        out << "class IgnoredCMakeFiles {};\n";
+    }
+
+    std::error_code file_symlink_ec;
+    std::filesystem::create_symlink(
+        temp_root / "missing_target.h",
+        temp_root / "dangling_file.h",
+        file_symlink_ec);
+
+    std::error_code dir_symlink_ec;
+    std::filesystem::create_directory_symlink(
+        temp_root / "missing_dir",
+        temp_root / "dangling_dir.h",
+        dir_symlink_ec);
+
+    std::error_code skipped_symlink_ec;
+    std::filesystem::create_symlink(
+        temp_root / ".cache" / "missing_target.h",
+        temp_root / ".cache" / "dangling_source.h",
+        skipped_symlink_ec);
+
+    std::error_code skipped_relative_dir_symlink_ec;
+    std::filesystem::create_directory_symlink(
+        std::filesystem::path("..") / "android-project" / "app" / "src" / "main" / "java",
+        skipped_relative_link_parent / "src",
+        skipped_relative_dir_symlink_ec);
+
+    std::error_code skipped_file_style_relative_symlink_ec;
+    std::filesystem::create_symlink(
+        std::filesystem::path("..") / "android-project" / "app" / "src" / "main" / "java",
+        skipped_file_style_relative_link_parent / "src",
+        skipped_file_style_relative_symlink_ec);
+
+    const bool symlink_creation_unavailable = file_symlink_ec && dir_symlink_ec
+        && skipped_symlink_ec && skipped_relative_dir_symlink_ec && skipped_file_style_relative_symlink_ec;
+    if (symlink_creation_unavailable)
+        INFO("Dangling symlink coverage skipped because this platform did not allow symlink creation.");
 
     CodebaseScanner scanner;
     scanner.start(temp_root);
