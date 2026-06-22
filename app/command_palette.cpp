@@ -4,6 +4,7 @@
 #include "gui_action_handler.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cctype>
 #include <draxul/app_config.h>
 #include <draxul/events.h>
 #include <draxul/host_kind.h>
@@ -12,6 +13,24 @@
 
 namespace draxul
 {
+
+namespace
+{
+
+std::string trim_copy(std::string_view value)
+{
+    size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])))
+        ++begin;
+
+    size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])))
+        --end;
+
+    return std::string(value.substr(begin, end - begin));
+}
+
+} // namespace
 
 CommandPalette::CommandPalette() = default;
 
@@ -22,9 +41,10 @@ CommandPalette::CommandPalette(Deps deps)
 
 void CommandPalette::open()
 {
-    if (open_)
-        return;
     open_ = true;
+    mode_ = Mode::Actions;
+    prompt_ = PromptRequest{};
+    prompt_message_.clear();
     query_.clear();
     selected_index_ = 0;
 
@@ -82,6 +102,21 @@ void CommandPalette::open()
         deps_.request_frame();
 }
 
+void CommandPalette::open_prompt(PromptRequest request)
+{
+    open_ = true;
+    mode_ = Mode::Prompt;
+    prompt_ = std::move(request);
+    query_ = prompt_.initial_value;
+    prompt_message_.clear();
+    selected_index_ = -1;
+    filtered_.clear();
+    all_actions_.clear();
+
+    if (deps_.request_frame)
+        deps_.request_frame();
+}
+
 void CommandPalette::close()
 {
     if (!open_)
@@ -111,14 +146,44 @@ bool CommandPalette::on_key(const KeyEvent& event)
 
     if (event.keycode == SDLK_ESCAPE)
     {
-        close();
+        if (mode_ == Mode::Prompt)
+            cancel_prompt();
+        else
+            close();
         return true;
     }
     if (event.keycode == SDLK_RETURN || event.keycode == SDLK_KP_ENTER)
     {
-        execute_selected();
+        if (mode_ == Mode::Prompt)
+            submit_prompt();
+        else
+            execute_selected();
         return true;
     }
+    if (event.keycode == SDLK_BACKSPACE)
+    {
+        const bool had_message = !prompt_message_.empty();
+        if (!query_.empty())
+        {
+            query_.pop_back();
+            prompt_message_.clear();
+            if (mode_ == Mode::Actions)
+                refilter();
+            if (deps_.request_frame)
+                deps_.request_frame();
+        }
+        else if (had_message)
+        {
+            prompt_message_.clear();
+            if (deps_.request_frame)
+                deps_.request_frame();
+        }
+        return true;
+    }
+
+    if (mode_ == Mode::Prompt)
+        return true;
+
     if ((ctrl && event.keycode == SDLK_J) || event.keycode == SDLK_DOWN)
     {
         move_selection(1);
@@ -127,17 +192,6 @@ bool CommandPalette::on_key(const KeyEvent& event)
     if ((ctrl && event.keycode == SDLK_K) || event.keycode == SDLK_UP)
     {
         move_selection(-1);
-        return true;
-    }
-    if (event.keycode == SDLK_BACKSPACE)
-    {
-        if (!query_.empty())
-        {
-            query_.pop_back();
-            refilter();
-            if (deps_.request_frame)
-                deps_.request_frame();
-        }
         return true;
     }
     // Tab: autocomplete query to selected entry name.
@@ -169,7 +223,9 @@ bool CommandPalette::on_text_input(const TextInputEvent& event)
         return false;
 
     query_ += event.text;
-    refilter();
+    prompt_message_.clear();
+    if (mode_ == Mode::Actions)
+        refilter();
     if (deps_.request_frame)
         deps_.request_frame();
     return true;
@@ -239,6 +295,31 @@ void CommandPalette::execute_selected()
     }
 }
 
+void CommandPalette::submit_prompt()
+{
+    std::string value = trim_copy(query_);
+    if (value.empty())
+    {
+        prompt_message_ = "Enter a session name";
+        if (deps_.request_frame)
+            deps_.request_frame();
+        return;
+    }
+
+    auto callback = std::move(prompt_.on_submit);
+    close();
+    if (callback)
+        callback(std::move(value));
+}
+
+void CommandPalette::cancel_prompt()
+{
+    auto callback = std::move(prompt_.on_cancel);
+    close();
+    if (callback)
+        callback();
+}
+
 void CommandPalette::move_selection(int delta)
 {
     if (filtered_.empty())
@@ -271,21 +352,28 @@ gui::PaletteViewState CommandPalette::view_state(int grid_cols, int grid_rows, f
 {
     // Build PaletteEntry views from filtered entries.
     view_entries_.clear();
-    view_entries_.reserve(filtered_.size());
-    for (const auto& f : filtered_)
+    if (mode_ == Mode::Actions)
     {
-        view_entries_.push_back({
-            f.action_name,
-            f.shortcut_hint,
-            f.match_positions,
-        });
+        view_entries_.reserve(filtered_.size());
+        for (const auto& f : filtered_)
+        {
+            view_entries_.push_back({
+                f.action_name,
+                f.shortcut_hint,
+                f.match_positions,
+            });
+        }
     }
 
     gui::PaletteViewState vs;
+    vs.mode = mode_ == Mode::Prompt ? gui::PaletteMode::Prompt : gui::PaletteMode::Actions;
     vs.grid_cols = grid_cols;
     vs.grid_rows = grid_rows;
+    vs.title = prompt_.title;
+    vs.prompt = prompt_.prompt;
     vs.query = query_;
-    vs.selected_index = selected_index_;
+    vs.message = prompt_message_;
+    vs.selected_index = mode_ == Mode::Prompt ? -1 : selected_index_;
     vs.entries = view_entries_;
     vs.panel_bg_alpha = panel_bg_alpha;
     return vs;

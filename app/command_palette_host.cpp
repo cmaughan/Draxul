@@ -127,6 +127,36 @@ void CommandPaletteHost::on_text_input(const TextInputEvent& event)
     palette_.on_text_input(event);
 }
 
+bool CommandPaletteHost::ensure_palette_handle()
+{
+    if (handle_)
+        return true;
+    if (!renderer_)
+        return false;
+
+    handle_ = renderer_->create_grid_handle();
+    if (!handle_)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            "CommandPaletteHost: create_grid_handle() returned null, cannot open palette");
+        return false;
+    }
+    handle_->set_viewport(palette_pane_descriptor());
+    return true;
+}
+
+bool CommandPaletteHost::open_prompt(CommandPalette::PromptRequest request)
+{
+    if (!ensure_palette_handle())
+        return false;
+
+    palette_.open_prompt(std::move(request));
+    refresh_open_palette();
+    if (callbacks_)
+        callbacks_->request_frame();
+    return true;
+}
+
 bool CommandPaletteHost::dispatch_action(std::string_view action)
 {
     if (action == "toggle")
@@ -137,14 +167,8 @@ bool CommandPaletteHost::dispatch_action(std::string_view action)
         }
         else
         {
-            handle_ = renderer_->create_grid_handle();
-            if (!handle_)
-            {
-                DRAXUL_LOG_ERROR(LogCategory::App,
-                    "CommandPaletteHost: create_grid_handle() returned null, cannot open palette");
+            if (!ensure_palette_handle())
                 return true;
-            }
-            handle_->set_viewport(palette_pane_descriptor());
             palette_.open();
             refresh_open_palette();
         }

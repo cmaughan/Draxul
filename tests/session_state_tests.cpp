@@ -1,3 +1,4 @@
+#include "session_id.h"
 #include "session_state.h"
 #include "split_tree.h"
 #include "support/home_dir_redirect.h"
@@ -5,8 +6,63 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <cctype>
+
 using namespace draxul;
 using namespace draxul::tests;
+
+TEST_CASE("session id: slug normalizes display names", "[session_id]")
+{
+    CHECK(make_session_id_slug(" Work Bench!! ") == "work-bench");
+    CHECK(make_session_id_slug("...") == "session");
+    CHECK(make_session_id_slug("Alpha/Beta_Gamma") == "alpha-beta-gamma");
+}
+
+TEST_CASE("session id: timestamp uses sortable local time format", "[session_id]")
+{
+    const std::string stamp = format_session_id_timestamp(0);
+
+    REQUIRE(stamp.size() == 15);
+    CHECK(stamp[8] == '-');
+    for (size_t i = 0; i < stamp.size(); ++i)
+    {
+        if (i == 8)
+            continue;
+        CHECK(std::isdigit(static_cast<unsigned char>(stamp[i])));
+    }
+}
+
+TEST_CASE("session id: candidate suffixes start at the unsuffixed base", "[session_id]")
+{
+    const std::string base = "work-bench-20260102-030405";
+
+    CHECK(make_session_id_candidate(base, 1) == base);
+    CHECK(make_session_id_candidate(base, 2) == base + "-2");
+    CHECK(make_session_id_candidate(base, 9) == base + "-9");
+}
+
+TEST_CASE("session id: generated unique ids skip saved state collisions", "[session_id]")
+{
+    TempDir temp_dir("session-id-unique");
+    HomeDirRedirect redirect(temp_dir.path);
+
+    const int64_t fixed_time = 0;
+    const std::string base = make_session_id_base("Work Bench", fixed_time);
+
+    AppSessionState state;
+    state.session_id = base;
+    state.session_name = "Work Bench";
+    state.active_workspace_id = 1;
+    state.next_workspace_id = 2;
+
+    std::string error;
+    REQUIRE(save_session_state(state, &error));
+    REQUIRE(error.empty());
+
+    auto generated = make_unique_session_id("Work Bench", fixed_time);
+    REQUIRE(generated);
+    CHECK(*generated == base + "-2");
+}
 
 TEST_CASE("session state: save/load round-trip preserves workspace topology", "[session_state]")
 {

@@ -13,6 +13,8 @@
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
 
+#include "session_state.h"
+
 #include <SDL3/SDL.h>
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
@@ -677,6 +679,45 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     CHECK(pane_b->last_config().font_size == Catch::Approx(16.0f));
     CHECK(pane_a->last_config().enable_ligatures == false);
     CHECK(pane_b->last_config().enable_ligatures == false);
+
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: save_session_as persists a named session and switches active session id",
+    "[app_smoke][session]")
+{
+    TempDir temp("draxul-save-session-as");
+    HomeDirRedirect redir(temp.path);
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_session_restore = true;
+    opts.session_id = "default";
+    opts.session_name = "default";
+    opts.host_kind = HostKind::PowerShell;
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+
+    auto saved = app.save_session_as("Work Bench");
+    if (!saved)
+        INFO(saved.error().message);
+    REQUIRE(saved);
+    const std::string new_id = *saved;
+    REQUIRE(new_id.rfind("work-bench-", 0) == 0);
+
+    auto saved_state = load_session_state(new_id);
+    REQUIRE(saved_state);
+    CHECK(saved_state->session_id == new_id);
+    CHECK(saved_state->session_name == "Work Bench");
+
+    if (auto old_metadata = load_session_runtime_metadata("default"))
+        CHECK_FALSE(old_metadata->live);
+
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
+
+    saved_state = load_session_state(new_id);
+    REQUIRE(saved_state);
+    CHECK(saved_state->session_name == "Work Bench");
 
     app.shutdown();
 }

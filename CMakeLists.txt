@@ -217,6 +217,7 @@ add_library(draxul-app
     app/input_dispatcher.cpp
     app/host_manager.cpp
     app/render_tree.cpp
+    app/session_id.cpp
     app/session_state.cpp
     app/split_tree.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}

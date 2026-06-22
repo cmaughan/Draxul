@@ -301,6 +301,23 @@ TEST_CASE("gui action handler: reload_config invokes on_reload_config", "[config
     REQUIRE(reload_count == 1);
 }
 
+TEST_CASE("gui action handler: save_session_as invokes callback", "[gui_actions]")
+{
+    TextService ts;
+    AppConfig config;
+    GuiActionHandler::Deps deps;
+    deps.text_service = &ts;
+    deps.config = &config;
+    int save_as_count = 0;
+    deps.on_save_session_as = [&save_as_count]() { ++save_as_count; };
+    GuiActionHandler handler(std::move(deps));
+
+    const bool handled = handler.execute("save_session_as");
+
+    REQUIRE(handled);
+    CHECK(save_as_count == 1);
+}
+
 // ---------------------------------------------------------------------------
 // Registry parity (WI 67 / WI 71)
 // ---------------------------------------------------------------------------

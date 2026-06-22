@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <draxul/text_service.h>
 #include <string>
+#include <string_view>
 
 namespace draxul::gui
 {
@@ -111,96 +112,142 @@ std::vector<CellUpdate> render_palette(
     const int pad = kPanelPadding;
     const int content_cols = layout.cols - pad * 2;
 
-    // Entry rows.
-    const int entry_count = static_cast<int>(state.entries.size());
-    const int shown = std::min(entry_count - layout.scroll_offset, layout.visible_entries);
-    for (int i = 0; i < shown; ++i)
-    {
-        const int entry_idx = layout.scroll_offset + i;
-        const auto& entry = state.entries[static_cast<size_t>(entry_idx)];
-        const int local_row = i;
-        const bool selected = (entry_idx == state.selected_index);
-        const Color row_bg = selected ? kSelectedBg : panel_bg;
-
-        // Fill entire row with row background (handles selected highlight).
-        // Also update the block glyph fg to match so it stays invisible.
-        for (int c = 0; c < layout.cols; ++c)
+    auto write_text = [&](int local_col, int local_row, std::string_view text, Color fg, int max_cols) {
+        const int len = std::min(static_cast<int>(text.size()), std::max(0, max_cols));
+        for (int i = 0; i < len; ++i)
         {
-            auto& cell = at(c, local_row);
-            cell.bg = row_bg;
-            cell.fg = row_bg;
-        }
-
-        // Entry name with fuzzy-match highlighting.
-        const int name_len = std::min(static_cast<int>(entry.name.size()), content_cols);
-        for (int ci = 0; ci < name_len; ++ci)
-        {
-            const std::string cluster(1, entry.name[static_cast<size_t>(ci)]);
-            auto& cell = at(pad + ci, local_row);
+            const std::string cluster(1, text[static_cast<size_t>(i)]);
+            auto& cell = at(local_col + i, local_row);
             cell.glyph = text_service.resolve_cluster(cluster);
-            cell.fg = is_match_position(entry.match_positions, static_cast<size_t>(ci))
-                ? kHighlightFg
-                : kTextFg;
+            cell.fg = fg;
         }
+        return len;
+    };
 
-        // Right-aligned shortcut hint.
-        if (!entry.shortcut_hint.empty())
-        {
-            const int hint_len = static_cast<int>(entry.shortcut_hint.size());
-            const int hint_local_col = layout.cols - pad - hint_len;
-            if (hint_local_col > pad + name_len + 1)
-            {
-                for (int ci = 0; ci < hint_len; ++ci)
-                {
-                    const std::string cluster(1, entry.shortcut_hint[static_cast<size_t>(ci)]);
-                    auto& cell = at(hint_local_col + ci, local_row);
-                    cell.glyph = text_service.resolve_cluster(cluster);
-                    cell.fg = kHintFg;
-                }
-            }
-        }
-    }
-
-    // Separator row.
-    const int sep_local_row = layout.rows - 2;
+    if (state.mode == PaletteMode::Prompt)
     {
-        const std::string dash_cluster("\xe2\x94\x80"); // U+2500 BOX DRAWINGS LIGHT HORIZONTAL
-        AtlasRegion dash_glyph = text_service.resolve_cluster(dash_cluster);
-        for (int c = 0; c < layout.cols; ++c)
-        {
-            auto& cell = at(c, sep_local_row);
-            cell.glyph = dash_glyph;
-            cell.fg = kSeparatorFg;
-        }
-    }
+        const std::string_view title = state.title.empty() ? std::string_view("Prompt") : state.title;
+        write_text(pad, 0, title, kTextFg, content_cols);
 
-    // Input line: "> " + query + cursor.
-    const int input_local_row = layout.rows - 1;
-    {
-        // Prompt ">"
-        auto& prompt = at(pad, input_local_row);
-        prompt.glyph = text_service.resolve_cluster(std::string(">"));
-        prompt.fg = kPromptFg;
-
-        // Query text.
-        const int query_col0 = pad + 2;
-        const int query_max = content_cols - 3;
-        const int query_len = std::min(static_cast<int>(state.query.size()), query_max);
-        for (int i = 0; i < query_len; ++i)
+        const int input_local_row = layout.rows > 2 ? 2 : layout.rows - 1;
+        int query_col0 = pad;
+        if (!state.prompt.empty())
         {
-            const std::string cluster(1, state.query[static_cast<size_t>(i)]);
-            auto& cell = at(query_col0 + i, input_local_row);
-            cell.glyph = text_service.resolve_cluster(cluster);
-            cell.fg = kTextFg;
+            std::string prompt_label(state.prompt);
+            prompt_label += ": ";
+            query_col0 += write_text(query_col0, input_local_row, prompt_label, kPromptFg,
+                layout.cols - pad - query_col0);
         }
 
-        // Block cursor after query text.
+        const int query_max = layout.cols - pad - query_col0;
+        const int query_len = write_text(query_col0, input_local_row, state.query, kTextFg, query_max);
         const int cursor_local_col = query_col0 + query_len;
         if (cursor_local_col < layout.cols - pad)
         {
             auto& cell = at(cursor_local_col, input_local_row);
             cell.bg = kCursorBg;
-            cell.fg = kCursorBg; // Match bg so block glyph is invisible
+            cell.fg = kCursorBg;
+        }
+
+        const int message_local_row = input_local_row + 1;
+        if (!state.message.empty() && message_local_row < layout.rows)
+        {
+            write_text(pad, message_local_row, state.message, kHighlightFg, content_cols);
+        }
+    }
+    else
+    {
+        // Entry rows.
+        const int entry_count = static_cast<int>(state.entries.size());
+        const int shown = std::min(entry_count - layout.scroll_offset, layout.visible_entries);
+        for (int i = 0; i < shown; ++i)
+        {
+            const int entry_idx = layout.scroll_offset + i;
+            const auto& entry = state.entries[static_cast<size_t>(entry_idx)];
+            const int local_row = i;
+            const bool selected = (entry_idx == state.selected_index);
+            const Color row_bg = selected ? kSelectedBg : panel_bg;
+
+            // Fill entire row with row background (handles selected highlight).
+            // Also update the block glyph fg to match so it stays invisible.
+            for (int c = 0; c < layout.cols; ++c)
+            {
+                auto& cell = at(c, local_row);
+                cell.bg = row_bg;
+                cell.fg = row_bg;
+            }
+
+            // Entry name with fuzzy-match highlighting.
+            const int name_len = std::min(static_cast<int>(entry.name.size()), content_cols);
+            for (int ci = 0; ci < name_len; ++ci)
+            {
+                const std::string cluster(1, entry.name[static_cast<size_t>(ci)]);
+                auto& cell = at(pad + ci, local_row);
+                cell.glyph = text_service.resolve_cluster(cluster);
+                cell.fg = is_match_position(entry.match_positions, static_cast<size_t>(ci))
+                    ? kHighlightFg
+                    : kTextFg;
+            }
+
+            // Right-aligned shortcut hint.
+            if (!entry.shortcut_hint.empty())
+            {
+                const int hint_len = static_cast<int>(entry.shortcut_hint.size());
+                const int hint_local_col = layout.cols - pad - hint_len;
+                if (hint_local_col > pad + name_len + 1)
+                {
+                    for (int ci = 0; ci < hint_len; ++ci)
+                    {
+                        const std::string cluster(1, entry.shortcut_hint[static_cast<size_t>(ci)]);
+                        auto& cell = at(hint_local_col + ci, local_row);
+                        cell.glyph = text_service.resolve_cluster(cluster);
+                        cell.fg = kHintFg;
+                    }
+                }
+            }
+        }
+
+        // Separator row.
+        const int sep_local_row = layout.rows - 2;
+        {
+            const std::string dash_cluster("\xe2\x94\x80"); // U+2500 BOX DRAWINGS LIGHT HORIZONTAL
+            AtlasRegion dash_glyph = text_service.resolve_cluster(dash_cluster);
+            for (int c = 0; c < layout.cols; ++c)
+            {
+                auto& cell = at(c, sep_local_row);
+                cell.glyph = dash_glyph;
+                cell.fg = kSeparatorFg;
+            }
+        }
+
+        // Input line: "> " + query + cursor.
+        const int input_local_row = layout.rows - 1;
+        {
+            // Prompt ">"
+            auto& prompt = at(pad, input_local_row);
+            prompt.glyph = text_service.resolve_cluster(std::string(">"));
+            prompt.fg = kPromptFg;
+
+            // Query text.
+            const int query_col0 = pad + 2;
+            const int query_max = content_cols - 3;
+            const int query_len = std::min(static_cast<int>(state.query.size()), query_max);
+            for (int i = 0; i < query_len; ++i)
+            {
+                const std::string cluster(1, state.query[static_cast<size_t>(i)]);
+                auto& cell = at(query_col0 + i, input_local_row);
+                cell.glyph = text_service.resolve_cluster(cluster);
+                cell.fg = kTextFg;
+            }
+
+            // Block cursor after query text.
+            const int cursor_local_col = query_col0 + query_len;
+            if (cursor_local_col < layout.cols - pad)
+            {
+                auto& cell = at(cursor_local_col, input_local_row);
+                cell.bg = kCursorBg;
+                cell.fg = kCursorBg; // Match bg so block glyph is invisible
+            }
         }
     }
 

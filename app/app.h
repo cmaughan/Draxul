@@ -83,6 +83,7 @@ public:
         return last_render_test_error_;
     }
     void shutdown();
+    Result<std::string, Error> save_session_as(std::string_view name);
     const std::string& init_error() const
     {
         return last_init_error_;
@@ -92,6 +93,7 @@ private:
     bool initialize_text_service();
     bool initialize_chrome_host();
     bool initialize_session_attach();
+    bool start_session_attach_server(std::string* error);
     void wire_window_callbacks();
     void apply_pending_resize();
     // Returns a TextServiceConfig populated from config_. Used by initialize_text_service() and
@@ -122,6 +124,7 @@ private:
     // Converts a PaneDescriptor (pixel region from SplitTree) to a full HostViewport.
     HostViewport viewport_from_descriptor(const PaneDescriptor& desc) const;
     void wire_gui_actions();
+    void open_save_session_prompt();
     bool close_dead_panes();
     void rebuild_render_tree();
     bool render_frame();

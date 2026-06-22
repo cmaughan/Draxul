@@ -27,10 +27,20 @@ public:
         std::function<void()> on_closed; // called when the palette closes itself (Escape, execute)
     };
 
+    struct PromptRequest
+    {
+        std::string title;
+        std::string prompt;
+        std::string initial_value;
+        std::function<void(std::string)> on_submit;
+        std::function<void()> on_cancel;
+    };
+
     CommandPalette();
     explicit CommandPalette(Deps deps);
 
     void open();
+    void open_prompt(PromptRequest request);
     void close();
     bool is_open() const;
 
@@ -42,6 +52,12 @@ public:
     gui::PaletteViewState view_state(int grid_cols, int grid_rows, float panel_bg_alpha = 1.0f);
 
 private:
+    enum class Mode
+    {
+        Actions,
+        Prompt,
+    };
+
     struct FilteredEntry
     {
         std::string_view action_name;
@@ -53,11 +69,16 @@ private:
     std::pair<std::string_view, std::string_view> split_query() const;
     void refilter();
     void execute_selected();
+    void submit_prompt();
+    void cancel_prompt();
     void move_selection(int delta);
     std::string shortcut_for_action(std::string_view action) const;
 
     Deps deps_;
     bool open_ = false;
+    Mode mode_ = Mode::Actions;
+    PromptRequest prompt_;
+    std::string prompt_message_;
     std::string query_;
     int selected_index_ = 0;
     std::vector<FilteredEntry> filtered_;

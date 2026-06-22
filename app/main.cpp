@@ -1,14 +1,13 @@
 #include "app.h"
 #include "cli_args.h"
+#include "session_id.h"
 #include "session_listing.h"
 #include "session_picker_host.h"
 #include "session_state.h"
 #include <SDL3/SDL.h>
-#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <ctime>
 #include <draxul/bmp.h>
 #include <draxul/host_registry.h>
 #include <draxul/kanban/kanban_host.h>
@@ -221,88 +220,16 @@ bool rename_saved_session_records(
     return updated;
 }
 
-std::string generated_session_slug(std::string_view text)
-{
-    std::string slug;
-    slug.reserve(text.size());
-    bool last_was_separator = false;
-    for (unsigned char ch : text)
-    {
-        if (std::isalnum(ch))
-        {
-            slug.push_back(static_cast<char>(std::tolower(ch)));
-            last_was_separator = false;
-        }
-        else if (!last_was_separator && !slug.empty())
-        {
-            slug.push_back('-');
-            last_was_separator = true;
-        }
-    }
-
-    while (!slug.empty() && slug.back() == '-')
-        slug.pop_back();
-    if (slug.empty())
-        slug = "session";
-    if (slug.size() > 40)
-        slug.resize(40);
-    return slug;
-}
-
-std::tm local_time_from_unix(int64_t unix_seconds)
-{
-    const std::time_t raw = static_cast<std::time_t>(unix_seconds);
-    std::tm local = {};
-#ifdef _WIN32
-    localtime_s(&local, &raw);
-#else
-    localtime_r(&raw, &local);
-#endif
-    return local;
-}
-
-std::string generated_session_timestamp(int64_t unix_seconds)
-{
-    const std::tm local = local_time_from_unix(unix_seconds);
-    char buffer[32];
-    std::snprintf(buffer, sizeof(buffer), "%04d%02d%02d-%02d%02d%02d",
-        local.tm_year + 1900,
-        local.tm_mon + 1,
-        local.tm_mday,
-        local.tm_hour,
-        local.tm_min,
-        local.tm_sec);
-    return buffer;
-}
-
 bool session_exists(std::string_view session_id, std::string* error)
 {
-    std::string probe_error;
-    const auto probe_status = draxul::SessionAttachServer::probe(session_id, &probe_error);
-    if (probe_status == draxul::SessionAttachServer::ProbeStatus::Running)
-        return true;
-    if (probe_status == draxul::SessionAttachServer::ProbeStatus::Error)
+    auto exists = draxul::session_id_exists(session_id);
+    if (!exists)
     {
         if (error)
-            *error = probe_error.empty()
-                ? "Failed probing for an existing session."
-                : probe_error;
+            *error = exists.error().message;
         return false;
     }
-
-    std::string io_error;
-    if (draxul::has_saved_session_state(session_id, &io_error))
-        return true;
-    if (!io_error.empty())
-    {
-        if (error)
-            *error = io_error;
-        return false;
-    }
-
-    (void)draxul::clear_session_runtime_liveness(session_id);
-
-    return false;
+    return *exists;
 }
 
 bool prepare_new_session_launch(draxul::ParsedArgs& parsed, std::string* error)
@@ -332,25 +259,15 @@ bool prepare_new_session_launch(draxul::ParsedArgs& parsed, std::string* error)
     const int64_t unix_seconds = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch())
                                      .count();
-    const std::string stem = generated_session_slug(parsed.session_name);
-    const std::string candidate_base = stem + "-" + generated_session_timestamp(unix_seconds);
-    std::string candidate = candidate_base;
-    for (int suffix = 2;; ++suffix)
+    auto session_id = draxul::make_unique_session_id(parsed.session_name, unix_seconds);
+    if (!session_id)
     {
-        std::string exists_error;
-        if (!session_exists(candidate, &exists_error))
-        {
-            if (!exists_error.empty())
-            {
-                if (error)
-                    *error = exists_error;
-                return false;
-            }
-            parsed.session_id = candidate;
-            return true;
-        }
-        candidate = candidate_base + "-" + std::to_string(suffix);
+        if (error)
+            *error = session_id.error().message;
+        return false;
     }
+    parsed.session_id = *session_id;
+    return true;
 }
 
 std::vector<std::string> session_owner_args(

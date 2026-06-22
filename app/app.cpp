@@ -7,8 +7,10 @@
 #include "gui_action_handler.h"
 #include "host_manager.h"
 #include "input_dispatcher.h"
+#include "session_id.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -204,6 +206,15 @@ int64_t unix_now_seconds()
     return std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+std::string trim_session_name(std::string_view name)
+{
+    while (!name.empty() && std::isspace(static_cast<unsigned char>(name.front())))
+        name.remove_prefix(1);
+    while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back())))
+        name.remove_suffix(1);
+    return std::string(name);
 }
 
 uint64_t current_process_id()
@@ -520,17 +531,7 @@ bool App::initialize_session_attach()
         static_cast<unsigned long long>(current_process_id()));
 
     std::string error;
-    if (!session_attach_server_.start(options_.session_id, [this](SessionAttachServer::Command command) {
-                if (command == SessionAttachServer::Command::Activate)
-                    external_attach_requested_.store(true);
-                else if (command == SessionAttachServer::Command::Detach)
-                    external_detach_requested_.store(true);
-                else if (command == SessionAttachServer::Command::Shutdown)
-                    external_session_shutdown_requested_.store(true);
-                wake_window(); }, [this]() { return live_session_info(); }, [this](std::string_view session_name) {
-                std::lock_guard lock(external_session_rename_mutex_);
-                external_session_rename_requested_ = std::string(session_name);
-                wake_window(); }, &error))
+    if (!start_session_attach_server(&error))
     {
         last_init_error_ = error.empty()
             ? "Failed to start the session attach server."
@@ -547,6 +548,22 @@ bool App::initialize_session_attach()
         options_.session_id.c_str(),
         static_cast<unsigned long long>(current_process_id()));
     return true;
+}
+
+bool App::start_session_attach_server(std::string* error)
+{
+    PERF_MEASURE();
+    return session_attach_server_.start(options_.session_id, [this](SessionAttachServer::Command command) {
+            if (command == SessionAttachServer::Command::Activate)
+                external_attach_requested_.store(true);
+            else if (command == SessionAttachServer::Command::Detach)
+                external_detach_requested_.store(true);
+            else if (command == SessionAttachServer::Command::Shutdown)
+                external_session_shutdown_requested_.store(true);
+            wake_window(); }, [this]() { return live_session_info(); }, [this](std::string_view session_name) {
+            std::lock_guard lock(external_session_rename_mutex_);
+            external_session_rename_requested_ = std::string(session_name);
+            wake_window(); }, error);
 }
 
 void App::apply_font_metrics()
@@ -878,6 +895,9 @@ void App::wire_gui_actions()
         if (palette_host_)
             palette_host_->dispatch_action("toggle");
     };
+    gui_deps.on_save_session_as = [this]() {
+        open_save_session_prompt();
+    };
     gui_deps.on_edit_config = [this]() {
         HostLaunchOptions launch;
         launch.kind = HostKind::Nvim;
@@ -1111,6 +1131,31 @@ void App::wire_gui_actions()
     gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
 
     // CommandPalette deps are now wired inside CommandPaletteHost::initialize().
+}
+
+void App::open_save_session_prompt()
+{
+    if (!palette_host_)
+        return;
+
+    CommandPalette::PromptRequest request;
+    request.title = "Save Session As";
+    request.prompt = "Name";
+    request.initial_value = !session_name_.empty()
+        ? session_name_
+        : (!options_.session_name.empty() ? options_.session_name : options_.session_id);
+    request.on_submit = [this](std::string name) {
+        auto saved = save_session_as(name);
+        if (!saved)
+        {
+            push_toast(2, saved.error().message);
+            return;
+        }
+        push_toast(0, "Saved session '" + name + "'.");
+    };
+
+    if (!palette_host_->open_prompt(std::move(request)))
+        push_toast(2, "Unable to open session name prompt.");
 }
 
 void App::wire_window_callbacks()
@@ -2084,6 +2129,130 @@ void App::rename_session(std::string name)
     persist_session_state();
     persist_session_runtime_metadata(options_.enable_session_attach);
     request_frame();
+}
+
+Result<std::string, Error> App::save_session_as(std::string_view raw_name)
+{
+    PERF_MEASURE();
+    const std::string display_name = trim_session_name(raw_name);
+    if (display_name.empty())
+        return Result<std::string, Error>::err(Error::invalid_argument("Enter a session name."));
+    if (!options_.enable_session_restore)
+    {
+        return Result<std::string, Error>::err(
+            Error::invalid_argument("Session restore is not enabled for this launch."));
+    }
+    if (!can_snapshot_session_state())
+    {
+        return Result<std::string, Error>::err(
+            Error::invalid_argument("Current panes cannot be saved as a restorable shell session."));
+    }
+
+    auto new_id_result = make_unique_session_id(display_name, unix_now_seconds());
+    if (!new_id_result)
+        return Result<std::string, Error>::err(new_id_result.error());
+    const std::string new_id = *new_id_result;
+
+    const std::string old_id = options_.session_id;
+    const std::string old_option_name = options_.session_name;
+    const std::string old_session_name = session_name_;
+    const int64_t old_last_attached_unix_s = session_last_attached_unix_s_;
+    const int64_t old_last_detached_unix_s = session_last_detached_unix_s_;
+
+    auto delete_new_files = [&]() {
+        std::string delete_error;
+        if (!delete_session_state(new_id, &delete_error) && !delete_error.empty())
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Failed to delete rolled-back session state for %s: %s",
+                new_id.c_str(),
+                delete_error.c_str());
+        }
+        delete_error.clear();
+        if (!delete_session_runtime_metadata(new_id, &delete_error) && !delete_error.empty())
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Failed to delete rolled-back session metadata for %s: %s",
+                new_id.c_str(),
+                delete_error.c_str());
+        }
+    };
+
+    auto rollback = [&]() {
+        options_.session_id = old_id;
+        options_.session_name = old_option_name;
+        session_name_ = old_session_name;
+        session_last_attached_unix_s_ = old_last_attached_unix_s;
+        session_last_detached_unix_s_ = old_last_detached_unix_s;
+        delete_new_files();
+        if (options_.enable_session_attach)
+        {
+            std::string restart_error;
+            if (!start_session_attach_server(&restart_error))
+            {
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "Failed to restore session attach server for '%s' after save-as rollback: %s",
+                    options_.session_id.c_str(),
+                    restart_error.empty() ? "unknown error" : restart_error.c_str());
+            }
+        }
+    };
+
+    options_.session_id = new_id;
+    options_.session_name = display_name;
+    session_name_ = display_name;
+    mark_session_attached();
+
+    if (options_.enable_session_attach)
+    {
+        std::string start_error;
+        if (!start_session_attach_server(&start_error))
+        {
+            rollback();
+            return Result<std::string, Error>::err(Error::io(
+                start_error.empty() ? "Failed to start the session attach server." : start_error));
+        }
+    }
+
+    auto state = snapshot_session_state();
+    if (!state)
+    {
+        rollback();
+        return Result<std::string, Error>::err(
+            Error::invalid_argument("Current session could not be snapshotted."));
+    }
+
+    std::string save_error;
+    if (!save_session_state(*state, &save_error))
+    {
+        rollback();
+        return Result<std::string, Error>::err(
+            Error::io(save_error.empty() ? "Failed to save named session." : save_error));
+    }
+
+    save_error.clear();
+    if (!save_session_runtime_metadata(
+            snapshot_session_runtime_metadata(options_.enable_session_attach), &save_error))
+    {
+        rollback();
+        return Result<std::string, Error>::err(
+            Error::io(save_error.empty() ? "Failed to save named session metadata." : save_error));
+    }
+
+    if (old_id != new_id)
+    {
+        std::string liveness_error;
+        if (!clear_session_runtime_liveness(old_id, &liveness_error) && !liveness_error.empty())
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Failed to clear old session liveness for %s after save-as: %s",
+                old_id.c_str(),
+                liveness_error.c_str());
+        }
+    }
+
+    request_frame();
+    return new_id;
 }
 
 std::optional<AppSessionState> App::snapshot_session_state() const

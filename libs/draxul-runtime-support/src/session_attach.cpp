@@ -4,8 +4,8 @@
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 
-#include <chrono>
 #include <charconv>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -23,8 +23,8 @@
 #define _WIN32_WINNT 0x0601
 #endif
 #include <aclapi.h>
-#include <windows.h>
 #include <sddl.h>
+#include <windows.h>
 #pragma comment(lib, "Advapi32.lib")
 #else
 #include <cerrno>
@@ -41,6 +41,7 @@ namespace
 {
 
 constexpr std::string_view kRenameSessionPrefix = "rename-session:";
+constexpr std::string_view kStopInternalCommand = "stop-internal";
 
 uint64_t fnv1a_hash(std::string_view text)
 {
@@ -56,8 +57,7 @@ uint64_t fnv1a_hash(std::string_view text)
 std::string endpoint_suffix(std::string_view session_id)
 {
     std::ostringstream out;
-    out << std::hex << fnv1a_hash(
-        ConfigDocument::default_path().parent_path().string() + "|" + std::string(session_id));
+    out << std::hex << fnv1a_hash(ConfigDocument::default_path().parent_path().string() + "|" + std::string(session_id));
     return out.str();
 }
 
@@ -552,6 +552,21 @@ HANDLE open_pipe_client(std::string_view session_id, DWORD timeout_ms, DWORD* op
     return INVALID_HANDLE_VALUE;
 }
 
+bool send_internal_pipe_command(std::string_view session_id, std::string_view command)
+{
+    DWORD open_error = ERROR_SUCCESS;
+    bool no_server = false;
+    HANDLE pipe = open_pipe_client(session_id, 5000, &open_error, &no_server);
+    if (pipe == INVALID_HANDLE_VALUE)
+        return false;
+
+    DWORD bytes_written = 0;
+    const BOOL ok = WriteFile(
+        pipe, command.data(), static_cast<DWORD>(command.size()), &bytes_written, nullptr);
+    CloseHandle(pipe);
+    return ok && bytes_written == command.size();
+}
+
 #else
 
 std::string socket_path(std::string_view session_id)
@@ -818,7 +833,7 @@ bool SessionAttachServer::start(std::string_view session_id, CommandHandler on_c
             DWORD bytes_read = 0;
             const BOOL read_ok = ReadFile(pipe, buffer, sizeof(buffer), &bytes_read, nullptr);
             std::string response = "ok";
-            if (!stop_requested_.load() && read_ok && bytes_read > 0)
+            if (read_ok && bytes_read > 0)
             {
                 const std::string_view command(buffer, bytes_read);
                 DRAXUL_LOG_DEBUG(LogCategory::App,
@@ -826,28 +841,32 @@ bool SessionAttachServer::start(std::string_view session_id, CommandHandler on_c
                     session_id_.c_str(),
                     static_cast<int>(command.size()),
                     command.data());
-                if (command == "activate")
+                if (command == kStopInternalCommand)
+                {
+                    stop_requested_ = true;
+                }
+                else if (!stop_requested_.load() && command == "activate")
                 {
                     if (on_command_requested_)
                         on_command_requested_(Command::Activate);
                 }
-                else if (command.starts_with(kRenameSessionPrefix))
+                else if (!stop_requested_.load() && command.starts_with(kRenameSessionPrefix))
                 {
                     if (on_rename_requested_)
                         on_rename_requested_(command.substr(kRenameSessionPrefix.size()));
                 }
-                else if (command == "detach")
+                else if (!stop_requested_.load() && command == "detach")
                 {
                     if (on_command_requested_)
                         on_command_requested_(Command::Detach);
                 }
-                else if (command == "shutdown")
+                else if (!stop_requested_.load() && command == "shutdown")
                 {
                     if (on_command_requested_)
                         on_command_requested_(Command::Shutdown);
                     stop_requested_ = true;
                 }
-                else if (command == "query-live-session")
+                else if (!stop_requested_.load() && command == "query-live-session")
                 {
                     response = serialize_live_session_info(
                         on_query_requested_ ? on_query_requested_() : LiveSessionInfo{});
@@ -952,31 +971,35 @@ bool SessionAttachServer::start(std::string_view session_id, CommandHandler on_c
             char buffer[1024] = {};
             const ssize_t bytes_read = ::read(client_fd, buffer, sizeof(buffer));
             std::string response = "ok";
-            if (!stop_requested_.load() && bytes_read > 0)
+            if (bytes_read > 0)
             {
                 const std::string_view command(buffer, static_cast<size_t>(bytes_read));
-                if (command == "activate")
+                if (command == kStopInternalCommand)
+                {
+                    stop_requested_ = true;
+                }
+                else if (!stop_requested_.load() && command == "activate")
                 {
                     if (on_command_requested_)
                         on_command_requested_(Command::Activate);
                 }
-                else if (command.starts_with(kRenameSessionPrefix))
+                else if (!stop_requested_.load() && command.starts_with(kRenameSessionPrefix))
                 {
                     if (on_rename_requested_)
                         on_rename_requested_(command.substr(kRenameSessionPrefix.size()));
                 }
-                else if (command == "detach")
+                else if (!stop_requested_.load() && command == "detach")
                 {
                     if (on_command_requested_)
                         on_command_requested_(Command::Detach);
                 }
-                else if (command == "shutdown")
+                else if (!stop_requested_.load() && command == "shutdown")
                 {
                     if (on_command_requested_)
                         on_command_requested_(Command::Shutdown);
                     stop_requested_ = true;
                 }
-                else if (command == "query-live-session")
+                else if (!stop_requested_.load() && command == "query-live-session")
                 {
                     response = serialize_live_session_info(
                         on_query_requested_ ? on_query_requested_() : LiveSessionInfo{});
@@ -1002,8 +1025,7 @@ void SessionAttachServer::stop()
 #ifdef _WIN32
     if (running())
     {
-        const auto status = send_command(session_id_, Command::Shutdown);
-        (void)status;
+        (void)send_internal_pipe_command(session_id_, kStopInternalCommand);
     }
 #else
     if (listen_fd_ >= 0)
@@ -1015,7 +1037,7 @@ void SessionAttachServer::stop()
             addr.sun_family = AF_UNIX;
             std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", socket_path_.c_str());
             (void)::connect(wake_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-            (void)::write(wake_fd, "x", 1);
+            (void)::write(wake_fd, kStopInternalCommand.data(), kStopInternalCommand.size());
             ::close(wake_fd);
         }
     }

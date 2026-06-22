@@ -126,6 +126,34 @@ TEST_CASE("session attach: shutdown command stops the server", "[session_attach]
     server.stop();
 }
 
+TEST_CASE("session attach: stop does not dispatch shutdown command", "[session_attach]")
+{
+    TempDir temp_dir("session-attach-stop-internal");
+    HomeDirRedirect redirect(temp_dir.path);
+
+    SessionAttachServer server;
+    std::mutex mutex;
+    std::condition_variable cv;
+    int shutdown_count = 0;
+
+    REQUIRE(server.start("alpha", [&](SessionAttachServer::Command command) {
+        if (command != SessionAttachServer::Command::Shutdown)
+            return;
+        std::lock_guard lock(mutex);
+        ++shutdown_count;
+        cv.notify_one();
+    }));
+
+    server.stop();
+
+    std::unique_lock lock(mutex);
+    const bool waited = cv.wait_for(lock, std::chrono::milliseconds(100), [&]() {
+        return shutdown_count != 0;
+    });
+    REQUIRE_FALSE(waited);
+    REQUIRE(shutdown_count == 0);
+}
+
 TEST_CASE("session attach: detach command reaches the server", "[session_attach]")
 {
     TempDir temp_dir("session-attach-detach");
@@ -288,6 +316,73 @@ TEST_CASE("app session attach: close request detaches a shell session", "[sessio
     REQUIRE(live_info.pane_count == 1);
     REQUIRE(live_info.detached);
     REQUIRE(g_last_attach_host->shutdown_calls == 0);
+    REQUIRE(g_last_attach_host->request_close_calls == 0);
+
+    app.shutdown();
+}
+
+TEST_CASE("app session attach: save_session_as moves live endpoint without killing session",
+    "[session_attach][app]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp_dir("app-session-save-as-live");
+    HomeDirRedirect redirect(temp_dir.path);
+
+    g_last_attach_host = nullptr;
+
+    AppOptions opts = make_attach_options();
+    opts.session_name = "Before";
+
+    App app(std::move(opts));
+    if (!app.initialize())
+        SKIP("app.initialize() failed — no renderer or shell available in CI");
+    REQUIRE(g_last_attach_host != nullptr);
+    {
+        const bool ok = app.run_smoke_test(std::chrono::milliseconds(200));
+        REQUIRE(ok);
+    }
+
+    SessionAttachServer::LiveSessionInfo live_info;
+    REQUIRE(SessionAttachServer::query_live_session("default", &live_info));
+    REQUIRE(live_info.workspace_count == 1);
+    REQUIRE(live_info.pane_count == 1);
+    auto old_saved_state = load_session_state("default");
+    REQUIRE(old_saved_state);
+
+    auto saved = app.save_session_as("Work Bench");
+    if (!saved)
+        INFO(saved.error().message);
+    REQUIRE(saved);
+    const std::string new_id = *saved;
+    REQUIRE(new_id.rfind("work-bench-", 0) == 0);
+
+    REQUIRE(SessionAttachServer::probe("default") == SessionAttachServer::ProbeStatus::NoServer);
+    REQUIRE(SessionAttachServer::query_live_session(new_id, &live_info));
+    REQUIRE(live_info.workspace_count == 1);
+    REQUIRE(live_info.pane_count == 1);
+
+    auto old_metadata = load_session_runtime_metadata("default");
+    REQUIRE(old_metadata);
+    CHECK_FALSE(old_metadata->live);
+    CHECK_FALSE(old_metadata->detached);
+    CHECK(old_metadata->owner_pid == 0);
+    old_saved_state = load_session_state("default");
+    REQUIRE(old_saved_state);
+
+    auto new_saved_state = load_session_state(new_id);
+    REQUIRE(new_saved_state);
+    CHECK(new_saved_state->session_id == new_id);
+    CHECK(new_saved_state->session_name == "Work Bench");
+    auto new_metadata = load_session_runtime_metadata(new_id);
+    REQUIRE(new_metadata);
+    CHECK(new_metadata->session_id == new_id);
+    CHECK(new_metadata->session_name == "Work Bench");
+    CHECK(new_metadata->live);
+
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
     REQUIRE(g_last_attach_host->request_close_calls == 0);
 
     app.shutdown();

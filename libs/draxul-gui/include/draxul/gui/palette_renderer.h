@@ -13,6 +13,12 @@ class TextService;
 namespace draxul::gui
 {
 
+enum class PaletteMode
+{
+    Actions,
+    Prompt,
+};
+
 struct PaletteEntry
 {
     std::string_view name;
@@ -22,9 +28,13 @@ struct PaletteEntry
 
 struct PaletteViewState
 {
+    PaletteMode mode = PaletteMode::Actions;
     int grid_cols = 0;
     int grid_rows = 0;
+    std::string_view title;
+    std::string_view prompt;
     std::string_view query;
+    std::string_view message;
     int selected_index = -1;
     std::span<const PaletteEntry> entries;
     float panel_bg_alpha = 1.0f; // palette background opacity [0.0, 1.0]

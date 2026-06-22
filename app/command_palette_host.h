@@ -40,6 +40,7 @@ public:
     void on_key(const KeyEvent& event) override;
     void on_text_input(const TextInputEvent& event) override;
 
+    bool open_prompt(CommandPalette::PromptRequest request);
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
     Color default_background() const override;
@@ -49,6 +50,7 @@ public:
     bool is_active() const;
 
 private:
+    bool ensure_palette_handle();
     void refresh_open_palette();
     PaneDescriptor palette_pane_descriptor() const;
 

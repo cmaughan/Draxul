@@ -171,6 +171,103 @@ TEST_CASE("CommandPalette: action_names excludes command_palette", "[palette]")
     CHECK(found_copy);
 }
 
+TEST_CASE("CommandPalette prompt: submit trims input and closes", "[palette][prompt]")
+{
+    std::string submitted;
+    int close_count = 0;
+    CommandPalette palette(CommandPalette::Deps{
+        .on_closed = [&]() { ++close_count; },
+    });
+
+    CommandPalette::PromptRequest request;
+    request.title = "Save Session As";
+    request.prompt = "Name";
+    request.initial_value = " Before ";
+    request.on_submit = [&](std::string value) {
+        submitted = std::move(value);
+    };
+
+    palette.open_prompt(std::move(request));
+    REQUIRE(palette.is_open());
+
+    KeyEvent enter{ 0, SDLK_RETURN, kModNone, true };
+    CHECK(palette.on_key(enter));
+
+    CHECK(submitted == "Before");
+    CHECK_FALSE(palette.is_open());
+    CHECK(close_count == 1);
+}
+
+TEST_CASE("CommandPalette prompt: empty submit keeps prompt open with message", "[palette][prompt]")
+{
+    bool submitted = false;
+    CommandPalette palette;
+
+    CommandPalette::PromptRequest request;
+    request.title = "Save Session As";
+    request.prompt = "Name";
+    request.initial_value = "   ";
+    request.on_submit = [&](std::string) { submitted = true; };
+
+    palette.open_prompt(std::move(request));
+
+    KeyEvent enter{ 0, SDLK_RETURN, kModNone, true };
+    CHECK(palette.on_key(enter));
+
+    CHECK_FALSE(submitted);
+    CHECK(palette.is_open());
+
+    auto state = palette.view_state(40, 8);
+    CHECK(state.mode == gui::PaletteMode::Prompt);
+    CHECK(state.message == "Enter a session name");
+}
+
+TEST_CASE("CommandPalette prompt: Escape cancels without submitting", "[palette][prompt]")
+{
+    bool submitted = false;
+    bool cancelled = false;
+    CommandPalette palette;
+
+    CommandPalette::PromptRequest request;
+    request.title = "Save Session As";
+    request.prompt = "Name";
+    request.initial_value = "Draft";
+    request.on_submit = [&](std::string) { submitted = true; };
+    request.on_cancel = [&]() { cancelled = true; };
+
+    palette.open_prompt(std::move(request));
+
+    KeyEvent escape{ 0, SDLK_ESCAPE, kModNone, true };
+    CHECK(palette.on_key(escape));
+
+    CHECK_FALSE(submitted);
+    CHECK(cancelled);
+    CHECK_FALSE(palette.is_open());
+}
+
+TEST_CASE("CommandPalette prompt: text input and backspace edit the prompt value", "[palette][prompt]")
+{
+    CommandPalette palette;
+    CommandPalette::PromptRequest request;
+    request.title = "Save Session As";
+    request.prompt = "Name";
+    request.initial_value = "Al";
+    palette.open_prompt(std::move(request));
+
+    TextInputEvent input;
+    input.text = "pha";
+    CHECK(palette.on_text_input(input));
+
+    auto state = palette.view_state(40, 8);
+    CHECK(state.query == "Alpha");
+
+    KeyEvent backspace{ 0, SDLK_BACKSPACE, kModNone, true };
+    CHECK(palette.on_key(backspace));
+
+    state = palette.view_state(40, 8);
+    CHECK(state.query == "Alph");
+}
+
 TEST_CASE("CommandPaletteHost: opening primes palette cells before first draw", "[palette]")
 {
     tests::FakeWindow window;
@@ -247,6 +344,25 @@ TEST_CASE("render_palette: palette fills the host grid", "[palette]")
 
     CHECK(max_col - min_col + 1 == 40);
     CHECK(max_row - min_row + 1 == 15);
+}
+
+TEST_CASE("render_palette: prompt mode fills the host grid", "[palette][prompt]")
+{
+    TextService text_service;
+    if (!init_text_service(text_service))
+        SKIP("bundled font not found");
+
+    gui::PaletteViewState state;
+    state.mode = gui::PaletteMode::Prompt;
+    state.grid_cols = 40;
+    state.grid_rows = 8;
+    state.title = "Save Session As";
+    state.prompt = "Name";
+    state.query = "Work Bench";
+    state.message = "Enter a session name";
+
+    const auto cells = gui::render_palette(state, text_service);
+    CHECK(cells.size() == 40 * 8);
 }
 
 TEST_CASE("app config default palette alpha is 0.9", "[config]")
@@ -410,4 +526,35 @@ TEST_CASE("CommandPaletteHost lifecycle: shutdown while open releases handle",
 
     REQUIRE_NOTHROW(h.host.shutdown());
     REQUIRE_FALSE(h.host.is_active());
+}
+
+TEST_CASE("CommandPaletteHost prompt: open_prompt allocates a handle and submits text",
+    "[palette][prompt]")
+{
+    PaletteHostHarness h;
+    if (!h.init())
+        SKIP("bundled font not found");
+
+    std::string submitted;
+    CommandPalette::PromptRequest request;
+    request.title = "Save Session As";
+    request.prompt = "Name";
+    request.on_submit = [&](std::string value) {
+        submitted = std::move(value);
+    };
+
+    REQUIRE(h.host.open_prompt(std::move(request)));
+    REQUIRE(h.host.is_active());
+    REQUIRE(h.renderer.create_grid_handle_calls == 1);
+    REQUIRE(h.renderer.last_handle != nullptr);
+
+    TextInputEvent input;
+    input.text = "Work Bench";
+    h.host.on_text_input(input);
+
+    KeyEvent enter{ 0, SDLK_RETURN, kModNone, true };
+    h.host.on_key(enter);
+
+    CHECK(submitted == "Work Bench");
+    CHECK_FALSE(h.host.is_active());
 }
