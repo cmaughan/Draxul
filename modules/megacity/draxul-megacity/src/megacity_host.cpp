@@ -3,7 +3,6 @@
 #include "city_helpers.h"
 #include "city_input_state.h"
 #include "city_picking.h"
-#include "graphify_semantic_source.h"
 #include "isometric_camera.h"
 #include "isometric_scene_pass.h"
 #include "lcov_coverage.h"
@@ -383,16 +382,6 @@ bool requires_world_rebuild(const MegaCityCodeConfig& before, const MegaCityCode
     return world_rebuild_signature(before) != world_rebuild_signature(after);
 }
 
-std::filesystem::path resolve_graphify_graph_path(const std::string& configured_path)
-{
-    std::filesystem::path path = configured_path.empty()
-        ? std::filesystem::path("graphify-out") / "graph.json"
-        : std::filesystem::path(configured_path);
-    if (path.is_relative())
-        path = std::filesystem::path(DRAXUL_REPO_ROOT) / path;
-    return path.lexically_normal();
-}
-
 std::string building_identity_key(std::string_view module_path, std::string_view qualified_name)
 {
     std::string key;
@@ -677,17 +666,10 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     continuous_refresh_enabled_ = context.launch_options.request_continuous_refresh;
     restore_camera_after_initial_build_ = renderer_config_.camera_state_valid;
 
-    if (renderer_config_.code_source == MegaCityCodeSource::TreeSitterDb)
-    {
-        const auto resolved_scan_root = resolve_scan_root(context.launch_options, &init_error_);
-        if (!resolved_scan_root)
-            return false;
-        scan_root_ = *resolved_scan_root;
-    }
-    else
-    {
-        scan_root_ = fallback_scan_root();
-    }
+    const auto resolved_scan_root = resolve_scan_root(context.launch_options, &init_error_);
+    if (!resolved_scan_root)
+        return false;
+    scan_root_ = *resolved_scan_root;
 
     // Create MegaCity's own ImGui context for isolated docking and layout.
     {
@@ -731,57 +713,14 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     runtime_perf_collector().set_enabled(is_live_perf_overlay(renderer_config_.overlay_mode));
 
     route_worker_stop_ = false;
-    if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
-    {
-        if (!load_graphify_semantic_source())
-        {
-            init_error_ = "failed to load Graphify graph: " + resolve_graphify_graph_path(renderer_config_.graphify_graph_path).string();
-            if (tooltip_text_service_)
-            {
-                tooltip_text_service_->shutdown();
-                tooltip_text_service_.reset();
-            }
-            if (sign_text_service_)
-            {
-                sign_text_service_->shutdown();
-                sign_text_service_.reset();
-            }
-            scene_pass_.reset();
-            camera_.reset();
-            world_.reset();
-            if (imgui_context_)
-            {
-                ImGui::DestroyContext(imgui_context_);
-                imgui_context_ = nullptr;
-            }
-            callbacks_ = nullptr;
-            config_document_ = nullptr;
-            return false;
-        }
-    }
-    else
-    {
-        start_tree_sitter_semantic_source();
-    }
+    start_tree_sitter_semantic_source();
 
     running_ = true;
-    if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
-        rebuild_semantic_city();
-
     route_thread_ = std::thread([this]() { route_worker_loop(); });
     mark_scene_dirty();
 
-    if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
-    {
-        const std::filesystem::path graph_path = resolve_graphify_graph_path(renderer_config_.graphify_graph_path);
-        DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost initialized (%dx%d), graphify graph %s",
-            pixel_w_, pixel_h_, graph_path.string().c_str());
-    }
-    else
-    {
-        DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost initialized (%dx%d), scanning %s",
-            pixel_w_, pixel_h_, scan_root_.string().c_str());
-    }
+    DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost initialized (%dx%d), scanning %s",
+        pixel_w_, pixel_h_, scan_root_.string().c_str());
     return true;
 }
 
@@ -1078,7 +1017,6 @@ void MegaCityHost::join_all_grid_threads()
 void MegaCityHost::start_tree_sitter_semantic_source()
 {
     PERF_MEASURE();
-    graphify_source_.reset();
     treesitter_source_.reset();
     applied_treesitter_snapshot_.reset();
     treesitter_source_ready_ = false;
@@ -1105,38 +1043,11 @@ void MegaCityHost::stop_tree_sitter_semantic_source()
     treesitter_source_ready_ = false;
 }
 
-bool MegaCityHost::load_graphify_semantic_source()
-{
-    PERF_MEASURE();
-    const std::filesystem::path graph_path = resolve_graphify_graph_path(renderer_config_.graphify_graph_path);
-    auto source = std::make_unique<GraphifySemanticSource>();
-    if (!source->load(graph_path))
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "MegaCityHost: failed to load Graphify graph %s: %s",
-            graph_path.string().c_str(), source->last_error().c_str());
-        graphify_source_.reset();
-        available_modules_.clear();
-        clear_semantic_city();
-        return false;
-    }
-
-    graphify_source_ = std::move(source);
-    refresh_available_modules();
-    DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost: loaded Graphify graph %s (%zu modules)",
-        graph_path.string().c_str(), available_modules_.size());
-    return true;
-}
-
 void MegaCityHost::refresh_available_modules()
 {
     PERF_MEASURE();
     available_modules_.clear();
-    if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
-    {
-        if (graphify_source_)
-            available_modules_ = graphify_source_->list_modules();
-    }
-    else if (treesitter_source_)
+    if (treesitter_source_)
     {
         available_modules_ = treesitter_source_->list_modules();
     }
@@ -1490,10 +1401,7 @@ void MegaCityHost::render_host_imgui(float dt)
         .rebuild_pending = world_rebuild_pending_
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
-    const auto scanner_snapshot = pending_renderer_config_.code_source == MegaCityCodeSource::TreeSitterDb
-            && scanner_started_
-        ? scanner_.snapshot()
-        : nullptr;
+    const auto scanner_snapshot = scanner_started_ ? scanner_.snapshot() : nullptr;
     if (render_treesitter_panel(
             viewport_.pixel_pos.x,
             viewport_.pixel_pos.y,
@@ -1611,17 +1519,11 @@ void MegaCityHost::render_host_imgui(float dt)
         {
             renderer_config_ = pending_renderer_config_;
             refresh_sign_text_service();
-            if (renderer_config_.code_source == MegaCityCodeSource::TreeSitterDb
-                && (!treesitter_source_ready_ || !scanner_started_))
+            if (!treesitter_source_ready_ || !scanner_started_)
             {
                 start_tree_sitter_semantic_source();
             }
-            else if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
-            {
-                stop_tree_sitter_semantic_source();
-            }
-            const bool semantic_source_ready = renderer_config_.code_source == MegaCityCodeSource::Graphify
-                || treesitter_source_ready_;
+            const bool semantic_source_ready = treesitter_source_ready_;
             if (semantic_source_ready)
                 rebuild_semantic_city();
             else
@@ -1658,7 +1560,6 @@ void MegaCityHost::shutdown()
     semantic_layout_.reset();
     treesitter_source_.reset();
     applied_treesitter_snapshot_.reset();
-    graphify_source_.reset();
 
     // Destroy pass-owned Vulkan debug textures while this ImGui backend is still alive.
     scene_pass_.reset();
@@ -1728,12 +1629,6 @@ void MegaCityHost::rebuild_semantic_city()
 
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
     ICitySemanticSource* semantic_source = treesitter_source_.get();
-    if (renderer_config_.code_source == MegaCityCodeSource::Graphify)
-    {
-        if (!load_graphify_semantic_source())
-            return;
-        semantic_source = graphify_source_.get();
-    }
     if (!semantic_source)
         return;
     available_modules_ = semantic_source->list_modules();
@@ -1970,8 +1865,7 @@ void MegaCityHost::pump()
 
     last_pump_time_ = now;
 
-    if (renderer_config_.code_source == MegaCityCodeSource::TreeSitterDb
-        && !treesitter_source_ready_
+    if (!treesitter_source_ready_
         && scanner_started_)
     {
         if (const auto snapshot = scanner_.snapshot(); snapshot && snapshot->complete)

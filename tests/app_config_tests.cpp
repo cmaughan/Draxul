@@ -830,7 +830,7 @@ TEST_CASE("megacity config round-trips through config document", "[config][megac
     REQUIRE(loaded_current == current);
 }
 
-TEST_CASE("MegaCity code source config supports graphify", "[config][megacity]")
+TEST_CASE("MegaCity code source config falls back from stale graphify to Tree-sitter", "[config][megacity]")
 {
     ConfigDocument document;
     toml::table& table = document.ensure_table("mega_city_code");
@@ -840,8 +840,7 @@ TEST_CASE("MegaCity code source config supports graphify", "[config][megacity]")
     const MegaCityCodeConfig defaults;
     const MegaCityCodeConfig loaded = load_megacity_code_config(document, defaults);
 
-    CHECK(loaded.code_source == MegaCityCodeSource::Graphify);
-    CHECK(loaded.graphify_graph_path == "custom/merged-graph.json");
+    CHECK(loaded.code_source == MegaCityCodeSource::TreeSitterDb);
 
     ConfigDocument saved;
     store_megacity_code_config(saved, loaded, defaults);
@@ -852,8 +851,10 @@ TEST_CASE("MegaCity code source config supports graphify", "[config][megacity]")
     const ConfigDocument round_tripped = ConfigDocument::load_from_path(path);
     const MegaCityCodeConfig saved_defaults = load_megacity_code_defaults(round_tripped);
     const MegaCityCodeConfig saved_current = load_megacity_code_config(round_tripped, saved_defaults);
-    CHECK(saved_current.code_source == MegaCityCodeSource::Graphify);
-    CHECK(saved_current.graphify_graph_path == "custom/merged-graph.json");
+    const toml::table* saved_table = round_tripped.find_table("mega_city_code");
+    REQUIRE(saved_table != nullptr);
+    CHECK(saved_current.code_source == MegaCityCodeSource::TreeSitterDb);
+    CHECK_FALSE(saved_table->contains("graphify_graph_path"));
 }
 #endif // DRAXUL_ENABLE_MEGACITY
 

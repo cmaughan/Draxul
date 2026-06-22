@@ -2598,67 +2598,6 @@ TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[
     host.shutdown();
 }
 
-TEST_CASE("megacity host can build semantic city directly from graphify", "[megacity][graphify]")
-{
-    tests::TempDir temp("draxul-megacity-graphify-host");
-    const auto graph_path = temp.path / "graph.json";
-    {
-        std::ofstream out(graph_path, std::ios::binary | std::ios::trunc);
-        out << R"json({
-          "nodes": [
-            { "id": "app::window", "label": "Window", "source_file": "window.cpp", "source_location": "L3" },
-            { "id": "app::window_draw", "label": "draw()", "source_file": "window.cpp", "source_location": "L7" }
-          ],
-          "links": [
-            { "source": "app::window", "target": "app::window_draw", "relation": "method" }
-          ]
-        })json";
-    }
-
-    ConfigDocument document;
-    toml::table& code_table = document.ensure_table("mega_city_code");
-    code_table.insert_or_assign("code_source", "graphify");
-    code_table.insert_or_assign("graphify_graph_path", graph_path.string());
-
-    tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
-    TextService text_service;
-    tests::FakeTermRenderer renderer;
-    MegaCityHost host;
-
-    HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
-
-    HostViewport viewport;
-    viewport.pixel_size = { 800, 600 };
-    viewport.grid_size = { 1, 1 };
-
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
-        .text_service = &text_service,
-        .config_document = &document,
-        .launch_options = std::move(launch),
-        .initial_viewport = viewport,
-        .display_ppi = window.display_ppi_,
-    };
-
-    REQUIRE(host.initialize(context, callbacks));
-
-    CHECK(host.treesitter_source_ == nullptr);
-    CHECK(host.applied_treesitter_snapshot_ == nullptr);
-    CHECK_FALSE(host.treesitter_source_ready_);
-    CHECK(host.scanner_.snapshot() == nullptr);
-    REQUIRE(host.semantic_model_ != nullptr);
-    REQUIRE(host.semantic_model_->modules.size() == 1);
-    CHECK(host.semantic_model_->modules[0].module_path == "app");
-    REQUIRE(host.semantic_model_->modules[0].buildings.size() == 1);
-    CHECK(host.semantic_model_->modules[0].buildings[0].qualified_name == "app::window");
-    CHECK(host.available_modules_ == std::vector<std::string>{ "app" });
-
-    host.shutdown();
-}
-
 TEST_CASE("megacity host starts tree-sitter semantic source without database state", "[megacity][treesitter]")
 {
     tests::TempDir temp("draxul-megacity-treesitter-source-state");
@@ -2715,9 +2654,15 @@ TEST_CASE("megacity host starts tree-sitter semantic source without database sta
     host.shutdown();
 }
 
-TEST_CASE("megacity host reports graphify load failure during initialization", "[megacity][graphify]")
+TEST_CASE("megacity host treats stale graphify config as Tree-sitter source", "[megacity][treesitter]")
 {
-    tests::TempDir temp("draxul-megacity-graphify-missing");
+    tests::TempDir temp("draxul-megacity-stale-graphify-config");
+    const auto scan_root = temp.path / "src";
+    std::filesystem::create_directories(scan_root);
+    {
+        std::ofstream out(scan_root / "widget.cpp", std::ios::trunc);
+        out << "class Widget { int count_; };\n";
+    }
     const auto missing_graph_path = temp.path / "missing-graph.json";
 
     ConfigDocument document;
@@ -2733,57 +2678,7 @@ TEST_CASE("megacity host reports graphify load failure during initialization", "
 
     HostLaunchOptions launch;
     launch.kind = HostKind::MegaCity;
-
-    HostViewport viewport;
-    viewport.pixel_size = { 800, 600 };
-    viewport.grid_size = { 1, 1 };
-
-    HostContext context{
-        .window = &window,
-        .grid_renderer = &renderer,
-        .text_service = &text_service,
-        .config_document = &document,
-        .launch_options = std::move(launch),
-        .initial_viewport = viewport,
-        .display_ppi = window.display_ppi_,
-    };
-
-    CHECK_FALSE(host.initialize(context, callbacks));
-    CHECK(host.init_error().find("failed to load Graphify graph") != std::string::npos);
-    CHECK_FALSE(host.is_running());
-}
-
-TEST_CASE("megacity host graphify mode does not require a valid scan root", "[megacity][graphify]")
-{
-    tests::TempDir temp("draxul-megacity-graphify-no-scan-root");
-    const auto graph_path = temp.path / "graph.json";
-    {
-        std::ofstream out(graph_path, std::ios::binary | std::ios::trunc);
-        out << R"json({
-          "nodes": [
-            { "id": "app::view", "label": "View", "source_file": "view.cpp", "source_location": "L3" },
-            { "id": "app::view_draw", "label": "draw()", "source_file": "view.cpp", "source_location": "L7" }
-          ],
-          "links": [
-            { "source": "app::view", "target": "app::view_draw", "relation": "method" }
-          ]
-        })json";
-    }
-
-    ConfigDocument document;
-    toml::table& code_table = document.ensure_table("mega_city_code");
-    code_table.insert_or_assign("code_source", "graphify");
-    code_table.insert_or_assign("graphify_graph_path", graph_path.string());
-
-    tests::FakeWindow window;
-    tests::TestHostCallbacks callbacks;
-    TextService text_service;
-    tests::FakeTermRenderer renderer;
-    MegaCityHost host;
-
-    HostLaunchOptions launch;
-    launch.kind = HostKind::MegaCity;
-    launch.source_path = (temp.path / "missing-source-root").string();
+    launch.source_path = temp.path.string();
 
     HostViewport viewport;
     viewport.pixel_size = { 800, 600 };
@@ -2800,9 +2695,24 @@ TEST_CASE("megacity host graphify mode does not require a valid scan root", "[me
     };
 
     REQUIRE(host.initialize(context, callbacks));
+    CHECK(host.scanner_started_);
+    CHECK(host.treesitter_source_ == nullptr);
+    CHECK(host.applied_treesitter_snapshot_ == nullptr);
+    CHECK_FALSE(host.treesitter_source_ready_);
+
+    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+
+    host.pump();
+
+    CHECK(host.treesitter_source_ready_);
+    CHECK(host.treesitter_source_ != nullptr);
+    CHECK(host.applied_treesitter_snapshot_ == snapshot);
+    CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
     REQUIRE(host.semantic_model_ != nullptr);
     REQUIRE(host.semantic_model_->modules.size() == 1);
-    CHECK(host.semantic_model_->modules[0].module_path == "app");
+    CHECK(host.semantic_model_->modules[0].module_path == "src");
 
     host.shutdown();
 }

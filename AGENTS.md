@@ -70,6 +70,8 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging.
 - `libs/draxul-host`: Host abstraction (`IHost` / `I3DHost` / `IGridHost` / `GridHostBase`), HostManager, terminal emulation
 - `libs/draxul-app-support`: Reusable app-layer helpers (config, grid rendering pipeline, render tests)
 - `libs/draxul-ui`: ImGui-based diagnostics panel
+- `modules/markdown/`: Optional/product Markdown module. Contains `draxul-markdown` (document parsing/layout/draw-list model) and `draxul-markdown-host` (native Markdown pane host and renderer integration).
+- `modules/kanban/`: Optional/product Kanban module. Contains `draxul-kanban` (board store/layout/navigation plus native Kanban host).
 - `modules/megacity/`: Optional megacity module (gated by `DRAXUL_ENABLE_MEGACITY`). Contains internal libraries — `draxul-megacity` (3D code-city host), `draxul-citymodel` (semantic city records and direct Tree-sitter projection), `draxul-treesitter` (codebase scan), `draxul-geometry` (procedural meshes). The terminal product has zero source-level dependency on this directory; megacity self-registers via `HostProviderRegistry` from `app/main.cpp` under `#ifdef DRAXUL_ENABLE_MEGACITY`.
 - `app/`: Orchestration only — owns subsystems and runs main loop
 

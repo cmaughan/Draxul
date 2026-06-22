@@ -2,13 +2,13 @@
 #include "live_city_metrics.h"
 #include "semantic_city_layout.h"
 
+#include <draxul/module_path_resolver.h>
 #include <draxul/perf_timing.h>
 #include <imgui.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstring>
 #include <map>
 #include <set>
 #include <string>
@@ -67,25 +67,9 @@ bool path_has_prefix(std::string_view path, std::string_view prefix)
     return path.rfind(prefix, 0) == 0;
 }
 
-std::string logical_module_for_file(std::string_view file_path)
-{
-    if (path_has_prefix(file_path, "libs/"))
-    {
-        const auto second_slash = file_path.find('/', 5);
-        return second_slash == std::string_view::npos
-            ? std::string(file_path)
-            : std::string(file_path.substr(0, second_slash));
-    }
-
-    const auto first_slash = file_path.find('/');
-    return first_slash == std::string_view::npos
-        ? std::string(file_path)
-        : std::string(file_path.substr(0, first_slash));
-}
-
 std::string file_path_within_module(std::string_view file_path)
 {
-    const std::string module_path = logical_module_for_file(file_path);
+    const std::string module_path = module_path_for_source_file(file_path);
     if (module_path.empty() || file_path.size() <= module_path.size())
         return std::string(path_basename(file_path));
 
@@ -337,7 +321,7 @@ ObjectsTreeCache build_objects_tree_cache(const CodebaseSnapshot& snap)
 
     for (const auto& file : snap.files)
     {
-        const std::string module_path = logical_module_for_file(file.path);
+        const std::string module_path = module_path_for_source_file(file.path);
         const std::string module_file = file_path_within_module(file.path);
         auto& module_entries = cache.modules[module_path];
         for (const auto& sym : file.symbols)
@@ -836,35 +820,6 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         // Module / View
         if (ImGui::TreeNodeEx("##build_module", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "Module / View"))
         {
-            static constexpr const char* kCodeSourceLabels[] = {
-                "Tree-sitter",
-                "Graphify",
-            };
-            int code_source_index = config.code_source == MegaCityCodeSource::Graphify ? 1 : 0;
-            ImGui::SetNextItemWidth(180.0f);
-            if (ImGui::Combo("Source", &code_source_index, kCodeSourceLabels, IM_ARRAYSIZE(kCodeSourceLabels)))
-            {
-                config.code_source = code_source_index == 1
-                    ? MegaCityCodeSource::Graphify
-                    : MegaCityCodeSource::TreeSitterDb;
-                changed = true;
-                controls.committed_edit = true;
-            }
-
-            if (config.code_source == MegaCityCodeSource::Graphify)
-            {
-                std::array<char, 1024> graph_path_buffer{};
-                const size_t copy_size = std::min(config.graphify_graph_path.size(), graph_path_buffer.size() - 1);
-                std::memcpy(graph_path_buffer.data(), config.graphify_graph_path.data(), copy_size);
-                ImGui::SetNextItemWidth(-1.0f);
-                if (ImGui::InputText("Graphify Graph", graph_path_buffer.data(), graph_path_buffer.size()))
-                {
-                    config.graphify_graph_path = graph_path_buffer.data();
-                    changed = true;
-                }
-                note_commit();
-            }
-
             const bool module_selection_missing = !config.selected_module_path.empty()
                 && std::find(
                        controls.available_modules.begin(),
@@ -1279,10 +1234,8 @@ bool render_treesitter_panel(
 
     if (!snapshot)
     {
-        const bool graphify_source = renderer_controls
-            && renderer_controls->config.code_source == MegaCityCodeSource::Graphify;
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-        ImGui::TextUnformatted(graphify_source ? "Graphify source" : "(starting...)");
+        ImGui::TextUnformatted("(starting...)");
         ImGui::PopStyleColor();
 
         ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), false,

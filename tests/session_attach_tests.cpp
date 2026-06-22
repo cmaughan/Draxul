@@ -33,6 +33,14 @@ std::string bundled_font_path()
     return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
 }
 
+struct SessionAttachHostStats
+{
+    int request_close_calls = 0;
+    int shutdown_calls = 0;
+};
+
+SessionAttachHostStats g_attach_host_stats;
+
 class SessionAttachHost final : public FakeHost
 {
 public:
@@ -40,9 +48,27 @@ public:
         : FakeHost("session-attach")
     {
     }
+
+    void shutdown() override
+    {
+        ++g_attach_host_stats.shutdown_calls;
+        FakeHost::shutdown();
+    }
+
+    void request_close() override
+    {
+        ++g_attach_host_stats.request_close_calls;
+        FakeHost::request_close();
+    }
 };
 
 SessionAttachHost* g_last_attach_host = nullptr;
+
+void reset_attach_host_probe()
+{
+    g_last_attach_host = nullptr;
+    g_attach_host_stats = {};
+}
 
 RendererBundle make_fake_renderer(int /*atlas_size*/, RendererOptions /*renderer_options*/)
 {
@@ -281,7 +307,7 @@ TEST_CASE("app session attach: close request detaches a shell session", "[sessio
     HomeDirRedirect redirect(temp_dir.path);
 
     FakeWindow* created_window = nullptr;
-    g_last_attach_host = nullptr;
+    reset_attach_host_probe();
 
     AppOptions opts = make_attach_options();
     opts.window_factory = [&]() {
@@ -315,8 +341,8 @@ TEST_CASE("app session attach: close request detaches a shell session", "[sessio
     REQUIRE(live_info.workspace_count == 1);
     REQUIRE(live_info.pane_count == 1);
     REQUIRE(live_info.detached);
-    REQUIRE(g_last_attach_host->shutdown_calls == 0);
-    REQUIRE(g_last_attach_host->request_close_calls == 0);
+    REQUIRE(g_attach_host_stats.shutdown_calls == 0);
+    REQUIRE(g_attach_host_stats.request_close_calls == 0);
 
     app.shutdown();
 }
@@ -331,7 +357,7 @@ TEST_CASE("app session attach: save_session_as moves live endpoint without killi
     TempDir temp_dir("app-session-save-as-live");
     HomeDirRedirect redirect(temp_dir.path);
 
-    g_last_attach_host = nullptr;
+    reset_attach_host_probe();
 
     AppOptions opts = make_attach_options();
     opts.session_name = "Before";
@@ -383,7 +409,7 @@ TEST_CASE("app session attach: save_session_as moves live endpoint without killi
     CHECK(new_metadata->live);
 
     REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
-    REQUIRE(g_last_attach_host->request_close_calls == 0);
+    REQUIRE(g_attach_host_stats.request_close_calls == 0);
 
     app.shutdown();
 }
@@ -398,7 +424,7 @@ TEST_CASE("app session restore: non-persistent close exits instead of hiding", "
     HomeDirRedirect redirect(temp_dir.path);
 
     FakeWindow* created_window = nullptr;
-    g_last_attach_host = nullptr;
+    reset_attach_host_probe();
 
     AppOptions opts = make_attach_options();
     opts.enable_session_attach = false;
@@ -423,7 +449,7 @@ TEST_CASE("app session restore: non-persistent close exits instead of hiding", "
     app.run();
 
     REQUIRE(created_window->is_visible());
-    REQUIRE(g_last_attach_host->request_close_calls == 1);
+    REQUIRE(g_attach_host_stats.request_close_calls == 1);
 
     app.shutdown();
 }
@@ -437,7 +463,7 @@ TEST_CASE("app session attach: shutdown command kills the session", "[session_at
     TempDir temp_dir("app-session-shutdown");
     HomeDirRedirect redirect(temp_dir.path);
 
-    g_last_attach_host = nullptr;
+    reset_attach_host_probe();
 
     App app(make_attach_options());
     if (!app.initialize())
@@ -451,7 +477,7 @@ TEST_CASE("app session attach: shutdown command kills the session", "[session_at
     REQUIRE(SessionAttachServer::send_command("default", SessionAttachServer::Command::Shutdown)
         == SessionAttachServer::AttachStatus::Attached);
     app.run();
-    REQUIRE(g_last_attach_host->request_close_calls == 1);
+    REQUIRE(g_attach_host_stats.request_close_calls == 1);
     REQUIRE_FALSE(load_session_runtime_metadata("default").has_value());
 
     app.shutdown();
@@ -467,7 +493,7 @@ TEST_CASE("app session attach: detach command hides the session window", "[sessi
     HomeDirRedirect redirect(temp_dir.path);
 
     FakeWindow* created_window = nullptr;
-    g_last_attach_host = nullptr;
+    reset_attach_host_probe();
 
     AppOptions opts = make_attach_options();
     opts.window_factory = [&]() {

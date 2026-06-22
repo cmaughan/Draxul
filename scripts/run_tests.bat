@@ -65,6 +65,8 @@ set "CONFIG=%~1"
 set "PRESET=default"
 if /i "%CONFIG%"=="Release" set "PRESET=release"
 set "CACHE_FILE=build\CMakeCache.txt"
+set "BUILD_LOG_ARGS=/v:minimal /nologo"
+if "%VERBOSE%"=="1" set "BUILD_LOG_ARGS=/v:normal /nologo"
 echo.
 echo === %CONFIG% ===
 if "%FORCE_RECONFIGURE%"=="1" (
@@ -77,8 +79,9 @@ if "%FORCE_RECONFIGURE%"=="1" (
     echo.
     echo ^> using existing CMake cache: %CACHE_FILE%
 )
-call :run cmake --build build --config %CONFIG% --parallel
+call :run cmake --build build --config %CONFIG% --parallel -- %BUILD_LOG_ARGS%
 if errorlevel 1 exit /b !errorlevel!
+set "VK_LOADER_LAYERS_DISABLE=~implicit~"
 if "%VERBOSE%"=="1" (
     call :run ctest --test-dir build --build-config %CONFIG% --verbose
 ) else (

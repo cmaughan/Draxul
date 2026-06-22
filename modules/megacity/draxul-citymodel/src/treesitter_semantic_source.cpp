@@ -1,9 +1,9 @@
 #include <draxul/perf_timing.h>
+#include <draxul/module_path_resolver.h>
 #include <draxul/treesitter_semantic_source.h>
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <set>
 #include <string>
 #include <tuple>
@@ -62,22 +62,6 @@ struct EntitySpec
         return {};
     }
     return {};
-}
-
-std::string module_path_for_file(std::string_view file_path)
-{
-    PERF_MEASURE();
-    const std::filesystem::path path(file_path);
-    auto it = path.begin();
-    if (it == path.end())
-        return {};
-    const std::string first = it->string();
-    ++it;
-    if (first == "libs" && it != path.end())
-        return (std::filesystem::path(first) / *it).generic_string();
-    if (it == path.end() && path.has_extension())
-        return ".";
-    return first;
 }
 
 [[nodiscard]] std::string make_symbol_id(
@@ -255,7 +239,7 @@ TreeSitterSemanticSource::TreeSitterSemanticSource(const CodebaseSnapshot& snaps
 
     for (const auto& file : snapshot.files)
     {
-        const std::string module_path = module_path_for_file(file.path);
+        const std::string module_path = module_path_for_source_file(file.path);
 
         for (const auto& sym : file.symbols)
         {

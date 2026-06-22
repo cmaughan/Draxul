@@ -218,11 +218,9 @@ def _parse_build_args(args: list[str]) -> tuple[str, bool, str, bool, list[str]]
 
 def _normalize_megacity_parser(parser: str) -> str:
     parser = parser.lower().replace("-", "_")
-    if parser == "graphify":
-        return "graphify"
     if parser in ("treesitter", "tree_sitter", "treesitter_db", "tree_sitter_db"):
         return "treesitter_db"
-    raise ValueError("--parser must be one of: graphify, treesitter, treesitter_db")
+    raise ValueError("--parser must be one of: treesitter, treesitter_db")
 
 
 def _has_megacity_host(app_args: list[str]) -> bool:
@@ -289,6 +287,26 @@ def _merge_key_value(lines: list[str], start: int, end: int, key: str, value: st
     lines.insert(insert_at, replacement)
 
 
+def _table_end(lines: list[str], section_start: int) -> int:
+    for index in range(section_start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            return index
+    return len(lines)
+
+
+def _remove_key_value(lines: list[str], start: int, end: int, key: str) -> int:
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    index = start
+    while index < end:
+        if pattern.match(lines[index]):
+            del lines[index]
+            end -= 1
+            continue
+        index += 1
+    return end
+
+
 def _merge_megacity_parser_config(text: str, parser: str) -> str:
     parser = _normalize_megacity_parser(parser)
     newline = "\r\n" if "\r\n" in text else "\n"
@@ -307,25 +325,13 @@ def _merge_megacity_parser_config(text: str, parser: str) -> str:
             prefix = newline + prefix
         merged = f"{text}{prefix}[mega_city_code]{newline}"
         merged += f"code_source = {_toml_string(parser)}{newline}"
-        if parser == "graphify":
-            merged += f"graphify_graph_path = {_toml_string('graphify-out/graph.json')}{newline}"
         return merged
 
-    for index in range(section_start + 1, len(lines)):
-        stripped = lines[index].strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            section_end = index
-            break
+    section_end = _table_end(lines, section_start)
 
     _merge_key_value(lines, section_start + 1, section_end, "code_source", parser, newline)
-    if parser == "graphify":
-        section_end = len(lines)
-        for index in range(section_start + 1, len(lines)):
-            stripped = lines[index].strip()
-            if stripped.startswith("[") and stripped.endswith("]"):
-                section_end = index
-                break
-        _merge_key_value(lines, section_start + 1, section_end, "graphify_graph_path", "graphify-out/graph.json", newline)
+    section_end = _table_end(lines, section_start)
+    _remove_key_value(lines, section_start + 1, section_end, "graphify_graph_path")
     return "".join(lines)
 
 
@@ -1058,7 +1064,7 @@ Single-word shortcuts:
   build [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja]
                Configure and build Draxul (default: debug, ninja on Windows)
   run [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--console]
-      [--host megacity --parser graphify|treesitter|treesitter_db] [-- app-args...]
+      [--host megacity --parser treesitter|treesitter_db] [-- app-args...]
                Configure, build, and run Draxul
   smoke        Run the app smoke test
   test         Run the full local test suite (t.bat / run_tests.sh)
@@ -1102,8 +1108,8 @@ Examples:
   do run release           # Release build + run
   do run relwithdebinfo    # Release-ish build + symbols (Windows)
   do run release --vs      # Release build with VS generator (Windows)
-  do run release --host megacity --parser graphify
-                             # MegaCity with Graphify semantic source config
+  do run release --host megacity --parser treesitter
+                             # MegaCity with Tree-sitter semantic source config
   do run --reconfigure     # Force CMake reconfigure
   do smoke
   do basic

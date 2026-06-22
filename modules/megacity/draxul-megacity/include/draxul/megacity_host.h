@@ -22,7 +22,6 @@ namespace draxul
 {
 
 class CityInputState;
-class GraphifySemanticSource;
 struct GeometryMesh;
 class IsometricCamera;
 class IsometricScenePass;
@@ -94,7 +93,6 @@ private:
     void clear_semantic_city();
     void start_tree_sitter_semantic_source();
     void stop_tree_sitter_semantic_source();
-    bool load_graphify_semantic_source();
     void refresh_available_modules();
     void rebuild_semantic_city();
     void request_grid_build_cancel();
@@ -115,7 +113,6 @@ private:
     std::filesystem::path scan_root_;
     std::unique_ptr<TreeSitterSemanticSource> treesitter_source_;
     std::shared_ptr<const CodebaseSnapshot> applied_treesitter_snapshot_;
-    std::unique_ptr<GraphifySemanticSource> graphify_source_;
     std::unique_ptr<TextService> sign_text_service_;
     std::unique_ptr<TextService> tooltip_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;

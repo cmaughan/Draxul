@@ -21,13 +21,11 @@ draxul_do = load_do_module()
 
 
 class MegacityParserArgumentTests(unittest.TestCase):
-    def test_graphify_parser_is_consumed_for_megacity(self) -> None:
-        app_args, parser = draxul_do._consume_megacity_parser_args(
-            ["--host", "megacity", "--parser", "graphify", "--console"]
-        )
-
-        self.assertEqual(["--host", "megacity", "--console"], app_args)
-        self.assertEqual("graphify", parser)
+    def test_graphify_parser_is_rejected_for_megacity(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--parser must be one of: treesitter, treesitter_db"):
+            draxul_do._consume_megacity_parser_args(
+                ["--host", "megacity", "--parser", "graphify", "--console"]
+            )
 
     def test_treesitter_parser_accepts_alias_and_normalizes(self) -> None:
         app_args, parser = draxul_do._consume_megacity_parser_args(
@@ -39,7 +37,7 @@ class MegacityParserArgumentTests(unittest.TestCase):
 
     def test_parser_requires_megacity_host(self) -> None:
         with self.assertRaisesRegex(ValueError, "--parser is only supported with --host megacity"):
-            draxul_do._consume_megacity_parser_args(["--host", "nvim", "--parser", "graphify"])
+            draxul_do._consume_megacity_parser_args(["--host", "nvim", "--parser", "treesitter"])
 
     def test_parser_requires_value(self) -> None:
         with self.assertRaisesRegex(ValueError, "--parser requires a value"):
@@ -47,31 +45,32 @@ class MegacityParserArgumentTests(unittest.TestCase):
 
 
 class MegacityConfigMergeTests(unittest.TestCase):
-    def test_graphify_parser_appends_missing_section(self) -> None:
-        merged = draxul_do._merge_megacity_parser_config("font_size = 14\n", "graphify")
+    def test_treesitter_parser_appends_missing_section(self) -> None:
+        merged = draxul_do._merge_megacity_parser_config("font_size = 14\n", "treesitter")
 
         self.assertEqual(
-            'font_size = 14\n\n[mega_city_code]\ncode_source = "graphify"\ngraphify_graph_path = "graphify-out/graph.json"\n',
+            'font_size = 14\n\n[mega_city_code]\ncode_source = "treesitter_db"\n',
             merged,
         )
 
-    def test_graphify_parser_updates_existing_section_and_preserves_other_keys(self) -> None:
+    def test_treesitter_parser_updates_existing_section_and_removes_graphify_path(self) -> None:
         merged = draxul_do._merge_megacity_parser_config(
-            'font_size = 14\n\n[mega_city_code]\nshow_ui_panels = true\ncode_source = "treesitter_db"\n\n[terminal]\nfg = "#fff"\n',
-            "graphify",
+            'font_size = 14\n\n[mega_city_code]\nshow_ui_panels = true\ncode_source = "graphify"\ngraphify_graph_path = "graphify-out/graph.json"\n\n[terminal]\nfg = "#fff"\n',
+            "treesitter",
         )
 
-        self.assertIn('[mega_city_code]\nshow_ui_panels = true\ncode_source = "graphify"\ngraphify_graph_path = "graphify-out/graph.json"\n\n[terminal]', merged)
+        self.assertIn('[mega_city_code]\nshow_ui_panels = true\ncode_source = "treesitter_db"\n\n[terminal]', merged)
+        self.assertNotIn("graphify_graph_path", merged)
         self.assertIn('fg = "#fff"', merged)
 
-    def test_treesitter_parser_updates_only_code_source(self) -> None:
+    def test_treesitter_parser_updates_code_source_and_removes_graphify_path(self) -> None:
         merged = draxul_do._merge_megacity_parser_config(
             '[mega_city_code]\ncode_source = "graphify"\ngraphify_graph_path = "graphify-out/graph.json"\n',
             "treesitter_db",
         )
 
         self.assertEqual(
-            '[mega_city_code]\ncode_source = "treesitter_db"\ngraphify_graph_path = "graphify-out/graph.json"\n',
+            '[mega_city_code]\ncode_source = "treesitter_db"\n',
             merged,
         )
 

@@ -4,7 +4,6 @@ if(APPLE)
     set(MEGACITY_SOURCES
         src/building_tooltip.cpp
         src/city_builder.cpp
-        src/graphify_semantic_source.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
         src/isometric_camera.cpp
@@ -27,7 +26,6 @@ else()
     set(MEGACITY_SOURCES
         src/building_tooltip.cpp
         src/city_builder.cpp
-        src/graphify_semantic_source.cpp
         src/city_input_state.cpp
         src/city_picking.cpp
         src/isometric_camera.cpp
@@ -72,7 +70,6 @@ target_link_libraries(draxul-megacity PUBLIC
 target_link_libraries(draxul-megacity PRIVATE
     draxul-geometry
     draxul-ui
-    nlohmann_json::nlohmann_json
 )
 
 # Bake in the source root so the scanner can find the repo at runtime.

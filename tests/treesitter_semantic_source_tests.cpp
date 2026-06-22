@@ -137,6 +137,47 @@ TEST_CASE("TreeSitterSemanticSource projects snapshot semantic records", "[megac
     CHECK(source.codebase_health().coupling == module.health.coupling);
 }
 
+TEST_CASE("TreeSitterSemanticSource groups files by repository module boundary", "[megacity][treesitter]")
+{
+    CodebaseSnapshot snapshot;
+    snapshot.complete = true;
+
+    auto add_class_file = [&](std::string path, std::string name) {
+        ParsedFile file;
+        file.path = std::move(path);
+
+        SymbolRecord symbol;
+        symbol.kind = SymbolKind::Class;
+        symbol.name = std::move(name);
+        symbol.line = 1;
+        symbol.end_line = 4;
+
+        file.symbols.push_back(std::move(symbol));
+        snapshot.files.push_back(std::move(file));
+    };
+
+    add_class_file("main.cpp", "RootMain");
+    add_class_file("app/main.cpp", "AppMain");
+    add_class_file("libs/draxul-grid/src/grid.cpp", "Grid");
+    add_class_file("modules/markdown/draxul-markdown/src/markdown_document.cpp", "MarkdownDocument");
+    add_class_file("modules/kanban/draxul-kanban/src/kanban_board.cpp", "KanbanBoard");
+    add_class_file("modules/megacity/draxul-citymodel/src/treesitter_semantic_source.cpp", "CitySource");
+
+    const TreeSitterSemanticSource source(snapshot);
+
+    CHECK(source.list_modules() == std::vector<std::string>{
+        ".",
+        "app",
+        "libs/draxul-grid",
+        "modules/kanban",
+        "modules/markdown",
+        "modules/megacity",
+    });
+    CHECK(source.module_record("modules/markdown").building_count == 1);
+    CHECK(source.module_record("modules/kanban").building_count == 1);
+    CHECK(source.module_record("modules/megacity").building_count == 1);
+}
+
 TEST_CASE("TreeSitterSemanticSource does not cross-product nested type fields onto the parent class", "[megacity][treesitter]")
 {
     const auto temp_root = std::filesystem::temp_directory_path() / "draxul-treesitter-nested-fields";
