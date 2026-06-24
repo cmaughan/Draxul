@@ -18,6 +18,14 @@ public:
         return launch_options().kind == HostKind::Zsh ? "zsh" : "bash";
     }
 
+    std::string current_working_directory() const override
+    {
+        const std::string reported = LocalTerminalHost::current_working_directory();
+        if (!reported.empty())
+            return reported;
+        return process_.current_working_directory();
+    }
+
 protected:
     bool initialize_host() override
     {

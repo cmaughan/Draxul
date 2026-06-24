@@ -4,6 +4,8 @@
 
 Draxul is a cross-platform Neovim GUI frontend (also supports shell hosts: Bash, Zsh, PowerShell, WSL). It renders the terminal grid using the platform's GPU API (Vulkan on Windows, Metal on macOS), with SDL3 for windowing/input, and communicates with `nvim --embed` via msgpack-RPC over stdin/stdout pipes.
 
+Default feature expectation: Draxul is a cross-platform project. Unless the user explicitly scopes work to one OS/backend, user-facing features and bug fixes should work on both macOS and Windows, including the Metal renderer path on macOS and the Vulkan renderer path on Windows. When touching platform, renderer, process, input, or shell-host behavior, inspect the corresponding Mac and Windows paths and either keep them both working or call out the unsupported gap explicitly.
+
 The codebase is intentionally split into small libraries. Keep app code thin and push platform or subsystem logic downward into `libs/`. See `docs/features.md` for a complete list of implemented features.
 
 Do not use the MaaS MCP tools/servers for work in this repository.

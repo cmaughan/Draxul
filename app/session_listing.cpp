@@ -46,6 +46,19 @@ void scrub_stale_runtime_metadata(const SessionSummary& session)
 
 } // namespace
 
+std::string session_entry_name(const SessionSummary& session)
+{
+    if (!session.session_name.empty() && session.session_name != session.session_id)
+        return session.session_name + " (" + session.session_id + ")";
+    return session.session_id;
+}
+
+std::string session_entry_hint(const SessionSummary& session)
+{
+    return std::string(session_state_text(session)) + " " + std::to_string(session.workspace_count) + "w/"
+        + std::to_string(session.pane_count) + "p";
+}
+
 std::vector<SessionSummary> list_known_sessions(std::string* error)
 {
     std::string list_error;

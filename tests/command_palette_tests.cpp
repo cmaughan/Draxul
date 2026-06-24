@@ -268,6 +268,62 @@ TEST_CASE("CommandPalette prompt: text input and backspace edit the prompt value
     CHECK(state.query == "Alph");
 }
 
+TEST_CASE("CommandPalette choices: fuzzy filters and submits selected id", "[palette][choices]")
+{
+    std::string submitted;
+    CommandPalette palette;
+
+    CommandPalette::ChoiceRequest request;
+    request.entries = {
+        { .id = "alpha", .name = "Alpha Session (alpha)", .shortcut_hint = "saved 1w/1p", .search_text = "Alpha Session alpha" },
+        { .id = "beta", .name = "Beta Session (beta)", .shortcut_hint = "saved 2w/3p", .search_text = "Beta Session beta" },
+    };
+    request.on_submit = [&](std::string value) {
+        submitted = std::move(value);
+    };
+
+    palette.open_choices(std::move(request));
+    REQUIRE(palette.is_open());
+
+    TextInputEvent input;
+    input.text = "bet";
+    CHECK(palette.on_text_input(input));
+
+    auto state = palette.view_state(80, 12);
+    REQUIRE(state.entries.size() == 1);
+    CHECK(state.entries[0].name == "Beta Session (beta)");
+    CHECK(state.selected_index == 0);
+
+    KeyEvent enter{ 0, SDLK_RETURN, kModNone, true };
+    CHECK(palette.on_key(enter));
+
+    CHECK(submitted == "beta");
+    CHECK_FALSE(palette.is_open());
+}
+
+TEST_CASE("CommandPalette choices: Escape cancels without submitting", "[palette][choices]")
+{
+    bool submitted = false;
+    bool cancelled = false;
+    CommandPalette palette;
+
+    CommandPalette::ChoiceRequest request;
+    request.entries = {
+        { .id = "alpha", .name = "Alpha Session (alpha)", .shortcut_hint = "saved 1w/1p", .search_text = "Alpha Session alpha" },
+    };
+    request.on_submit = [&](std::string) { submitted = true; };
+    request.on_cancel = [&]() { cancelled = true; };
+
+    palette.open_choices(std::move(request));
+
+    KeyEvent escape{ 0, SDLK_ESCAPE, kModNone, true };
+    CHECK(palette.on_key(escape));
+
+    CHECK_FALSE(submitted);
+    CHECK(cancelled);
+    CHECK_FALSE(palette.is_open());
+}
+
 TEST_CASE("CommandPaletteHost: opening primes palette cells before first draw", "[palette]")
 {
     tests::FakeWindow window;

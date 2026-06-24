@@ -318,6 +318,23 @@ TEST_CASE("gui action handler: save_session_as invokes callback", "[gui_actions]
     CHECK(save_as_count == 1);
 }
 
+TEST_CASE("gui action handler: load_session invokes callback", "[gui_actions]")
+{
+    TextService ts;
+    AppConfig config;
+    GuiActionHandler::Deps deps;
+    deps.text_service = &ts;
+    deps.config = &config;
+    int load_count = 0;
+    deps.on_load_session = [&load_count]() { ++load_count; };
+    GuiActionHandler handler(std::move(deps));
+
+    const bool handled = handler.execute("load_session");
+
+    REQUIRE(handled);
+    CHECK(load_count == 1);
+}
+
 // ---------------------------------------------------------------------------
 // Registry parity (WI 67 / WI 71)
 // ---------------------------------------------------------------------------

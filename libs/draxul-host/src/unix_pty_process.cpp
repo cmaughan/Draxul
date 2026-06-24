@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #ifdef __APPLE__
+#include <libproc.h>
 #include <util.h>
 #else
 #include <pty.h>
@@ -90,6 +91,31 @@ std::vector<std::string> resolve_exec_paths(const std::string& command)
     }
 
     return candidates;
+}
+
+std::string process_working_directory(pid_t pid)
+{
+    if (pid <= 0)
+        return {};
+
+#ifdef __APPLE__
+    proc_vnodepathinfo info = {};
+    const int bytes = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, sizeof(info));
+    if (bytes != static_cast<int>(sizeof(info)) || info.pvi_cdir.vip_path[0] == '\0')
+        return {};
+    return info.pvi_cdir.vip_path;
+#elif defined(__linux__)
+    std::array<char, 4096> buffer = {};
+    const std::string link = "/proc/" + std::to_string(static_cast<long long>(pid)) + "/cwd";
+    const ssize_t len = readlink(link.c_str(), buffer.data(), buffer.size() - 1);
+    if (len <= 0)
+        return {};
+    buffer[static_cast<size_t>(len)] = '\0';
+    return buffer.data();
+#else
+    (void)pid;
+    return {};
+#endif
 }
 
 } // namespace
@@ -344,6 +370,14 @@ std::optional<int> UnixPtyProcess::exit_code() const
 {
     update_exit_status();
     return last_exit_code_;
+}
+
+std::string UnixPtyProcess::current_working_directory() const
+{
+    update_exit_status();
+    if (pid_ <= 0 || last_exit_code_.has_value())
+        return {};
+    return process_working_directory(pid_);
 }
 
 bool UnixPtyProcess::resize(int cols, int rows) const

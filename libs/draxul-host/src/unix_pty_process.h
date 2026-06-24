@@ -27,6 +27,7 @@ public:
     void request_close();
     bool is_running() const;
     std::optional<int> exit_code() const;
+    std::string current_working_directory() const;
     bool resize(int cols, int rows) const;
     bool write(std::string_view text) const;
     std::vector<std::string> drain_output();

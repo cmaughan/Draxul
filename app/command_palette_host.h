@@ -41,6 +41,7 @@ public:
     void on_text_input(const TextInputEvent& event) override;
 
     bool open_prompt(CommandPalette::PromptRequest request);
+    bool open_choices(CommandPalette::ChoiceRequest request);
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
     Color default_background() const override;

@@ -44,6 +44,7 @@ void CommandPalette::open()
     open_ = true;
     mode_ = Mode::Actions;
     prompt_ = PromptRequest{};
+    choices_ = ChoiceRequest{};
     prompt_message_.clear();
     query_.clear();
     selected_index_ = 0;
@@ -107,11 +108,28 @@ void CommandPalette::open_prompt(PromptRequest request)
     open_ = true;
     mode_ = Mode::Prompt;
     prompt_ = std::move(request);
+    choices_ = ChoiceRequest{};
     query_ = prompt_.initial_value;
     prompt_message_.clear();
     selected_index_ = -1;
     filtered_.clear();
     all_actions_.clear();
+
+    if (deps_.request_frame)
+        deps_.request_frame();
+}
+
+void CommandPalette::open_choices(ChoiceRequest request)
+{
+    open_ = true;
+    mode_ = Mode::Choices;
+    prompt_ = PromptRequest{};
+    choices_ = std::move(request);
+    prompt_message_.clear();
+    query_.clear();
+    selected_index_ = 0;
+    all_actions_.clear();
+    refilter();
 
     if (deps_.request_frame)
         deps_.request_frame();
@@ -148,6 +166,8 @@ bool CommandPalette::on_key(const KeyEvent& event)
     {
         if (mode_ == Mode::Prompt)
             cancel_prompt();
+        else if (mode_ == Mode::Choices)
+            cancel_choice();
         else
             close();
         return true;
@@ -156,6 +176,8 @@ bool CommandPalette::on_key(const KeyEvent& event)
     {
         if (mode_ == Mode::Prompt)
             submit_prompt();
+        else if (mode_ == Mode::Choices)
+            submit_choice();
         else
             execute_selected();
         return true;
@@ -167,7 +189,7 @@ bool CommandPalette::on_key(const KeyEvent& event)
         {
             query_.pop_back();
             prompt_message_.clear();
-            if (mode_ == Mode::Actions)
+            if (mode_ == Mode::Actions || mode_ == Mode::Choices)
                 refilter();
             if (deps_.request_frame)
                 deps_.request_frame();
@@ -199,7 +221,7 @@ bool CommandPalette::on_key(const KeyEvent& event)
     {
         if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_.size()))
         {
-            query_ = std::string(filtered_[static_cast<size_t>(selected_index_)].action_name);
+            query_ = std::string(filtered_[static_cast<size_t>(selected_index_)].name);
             refilter();
             if (deps_.request_frame)
                 deps_.request_frame();
@@ -224,7 +246,7 @@ bool CommandPalette::on_text_input(const TextInputEvent& event)
 
     query_ += event.text;
     prompt_message_.clear();
-    if (mode_ == Mode::Actions)
+    if (mode_ == Mode::Actions || mode_ == Mode::Choices)
         refilter();
     if (deps_.request_frame)
         deps_.request_frame();
@@ -243,7 +265,59 @@ std::pair<std::string_view, std::string_view> CommandPalette::split_query() cons
 void CommandPalette::refilter()
 {
     filtered_.clear();
-    const auto [command, args] = split_query();
+    const auto split = split_query();
+    const std::string_view command = split.first;
+
+    if (mode_ == Mode::Choices)
+    {
+        for (size_t i = 0; i < choices_.entries.size(); ++i)
+        {
+            const auto& choice = choices_.entries[i];
+            if (query_.empty())
+            {
+                filtered_.push_back({ choice.name, choice.shortcut_hint, 0, {}, i });
+                continue;
+            }
+
+            auto name_match = fuzzy_match(query_, choice.name);
+            const std::string_view search_text = choice.search_text.empty()
+                ? std::string_view(choice.name)
+                : std::string_view(choice.search_text);
+            auto search_match = search_text == choice.name
+                ? name_match
+                : fuzzy_match(query_, search_text);
+            if (!name_match.matched && !search_match.matched)
+                continue;
+
+            int score = 0;
+            std::vector<size_t> positions;
+            if (name_match.matched)
+            {
+                score = name_match.score;
+                positions = std::move(name_match.positions);
+            }
+            if (search_match.matched && search_match.score > score)
+                score = search_match.score;
+
+            filtered_.push_back({ choice.name, choice.shortcut_hint, score, std::move(positions), i });
+        }
+
+        if (!query_.empty())
+        {
+            std::sort(filtered_.begin(), filtered_.end(), [](const FilteredEntry& a, const FilteredEntry& b) {
+                if (a.score != b.score)
+                    return a.score > b.score;
+                if (a.name.size() != b.name.size())
+                    return a.name.size() < b.name.size();
+                return a.name < b.name;
+            });
+        }
+
+        selected_index_ = filtered_.empty()
+            ? -1
+            : std::clamp(selected_index_, 0, static_cast<int>(filtered_.size()) - 1);
+        return;
+    }
 
     for (const auto& name : all_actions_)
     {
@@ -265,20 +339,22 @@ void CommandPalette::refilter()
         std::sort(filtered_.begin(), filtered_.end(), [](const FilteredEntry& a, const FilteredEntry& b) {
             if (a.score != b.score)
                 return a.score > b.score;
-            if (a.action_name.size() != b.action_name.size())
-                return a.action_name.size() < b.action_name.size();
-            return a.action_name < b.action_name;
+            if (a.name.size() != b.name.size())
+                return a.name.size() < b.name.size();
+            return a.name < b.name;
         });
     }
 
-    selected_index_ = std::clamp(selected_index_, 0, std::max(0, static_cast<int>(filtered_.size()) - 1));
+    selected_index_ = filtered_.empty()
+        ? -1
+        : std::clamp(selected_index_, 0, static_cast<int>(filtered_.size()) - 1);
 }
 
 void CommandPalette::execute_selected()
 {
     if (selected_index_ >= 0 && selected_index_ < static_cast<int>(filtered_.size()))
     {
-        const std::string entry(filtered_[static_cast<size_t>(selected_index_)].action_name);
+        const std::string entry(filtered_[static_cast<size_t>(selected_index_)].name);
         // Split compound entry (e.g. "split_vertical zsh") into action + args.
         const auto space = entry.find(' ');
         const std::string_view action = std::string_view(entry).substr(0, space);
@@ -293,6 +369,22 @@ void CommandPalette::execute_selected()
     {
         close();
     }
+}
+
+void CommandPalette::submit_choice()
+{
+    if (selected_index_ < 0 || selected_index_ >= static_cast<int>(filtered_.size()))
+        return;
+
+    const size_t choice_index = filtered_[static_cast<size_t>(selected_index_)].choice_index;
+    if (choice_index >= choices_.entries.size())
+        return;
+
+    const std::string id = choices_.entries[choice_index].id;
+    auto callback = std::move(choices_.on_submit);
+    close();
+    if (callback)
+        callback(id);
 }
 
 void CommandPalette::submit_prompt()
@@ -315,6 +407,14 @@ void CommandPalette::submit_prompt()
 void CommandPalette::cancel_prompt()
 {
     auto callback = std::move(prompt_.on_cancel);
+    close();
+    if (callback)
+        callback();
+}
+
+void CommandPalette::cancel_choice()
+{
+    auto callback = std::move(choices_.on_cancel);
     close();
     if (callback)
         callback();
@@ -358,7 +458,19 @@ gui::PaletteViewState CommandPalette::view_state(int grid_cols, int grid_rows, f
         for (const auto& f : filtered_)
         {
             view_entries_.push_back({
-                f.action_name,
+                f.name,
+                f.shortcut_hint,
+                f.match_positions,
+            });
+        }
+    }
+    else if (mode_ == Mode::Choices)
+    {
+        view_entries_.reserve(filtered_.size());
+        for (const auto& f : filtered_)
+        {
+            view_entries_.push_back({
+                f.name,
                 f.shortcut_hint,
                 f.match_positions,
             });

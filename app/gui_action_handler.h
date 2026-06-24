@@ -39,6 +39,7 @@ public:
         std::function<void(std::optional<HostKind>)> on_split_horizontal; // create a horizontal split
         std::function<void()> on_command_palette; // toggle command palette
         std::function<void()> on_save_session_as; // prompt for a named saved session
+        std::function<void()> on_load_session; // pick and load a saved session
         std::function<void()> on_edit_config; // open config in nvim side split
         std::function<void()> on_reload_config; // reload config.toml from disk
         std::function<void()> on_toggle_zoom; // zoom/unzoom the focused pane

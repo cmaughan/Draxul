@@ -157,6 +157,18 @@ bool CommandPaletteHost::open_prompt(CommandPalette::PromptRequest request)
     return true;
 }
 
+bool CommandPaletteHost::open_choices(CommandPalette::ChoiceRequest request)
+{
+    if (!ensure_palette_handle())
+        return false;
+
+    palette_.open_choices(std::move(request));
+    refresh_open_palette();
+    if (callbacks_)
+        callbacks_->request_frame();
+    return true;
+}
+
 bool CommandPaletteHost::dispatch_action(std::string_view action)
 {
     if (action == "toggle")

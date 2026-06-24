@@ -84,6 +84,7 @@ public:
     }
     void shutdown();
     Result<std::string, Error> save_session_as(std::string_view name);
+    Result<void, Error> load_session(std::string_view session_id);
     const std::string& init_error() const
     {
         return last_init_error_;
@@ -125,6 +126,7 @@ private:
     HostViewport viewport_from_descriptor(const PaneDescriptor& desc) const;
     void wire_gui_actions();
     void open_save_session_prompt();
+    void open_load_session_picker();
     bool close_dead_panes();
     void rebuild_render_tree();
     bool render_frame();

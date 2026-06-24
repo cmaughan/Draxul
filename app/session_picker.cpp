@@ -1,6 +1,7 @@
 #include "session_picker.h"
 
 #include "fuzzy_match.h"
+#include "session_listing.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -9,30 +10,6 @@
 
 namespace draxul
 {
-
-namespace
-{
-
-std::string session_entry_name(const SessionSummary& session)
-{
-    if (!session.session_name.empty() && session.session_name != session.session_id)
-        return session.session_name + " (" + session.session_id + ")";
-    return session.session_id;
-}
-
-std::string session_entry_hint(const SessionSummary& session)
-{
-    const char* state = "saved";
-    if (session.live)
-        state = session.detached ? "detached" : "live";
-    else if (!session.has_saved_state)
-        state = "live?";
-
-    return std::string(state) + " " + std::to_string(session.workspace_count) + "w/"
-        + std::to_string(session.pane_count) + "p";
-}
-
-} // namespace
 
 SessionPicker::SessionPicker() = default;
 

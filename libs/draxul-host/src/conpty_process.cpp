@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_set>
+#include <winternl.h>
 
 namespace draxul
 {
@@ -150,6 +151,100 @@ std::wstring resolve_application_path(std::string_view command)
     if (!resolved.empty() && resolved.back() == L'\0')
         resolved.pop_back();
     return resolved;
+}
+
+using NtQueryInformationProcessFn = NTSTATUS(WINAPI*)(
+    HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
+
+struct RemoteUnicodeString
+{
+    USHORT length = 0;
+    USHORT maximum_length = 0;
+    PWSTR buffer = nullptr;
+};
+
+struct RemoteCurrentDirectory
+{
+    RemoteUnicodeString dos_path;
+    HANDLE handle = nullptr;
+};
+
+struct RemotePebPrefix
+{
+    BYTE reserved1[2] = {};
+    BYTE being_debugged = 0;
+    BYTE reserved2[1] = {};
+    PVOID reserved3[2] = {};
+    PVOID ldr = nullptr;
+    PVOID process_parameters = nullptr;
+};
+
+struct RemoteProcessParametersPrefix
+{
+    ULONG maximum_length = 0;
+    ULONG length = 0;
+    ULONG flags = 0;
+    ULONG debug_flags = 0;
+    HANDLE console_handle = nullptr;
+    ULONG console_flags = 0;
+    HANDLE standard_input = nullptr;
+    HANDLE standard_output = nullptr;
+    HANDLE standard_error = nullptr;
+    RemoteCurrentDirectory current_directory;
+};
+
+template <typename T>
+bool read_process_value(HANDLE process, const void* address, T* value)
+{
+    if (!process || !address || !value)
+        return false;
+    SIZE_T bytes_read = 0;
+    return ReadProcessMemory(process, address, value, sizeof(T), &bytes_read)
+        && bytes_read == sizeof(T);
+}
+
+std::string read_remote_current_directory(HANDLE process)
+{
+    if (!process)
+        return {};
+
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!ntdll)
+        return {};
+    auto* query_info = reinterpret_cast<NtQueryInformationProcessFn>(
+        GetProcAddress(ntdll, "NtQueryInformationProcess"));
+    if (!query_info)
+        return {};
+
+    PROCESS_BASIC_INFORMATION basic = {};
+    ULONG returned = 0;
+    if (query_info(process, ProcessBasicInformation, &basic, sizeof(basic), &returned) < 0
+        || !basic.PebBaseAddress)
+    {
+        return {};
+    }
+
+    RemotePebPrefix peb = {};
+    if (!read_process_value(process, basic.PebBaseAddress, &peb) || !peb.process_parameters)
+        return {};
+
+    RemoteProcessParametersPrefix params = {};
+    if (!read_process_value(process, peb.process_parameters, &params))
+        return {};
+
+    const RemoteUnicodeString& path = params.current_directory.dos_path;
+    if (!path.buffer || path.length == 0 || path.length > 32768 || (path.length % sizeof(wchar_t)) != 0)
+        return {};
+
+    std::wstring wide(static_cast<size_t>(path.length / sizeof(wchar_t)), L'\0');
+    SIZE_T bytes_read = 0;
+    if (!ReadProcessMemory(process, path.buffer, wide.data(), path.length, &bytes_read)
+        || bytes_read != path.length)
+    {
+        return {};
+    }
+
+    return narrow_utf8(wide);
 }
 
 } // namespace
@@ -430,6 +525,13 @@ std::optional<int> ConPtyProcess::exit_code() const
     if (is_running())
         return std::nullopt;
     return last_exit_code_;
+}
+
+std::string ConPtyProcess::current_working_directory() const
+{
+    if (!is_running() || !proc_info_.hProcess)
+        return {};
+    return read_remote_current_directory(proc_info_.hProcess);
 }
 
 bool ConPtyProcess::resize(int cols, int rows)

@@ -8,6 +8,7 @@
 #include "host_manager.h"
 #include "input_dispatcher.h"
 #include "session_id.h"
+#include "session_listing.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cctype>
@@ -898,6 +899,9 @@ void App::wire_gui_actions()
     gui_deps.on_save_session_as = [this]() {
         open_save_session_prompt();
     };
+    gui_deps.on_load_session = [this]() {
+        open_load_session_picker();
+    };
     gui_deps.on_edit_config = [this]() {
         HostLaunchOptions launch;
         launch.kind = HostKind::Nvim;
@@ -1156,6 +1160,52 @@ void App::open_save_session_prompt()
 
     if (!palette_host_->open_prompt(std::move(request)))
         push_toast(2, "Unable to open session name prompt.");
+}
+
+void App::open_load_session_picker()
+{
+    if (!palette_host_)
+        return;
+
+    std::string list_error;
+    auto sessions = list_known_sessions(&list_error);
+    if (!list_error.empty())
+    {
+        push_toast(2, list_error);
+        return;
+    }
+    if (sessions.empty())
+    {
+        push_toast(0, "No saved sessions found.");
+        return;
+    }
+
+    CommandPalette::ChoiceRequest request;
+    request.title = "Load Session";
+    request.entries.reserve(sessions.size());
+    for (const auto& session : sessions)
+    {
+        const std::string name = session_entry_name(session);
+        const std::string hint = session_entry_hint(session);
+        request.entries.push_back({
+            .id = session.session_id,
+            .name = name,
+            .shortcut_hint = hint,
+            .search_text = name + " " + session.session_id + " " + hint,
+        });
+    }
+    request.on_submit = [this](std::string session_id) {
+        auto loaded = load_session(session_id);
+        if (!loaded)
+        {
+            push_toast(2, loaded.error().message);
+            return;
+        }
+        push_toast(0, "Loaded session '" + session_id + "'.");
+    };
+
+    if (!palette_host_->open_choices(std::move(request)))
+        push_toast(2, "Unable to open session picker.");
 }
 
 void App::wire_window_callbacks()
@@ -2129,6 +2179,161 @@ void App::rename_session(std::string name)
     persist_session_state();
     persist_session_runtime_metadata(options_.enable_session_attach);
     request_frame();
+}
+
+Result<void, Error> App::load_session(std::string_view raw_session_id)
+{
+    PERF_MEASURE();
+    const std::string target_id = trim_session_name(raw_session_id);
+    if (target_id.empty())
+        return Result<void, Error>::err(Error::invalid_argument("Select a session to load."));
+    if (!options_.enable_session_restore)
+    {
+        return Result<void, Error>::err(
+            Error::invalid_argument("Session restore is not enabled for this launch."));
+    }
+    if (target_id == options_.session_id)
+        return Result<void, Error>::ok();
+    if (!can_snapshot_session_state())
+    {
+        return Result<void, Error>::err(
+            Error::invalid_argument("Current panes cannot be saved before loading another session."));
+    }
+
+    std::string probe_error;
+    const auto probe_status = SessionAttachServer::probe(target_id, &probe_error);
+    if (probe_status == SessionAttachServer::ProbeStatus::Running)
+    {
+        return Result<void, Error>::err(Error::invalid_argument(
+            "Session '" + target_id + "' is already running. Use the startup session picker to attach to it."));
+    }
+    if (probe_status == SessionAttachServer::ProbeStatus::Error)
+    {
+        return Result<void, Error>::err(Error::io(
+            probe_error.empty() ? "Failed to check whether the selected session is running." : probe_error));
+    }
+
+    std::string load_error;
+    auto target_state = load_session_state(target_id, &load_error);
+    if (!target_state)
+    {
+        return Result<void, Error>::err(load_error.empty()
+                ? Error::not_found("Saved session '" + target_id + "' was not found.")
+                : Error::io(load_error));
+    }
+    if (target_state->workspaces.empty())
+        return Result<void, Error>::err(Error::invalid_argument("Saved session has no workspaces."));
+
+    auto previous_state = snapshot_session_state();
+    if (!previous_state)
+    {
+        return Result<void, Error>::err(
+            Error::invalid_argument("Current session could not be snapshotted before loading another session."));
+    }
+
+    std::string save_error;
+    if (!save_session_state(*previous_state, &save_error))
+    {
+        return Result<void, Error>::err(
+            Error::io(save_error.empty() ? "Failed to save the current session before loading." : save_error));
+    }
+    save_error.clear();
+    if (!save_session_runtime_metadata(snapshot_session_runtime_metadata(false), &save_error))
+    {
+        return Result<void, Error>::err(
+            Error::io(save_error.empty() ? "Failed to save current session metadata before loading." : save_error));
+    }
+
+    const std::string old_id = options_.session_id;
+    const std::string old_option_name = options_.session_name;
+    const std::string old_session_name = session_name_;
+    const int64_t old_last_attached_unix_s = session_last_attached_unix_s_;
+    const int64_t old_last_detached_unix_s = session_last_detached_unix_s_;
+    const bool old_detached = detached_;
+    const bool old_session_killed = session_killed_;
+
+    auto rollback = [&]() {
+        options_.session_id = old_id;
+        options_.session_name = old_option_name;
+        session_name_ = old_session_name;
+        session_last_attached_unix_s_ = old_last_attached_unix_s;
+        session_last_detached_unix_s_ = old_last_detached_unix_s;
+        detached_ = old_detached;
+        session_killed_ = old_session_killed;
+        if (options_.enable_session_attach)
+        {
+            std::string restart_error;
+            if (!start_session_attach_server(&restart_error))
+            {
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "Failed to restore session attach server for '%s' after load rollback: %s",
+                    options_.session_id.c_str(),
+                    restart_error.empty() ? "unknown error" : restart_error.c_str());
+            }
+        }
+        const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
+        const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
+                                         : (window_ ? window_->height_pixels() : last_pixel_h_);
+        const int tab_y = chrome_host_ ? chrome_host_->tab_bar_height() : 0;
+        const int host_h = std::max(1, th - tab_y);
+        input_dispatcher_.set_host(nullptr);
+        if (restore_session_state(pw, host_h, *previous_state))
+        {
+            recompute_all_viewports(0, tab_y, pw, host_h);
+            input_dispatcher_.set_host(active_host_manager().focused_host());
+            request_frame();
+        }
+    };
+
+    options_.session_id = target_id;
+    options_.session_name = target_state->session_name.empty() ? target_id : target_state->session_name;
+    session_name_ = options_.session_name;
+    detached_ = false;
+    session_killed_ = false;
+    session_last_attached_unix_s_ = 0;
+    session_last_detached_unix_s_ = 0;
+    if (auto metadata = load_session_runtime_metadata(target_id))
+    {
+        if (!metadata->session_name.empty())
+        {
+            options_.session_name = metadata->session_name;
+            session_name_ = metadata->session_name;
+        }
+        session_last_attached_unix_s_ = metadata->last_attached_unix_s;
+        session_last_detached_unix_s_ = metadata->last_detached_unix_s;
+    }
+    mark_session_attached();
+
+    if (options_.enable_session_attach)
+    {
+        std::string start_error;
+        if (!start_session_attach_server(&start_error))
+        {
+            rollback();
+            return Result<void, Error>::err(Error::io(
+                start_error.empty() ? "Failed to start the selected session attach server." : start_error));
+        }
+    }
+
+    const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
+    const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
+                                     : (window_ ? window_->height_pixels() : last_pixel_h_);
+    const int tab_y = chrome_host_ ? chrome_host_->tab_bar_height() : 0;
+    const int host_h = std::max(1, th - tab_y);
+    input_dispatcher_.set_host(nullptr);
+    if (!restore_session_state(pw, host_h, *target_state))
+    {
+        rollback();
+        return Result<void, Error>::err(Error::io("Failed to restore the selected session."));
+    }
+
+    recompute_all_viewports(0, tab_y, pw, host_h);
+    input_dispatcher_.set_host(active_host_manager().focused_host());
+    persist_session_state();
+    persist_session_runtime_metadata(options_.enable_session_attach);
+    last_session_checkpoint_time_ = std::chrono::steady_clock::now();
+    request_frame();
+    return Result<void, Error>::ok();
 }
 
 Result<std::string, Error> App::save_session_as(std::string_view raw_name)

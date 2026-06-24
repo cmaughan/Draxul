@@ -36,11 +36,28 @@ public:
         std::function<void()> on_cancel;
     };
 
+    struct ChoiceEntry
+    {
+        std::string id;
+        std::string name;
+        std::string shortcut_hint;
+        std::string search_text;
+    };
+
+    struct ChoiceRequest
+    {
+        std::string title;
+        std::vector<ChoiceEntry> entries;
+        std::function<void(std::string)> on_submit;
+        std::function<void()> on_cancel;
+    };
+
     CommandPalette();
     explicit CommandPalette(Deps deps);
 
     void open();
     void open_prompt(PromptRequest request);
+    void open_choices(ChoiceRequest request);
     void close();
     bool is_open() const;
 
@@ -56,21 +73,25 @@ private:
     {
         Actions,
         Prompt,
+        Choices,
     };
 
     struct FilteredEntry
     {
-        std::string_view action_name;
+        std::string_view name;
         std::string shortcut_hint;
         int score = 0;
         std::vector<size_t> match_positions;
+        size_t choice_index = static_cast<size_t>(-1);
     };
 
     std::pair<std::string_view, std::string_view> split_query() const;
     void refilter();
     void execute_selected();
+    void submit_choice();
     void submit_prompt();
     void cancel_prompt();
+    void cancel_choice();
     void move_selection(int delta);
     std::string shortcut_for_action(std::string_view action) const;
 
@@ -78,6 +99,7 @@ private:
     bool open_ = false;
     Mode mode_ = Mode::Actions;
     PromptRequest prompt_;
+    ChoiceRequest choices_;
     std::string prompt_message_;
     std::string query_;
     int selected_index_ = 0;

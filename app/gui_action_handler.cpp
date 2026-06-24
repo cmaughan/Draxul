@@ -44,6 +44,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"toggle_host_ui", [](auto& h, auto) { h.toggle_host_ui(); }},
         {"command_palette",    [](auto& h, auto) { if (h.deps_.on_command_palette) h.deps_.on_command_palette(); }},
         {"save_session_as",    [](auto& h, auto) { if (h.deps_.on_save_session_as) h.deps_.on_save_session_as(); }},
+        {"load_session",       [](auto& h, auto) { if (h.deps_.on_load_session) h.deps_.on_load_session(); }},
         {"edit_config",        [](auto& h, auto) { if (h.deps_.on_edit_config) h.deps_.on_edit_config(); }},
         {"reload_config",      [](auto& h, auto) { if (h.deps_.on_reload_config) h.deps_.on_reload_config(); }},
         {"toggle_zoom",        [](auto& h, auto) { h.toggle_zoom(); }},

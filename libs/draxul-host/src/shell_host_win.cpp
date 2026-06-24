@@ -197,7 +197,23 @@ void append_unique(std::vector<std::string>& values, std::string value)
 
 class ConPtyHostBase : public LocalTerminalHost
 {
+public:
+    std::string current_working_directory() const override
+    {
+        const std::string reported = LocalTerminalHost::current_working_directory();
+        if (!reported.empty())
+            return reported;
+        if (!use_conpty_process_cwd_fallback())
+            return {};
+        return process_.current_working_directory();
+    }
+
 protected:
+    virtual bool use_conpty_process_cwd_fallback() const
+    {
+        return true;
+    }
+
     bool spawn_process(const std::string& command, const std::string& hint)
     {
         PERF_MEASURE();
@@ -372,6 +388,11 @@ public:
     }
 
 protected:
+    bool use_conpty_process_cwd_fallback() const override
+    {
+        return false;
+    }
+
     bool initialize_host() override
     {
         PERF_MEASURE();
