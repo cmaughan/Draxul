@@ -226,11 +226,9 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
     GIT_TAG v0.23.4
     GIT_SHALLOW TRUE
+    SOURCE_SUBDIR cmake-no-add-subdirectory
 )
-FetchContent_GetProperties(tree_sitter_cpp)
-if(NOT tree_sitter_cpp_POPULATED)
-    FetchContent_Populate(tree_sitter_cpp)
-endif()
+FetchContent_MakeAvailable(tree_sitter_cpp)
 
 add_library(tree_sitter_cpp_grammar STATIC
     ${tree_sitter_cpp_SOURCE_DIR}/src/parser.c
