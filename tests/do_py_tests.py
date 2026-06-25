@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import sys
+import tempfile
 import unittest
 
 
@@ -73,6 +75,39 @@ class MegacityConfigMergeTests(unittest.TestCase):
             '[mega_city_code]\ncode_source = "treesitter_db"\n',
             merged,
         )
+
+
+class BuildCacheTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("win"), "Windows executable layout")
+    def test_draxul_exe_accepts_single_config_ninja_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bd = pathlib.Path(tmp)
+            exe = bd / "draxul.exe"
+            exe.write_text("")
+
+            self.assertEqual(exe, draxul_do.draxul_exe(bd, "Release"))
+
+    def test_incomplete_ninja_multi_config_cache_requires_configure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bd = pathlib.Path(tmp)
+            cache_file = bd / "CMakeCache.txt"
+            cache_file.write_text("CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n")
+
+            self.assertEqual(
+                bd / "build.ninja",
+                draxul_do._missing_generated_build_file(cache_file, bd, "Release"),
+            )
+
+            (bd / "build.ninja").write_text("")
+
+            self.assertEqual(
+                bd / "build-Release.ninja",
+                draxul_do._missing_generated_build_file(cache_file, bd, "Release"),
+            )
+
+            (bd / "build-Release.ninja").write_text("")
+
+            self.assertIsNone(draxul_do._missing_generated_build_file(cache_file, bd, "Release"))
 
 
 class ReviewArgumentParsingTests(unittest.TestCase):

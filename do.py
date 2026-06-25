@@ -47,7 +47,10 @@ def build_dir(root: pathlib.Path) -> pathlib.Path:
 def draxul_exe(bd: pathlib.Path, config: str) -> pathlib.Path:
     """Return the expected executable path for a given build dir and config."""
     if sys.platform.startswith("win"):
-        return bd / config / "draxul.exe"
+        config_exe = bd / config / "draxul.exe"
+        if config_exe.exists():
+            return config_exe
+        return bd / "draxul.exe"
     bundle_exe = bd / "draxul.app" / "Contents" / "MacOS" / "draxul"
     if bundle_exe.exists():
         return bundle_exe
@@ -159,6 +162,49 @@ def _cache_build_type(cache_file: pathlib.Path) -> str | None:
     for line in cache_file.read_text().splitlines():
         if line.startswith("CMAKE_BUILD_TYPE:STRING="):
             return line.split("=", 1)[1]
+    return None
+
+
+def _cache_value(cache_file: pathlib.Path, key: str) -> str | None:
+    """Read a typed CMake cache value by name."""
+    if not cache_file.exists():
+        return None
+    prefix = f"{key}:"
+    for line in cache_file.read_text().splitlines():
+        if line.startswith(prefix):
+            return line.split("=", 1)[1]
+    return None
+
+
+def _missing_generated_build_file(
+    cache_file: pathlib.Path, bd: pathlib.Path, config: str,
+) -> pathlib.Path | None:
+    """Return a missing generated build-system file, if the cache is incomplete."""
+    generator = _cache_value(cache_file, "CMAKE_GENERATOR")
+    if generator is None:
+        return None
+
+    if generator == "Ninja Multi-Config":
+        build_file = bd / "build.ninja"
+        if not build_file.exists():
+            return build_file
+        config_build_file = bd / f"build-{config}.ninja"
+        if not config_build_file.exists():
+            return config_build_file
+        return None
+
+    if generator == "Ninja":
+        build_file = bd / "build.ninja"
+        return None if build_file.exists() else build_file
+
+    if generator.startswith("Visual Studio"):
+        solution_file = bd / "draxul.sln"
+        return None if solution_file.exists() else solution_file
+
+    if generator.endswith("Makefiles"):
+        makefile = bd / "Makefile"
+        return None if makefile.exists() else makefile
+
     return None
 
 
@@ -358,8 +404,8 @@ def _configure_and_build(
                 "release": "Release",
                 "relwithdebinfo": "RelWithDebInfo",
             }[mode]
-            preset = "win-ninja-debug" if mode == "debug" else "win-ninja-release"
-            bd = root / "build-ninja"
+            preset = f"win-ninja-{mode}"
+            bd = root / f"build-ninja-{mode}"
         else:
             config = {
                 "debug": "Debug",
@@ -398,6 +444,11 @@ def _configure_and_build(
     if not need_configure:
         cached = _cache_build_type(cache_file)
         if cached and cached != config:
+            need_configure = True
+    if not need_configure:
+        missing_build_file = _missing_generated_build_file(cache_file, bd, config)
+        if missing_build_file is not None:
+            print(f"\n> CMake cache exists but generated build file is missing: {missing_build_file}")
             need_configure = True
 
     if need_configure:

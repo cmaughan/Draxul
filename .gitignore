@@ -1,5 +1,6 @@
 build/
 build-ninja/
+build-ninja-*/
 build-tools/
 docs/deps/deps.dot
 docs/deps/deps_filtered.dot

@@ -35,9 +35,10 @@
         {
             "name": "win-ninja-debug",
             "displayName": "Debug (Windows Ninja)",
-            "binaryDir": "${sourceDir}/build-ninja",
-            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build-ninja-debug",
+            "generator": "Ninja",
             "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
                 "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
@@ -49,9 +50,25 @@
         {
             "name": "win-ninja-release",
             "displayName": "Release (Windows Ninja)",
-            "binaryDir": "${sourceDir}/build-ninja",
-            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build-ninja-release",
+            "generator": "Ninja",
             "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "DRAXUL_ENABLE_RENDER_TESTS": "ON"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "win-ninja-relwithdebinfo",
+            "displayName": "RelWithDebInfo (Windows Ninja)",
+            "binaryDir": "${sourceDir}/build-ninja-relwithdebinfo",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "DRAXUL_ENABLE_RENDER_TESTS": "ON"
             },
             "condition": {
@@ -146,6 +163,11 @@
             "name": "win-ninja-release",
             "configurePreset": "win-ninja-release",
             "configuration": "Release"
+        },
+        {
+            "name": "win-ninja-relwithdebinfo",
+            "configurePreset": "win-ninja-relwithdebinfo",
+            "configuration": "RelWithDebInfo"
         },
         {
             "name": "mac-debug",
