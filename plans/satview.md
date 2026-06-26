@@ -106,7 +106,7 @@ Start with a simple Earth-centered inertial approximation for orbit paths, then 
 1. Parse GP/OMM/TLE element set.
 2. Propagate with SGP4 to TEME/ECI position.
 3. Convert to Earth-fixed coordinates using UTC time and sidereal rotation.
-4. Render positions against an Earth sphere whose texture/procedural surface uses the same Earth rotation model.
+4. Render positions against an Earth sphere whose texture surface uses the same Earth rotation model.
 
 The first live-data milestone can tolerate a simple GMST conversion, but the implementation should isolate this math so better Earth orientation handling can be added later.
 
@@ -143,11 +143,12 @@ Render pass responsibilities:
 
 ### Current Rendering Decisions
 
-- Earth is generated as procedural sphere geometry in the shader.
-- Earth shading is procedural for now: ocean/land/ice colors, night side, city-light hints, and atmospheric rim.
+- Earth is generated as sphere geometry in the render pass and shaded by the Earth fragment shader.
+- Earth shading now uses staged 8k equirectangular day, night, and cloud maps from Solar System Scope, with approximate sun lighting, ocean specular, cloud blend, and atmospheric rim.
 - Orbit rings are procedural line lists in the shader for the preview.
 - Vulkan uses SPIR-V shaders staged by the existing shader compile path.
 - Metal uses `satview_scene.metal` compiled into a metallib by the existing Metal shader staging path.
+- Earth texture assets are staged from `assets/satview/textures/` next to the executable and fall back to simple solid colors if missing.
 - The renderer depth path must load existing color while clearing depth when a 3D custom pass runs after chrome/grid drawing.
 
 ### Scaling Direction
@@ -170,9 +171,10 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 - [x] Add `SatViewHost` with rotate, zoom, time-speed, pause, status text, and viewport handling.
 - [x] Add Vulkan render pass and SPIR-V shaders.
 - [x] Add Metal render pass and metallib shader.
-- [x] Draw procedural Earth with day/night shading.
+- [x] Draw texture-mapped Earth with day/night shading.
 - [x] Draw preview orbit rings.
 - [x] Fix renderer depth attachment lifetime for 3D custom passes after existing color work.
+- [x] Stage and load real Earth day, night, and cloud texture assets.
 - [x] Update `docs/features.md`.
 - [x] Validate with release build, SatView smoke, and `python do.py smoke`.
 
@@ -237,7 +239,7 @@ The initial MVP is implemented on `codex/satview-module-depth-fix` in commit `ed
 
 - New `satview` module and host integration.
 - Vulkan and Metal render paths.
-- Procedural Earth and preview orbit rings.
+- Texture-mapped Earth and preview orbit rings.
 - Renderer depth fix needed for solid 3D surfaces in custom passes.
 
 The next meaningful work item is Phase 2: real catalog fetch/cache and a deterministic sample fixture.
@@ -247,3 +249,5 @@ The next meaningful work item is Phase 2: real catalog fetch/cache and a determi
 - CelesTrak current GP element sets: https://celestrak.org/NORAD/elements/
 - CelesTrak GP data format documentation: https://celestrak.org/NORAD/documentation/gp-data-formats.php
 - Space-Track documentation: https://www.space-track.org/documentation
+- Solar System Scope 8k Earth texture maps: https://www.solarsystemscope.com/textures/
+- Creative Commons Attribution 4.0 International: https://creativecommons.org/licenses/by/4.0/

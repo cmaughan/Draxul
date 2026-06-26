@@ -46,6 +46,7 @@ public:
         frame_ = frame;
     }
 
+    void record_prepass(draxul::IRenderContext& ctx) override;
     void record(draxul::IRenderContext& ctx) override;
 
     struct State;

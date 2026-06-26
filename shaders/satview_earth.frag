@@ -14,40 +14,35 @@ layout(location = 2) in vec2 in_uv;
 
 layout(location = 0) out vec4 out_color;
 
-float hash_wave(vec3 p)
-{
-    return sin(p.x * 2.0 + sin(p.z * 1.8))
-        + 0.7 * sin(p.y * 3.2 + p.x * 1.1)
-        + 0.45 * sin((p.x + p.z) * 3.4 + p.y * 1.5);
-}
+layout(set = 0, binding = 0) uniform sampler2D earth_day_tex;
+layout(set = 0, binding = 1) uniform sampler2D earth_night_tex;
+layout(set = 0, binding = 2) uniform sampler2D earth_cloud_tex;
 
 void main()
 {
     vec3 n = normalize(in_normal);
     vec3 light = normalize(push.sun_dir_time.xyz);
     vec3 view = normalize(push.camera_pos.xyz - in_world);
+    vec2 uv = vec2(fract(in_uv.x), 1.0 - clamp(in_uv.y, 0.0, 1.0));
 
-    float latitude = abs(n.y);
-    float continent_noise = hash_wave(n);
-    float land_mask = smoothstep(0.20, 0.60, continent_noise * 0.25 + 0.48 - latitude * 0.08);
-    float ice_mask = smoothstep(0.74, 0.92, latitude);
-
-    vec3 ocean = mix(vec3(0.015, 0.075, 0.17), vec3(0.01, 0.20, 0.34), 1.0 - latitude);
-    vec3 land = mix(vec3(0.13, 0.32, 0.15), vec3(0.55, 0.47, 0.25), smoothstep(0.25, 0.65, latitude));
-    vec3 surface = mix(ocean, land, land_mask);
-    surface = mix(surface, vec3(0.84, 0.90, 0.88), ice_mask);
+    vec3 day_surface = texture(earth_day_tex, uv).rgb;
+    vec3 night_surface = texture(earth_night_tex, uv).rgb;
+    vec3 cloud_sample = texture(earth_cloud_tex, uv + vec2(push.sun_dir_time.w * 0.0000007, 0.0)).rgb;
+    float cloud_alpha = smoothstep(0.20, 0.78, dot(cloud_sample, vec3(0.299, 0.587, 0.114)));
 
     float ndl = dot(n, light);
-    float day = smoothstep(-0.10, 0.12, ndl);
+    float day = smoothstep(-0.08, 0.14, ndl);
     float diffuse = max(ndl, 0.0);
-    vec3 lit = surface * (0.34 + diffuse * 0.90);
-    vec3 night = vec3(0.006, 0.013, 0.030);
+    vec3 lit = day_surface * (0.22 + diffuse * 1.08);
+    float ocean_hint = smoothstep(0.03, 0.24, day_surface.b - max(day_surface.r, day_surface.g));
+    float specular = pow(max(dot(reflect(-light, n), view), 0.0), 48.0) * ocean_hint * smoothstep(0.0, 0.25, ndl);
+    lit += vec3(0.55, 0.72, 0.90) * specular * 0.30;
 
-    float city_mask = land_mask
-        * smoothstep(-0.40, 0.02, n.y)
-        * smoothstep(-0.35, 0.05, -ndl)
-        * smoothstep(0.45, 0.85, sin(in_uv.x * 18.0) * sin(in_uv.y * 13.0));
-    night += vec3(1.0, 0.62, 0.24) * city_mask * 0.08;
+    vec3 night = night_surface * 1.85 + day_surface * 0.015;
+    vec3 cloud_day = vec3(0.92, 0.96, 1.0) * (0.28 + diffuse * 0.92);
+    vec3 cloud_night = vec3(0.045, 0.050, 0.065);
+    lit = mix(lit, cloud_day, cloud_alpha * 0.58);
+    night = mix(night, max(night, cloud_night), cloud_alpha * 0.35);
 
     float rim = pow(1.0 - max(dot(view, n), 0.0), 3.0);
     vec3 atmosphere = vec3(0.12, 0.36, 0.66) * rim * (0.45 + day * 0.65);

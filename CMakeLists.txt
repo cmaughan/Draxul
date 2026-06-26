@@ -361,6 +361,16 @@ if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")
     add_dependencies(draxul stage_megacity_assets)
 endif()
 
+if(DRAXUL_ENABLE_SATVIEW AND EXISTS "${CMAKE_SOURCE_DIR}/assets/satview")
+    add_custom_target(stage_satview_assets
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets/satview
+            $<TARGET_FILE_DIR:draxul>/assets/satview
+    )
+    add_dependencies(draxul stage_satview_assets)
+endif()
+
 # Copy fonts to build directory
 add_custom_command(TARGET draxul POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:draxul>/fonts

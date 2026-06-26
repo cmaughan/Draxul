@@ -71,42 +71,39 @@ vertex SatViewVertexOut satview_earth_vertex(
     return out;
 }
 
-static float hash_wave(float3 p)
-{
-    return sin(p.x * 2.0f + sin(p.z * 1.8f))
-        + 0.7f * sin(p.y * 3.2f + p.x * 1.1f)
-        + 0.45f * sin((p.x + p.z) * 3.4f + p.y * 1.5f);
-}
-
 fragment float4 satview_earth_fragment(
     SatViewVertexOut in [[stage_in]],
-    constant SatViewFrameUniforms& frame [[buffer(0)]])
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> earth_day_tex [[texture(0)]],
+    texture2d<float> earth_night_tex [[texture(1)]],
+    texture2d<float> earth_cloud_tex [[texture(2)]],
+    sampler earth_sampler [[sampler(0)]])
 {
     float3 n = normalize(in.normal);
     float3 light = normalize(frame.sun_dir_time.xyz);
     float3 view = normalize(frame.camera_pos.xyz - in.world);
+    float2 uv = float2(fract(in.uv.x), 1.0f - clamp(in.uv.y, 0.0f, 1.0f));
 
-    float latitude = abs(n.y);
-    float continent_noise = hash_wave(n);
-    float land_mask = smoothstep(0.20f, 0.60f, continent_noise * 0.25f + 0.48f - latitude * 0.08f);
-    float ice_mask = smoothstep(0.74f, 0.92f, latitude);
-
-    float3 ocean = mix(float3(0.015f, 0.075f, 0.17f), float3(0.01f, 0.20f, 0.34f), 1.0f - latitude);
-    float3 land = mix(float3(0.13f, 0.32f, 0.15f), float3(0.55f, 0.47f, 0.25f), smoothstep(0.25f, 0.65f, latitude));
-    float3 surface = mix(ocean, land, land_mask);
-    surface = mix(surface, float3(0.84f, 0.90f, 0.88f), ice_mask);
+    float3 day_surface = earth_day_tex.sample(earth_sampler, uv).rgb;
+    float3 night_surface = earth_night_tex.sample(earth_sampler, uv).rgb;
+    float3 cloud_sample = earth_cloud_tex.sample(
+        earth_sampler, uv + float2(frame.sun_dir_time.w * 0.0000007f, 0.0f)).rgb;
+    float cloud_alpha = smoothstep(0.20f, 0.78f, dot(cloud_sample, float3(0.299f, 0.587f, 0.114f)));
 
     float ndl = dot(n, light);
-    float day = smoothstep(-0.10f, 0.12f, ndl);
+    float day = smoothstep(-0.08f, 0.14f, ndl);
     float diffuse = max(ndl, 0.0f);
-    float3 lit = surface * (0.34f + diffuse * 0.90f);
-    float3 night = float3(0.006f, 0.013f, 0.030f);
+    float3 lit = day_surface * (0.22f + diffuse * 1.08f);
+    float ocean_hint = smoothstep(0.03f, 0.24f, day_surface.b - max(day_surface.r, day_surface.g));
+    float specular = pow(max(dot(reflect(-light, n), view), 0.0f), 48.0f)
+        * ocean_hint * smoothstep(0.0f, 0.25f, ndl);
+    lit += float3(0.55f, 0.72f, 0.90f) * specular * 0.30f;
 
-    float city_mask = land_mask
-        * smoothstep(-0.40f, 0.02f, n.y)
-        * smoothstep(-0.35f, 0.05f, -ndl)
-        * smoothstep(0.45f, 0.85f, sin(in.uv.x * 18.0f) * sin(in.uv.y * 13.0f));
-    night += float3(1.0f, 0.62f, 0.24f) * city_mask * 0.08f;
+    float3 night = night_surface * 1.85f + day_surface * 0.015f;
+    float3 cloud_day = float3(0.92f, 0.96f, 1.0f) * (0.28f + diffuse * 0.92f);
+    float3 cloud_night = float3(0.045f, 0.050f, 0.065f);
+    lit = mix(lit, cloud_day, cloud_alpha * 0.58f);
+    night = mix(night, max(night, cloud_night), cloud_alpha * 0.35f);
 
     float rim = pow(1.0f - max(dot(view, n), 0.0f), 3.0f);
     float3 atmosphere = float3(0.12f, 0.36f, 0.66f) * rim * (0.45f + day * 0.65f);
