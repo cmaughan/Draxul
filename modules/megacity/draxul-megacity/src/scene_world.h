@@ -25,7 +25,8 @@ public:
         const BuildingMetrics& metrics, const glm::vec4& color, SourceSymbol source = {},
         MaterialId material = MaterialId::WoodBuilding,
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
-        float flat_metallic = 0.0f);
+        float flat_metallic = 0.0f,
+        CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked);
 
     // Create a bark tree entity at the given world-space center position.
     entt::entity create_tree_bark(float world_x, float world_z, float elevation,
@@ -55,7 +56,8 @@ public:
     // Create a sign entity at the given world-space center position.
     entt::entity create_sign(float world_x, float world_z, float elevation,
         const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source = {},
-        std::shared_ptr<const GeometryMesh> custom_mesh = nullptr);
+        std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
+        CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked);
 
     // --- Coordinate helpers ---
 

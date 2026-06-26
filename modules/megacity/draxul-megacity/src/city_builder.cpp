@@ -4,6 +4,7 @@
 #include "scene_world.h"
 #include "semantic_city_layout.h"
 #include "sign_label_atlas.h"
+#include "static_mesh_family_cache.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -174,130 +175,163 @@ TreeMetrics tree_metrics_from_meshes(const GeometryMesh& bark_mesh, const Geomet
 namespace
 {
 
+float layer_color_multiplier(size_t layer_index, float darkening)
+{
+    return (layer_index % 2) == 0
+        ? 1.0f
+        : std::clamp(1.0f - darkening, 0.0f, 1.0f);
+}
+
 std::shared_ptr<const GeometryMesh> build_procedural_building_mesh(
+    StaticMeshFamilyCache& cache,
     const SemanticCityBuilding& building,
-    const glm::vec4& module_color,
     const MegaCityCodeConfig& config,
     int sides,
     float level_gap = 0.0f)
 {
     PERF_MEASURE();
-    DraxulBuildingParams params;
-    params.footprint = building.metrics.footprint;
-    params.sides = std::max(sides, 3);
-    params.middle_strip_scale = 1.0f + std::max(config.building_middle_strip_push, 0.0f);
-    params.level_gap = level_gap;
+    StaticBuildingRingSpec spec;
+    spec.sides = std::max(sides, 3);
+    spec.middle_strip_scale = 1.0f + std::max(config.building_middle_strip_push, 0.0f);
 
     if (building.layers.empty())
     {
-        params.levels.push_back({ building.metrics.height, glm::vec3(module_color) });
+        spec.layers.push_back({ 1.0f, 1.0f, 0u });
     }
     else
     {
-        params.levels.reserve(building.layers.size());
+        size_t positive_layer_count = 0;
+        float total_height = 0.0f;
+        for (const SemanticBuildingLayer& layer : building.layers)
+        {
+            if (layer.height <= 0.0f)
+                continue;
+            ++positive_layer_count;
+            total_height += layer.height;
+        }
+        if (positive_layer_count > 1 && level_gap > 0.0f)
+            total_height += level_gap * static_cast<float>(positive_layer_count - 1);
+        total_height = std::max(total_height, 1e-4f);
+        spec.level_gap_fraction = positive_layer_count > 1 ? std::max(level_gap, 0.0f) / total_height : 0.0f;
+        spec.layers.reserve(positive_layer_count);
         for (size_t layer_index = 0; layer_index < building.layers.size(); ++layer_index)
         {
             const SemanticBuildingLayer& layer = building.layers[layer_index];
             if (layer.height <= 0.0f)
                 continue;
-            params.levels.push_back({
-                layer.height,
-                glm::vec3(module_building_layer_color(
-                    module_color,
-                    layer_index,
-                    config.building_alternate_darkening)),
+            spec.layers.push_back({
+                layer.height / total_height,
+                layer_color_multiplier(layer_index, config.building_alternate_darkening),
                 static_cast<uint32_t>(layer_index),
             });
         }
     }
 
-    if (params.levels.empty())
-        params.levels.push_back({ std::max(building.metrics.height, 0.1f), glm::vec3(module_color), 0u });
+    if (spec.layers.empty())
+        spec.layers.push_back({ 1.0f, 1.0f, 0u });
 
-    return std::make_shared<GeometryMesh>(generate_draxul_building(params));
+    return cache.building_ring(spec);
 }
 
 std::shared_ptr<const GeometryMesh> build_procedural_brick_building_mesh(
+    StaticMeshFamilyCache& cache,
     const SemanticCityBuilding& building,
-    const glm::vec4& module_color,
     const MegaCityCodeConfig& config)
 {
     PERF_MEASURE();
     const int grid_size = std::max(config.struct_brick_grid_size, 1);
     const int bricks_per_floor = brick_slots_per_floor(grid_size);
 
-    DraxulBrickBuildingParams params;
-    params.footprint = building.metrics.footprint;
-    params.grid_size = grid_size;
-    params.brick_gap = std::max(config.struct_brick_gap, 0.0f);
-    params.floor_gap = std::max(config.struct_stack_gap, 0.0f);
+    StaticBrickStackSpec spec;
+    spec.grid_size = grid_size;
+    spec.brick_gap_fraction = std::max(config.struct_brick_gap, 0.0f)
+        / std::max(building.metrics.footprint, 0.1f);
 
     if (building.layers.empty())
     {
-        params.bricks.push_back({ building.metrics.height, glm::vec3(module_color), 0u });
+        spec.bricks.push_back({ 1.0f, 1.0f, 0u });
     }
     else
     {
-        params.bricks.reserve(building.layers.size());
+        std::vector<size_t> positive_layer_indices;
+        positive_layer_indices.reserve(building.layers.size());
         for (size_t i = 0; i < building.layers.size(); ++i)
+            if (building.layers[i].height > 0.0f)
+                positive_layer_indices.push_back(i);
+
+        const int num_bricks = static_cast<int>(positive_layer_indices.size());
+        const int num_floors = std::max(1, (num_bricks + bricks_per_floor - 1) / bricks_per_floor);
+        std::vector<float> floor_heights(static_cast<size_t>(num_floors), 0.0f);
+        for (int compact_index = 0; compact_index < num_bricks; ++compact_index)
         {
-            const SemanticBuildingLayer& layer = building.layers[i];
-            if (layer.height <= 0.0f)
-                continue;
-            const int local = static_cast<int>(i) % bricks_per_floor;
+            const SemanticBuildingLayer& layer = building.layers[positive_layer_indices[static_cast<size_t>(compact_index)]];
+            const int floor = compact_index / bricks_per_floor;
+            floor_heights[static_cast<size_t>(floor)] = std::max(floor_heights[static_cast<size_t>(floor)], layer.height);
+        }
+        float total_height = 0.0f;
+        for (float floor_height : floor_heights)
+            total_height += floor_height;
+        const float floor_gap = std::max(config.struct_stack_gap, 0.0f);
+        if (num_floors > 1)
+            total_height += floor_gap * static_cast<float>(num_floors - 1);
+        total_height = std::max(total_height, 1e-4f);
+        spec.floor_gap_fraction = num_floors > 1 ? floor_gap / total_height : 0.0f;
+
+        spec.bricks.reserve(positive_layer_indices.size());
+        for (size_t compact_index = 0; compact_index < positive_layer_indices.size(); ++compact_index)
+        {
+            const size_t layer_index = positive_layer_indices[compact_index];
+            const SemanticBuildingLayer& layer = building.layers[layer_index];
+            const int local = static_cast<int>(compact_index) % bricks_per_floor;
             const auto [col, row] = brick_slot_position(local, grid_size);
-            const int floor = static_cast<int>(i) / bricks_per_floor;
+            const int floor = static_cast<int>(compact_index) / bricks_per_floor;
             // Checkerboard: alternate color based on (col + row + floor) parity.
             const size_t color_index = static_cast<size_t>((col + row + floor) % 2);
-            params.bricks.push_back({
-                layer.height,
-                glm::vec3(module_building_layer_color(
-                    module_color,
-                    color_index,
-                    config.building_alternate_darkening)),
-                static_cast<uint32_t>(i),
+            spec.bricks.push_back({
+                layer.height / total_height,
+                layer_color_multiplier(color_index, config.building_alternate_darkening),
+                static_cast<uint32_t>(layer_index),
             });
         }
     }
 
-    if (params.bricks.empty())
-        params.bricks.push_back({ std::max(building.metrics.height, 0.1f), glm::vec3(module_color), 0u });
+    if (spec.bricks.empty())
+        spec.bricks.push_back({ 1.0f, 1.0f, 0u });
 
-    return std::make_shared<GeometryMesh>(generate_draxul_brick_building(params));
+    return cache.brick_stack(spec);
 }
 
 std::shared_ptr<const GeometryMesh> build_procedural_building_cap_mesh(
+    StaticMeshFamilyCache& cache,
     const SemanticCityBuilding& building,
-    const glm::vec4& color,
     const MegaCityCodeConfig& config,
-    int sides,
-    float height)
+    int sides)
 {
     PERF_MEASURE();
-    DraxulBuildingParams params;
-    params.footprint = building.metrics.footprint;
-    params.sides = std::max(sides, 3);
-    params.middle_strip_scale = 1.0f + std::max(config.building_middle_strip_push, 0.0f);
     const uint32_t top_layer_id = building.layers.empty()
         ? 0u
         : static_cast<uint32_t>(building.layers.size() - 1);
-    params.levels.push_back({ std::max(height, 0.1f), glm::vec3(color), top_layer_id });
-    return std::make_shared<GeometryMesh>(generate_draxul_building(params));
+    return cache.building_cap(
+        std::max(sides, 3),
+        1.0f + std::max(config.building_middle_strip_push, 0.0f),
+        top_layer_id);
 }
 
-std::shared_ptr<const GeometryMesh> build_building_roof_sign_mesh(const RoofSignPlacementSpec& placement)
+std::shared_ptr<const GeometryMesh> build_building_roof_sign_mesh(
+    StaticMeshFamilyCache& cache,
+    const RoofSignPlacementSpec& placement)
 {
     PERF_MEASURE();
-    DraxulRoofSignParams params;
-    params.sides = std::max(placement.sides, 3);
-    params.inner_radius = std::max(placement.inner_radius, 0.05f);
-    params.band_depth = std::max(placement.band_depth, 0.02f);
-    params.height = std::max(placement.height, 0.05f);
-    return std::make_shared<GeometryMesh>(generate_draxul_roof_sign(params));
+    const float outer_radius = std::max(placement.inner_radius + placement.band_depth, 0.05f);
+    StaticRoofSignRingSpec spec;
+    spec.sides = std::max(placement.sides, 3);
+    spec.inner_radius_fraction = 0.5f * std::max(placement.inner_radius, 0.01f) / outer_radius;
+    return cache.roof_sign_ring(spec);
 }
 
 void build_point_shadow_debug_scene(
     SceneWorld& world,
+    StaticMeshFamilyCache& static_meshes,
     const MegaCityCodeConfig& config,
     const std::shared_ptr<const GeometryMesh>& tree_bark_mesh,
     const std::shared_ptr<const GeometryMesh>& tree_leaf_mesh,
@@ -332,14 +366,15 @@ void build_point_shadow_debug_scene(
         SourceSymbol{ "", "PointShadowDebugPrimary", "" },
         MaterialId::FlatColor,
         build_procedural_building_mesh(
+            static_meshes,
             SemanticCityBuilding{
                 .metrics = primary_metrics,
                 .center = kPointShadowDebugPrimaryCenter,
             },
-            glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
             config,
             4),
-        1.0f);
+        1.0f,
+        CustomMeshTransformMode::ScaleByBuildingMetrics);
 
     BuildingMetrics secondary_metrics;
     secondary_metrics.footprint = kPointShadowDebugSecondaryFootprint;
@@ -355,14 +390,15 @@ void build_point_shadow_debug_scene(
         SourceSymbol{ "", "PointShadowDebugSecondary", "" },
         MaterialId::FlatColor,
         build_procedural_building_mesh(
+            static_meshes,
             SemanticCityBuilding{
                 .metrics = secondary_metrics,
                 .center = kPointShadowDebugSecondaryCenter,
             },
-            glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
             config,
             4),
-        1.0f);
+        1.0f,
+        CustomMeshTransformMode::ScaleByBuildingMetrics);
 
     if (tree_bark_mesh && tree_leaf_mesh && tree_metrics.height > 0.0f)
     {
@@ -743,11 +779,14 @@ CityBuildResult build_city(
     result.tree_bark_mesh = central_park_tree_bark_mesh;
     result.tree_leaf_mesh = central_park_tree_leaf_mesh;
 
+    StaticMeshFamilyCache static_meshes;
+
     if (config.point_shadow_debug_scene)
     {
         world.clear();
         build_point_shadow_debug_scene(
             world,
+            static_meshes,
             config,
             central_park_tree_bark_mesh,
             central_park_tree_leaf_mesh,
@@ -918,18 +957,19 @@ CityBuildResult build_city(
                       config.connected_oct_building_threshold);
             const float building_level_gap = building.is_struct_stack ? config.struct_stack_gap : 0.0f;
             auto building_mesh = building.is_struct_stack
-                ? build_procedural_brick_building_mesh(building, module_color, config)
-                : build_procedural_building_mesh(building, module_color, config, building_side_count, building_level_gap);
+                ? build_procedural_brick_building_mesh(static_meshes, building, config)
+                : build_procedural_building_mesh(static_meshes, building, config, building_side_count, building_level_gap);
             world.create_building(
                 building.center.x,
                 building.center.y,
                 building_base_elevation(config),
                 building.metrics,
-                glm::vec4(1.0f),
+                module_color,
                 SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
                 MaterialId::FlatColor,
                 std::move(building_mesh),
-                1.0f);
+                1.0f,
+                CustomMeshTransformMode::ScaleByBuildingMetrics);
 
             if (sign_label_atlas)
             {
@@ -959,16 +999,16 @@ CityBuildResult build_city(
                             building.center.y,
                             building_base_elevation(config) + building.metrics.height,
                             cap_metrics,
-                            glm::vec4(1.0f),
+                            cap_color,
                             SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
                             MaterialId::FlatColor,
                             build_procedural_building_cap_mesh(
+                                static_meshes,
                                 building,
-                                cap_color,
                                 config,
-                                building_side_count,
-                                cap_height),
-                            1.0f);
+                                building_side_count),
+                            1.0f,
+                            CustomMeshTransformMode::ScaleByBuildingMetrics);
                     }
 
                     const float sign_y = building_base_elevation(config) + building.metrics.height + sign_metrics.height * 0.5f;
@@ -985,17 +1025,19 @@ CityBuildResult build_city(
                         MeshId::Custom,
                         sign_board,
                         SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
-                        build_building_roof_sign_mesh(roof_sign));
+                        build_building_roof_sign_mesh(static_meshes, roof_sign),
+                        CustomMeshTransformMode::ScaleBySignMetrics);
                 }
             }
 
             {
                 const float inner_r = building.metrics.footprint * 0.5f;
                 const float outer_r = inner_r + building.metrics.sidewalk_width;
-                auto ring_mesh = std::make_shared<GeometryMesh>(generate_sidewalk_ring(
-                    building_side_count, inner_r, outer_r,
-                    0.0f, config.sidewalk_surface_height,
-                    glm::vec3(kSidewalkSurfaceColor)));
+                StaticSidewalkRingSpec sidewalk_spec;
+                sidewalk_spec.sides = building_side_count;
+                sidewalk_spec.inner_radius_fraction = outer_r > 1e-4f ? 0.5f * inner_r / outer_r : 0.49f;
+                sidewalk_spec.color = glm::vec3(kSidewalkSurfaceColor);
+                auto ring_mesh = static_meshes.sidewalk_ring(sidewalk_spec);
                 BuildingMetrics sidewalk_metrics;
                 sidewalk_metrics.footprint = outer_r * 2.0f;
                 sidewalk_metrics.height = config.sidewalk_surface_height;
@@ -1007,7 +1049,9 @@ CityBuildResult build_city(
                     kSidewalkSurfaceColor,
                     SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
                     MaterialId::PavingSidewalk,
-                    std::move(ring_mesh));
+                    std::move(ring_mesh),
+                    0.0f,
+                    CustomMeshTransformMode::ScaleByBuildingMetrics);
             }
         }
 
@@ -1055,6 +1099,9 @@ CityBuildResult build_city(
         "CityBuilder: built semantic megacity with %zu modules and %zu buildings",
         layout->modules.size(),
         layout->building_count());
+    DRAXUL_LOG_INFO(LogCategory::App,
+        "CityBuilder: static mesh family cache retained %zu reusable meshes",
+        static_meshes.size());
 
     // Sync building centers from layout back into the semantic model.
     // The layout applies module placement offsets that the model doesn't have,

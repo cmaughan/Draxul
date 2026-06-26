@@ -17,6 +17,7 @@ if(APPLE)
         src/shadow_cascade.cpp
         src/sign_label_atlas.cpp
         src/mesh_library.cpp
+        src/static_mesh_family_cache.cpp
         src/megacity_host.cpp
         src/megacity_render.mm
         src/ui_city_map_panel.cpp
@@ -39,6 +40,7 @@ else()
         src/shadow_cascade.cpp
         src/sign_label_atlas.cpp
         src/mesh_library.cpp
+        src/static_mesh_family_cache.cpp
         src/megacity_host.cpp
         src/megacity_render_vk.cpp
         src/ui_city_map_panel.cpp

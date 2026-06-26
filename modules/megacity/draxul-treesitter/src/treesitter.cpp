@@ -445,6 +445,7 @@ void CodebaseScanner::start(std::filesystem::path root)
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.reset();
     }
+    reset_progress();
     stop_flag_.store(false);
     thread_ = std::thread(&CodebaseScanner::scan_thread, this, std::move(root));
 }
@@ -464,11 +465,40 @@ std::shared_ptr<const CodebaseSnapshot> CodebaseScanner::snapshot() const
     return snapshot_;
 }
 
+CodebaseScanProgress CodebaseScanner::progress() const
+{
+    PERF_MEASURE();
+    return CodebaseScanProgress{
+        progress_source_files_seen_.load(std::memory_order_relaxed),
+        progress_source_files_parsed_.load(std::memory_order_relaxed),
+        progress_source_bytes_read_.load(std::memory_order_relaxed),
+        progress_running_.load(std::memory_order_relaxed),
+        progress_complete_.load(std::memory_order_relaxed),
+    };
+}
+
 void CodebaseScanner::publish(std::shared_ptr<CodebaseSnapshot> snap)
 {
     PERF_MEASURE();
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_ = std::move(snap);
+}
+
+void CodebaseScanner::reset_progress()
+{
+    PERF_MEASURE();
+    progress_source_files_seen_.store(0, std::memory_order_relaxed);
+    progress_source_files_parsed_.store(0, std::memory_order_relaxed);
+    progress_source_bytes_read_.store(0, std::memory_order_relaxed);
+    progress_complete_.store(false, std::memory_order_relaxed);
+    progress_running_.store(true, std::memory_order_relaxed);
+}
+
+void CodebaseScanner::finish_progress(bool complete)
+{
+    PERF_MEASURE();
+    progress_complete_.store(complete, std::memory_order_relaxed);
+    progress_running_.store(false, std::memory_order_relaxed);
 }
 
 void CodebaseScanner::scan_thread(std::filesystem::path root)
@@ -504,6 +534,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
         root, std::filesystem::directory_options::skip_permission_denied, ec);
     if (ec)
     {
+        finish_progress(false);
         ts_parser_delete(parser);
         if (abstract_cursor)
             ts_query_cursor_delete(abstract_cursor);
@@ -540,9 +571,13 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
         if (!is_cpp_source(entry.path()))
             continue;
 
+        progress_source_files_seen_.fetch_add(1, std::memory_order_relaxed);
         const std::string source = read_file(entry.path());
         if (source.empty())
             continue;
+        progress_source_bytes_read_.fetch_add(
+            static_cast<uint64_t>(source.size()),
+            std::memory_order_relaxed);
 
         TSTree* tree = ts_parser_parse_string(
             parser, nullptr, source.c_str(),
@@ -550,6 +585,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
         if (!tree)
             continue;
 
+        progress_source_files_parsed_.fetch_add(1, std::memory_order_relaxed);
         ParsedFile file;
         // Normalise to forward slashes for display
         file.path = rel.generic_string();
@@ -717,9 +753,6 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
         ts_tree_delete(tree);
         snapshot->files.push_back(std::move(file));
 
-        // Publish partial results every 20 files
-        if (snapshot->files.size() % 20 == 0)
-            publish(std::make_shared<CodebaseSnapshot>(*snapshot));
     }
 
     // The loop above breaks early on filesystem errors (ec) or cancellation
@@ -736,6 +769,7 @@ void CodebaseScanner::scan_thread(std::filesystem::path root)
     }
     snapshot->scan_time = std::chrono::steady_clock::now();
     publish(std::move(snapshot));
+    finish_progress(!ec && !stopped);
 
     if (abstract_cursor)
         ts_query_cursor_delete(abstract_cursor);

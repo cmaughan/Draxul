@@ -139,6 +139,43 @@ TEST_CASE("tree-sitter scanner restart does not expose stale snapshots", "[trees
     std::filesystem::remove_all(temp_root);
 }
 
+TEST_CASE("tree-sitter scanner reports cheap progress separately from snapshots", "[treesitter]")
+{
+    const auto temp_root
+        = std::filesystem::temp_directory_path() / "draxul-treesitter-progress";
+    std::filesystem::remove_all(temp_root);
+    std::filesystem::create_directories(temp_root);
+
+    {
+        std::ofstream out(temp_root / "one.cpp");
+        REQUIRE(out.is_open());
+        out << "int one() { return 1; }\n";
+    }
+    {
+        std::ofstream out(temp_root / "two.h");
+        REQUIRE(out.is_open());
+        out << "struct Two { int value; };\n";
+    }
+
+    CodebaseScanner scanner;
+    scanner.start(temp_root);
+    const auto snapshot = wait_for_complete_snapshot(scanner);
+    scanner.stop();
+
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+    REQUIRE(snapshot->files.size() == 2);
+
+    const CodebaseScanProgress progress = scanner.progress();
+    CHECK(progress.source_files_seen == 2);
+    CHECK(progress.source_files_parsed == 2);
+    CHECK(progress.source_bytes_read > 0);
+    CHECK(progress.complete);
+    CHECK_FALSE(progress.running);
+
+    std::filesystem::remove_all(temp_root);
+}
+
 TEST_CASE("tree-sitter snapshot captures direct fields with type references", "[treesitter]")
 {
     const auto temp_root

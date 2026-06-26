@@ -43,7 +43,8 @@ void SceneWorld::clear_route_segments()
 
 entt::entity SceneWorld::create_building(float world_x, float world_z, float elevation,
     const BuildingMetrics& metrics, const glm::vec4& color, SourceSymbol source,
-    MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic)
+    MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic,
+    CustomMeshTransformMode custom_mesh_transform_mode)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -85,7 +86,7 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
             entity, mesh_id, material, false, color, glm::vec4(flat_metallic, 1.0f, 1.0f, 1.0f));
     }
     if (custom_mesh)
-        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh));
+        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), custom_mesh_transform_mode);
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;
@@ -222,7 +223,7 @@ entt::entity SceneWorld::create_module_surface(float world_x, float world_z,
 
 entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevation,
     const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source,
-    std::shared_ptr<const GeometryMesh> custom_mesh)
+    std::shared_ptr<const GeometryMesh> custom_mesh, CustomMeshTransformMode custom_mesh_transform_mode)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -232,7 +233,7 @@ entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevati
     const MeshId mesh_id = custom_mesh ? MeshId::Custom : mesh;
     registry_.emplace<Appearance>(entity, mesh_id, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (custom_mesh)
-        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh));
+        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), custom_mesh_transform_mode);
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<SourceSymbol>(entity, std::move(source));
     return entity;

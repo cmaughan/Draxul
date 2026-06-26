@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -60,8 +62,18 @@ struct CodebaseSnapshot
     bool complete = false;
 };
 
+struct CodebaseScanProgress
+{
+    size_t source_files_seen = 0;
+    size_t source_files_parsed = 0;
+    uint64_t source_bytes_read = 0;
+    bool running = false;
+    bool complete = false;
+};
+
 // Scans a source tree in a background thread using tree-sitter's C++ grammar.
-// Call start() once; snapshot() returns the latest atomic snapshot at any time.
+// Call start() once; progress() reports cheap live counters while snapshot()
+// returns the last completed or interrupted scan result.
 // Call stop() (or destroy the object) to join the thread cleanly.
 class CodebaseScanner
 {
@@ -72,17 +84,26 @@ public:
     void start(std::filesystem::path root);
     void stop();
 
-    // Thread-safe. Returns nullptr before the first partial snapshot is ready.
+    // Thread-safe. Returns nullptr before the current scan has published a
+    // completed or interrupted result.
     std::shared_ptr<const CodebaseSnapshot> snapshot() const;
+    CodebaseScanProgress progress() const;
 
 private:
     void scan_thread(std::filesystem::path root);
     void publish(std::shared_ptr<CodebaseSnapshot> snap);
+    void reset_progress();
+    void finish_progress(bool complete);
 
     mutable std::mutex mutex_;
     std::shared_ptr<const CodebaseSnapshot> snapshot_;
     std::thread thread_;
     std::atomic<bool> stop_flag_{ false };
+    std::atomic<size_t> progress_source_files_seen_{ 0 };
+    std::atomic<size_t> progress_source_files_parsed_{ 0 };
+    std::atomic<uint64_t> progress_source_bytes_read_{ 0 };
+    std::atomic<bool> progress_running_{ false };
+    std::atomic<bool> progress_complete_{ false };
 };
 
 } // namespace draxul

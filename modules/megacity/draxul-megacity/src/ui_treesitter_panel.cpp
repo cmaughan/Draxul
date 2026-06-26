@@ -1181,6 +1181,7 @@ bool render_treesitter_panel(
     int window_w,
     int window_h,
     const std::shared_ptr<const CodebaseSnapshot>& snapshot,
+    CodebaseScanProgress scan_progress,
     const SemanticMegacityModel* semantic_model,
     MegacityRendererControls* renderer_controls)
 {
@@ -1235,7 +1236,18 @@ bool render_treesitter_panel(
     if (!snapshot)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-        ImGui::TextUnformatted("(starting...)");
+        if (scan_progress.running || scan_progress.source_files_seen > 0)
+        {
+            ImGui::Text(
+                "Scanning... %zu parsed / %zu source files (%.1f MiB)",
+                scan_progress.source_files_parsed,
+                scan_progress.source_files_seen,
+                static_cast<double>(scan_progress.source_bytes_read) / (1024.0 * 1024.0));
+        }
+        else
+        {
+            ImGui::TextUnformatted("(starting...)");
+        }
         ImGui::PopStyleColor();
 
         ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), false,
@@ -1254,7 +1266,11 @@ bool render_treesitter_panel(
     if (!snapshot->complete)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.9f, 0.6f, 1.0f));
-        ImGui::Text("Scanning... %zu files", snapshot->files.size());
+        ImGui::Text(
+            "Scan incomplete: %zu parsed / %zu source files (%.1f MiB)",
+            scan_progress.source_files_parsed,
+            scan_progress.source_files_seen,
+            static_cast<double>(scan_progress.source_bytes_read) / (1024.0 * 1024.0));
         ImGui::PopStyleColor();
     }
 

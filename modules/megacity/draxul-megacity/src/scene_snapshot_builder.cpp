@@ -367,6 +367,12 @@ SceneSnapshotResult build_scene_snapshot(
                 transform = glm::translate(transform, glm::vec3(0.0f, bm->height * 0.5f, 0.0f));
                 transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
             }
+            else if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleByBuildingMetrics)
+            {
+                transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
+                if (appearance.material == MaterialId::PavingSidewalk)
+                    obj.uv_rect = glm::vec4(0.0f, 0.0f, bm->footprint, bm->footprint);
+            }
             building_min_x = std::min(building_min_x, pos.x - bm->footprint * 0.5f);
             building_max_x = std::max(building_max_x, pos.x + bm->footprint * 0.5f);
             building_min_z = std::min(building_min_z, pos.z - bm->footprint * 0.5f);
@@ -430,6 +436,8 @@ SceneSnapshotResult build_scene_snapshot(
                 extent_x = sm->width;
                 extent_z = sm->width;
                 transform = glm::rotate(transform, sm->yaw_radians, glm::vec3(0.0f, 1.0f, 0.0f));
+                if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleBySignMetrics)
+                    transform = glm::scale(transform, glm::vec3(sm->width, sm->height, sm->width));
             }
             else
             {

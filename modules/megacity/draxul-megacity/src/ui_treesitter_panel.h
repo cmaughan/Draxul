@@ -33,6 +33,7 @@ bool render_treesitter_panel(
     int viewport_w,
     int viewport_h,
     const std::shared_ptr<const CodebaseSnapshot>& snapshot,
+    CodebaseScanProgress scan_progress = {},
     const SemanticMegacityModel* semantic_model = nullptr,
     MegacityRendererControls* renderer_controls = nullptr);
 

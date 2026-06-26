@@ -1402,12 +1402,14 @@ void MegaCityHost::render_host_imgui(float dt)
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
     const auto scanner_snapshot = scanner_started_ ? scanner_.snapshot() : nullptr;
+    const CodebaseScanProgress scanner_progress = scanner_started_ ? scanner_.progress() : CodebaseScanProgress{};
     if (render_treesitter_panel(
             viewport_.pixel_pos.x,
             viewport_.pixel_pos.y,
             pixel_w_,
             pixel_h_,
             scanner_snapshot,
+            scanner_progress,
             semantic_model_.get(),
             &renderer_controls))
     {

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "isometric_scene_types.h"
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <string>
+#include <utility>
 
 namespace draxul
 {
@@ -102,9 +104,26 @@ struct SourceSymbol
     std::string module_path;
 };
 
+enum class CustomMeshTransformMode : uint8_t
+{
+    Baked,
+    ScaleByBuildingMetrics,
+    ScaleBySignMetrics,
+};
+
 struct CustomMeshRef
 {
+    CustomMeshRef() = default;
+    explicit CustomMeshRef(
+        std::shared_ptr<const GeometryMesh> mesh_value,
+        CustomMeshTransformMode transform_mode_value = CustomMeshTransformMode::Baked)
+        : mesh(std::move(mesh_value))
+        , transform_mode(transform_mode_value)
+    {
+    }
+
     std::shared_ptr<const GeometryMesh> mesh;
+    CustomMeshTransformMode transform_mode = CustomMeshTransformMode::Baked;
 };
 
 // Links a route segment entity to the buildings it connects.
