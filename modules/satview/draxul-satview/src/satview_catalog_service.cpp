@@ -26,14 +26,9 @@ namespace draxul::satview
 namespace
 {
 
-#ifdef _WIN32
-constexpr const char* kNullDevice = "NUL";
-#else
-constexpr const char* kNullDevice = "/dev/null";
-#endif
-
-constexpr const char* kCacheJsonFileName = "celestrak_active_gp.json";
-constexpr const char* kCacheMetadataFileName = "celestrak_active_gp.meta";
+constexpr const char* kDefaultCelestrakGroup = "active";
+constexpr int kFetchMaxTimeSeconds = 60;
+constexpr int kFetchConnectTimeoutSeconds = 10;
 
 std::string to_lower_ascii(std::string_view text)
 {
@@ -64,6 +59,30 @@ std::string url_encode_query(std::string_view text)
     return out;
 }
 
+std::string cache_group_slug(std::string_view group)
+{
+    std::string out;
+    out.reserve(group.size());
+    for (unsigned char c : to_lower_ascii(group))
+    {
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.')
+            out.push_back(static_cast<char>(c));
+        else
+            out.push_back('_');
+    }
+    return out.empty() ? std::string(kDefaultCelestrakGroup) : out;
+}
+
+std::filesystem::path cache_json_path(const std::filesystem::path& cache_dir, std::string_view group)
+{
+    return cache_dir / ("celestrak_" + cache_group_slug(group) + "_gp.json");
+}
+
+std::filesystem::path cache_metadata_path(const std::filesystem::path& cache_dir, std::string_view group)
+{
+    return cache_dir / ("celestrak_" + cache_group_slug(group) + "_gp.meta");
+}
+
 std::filesystem::path platform_cache_root()
 {
 #ifdef _WIN32
@@ -88,12 +107,52 @@ std::filesystem::path platform_cache_root()
 #endif
 }
 
+std::optional<std::string> read_text_file(const std::filesystem::path& path, std::string& error);
+
+std::string trim_for_status(std::string text)
+{
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+        text.pop_back();
+    size_t start = 0;
+    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start])))
+        ++start;
+    if (start > 0)
+        text.erase(0, start);
+
+    constexpr size_t kMaxStatusLength = 240;
+    if (text.size() > kMaxStatusLength)
+    {
+        text.resize(kMaxStatusLength);
+        text += "...";
+    }
+    return text;
+}
+
+std::filesystem::path unique_stderr_path()
+{
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    return std::filesystem::temp_directory_path()
+        / ("draxul_satview_curl_" + std::to_string(stamp) + ".stderr");
+}
+
 std::string run_curl_fetch(std::string_view url, std::string& error)
 {
-    std::string cmd = "curl -L --fail --silent --show-error --max-time 10 --connect-timeout 5 --user-agent \"Draxul SatView\" \"";
+#ifdef _WIN32
+    std::string cmd = "curl.exe";
+#else
+    std::string cmd = "curl";
+#endif
+
+    const std::filesystem::path stderr_path = unique_stderr_path();
+    cmd += " -L --fail --silent --show-error --max-time ";
+    cmd += std::to_string(kFetchMaxTimeSeconds);
+    cmd += " --connect-timeout ";
+    cmd += std::to_string(kFetchConnectTimeoutSeconds);
+    cmd += " --user-agent \"Draxul SatView\" \"";
     cmd += std::string(url);
-    cmd += "\" 2>";
-    cmd += kNullDevice;
+    cmd += "\" 2>\"";
+    cmd += stderr_path.string();
+    cmd += "\"";
 
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe)
@@ -107,9 +166,16 @@ std::string run_curl_fetch(std::string_view url, std::string& error)
     while (auto n = fread(buf.data(), 1, buf.size(), pipe))
         result.append(buf.data(), n);
     const int status = pclose(pipe);
+    std::string stderr_error;
+    std::string stderr_read_error;
+    if (auto stderr_text = read_text_file(stderr_path, stderr_read_error))
+        stderr_error = trim_for_status(*stderr_text);
+    std::error_code ec;
+    std::filesystem::remove(stderr_path, ec);
+
     if (status != 0)
     {
-        error = "curl failed";
+        error = stderr_error.empty() ? "curl failed" : stderr_error;
         return {};
     }
     if (result.empty())
@@ -311,11 +377,12 @@ std::optional<SatViewCatalogService::CacheMetadata> read_metadata(
 
 bool write_cache_files(
     const std::filesystem::path& cache_dir,
+    std::string_view group,
     const SatViewCatalogService::WorkerResult& result,
     std::string& error)
 {
-    const auto json_path = cache_dir / kCacheJsonFileName;
-    const auto meta_path = cache_dir / kCacheMetadataFileName;
+    const auto json_path = cache_json_path(cache_dir, group);
+    const auto meta_path = cache_metadata_path(cache_dir, group);
     if (!write_text_atomic(json_path, result.raw_json, error))
         return false;
 
@@ -332,10 +399,11 @@ bool write_cache_files(
 
 std::optional<std::pair<SatelliteCatalog, SatViewCatalogService::CacheMetadata>> read_cache_files(
     const std::filesystem::path& cache_dir,
+    std::string_view group,
     std::string& error)
 {
-    const auto json_path = cache_dir / kCacheJsonFileName;
-    const auto meta_path = cache_dir / kCacheMetadataFileName;
+    const auto json_path = cache_json_path(cache_dir, group);
+    const auto meta_path = cache_metadata_path(cache_dir, group);
     auto meta = read_metadata(meta_path, error);
     if (!meta.has_value())
         return std::nullopt;
@@ -374,7 +442,7 @@ void SatViewCatalogService::start(Config config)
     if (config.cache_directory.empty())
         config.cache_directory = default_cache_directory();
     if (config.celestrak_group.empty())
-        config.celestrak_group = "active";
+        config.celestrak_group = kDefaultCelestrakGroup;
     if (!config.fetch)
         config.fetch = run_curl_fetch;
 
@@ -390,7 +458,7 @@ void SatViewCatalogService::start(Config config)
         catalog_generation_ = 0;
     }
 
-    if (auto cached = read_cache_files(config_.cache_directory, cache_error))
+    if (auto cached = read_cache_files(config_.cache_directory, config_.celestrak_group, cache_error))
     {
         const auto age = std::chrono::duration_cast<std::chrono::seconds>(now - cached->second.fetched_at);
         {
@@ -433,7 +501,7 @@ void SatViewCatalogService::start(Config config)
     }
 
     if (should_refresh)
-        start_refresh(false);
+        start_refresh();
 }
 
 void SatViewCatalogService::stop()
@@ -475,8 +543,10 @@ bool SatViewCatalogService::request_refresh()
         std::lock_guard lock(mutex_);
         if (refresh_in_flight_)
             return false;
+        if (has_fresh_catalog_locked(Clock::now()))
+            return false;
     }
-    start_refresh(true);
+    start_refresh();
     return true;
 }
 
@@ -521,7 +591,7 @@ std::string SatViewCatalogService::default_celestrak_url(std::string_view group)
         + url_encode_query(to_lower_ascii(group)) + "&FORMAT=json";
 }
 
-void SatViewCatalogService::start_refresh(bool force)
+void SatViewCatalogService::start_refresh()
 {
     PERF_MEASURE();
     Config config;
@@ -529,6 +599,8 @@ void SatViewCatalogService::start_refresh(bool force)
     {
         std::lock_guard lock(mutex_);
         if (refresh_in_flight_)
+            return;
+        if (has_fresh_catalog_locked(Clock::now()))
             return;
         config = config_;
         url = default_celestrak_url(config.celestrak_group);
@@ -539,8 +611,7 @@ void SatViewCatalogService::start_refresh(bool force)
         publish_status_locked();
     }
 
-    worker_ = std::thread([this, config = std::move(config), url = std::move(url), force]() mutable {
-        (void)force;
+    worker_ = std::thread([this, config = std::move(config), url = std::move(url)]() mutable {
         WorkerResult result;
         result.fetched_at = Clock::now();
         std::string fetch_error;
@@ -561,7 +632,7 @@ void SatViewCatalogService::start_refresh(bool force)
                 result.success = true;
                 result.catalog = std::move(parsed.catalog);
                 std::string cache_error;
-                if (!write_cache_files(config.cache_directory, result, cache_error))
+                if (!write_cache_files(config.cache_directory, config.celestrak_group, result, cache_error))
                 {
                     DRAXUL_LOG_WARN(LogCategory::Renderer,
                         "SatView: failed to write catalog cache: %s",
@@ -598,6 +669,9 @@ void SatViewCatalogService::apply_worker_result(WorkerResult result)
     {
         status_.refresh_state = RefreshState::Failed;
         status_.error = std::move(result.error);
+        DRAXUL_LOG_WARN(LogCategory::Renderer,
+            "SatView: catalog fetch failed: %s",
+            status_.error.c_str());
     }
     publish_status_locked();
 }
@@ -650,6 +724,16 @@ void SatViewCatalogService::publish_status_locked()
     {
         status_.text += " | fetch failed";
     }
+}
+
+bool SatViewCatalogService::has_fresh_catalog_locked(Clock::time_point now) const
+{
+    if (status_.fetched_at == Clock::time_point{})
+        return false;
+    if (status_.data_source != DataSource::Cache && status_.data_source != DataSource::Live)
+        return false;
+    const auto age = std::chrono::duration_cast<std::chrono::seconds>(now - status_.fetched_at);
+    return age < config_.refresh_interval;
 }
 
 } // namespace draxul::satview

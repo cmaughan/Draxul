@@ -258,7 +258,7 @@ The rest of Phase 2 is implemented after `67e2bb8`:
 - `SatViewCatalogService` owns background CelesTrak `active` GP downloads through `curl`, so the render thread never blocks on network I/O.
 - The service caches raw GP JSON and a metadata sidecar under the platform cache directory.
 - Cache metadata records source URL, fetch time, object count, skipped records, and element epoch range.
-- A two-hour refresh interval prevents repeated large downloads inside CelesTrak's GP update cadence; pressing `R` in SatView requests a manual refresh.
+- A two-hour refresh interval prevents repeated large downloads inside CelesTrak's GP update cadence; pressing `R` in SatView requests a manual refresh, but the service still keeps a fresh live/cache catalog instead of re-downloading inside that interval.
 - If network fetch fails, SatView keeps rendering from live/cache/sample data and marks the status as failed instead of clearing the catalog.
 
 Phase 3 is implemented in the current working tree:

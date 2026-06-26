@@ -81,6 +81,12 @@ SatViewCatalogService::Config config_for(
 
 } // namespace
 
+TEST_CASE("SatView catalog service builds encoded CelesTrak group URLs", "[satview][catalog][service]")
+{
+    const auto url = SatViewCatalogService::default_celestrak_url("Visual + Active");
+    CHECK(url == "https://celestrak.org/NORAD/elements/gp.php?GROUP=visual%20%2B%20active&FORMAT=json");
+}
+
 TEST_CASE("SatView catalog service fetches live catalog and writes cache", "[satview][catalog][service]")
 {
     draxul::tests::TempDir temp("satview-catalog-service");
@@ -125,6 +131,36 @@ TEST_CASE("SatView catalog service uses fresh cache without refetching", "[satvi
         return std::string{};
     }));
 
+    service.pump();
+    const auto status = service.status();
+    CHECK(fetch_calls == 0);
+    CHECK(status.data_source == SatViewCatalogService::DataSource::Cache);
+    CHECK(status.refresh_state == SatViewCatalogService::RefreshState::Idle);
+    CHECK(status.object_count == 1);
+    CHECK(status.text.find("cached 1 sats") != std::string::npos);
+}
+
+TEST_CASE("SatView catalog service skips manual refresh while cache is fresh", "[satview][catalog][service]")
+{
+    draxul::tests::TempDir temp("satview-catalog-service");
+    {
+        SatViewCatalogService seeder;
+        seeder.start(config_for(temp.path, [](std::string_view, std::string& error) {
+            error.clear();
+            return std::string(kOneObjectJson);
+        }));
+        REQUIRE(wait_for_idle(seeder));
+    }
+
+    int fetch_calls = 0;
+    SatViewCatalogService service;
+    service.start(config_for(temp.path, [&](std::string_view, std::string& error) {
+        ++fetch_calls;
+        error = "should not fetch";
+        return std::string{};
+    }));
+
+    CHECK_FALSE(service.request_refresh());
     service.pump();
     const auto status = service.status();
     CHECK(fetch_calls == 0);

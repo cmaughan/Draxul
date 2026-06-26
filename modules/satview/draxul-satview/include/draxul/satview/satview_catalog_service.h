@@ -99,9 +99,10 @@ public:
     [[nodiscard]] static std::string default_celestrak_url(std::string_view group);
 
 private:
-    void start_refresh(bool force);
+    void start_refresh();
     void apply_worker_result(WorkerResult result);
     void publish_status_locked();
+    [[nodiscard]] bool has_fresh_catalog_locked(Clock::time_point now) const;
 
     mutable std::mutex mutex_;
     Config config_;
