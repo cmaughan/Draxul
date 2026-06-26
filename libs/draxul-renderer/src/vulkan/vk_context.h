@@ -28,6 +28,7 @@ struct PendingSwapchainResources
     SwapchainInfo swapchain;
     VkRenderPass render_pass = VK_NULL_HANDLE;
     VkRenderPass load_render_pass = VK_NULL_HANDLE;
+    VkRenderPass load_color_clear_depth_render_pass = VK_NULL_HANDLE;
 };
 
 class VkContext
@@ -78,6 +79,10 @@ public:
     {
         return load_render_pass_;
     }
+    VkRenderPass load_color_clear_depth_render_pass() const
+    {
+        return load_color_clear_depth_render_pass_;
+    }
     const SwapchainInfo& swapchain() const
     {
         return swapchain_;
@@ -89,7 +94,9 @@ public:
 
 private:
     VkFormat choose_depth_format() const;
-    bool create_render_pass(VkFormat color_format, VkFormat depth_format, bool load_existing, VkRenderPass& render_pass);
+    bool create_render_pass(VkFormat color_format, VkFormat depth_format,
+        VkAttachmentLoadOp color_load_op, VkAttachmentLoadOp depth_load_op,
+        VkRenderPass& render_pass);
     bool create_depth_resources(SwapchainInfo& swapchain);
     bool create_framebuffers(SwapchainInfo& swapchain, VkRenderPass render_pass);
     void destroy_swapchain();
@@ -104,6 +111,7 @@ private:
     VmaAllocator allocator_ = VK_NULL_HANDLE;
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
     VkRenderPass load_render_pass_ = VK_NULL_HANDLE;
+    VkRenderPass load_color_clear_depth_render_pass_ = VK_NULL_HANDLE;
     SwapchainInfo swapchain_;
     SDL_Window* window_ = nullptr;
     bool wait_for_vblank_ = true;

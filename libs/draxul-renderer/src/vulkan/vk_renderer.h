@@ -72,7 +72,7 @@ private:
     void finish_capture_readback();
     bool create_imgui_descriptor_pool();
     bool create_imgui_font_texture();
-    bool begin_main_render_pass();
+    bool begin_main_render_pass(bool clear_depth_for_load = false);
     void end_main_render_pass();
     bool draw_grid_handle_now(IGridHandle& handle);
     bool record_render_pass_now(IRenderPass& pass, const RenderViewport& viewport);

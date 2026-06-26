@@ -802,7 +802,7 @@ bool MetalRenderer::ensure_main_render_encoder(bool with_depth)
         if (!ensure_depth_texture())
             return false;
         rpDesc.depthAttachment.texture = depth_texture_.get();
-        rpDesc.depthAttachment.loadAction = main_render_encoder_started_ ? MTLLoadActionLoad : MTLLoadActionClear;
+        rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
         rpDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
         rpDesc.depthAttachment.clearDepth = 1.0;
     }
@@ -927,10 +927,12 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     if (!frame_active_ || !active_command_buffer_)
         return false;
 
+    const bool needs_main_depth = pass.requires_main_depth_attachment();
+
     // If no main render encoder has run yet this frame, the drawable has not been
     // cleared.  Issue a lightweight clear pass so the prepass (which uses
     // LoadAction::Load) starts from a known background rather than stale data.
-    if (!main_render_encoder_started_)
+    if (!main_render_encoder_started_ && !needs_main_depth)
     {
         end_main_render_encoder();
         if (!ensure_main_render_encoder(false))
@@ -957,9 +959,10 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     // A prepass may have rendered directly to the drawable (e.g. NanoVG creates
     // its own render encoder).  Mark the drawable as touched so that the next
     // main render encoder uses LoadAction::Load instead of Clear.
-    main_render_encoder_started_ = true;
+    if (!needs_main_depth)
+        main_render_encoder_started_ = true;
 
-    if (!ensure_main_render_encoder(pass.requires_main_depth_attachment()))
+    if (!ensure_main_render_encoder(needs_main_depth))
         return false;
 
     MTLViewport pass_viewport;

@@ -31,6 +31,7 @@ option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/App
 # unconditional dynamic_cast / I3DPassProvider surface in IRenderer can be guarded or removed
 # when megacity is disabled, yielding a cleaner renderer interface.
 option(DRAXUL_ENABLE_MEGACITY "Build and include the Megacity 3D demo host" ON)
+option(DRAXUL_ENABLE_SATVIEW "Build and include the SatView 3D satellite overview host" ON)
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
 
 # Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
@@ -145,6 +146,9 @@ add_subdirectory(libs/draxul-nanovg)
 if(DRAXUL_ENABLE_MEGACITY)
     add_subdirectory(modules/megacity)
 endif()
+if(DRAXUL_ENABLE_SATVIEW)
+    add_subdirectory(modules/satview)
+endif()
 
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
@@ -169,6 +173,11 @@ if(DRAXUL_ENABLE_MEGACITY)
     draxul_apply_sanitizers(draxul-megacity)
     draxul_apply_coverage(draxul-megacity)
     draxul_apply_msvc_parallel_pdb_fix(draxul-megacity)
+endif()
+if(DRAXUL_ENABLE_SATVIEW)
+    draxul_apply_sanitizers(draxul-satview)
+    draxul_apply_coverage(draxul-satview)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-satview)
 endif()
 
 include(CTest)
@@ -273,6 +282,10 @@ if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)
 endif()
+if(DRAXUL_ENABLE_SATVIEW)
+    target_link_libraries(draxul PRIVATE draxul-satview)
+    target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_SATVIEW)
+endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
 endif()
@@ -297,6 +310,13 @@ if(APPLE)
         ${CMAKE_BINARY_DIR}/shaders/gui.metallib)
     draxul_stage_metal_shader(stage_markdown_metal_shader
         ${CMAKE_BINARY_DIR}/shaders/markdown.metallib)
+    set(DRAXUL_METAL_SHADER_DEPS
+        compile_metal_shaders
+        compile_gui_shaders
+        compile_markdown_shaders
+        stage_grid_metal_shader
+        stage_gui_metal_shader
+        stage_markdown_metal_shader)
     if(DRAXUL_ENABLE_MEGACITY)
         draxul_stage_metal_shader(stage_megacity_scene_metal_shader
             ${CMAKE_BINARY_DIR}/shaders/megacity_scene.metallib)
@@ -304,28 +324,22 @@ if(APPLE)
             ${CMAKE_BINARY_DIR}/shaders/megacity_gbuffer.metallib)
         draxul_stage_metal_shader(stage_megacity_ao_metal_shader
             ${CMAKE_BINARY_DIR}/shaders/megacity_ao.metallib)
-        add_dependencies(draxul
-            compile_metal_shaders
-            compile_gui_shaders
-            compile_markdown_shaders
+        list(APPEND DRAXUL_METAL_SHADER_DEPS
             compile_megacity_shaders
             compile_megacity_gbuffer_shaders
             compile_megacity_ao_shaders
-            stage_grid_metal_shader
-            stage_gui_metal_shader
-            stage_markdown_metal_shader
             stage_megacity_scene_metal_shader
             stage_megacity_gbuffer_metal_shader
             stage_megacity_ao_metal_shader)
-    else()
-        add_dependencies(draxul
-            compile_metal_shaders
-            compile_gui_shaders
-            compile_markdown_shaders
-            stage_grid_metal_shader
-            stage_gui_metal_shader
-            stage_markdown_metal_shader)
     endif()
+    if(DRAXUL_ENABLE_SATVIEW)
+        draxul_stage_metal_shader(stage_satview_metal_shader
+            ${CMAKE_BINARY_DIR}/shaders/satview_scene.metallib)
+        list(APPEND DRAXUL_METAL_SHADER_DEPS
+            compile_satview_shaders
+            stage_satview_metal_shader)
+    endif()
+    add_dependencies(draxul ${DRAXUL_METAL_SHADER_DEPS})
 else()
     add_dependencies(draxul compile_shaders)
 

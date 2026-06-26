@@ -20,6 +20,9 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
+#ifdef DRAXUL_ENABLE_SATVIEW
+#include <draxul/satview/satview_host.h>
+#endif
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
 #include <draxul/render_test.h>
 #endif
@@ -519,6 +522,9 @@ static int draxul_main(std::vector<std::string> args)
     draxul::kanban::register_kanban_host_provider(host_registry);
 #ifdef DRAXUL_ENABLE_MEGACITY
     draxul::register_megacity_host_provider(host_registry);
+#endif
+#ifdef DRAXUL_ENABLE_SATVIEW
+    draxul::satview::register_satview_host_provider(host_registry);
 #endif
 
     // CLI overrides for logging — these always work, unlike env vars which

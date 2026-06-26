@@ -204,27 +204,33 @@ VkFormat VkContext::choose_depth_format() const
     return VK_FORMAT_UNDEFINED;
 }
 
-bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format, bool load_existing, VkRenderPass& render_pass)
+bool VkContext::create_render_pass(VkFormat color_format, VkFormat depth_format,
+    VkAttachmentLoadOp color_load_op, VkAttachmentLoadOp depth_load_op,
+    VkRenderPass& render_pass)
 {
     PERF_MEASURE();
     VkAttachmentDescription color_attachment = {};
     color_attachment.format = color_format;
     color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    color_attachment.loadOp = load_existing ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachment.loadOp = color_load_op;
     color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color_attachment.initialLayout = load_existing ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+    color_attachment.initialLayout = color_load_op == VK_ATTACHMENT_LOAD_OP_LOAD
+        ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        : VK_IMAGE_LAYOUT_UNDEFINED;
     color_attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     VkAttachmentDescription depth_attachment = {};
     depth_attachment.format = depth_format;
     depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    depth_attachment.loadOp = load_existing ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.loadOp = depth_load_op;
     depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth_attachment.initialLayout = load_existing ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_attachment.initialLayout = depth_load_op == VK_ATTACHMENT_LOAD_OP_LOAD
+        ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        : VK_IMAGE_LAYOUT_UNDEFINED;
     depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference color_ref = {};
@@ -397,13 +403,22 @@ bool VkContext::build_swapchain_resources(int width, int height, PendingSwapchai
         return false;
     }
 
-    if (!create_render_pass(pending.swapchain.format, pending.swapchain.depth_format, false, pending.render_pass))
+    if (!create_render_pass(pending.swapchain.format, pending.swapchain.depth_format,
+            VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_LOAD_OP_CLEAR, pending.render_pass))
     {
         destroy_pending_swapchain_resources(pending);
         return false;
     }
 
-    if (!create_render_pass(pending.swapchain.format, pending.swapchain.depth_format, true, pending.load_render_pass))
+    if (!create_render_pass(pending.swapchain.format, pending.swapchain.depth_format,
+            VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_LOAD_OP_LOAD, pending.load_render_pass))
+    {
+        destroy_pending_swapchain_resources(pending);
+        return false;
+    }
+
+    if (!create_render_pass(pending.swapchain.format, pending.swapchain.depth_format,
+            VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_LOAD_OP_CLEAR, pending.load_color_clear_depth_render_pass))
     {
         destroy_pending_swapchain_resources(pending);
         return false;
@@ -440,12 +455,19 @@ void VkContext::commit_swapchain_resources(PendingSwapchainResources&& pending)
         vkDestroyRenderPass(device_, load_render_pass_, nullptr);
         load_render_pass_ = VK_NULL_HANDLE;
     }
+    if (load_color_clear_depth_render_pass_ != VK_NULL_HANDLE)
+    {
+        vkDestroyRenderPass(device_, load_color_clear_depth_render_pass_, nullptr);
+        load_color_clear_depth_render_pass_ = VK_NULL_HANDLE;
+    }
 
     swapchain_ = std::move(pending.swapchain);
     render_pass_ = pending.render_pass;
     load_render_pass_ = pending.load_render_pass;
+    load_color_clear_depth_render_pass_ = pending.load_color_clear_depth_render_pass;
     pending.render_pass = VK_NULL_HANDLE;
     pending.load_render_pass = VK_NULL_HANDLE;
+    pending.load_color_clear_depth_render_pass = VK_NULL_HANDLE;
 }
 
 bool VkContext::create_framebuffers(SwapchainInfo& swapchain, VkRenderPass render_pass)
@@ -497,6 +519,11 @@ void VkContext::destroy_pending_swapchain_resources(PendingSwapchainResources& p
         vkDestroyRenderPass(device_, pending.load_render_pass, nullptr);
         pending.load_render_pass = VK_NULL_HANDLE;
     }
+    if (pending.load_color_clear_depth_render_pass != VK_NULL_HANDLE)
+    {
+        vkDestroyRenderPass(device_, pending.load_color_clear_depth_render_pass, nullptr);
+        pending.load_color_clear_depth_render_pass = VK_NULL_HANDLE;
+    }
 
     destroy_swapchain_info(device_, allocator_, pending.swapchain);
 }
@@ -518,6 +545,8 @@ void VkContext::shutdown()
         vkDestroyRenderPass(device_, render_pass_, nullptr);
     if (load_render_pass_)
         vkDestroyRenderPass(device_, load_render_pass_, nullptr);
+    if (load_color_clear_depth_render_pass_)
+        vkDestroyRenderPass(device_, load_color_clear_depth_render_pass_, nullptr);
     if (allocator_)
         vmaDestroyAllocator(allocator_);
     if (device_)

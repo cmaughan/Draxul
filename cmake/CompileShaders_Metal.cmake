@@ -132,3 +132,24 @@ add_custom_command(
 )
 
 add_custom_target(compile_megacity_ao_shaders DEPENDS ${AO_METAL_LIB})
+
+# SatView scene shader
+set(SATVIEW_METAL_SOURCE ${SHADER_SOURCE_DIR}/satview_scene.metal)
+set(SATVIEW_METAL_AIR    ${SHADER_OUTPUT_DIR}/satview_scene.air)
+set(SATVIEW_METAL_LIB    ${SHADER_OUTPUT_DIR}/satview_scene.metallib)
+
+add_custom_command(
+    OUTPUT ${SATVIEW_METAL_AIR}
+    COMMAND xcrun -sdk macosx metal -c ${SATVIEW_METAL_SOURCE} -o ${SATVIEW_METAL_AIR}
+    DEPENDS ${SATVIEW_METAL_SOURCE}
+    COMMENT "Compiling Metal shader: satview_scene.metal"
+)
+
+add_custom_command(
+    OUTPUT ${SATVIEW_METAL_LIB}
+    COMMAND xcrun -sdk macosx metallib ${SATVIEW_METAL_AIR} -o ${SATVIEW_METAL_LIB}
+    DEPENDS ${SATVIEW_METAL_AIR}
+    COMMENT "Linking Metal shader library: satview_scene.metallib"
+)
+
+add_custom_target(compile_satview_shaders DEPENDS ${SATVIEW_METAL_LIB})

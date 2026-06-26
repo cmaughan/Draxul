@@ -16,6 +16,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | PowerShell | `--host powershell` | ConPTY on Windows, PTY on macOS/Linux |
 | WSL | `--host wsl` | Windows Subsystem for Linux shell |
 | MegaCity | `--host megacity` | 3D demo host (semantic code city, textured road/sidewalk/tree materials, cascaded directional shadows, point-light cubemap shadows, screen-space AO, mouse-drag pan, Alt+drag orbit, direct Tree-sitter semantic source, optional `--source` Tree-sitter scan-root override) |
+| SatView | `--host satview` | Optional 3D satellite-overview host with an interactive procedural Earth, approximate live day/night lighting, left-drag orbit controls, mouse-wheel zoom, and time-speed controls (`Space`, `[`, `]`) |
 
 Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
 
@@ -45,6 +46,7 @@ Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows)
 - **MegaCity sign sizing controls**: Building roof-sign rings can now enforce a configurable `Min Width / Char`, so long class/module labels can expand the repeated sign band instead of being squeezed into the default building footprint
 - **MegaCity building shape thresholds**: The City Build UI now exposes both `Hex Threshold` and `Oct Threshold`, letting connected buildings step from 4-sided to 6-sided to 8-sided procedural shells based on total incident dependency count
 - **MegaCity selection tuning**: Selection fade now has configurable dependency, hidden, hover-hidden, and road hidden alpha controls, with configurable spacebar-held raise/fall timing for hidden buildings so the shared road layer can remain fully visible while selected-context buildings read clearly
+- **SatView Earth pass**: The optional SatView module renders a procedural Earth through the shared 3D render-pass path on Vulkan and Metal, including approximate day/night lighting, atmospheric rim light, preview orbit tracks, and interactive orbit/zoom controls. It is the first slice of the satellite-overview module and is launched with `--host satview`.
 - **Markdown viewer pipeline**: Markdown panes are rendered by Draxul itself rather than through the terminal grid or ImGui. The host parses Markdown into document blocks, lays them out as variable-height rows, builds a GPU draw list of styled rectangles and glyph runs, uploads rich-text atlas regions incrementally, and renders directly through the platform hardware renderer. GitHub/Obsidian pipe tables render with header/body styling, cell borders, wrapped cell text, left/center/right column alignment, and content-aware column widths that balance required and preferred cell sizes. Markdown body size is controlled independently through `[markdown].font_size`, headings scale relative to it, focused Markdown panes consume `font_increase`, `font_decrease`, and `font_reset`, and `[markdown].margin_columns` controls the document margin in body character widths. Navigation supports PageUp/PageDown/Home/End, wheel scrolling, Vim-style `j/k`, `Ctrl+F/B`, `gg`, `G`, and mouse dragging on the wider scrollbar thumb.
 
 ## GUI (draxul-gui)
@@ -315,7 +317,7 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 
 | Flag | Description |
 |------|-------------|
-| `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity |
+| `--host <type>` | Host type: nvim, markdown, powershell, bash, zsh, wsl, megacity, satview |
 | `--command <cmd>` | Override host command path |
 | `--source <path>` | Markdown file to view when launching `--host markdown`; MegaCity Tree-sitter scan root when launching `--host megacity` |
 | `--session <id>` | Select which saved shell session to restore |
@@ -383,6 +385,7 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `DRAXUL_ENABLE_TSAN` | OFF | ThreadSanitizer (Clang/GCC only, mutually exclusive with `DRAXUL_ENABLE_SANITIZERS`) |
 | `DRAXUL_ENABLE_COVERAGE` | OFF | LLVM source-based coverage |
 | `DRAXUL_ENABLE_MEGACITY` | ON | MegaCity optional module (`modules/megacity/`) — when OFF, the terminal product builds with no megacity sources, headers, link dependency, or test coupling |
+| `DRAXUL_ENABLE_SATVIEW` | ON | SatView optional module (`modules/satview/`) — when OFF, the terminal product builds with no SatView sources, headers, link dependency, or shader staging |
 | `BUILD_TESTING` | ON | Test targets |
 
 Markdown and Kanban are product modules under `modules/markdown/` and `modules/kanban/`. They are built by default and keep their existing host flags and CMake target names.

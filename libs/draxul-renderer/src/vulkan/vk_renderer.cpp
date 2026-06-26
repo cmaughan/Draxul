@@ -954,7 +954,7 @@ bool VkRenderer::start_new_chunk_command_buffer()
     return true;
 }
 
-bool VkRenderer::begin_main_render_pass()
+bool VkRenderer::begin_main_render_pass(bool clear_depth_for_load)
 {
     if (!frame_active_ || active_cmd_buffer_ == VK_NULL_HANDLE)
         return false;
@@ -967,7 +967,13 @@ bool VkRenderer::begin_main_render_pass()
     clear_values[1].depthStencil.stencil = 0;
 
     VkRenderPassBeginInfo rp_begin = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-    rp_begin.renderPass = main_render_pass_started_ ? ctx_.load_render_pass() : ctx_.render_pass();
+    rp_begin.renderPass = ctx_.render_pass();
+    if (main_render_pass_started_)
+    {
+        rp_begin.renderPass = clear_depth_for_load
+            ? ctx_.load_color_clear_depth_render_pass()
+            : ctx_.load_render_pass();
+    }
     rp_begin.framebuffer = ctx_.swapchain().framebuffers[current_image_];
     rp_begin.renderArea.extent = ctx_.swapchain().extent;
     rp_begin.clearValueCount = 2;
@@ -1085,12 +1091,17 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
     if (main_render_pass_active_)
         end_main_render_pass();
 
+    const bool needs_main_depth = pass.requires_main_depth_attachment();
+
     // Vulkan prepasses such as NanoVG can render straight into the swapchain
     // image before the regular renderer has touched it for this frame. Prime
     // the main render pass once up front so the image is cleared and left in
     // COLOR_ATTACHMENT_OPTIMAL; subsequent main-pass resumes will then load the
-    // prepass content instead of clearing over it.
-    if (!main_render_pass_started_)
+    // prepass content instead of clearing over it. Depth-using passes need the
+    // first real main pass to clear the shared depth attachment too; the load
+    // render pass cannot safely load depth after the priming pass because the
+    // depth attachment is storeOp=DONT_CARE.
+    if (!main_render_pass_started_ && !needs_main_depth)
     {
         if (!begin_main_render_pass())
             return false;
@@ -1110,26 +1121,29 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
         ctx_.swapchain().format, ctx_.graphics_queue(), ctx_.graphics_queue_family());
     pass.record_prepass(prepass_ctx);
 
-    // Prepasses such as NanoVG render directly into the swapchain image using
-    // their own render pass. Make those color writes visible before we resume
-    // the renderer's main pass and load from the same attachment.
-    VkImageMemoryBarrier prepass_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    prepass_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    prepass_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    prepass_barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    prepass_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    prepass_barrier.image = ctx_.swapchain().images[current_image_];
-    prepass_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    prepass_barrier.subresourceRange.baseMipLevel = 0;
-    prepass_barrier.subresourceRange.levelCount = 1;
-    prepass_barrier.subresourceRange.baseArrayLayer = 0;
-    prepass_barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(active_cmd_buffer_,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &prepass_barrier);
+    if (main_render_pass_started_)
+    {
+        // Prepasses such as NanoVG render directly into the swapchain image using
+        // their own render pass. Make those color writes visible before we resume
+        // the renderer's main pass and load from the same attachment.
+        VkImageMemoryBarrier prepass_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        prepass_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        prepass_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        prepass_barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        prepass_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        prepass_barrier.image = ctx_.swapchain().images[current_image_];
+        prepass_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        prepass_barrier.subresourceRange.baseMipLevel = 0;
+        prepass_barrier.subresourceRange.levelCount = 1;
+        prepass_barrier.subresourceRange.baseArrayLayer = 0;
+        prepass_barrier.subresourceRange.layerCount = 1;
+        vkCmdPipelineBarrier(active_cmd_buffer_,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &prepass_barrier);
+    }
 
-    if (!begin_main_render_pass())
+    if (!begin_main_render_pass(needs_main_depth && main_render_pass_started_))
         return false;
 
     VkViewport pass_viewport = {};
