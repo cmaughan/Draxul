@@ -5,6 +5,7 @@ if(APPLE)
         src/satview_catalog.cpp
         src/satview_catalog_service.cpp
         src/satview_host.cpp
+        src/satview_propagation.cpp
         src/satview_texture_assets.cpp
         src/satview_render.mm
     )
@@ -13,9 +14,23 @@ else()
         src/satview_catalog.cpp
         src/satview_catalog_service.cpp
         src/satview_host.cpp
+        src/satview_propagation.cpp
         src/satview_texture_assets.cpp
         src/satview_render_vk.cpp
     )
+endif()
+
+set(SATVIEW_SGP4_SOURCE_DIR "${celestrak_sgp4_SOURCE_DIR}/cpp/SGP4/SGP4")
+if(NOT EXISTS "${SATVIEW_SGP4_SOURCE_DIR}/SGP4.cpp")
+    message(FATAL_ERROR "CelesTrak SGP4 source was not found at ${SATVIEW_SGP4_SOURCE_DIR}")
+endif()
+
+add_library(celestrak-sgp4 STATIC src/vallado_sgp4.cpp)
+target_include_directories(celestrak-sgp4 SYSTEM PUBLIC "${SATVIEW_SGP4_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(celestrak-sgp4 PRIVATE /w)
+else()
+    target_compile_options(celestrak-sgp4 PRIVATE -w)
 endif()
 
 add_library(draxul-satview STATIC ${SATVIEW_SOURCES})
@@ -34,6 +49,7 @@ target_link_libraries(draxul-satview PUBLIC
     draxul-host
     draxul-renderer
 )
+target_link_libraries(draxul-satview PRIVATE celestrak-sgp4)
 
 if(APPLE)
     find_library(METAL_FRAMEWORK Metal REQUIRED)

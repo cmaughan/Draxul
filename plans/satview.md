@@ -191,20 +191,21 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 
 ### Phase 3: SGP4 Propagation
 
-- [ ] Choose and integrate a proven SGP4 implementation.
-- [ ] Add unit tests against published/reference propagation cases.
-- [ ] Convert catalog records into propagator inputs.
-- [ ] Propagate current satellite positions for the selected simulation time.
-- [ ] Generate orbit track samples for a configurable time horizon or one orbital period.
-- [ ] Separate propagation cadence from render cadence.
+- [x] Choose and integrate a proven SGP4 implementation.
+- [x] Add unit tests against published/reference propagation cases.
+- [x] Convert catalog records into propagator inputs.
+- [x] Propagate current satellite positions for the selected simulation time.
+- [x] Generate orbit track samples for a configurable time horizon or one orbital period.
+- [x] Separate propagation cadence from render cadence.
 
 ### Phase 4: Real Satellite Rendering
 
-- [ ] Replace synthetic rings with catalog-derived orbit tracks.
-- [ ] Add satellite point markers.
-- [ ] Color by orbit class and object type.
+- [x] Replace synthetic rings with catalog-derived orbit tracks.
+- [x] Add satellite point markers.
+- [x] Color by orbit class.
+- [ ] Color by object type once the catalog model exposes a useful type field.
 - [ ] Add selection/highlight rendering.
-- [ ] Batch marker and track draws to avoid one draw per satellite.
+- [x] Batch marker and track draws to avoid one draw per satellite.
 - [ ] Add LOD controls for path segment count and marker density.
 - [ ] Keep Vulkan and Metal behavior visually equivalent.
 
@@ -220,7 +221,7 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 
 - [ ] Add parser tests for valid and malformed GP JSON/CSV.
 - [ ] Add cache tests for stale, missing, and corrupt cache files.
-- [ ] Add propagation tests for known element sets.
+- [x] Add propagation tests for known element sets.
 - [ ] Add render smoke coverage for `--host satview`.
 - [ ] Verify Vulkan startup on Windows after renderer changes.
 - [ ] Verify Metal startup on macOS after shader and depth path changes.
@@ -243,7 +244,7 @@ The initial MVP is implemented on `codex/satview-module-depth-fix` in commit `ed
 - Texture-mapped Earth and preview orbit rings.
 - Renderer depth fix needed for solid 3D surfaces in custom passes.
 
-The next meaningful work item is Phase 3: choose/integrate a proven SGP4 implementation and start propagating catalog records into positions and sampled orbit paths.
+The next meaningful work item is Phase 4: consume the propagated SatView state in the renderer by replacing synthetic rings with catalog-derived tracks and satellite markers.
 
 The first Phase 2 data slice is implemented after `e8ba39a`:
 
@@ -260,11 +261,28 @@ The rest of Phase 2 is implemented after `67e2bb8`:
 - A two-hour refresh interval prevents repeated large downloads inside CelesTrak's GP update cadence; pressing `R` in SatView requests a manual refresh.
 - If network fetch fails, SatView keeps rendering from live/cache/sample data and marks the status as failed instead of clearing the catalog.
 
+Phase 3 is implemented in the current working tree:
+
+- CMake fetches the pinned Vallado/CelesTrak AIAA-2006-6753 SGP4 archive when `DRAXUL_ENABLE_SATVIEW` is enabled.
+- `satview_propagation` builds a compiled SGP4 model from CelesTrak GP records, parses UTC element epochs, and converts propagation output into TEME and approximate Earth-fixed coordinates.
+- The propagator can produce current satellite positions plus configurable sampled track points for one orbit period or an explicit horizon.
+- `SatViewHost` rebuilds the propagation model on catalog generation changes and updates an SGP4 snapshot on a one-second cadence separate from the render frame tick.
+- Reference tests verify Vallado satellite 00005 position/velocity output and track sample generation.
+
+The first Phase 4 rendering slice is implemented in the current working tree:
+
+- `SatViewScenePass` accepts a dynamic vertex stream for propagated scene lines.
+- `SatViewHost` builds orbit-class-colored track segments from SGP4 TEME samples and camera-facing cross markers for current satellite positions.
+- Vulkan uploads the dynamic scene vertices into a mapped VMA vertex buffer and draws all tracks/markers in one line-list batch after Earth.
+- Metal uses the same vertex shape through a shared-storage `MTLBuffer` and the same line-list shader path.
+- Synthetic shader-generated rings are removed from the SatView orbit shaders.
+
 ## References
 
 - CelesTrak current GP element sets: https://celestrak.org/NORAD/elements/
 - CelesTrak GP data format documentation: https://celestrak.org/NORAD/documentation/gp-data-formats.php
 - CelesTrak usage policy: https://celestrak.org/usage-policy.php
+- Vallado/Crawford/Hujsak/Kelso SGP4 reference code: https://celestrak.org/publications/AIAA/2006-6753/
 - Space-Track documentation: https://www.space-track.org/documentation
 - Solar System Scope 8k Earth texture maps: https://www.solarsystemscope.com/textures/
 - Creative Commons Attribution 4.0 International: https://creativecommons.org/licenses/by/4.0/

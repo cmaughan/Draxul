@@ -6,6 +6,9 @@
 #include <draxul/metal/objc_ref.h>
 #include <draxul/perf_timing.h>
 
+#include <algorithm>
+#include <cstring>
+#include <limits>
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
@@ -23,6 +26,9 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLTexture>> earth_night_texture;
     ObjCRef<id<MTLTexture>> earth_cloud_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
+    ObjCRef<id<MTLBuffer>> scene_vertex_buffer;
+    NSUInteger scene_vertex_count = 0;
+    uint64_t uploaded_scene_revision = 0;
 
     id<MTLTexture> create_texture(id<MTLDevice> metal_device, const LoadedTextureImage& image)
     {
@@ -104,6 +110,9 @@ struct SatViewScenePass::State
         earth_night_texture.reset();
         earth_cloud_texture.reset();
         earth_sampler.reset();
+        scene_vertex_buffer.reset();
+        scene_vertex_count = 0;
+        uploaded_scene_revision = 0;
         if (!new_device)
             return false;
         if (!ensure_textures(new_device))
@@ -194,6 +203,48 @@ struct SatViewScenePass::State
         depth_read_state.reset(depth);
         return true;
     }
+
+    bool ensure_scene_vertex_buffer(
+        id<MTLDevice> metal_device,
+        const std::vector<SatViewSceneVertex>& vertices,
+        uint64_t revision)
+    {
+        if (revision == uploaded_scene_revision)
+            return true;
+
+        scene_vertex_count = static_cast<NSUInteger>(
+            std::min<std::size_t>(vertices.size(), std::numeric_limits<NSUInteger>::max()));
+        if (scene_vertex_count == 0)
+        {
+            uploaded_scene_revision = revision;
+            return true;
+        }
+
+        const NSUInteger byte_size = scene_vertex_count * sizeof(SatViewSceneVertex);
+        if (!scene_vertex_buffer.get() || [scene_vertex_buffer.get() length] < byte_size)
+        {
+            const NSUInteger current_size = scene_vertex_buffer.get() ? [scene_vertex_buffer.get() length] : 0;
+            const NSUInteger new_size = std::max(byte_size, std::max<NSUInteger>(current_size * 2, 4096));
+            id<MTLBuffer> replacement = [metal_device newBufferWithLength:new_size
+                                                                   options:MTLResourceStorageModeShared];
+            if (!replacement)
+            {
+                scene_vertex_count = 0;
+                return false;
+            }
+            scene_vertex_buffer.reset(replacement);
+        }
+
+        void* dst = [scene_vertex_buffer.get() contents];
+        if (!dst)
+        {
+            scene_vertex_count = 0;
+            return false;
+        }
+        std::memcpy(dst, vertices.data(), byte_size);
+        uploaded_scene_revision = revision;
+        return true;
+    }
 };
 
 SatViewScenePass::SatViewScenePass()
@@ -215,6 +266,7 @@ void SatViewScenePass::record(IRenderContext& ctx)
     id<MTLRenderCommandEncoder> encoder = metal_ctx->encoder();
     if (!encoder || !state_->ensure(metal_ctx->device()))
         return;
+    state_->ensure_scene_vertex_buffer(metal_ctx->device(), scene_vertices_, scene_revision_);
 
     [encoder setRenderPipelineState:state_->earth_pipeline.get()];
     [encoder setDepthStencilState:state_->depth_write_state.get()];
@@ -228,11 +280,16 @@ void SatViewScenePass::record(IRenderContext& ctx)
                 vertexStart:0
                 vertexCount:kSatViewSphereVertexCount];
 
-    [encoder setRenderPipelineState:state_->orbit_pipeline.get()];
-    [encoder setDepthStencilState:state_->depth_read_state.get()];
-    [encoder drawPrimitives:MTLPrimitiveTypeLine
-                vertexStart:0
-                vertexCount:kSatViewOrbitVertexCount];
+    if (state_->scene_vertex_count != 0 && state_->scene_vertex_buffer.get())
+    {
+        [encoder setRenderPipelineState:state_->orbit_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_read_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setVertexBuffer:state_->scene_vertex_buffer.get() offset:0 atIndex:1];
+        [encoder drawPrimitives:MTLPrimitiveTypeLine
+                    vertexStart:0
+                    vertexCount:state_->scene_vertex_count];
+    }
 }
 
 } // namespace draxul::satview

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <draxul/satview/satview_catalog.h>
 #include <filesystem>
 #include <functional>
@@ -89,6 +90,7 @@ public:
     bool request_refresh();
 
     [[nodiscard]] SatelliteCatalog catalog() const;
+    [[nodiscard]] std::uint64_t catalog_generation() const;
     [[nodiscard]] Status status() const;
     [[nodiscard]] std::string status_text() const;
     [[nodiscard]] bool refresh_in_flight() const;
@@ -105,6 +107,7 @@ private:
     Config config_;
     SatelliteCatalog catalog_;
     Status status_;
+    std::uint64_t catalog_generation_ = 0;
 
     std::thread worker_;
     std::optional<WorkerResult> pending_result_;

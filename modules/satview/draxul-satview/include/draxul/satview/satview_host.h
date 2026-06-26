@@ -3,6 +3,7 @@
 #include <chrono>
 #include <draxul/host.h>
 #include <draxul/satview/satview_catalog_service.h>
+#include <draxul/satview/satview_propagation.h>
 #include <memory>
 #include <string>
 
@@ -47,11 +48,17 @@ public:
 private:
     void request_redraw();
     void clamp_camera();
+    bool rebuild_propagation_model_if_needed();
+    void update_propagation_if_needed(bool force);
 
     draxul::IHostCallbacks* callbacks_ = nullptr;
     draxul::HostViewport viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
     SatViewCatalogService catalog_service_;
+    SatellitePropagationModel propagation_model_;
+    SatellitePropagationResult propagation_snapshot_;
+    std::uint64_t propagation_catalog_generation_ = 0;
+    std::string propagation_status_;
     std::string init_error_;
     bool running_ = false;
     bool paused_ = false;
@@ -62,7 +69,9 @@ private:
     float time_speed_ = 60.0f;
     double simulated_seconds_ = 0.0;
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point next_propagation_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
+    double last_propagation_simulated_seconds_ = 0.0;
 };
 
 std::unique_ptr<draxul::IHost> create_satview_host();

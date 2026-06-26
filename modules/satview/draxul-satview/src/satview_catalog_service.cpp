@@ -387,6 +387,7 @@ void SatViewCatalogService::start(Config config)
         std::lock_guard lock(mutex_);
         catalog_ = {};
         status_ = {};
+        catalog_generation_ = 0;
     }
 
     if (auto cached = read_cache_files(config_.cache_directory, cache_error))
@@ -395,6 +396,7 @@ void SatViewCatalogService::start(Config config)
         {
             std::lock_guard lock(mutex_);
             catalog_ = std::move(cached->first);
+            ++catalog_generation_;
             status_.data_source = DataSource::Cache;
             status_.refresh_state = RefreshState::Idle;
             status_.fetched_at = cached->second.fetched_at;
@@ -414,6 +416,7 @@ void SatViewCatalogService::start(Config config)
         if (sample)
         {
             catalog_ = std::move(sample.catalog);
+            ++catalog_generation_;
             status_.data_source = DataSource::Sample;
             status_.object_count = catalog_.objects.size();
             status_.skipped_records = catalog_.skipped_records;
@@ -481,6 +484,12 @@ SatelliteCatalog SatViewCatalogService::catalog() const
 {
     std::lock_guard lock(mutex_);
     return catalog_;
+}
+
+std::uint64_t SatViewCatalogService::catalog_generation() const
+{
+    std::lock_guard lock(mutex_);
+    return catalog_generation_;
 }
 
 SatViewCatalogService::Status SatViewCatalogService::status() const
@@ -574,6 +583,7 @@ void SatViewCatalogService::apply_worker_result(WorkerResult result)
     if (result.success)
     {
         catalog_ = std::move(result.catalog);
+        ++catalog_generation_;
         status_.data_source = DataSource::Live;
         status_.refresh_state = RefreshState::Idle;
         status_.object_count = catalog_.objects.size();

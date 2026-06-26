@@ -7,8 +7,10 @@
 #include <draxul/vulkan/vk_render_context.h>
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <vector>
 
 namespace draxul::satview
@@ -340,6 +342,9 @@ struct SatViewScenePass::State
     VkPipeline earth_pipeline = VK_NULL_HANDLE;
     VkPipeline orbit_pipeline = VK_NULL_HANDLE;
     std::array<TextureResource, kEarthTextureCount> earth_textures{};
+    BufferResource scene_vertex_buffer;
+    uint32_t scene_vertex_count = 0;
+    uint64_t uploaded_scene_revision = 0;
 
     ~State()
     {
@@ -374,6 +379,7 @@ struct SatViewScenePass::State
             {
                 for (auto& texture : earth_textures)
                     destroy_texture(device, allocator, texture);
+                destroy_buffer(allocator, scene_vertex_buffer);
             }
         }
         layout = VK_NULL_HANDLE;
@@ -383,6 +389,8 @@ struct SatViewScenePass::State
         render_pass = VK_NULL_HANDLE;
         allocator = VK_NULL_HANDLE;
         device = VK_NULL_HANDLE;
+        scene_vertex_count = 0;
+        uploaded_scene_revision = 0;
     }
 
     bool ensure_texture_descriptors(const VkRenderContext& ctx)
@@ -492,6 +500,62 @@ struct SatViewScenePass::State
         return true;
     }
 
+    bool ensure_scene_vertex_buffer(const VkRenderContext& ctx,
+        const std::vector<SatViewSceneVertex>& vertices,
+        uint64_t revision)
+    {
+        if (revision == uploaded_scene_revision)
+            return true;
+
+        scene_vertex_count = static_cast<uint32_t>(
+            std::min<std::size_t>(vertices.size(), std::numeric_limits<uint32_t>::max()));
+        if (scene_vertex_count == 0)
+        {
+            uploaded_scene_revision = revision;
+            return true;
+        }
+
+        const size_t byte_size = static_cast<size_t>(scene_vertex_count) * sizeof(SatViewSceneVertex);
+        if (scene_vertex_buffer.buffer == VK_NULL_HANDLE || scene_vertex_buffer.size < byte_size)
+        {
+            if (scene_vertex_buffer.buffer != VK_NULL_HANDLE)
+                destroy_buffer(ctx.allocator(), scene_vertex_buffer);
+
+            VkBufferCreateInfo buf_ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            buf_ci.size = byte_size;
+            buf_ci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            buf_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            VmaAllocationCreateInfo alloc_ci{};
+            alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+            alloc_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+                | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+            VmaAllocationInfo alloc_info{};
+            if (vmaCreateBuffer(ctx.allocator(), &buf_ci, &alloc_ci,
+                    &scene_vertex_buffer.buffer, &scene_vertex_buffer.allocation, &alloc_info) != VK_SUCCESS)
+            {
+                scene_vertex_buffer = {};
+                scene_vertex_count = 0;
+                return false;
+            }
+
+            scene_vertex_buffer.mapped = alloc_info.pMappedData;
+            scene_vertex_buffer.size = byte_size;
+        }
+
+        if (!scene_vertex_buffer.mapped)
+        {
+            scene_vertex_count = 0;
+            return false;
+        }
+
+        std::memcpy(scene_vertex_buffer.mapped, vertices.data(), byte_size);
+        vmaFlushAllocation(ctx.allocator(), scene_vertex_buffer.allocation, 0, byte_size);
+        uploaded_scene_revision = revision;
+        return true;
+    }
+
     bool ensure_pipelines(VkDevice new_device, VkRenderPass new_render_pass)
     {
         if (earth_pipeline != VK_NULL_HANDLE && orbit_pipeline != VK_NULL_HANDLE
@@ -587,6 +651,26 @@ struct SatViewScenePass::State
         VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &earth_pipeline);
         if (result == VK_SUCCESS)
         {
+            VkVertexInputBindingDescription orbit_binding{};
+            orbit_binding.binding = 0;
+            orbit_binding.stride = sizeof(SatViewSceneVertex);
+            orbit_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+            VkVertexInputAttributeDescription orbit_attributes[2]{};
+            orbit_attributes[0].binding = 0;
+            orbit_attributes[0].location = 0;
+            orbit_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            orbit_attributes[0].offset = offsetof(SatViewSceneVertex, position);
+            orbit_attributes[1].binding = 0;
+            orbit_attributes[1].location = 1;
+            orbit_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            orbit_attributes[1].offset = offsetof(SatViewSceneVertex, color);
+
+            vertex_input.vertexBindingDescriptionCount = 1;
+            vertex_input.pVertexBindingDescriptions = &orbit_binding;
+            vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(std::size(orbit_attributes));
+            vertex_input.pVertexAttributeDescriptions = orbit_attributes;
+
             stages[0].module = orbit_vert;
             stages[1].module = orbit_frag;
             input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
@@ -626,7 +710,8 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
 {
     PERF_MEASURE();
     auto* vk_ctx = static_cast<VkRenderContext*>(&ctx);
-    state_->ensure_texture_descriptors(*vk_ctx);
+    if (state_->ensure_texture_descriptors(*vk_ctx))
+        state_->ensure_scene_vertex_buffer(*vk_ctx, scene_vertices_, scene_revision_);
 }
 
 void SatViewScenePass::record(IRenderContext& ctx)
@@ -649,8 +734,13 @@ void SatViewScenePass::record(IRenderContext& ctx)
         0, 1, &state_->descriptor_set, 0, nullptr);
     vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->orbit_pipeline);
-    vkCmdDraw(cmd, kSatViewOrbitVertexCount, 1, 0, 0);
+    if (state_->scene_vertex_count != 0 && state_->scene_vertex_buffer.buffer != VK_NULL_HANDLE)
+    {
+        VkDeviceSize offset = 0;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->orbit_pipeline);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &state_->scene_vertex_buffer.buffer, &offset);
+        vkCmdDraw(cmd, state_->scene_vertex_count, 1, 0, 0);
+    }
 }
 
 } // namespace draxul::satview

@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <memory>
+#include <span>
+#include <vector>
 
 namespace draxul::satview
 {
@@ -12,11 +14,6 @@ inline constexpr uint32_t kSatViewSphereLatitudeBands = 64;
 inline constexpr uint32_t kSatViewSphereLongitudeBands = 128;
 inline constexpr uint32_t kSatViewSphereVertexCount =
     kSatViewSphereLatitudeBands * kSatViewSphereLongitudeBands * 6;
-inline constexpr uint32_t kSatViewOrbitTrackCount = 24;
-inline constexpr uint32_t kSatViewOrbitSegments = 192;
-inline constexpr uint32_t kSatViewOrbitVertexCount =
-    kSatViewOrbitTrackCount * kSatViewOrbitSegments * 2;
-
 struct alignas(16) SatViewFrameUniforms
 {
     glm::mat4 view_proj{ 1.0f };
@@ -28,6 +25,12 @@ struct alignas(16) SatViewFrameUniforms
         0.0f,
         0.0f
     };
+};
+
+struct SatViewSceneVertex
+{
+    glm::vec4 position{ 0.0f, 0.0f, 0.0f, 1.0f };
+    glm::vec4 color{ 1.0f };
 };
 
 class SatViewScenePass final : public draxul::IRenderPass
@@ -46,6 +49,12 @@ public:
         frame_ = frame;
     }
 
+    void set_scene_vertices(std::span<const SatViewSceneVertex> vertices)
+    {
+        scene_vertices_.assign(vertices.begin(), vertices.end());
+        ++scene_revision_;
+    }
+
     void record_prepass(draxul::IRenderContext& ctx) override;
     void record(draxul::IRenderContext& ctx) override;
 
@@ -53,6 +62,8 @@ public:
 
 private:
     SatViewFrameUniforms frame_;
+    std::vector<SatViewSceneVertex> scene_vertices_;
+    uint64_t scene_revision_ = 0;
     std::unique_ptr<State> state_;
 };
 

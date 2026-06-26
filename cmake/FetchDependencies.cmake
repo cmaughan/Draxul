@@ -239,3 +239,16 @@ target_include_directories(tree_sitter_cpp_grammar PRIVATE
     ${tree_sitter_cpp_SOURCE_DIR}/src
 )
 target_compile_options(tree_sitter_cpp_grammar PRIVATE -w)
+
+if(DRAXUL_ENABLE_SATVIEW)
+    # Vallado/CelesTrak SGP4 reference implementation used by the optional
+    # SatView module. The archive is intentionally pinned by hash because the
+    # upstream URL does not expose versioned release tags.
+    FetchContent_Declare(
+        celestrak_sgp4
+        URL https://celestrak.org/publications/AIAA/2006-6753/AIAA-2006-6753.zip
+        URL_HASH SHA256=3642043B706C76BE87CF012DB3F22E04DA6B80498D00F515E51879E0FFADC115
+        SOURCE_SUBDIR cmake-no-add-subdirectory
+    )
+    FetchContent_MakeAvailable(celestrak_sgp4)
+endif()

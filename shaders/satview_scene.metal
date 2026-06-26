@@ -23,6 +23,12 @@ struct SatViewOrbitOut
     float4 color;
 };
 
+struct SatViewSceneVertex
+{
+    float4 position;
+    float4 color;
+};
+
 constant float kPi = 3.14159265358979323846f;
 
 static float2 quad_corner(uint vertex)
@@ -111,53 +117,15 @@ fragment float4 satview_earth_fragment(
     return float4(color, 1.0f);
 }
 
-static float3 orbit_palette(float t)
-{
-    return 0.58f + 0.42f * cos(6.28318f * (float3(0.05f, 0.38f, 0.67f) + t));
-}
-
 vertex SatViewOrbitOut satview_orbit_vertex(
     uint vertex_id [[vertex_id]],
-    constant SatViewFrameUniforms& frame [[buffer(0)]])
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewSceneVertex* vertices [[buffer(1)]])
 {
-    uint segment_count = 192u;
-    uint pair = vertex_id / 2u;
-    uint endpoint = vertex_id - pair * 2u;
-    uint segment = pair % segment_count;
-    uint track = pair / segment_count;
-
-    float track_f = float(track);
-    float family = fmod(track_f, 3.0f);
-    float radius = family < 0.5f ? 1.28f : (family < 1.5f ? 1.58f : 2.05f);
-    radius += 0.035f * sin(track_f * 2.37f);
-
-    float inclination = mix(0.10f, 1.45f, fract(track_f * 0.31831f));
-    if (family > 1.5f)
-        inclination *= 0.12f;
-    float raan = track_f * 0.61803398875f * 2.0f * kPi + frame.sun_dir_time.w * 0.000006f;
-    float anomaly = (float(segment + endpoint) / float(segment_count)) * 2.0f * kPi;
-    anomaly += frame.sun_dir_time.w * (family < 0.5f ? 0.00023f : (family < 1.5f ? 0.00009f : 0.00002f));
-
-    float3 local = float3(cos(anomaly) * radius, 0.0f, sin(anomaly) * radius);
-    float ci = cos(inclination);
-    float si = sin(inclination);
-    float3 inclined = float3(local.x, -local.z * si, local.z * ci);
-    float cr = cos(raan);
-    float sr = sin(raan);
-    float3 world = float3(
-        inclined.x * cr + inclined.z * sr,
-        inclined.y,
-        -inclined.x * sr + inclined.z * cr);
-
-    float3 color = mix(orbit_palette(fract(track_f * 0.173f)), float3(1.0f), 0.20f);
-    float3 view = normalize(frame.camera_pos.xyz - world);
-    float frontness = max(dot(normalize(world), view), 0.0f);
-    float face_fade = mix(1.0f, 0.68f, smoothstep(0.05f, 0.70f, frontness));
-    float alpha = (family < 0.5f ? 0.78f : (family < 1.5f ? 0.64f : 0.86f)) * face_fade;
-
     SatViewOrbitOut out;
-    out.position = frame.view_proj * float4(world, 1.0f);
-    out.color = float4(color, alpha);
+    SatViewSceneVertex vertex = vertices[vertex_id];
+    out.position = frame.view_proj * float4(vertex.position.xyz, 1.0f);
+    out.color = vertex.color;
     return out;
 }
 
