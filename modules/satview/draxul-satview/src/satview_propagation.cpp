@@ -275,6 +275,9 @@ bool propagate_one(
 
     out.norad_catalog_id = entry.norad_catalog_id;
     out.object_name = entry.object_name;
+    out.object_id = entry.object_id;
+    out.object_type = entry.object_type;
+    out.classification_type = entry.classification_type;
     out.orbit_class = entry.orbit_class;
     out.period_minutes = entry.period_minutes;
     out.minutes_since_epoch = (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0;
@@ -294,7 +297,11 @@ void append_track_samples(
 {
     track.norad_catalog_id = entry.norad_catalog_id;
     track.object_name = entry.object_name;
+    track.object_id = entry.object_id;
+    track.object_type = entry.object_type;
+    track.classification_type = entry.classification_type;
     track.orbit_class = entry.orbit_class;
+    track.minutes_since_epoch = (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0;
     track.teme_points_km.reserve(settings.track_sample_count);
     track.ecef_points_km.reserve(settings.track_sample_count);
     track.render_teme_points_earth_radii.reserve(settings.track_sample_count);
@@ -456,6 +463,9 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
         SatellitePropagationEntry entry;
         entry.norad_catalog_id = record.norad_catalog_id;
         entry.object_name = record.object_name;
+        entry.object_id = record.object_id;
+        entry.object_type = record.object_type;
+        entry.classification_type = record.classification_type;
         entry.orbit_class = record.orbit_class;
         entry.epoch_unix_seconds = *epoch_unix_seconds;
         entry.period_minutes = record.period_minutes;

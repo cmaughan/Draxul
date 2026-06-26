@@ -30,6 +30,9 @@ struct SatellitePropagationEntry
 {
     std::int64_t norad_catalog_id = 0;
     std::string object_name;
+    std::string object_id;
+    std::string object_type;
+    std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
     double epoch_unix_seconds = 0.0;
     double period_minutes = 0.0;
@@ -83,6 +86,9 @@ struct SatellitePropagatedState
 {
     std::int64_t norad_catalog_id = 0;
     std::string object_name;
+    std::string object_id;
+    std::string object_type;
+    std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
     double period_minutes = 0.0;
     double minutes_since_epoch = 0.0;
@@ -97,7 +103,11 @@ struct SatelliteOrbitTrack
 {
     std::int64_t norad_catalog_id = 0;
     std::string object_name;
+    std::string object_id;
+    std::string object_type;
+    std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
+    double minutes_since_epoch = 0.0;
     std::vector<glm::dvec3> teme_points_km;
     std::vector<glm::dvec3> ecef_points_km;
     std::vector<glm::dvec3> render_teme_points_earth_radii;

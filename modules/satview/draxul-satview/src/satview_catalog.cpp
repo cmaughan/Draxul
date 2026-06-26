@@ -550,6 +550,7 @@ std::optional<SatelliteRecord> make_record(const JsonObject& object)
     record.object_name = string_field(object, "OBJECT_NAME").value_or(
         "CATNR " + std::to_string(record.norad_catalog_id));
     record.object_id = string_field(object, "OBJECT_ID").value_or("");
+    record.object_type = string_field(object, "OBJECT_TYPE").value_or("");
     record.classification_type = string_field(object, "CLASSIFICATION_TYPE").value_or("");
 
     if (!require_number(object, "MEAN_MOTION", record.mean_motion_rev_per_day)

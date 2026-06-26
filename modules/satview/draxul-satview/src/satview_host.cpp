@@ -4,14 +4,19 @@
 
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_scancode.h>
 #include <algorithm>
 #include <cmath>
 #include <draxul/host_registry.h>
+#include <draxul/imgui_host.h>
 #include <draxul/log.h>
+#include <draxul/sdl_imgui_input.h>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
+#include <imgui.h>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -25,6 +30,8 @@ constexpr auto kFrameTick = std::chrono::milliseconds(33);
 constexpr auto kPropagationTick = std::chrono::seconds(1);
 constexpr std::size_t kPreviewTrackSatelliteLimit = 256;
 constexpr std::size_t kPreviewTrackSampleCount = 48;
+constexpr int kClickSelectionMaxDistancePixels = 18;
+constexpr int kClickDragSlopPixels = 5;
 
 double unix_seconds_now()
 {
@@ -82,15 +89,42 @@ void append_line(std::vector<SatViewSceneVertex>& vertices, glm::vec3 a, glm::ve
     vertices.push_back({ glm::vec4(b, 1.0f), color });
 }
 
-void append_track_vertices(std::vector<SatViewSceneVertex>& vertices, const SatellitePropagationResult& snapshot)
+bool satellite_visible(
+    const SatViewFilterState& filter,
+    const SatelliteOrbitTrack& track,
+    std::string_view source_label)
+{
+    return satview_filter_matches(filter, make_satview_filter_candidate(track, source_label));
+}
+
+bool satellite_visible(
+    const SatViewFilterState& filter,
+    const SatellitePropagatedState& state,
+    std::string_view source_label)
+{
+    return satview_filter_matches(filter, make_satview_filter_candidate(state, source_label));
+}
+
+void append_track_vertices(
+    std::vector<SatViewSceneVertex>& vertices,
+    const SatellitePropagationResult& snapshot,
+    const SatViewFilterState& filter,
+    std::string_view source_label,
+    std::optional<std::int64_t> selected_id)
 {
     for (const SatelliteOrbitTrack& track : snapshot.tracks)
     {
+        if (!satellite_visible(filter, track, source_label))
+            continue;
+
         const auto& points = track.render_teme_points_earth_radii;
         if (points.size() < 2)
             continue;
 
-        const glm::vec4 color = orbit_class_color(track.orbit_class, 0.62f);
+        const bool selected = selected_id.has_value() && track.norad_catalog_id == *selected_id;
+        const glm::vec4 color = selected
+            ? glm::mix(orbit_class_color(track.orbit_class, 0.98f), glm::vec4(1.0f), 0.38f)
+            : orbit_class_color(track.orbit_class, 0.62f);
         for (std::size_t i = 1; i < points.size(); ++i)
             append_line(vertices, to_vec3(points[i - 1]), to_vec3(points[i]), color);
         append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
@@ -100,21 +134,38 @@ void append_track_vertices(std::vector<SatViewSceneVertex>& vertices, const Sate
 void append_marker_vertices(
     std::vector<SatViewSceneVertex>& vertices,
     const SatellitePropagationResult& snapshot,
+    const SatViewFilterState& filter,
+    std::string_view source_label,
+    std::optional<std::int64_t> selected_id,
     glm::vec3 camera_right,
     glm::vec3 camera_up)
 {
     for (const SatellitePropagatedState& state : snapshot.states)
     {
+        if (!satellite_visible(filter, state, source_label))
+            continue;
+
+        const bool selected = selected_id.has_value() && state.norad_catalog_id == *selected_id;
         const glm::vec3 center = to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
         const float range = glm::length(center);
-        const float size = std::clamp(0.006f + range * 0.0022f, 0.008f, 0.026f);
-        const glm::vec4 color = glm::mix(
-            orbit_class_color(state.orbit_class, 0.95f),
-            glm::vec4(1.0f),
-            0.18f);
+        const float base_size = std::clamp(0.006f + range * 0.0022f, 0.008f, 0.026f);
+        const float size = selected ? base_size * 2.2f : base_size;
+        const glm::vec4 color = selected
+            ? glm::vec4(1.0f, 0.96f, 0.68f, 1.0f)
+            : glm::mix(
+                orbit_class_color(state.orbit_class, 0.95f),
+                glm::vec4(1.0f),
+                0.18f);
 
         append_line(vertices, center - camera_right * size, center + camera_right * size, color);
         append_line(vertices, center - camera_up * size, center + camera_up * size, color);
+        if (selected)
+        {
+            const glm::vec3 diagonal_a = glm::normalize(camera_right + camera_up);
+            const glm::vec3 diagonal_b = glm::normalize(camera_right - camera_up);
+            append_line(vertices, center - diagonal_a * size, center + diagonal_a * size, color);
+            append_line(vertices, center - diagonal_b * size, center + diagonal_b * size, color);
+        }
     }
 }
 
@@ -137,11 +188,25 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
 {
     callbacks_ = &callbacks;
     viewport_ = context.initial_viewport;
+    show_ui_panel_ = context.launch_options.show_host_ui_panels;
+    IMGUI_CHECKVERSION();
+    imgui_context_ = ImGui::CreateContext();
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
+        io.ConfigWindowsResizeFromEdges = true;
+        io.IniFilename = nullptr;
+        io.LogFilename = nullptr;
+        ImGui::StyleColorsDark();
+    }
     catalog_service_.start();
     simulated_seconds_ = unix_seconds_now();
     const glm::vec3 sun = sun_direction(simulated_seconds_);
     yaw_ = std::atan2(sun.x, sun.z) + 0.65f;
     pitch_ = 0.25f;
+    distance_ = 3.6f;
     last_pump_time_ = std::chrono::steady_clock::now();
     last_activity_time_ = last_pump_time_;
     next_propagation_time_ = last_pump_time_;
@@ -158,7 +223,17 @@ void SatViewHost::shutdown()
     catalog_service_.stop();
     running_ = false;
     dragging_ = false;
+    pending_click_ = false;
     scene_pass_.reset();
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        if (imgui_backend_)
+            imgui_backend_->shutdown_imgui_backend();
+        ImGui::DestroyContext(imgui_context_);
+        imgui_context_ = nullptr;
+        imgui_backend_ = nullptr;
+    }
 }
 
 bool SatViewHost::is_running() const
@@ -187,9 +262,11 @@ void SatViewHost::pump()
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - last_pump_time_).count();
     last_pump_time_ = now;
+    last_imgui_delta_seconds_ = dt;
     if (!paused_)
         simulated_seconds_ += static_cast<double>(dt) * static_cast<double>(time_speed_);
     update_propagation_if_needed(propagation_model_changed);
+    clear_selection_if_hidden();
     request_redraw();
 }
 
@@ -224,8 +301,16 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_vertices.reserve(
         propagation_snapshot_.tracks.size() * kPreviewTrackSampleCount * 2
         + propagation_snapshot_.states.size() * 4);
-    append_track_vertices(scene_vertices, propagation_snapshot_);
-    append_marker_vertices(scene_vertices, propagation_snapshot_, camera_right, camera_up);
+    const std::string_view source_label = propagation_model_.source_label();
+    append_track_vertices(scene_vertices, propagation_snapshot_, filter_, source_label, selected_norad_catalog_id_);
+    append_marker_vertices(
+        scene_vertices,
+        propagation_snapshot_,
+        filter_,
+        source_label,
+        selected_norad_catalog_id_,
+        camera_right,
+        camera_up);
     scene_pass_->set_scene_vertices(scene_vertices);
 
     RenderViewport viewport;
@@ -234,6 +319,9 @@ void SatViewHost::draw(IFrameContext& frame)
     viewport.width = pixel_w;
     viewport.height = pixel_h;
     frame.record_render_pass(*scene_pass_, viewport);
+    render_host_imgui(last_imgui_delta_seconds_);
+    if (imgui_context_ && imgui_backend_)
+        frame.render_imgui(ImGui::GetDrawData(), imgui_context_);
     frame.flush_submit_chunk();
 }
 
@@ -246,14 +334,82 @@ std::optional<std::chrono::steady_clock::time_point> SatViewHost::next_deadline(
 
 void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
 {
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        int button = -1;
+        switch (event.button)
+        {
+        case 1:
+            button = 0;
+            break;
+        case 2:
+            button = 2;
+            break;
+        case 3:
+            button = 1;
+            break;
+        default:
+            break;
+        }
+        if (button >= 0)
+            ImGui::GetIO().AddMouseButtonEvent(button, event.pressed);
+
+        if (ImGui::GetIO().WantCaptureMouse)
+        {
+            if (event.button == SDL_BUTTON_LEFT && !event.pressed)
+            {
+                dragging_ = false;
+                pending_click_ = false;
+            }
+            request_redraw();
+            return;
+        }
+    }
+
     if (event.button != SDL_BUTTON_LEFT)
         return;
     dragging_ = event.pressed;
+    if (event.pressed)
+    {
+        pending_click_ = true;
+        click_start_pos_ = event.pos;
+    }
+    else
+    {
+        if (pending_click_)
+        {
+            const glm::ivec2 delta = event.pos - click_start_pos_;
+            const int distance_sq = delta.x * delta.x + delta.y * delta.y;
+            if (distance_sq <= kClickDragSlopPixels * kClickDragSlopPixels)
+                select_nearest_satellite(event.pos);
+        }
+        pending_click_ = false;
+    }
     last_activity_time_ = std::chrono::steady_clock::now();
 }
 
 void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
 {
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGui::GetIO().AddMousePosEvent(static_cast<float>(event.pos.x), static_cast<float>(event.pos.y));
+        if (ImGui::GetIO().WantCaptureMouse)
+        {
+            request_redraw();
+            return;
+        }
+    }
+
+    if (pending_click_)
+    {
+        const glm::ivec2 delta = event.pos - click_start_pos_;
+        const int distance_sq = delta.x * delta.x + delta.y * delta.y;
+        if (distance_sq > kClickDragSlopPixels * kClickDragSlopPixels)
+            pending_click_ = false;
+    }
+
     if (!dragging_ && (event.buttons & SDL_BUTTON_LMASK) == 0)
         return;
     yaw_ += event.delta.x * 0.008f;
@@ -264,6 +420,17 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
 
 void SatViewHost::on_mouse_wheel(const MouseWheelEvent& event)
 {
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGui::GetIO().AddMouseWheelEvent(event.delta.x, event.delta.y);
+        if (ImGui::GetIO().WantCaptureMouse)
+        {
+            request_redraw();
+            return;
+        }
+    }
+
     distance_ *= std::pow(0.88f, event.delta.y);
     clamp_camera();
     request_redraw();
@@ -271,8 +438,39 @@ void SatViewHost::on_mouse_wheel(const MouseWheelEvent& event)
 
 void SatViewHost::on_key(const KeyEvent& event)
 {
+    if (imgui_context_)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddKeyEvent(ImGuiMod_Ctrl, (event.mod & kModCtrl) != 0);
+        io.AddKeyEvent(ImGuiMod_Shift, (event.mod & kModShift) != 0);
+        io.AddKeyEvent(ImGuiMod_Alt, (event.mod & kModAlt) != 0);
+        io.AddKeyEvent(ImGuiMod_Super, (event.mod & kModSuper) != 0);
+        const ImGuiKey key = sdl_scancode_to_imgui_key(event.scancode);
+        if (key != ImGuiKey_None)
+            io.AddKeyEvent(key, event.pressed);
+
+        if (io.WantCaptureKeyboard)
+        {
+            request_redraw();
+            return;
+        }
+    }
+
     if (!event.pressed)
         return;
+    if (event.keycode == SDLK_F1 || event.scancode == SDL_SCANCODE_F1)
+    {
+        show_ui_panel_ = !show_ui_panel_;
+        request_redraw();
+        return;
+    }
+    if (event.keycode == SDLK_ESCAPE && selected_norad_catalog_id_.has_value())
+    {
+        selected_norad_catalog_id_.reset();
+        request_redraw();
+        return;
+    }
     if (event.keycode == SDLK_SPACE)
     {
         paused_ = !paused_;
@@ -291,6 +489,11 @@ void SatViewHost::on_key(const KeyEvent& event)
         request_redraw();
         return;
     }
+    if (event.keycode == SDLK_HOME)
+    {
+        reset_camera();
+        return;
+    }
     if (event.keycode == SDLK_R)
     {
         catalog_service_.request_refresh();
@@ -299,8 +502,67 @@ void SatViewHost::on_key(const KeyEvent& event)
     }
 }
 
+void SatViewHost::on_text_input(const TextInputEvent& event)
+{
+    if (!imgui_context_ || event.text.empty())
+        return;
+
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddInputCharactersUTF8(event.text.c_str());
+    if (io.WantTextInput || io.WantCaptureKeyboard)
+        request_redraw();
+}
+
+void SatViewHost::on_focus_lost()
+{
+    dragging_ = false;
+    pending_click_ = false;
+}
+
 bool SatViewHost::dispatch_action(std::string_view action)
 {
+    if (action == "toggle_host_ui" || action == "toggle_ui_panels" || action == "satview_toggle_ui")
+    {
+        show_ui_panel_ = !show_ui_panel_;
+        request_redraw();
+        return true;
+    }
+    if (action == "satview_pause" || action == "satview_toggle_pause")
+    {
+        paused_ = !paused_;
+        request_redraw();
+        return true;
+    }
+    if (action == "satview_time_slower")
+    {
+        time_speed_ = std::max(1.0f, time_speed_ * 0.5f);
+        request_redraw();
+        return true;
+    }
+    if (action == "satview_time_faster")
+    {
+        time_speed_ = std::min(3600.0f, time_speed_ * 2.0f);
+        request_redraw();
+        return true;
+    }
+    if (action == "satview_reset_camera")
+    {
+        reset_camera();
+        return true;
+    }
+    if (action == "satview_refresh_catalog")
+    {
+        catalog_service_.request_refresh();
+        request_redraw();
+        return true;
+    }
+    if (action == "satview_clear_selection")
+    {
+        selected_norad_catalog_id_.reset();
+        request_redraw();
+        return true;
+    }
     if (action == "quit" || action == "request_quit")
     {
         running_ = false;
@@ -353,6 +615,35 @@ HostDebugState SatViewHost::debug_state() const
     return state;
 }
 
+void SatViewHost::attach_imgui_host(IImGuiHost& host)
+{
+    imgui_backend_ = &host;
+    if (!imgui_context_)
+        return;
+
+    ImGui::SetCurrentContext(imgui_context_);
+    host.initialize_imgui_backend();
+    host.rebuild_imgui_font_texture();
+}
+
+void SatViewHost::set_imgui_font(const std::string& path, float size_pixels)
+{
+    imgui_font_path_ = path;
+    imgui_font_size_pixels_ = size_pixels;
+    if (!imgui_context_)
+        return;
+
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    if (!imgui_font_path_.empty() && imgui_font_size_pixels_ > 0.0f)
+        io.Fonts->AddFontFromFileTTF(imgui_font_path_.c_str(), imgui_font_size_pixels_);
+    if (io.Fonts->Fonts.empty())
+        io.Fonts->AddFontDefault();
+    if (imgui_backend_)
+        imgui_backend_->rebuild_imgui_font_texture();
+}
+
 void SatViewHost::request_redraw()
 {
     last_activity_time_ = std::chrono::steady_clock::now();
@@ -364,6 +655,15 @@ void SatViewHost::clamp_camera()
 {
     pitch_ = std::clamp(pitch_, -1.35f, 1.35f);
     distance_ = std::clamp(distance_, 1.7f, 12.0f);
+}
+
+void SatViewHost::reset_camera()
+{
+    const glm::vec3 sun = sun_direction(simulated_seconds_);
+    yaw_ = std::atan2(sun.x, sun.z) + 0.65f;
+    pitch_ = 0.25f;
+    distance_ = 3.6f;
+    request_redraw();
 }
 
 bool SatViewHost::rebuild_propagation_model_if_needed()
@@ -425,6 +725,252 @@ void SatViewHost::update_propagation_if_needed(bool force)
 
     last_propagation_simulated_seconds_ = simulated_seconds_;
     next_propagation_time_ = now + kPropagationTick;
+}
+
+void SatViewHost::render_host_imgui(float dt)
+{
+    if (!imgui_context_ || !imgui_backend_)
+        return;
+
+    ImGui::SetCurrentContext(imgui_context_);
+    imgui_backend_->begin_imgui_frame();
+    ImGuiIO& io = ImGui::GetIO();
+    const int pixel_w = std::max(1, viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, viewport_.pixel_size.y);
+    io.DisplaySize = ImVec2(
+        static_cast<float>(viewport_.pixel_pos.x + pixel_w),
+        static_cast<float>(viewport_.pixel_pos.y + pixel_h));
+    io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
+    ImGui::NewFrame();
+
+    if (show_ui_panel_)
+        render_control_panel();
+
+    ImGui::Render();
+}
+
+void SatViewHost::render_control_panel()
+{
+    const int panel_x = viewport_.pixel_pos.x + 12;
+    const int panel_y = viewport_.pixel_pos.y + 12;
+    ImGui::SetNextWindowPos(ImVec2(static_cast<float>(panel_x), static_cast<float>(panel_y)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(340.0f, 430.0f), ImGuiCond_FirstUseEver);
+
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+    if (!ImGui::Begin("SatView", &show_ui_panel_, flags))
+    {
+        ImGui::End();
+        return;
+    }
+
+    bool changed = false;
+
+    if (ImGui::Button(paused_ ? "Resume" : "Pause"))
+    {
+        paused_ = !paused_;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Camera"))
+    {
+        reset_camera();
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh"))
+    {
+        catalog_service_.request_refresh();
+        changed = true;
+    }
+
+    float speed = time_speed_;
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::SliderFloat("Speed", &speed, 1.0f, 3600.0f, "%.0fx", ImGuiSliderFlags_Logarithmic))
+    {
+        time_speed_ = std::clamp(speed, 1.0f, 3600.0f);
+        changed = true;
+    }
+
+    ImGui::SeparatorText("Filters");
+    if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
+    {
+        filter_.search_text = search_buffer_;
+        changed = true;
+    }
+    if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
+    {
+        filter_.object_type_text = object_type_buffer_;
+        changed = true;
+    }
+    if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
+    {
+        filter_.source_text = source_buffer_;
+        changed = true;
+    }
+
+    float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
+    {
+        filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
+        changed = true;
+    }
+
+    changed |= ImGui::Checkbox("LEO", &filter_.show_low_earth);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("MEO", &filter_.show_medium_earth);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("GEO", &filter_.show_geosynchronous);
+    changed |= ImGui::Checkbox("HEO", &filter_.show_highly_elliptical);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Other", &filter_.show_other);
+
+    ImGui::SeparatorText("Catalog");
+    const std::string catalog_status = catalog_service_.status_text();
+    ImGui::TextWrapped("%s", catalog_status.empty() ? "catalog pending" : catalog_status.c_str());
+    const std::string_view source_label = propagation_model_.source_label();
+    if (source_label.empty())
+        ImGui::TextDisabled("Source: pending");
+    else
+        ImGui::Text("Source: %.*s", static_cast<int>(source_label.size()), source_label.data());
+    ImGui::Text("Visible: %zu / %zu markers", visible_state_count(), propagation_snapshot_.states.size());
+    ImGui::Text("Tracks: %zu / %zu", visible_track_count(), propagation_snapshot_.tracks.size());
+
+    ImGui::SeparatorText("Selection");
+    if (const SatellitePropagatedState* selected = selected_satellite())
+    {
+        ImGui::TextWrapped("%s", selected->object_name.c_str());
+        ImGui::Text("NORAD: %lld", static_cast<long long>(selected->norad_catalog_id));
+        if (!selected->object_id.empty())
+            ImGui::Text("Object ID: %s", selected->object_id.c_str());
+        ImGui::Text("Orbit: %.*s",
+            static_cast<int>(orbit_class_name(selected->orbit_class).size()),
+            orbit_class_name(selected->orbit_class).data());
+        if (!selected->object_type.empty())
+            ImGui::Text("Type: %s", selected->object_type.c_str());
+        if (!selected->classification_type.empty())
+            ImGui::Text("Class: %s", selected->classification_type.c_str());
+        ImGui::Text("Period: %.1f min", selected->period_minutes);
+        ImGui::Text("Epoch age: %.1f h", selected->minutes_since_epoch / 60.0);
+        const double altitude_km = glm::length(selected->teme_position_km) - kSatViewEarthEquatorialRadiusKm;
+        ImGui::Text("Altitude: %.0f km", altitude_km);
+        const double speed_km_s = glm::length(selected->teme_velocity_km_per_s);
+        ImGui::Text("Speed: %.2f km/s", speed_km_s);
+        if (ImGui::Button("Clear Selection"))
+        {
+            selected_norad_catalog_id_.reset();
+            changed = true;
+        }
+    }
+    else
+    {
+        ImGui::TextDisabled("No satellite selected.");
+    }
+
+    if (changed)
+    {
+        clear_selection_if_hidden();
+        request_redraw();
+    }
+
+    ImGui::End();
+}
+
+std::size_t SatViewHost::visible_state_count() const
+{
+    const std::string_view source_label = propagation_model_.source_label();
+    std::size_t count = 0;
+    for (const SatellitePropagatedState& state : propagation_snapshot_.states)
+    {
+        if (satellite_visible(filter_, state, source_label))
+            ++count;
+    }
+    return count;
+}
+
+std::size_t SatViewHost::visible_track_count() const
+{
+    const std::string_view source_label = propagation_model_.source_label();
+    std::size_t count = 0;
+    for (const SatelliteOrbitTrack& track : propagation_snapshot_.tracks)
+    {
+        if (satellite_visible(filter_, track, source_label))
+            ++count;
+    }
+    return count;
+}
+
+const SatellitePropagatedState* SatViewHost::selected_satellite() const
+{
+    if (!selected_norad_catalog_id_.has_value())
+        return nullptr;
+
+    const std::string_view source_label = propagation_model_.source_label();
+    for (const SatellitePropagatedState& state : propagation_snapshot_.states)
+    {
+        if (state.norad_catalog_id == *selected_norad_catalog_id_
+            && satellite_visible(filter_, state, source_label))
+        {
+            return &state;
+        }
+    }
+    return nullptr;
+}
+
+void SatViewHost::clear_selection_if_hidden()
+{
+    if (selected_norad_catalog_id_.has_value() && !selected_satellite())
+        selected_norad_catalog_id_.reset();
+}
+
+void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
+{
+    if (propagation_snapshot_.states.empty())
+        return;
+
+    const int pixel_w = std::max(1, viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, viewport_.pixel_size.y);
+    const float aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
+    const glm::vec3 eye = camera_position(yaw_, pitch_, distance_);
+    const glm::mat4 view = glm::lookAtRH(eye, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(42.0f), aspect, 0.05f, 64.0f);
+    const glm::mat4 view_proj = proj * view;
+    const std::string_view source_label = propagation_model_.source_label();
+
+    std::optional<std::int64_t> nearest_id;
+    float nearest_distance_sq = static_cast<float>(
+        kClickSelectionMaxDistancePixels * kClickSelectionMaxDistancePixels);
+    for (const SatellitePropagatedState& state : propagation_snapshot_.states)
+    {
+        if (!satellite_visible(filter_, state, source_label))
+            continue;
+
+        const glm::vec3 world = to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
+        const glm::vec4 clip = view_proj * glm::vec4(world, 1.0f);
+        if (clip.w <= 0.0f)
+            continue;
+        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.x < -1.1f || ndc.x > 1.1f || ndc.y < -1.1f || ndc.y > 1.1f || ndc.z < 0.0f || ndc.z > 1.0f)
+            continue;
+
+        const float sx = static_cast<float>(viewport_.pixel_pos.x)
+            + (ndc.x * 0.5f + 0.5f) * static_cast<float>(pixel_w);
+        const float sy = static_cast<float>(viewport_.pixel_pos.y)
+            + (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<float>(pixel_h);
+        const glm::vec2 delta = glm::vec2(sx, sy) - glm::vec2(screen_pos);
+        const float distance_sq = glm::dot(delta, delta);
+        if (distance_sq < nearest_distance_sq)
+        {
+            nearest_distance_sq = distance_sq;
+            nearest_id = state.norad_catalog_id;
+        }
+    }
+
+    if (nearest_id.has_value())
+        selected_norad_catalog_id_ = nearest_id;
+    else
+        selected_norad_catalog_id_.reset();
+    request_redraw();
 }
 
 std::unique_ptr<IHost> create_satview_host()

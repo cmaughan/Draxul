@@ -204,18 +204,18 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 - [x] Add satellite point markers.
 - [x] Color by orbit class.
 - [ ] Color by object type once the catalog model exposes a useful type field.
-- [ ] Add selection/highlight rendering.
+- [x] Add selection/highlight rendering.
 - [x] Batch marker and track draws to avoid one draw per satellite.
 - [ ] Add LOD controls for path segment count and marker density.
 - [ ] Keep Vulkan and Metal behavior visually equivalent.
 
 ### Phase 5: Interaction And Filtering
 
-- [ ] Add keyboard shortcuts or command actions for pause, time speed, reset camera, and data refresh.
-- [ ] Add hover or click selection for nearest satellite marker.
-- [ ] Add search/filter model independent of ImGui so it can be tested.
-- [ ] Add filters for orbit class, object type, source group, and catalog age.
-- [ ] Add object detail overlay or status area.
+- [x] Add keyboard shortcuts or command actions for pause, time speed, reset camera, and data refresh.
+- [x] Add hover or click selection for nearest satellite marker.
+- [x] Add search/filter model independent of ImGui so it can be tested.
+- [x] Add filters for orbit class, object type, source group, and catalog age.
+- [x] Add object detail overlay or status area.
 
 ### Phase 6: Tests And Validation
 
@@ -276,6 +276,16 @@ The first Phase 4 rendering slice is implemented in the current working tree:
 - Vulkan uploads the dynamic scene vertices into a mapped VMA vertex buffer and draws all tracks/markers in one line-list batch after Earth.
 - Metal uses the same vertex shape through a shared-storage `MTLBuffer` and the same line-list shader path.
 - Synthetic shader-generated rings are removed from the SatView orbit shaders.
+
+Phase 5 interaction and filtering is implemented in the current working tree:
+
+- `SatViewHost` owns a pane-local ImGui context and renders a compact SatView control panel with pause, reset camera, refresh, time speed, filter, catalog, and selected-object sections.
+- Host input is forwarded into that ImGui context first, so panel interaction does not rotate or zoom the globe.
+- A testable `satview_filter` model filters propagated states/tracks by search text, orbit class, optional object type/classification, source label, and element age.
+- The dynamic track/marker vertex stream now skips hidden satellites and brightens/enlarges the selected satellite marker and track.
+- Click selection projects visible satellite markers to pane coordinates and picks the nearest marker within a small screen-space threshold.
+- Selected-object details report object name, NORAD id, international designator, orbit class, optional type/classification, period, element age, altitude, and speed.
+- Current public CelesTrak `active` GP records do not consistently expose object type or per-object source groups, so those filters are wired through the model and become useful as richer metadata is carried by future data sources.
 
 ## References
 

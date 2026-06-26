@@ -23,6 +23,7 @@ struct SatelliteRecord
     std::int64_t norad_catalog_id = 0;
     std::string object_name;
     std::string object_id;
+    std::string object_type;
     std::string epoch_utc;
     std::string classification_type;
 
