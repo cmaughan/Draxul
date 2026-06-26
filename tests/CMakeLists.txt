@@ -11,6 +11,10 @@ file(GLOB DRAXUL_TEST_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/*_tests.cpp
 )
 
+if(NOT DRAXUL_ENABLE_SATVIEW)
+    list(FILTER DRAXUL_TEST_SOURCES EXCLUDE REGEX "satview_.*_tests\\.cpp$")
+endif()
+
 add_executable(draxul-tests ${DRAXUL_TEST_SOURCES})
 
 target_include_directories(draxul-tests PRIVATE
@@ -30,6 +34,10 @@ target_link_libraries(draxul-tests PRIVATE
 )
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul-tests PRIVATE draxul-geometry draxul-megacity)
+endif()
+if(DRAXUL_ENABLE_SATVIEW)
+    target_link_libraries(draxul-tests PRIVATE draxul-satview)
+    target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_SATVIEW)
 endif()
 target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"

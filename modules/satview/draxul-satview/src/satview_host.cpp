@@ -7,9 +7,11 @@
 #include <algorithm>
 #include <cmath>
 #include <draxul/host_registry.h>
+#include <draxul/log.h>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
+#include <utility>
 
 namespace draxul::satview
 {
@@ -62,6 +64,22 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
 {
     callbacks_ = &callbacks;
     viewport_ = context.initial_viewport;
+    CatalogParseResult catalog_result = load_sample_satellite_catalog();
+    if (catalog_result)
+    {
+        catalog_ = std::move(catalog_result.catalog);
+        catalog_status_ = catalog_.source_label + " " + std::to_string(catalog_.objects.size()) + " sats";
+        if (catalog_.skipped_records > 0)
+            catalog_status_ += " (" + std::to_string(catalog_.skipped_records) + " skipped)";
+    }
+    else
+    {
+        catalog_ = {};
+        catalog_status_ = "catalog unavailable";
+        DRAXUL_LOG_WARN(LogCategory::Renderer,
+            "SatView: failed to load sample catalog: %s",
+            catalog_result.error.c_str());
+    }
     simulated_seconds_ = unix_seconds_now();
     const glm::vec3 sun = sun_direction(simulated_seconds_);
     yaw_ = std::atan2(sun.x, sun.z) + 0.65f;
@@ -219,7 +237,10 @@ void SatViewHost::request_close()
 
 std::string SatViewHost::status_text() const
 {
-    return paused_ ? "satview paused" : "satview earth";
+    const std::string mode = paused_ ? "satview paused" : "satview earth";
+    if (catalog_status_.empty())
+        return mode;
+    return mode + " | " + catalog_status_;
 }
 
 Color SatViewHost::default_background() const

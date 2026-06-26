@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <draxul/host.h>
+#include <draxul/satview/satview_catalog.h>
 #include <memory>
 #include <string>
 
@@ -50,6 +51,8 @@ private:
     draxul::IHostCallbacks* callbacks_ = nullptr;
     draxul::HostViewport viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
+    SatelliteCatalog catalog_;
+    std::string catalog_status_ = "catalog loading";
     std::string init_error_;
     bool running_ = false;
     bool paused_ = false;

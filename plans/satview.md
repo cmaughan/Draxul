@@ -180,13 +180,14 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 
 ### Phase 2: Catalog Fetch And Cache
 
-- [ ] Add module-local satellite catalog types.
-- [ ] Add parser for CelesTrak GP JSON or CSV.
-- [ ] Add a tiny sample catalog fixture for tests and smoke.
+- [x] Add module-local satellite catalog types.
+- [x] Add parser for CelesTrak GP JSON.
+- [x] Add a tiny sample catalog fixture for tests and smoke.
 - [ ] Add async or deadline-friendly fetch path that never blocks rendering.
 - [ ] Add cache read/write with source URL, fetch time, element epoch range, and object count.
 - [ ] Add rate-limit guard so the app does not re-download large groups too often.
-- [ ] Add status text for loading, cache age, network failure, and object count.
+- [x] Add initial status text for sample catalog object count.
+- [ ] Extend status text for loading, cache age, and network failure.
 
 ### Phase 3: SGP4 Propagation
 
@@ -242,12 +243,20 @@ The initial MVP is implemented on `codex/satview-module-depth-fix` in commit `ed
 - Texture-mapped Earth and preview orbit rings.
 - Renderer depth fix needed for solid 3D surfaces in custom passes.
 
-The next meaningful work item is Phase 2: real catalog fetch/cache and a deterministic sample fixture.
+The next meaningful work item is the remaining Phase 2 data-service work: async fetch, cache read/write, rate-limit guard, and richer cache/network status.
+
+The first Phase 2 data slice is implemented after `e8ba39a`:
+
+- Module-local satellite catalog records and orbit-class derivation.
+- CelesTrak GP JSON parser for OMM keyword fields.
+- Synthetic offline sample GP catalog loaded by the SatView host.
+- Pane status now reports the loaded sample catalog object count.
 
 ## References
 
 - CelesTrak current GP element sets: https://celestrak.org/NORAD/elements/
 - CelesTrak GP data format documentation: https://celestrak.org/NORAD/documentation/gp-data-formats.php
+- CelesTrak usage policy: https://celestrak.org/usage-policy.php
 - Space-Track documentation: https://www.space-track.org/documentation
 - Solar System Scope 8k Earth texture maps: https://www.solarsystemscope.com/textures/
 - Creative Commons Attribution 4.0 International: https://creativecommons.org/licenses/by/4.0/

@@ -19,3 +19,9 @@ Attribution:
 
 Earth texture maps by Solar System Scope, based on NASA elevation and imagery
 data, used under CC BY 4.0.
+
+## Sample Catalog
+
+`catalog/sample_gp.json` is a tiny synthetic fixture using the CelesTrak GP JSON
+field names. It is not downloaded satellite data; it exists so SatView can
+exercise the catalog parser and status path deterministically while offline.
