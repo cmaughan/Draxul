@@ -183,11 +183,11 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 - [x] Add module-local satellite catalog types.
 - [x] Add parser for CelesTrak GP JSON.
 - [x] Add a tiny sample catalog fixture for tests and smoke.
-- [ ] Add async or deadline-friendly fetch path that never blocks rendering.
-- [ ] Add cache read/write with source URL, fetch time, element epoch range, and object count.
-- [ ] Add rate-limit guard so the app does not re-download large groups too often.
+- [x] Add async or deadline-friendly fetch path that never blocks rendering.
+- [x] Add cache read/write with source URL, fetch time, element epoch range, and object count.
+- [x] Add rate-limit guard so the app does not re-download large groups too often.
 - [x] Add initial status text for sample catalog object count.
-- [ ] Extend status text for loading, cache age, and network failure.
+- [x] Extend status text for loading, cache age, and network failure.
 
 ### Phase 3: SGP4 Propagation
 
@@ -243,7 +243,7 @@ The initial MVP is implemented on `codex/satview-module-depth-fix` in commit `ed
 - Texture-mapped Earth and preview orbit rings.
 - Renderer depth fix needed for solid 3D surfaces in custom passes.
 
-The next meaningful work item is the remaining Phase 2 data-service work: async fetch, cache read/write, rate-limit guard, and richer cache/network status.
+The next meaningful work item is Phase 3: choose/integrate a proven SGP4 implementation and start propagating catalog records into positions and sampled orbit paths.
 
 The first Phase 2 data slice is implemented after `e8ba39a`:
 
@@ -251,6 +251,14 @@ The first Phase 2 data slice is implemented after `e8ba39a`:
 - CelesTrak GP JSON parser for OMM keyword fields.
 - Synthetic offline sample GP catalog loaded by the SatView host.
 - Pane status now reports the loaded sample catalog object count.
+
+The rest of Phase 2 is implemented after `67e2bb8`:
+
+- `SatViewCatalogService` owns background CelesTrak `active` GP downloads through `curl`, so the render thread never blocks on network I/O.
+- The service caches raw GP JSON and a metadata sidecar under the platform cache directory.
+- Cache metadata records source URL, fetch time, object count, skipped records, and element epoch range.
+- A two-hour refresh interval prevents repeated large downloads inside CelesTrak's GP update cadence; pressing `R` in SatView requests a manual refresh.
+- If network fetch fails, SatView keeps rendering from live/cache/sample data and marks the status as failed instead of clearing the catalog.
 
 ## References
 

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 if(APPLE)
     set(SATVIEW_SOURCES
         src/satview_catalog.cpp
+        src/satview_catalog_service.cpp
         src/satview_host.cpp
         src/satview_texture_assets.cpp
         src/satview_render.mm
@@ -10,6 +11,7 @@ if(APPLE)
 else()
     set(SATVIEW_SOURCES
         src/satview_catalog.cpp
+        src/satview_catalog_service.cpp
         src/satview_host.cpp
         src/satview_texture_assets.cpp
         src/satview_render_vk.cpp
