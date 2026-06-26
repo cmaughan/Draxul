@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -26,6 +27,24 @@ constexpr double kEarthEquatorialRadiusKm = 6378.137;
 constexpr double kSecondsPerDay = 86400.0;
 constexpr double kMinutesPerDay = 1440.0;
 constexpr double kTwoPi = 6.28318530717958647692;
+
+std::string lowercase_copy(std::string_view text)
+{
+    std::string result;
+    result.reserve(text.size());
+    for (const unsigned char c : text)
+        result.push_back(static_cast<char>(std::tolower(c)));
+    return result;
+}
+
+bool contains_case_insensitive(std::string_view haystack, std::string_view needle)
+{
+    if (needle.empty())
+        return true;
+    if (haystack.empty())
+        return false;
+    return lowercase_copy(haystack).find(lowercase_copy(needle)) != std::string::npos;
+}
 
 struct JsonValue
 {
@@ -537,6 +556,37 @@ void derive_orbit_shape(SatelliteRecord& record)
     }
 }
 
+SatelliteObjectKind derive_object_kind(std::string_view object_type, std::string_view object_name)
+{
+    if (contains_case_insensitive(object_type, "debris")
+        || contains_case_insensitive(object_name, " debris")
+        || contains_case_insensitive(object_name, " deb")
+        || contains_case_insensitive(object_name, "(deb")
+        || contains_case_insensitive(object_name, " deb)"))
+    {
+        return SatelliteObjectKind::Debris;
+    }
+
+    if (contains_case_insensitive(object_type, "rocket")
+        || contains_case_insensitive(object_type, "r/b")
+        || contains_case_insensitive(object_name, " rocket body")
+        || contains_case_insensitive(object_name, " r/b")
+        || contains_case_insensitive(object_name, "(r/b")
+        || contains_case_insensitive(object_name, " rb"))
+    {
+        return SatelliteObjectKind::RocketBody;
+    }
+
+    if (contains_case_insensitive(object_type, "payload")
+        || contains_case_insensitive(object_type, "satellite")
+        || contains_case_insensitive(object_type, "spacecraft"))
+    {
+        return SatelliteObjectKind::Payload;
+    }
+
+    return SatelliteObjectKind::Unknown;
+}
+
 std::optional<SatelliteRecord> make_record(const JsonObject& object)
 {
     SatelliteRecord record;
@@ -551,6 +601,7 @@ std::optional<SatelliteRecord> make_record(const JsonObject& object)
         "CATNR " + std::to_string(record.norad_catalog_id));
     record.object_id = string_field(object, "OBJECT_ID").value_or("");
     record.object_type = string_field(object, "OBJECT_TYPE").value_or("");
+    record.object_kind = derive_object_kind(record.object_type, record.object_name);
     record.classification_type = string_field(object, "CLASSIFICATION_TYPE").value_or("");
 
     if (!require_number(object, "MEAN_MOTION", record.mean_motion_rev_per_day)
@@ -625,6 +676,22 @@ std::string_view orbit_class_name(OrbitClass orbit_class)
         return "Other";
     }
     return "Other";
+}
+
+std::string_view satellite_object_kind_name(SatelliteObjectKind kind)
+{
+    switch (kind)
+    {
+    case SatelliteObjectKind::Payload:
+        return "Payload";
+    case SatelliteObjectKind::RocketBody:
+        return "Rocket Body";
+    case SatelliteObjectKind::Debris:
+        return "Debris";
+    case SatelliteObjectKind::Unknown:
+        return "Unknown";
+    }
+    return "Unknown";
 }
 
 CatalogParseResult parse_celestrak_gp_json(

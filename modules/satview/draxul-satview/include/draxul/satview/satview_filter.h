@@ -30,6 +30,7 @@ struct SatViewFilterCandidate
     std::string_view object_name;
     std::string_view object_id;
     std::string_view object_type;
+    SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     std::string_view classification_type;
     std::string_view source_label;
     OrbitClass orbit_class = OrbitClass::Other;

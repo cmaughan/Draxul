@@ -32,6 +32,7 @@ struct SatellitePropagationEntry
     std::string object_name;
     std::string object_id;
     std::string object_type;
+    SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
     double epoch_unix_seconds = 0.0;
@@ -88,6 +89,7 @@ struct SatellitePropagatedState
     std::string object_name;
     std::string object_id;
     std::string object_type;
+    SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
     double period_minutes = 0.0;
@@ -105,6 +107,7 @@ struct SatelliteOrbitTrack
     std::string object_name;
     std::string object_id;
     std::string object_type;
+    SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
     double minutes_since_epoch = 0.0;
@@ -120,6 +123,7 @@ struct SatellitePropagationSettings
     std::size_t max_satellites = 0;
     std::size_t track_satellite_limit = 0;
     std::size_t track_sample_count = 0;
+    std::optional<std::int64_t> selected_track_norad_catalog_id;
 
     // Zero or negative means sample one orbital period per satellite.
     double track_horizon_minutes = 0.0;

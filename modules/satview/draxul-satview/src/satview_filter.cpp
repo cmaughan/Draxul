@@ -94,6 +94,7 @@ bool satview_filter_matches(
     if (!text_filter_matches(
         filter.object_type_text,
         candidate.object_type,
+        satellite_object_kind_name(candidate.object_kind),
         candidate.classification_type))
     {
         return false;
@@ -124,6 +125,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .object_name = entry.object_name,
         .object_id = entry.object_id,
         .object_type = entry.object_type,
+        .object_kind = entry.object_kind,
         .classification_type = entry.classification_type,
         .source_label = source_label,
         .orbit_class = entry.orbit_class,
@@ -140,6 +142,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .object_name = state.object_name,
         .object_id = state.object_id,
         .object_type = state.object_type,
+        .object_kind = state.object_kind,
         .classification_type = state.classification_type,
         .source_label = source_label,
         .orbit_class = state.orbit_class,
@@ -156,6 +159,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .object_name = track.object_name,
         .object_id = track.object_id,
         .object_type = track.object_type,
+        .object_kind = track.object_kind,
         .classification_type = track.classification_type,
         .source_label = source_label,
         .orbit_class = track.orbit_class,

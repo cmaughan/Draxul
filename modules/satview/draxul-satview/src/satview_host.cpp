@@ -28,8 +28,8 @@ namespace
 
 constexpr auto kFrameTick = std::chrono::milliseconds(33);
 constexpr auto kPropagationTick = std::chrono::seconds(1);
-constexpr std::size_t kPreviewTrackSatelliteLimit = 256;
-constexpr std::size_t kPreviewTrackSampleCount = 48;
+constexpr std::size_t kDefaultTrackSatelliteLimit = 256;
+constexpr std::size_t kDefaultTrackSampleCount = 48;
 constexpr int kClickSelectionMaxDistancePixels = 18;
 constexpr int kClickDragSlopPixels = 5;
 
@@ -75,6 +75,29 @@ glm::vec4 orbit_class_color(OrbitClass orbit_class, float alpha)
     return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
 }
 
+glm::vec4 object_kind_color(SatelliteObjectKind kind, float alpha)
+{
+    switch (kind)
+    {
+    case SatelliteObjectKind::Payload:
+        return glm::vec4(0.12f, 0.86f, 0.98f, alpha);
+    case SatelliteObjectKind::RocketBody:
+        return glm::vec4(1.00f, 0.54f, 0.18f, alpha);
+    case SatelliteObjectKind::Debris:
+        return glm::vec4(1.00f, 0.28f, 0.36f, alpha);
+    case SatelliteObjectKind::Unknown:
+        return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
+    }
+    return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
+}
+
+glm::vec4 satellite_color(OrbitClass orbit_class, SatelliteObjectKind object_kind, SatViewColorMode color_mode, float alpha)
+{
+    return color_mode == SatViewColorMode::ObjectType
+        ? object_kind_color(object_kind, alpha)
+        : orbit_class_color(orbit_class, alpha);
+}
+
 glm::vec3 to_vec3(const glm::dvec3& value)
 {
     return glm::vec3(
@@ -110,10 +133,18 @@ void append_track_vertices(
     const SatellitePropagationResult& snapshot,
     const SatViewFilterState& filter,
     std::string_view source_label,
-    std::optional<std::int64_t> selected_id)
+    std::optional<std::int64_t> selected_id,
+    SatViewTrackDisplayMode track_display_mode,
+    SatViewColorMode color_mode)
 {
     for (const SatelliteOrbitTrack& track : snapshot.tracks)
     {
+        if (track_display_mode == SatViewTrackDisplayMode::SelectedOnly
+            && (!selected_id.has_value() || track.norad_catalog_id != *selected_id))
+        {
+            continue;
+        }
+
         if (!satellite_visible(filter, track, source_label))
             continue;
 
@@ -123,8 +154,8 @@ void append_track_vertices(
 
         const bool selected = selected_id.has_value() && track.norad_catalog_id == *selected_id;
         const glm::vec4 color = selected
-            ? glm::mix(orbit_class_color(track.orbit_class, 0.98f), glm::vec4(1.0f), 0.38f)
-            : orbit_class_color(track.orbit_class, 0.62f);
+            ? glm::mix(satellite_color(track.orbit_class, track.object_kind, color_mode, 0.98f), glm::vec4(1.0f), 0.38f)
+            : satellite_color(track.orbit_class, track.object_kind, color_mode, 0.62f);
         for (std::size_t i = 1; i < points.size(); ++i)
             append_line(vertices, to_vec3(points[i - 1]), to_vec3(points[i]), color);
         append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
@@ -137,15 +168,23 @@ void append_marker_vertices(
     const SatViewFilterState& filter,
     std::string_view source_label,
     std::optional<std::int64_t> selected_id,
+    SatViewColorMode color_mode,
+    std::size_t marker_limit,
     glm::vec3 camera_right,
     glm::vec3 camera_up)
 {
+    std::size_t visible_marker_index = 0;
     for (const SatellitePropagatedState& state : snapshot.states)
     {
         if (!satellite_visible(filter, state, source_label))
             continue;
 
         const bool selected = selected_id.has_value() && state.norad_catalog_id == *selected_id;
+        const bool under_marker_limit = marker_limit == 0 || visible_marker_index < marker_limit;
+        ++visible_marker_index;
+        if (!under_marker_limit && !selected)
+            continue;
+
         const glm::vec3 center = to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
         const float range = glm::length(center);
         const float base_size = std::clamp(0.006f + range * 0.0022f, 0.008f, 0.026f);
@@ -153,7 +192,7 @@ void append_marker_vertices(
         const glm::vec4 color = selected
             ? glm::vec4(1.0f, 0.96f, 0.68f, 1.0f)
             : glm::mix(
-                orbit_class_color(state.orbit_class, 0.95f),
+                satellite_color(state.orbit_class, state.object_kind, color_mode, 0.95f),
                 glm::vec4(1.0f),
                 0.18f);
 
@@ -207,6 +246,8 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     yaw_ = std::atan2(sun.x, sun.z) + 0.65f;
     pitch_ = 0.25f;
     distance_ = 3.6f;
+    track_satellite_limit_ = kDefaultTrackSatelliteLimit;
+    track_sample_count_ = kDefaultTrackSampleCount;
     last_pump_time_ = std::chrono::steady_clock::now();
     last_activity_time_ = last_pump_time_;
     next_propagation_time_ = last_pump_time_;
@@ -265,7 +306,9 @@ void SatViewHost::pump()
     last_imgui_delta_seconds_ = dt;
     if (!paused_)
         simulated_seconds_ += static_cast<double>(dt) * static_cast<double>(time_speed_);
-    update_propagation_if_needed(propagation_model_changed);
+    const bool force_propagation = propagation_model_changed || propagation_settings_dirty_;
+    update_propagation_if_needed(force_propagation);
+    propagation_settings_dirty_ = false;
     clear_selection_if_hidden();
     request_redraw();
 }
@@ -299,16 +342,25 @@ void SatViewHost::draw(IFrameContext& frame)
 
     std::vector<SatViewSceneVertex> scene_vertices;
     scene_vertices.reserve(
-        propagation_snapshot_.tracks.size() * kPreviewTrackSampleCount * 2
+        propagation_snapshot_.tracks.size() * track_sample_count_ * 2
         + propagation_snapshot_.states.size() * 4);
     const std::string_view source_label = propagation_model_.source_label();
-    append_track_vertices(scene_vertices, propagation_snapshot_, filter_, source_label, selected_norad_catalog_id_);
+    append_track_vertices(
+        scene_vertices,
+        propagation_snapshot_,
+        filter_,
+        source_label,
+        selected_norad_catalog_id_,
+        track_display_mode_,
+        color_mode_);
     append_marker_vertices(
         scene_vertices,
         propagation_snapshot_,
         filter_,
         source_label,
         selected_norad_catalog_id_,
+        color_mode_,
+        marker_satellite_limit_,
         camera_right,
         camera_up);
     scene_pass_->set_scene_vertices(scene_vertices);
@@ -468,6 +520,7 @@ void SatViewHost::on_key(const KeyEvent& event)
     if (event.keycode == SDLK_ESCAPE && selected_norad_catalog_id_.has_value())
     {
         selected_norad_catalog_id_.reset();
+        propagation_settings_dirty_ = true;
         request_redraw();
         return;
     }
@@ -560,6 +613,7 @@ bool SatViewHost::dispatch_action(std::string_view action)
     if (action == "satview_clear_selection")
     {
         selected_norad_catalog_id_.reset();
+        propagation_settings_dirty_ = true;
         request_redraw();
         return true;
     }
@@ -706,8 +760,9 @@ void SatViewHost::update_propagation_if_needed(bool force)
         return;
 
     SatellitePropagationSettings settings;
-    settings.track_satellite_limit = kPreviewTrackSatelliteLimit;
-    settings.track_sample_count = kPreviewTrackSampleCount;
+    settings.track_satellite_limit = track_satellite_limit_;
+    settings.track_sample_count = track_sample_count_;
+    settings.selected_track_norad_catalog_id = selected_norad_catalog_id_;
 
     propagation_snapshot_ = propagate_satellites(propagation_model_, simulated_seconds_, settings);
     if (!propagation_snapshot_)
@@ -764,6 +819,9 @@ void SatViewHost::render_control_panel()
     }
 
     bool changed = false;
+    auto set_control_width = []() {
+        ImGui::SetNextItemWidth(180.0f);
+    };
 
     if (ImGui::Button(paused_ ? "Resume" : "Pause"))
     {
@@ -784,24 +842,84 @@ void SatViewHost::render_control_panel()
     }
 
     float speed = time_speed_;
-    ImGui::SetNextItemWidth(-1.0f);
+    set_control_width();
     if (ImGui::SliderFloat("Speed", &speed, 1.0f, 3600.0f, "%.0fx", ImGuiSliderFlags_Logarithmic))
     {
         time_speed_ = std::clamp(speed, 1.0f, 3600.0f);
         changed = true;
     }
 
+    ImGui::SeparatorText("Visuals");
+    int color_mode_index = color_mode_ == SatViewColorMode::ObjectType ? 1 : 0;
+    const char* color_modes[] = { "Orbit Class", "Object Type" };
+    set_control_width();
+    if (ImGui::Combo("Color", &color_mode_index, color_modes, 2))
+    {
+        color_mode_ = color_mode_index == 1 ? SatViewColorMode::ObjectType : SatViewColorMode::OrbitClass;
+        changed = true;
+    }
+
+    int track_display_index = track_display_mode_ == SatViewTrackDisplayMode::SelectedOnly ? 1 : 0;
+    const char* track_display_modes[] = { "All Sampled", "Selected Only" };
+    set_control_width();
+    if (ImGui::Combo("Paths", &track_display_index, track_display_modes, 2))
+    {
+        track_display_mode_ = track_display_index == 1
+            ? SatViewTrackDisplayMode::SelectedOnly
+            : SatViewTrackDisplayMode::AllSampled;
+        changed = true;
+    }
+
+    int track_limit = static_cast<int>(track_satellite_limit_);
+    set_control_width();
+    if (ImGui::SliderInt("Track count", &track_limit, 32, 2048))
+    {
+        track_satellite_limit_ = static_cast<std::size_t>(std::max(32, track_limit));
+        propagation_settings_dirty_ = true;
+        changed = true;
+    }
+
+    int track_samples = static_cast<int>(track_sample_count_);
+    set_control_width();
+    if (ImGui::SliderInt("Track samples", &track_samples, 12, 144))
+    {
+        track_sample_count_ = static_cast<std::size_t>(std::max(12, track_samples));
+        propagation_settings_dirty_ = true;
+        changed = true;
+    }
+
+    static constexpr std::size_t kMarkerLimitValues[] = { 0, 8192, 4096, 2048, 1024, 512 };
+    static constexpr const char* kMarkerLimitLabels[] = { "All", "8192", "4096", "2048", "1024", "512" };
+    int marker_limit_index = 0;
+    for (int i = 0; i < 6; ++i)
+    {
+        if (marker_satellite_limit_ == kMarkerLimitValues[i])
+        {
+            marker_limit_index = i;
+            break;
+        }
+    }
+    set_control_width();
+    if (ImGui::Combo("Marker cap", &marker_limit_index, kMarkerLimitLabels, 6))
+    {
+        marker_satellite_limit_ = kMarkerLimitValues[marker_limit_index];
+        changed = true;
+    }
+
     ImGui::SeparatorText("Filters");
+    set_control_width();
     if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
     {
         filter_.search_text = search_buffer_;
         changed = true;
     }
+    set_control_width();
     if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
     {
         filter_.object_type_text = object_type_buffer_;
         changed = true;
     }
+    set_control_width();
     if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
     {
         filter_.source_text = source_buffer_;
@@ -809,7 +927,7 @@ void SatViewHost::render_control_panel()
     }
 
     float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
-    ImGui::SetNextItemWidth(-1.0f);
+    set_control_width();
     if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
     {
         filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
@@ -833,8 +951,12 @@ void SatViewHost::render_control_panel()
         ImGui::TextDisabled("Source: pending");
     else
         ImGui::Text("Source: %.*s", static_cast<int>(source_label.size()), source_label.data());
-    ImGui::Text("Visible: %zu / %zu markers", visible_state_count(), propagation_snapshot_.states.size());
-    ImGui::Text("Tracks: %zu / %zu", visible_track_count(), propagation_snapshot_.tracks.size());
+    const std::size_t filtered_markers = visible_state_count();
+    const std::size_t rendered_markers = marker_satellite_limit_ == 0
+        ? filtered_markers
+        : std::min(filtered_markers, marker_satellite_limit_);
+    ImGui::Text("Markers: %zu / %zu", rendered_markers, propagation_snapshot_.states.size());
+    ImGui::Text("Paths: %zu / %zu", visible_track_count(), propagation_snapshot_.tracks.size());
 
     ImGui::SeparatorText("Selection");
     if (const SatellitePropagatedState* selected = selected_satellite())
@@ -848,6 +970,9 @@ void SatViewHost::render_control_panel()
             orbit_class_name(selected->orbit_class).data());
         if (!selected->object_type.empty())
             ImGui::Text("Type: %s", selected->object_type.c_str());
+        ImGui::Text("Kind: %.*s",
+            static_cast<int>(satellite_object_kind_name(selected->object_kind).size()),
+            satellite_object_kind_name(selected->object_kind).data());
         if (!selected->classification_type.empty())
             ImGui::Text("Class: %s", selected->classification_type.c_str());
         ImGui::Text("Period: %.1f min", selected->period_minutes);
@@ -859,6 +984,7 @@ void SatViewHost::render_control_panel()
         if (ImGui::Button("Clear Selection"))
         {
             selected_norad_catalog_id_.reset();
+            propagation_settings_dirty_ = true;
             changed = true;
         }
     }
@@ -894,6 +1020,13 @@ std::size_t SatViewHost::visible_track_count() const
     std::size_t count = 0;
     for (const SatelliteOrbitTrack& track : propagation_snapshot_.tracks)
     {
+        if (track_display_mode_ == SatViewTrackDisplayMode::SelectedOnly
+            && (!selected_norad_catalog_id_.has_value()
+                || track.norad_catalog_id != *selected_norad_catalog_id_))
+        {
+            continue;
+        }
+
         if (satellite_visible(filter_, track, source_label))
             ++count;
     }
@@ -920,7 +1053,10 @@ const SatellitePropagatedState* SatViewHost::selected_satellite() const
 void SatViewHost::clear_selection_if_hidden()
 {
     if (selected_norad_catalog_id_.has_value() && !selected_satellite())
+    {
         selected_norad_catalog_id_.reset();
+        propagation_settings_dirty_ = true;
+    }
 }
 
 void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
@@ -940,10 +1076,15 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
     std::optional<std::int64_t> nearest_id;
     float nearest_distance_sq = static_cast<float>(
         kClickSelectionMaxDistancePixels * kClickSelectionMaxDistancePixels);
+    std::size_t visible_marker_index = 0;
     for (const SatellitePropagatedState& state : propagation_snapshot_.states)
     {
         if (!satellite_visible(filter_, state, source_label))
             continue;
+
+        if (marker_satellite_limit_ != 0 && visible_marker_index >= marker_satellite_limit_)
+            break;
+        ++visible_marker_index;
 
         const glm::vec3 world = to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
         const glm::vec4 clip = view_proj * glm::vec4(world, 1.0f);
@@ -966,10 +1107,9 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
         }
     }
 
-    if (nearest_id.has_value())
-        selected_norad_catalog_id_ = nearest_id;
-    else
-        selected_norad_catalog_id_.reset();
+    if (nearest_id != selected_norad_catalog_id_)
+        propagation_settings_dirty_ = true;
+    selected_norad_catalog_id_ = nearest_id;
     request_redraw();
 }
 

@@ -203,11 +203,11 @@ Synthetic rings are cheap, but real satellite rendering can involve many thousan
 - [x] Replace synthetic rings with catalog-derived orbit tracks.
 - [x] Add satellite point markers.
 - [x] Color by orbit class.
-- [ ] Color by object type once the catalog model exposes a useful type field.
+- [x] Color by object type once the catalog model exposes a useful type field.
 - [x] Add selection/highlight rendering.
 - [x] Batch marker and track draws to avoid one draw per satellite.
-- [ ] Add LOD controls for path segment count and marker density.
-- [ ] Keep Vulkan and Metal behavior visually equivalent.
+- [x] Add LOD controls for path segment count and marker density.
+- [x] Keep Vulkan and Metal behavior visually equivalent.
 
 ### Phase 5: Interaction And Filtering
 
@@ -276,6 +276,9 @@ The first Phase 4 rendering slice is implemented in the current working tree:
 - Vulkan uploads the dynamic scene vertices into a mapped VMA vertex buffer and draws all tracks/markers in one line-list batch after Earth.
 - Metal uses the same vertex shape through a shared-storage `MTLBuffer` and the same line-list shader path.
 - Synthetic shader-generated rings are removed from the SatView orbit shaders.
+- The rest of Phase 4 adds a normalized object-kind model (`Payload`, `Rocket Body`, `Debris`, `Unknown`), optional object-type coloring, and UI LOD controls for track count, track sample count, and marker cap.
+- Vulkan and Metal remain visually aligned because both backends consume the same CPU-built `SatViewSceneVertex` line-list stream with per-vertex colors; no backend-specific type-color shader fork was added.
+- A path display mode now lets the panel show either all sampled paths or only the selected satellite path. The missing-path behavior was caused by the intentional path sampling cap: markers can be shown for all propagated satellites, but path polylines were only generated for the first `track_satellite_limit` catalog entries. The selected satellite is now sampled explicitly even when it is outside that general cap.
 
 Phase 5 interaction and filtering is implemented in the current working tree:
 

@@ -3,6 +3,7 @@
 #include <draxul/satview/satview_catalog.h>
 
 using draxul::satview::OrbitClass;
+using draxul::satview::SatelliteObjectKind;
 using draxul::satview::parse_celestrak_gp_json;
 
 TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog]")
@@ -11,6 +12,7 @@ TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog
       {
         "OBJECT_NAME": "ISS (ZARYA)",
         "OBJECT_ID": "1998-067A",
+        "OBJECT_TYPE": "PAYLOAD",
         "EPOCH": "2026-06-26T03:43:15.671136",
         "MEAN_MOTION": 15.49434804,
         "ECCENTRICITY": 0.00043588,
@@ -28,7 +30,7 @@ TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog
         "MEAN_MOTION_DDOT": 0
       },
       {
-        "OBJECT_NAME": "SAMPLE GEO",
+        "OBJECT_NAME": "SAMPLE GEO R/B",
         "OBJECT_ID": "2026-001A",
         "EPOCH": "2026-06-26T00:00:00.000000",
         "MEAN_MOTION": 1.0027,
@@ -51,6 +53,8 @@ TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog
     const auto& iss = result.catalog.objects[0];
     CHECK(iss.object_name == "ISS (ZARYA)");
     CHECK(iss.object_id == "1998-067A");
+    CHECK(iss.object_type == "PAYLOAD");
+    CHECK(iss.object_kind == SatelliteObjectKind::Payload);
     CHECK(iss.norad_catalog_id == 25544);
     CHECK(iss.mean_motion_rev_per_day == Catch::Approx(15.49434804));
     CHECK(iss.bstar == Catch::Approx(0.00017696555));
@@ -60,6 +64,7 @@ TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog
     const auto& geo = result.catalog.objects[1];
     CHECK(geo.norad_catalog_id == 900003);
     CHECK(geo.orbit_class == OrbitClass::Geosynchronous);
+    CHECK(geo.object_kind == SatelliteObjectKind::RocketBody);
     CHECK(geo.period_minutes == Catch::Approx(1436.13).margin(0.5));
 }
 
@@ -100,7 +105,11 @@ TEST_CASE("SatView sample catalog fixture loads offline", "[satview][catalog]")
     REQUIRE(result);
     REQUIRE(result.catalog.objects.size() == 4);
     CHECK(result.catalog.objects[0].orbit_class == OrbitClass::LowEarth);
+    CHECK(result.catalog.objects[0].object_kind == SatelliteObjectKind::Payload);
     CHECK(result.catalog.objects[1].orbit_class == OrbitClass::MediumEarth);
+    CHECK(result.catalog.objects[1].object_kind == SatelliteObjectKind::RocketBody);
     CHECK(result.catalog.objects[2].orbit_class == OrbitClass::Geosynchronous);
+    CHECK(result.catalog.objects[2].object_kind == SatelliteObjectKind::Debris);
     CHECK(result.catalog.objects[3].orbit_class == OrbitClass::HighlyElliptical);
+    CHECK(result.catalog.objects[3].object_kind == SatelliteObjectKind::Payload);
 }

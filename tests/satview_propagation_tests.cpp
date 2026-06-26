@@ -107,3 +107,65 @@ TEST_CASE("SatView propagation generates configurable track samples", "[satview]
     CHECK(result.tracks[0].render_points_earth_radii.size() == 12);
     CHECK(glm::length(result.tracks[0].render_points_earth_radii[0]) > 1.0);
 }
+
+TEST_CASE("SatView propagation includes selected track outside general track cap", "[satview][propagation]")
+{
+    const std::string json = R"json([
+      {
+        "OBJECT_NAME": "VANGUARD 1",
+        "OBJECT_ID": "1958-002B",
+        "EPOCH": "2000-06-27T18:50:19.733568",
+        "MEAN_MOTION": 10.82419157,
+        "ECCENTRICITY": 0.1859667,
+        "INCLINATION": 34.2682,
+        "RA_OF_ASC_NODE": 348.7242,
+        "ARG_OF_PERICENTER": 331.7664,
+        "MEAN_ANOMALY": 19.3264,
+        "EPHEMERIS_TYPE": 0,
+        "CLASSIFICATION_TYPE": "U",
+        "NORAD_CAT_ID": 5,
+        "ELEMENT_SET_NO": 475,
+        "REV_AT_EPOCH": 41366,
+        "BSTAR": 0.000028098,
+        "MEAN_MOTION_DOT": 0.00000023,
+        "MEAN_MOTION_DDOT": 0.0
+      },
+      {
+        "OBJECT_NAME": "VANGUARD 1 CLONE",
+        "OBJECT_ID": "1958-002C",
+        "EPOCH": "2000-06-27T18:50:19.733568",
+        "MEAN_MOTION": 10.82419157,
+        "ECCENTRICITY": 0.1859667,
+        "INCLINATION": 34.2682,
+        "RA_OF_ASC_NODE": 348.7242,
+        "ARG_OF_PERICENTER": 331.7664,
+        "MEAN_ANOMALY": 19.3264,
+        "EPHEMERIS_TYPE": 0,
+        "CLASSIFICATION_TYPE": "U",
+        "NORAD_CAT_ID": 6,
+        "ELEMENT_SET_NO": 475,
+        "REV_AT_EPOCH": 41366,
+        "BSTAR": 0.000028098,
+        "MEAN_MOTION_DOT": 0.00000023,
+        "MEAN_MOTION_DDOT": 0.0
+      }
+    ])json";
+    const auto catalog = parse_celestrak_gp_json(json, "selected", "test");
+    REQUIRE(catalog);
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    REQUIRE(build);
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 8;
+    settings.track_satellite_limit = 1;
+    settings.selected_track_norad_catalog_id = 6;
+
+    const double epoch_seconds = *parse_celestrak_epoch_utc("2000-06-27T18:50:19.733568");
+    auto result = propagate_satellites(build.model, epoch_seconds, settings);
+
+    REQUIRE(result);
+    REQUIRE(result.tracks.size() == 2);
+    CHECK(result.tracks[0].norad_catalog_id == 5);
+    CHECK(result.tracks[1].norad_catalog_id == 6);
+    CHECK(result.tracks[1].ecef_points_km.size() == 8);
+}

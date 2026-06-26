@@ -277,6 +277,7 @@ bool propagate_one(
     out.object_name = entry.object_name;
     out.object_id = entry.object_id;
     out.object_type = entry.object_type;
+    out.object_kind = entry.object_kind;
     out.classification_type = entry.classification_type;
     out.orbit_class = entry.orbit_class;
     out.period_minutes = entry.period_minutes;
@@ -299,6 +300,7 @@ void append_track_samples(
     track.object_name = entry.object_name;
     track.object_id = entry.object_id;
     track.object_type = entry.object_type;
+    track.object_kind = entry.object_kind;
     track.classification_type = entry.classification_type;
     track.orbit_class = entry.orbit_class;
     track.minutes_since_epoch = (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0;
@@ -465,6 +467,7 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
         entry.object_name = record.object_name;
         entry.object_id = record.object_id;
         entry.object_type = record.object_type;
+        entry.object_kind = record.object_kind;
         entry.classification_type = record.classification_type;
         entry.orbit_class = record.orbit_class;
         entry.epoch_unix_seconds = *epoch_unix_seconds;
@@ -517,13 +520,28 @@ SatellitePropagationResult propagate_satellites(
     const std::size_t track_count = settings.track_sample_count == 0
         ? 0
         : limited_count(count, settings.track_satellite_limit);
-    result.tracks.reserve(track_count);
+    result.tracks.reserve(track_count + (settings.selected_track_norad_catalog_id.has_value() ? 1 : 0));
     for (std::size_t i = 0; i < track_count; ++i)
     {
         SatelliteOrbitTrack track;
         append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
         if (!track.ecef_points_km.empty())
             result.tracks.push_back(std::move(track));
+    }
+
+    if (settings.track_sample_count != 0 && settings.selected_track_norad_catalog_id.has_value())
+    {
+        for (std::size_t i = track_count; i < count; ++i)
+        {
+            if (entries[i].norad_catalog_id != *settings.selected_track_norad_catalog_id)
+                continue;
+
+            SatelliteOrbitTrack track;
+            append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
+            if (!track.ecef_points_km.empty())
+                result.tracks.push_back(std::move(track));
+            break;
+        }
     }
 
     return result;

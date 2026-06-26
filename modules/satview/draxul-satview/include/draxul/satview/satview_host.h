@@ -21,6 +21,18 @@ namespace draxul::satview
 
 class SatViewScenePass;
 
+enum class SatViewColorMode
+{
+    OrbitClass,
+    ObjectType
+};
+
+enum class SatViewTrackDisplayMode
+{
+    AllSampled,
+    SelectedOnly
+};
+
 class SatViewHost final : public draxul::IHost
 {
 public:
@@ -86,11 +98,17 @@ private:
     char search_buffer_[128]{};
     char object_type_buffer_[64]{};
     char source_buffer_[96]{};
+    SatViewColorMode color_mode_ = SatViewColorMode::OrbitClass;
+    SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
+    std::size_t track_satellite_limit_ = 256;
+    std::size_t track_sample_count_ = 48;
+    std::size_t marker_satellite_limit_ = 0;
     bool running_ = false;
     bool paused_ = false;
     bool dragging_ = false;
     bool pending_click_ = false;
     bool show_ui_panel_ = true;
+    bool propagation_settings_dirty_ = false;
     float yaw_ = 0.45f;
     float pitch_ = 0.35f;
     float distance_ = 3.6f;

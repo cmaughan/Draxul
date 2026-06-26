@@ -18,12 +18,21 @@ enum class OrbitClass
     Other
 };
 
+enum class SatelliteObjectKind
+{
+    Payload,
+    RocketBody,
+    Debris,
+    Unknown
+};
+
 struct SatelliteRecord
 {
     std::int64_t norad_catalog_id = 0;
     std::string object_name;
     std::string object_id;
     std::string object_type;
+    SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     std::string epoch_utc;
     std::string classification_type;
 
@@ -66,6 +75,7 @@ struct CatalogParseResult
 };
 
 [[nodiscard]] std::string_view orbit_class_name(OrbitClass orbit_class);
+[[nodiscard]] std::string_view satellite_object_kind_name(SatelliteObjectKind kind);
 
 [[nodiscard]] CatalogParseResult parse_celestrak_gp_json(
     std::string_view json,
