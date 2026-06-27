@@ -44,6 +44,7 @@ constexpr float kCameraDefaultMaxDistance = 12.0f;
 constexpr float kCameraMaxDistanceCap = 160.0f;
 constexpr float kCameraFitRadiusScale = 3.1f;
 constexpr float kCameraDragRadiansPerPixel = 0.008f;
+constexpr float kCameraMaxPitchRadians = glm::radians(88.0f);
 
 double unix_seconds_now()
 {
@@ -51,12 +52,42 @@ double unix_seconds_now()
     return std::chrono::duration<double>(now).count();
 }
 
+glm::vec3 constrain_camera_direction(glm::vec3 direction)
+{
+    direction = glm::normalize(direction);
+    const float max_y = std::sin(kCameraMaxPitchRadians);
+    const float y = std::clamp(direction.y, -max_y, max_y);
+    const float horizontal_length = std::sqrt(direction.x * direction.x + direction.z * direction.z);
+    const float target_horizontal_length = std::sqrt(std::max(0.0f, 1.0f - y * y));
+    if (horizontal_length < 0.000001f)
+        return glm::vec3(0.0f, y, target_horizontal_length);
+
+    const float horizontal_scale = target_horizontal_length / horizontal_length;
+    return glm::normalize(glm::vec3(direction.x * horizontal_scale, y, direction.z * horizontal_scale));
+}
+
+glm::quat camera_orientation_from_direction(glm::vec3 direction)
+{
+    direction = constrain_camera_direction(direction);
+    const glm::vec3 world_up(0.0f, 1.0f, 0.0f);
+    const glm::vec3 right = glm::normalize(glm::cross(world_up, direction));
+    const glm::vec3 up = glm::normalize(glm::cross(direction, right));
+    return glm::normalize(glm::quat_cast(glm::mat3(right, up, direction)));
+}
+
+glm::quat constrain_camera_orientation(const glm::quat& orientation)
+{
+    return camera_orientation_from_direction(orientation * glm::vec3(0.0f, 0.0f, 1.0f));
+}
+
 glm::quat camera_orientation_from_yaw_pitch(float yaw, float pitch)
 {
-    const glm::quat yaw_rotation = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-    const glm::vec3 right = glm::normalize(yaw_rotation * glm::vec3(1.0f, 0.0f, 0.0f));
-    const glm::quat pitch_rotation = glm::angleAxis(-pitch, right);
-    return glm::normalize(pitch_rotation * yaw_rotation);
+    pitch = std::clamp(pitch, -kCameraMaxPitchRadians, kCameraMaxPitchRadians);
+    const float cp = std::cos(pitch);
+    return camera_orientation_from_direction(glm::vec3(
+        cp * std::sin(yaw),
+        std::sin(pitch),
+        cp * std::cos(yaw)));
 }
 
 glm::vec3 camera_position(const glm::quat& orientation, float distance)
@@ -649,7 +680,7 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
     glm::quat orientation = glm::normalize(yaw_rotation * camera_orientation_);
     const glm::vec3 right = glm::normalize(orientation * glm::vec3(1.0f, 0.0f, 0.0f));
     const glm::quat pitch_rotation = glm::angleAxis(pitch_delta, right);
-    camera_orientation_ = glm::normalize(pitch_rotation * orientation);
+    camera_orientation_ = constrain_camera_orientation(glm::normalize(pitch_rotation * orientation));
     clamp_camera();
     request_redraw();
 }
@@ -936,7 +967,7 @@ void SatViewHost::sync_simulation_render_settings()
 
 void SatViewHost::clamp_camera()
 {
-    camera_orientation_ = glm::normalize(camera_orientation_);
+    camera_orientation_ = constrain_camera_orientation(camera_orientation_);
     distance_ = std::clamp(distance_, kCameraMinDistance, camera_max_distance_);
 }
 
