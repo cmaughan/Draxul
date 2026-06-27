@@ -20,15 +20,19 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLDevice>> device;
     ObjCRef<id<MTLRenderPipelineState>> earth_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> orbit_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> marker_pipeline;
     ObjCRef<id<MTLDepthStencilState>> depth_write_state;
     ObjCRef<id<MTLDepthStencilState>> depth_read_state;
     ObjCRef<id<MTLTexture>> earth_day_texture;
     ObjCRef<id<MTLTexture>> earth_night_texture;
     ObjCRef<id<MTLTexture>> earth_cloud_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
-    ObjCRef<id<MTLBuffer>> scene_vertex_buffer;
-    NSUInteger scene_vertex_count = 0;
-    uint64_t uploaded_scene_revision = 0;
+    ObjCRef<id<MTLBuffer>> track_vertex_buffer;
+    ObjCRef<id<MTLBuffer>> marker_buffer;
+    NSUInteger track_vertex_count = 0;
+    NSUInteger marker_count = 0;
+    uint64_t uploaded_track_revision = 0;
+    uint64_t uploaded_marker_revision = 0;
 
     id<MTLTexture> create_texture(id<MTLDevice> metal_device, const LoadedTextureImage& image)
     {
@@ -104,15 +108,19 @@ struct SatViewScenePass::State
         device.reset(new_device);
         earth_pipeline.reset();
         orbit_pipeline.reset();
+        marker_pipeline.reset();
         depth_write_state.reset();
         depth_read_state.reset();
         earth_day_texture.reset();
         earth_night_texture.reset();
         earth_cloud_texture.reset();
         earth_sampler.reset();
-        scene_vertex_buffer.reset();
-        scene_vertex_count = 0;
-        uploaded_scene_revision = 0;
+        track_vertex_buffer.reset();
+        marker_buffer.reset();
+        track_vertex_count = 0;
+        marker_count = 0;
+        uploaded_track_revision = 0;
+        uploaded_marker_revision = 0;
         if (!new_device)
             return false;
         if (!ensure_textures(new_device))
@@ -135,12 +143,18 @@ struct SatViewScenePass::State
         id<MTLFunction> vertex = [library newFunctionWithName:@"satview_earth_vertex"];
         id<MTLFunction> fragment = [library newFunctionWithName:@"satview_earth_fragment"];
         id<MTLFunction> orbit_vertex = [library newFunctionWithName:@"satview_orbit_vertex"];
+        id<MTLFunction> marker_vertex = [library newFunctionWithName:@"satview_marker_vertex"];
         id<MTLFunction> orbit_fragment = [library newFunctionWithName:@"satview_orbit_fragment"];
         if (!vertex || !fragment || !orbit_vertex || !orbit_fragment)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer,
-                "SatView: Metal shader functions missing from satview_scene.metallib");
+                "SatView: required Metal shader functions missing from satview_scene.metallib");
             return false;
+        }
+        if (!marker_vertex)
+        {
+            DRAXUL_LOG_WARN(LogCategory::Renderer,
+                "SatView: optional Metal marker shader missing from satview_scene.metallib");
         }
 
         MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
@@ -177,6 +191,22 @@ struct SatViewScenePass::State
         }
         orbit_pipeline.reset(created);
 
+        if (marker_vertex)
+        {
+            desc.vertexFunction = marker_vertex;
+            desc.fragmentFunction = orbit_fragment;
+            created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+            if (!created)
+            {
+                DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: failed to create optional Metal marker pipeline: %s",
+                    error ? [[error localizedDescription] UTF8String] : "unknown");
+            }
+            else
+            {
+                marker_pipeline.reset(created);
+            }
+        }
+
         MTLDepthStencilDescriptor* depth_desc = [[MTLDepthStencilDescriptor alloc] init];
         depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
         depth_desc.depthWriteEnabled = YES;
@@ -204,45 +234,49 @@ struct SatViewScenePass::State
         return true;
     }
 
-    bool ensure_scene_vertex_buffer(
+    template <typename T>
+    bool ensure_buffer(
         id<MTLDevice> metal_device,
-        const std::vector<SatViewSceneVertex>& vertices,
-        uint64_t revision)
+        const std::vector<T>& items,
+        uint64_t revision,
+        ObjCRef<id<MTLBuffer>>& buffer,
+        NSUInteger& item_count,
+        uint64_t& uploaded_revision)
     {
-        if (revision == uploaded_scene_revision)
+        if (revision == uploaded_revision)
             return true;
 
-        scene_vertex_count = static_cast<NSUInteger>(
-            std::min<std::size_t>(vertices.size(), std::numeric_limits<NSUInteger>::max()));
-        if (scene_vertex_count == 0)
+        item_count = static_cast<NSUInteger>(
+            std::min<std::size_t>(items.size(), std::numeric_limits<NSUInteger>::max()));
+        if (item_count == 0)
         {
-            uploaded_scene_revision = revision;
+            uploaded_revision = revision;
             return true;
         }
 
-        const NSUInteger byte_size = scene_vertex_count * sizeof(SatViewSceneVertex);
-        if (!scene_vertex_buffer.get() || [scene_vertex_buffer.get() length] < byte_size)
+        const NSUInteger byte_size = item_count * sizeof(T);
+        if (!buffer.get() || [buffer.get() length] < byte_size)
         {
-            const NSUInteger current_size = scene_vertex_buffer.get() ? [scene_vertex_buffer.get() length] : 0;
+            const NSUInteger current_size = buffer.get() ? [buffer.get() length] : 0;
             const NSUInteger new_size = std::max(byte_size, std::max<NSUInteger>(current_size * 2, 4096));
             id<MTLBuffer> replacement = [metal_device newBufferWithLength:new_size
                                                                    options:MTLResourceStorageModeShared];
             if (!replacement)
             {
-                scene_vertex_count = 0;
+                item_count = 0;
                 return false;
             }
-            scene_vertex_buffer.reset(replacement);
+            buffer.reset(replacement);
         }
 
-        void* dst = [scene_vertex_buffer.get() contents];
+        void* dst = [buffer.get() contents];
         if (!dst)
         {
-            scene_vertex_count = 0;
+            item_count = 0;
             return false;
         }
-        std::memcpy(dst, vertices.data(), byte_size);
-        uploaded_scene_revision = revision;
+        std::memcpy(dst, items.data(), byte_size);
+        uploaded_revision = revision;
         return true;
     }
 };
@@ -266,7 +300,20 @@ void SatViewScenePass::record(IRenderContext& ctx)
     id<MTLRenderCommandEncoder> encoder = metal_ctx->encoder();
     if (!encoder || !state_->ensure(metal_ctx->device()))
         return;
-    state_->ensure_scene_vertex_buffer(metal_ctx->device(), scene_vertices_, scene_revision_);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        track_vertices_,
+        track_revision_,
+        state_->track_vertex_buffer,
+        state_->track_vertex_count,
+        state_->uploaded_track_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        markers_,
+        marker_revision_,
+        state_->marker_buffer,
+        state_->marker_count,
+        state_->uploaded_marker_revision);
 
     [encoder setRenderPipelineState:state_->earth_pipeline.get()];
     [encoder setDepthStencilState:state_->depth_write_state.get()];
@@ -280,15 +327,27 @@ void SatViewScenePass::record(IRenderContext& ctx)
                 vertexStart:0
                 vertexCount:kSatViewSphereVertexCount];
 
-    if (state_->scene_vertex_count != 0 && state_->scene_vertex_buffer.get())
+    if (state_->track_vertex_count != 0 && state_->track_vertex_buffer.get())
     {
         [encoder setRenderPipelineState:state_->orbit_pipeline.get()];
         [encoder setDepthStencilState:state_->depth_read_state.get()];
         [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder setVertexBuffer:state_->scene_vertex_buffer.get() offset:0 atIndex:1];
+        [encoder setVertexBuffer:state_->track_vertex_buffer.get() offset:0 atIndex:1];
         [encoder drawPrimitives:MTLPrimitiveTypeLine
                     vertexStart:0
-                    vertexCount:state_->scene_vertex_count];
+                    vertexCount:state_->track_vertex_count];
+    }
+
+    if (state_->marker_count != 0 && state_->marker_buffer.get() && state_->marker_pipeline.get())
+    {
+        [encoder setRenderPipelineState:state_->marker_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_read_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setVertexBuffer:state_->marker_buffer.get() offset:0 atIndex:1];
+        [encoder drawPrimitives:MTLPrimitiveTypeLine
+                    vertexStart:0
+                    vertexCount:kSatViewMarkerVerticesPerInstance
+                  instanceCount:state_->marker_count];
     }
 }
 

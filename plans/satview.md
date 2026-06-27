@@ -272,8 +272,8 @@ Phase 3 is implemented in the current working tree:
 The first Phase 4 rendering slice is implemented in the current working tree:
 
 - `SatViewScenePass` accepts a dynamic vertex stream for propagated scene lines.
-- `SatViewHost` builds orbit-class-colored track segments from SGP4 TEME samples and camera-facing cross markers for current satellite positions.
-- Vulkan uploads the dynamic scene vertices into a mapped VMA vertex buffer and draws all tracks/markers in one line-list batch after Earth.
+- `SatViewHost` builds orbit-class-colored track segments from SGP4 TEME samples and compact marker instances for current/bracketed satellite positions.
+- Vulkan uploads track vertices and marker instances through separate mapped VMA vertex buffers; Metal mirrors the same split with separate shared buffers. Marker crosses are expanded in the shader, so camera-only redraws no longer rebuild marker vertices on the CPU.
 - Metal uses the same vertex shape through a shared-storage `MTLBuffer` and the same line-list shader path.
 - Synthetic shader-generated rings are removed from the SatView orbit shaders.
 - The rest of Phase 4 adds a normalized object-kind model (`Payload`, `Rocket Body`, `Debris`, `Unknown`), optional object-type coloring, and UI LOD controls for track count, track sample count, and marker cap.
@@ -285,7 +285,7 @@ Phase 5 interaction and filtering is implemented in the current working tree:
 - `SatViewHost` owns a pane-local ImGui context and renders a compact SatView control panel with pause, reset camera, refresh, time speed, filter, catalog, and selected-object sections.
 - Host input is forwarded into that ImGui context first, so panel interaction does not rotate or zoom the globe.
 - A testable `satview_filter` model filters propagated states/tracks by search text, orbit class, optional object type/classification, source label, and element age.
-- The dynamic track/marker vertex stream now skips hidden satellites and brightens/enlarges the selected satellite marker and track.
+- The split track/marker streams now skip hidden satellites and brighten/enlarge the selected satellite marker and track.
 - Click selection projects visible satellite markers to pane coordinates and picks the nearest marker within a small screen-space threshold.
 - Selected-object details report object name, NORAD id, international designator, orbit class, optional type/classification, period, element age, altitude, and speed.
 - Current public CelesTrak `active` GP records do not consistently expose object type or per-object source groups, so those filters are wired through the model and become useful as richer metadata is carried by future data sources.

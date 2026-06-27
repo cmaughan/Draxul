@@ -18,9 +18,9 @@ The render path must never wait on the satellite update thread. It should read t
 
 ## Implementation Status
 
-This slice implements the continuous-refresh behavior, the non-blocking triple-buffer snapshot handoff, the background SGP4 simulation worker, and CPU-side render interpolation between worker-published marker samples.
+This slice implements the continuous-refresh behavior, the non-blocking triple-buffer snapshot handoff, the background SGP4 simulation worker, and render-side interpolation between worker-published marker samples.
 
-The remaining optimization is the render pass data path: track and marker data still flow through the existing dynamic line-list vertex stream. A follow-up should split track/marker GPU buffers and move marker expansion to the shader so camera movement and marker ticks do not force a full scene-vertex rebuild.
+The render pass data path now uses separate track and marker streams: orbit tracks upload as line-list vertices only when track data or visual filters change, while markers upload as compact per-satellite instances and are expanded into camera-facing crosses in the shader. A follow-up can still move more filtering/packing into the worker, but camera-only redraws no longer force full marker vertex rebuilds.
 
 ### 1. SatView Simulation Worker
 
@@ -212,6 +212,6 @@ Later route:
 ## Risks
 
 - `std::atomic<std::shared_ptr<T>>` would be simpler but is not guaranteed lock-free. Prefer explicit triple buffering if strict non-blocking render reads matter.
-- GPU upload can still become the bottleneck if all marker vertices are regenerated and uploaded every display frame. Split track/marker buffers and interpolate to avoid that.
+- GPU upload can still become the bottleneck if future features rebuild all marker instances too often. Keep track and marker buffers separated so track geometry does not upload at marker cadence, and keep marker expansion in the shader so camera-only redraws stay cheap.
 - Worker threads must not call `IHostCallbacks::request_frame()` unless that callback is made explicitly thread-safe. Use host deadlines or a dedicated thread-safe wake path.
 - Selection and filtering currently depend on the host-side propagation snapshot. Those need to move to snapshot reads or worker-published filtered data.

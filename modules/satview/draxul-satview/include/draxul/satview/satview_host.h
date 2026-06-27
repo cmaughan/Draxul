@@ -70,6 +70,9 @@ public:
 
 private:
     void request_redraw();
+    void invalidate_track_buffer();
+    void invalidate_marker_buffer();
+    void invalidate_visual_buffers();
     void sync_simulation_controls();
     void sync_simulation_render_settings();
     void clamp_camera();
@@ -110,6 +113,10 @@ private:
     bool show_ui_panel_ = true;
     bool simulation_settings_dirty_ = false;
     bool continuous_refresh_enabled_ = false;
+    bool track_buffer_dirty_ = true;
+    bool marker_buffer_dirty_ = true;
+    const void* uploaded_track_source_ = nullptr;
+    std::uint64_t uploaded_marker_generation_ = 0;
     float yaw_ = 0.45f;
     float pitch_ = 0.35f;
     float distance_ = 3.6f;

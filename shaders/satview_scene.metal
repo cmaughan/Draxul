@@ -29,6 +29,13 @@ struct SatViewSceneVertex
     float4 color;
 };
 
+struct SatViewMarkerInstance
+{
+    float4 position0_size;
+    float4 position1_selected;
+    float4 color;
+};
+
 constant float kPi = 3.14159265358979323846f;
 
 static float2 quad_corner(uint vertex)
@@ -126,6 +133,46 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     SatViewSceneVertex vertex = vertices[vertex_id];
     out.position = frame.view_proj * float4(vertex.position.xyz, 1.0f);
     out.color = vertex.color;
+    return out;
+}
+
+static float3 marker_camera_right(float3 forward)
+{
+    float3 right = cross(forward, float3(0.0f, 1.0f, 0.0f));
+    if (dot(right, right) < 0.000001f)
+        return float3(1.0f, 0.0f, 0.0f);
+    return normalize(right);
+}
+
+vertex SatViewOrbitOut satview_marker_vertex(
+    uint vertex_id [[vertex_id]],
+    uint instance_id [[instance_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewMarkerInstance* markers [[buffer(1)]])
+{
+    SatViewMarkerInstance marker = markers[instance_id];
+    uint segment = vertex_id / 2u;
+    uint endpoint = vertex_id & 1u;
+    float endpoint_sign = endpoint == 0u ? -1.0f : 1.0f;
+    float selected = marker.position1_selected.w;
+    float alpha = clamp(frame.render_params.w, 0.0f, 1.0f);
+
+    float3 forward = normalize(-frame.camera_pos.xyz);
+    float3 right = marker_camera_right(forward);
+    float3 up = normalize(cross(right, forward));
+    float3 axis = segment == 0u ? right
+        : segment == 1u ? up
+        : segment == 2u ? normalize(right + up)
+        : normalize(right - up);
+
+    float3 center = mix(marker.position0_size.xyz, marker.position1_selected.xyz, alpha);
+    float3 world = center + axis * marker.position0_size.w * endpoint_sign;
+
+    SatViewOrbitOut out;
+    out.position = frame.view_proj * float4(world, 1.0f);
+    out.color = marker.color;
+    if (segment >= 2u && selected < 0.5f)
+        out.color.a = 0.0f;
     return out;
 }
 

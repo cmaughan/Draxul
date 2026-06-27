@@ -197,17 +197,30 @@ glm::dvec3 interpolated_teme_position(
     return glm::mix(snapshot.states[state_index].teme_position_km, snapshot.next_teme_positions_km[state_index], alpha);
 }
 
-void append_marker_vertices(
-    std::vector<SatViewSceneVertex>& vertices,
+float marker_interpolation_alpha(const SatViewSimulationSnapshot& snapshot, double render_seconds)
+{
+    if (snapshot.next_simulation_seconds <= snapshot.simulation_seconds)
+        return 0.0f;
+
+    const double span = snapshot.next_simulation_seconds - snapshot.simulation_seconds;
+    return static_cast<float>(std::clamp((render_seconds - snapshot.simulation_seconds) / span, 0.0, 1.0));
+}
+
+glm::dvec3 next_teme_position(const SatViewSimulationSnapshot& snapshot, std::size_t state_index)
+{
+    if (state_index >= snapshot.next_teme_positions_km.size())
+        return snapshot.states[state_index].teme_position_km;
+    return snapshot.next_teme_positions_km[state_index];
+}
+
+void append_marker_instances(
+    std::vector<SatViewMarkerInstance>& markers,
     const SatViewSimulationSnapshot& snapshot,
     const SatViewFilterState& filter,
     std::string_view source_label,
     std::optional<std::int64_t> selected_id,
     SatViewColorMode color_mode,
-    std::size_t marker_limit,
-    double render_seconds,
-    glm::vec3 camera_right,
-    glm::vec3 camera_up)
+    std::size_t marker_limit)
 {
     std::size_t visible_marker_index = 0;
     for (std::size_t state_index = 0; state_index < snapshot.states.size(); ++state_index)
@@ -222,9 +235,9 @@ void append_marker_vertices(
         if (!under_marker_limit && !selected)
             continue;
 
-        const glm::vec3 center = to_vec3(
-            interpolated_teme_position(snapshot, state_index, render_seconds) / kSatViewEarthEquatorialRadiusKm);
-        const float range = glm::length(center);
+        const glm::vec3 position0 = to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
+        const glm::vec3 position1 = to_vec3(next_teme_position(snapshot, state_index) / kSatViewEarthEquatorialRadiusKm);
+        const float range = glm::length(position0);
         const float base_size = std::clamp(0.006f + range * 0.0022f, 0.008f, 0.026f);
         const float size = selected ? base_size * 2.2f : base_size;
         const glm::vec4 color = selected
@@ -233,16 +246,11 @@ void append_marker_vertices(
                 satellite_color(state.orbit_class, state.object_kind, color_mode, 0.95f),
                 glm::vec4(1.0f),
                 0.18f);
-
-        append_line(vertices, center - camera_right * size, center + camera_right * size, color);
-        append_line(vertices, center - camera_up * size, center + camera_up * size, color);
-        if (selected)
-        {
-            const glm::vec3 diagonal_a = glm::normalize(camera_right + camera_up);
-            const glm::vec3 diagonal_b = glm::normalize(camera_right - camera_up);
-            append_line(vertices, center - diagonal_a * size, center + diagonal_a * size, color);
-            append_line(vertices, center - diagonal_b * size, center + diagonal_b * size, color);
-        }
+        markers.push_back({
+            glm::vec4(position0, size),
+            glm::vec4(position1, selected ? 1.0f : 0.0f),
+            color,
+        });
     }
 }
 
@@ -388,9 +396,6 @@ void SatViewHost::draw(IFrameContext& frame)
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
     const float aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
     const glm::vec3 eye = camera_position(yaw_, pitch_, distance_);
-    const glm::vec3 camera_forward = glm::normalize(-eye);
-    const glm::vec3 camera_right = glm::normalize(glm::cross(camera_forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-    const glm::vec3 camera_up = glm::normalize(glm::cross(camera_right, camera_forward));
     const glm::mat4 view = glm::lookAtRH(eye, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(42.0f), aspect, 0.05f, 64.0f);
 
@@ -403,35 +408,56 @@ void SatViewHost::draw(IFrameContext& frame)
         static_cast<float>(kSatViewSphereLatitudeBands),
         static_cast<float>(kSatViewSphereLongitudeBands),
         earth_rotation(simulation_seconds),
-        paused_ ? 1.0f : 0.0f);
+        snapshot ? marker_interpolation_alpha(*snapshot, simulation_seconds) : 0.0f);
     scene_pass_->set_frame(uniforms);
 
-    std::vector<SatViewSceneVertex> scene_vertices;
     if (snapshot)
     {
-        const std::size_t track_count = snapshot->tracks ? snapshot->tracks->size() : 0;
-        scene_vertices.reserve(track_count * track_sample_count_ * 2 + snapshot->states.size() * 4);
-        append_track_vertices(
-            scene_vertices,
-            *snapshot,
-            filter_,
-            snapshot->source_label,
-            selected_norad_catalog_id_,
-            track_display_mode_,
-            color_mode_);
-        append_marker_vertices(
-            scene_vertices,
-            *snapshot,
-            filter_,
-            snapshot->source_label,
-            selected_norad_catalog_id_,
-            color_mode_,
-            marker_satellite_limit_,
-            simulation_seconds,
-            camera_right,
-            camera_up);
+        const void* track_source = snapshot->tracks ? snapshot->tracks.get() : nullptr;
+        if (track_buffer_dirty_ || track_source != uploaded_track_source_)
+        {
+            std::vector<SatViewSceneVertex> track_vertices;
+            const std::size_t track_count = snapshot->tracks ? snapshot->tracks->size() : 0;
+            track_vertices.reserve(track_count * track_sample_count_ * 2);
+            append_track_vertices(
+                track_vertices,
+                *snapshot,
+                filter_,
+                snapshot->source_label,
+                selected_norad_catalog_id_,
+                track_display_mode_,
+                color_mode_);
+            scene_pass_->set_track_vertices(track_vertices);
+            uploaded_track_source_ = track_source;
+            track_buffer_dirty_ = false;
+        }
+
+        if (marker_buffer_dirty_ || snapshot->generation != uploaded_marker_generation_)
+        {
+            std::vector<SatViewMarkerInstance> markers;
+            markers.reserve(snapshot->states.size());
+            append_marker_instances(
+                markers,
+                *snapshot,
+                filter_,
+                snapshot->source_label,
+                selected_norad_catalog_id_,
+                color_mode_,
+                marker_satellite_limit_);
+            scene_pass_->set_markers(markers);
+            uploaded_marker_generation_ = snapshot->generation;
+            marker_buffer_dirty_ = false;
+        }
     }
-    scene_pass_->set_scene_vertices(scene_vertices);
+    else
+    {
+        scene_pass_->set_track_vertices(std::span<const SatViewSceneVertex>{});
+        scene_pass_->set_markers(std::span<const SatViewMarkerInstance>{});
+        uploaded_track_source_ = nullptr;
+        uploaded_marker_generation_ = 0;
+        track_buffer_dirty_ = false;
+        marker_buffer_dirty_ = false;
+    }
 
     RenderViewport viewport;
     viewport.x = viewport_.pixel_pos.x;
@@ -591,6 +617,7 @@ void SatViewHost::on_key(const KeyEvent& event)
     {
         selected_norad_catalog_id_.reset();
         simulation_settings_dirty_ = true;
+        invalidate_visual_buffers();
         request_redraw();
         return;
     }
@@ -690,6 +717,7 @@ bool SatViewHost::dispatch_action(std::string_view action)
     {
         selected_norad_catalog_id_.reset();
         simulation_settings_dirty_ = true;
+        invalidate_visual_buffers();
         request_redraw();
         return true;
     }
@@ -783,6 +811,22 @@ void SatViewHost::request_redraw()
     last_activity_time_ = std::chrono::steady_clock::now();
     if (callbacks_)
         callbacks_->request_frame();
+}
+
+void SatViewHost::invalidate_track_buffer()
+{
+    track_buffer_dirty_ = true;
+}
+
+void SatViewHost::invalidate_marker_buffer()
+{
+    marker_buffer_dirty_ = true;
+}
+
+void SatViewHost::invalidate_visual_buffers()
+{
+    invalidate_track_buffer();
+    invalidate_marker_buffer();
 }
 
 void SatViewHost::sync_simulation_controls()
@@ -1040,6 +1084,7 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
 
     if (changed)
     {
+        invalidate_visual_buffers();
         clear_selection_if_hidden(snapshot);
         request_redraw();
     }
@@ -1107,6 +1152,7 @@ void SatViewHost::clear_selection_if_hidden(const SatViewSimulationSnapshot* sna
     {
         selected_norad_catalog_id_.reset();
         simulation_settings_dirty_ = true;
+        invalidate_visual_buffers();
     }
 }
 
@@ -1167,6 +1213,7 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
     {
         selected_norad_catalog_id_ = nearest_id;
         sync_simulation_render_settings();
+        invalidate_visual_buffers();
     }
     request_redraw();
 }

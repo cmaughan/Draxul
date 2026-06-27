@@ -33,6 +33,15 @@ struct SatViewSceneVertex
     glm::vec4 color{ 1.0f };
 };
 
+struct SatViewMarkerInstance
+{
+    glm::vec4 position0_size{ 0.0f, 0.0f, 0.0f, 0.01f };
+    glm::vec4 position1_selected{ 0.0f, 0.0f, 0.0f, 0.0f };
+    glm::vec4 color{ 1.0f };
+};
+
+inline constexpr uint32_t kSatViewMarkerVerticesPerInstance = 8;
+
 class SatViewScenePass final : public draxul::IRenderPass
 {
 public:
@@ -49,10 +58,20 @@ public:
         frame_ = frame;
     }
 
-    void set_scene_vertices(std::span<const SatViewSceneVertex> vertices)
+    void set_track_vertices(std::span<const SatViewSceneVertex> vertices)
     {
-        scene_vertices_.assign(vertices.begin(), vertices.end());
-        ++scene_revision_;
+        if (vertices.empty() && track_vertices_.empty())
+            return;
+        track_vertices_.assign(vertices.begin(), vertices.end());
+        ++track_revision_;
+    }
+
+    void set_markers(std::span<const SatViewMarkerInstance> markers)
+    {
+        if (markers.empty() && markers_.empty())
+            return;
+        markers_.assign(markers.begin(), markers.end());
+        ++marker_revision_;
     }
 
     void record_prepass(draxul::IRenderContext& ctx) override;
@@ -62,8 +81,10 @@ public:
 
 private:
     SatViewFrameUniforms frame_;
-    std::vector<SatViewSceneVertex> scene_vertices_;
-    uint64_t scene_revision_ = 0;
+    std::vector<SatViewSceneVertex> track_vertices_;
+    std::vector<SatViewMarkerInstance> markers_;
+    uint64_t track_revision_ = 0;
+    uint64_t marker_revision_ = 0;
     std::unique_ptr<State> state_;
 };
 

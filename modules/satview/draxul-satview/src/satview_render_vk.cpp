@@ -39,12 +39,15 @@ struct TextureResource
     int height = 0;
 };
 
-VkShaderModule load_shader(VkDevice device, const std::string& path)
+VkShaderModule load_shader(VkDevice device, const std::string& path, bool required = true)
 {
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to open shader %s", path.c_str());
+        if (required)
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to open shader %s", path.c_str());
+        else
+            DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: optional shader not available %s", path.c_str());
         return VK_NULL_HANDLE;
     }
 
@@ -60,7 +63,10 @@ VkShaderModule load_shader(VkDevice device, const std::string& path)
     VkShaderModule module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(device, &ci, nullptr, &module) != VK_SUCCESS)
     {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create shader module %s", path.c_str());
+        if (required)
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create shader module %s", path.c_str());
+        else
+            DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: optional shader module unavailable %s", path.c_str());
         return VK_NULL_HANDLE;
     }
     return module;
@@ -341,10 +347,14 @@ struct SatViewScenePass::State
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     VkPipeline earth_pipeline = VK_NULL_HANDLE;
     VkPipeline orbit_pipeline = VK_NULL_HANDLE;
+    VkPipeline marker_pipeline = VK_NULL_HANDLE;
     std::array<TextureResource, kEarthTextureCount> earth_textures{};
-    BufferResource scene_vertex_buffer;
-    uint32_t scene_vertex_count = 0;
-    uint64_t uploaded_scene_revision = 0;
+    BufferResource track_vertex_buffer;
+    BufferResource marker_buffer;
+    uint32_t track_vertex_count = 0;
+    uint32_t marker_count = 0;
+    uint64_t uploaded_track_revision = 0;
+    uint64_t uploaded_marker_revision = 0;
 
     ~State()
     {
@@ -359,9 +369,12 @@ struct SatViewScenePass::State
                 vkDestroyPipeline(device, earth_pipeline, nullptr);
             if (orbit_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, orbit_pipeline, nullptr);
+            if (marker_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, marker_pipeline, nullptr);
         }
         earth_pipeline = VK_NULL_HANDLE;
         orbit_pipeline = VK_NULL_HANDLE;
+        marker_pipeline = VK_NULL_HANDLE;
     }
 
     void destroy()
@@ -379,7 +392,8 @@ struct SatViewScenePass::State
             {
                 for (auto& texture : earth_textures)
                     destroy_texture(device, allocator, texture);
-                destroy_buffer(allocator, scene_vertex_buffer);
+                destroy_buffer(allocator, track_vertex_buffer);
+                destroy_buffer(allocator, marker_buffer);
             }
         }
         layout = VK_NULL_HANDLE;
@@ -389,8 +403,10 @@ struct SatViewScenePass::State
         render_pass = VK_NULL_HANDLE;
         allocator = VK_NULL_HANDLE;
         device = VK_NULL_HANDLE;
-        scene_vertex_count = 0;
-        uploaded_scene_revision = 0;
+        track_vertex_count = 0;
+        marker_count = 0;
+        uploaded_track_revision = 0;
+        uploaded_marker_revision = 0;
     }
 
     bool ensure_texture_descriptors(const VkRenderContext& ctx)
@@ -500,26 +516,30 @@ struct SatViewScenePass::State
         return true;
     }
 
-    bool ensure_scene_vertex_buffer(const VkRenderContext& ctx,
-        const std::vector<SatViewSceneVertex>& vertices,
-        uint64_t revision)
+    template <typename T>
+    bool ensure_vertex_buffer(const VkRenderContext& ctx,
+        const std::vector<T>& items,
+        uint64_t revision,
+        BufferResource& buffer,
+        uint32_t& item_count,
+        uint64_t& uploaded_revision)
     {
-        if (revision == uploaded_scene_revision)
+        if (revision == uploaded_revision)
             return true;
 
-        scene_vertex_count = static_cast<uint32_t>(
-            std::min<std::size_t>(vertices.size(), std::numeric_limits<uint32_t>::max()));
-        if (scene_vertex_count == 0)
+        item_count = static_cast<uint32_t>(
+            std::min<std::size_t>(items.size(), std::numeric_limits<uint32_t>::max()));
+        if (item_count == 0)
         {
-            uploaded_scene_revision = revision;
+            uploaded_revision = revision;
             return true;
         }
 
-        const size_t byte_size = static_cast<size_t>(scene_vertex_count) * sizeof(SatViewSceneVertex);
-        if (scene_vertex_buffer.buffer == VK_NULL_HANDLE || scene_vertex_buffer.size < byte_size)
+        const size_t byte_size = static_cast<size_t>(item_count) * sizeof(T);
+        if (buffer.buffer == VK_NULL_HANDLE || buffer.size < byte_size)
         {
-            if (scene_vertex_buffer.buffer != VK_NULL_HANDLE)
-                destroy_buffer(ctx.allocator(), scene_vertex_buffer);
+            if (buffer.buffer != VK_NULL_HANDLE)
+                destroy_buffer(ctx.allocator(), buffer);
 
             VkBufferCreateInfo buf_ci{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
             buf_ci.size = byte_size;
@@ -533,26 +553,26 @@ struct SatViewScenePass::State
 
             VmaAllocationInfo alloc_info{};
             if (vmaCreateBuffer(ctx.allocator(), &buf_ci, &alloc_ci,
-                    &scene_vertex_buffer.buffer, &scene_vertex_buffer.allocation, &alloc_info) != VK_SUCCESS)
+                    &buffer.buffer, &buffer.allocation, &alloc_info) != VK_SUCCESS)
             {
-                scene_vertex_buffer = {};
-                scene_vertex_count = 0;
+                buffer = {};
+                item_count = 0;
                 return false;
             }
 
-            scene_vertex_buffer.mapped = alloc_info.pMappedData;
-            scene_vertex_buffer.size = byte_size;
+            buffer.mapped = alloc_info.pMappedData;
+            buffer.size = byte_size;
         }
 
-        if (!scene_vertex_buffer.mapped)
+        if (!buffer.mapped)
         {
-            scene_vertex_count = 0;
+            item_count = 0;
             return false;
         }
 
-        std::memcpy(scene_vertex_buffer.mapped, vertices.data(), byte_size);
-        vmaFlushAllocation(ctx.allocator(), scene_vertex_buffer.allocation, 0, byte_size);
-        uploaded_scene_revision = revision;
+        std::memcpy(buffer.mapped, items.data(), byte_size);
+        vmaFlushAllocation(ctx.allocator(), buffer.allocation, 0, byte_size);
+        uploaded_revision = revision;
         return true;
     }
 
@@ -572,6 +592,7 @@ struct SatViewScenePass::State
         VkShaderModule vert = load_shader(device, (shader_dir / "satview_earth.vert.spv").string());
         VkShaderModule frag = load_shader(device, (shader_dir / "satview_earth.frag.spv").string());
         VkShaderModule orbit_vert = load_shader(device, (shader_dir / "satview_orbit.vert.spv").string());
+        VkShaderModule marker_vert = load_shader(device, (shader_dir / "satview_marker.vert.spv").string(), false);
         VkShaderModule orbit_frag = load_shader(device, (shader_dir / "satview_orbit.frag.spv").string());
         if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE
             || orbit_vert == VK_NULL_HANDLE || orbit_frag == VK_NULL_HANDLE)
@@ -582,6 +603,8 @@ struct SatViewScenePass::State
                 vkDestroyShaderModule(device, frag, nullptr);
             if (orbit_vert != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, orbit_vert, nullptr);
+            if (marker_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, marker_vert, nullptr);
             if (orbit_frag != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, orbit_frag, nullptr);
             return false;
@@ -684,10 +707,50 @@ struct SatViewScenePass::State
             blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
             result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &orbit_pipeline);
         }
+        if (result == VK_SUCCESS && marker_vert != VK_NULL_HANDLE)
+        {
+            VkVertexInputBindingDescription marker_binding{};
+            marker_binding.binding = 0;
+            marker_binding.stride = sizeof(SatViewMarkerInstance);
+            marker_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+            VkVertexInputAttributeDescription marker_attributes[3]{};
+            marker_attributes[0].binding = 0;
+            marker_attributes[0].location = 0;
+            marker_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            marker_attributes[0].offset = offsetof(SatViewMarkerInstance, position0_size);
+            marker_attributes[1].binding = 0;
+            marker_attributes[1].location = 1;
+            marker_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            marker_attributes[1].offset = offsetof(SatViewMarkerInstance, position1_selected);
+            marker_attributes[2].binding = 0;
+            marker_attributes[2].location = 2;
+            marker_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            marker_attributes[2].offset = offsetof(SatViewMarkerInstance, color);
+
+            vertex_input.vertexBindingDescriptionCount = 1;
+            vertex_input.pVertexBindingDescriptions = &marker_binding;
+            vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(std::size(marker_attributes));
+            vertex_input.pVertexAttributeDescriptions = marker_attributes;
+
+            stages[0].module = marker_vert;
+            stages[1].module = orbit_frag;
+            input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            depth.depthWriteEnable = VK_FALSE;
+            const VkResult marker_result =
+                vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &marker_pipeline);
+            if (marker_result != VK_SUCCESS)
+            {
+                marker_pipeline = VK_NULL_HANDLE;
+                DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: failed to create optional marker pipeline");
+            }
+        }
 
         vkDestroyShaderModule(device, vert, nullptr);
         vkDestroyShaderModule(device, frag, nullptr);
         vkDestroyShaderModule(device, orbit_vert, nullptr);
+        if (marker_vert != VK_NULL_HANDLE)
+            vkDestroyShaderModule(device, marker_vert, nullptr);
         vkDestroyShaderModule(device, orbit_frag, nullptr);
         if (result != VK_SUCCESS)
         {
@@ -711,7 +774,22 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     PERF_MEASURE();
     auto* vk_ctx = static_cast<VkRenderContext*>(&ctx);
     if (state_->ensure_texture_descriptors(*vk_ctx))
-        state_->ensure_scene_vertex_buffer(*vk_ctx, scene_vertices_, scene_revision_);
+    {
+        state_->ensure_vertex_buffer(
+            *vk_ctx,
+            track_vertices_,
+            track_revision_,
+            state_->track_vertex_buffer,
+            state_->track_vertex_count,
+            state_->uploaded_track_revision);
+        state_->ensure_vertex_buffer(
+            *vk_ctx,
+            markers_,
+            marker_revision_,
+            state_->marker_buffer,
+            state_->marker_count,
+            state_->uploaded_marker_revision);
+    }
 }
 
 void SatViewScenePass::record(IRenderContext& ctx)
@@ -734,12 +812,22 @@ void SatViewScenePass::record(IRenderContext& ctx)
         0, 1, &state_->descriptor_set, 0, nullptr);
     vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
 
-    if (state_->scene_vertex_count != 0 && state_->scene_vertex_buffer.buffer != VK_NULL_HANDLE)
+    if (state_->track_vertex_count != 0 && state_->track_vertex_buffer.buffer != VK_NULL_HANDLE)
     {
         VkDeviceSize offset = 0;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->orbit_pipeline);
-        vkCmdBindVertexBuffers(cmd, 0, 1, &state_->scene_vertex_buffer.buffer, &offset);
-        vkCmdDraw(cmd, state_->scene_vertex_count, 1, 0, 0);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &state_->track_vertex_buffer.buffer, &offset);
+        vkCmdDraw(cmd, state_->track_vertex_count, 1, 0, 0);
+    }
+
+    if (state_->marker_count != 0
+        && state_->marker_buffer.buffer != VK_NULL_HANDLE
+        && state_->marker_pipeline != VK_NULL_HANDLE)
+    {
+        VkDeviceSize offset = 0;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->marker_pipeline);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &state_->marker_buffer.buffer, &offset);
+        vkCmdDraw(cmd, kSatViewMarkerVerticesPerInstance, state_->marker_count, 0, 0);
     }
 }
 
