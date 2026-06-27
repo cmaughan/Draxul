@@ -30,6 +30,11 @@ constexpr auto kFrameTick = std::chrono::milliseconds(33);
 constexpr auto kPropagationTick = std::chrono::seconds(1);
 constexpr std::size_t kDefaultTrackSatelliteLimit = 256;
 constexpr std::size_t kDefaultTrackSampleCount = 48;
+constexpr float kControlPanelDefaultWidth = 430.0f;
+constexpr float kControlPanelDefaultHeight = 500.0f;
+constexpr float kControlPanelMinWidth = 380.0f;
+constexpr float kControlPanelMinHeight = 360.0f;
+constexpr float kControlMinWidgetWidth = 96.0f;
 constexpr int kClickSelectionMaxDistancePixels = 18;
 constexpr int kClickDragSlopPixels = 5;
 
@@ -212,6 +217,15 @@ float earth_rotation(double seconds)
 {
     const double day_fraction = std::fmod(seconds / 86164.0905, 1.0);
     return static_cast<float>(day_fraction * glm::two_pi<double>());
+}
+
+float control_widget_width(const char* label)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float available = ImGui::GetContentRegionAvail().x;
+    const float label_width = ImGui::CalcTextSize(label).x;
+    const float row_spacing = style.ItemInnerSpacing.x;
+    return std::max(kControlMinWidgetWidth, available - label_width - row_spacing);
 }
 
 } // namespace
@@ -809,7 +823,10 @@ void SatViewHost::render_control_panel()
     const int panel_x = viewport_.pixel_pos.x + 12;
     const int panel_y = viewport_.pixel_pos.y + 12;
     ImGui::SetNextWindowPos(ImVec2(static_cast<float>(panel_x), static_cast<float>(panel_y)), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(340.0f, 430.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(kControlPanelDefaultWidth, kControlPanelDefaultHeight), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(
+        ImVec2(kControlPanelMinWidth, kControlPanelMinHeight),
+        ImVec2(100000.0f, 100000.0f));
 
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
     if (!ImGui::Begin("SatView", &show_ui_panel_, flags))
@@ -819,8 +836,8 @@ void SatViewHost::render_control_panel()
     }
 
     bool changed = false;
-    auto set_control_width = []() {
-        ImGui::SetNextItemWidth(180.0f);
+    auto set_control_width = [](const char* label) {
+        ImGui::SetNextItemWidth(control_widget_width(label));
     };
 
     if (ImGui::Button(paused_ ? "Resume" : "Pause"))
@@ -842,7 +859,7 @@ void SatViewHost::render_control_panel()
     }
 
     float speed = time_speed_;
-    set_control_width();
+    set_control_width("Speed");
     if (ImGui::SliderFloat("Speed", &speed, 1.0f, 3600.0f, "%.0fx", ImGuiSliderFlags_Logarithmic))
     {
         time_speed_ = std::clamp(speed, 1.0f, 3600.0f);
@@ -852,7 +869,7 @@ void SatViewHost::render_control_panel()
     ImGui::SeparatorText("Visuals");
     int color_mode_index = color_mode_ == SatViewColorMode::ObjectType ? 1 : 0;
     const char* color_modes[] = { "Orbit Class", "Object Type" };
-    set_control_width();
+    set_control_width("Color");
     if (ImGui::Combo("Color", &color_mode_index, color_modes, 2))
     {
         color_mode_ = color_mode_index == 1 ? SatViewColorMode::ObjectType : SatViewColorMode::OrbitClass;
@@ -861,7 +878,7 @@ void SatViewHost::render_control_panel()
 
     int track_display_index = track_display_mode_ == SatViewTrackDisplayMode::SelectedOnly ? 1 : 0;
     const char* track_display_modes[] = { "All Sampled", "Selected Only" };
-    set_control_width();
+    set_control_width("Paths");
     if (ImGui::Combo("Paths", &track_display_index, track_display_modes, 2))
     {
         track_display_mode_ = track_display_index == 1
@@ -871,7 +888,7 @@ void SatViewHost::render_control_panel()
     }
 
     int track_limit = static_cast<int>(track_satellite_limit_);
-    set_control_width();
+    set_control_width("Track count");
     if (ImGui::SliderInt("Track count", &track_limit, 32, 2048))
     {
         track_satellite_limit_ = static_cast<std::size_t>(std::max(32, track_limit));
@@ -880,7 +897,7 @@ void SatViewHost::render_control_panel()
     }
 
     int track_samples = static_cast<int>(track_sample_count_);
-    set_control_width();
+    set_control_width("Track samples");
     if (ImGui::SliderInt("Track samples", &track_samples, 12, 144))
     {
         track_sample_count_ = static_cast<std::size_t>(std::max(12, track_samples));
@@ -899,7 +916,7 @@ void SatViewHost::render_control_panel()
             break;
         }
     }
-    set_control_width();
+    set_control_width("Marker cap");
     if (ImGui::Combo("Marker cap", &marker_limit_index, kMarkerLimitLabels, 6))
     {
         marker_satellite_limit_ = kMarkerLimitValues[marker_limit_index];
@@ -907,19 +924,19 @@ void SatViewHost::render_control_panel()
     }
 
     ImGui::SeparatorText("Filters");
-    set_control_width();
+    set_control_width("Search");
     if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
     {
         filter_.search_text = search_buffer_;
         changed = true;
     }
-    set_control_width();
+    set_control_width("Type");
     if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
     {
         filter_.object_type_text = object_type_buffer_;
         changed = true;
     }
-    set_control_width();
+    set_control_width("Source");
     if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
     {
         filter_.source_text = source_buffer_;
@@ -927,7 +944,7 @@ void SatViewHost::render_control_panel()
     }
 
     float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
-    set_control_width();
+    set_control_width("Age days");
     if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
     {
         filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
