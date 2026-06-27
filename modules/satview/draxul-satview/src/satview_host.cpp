@@ -16,6 +16,7 @@
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 #include <string_view>
 #include <utility>
@@ -37,6 +38,12 @@ constexpr float kControlPanelMinHeight = 360.0f;
 constexpr float kControlMinWidgetWidth = 96.0f;
 constexpr int kClickSelectionMaxDistancePixels = 18;
 constexpr int kClickDragSlopPixels = 5;
+constexpr float kCameraDefaultDistance = 3.6f;
+constexpr float kCameraMinDistance = 1.7f;
+constexpr float kCameraDefaultMaxDistance = 12.0f;
+constexpr float kCameraMaxDistanceCap = 160.0f;
+constexpr float kCameraFitRadiusScale = 3.1f;
+constexpr float kCameraDragRadiansPerPixel = 0.008f;
 
 double unix_seconds_now()
 {
@@ -44,13 +51,37 @@ double unix_seconds_now()
     return std::chrono::duration<double>(now).count();
 }
 
-glm::vec3 camera_position(float yaw, float pitch, float distance)
+glm::quat camera_orientation_from_yaw_pitch(float yaw, float pitch)
 {
-    const float cp = std::cos(pitch);
-    return glm::vec3(
-        distance * cp * std::sin(yaw),
-        distance * std::sin(pitch),
-        distance * cp * std::cos(yaw));
+    const glm::quat yaw_rotation = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::vec3 right = glm::normalize(yaw_rotation * glm::vec3(1.0f, 0.0f, 0.0f));
+    const glm::quat pitch_rotation = glm::angleAxis(-pitch, right);
+    return glm::normalize(pitch_rotation * yaw_rotation);
+}
+
+glm::vec3 camera_position(const glm::quat& orientation, float distance)
+{
+    return orientation * glm::vec3(0.0f, 0.0f, distance);
+}
+
+glm::mat4 camera_view_matrix(const glm::quat& orientation, float distance)
+{
+    const glm::vec3 eye = camera_position(orientation, distance);
+    const glm::vec3 up = glm::normalize(orientation * glm::vec3(0.0f, 1.0f, 0.0f));
+    return glm::lookAtRH(eye, glm::vec3(0.0f), up);
+}
+
+float camera_max_distance_for_radius(float scene_radius)
+{
+    return std::clamp(
+        scene_radius * kCameraFitRadiusScale,
+        kCameraDefaultMaxDistance,
+        kCameraMaxDistanceCap);
+}
+
+float camera_far_plane(float distance, float scene_radius)
+{
+    return std::max(64.0f, distance + scene_radius * 2.5f + 8.0f);
 }
 
 glm::vec3 sun_direction(double seconds)
@@ -254,6 +285,50 @@ void append_marker_instances(
     }
 }
 
+float visible_scene_radius(
+    const SatViewSimulationSnapshot* snapshot,
+    const SatViewFilterState& filter,
+    std::optional<std::int64_t> selected_id,
+    SatViewTrackDisplayMode track_display_mode)
+{
+    if (!snapshot)
+        return 1.0f;
+
+    const std::string_view source_label = snapshot->source_label;
+    float radius = 1.0f;
+    if (snapshot->tracks)
+    {
+        for (const SatelliteOrbitTrack& track : *snapshot->tracks)
+        {
+            if (track_display_mode == SatViewTrackDisplayMode::SelectedOnly
+                && (!selected_id.has_value() || track.norad_catalog_id != *selected_id))
+            {
+                continue;
+            }
+            if (!satellite_visible(filter, track, source_label))
+                continue;
+
+            for (const glm::dvec3& point : track.render_teme_points_earth_radii)
+                radius = std::max(radius, glm::length(to_vec3(point)));
+        }
+    }
+
+    for (std::size_t state_index = 0; state_index < snapshot->states.size(); ++state_index)
+    {
+        const SatellitePropagatedState& state = snapshot->states[state_index];
+        if (!satellite_visible(filter, state, source_label))
+            continue;
+
+        radius = std::max(radius, glm::length(to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm)));
+        if (state_index < snapshot->next_teme_positions_km.size())
+        {
+            radius = std::max(radius,
+                glm::length(to_vec3(snapshot->next_teme_positions_km[state_index] / kSatViewEarthEquatorialRadiusKm)));
+        }
+    }
+    return radius;
+}
+
 float earth_rotation(double seconds)
 {
     const double day_fraction = std::fmod(seconds / 86164.0905, 1.0);
@@ -300,9 +375,9 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     simulated_seconds_ = unix_seconds_now();
     last_draw_simulation_seconds_ = simulated_seconds_;
     const glm::vec3 sun = sun_direction(simulated_seconds_);
-    yaw_ = std::atan2(sun.x, sun.z) + 0.65f;
-    pitch_ = 0.25f;
-    distance_ = 3.6f;
+    camera_orientation_ = camera_orientation_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f);
+    distance_ = kCameraDefaultDistance;
+    camera_max_distance_ = kCameraDefaultMaxDistance;
     track_satellite_limit_ = kDefaultTrackSatelliteLimit;
     track_sample_count_ = kDefaultTrackSampleCount;
     last_pump_time_ = std::chrono::steady_clock::now();
@@ -391,13 +466,21 @@ void SatViewHost::draw(IFrameContext& frame)
     const SatViewSimulationSnapshot* snapshot = snapshot_guard.get();
     const double simulation_seconds = snapshot ? render_simulation_seconds(*snapshot) : last_draw_simulation_seconds_;
     last_draw_simulation_seconds_ = simulation_seconds;
+    const float scene_radius =
+        visible_scene_radius(snapshot, filter_, selected_norad_catalog_id_, track_display_mode_);
+    camera_max_distance_ = camera_max_distance_for_radius(scene_radius);
+    clamp_camera();
 
     const int pixel_w = std::max(1, viewport_.pixel_size.x);
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
     const float aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
-    const glm::vec3 eye = camera_position(yaw_, pitch_, distance_);
-    const glm::mat4 view = glm::lookAtRH(eye, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(42.0f), aspect, 0.05f, 64.0f);
+    const glm::vec3 eye = camera_position(camera_orientation_, distance_);
+    const glm::mat4 view = camera_view_matrix(camera_orientation_, distance_);
+    const glm::mat4 proj = glm::perspectiveRH_ZO(
+        glm::radians(42.0f),
+        aspect,
+        0.05f,
+        camera_far_plane(distance_, scene_radius));
 
     SatViewFrameUniforms uniforms;
     uniforms.view_proj = proj * view;
@@ -560,8 +643,13 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
 
     if (!dragging_ && (event.buttons & SDL_BUTTON_LMASK) == 0)
         return;
-    yaw_ += event.delta.x * 0.008f;
-    pitch_ += event.delta.y * 0.008f;
+    const float yaw_delta = -static_cast<float>(event.delta.x) * kCameraDragRadiansPerPixel;
+    const float pitch_delta = static_cast<float>(event.delta.y) * kCameraDragRadiansPerPixel;
+    const glm::quat yaw_rotation = glm::angleAxis(yaw_delta, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::quat orientation = glm::normalize(yaw_rotation * camera_orientation_);
+    const glm::vec3 right = glm::normalize(orientation * glm::vec3(1.0f, 0.0f, 0.0f));
+    const glm::quat pitch_rotation = glm::angleAxis(pitch_delta, right);
+    camera_orientation_ = glm::normalize(pitch_rotation * orientation);
     clamp_camera();
     request_redraw();
 }
@@ -848,8 +936,8 @@ void SatViewHost::sync_simulation_render_settings()
 
 void SatViewHost::clamp_camera()
 {
-    pitch_ = std::clamp(pitch_, -1.35f, 1.35f);
-    distance_ = std::clamp(distance_, 1.7f, 12.0f);
+    camera_orientation_ = glm::normalize(camera_orientation_);
+    distance_ = std::clamp(distance_, kCameraMinDistance, camera_max_distance_);
 }
 
 void SatViewHost::reset_camera()
@@ -858,9 +946,8 @@ void SatViewHost::reset_camera()
         ? simulation_worker_->current_simulation_seconds()
         : last_draw_simulation_seconds_;
     const glm::vec3 sun = sun_direction(simulation_seconds);
-    yaw_ = std::atan2(sun.x, sun.z) + 0.65f;
-    pitch_ = 0.25f;
-    distance_ = 3.6f;
+    camera_orientation_ = camera_orientation_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f);
+    distance_ = std::min(kCameraDefaultDistance, camera_max_distance_);
     request_redraw();
 }
 
@@ -1166,9 +1253,14 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
     const int pixel_w = std::max(1, viewport_.pixel_size.x);
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
     const float aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
-    const glm::vec3 eye = camera_position(yaw_, pitch_, distance_);
-    const glm::mat4 view = glm::lookAtRH(eye, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    const glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(42.0f), aspect, 0.05f, 64.0f);
+    const float scene_radius =
+        visible_scene_radius(snapshot, filter_, selected_norad_catalog_id_, track_display_mode_);
+    const glm::mat4 view = camera_view_matrix(camera_orientation_, distance_);
+    const glm::mat4 proj = glm::perspectiveRH_ZO(
+        glm::radians(42.0f),
+        aspect,
+        0.05f,
+        camera_far_plane(distance_, scene_radius));
     const glm::mat4 view_proj = proj * view;
     const std::string_view source_label = snapshot->source_label;
     const double render_seconds = render_simulation_seconds(*snapshot);

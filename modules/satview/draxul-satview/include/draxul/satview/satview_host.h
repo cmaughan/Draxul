@@ -5,6 +5,7 @@
 #include <draxul/satview/satview_catalog_service.h>
 #include <draxul/satview/satview_filter.h>
 #include <draxul/satview/satview_propagation.h>
+#include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <optional>
 #include <string>
@@ -117,9 +118,9 @@ private:
     bool marker_buffer_dirty_ = true;
     const void* uploaded_track_source_ = nullptr;
     std::uint64_t uploaded_marker_generation_ = 0;
-    float yaw_ = 0.45f;
-    float pitch_ = 0.35f;
+    glm::quat camera_orientation_{ 1.0f, 0.0f, 0.0f, 0.0f };
     float distance_ = 3.6f;
+    float camera_max_distance_ = 12.0f;
     float time_speed_ = 60.0f;
     double simulated_seconds_ = 0.0;
     double last_draw_simulation_seconds_ = 0.0;
