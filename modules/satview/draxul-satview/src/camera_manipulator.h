@@ -47,7 +47,7 @@ public:
             else
             {
                 const glm::vec2 delta = currentPos - startPos;
-                spCamera->Orbit(glm::vec2(delta.x, -delta.y) / 2.0f);
+                spCamera->Orbit(delta / 2.0f);
             }
             startPos = pos;
             return true;

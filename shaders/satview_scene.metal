@@ -5,6 +5,7 @@ struct SatViewFrameUniforms
 {
     float4x4 view_proj;
     float4 camera_pos;
+    float4 camera_orientation;
     float4 sun_dir_time;
     float4 render_params;
 };
@@ -136,12 +137,10 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     return out;
 }
 
-static float3 marker_camera_right(float3 forward)
+static float3 rotate_by_quaternion(float3 value, float4 quaternion)
 {
-    float3 right = cross(forward, float3(0.0f, 1.0f, 0.0f));
-    if (dot(right, right) < 0.000001f)
-        return float3(1.0f, 0.0f, 0.0f);
-    return normalize(right);
+    float3 twice_cross = 2.0f * cross(quaternion.xyz, value);
+    return value + quaternion.w * twice_cross + cross(quaternion.xyz, twice_cross);
 }
 
 vertex SatViewOrbitOut satview_marker_vertex(
@@ -157,9 +156,8 @@ vertex SatViewOrbitOut satview_marker_vertex(
     float selected = marker.position1_selected.w;
     float alpha = clamp(frame.render_params.w, 0.0f, 1.0f);
 
-    float3 forward = normalize(-frame.camera_pos.xyz);
-    float3 right = marker_camera_right(forward);
-    float3 up = normalize(cross(right, forward));
+    float3 right = normalize(rotate_by_quaternion(float3(1.0f, 0.0f, 0.0f), frame.camera_orientation));
+    float3 up = normalize(rotate_by_quaternion(float3(0.0f, 1.0f, 0.0f), frame.camera_orientation));
     float3 axis = segment == 0u ? right
         : segment == 1u ? up
         : segment == 2u ? normalize(right + up)

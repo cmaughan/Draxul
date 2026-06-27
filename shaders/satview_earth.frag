@@ -4,6 +4,7 @@ layout(push_constant) uniform SatViewFrame
 {
     mat4 view_proj;
     vec4 camera_pos;
+    vec4 camera_orientation;
     vec4 sun_dir_time;
     vec4 render_params;
 } push;

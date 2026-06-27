@@ -1,4 +1,5 @@
 #include "satview_scene_pass.h"
+#include "satview_render_vk_math.h"
 #include "satview_texture_assets.h"
 
 #include <draxul/log.h>
@@ -326,12 +327,6 @@ bool upload_textures_immediate(const VkRenderContext& ctx,
         return false;
     }
     return true;
-}
-
-glm::mat4 make_vulkan_projection(glm::mat4 view_proj)
-{
-    view_proj[1][1] *= -1.0f;
-    return view_proj;
 }
 
 } // namespace
@@ -801,7 +796,7 @@ void SatViewScenePass::record(IRenderContext& ctx)
         return;
 
     SatViewFrameUniforms frame = frame_;
-    frame.view_proj = make_vulkan_projection(frame.view_proj);
+    frame.view_proj = make_satview_vulkan_clip_matrix(frame.view_proj);
 
     VkCommandBuffer cmd = vk_ctx->command_buffer();
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->earth_pipeline);

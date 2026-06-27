@@ -18,6 +18,7 @@ struct alignas(16) SatViewFrameUniforms
 {
     glm::mat4 view_proj{ 1.0f };
     glm::vec4 camera_pos{ 0.0f, 0.0f, 4.0f, 1.0f };
+    glm::vec4 camera_orientation{ 0.0f, 0.0f, 0.0f, 1.0f };
     glm::vec4 sun_dir_time{ 1.0f, 0.0f, 0.0f, 0.0f };
     glm::vec4 render_params{
         static_cast<float>(kSatViewSphereLatitudeBands),
@@ -26,6 +27,7 @@ struct alignas(16) SatViewFrameUniforms
         0.0f
     };
 };
+static_assert(sizeof(SatViewFrameUniforms) == 128);
 
 struct SatViewSceneVertex
 {

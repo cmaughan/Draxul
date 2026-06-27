@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/trigonometric.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -21,16 +22,8 @@ struct Ray
     glm::vec3 direction;
 };
 
-// A turntable orbit camera.
-//
-// The orbit state is two scalars: azimuth (yaw about world +Y) and elevation
-// (pitch above/below the equator). The position and the orthonormal frame are
-// reconstructed from those scalars whenever they change, with the up vector
-// always derived from world up. This keeps the horizon level (no roll) and,
-// together with the elevation clamp, avoids the pole singularity / image
-// inversion that a free-quaternion camera suffers from when you orbit over a
-// pole. (Replaces an earlier EasyRender-derived shortest-arc quaternion camera
-// that baked a yaw-dependent roll into the initial frame and had no pole clamp.)
+// A quaternion orbit camera. The quaternion is the sole orientation state;
+// position and the camera frame are derived from it without a world-up rebuild.
 class Camera
 {
 private:
@@ -48,8 +41,7 @@ private:
     float halfAngle = 30.0f; // Half angle of the view frustum
     float aspectRatio = 1.0f; // Ratio of x to y of the viewport
 
-    float azimuth = 0.0f; // Yaw about world +Y (radians)
-    float elevation = 0.0f; // Pitch above/below the equator (radians)
+    glm::quat orientation{ 1.0f, 0.0f, 0.0f, 0.0f }; // Camera local axes to world space
 
     glm::vec2 orbitDelta = glm::vec2(0.0f);
     glm::vec3 positionDelta = glm::vec3(0.0f);
@@ -57,13 +49,6 @@ private:
     int64_t lastTime = 0;
     float minDistance = 0.0001f;
     float maxDistance = std::numeric_limits<float>::max();
-
-    // Keep the camera off the exact pole, where yaw degenerates into roll and
-    // the look-at frame becomes singular.
-    static float MaxElevation()
-    {
-        return glm::radians(89.0f);
-    }
 
 public:
     Camera()
@@ -99,6 +84,11 @@ public:
         return up;
     }
 
+    const glm::quat& GetOrientation() const
+    {
+        return orientation;
+    }
+
     float GetFieldOfView() const
     {
         return fieldOfView;
@@ -127,13 +117,13 @@ public:
         // Focal
         focalPoint = point;
 
-        // Derive azimuth/elevation from the incoming direction (focal -> camera).
-        // The azimuth sign matches RebuildFrame's -sin(azimuth) convention so a
-        // round-trip reproduces the requested position exactly.
-        const glm::vec3 dir = glm::normalize(position - focalPoint);
-        elevation = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
-        elevation = std::clamp(elevation, -MaxElevation(), MaxElevation());
-        azimuth = std::atan2(-dir.x, dir.z);
+        const glm::vec3 view = glm::normalize(focalPoint - position);
+        const glm::vec3 reference_up = std::abs(glm::dot(view, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.999f
+            ? glm::vec3(0.0f, 0.0f, 1.0f)
+            : glm::vec3(0.0f, 1.0f, 0.0f);
+        const glm::vec3 initial_right = glm::normalize(glm::cross(view, reference_up));
+        const glm::vec3 initial_up = glm::normalize(glm::cross(initial_right, view));
+        orientation = glm::normalize(glm::quat_cast(glm::mat3(initial_right, initial_up, -view)));
 
         RebuildFrame();
         ClampDistance();
@@ -264,12 +254,13 @@ public:
             orbitDelta = glm::vec2(0.0f);
         }
 
-        // Apply the turn as a yaw about world up and a pitch in elevation, clamped
-        // off the poles. Reconstructing the frame from these scalars keeps the
-        // horizon level and prevents the over-the-pole inversion.
-        azimuth += glm::radians(angle.x);
-        elevation += glm::radians(angle.y);
-        elevation = std::clamp(elevation, -MaxElevation(), MaxElevation());
+        const glm::vec3 yaw_axis = glm::normalize(orientation * glm::vec3(0.0f, 1.0f, 0.0f));
+        const glm::quat yaw = glm::angleAxis(glm::radians(-angle.x), yaw_axis);
+        orientation = glm::normalize(yaw * orientation);
+
+        const glm::vec3 pitch_axis = glm::normalize(orientation * glm::vec3(1.0f, 0.0f, 0.0f));
+        const glm::quat pitch = glm::angleAxis(glm::radians(-angle.y), pitch_axis);
+        orientation = glm::normalize(pitch * orientation);
 
         RebuildFrame();
     }
@@ -277,28 +268,11 @@ public:
 private:
     void RebuildFrame()
     {
-        const float cp = std::cos(elevation);
-        // Direction from the focal point to the camera. The -sin(azimuth) sign
-        // makes a positive yaw orbit the camera the same way the previous
-        // quaternion camera did (Orbit(90,0) from +Z lands on -X).
-        const glm::vec3 dir(
-            -std::sin(azimuth) * cp,
-            std::sin(elevation),
-            std::cos(azimuth) * cp);
-
         const float distance = glm::length(focalPoint - position);
-        position = focalPoint + dir * distance;
-        viewDirection = glm::normalize(focalPoint - position);
-        UpdateRightUp();
-    }
-
-    void UpdateRightUp()
-    {
-        // Derive the frame from world up so the horizon never rolls. The
-        // elevation clamp guarantees viewDirection is never parallel to world up,
-        // so this cross product never degenerates.
-        right = glm::normalize(glm::cross(viewDirection, glm::vec3(0.0f, 1.0f, 0.0f)));
-        up = glm::normalize(glm::cross(right, viewDirection));
+        right = glm::normalize(orientation * glm::vec3(1.0f, 0.0f, 0.0f));
+        up = glm::normalize(orientation * glm::vec3(0.0f, 1.0f, 0.0f));
+        viewDirection = glm::normalize(orientation * glm::vec3(0.0f, 0.0f, -1.0f));
+        position = focalPoint - viewDirection * distance;
     }
 
     void ClampDistance()

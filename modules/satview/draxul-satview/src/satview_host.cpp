@@ -598,6 +598,12 @@ void SatViewHost::draw(IFrameContext& frame)
     SatViewFrameUniforms uniforms;
     uniforms.view_proj = proj * view;
     uniforms.camera_pos = glm::vec4(eye, 1.0f);
+    const glm::quat camera_orientation = camera_->GetOrientation();
+    uniforms.camera_orientation = glm::vec4(
+        camera_orientation.x,
+        camera_orientation.y,
+        camera_orientation.z,
+        camera_orientation.w);
     const glm::vec3 sun = sun_direction(simulation_seconds);
     uniforms.sun_dir_time = glm::vec4(sun, static_cast<float>(std::fmod(simulation_seconds, 86400.0)));
     uniforms.render_params = glm::vec4(
