@@ -5,10 +5,10 @@
 #include <draxul/satview/satview_catalog_service.h>
 #include <draxul/satview/satview_filter.h>
 #include <draxul/satview/satview_propagation.h>
-#include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 struct ImGuiContext;
 
@@ -22,6 +22,8 @@ namespace draxul::satview
 
 class SatViewScenePass;
 class SatViewSimulationWorker;
+class Camera;
+class Manipulator;
 struct SatViewSimulationSnapshot;
 
 enum class SatViewColorMode
@@ -70,20 +72,30 @@ public:
     void set_imgui_font(const std::string& path, float size_pixels) override;
 
 private:
+    struct ObjectTreeEntry
+    {
+        OrbitClass orbit_class = OrbitClass::Other;
+        std::string prefix;
+        std::string label;
+        std::string object_name;
+        std::int64_t norad_catalog_id = 0;
+    };
+
     void request_redraw();
     void invalidate_track_buffer();
     void invalidate_marker_buffer();
     void invalidate_visual_buffers();
     void sync_simulation_controls();
     void sync_simulation_render_settings();
-    void clamp_camera();
     void reset_camera();
+    void rebuild_object_tree(const SatViewSimulationSnapshot* snapshot);
+    void render_object_tree(const SatViewSimulationSnapshot* snapshot, bool& changed);
     void render_host_imgui(float dt, const SatViewSimulationSnapshot* snapshot);
     void render_control_panel(const SatViewSimulationSnapshot* snapshot);
     std::size_t visible_state_count(const SatViewSimulationSnapshot* snapshot) const;
     std::size_t visible_track_count(const SatViewSimulationSnapshot* snapshot) const;
     const SatellitePropagatedState* selected_satellite(const SatViewSimulationSnapshot* snapshot) const;
-    void clear_selection_if_hidden(const SatViewSimulationSnapshot* snapshot);
+    void clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot);
     void select_nearest_satellite(const glm::ivec2& screen_pos);
 
     draxul::IHostCallbacks* callbacks_ = nullptr;
@@ -118,9 +130,11 @@ private:
     bool marker_buffer_dirty_ = true;
     const void* uploaded_track_source_ = nullptr;
     std::uint64_t uploaded_marker_generation_ = 0;
-    glm::quat camera_orientation_{ 1.0f, 0.0f, 0.0f, 0.0f };
-    float distance_ = 3.6f;
-    float camera_max_distance_ = 12.0f;
+    std::uint64_t object_tree_catalog_generation_ = 0;
+    std::size_t object_tree_state_count_ = 0;
+    std::vector<ObjectTreeEntry> object_tree_entries_;
+    std::shared_ptr<Camera> camera_;
+    std::unique_ptr<Manipulator> camera_manipulator_;
     float time_speed_ = 60.0f;
     double simulated_seconds_ = 0.0;
     double last_draw_simulation_seconds_ = 0.0;

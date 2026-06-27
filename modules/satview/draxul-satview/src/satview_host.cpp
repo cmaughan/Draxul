@@ -1,5 +1,7 @@
 #include <draxul/satview/satview_host.h>
 
+#include "camera.h"
+#include "camera_manipulator.h"
 #include "satview_scene_pass.h"
 #include "satview_simulation_worker.h"
 
@@ -7,6 +9,7 @@
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_scancode.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <draxul/host_registry.h>
 #include <draxul/imgui_host.h>
@@ -16,7 +19,6 @@
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
-#include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 #include <string_view>
 #include <utility>
@@ -43,63 +45,11 @@ constexpr float kCameraMinDistance = 1.7f;
 constexpr float kCameraDefaultMaxDistance = 12.0f;
 constexpr float kCameraMaxDistanceCap = 160.0f;
 constexpr float kCameraFitRadiusScale = 3.1f;
-constexpr float kCameraDragRadiansPerPixel = 0.008f;
-constexpr float kCameraMaxPitchRadians = glm::radians(88.0f);
 
 double unix_seconds_now()
 {
     const auto now = std::chrono::system_clock::now().time_since_epoch();
     return std::chrono::duration<double>(now).count();
-}
-
-glm::vec3 constrain_camera_direction(glm::vec3 direction)
-{
-    direction = glm::normalize(direction);
-    const float max_y = std::sin(kCameraMaxPitchRadians);
-    const float y = std::clamp(direction.y, -max_y, max_y);
-    const float horizontal_length = std::sqrt(direction.x * direction.x + direction.z * direction.z);
-    const float target_horizontal_length = std::sqrt(std::max(0.0f, 1.0f - y * y));
-    if (horizontal_length < 0.000001f)
-        return glm::vec3(0.0f, y, target_horizontal_length);
-
-    const float horizontal_scale = target_horizontal_length / horizontal_length;
-    return glm::normalize(glm::vec3(direction.x * horizontal_scale, y, direction.z * horizontal_scale));
-}
-
-glm::quat camera_orientation_from_direction(glm::vec3 direction)
-{
-    direction = constrain_camera_direction(direction);
-    const glm::vec3 world_up(0.0f, 1.0f, 0.0f);
-    const glm::vec3 right = glm::normalize(glm::cross(world_up, direction));
-    const glm::vec3 up = glm::normalize(glm::cross(direction, right));
-    return glm::normalize(glm::quat_cast(glm::mat3(right, up, direction)));
-}
-
-glm::quat constrain_camera_orientation(const glm::quat& orientation)
-{
-    return camera_orientation_from_direction(orientation * glm::vec3(0.0f, 0.0f, 1.0f));
-}
-
-glm::quat camera_orientation_from_yaw_pitch(float yaw, float pitch)
-{
-    pitch = std::clamp(pitch, -kCameraMaxPitchRadians, kCameraMaxPitchRadians);
-    const float cp = std::cos(pitch);
-    return camera_orientation_from_direction(glm::vec3(
-        cp * std::sin(yaw),
-        std::sin(pitch),
-        cp * std::cos(yaw)));
-}
-
-glm::vec3 camera_position(const glm::quat& orientation, float distance)
-{
-    return orientation * glm::vec3(0.0f, 0.0f, distance);
-}
-
-glm::mat4 camera_view_matrix(const glm::quat& orientation, float distance)
-{
-    const glm::vec3 eye = camera_position(orientation, distance);
-    const glm::vec3 up = glm::normalize(orientation * glm::vec3(0.0f, 1.0f, 0.0f));
-    return glm::lookAtRH(eye, glm::vec3(0.0f), up);
 }
 
 float camera_max_distance_for_radius(float scene_radius)
@@ -113,6 +63,24 @@ float camera_max_distance_for_radius(float scene_radius)
 float camera_far_plane(float distance, float scene_radius)
 {
     return std::max(64.0f, distance + scene_radius * 2.5f + 8.0f);
+}
+
+glm::vec3 camera_position_from_yaw_pitch(float yaw, float pitch, float distance)
+{
+    const float cp = std::cos(pitch);
+    return glm::vec3(
+        cp * std::sin(yaw),
+        std::sin(pitch),
+        cp * std::cos(yaw))
+        * distance;
+}
+
+glm::mat4 camera_view_matrix(const Camera& camera)
+{
+    return glm::lookAtRH(
+        camera.GetPosition(),
+        camera.GetFocalPoint(),
+        camera.GetUp());
 }
 
 glm::vec3 sun_direction(double seconds)
@@ -173,6 +141,114 @@ glm::vec3 to_vec3(const glm::dvec3& value)
         static_cast<float>(value.z));
 }
 
+int orbit_class_sort_key(OrbitClass orbit_class)
+{
+    switch (orbit_class)
+    {
+    case OrbitClass::LowEarth:
+        return 0;
+    case OrbitClass::MediumEarth:
+        return 1;
+    case OrbitClass::Geosynchronous:
+        return 2;
+    case OrbitClass::HighlyElliptical:
+        return 3;
+    case OrbitClass::Other:
+        return 4;
+    }
+    return 4;
+}
+
+bool is_object_prefix_separator(char ch)
+{
+    return ch == ' ' || ch == '\t' || ch == '-' || ch == '_' || ch == '/' || ch == '(' || ch == '[' || ch == '#';
+}
+
+std::string normalized_object_prefix(std::string_view object_name)
+{
+    const auto not_space = [](unsigned char ch) {
+        return !std::isspace(ch);
+    };
+    while (!object_name.empty() && !not_space(static_cast<unsigned char>(object_name.front())))
+        object_name.remove_prefix(1);
+    while (!object_name.empty() && !not_space(static_cast<unsigned char>(object_name.back())))
+        object_name.remove_suffix(1);
+    if (object_name.empty())
+        return "Other";
+
+    std::size_t end = std::string_view::npos;
+    for (std::size_t i = 0; i < object_name.size(); ++i)
+    {
+        if (std::isdigit(static_cast<unsigned char>(object_name[i])))
+        {
+            end = i;
+            break;
+        }
+    }
+    if (end == std::string_view::npos)
+    {
+        for (std::size_t i = 1; i < object_name.size(); ++i)
+        {
+            if (is_object_prefix_separator(object_name[i]))
+            {
+                end = i;
+                break;
+            }
+        }
+    }
+    if (end == std::string_view::npos)
+        return "Other";
+
+    while (end > 0 && is_object_prefix_separator(object_name[end - 1]))
+        --end;
+    while (end > 0 && !std::isalnum(static_cast<unsigned char>(object_name[end - 1])))
+        --end;
+    if (end == 0)
+        return "Other";
+
+    bool has_alpha = false;
+    std::string prefix;
+    prefix.reserve(end);
+    bool previous_space = false;
+    for (std::size_t i = 0; i < end; ++i)
+    {
+        const unsigned char ch = static_cast<unsigned char>(object_name[i]);
+        if (std::isalpha(ch))
+            has_alpha = true;
+        if (std::isspace(ch))
+        {
+            if (!previous_space && !prefix.empty())
+                prefix.push_back(' ');
+            previous_space = true;
+            continue;
+        }
+        previous_space = false;
+        prefix.push_back(static_cast<char>(std::toupper(ch)));
+    }
+    while (!prefix.empty() && prefix.back() == ' ')
+        prefix.pop_back();
+    if (!has_alpha || prefix.empty())
+        return "Other";
+    return prefix;
+}
+
+std::string object_tree_label(const SatellitePropagatedState& state)
+{
+    std::string label = std::to_string(state.norad_catalog_id);
+    if (!state.object_name.empty())
+    {
+        label += " - ";
+        label += state.object_name;
+    }
+    if (!state.object_id.empty())
+    {
+        label += " [";
+        label += state.object_id;
+        label += "]";
+    }
+    return label;
+}
+
 void append_line(std::vector<SatViewSceneVertex>& vertices, glm::vec3 a, glm::vec3 b, glm::vec4 color)
 {
     vertices.push_back({ glm::vec4(a, 1.0f), color });
@@ -208,20 +284,20 @@ void append_track_vertices(
         return;
     for (const SatelliteOrbitTrack& track : *snapshot.tracks)
     {
+        const bool selected = selected_id.has_value() && track.norad_catalog_id == *selected_id;
         if (track_display_mode == SatViewTrackDisplayMode::SelectedOnly
             && (!selected_id.has_value() || track.norad_catalog_id != *selected_id))
         {
             continue;
         }
 
-        if (!satellite_visible(filter, track, source_label))
+        if (!selected && !satellite_visible(filter, track, source_label))
             continue;
 
         const auto& points = track.render_teme_points_earth_radii;
         if (points.size() < 2)
             continue;
 
-        const bool selected = selected_id.has_value() && track.norad_catalog_id == *selected_id;
         const glm::vec4 color = selected
             ? glm::mix(satellite_color(track.orbit_class, track.object_kind, color_mode, 0.98f), glm::vec4(1.0f), 0.38f)
             : satellite_color(track.orbit_class, track.object_kind, color_mode, 0.62f);
@@ -288,17 +364,20 @@ void append_marker_instances(
     for (std::size_t state_index = 0; state_index < snapshot.states.size(); ++state_index)
     {
         const SatellitePropagatedState& state = snapshot.states[state_index];
-        if (!satellite_visible(filter, state, source_label))
+        const bool selected = selected_id.has_value() && state.norad_catalog_id == *selected_id;
+        const bool visible = satellite_visible(filter, state, source_label);
+        if (!visible && !selected)
             continue;
 
-        const bool selected = selected_id.has_value() && state.norad_catalog_id == *selected_id;
         const bool under_marker_limit = marker_limit == 0 || visible_marker_index < marker_limit;
-        ++visible_marker_index;
+        if (visible)
+            ++visible_marker_index;
         if (!under_marker_limit && !selected)
             continue;
 
-        const glm::vec3 position0 = to_vec3(state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
-        const glm::vec3 position1 = to_vec3(next_teme_position(snapshot, state_index) / kSatViewEarthEquatorialRadiusKm);
+        const glm::vec3 position0 = to_vec3(teme_position_to_render_earth_radii(state.teme_position_km));
+        const glm::vec3 position1 = to_vec3(
+            teme_position_to_render_earth_radii(next_teme_position(snapshot, state_index)));
         const float range = glm::length(position0);
         const float base_size = std::clamp(0.006f + range * 0.0022f, 0.008f, 0.026f);
         const float size = selected ? base_size * 2.2f : base_size;
@@ -360,12 +439,6 @@ float visible_scene_radius(
     return radius;
 }
 
-float earth_rotation(double seconds)
-{
-    const double day_fraction = std::fmod(seconds / 86164.0905, 1.0);
-    return static_cast<float>(day_fraction * glm::two_pi<double>());
-}
-
 float control_widget_width(const char* label)
 {
     const ImGuiStyle& style = ImGui::GetStyle();
@@ -377,7 +450,11 @@ float control_widget_width(const char* label)
 
 } // namespace
 
-SatViewHost::SatViewHost() = default;
+SatViewHost::SatViewHost()
+    : camera_(std::make_shared<Camera>())
+    , camera_manipulator_(std::make_unique<Manipulator>(camera_))
+{
+}
 
 SatViewHost::~SatViewHost()
 {
@@ -406,9 +483,13 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     simulated_seconds_ = unix_seconds_now();
     last_draw_simulation_seconds_ = simulated_seconds_;
     const glm::vec3 sun = sun_direction(simulated_seconds_);
-    camera_orientation_ = camera_orientation_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f);
-    distance_ = kCameraDefaultDistance;
-    camera_max_distance_ = kCameraDefaultMaxDistance;
+    camera_->SetDistanceLimits(kCameraMinDistance, kCameraDefaultMaxDistance);
+    camera_->SetPositionAndFocalPoint(
+        camera_position_from_yaw_pitch(
+            std::atan2(sun.x, sun.z) + 0.65f,
+            0.25f,
+            kCameraDefaultDistance),
+        glm::vec3(0.0f));
     track_satellite_limit_ = kDefaultTrackSatelliteLimit;
     track_sample_count_ = kDefaultTrackSampleCount;
     last_pump_time_ = std::chrono::steady_clock::now();
@@ -499,19 +580,20 @@ void SatViewHost::draw(IFrameContext& frame)
     last_draw_simulation_seconds_ = simulation_seconds;
     const float scene_radius =
         visible_scene_radius(snapshot, filter_, selected_norad_catalog_id_, track_display_mode_);
-    camera_max_distance_ = camera_max_distance_for_radius(scene_radius);
-    clamp_camera();
+    camera_->SetDistanceLimits(kCameraMinDistance, camera_max_distance_for_radius(scene_radius));
 
     const int pixel_w = std::max(1, viewport_.pixel_size.x);
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
-    const float aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
-    const glm::vec3 eye = camera_position(camera_orientation_, distance_);
-    const glm::mat4 view = camera_view_matrix(camera_orientation_, distance_);
+    camera_->SetFilmSize(static_cast<float>(pixel_w), static_cast<float>(pixel_h));
+    if (camera_->PreRender())
+        request_redraw();
+    const glm::vec3 eye = camera_->GetPosition();
+    const glm::mat4 view = camera_view_matrix(*camera_);
     const glm::mat4 proj = glm::perspectiveRH_ZO(
-        glm::radians(42.0f),
-        aspect,
+        glm::radians(camera_->GetFieldOfView()),
+        camera_->GetAspectRatio(),
         0.05f,
-        camera_far_plane(distance_, scene_radius));
+        camera_far_plane(camera_->GetDistance(), scene_radius));
 
     SatViewFrameUniforms uniforms;
     uniforms.view_proj = proj * view;
@@ -521,7 +603,7 @@ void SatViewHost::draw(IFrameContext& frame)
     uniforms.render_params = glm::vec4(
         static_cast<float>(kSatViewSphereLatitudeBands),
         static_cast<float>(kSatViewSphereLongitudeBands),
-        earth_rotation(simulation_seconds),
+        static_cast<float>(greenwich_sidereal_angle_radians(simulation_seconds)),
         snapshot ? marker_interpolation_alpha(*snapshot, simulation_seconds) : 0.0f);
     scene_pass_->set_frame(uniforms);
 
@@ -623,6 +705,7 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
             {
                 dragging_ = false;
                 pending_click_ = false;
+                camera_manipulator_->MouseUp(glm::vec2(event.pos));
             }
             request_redraw();
             return;
@@ -636,9 +719,11 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
     {
         pending_click_ = true;
         click_start_pos_ = event.pos;
+        camera_manipulator_->MouseDown(glm::vec2(event.pos));
     }
     else
     {
+        camera_manipulator_->MouseUp(glm::vec2(event.pos));
         if (pending_click_)
         {
             const glm::ivec2 delta = event.pos - click_start_pos_;
@@ -674,15 +759,12 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
 
     if (!dragging_ && (event.buttons & SDL_BUTTON_LMASK) == 0)
         return;
-    const float yaw_delta = -static_cast<float>(event.delta.x) * kCameraDragRadiansPerPixel;
-    const float pitch_delta = static_cast<float>(event.delta.y) * kCameraDragRadiansPerPixel;
-    const glm::quat yaw_rotation = glm::angleAxis(yaw_delta, glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::quat orientation = glm::normalize(yaw_rotation * camera_orientation_);
-    const glm::vec3 right = glm::normalize(orientation * glm::vec3(1.0f, 0.0f, 0.0f));
-    const glm::quat pitch_rotation = glm::angleAxis(pitch_delta, right);
-    camera_orientation_ = constrain_camera_orientation(glm::normalize(pitch_rotation * orientation));
-    clamp_camera();
-    request_redraw();
+    if (camera_manipulator_->MouseMove(
+            glm::vec2(event.pos),
+            (event.mod & kModCtrl) != 0))
+    {
+        request_redraw();
+    }
 }
 
 void SatViewHost::on_mouse_wheel(const MouseWheelEvent& event)
@@ -698,8 +780,12 @@ void SatViewHost::on_mouse_wheel(const MouseWheelEvent& event)
         }
     }
 
-    distance_ *= std::pow(0.88f, event.delta.y);
-    clamp_camera();
+    const float current_distance = camera_->GetDistance();
+    const float target_distance = std::clamp(
+        current_distance * std::pow(0.88f, event.delta.y),
+        kCameraMinDistance,
+        camera_->GetMaxDistance());
+    camera_manipulator_->Dolly(current_distance - target_distance);
     request_redraw();
 }
 
@@ -790,6 +876,7 @@ void SatViewHost::on_focus_lost()
 {
     dragging_ = false;
     pending_click_ = false;
+    camera_manipulator_->Cancel();
 }
 
 bool SatViewHost::dispatch_action(std::string_view action)
@@ -965,21 +1052,163 @@ void SatViewHost::sync_simulation_render_settings()
     }
 }
 
-void SatViewHost::clamp_camera()
-{
-    camera_orientation_ = constrain_camera_orientation(camera_orientation_);
-    distance_ = std::clamp(distance_, kCameraMinDistance, camera_max_distance_);
-}
-
 void SatViewHost::reset_camera()
 {
     const double simulation_seconds = simulation_worker_
         ? simulation_worker_->current_simulation_seconds()
         : last_draw_simulation_seconds_;
     const glm::vec3 sun = sun_direction(simulation_seconds);
-    camera_orientation_ = camera_orientation_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f);
-    distance_ = std::min(kCameraDefaultDistance, camera_max_distance_);
+    camera_->ClearMotion();
+    camera_->SetPositionAndFocalPoint(
+        camera_position_from_yaw_pitch(
+            std::atan2(sun.x, sun.z) + 0.65f,
+            0.25f,
+            std::min(kCameraDefaultDistance, camera_->GetMaxDistance())),
+        glm::vec3(0.0f));
     request_redraw();
+}
+
+void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
+{
+    if (!snapshot)
+    {
+        object_tree_catalog_generation_ = 0;
+        object_tree_state_count_ = 0;
+        object_tree_entries_.clear();
+        return;
+    }
+    if (object_tree_catalog_generation_ == snapshot->catalog_generation
+        && object_tree_state_count_ == snapshot->states.size())
+    {
+        return;
+    }
+
+    object_tree_catalog_generation_ = snapshot->catalog_generation;
+    object_tree_state_count_ = snapshot->states.size();
+    object_tree_entries_.clear();
+    object_tree_entries_.reserve(snapshot->states.size());
+    for (const SatellitePropagatedState& state : snapshot->states)
+    {
+        object_tree_entries_.push_back({
+            state.orbit_class,
+            normalized_object_prefix(state.object_name),
+            object_tree_label(state),
+            state.object_name,
+            state.norad_catalog_id,
+        });
+    }
+
+    std::sort(object_tree_entries_.begin(), object_tree_entries_.end(),
+        [](const ObjectTreeEntry& a, const ObjectTreeEntry& b) {
+            const int orbit_a = orbit_class_sort_key(a.orbit_class);
+            const int orbit_b = orbit_class_sort_key(b.orbit_class);
+            if (orbit_a != orbit_b)
+                return orbit_a < orbit_b;
+            if (a.prefix != b.prefix)
+                return a.prefix < b.prefix;
+            if (a.object_name != b.object_name)
+                return a.object_name < b.object_name;
+            return a.norad_catalog_id < b.norad_catalog_id;
+        });
+}
+
+void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, bool& changed)
+{
+    rebuild_object_tree(snapshot);
+
+    ImGui::SeparatorText("Objects");
+    if (!snapshot)
+    {
+        ImGui::TextDisabled("Object tree pending catalog.");
+        return;
+    }
+
+    ImGui::Text("Objects: %zu", object_tree_entries_.size());
+    const float tree_height = std::max(180.0f, ImGui::GetTextLineHeightWithSpacing() * 14.0f);
+    if (!ImGui::BeginChild(
+            "##satview_object_tree",
+            ImVec2(0.0f, tree_height),
+            ImGuiChildFlags_Border,
+            ImGuiWindowFlags_AlwaysVerticalScrollbar))
+    {
+        ImGui::EndChild();
+        return;
+    }
+
+    const ImGuiTreeNodeFlags group_flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+    std::size_t orbit_begin = 0;
+    while (orbit_begin < object_tree_entries_.size())
+    {
+        const OrbitClass orbit_class = object_tree_entries_[orbit_begin].orbit_class;
+        std::size_t orbit_end = orbit_begin + 1;
+        while (orbit_end < object_tree_entries_.size()
+            && object_tree_entries_[orbit_end].orbit_class == orbit_class)
+        {
+            ++orbit_end;
+        }
+
+        const std::string_view orbit_name = orbit_class_name(orbit_class);
+        ImGui::PushID(orbit_class_sort_key(orbit_class));
+        const bool orbit_open = ImGui::TreeNodeEx(
+            "##orbit",
+            group_flags,
+            "%.*s (%zu)",
+            static_cast<int>(orbit_name.size()),
+            orbit_name.data(),
+            orbit_end - orbit_begin);
+        if (orbit_open)
+        {
+            std::size_t prefix_begin = orbit_begin;
+            while (prefix_begin < orbit_end)
+            {
+                const std::string& prefix = object_tree_entries_[prefix_begin].prefix;
+                std::size_t prefix_end = prefix_begin + 1;
+                while (prefix_end < orbit_end && object_tree_entries_[prefix_end].prefix == prefix)
+                    ++prefix_end;
+
+                ImGui::PushID(prefix.c_str());
+                const bool prefix_open = ImGui::TreeNodeEx(
+                    "##prefix",
+                    group_flags,
+                    "%s (%zu)",
+                    prefix.c_str(),
+                    prefix_end - prefix_begin);
+                if (prefix_open)
+                {
+                    ImGuiListClipper clipper;
+                    clipper.Begin(static_cast<int>(prefix_end - prefix_begin));
+                    while (clipper.Step())
+                    {
+                        for (int local_index = clipper.DisplayStart; local_index < clipper.DisplayEnd; ++local_index)
+                        {
+                            const ObjectTreeEntry& entry =
+                                object_tree_entries_[prefix_begin + static_cast<std::size_t>(local_index)];
+                            const bool selected = selected_norad_catalog_id_.has_value()
+                                && entry.norad_catalog_id == *selected_norad_catalog_id_;
+                            ImGui::PushID(entry.label.c_str());
+                            if (ImGui::Selectable(entry.label.c_str(), selected))
+                            {
+                                selected_norad_catalog_id_ = entry.norad_catalog_id;
+                                simulation_settings_dirty_ = true;
+                                changed = true;
+                            }
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+                prefix_begin = prefix_end;
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+        orbit_begin = orbit_end;
+    }
+
+    ImGui::EndChild();
 }
 
 void SatViewHost::render_host_imgui(float dt, const SatViewSimulationSnapshot* snapshot)
@@ -1053,6 +1282,8 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         sync_simulation_controls();
         changed = true;
     }
+
+    render_object_tree(snapshot, changed);
 
     ImGui::SeparatorText("Visuals");
     int color_mode_index = color_mode_ == SatViewColorMode::ObjectType ? 1 : 0;
@@ -1203,7 +1434,7 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     if (changed)
     {
         invalidate_visual_buffers();
-        clear_selection_if_hidden(snapshot);
+        clear_selection_if_missing(snapshot);
         request_redraw();
     }
 
@@ -1252,19 +1483,15 @@ const SatellitePropagatedState* SatViewHost::selected_satellite(const SatViewSim
     if (!snapshot || !selected_norad_catalog_id_.has_value())
         return nullptr;
 
-    const std::string_view source_label = snapshot->source_label;
     for (const SatellitePropagatedState& state : snapshot->states)
     {
-        if (state.norad_catalog_id == *selected_norad_catalog_id_
-            && satellite_visible(filter_, state, source_label))
-        {
+        if (state.norad_catalog_id == *selected_norad_catalog_id_)
             return &state;
-        }
     }
     return nullptr;
 }
 
-void SatViewHost::clear_selection_if_hidden(const SatViewSimulationSnapshot* snapshot)
+void SatViewHost::clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot)
 {
     if (selected_norad_catalog_id_.has_value() && snapshot && !selected_satellite(snapshot))
     {
@@ -1283,15 +1510,14 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
 
     const int pixel_w = std::max(1, viewport_.pixel_size.x);
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
-    const float aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
     const float scene_radius =
         visible_scene_radius(snapshot, filter_, selected_norad_catalog_id_, track_display_mode_);
-    const glm::mat4 view = camera_view_matrix(camera_orientation_, distance_);
+    const glm::mat4 view = camera_view_matrix(*camera_);
     const glm::mat4 proj = glm::perspectiveRH_ZO(
-        glm::radians(42.0f),
-        aspect,
+        glm::radians(camera_->GetFieldOfView()),
+        static_cast<float>(pixel_w) / static_cast<float>(pixel_h),
         0.05f,
-        camera_far_plane(distance_, scene_radius));
+        camera_far_plane(camera_->GetDistance(), scene_radius));
     const glm::mat4 view_proj = proj * view;
     const std::string_view source_label = snapshot->source_label;
     const double render_seconds = render_simulation_seconds(*snapshot);
@@ -1310,8 +1536,8 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
             break;
         ++visible_marker_index;
 
-        const glm::vec3 world = to_vec3(
-            interpolated_teme_position(*snapshot, state_index, render_seconds) / kSatViewEarthEquatorialRadiusKm);
+        const glm::vec3 world = to_vec3(teme_position_to_render_earth_radii(
+            interpolated_teme_position(*snapshot, state_index, render_seconds)));
         const glm::vec4 clip = view_proj * glm::vec4(world, 1.0f);
         if (clip.w <= 0.0f)
             continue;

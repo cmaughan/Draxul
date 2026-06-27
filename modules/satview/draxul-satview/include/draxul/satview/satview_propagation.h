@@ -147,6 +147,8 @@ struct SatellitePropagationResult
 
 [[nodiscard]] std::optional<double> parse_celestrak_epoch_utc(std::string_view epoch_utc);
 [[nodiscard]] SatViewJulianDate julian_date_from_unix_seconds(double unix_seconds);
+[[nodiscard]] double greenwich_sidereal_angle_radians(double unix_seconds);
+[[nodiscard]] glm::dvec3 teme_position_to_render_earth_radii(const glm::dvec3& teme_position_km);
 [[nodiscard]] SatellitePropagationBuildResult build_satellite_propagation_model(
     const SatelliteCatalog& catalog);
 [[nodiscard]] SatellitePropagationResult propagate_satellites(

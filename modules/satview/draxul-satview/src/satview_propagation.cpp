@@ -332,7 +332,7 @@ void append_track_samples(
         track.teme_points_km.push_back(state.teme_position_km);
         track.ecef_points_km.push_back(state.ecef_position_km);
         track.render_teme_points_earth_radii.push_back(
-            state.teme_position_km / kSatViewEarthEquatorialRadiusKm);
+            teme_position_to_render_earth_radii(state.teme_position_km));
         track.render_points_earth_radii.push_back(state.render_position_earth_radii);
     }
 }
@@ -443,6 +443,17 @@ SatViewJulianDate julian_date_from_unix_seconds(double unix_seconds)
     result.day = std::floor(jd);
     result.fraction = jd - result.day;
     return result;
+}
+
+double greenwich_sidereal_angle_radians(double unix_seconds)
+{
+    return SGP4Funcs::gstime_SGP4(julian_date_from_unix_seconds(unix_seconds).value());
+}
+
+glm::dvec3 teme_position_to_render_earth_radii(const glm::dvec3& teme_position_km)
+{
+    const glm::dvec3 earth_radii = teme_position_km / kSatViewEarthEquatorialRadiusKm;
+    return glm::dvec3(-earth_radii.y, earth_radii.z, -earth_radii.x);
 }
 
 SatellitePropagationBuildResult build_satellite_propagation_model(const SatelliteCatalog& catalog)

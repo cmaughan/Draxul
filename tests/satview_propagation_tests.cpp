@@ -3,13 +3,17 @@
 #include <draxul/satview/satview_catalog.h>
 #include <draxul/satview/satview_propagation.h>
 #include <glm/geometric.hpp>
+#include <cmath>
 
 using Catch::Approx;
 using draxul::satview::SatellitePropagationSettings;
 using draxul::satview::build_satellite_propagation_model;
+using draxul::satview::greenwich_sidereal_angle_radians;
+using draxul::satview::kSatViewEarthEquatorialRadiusKm;
 using draxul::satview::parse_celestrak_epoch_utc;
 using draxul::satview::parse_celestrak_gp_json;
 using draxul::satview::propagate_satellites;
+using draxul::satview::teme_position_to_render_earth_radii;
 
 namespace
 {
@@ -60,6 +64,27 @@ TEST_CASE("SatView propagation parses CelesTrak UTC epochs", "[satview][propagat
     CHECK_FALSE(parse_celestrak_epoch_utc("not an epoch").has_value());
 }
 
+TEST_CASE("SatView TEME coordinates align with the rendered Earth", "[satview][propagation][coordinates]")
+{
+    constexpr double kJ2000UnixSeconds = 946728000.0;
+    const double sidereal_angle = greenwich_sidereal_angle_radians(kJ2000UnixSeconds);
+    CHECK(sidereal_angle == Approx(4.8949612127).margin(1.0e-9));
+
+    const auto north_pole = teme_position_to_render_earth_radii(
+        glm::dvec3(0.0, 0.0, kSatViewEarthEquatorialRadiusKm));
+    check_vec3(north_pole, 0.0, 1.0, 0.0, 1.0e-12);
+
+    const auto greenwich = teme_position_to_render_earth_radii(
+        kSatViewEarthEquatorialRadiusKm
+        * glm::dvec3(std::cos(sidereal_angle), std::sin(sidereal_angle), 0.0));
+    check_vec3(greenwich, -std::sin(sidereal_angle), 0.0, -std::cos(sidereal_angle), 1.0e-12);
+
+    const auto east_90 = teme_position_to_render_earth_radii(
+        kSatViewEarthEquatorialRadiusKm
+        * glm::dvec3(-std::sin(sidereal_angle), std::cos(sidereal_angle), 0.0));
+    check_vec3(east_90, -std::cos(sidereal_angle), 0.0, std::sin(sidereal_angle), 1.0e-12);
+}
+
 TEST_CASE("SatView propagation matches Vallado SGP4 verification case 00005", "[satview][propagation]")
 {
     const auto catalog = parse_celestrak_gp_json(kVallado00005Json, "vallado", "AIAA-2006-6753");
@@ -78,6 +103,19 @@ TEST_CASE("SatView propagation matches Vallado SGP4 verification case 00005", "[
     REQUIRE(at_epoch.states.size() == 1);
     check_vec3(at_epoch.states[0].teme_position_km, 7022.46529266, -1400.08296755, 0.03995155, 0.001);
     check_vec3(at_epoch.states[0].teme_velocity_km_per_s, 1.893841015, 6.405893759, 4.534807250, 0.000001);
+
+    const auto& state = at_epoch.states[0];
+    const glm::dvec3 render_position = teme_position_to_render_earth_radii(state.teme_position_km);
+    const glm::dvec3 ecef_earth_radii = state.ecef_position_km / kSatViewEarthEquatorialRadiusKm;
+    const double longitude = std::atan2(ecef_earth_radii.y, ecef_earth_radii.x);
+    const double sidereal_angle = greenwich_sidereal_angle_radians(epoch_seconds);
+    const double theta = longitude + std::acos(-1.0) + sidereal_angle;
+    const double equatorial_radius = std::hypot(ecef_earth_radii.x, ecef_earth_radii.y);
+    check_vec3(render_position,
+        equatorial_radius * std::sin(theta),
+        ecef_earth_radii.z,
+        equatorial_radius * std::cos(theta),
+        1.0e-10);
 
     auto after_six_hours = propagate_satellites(build.model, epoch_seconds + 21600.0);
     REQUIRE(after_six_hours);
@@ -106,6 +144,13 @@ TEST_CASE("SatView propagation generates configurable track samples", "[satview]
     CHECK(result.tracks[0].ecef_points_km.size() == 12);
     CHECK(result.tracks[0].render_points_earth_radii.size() == 12);
     CHECK(glm::length(result.tracks[0].render_points_earth_radii[0]) > 1.0);
+    const glm::dvec3 expected_render_point =
+        teme_position_to_render_earth_radii(result.tracks[0].teme_points_km[0]);
+    check_vec3(result.tracks[0].render_teme_points_earth_radii[0],
+        expected_render_point.x,
+        expected_render_point.y,
+        expected_render_point.z,
+        1.0e-12);
 }
 
 TEST_CASE("SatView propagation includes selected track outside general track cap", "[satview][propagation]")
