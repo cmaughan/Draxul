@@ -1,5 +1,7 @@
 #include <draxul/satview/satview_propagation.h>
 
+#include "satview_object_style.h"
+
 #include "SGP4.h"
 
 #include <algorithm>
@@ -274,6 +276,7 @@ bool propagate_one(
     }
 
     out.norad_catalog_id = entry.norad_catalog_id;
+    out.object_prefix_hash = entry.object_prefix_hash;
     out.object_name = entry.object_name;
     out.object_id = entry.object_id;
     out.object_type = entry.object_type;
@@ -297,6 +300,7 @@ void append_track_samples(
     SatelliteOrbitTrack& track)
 {
     track.norad_catalog_id = entry.norad_catalog_id;
+    track.object_prefix_hash = entry.object_prefix_hash;
     track.object_name = entry.object_name;
     track.object_id = entry.object_id;
     track.object_type = entry.object_type;
@@ -450,6 +454,29 @@ double greenwich_sidereal_angle_radians(double unix_seconds)
     return SGP4Funcs::gstime_SGP4(julian_date_from_unix_seconds(unix_seconds).value());
 }
 
+glm::dvec3 solar_direction_teme(double unix_seconds)
+{
+    const double days_since_j2000 = julian_date_from_unix_seconds(unix_seconds).value() - 2451545.0;
+    const double mean_longitude_degrees = std::fmod(280.460 + 0.9856474 * days_since_j2000, 360.0);
+    const double mean_anomaly = (357.528 + 0.9856003 * days_since_j2000) * kPi / 180.0;
+    const double ecliptic_longitude = (mean_longitude_degrees
+                                          + 1.915 * std::sin(mean_anomaly)
+                                          + 0.020 * std::sin(2.0 * mean_anomaly))
+        * kPi / 180.0;
+    const double obliquity = (23.439 - 0.0000004 * days_since_j2000) * kPi / 180.0;
+
+    return glm::normalize(glm::dvec3(
+        std::cos(ecliptic_longitude),
+        std::cos(obliquity) * std::sin(ecliptic_longitude),
+        std::sin(obliquity) * std::sin(ecliptic_longitude)));
+}
+
+glm::dvec3 solar_direction_render(double unix_seconds)
+{
+    const glm::dvec3 teme = solar_direction_teme(unix_seconds);
+    return glm::normalize(glm::dvec3(-teme.y, teme.z, -teme.x));
+}
+
 glm::dvec3 teme_position_to_render_earth_radii(const glm::dvec3& teme_position_km)
 {
     const glm::dvec3 earth_radii = teme_position_km / kSatViewEarthEquatorialRadiusKm;
@@ -475,6 +502,7 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
 
         SatellitePropagationEntry entry;
         entry.norad_catalog_id = record.norad_catalog_id;
+        entry.object_prefix_hash = satellite_prefix_hash(record.object_name);
         entry.object_name = record.object_name;
         entry.object_id = record.object_id;
         entry.object_type = record.object_type;

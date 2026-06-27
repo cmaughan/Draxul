@@ -2,14 +2,16 @@
 
 #include "camera.h"
 #include "camera_manipulator.h"
+#include "satview_camera_key_state.h"
+#include "satview_object_style.h"
 #include "satview_scene_pass.h"
 #include "satview_simulation_worker.h"
+#include "satview_time_format.h"
 
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_scancode.h>
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <draxul/host_registry.h>
 #include <draxul/imgui_host.h>
@@ -45,6 +47,10 @@ constexpr float kCameraMinDistance = 1.7f;
 constexpr float kCameraDefaultMaxDistance = 12.0f;
 constexpr float kCameraMaxDistanceCap = 160.0f;
 constexpr float kCameraFitRadiusScale = 3.1f;
+constexpr float kCameraHorizontalOrbitRadiansPerSecond = 1.8f;
+constexpr float kCameraVerticalOrbitRadiansPerSecond = 0.9f;
+constexpr float kCameraZoomRatePerSecond = 1.35f;
+constexpr float kCameraInputMaxDeltaSeconds = 0.1f;
 
 double unix_seconds_now()
 {
@@ -83,15 +89,6 @@ glm::mat4 camera_view_matrix(const Camera& camera)
         camera.GetUp());
 }
 
-glm::vec3 sun_direction(double seconds)
-{
-    // First slice: approximate a moving sun direction in the equatorial plane.
-    // Later satellite work will replace this with a UTC astronomy model.
-    const double day_fraction = std::fmod(seconds / 86400.0, 1.0);
-    const float angle = static_cast<float>(day_fraction * glm::two_pi<double>());
-    return glm::normalize(glm::vec3(std::cos(angle), 0.18f, std::sin(angle)));
-}
-
 glm::vec4 orbit_class_color(OrbitClass orbit_class, float alpha)
 {
     switch (orbit_class)
@@ -126,11 +123,23 @@ glm::vec4 object_kind_color(SatelliteObjectKind kind, float alpha)
     return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
 }
 
-glm::vec4 satellite_color(OrbitClass orbit_class, SatelliteObjectKind object_kind, SatViewColorMode color_mode, float alpha)
+glm::vec4 satellite_color(
+    OrbitClass orbit_class,
+    SatelliteObjectKind object_kind,
+    std::uint32_t object_prefix_hash,
+    SatViewColorMode color_mode,
+    float alpha)
 {
-    return color_mode == SatViewColorMode::ObjectType
-        ? object_kind_color(object_kind, alpha)
-        : orbit_class_color(orbit_class, alpha);
+    switch (color_mode)
+    {
+    case SatViewColorMode::NamePrefix:
+        return satellite_prefix_color(object_prefix_hash, alpha);
+    case SatViewColorMode::OrbitClass:
+        return orbit_class_color(orbit_class, alpha);
+    case SatViewColorMode::ObjectType:
+        return object_kind_color(object_kind, alpha);
+    }
+    return satellite_prefix_color(object_prefix_hash, alpha);
 }
 
 glm::vec3 to_vec3(const glm::dvec3& value)
@@ -157,79 +166,6 @@ int orbit_class_sort_key(OrbitClass orbit_class)
         return 4;
     }
     return 4;
-}
-
-bool is_object_prefix_separator(char ch)
-{
-    return ch == ' ' || ch == '\t' || ch == '-' || ch == '_' || ch == '/' || ch == '(' || ch == '[' || ch == '#';
-}
-
-std::string normalized_object_prefix(std::string_view object_name)
-{
-    const auto not_space = [](unsigned char ch) {
-        return !std::isspace(ch);
-    };
-    while (!object_name.empty() && !not_space(static_cast<unsigned char>(object_name.front())))
-        object_name.remove_prefix(1);
-    while (!object_name.empty() && !not_space(static_cast<unsigned char>(object_name.back())))
-        object_name.remove_suffix(1);
-    if (object_name.empty())
-        return "Other";
-
-    std::size_t end = std::string_view::npos;
-    for (std::size_t i = 0; i < object_name.size(); ++i)
-    {
-        if (std::isdigit(static_cast<unsigned char>(object_name[i])))
-        {
-            end = i;
-            break;
-        }
-    }
-    if (end == std::string_view::npos)
-    {
-        for (std::size_t i = 1; i < object_name.size(); ++i)
-        {
-            if (is_object_prefix_separator(object_name[i]))
-            {
-                end = i;
-                break;
-            }
-        }
-    }
-    if (end == std::string_view::npos)
-        return "Other";
-
-    while (end > 0 && is_object_prefix_separator(object_name[end - 1]))
-        --end;
-    while (end > 0 && !std::isalnum(static_cast<unsigned char>(object_name[end - 1])))
-        --end;
-    if (end == 0)
-        return "Other";
-
-    bool has_alpha = false;
-    std::string prefix;
-    prefix.reserve(end);
-    bool previous_space = false;
-    for (std::size_t i = 0; i < end; ++i)
-    {
-        const unsigned char ch = static_cast<unsigned char>(object_name[i]);
-        if (std::isalpha(ch))
-            has_alpha = true;
-        if (std::isspace(ch))
-        {
-            if (!previous_space && !prefix.empty())
-                prefix.push_back(' ');
-            previous_space = true;
-            continue;
-        }
-        previous_space = false;
-        prefix.push_back(static_cast<char>(std::toupper(ch)));
-    }
-    while (!prefix.empty() && prefix.back() == ' ')
-        prefix.pop_back();
-    if (!has_alpha || prefix.empty())
-        return "Other";
-    return prefix;
 }
 
 std::string object_tree_label(const SatellitePropagatedState& state)
@@ -299,8 +235,11 @@ void append_track_vertices(
             continue;
 
         const glm::vec4 color = selected
-            ? glm::mix(satellite_color(track.orbit_class, track.object_kind, color_mode, 0.98f), glm::vec4(1.0f), 0.38f)
-            : satellite_color(track.orbit_class, track.object_kind, color_mode, 0.62f);
+            ? glm::mix(
+                  satellite_color(track.orbit_class, track.object_kind, track.object_prefix_hash, color_mode, 0.98f),
+                  glm::vec4(1.0f),
+                  0.38f)
+            : satellite_color(track.orbit_class, track.object_kind, track.object_prefix_hash, color_mode, 0.62f);
         for (std::size_t i = 1; i < points.size(); ++i)
             append_line(vertices, to_vec3(points[i - 1]), to_vec3(points[i]), color);
         append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
@@ -384,7 +323,7 @@ void append_marker_instances(
         const glm::vec4 color = selected
             ? glm::vec4(1.0f, 0.96f, 0.68f, 1.0f)
             : glm::mix(
-                satellite_color(state.orbit_class, state.object_kind, color_mode, 0.95f),
+                satellite_color(state.orbit_class, state.object_kind, state.object_prefix_hash, color_mode, 0.95f),
                 glm::vec4(1.0f),
                 0.18f);
         markers.push_back({
@@ -453,6 +392,7 @@ float control_widget_width(const char* label)
 SatViewHost::SatViewHost()
     : camera_(std::make_shared<Camera>())
     , camera_manipulator_(std::make_unique<Manipulator>(camera_))
+    , camera_keys_(std::make_unique<SatViewCameraKeyState>())
 {
 }
 
@@ -482,7 +422,7 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     catalog_service_.start();
     simulated_seconds_ = unix_seconds_now();
     last_draw_simulation_seconds_ = simulated_seconds_;
-    const glm::vec3 sun = sun_direction(simulated_seconds_);
+    const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
     camera_->SetDistanceLimits(kCameraMinDistance, kCameraDefaultMaxDistance);
     camera_->SetPositionAndFocalPoint(
         camera_position_from_yaw_pitch(
@@ -566,6 +506,24 @@ void SatViewHost::pump()
     const float dt = std::chrono::duration<float>(now - last_pump_time_).count();
     last_pump_time_ = now;
     last_imgui_delta_seconds_ = dt;
+    if (camera_keys_->movement_active())
+    {
+        const float input_dt = std::clamp(dt, 0.0f, kCameraInputMaxDeltaSeconds);
+        const SatViewCameraMovement movement = camera_keys_->movement();
+        camera_->Orbit(glm::vec2(
+            glm::degrees(kCameraHorizontalOrbitRadiansPerSecond) * movement.orbit.x * input_dt,
+            glm::degrees(kCameraVerticalOrbitRadiansPerSecond) * movement.orbit.y * input_dt));
+
+        if (movement.zoom != 0.0f)
+        {
+            const float current_distance = camera_->GetDistance();
+            const float target_distance = std::clamp(
+                current_distance * std::exp(movement.zoom * kCameraZoomRatePerSecond * input_dt),
+                kCameraMinDistance,
+                camera_->GetMaxDistance());
+            camera_->Dolly(current_distance - target_distance);
+        }
+    }
     request_redraw();
 }
 
@@ -604,7 +562,7 @@ void SatViewHost::draw(IFrameContext& frame)
         camera_orientation.y,
         camera_orientation.z,
         camera_orientation.w);
-    const glm::vec3 sun = sun_direction(simulation_seconds);
+    const glm::vec3 sun = glm::vec3(solar_direction_render(simulation_seconds));
     uniforms.sun_dir_time = glm::vec4(sun, static_cast<float>(std::fmod(simulation_seconds, 86400.0)));
     uniforms.render_params = glm::vec4(
         static_cast<float>(kSatViewSphereLatitudeBands),
@@ -811,11 +769,15 @@ void SatViewHost::on_key(const KeyEvent& event)
 
         if (io.WantCaptureKeyboard)
         {
+            if (!event.pressed)
+                camera_keys_->on_key(event);
             request_redraw();
             return;
         }
     }
 
+    if (camera_keys_->on_key(event))
+        request_redraw();
     if (!event.pressed)
         return;
     if (event.keycode == SDLK_F1 || event.scancode == SDL_SCANCODE_F1)
@@ -858,7 +820,7 @@ void SatViewHost::on_key(const KeyEvent& event)
         reset_camera();
         return;
     }
-    if (event.keycode == SDLK_R)
+    if (event.keycode == SDLK_R && (event.mod & kModCtrl) != 0)
     {
         catalog_service_.request_refresh();
         request_redraw();
@@ -882,6 +844,7 @@ void SatViewHost::on_focus_lost()
 {
     dragging_ = false;
     pending_click_ = false;
+    camera_keys_->reset();
     camera_manipulator_->Cancel();
 }
 
@@ -1058,12 +1021,23 @@ void SatViewHost::sync_simulation_render_settings()
     }
 }
 
+void SatViewHost::set_real_time()
+{
+    simulated_seconds_ = unix_seconds_now();
+    last_draw_simulation_seconds_ = simulated_seconds_;
+    time_speed_ = 1.0f;
+    paused_ = false;
+    if (simulation_worker_)
+        simulation_worker_->set_clock(simulated_seconds_, time_speed_, paused_);
+    request_redraw();
+}
+
 void SatViewHost::reset_camera()
 {
     const double simulation_seconds = simulation_worker_
         ? simulation_worker_->current_simulation_seconds()
         : last_draw_simulation_seconds_;
-    const glm::vec3 sun = sun_direction(simulation_seconds);
+    const glm::vec3 sun = glm::vec3(solar_direction_render(simulation_seconds));
     camera_->ClearMotion();
     camera_->SetPositionAndFocalPoint(
         camera_position_from_yaw_pitch(
@@ -1097,7 +1071,7 @@ void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
     {
         object_tree_entries_.push_back({
             state.orbit_class,
-            normalized_object_prefix(state.object_name),
+            normalized_satellite_prefix(state.object_name),
             object_tree_label(state),
             state.object_name,
             state.norad_catalog_id,
@@ -1173,12 +1147,21 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
                     ++prefix_end;
 
                 ImGui::PushID(prefix.c_str());
+                if (color_mode_ == SatViewColorMode::NamePrefix)
+                {
+                    const glm::vec4 prefix_color = satellite_prefix_color(stable_color_hash(prefix));
+                    ImGui::PushStyleColor(
+                        ImGuiCol_Text,
+                        ImVec4(prefix_color.r, prefix_color.g, prefix_color.b, prefix_color.a));
+                }
                 const bool prefix_open = ImGui::TreeNodeEx(
                     "##prefix",
                     group_flags,
                     "%s (%zu)",
                     prefix.c_str(),
                     prefix_end - prefix_begin);
+                if (color_mode_ == SatViewColorMode::NamePrefix)
+                    ImGui::PopStyleColor();
                 if (prefix_open)
                 {
                     ImGuiListClipper clipper;
@@ -1268,6 +1251,9 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         changed = true;
     }
     ImGui::SameLine();
+    if (ImGui::Button("Real Time"))
+        set_real_time();
+    ImGui::SameLine();
     if (ImGui::Button("Reset Camera"))
     {
         reset_camera();
@@ -1289,15 +1275,21 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         changed = true;
     }
 
+    const double displayed_simulation_seconds = snapshot
+        ? render_simulation_seconds(*snapshot)
+        : last_draw_simulation_seconds_;
+    const std::string local_time = format_local_simulation_time(displayed_simulation_seconds);
+    ImGui::Text("Local time: %s", local_time.c_str());
+
     render_object_tree(snapshot, changed);
 
     ImGui::SeparatorText("Visuals");
-    int color_mode_index = color_mode_ == SatViewColorMode::ObjectType ? 1 : 0;
-    const char* color_modes[] = { "Orbit Class", "Object Type" };
+    int color_mode_index = static_cast<int>(color_mode_);
+    const char* color_modes[] = { "Name Prefix", "Orbit Class", "Object Type" };
     set_control_width("Color");
-    if (ImGui::Combo("Color", &color_mode_index, color_modes, 2))
+    if (ImGui::Combo("Color", &color_mode_index, color_modes, 3))
     {
-        color_mode_ = color_mode_index == 1 ? SatViewColorMode::ObjectType : SatViewColorMode::OrbitClass;
+        color_mode_ = static_cast<SatViewColorMode>(color_mode_index);
         changed = true;
     }
 

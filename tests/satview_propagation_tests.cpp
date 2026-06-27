@@ -13,6 +13,8 @@ using draxul::satview::kSatViewEarthEquatorialRadiusKm;
 using draxul::satview::parse_celestrak_epoch_utc;
 using draxul::satview::parse_celestrak_gp_json;
 using draxul::satview::propagate_satellites;
+using draxul::satview::solar_direction_render;
+using draxul::satview::solar_direction_teme;
 using draxul::satview::teme_position_to_render_earth_radii;
 
 namespace
@@ -83,6 +85,32 @@ TEST_CASE("SatView TEME coordinates align with the rendered Earth", "[satview][p
         kSatViewEarthEquatorialRadiusKm
         * glm::dvec3(-std::sin(sidereal_angle), std::cos(sidereal_angle), 0.0));
     check_vec3(east_90, -std::cos(sidereal_angle), 0.0, std::sin(sidereal_angle), 1.0e-12);
+}
+
+TEST_CASE("SatView solar direction follows UTC date and Earth rotation", "[satview][propagation][coordinates]")
+{
+    constexpr double kMarchEquinoxNoonUtc = 1710936000.0;
+    constexpr double kJuneSolsticeNoonUtc = 1718884800.0;
+    constexpr double kDecemberSolsticeNoonUtc = 1734782400.0;
+    constexpr double kRadiansToDegrees = 180.0 / 3.14159265358979323846;
+
+    const glm::dvec3 march_sun = solar_direction_teme(kMarchEquinoxNoonUtc);
+    const double march_declination = std::asin(march_sun.z) * kRadiansToDegrees;
+    const double march_right_ascension = std::atan2(march_sun.y, march_sun.x);
+    const double march_subsolar_longitude = std::remainder(
+        march_right_ascension - greenwich_sidereal_angle_radians(kMarchEquinoxNoonUtc),
+        2.0 * 3.14159265358979323846)
+        * kRadiansToDegrees;
+    CHECK(march_declination == Approx(0.15).margin(0.2));
+    CHECK(march_subsolar_longitude == Approx(1.83).margin(0.5));
+
+    const glm::dvec3 june_sun = solar_direction_teme(kJuneSolsticeNoonUtc);
+    const glm::dvec3 december_sun = solar_direction_teme(kDecemberSolsticeNoonUtc);
+    CHECK(std::asin(june_sun.z) * kRadiansToDegrees == Approx(23.435).margin(0.1));
+    CHECK(std::asin(december_sun.z) * kRadiansToDegrees == Approx(-23.435).margin(0.1));
+
+    const glm::dvec3 march_render = solar_direction_render(kMarchEquinoxNoonUtc);
+    check_vec3(march_render, -march_sun.y, march_sun.z, -march_sun.x, 1.0e-12);
 }
 
 TEST_CASE("SatView propagation matches Vallado SGP4 verification case 00005", "[satview][propagation]")

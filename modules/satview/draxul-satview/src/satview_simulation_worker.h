@@ -108,6 +108,7 @@ public:
 
     void set_catalog(SatelliteCatalog catalog, std::uint64_t catalog_generation);
     void set_controls(float time_speed, bool paused);
+    void set_clock(double simulation_seconds, float time_speed, bool paused);
     void set_render_settings(
         std::size_t track_satellite_limit,
         std::size_t track_sample_count,
@@ -141,6 +142,7 @@ private:
     bool running_ = false;
     bool stop_requested_ = false;
     bool catalog_dirty_ = false;
+    bool clock_dirty_ = false;
     bool settings_dirty_ = false;
     SatelliteCatalog pending_catalog_;
     std::uint64_t pending_catalog_generation_ = 0;

@@ -22,12 +22,14 @@ namespace draxul::satview
 
 class SatViewScenePass;
 class SatViewSimulationWorker;
+class SatViewCameraKeyState;
 class Camera;
 class Manipulator;
 struct SatViewSimulationSnapshot;
 
 enum class SatViewColorMode
 {
+    NamePrefix,
     OrbitClass,
     ObjectType
 };
@@ -87,6 +89,7 @@ private:
     void invalidate_visual_buffers();
     void sync_simulation_controls();
     void sync_simulation_render_settings();
+    void set_real_time();
     void reset_camera();
     void rebuild_object_tree(const SatViewSimulationSnapshot* snapshot);
     void render_object_tree(const SatViewSimulationSnapshot* snapshot, bool& changed);
@@ -114,7 +117,7 @@ private:
     char search_buffer_[128]{};
     char object_type_buffer_[64]{};
     char source_buffer_[96]{};
-    SatViewColorMode color_mode_ = SatViewColorMode::OrbitClass;
+    SatViewColorMode color_mode_ = SatViewColorMode::NamePrefix;
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
     std::size_t track_satellite_limit_ = 256;
     std::size_t track_sample_count_ = 48;
@@ -135,6 +138,7 @@ private:
     std::vector<ObjectTreeEntry> object_tree_entries_;
     std::shared_ptr<Camera> camera_;
     std::unique_ptr<Manipulator> camera_manipulator_;
+    std::unique_ptr<SatViewCameraKeyState> camera_keys_;
     float time_speed_ = 60.0f;
     double simulated_seconds_ = 0.0;
     double last_draw_simulation_seconds_ = 0.0;

@@ -29,6 +29,7 @@ struct SatViewJulianDate
 struct SatellitePropagationEntry
 {
     std::int64_t norad_catalog_id = 0;
+    std::uint32_t object_prefix_hash = 0;
     std::string object_name;
     std::string object_id;
     std::string object_type;
@@ -86,6 +87,7 @@ struct SatellitePropagationBuildResult
 struct SatellitePropagatedState
 {
     std::int64_t norad_catalog_id = 0;
+    std::uint32_t object_prefix_hash = 0;
     std::string object_name;
     std::string object_id;
     std::string object_type;
@@ -104,6 +106,7 @@ struct SatellitePropagatedState
 struct SatelliteOrbitTrack
 {
     std::int64_t norad_catalog_id = 0;
+    std::uint32_t object_prefix_hash = 0;
     std::string object_name;
     std::string object_id;
     std::string object_type;
@@ -148,6 +151,8 @@ struct SatellitePropagationResult
 [[nodiscard]] std::optional<double> parse_celestrak_epoch_utc(std::string_view epoch_utc);
 [[nodiscard]] SatViewJulianDate julian_date_from_unix_seconds(double unix_seconds);
 [[nodiscard]] double greenwich_sidereal_angle_radians(double unix_seconds);
+[[nodiscard]] glm::dvec3 solar_direction_teme(double unix_seconds);
+[[nodiscard]] glm::dvec3 solar_direction_render(double unix_seconds);
 [[nodiscard]] glm::dvec3 teme_position_to_render_earth_radii(const glm::dvec3& teme_position_km);
 [[nodiscard]] SatellitePropagationBuildResult build_satellite_propagation_model(
     const SatelliteCatalog& catalog);
