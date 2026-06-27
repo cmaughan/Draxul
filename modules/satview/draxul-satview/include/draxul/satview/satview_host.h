@@ -20,6 +20,8 @@ namespace draxul::satview
 {
 
 class SatViewScenePass;
+class SatViewSimulationWorker;
+struct SatViewSimulationSnapshot;
 
 enum class SatViewColorMode
 {
@@ -68,26 +70,24 @@ public:
 
 private:
     void request_redraw();
+    void sync_simulation_controls();
+    void sync_simulation_render_settings();
     void clamp_camera();
     void reset_camera();
-    bool rebuild_propagation_model_if_needed();
-    void update_propagation_if_needed(bool force);
-    void render_host_imgui(float dt);
-    void render_control_panel();
-    std::size_t visible_state_count() const;
-    std::size_t visible_track_count() const;
-    const SatellitePropagatedState* selected_satellite() const;
-    void clear_selection_if_hidden();
+    void render_host_imgui(float dt, const SatViewSimulationSnapshot* snapshot);
+    void render_control_panel(const SatViewSimulationSnapshot* snapshot);
+    std::size_t visible_state_count(const SatViewSimulationSnapshot* snapshot) const;
+    std::size_t visible_track_count(const SatViewSimulationSnapshot* snapshot) const;
+    const SatellitePropagatedState* selected_satellite(const SatViewSimulationSnapshot* snapshot) const;
+    void clear_selection_if_hidden(const SatViewSimulationSnapshot* snapshot);
     void select_nearest_satellite(const glm::ivec2& screen_pos);
 
     draxul::IHostCallbacks* callbacks_ = nullptr;
     draxul::HostViewport viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
     SatViewCatalogService catalog_service_;
-    SatellitePropagationModel propagation_model_;
-    SatellitePropagationResult propagation_snapshot_;
-    std::uint64_t propagation_catalog_generation_ = 0;
-    std::string propagation_status_;
+    std::unique_ptr<SatViewSimulationWorker> simulation_worker_;
+    std::uint64_t simulation_catalog_generation_ = 0;
     std::string init_error_;
     SatViewFilterState filter_;
     std::optional<std::int64_t> selected_norad_catalog_id_;
@@ -108,16 +108,16 @@ private:
     bool dragging_ = false;
     bool pending_click_ = false;
     bool show_ui_panel_ = true;
-    bool propagation_settings_dirty_ = false;
+    bool simulation_settings_dirty_ = false;
+    bool continuous_refresh_enabled_ = false;
     float yaw_ = 0.45f;
     float pitch_ = 0.35f;
     float distance_ = 3.6f;
     float time_speed_ = 60.0f;
     double simulated_seconds_ = 0.0;
+    double last_draw_simulation_seconds_ = 0.0;
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point next_propagation_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
-    double last_propagation_simulated_seconds_ = 0.0;
     glm::ivec2 click_start_pos_{ 0, 0 };
     float last_imgui_delta_seconds_ = 1.0f / 60.0f;
 };

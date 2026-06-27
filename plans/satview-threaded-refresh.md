@@ -16,6 +16,12 @@ The render path must never wait on the satellite update thread. It should read t
 
 ## Target Architecture
 
+## Implementation Status
+
+This slice implements the continuous-refresh behavior, the non-blocking triple-buffer snapshot handoff, the background SGP4 simulation worker, and CPU-side render interpolation between worker-published marker samples.
+
+The remaining optimization is the render pass data path: track and marker data still flow through the existing dynamic line-list vertex stream. A follow-up should split track/marker GPU buffers and move marker expansion to the shader so camera movement and marker ticks do not force a full scene-vertex rebuild.
+
 ### 1. SatView Simulation Worker
 
 Add a module-local worker, tentatively `SatViewSimulationWorker`, owned by `SatViewHost`.

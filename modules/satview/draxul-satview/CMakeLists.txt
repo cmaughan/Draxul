@@ -7,6 +7,7 @@ if(APPLE)
         src/satview_filter.cpp
         src/satview_host.cpp
         src/satview_propagation.cpp
+        src/satview_simulation_worker.cpp
         src/satview_texture_assets.cpp
         src/satview_render.mm
     )
@@ -17,6 +18,7 @@ else()
         src/satview_filter.cpp
         src/satview_host.cpp
         src/satview_propagation.cpp
+        src/satview_simulation_worker.cpp
         src/satview_texture_assets.cpp
         src/satview_render_vk.cpp
     )

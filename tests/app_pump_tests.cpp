@@ -91,7 +91,7 @@ TEST_CASE("app pump: pump_once returns false when host is dead", "[app_pump]")
     app.shutdown();
 }
 
-TEST_CASE("app pump: request_continuous_refresh disables vblank wait", "[app_pump]")
+TEST_CASE("app pump: request_continuous_refresh keeps vblank wait", "[app_pump]")
 {
     const std::string font = bundled_font_path();
     if (!std::filesystem::exists(font))
@@ -116,6 +116,30 @@ TEST_CASE("app pump: request_continuous_refresh disables vblank wait", "[app_pum
     // The flag is host-agnostic now: any host can request continuous refresh.
     opts.request_continuous_refresh = true;
     opts.host_factory = [](HostKind) -> std::unique_ptr<IHost> { return nullptr; };
+
+    App app(std::move(opts));
+    REQUIRE_FALSE(app.initialize());
+    REQUIRE(renderer_created);
+    REQUIRE(wait_for_vblank);
+}
+
+TEST_CASE("app pump: no_vblank disables vblank wait", "[app_pump]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    bool renderer_created = false;
+    bool wait_for_vblank = true;
+
+    AppOptions opts = make_testable_options();
+    opts.config_overrides.font_path = font;
+    opts.no_vblank = true;
+    opts.renderer_create_fn = [&](int, RendererOptions renderer_options) {
+        renderer_created = true;
+        wait_for_vblank = renderer_options.wait_for_vblank;
+        return RendererBundle{ std::make_unique<FakeTermRenderer>() };
+    };
 
     App app(std::move(opts));
     REQUIRE_FALSE(app.initialize());

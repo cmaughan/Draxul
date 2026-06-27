@@ -477,9 +477,16 @@ void ConPtyProcess::shutdown()
         if (GetExitCodeProcess(process_handle, &exit_code))
         {
             if (exit_code == STILL_ACTIVE)
+            {
                 TerminateProcess(process_handle, 0);
+                WaitForSingleObject(process_handle, 2000);
+                if (GetExitCodeProcess(process_handle, &exit_code) && exit_code != STILL_ACTIVE)
+                    last_exit_code_ = static_cast<int>(exit_code);
+            }
             else
+            {
                 last_exit_code_ = static_cast<int>(exit_code);
+            }
         }
         CloseHandle(process_handle);
     }

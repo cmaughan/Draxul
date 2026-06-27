@@ -36,6 +36,9 @@ if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul-tests PRIVATE draxul-geometry draxul-megacity)
 endif()
 if(DRAXUL_ENABLE_SATVIEW)
+    target_include_directories(draxul-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules/satview/draxul-satview/src
+    )
     target_link_libraries(draxul-tests PRIVATE draxul-satview)
     target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_SATVIEW)
 endif()
