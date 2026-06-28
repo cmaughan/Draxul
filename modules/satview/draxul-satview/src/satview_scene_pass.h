@@ -33,6 +33,7 @@ static_assert(sizeof(SatViewFrameUniforms) == 128);
 
 struct SatViewSceneVertex
 {
+    // The position w sign marks the paired endpoint; magnitude 2 tags ECEF map coordinates.
     glm::vec4 position{ 0.0f, 0.0f, 0.0f, -1.0f };
     glm::vec4 color{ 1.0f };
     glm::vec4 paired_position{ 0.0f, 0.0f, 0.0f, 1.0f };
@@ -68,9 +69,10 @@ public:
         atmosphere_enabled_ = enabled;
     }
 
-    void set_map_projection(bool enabled)
+    void set_map_projection(bool enabled, bool moon_centered)
     {
         map_projection_ = enabled;
+        moon_map_projection_ = enabled && moon_centered;
     }
 
     void set_moon(glm::vec4 position_radius, bool enabled)
@@ -120,6 +122,7 @@ private:
     bool atmosphere_enabled_ = true;
     bool moon_enabled_ = true;
     bool map_projection_ = false;
+    bool moon_map_projection_ = false;
     std::unique_ptr<State> state_;
 };
 

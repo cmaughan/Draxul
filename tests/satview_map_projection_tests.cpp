@@ -1,4 +1,5 @@
 #include "satview_map_projection.h"
+#include "satview_moon_ephemeris.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -11,8 +12,10 @@ namespace
 using Catch::Matchers::WithinAbs;
 using draxul::satview::greenwich_sidereal_angle_radians;
 using draxul::satview::normalized_satview_map_center;
+using draxul::satview::SatViewMapBody;
 using draxul::satview::satview_map_position_from_teme;
 using draxul::satview::satview_map_pan_delta;
+using draxul::satview::satview_moon_position;
 
 TEST_CASE("SatView map projection aligns TEME Greenwich with the map center", "[satview][map]")
 {
@@ -52,6 +55,22 @@ TEST_CASE("SatView map projection recenters longitude and latitude", "[satview][
         glm::vec2(0.0f, 0.25f * std::acos(-1.0f)));
     CHECK_THAT(north_center.x, WithinAbs(0.0f, 1.0e-6f));
     CHECK_THAT(north_center.y, WithinAbs(0.0f, 1.0e-6f));
+}
+
+TEST_CASE("SatView Moon map places Earth in the center of the near side", "[satview][map][moon]")
+{
+    constexpr double kJ2000UnixSeconds = 946728000.0;
+    const auto moon = satview_moon_position(kJ2000UnixSeconds);
+
+    const glm::vec2 map_position = satview_map_position_from_teme(
+        glm::dvec3(0.0),
+        kJ2000UnixSeconds,
+        glm::vec2(0.0f),
+        SatViewMapBody::Moon,
+        moon.render_position_earth_radii);
+
+    CHECK_THAT(map_position.x, WithinAbs(0.0f, 1.0e-6f));
+    CHECK_THAT(map_position.y, WithinAbs(0.0f, 1.0e-6f));
 }
 
 TEST_CASE("SatView map center wraps longitude and clamps latitude", "[satview][map]")

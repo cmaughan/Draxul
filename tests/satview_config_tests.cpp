@@ -1,0 +1,64 @@
+#include <catch2/catch_test_macros.hpp>
+#include <draxul/config_document.h>
+#include <draxul/satview/satview_config.h>
+
+using namespace draxul;
+using namespace draxul::satview;
+
+TEST_CASE("SatView config defaults to 1024 tracks", "[satview][config]")
+{
+    const ConfigDocument document;
+    const SatViewConfig config = load_satview_config(document);
+
+    CHECK(config.track_satellite_limit == 1024);
+    CHECK(config.track_sample_count == 48);
+    CHECK_FALSE(config.refresh_tracks_each_step);
+}
+
+TEST_CASE("SatView config round trips durable panel controls", "[satview][config]")
+{
+    ConfigDocument document;
+    SatViewConfig expected;
+    expected.filter.search_text = "STARLINK";
+    expected.filter.object_type_text = "PAYLOAD";
+    expected.filter.source_text = "active";
+    expected.filter.show_other = false;
+    expected.filter.max_epoch_age_days = 2.5;
+    expected.color_mode = SatViewColorMode::OrbitClass;
+    expected.track_display_mode = SatViewTrackDisplayMode::SelectedOnly;
+    expected.projection_mode = SatViewProjectionMode::Map;
+    expected.camera_pov = SatViewCameraPov::Moon;
+    expected.track_satellite_limit = 4096;
+    expected.track_sample_count = 256;
+    expected.refresh_tracks_each_step = true;
+    expected.marker_satellite_limit = 2048;
+    expected.time_speed = 120.0f;
+    expected.clouds_enabled = false;
+    expected.realistic_clouds_enabled = true;
+    expected.atmosphere_enabled = false;
+    expected.moon_enabled = true;
+    expected.moon_track_enabled = false;
+
+    store_satview_config(document, expected);
+
+    CHECK(load_satview_config(document) == expected);
+}
+
+TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
+{
+    ConfigDocument document;
+    toml::table& table = document.ensure_table("satview");
+    table.insert_or_assign("track_count", -10);
+    table.insert_or_assign("track_samples", 999);
+    table.insert_or_assign("marker_cap", 1234);
+    table.insert_or_assign("time_speed", 9000.0);
+    table.insert_or_assign("max_epoch_age_days", 45.0);
+
+    const SatViewConfig config = load_satview_config(document);
+
+    CHECK(config.track_satellite_limit == kDefaultTrackSatelliteLimit);
+    CHECK(config.track_sample_count == kMaximumTrackSampleCount);
+    CHECK(config.marker_satellite_limit == 0);
+    CHECK(config.time_speed == 3600.0f);
+    CHECK(config.filter.max_epoch_age_days == 30.0);
+}

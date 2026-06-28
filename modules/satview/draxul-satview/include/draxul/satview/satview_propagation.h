@@ -114,6 +114,8 @@ struct SatelliteOrbitTrack
     std::string classification_type;
     OrbitClass orbit_class = OrbitClass::Other;
     double minutes_since_epoch = 0.0;
+    double sample_center_unix_seconds = 0.0;
+    double sample_horizon_minutes = 0.0;
     std::vector<glm::dvec3> teme_points_km;
     std::vector<glm::dvec3> ecef_points_km;
     std::vector<glm::dvec3> render_teme_points_earth_radii;
@@ -160,5 +162,10 @@ struct SatellitePropagationResult
     const SatellitePropagationModel& model,
     double simulation_unix_seconds,
     const SatellitePropagationSettings& settings = {});
+[[nodiscard]] std::optional<SatelliteOrbitTrack> propagate_satellite_track(
+    const SatellitePropagationModel& model,
+    std::int64_t norad_catalog_id,
+    double simulation_unix_seconds,
+    std::size_t sample_count);
 
 } // namespace draxul::satview

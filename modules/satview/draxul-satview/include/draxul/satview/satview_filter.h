@@ -22,6 +22,8 @@ struct SatViewFilterState
 
     // Zero or negative disables the age filter.
     double max_epoch_age_days = 0.0;
+
+    bool operator==(const SatViewFilterState&) const = default;
 };
 
 struct SatViewFilterCandidate

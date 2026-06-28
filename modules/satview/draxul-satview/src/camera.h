@@ -109,6 +109,11 @@ public:
         return maxDistance;
     }
 
+    float GetMinDistance() const
+    {
+        return minDistance;
+    }
+
     void SetPositionAndFocalPoint(const glm::vec3& pos, const glm::vec3& point)
     {
         // From

@@ -1,5 +1,6 @@
 #include "satview_moon_ephemeris.h"
 
+#include <algorithm>
 #include <cmath>
 #include <draxul/satview/satview_propagation.h>
 #include <numbers>
@@ -112,6 +113,26 @@ SatViewMoonPosition satview_moon_position(double unix_seconds)
         equatorial_position_km,
         teme_position_to_render_earth_radii(equatorial_position_km),
     };
+}
+
+std::vector<glm::dvec3> satview_moon_orbit_track(
+    double center_unix_seconds,
+    std::size_t segment_count)
+{
+    segment_count = std::max<std::size_t>(3, segment_count);
+    std::vector<glm::dvec3> positions;
+    positions.reserve(segment_count);
+
+    const double start_seconds =
+        center_unix_seconds - 0.5 * kSatViewMoonSiderealPeriodSeconds;
+    for (std::size_t i = 0; i < segment_count; ++i)
+    {
+        const double fraction = static_cast<double>(i) / static_cast<double>(segment_count);
+        positions.push_back(satview_moon_position(
+            start_seconds + fraction * kSatViewMoonSiderealPeriodSeconds)
+                                .render_position_earth_radii);
+    }
+    return positions;
 }
 
 } // namespace draxul::satview

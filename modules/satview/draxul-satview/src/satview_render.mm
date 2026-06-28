@@ -436,46 +436,59 @@ void SatViewScenePass::record(IRenderContext& ctx)
     [encoder setFragmentTexture:state_->moon_texture.get() atIndex:4];
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
 
-    if (!map_projection_ && moon_enabled_ && moon_position_radius_.w > 0.0f)
+    if (map_projection_)
     {
-        SatViewFrameUniforms moon_frame = frame_;
-        moon_frame.camera_orientation = moon_position_radius_;
-        [encoder setRenderPipelineState:state_->moon_pipeline.get()];
-        [encoder setVertexBytes:&moon_frame length:sizeof(moon_frame) atIndex:0];
-        [encoder setFragmentBytes:&moon_frame length:sizeof(moon_frame) atIndex:0];
+        [encoder setRenderPipelineState:moon_map_projection_
+                ? state_->moon_pipeline.get()
+                : state_->earth_pipeline.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
-                    vertexCount:kSatViewSphereVertexCount];
+                    vertexCount:6];
     }
-
-    [encoder setRenderPipelineState:state_->earth_pipeline.get()];
-    [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
-    [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
-    const NSUInteger earth_vertex_count = map_projection_ ? 6 : kSatViewSphereVertexCount;
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                vertexStart:0
-                vertexCount:earth_vertex_count];
-
-    if (!map_projection_ && frame_.sun_dir_time.w > 0.5f)
+    else
     {
-        [encoder setRenderPipelineState:state_->cloud_pipeline.get()];
-        [encoder setDepthStencilState:state_->depth_read_state.get()];
+        if (moon_enabled_ && moon_position_radius_.w > 0.0f)
+        {
+            SatViewFrameUniforms moon_frame = frame_;
+            moon_frame.camera_orientation = moon_position_radius_;
+            [encoder setRenderPipelineState:state_->moon_pipeline.get()];
+            [encoder setVertexBytes:&moon_frame length:sizeof(moon_frame) atIndex:0];
+            [encoder setFragmentBytes:&moon_frame length:sizeof(moon_frame) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:kSatViewSphereVertexCount];
+        }
+
+        [encoder setRenderPipelineState:state_->earth_pipeline.get()];
         [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
         [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
                     vertexCount:kSatViewSphereVertexCount];
-    }
 
-    if (!map_projection_ && atmosphere_enabled_)
-    {
-        [encoder setRenderPipelineState:state_->atmosphere_pipeline.get()];
-        [encoder setDepthStencilState:state_->depth_read_state.get()];
-        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                    vertexStart:0
-                    vertexCount:kSatViewSphereVertexCount];
+        if (frame_.sun_dir_time.w > 0.5f)
+        {
+            [encoder setRenderPipelineState:state_->cloud_pipeline.get()];
+            [encoder setDepthStencilState:state_->depth_read_state.get()];
+            [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:kSatViewSphereVertexCount];
+        }
+
+        if (atmosphere_enabled_)
+        {
+            [encoder setRenderPipelineState:state_->atmosphere_pipeline.get()];
+            [encoder setDepthStencilState:state_->depth_read_state.get()];
+            [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:kSatViewSphereVertexCount];
+        }
     }
 
     if (state_->track_vertex_count != 0 && state_->track_vertex_buffer.get())
@@ -488,7 +501,7 @@ void SatViewScenePass::record(IRenderContext& ctx)
             for (int copy = -1; copy <= 1; ++copy)
             {
                 SatViewFrameUniforms track_frame = frame_;
-                track_frame.camera_pos.x = static_cast<float>(copy * 2);
+                track_frame.camera_orientation.w = static_cast<float>(copy * 2);
                 [encoder setVertexBytes:&track_frame length:sizeof(track_frame) atIndex:0];
                 [encoder drawPrimitives:MTLPrimitiveTypeLine
                             vertexStart:0

@@ -51,6 +51,33 @@ glm::dvec3 ecef_to_map_local(const glm::dvec3& position, glm::dvec2 center)
         glm::dot(position, north_axis));
 }
 
+glm::dvec3 render_to_lunar_body(
+    const glm::dvec3& render_position,
+    const glm::dvec3& moon_position)
+{
+    constexpr glm::dvec3 kLunarNorthPoleRender(
+        0.39812155,
+        0.91733267,
+        0.00003544);
+    const double moon_distance = glm::length(moon_position);
+    if (moon_distance <= 0.0)
+        return render_position;
+
+    const glm::dvec3 far_axis = moon_position / moon_distance;
+    const glm::dvec3 north_axis = glm::normalize(
+        kLunarNorthPoleRender
+        - far_axis * glm::dot(kLunarNorthPoleRender, far_axis));
+    const glm::dvec3 local_x_axis = glm::normalize(glm::cross(north_axis, far_axis));
+    const glm::dvec3 moon_relative = render_position - moon_position;
+
+    // Lunar longitude zero faces Earth. The texture's positive-longitude
+    // direction is opposite the sphere mesh's local X axis.
+    return glm::dvec3(
+        glm::dot(moon_relative, -far_axis),
+        glm::dot(moon_relative, -local_x_axis),
+        glm::dot(moon_relative, north_axis));
+}
+
 glm::vec2 map_position_from_cartesian(const glm::dvec3& position)
 {
     const double radius = glm::length(position);
@@ -67,14 +94,20 @@ glm::vec2 map_position_from_cartesian(const glm::dvec3& position)
 glm::vec2 satview_map_position_from_teme(
     const glm::dvec3& teme_position,
     double unix_seconds,
-    glm::vec2 center_radians)
+    glm::vec2 center_radians,
+    SatViewMapBody body,
+    const glm::dvec3& moon_render_position_earth_radii)
 {
     center_radians = normalized_satview_map_center(center_radians);
-    const glm::dvec3 ecef_position = teme_to_ecef(
-        teme_position,
-        greenwich_sidereal_angle_radians(unix_seconds));
+    const glm::dvec3 body_position = body == SatViewMapBody::Moon
+        ? render_to_lunar_body(
+              teme_position_to_render_earth_radii(teme_position),
+              moon_render_position_earth_radii)
+        : teme_to_ecef(
+              teme_position,
+              greenwich_sidereal_angle_radians(unix_seconds));
     return map_position_from_cartesian(ecef_to_map_local(
-        ecef_position,
+        body_position,
         glm::dvec2(center_radians)));
 }
 

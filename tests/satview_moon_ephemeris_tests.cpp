@@ -13,6 +13,8 @@ namespace
 
 using Catch::Matchers::WithinAbs;
 using draxul::satview::kSatViewEarthEquatorialRadiusKm;
+using draxul::satview::solar_direction_render;
+using draxul::satview::satview_moon_orbit_track;
 using draxul::satview::satview_moon_position;
 
 TEST_CASE("SatView Moon ephemeris agrees with a JPL Horizons reference vector", "[satview][moon]")
@@ -46,6 +48,38 @@ TEST_CASE("SatView Moon render position uses Earth-radius scene units", "[satvie
             1.0e-10));
     CHECK(glm::length(moon.render_position_earth_radii) > 55.0);
     CHECK(glm::length(moon.render_position_earth_radii) < 65.0);
+}
+
+TEST_CASE("SatView Moon orbit track spans a lunar cycle around its center time", "[satview][moon][track]")
+{
+    constexpr double kCenterSeconds = 1710936000.0;
+    constexpr std::size_t kSegments = 48;
+    const auto track = satview_moon_orbit_track(kCenterSeconds, kSegments);
+
+    REQUIRE(track.size() == kSegments);
+    const glm::dvec3 center_position =
+        satview_moon_position(kCenterSeconds).render_position_earth_radii;
+    CHECK(glm::length(track[kSegments / 2] - center_position) < 1.0e-10);
+    for (const glm::dvec3& position : track)
+    {
+        CHECK(glm::length(position) > 55.0);
+        CHECK(glm::length(position) < 65.0);
+    }
+}
+
+TEST_CASE("SatView Moon phase follows the observer side", "[satview][moon][lighting]")
+{
+    constexpr double kJune28NoonUtc = 1782648000.0;
+    const glm::dvec3 moon =
+        satview_moon_position(kJune28NoonUtc).render_position_earth_radii;
+    const glm::dvec3 sun = solar_direction_render(kJune28NoonUtc);
+    const auto illuminated_fraction = [&](const glm::dvec3& observer) {
+        const glm::dvec3 observer_direction = glm::normalize(observer - moon);
+        return 0.5 * (1.0 + glm::dot(observer_direction, sun));
+    };
+
+    CHECK(illuminated_fraction(glm::dvec3(0.0)) > 0.97);
+    CHECK(illuminated_fraction(moon * 2.0) < 0.03);
 }
 
 } // namespace

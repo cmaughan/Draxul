@@ -9,6 +9,8 @@ using draxul::satview::SatViewSimulationControls;
 using draxul::satview::SatViewSimulationWorker;
 using draxul::satview::SatViewSnapshotExchange;
 using draxul::satview::parse_celestrak_gp_json;
+using draxul::satview::satview_snapshot_render_seconds;
+using draxul::satview::satview_selected_track_needs_refresh;
 
 namespace
 {
@@ -50,6 +52,32 @@ bool wait_for_snapshot(SatViewSimulationWorker& worker, Predicate&& predicate, s
 }
 
 } // namespace
+
+TEST_CASE("SatView snapshot render time stays inside its position bracket", "[satview][simulation]")
+{
+    const auto now = std::chrono::steady_clock::now();
+    SatViewSimulationSnapshot snapshot;
+    snapshot.simulation_seconds = 100.0;
+    snapshot.next_simulation_seconds = 101.0;
+    snapshot.produced_at = now - std::chrono::seconds(2);
+    snapshot.time_speed = 60.0f;
+
+    CHECK(satview_snapshot_render_seconds(snapshot, now) == 101.0);
+
+    snapshot.paused = true;
+    CHECK(satview_snapshot_render_seconds(snapshot, now) == 100.0);
+}
+
+TEST_CASE("SatView selected track refreshes within its sampled time window", "[satview][simulation]")
+{
+    draxul::satview::SatelliteOrbitTrack track;
+    track.sample_center_unix_seconds = 1000.0;
+    track.sample_horizon_minutes = 120.0;
+
+    CHECK_FALSE(satview_selected_track_needs_refresh(track, 1000.0 + 29.0 * 60.0));
+    CHECK(satview_selected_track_needs_refresh(track, 1000.0 + 30.0 * 60.0));
+    CHECK(satview_selected_track_needs_refresh(track, 1000.0 - 30.0 * 60.0));
+}
 
 TEST_CASE("SatView snapshot exchange publishes coherent snapshots", "[satview][simulation]")
 {
@@ -134,7 +162,7 @@ TEST_CASE("SatView worker caches tracks until geometry settings change", "[satvi
     REQUIRE(stable_snapshot);
     CHECK(stable_snapshot->tracks == initial_tracks);
 
-    worker.set_render_settings(1, 24, std::nullopt);
+    worker.set_render_settings(1, 24, false, std::nullopt);
     REQUIRE(wait_for_snapshot(worker, [&](const SatViewSimulationSnapshot& snapshot) {
         return snapshot.tracks && snapshot.tracks != initial_tracks
             && !snapshot.tracks->empty()
@@ -147,5 +175,73 @@ TEST_CASE("SatView worker caches tracks until geometry settings change", "[satvi
         return snapshot.time_speed == 1.0f && !snapshot.paused
             && snapshot.simulation_seconds >= kResetTime
             && snapshot.simulation_seconds < kResetTime + 1.0;
+    }, std::chrono::seconds(2)));
+}
+
+TEST_CASE("SatView worker recenters the selected orbit track", "[satview][simulation]")
+{
+    auto parsed = parse_celestrak_gp_json(kWorkerTestCatalog, "test", "test");
+    REQUIRE(parsed);
+
+    SatViewSimulationControls controls;
+    controls.time_speed = 1.0f;
+    controls.track_satellite_limit = 1;
+    controls.track_sample_count = 12;
+    controls.selected_track_norad_catalog_id = 5;
+    SatViewSimulationWorker worker;
+    worker.start(962132419.733568, controls);
+    worker.set_catalog(std::move(parsed.catalog), 1);
+
+    std::shared_ptr<const std::vector<draxul::satview::SatelliteOrbitTrack>> initial_tracks;
+    double initial_center = 0.0;
+    double horizon_seconds = 0.0;
+    REQUIRE(wait_for_snapshot(worker, [&](const SatViewSimulationSnapshot& snapshot) {
+        if (!snapshot.tracks || snapshot.tracks->empty())
+            return false;
+        initial_tracks = snapshot.tracks;
+        initial_center = snapshot.tracks->front().sample_center_unix_seconds;
+        horizon_seconds = snapshot.tracks->front().sample_horizon_minutes * 60.0;
+        return horizon_seconds > 0.0;
+    }, std::chrono::seconds(2)));
+
+    const double advanced_time = initial_center + horizon_seconds * 0.3;
+    worker.set_clock(advanced_time, 1.0f, false);
+    REQUIRE(wait_for_snapshot(worker, [&](const SatViewSimulationSnapshot& snapshot) {
+        return snapshot.tracks
+            && snapshot.tracks != initial_tracks
+            && !snapshot.tracks->empty()
+            && snapshot.tracks->front().sample_center_unix_seconds >= advanced_time;
+    }, std::chrono::seconds(2)));
+}
+
+TEST_CASE("SatView worker can rebuild tracks every simulation step", "[satview][simulation]")
+{
+    auto parsed = parse_celestrak_gp_json(kWorkerTestCatalog, "test", "test");
+    REQUIRE(parsed);
+
+    SatViewSimulationControls controls;
+    controls.track_satellite_limit = 1;
+    controls.track_sample_count = 12;
+    controls.refresh_tracks_each_step = true;
+    SatViewSimulationWorker worker;
+    worker.start(962132419.733568, controls);
+    worker.set_catalog(std::move(parsed.catalog), 1);
+
+    std::shared_ptr<const std::vector<draxul::satview::SatelliteOrbitTrack>> initial_tracks;
+    std::uint64_t initial_generation = 0;
+    REQUIRE(wait_for_snapshot(worker, [&](const SatViewSimulationSnapshot& snapshot) {
+        if (!snapshot.tracks || snapshot.tracks->empty())
+            return false;
+        CHECK(snapshot.tracks->front().sample_center_unix_seconds
+            == snapshot.simulation_seconds);
+        initial_tracks = snapshot.tracks;
+        initial_generation = snapshot.generation;
+        return true;
+    }, std::chrono::seconds(2)));
+
+    REQUIRE(wait_for_snapshot(worker, [&](const SatViewSimulationSnapshot& snapshot) {
+        return snapshot.generation > initial_generation
+            && snapshot.tracks
+            && snapshot.tracks != initial_tracks;
     }, std::chrono::seconds(2)));
 }

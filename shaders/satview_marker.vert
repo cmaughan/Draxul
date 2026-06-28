@@ -16,6 +16,10 @@ layout(location = 2) in vec4 in_color;
 layout(location = 0) out vec4 out_color;
 
 const float PI = 3.14159265358979323846;
+const vec3 LUNAR_NORTH_POLE_RENDER = vec3(
+    0.39812155,
+    0.91733267,
+    0.00003544);
 
 vec3 rotate_by_quaternion(vec3 value, vec4 quaternion)
 {
@@ -55,6 +59,20 @@ vec3 ecef_to_map_local(vec3 ecef, vec2 center)
         dot(ecef, north_axis));
 }
 
+vec3 render_to_lunar_body(vec3 render_position)
+{
+    vec3 far_axis = normalize(push.camera_pos.xyz);
+    vec3 north_axis = normalize(
+        LUNAR_NORTH_POLE_RENDER
+        - far_axis * dot(LUNAR_NORTH_POLE_RENDER, far_axis));
+    vec3 local_x_axis = normalize(cross(north_axis, far_axis));
+    vec3 moon_relative = render_position - push.camera_pos.xyz;
+    return vec3(
+        dot(moon_relative, -far_axis),
+        dot(moon_relative, -local_x_axis),
+        dot(moon_relative, north_axis));
+}
+
 void main()
 {
     int segment = gl_VertexIndex / 2;
@@ -70,8 +88,10 @@ void main()
 
     if (push.camera_pos.w < 0.0)
     {
-        vec3 ecef = render_teme_to_ecef(center, push.render_params.z);
-        vec3 local = ecef_to_map_local(ecef, push.camera_orientation.xy);
+        vec3 body_position = push.camera_orientation.z > 0.5
+            ? render_to_lunar_body(center)
+            : render_teme_to_ecef(center, push.render_params.z);
+        vec3 local = ecef_to_map_local(body_position, push.camera_orientation.xy);
         float radius = max(length(local), 0.000001);
         float longitude = atan(local.y, local.x);
         float latitude = asin(clamp(local.z / radius, -1.0, 1.0));

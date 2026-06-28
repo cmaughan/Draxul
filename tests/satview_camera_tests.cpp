@@ -113,6 +113,8 @@ TEST_CASE("SatView quaternion camera keeps dolly inside scene bounds", "[satview
 {
     Camera camera;
     camera.SetDistanceLimits(2.0f, 12.0f);
+    CHECK(camera.GetMinDistance() == Approx(2.0f));
+    CHECK(camera.GetMaxDistance() == Approx(12.0f));
     camera.SetPositionAndFocalPoint(glm::vec3(0.0f, 0.0f, 4.0f), glm::vec3(0.0f));
 
     camera.Dolly(100.0f);

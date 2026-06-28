@@ -39,6 +39,10 @@ struct SatViewMarkerInstance
 };
 
 constant float kPi = 3.14159265358979323846f;
+constant float3 kLunarNorthPoleRender = float3(
+    0.39812155f,
+    0.91733267f,
+    0.00003544f);
 
 static float3 render_teme_to_ecef(float3 render_position, float sidereal_angle)
 {
@@ -101,12 +105,33 @@ static float3 map_local_to_ecef(float3 local, float2 center)
     return local.x * center_axis + local.y * east_axis + local.z * north_axis;
 }
 
-static float2 map_position_from_render_teme(
+static float3 render_to_lunar_body(
     float3 render_position,
     constant SatViewFrameUniforms& frame)
 {
-    float3 ecef = render_teme_to_ecef(render_position, frame.render_params.z);
-    float3 local = ecef_to_map_local(ecef, frame.camera_orientation.xy);
+    float3 far_axis = normalize(frame.camera_pos.xyz);
+    float3 north_axis = normalize(
+        kLunarNorthPoleRender
+        - far_axis * dot(kLunarNorthPoleRender, far_axis));
+    float3 local_x_axis = normalize(cross(north_axis, far_axis));
+    float3 moon_relative = render_position - frame.camera_pos.xyz;
+    return float3(
+        dot(moon_relative, -far_axis),
+        dot(moon_relative, -local_x_axis),
+        dot(moon_relative, north_axis));
+}
+
+static float2 map_position_from_render_teme(
+    float3 render_position,
+    constant SatViewFrameUniforms& frame,
+    bool earth_fixed)
+{
+    float3 body_position = frame.camera_orientation.z > 0.5f
+        ? render_to_lunar_body(render_position, frame)
+        : earth_fixed
+            ? render_position
+            : render_teme_to_ecef(render_position, frame.render_params.z);
+    float3 local = ecef_to_map_local(body_position, frame.camera_orientation.xy);
     float radius = max(length(local), 0.000001f);
     return float2(
         atan2(local.y, local.x) / kPi,
@@ -226,15 +251,11 @@ fragment float4 satview_earth_fragment(
     return float4(color, 1.0f);
 }
 
-constant float3 kLunarNorthPoleRender = float3(
-    0.39812155f,
-    0.91733267f,
-    0.00003544f);
-
 vertex SatViewVertexOut satview_moon_vertex(
     uint vertex_id [[vertex_id]],
     constant SatViewFrameUniforms& frame [[buffer(0)]])
 {
+    bool map_projection = frame.camera_pos.w < 0.0f;
     uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
     uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
     uint tri_vertex = vertex_id % 6u;
@@ -243,14 +264,21 @@ vertex SatViewVertexOut satview_moon_vertex(
     uint lat = quad / lon_bands;
 
     float2 corner = quad_corner(tri_vertex);
-    float u = (float(lon) + corner.x) / float(lon_bands);
-    float v = (float(lat) + corner.y) / float(lat_bands);
+    float u = map_projection
+        ? corner.x
+        : (float(lon) + corner.x) / float(lon_bands);
+    float v = map_projection
+        ? corner.y
+        : (float(lat) + corner.y) / float(lat_bands);
     float theta = u * 2.0f * kPi;
     float phi = mix(-0.5f * kPi, 0.5f * kPi, v);
     float cp = cos(phi);
     float3 local_normal = float3(cp * sin(theta), sin(phi), cp * cos(theta));
 
-    float3 far_axis = normalize(frame.camera_orientation.xyz);
+    float3 moon_position = map_projection
+        ? frame.camera_pos.xyz
+        : frame.camera_orientation.xyz;
+    float3 far_axis = normalize(moon_position);
     float3 north_axis = normalize(
         kLunarNorthPoleRender
         - far_axis * dot(kLunarNorthPoleRender, far_axis));
@@ -259,10 +287,12 @@ vertex SatViewVertexOut satview_moon_vertex(
         local_x_axis * local_normal.x
         + north_axis * local_normal.y
         + far_axis * local_normal.z);
-    float3 world = frame.camera_orientation.xyz + normal * frame.camera_orientation.w;
+    float3 world = moon_position + normal * frame.camera_orientation.w;
 
     SatViewVertexOut out;
-    out.position = frame.view_proj * float4(world, 1.0f);
+    out.position = map_projection
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        : frame.view_proj * float4(world, 1.0f);
     out.normal = normal;
     out.world = world;
     out.uv = float2(u, v);
@@ -275,11 +305,40 @@ fragment float4 satview_moon_fragment(
     texture2d<float> moon_tex [[texture(4)]],
     sampler moon_sampler [[sampler(0)]])
 {
+    bool map_projection = frame.camera_pos.w < 0.0f;
     float2 uv = float2(fract(in.uv.x), 1.0f - clamp(in.uv.y, 0.0f, 1.0f));
-    float3 surface = moon_tex.sample(moon_sampler, uv).rgb;
     float3 normal = normalize(in.normal);
+    float3 moon_position = map_projection
+        ? frame.camera_pos.xyz
+        : frame.camera_orientation.xyz;
+    if (map_projection)
+    {
+        float map_longitude = (in.uv.x - 0.5f) * 2.0f * kPi;
+        float map_latitude = mix(-0.5f * kPi, 0.5f * kPi, in.uv.y);
+        float cp = cos(map_latitude);
+        float3 map_local = float3(
+            cp * cos(map_longitude),
+            cp * sin(map_longitude),
+            sin(map_latitude));
+        float3 body = map_local_to_ecef(map_local, frame.camera_orientation.xy);
+        float3 far_axis = normalize(moon_position);
+        float3 north_axis = normalize(
+            kLunarNorthPoleRender
+            - far_axis * dot(kLunarNorthPoleRender, far_axis));
+        float3 local_x_axis = normalize(cross(north_axis, far_axis));
+        normal = normalize(
+            -far_axis * body.x
+            - local_x_axis * body.y
+            + north_axis * body.z);
+        float longitude = atan2(body.y, body.x);
+        float latitude = asin(clamp(body.z, -1.0f, 1.0f));
+        uv = float2(
+            fract(longitude / (2.0f * kPi) + 0.5f),
+            0.5f - latitude / kPi);
+    }
+    float3 surface = moon_tex.sample(moon_sampler, uv).rgb;
     float3 sunlight_direction = normalize(frame.sun_dir_time.xyz);
-    float3 earth_direction = -normalize(frame.camera_orientation.xyz);
+    float3 earth_direction = -normalize(moon_position);
     float diffuse = max(dot(normal, sunlight_direction), 0.0f);
     float earth_phase = 0.5f * (1.0f - dot(earth_direction, sunlight_direction));
     float earthshine = max(dot(normal, earth_direction), 0.0f) * earth_phase * 0.055f;
@@ -535,8 +594,9 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     SatViewSceneVertex vertex = vertices[vertex_id];
     if (frame.camera_pos.w < 0.0f)
     {
-        float2 projected = map_position_from_render_teme(vertex.position.xyz, frame);
-        float2 paired = map_position_from_render_teme(vertex.paired_position.xyz, frame);
+        bool earth_fixed = abs(vertex.position.w) > 1.5f;
+        float2 projected = map_position_from_render_teme(vertex.position.xyz, frame, earth_fixed);
+        float2 paired = map_position_from_render_teme(vertex.paired_position.xyz, frame, earth_fixed);
         if (vertex.position.w > 0.0f)
         {
             float delta = projected.x - paired.x;
@@ -545,7 +605,7 @@ vertex SatViewOrbitOut satview_orbit_vertex(
             else if (delta < -1.0f)
                 projected.x += 2.0f;
         }
-        projected.x += frame.camera_pos.x;
+        projected.x += frame.camera_orientation.w;
         out.position = frame.view_proj * float4(projected, 0.4f, 1.0f);
     }
     else
@@ -582,7 +642,7 @@ vertex SatViewOrbitOut satview_marker_vertex(
         out.color.a = 0.0f;
     if (frame.camera_pos.w < 0.0f)
     {
-        float2 map_center = map_position_from_render_teme(center, frame);
+        float2 map_center = map_position_from_render_teme(center, frame, false);
         float x_scale = abs(frame.camera_pos.w);
         float2 map_axis = segment == 0u ? float2(x_scale, 0.0f)
             : segment == 1u ? float2(0.0f, 1.0f)

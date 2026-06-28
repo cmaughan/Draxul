@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <iterator>
 #include <utility>
 
 namespace draxul::satview
@@ -26,6 +28,39 @@ std::string make_status_text(const SatViewSimulationSnapshot& snapshot)
 }
 
 } // namespace
+
+double satview_snapshot_render_seconds(
+    const SatViewSimulationSnapshot& snapshot,
+    std::chrono::steady_clock::time_point now)
+{
+    if (snapshot.paused || snapshot.next_simulation_seconds <= snapshot.simulation_seconds)
+        return snapshot.simulation_seconds;
+
+    const auto elapsed = std::chrono::duration<double>(now - snapshot.produced_at).count();
+    const double predicted = snapshot.simulation_seconds
+        + std::max(0.0, elapsed) * static_cast<double>(snapshot.time_speed);
+    return std::clamp(
+        predicted,
+        snapshot.simulation_seconds,
+        snapshot.next_simulation_seconds);
+}
+
+bool satview_selected_track_needs_refresh(
+    const SatelliteOrbitTrack& track,
+    double simulation_seconds)
+{
+    constexpr double kRefreshWindowFraction = 0.25;
+    if (!std::isfinite(simulation_seconds)
+        || !std::isfinite(track.sample_center_unix_seconds)
+        || track.sample_horizon_minutes <= 0.0)
+    {
+        return false;
+    }
+    const double refresh_interval_seconds = track.sample_horizon_minutes
+        * 60.0 * kRefreshWindowFraction;
+    return std::abs(simulation_seconds - track.sample_center_unix_seconds)
+        >= refresh_interval_seconds;
+}
 
 SatViewSnapshotExchange::ReadGuard::ReadGuard(const Slot* slot, const SatViewSimulationSnapshot* snapshot)
     : slot_(slot)
@@ -189,18 +224,21 @@ void SatViewSimulationWorker::set_clock(double simulation_seconds, float time_sp
 void SatViewSimulationWorker::set_render_settings(
     std::size_t track_satellite_limit,
     std::size_t track_sample_count,
+    bool refresh_tracks_each_step,
     std::optional<std::int64_t> selected_track_norad_catalog_id)
 {
     {
         std::lock_guard lock(mutex_);
         if (controls_.track_satellite_limit == track_satellite_limit
             && controls_.track_sample_count == track_sample_count
+            && controls_.refresh_tracks_each_step == refresh_tracks_each_step
             && controls_.selected_track_norad_catalog_id == selected_track_norad_catalog_id)
         {
             return;
         }
         controls_.track_satellite_limit = track_satellite_limit;
         controls_.track_sample_count = track_sample_count;
+        controls_.refresh_tracks_each_step = refresh_tracks_each_step;
         controls_.selected_track_norad_catalog_id = selected_track_norad_catalog_id;
         settings_dirty_ = true;
     }
@@ -291,6 +329,7 @@ void SatViewSimulationWorker::run_loop()
         }
 
         const auto now = Clock::now();
+        auto position_sample_time = now;
         if (have_catalog)
         {
             auto build = build_satellite_propagation_model(catalog);
@@ -322,7 +361,7 @@ void SatViewSimulationWorker::run_loop()
             continue;
         }
 
-        const bool rebuild_tracks = force_tracks || settings_changed;
+        const bool rebuild_tracks = force_tracks || settings_changed || controls.refresh_tracks_each_step;
 
         SatellitePropagationSettings propagation_settings;
         propagation_settings.track_sample_count = rebuild_tracks ? controls.track_sample_count : 0;
@@ -330,6 +369,51 @@ void SatViewSimulationWorker::run_loop()
         propagation_settings.selected_track_norad_catalog_id = controls.selected_track_norad_catalog_id;
 
         SatellitePropagationResult result = propagate_satellites(model, simulation_seconds, propagation_settings);
+        if (result && rebuild_tracks)
+        {
+            cached_tracks = std::make_shared<const std::vector<SatelliteOrbitTrack>>(std::move(result.tracks));
+            force_tracks = false;
+
+            if (!controls.refresh_tracks_each_step)
+            {
+                {
+                    std::lock_guard lock(mutex_);
+                    position_sample_time = Clock::now();
+                    controls.time_speed = controls_.time_speed;
+                    controls.paused = controls_.paused;
+                    simulation_seconds = current_simulation_seconds_locked(position_sample_time);
+                }
+
+                SatellitePropagationSettings position_settings;
+                result = propagate_satellites(model, simulation_seconds, position_settings);
+            }
+        }
+
+        if (result
+            && !rebuild_tracks
+            && controls.selected_track_norad_catalog_id.has_value())
+        {
+            const auto selected = std::ranges::find_if(*cached_tracks, [&](const SatelliteOrbitTrack& track) {
+                return track.norad_catalog_id == *controls.selected_track_norad_catalog_id;
+            });
+            if (selected != cached_tracks->end()
+                && satview_selected_track_needs_refresh(*selected, simulation_seconds))
+            {
+                auto refreshed = propagate_satellite_track(
+                    model,
+                    *controls.selected_track_norad_catalog_id,
+                    simulation_seconds,
+                    controls.track_sample_count);
+                if (refreshed.has_value())
+                {
+                    auto updated_tracks = std::make_shared<std::vector<SatelliteOrbitTrack>>(*cached_tracks);
+                    const std::size_t selected_index = static_cast<std::size_t>(
+                        std::distance(cached_tracks->begin(), selected));
+                    (*updated_tracks)[selected_index] = std::move(*refreshed);
+                    cached_tracks = std::move(updated_tracks);
+                }
+            }
+        }
         const double next_simulation_seconds = controls.paused
             ? simulation_seconds
             : simulation_seconds + std::chrono::duration<double>(kPositionTick).count()
@@ -341,18 +425,12 @@ void SatViewSimulationWorker::run_loop()
             next_settings.max_satellites = propagation_settings.max_satellites;
             next_result = propagate_satellites(model, next_simulation_seconds, next_settings);
         }
-        if (result && rebuild_tracks)
-        {
-            cached_tracks = std::make_shared<const std::vector<SatelliteOrbitTrack>>(std::move(result.tracks));
-            force_tracks = false;
-        }
-
         SatViewSimulationSnapshot snapshot;
         snapshot.generation = ++snapshot_generation;
         snapshot.catalog_generation = model_catalog_generation;
         snapshot.simulation_seconds = simulation_seconds;
         snapshot.next_simulation_seconds = next_simulation_seconds;
-        snapshot.produced_at = now;
+        snapshot.produced_at = position_sample_time;
         snapshot.time_speed = controls.time_speed;
         snapshot.paused = controls.paused;
         snapshot.source_label = std::string(model.source_label());

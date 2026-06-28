@@ -1045,34 +1045,45 @@ void SatViewScenePass::record(IRenderContext& ctx)
     VkCommandBuffer cmd = vk_ctx->command_buffer();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->layout,
         0, 1, &state_->descriptor_set, 0, nullptr);
-    if (!map_projection_ && moon_enabled_ && moon_position_radius_.w > 0.0f)
+    if (map_projection_)
     {
-        SatViewFrameUniforms moon_frame = frame;
-        moon_frame.camera_orientation = moon_position_radius_;
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->moon_pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            moon_map_projection_ ? state_->moon_pipeline : state_->earth_pipeline);
         vkCmdPushConstants(cmd, state_->layout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            0, sizeof(SatViewFrameUniforms), &moon_frame);
-        vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+            0, sizeof(SatViewFrameUniforms), &frame);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
     }
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->earth_pipeline);
-    vkCmdPushConstants(cmd, state_->layout,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        0, sizeof(SatViewFrameUniforms), &frame);
-    const uint32_t earth_vertex_count = map_projection_ ? 6 : kSatViewSphereVertexCount;
-    vkCmdDraw(cmd, earth_vertex_count, 1, 0, 0);
-
-    if (!map_projection_ && frame.sun_dir_time.w > 0.5f)
+    else
     {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->cloud_pipeline);
-        vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
-    }
+        if (moon_enabled_ && moon_position_radius_.w > 0.0f)
+        {
+            SatViewFrameUniforms moon_frame = frame;
+            moon_frame.camera_orientation = moon_position_radius_;
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->moon_pipeline);
+            vkCmdPushConstants(cmd, state_->layout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(SatViewFrameUniforms), &moon_frame);
+            vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+        }
 
-    if (!map_projection_ && atmosphere_enabled_)
-    {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->atmosphere_pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->earth_pipeline);
+        vkCmdPushConstants(cmd, state_->layout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, sizeof(SatViewFrameUniforms), &frame);
         vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+
+        if (frame.sun_dir_time.w > 0.5f)
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->cloud_pipeline);
+            vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+        }
+
+        if (atmosphere_enabled_)
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->atmosphere_pipeline);
+            vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+        }
     }
 
     if (state_->track_vertex_count != 0 && state_->track_vertex_buffer.buffer != VK_NULL_HANDLE)
@@ -1085,7 +1096,7 @@ void SatViewScenePass::record(IRenderContext& ctx)
             for (int copy = -1; copy <= 1; ++copy)
             {
                 SatViewFrameUniforms track_frame = frame;
-                track_frame.camera_pos.x = static_cast<float>(copy * 2);
+                track_frame.camera_orientation.w = static_cast<float>(copy * 2);
                 vkCmdPushConstants(cmd, state_->layout,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                     0, sizeof(SatViewFrameUniforms), &track_frame);

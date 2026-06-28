@@ -3,7 +3,9 @@
 #include <draxul/satview/satview_catalog.h>
 #include <draxul/satview/satview_propagation.h>
 #include <glm/geometric.hpp>
+#include <algorithm>
 #include <cmath>
+#include <numbers>
 
 using Catch::Approx;
 using draxul::satview::SatellitePropagationSettings;
@@ -52,6 +54,27 @@ void check_vec3(
     CHECK(actual.x == Approx(x).margin(margin));
     CHECK(actual.y == Approx(y).margin(margin));
     CHECK(actual.z == Approx(z).margin(margin));
+}
+
+double unwrapped_longitude_span(const std::vector<glm::dvec3>& points)
+{
+    if (points.empty())
+        return 0.0;
+
+    constexpr double kTwoPi = 2.0 * std::numbers::pi_v<double>;
+    double previous = std::atan2(points.front().y, points.front().x);
+    double unwrapped = previous;
+    double minimum = unwrapped;
+    double maximum = unwrapped;
+    for (std::size_t i = 1; i < points.size(); ++i)
+    {
+        const double longitude = std::atan2(points[i].y, points[i].x);
+        unwrapped += std::remainder(longitude - previous, kTwoPi);
+        previous = longitude;
+        minimum = std::min(minimum, unwrapped);
+        maximum = std::max(maximum, unwrapped);
+    }
+    return maximum - minimum;
 }
 
 } // namespace
@@ -181,7 +204,7 @@ TEST_CASE("SatView propagation generates configurable track samples", "[satview]
         1.0e-12);
 }
 
-TEST_CASE("SatView propagation includes selected track outside general track cap", "[satview][propagation]")
+TEST_CASE("SatView propagation prioritizes selection within the track cap", "[satview][propagation]")
 {
     const std::string json = R"json([
       {
@@ -237,8 +260,122 @@ TEST_CASE("SatView propagation includes selected track outside general track cap
     auto result = propagate_satellites(build.model, epoch_seconds, settings);
 
     REQUIRE(result);
-    REQUIRE(result.tracks.size() == 2);
-    CHECK(result.tracks[0].norad_catalog_id == 5);
-    CHECK(result.tracks[1].norad_catalog_id == 6);
-    CHECK(result.tracks[1].ecef_points_km.size() == 8);
+    REQUIRE(result.tracks.size() == 1);
+    CHECK(result.tracks[0].norad_catalog_id == 6);
+    CHECK(result.tracks[0].ecef_points_km.size() == 8);
+}
+
+TEST_CASE("SatView QZSS samples form a regional Earth ground track", "[satview][propagation][map]")
+{
+    const std::string json = R"json([
+      {
+        "OBJECT_NAME": "QZS-4 (MICHIBIKI-4)",
+        "OBJECT_ID": "2017-062A",
+        "EPOCH": "2026-06-27T07:59:15.491616",
+        "MEAN_MOTION": 1.00296711,
+        "ECCENTRICITY": 0.07467153,
+        "INCLINATION": 40.1035,
+        "RA_OF_ASC_NODE": 343.3559,
+        "ARG_OF_PERICENTER": 268.2655,
+        "MEAN_ANOMALY": 281.5675,
+        "EPHEMERIS_TYPE": 0,
+        "CLASSIFICATION_TYPE": "U",
+        "NORAD_CAT_ID": 42965,
+        "ELEMENT_SET_NO": 999,
+        "REV_AT_EPOCH": 3190,
+        "BSTAR": 0.0,
+        "MEAN_MOTION_DOT": -0.0000035,
+        "MEAN_MOTION_DDOT": 0.0
+      }
+    ])json";
+    const auto catalog = parse_celestrak_gp_json(json, "qzss", "test");
+    REQUIRE(catalog);
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    REQUIRE(build);
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 128;
+    settings.track_satellite_limit = 1;
+    const double epoch_seconds = *parse_celestrak_epoch_utc("2026-06-27T07:59:15.491616");
+    const auto result = propagate_satellites(build.model, epoch_seconds, settings);
+
+    REQUIRE(result);
+    REQUIRE(result.tracks.size() == 1);
+    const auto& track = result.tracks.front();
+    REQUIRE(track.ecef_points_km.size() == 128);
+    const double ground_track_longitude_span = unwrapped_longitude_span(track.ecef_points_km);
+    const double inertial_longitude_span = unwrapped_longitude_span(track.teme_points_km);
+    INFO("ground span radians: " << ground_track_longitude_span);
+    INFO("inertial span radians: " << inertial_longitude_span);
+    CHECK(ground_track_longitude_span < 1.2);
+    CHECK(inertial_longitude_span > 5.5);
+}
+
+TEST_CASE("SatView USA 99 ground track exposes its drifting time window", "[satview][propagation][map]")
+{
+    const std::string json = R"json([
+      {
+        "OBJECT_NAME": "USA 99 (MILSTAR-1 1)",
+        "OBJECT_ID": "1994-009A",
+        "EPOCH": "2026-06-27T10:32:54.826944",
+        "MEAN_MOTION": 0.98723407,
+        "ECCENTRICITY": 0.00006439,
+        "INCLINATION": 17.6416,
+        "RA_OF_ASC_NODE": 27.5995,
+        "ARG_OF_PERICENTER": 191.4747,
+        "MEAN_ANOMALY": 162.5297,
+        "EPHEMERIS_TYPE": 0,
+        "CLASSIFICATION_TYPE": "U",
+        "NORAD_CAT_ID": 22988,
+        "ELEMENT_SET_NO": 999,
+        "REV_AT_EPOCH": 3304,
+        "BSTAR": 0.0,
+        "MEAN_MOTION_DOT": -0.00000186,
+        "MEAN_MOTION_DDOT": 0.0
+      }
+    ])json";
+    const auto catalog = parse_celestrak_gp_json(json, "usa-99", "test");
+    REQUIRE(catalog);
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    REQUIRE(build);
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 128;
+    settings.track_satellite_limit = 1;
+    const double epoch_seconds = *parse_celestrak_epoch_utc("2026-06-27T10:32:54.826944");
+    const auto initial = propagate_satellites(build.model, epoch_seconds, settings);
+    REQUIRE(initial);
+    REQUIRE(initial.tracks.size() == 1);
+    const auto& track = initial.tracks.front();
+    REQUIRE(track.ecef_points_km.size() == 128);
+    CHECK(track.sample_center_unix_seconds == Approx(epoch_seconds));
+    CHECK(track.sample_horizon_minutes == Approx(1440.0 / 0.98723407).margin(0.01));
+
+    const double first_longitude = std::atan2(
+        track.ecef_points_km.front().y,
+        track.ecef_points_km.front().x);
+    const double last_longitude = std::atan2(
+        track.ecef_points_km.back().y,
+        track.ecef_points_km.back().x);
+    const double endpoint_drift = std::abs(std::remainder(
+        last_longitude - first_longitude,
+        2.0 * std::numbers::pi_v<double>));
+    double maximum_segment_longitude_step = 0.0;
+    for (std::size_t i = 1; i < track.ecef_points_km.size(); ++i)
+    {
+        const double previous = std::atan2(
+            track.ecef_points_km[i - 1].y,
+            track.ecef_points_km[i - 1].x);
+        const double current = std::atan2(
+            track.ecef_points_km[i].y,
+            track.ecef_points_km[i].x);
+        maximum_segment_longitude_step = std::max(
+            maximum_segment_longitude_step,
+            std::abs(std::remainder(current - previous, 2.0 * std::numbers::pi_v<double>)));
+    }
+    INFO("USA 99 endpoint drift radians: " << endpoint_drift);
+    INFO("USA 99 maximum segment longitude step: " << maximum_segment_longitude_step);
+    CHECK(endpoint_drift > 0.05);
+    CHECK(endpoint_drift < 0.15);
+    CHECK(maximum_segment_longitude_step < 0.1);
 }

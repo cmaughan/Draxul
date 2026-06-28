@@ -36,6 +36,7 @@ vec2 quad_corner(int vertex)
 
 void main()
 {
+    bool map_projection = push.camera_pos.w < 0.0;
     int lat_bands = max(1, int(push.render_params.x + 0.5));
     int lon_bands = max(1, int(push.render_params.y + 0.5));
     int tri_vertex = gl_VertexIndex % 6;
@@ -44,14 +45,21 @@ void main()
     int lat = quad / lon_bands;
 
     vec2 corner = quad_corner(tri_vertex);
-    float u = (float(lon) + corner.x) / float(lon_bands);
-    float v = (float(lat) + corner.y) / float(lat_bands);
+    float u = map_projection
+        ? corner.x
+        : (float(lon) + corner.x) / float(lon_bands);
+    float v = map_projection
+        ? corner.y
+        : (float(lat) + corner.y) / float(lat_bands);
     float theta = u * 2.0 * PI;
     float phi = mix(-0.5 * PI, 0.5 * PI, v);
     float cp = cos(phi);
     vec3 local_normal = vec3(cp * sin(theta), sin(phi), cp * cos(theta));
 
-    vec3 far_axis = normalize(push.camera_orientation.xyz);
+    vec3 moon_position = map_projection
+        ? push.camera_pos.xyz
+        : push.camera_orientation.xyz;
+    vec3 far_axis = normalize(moon_position);
     vec3 north_axis = normalize(
         LUNAR_NORTH_POLE_RENDER
         - far_axis * dot(LUNAR_NORTH_POLE_RENDER, far_axis));
@@ -60,10 +68,12 @@ void main()
         local_x_axis * local_normal.x
         + north_axis * local_normal.y
         + far_axis * local_normal.z);
-    vec3 world = push.camera_orientation.xyz + normal * push.camera_orientation.w;
+    vec3 world = moon_position + normal * push.camera_orientation.w;
 
     out_normal = normal;
     out_world = world;
     out_uv = vec2(u, v);
-    gl_Position = push.view_proj * vec4(world, 1.0);
+    gl_Position = map_projection
+        ? push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.8, 1.0)
+        : push.view_proj * vec4(world, 1.0);
 }

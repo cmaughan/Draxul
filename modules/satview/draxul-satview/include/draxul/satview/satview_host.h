@@ -3,6 +3,7 @@
 #include <chrono>
 #include <draxul/host.h>
 #include <draxul/satview/satview_catalog_service.h>
+#include <draxul/satview/satview_config.h>
 #include <draxul/satview/satview_filter.h>
 #include <draxul/satview/satview_propagation.h>
 #include <memory>
@@ -27,31 +28,6 @@ class SatViewCloudService;
 class Camera;
 class Manipulator;
 struct SatViewSimulationSnapshot;
-
-enum class SatViewColorMode
-{
-    NamePrefix,
-    OrbitClass,
-    ObjectType
-};
-
-enum class SatViewTrackDisplayMode
-{
-    AllSampled,
-    SelectedOnly
-};
-
-enum class SatViewProjectionMode
-{
-    Globe,
-    Map
-};
-
-enum class SatViewCameraPov
-{
-    Earth,
-    Moon
-};
 
 class SatViewHost final : public draxul::IHost
 {
@@ -101,6 +77,9 @@ private:
     void invalidate_track_buffer();
     void invalidate_marker_buffer();
     void invalidate_visual_buffers();
+    [[nodiscard]] SatViewConfig current_config() const;
+    void apply_config(const SatViewConfig& config);
+    void persist_config();
     void sync_simulation_controls();
     void sync_simulation_render_settings();
     void set_real_time();
@@ -117,6 +96,7 @@ private:
     void select_nearest_satellite(const glm::ivec2& screen_pos);
 
     draxul::IHostCallbacks* callbacks_ = nullptr;
+    draxul::ConfigDocument* config_document_ = nullptr;
     draxul::HostViewport viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
     SatViewCatalogService catalog_service_;
@@ -137,14 +117,16 @@ private:
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
     SatViewProjectionMode projection_mode_ = SatViewProjectionMode::Globe;
     SatViewCameraPov camera_pov_ = SatViewCameraPov::Earth;
-    std::size_t track_satellite_limit_ = 256;
-    std::size_t track_sample_count_ = 48;
+    std::size_t track_satellite_limit_ = kDefaultTrackSatelliteLimit;
+    std::size_t track_sample_count_ = kDefaultTrackSampleCount;
+    bool refresh_tracks_each_step_ = false;
     std::size_t marker_satellite_limit_ = 0;
     bool running_ = false;
     bool paused_ = false;
     bool dragging_ = false;
     bool pending_click_ = false;
     bool show_ui_panel_ = true;
+    bool config_dirty_ = false;
     bool simulation_settings_dirty_ = false;
     bool continuous_refresh_enabled_ = false;
     bool track_buffer_dirty_ = true;
@@ -153,7 +135,9 @@ private:
     bool realistic_clouds_enabled_ = false;
     bool atmosphere_enabled_ = true;
     bool moon_enabled_ = true;
+    bool moon_track_enabled_ = true;
     const void* uploaded_track_source_ = nullptr;
+    std::optional<double> moon_track_center_seconds_;
     std::uint64_t uploaded_marker_generation_ = 0;
     std::uint64_t object_tree_catalog_generation_ = 0;
     std::size_t object_tree_state_count_ = 0;

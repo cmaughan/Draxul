@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <draxul/satview/satview_catalog.h>
+#include <draxul/satview/satview_config.h>
 #include <draxul/satview/satview_propagation.h>
 #include <memory>
 #include <mutex>
@@ -22,8 +23,9 @@ struct SatViewSimulationControls
 {
     float time_speed = 60.0f;
     bool paused = false;
-    std::size_t track_satellite_limit = 256;
-    std::size_t track_sample_count = 48;
+    std::size_t track_satellite_limit = kDefaultTrackSatelliteLimit;
+    std::size_t track_sample_count = kDefaultTrackSampleCount;
+    bool refresh_tracks_each_step = false;
     std::optional<std::int64_t> selected_track_norad_catalog_id;
 };
 
@@ -46,6 +48,13 @@ struct SatViewSimulationSnapshot
     std::size_t failed_propagations = 0;
     std::string error;
 };
+
+[[nodiscard]] double satview_snapshot_render_seconds(
+    const SatViewSimulationSnapshot& snapshot,
+    std::chrono::steady_clock::time_point now);
+[[nodiscard]] bool satview_selected_track_needs_refresh(
+    const SatelliteOrbitTrack& track,
+    double simulation_seconds);
 
 class SatViewSnapshotExchange
 {
@@ -112,6 +121,7 @@ public:
     void set_render_settings(
         std::size_t track_satellite_limit,
         std::size_t track_sample_count,
+        bool refresh_tracks_each_step,
         std::optional<std::int64_t> selected_track_norad_catalog_id);
 
     [[nodiscard]] SatViewSnapshotExchange::ReadGuard acquire_latest() const;

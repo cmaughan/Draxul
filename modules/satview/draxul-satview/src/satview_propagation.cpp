@@ -308,6 +308,7 @@ void append_track_samples(
     track.classification_type = entry.classification_type;
     track.orbit_class = entry.orbit_class;
     track.minutes_since_epoch = (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0;
+    track.sample_center_unix_seconds = simulation_unix_seconds;
     track.teme_points_km.reserve(settings.track_sample_count);
     track.ecef_points_km.reserve(settings.track_sample_count);
     track.render_teme_points_earth_radii.reserve(settings.track_sample_count);
@@ -319,6 +320,7 @@ void append_track_samples(
     const double horizon_minutes = settings.track_horizon_minutes > 0.0
         ? settings.track_horizon_minutes
         : std::max(1.0, entry.period_minutes);
+    track.sample_horizon_minutes = horizon_minutes;
     const double center_minutes = horizon_minutes * 0.5;
     const double divisor = settings.track_sample_count > 1
         ? static_cast<double>(settings.track_sample_count - 1)
@@ -559,8 +561,25 @@ SatellitePropagationResult propagate_satellites(
     const std::size_t track_count = settings.track_sample_count == 0
         ? 0
         : limited_count(count, settings.track_satellite_limit);
-    result.tracks.reserve(track_count + (settings.selected_track_norad_catalog_id.has_value() ? 1 : 0));
-    for (std::size_t i = 0; i < track_count; ++i)
+    std::optional<std::size_t> selected_track_index;
+    if (track_count != 0 && settings.selected_track_norad_catalog_id.has_value())
+    {
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (entries[i].norad_catalog_id == *settings.selected_track_norad_catalog_id)
+            {
+                selected_track_index = i;
+                break;
+            }
+        }
+    }
+
+    const bool selected_outside_track_budget = selected_track_index.has_value()
+        && *selected_track_index >= track_count;
+    const std::size_t general_track_count = track_count
+        - (selected_outside_track_budget ? 1 : 0);
+    result.tracks.reserve(track_count);
+    for (std::size_t i = 0; i < general_track_count; ++i)
     {
         SatelliteOrbitTrack track;
         append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
@@ -568,22 +587,43 @@ SatellitePropagationResult propagate_satellites(
             result.tracks.push_back(std::move(track));
     }
 
-    if (settings.track_sample_count != 0 && settings.selected_track_norad_catalog_id.has_value())
+    if (selected_outside_track_budget)
     {
-        for (std::size_t i = track_count; i < count; ++i)
-        {
-            if (entries[i].norad_catalog_id != *settings.selected_track_norad_catalog_id)
-                continue;
-
-            SatelliteOrbitTrack track;
-            append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
-            if (!track.ecef_points_km.empty())
-                result.tracks.push_back(std::move(track));
-            break;
-        }
+        const std::size_t i = *selected_track_index;
+        SatelliteOrbitTrack track;
+        append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
+        if (!track.ecef_points_km.empty())
+            result.tracks.push_back(std::move(track));
     }
 
     return result;
+}
+
+std::optional<SatelliteOrbitTrack> propagate_satellite_track(
+    const SatellitePropagationModel& model,
+    std::int64_t norad_catalog_id,
+    double simulation_unix_seconds,
+    std::size_t sample_count)
+{
+    if (!std::isfinite(simulation_unix_seconds) || sample_count == 0)
+        return std::nullopt;
+
+    const auto& entries = model.entries();
+    const auto& orbits = SatellitePropagationRunnerAccess::orbits(model);
+    for (std::size_t i = 0; i < entries.size(); ++i)
+    {
+        if (entries[i].norad_catalog_id != norad_catalog_id)
+            continue;
+
+        SatellitePropagationSettings settings;
+        settings.track_sample_count = sample_count;
+        SatelliteOrbitTrack track;
+        append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
+        if (track.ecef_points_km.empty())
+            return std::nullopt;
+        return track;
+    }
+    return std::nullopt;
 }
 
 } // namespace draxul::satview
