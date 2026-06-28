@@ -21,9 +21,10 @@ namespace
 {
 
 constexpr size_t kEarthTextureCount = 3;
-constexpr uint32_t kEarthSamplerCount = 4;
+constexpr uint32_t kSatViewSamplerCount = 5;
 constexpr uint32_t kBundledCloudTextureIndex = 2;
 constexpr uint32_t kLiveCloudTextureBinding = 3;
+constexpr uint32_t kMoonTextureBinding = 4;
 
 struct BufferResource
 {
@@ -445,11 +446,13 @@ struct SatViewScenePass::State
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     VkPipeline earth_pipeline = VK_NULL_HANDLE;
+    VkPipeline moon_pipeline = VK_NULL_HANDLE;
     VkPipeline cloud_pipeline = VK_NULL_HANDLE;
     VkPipeline atmosphere_pipeline = VK_NULL_HANDLE;
     VkPipeline orbit_pipeline = VK_NULL_HANDLE;
     VkPipeline marker_pipeline = VK_NULL_HANDLE;
     std::array<TextureResource, kEarthTextureCount> earth_textures{};
+    TextureResource moon_texture;
     TextureResource live_cloud_texture;
     BufferResource track_vertex_buffer;
     BufferResource marker_buffer;
@@ -470,6 +473,8 @@ struct SatViewScenePass::State
         {
             if (earth_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, earth_pipeline, nullptr);
+            if (moon_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, moon_pipeline, nullptr);
             if (cloud_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, cloud_pipeline, nullptr);
             if (atmosphere_pipeline != VK_NULL_HANDLE)
@@ -480,6 +485,7 @@ struct SatViewScenePass::State
                 vkDestroyPipeline(device, marker_pipeline, nullptr);
         }
         earth_pipeline = VK_NULL_HANDLE;
+        moon_pipeline = VK_NULL_HANDLE;
         cloud_pipeline = VK_NULL_HANDLE;
         atmosphere_pipeline = VK_NULL_HANDLE;
         orbit_pipeline = VK_NULL_HANDLE;
@@ -501,6 +507,7 @@ struct SatViewScenePass::State
             {
                 for (auto& texture : earth_textures)
                     destroy_texture(device, allocator, texture);
+                destroy_texture(device, allocator, moon_texture);
                 destroy_texture(device, allocator, live_cloud_texture);
                 destroy_buffer(allocator, track_vertex_buffer);
                 destroy_buffer(allocator, marker_buffer);
@@ -545,9 +552,16 @@ struct SatViewScenePass::State
             destroy();
             return false;
         }
+        const LoadedTextureImage moon_image = load_moon_texture_image();
+        if (!create_texture_immediate(ctx, moon_image, moon_texture))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to upload Moon texture");
+            destroy();
+            return false;
+        }
 
-        VkDescriptorSetLayoutBinding bindings[kEarthSamplerCount]{};
-        for (uint32_t index = 0; index < kEarthSamplerCount; ++index)
+        VkDescriptorSetLayoutBinding bindings[kSatViewSamplerCount]{};
+        for (uint32_t index = 0; index < kSatViewSamplerCount; ++index)
         {
             bindings[index].binding = index;
             bindings[index].descriptorCount = 1;
@@ -584,7 +598,7 @@ struct SatViewScenePass::State
 
         VkDescriptorPoolSize pool_size{};
         pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_size.descriptorCount = kEarthSamplerCount;
+        pool_size.descriptorCount = kSatViewSamplerCount;
 
         VkDescriptorPoolCreateInfo pool_ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_ci.maxSets = 1;
@@ -608,13 +622,15 @@ struct SatViewScenePass::State
             return false;
         }
 
-        std::array<VkDescriptorImageInfo, kEarthSamplerCount> image_infos{};
-        std::array<VkWriteDescriptorSet, kEarthSamplerCount> writes{};
-        for (uint32_t index = 0; index < kEarthSamplerCount; ++index)
+        std::array<VkDescriptorImageInfo, kSatViewSamplerCount> image_infos{};
+        std::array<VkWriteDescriptorSet, kSatViewSamplerCount> writes{};
+        for (uint32_t index = 0; index < kSatViewSamplerCount; ++index)
         {
-            const TextureResource& texture = index == kLiveCloudTextureBinding
-                ? earth_textures[kBundledCloudTextureIndex]
-                : earth_textures[index];
+            const TextureResource& texture = index == kMoonTextureBinding
+                ? moon_texture
+                : (index == kLiveCloudTextureBinding
+                        ? earth_textures[kBundledCloudTextureIndex]
+                        : earth_textures[index]);
             image_infos[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             image_infos[index].imageView = texture.view;
             image_infos[index].sampler = texture.sampler;
@@ -731,7 +747,8 @@ struct SatViewScenePass::State
 
     bool ensure_pipelines(VkDevice new_device, VkRenderPass new_render_pass)
     {
-        if (earth_pipeline != VK_NULL_HANDLE && cloud_pipeline != VK_NULL_HANDLE
+        if (earth_pipeline != VK_NULL_HANDLE && moon_pipeline != VK_NULL_HANDLE
+            && cloud_pipeline != VK_NULL_HANDLE
             && atmosphere_pipeline != VK_NULL_HANDLE
             && orbit_pipeline != VK_NULL_HANDLE
             && device == new_device && render_pass == new_render_pass)
@@ -746,6 +763,8 @@ struct SatViewScenePass::State
         const auto shader_dir = bundled_asset_path("shaders");
         VkShaderModule vert = load_shader(device, (shader_dir / "satview_earth.vert.spv").string());
         VkShaderModule frag = load_shader(device, (shader_dir / "satview_earth.frag.spv").string());
+        VkShaderModule moon_vert = load_shader(device, (shader_dir / "satview_moon.vert.spv").string());
+        VkShaderModule moon_frag = load_shader(device, (shader_dir / "satview_moon.frag.spv").string());
         VkShaderModule cloud_vert = load_shader(device, (shader_dir / "satview_cloud.vert.spv").string());
         VkShaderModule cloud_frag = load_shader(device, (shader_dir / "satview_cloud.frag.spv").string());
         VkShaderModule atmosphere_vert =
@@ -756,6 +775,7 @@ struct SatViewScenePass::State
         VkShaderModule marker_vert = load_shader(device, (shader_dir / "satview_marker.vert.spv").string(), false);
         VkShaderModule orbit_frag = load_shader(device, (shader_dir / "satview_orbit.frag.spv").string());
         if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE
+            || moon_vert == VK_NULL_HANDLE || moon_frag == VK_NULL_HANDLE
             || cloud_vert == VK_NULL_HANDLE || cloud_frag == VK_NULL_HANDLE
             || atmosphere_vert == VK_NULL_HANDLE || atmosphere_frag == VK_NULL_HANDLE
             || orbit_vert == VK_NULL_HANDLE || orbit_frag == VK_NULL_HANDLE)
@@ -764,6 +784,10 @@ struct SatViewScenePass::State
                 vkDestroyShaderModule(device, vert, nullptr);
             if (frag != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, frag, nullptr);
+            if (moon_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, moon_vert, nullptr);
+            if (moon_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, moon_frag, nullptr);
             if (cloud_vert != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, cloud_vert, nullptr);
             if (cloud_frag != VK_NULL_HANDLE)
@@ -843,6 +867,13 @@ struct SatViewScenePass::State
         pipeline_ci.subpass = 0;
 
         VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &earth_pipeline);
+        if (result == VK_SUCCESS)
+        {
+            stages[0].module = moon_vert;
+            stages[1].module = moon_frag;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &moon_pipeline);
+        }
         if (result == VK_SUCCESS)
         {
             stages[0].module = cloud_vert;
@@ -945,6 +976,8 @@ struct SatViewScenePass::State
 
         vkDestroyShaderModule(device, vert, nullptr);
         vkDestroyShaderModule(device, frag, nullptr);
+        vkDestroyShaderModule(device, moon_vert, nullptr);
+        vkDestroyShaderModule(device, moon_frag, nullptr);
         vkDestroyShaderModule(device, cloud_vert, nullptr);
         vkDestroyShaderModule(device, cloud_frag, nullptr);
         vkDestroyShaderModule(device, atmosphere_vert, nullptr);
@@ -1010,12 +1043,23 @@ void SatViewScenePass::record(IRenderContext& ctx)
     frame.view_proj = make_satview_vulkan_clip_matrix(frame.view_proj);
 
     VkCommandBuffer cmd = vk_ctx->command_buffer();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->layout,
+        0, 1, &state_->descriptor_set, 0, nullptr);
+    if (!map_projection_ && moon_enabled_ && moon_position_radius_.w > 0.0f)
+    {
+        SatViewFrameUniforms moon_frame = frame;
+        moon_frame.camera_orientation = moon_position_radius_;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->moon_pipeline);
+        vkCmdPushConstants(cmd, state_->layout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, sizeof(SatViewFrameUniforms), &moon_frame);
+        vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+    }
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->earth_pipeline);
     vkCmdPushConstants(cmd, state_->layout,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
         0, sizeof(SatViewFrameUniforms), &frame);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->layout,
-        0, 1, &state_->descriptor_set, 0, nullptr);
     const uint32_t earth_vertex_count = map_projection_ ? 6 : kSatViewSphereVertexCount;
     vkCmdDraw(cmd, earth_vertex_count, 1, 0, 0);
 

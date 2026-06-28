@@ -226,12 +226,74 @@ fragment float4 satview_earth_fragment(
     return float4(color, 1.0f);
 }
 
+constant float3 kLunarNorthPoleRender = float3(
+    0.39812155f,
+    0.91733267f,
+    0.00003544f);
+
+vertex SatViewVertexOut satview_moon_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
+    uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
+    uint tri_vertex = vertex_id % 6u;
+    uint quad = vertex_id / 6u;
+    uint lon = quad % lon_bands;
+    uint lat = quad / lon_bands;
+
+    float2 corner = quad_corner(tri_vertex);
+    float u = (float(lon) + corner.x) / float(lon_bands);
+    float v = (float(lat) + corner.y) / float(lat_bands);
+    float theta = u * 2.0f * kPi;
+    float phi = mix(-0.5f * kPi, 0.5f * kPi, v);
+    float cp = cos(phi);
+    float3 local_normal = float3(cp * sin(theta), sin(phi), cp * cos(theta));
+
+    float3 far_axis = normalize(frame.camera_orientation.xyz);
+    float3 north_axis = normalize(
+        kLunarNorthPoleRender
+        - far_axis * dot(kLunarNorthPoleRender, far_axis));
+    float3 local_x_axis = normalize(cross(north_axis, far_axis));
+    float3 normal = normalize(
+        local_x_axis * local_normal.x
+        + north_axis * local_normal.y
+        + far_axis * local_normal.z);
+    float3 world = frame.camera_orientation.xyz + normal * frame.camera_orientation.w;
+
+    SatViewVertexOut out;
+    out.position = frame.view_proj * float4(world, 1.0f);
+    out.normal = normal;
+    out.world = world;
+    out.uv = float2(u, v);
+    return out;
+}
+
+fragment float4 satview_moon_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> moon_tex [[texture(4)]],
+    sampler moon_sampler [[sampler(0)]])
+{
+    float2 uv = float2(fract(in.uv.x), 1.0f - clamp(in.uv.y, 0.0f, 1.0f));
+    float3 surface = moon_tex.sample(moon_sampler, uv).rgb;
+    float3 normal = normalize(in.normal);
+    float3 sunlight_direction = normalize(frame.sun_dir_time.xyz);
+    float3 earth_direction = -normalize(frame.camera_orientation.xyz);
+    float diffuse = max(dot(normal, sunlight_direction), 0.0f);
+    float earth_phase = 0.5f * (1.0f - dot(earth_direction, sunlight_direction));
+    float earthshine = max(dot(normal, earth_direction), 0.0f) * earth_phase * 0.055f;
+    float illumination = 0.006f + diffuse * 1.12f + earthshine;
+    return float4(surface * illumination, 1.0f);
+}
+
 constant float kCloudRadius = 1.0015f;
 
 vertex SatViewVertexOut satview_cloud_vertex(
     uint vertex_id [[vertex_id]],
     constant SatViewFrameUniforms& frame [[buffer(0)]])
 {
+    bool map_projection = frame.camera_pos.w < 0.0f;
     uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
     uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
     uint tri_vertex = vertex_id % 6u;

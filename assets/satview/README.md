@@ -20,6 +20,23 @@ Attribution:
 Earth texture maps by Solar System Scope, based on NASA elevation and imagery
 data, used under CC BY 4.0.
 
+## Moon Texture
+
+`textures/moon_lroc_8k.jpg` is an 8192x4096 high-quality JPEG conversion of
+NASA Scientific Visualization Studio's `lroc_color_poles_8k.tif` from the CGI
+Moon Kit:
+
+https://svs.gsfc.nasa.gov/4720/
+
+The map is centered on 0 degrees longitude and was adapted from the Lunar
+Reconnaissance Orbiter Camera Hapke-normalized WAC color mosaic assembled from
+more than 100,000 Wide Angle Camera images. The source TIFF was converted to
+JPEG quality 93 without resizing.
+
+Credit: NASA's Scientific Visualization Studio; Ernie Wright (USRA),
+visualizer; Noah Petro (NASA/GSFC), scientist; LROC WAC data from the Lunar
+Reconnaissance Orbiter Camera team at Arizona State University.
+
 ## Live Cloud Map
 
 At runtime SatView asynchronously downloads the latest 8192x4096 greyscale

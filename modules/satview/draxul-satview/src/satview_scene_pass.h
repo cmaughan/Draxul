@@ -73,6 +73,12 @@ public:
         map_projection_ = enabled;
     }
 
+    void set_moon(glm::vec4 position_radius, bool enabled)
+    {
+        moon_position_radius_ = position_radius;
+        moon_enabled_ = enabled;
+    }
+
     void set_track_vertices(std::span<const SatViewSceneVertex> vertices)
     {
         if (vertices.empty() && track_vertices_.empty())
@@ -110,7 +116,9 @@ private:
     uint64_t marker_revision_ = 0;
     std::shared_ptr<const LoadedTextureImage> pending_cloud_image_;
     uint64_t cloud_revision_ = 0;
+    glm::vec4 moon_position_radius_{ 0.0f };
     bool atmosphere_enabled_ = true;
+    bool moon_enabled_ = true;
     bool map_projection_ = false;
     std::unique_ptr<State> state_;
 };

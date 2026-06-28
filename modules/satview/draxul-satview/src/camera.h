@@ -129,6 +129,18 @@ public:
         ClampDistance();
     }
 
+    void SetFocalPointAndDistance(const glm::vec3& point, float distance)
+    {
+        focalPoint = point;
+        position = focalPoint - viewDirection * std::max(0.0001f, distance);
+        ClampDistance();
+    }
+
+    void SetFocalPoint(const glm::vec3& point)
+    {
+        SetFocalPointAndDistance(point, GetDistance());
+    }
+
     void SetFilmSize(float width, float height)
     {
         filmWidth = width;

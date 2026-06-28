@@ -87,4 +87,14 @@ EarthTextureImages load_earth_texture_images()
     return images;
 }
 
+LoadedTextureImage load_moon_texture_image()
+{
+    PERF_MEASURE();
+    LoadedTextureImage image =
+        load_rgba8_image_impl(resolve_satview_asset_path("textures/moon_lroc_8k.jpg"));
+    if (!image.valid())
+        image = make_solid_rgba8(118, 118, 116, 255);
+    return image;
+}
+
 } // namespace draxul::satview

@@ -65,6 +65,28 @@ TEST_CASE("SatView quaternion camera preserves its orbit convention", "[satview]
     CHECK(glm::dot(camera.GetViewDirection(), camera.GetUp()) == Approx(0.0f).margin(0.0001f));
 }
 
+TEST_CASE("SatView quaternion camera retargets without changing its view frame", "[satview][camera]")
+{
+    Camera camera;
+    camera.SetDistanceLimits(0.25f, 200.0f);
+    camera.SetPositionAndFocalPoint(glm::vec3(2.0f, 1.0f, 4.0f), glm::vec3(0.0f));
+    const glm::quat orientation = camera.GetOrientation();
+    const glm::vec3 view_direction = camera.GetViewDirection();
+
+    const glm::vec3 moon_target(20.0f, 8.0f, -54.0f);
+    camera.SetFocalPointAndDistance(moon_target, 1.25f);
+
+    check_vec3(camera.GetFocalPoint(), moon_target);
+    check_vec3(camera.GetViewDirection(), view_direction);
+    CHECK(std::abs(glm::dot(camera.GetOrientation(), orientation)) == Approx(1.0f));
+    CHECK(camera.GetDistance() == Approx(1.25f));
+    check_vec3(camera.GetPosition(), moon_target - view_direction * 1.25f);
+
+    camera.SetFocalPoint(moon_target + glm::vec3(1.0f, -2.0f, 3.0f));
+    CHECK(camera.GetDistance() == Approx(1.25f));
+    check_vec3(camera.GetViewDirection(), view_direction);
+}
+
 TEST_CASE("SatView manipulator maps mouse orbit and dolly deltas", "[satview][camera]")
 {
     auto manipulated_camera = std::make_shared<Camera>();

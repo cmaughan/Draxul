@@ -47,6 +47,12 @@ enum class SatViewProjectionMode
     Map
 };
 
+enum class SatViewCameraPov
+{
+    Earth,
+    Moon
+};
+
 class SatViewHost final : public draxul::IHost
 {
 public:
@@ -98,6 +104,7 @@ private:
     void sync_simulation_controls();
     void sync_simulation_render_settings();
     void set_real_time();
+    void set_camera_pov(SatViewCameraPov pov, double simulation_seconds);
     void reset_camera();
     void pan_map(glm::vec2 delta_radians);
     void rebuild_object_tree(const SatViewSimulationSnapshot* snapshot);
@@ -129,6 +136,7 @@ private:
     SatViewColorMode color_mode_ = SatViewColorMode::NamePrefix;
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
     SatViewProjectionMode projection_mode_ = SatViewProjectionMode::Globe;
+    SatViewCameraPov camera_pov_ = SatViewCameraPov::Earth;
     std::size_t track_satellite_limit_ = 256;
     std::size_t track_sample_count_ = 48;
     std::size_t marker_satellite_limit_ = 0;
@@ -144,6 +152,7 @@ private:
     bool clouds_enabled_ = true;
     bool realistic_clouds_enabled_ = false;
     bool atmosphere_enabled_ = true;
+    bool moon_enabled_ = true;
     const void* uploaded_track_source_ = nullptr;
     std::uint64_t uploaded_marker_generation_ = 0;
     std::uint64_t object_tree_catalog_generation_ = 0;
