@@ -33,6 +33,7 @@ struct EarthTextureImages
 };
 
 [[nodiscard]] std::filesystem::path resolve_satview_asset_path(const std::filesystem::path& relative_path);
+[[nodiscard]] LoadedTextureImage load_rgba8_image(const std::filesystem::path& path);
 [[nodiscard]] EarthTextureImages load_earth_texture_images();
 
 } // namespace draxul::satview

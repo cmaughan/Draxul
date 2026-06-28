@@ -4,8 +4,11 @@ if(APPLE)
     set(SATVIEW_SOURCES
         src/satview_catalog.cpp
         src/satview_catalog_service.cpp
+        src/satview_cloud_service.cpp
         src/satview_filter.cpp
+        src/satview_geodetic.cpp
         src/satview_host.cpp
+        src/satview_map_projection.cpp
         src/satview_propagation.cpp
         src/satview_simulation_worker.cpp
         src/satview_texture_assets.cpp
@@ -15,8 +18,11 @@ else()
     set(SATVIEW_SOURCES
         src/satview_catalog.cpp
         src/satview_catalog_service.cpp
+        src/satview_cloud_service.cpp
         src/satview_filter.cpp
+        src/satview_geodetic.cpp
         src/satview_host.cpp
+        src/satview_map_projection.cpp
         src/satview_propagation.cpp
         src/satview_simulation_worker.cpp
         src/satview_texture_assets.cpp

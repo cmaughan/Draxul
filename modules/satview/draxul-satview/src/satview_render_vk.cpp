@@ -21,6 +21,9 @@ namespace
 {
 
 constexpr size_t kEarthTextureCount = 3;
+constexpr uint32_t kEarthSamplerCount = 4;
+constexpr uint32_t kBundledCloudTextureIndex = 2;
+constexpr uint32_t kLiveCloudTextureBinding = 3;
 
 struct BufferResource
 {
@@ -207,11 +210,20 @@ void transition_texture(VkCommandBuffer cmd, VkImage image, VkImageLayout old_la
 
     VkPipelineStageFlags src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     VkPipelineStageFlags dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    if (old_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        src_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED
+        && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     {
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     }
-    else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+        && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
     {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -329,6 +341,98 @@ bool upload_textures_immediate(const VkRenderContext& ctx,
     return true;
 }
 
+bool upload_texture_immediate(const VkRenderContext& ctx,
+    const LoadedTextureImage& image,
+    TextureResource& texture,
+    VkImageLayout old_layout)
+{
+    PERF_MEASURE();
+    if (!image.valid() || texture.image == VK_NULL_HANDLE
+        || image.width != texture.width || image.height != texture.height
+        || ctx.graphics_queue() == VK_NULL_HANDLE)
+    {
+        return false;
+    }
+
+    VkDevice device = ctx.device();
+    VmaAllocator allocator = ctx.allocator();
+    BufferResource staging;
+    if (!create_staging_buffer(allocator, image, staging))
+        return false;
+
+    VkCommandPool command_pool = VK_NULL_HANDLE;
+    VkCommandPoolCreateInfo pool_ci{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    pool_ci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    pool_ci.queueFamilyIndex = ctx.graphics_queue_family();
+    if (vkCreateCommandPool(device, &pool_ci, nullptr, &command_pool) != VK_SUCCESS)
+    {
+        destroy_buffer(allocator, staging);
+        return false;
+    }
+
+    VkCommandBuffer upload_cmd = VK_NULL_HANDLE;
+    VkCommandBufferAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    alloc_info.commandPool = command_pool;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = 1;
+    VkResult result = vkAllocateCommandBuffers(device, &alloc_info, &upload_cmd);
+    if (result == VK_SUCCESS)
+    {
+        VkCommandBufferBeginInfo begin_info{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        result = vkBeginCommandBuffer(upload_cmd, &begin_info);
+    }
+    if (result == VK_SUCCESS)
+    {
+        transition_texture(upload_cmd, texture.image, old_layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        VkBufferImageCopy copy{};
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageExtent = {
+            static_cast<uint32_t>(image.width),
+            static_cast<uint32_t>(image.height),
+            1u
+        };
+        vkCmdCopyBufferToImage(upload_cmd, staging.buffer, texture.image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        transition_texture(upload_cmd, texture.image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        result = vkEndCommandBuffer(upload_cmd);
+    }
+    if (result == VK_SUCCESS)
+    {
+        VkSubmitInfo submit_info{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &upload_cmd;
+        result = vkQueueSubmit(ctx.graphics_queue(), 1, &submit_info, VK_NULL_HANDLE);
+    }
+    if (result == VK_SUCCESS)
+        result = vkQueueWaitIdle(ctx.graphics_queue());
+
+    vkDestroyCommandPool(device, command_pool, nullptr);
+    destroy_buffer(allocator, staging);
+    return result == VK_SUCCESS;
+}
+
+bool create_texture_immediate(
+    const VkRenderContext& ctx, const LoadedTextureImage& image, TextureResource& texture)
+{
+    if (!create_texture_resource(ctx.physical_device(), ctx.device(), ctx.allocator(), image, texture))
+        return false;
+    if (upload_texture_immediate(ctx, image, texture, VK_IMAGE_LAYOUT_UNDEFINED))
+        return true;
+    destroy_texture(ctx.device(), ctx.allocator(), texture);
+    return false;
+}
+
+bool update_texture_immediate(
+    const VkRenderContext& ctx, const LoadedTextureImage& image, TextureResource& texture)
+{
+    return upload_texture_immediate(
+        ctx, image, texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
 } // namespace
 
 struct SatViewScenePass::State
@@ -341,15 +445,19 @@ struct SatViewScenePass::State
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     VkPipeline earth_pipeline = VK_NULL_HANDLE;
+    VkPipeline cloud_pipeline = VK_NULL_HANDLE;
+    VkPipeline atmosphere_pipeline = VK_NULL_HANDLE;
     VkPipeline orbit_pipeline = VK_NULL_HANDLE;
     VkPipeline marker_pipeline = VK_NULL_HANDLE;
     std::array<TextureResource, kEarthTextureCount> earth_textures{};
+    TextureResource live_cloud_texture;
     BufferResource track_vertex_buffer;
     BufferResource marker_buffer;
     uint32_t track_vertex_count = 0;
     uint32_t marker_count = 0;
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
+    uint64_t uploaded_cloud_revision = 0;
 
     ~State()
     {
@@ -362,12 +470,18 @@ struct SatViewScenePass::State
         {
             if (earth_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, earth_pipeline, nullptr);
+            if (cloud_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, cloud_pipeline, nullptr);
+            if (atmosphere_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, atmosphere_pipeline, nullptr);
             if (orbit_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, orbit_pipeline, nullptr);
             if (marker_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, marker_pipeline, nullptr);
         }
         earth_pipeline = VK_NULL_HANDLE;
+        cloud_pipeline = VK_NULL_HANDLE;
+        atmosphere_pipeline = VK_NULL_HANDLE;
         orbit_pipeline = VK_NULL_HANDLE;
         marker_pipeline = VK_NULL_HANDLE;
     }
@@ -387,6 +501,7 @@ struct SatViewScenePass::State
             {
                 for (auto& texture : earth_textures)
                     destroy_texture(device, allocator, texture);
+                destroy_texture(device, allocator, live_cloud_texture);
                 destroy_buffer(allocator, track_vertex_buffer);
                 destroy_buffer(allocator, marker_buffer);
             }
@@ -402,6 +517,7 @@ struct SatViewScenePass::State
         marker_count = 0;
         uploaded_track_revision = 0;
         uploaded_marker_revision = 0;
+        uploaded_cloud_revision = 0;
     }
 
     bool ensure_texture_descriptors(const VkRenderContext& ctx)
@@ -430,8 +546,8 @@ struct SatViewScenePass::State
             return false;
         }
 
-        VkDescriptorSetLayoutBinding bindings[kEarthTextureCount]{};
-        for (uint32_t index = 0; index < kEarthTextureCount; ++index)
+        VkDescriptorSetLayoutBinding bindings[kEarthSamplerCount]{};
+        for (uint32_t index = 0; index < kEarthSamplerCount; ++index)
         {
             bindings[index].binding = index;
             bindings[index].descriptorCount = 1;
@@ -468,7 +584,7 @@ struct SatViewScenePass::State
 
         VkDescriptorPoolSize pool_size{};
         pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_size.descriptorCount = static_cast<uint32_t>(kEarthTextureCount);
+        pool_size.descriptorCount = kEarthSamplerCount;
 
         VkDescriptorPoolCreateInfo pool_ci{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         pool_ci.maxSets = 1;
@@ -492,13 +608,16 @@ struct SatViewScenePass::State
             return false;
         }
 
-        std::array<VkDescriptorImageInfo, kEarthTextureCount> image_infos{};
-        std::array<VkWriteDescriptorSet, kEarthTextureCount> writes{};
-        for (uint32_t index = 0; index < kEarthTextureCount; ++index)
+        std::array<VkDescriptorImageInfo, kEarthSamplerCount> image_infos{};
+        std::array<VkWriteDescriptorSet, kEarthSamplerCount> writes{};
+        for (uint32_t index = 0; index < kEarthSamplerCount; ++index)
         {
+            const TextureResource& texture = index == kLiveCloudTextureBinding
+                ? earth_textures[kBundledCloudTextureIndex]
+                : earth_textures[index];
             image_infos[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_infos[index].imageView = earth_textures[index].view;
-            image_infos[index].sampler = earth_textures[index].sampler;
+            image_infos[index].imageView = texture.view;
+            image_infos[index].sampler = texture.sampler;
 
             writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[index].dstSet = descriptor_set;
@@ -508,6 +627,45 @@ struct SatViewScenePass::State
             writes[index].pImageInfo = &image_infos[index];
         }
         vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        return true;
+    }
+
+    bool ensure_cloud_texture(
+        const VkRenderContext& ctx, const LoadedTextureImage& image, uint64_t revision)
+    {
+        if (revision == uploaded_cloud_revision)
+            return true;
+
+        bool uploaded = false;
+        if (live_cloud_texture.image == VK_NULL_HANDLE
+            || image.width != live_cloud_texture.width
+            || image.height != live_cloud_texture.height)
+        {
+            destroy_texture(ctx.device(), ctx.allocator(), live_cloud_texture);
+            uploaded = create_texture_immediate(ctx, image, live_cloud_texture);
+        }
+        else
+        {
+            uploaded = update_texture_immediate(ctx, image, live_cloud_texture);
+        }
+        if (!uploaded)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to upload live cloud texture");
+            return false;
+        }
+
+        VkDescriptorImageInfo image_info{};
+        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info.imageView = live_cloud_texture.view;
+        image_info.sampler = live_cloud_texture.sampler;
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet = descriptor_set;
+        write.dstBinding = kLiveCloudTextureBinding;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &image_info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        uploaded_cloud_revision = revision;
         return true;
     }
 
@@ -573,7 +731,9 @@ struct SatViewScenePass::State
 
     bool ensure_pipelines(VkDevice new_device, VkRenderPass new_render_pass)
     {
-        if (earth_pipeline != VK_NULL_HANDLE && orbit_pipeline != VK_NULL_HANDLE
+        if (earth_pipeline != VK_NULL_HANDLE && cloud_pipeline != VK_NULL_HANDLE
+            && atmosphere_pipeline != VK_NULL_HANDLE
+            && orbit_pipeline != VK_NULL_HANDLE
             && device == new_device && render_pass == new_render_pass)
             return true;
 
@@ -586,16 +746,32 @@ struct SatViewScenePass::State
         const auto shader_dir = bundled_asset_path("shaders");
         VkShaderModule vert = load_shader(device, (shader_dir / "satview_earth.vert.spv").string());
         VkShaderModule frag = load_shader(device, (shader_dir / "satview_earth.frag.spv").string());
+        VkShaderModule cloud_vert = load_shader(device, (shader_dir / "satview_cloud.vert.spv").string());
+        VkShaderModule cloud_frag = load_shader(device, (shader_dir / "satview_cloud.frag.spv").string());
+        VkShaderModule atmosphere_vert =
+            load_shader(device, (shader_dir / "satview_atmosphere.vert.spv").string());
+        VkShaderModule atmosphere_frag =
+            load_shader(device, (shader_dir / "satview_atmosphere.frag.spv").string());
         VkShaderModule orbit_vert = load_shader(device, (shader_dir / "satview_orbit.vert.spv").string());
         VkShaderModule marker_vert = load_shader(device, (shader_dir / "satview_marker.vert.spv").string(), false);
         VkShaderModule orbit_frag = load_shader(device, (shader_dir / "satview_orbit.frag.spv").string());
         if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE
+            || cloud_vert == VK_NULL_HANDLE || cloud_frag == VK_NULL_HANDLE
+            || atmosphere_vert == VK_NULL_HANDLE || atmosphere_frag == VK_NULL_HANDLE
             || orbit_vert == VK_NULL_HANDLE || orbit_frag == VK_NULL_HANDLE)
         {
             if (vert != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, vert, nullptr);
             if (frag != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, frag, nullptr);
+            if (cloud_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, cloud_vert, nullptr);
+            if (cloud_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, cloud_frag, nullptr);
+            if (atmosphere_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, atmosphere_vert, nullptr);
+            if (atmosphere_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, atmosphere_frag, nullptr);
             if (orbit_vert != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, orbit_vert, nullptr);
             if (marker_vert != VK_NULL_HANDLE)
@@ -669,12 +845,34 @@ struct SatViewScenePass::State
         VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &earth_pipeline);
         if (result == VK_SUCCESS)
         {
+            stages[0].module = cloud_vert;
+            stages[1].module = cloud_frag;
+            depth.depthWriteEnable = VK_FALSE;
+            blend_attachment.blendEnable = VK_TRUE;
+            blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &cloud_pipeline);
+        }
+        if (result == VK_SUCCESS)
+        {
+            stages[0].module = atmosphere_vert;
+            stages[1].module = atmosphere_frag;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &atmosphere_pipeline);
+        }
+        if (result == VK_SUCCESS)
+        {
             VkVertexInputBindingDescription orbit_binding{};
             orbit_binding.binding = 0;
             orbit_binding.stride = sizeof(SatViewSceneVertex);
             orbit_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-            VkVertexInputAttributeDescription orbit_attributes[2]{};
+            VkVertexInputAttributeDescription orbit_attributes[3]{};
             orbit_attributes[0].binding = 0;
             orbit_attributes[0].location = 0;
             orbit_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -683,6 +881,10 @@ struct SatViewScenePass::State
             orbit_attributes[1].location = 1;
             orbit_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
             orbit_attributes[1].offset = offsetof(SatViewSceneVertex, color);
+            orbit_attributes[2].binding = 0;
+            orbit_attributes[2].location = 2;
+            orbit_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            orbit_attributes[2].offset = offsetof(SatViewSceneVertex, paired_position);
 
             vertex_input.vertexBindingDescriptionCount = 1;
             vertex_input.pVertexBindingDescriptions = &orbit_binding;
@@ -743,6 +945,10 @@ struct SatViewScenePass::State
 
         vkDestroyShaderModule(device, vert, nullptr);
         vkDestroyShaderModule(device, frag, nullptr);
+        vkDestroyShaderModule(device, cloud_vert, nullptr);
+        vkDestroyShaderModule(device, cloud_frag, nullptr);
+        vkDestroyShaderModule(device, atmosphere_vert, nullptr);
+        vkDestroyShaderModule(device, atmosphere_frag, nullptr);
         vkDestroyShaderModule(device, orbit_vert, nullptr);
         if (marker_vert != VK_NULL_HANDLE)
             vkDestroyShaderModule(device, marker_vert, nullptr);
@@ -770,6 +976,11 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     auto* vk_ctx = static_cast<VkRenderContext*>(&ctx);
     if (state_->ensure_texture_descriptors(*vk_ctx))
     {
+        if (pending_cloud_image_
+            && state_->ensure_cloud_texture(*vk_ctx, *pending_cloud_image_, cloud_revision_))
+        {
+            pending_cloud_image_.reset();
+        }
         state_->ensure_vertex_buffer(
             *vk_ctx,
             track_vertices_,
@@ -805,14 +1016,45 @@ void SatViewScenePass::record(IRenderContext& ctx)
         0, sizeof(SatViewFrameUniforms), &frame);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->layout,
         0, 1, &state_->descriptor_set, 0, nullptr);
-    vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+    const uint32_t earth_vertex_count = map_projection_ ? 6 : kSatViewSphereVertexCount;
+    vkCmdDraw(cmd, earth_vertex_count, 1, 0, 0);
+
+    if (!map_projection_ && frame.sun_dir_time.w > 0.5f)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->cloud_pipeline);
+        vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+    }
+
+    if (!map_projection_ && atmosphere_enabled_)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->atmosphere_pipeline);
+        vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+    }
 
     if (state_->track_vertex_count != 0 && state_->track_vertex_buffer.buffer != VK_NULL_HANDLE)
     {
         VkDeviceSize offset = 0;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->orbit_pipeline);
         vkCmdBindVertexBuffers(cmd, 0, 1, &state_->track_vertex_buffer.buffer, &offset);
-        vkCmdDraw(cmd, state_->track_vertex_count, 1, 0, 0);
+        if (map_projection_)
+        {
+            for (int copy = -1; copy <= 1; ++copy)
+            {
+                SatViewFrameUniforms track_frame = frame;
+                track_frame.camera_pos.x = static_cast<float>(copy * 2);
+                vkCmdPushConstants(cmd, state_->layout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(SatViewFrameUniforms), &track_frame);
+                vkCmdDraw(cmd, state_->track_vertex_count, 1, 0, 0);
+            }
+            vkCmdPushConstants(cmd, state_->layout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(SatViewFrameUniforms), &frame);
+        }
+        else
+        {
+            vkCmdDraw(cmd, state_->track_vertex_count, 1, 0, 0);
+        }
     }
 
     if (state_->marker_count != 0

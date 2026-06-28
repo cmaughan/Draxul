@@ -1,5 +1,7 @@
 #pragma once
 
+#include "satview_texture_assets.h"
+
 #include <draxul/base_renderer.h>
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -31,8 +33,9 @@ static_assert(sizeof(SatViewFrameUniforms) == 128);
 
 struct SatViewSceneVertex
 {
-    glm::vec4 position{ 0.0f, 0.0f, 0.0f, 1.0f };
+    glm::vec4 position{ 0.0f, 0.0f, 0.0f, -1.0f };
     glm::vec4 color{ 1.0f };
+    glm::vec4 paired_position{ 0.0f, 0.0f, 0.0f, 1.0f };
 };
 
 struct SatViewMarkerInstance
@@ -60,6 +63,16 @@ public:
         frame_ = frame;
     }
 
+    void set_atmosphere_enabled(bool enabled)
+    {
+        atmosphere_enabled_ = enabled;
+    }
+
+    void set_map_projection(bool enabled)
+    {
+        map_projection_ = enabled;
+    }
+
     void set_track_vertices(std::span<const SatViewSceneVertex> vertices)
     {
         if (vertices.empty() && track_vertices_.empty())
@@ -76,6 +89,14 @@ public:
         ++marker_revision_;
     }
 
+    void set_cloud_image(std::shared_ptr<const LoadedTextureImage> image)
+    {
+        if (!image || !image->valid())
+            return;
+        pending_cloud_image_ = std::move(image);
+        ++cloud_revision_;
+    }
+
     void record_prepass(draxul::IRenderContext& ctx) override;
     void record(draxul::IRenderContext& ctx) override;
 
@@ -87,6 +108,10 @@ private:
     std::vector<SatViewMarkerInstance> markers_;
     uint64_t track_revision_ = 0;
     uint64_t marker_revision_ = 0;
+    std::shared_ptr<const LoadedTextureImage> pending_cloud_image_;
+    uint64_t cloud_revision_ = 0;
+    bool atmosphere_enabled_ = true;
+    bool map_projection_ = false;
     std::unique_ptr<State> state_;
 };
 

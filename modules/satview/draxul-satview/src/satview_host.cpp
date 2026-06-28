@@ -3,6 +3,9 @@
 #include "camera.h"
 #include "camera_manipulator.h"
 #include "satview_camera_key_state.h"
+#include "satview_cloud_service.h"
+#include "satview_geodetic.h"
+#include "satview_map_projection.h"
 #include "satview_object_style.h"
 #include "satview_scene_pass.h"
 #include "satview_simulation_worker.h"
@@ -187,8 +190,8 @@ std::string object_tree_label(const SatellitePropagatedState& state)
 
 void append_line(std::vector<SatViewSceneVertex>& vertices, glm::vec3 a, glm::vec3 b, glm::vec4 color)
 {
-    vertices.push_back({ glm::vec4(a, 1.0f), color });
-    vertices.push_back({ glm::vec4(b, 1.0f), color });
+    vertices.push_back({ glm::vec4(a, -1.0f), color, glm::vec4(b, 1.0f) });
+    vertices.push_back({ glm::vec4(b, 1.0f), color, glm::vec4(a, 1.0f) });
 }
 
 bool satellite_visible(
@@ -230,19 +233,19 @@ void append_track_vertices(
         if (!selected && !satellite_visible(filter, track, source_label))
             continue;
 
-        const auto& points = track.render_teme_points_earth_radii;
-        if (points.size() < 2)
-            continue;
-
         const glm::vec4 color = selected
             ? glm::mix(
                   satellite_color(track.orbit_class, track.object_kind, track.object_prefix_hash, color_mode, 0.98f),
                   glm::vec4(1.0f),
                   0.38f)
             : satellite_color(track.orbit_class, track.object_kind, track.object_prefix_hash, color_mode, 0.62f);
+        const auto& points = track.render_teme_points_earth_radii;
+        if (points.size() < 2)
+            continue;
         for (std::size_t i = 1; i < points.size(); ++i)
             append_line(vertices, to_vec3(points[i - 1]), to_vec3(points[i]), color);
-        append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
+        append_line(vertices, to_vec3(points.back()), to_vec3(points.front()),
+            color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
     }
 }
 
@@ -390,7 +393,8 @@ float control_widget_width(const char* label)
 } // namespace
 
 SatViewHost::SatViewHost()
-    : camera_(std::make_shared<Camera>())
+    : cloud_service_(std::make_unique<SatViewCloudService>())
+    , camera_(std::make_shared<Camera>())
     , camera_manipulator_(std::make_unique<Manipulator>(camera_))
     , camera_keys_(std::make_unique<SatViewCameraKeyState>())
 {
@@ -420,6 +424,9 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
         ImGui::StyleColorsDark();
     }
     catalog_service_.start();
+    SatViewCloudService::Config cloud_config;
+    cloud_config.cache_directory = SatViewCatalogService::default_cache_directory();
+    cloud_service_->start(std::move(cloud_config));
     simulated_seconds_ = unix_seconds_now();
     last_draw_simulation_seconds_ = simulated_seconds_;
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
@@ -452,6 +459,8 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
 void SatViewHost::shutdown()
 {
     catalog_service_.stop();
+    if (cloud_service_)
+        cloud_service_->stop();
     if (simulation_worker_)
         simulation_worker_->stop();
     running_ = false;
@@ -491,6 +500,15 @@ void SatViewHost::pump()
         return;
 
     catalog_service_.pump();
+    if (cloud_service_)
+    {
+        cloud_service_->pump();
+        if (auto image = cloud_service_->take_pending_image())
+        {
+            scene_pass_->set_cloud_image(std::move(image));
+            request_redraw();
+        }
+    }
     const std::uint64_t catalog_generation = catalog_service_.catalog_generation();
     if (simulation_worker_ && catalog_generation != 0 && catalog_generation != simulation_catalog_generation_)
     {
@@ -510,18 +528,27 @@ void SatViewHost::pump()
     {
         const float input_dt = std::clamp(dt, 0.0f, kCameraInputMaxDeltaSeconds);
         const SatViewCameraMovement movement = camera_keys_->movement();
-        camera_->Orbit(glm::vec2(
-            glm::degrees(kCameraHorizontalOrbitRadiansPerSecond) * movement.orbit.x * input_dt,
-            glm::degrees(kCameraVerticalOrbitRadiansPerSecond) * movement.orbit.y * input_dt));
-
-        if (movement.zoom != 0.0f)
+        if (projection_mode_ == SatViewProjectionMode::Map)
         {
-            const float current_distance = camera_->GetDistance();
-            const float target_distance = std::clamp(
-                current_distance * std::exp(movement.zoom * kCameraZoomRatePerSecond * input_dt),
-                kCameraMinDistance,
-                camera_->GetMaxDistance());
-            camera_->Dolly(current_distance - target_distance);
+            pan_map(glm::vec2(
+                -kCameraHorizontalOrbitRadiansPerSecond * movement.orbit.x * input_dt,
+                kCameraVerticalOrbitRadiansPerSecond * movement.orbit.y * input_dt));
+        }
+        else
+        {
+            camera_->Orbit(glm::vec2(
+                glm::degrees(kCameraHorizontalOrbitRadiansPerSecond) * movement.orbit.x * input_dt,
+                glm::degrees(kCameraVerticalOrbitRadiansPerSecond) * movement.orbit.y * input_dt));
+
+            if (movement.zoom != 0.0f)
+            {
+                const float current_distance = camera_->GetDistance();
+                const float target_distance = std::clamp(
+                    current_distance * std::exp(movement.zoom * kCameraZoomRatePerSecond * input_dt),
+                    kCameraMinDistance,
+                    camera_->GetMaxDistance());
+                camera_->Dolly(current_distance - target_distance);
+            }
         }
     }
     request_redraw();
@@ -542,8 +569,9 @@ void SatViewHost::draw(IFrameContext& frame)
 
     const int pixel_w = std::max(1, viewport_.pixel_size.x);
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
+    const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
     camera_->SetFilmSize(static_cast<float>(pixel_w), static_cast<float>(pixel_h));
-    if (camera_->PreRender())
+    if (!map_projection && camera_->PreRender())
         request_redraw();
     const glm::vec3 eye = camera_->GetPosition();
     const glm::mat4 view = camera_view_matrix(*camera_);
@@ -554,22 +582,35 @@ void SatViewHost::draw(IFrameContext& frame)
         camera_far_plane(camera_->GetDistance(), scene_radius));
 
     SatViewFrameUniforms uniforms;
-    uniforms.view_proj = proj * view;
-    uniforms.camera_pos = glm::vec4(eye, 1.0f);
-    const glm::quat camera_orientation = camera_->GetOrientation();
-    uniforms.camera_orientation = glm::vec4(
-        camera_orientation.x,
-        camera_orientation.y,
-        camera_orientation.z,
-        camera_orientation.w);
+    uniforms.view_proj = map_projection ? glm::mat4(1.0f) : proj * view;
+    const float projection_scale = map_projection
+        ? -static_cast<float>(pixel_h) / static_cast<float>(pixel_w)
+        : 1.0f;
+    uniforms.camera_pos = glm::vec4(eye, projection_scale);
+    if (map_projection)
+    {
+        uniforms.camera_orientation = glm::vec4(map_center_radians_, 0.0f, 1.0f);
+    }
+    else
+    {
+        const glm::quat camera_orientation = camera_->GetOrientation();
+        uniforms.camera_orientation = glm::vec4(
+            camera_orientation.x,
+            camera_orientation.y,
+            camera_orientation.z,
+            camera_orientation.w);
+    }
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulation_seconds));
-    uniforms.sun_dir_time = glm::vec4(sun, static_cast<float>(std::fmod(simulation_seconds, 86400.0)));
+    const float cloud_mode = !clouds_enabled_ ? 0.0f : (realistic_clouds_enabled_ ? 2.0f : 1.0f);
+    uniforms.sun_dir_time = glm::vec4(sun, cloud_mode);
     uniforms.render_params = glm::vec4(
         static_cast<float>(kSatViewSphereLatitudeBands),
         static_cast<float>(kSatViewSphereLongitudeBands),
         static_cast<float>(greenwich_sidereal_angle_radians(simulation_seconds)),
         snapshot ? marker_interpolation_alpha(*snapshot, simulation_seconds) : 0.0f);
     scene_pass_->set_frame(uniforms);
+    scene_pass_->set_atmosphere_enabled(atmosphere_enabled_);
+    scene_pass_->set_map_projection(map_projection);
 
     if (snapshot)
     {
@@ -578,7 +619,7 @@ void SatViewHost::draw(IFrameContext& frame)
         {
             std::vector<SatViewSceneVertex> track_vertices;
             const std::size_t track_count = snapshot->tracks ? snapshot->tracks->size() : 0;
-            track_vertices.reserve(track_count * track_sample_count_ * 2);
+            track_vertices.reserve(track_count * (track_sample_count_ + 1) * 2);
             append_track_vertices(
                 track_vertices,
                 *snapshot,
@@ -669,7 +710,8 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
             {
                 dragging_ = false;
                 pending_click_ = false;
-                camera_manipulator_->MouseUp(glm::vec2(event.pos));
+                if (projection_mode_ == SatViewProjectionMode::Globe)
+                    camera_manipulator_->MouseUp(glm::vec2(event.pos));
             }
             request_redraw();
             return;
@@ -683,11 +725,14 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
     {
         pending_click_ = true;
         click_start_pos_ = event.pos;
-        camera_manipulator_->MouseDown(glm::vec2(event.pos));
+        last_map_drag_pos_ = event.pos;
+        if (projection_mode_ == SatViewProjectionMode::Globe)
+            camera_manipulator_->MouseDown(glm::vec2(event.pos));
     }
     else
     {
-        camera_manipulator_->MouseUp(glm::vec2(event.pos));
+        if (projection_mode_ == SatViewProjectionMode::Globe)
+            camera_manipulator_->MouseUp(glm::vec2(event.pos));
         if (pending_click_)
         {
             const glm::ivec2 delta = event.pos - click_start_pos_;
@@ -721,7 +766,23 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
             pending_click_ = false;
     }
 
-    if (!dragging_ && (event.buttons & SDL_BUTTON_LMASK) == 0)
+    const bool left_button_down = dragging_ || (event.buttons & SDL_BUTTON_LMASK) != 0;
+    if (projection_mode_ == SatViewProjectionMode::Map)
+    {
+        glm::vec2 pixel_delta = event.delta;
+        if (pixel_delta == glm::vec2(0.0f))
+            pixel_delta = glm::vec2(event.pos - last_map_drag_pos_);
+        last_map_drag_pos_ = event.pos;
+        if (!left_button_down || pending_click_)
+            return;
+
+        pan_map(satview_map_pan_delta(
+            pixel_delta,
+            glm::vec2(viewport_.pixel_size)));
+        return;
+    }
+
+    if (!left_button_down)
         return;
     if (camera_manipulator_->MouseMove(
             glm::vec2(event.pos),
@@ -743,6 +804,9 @@ void SatViewHost::on_mouse_wheel(const MouseWheelEvent& event)
             return;
         }
     }
+
+    if (projection_mode_ == SatViewProjectionMode::Map)
+        return;
 
     const float current_distance = camera_->GetDistance();
     const float target_distance = std::clamp(
@@ -823,6 +887,8 @@ void SatViewHost::on_key(const KeyEvent& event)
     if (event.keycode == SDLK_R && (event.mod & kModCtrl) != 0)
     {
         catalog_service_.request_refresh();
+        if (cloud_service_)
+            cloud_service_->request_refresh();
         request_redraw();
         return;
     }
@@ -885,6 +951,8 @@ bool SatViewHost::dispatch_action(std::string_view action)
     if (action == "satview_refresh_catalog")
     {
         catalog_service_.request_refresh();
+        if (cloud_service_)
+            cloud_service_->request_refresh();
         request_redraw();
         return true;
     }
@@ -916,7 +984,8 @@ void SatViewHost::request_close()
 
 std::string SatViewHost::status_text() const
 {
-    const std::string mode = paused_ ? "satview paused" : "satview earth";
+    const std::string view = projection_mode_ == SatViewProjectionMode::Map ? "map" : "earth";
+    const std::string mode = paused_ ? "satview paused " + view : "satview " + view;
     const std::string catalog_status = catalog_service_.status_text();
     auto snapshot = simulation_worker_ ? simulation_worker_->acquire_latest() : SatViewSnapshotExchange::ReadGuard{};
     const std::string propagation_status = snapshot ? snapshot->status_text : std::string{};
@@ -1034,6 +1103,13 @@ void SatViewHost::set_real_time()
 
 void SatViewHost::reset_camera()
 {
+    if (projection_mode_ == SatViewProjectionMode::Map)
+    {
+        map_center_radians_ = glm::vec2(0.0f);
+        request_redraw();
+        return;
+    }
+
     const double simulation_seconds = simulation_worker_
         ? simulation_worker_->current_simulation_seconds()
         : last_draw_simulation_seconds_;
@@ -1048,6 +1124,12 @@ void SatViewHost::reset_camera()
     request_redraw();
 }
 
+void SatViewHost::pan_map(glm::vec2 delta_radians)
+{
+    map_center_radians_ = normalized_satview_map_center(map_center_radians_ + delta_radians);
+    request_redraw();
+}
+
 void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
 {
     if (!snapshot)
@@ -1055,6 +1137,7 @@ void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
         object_tree_catalog_generation_ = 0;
         object_tree_state_count_ = 0;
         object_tree_entries_.clear();
+        filtered_object_tree_indices_.clear();
         return;
     }
     if (object_tree_catalog_generation_ == snapshot->catalog_generation
@@ -1067,14 +1150,16 @@ void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
     object_tree_state_count_ = snapshot->states.size();
     object_tree_entries_.clear();
     object_tree_entries_.reserve(snapshot->states.size());
-    for (const SatellitePropagatedState& state : snapshot->states)
+    for (std::size_t state_index = 0; state_index < snapshot->states.size(); ++state_index)
     {
+        const SatellitePropagatedState& state = snapshot->states[state_index];
         object_tree_entries_.push_back({
             state.orbit_class,
             normalized_satellite_prefix(state.object_name),
             object_tree_label(state),
             state.object_name,
             state.norad_catalog_id,
+            state_index,
         });
     }
 
@@ -1096,14 +1181,37 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
 {
     rebuild_object_tree(snapshot);
 
-    ImGui::SeparatorText("Objects");
     if (!snapshot)
     {
         ImGui::TextDisabled("Object tree pending catalog.");
         return;
     }
 
-    ImGui::Text("Objects: %zu", object_tree_entries_.size());
+    filtered_object_tree_indices_.clear();
+    filtered_object_tree_indices_.reserve(object_tree_entries_.size());
+    const std::string_view source_label = snapshot->source_label;
+    for (std::size_t entry_index = 0; entry_index < object_tree_entries_.size(); ++entry_index)
+    {
+        const ObjectTreeEntry& entry = object_tree_entries_[entry_index];
+        if (entry.state_index < snapshot->states.size()
+            && satellite_visible(filter_, snapshot->states[entry.state_index], source_label))
+        {
+            filtered_object_tree_indices_.push_back(entry_index);
+        }
+    }
+
+    ImGui::Text("Objects: %zu filtered / %zu total",
+        filtered_object_tree_indices_.size(),
+        object_tree_entries_.size());
+    if (filtered_object_tree_indices_.empty())
+    {
+        ImGui::TextDisabled("No objects match the current filters.");
+        return;
+    }
+
+    const auto filtered_entry = [this](std::size_t filtered_index) -> const ObjectTreeEntry& {
+        return object_tree_entries_[filtered_object_tree_indices_[filtered_index]];
+    };
     const float tree_height = std::max(180.0f, ImGui::GetTextLineHeightWithSpacing() * 14.0f);
     if (!ImGui::BeginChild(
             "##satview_object_tree",
@@ -1117,12 +1225,12 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
 
     const ImGuiTreeNodeFlags group_flags = ImGuiTreeNodeFlags_SpanAvailWidth;
     std::size_t orbit_begin = 0;
-    while (orbit_begin < object_tree_entries_.size())
+    while (orbit_begin < filtered_object_tree_indices_.size())
     {
-        const OrbitClass orbit_class = object_tree_entries_[orbit_begin].orbit_class;
+        const OrbitClass orbit_class = filtered_entry(orbit_begin).orbit_class;
         std::size_t orbit_end = orbit_begin + 1;
-        while (orbit_end < object_tree_entries_.size()
-            && object_tree_entries_[orbit_end].orbit_class == orbit_class)
+        while (orbit_end < filtered_object_tree_indices_.size()
+            && filtered_entry(orbit_end).orbit_class == orbit_class)
         {
             ++orbit_end;
         }
@@ -1141,9 +1249,9 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
             std::size_t prefix_begin = orbit_begin;
             while (prefix_begin < orbit_end)
             {
-                const std::string& prefix = object_tree_entries_[prefix_begin].prefix;
+                const std::string& prefix = filtered_entry(prefix_begin).prefix;
                 std::size_t prefix_end = prefix_begin + 1;
-                while (prefix_end < orbit_end && object_tree_entries_[prefix_end].prefix == prefix)
+                while (prefix_end < orbit_end && filtered_entry(prefix_end).prefix == prefix)
                     ++prefix_end;
 
                 ImGui::PushID(prefix.c_str());
@@ -1171,7 +1279,7 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
                         for (int local_index = clipper.DisplayStart; local_index < clipper.DisplayEnd; ++local_index)
                         {
                             const ObjectTreeEntry& entry =
-                                object_tree_entries_[prefix_begin + static_cast<std::size_t>(local_index)];
+                                filtered_entry(prefix_begin + static_cast<std::size_t>(local_index));
                             const bool selected = selected_norad_catalog_id_.has_value()
                                 && entry.norad_catalog_id == *selected_norad_catalog_id_;
                             ImGui::PushID(entry.label.c_str());
@@ -1244,6 +1352,23 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         ImGui::SetNextItemWidth(control_widget_width(label));
     };
 
+    ImGui::TextUnformatted("View");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Globe", projection_mode_ == SatViewProjectionMode::Globe))
+    {
+        projection_mode_ = SatViewProjectionMode::Globe;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Map", projection_mode_ == SatViewProjectionMode::Map))
+    {
+        projection_mode_ = SatViewProjectionMode::Map;
+        camera_->ClearMotion();
+        camera_manipulator_->Cancel();
+        camera_keys_->reset();
+        changed = true;
+    }
+
     if (ImGui::Button(paused_ ? "Resume" : "Pause"))
     {
         paused_ = !paused_;
@@ -1263,6 +1388,8 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     if (ImGui::Button("Refresh"))
     {
         catalog_service_.request_refresh();
+        if (cloud_service_)
+            cloud_service_->request_refresh();
         changed = true;
     }
 
@@ -1280,10 +1407,64 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         : last_draw_simulation_seconds_;
     const std::string local_time = format_local_simulation_time(displayed_simulation_seconds);
     ImGui::Text("Local time: %s", local_time.c_str());
+    if (projection_mode_ == SatViewProjectionMode::Map)
+    {
+        ImGui::Text("Center lat: %.1f", glm::degrees(map_center_radians_.y));
+        ImGui::Text("Center lon: %.1f", glm::degrees(map_center_radians_.x));
+    }
+
+    ImGui::SeparatorText("Objects");
+    set_control_width("Search");
+    if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
+    {
+        filter_.search_text = search_buffer_;
+        changed = true;
+    }
+    set_control_width("Type");
+    if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
+    {
+        filter_.object_type_text = object_type_buffer_;
+        changed = true;
+    }
+    set_control_width("Source");
+    if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
+    {
+        filter_.source_text = source_buffer_;
+        changed = true;
+    }
+
+    float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
+    set_control_width("Age days");
+    if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
+    {
+        filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
+        changed = true;
+    }
+
+    changed |= ImGui::Checkbox("LEO", &filter_.show_low_earth);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("MEO", &filter_.show_medium_earth);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("GEO", &filter_.show_geosynchronous);
+    changed |= ImGui::Checkbox("HEO", &filter_.show_highly_elliptical);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Other", &filter_.show_other);
 
     render_object_tree(snapshot, changed);
 
     ImGui::SeparatorText("Visuals");
+    if (ImGui::Checkbox("Clouds", &clouds_enabled_))
+        request_redraw();
+    ImGui::SameLine();
+    if (!clouds_enabled_)
+        ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Realistic clouds", &realistic_clouds_enabled_))
+        request_redraw();
+    if (!clouds_enabled_)
+        ImGui::EndDisabled();
+    if (ImGui::Checkbox("Atmosphere", &atmosphere_enabled_))
+        request_redraw();
+
     int color_mode_index = static_cast<int>(color_mode_);
     const char* color_modes[] = { "Name Prefix", "Orbit Class", "Object Type" };
     set_control_width("Color");
@@ -1340,52 +1521,21 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         changed = true;
     }
 
-    ImGui::SeparatorText("Filters");
-    set_control_width("Search");
-    if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
-    {
-        filter_.search_text = search_buffer_;
-        changed = true;
-    }
-    set_control_width("Type");
-    if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
-    {
-        filter_.object_type_text = object_type_buffer_;
-        changed = true;
-    }
-    set_control_width("Source");
-    if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
-    {
-        filter_.source_text = source_buffer_;
-        changed = true;
-    }
-
-    float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
-    set_control_width("Age days");
-    if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
-    {
-        filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
-        changed = true;
-    }
-
-    changed |= ImGui::Checkbox("LEO", &filter_.show_low_earth);
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("MEO", &filter_.show_medium_earth);
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("GEO", &filter_.show_geosynchronous);
-    changed |= ImGui::Checkbox("HEO", &filter_.show_highly_elliptical);
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("Other", &filter_.show_other);
-
     ImGui::SeparatorText("Catalog");
     const std::string catalog_status = catalog_service_.status_text();
     ImGui::TextWrapped("%s", catalog_status.empty() ? "catalog pending" : catalog_status.c_str());
+    if (cloud_service_)
+    {
+        const std::string cloud_status = cloud_service_->status_text();
+        ImGui::TextWrapped("Clouds: %s", cloud_status.c_str());
+        ImGui::TextDisabled("Contains modified EUMETSAT data");
+    }
     const std::string_view source_label = snapshot ? std::string_view(snapshot->source_label) : std::string_view{};
     if (source_label.empty())
         ImGui::TextDisabled("Source: pending");
     else
         ImGui::Text("Source: %.*s", static_cast<int>(source_label.size()), source_label.data());
-    const std::size_t filtered_markers = visible_state_count(snapshot);
+    const std::size_t filtered_markers = filtered_object_tree_indices_.size();
     const std::size_t rendered_markers = marker_satellite_limit_ == 0
         ? filtered_markers
         : std::min(filtered_markers, marker_satellite_limit_);
@@ -1413,6 +1563,14 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
             ImGui::Text("Class: %s", selected->classification_type.c_str());
         ImGui::Text("Period: %.1f min", selected->period_minutes);
         ImGui::Text("Epoch age: %.1f h", selected->minutes_since_epoch / 60.0);
+        const SatViewGeodeticPosition geodetic =
+            satview_geodetic_from_ecef(selected->ecef_position_km);
+        ImGui::Text("Latitude: %.3f %c",
+            std::abs(geodetic.latitude_degrees),
+            geodetic.latitude_degrees >= 0.0 ? 'N' : 'S');
+        ImGui::Text("Longitude: %.3f %c",
+            std::abs(geodetic.longitude_degrees),
+            geodetic.longitude_degrees >= 0.0 ? 'E' : 'W');
         const double altitude_km = glm::length(selected->teme_position_km) - kSatViewEarthEquatorialRadiusKm;
         ImGui::Text("Altitude: %.0f km", altitude_km);
         const double speed_km_s = glm::length(selected->teme_velocity_km_per_s);
@@ -1437,21 +1595,6 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     }
 
     ImGui::End();
-}
-
-std::size_t SatViewHost::visible_state_count(const SatViewSimulationSnapshot* snapshot) const
-{
-    if (!snapshot)
-        return 0;
-
-    const std::string_view source_label = snapshot->source_label;
-    std::size_t count = 0;
-    for (const SatellitePropagatedState& state : snapshot->states)
-    {
-        if (satellite_visible(filter_, state, source_label))
-            ++count;
-    }
-    return count;
 }
 
 std::size_t SatViewHost::visible_track_count(const SatViewSimulationSnapshot* snapshot) const
@@ -1534,14 +1677,31 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
             break;
         ++visible_marker_index;
 
-        const glm::vec3 world = to_vec3(teme_position_to_render_earth_radii(
-            interpolated_teme_position(*snapshot, state_index, render_seconds)));
-        const glm::vec4 clip = view_proj * glm::vec4(world, 1.0f);
-        if (clip.w <= 0.0f)
-            continue;
-        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
-        if (ndc.x < -1.1f || ndc.x > 1.1f || ndc.y < -1.1f || ndc.y > 1.1f || ndc.z < 0.0f || ndc.z > 1.0f)
-            continue;
+        glm::vec3 ndc;
+        const glm::dvec3 teme_position =
+            interpolated_teme_position(*snapshot, state_index, render_seconds);
+        if (projection_mode_ == SatViewProjectionMode::Map)
+        {
+            const glm::vec2 map_position =
+                satview_map_position_from_teme(
+                    teme_position,
+                    render_seconds,
+                    map_center_radians_);
+            ndc = glm::vec3(map_position, 0.2f);
+        }
+        else
+        {
+            const glm::vec3 world = to_vec3(teme_position_to_render_earth_radii(teme_position));
+            const glm::vec4 clip = view_proj * glm::vec4(world, 1.0f);
+            if (clip.w <= 0.0f)
+                continue;
+            ndc = glm::vec3(clip) / clip.w;
+            if (ndc.x < -1.1f || ndc.x > 1.1f || ndc.y < -1.1f || ndc.y > 1.1f
+                || ndc.z < 0.0f || ndc.z > 1.0f)
+            {
+                continue;
+            }
+        }
 
         const float sx = static_cast<float>(viewport_.pixel_pos.x)
             + (ndc.x * 0.5f + 0.5f) * static_cast<float>(pixel_w);

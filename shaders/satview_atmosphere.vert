@@ -9,11 +9,10 @@ layout(push_constant) uniform SatViewFrame
     vec4 render_params;
 } push;
 
-layout(location = 0) out vec3 out_normal;
-layout(location = 1) out vec3 out_world;
-layout(location = 2) out vec2 out_uv;
+layout(location = 0) out vec3 out_world;
 
 const float PI = 3.14159265358979323846;
+const float ATMOSPHERE_RADIUS = 1.02;
 
 vec2 quad_corner(int vertex)
 {
@@ -32,7 +31,6 @@ vec2 quad_corner(int vertex)
 
 void main()
 {
-    bool map_projection = push.camera_pos.w < 0.0;
     int lat_bands = max(1, int(push.render_params.x + 0.5));
     int lon_bands = max(1, int(push.render_params.y + 0.5));
     int tri_vertex = gl_VertexIndex % 6;
@@ -41,22 +39,13 @@ void main()
     int lat = quad / lon_bands;
 
     vec2 corner = quad_corner(tri_vertex);
-    float u = map_projection
-        ? corner.x
-        : (float(lon) + corner.x) / float(lon_bands);
-    float v = map_projection
-        ? corner.y
-        : (float(lat) + corner.y) / float(lat_bands);
+    float u = (float(lon) + corner.x) / float(lon_bands);
+    float v = (float(lat) + corner.y) / float(lat_bands);
     float theta = u * 2.0 * PI + push.render_params.z;
     float phi = mix(-0.5 * PI, 0.5 * PI, v);
     float cp = cos(phi);
-    vec3 world = vec3(cp * sin(theta), sin(phi), cp * cos(theta));
+    vec3 world = ATMOSPHERE_RADIUS * vec3(cp * sin(theta), sin(phi), cp * cos(theta));
 
-    out_normal = world;
     out_world = world;
-    out_uv = vec2(u, v);
-    if (map_projection)
-        gl_Position = push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.8, 1.0);
-    else
-        gl_Position = push.view_proj * vec4(world, 1.0);
+    gl_Position = push.view_proj * vec4(world, 1.0);
 }

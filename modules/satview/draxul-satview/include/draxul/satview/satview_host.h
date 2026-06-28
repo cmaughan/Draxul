@@ -23,6 +23,7 @@ namespace draxul::satview
 class SatViewScenePass;
 class SatViewSimulationWorker;
 class SatViewCameraKeyState;
+class SatViewCloudService;
 class Camera;
 class Manipulator;
 struct SatViewSimulationSnapshot;
@@ -38,6 +39,12 @@ enum class SatViewTrackDisplayMode
 {
     AllSampled,
     SelectedOnly
+};
+
+enum class SatViewProjectionMode
+{
+    Globe,
+    Map
 };
 
 class SatViewHost final : public draxul::IHost
@@ -81,6 +88,7 @@ private:
         std::string label;
         std::string object_name;
         std::int64_t norad_catalog_id = 0;
+        std::size_t state_index = 0;
     };
 
     void request_redraw();
@@ -91,11 +99,11 @@ private:
     void sync_simulation_render_settings();
     void set_real_time();
     void reset_camera();
+    void pan_map(glm::vec2 delta_radians);
     void rebuild_object_tree(const SatViewSimulationSnapshot* snapshot);
     void render_object_tree(const SatViewSimulationSnapshot* snapshot, bool& changed);
     void render_host_imgui(float dt, const SatViewSimulationSnapshot* snapshot);
     void render_control_panel(const SatViewSimulationSnapshot* snapshot);
-    std::size_t visible_state_count(const SatViewSimulationSnapshot* snapshot) const;
     std::size_t visible_track_count(const SatViewSimulationSnapshot* snapshot) const;
     const SatellitePropagatedState* selected_satellite(const SatViewSimulationSnapshot* snapshot) const;
     void clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot);
@@ -105,6 +113,7 @@ private:
     draxul::HostViewport viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
     SatViewCatalogService catalog_service_;
+    std::unique_ptr<SatViewCloudService> cloud_service_;
     std::unique_ptr<SatViewSimulationWorker> simulation_worker_;
     std::uint64_t simulation_catalog_generation_ = 0;
     std::string init_error_;
@@ -119,6 +128,7 @@ private:
     char source_buffer_[96]{};
     SatViewColorMode color_mode_ = SatViewColorMode::NamePrefix;
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
+    SatViewProjectionMode projection_mode_ = SatViewProjectionMode::Globe;
     std::size_t track_satellite_limit_ = 256;
     std::size_t track_sample_count_ = 48;
     std::size_t marker_satellite_limit_ = 0;
@@ -131,11 +141,15 @@ private:
     bool continuous_refresh_enabled_ = false;
     bool track_buffer_dirty_ = true;
     bool marker_buffer_dirty_ = true;
+    bool clouds_enabled_ = true;
+    bool realistic_clouds_enabled_ = false;
+    bool atmosphere_enabled_ = true;
     const void* uploaded_track_source_ = nullptr;
     std::uint64_t uploaded_marker_generation_ = 0;
     std::uint64_t object_tree_catalog_generation_ = 0;
     std::size_t object_tree_state_count_ = 0;
     std::vector<ObjectTreeEntry> object_tree_entries_;
+    std::vector<std::size_t> filtered_object_tree_indices_;
     std::shared_ptr<Camera> camera_;
     std::unique_ptr<Manipulator> camera_manipulator_;
     std::unique_ptr<SatViewCameraKeyState> camera_keys_;
@@ -145,6 +159,8 @@ private:
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     glm::ivec2 click_start_pos_{ 0, 0 };
+    glm::ivec2 last_map_drag_pos_{ 0, 0 };
+    glm::vec2 map_center_radians_{ 0.0f };
     float last_imgui_delta_seconds_ = 1.0f / 60.0f;
 };
 

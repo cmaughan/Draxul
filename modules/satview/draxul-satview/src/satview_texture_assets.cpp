@@ -14,7 +14,7 @@ namespace draxul::satview
 namespace
 {
 
-LoadedTextureImage load_rgba8_image(const std::filesystem::path& path)
+LoadedTextureImage load_rgba8_image_impl(const std::filesystem::path& path)
 {
     PERF_MEASURE();
     LoadedTextureImage image;
@@ -49,6 +49,11 @@ LoadedTextureImage make_solid_rgba8(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 
 } // namespace
 
+LoadedTextureImage load_rgba8_image(const std::filesystem::path& path)
+{
+    return load_rgba8_image_impl(path);
+}
+
 std::filesystem::path resolve_satview_asset_path(const std::filesystem::path& relative_path)
 {
     PERF_MEASURE();
@@ -69,9 +74,9 @@ EarthTextureImages load_earth_texture_images()
 {
     PERF_MEASURE();
     EarthTextureImages images;
-    images.day = load_rgba8_image(resolve_satview_asset_path("textures/earth_day_8k.jpg"));
-    images.night = load_rgba8_image(resolve_satview_asset_path("textures/earth_night_8k.jpg"));
-    images.clouds = load_rgba8_image(resolve_satview_asset_path("textures/earth_clouds_8k.jpg"));
+    images.day = load_rgba8_image_impl(resolve_satview_asset_path("textures/earth_day_8k.jpg"));
+    images.night = load_rgba8_image_impl(resolve_satview_asset_path("textures/earth_night_8k.jpg"));
+    images.clouds = load_rgba8_image_impl(resolve_satview_asset_path("textures/earth_clouds_8k.jpg"));
 
     if (!images.day.valid())
         images.day = make_solid_rgba8(16, 70, 120, 255);

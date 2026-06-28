@@ -19,6 +19,8 @@ struct SatViewScenePass::State
 {
     ObjCRef<id<MTLDevice>> device;
     ObjCRef<id<MTLRenderPipelineState>> earth_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> cloud_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> atmosphere_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> orbit_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> marker_pipeline;
     ObjCRef<id<MTLDepthStencilState>> depth_write_state;
@@ -26,6 +28,7 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLTexture>> earth_day_texture;
     ObjCRef<id<MTLTexture>> earth_night_texture;
     ObjCRef<id<MTLTexture>> earth_cloud_texture;
+    ObjCRef<id<MTLTexture>> live_cloud_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
     ObjCRef<id<MTLBuffer>> track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> marker_buffer;
@@ -33,6 +36,7 @@ struct SatViewScenePass::State
     NSUInteger marker_count = 0;
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
+    uint64_t uploaded_cloud_revision = 0;
 
     id<MTLTexture> create_texture(id<MTLDevice> metal_device, const LoadedTextureImage& image)
     {
@@ -96,9 +100,35 @@ struct SatViewScenePass::State
         return true;
     }
 
+    bool ensure_cloud_texture(const LoadedTextureImage& image, uint64_t revision)
+    {
+        if (revision == uploaded_cloud_revision)
+            return true;
+        id<MTLTexture> texture = live_cloud_texture.get();
+        if (!texture
+            || static_cast<NSUInteger>(image.width) != texture.width
+            || static_cast<NSUInteger>(image.height) != texture.height)
+        {
+            live_cloud_texture.reset(create_texture(device.get(), image));
+            if (!live_cloud_texture.get())
+                return false;
+            uploaded_cloud_revision = revision;
+            return true;
+        }
+
+        const MTLRegion region = MTLRegionMake2D(0, 0, texture.width, texture.height);
+        [texture replaceRegion:region
+                  mipmapLevel:0
+                    withBytes:image.rgba.data()
+                  bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
+        uploaded_cloud_revision = revision;
+        return true;
+    }
+
     bool ensure(id<MTLDevice> new_device)
     {
-        if (earth_pipeline.get() && orbit_pipeline.get()
+        if (earth_pipeline.get() && cloud_pipeline.get()
+            && atmosphere_pipeline.get() && orbit_pipeline.get()
             && depth_write_state.get() && depth_read_state.get()
             && earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && earth_sampler.get()
@@ -107,6 +137,8 @@ struct SatViewScenePass::State
 
         device.reset(new_device);
         earth_pipeline.reset();
+        cloud_pipeline.reset();
+        atmosphere_pipeline.reset();
         orbit_pipeline.reset();
         marker_pipeline.reset();
         depth_write_state.reset();
@@ -114,6 +146,7 @@ struct SatViewScenePass::State
         earth_day_texture.reset();
         earth_night_texture.reset();
         earth_cloud_texture.reset();
+        live_cloud_texture.reset();
         earth_sampler.reset();
         track_vertex_buffer.reset();
         marker_buffer.reset();
@@ -121,6 +154,7 @@ struct SatViewScenePass::State
         marker_count = 0;
         uploaded_track_revision = 0;
         uploaded_marker_revision = 0;
+        uploaded_cloud_revision = 0;
         if (!new_device)
             return false;
         if (!ensure_textures(new_device))
@@ -142,10 +176,16 @@ struct SatViewScenePass::State
 
         id<MTLFunction> vertex = [library newFunctionWithName:@"satview_earth_vertex"];
         id<MTLFunction> fragment = [library newFunctionWithName:@"satview_earth_fragment"];
+        id<MTLFunction> cloud_vertex = [library newFunctionWithName:@"satview_cloud_vertex"];
+        id<MTLFunction> cloud_fragment = [library newFunctionWithName:@"satview_cloud_fragment"];
+        id<MTLFunction> atmosphere_vertex = [library newFunctionWithName:@"satview_atmosphere_vertex"];
+        id<MTLFunction> atmosphere_fragment = [library newFunctionWithName:@"satview_atmosphere_fragment"];
         id<MTLFunction> orbit_vertex = [library newFunctionWithName:@"satview_orbit_vertex"];
         id<MTLFunction> marker_vertex = [library newFunctionWithName:@"satview_marker_vertex"];
         id<MTLFunction> orbit_fragment = [library newFunctionWithName:@"satview_orbit_fragment"];
-        if (!vertex || !fragment || !orbit_vertex || !orbit_fragment)
+        if (!vertex || !fragment || !cloud_vertex || !cloud_fragment
+            || !atmosphere_vertex || !atmosphere_fragment
+            || !orbit_vertex || !orbit_fragment)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer,
                 "SatView: required Metal shader functions missing from satview_scene.metallib");
@@ -172,9 +212,40 @@ struct SatViewScenePass::State
         }
         earth_pipeline.reset(created);
 
+        desc.vertexFunction = cloud_vertex;
+        desc.fragmentFunction = cloud_fragment;
+        desc.colorAttachments[0].blendingEnabled = YES;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal cloud pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            return false;
+        }
+        cloud_pipeline.reset(created);
+
+        desc.vertexFunction = atmosphere_vertex;
+        desc.fragmentFunction = atmosphere_fragment;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal atmosphere pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            cloud_pipeline.reset();
+            return false;
+        }
+        atmosphere_pipeline.reset(created);
+
         desc.vertexFunction = orbit_vertex;
         desc.fragmentFunction = orbit_fragment;
-        desc.colorAttachments[0].blendingEnabled = YES;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
         desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
         desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
@@ -187,6 +258,8 @@ struct SatViewScenePass::State
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal orbit pipeline: %s",
                 error ? [[error localizedDescription] UTF8String] : "unknown");
             earth_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
             return false;
         }
         orbit_pipeline.reset(created);
@@ -215,6 +288,8 @@ struct SatViewScenePass::State
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal depth-write state");
             earth_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
             orbit_pipeline.reset();
             return false;
         }
@@ -226,6 +301,8 @@ struct SatViewScenePass::State
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal depth-read state");
             earth_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
             orbit_pipeline.reset();
             depth_write_state.reset();
             return false;
@@ -300,6 +377,11 @@ void SatViewScenePass::record(IRenderContext& ctx)
     id<MTLRenderCommandEncoder> encoder = metal_ctx->encoder();
     if (!encoder || !state_->ensure(metal_ctx->device()))
         return;
+    if (pending_cloud_image_
+        && state_->ensure_cloud_texture(*pending_cloud_image_, cloud_revision_))
+    {
+        pending_cloud_image_.reset();
+    }
     state_->ensure_buffer(
         metal_ctx->device(),
         track_vertices_,
@@ -322,20 +404,62 @@ void SatViewScenePass::record(IRenderContext& ctx)
     [encoder setFragmentTexture:state_->earth_day_texture.get() atIndex:0];
     [encoder setFragmentTexture:state_->earth_night_texture.get() atIndex:1];
     [encoder setFragmentTexture:state_->earth_cloud_texture.get() atIndex:2];
+    [encoder setFragmentTexture:(state_->live_cloud_texture.get()
+                                    ? state_->live_cloud_texture.get()
+                                    : state_->earth_cloud_texture.get())
+                         atIndex:3];
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
+    const NSUInteger earth_vertex_count = map_projection_ ? 6 : kSatViewSphereVertexCount;
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                 vertexStart:0
-                vertexCount:kSatViewSphereVertexCount];
+                vertexCount:earth_vertex_count];
+
+    if (!map_projection_ && frame_.sun_dir_time.w > 0.5f)
+    {
+        [encoder setRenderPipelineState:state_->cloud_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_read_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:kSatViewSphereVertexCount];
+    }
+
+    if (!map_projection_ && atmosphere_enabled_)
+    {
+        [encoder setRenderPipelineState:state_->atmosphere_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_read_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:kSatViewSphereVertexCount];
+    }
 
     if (state_->track_vertex_count != 0 && state_->track_vertex_buffer.get())
     {
         [encoder setRenderPipelineState:state_->orbit_pipeline.get()];
         [encoder setDepthStencilState:state_->depth_read_state.get()];
-        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
         [encoder setVertexBuffer:state_->track_vertex_buffer.get() offset:0 atIndex:1];
-        [encoder drawPrimitives:MTLPrimitiveTypeLine
-                    vertexStart:0
-                    vertexCount:state_->track_vertex_count];
+        if (map_projection_)
+        {
+            for (int copy = -1; copy <= 1; ++copy)
+            {
+                SatViewFrameUniforms track_frame = frame_;
+                track_frame.camera_pos.x = static_cast<float>(copy * 2);
+                [encoder setVertexBytes:&track_frame length:sizeof(track_frame) atIndex:0];
+                [encoder drawPrimitives:MTLPrimitiveTypeLine
+                            vertexStart:0
+                            vertexCount:state_->track_vertex_count];
+            }
+        }
+        else
+        {
+            [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeLine
+                        vertexStart:0
+                        vertexCount:state_->track_vertex_count];
+        }
     }
 
     if (state_->marker_count != 0 && state_->marker_buffer.get() && state_->marker_pipeline.get())
