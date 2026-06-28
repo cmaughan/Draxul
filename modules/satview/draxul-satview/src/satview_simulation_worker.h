@@ -44,6 +44,7 @@ struct SatViewSimulationSnapshot
     std::vector<SatellitePropagatedState> states;
     std::vector<glm::dvec3> next_teme_positions_km;
     std::shared_ptr<const std::vector<SatelliteOrbitTrack>> tracks;
+    std::size_t propagation_concurrency = 1;
     std::size_t skipped_model_records = 0;
     std::size_t failed_propagations = 0;
     std::string error;

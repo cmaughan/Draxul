@@ -5,12 +5,16 @@
 #include "SGP4.h"
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <string>
+#include <thread>
 
 namespace draxul::satview
 {
@@ -345,6 +349,139 @@ void append_track_samples(
 
 } // namespace
 
+struct SatellitePropagationExecutor::State
+{
+    explicit State(std::size_t requested_concurrency)
+    {
+        if (requested_concurrency == 0)
+        {
+            constexpr std::size_t kMaximumAutomaticConcurrency = 16;
+            const unsigned hardware_threads = std::thread::hardware_concurrency();
+            const std::size_t available_concurrency = hardware_threads > 2
+                ? static_cast<std::size_t>(hardware_threads - 2)
+                : std::max<std::size_t>(1, hardware_threads);
+            concurrency = std::min(available_concurrency, kMaximumAutomaticConcurrency);
+        }
+        else
+        {
+            concurrency = std::max<std::size_t>(1, requested_concurrency);
+        }
+
+        workers.reserve(concurrency - 1);
+        for (std::size_t i = 1; i < concurrency; ++i)
+            workers.emplace_back([this]() { worker_loop(); });
+    }
+
+    ~State()
+    {
+        std::lock_guard dispatch_lock(dispatch_mutex);
+        {
+            std::lock_guard job_lock(job_mutex);
+            stopping = true;
+        }
+        job_cv.notify_all();
+        workers.clear();
+    }
+
+    void run_chunks()
+    {
+        for (;;)
+        {
+            const std::size_t begin = next_index.fetch_add(chunk_size, std::memory_order_relaxed);
+            if (begin >= item_count)
+                return;
+            function(begin, std::min(begin + chunk_size, item_count));
+        }
+    }
+
+    void worker_loop()
+    {
+        std::uint64_t observed_generation = 0;
+        for (;;)
+        {
+            {
+                std::unique_lock lock(job_mutex);
+                job_cv.wait(lock, [&]() {
+                    return stopping || generation != observed_generation;
+                });
+                if (stopping)
+                    return;
+                observed_generation = generation;
+            }
+
+            run_chunks();
+
+            {
+                std::lock_guard lock(job_mutex);
+                --workers_remaining;
+            }
+            done_cv.notify_one();
+        }
+    }
+
+    std::size_t concurrency = 1;
+    std::vector<std::jthread> workers;
+    std::mutex dispatch_mutex;
+    std::mutex job_mutex;
+    std::condition_variable job_cv;
+    std::condition_variable done_cv;
+    bool stopping = false;
+    std::uint64_t generation = 0;
+    std::size_t workers_remaining = 0;
+    std::size_t item_count = 0;
+    std::size_t chunk_size = 1;
+    std::atomic<std::size_t> next_index{ 0 };
+    std::function<void(std::size_t, std::size_t)> function;
+};
+
+SatellitePropagationExecutor::SatellitePropagationExecutor(std::size_t concurrency)
+    : state_(std::make_unique<State>(concurrency))
+{
+}
+
+SatellitePropagationExecutor::~SatellitePropagationExecutor() = default;
+
+std::size_t SatellitePropagationExecutor::concurrency() const
+{
+    return state_->concurrency;
+}
+
+void SatellitePropagationExecutor::parallel_for(
+    std::size_t item_count,
+    std::size_t minimum_chunk_size,
+    const std::function<void(std::size_t, std::size_t)>& function)
+{
+    if (item_count == 0)
+        return;
+    if (state_->workers.empty() || item_count <= minimum_chunk_size * 2)
+    {
+        function(0, item_count);
+        return;
+    }
+
+    std::lock_guard dispatch_lock(state_->dispatch_mutex);
+    {
+        std::lock_guard job_lock(state_->job_mutex);
+        state_->item_count = item_count;
+        const std::size_t target_chunks = state_->concurrency * 4;
+        const std::size_t even_chunk_size = (item_count + target_chunks - 1) / target_chunks;
+        state_->chunk_size = std::max<std::size_t>(minimum_chunk_size, even_chunk_size);
+        state_->next_index.store(0, std::memory_order_relaxed);
+        state_->function = function;
+        state_->workers_remaining = state_->workers.size();
+        ++state_->generation;
+    }
+    state_->job_cv.notify_all();
+
+    state_->run_chunks();
+
+    {
+        std::unique_lock lock(state_->job_mutex);
+        state_->done_cv.wait(lock, [&]() { return state_->workers_remaining == 0; });
+        state_->function = {};
+    }
+}
+
 struct SatellitePropagationModel::State
 {
     std::vector<CompiledOrbit> orbits;
@@ -527,7 +664,8 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
 SatellitePropagationResult propagate_satellites(
     const SatellitePropagationModel& model,
     double simulation_unix_seconds,
-    const SatellitePropagationSettings& settings)
+    const SatellitePropagationSettings& settings,
+    SatellitePropagationExecutor* executor)
 {
     SatellitePropagationResult result;
     result.simulation_unix_seconds = simulation_unix_seconds;
@@ -541,22 +679,40 @@ SatellitePropagationResult propagate_satellites(
     }
 
     const std::size_t count = limited_count(model.size(), settings.max_satellites);
-    result.states.reserve(count);
     const auto& entries = model.entries();
     const auto& orbits = SatellitePropagationRunnerAccess::orbits(model);
 
+    result.states.resize(count);
+    std::vector<unsigned char> state_valid(count, 0);
+    const auto propagate_state_range = [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i)
+        {
+            state_valid[i] = static_cast<unsigned char>(propagate_one(
+                orbits[i],
+                entries[i],
+                result.simulation_julian_date,
+                simulation_unix_seconds,
+                result.states[i]));
+        }
+    };
+    if (executor)
+        executor->parallel_for(count, 64, propagate_state_range);
+    else
+        propagate_state_range(0, count);
+
+    std::size_t output_state_index = 0;
     for (std::size_t i = 0; i < count; ++i)
     {
-        SatellitePropagatedState state;
-        if (propagate_one(orbits[i], entries[i], result.simulation_julian_date, simulation_unix_seconds, state))
-        {
-            result.states.push_back(std::move(state));
-        }
-        else
+        if (!state_valid[i])
         {
             ++result.failed_propagations;
+            continue;
         }
+        if (output_state_index != i)
+            result.states[output_state_index] = std::move(result.states[i]);
+        ++output_state_index;
     }
+    result.states.resize(output_state_index);
 
     const std::size_t track_count = settings.track_sample_count == 0
         ? 0
@@ -578,23 +734,45 @@ SatellitePropagationResult propagate_satellites(
         && *selected_track_index >= track_count;
     const std::size_t general_track_count = track_count
         - (selected_outside_track_budget ? 1 : 0);
-    result.tracks.reserve(track_count);
+    std::vector<std::size_t> track_indices;
+    track_indices.reserve(track_count);
     for (std::size_t i = 0; i < general_track_count; ++i)
-    {
-        SatelliteOrbitTrack track;
-        append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
-        if (!track.ecef_points_km.empty())
-            result.tracks.push_back(std::move(track));
-    }
+        track_indices.push_back(i);
 
     if (selected_outside_track_budget)
+        track_indices.push_back(*selected_track_index);
+
+    result.tracks.resize(track_indices.size());
+    std::vector<unsigned char> track_valid(track_indices.size(), 0);
+    const auto propagate_track_range = [&](std::size_t begin, std::size_t end) {
+        for (std::size_t output_index = begin; output_index < end; ++output_index)
+        {
+            const std::size_t model_index = track_indices[output_index];
+            append_track_samples(
+                orbits[model_index],
+                entries[model_index],
+                simulation_unix_seconds,
+                settings,
+                result.tracks[output_index]);
+            track_valid[output_index] = static_cast<unsigned char>(
+                !result.tracks[output_index].ecef_points_km.empty());
+        }
+    };
+    if (executor)
+        executor->parallel_for(track_indices.size(), 8, propagate_track_range);
+    else
+        propagate_track_range(0, track_indices.size());
+
+    std::size_t output_track_index = 0;
+    for (std::size_t i = 0; i < result.tracks.size(); ++i)
     {
-        const std::size_t i = *selected_track_index;
-        SatelliteOrbitTrack track;
-        append_track_samples(orbits[i], entries[i], simulation_unix_seconds, settings, track);
-        if (!track.ecef_points_km.empty())
-            result.tracks.push_back(std::move(track));
+        if (!track_valid[i])
+            continue;
+        if (output_track_index != i)
+            result.tracks[output_track_index] = std::move(result.tracks[i]);
+        ++output_track_index;
     }
+    result.tracks.resize(output_track_index);
 
     return result;
 }

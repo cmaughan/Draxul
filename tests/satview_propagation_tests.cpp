@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <string>
 
 using Catch::Approx;
+using draxul::satview::SatellitePropagationExecutor;
 using draxul::satview::SatellitePropagationSettings;
 using draxul::satview::build_satellite_propagation_model;
 using draxul::satview::greenwich_sidereal_angle_radians;
@@ -202,6 +204,76 @@ TEST_CASE("SatView propagation generates configurable track samples", "[satview]
         expected_render_point.y,
         expected_render_point.z,
         1.0e-12);
+}
+
+TEST_CASE("SatView parallel propagation matches sequential results", "[satview][propagation][parallel]")
+{
+    const auto parsed = parse_celestrak_gp_json(kVallado00005Json, "parallel", "test");
+    REQUIRE(parsed);
+    REQUIRE(parsed.catalog.objects.size() == 1);
+
+    draxul::satview::SatelliteCatalog catalog = parsed.catalog;
+    catalog.objects.clear();
+    constexpr std::size_t kSatelliteCount = 256;
+    for (std::size_t i = 0; i < kSatelliteCount; ++i)
+    {
+        auto record = parsed.catalog.objects.front();
+        record.norad_catalog_id = 10000 + static_cast<std::int64_t>(i);
+        record.object_name = "PARALLEL-" + std::to_string(i);
+        record.mean_anomaly_deg = std::fmod(
+            record.mean_anomaly_deg + static_cast<double>(i) * 1.25,
+            360.0);
+        catalog.objects.push_back(std::move(record));
+    }
+
+    auto build = build_satellite_propagation_model(catalog);
+    REQUIRE(build);
+    REQUIRE(build.compiled_records == kSatelliteCount);
+
+    SatellitePropagationSettings settings;
+    settings.track_satellite_limit = 64;
+    settings.track_sample_count = 12;
+    settings.selected_track_norad_catalog_id = 10000 + kSatelliteCount - 1;
+    const double epoch_seconds = *parse_celestrak_epoch_utc("2000-06-27T18:50:19.733568");
+
+    const auto sequential = propagate_satellites(build.model, epoch_seconds, settings);
+    SatellitePropagationExecutor executor(4);
+    const auto parallel = propagate_satellites(build.model, epoch_seconds, settings, &executor);
+
+    REQUIRE(sequential);
+    REQUIRE(parallel);
+    CHECK(executor.concurrency() == 4);
+    CHECK(parallel.failed_propagations == sequential.failed_propagations);
+    REQUIRE(parallel.states.size() == sequential.states.size());
+    REQUIRE(parallel.tracks.size() == sequential.tracks.size());
+
+    for (std::size_t i = 0; i < sequential.states.size(); ++i)
+    {
+        const auto& expected = sequential.states[i];
+        const auto& actual = parallel.states[i];
+        CHECK(actual.norad_catalog_id == expected.norad_catalog_id);
+        CHECK(actual.object_name == expected.object_name);
+        CHECK(glm::length(actual.teme_position_km - expected.teme_position_km) == 0.0);
+        CHECK(glm::length(actual.teme_velocity_km_per_s - expected.teme_velocity_km_per_s) == 0.0);
+        CHECK(glm::length(actual.ecef_position_km - expected.ecef_position_km) == 0.0);
+    }
+
+    for (std::size_t i = 0; i < sequential.tracks.size(); ++i)
+    {
+        const auto& expected = sequential.tracks[i];
+        const auto& actual = parallel.tracks[i];
+        CHECK(actual.norad_catalog_id == expected.norad_catalog_id);
+        REQUIRE(actual.teme_points_km.size() == expected.teme_points_km.size());
+        REQUIRE(actual.ecef_points_km.size() == expected.ecef_points_km.size());
+        for (std::size_t sample = 0; sample < expected.teme_points_km.size(); ++sample)
+        {
+            CHECK(glm::length(actual.teme_points_km[sample] - expected.teme_points_km[sample]) == 0.0);
+            CHECK(glm::length(actual.ecef_points_km[sample] - expected.ecef_points_km[sample]) == 0.0);
+        }
+    }
+
+    CHECK(parallel.tracks.back().norad_catalog_id
+        == *settings.selected_track_norad_catalog_id);
 }
 
 TEST_CASE("SatView propagation prioritizes selection within the track cap", "[satview][propagation]")

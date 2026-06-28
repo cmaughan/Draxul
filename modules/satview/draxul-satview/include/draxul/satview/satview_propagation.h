@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <draxul/satview/satview_catalog.h>
+#include <functional>
 #include <glm/glm.hpp>
 #include <memory>
 #include <optional>
@@ -150,6 +151,36 @@ struct SatellitePropagationResult
     }
 };
 
+class SatellitePropagationExecutor
+{
+public:
+    // Zero leaves two hardware threads free and caps automatic concurrency at 16.
+    explicit SatellitePropagationExecutor(std::size_t concurrency = 0);
+    ~SatellitePropagationExecutor();
+
+    SatellitePropagationExecutor(const SatellitePropagationExecutor&) = delete;
+    SatellitePropagationExecutor& operator=(const SatellitePropagationExecutor&) = delete;
+    SatellitePropagationExecutor(SatellitePropagationExecutor&&) = delete;
+    SatellitePropagationExecutor& operator=(SatellitePropagationExecutor&&) = delete;
+
+    [[nodiscard]] std::size_t concurrency() const;
+
+private:
+    struct State;
+    std::unique_ptr<State> state_;
+
+    void parallel_for(
+        std::size_t item_count,
+        std::size_t minimum_chunk_size,
+        const std::function<void(std::size_t, std::size_t)>& function);
+
+    friend SatellitePropagationResult propagate_satellites(
+        const SatellitePropagationModel&,
+        double,
+        const SatellitePropagationSettings&,
+        SatellitePropagationExecutor*);
+};
+
 [[nodiscard]] std::optional<double> parse_celestrak_epoch_utc(std::string_view epoch_utc);
 [[nodiscard]] SatViewJulianDate julian_date_from_unix_seconds(double unix_seconds);
 [[nodiscard]] double greenwich_sidereal_angle_radians(double unix_seconds);
@@ -161,7 +192,8 @@ struct SatellitePropagationResult
 [[nodiscard]] SatellitePropagationResult propagate_satellites(
     const SatellitePropagationModel& model,
     double simulation_unix_seconds,
-    const SatellitePropagationSettings& settings = {});
+    const SatellitePropagationSettings& settings = {},
+    SatellitePropagationExecutor* executor = nullptr);
 [[nodiscard]] std::optional<SatelliteOrbitTrack> propagate_satellite_track(
     const SatellitePropagationModel& model,
     std::int64_t norad_catalog_id,

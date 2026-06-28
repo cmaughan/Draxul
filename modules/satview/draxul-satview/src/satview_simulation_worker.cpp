@@ -22,6 +22,7 @@ std::string make_status_text(const SatViewSimulationSnapshot& snapshot)
     std::string text = "sgp4 " + std::to_string(snapshot.states.size()) + " positions";
     if (snapshot.tracks && !snapshot.tracks->empty())
         text += ", " + std::to_string(snapshot.tracks->size()) + " tracks";
+    text += ", " + std::to_string(snapshot.propagation_concurrency) + " threads";
     if (snapshot.failed_propagations != 0)
         text += ", " + std::to_string(snapshot.failed_propagations) + " failed";
     return text;
@@ -284,6 +285,7 @@ void SatViewSimulationWorker::publish_empty_snapshot(
 
 void SatViewSimulationWorker::run_loop()
 {
+    SatellitePropagationExecutor propagation_executor;
     SatellitePropagationModel model;
     std::uint64_t model_catalog_generation = 0;
     std::uint64_t snapshot_generation = 0;
@@ -368,7 +370,11 @@ void SatViewSimulationWorker::run_loop()
         propagation_settings.track_satellite_limit = controls.track_satellite_limit;
         propagation_settings.selected_track_norad_catalog_id = controls.selected_track_norad_catalog_id;
 
-        SatellitePropagationResult result = propagate_satellites(model, simulation_seconds, propagation_settings);
+        SatellitePropagationResult result = propagate_satellites(
+            model,
+            simulation_seconds,
+            propagation_settings,
+            &propagation_executor);
         if (result && rebuild_tracks)
         {
             cached_tracks = std::make_shared<const std::vector<SatelliteOrbitTrack>>(std::move(result.tracks));
@@ -385,7 +391,11 @@ void SatViewSimulationWorker::run_loop()
                 }
 
                 SatellitePropagationSettings position_settings;
-                result = propagate_satellites(model, simulation_seconds, position_settings);
+                result = propagate_satellites(
+                    model,
+                    simulation_seconds,
+                    position_settings,
+                    &propagation_executor);
             }
         }
 
@@ -423,7 +433,11 @@ void SatViewSimulationWorker::run_loop()
         {
             SatellitePropagationSettings next_settings;
             next_settings.max_satellites = propagation_settings.max_satellites;
-            next_result = propagate_satellites(model, next_simulation_seconds, next_settings);
+            next_result = propagate_satellites(
+                model,
+                next_simulation_seconds,
+                next_settings,
+                &propagation_executor);
         }
         SatViewSimulationSnapshot snapshot;
         snapshot.generation = ++snapshot_generation;
@@ -450,6 +464,7 @@ void SatViewSimulationWorker::run_loop()
             }
         }
         snapshot.tracks = cached_tracks;
+        snapshot.propagation_concurrency = propagation_executor.concurrency();
         snapshot.skipped_model_records = result.skipped_model_records;
         snapshot.failed_propagations = result.failed_propagations;
         snapshot.error = std::move(result.error);

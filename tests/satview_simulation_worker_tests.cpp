@@ -160,6 +160,8 @@ TEST_CASE("SatView worker caches tracks until geometry settings change", "[satvi
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
     auto stable_snapshot = worker.acquire_latest();
     REQUIRE(stable_snapshot);
+    CHECK(stable_snapshot->propagation_concurrency >= 1);
+    CHECK(stable_snapshot->propagation_concurrency <= 16);
     CHECK(stable_snapshot->tracks == initial_tracks);
 
     worker.set_render_settings(1, 24, false, std::nullopt);
