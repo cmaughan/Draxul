@@ -288,6 +288,16 @@ bool satellite_visible(
     return satview_filter_matches(filter, make_satview_filter_candidate(state, source_label));
 }
 
+bool satellite_display_shows_tracks(SatViewSatelliteDisplayMode mode)
+{
+    return mode != SatViewSatelliteDisplayMode::MarkersOnly;
+}
+
+bool satellite_display_shows_markers(SatViewSatelliteDisplayMode mode)
+{
+    return mode != SatViewSatelliteDisplayMode::TracksOnly;
+}
+
 void append_track_vertices(
     std::vector<SatViewSceneVertex>& vertices,
     const SatViewSimulationSnapshot& snapshot,
@@ -444,14 +454,15 @@ float visible_scene_radius(
     const SatViewSimulationSnapshot* snapshot,
     const SatViewFilterState& filter,
     std::optional<std::int64_t> selected_id,
-    SatViewTrackDisplayMode track_display_mode)
+    SatViewTrackDisplayMode track_display_mode,
+    SatViewSatelliteDisplayMode satellite_display_mode)
 {
     if (!snapshot)
         return 1.0f;
 
     const std::string_view source_label = snapshot->source_label;
     float radius = 1.0f;
-    if (snapshot->tracks)
+    if (satellite_display_shows_tracks(satellite_display_mode) && snapshot->tracks)
     {
         for (const SatelliteOrbitTrack& track : *snapshot->tracks)
         {
@@ -467,6 +478,9 @@ float visible_scene_radius(
                 radius = std::max(radius, glm::length(to_vec3(point)));
         }
     }
+
+    if (!satellite_display_shows_markers(satellite_display_mode))
+        return radius;
 
     for (std::size_t state_index = 0; state_index < snapshot->states.size(); ++state_index)
     {
@@ -678,7 +692,12 @@ void SatViewHost::draw(IFrameContext& frame)
     const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
     const SatViewMoonPosition moon = satview_moon_position(simulation_seconds);
     const float earth_scene_radius =
-        visible_scene_radius(snapshot, filter_, selected_norad_catalog_id_, track_display_mode_);
+        visible_scene_radius(
+            snapshot,
+            filter_,
+            selected_norad_catalog_id_,
+            track_display_mode_,
+            satellite_display_mode_);
     const float scene_radius = camera_scene_radius(
         earth_scene_radius,
         moon,
@@ -750,7 +769,10 @@ void SatViewHost::draw(IFrameContext& frame)
     const void* track_source = snapshot && snapshot->tracks
         ? snapshot->tracks.get()
         : nullptr;
-    const bool show_moon_track = moon_track_enabled_
+    const bool show_tracks = satellite_display_shows_tracks(satellite_display_mode_);
+    const bool show_markers = satellite_display_shows_markers(satellite_display_mode_);
+    const bool show_moon_track = show_tracks
+        && moon_track_enabled_
         && !(map_projection && camera_pov_ == SatViewCameraPov::Moon);
     bool moon_track_window_changed = false;
     if (show_moon_track
@@ -767,31 +789,34 @@ void SatViewHost::draw(IFrameContext& frame)
         || moon_track_window_changed)
     {
         std::vector<SatViewSceneVertex> track_vertices;
-        const std::size_t track_count = snapshot && snapshot->tracks
-            ? snapshot->tracks->size()
-            : 0;
-        track_vertices.reserve(
-            (track_count + (show_moon_track ? 1 : 0))
-            * (track_sample_count_ + 1) * 2);
-        if (snapshot)
+        if (show_tracks)
         {
-            append_track_vertices(
-                track_vertices,
-                *snapshot,
-                filter_,
-                snapshot->source_label,
-                selected_norad_catalog_id_,
-                track_display_mode_,
-                color_mode_,
-                projection_mode_,
-                camera_pov_);
-        }
-        if (show_moon_track)
-        {
-            append_moon_track_vertices(
-                track_vertices,
-                *moon_track_center_seconds_,
-                track_sample_count_);
+            const std::size_t track_count = snapshot && snapshot->tracks
+                ? snapshot->tracks->size()
+                : 0;
+            track_vertices.reserve(
+                (track_count + (show_moon_track ? 1 : 0))
+                * (track_sample_count_ + 1) * 2);
+            if (snapshot)
+            {
+                append_track_vertices(
+                    track_vertices,
+                    *snapshot,
+                    filter_,
+                    snapshot->source_label,
+                    selected_norad_catalog_id_,
+                    track_display_mode_,
+                    color_mode_,
+                    projection_mode_,
+                    camera_pov_);
+            }
+            if (show_moon_track)
+            {
+                append_moon_track_vertices(
+                    track_vertices,
+                    *moon_track_center_seconds_,
+                    track_sample_count_);
+            }
         }
         scene_pass_->set_track_vertices(track_vertices);
         uploaded_track_source_ = track_source;
@@ -803,15 +828,18 @@ void SatViewHost::draw(IFrameContext& frame)
         if (marker_buffer_dirty_ || snapshot->generation != uploaded_marker_generation_)
         {
             std::vector<SatViewMarkerInstance> markers;
-            markers.reserve(snapshot->states.size());
-            append_marker_instances(
-                markers,
-                *snapshot,
-                filter_,
-                snapshot->source_label,
-                selected_norad_catalog_id_,
-                color_mode_,
-                marker_satellite_limit_);
+            if (show_markers)
+            {
+                markers.reserve(snapshot->states.size());
+                append_marker_instances(
+                    markers,
+                    *snapshot,
+                    filter_,
+                    snapshot->source_label,
+                    selected_norad_catalog_id_,
+                    color_mode_,
+                    marker_satellite_limit_);
+            }
             scene_pass_->set_markers(markers);
             uploaded_marker_generation_ = snapshot->generation;
             marker_buffer_dirty_ = false;
@@ -1245,6 +1273,7 @@ SatViewConfig SatViewHost::current_config() const
     config.filter = filter_;
     config.color_mode = color_mode_;
     config.track_display_mode = track_display_mode_;
+    config.satellite_display_mode = satellite_display_mode_;
     config.projection_mode = projection_mode_;
     config.camera_pov = camera_pov_;
     config.track_satellite_limit = track_satellite_limit_;
@@ -1265,6 +1294,7 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     filter_ = config.filter;
     color_mode_ = config.color_mode;
     track_display_mode_ = config.track_display_mode;
+    satellite_display_mode_ = config.satellite_display_mode;
     projection_mode_ = config.projection_mode;
     camera_pov_ = config.camera_pov;
     track_satellite_limit_ = config.track_satellite_limit;
@@ -1753,6 +1783,42 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         changed = true;
     }
 
+    int satellite_display_index = 0;
+    switch (satellite_display_mode_)
+    {
+    case SatViewSatelliteDisplayMode::TracksAndMarkers:
+        satellite_display_index = 0;
+        break;
+    case SatViewSatelliteDisplayMode::TracksOnly:
+        satellite_display_index = 1;
+        break;
+    case SatViewSatelliteDisplayMode::MarkersOnly:
+        satellite_display_index = 2;
+        break;
+    }
+    const char* satellite_display_modes[] = { "Tracks + Satellites", "Tracks Only", "Satellites Only" };
+    set_control_width("Display");
+    if (ImGui::Combo("Display", &satellite_display_index, satellite_display_modes, 3))
+    {
+        switch (satellite_display_index)
+        {
+        case 1:
+            satellite_display_mode_ = SatViewSatelliteDisplayMode::TracksOnly;
+            break;
+        case 2:
+            satellite_display_mode_ = SatViewSatelliteDisplayMode::MarkersOnly;
+            break;
+        default:
+            satellite_display_mode_ = SatViewSatelliteDisplayMode::TracksAndMarkers;
+            break;
+        }
+        changed = true;
+    }
+
+    const bool show_tracks = satellite_display_shows_tracks(satellite_display_mode_);
+    const bool show_markers = satellite_display_shows_markers(satellite_display_mode_);
+    if (!show_tracks)
+        ImGui::BeginDisabled();
     int track_display_index = track_display_mode_ == SatViewTrackDisplayMode::SelectedOnly ? 1 : 0;
     const char* track_display_modes[] = { "All Sampled", "Selected Only" };
     set_control_width("Paths");
@@ -1801,6 +1867,8 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         simulation_settings_dirty_ = true;
         changed = true;
     }
+    if (!show_tracks)
+        ImGui::EndDisabled();
 
     static constexpr std::size_t kMarkerLimitValues[] = { 0, 8192, 4096, 2048, 1024, 512 };
     static constexpr const char* kMarkerLimitLabels[] = { "All", "8192", "4096", "2048", "1024", "512" };
@@ -1813,12 +1881,16 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
             break;
         }
     }
+    if (!show_markers)
+        ImGui::BeginDisabled();
     set_control_width("Marker cap");
     if (ImGui::Combo("Marker cap", &marker_limit_index, kMarkerLimitLabels, 6))
     {
         marker_satellite_limit_ = kMarkerLimitValues[marker_limit_index];
         changed = true;
     }
+    if (!show_markers)
+        ImGui::EndDisabled();
 
     ImGui::SeparatorText("Catalog");
     const std::string catalog_status = catalog_service_.status_text();
@@ -1835,9 +1907,11 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     else
         ImGui::Text("Source: %.*s", static_cast<int>(source_label.size()), source_label.data());
     const std::size_t filtered_markers = filtered_object_tree_indices_.size();
-    const std::size_t rendered_markers = marker_satellite_limit_ == 0
-        ? filtered_markers
-        : std::min(filtered_markers, marker_satellite_limit_);
+    const std::size_t rendered_markers = !show_markers
+        ? 0
+        : (marker_satellite_limit_ == 0
+              ? filtered_markers
+              : std::min(filtered_markers, marker_satellite_limit_));
     const std::size_t total_markers = snapshot ? snapshot->states.size() : 0;
     const std::size_t total_tracks = (snapshot && snapshot->tracks) ? snapshot->tracks->size() : 0;
     ImGui::Text("Markers: %zu / %zu", rendered_markers, total_markers);
@@ -1906,6 +1980,9 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
 
 std::size_t SatViewHost::visible_track_count(const SatViewSimulationSnapshot* snapshot) const
 {
+    if (!satellite_display_shows_tracks(satellite_display_mode_))
+        return 0;
+
     std::size_t count = moon_track_enabled_
             && !(projection_mode_ == SatViewProjectionMode::Map
                 && camera_pov_ == SatViewCameraPov::Moon)
@@ -1955,6 +2032,9 @@ void SatViewHost::clear_selection_if_missing(const SatViewSimulationSnapshot* sn
 
 void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
 {
+    if (!satellite_display_shows_markers(satellite_display_mode_))
+        return;
+
     auto snapshot_guard = simulation_worker_ ? simulation_worker_->acquire_latest() : SatViewSnapshotExchange::ReadGuard{};
     const SatViewSimulationSnapshot* snapshot = snapshot_guard.get();
     if (!snapshot || snapshot->states.empty())
@@ -1965,7 +2045,12 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
     const double render_seconds = render_simulation_seconds(*snapshot);
     const SatViewMoonPosition moon = satview_moon_position(render_seconds);
     const float earth_scene_radius =
-        visible_scene_radius(snapshot, filter_, selected_norad_catalog_id_, track_display_mode_);
+        visible_scene_radius(
+            snapshot,
+            filter_,
+            selected_norad_catalog_id_,
+            track_display_mode_,
+            satellite_display_mode_);
     const float scene_radius = camera_scene_radius(
         earth_scene_radius,
         moon,

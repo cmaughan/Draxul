@@ -115,6 +115,7 @@ private:
     char source_buffer_[96]{};
     SatViewColorMode color_mode_ = SatViewColorMode::NamePrefix;
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
+    SatViewSatelliteDisplayMode satellite_display_mode_ = SatViewSatelliteDisplayMode::TracksAndMarkers;
     SatViewProjectionMode projection_mode_ = SatViewProjectionMode::Globe;
     SatViewCameraPov camera_pov_ = SatViewCameraPov::Earth;
     std::size_t track_satellite_limit_ = kDefaultTrackSatelliteLimit;

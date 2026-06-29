@@ -28,6 +28,13 @@ enum class SatViewTrackDisplayMode
     SelectedOnly
 };
 
+enum class SatViewSatelliteDisplayMode
+{
+    TracksAndMarkers,
+    TracksOnly,
+    MarkersOnly
+};
+
 enum class SatViewProjectionMode
 {
     Globe,
@@ -45,6 +52,7 @@ struct SatViewConfig
     SatViewFilterState filter;
     SatViewColorMode color_mode = SatViewColorMode::NamePrefix;
     SatViewTrackDisplayMode track_display_mode = SatViewTrackDisplayMode::AllSampled;
+    SatViewSatelliteDisplayMode satellite_display_mode = SatViewSatelliteDisplayMode::TracksAndMarkers;
     SatViewProjectionMode projection_mode = SatViewProjectionMode::Globe;
     SatViewCameraPov camera_pov = SatViewCameraPov::Earth;
     std::size_t track_satellite_limit = kDefaultTrackSatelliteLimit;

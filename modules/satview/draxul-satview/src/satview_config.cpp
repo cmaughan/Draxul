@@ -57,6 +57,20 @@ std::string_view format_track_display_mode(SatViewTrackDisplayMode mode)
     return mode == SatViewTrackDisplayMode::SelectedOnly ? "selected_only" : "all_sampled";
 }
 
+std::string_view format_satellite_display_mode(SatViewSatelliteDisplayMode mode)
+{
+    switch (mode)
+    {
+    case SatViewSatelliteDisplayMode::TracksAndMarkers:
+        return "tracks_and_markers";
+    case SatViewSatelliteDisplayMode::TracksOnly:
+        return "tracks_only";
+    case SatViewSatelliteDisplayMode::MarkersOnly:
+        return "markers_only";
+    }
+    return "tracks_and_markers";
+}
+
 std::string_view format_projection_mode(SatViewProjectionMode mode)
 {
     return mode == SatViewProjectionMode::Map ? "map" : "globe";
@@ -84,6 +98,15 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
             config.track_display_mode = SatViewTrackDisplayMode::AllSampled;
         else if (*value == "selected_only")
             config.track_display_mode = SatViewTrackDisplayMode::SelectedOnly;
+    }
+    if (auto value = toml_support::get_string(table, "satellite_display_mode"))
+    {
+        if (*value == "tracks_and_markers")
+            config.satellite_display_mode = SatViewSatelliteDisplayMode::TracksAndMarkers;
+        else if (*value == "tracks_only")
+            config.satellite_display_mode = SatViewSatelliteDisplayMode::TracksOnly;
+        else if (*value == "markers_only")
+            config.satellite_display_mode = SatViewSatelliteDisplayMode::MarkersOnly;
     }
     if (auto value = toml_support::get_string(table, "projection_mode"))
     {
@@ -151,6 +174,8 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     toml::table table;
     table.insert_or_assign("color_mode", std::string(format_color_mode(config.color_mode)));
     table.insert_or_assign("track_display_mode", std::string(format_track_display_mode(config.track_display_mode)));
+    table.insert_or_assign("satellite_display_mode",
+        std::string(format_satellite_display_mode(config.satellite_display_mode)));
     table.insert_or_assign("projection_mode", std::string(format_projection_mode(config.projection_mode)));
     table.insert_or_assign("camera_pov", std::string(format_camera_pov(config.camera_pov)));
     table.insert_or_assign("track_count", static_cast<std::int64_t>(config.track_satellite_limit));
