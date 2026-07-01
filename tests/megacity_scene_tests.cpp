@@ -11,7 +11,7 @@
 #include "live_city_metrics.h"
 #include "mesh_library.h"
 #include "scene_snapshot_builder.h"
-#include "scene_world.h"
+#include <draxul/codeviz_scene_world.h>
 #include "semantic_city_layout.h"
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"

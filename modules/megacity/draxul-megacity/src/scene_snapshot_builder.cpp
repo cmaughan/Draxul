@@ -2,7 +2,7 @@
 #include "city_helpers.h"
 #include <draxul/isometric_camera.h>
 #include "live_city_metrics.h"
-#include "scene_world.h"
+#include <draxul/codeviz_scene_world.h>
 #include "sign_label_atlas.h"
 #include <algorithm>
 #include <cmath>
@@ -361,7 +361,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
                     ellipsoid->radius_y * 2.0f,
                     ellipsoid->radius_z * 2.0f));
         }
-        else if (const auto* bm = reg.try_get<BuildingMetrics>(entity))
+        else if (const auto* bm = reg.try_get<BlockMetrics>(entity))
         {
             if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)
@@ -382,12 +382,12 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
                     obj.uv_rect = glm::vec4(0.0f, 0.0f, bm->footprint, bm->footprint);
             }
         }
-        else if (const auto* tm = reg.try_get<TreeMetrics>(entity))
+        else if (const auto* tm = reg.try_get<FoliageMetrics>(entity))
         {
             extent_x = tm->canopy_radius * 2.0f;
             extent_z = tm->canopy_radius * 2.0f;
         }
-        else if (const auto* rm = reg.try_get<RoadMetrics>(entity))
+        else if (const auto* rm = reg.try_get<StripMetrics>(entity))
         {
             if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)
@@ -400,7 +400,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             transform = glm::translate(transform, glm::vec3(0.0f, rm->height * 0.5f, 0.0f));
             transform = glm::scale(transform, glm::vec3(rm->extent_x, rm->height, rm->extent_z));
         }
-        else if (const auto* rsm = reg.try_get<RoadSurfaceMetrics>(entity))
+        else if (const auto* rsm = reg.try_get<TexturedSurfaceMetrics>(entity))
         {
             extent_x = rsm->extent_x;
             extent_z = rsm->extent_z;
@@ -408,7 +408,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             transform = glm::translate(transform, glm::vec3(0.0f, rsm->height * 0.5f, 0.0f));
             transform = glm::scale(transform, glm::vec3(rsm->extent_x, rsm->height, rsm->extent_z));
         }
-        else if (const auto* route = reg.try_get<RouteSegmentMetrics>(entity))
+        else if (const auto* route = reg.try_get<LinkSegmentMetrics>(entity))
         {
             extent_x = route->extent_x;
             extent_z = route->extent_z;
@@ -418,7 +418,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
                 transform = glm::rotate(transform, route->pitch_radians, glm::vec3(0.0f, 0.0f, 1.0f));
             transform = glm::scale(transform, glm::vec3(route->extent_x, route->height, route->extent_z));
         }
-        else if (const auto* module_surface = reg.try_get<ModuleSurfaceMetrics>(entity))
+        else if (const auto* module_surface = reg.try_get<RegionSurfaceMetrics>(entity))
         {
             obj.role = CodeVizRenderable::Role::ModuleOutline;
             extent_x = module_surface->extent_x;
@@ -426,7 +426,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             transform = glm::translate(transform, glm::vec3(0.0f, module_surface->height * 0.5f, 0.0f));
             transform = glm::scale(transform, glm::vec3(module_surface->extent_x, module_surface->height, module_surface->extent_z));
         }
-        else if (const auto* sm = reg.try_get<SignMetrics>(entity))
+        else if (const auto* sm = reg.try_get<LabelPanelMetrics>(entity))
         {
             if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)
@@ -468,7 +468,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             obj.semantic_node_id = sym->semantic_node_id;
             obj.semantic_edge_id = sym->semantic_edge_id;
 
-            if (reg.all_of<BuildingMetrics>(entity) && !sym->file.empty())
+            if (reg.all_of<BlockMetrics>(entity) && !sym->file.empty())
             {
                 const auto heat_it = performance_heat_table.bindings.find(
                     performance_heat_key(sym->file, sym->module_path, sym->name));
@@ -479,7 +479,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
                 }
             }
         }
-        if (const auto* link = reg.try_get<RouteLink>(entity))
+        if (const auto* link = reg.try_get<RelationshipLink>(entity))
         {
             obj.route_source_file_path = link->source_file_path;
             obj.route_source_module_path = link->source_module_path;

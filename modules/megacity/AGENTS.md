@@ -13,10 +13,10 @@ Do not use the MaaS MCP tools/servers for work in this module.
 - `draxul-geometry`: Renderer-independent procedural mesh generation and shared `GeometryMesh` data. Keep it deterministic, GLM-based, and free of Vulkan, Metal, host, and ImGui dependencies.
 - `draxul-treesitter`: Background source scanning and raw parsed-symbol snapshots. Keep filesystem/parsing concerns here and publish immutable snapshots to consumers.
 - `draxul-code-semantics`: Projects parsed source data into the neutral `CodeSemanticSnapshot` and resolves repository module paths. It may depend on `draxul-treesitter`, but must not depend on the host, GPU renderer, or city/building presentation records.
-- `draxul-codeviz-scene`: Backend-neutral scene records and shared scene snapshot helpers consumed by code visualization renderers and hosts.
+- `draxul-codeviz-scene`: Backend-neutral scene records, presentation ECS world, and shared scene snapshot helpers consumed by code visualization renderers and hosts.
 - `draxul-codeviz-renderer`: Shared `CodeVizScenePass` plus Vulkan/Metal backends for code visualization scene snapshots.
 - `draxul-codeviz-host`: Shared camera and input helpers for code visualization hosts.
-- `draxul-megacity`: Host lifecycle, input, configuration, semantic layout, city and biology builders, scene snapshot construction, and ImGui panels. Push pure geometry, parsing, semantic-model, scene, and rendering logic into the lower libraries above.
+- `draxul-megacity`: Host lifecycle, configuration, semantic layout, city and biology builders, scene snapshot construction, and ImGui panels. Push pure geometry, parsing, semantic-model, scene, camera/input, and rendering logic into the lower libraries above.
 
 Keep the dependency direction approximately:
 

@@ -1,7 +1,7 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "live_city_metrics.h"
-#include "scene_world.h"
+#include <draxul/codeviz_scene_world.h>
 #include "semantic_city_layout.h"
 #include "sign_label_atlas.h"
 #include "static_mesh_family_cache.h"

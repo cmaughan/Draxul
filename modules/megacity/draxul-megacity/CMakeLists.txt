@@ -9,7 +9,6 @@ set(MEGACITY_SOURCES
     src/live_city_metrics.cpp
     src/megacity_code_config.cpp
     src/scene_snapshot_builder.cpp
-    src/scene_world.cpp
     src/semantic_city_layout.cpp
     src/sign_label_atlas.cpp
     src/static_mesh_family_cache.cpp
@@ -39,7 +38,6 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-treesitter
     draxul-gui
     imgui
-    EnTT::EnTT
 )
 
 target_link_libraries(draxul-megacity PRIVATE

@@ -1,4 +1,4 @@
-#include "scene_world.h"
+#include <draxul/codeviz_scene_world.h>
 
 #include <draxul/perf_timing.h>
 
@@ -30,19 +30,24 @@ void CodeVizSceneWorld::clear()
     registry_.clear();
 }
 
-void CodeVizSceneWorld::clear_route_segments()
+void CodeVizSceneWorld::clear_link_segments()
 {
     PERF_MEASURE();
     std::vector<entt::entity> entities;
-    auto view = registry_.view<RouteSegmentMetrics>();
+    auto view = registry_.view<LinkSegmentMetrics>();
     for (const entt::entity entity : view)
         entities.push_back(entity);
     for (const entt::entity entity : entities)
         registry_.destroy(entity);
 }
 
-entt::entity CodeVizSceneWorld::create_building(float world_x, float world_z, float elevation,
-    const BuildingMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source,
+void CodeVizSceneWorld::clear_route_segments()
+{
+    clear_link_segments();
+}
+
+entt::entity CodeVizSceneWorld::create_block(float world_x, float world_z, float elevation,
+    const BlockMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source,
     MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic,
     CustomMeshTransformMode custom_mesh_transform_mode)
 {
@@ -50,7 +55,7 @@ entt::entity CodeVizSceneWorld::create_building(float world_x, float world_z, fl
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<BuildingMetrics>(entity, metrics);
+    registry_.emplace<BlockMetrics>(entity, metrics);
     const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
     if (material == MaterialId::WoodBuilding)
     {
@@ -92,14 +97,14 @@ entt::entity CodeVizSceneWorld::create_building(float world_x, float world_z, fl
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_tree_bark(float world_x, float world_z, float elevation,
-    const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
+entt::entity CodeVizSceneWorld::create_foliage_bark(float world_x, float world_z, float elevation,
+    const FoliageMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<TreeMetrics>(entity, metrics);
+    registry_.emplace<FoliageMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
         MeshId::TreeBark,
@@ -116,14 +121,14 @@ entt::entity CodeVizSceneWorld::create_tree_bark(float world_x, float world_z, f
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_tree_leaves(float world_x, float world_z, float elevation,
-    const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
+entt::entity CodeVizSceneWorld::create_foliage_leaves(float world_x, float world_z, float elevation,
+    const FoliageMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<TreeMetrics>(entity, metrics);
+    registry_.emplace<FoliageMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
         MeshId::TreeLeaves,
@@ -140,14 +145,14 @@ entt::entity CodeVizSceneWorld::create_tree_leaves(float world_x, float world_z,
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_road(float world_x, float world_z,
-    const RoadMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation)
+entt::entity CodeVizSceneWorld::create_strip(float world_x, float world_z,
+    const StripMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<RoadMetrics>(entity, metrics);
+    registry_.emplace<StripMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
         MeshId::Cube,
@@ -164,14 +169,14 @@ entt::entity CodeVizSceneWorld::create_road(float world_x, float world_z,
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_road_surface(float world_x, float world_z,
-    const RoadSurfaceMetrics& metrics, CodeVizSemanticRef source, float elevation)
+entt::entity CodeVizSceneWorld::create_textured_surface(float world_x, float world_z,
+    const TexturedSurfaceMetrics& metrics, CodeVizSemanticRef source, float elevation)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<RoadSurfaceMetrics>(entity, metrics);
+    registry_.emplace<TexturedSurfaceMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
         MeshId::RoadSurface,
@@ -184,31 +189,31 @@ entt::entity CodeVizSceneWorld::create_road_surface(float world_x, float world_z
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_route_segment(float world_x, float world_z,
-    const RouteSegmentMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation,
-    RouteLink route_link)
+entt::entity CodeVizSceneWorld::create_link_segment(float world_x, float world_z,
+    const LinkSegmentMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation,
+    RelationshipLink relationship_link)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<RouteSegmentMetrics>(entity, metrics);
+    registry_.emplace<LinkSegmentMetrics>(entity, metrics);
     registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
-    if (!route_link.source_qualified_name.empty() || !route_link.target_qualified_name.empty())
-        registry_.emplace<RouteLink>(entity, std::move(route_link));
+    if (!relationship_link.source_qualified_name.empty() || !relationship_link.target_qualified_name.empty())
+        registry_.emplace<RelationshipLink>(entity, std::move(relationship_link));
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_module_surface(float world_x, float world_z,
-    const ModuleSurfaceMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation)
+entt::entity CodeVizSceneWorld::create_region_surface(float world_x, float world_z,
+    const RegionSurfaceMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<ModuleSurfaceMetrics>(entity, metrics);
+    registry_.emplace<RegionSurfaceMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
         MeshId::Cube,
@@ -245,15 +250,15 @@ entt::entity CodeVizSceneWorld::create_ellipsoid(float world_x, float world_z, f
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_sign(float world_x, float world_z, float elevation,
-    const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source,
+entt::entity CodeVizSceneWorld::create_label_panel(float world_x, float world_z, float elevation,
+    const LabelPanelMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source,
     std::shared_ptr<const GeometryMesh> custom_mesh, CustomMeshTransformMode custom_mesh_transform_mode)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<SignMetrics>(entity, metrics);
+    registry_.emplace<LabelPanelMetrics>(entity, metrics);
     const MeshId mesh_id = custom_mesh ? MeshId::Custom : mesh;
     registry_.emplace<Appearance>(entity, mesh_id, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (custom_mesh)

@@ -3,7 +3,7 @@
 #include <draxul/isometric_camera.h>
 #include <draxul/megacity_code_config.h>
 #include "scene_snapshot_builder.h"
-#include "scene_world.h"
+#include <draxul/codeviz_scene_world.h>
 #include "static_mesh_family_cache.h"
 
 #include <catch2/catch_approx.hpp>

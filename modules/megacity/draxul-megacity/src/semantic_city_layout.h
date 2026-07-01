@@ -1,6 +1,6 @@
 #pragma once
 
-#include "scene_components.h"
+#include <draxul/codeviz_scene_components.h>
 
 #include <draxul/code_semantic_model.h>
 #include <draxul/megacity_code_config.h>

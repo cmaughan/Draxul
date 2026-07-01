@@ -36,10 +36,10 @@ struct Appearance
     glm::vec4 material_info{ 0.0f, 1.0f, 1.0f, 1.0f };
 };
 
-// --- Entity-type markers (tag components) ---
+// --- Presentation shape components ---
 
-// Code-analysis metrics for buildings (concrete classes).
-struct BuildingMetrics
+// Generic vertical block. The city metaphor maps these to buildings.
+struct BlockMetrics
 {
     float footprint = 1.0f; // XZ extent in tile units
     float height = 1.0f; // Y extent in world units
@@ -47,14 +47,14 @@ struct BuildingMetrics
     float road_width = 0.0f;
 };
 
-struct RoadMetrics
+struct StripMetrics
 {
     float extent_x = 1.0f;
     float extent_z = 1.0f;
     float height = 0.02f;
 };
 
-struct RoadSurfaceMetrics
+struct TexturedSurfaceMetrics
 {
     float extent_x = 1.0f;
     float extent_z = 1.0f;
@@ -64,7 +64,7 @@ struct RoadSurfaceMetrics
     float ao_strength = 1.0f;
 };
 
-struct RouteSegmentMetrics
+struct LinkSegmentMetrics
 {
     float extent_x = 1.0f;
     float extent_z = 1.0f;
@@ -73,7 +73,7 @@ struct RouteSegmentMetrics
     float pitch_radians = 0.0f; // tilt along the length axis (for sloped routes)
 };
 
-struct ModuleSurfaceMetrics
+struct RegionSurfaceMetrics
 {
     float extent_x = 1.0f;
     float extent_z = 1.0f;
@@ -87,7 +87,7 @@ struct EllipsoidMetrics
     float radius_z = 0.5f;
 };
 
-struct SignMetrics
+struct LabelPanelMetrics
 {
     float width = 1.0f;
     float height = 0.05f;
@@ -97,8 +97,7 @@ struct SignMetrics
     glm::vec2 label_ink_pixel_size{ 0.0f };
 };
 
-// Code-analysis metrics for trees (free functions).
-struct TreeMetrics
+struct FoliageMetrics
 {
     float height = 1.0f;
     float canopy_radius = 0.5f;
@@ -136,8 +135,8 @@ struct CustomMeshRef
     CustomMeshTransformMode transform_mode = CustomMeshTransformMode::Baked;
 };
 
-// Links a route segment entity to the buildings it connects.
-struct RouteLink
+// Links a relationship segment entity to the code symbols it connects.
+struct RelationshipLink
 {
     std::string source_file_path;
     std::string source_module_path;
@@ -146,5 +145,17 @@ struct RouteLink
     std::string target_module_path;
     std::string target_qualified_name;
 };
+
+// City-metaphor compatibility names. Keep these in the city layer over time,
+// but aliases avoid a noisy semantic-city rewrite while the shared scene layer
+// becomes metaphor-neutral.
+using BuildingMetrics = BlockMetrics;
+using RoadMetrics = StripMetrics;
+using RoadSurfaceMetrics = TexturedSurfaceMetrics;
+using RouteSegmentMetrics = LinkSegmentMetrics;
+using ModuleSurfaceMetrics = RegionSurfaceMetrics;
+using SignMetrics = LabelPanelMetrics;
+using TreeMetrics = FoliageMetrics;
+using RouteLink = RelationshipLink;
 
 } // namespace draxul

@@ -1,6 +1,6 @@
 #include "biology_builder.h"
 
-#include "scene_world.h"
+#include <draxul/codeviz_scene_world.h>
 
 #include <algorithm>
 #include <cctype>
@@ -301,10 +301,10 @@ void create_fibre(
     const float pitch = std::atan2(target.elevation - source.elevation, length);
     const float cos_pitch = std::cos(pitch);
     const glm::vec4 color = glm::mix(source.color, target.color, 0.5f);
-    world.create_route_segment(
+    world.create_link_segment(
         (source.center.x + target.center.x) * 0.5f,
         (source.center.y + target.center.y) * 0.5f,
-        RouteSegmentMetrics{
+        LinkSegmentMetrics{
             std::max(length, kFibreWidth) / std::max(cos_pitch, 1e-3f),
             kFibreWidth,
             kFibreHeight,
@@ -314,7 +314,7 @@ void create_fibre(
         glm::vec4(glm::vec3(color), 0.74f),
         CodeVizSemanticRef{},
         (source.elevation + target.elevation) * 0.5f,
-        RouteLink{
+        RelationshipLink{
             source_node.source.file_path,
             source_node.module_path,
             std::string(display_name(source_node)),
