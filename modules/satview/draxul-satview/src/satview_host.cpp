@@ -563,6 +563,7 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
         target);
     last_pump_time_ = std::chrono::steady_clock::now();
     last_activity_time_ = last_pump_time_;
+    next_frame_time_ = last_pump_time_ + kFrameTick;
     scene_pass_ = std::make_shared<SatViewScenePass>();
     SatViewSimulationControls simulation_controls;
     simulation_controls.time_speed = time_speed_;
@@ -625,6 +626,7 @@ void SatViewHost::pump()
     if (!running_)
         return;
 
+    bool redraw_needed = false;
     catalog_service_.pump();
     if (cloud_service_)
     {
@@ -632,7 +634,7 @@ void SatViewHost::pump()
         if (auto image = cloud_service_->take_pending_image())
         {
             scene_pass_->set_cloud_image(std::move(image));
-            request_redraw();
+            redraw_needed = true;
         }
     }
     const std::uint64_t catalog_generation = catalog_service_.catalog_generation();
@@ -640,16 +642,19 @@ void SatViewHost::pump()
     {
         simulation_catalog_generation_ = catalog_generation;
         simulation_worker_->set_catalog(catalog_service_.catalog(), catalog_generation);
+        redraw_needed = true;
     }
     if (simulation_settings_dirty_)
     {
         sync_simulation_render_settings();
         simulation_settings_dirty_ = false;
+        redraw_needed = true;
     }
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - last_pump_time_).count();
     last_pump_time_ = now;
     last_imgui_delta_seconds_ = dt;
+    const bool frame_tick_due = continuous_refresh_enabled_ || now >= next_frame_time_;
     if (camera_keys_->movement_active())
     {
         const float input_dt = std::clamp(dt, 0.0f, kCameraInputMaxDeltaSeconds);
@@ -676,8 +681,16 @@ void SatViewHost::pump()
                 camera_->Dolly(current_distance - target_distance);
             }
         }
+        redraw_needed = true;
     }
-    request_redraw();
+    if (frame_tick_due)
+        redraw_needed = true;
+
+    if (redraw_needed)
+    {
+        request_redraw();
+        next_frame_time_ = continuous_refresh_enabled_ ? now : now + kFrameTick;
+    }
 }
 
 void SatViewHost::draw(IFrameContext& frame)
@@ -870,7 +883,7 @@ std::optional<std::chrono::steady_clock::time_point> SatViewHost::next_deadline(
         return std::nullopt;
     if (continuous_refresh_enabled_)
         return std::chrono::steady_clock::now();
-    return std::chrono::steady_clock::now() + kFrameTick;
+    return next_frame_time_;
 }
 
 void SatViewHost::on_mouse_button(const MouseButtonEvent& event)

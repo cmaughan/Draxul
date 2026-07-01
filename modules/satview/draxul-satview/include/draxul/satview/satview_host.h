@@ -152,6 +152,7 @@ private:
     double last_draw_simulation_seconds_ = 0.0;
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point next_frame_time_ = std::chrono::steady_clock::now();
     glm::ivec2 click_start_pos_{ 0, 0 };
     glm::ivec2 last_map_drag_pos_{ 0, 0 };
     glm::vec2 map_center_radians_{ 0.0f };
