@@ -2,10 +2,10 @@
 #include "building_tooltip.h"
 #include "city_builder.h"
 #include "city_helpers.h"
-#include "codeviz_input_state.h"
+#include <draxul/codeviz_input_state.h>
 #include "city_picking.h"
-#include "isometric_camera.h"
-#include "codeviz_scene_pass.h"
+#include <draxul/isometric_camera.h>
+#include <draxul/codeviz_scene_pass.h>
 #include "lcov_coverage.h"
 #include "live_city_metrics.h"
 #include "scene_snapshot_builder.h"
@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <draxul/codeviz_scene_sort.h>
 #include <draxul/code_semantic_model.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>

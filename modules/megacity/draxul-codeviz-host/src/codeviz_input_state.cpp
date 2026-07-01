@@ -1,5 +1,5 @@
-#include "codeviz_input_state.h"
-#include "isometric_camera.h"
+#include <draxul/codeviz_input_state.h>
+#include <draxul/isometric_camera.h>
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <draxul/perf_timing.h>

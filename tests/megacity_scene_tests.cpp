@@ -6,8 +6,8 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_picking.h"
-#include "isometric_camera.h"
-#include "codeviz_scene_pass.h"
+#include <draxul/isometric_camera.h>
+#include <draxul/codeviz_scene_pass.h>
 #include "live_city_metrics.h"
 #include "mesh_library.h"
 #include "scene_snapshot_builder.h"

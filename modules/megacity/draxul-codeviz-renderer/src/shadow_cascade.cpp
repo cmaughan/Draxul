@@ -78,7 +78,7 @@ float perspective_depth_to_ndc(const glm::mat4& proj, float view_depth)
 
 std::array<float, kShadowCascadeCount> cascade_split_depths(const CodeVizCameraData& camera)
 {
-    if (camera.projection_mode != MegaCityProjectionMode::Perspective)
+    if (camera.projection_mode != CodeVizProjectionMode::Perspective)
         return kCascadeSplitDepths;
 
     std::array<float, kShadowCascadeCount> split_depths{};

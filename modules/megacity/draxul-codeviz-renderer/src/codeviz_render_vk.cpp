@@ -1,4 +1,4 @@
-#include "codeviz_scene_pass.h"
+#include <draxul/codeviz_scene_pass.h>
 
 #include "megacity_material_assets.h"
 #include "mesh_library.h"

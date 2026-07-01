@@ -1,6 +1,6 @@
 #pragma once
 
-#include "codeviz_scene_types.h"
+#include <draxul/codeviz_scene_types.h>
 #include <memory>
 
 namespace draxul
@@ -27,9 +27,5 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
     const std::shared_ptr<SignLabelAtlas>& label_atlas,
     const std::shared_ptr<const MeshData>& tree_bark_mesh,
     const std::shared_ptr<const MeshData>& tree_leaf_mesh);
-
-// Re-sort objects in an existing snapshot: opaque first, then transparent back-to-front.
-// Call after modifying CodeVizRenderable::color.a in-place (e.g. selection opacity changes).
-void sort_scene_objects(CodeVizSceneSnapshot& scene);
 
 } // namespace draxul

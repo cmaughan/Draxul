@@ -1,6 +1,6 @@
 #pragma once
 
-#include "codeviz_scene_types.h"
+#include <draxul/codeviz_scene_types.h>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <memory>

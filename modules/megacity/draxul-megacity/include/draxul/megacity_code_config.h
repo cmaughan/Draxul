@@ -1,5 +1,6 @@
 #pragma once
 
+#include <draxul/codeviz_scene_types.h>
 #include <draxul/config_document.h>
 
 #include <glm/vec2.hpp>
@@ -44,11 +45,7 @@ enum class MegaCityDebugView : uint8_t
     PointShadowDepthDelta,
 };
 
-enum class MegaCityProjectionMode : uint8_t
-{
-    Orthographic,
-    Perspective,
-};
+using MegaCityProjectionMode = CodeVizProjectionMode;
 
 enum class MegaCityCodeSource : uint8_t
 {

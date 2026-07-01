@@ -1,6 +1,6 @@
 #pragma once
 
-#include <draxul/megacity_code_config.h>
+#include <draxul/codeviz_scene_types.h>
 
 #include <glm/glm.hpp>
 
@@ -22,7 +22,7 @@ struct IsometricCameraState
     float pitch = 0.72425002f;
     float orbit_radius = 7.07106781f;
     float zoom_half_height = 4.0f;
-    MegaCityProjectionMode projection_mode = MegaCityProjectionMode::Orthographic;
+    CodeVizProjectionMode projection_mode = CodeVizProjectionMode::Orthographic;
 };
 
 class IsometricCamera
@@ -37,8 +37,8 @@ public:
     void orbit_target(float radians);
     void zoom_by(float log_delta);
     void adjust_pitch(float radians);
-    void set_projection_mode(MegaCityProjectionMode mode);
-    MegaCityProjectionMode projection_mode() const
+    void set_projection_mode(CodeVizProjectionMode mode);
+    CodeVizProjectionMode projection_mode() const
     {
         return projection_mode_;
     }
@@ -88,7 +88,7 @@ private:
     float far_plane_ = 100.0f;
     float aspect_ = 1.0f;
     int viewport_pixel_h_ = 1;
-    MegaCityProjectionMode projection_mode_ = MegaCityProjectionMode::Orthographic;
+    CodeVizProjectionMode projection_mode_ = CodeVizProjectionMode::Orthographic;
 };
 
 } // namespace draxul

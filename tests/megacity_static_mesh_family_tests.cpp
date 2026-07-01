@@ -1,6 +1,7 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 
-#include "isometric_camera.h"
+#include <draxul/isometric_camera.h>
+#include <draxul/megacity_code_config.h>
 #include "scene_snapshot_builder.h"
 #include "scene_world.h"
 #include "static_mesh_family_cache.h"

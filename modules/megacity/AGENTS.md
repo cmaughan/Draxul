@@ -13,20 +13,24 @@ Do not use the MaaS MCP tools/servers for work in this module.
 - `draxul-geometry`: Renderer-independent procedural mesh generation and shared `GeometryMesh` data. Keep it deterministic, GLM-based, and free of Vulkan, Metal, host, and ImGui dependencies.
 - `draxul-treesitter`: Background source scanning and raw parsed-symbol snapshots. Keep filesystem/parsing concerns here and publish immutable snapshots to consumers.
 - `draxul-code-semantics`: Projects parsed source data into the neutral `CodeSemanticSnapshot` and resolves repository module paths. It may depend on `draxul-treesitter`, but must not depend on the host, GPU renderer, or city/building presentation records.
-- `draxul-megacity`: Host lifecycle, input, configuration, semantic layout, scene snapshots, ImGui panels, and platform render passes. Push pure geometry, parsing, and semantic-model logic into the lower libraries above.
+- `draxul-codeviz-scene`: Backend-neutral scene records and shared scene snapshot helpers consumed by code visualization renderers and hosts.
+- `draxul-codeviz-renderer`: Shared `CodeVizScenePass` plus Vulkan/Metal backends for code visualization scene snapshots.
+- `draxul-codeviz-host`: Shared camera and input helpers for code visualization hosts.
+- `draxul-megacity`: Host lifecycle, input, configuration, semantic layout, city and biology builders, scene snapshot construction, and ImGui panels. Push pure geometry, parsing, semantic-model, scene, and rendering logic into the lower libraries above.
 
 Keep the dependency direction approximately:
 
 ```text
-draxul-geometry -----------------------> draxul-megacity
-draxul-treesitter -> draxul-code-semantics -> draxul-megacity
+draxul-geometry -----------------------> draxul-codeviz-scene -> draxul-codeviz-renderer -> draxul-megacity
+                                      \-> draxul-codeviz-host ----------------------------^
+draxul-treesitter -> draxul-code-semantics -----------------------------------------------^
 ```
 
 Avoid publishing Megacity-specific types outside this module unless another product module has a demonstrated need for them. Public API headers belong under the owning library's `include/draxul/`; internal headers belong under `src/`. Never duplicate a header in both places.
 
 ## Rendering
 
-- Windows rendering lives in `draxul-megacity/src/codeviz_render_vk.cpp`; macOS rendering lives in `draxul-megacity/src/codeviz_render.mm`.
+- Windows rendering lives in `draxul-codeviz-renderer/src/codeviz_render_vk.cpp`; macOS rendering lives in `draxul-codeviz-renderer/src/codeviz_render.mm`.
 - Shared CPU scene and snapshot definitions must stay backend-neutral. Do not expose Vulkan or Metal types through public headers or shared scene records.
 - A rendering feature is incomplete until both backends have been inspected and kept behaviorally aligned. When changing vertex formats, uniforms, materials, attachments, passes, resource lifetimes, debug views, or bindings, update the Vulkan/GLSL and Metal/MSL paths together or explicitly report the remaining platform gap.
 - Megacity shader sources live in the repository-root `shaders/` directory, and their compilation/copy wiring lives in the top-level CMake files. Keep shader structs, binding indices, formats, and color-space assumptions synchronized with the C++/Objective-C++ code.
@@ -53,7 +57,7 @@ Megacity has background work in the Tree-sitter scanner, city-grid builds, and d
 
 ## Build Wiring
 
-- Shared Megacity sources must appear in both platform source lists in `draxul-megacity/CMakeLists.txt`; backend-only files stay in the corresponding branch.
+- Shared code visualization renderer sources must appear in both platform source lists in `draxul-codeviz-renderer/CMakeLists.txt`; backend-only files stay in the corresponding branch.
 - Keep all Megacity CMake additions behind `DRAXUL_ENABLE_MEGACITY` at repository integration points.
 - After build-wiring changes, configure and build once with Megacity enabled and verify that configuration/build still succeeds with `-DDRAXUL_ENABLE_MEGACITY=OFF`.
 - Host registration belongs at the optional-module boundary through `register_megacity_host_provider()`; do not teach core host libraries to construct `MegaCityHost` directly.

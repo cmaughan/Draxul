@@ -1,54 +1,22 @@
 cmake_minimum_required(VERSION 3.25)
 
-if(APPLE)
-    set(MEGACITY_SOURCES
-        src/biology_builder.cpp
-        src/building_tooltip.cpp
-        src/city_builder.cpp
-        src/codeviz_input_state.cpp
-        src/city_picking.cpp
-        src/isometric_camera.cpp
-        src/lcov_coverage.cpp
-        src/live_city_metrics.cpp
-        src/megacity_code_config.cpp
-        src/megacity_material_assets.cpp
-        src/scene_snapshot_builder.cpp
-        src/scene_world.cpp
-        src/semantic_city_layout.cpp
-        src/shadow_cascade.cpp
-        src/sign_label_atlas.cpp
-        src/mesh_library.cpp
-        src/static_mesh_family_cache.cpp
-        src/megacity_host.cpp
-        src/codeviz_render.mm
-        src/ui_city_map_panel.cpp
-        src/ui_treesitter_panel.cpp
-    )
-else()
-    set(MEGACITY_SOURCES
-        src/biology_builder.cpp
-        src/building_tooltip.cpp
-        src/city_builder.cpp
-        src/codeviz_input_state.cpp
-        src/city_picking.cpp
-        src/isometric_camera.cpp
-        src/lcov_coverage.cpp
-        src/live_city_metrics.cpp
-        src/megacity_code_config.cpp
-        src/megacity_material_assets.cpp
-        src/scene_snapshot_builder.cpp
-        src/scene_world.cpp
-        src/semantic_city_layout.cpp
-        src/shadow_cascade.cpp
-        src/sign_label_atlas.cpp
-        src/mesh_library.cpp
-        src/static_mesh_family_cache.cpp
-        src/megacity_host.cpp
-        src/codeviz_render_vk.cpp
-        src/ui_city_map_panel.cpp
-        src/ui_treesitter_panel.cpp
-    )
-endif()
+set(MEGACITY_SOURCES
+    src/biology_builder.cpp
+    src/building_tooltip.cpp
+    src/city_builder.cpp
+    src/city_picking.cpp
+    src/lcov_coverage.cpp
+    src/live_city_metrics.cpp
+    src/megacity_code_config.cpp
+    src/scene_snapshot_builder.cpp
+    src/scene_world.cpp
+    src/semantic_city_layout.cpp
+    src/sign_label_atlas.cpp
+    src/static_mesh_family_cache.cpp
+    src/megacity_host.cpp
+    src/ui_city_map_panel.cpp
+    src/ui_treesitter_panel.cpp
+)
 
 add_library(draxul-megacity STATIC ${MEGACITY_SOURCES})
 
@@ -64,6 +32,9 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-renderer
     draxul-font
     draxul-config
+    draxul-codeviz-scene
+    draxul-codeviz-renderer
+    draxul-codeviz-host
     draxul-code-semantics
     draxul-treesitter
     draxul-gui
@@ -81,15 +52,3 @@ target_compile_definitions(draxul-megacity PRIVATE
     "DRAXUL_REPO_ROOT=\"${CMAKE_SOURCE_DIR}\""
 )
 
-if(APPLE)
-    find_library(METAL_FRAMEWORK Metal REQUIRED)
-    target_link_libraries(draxul-megacity PRIVATE ${METAL_FRAMEWORK})
-    set_source_files_properties(src/codeviz_render.mm PROPERTIES
-        COMPILE_FLAGS "-fobjc-arc"
-    )
-else()
-    target_link_libraries(draxul-megacity PRIVATE
-        Vulkan::Vulkan
-        GPUOpen::VulkanMemoryAllocator
-    )
-endif()

@@ -1,7 +1,7 @@
 #include "city_picking.h"
 #include "city_builder.h"
 #include "city_helpers.h"
-#include "isometric_camera.h"
+#include <draxul/isometric_camera.h>
 #include "semantic_city_layout.h"
 #include <cmath>
 #include <draxul/megacity_code_config.h>

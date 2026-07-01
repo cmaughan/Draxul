@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <draxul/geometry_mesh.h>
-#include <draxul/megacity_code_config.h>
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
@@ -13,6 +12,12 @@ namespace draxul
 
 using SceneVertex = GeometryVertex;
 using MeshData = GeometryMesh;
+
+enum class CodeVizProjectionMode : uint8_t
+{
+    Orthographic,
+    Perspective,
+};
 
 enum class MeshId : uint32_t
 {
@@ -158,7 +163,7 @@ struct CodeVizCameraData
     glm::vec4 world_debug_bounds{ -5.0f, 5.0f, -5.0f, 5.0f }; // x = min x, y = max x, z = min z, w = max z
     float scene_far_ndc = 1.0f; // max scene depth in NDC [0,1] — used to tighten shadow cascades
     float zoom_half_height = 4.0f; // effective view half-height at the focus depth
-    MegaCityProjectionMode projection_mode = MegaCityProjectionMode::Orthographic;
+    CodeVizProjectionMode projection_mode = CodeVizProjectionMode::Orthographic;
 };
 
 struct FloorGridSpec

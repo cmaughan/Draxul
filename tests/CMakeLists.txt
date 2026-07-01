@@ -23,6 +23,7 @@ target_include_directories(draxul-tests PRIVATE
 if(DRAXUL_ENABLE_MEGACITY)
     target_include_directories(draxul-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/megacity/draxul-megacity/src
+        ${CMAKE_SOURCE_DIR}/modules/megacity/draxul-codeviz-renderer/src
     )
 endif()
 target_link_libraries(draxul-tests PRIVATE

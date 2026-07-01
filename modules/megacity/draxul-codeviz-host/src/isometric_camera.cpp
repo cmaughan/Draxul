@@ -1,4 +1,4 @@
-#include "isometric_camera.h"
+#include <draxul/isometric_camera.h>
 
 #include <draxul/perf_timing.h>
 
@@ -148,7 +148,7 @@ void IsometricCamera::zoom_by(float log_delta)
     if (log_delta == 0.0f)
         return;
 
-    if (projection_mode_ == MegaCityProjectionMode::Perspective)
+    if (projection_mode_ == CodeVizProjectionMode::Perspective)
     {
         orbit_radius_ = std::clamp(orbit_radius_ * std::exp(log_delta), min_orbit_radius_, max_orbit_radius_);
         update_follow_offset();
@@ -174,7 +174,7 @@ void IsometricCamera::adjust_pitch(float radians)
     position_ = target_ + follow_offset_;
 }
 
-void IsometricCamera::set_projection_mode(MegaCityProjectionMode mode)
+void IsometricCamera::set_projection_mode(CodeVizProjectionMode mode)
 {
     PERF_MEASURE();
     if (projection_mode_ == mode)
@@ -229,7 +229,7 @@ glm::mat4 IsometricCamera::view_matrix() const
 glm::mat4 IsometricCamera::proj_matrix() const
 {
     PERF_MEASURE();
-    if (projection_mode_ == MegaCityProjectionMode::Perspective)
+    if (projection_mode_ == CodeVizProjectionMode::Perspective)
         return glm::perspectiveRH_ZO(kPerspectiveFovY, aspect_, 0.1f, far_plane_);
 
     const float half_width = ortho_half_height_ * aspect_;
@@ -316,7 +316,7 @@ GroundFootprint IsometricCamera::visible_ground_footprint(float plane_y) const
 
 float IsometricCamera::current_projection_half_height() const
 {
-    if (projection_mode_ == MegaCityProjectionMode::Perspective)
+    if (projection_mode_ == CodeVizProjectionMode::Perspective)
         return std::max(1e-3f, glm::length(follow_offset_) * std::tan(kPerspectiveFovY * 0.5f));
     return ortho_half_height_;
 }

@@ -1,11 +1,12 @@
 #include "scene_snapshot_builder.h"
 #include "city_helpers.h"
-#include "isometric_camera.h"
+#include <draxul/isometric_camera.h>
 #include "live_city_metrics.h"
 #include "scene_world.h"
 #include "sign_label_atlas.h"
 #include <algorithm>
 #include <cmath>
+#include <draxul/codeviz_scene_sort.h>
 #include <draxul/megacity_code_config.h>
 #include <draxul/perf_timing.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -534,27 +535,6 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
     sort_scene_objects(scene);
 
     return result;
-}
-
-void sort_scene_objects(CodeVizSceneSnapshot& scene)
-{
-    PERF_MEASURE();
-    const glm::vec3 cam_pos(scene.camera.camera_pos);
-
-    // Partition: opaque objects first, then transparent.
-    auto partition_it = std::stable_partition(
-        scene.objects.begin(), scene.objects.end(),
-        [](const CodeVizRenderable& obj) { return obj.color.a >= 1.0f; });
-
-    scene.opaque_count = static_cast<uint32_t>(std::distance(scene.objects.begin(), partition_it));
-
-    // Sort transparent objects back-to-front by distance from camera.
-    std::sort(partition_it, scene.objects.end(),
-        [&cam_pos](const CodeVizRenderable& a, const CodeVizRenderable& b) {
-            const glm::vec3 ca(a.world[3]);
-            const glm::vec3 cb(b.world[3]);
-            return glm::dot(ca - cam_pos, ca - cam_pos) > glm::dot(cb - cam_pos, cb - cam_pos);
-        });
 }
 
 } // namespace draxul

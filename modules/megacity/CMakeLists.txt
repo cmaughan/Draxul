@@ -7,6 +7,9 @@
 # main.cpp under #ifdef DRAXUL_ENABLE_MEGACITY.
 
 add_subdirectory(draxul-geometry)
+add_subdirectory(draxul-codeviz-scene)
+add_subdirectory(draxul-codeviz-renderer)
+add_subdirectory(draxul-codeviz-host)
 add_subdirectory(draxul-treesitter)
 add_subdirectory(draxul-code-semantics)
 add_subdirectory(draxul-megacity)
