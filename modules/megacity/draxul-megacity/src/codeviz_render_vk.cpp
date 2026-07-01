@@ -1,4 +1,4 @@
-#include "isometric_scene_pass.h"
+#include "codeviz_scene_pass.h"
 
 #include "megacity_material_assets.h"
 #include "mesh_library.h"
@@ -884,7 +884,7 @@ glm::mat4 make_vulkan_shadow_texture_matrix(const glm::mat4& world_to_clip)
 
 } // namespace
 
-struct IsometricScenePass::State
+struct CodeVizScenePass::State
 {
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
@@ -4079,7 +4079,7 @@ struct IsometricScenePass::State
     }
 };
 
-IsometricScenePass::IsometricScenePass(int grid_width, int grid_height, float tile_size)
+CodeVizScenePass::CodeVizScenePass(int grid_width, int grid_height, float tile_size)
     : grid_width_(grid_width)
     , grid_height_(grid_height)
     , tile_size_(tile_size)
@@ -4088,7 +4088,7 @@ IsometricScenePass::IsometricScenePass(int grid_width, int grid_height, float ti
     PERF_MEASURE();
 }
 
-IsometricScenePass::~IsometricScenePass()
+CodeVizScenePass::~CodeVizScenePass()
 {
     PERF_MEASURE();
     state_->wait_for_device_idle();
@@ -4096,7 +4096,7 @@ IsometricScenePass::~IsometricScenePass()
     state_->destroy();
 }
 
-void IsometricScenePass::record_prepass(IRenderContext& ctx)
+void CodeVizScenePass::record_prepass(IRenderContext& ctx)
 {
     PERF_MEASURE();
     auto* vk_ctx = static_cast<VkRenderContext*>(&ctx);
@@ -4777,7 +4777,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     }
 }
 
-void IsometricScenePass::record(IRenderContext& ctx)
+void CodeVizScenePass::record(IRenderContext& ctx)
 {
     PERF_MEASURE();
     auto* vk_ctx = static_cast<VkRenderContext*>(&ctx);
@@ -4865,7 +4865,7 @@ void IsometricScenePass::record(IRenderContext& ctx)
     }
 }
 
-void IsometricScenePass::render_gbuffer_debug_ui()
+void CodeVizScenePass::render_gbuffer_debug_ui()
 {
     PERF_MEASURE();
     if (state_->gbuffer_targets.empty() || state_->gbuffer_sampler == VK_NULL_HANDLE)

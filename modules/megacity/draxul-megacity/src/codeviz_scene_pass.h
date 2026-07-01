@@ -1,6 +1,6 @@
 #pragma once
 
-#include "isometric_scene_types.h"
+#include "codeviz_scene_types.h"
 #include <draxul/base_renderer.h>
 #include <memory>
 #include <utility>
@@ -8,11 +8,11 @@
 namespace draxul
 {
 
-class IsometricScenePass : public IRenderPass
+class CodeVizScenePass : public IRenderPass
 {
 public:
-    IsometricScenePass(int grid_width, int grid_height, float tile_size);
-    ~IsometricScenePass() override;
+    CodeVizScenePass(int grid_width, int grid_height, float tile_size);
+    ~CodeVizScenePass() override;
 
     void set_scene(CodeVizSceneSnapshot snapshot)
     {

@@ -1,4 +1,4 @@
-#include "isometric_scene_pass.h"
+#include "codeviz_scene_pass.h"
 
 #include "megacity_material_assets.h"
 #include "mesh_library.h"
@@ -349,7 +349,7 @@ struct GBufferTargets
     int height = 0;
 };
 
-struct IsometricScenePass::State
+struct CodeVizScenePass::State
 {
     ObjCRef<id<MTLRenderPipelineState>> pipeline;
     ObjCRef<id<MTLRenderPipelineState>> debug_pipeline;
@@ -1311,7 +1311,7 @@ struct IsometricScenePass::State
     }
 };
 
-IsometricScenePass::IsometricScenePass(int grid_width, int grid_height, float tile_size)
+CodeVizScenePass::CodeVizScenePass(int grid_width, int grid_height, float tile_size)
     : grid_width_(grid_width)
     , grid_height_(grid_height)
     , tile_size_(tile_size)
@@ -1320,9 +1320,9 @@ IsometricScenePass::IsometricScenePass(int grid_width, int grid_height, float ti
     PERF_MEASURE();
 }
 
-IsometricScenePass::~IsometricScenePass() = default;
+CodeVizScenePass::~CodeVizScenePass() = default;
 
-void IsometricScenePass::record_prepass(IRenderContext& ctx)
+void CodeVizScenePass::record_prepass(IRenderContext& ctx)
 {
     PERF_MEASURE();
     auto* mtl_ctx = static_cast<MetalRenderContext*>(&ctx);
@@ -1989,7 +1989,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [postEncoder endEncoding];
 }
 
-void IsometricScenePass::record(IRenderContext& ctx)
+void CodeVizScenePass::record(IRenderContext& ctx)
 {
     PERF_MEASURE();
     auto* mtl_ctx = static_cast<MetalRenderContext*>(&ctx);
@@ -2100,7 +2100,7 @@ void IsometricScenePass::record(IRenderContext& ctx)
     }
 }
 
-void IsometricScenePass::render_gbuffer_debug_ui()
+void CodeVizScenePass::render_gbuffer_debug_ui()
 {
     PERF_MEASURE();
     if (state_->gbuffer_targets.empty())

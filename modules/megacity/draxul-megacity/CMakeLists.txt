@@ -5,7 +5,7 @@ if(APPLE)
         src/biology_builder.cpp
         src/building_tooltip.cpp
         src/city_builder.cpp
-        src/city_input_state.cpp
+        src/codeviz_input_state.cpp
         src/city_picking.cpp
         src/isometric_camera.cpp
         src/lcov_coverage.cpp
@@ -20,7 +20,7 @@ if(APPLE)
         src/mesh_library.cpp
         src/static_mesh_family_cache.cpp
         src/megacity_host.cpp
-        src/megacity_render.mm
+        src/codeviz_render.mm
         src/ui_city_map_panel.cpp
         src/ui_treesitter_panel.cpp
     )
@@ -29,7 +29,7 @@ else()
         src/biology_builder.cpp
         src/building_tooltip.cpp
         src/city_builder.cpp
-        src/city_input_state.cpp
+        src/codeviz_input_state.cpp
         src/city_picking.cpp
         src/isometric_camera.cpp
         src/lcov_coverage.cpp
@@ -44,7 +44,7 @@ else()
         src/mesh_library.cpp
         src/static_mesh_family_cache.cpp
         src/megacity_host.cpp
-        src/megacity_render_vk.cpp
+        src/codeviz_render_vk.cpp
         src/ui_city_map_panel.cpp
         src/ui_treesitter_panel.cpp
     )
@@ -84,7 +84,7 @@ target_compile_definitions(draxul-megacity PRIVATE
 if(APPLE)
     find_library(METAL_FRAMEWORK Metal REQUIRED)
     target_link_libraries(draxul-megacity PRIVATE ${METAL_FRAMEWORK})
-    set_source_files_properties(src/megacity_render.mm PROPERTIES
+    set_source_files_properties(src/codeviz_render.mm PROPERTIES
         COMPILE_FLAGS "-fobjc-arc"
     )
 else()

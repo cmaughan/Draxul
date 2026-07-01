@@ -1,6 +1,6 @@
 #pragma once
 
-#include "isometric_scene_types.h"
+#include "codeviz_scene_types.h"
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <memory>
@@ -117,8 +117,8 @@ struct CodeVizSemanticRef
 enum class CustomMeshTransformMode : uint8_t
 {
     Baked,
-    ScaleByBuildingMetrics,
-    ScaleBySignMetrics,
+    ScaleByBlockMetrics,
+    ScaleByLabelMetrics,
 };
 
 struct CustomMeshRef

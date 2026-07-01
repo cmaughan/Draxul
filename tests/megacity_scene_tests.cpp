@@ -7,7 +7,7 @@
 #include "city_helpers.h"
 #include "city_picking.h"
 #include "isometric_camera.h"
-#include "isometric_scene_pass.h"
+#include "codeviz_scene_pass.h"
 #include "live_city_metrics.h"
 #include "mesh_library.h"
 #include "scene_snapshot_builder.h"
@@ -2494,7 +2494,7 @@ TEST_CASE("megacity host mouse drag pans and alt-drag rotates", "[megacity]")
     host.draw(*frame);
     renderer.end_frame();
 
-    auto* pass = dynamic_cast<IsometricScenePass*>(renderer.last_recorded_render_pass);
+    auto* pass = dynamic_cast<CodeVizScenePass*>(renderer.last_recorded_render_pass);
     REQUIRE(pass != nullptr);
 
     const glm::vec3 probe{ 0.5f, 0.0f, 0.5f };
@@ -2559,7 +2559,7 @@ TEST_CASE("megacity host honors fractional mouse delta for drag input", "[megaci
     host.draw(*frame);
     renderer.end_frame();
 
-    auto* pass = dynamic_cast<IsometricScenePass*>(renderer.last_recorded_render_pass);
+    auto* pass = dynamic_cast<CodeVizScenePass*>(renderer.last_recorded_render_pass);
     REQUIRE(pass != nullptr);
 
     const glm::vec3 probe{ 0.5f, 0.0f, 0.5f };
@@ -3090,7 +3090,7 @@ TEST_CASE("megacity host scene click on roof sign function emits focused depende
     host.draw(*frame);
     renderer.end_frame();
 
-    auto* pass = dynamic_cast<IsometricScenePass*>(renderer.last_recorded_render_pass);
+    auto* pass = dynamic_cast<CodeVizScenePass*>(renderer.last_recorded_render_pass);
     REQUIRE(pass != nullptr);
 
     const glm::vec2 ndc = ndc_of_point(
@@ -3167,7 +3167,7 @@ TEST_CASE("megacity host scene click on roof sign function emits focused depende
     host.draw(*frame);
     renderer.end_frame();
 
-    pass = dynamic_cast<IsometricScenePass*>(renderer.last_recorded_render_pass);
+    pass = dynamic_cast<CodeVizScenePass*>(renderer.last_recorded_render_pass);
     REQUIRE(pass != nullptr);
 
     bool saw_visible_route_segment = false;
@@ -3304,7 +3304,7 @@ TEST_CASE("megacity host keeps catching up between mouse samples", "[megacity]")
     host.draw(*frame);
     renderer.end_frame();
 
-    auto* pass = dynamic_cast<IsometricScenePass*>(renderer.last_recorded_render_pass);
+    auto* pass = dynamic_cast<CodeVizScenePass*>(renderer.last_recorded_render_pass);
     REQUIRE(pass != nullptr);
 
     const glm::vec3 probe{ 0.5f, 0.0f, 0.5f };

@@ -377,7 +377,7 @@ void build_point_shadow_debug_scene(
             config,
             4),
         1.0f,
-        CustomMeshTransformMode::ScaleByBuildingMetrics);
+        CustomMeshTransformMode::ScaleByBlockMetrics);
 
     BuildingMetrics secondary_metrics;
     secondary_metrics.footprint = kPointShadowDebugSecondaryFootprint;
@@ -401,7 +401,7 @@ void build_point_shadow_debug_scene(
             config,
             4),
         1.0f,
-        CustomMeshTransformMode::ScaleByBuildingMetrics);
+        CustomMeshTransformMode::ScaleByBlockMetrics);
 
     if (tree_bark_mesh && tree_leaf_mesh && tree_metrics.height > 0.0f)
     {
@@ -1390,7 +1390,7 @@ CityBuildResult build_city(
                 MaterialId::FlatColor,
                 std::move(building_mesh),
                 1.0f,
-                CustomMeshTransformMode::ScaleByBuildingMetrics);
+                CustomMeshTransformMode::ScaleByBlockMetrics);
 
             if (sign_label_atlas)
             {
@@ -1429,7 +1429,7 @@ CityBuildResult build_city(
                                 config,
                                 building_side_count),
                             1.0f,
-                            CustomMeshTransformMode::ScaleByBuildingMetrics);
+                            CustomMeshTransformMode::ScaleByBlockMetrics);
                     }
 
                     const float sign_y = building_base_elevation(config) + building.metrics.height + sign_metrics.height * 0.5f;
@@ -1447,7 +1447,7 @@ CityBuildResult build_city(
                         sign_board,
                         CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
                         build_building_roof_sign_mesh(static_meshes, roof_sign),
-                        CustomMeshTransformMode::ScaleBySignMetrics);
+                        CustomMeshTransformMode::ScaleByLabelMetrics);
                 }
             }
 
@@ -1472,7 +1472,7 @@ CityBuildResult build_city(
                     MaterialId::PavingSidewalk,
                     std::move(ring_mesh),
                     0.0f,
-                    CustomMeshTransformMode::ScaleByBuildingMetrics);
+                    CustomMeshTransformMode::ScaleByBlockMetrics);
             }
         }
 

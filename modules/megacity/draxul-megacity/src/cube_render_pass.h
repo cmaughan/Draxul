@@ -28,7 +28,7 @@ public:
     // IRenderPass
     void record(IRenderContext& ctx) override;
 
-    struct State; // platform-specific; defined in megacity_render.mm / megacity_render_vk.cpp
+    struct State; // platform-specific; defined in codeviz_render.mm / codeviz_render_vk.cpp
 
 private:
     float angle_ = 0.0f;

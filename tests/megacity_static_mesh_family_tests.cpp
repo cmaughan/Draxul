@@ -138,7 +138,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
         MaterialId::FlatColor,
         mesh,
         0.0f,
-        CustomMeshTransformMode::ScaleByBuildingMetrics);
+        CustomMeshTransformMode::ScaleByBlockMetrics);
     world.create_building(
         -10.0f,
         -20.0f,
@@ -149,7 +149,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
         MaterialId::FlatColor,
         mesh,
         0.0f,
-        CustomMeshTransformMode::ScaleByBuildingMetrics);
+        CustomMeshTransformMode::ScaleByBlockMetrics);
 
     IsometricCamera camera;
     camera.look_at_world_center(0.0f, 0.0f);

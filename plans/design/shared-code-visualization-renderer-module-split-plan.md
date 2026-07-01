@@ -16,6 +16,14 @@ Tree-sitter scan
 
 The renderer should not know whether an object came from a building, cell, fibre, organelle, road, or sign. Those are metaphor concerns. The renderer should know meshes, materials, transforms, labels, picking IDs, transparency, shadows, and debug views.
 
+## Current Progress
+
+- Phase 2 has started in place inside `draxul-megacity`: scene snapshot/object/material/camera/source identity types now use `CodeViz*` names.
+- The shared render pass and backend files are now named `CodeVizScenePass`, `codeviz_scene_pass.h`, `codeviz_scene_types.h`, `codeviz_render_vk.cpp`, and `codeviz_render.mm`.
+- The shared input state file is now `codeviz_input_state.*`; the class was already `CodeVizInputState`.
+- Custom mesh transform modes now describe generic block and label scaling rather than building and sign scaling.
+- CMake target extraction has not started yet; the next high-value step is still separating codeviz scene/renderer sources into dedicated static libraries.
+
 ## Non-Goals
 
 - Do not rewrite the Vulkan or Metal renderer just to prove the boundary.
@@ -65,7 +73,7 @@ modules/megacity/
     No city or biology vocabulary.
 
   draxul-codeviz-renderer
-    Shared IsometricScenePass plus Vulkan/Metal backends.
+    Shared CodeVizScenePass plus Vulkan/Metal backends.
     Owns GPU buffers, shadows, AO, post pass, material upload, mesh upload.
 
   draxul-codeviz-host
@@ -184,9 +192,9 @@ The important part is not these exact names; it is the ownership:
 
 Move these pieces toward `draxul-codeviz-renderer`:
 
-- `isometric_scene_pass.h`;
-- `megacity_render_vk.cpp` after renaming to a neutral file name;
-- `megacity_render.mm` after renaming to a neutral file name;
+- `codeviz_scene_pass.h`;
+- `codeviz_render_vk.cpp`;
+- `codeviz_render.mm`;
 - `shadow_cascade.*`;
 - low-level frame resources, attachments, transient buffers, mesh upload, texture upload;
 - AO, shadow, post, debug-view, and present passes;

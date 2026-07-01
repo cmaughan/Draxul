@@ -2,10 +2,10 @@
 #include "building_tooltip.h"
 #include "city_builder.h"
 #include "city_helpers.h"
-#include "city_input_state.h"
+#include "codeviz_input_state.h"
 #include "city_picking.h"
 #include "isometric_camera.h"
-#include "isometric_scene_pass.h"
+#include "codeviz_scene_pass.h"
 #include "lcov_coverage.h"
 #include "live_city_metrics.h"
 #include "scene_snapshot_builder.h"
@@ -573,7 +573,7 @@ const LiveCityFunctionMetric* find_function_metric(
     return nullptr;
 }
 
-void preserve_visible_tooltip(const IsometricScenePass* scene_pass, bool hover_tooltip_visible, CodeVizSceneSnapshot& snapshot)
+void preserve_visible_tooltip(const CodeVizScenePass* scene_pass, bool hover_tooltip_visible, CodeVizSceneSnapshot& snapshot)
 {
     if (!scene_pass || !hover_tooltip_visible)
         return;
@@ -719,7 +719,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     camera_->set_viewport(pixel_w_, pixel_h_);
     camera_->set_projection_mode(renderer_config_.projection_mode);
     camera_->frame_world_bounds(-2.5f, 2.5f, -2.5f, 2.5f);
-    scene_pass_ = std::make_shared<IsometricScenePass>(1, 1, world_->tile_size());
+    scene_pass_ = std::make_shared<CodeVizScenePass>(1, 1, world_->tile_size());
     refresh_sign_text_service();
 
     semantic_snapshot_ready_ = false;

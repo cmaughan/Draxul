@@ -26,7 +26,7 @@ Avoid publishing Megacity-specific types outside this module unless another prod
 
 ## Rendering
 
-- Windows rendering lives in `draxul-megacity/src/megacity_render_vk.cpp`; macOS rendering lives in `draxul-megacity/src/megacity_render.mm`.
+- Windows rendering lives in `draxul-megacity/src/codeviz_render_vk.cpp`; macOS rendering lives in `draxul-megacity/src/codeviz_render.mm`.
 - Shared CPU scene and snapshot definitions must stay backend-neutral. Do not expose Vulkan or Metal types through public headers or shared scene records.
 - A rendering feature is incomplete until both backends have been inspected and kept behaviorally aligned. When changing vertex formats, uniforms, materials, attachments, passes, resource lifetimes, debug views, or bindings, update the Vulkan/GLSL and Metal/MSL paths together or explicitly report the remaining platform gap.
 - Megacity shader sources live in the repository-root `shaders/` directory, and their compilation/copy wiring lives in the top-level CMake files. Keep shader structs, binding indices, formats, and color-space assumptions synchronized with the C++/Objective-C++ code.

@@ -23,7 +23,7 @@ namespace draxul
 class CodeVizInputState;
 struct GeometryMesh;
 class IsometricCamera;
-class IsometricScenePass;
+class CodeVizScenePass;
 struct LiveCityMetricsSnapshot;
 struct LcovFunctionLookup;
 struct SignLabelAtlas;
@@ -113,7 +113,7 @@ private:
     std::unique_ptr<CodeVizInputState> input_;
     IHostCallbacks* callbacks_ = nullptr;
     HostViewport viewport_;
-    std::shared_ptr<IsometricScenePass> scene_pass_;
+    std::shared_ptr<CodeVizScenePass> scene_pass_;
     std::unique_ptr<CodeVizSceneWorld> world_;
     std::unique_ptr<IsometricCamera> camera_;
     CodebaseScanner scanner_;

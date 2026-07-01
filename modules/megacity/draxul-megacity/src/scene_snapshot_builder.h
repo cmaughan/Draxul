@@ -1,6 +1,6 @@
 #pragma once
 
-#include "isometric_scene_types.h"
+#include "codeviz_scene_types.h"
 #include <memory>
 
 namespace draxul

@@ -329,11 +329,6 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
     float max_x = std::numeric_limits<float>::lowest();
     float min_z = std::numeric_limits<float>::max();
     float max_z = std::numeric_limits<float>::lowest();
-    float building_min_x = std::numeric_limits<float>::max();
-    float building_max_x = std::numeric_limits<float>::lowest();
-    float building_min_z = std::numeric_limits<float>::max();
-    float building_max_z = std::numeric_limits<float>::lowest();
-    float max_building_lot_margin = 0.0f;
     for (auto [entity, pos, elev, appearance] : view.each())
     {
         CodeVizRenderable obj;
@@ -379,18 +374,12 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
                 transform = glm::translate(transform, glm::vec3(0.0f, bm->height * 0.5f, 0.0f));
                 transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
             }
-            else if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleByBuildingMetrics)
+            else if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleByBlockMetrics)
             {
                 transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
                 if (appearance.material == MaterialId::PavingSidewalk)
                     obj.uv_rect = glm::vec4(0.0f, 0.0f, bm->footprint, bm->footprint);
             }
-            building_min_x = std::min(building_min_x, pos.x - bm->footprint * 0.5f);
-            building_max_x = std::max(building_max_x, pos.x + bm->footprint * 0.5f);
-            building_min_z = std::min(building_min_z, pos.z - bm->footprint * 0.5f);
-            building_max_z = std::max(building_max_z, pos.z + bm->footprint * 0.5f);
-            max_building_lot_margin = std::max(
-                max_building_lot_margin, bm->sidewalk_width + bm->road_width);
         }
         else if (const auto* tm = reg.try_get<TreeMetrics>(entity))
         {
@@ -448,7 +437,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
                 extent_x = sm->width;
                 extent_z = sm->width;
                 transform = glm::rotate(transform, sm->yaw_radians, glm::vec3(0.0f, 1.0f, 0.0f));
-                if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleBySignMetrics)
+                if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleByLabelMetrics)
                     transform = glm::scale(transform, glm::vec3(sm->width, sm->height, sm->width));
             }
             else
