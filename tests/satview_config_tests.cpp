@@ -10,10 +10,18 @@ TEST_CASE("SatView config defaults to 1024 tracks", "[satview][config]")
     const ConfigDocument document;
     const SatViewConfig config = load_satview_config(document);
 
+    CHECK(config.color_mode == SatViewColorMode::Population);
     CHECK(config.satellite_display_mode == SatViewSatelliteDisplayMode::TracksAndMarkers);
     CHECK(config.track_satellite_limit == 1024);
     CHECK(config.track_sample_count == 48);
     CHECK_FALSE(config.refresh_tracks_each_step);
+    CHECK(config.filter.show_active_payloads);
+    CHECK(config.filter.show_inactive_payloads);
+    CHECK(config.filter.show_rocket_bodies);
+    CHECK(config.filter.show_debris);
+    CHECK(config.filter.show_unknown_population);
+    CHECK(config.filter.show_summary_estimates);
+    CHECK_FALSE(config.filter.sun_synchronous_only);
 }
 
 TEST_CASE("SatView config round trips durable panel controls", "[satview][config]")
@@ -24,6 +32,10 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.filter.object_type_text = "PAYLOAD";
     expected.filter.source_text = "active";
     expected.filter.show_other = false;
+    expected.filter.show_inactive_payloads = false;
+    expected.filter.show_debris = false;
+    expected.filter.show_summary_estimates = false;
+    expected.filter.sun_synchronous_only = true;
     expected.filter.max_epoch_age_days = 2.5;
     expected.color_mode = SatViewColorMode::OrbitClass;
     expected.track_display_mode = SatViewTrackDisplayMode::SelectedOnly;

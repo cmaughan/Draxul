@@ -17,6 +17,7 @@ enum class HostKind
     Zsh,
     Wsl,
     MegaCity,
+    BioView,
     SatView,
     NanoVGDemo,
     Markdown,
@@ -42,6 +43,8 @@ inline std::optional<HostKind> parse_host_kind(std::string_view value)
         return HostKind::Wsl;
     if (normalized == "megacity")
         return HostKind::MegaCity;
+    if (normalized == "bioview" || normalized == "bio")
+        return HostKind::BioView;
     if (normalized == "satview" || normalized == "sat")
         return HostKind::SatView;
     if (normalized == "nanovg" || normalized == "nanovg-demo")
@@ -69,6 +72,8 @@ inline const char* to_string(HostKind kind)
         return "wsl";
     case HostKind::MegaCity:
         return "megacity";
+    case HostKind::BioView:
+        return "bioview";
     case HostKind::SatView:
         return "satview";
     case HostKind::NanoVGDemo:

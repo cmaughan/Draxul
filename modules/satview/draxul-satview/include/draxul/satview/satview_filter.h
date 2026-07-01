@@ -19,6 +19,13 @@ struct SatViewFilterState
     bool show_geosynchronous = true;
     bool show_highly_elliptical = true;
     bool show_other = true;
+    bool sun_synchronous_only = false;
+    bool show_active_payloads = true;
+    bool show_inactive_payloads = true;
+    bool show_rocket_bodies = true;
+    bool show_debris = true;
+    bool show_unknown_population = true;
+    bool show_summary_estimates = true;
 
     // Zero or negative disables the age filter.
     double max_epoch_age_days = 0.0;
@@ -35,13 +42,20 @@ struct SatViewFilterCandidate
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     std::string_view classification_type;
     std::string_view source_label;
+    SatellitePopulation population = SatellitePopulation::Unknown;
+    OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
     OrbitClass orbit_class = OrbitClass::Other;
+    bool sun_synchronous_candidate = false;
     double minutes_since_epoch = 0.0;
 };
 
 [[nodiscard]] bool satview_orbit_class_visible(
     const SatViewFilterState& filter,
     OrbitClass orbit_class);
+
+[[nodiscard]] bool satview_population_visible(
+    const SatViewFilterState& filter,
+    SatellitePopulation population);
 
 [[nodiscard]] bool satview_filter_matches(
     const SatViewFilterState& filter,

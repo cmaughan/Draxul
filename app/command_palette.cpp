@@ -60,6 +60,7 @@ void CommandPalette::open()
         HostKind::Nvim,
         HostKind::Kanban,
         HostKind::MegaCity,
+        HostKind::BioView,
         HostKind::SatView,
 #ifdef _WIN32
         HostKind::PowerShell,

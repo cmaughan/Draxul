@@ -92,7 +92,7 @@ Use `--log-file` and `--log-level` CLI flags (reliable on all platforms; env var
 - `libs/draxul-ui`: ImGui-based diagnostics panel
 - `modules/markdown/`: Optional/product Markdown module. Contains `draxul-markdown` (document parsing/layout/draw-list model) and `draxul-markdown-host` (native Markdown pane host and renderer integration).
 - `modules/kanban/`: Optional/product Kanban module. Contains `draxul-kanban` (board store/layout/navigation plus native Kanban host).
-- `modules/megacity/`: Optional megacity module (gated by `DRAXUL_ENABLE_MEGACITY`). Contains internal libraries — `draxul-megacity`, `draxul-citymodel`, `draxul-treesitter`, `draxul-geometry`. The terminal product has zero source-level dependency on this directory; megacity self-registers via `HostProviderRegistry` from `app/main.cpp` under `#ifdef DRAXUL_ENABLE_MEGACITY`.
+- `modules/megacity/`: Optional megacity module (gated by `DRAXUL_ENABLE_MEGACITY`). Contains internal libraries — `draxul-megacity`, `draxul-code-semantics`, `draxul-treesitter`, `draxul-geometry`. The terminal product has zero source-level dependency on this directory; megacity self-registers via `HostProviderRegistry` from `app/main.cpp` under `#ifdef DRAXUL_ENABLE_MEGACITY`.
 - `app/`: Orchestration only
 
 ### Key Abstractions

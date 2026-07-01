@@ -12,14 +12,14 @@ Do not use the MaaS MCP tools/servers for work in this module.
 
 - `draxul-geometry`: Renderer-independent procedural mesh generation and shared `GeometryMesh` data. Keep it deterministic, GLM-based, and free of Vulkan, Metal, host, and ImGui dependencies.
 - `draxul-treesitter`: Background source scanning and raw parsed-symbol snapshots. Keep filesystem/parsing concerns here and publish immutable snapshots to consumers.
-- `draxul-citymodel`: Projects parsed source data into semantic city records and resolves repository module paths. It may depend on `draxul-treesitter`, but must not depend on the host or GPU renderer.
+- `draxul-code-semantics`: Projects parsed source data into the neutral `CodeSemanticSnapshot` and resolves repository module paths. It may depend on `draxul-treesitter`, but must not depend on the host, GPU renderer, or city/building presentation records.
 - `draxul-megacity`: Host lifecycle, input, configuration, semantic layout, scene snapshots, ImGui panels, and platform render passes. Push pure geometry, parsing, and semantic-model logic into the lower libraries above.
 
 Keep the dependency direction approximately:
 
 ```text
 draxul-geometry -----------------------> draxul-megacity
-draxul-treesitter -> draxul-citymodel -> draxul-megacity
+draxul-treesitter -> draxul-code-semantics -> draxul-megacity
 ```
 
 Avoid publishing Megacity-specific types outside this module unless another product module has a demonstrated need for them. Public API headers belong under the owning library's `include/draxul/`; internal headers belong under `src/`. Never duplicate a header in both places.

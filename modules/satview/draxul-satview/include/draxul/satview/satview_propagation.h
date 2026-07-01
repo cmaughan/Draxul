@@ -27,6 +27,18 @@ struct SatViewJulianDate
     }
 };
 
+struct SatelliteStaticMetadata
+{
+    std::string object_name;
+    std::string object_id;
+    std::string object_type;
+    std::string classification_type;
+    std::string owner;
+    std::string operational_status_code;
+    std::string data_status_code;
+    std::optional<double> radar_cross_section_m2;
+};
+
 struct SatellitePropagationEntry
 {
     std::int64_t norad_catalog_id = 0;
@@ -35,8 +47,16 @@ struct SatellitePropagationEntry
     std::string object_id;
     std::string object_type;
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
+    SatellitePopulation population = SatellitePopulation::Unknown;
+    OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
     std::string classification_type;
+    std::string owner;
+    std::string operational_status_code;
+    std::string data_status_code;
+    std::optional<double> radar_cross_section_m2;
+    std::shared_ptr<const SatelliteStaticMetadata> metadata;
     OrbitClass orbit_class = OrbitClass::Other;
+    bool sun_synchronous_candidate = false;
     double epoch_unix_seconds = 0.0;
     double period_minutes = 0.0;
 };
@@ -89,12 +109,12 @@ struct SatellitePropagatedState
 {
     std::int64_t norad_catalog_id = 0;
     std::uint32_t object_prefix_hash = 0;
-    std::string object_name;
-    std::string object_id;
-    std::string object_type;
+    std::shared_ptr<const SatelliteStaticMetadata> metadata;
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
-    std::string classification_type;
+    SatellitePopulation population = SatellitePopulation::Unknown;
+    OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
     OrbitClass orbit_class = OrbitClass::Other;
+    bool sun_synchronous_candidate = false;
     double period_minutes = 0.0;
     double minutes_since_epoch = 0.0;
     glm::dvec3 teme_position_km{ 0.0 };
@@ -112,8 +132,15 @@ struct SatelliteOrbitTrack
     std::string object_id;
     std::string object_type;
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
+    SatellitePopulation population = SatellitePopulation::Unknown;
+    OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
     std::string classification_type;
+    std::string owner;
+    std::string operational_status_code;
+    std::string data_status_code;
+    std::optional<double> radar_cross_section_m2;
     OrbitClass orbit_class = OrbitClass::Other;
+    bool sun_synchronous_candidate = false;
     double minutes_since_epoch = 0.0;
     double sample_center_unix_seconds = 0.0;
     double sample_horizon_minutes = 0.0;

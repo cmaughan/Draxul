@@ -5,6 +5,8 @@
 #include <draxul/runtime_path.h>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
 #include <cctype>
 #include <cstdlib>
@@ -15,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace draxul::satview
 {
@@ -27,6 +30,54 @@ constexpr double kEarthEquatorialRadiusKm = 6378.137;
 constexpr double kSecondsPerDay = 86400.0;
 constexpr double kMinutesPerDay = 1440.0;
 constexpr double kTwoPi = 6.28318530717958647692;
+constexpr double kEarthJ2 = 1.08262668e-3;
+constexpr double kMeanSolarNodalRateDegPerDay = 360.0 / 365.2421897;
+constexpr double kSunSynchronousRateToleranceDegPerDay = 0.02;
+
+bool is_sun_synchronous_candidate(
+    double mean_motion_rev_per_day,
+    double eccentricity,
+    double inclination_deg)
+{
+    if (!std::isfinite(mean_motion_rev_per_day) || mean_motion_rev_per_day <= 0.0
+        || !std::isfinite(eccentricity) || eccentricity < 0.0 || eccentricity >= 1.0
+        || !std::isfinite(inclination_deg) || inclination_deg < 0.0 || inclination_deg > 180.0)
+    {
+        return false;
+    }
+
+    const double mean_motion_rad_s = mean_motion_rev_per_day * kTwoPi / kSecondsPerDay;
+    const double semi_major_axis_km = std::cbrt(
+        kEarthMuKm3PerS2 / (mean_motion_rad_s * mean_motion_rad_s));
+    const double semi_latus_rectum_km = semi_major_axis_km * (1.0 - eccentricity * eccentricity);
+    if (!std::isfinite(semi_latus_rectum_km) || semi_latus_rectum_km <= 0.0)
+        return false;
+
+    const double inclination_radians = inclination_deg * kTwoPi / 360.0;
+    const double nodal_rate_rad_s = -1.5 * kEarthJ2 * mean_motion_rad_s
+        * std::pow(kEarthEquatorialRadiusKm / semi_latus_rectum_km, 2.0)
+        * std::cos(inclination_radians);
+    const double nodal_rate_deg_per_day = nodal_rate_rad_s * kSecondsPerDay * 360.0 / kTwoPi;
+    return std::isfinite(nodal_rate_deg_per_day)
+        && std::abs(nodal_rate_deg_per_day - kMeanSolarNodalRateDegPerDay)
+            <= kSunSynchronousRateToleranceDegPerDay;
+}
+
+SatellitePopulation population_for_kind(SatelliteObjectKind kind, bool active_payload)
+{
+    switch (kind)
+    {
+    case SatelliteObjectKind::Payload:
+        return active_payload ? SatellitePopulation::ActivePayload : SatellitePopulation::InactivePayload;
+    case SatelliteObjectKind::RocketBody:
+        return SatellitePopulation::RocketBody;
+    case SatelliteObjectKind::Debris:
+        return SatellitePopulation::Debris;
+    case SatelliteObjectKind::Unknown:
+        return SatellitePopulation::Unknown;
+    }
+    return SatellitePopulation::Unknown;
+}
 
 std::string lowercase_copy(std::string_view text)
 {
@@ -520,6 +571,7 @@ bool require_number(const JsonObject& object, const char* key, double& out)
 
 void derive_orbit_shape(SatelliteRecord& record)
 {
+    record.sun_synchronous_candidate = false;
     if (record.mean_motion_rev_per_day <= 0.0)
     {
         record.orbit_class = OrbitClass::Other;
@@ -554,6 +606,11 @@ void derive_orbit_shape(SatelliteRecord& record)
     {
         record.orbit_class = OrbitClass::Other;
     }
+
+    record.sun_synchronous_candidate = is_sun_synchronous_candidate(
+        record.mean_motion_rev_per_day,
+        eccentricity,
+        record.inclination_deg);
 }
 
 SatelliteObjectKind derive_object_kind(std::string_view object_type, std::string_view object_name)
@@ -602,6 +659,10 @@ std::optional<SatelliteRecord> make_record(const JsonObject& object)
     record.object_id = string_field(object, "OBJECT_ID").value_or("");
     record.object_type = string_field(object, "OBJECT_TYPE").value_or("");
     record.object_kind = derive_object_kind(record.object_type, record.object_name);
+    record.population = population_for_kind(record.object_kind, true);
+    if (record.object_kind == SatelliteObjectKind::Unknown)
+        record.population = SatellitePopulation::ActivePayload;
+    record.solution_kind = OrbitSolutionKind::GeneralPerturbations;
     record.classification_type = string_field(object, "CLASSIFICATION_TYPE").value_or("");
 
     if (!require_number(object, "MEAN_MOTION", record.mean_motion_rev_per_day)
@@ -658,6 +719,210 @@ std::optional<std::string> read_text_file(const std::filesystem::path& path, std
     return content;
 }
 
+using CsvRow = std::vector<std::string>;
+
+bool parse_csv_rows(std::string_view csv, std::vector<CsvRow>& rows, std::string& error)
+{
+    CsvRow row;
+    std::string field;
+    bool quoted = false;
+    bool quote_closed = false;
+
+    auto finish_field = [&]() {
+        row.push_back(std::move(field));
+        field.clear();
+        quote_closed = false;
+    };
+    auto finish_row = [&]() {
+        finish_field();
+        rows.push_back(std::move(row));
+        row.clear();
+    };
+
+    for (std::size_t i = 0; i < csv.size(); ++i)
+    {
+        const char c = csv[i];
+        if (quoted)
+        {
+            if (c == '"')
+            {
+                if (i + 1 < csv.size() && csv[i + 1] == '"')
+                {
+                    field.push_back('"');
+                    ++i;
+                }
+                else
+                {
+                    quoted = false;
+                    quote_closed = true;
+                }
+            }
+            else
+            {
+                field.push_back(c);
+            }
+            continue;
+        }
+
+        if (quote_closed && c != ',' && c != '\r' && c != '\n')
+        {
+            error = "unexpected data after quoted CSV field";
+            return false;
+        }
+        if (c == '"')
+        {
+            if (!field.empty() || quote_closed)
+            {
+                error = "unexpected quote in CSV field";
+                return false;
+            }
+            quoted = true;
+        }
+        else if (c == ',')
+        {
+            finish_field();
+        }
+        else if (c == '\n')
+        {
+            finish_row();
+        }
+        else if (c == '\r')
+        {
+            if (i + 1 >= csv.size() || csv[i + 1] != '\n')
+                finish_row();
+        }
+        else
+        {
+            field.push_back(c);
+        }
+    }
+
+    if (quoted)
+    {
+        error = "unterminated quoted CSV field";
+        return false;
+    }
+    if (!field.empty() || !row.empty() || quote_closed)
+        finish_row();
+    while (!rows.empty() && rows.back().size() == 1 && rows.back().front().empty())
+        rows.pop_back();
+    return true;
+}
+
+std::string trim_ascii(std::string_view text)
+{
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
+        text.remove_prefix(1);
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+        text.remove_suffix(1);
+    return std::string(text);
+}
+
+std::string uppercase_ascii(std::string_view text)
+{
+    std::string value = trim_ascii(text);
+    for (char& c : value)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return value;
+}
+
+std::optional<std::int64_t> parse_csv_int64(std::string_view text)
+{
+    const std::string value = trim_ascii(text);
+    if (value.empty())
+        return std::nullopt;
+    std::int64_t parsed = 0;
+    const auto [end, ec] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (ec != std::errc{} || end != value.data() + value.size())
+        return std::nullopt;
+    return parsed;
+}
+
+std::optional<double> parse_csv_optional_double(std::string_view text, bool& invalid)
+{
+    const std::string value = trim_ascii(text);
+    if (value.empty())
+        return std::nullopt;
+    char* end = nullptr;
+    const double parsed = std::strtod(value.c_str(), &end);
+    if (end != value.c_str() + value.size() || !std::isfinite(parsed))
+    {
+        invalid = true;
+        return std::nullopt;
+    }
+    return parsed;
+}
+
+SatelliteObjectKind satcat_object_kind(std::string_view object_type)
+{
+    const std::string value = uppercase_ascii(object_type);
+    if (value == "PAY")
+        return SatelliteObjectKind::Payload;
+    if (value == "R/B")
+        return SatelliteObjectKind::RocketBody;
+    if (value == "DEB")
+        return SatelliteObjectKind::Debris;
+    return SatelliteObjectKind::Unknown;
+}
+
+void derive_satcat_orbit_shape(SatelliteRecord& record)
+{
+    if (!record.satcat_inclination_deg.has_value())
+        return;
+    record.inclination_deg = *record.satcat_inclination_deg;
+
+    if (record.satcat_perigee_km.has_value() && record.satcat_apogee_km.has_value())
+    {
+        record.perigee_km = *record.satcat_perigee_km;
+        record.apogee_km = *record.satcat_apogee_km;
+        const double rp = kEarthEquatorialRadiusKm + record.perigee_km;
+        const double ra = kEarthEquatorialRadiusKm + record.apogee_km;
+        const double semi_major_axis = 0.5 * (rp + ra);
+        record.eccentricity = (ra - rp) / (ra + rp);
+        if (record.satcat_period_minutes.has_value())
+            record.period_minutes = *record.satcat_period_minutes;
+        else if (semi_major_axis > 0.0)
+            record.period_minutes = kTwoPi * std::sqrt(
+                semi_major_axis * semi_major_axis * semi_major_axis / kEarthMuKm3PerS2) / 60.0;
+    }
+    else if (record.satcat_period_minutes.has_value())
+    {
+        record.period_minutes = *record.satcat_period_minutes;
+        const double period_seconds = record.period_minutes * 60.0;
+        const double semi_major_axis = std::cbrt(
+            kEarthMuKm3PerS2 * period_seconds * period_seconds / (kTwoPi * kTwoPi));
+        record.perigee_km = semi_major_axis - kEarthEquatorialRadiusKm;
+        record.apogee_km = record.perigee_km;
+        record.eccentricity = 0.0;
+    }
+
+    if (record.period_minutes > 0.0)
+    {
+        record.mean_motion_rev_per_day = kMinutesPerDay / record.period_minutes;
+        derive_orbit_shape(record);
+    }
+}
+
+void overlay_satcat_metadata(SatelliteRecord& target, const SatelliteRecord& satcat)
+{
+    if (!satcat.object_name.empty())
+        target.object_name = satcat.object_name;
+    if (!satcat.object_id.empty())
+        target.object_id = satcat.object_id;
+    target.object_type = satcat.object_type;
+    target.object_kind = satcat.object_kind;
+    target.owner = satcat.owner;
+    target.operational_status_code = satcat.operational_status_code;
+    target.data_status_code = satcat.data_status_code;
+    target.orbit_center = satcat.orbit_center;
+    target.orbit_type = satcat.orbit_type;
+    target.radar_cross_section_m2 = satcat.radar_cross_section_m2;
+    target.satcat_period_minutes = satcat.satcat_period_minutes;
+    target.satcat_inclination_deg = satcat.satcat_inclination_deg;
+    target.satcat_perigee_km = satcat.satcat_perigee_km;
+    target.satcat_apogee_km = satcat.satcat_apogee_km;
+}
+
 } // namespace
 
 std::string_view orbit_class_name(OrbitClass orbit_class)
@@ -694,6 +959,130 @@ std::string_view satellite_object_kind_name(SatelliteObjectKind kind)
     return "Unknown";
 }
 
+std::string_view satellite_population_name(SatellitePopulation population)
+{
+    switch (population)
+    {
+    case SatellitePopulation::ActivePayload:
+        return "Active Payloads";
+    case SatellitePopulation::InactivePayload:
+        return "Inactive Payloads";
+    case SatellitePopulation::RocketBody:
+        return "Rocket Bodies";
+    case SatellitePopulation::Debris:
+        return "Debris";
+    case SatellitePopulation::Unknown:
+        return "Unknown";
+    }
+    return "Unknown";
+}
+
+std::string_view orbit_solution_kind_name(OrbitSolutionKind kind)
+{
+    switch (kind)
+    {
+    case OrbitSolutionKind::GeneralPerturbations:
+        return "GP / SGP4";
+    case OrbitSolutionKind::SatcatSummaryEstimate:
+        return "SATCAT summary estimate";
+    case OrbitSolutionKind::Sample:
+        return "Bundled sample";
+    }
+    return "Unknown";
+}
+
+std::string_view orbit_solution_source_name(OrbitSolutionKind kind)
+{
+    switch (kind)
+    {
+    case OrbitSolutionKind::GeneralPerturbations:
+        return "CelesTrak active GP";
+    case OrbitSolutionKind::SatcatSummaryEstimate:
+        return "CelesTrak SATCAT";
+    case OrbitSolutionKind::Sample:
+        return "Bundled sample";
+    }
+    return "Unknown";
+}
+
+bool satcat_status_is_active(std::string_view status_code)
+{
+    const std::string status = uppercase_ascii(status_code);
+    return status == "+" || status == "P" || status == "B" || status == "S" || status == "X";
+}
+
+bool satellite_record_has_summary_orbit(const SatelliteRecord& record)
+{
+    if (!record.satcat_inclination_deg.has_value()
+        || !std::isfinite(*record.satcat_inclination_deg)
+        || *record.satcat_inclination_deg < 0.0
+        || *record.satcat_inclination_deg > 180.0)
+    {
+        return false;
+    }
+
+    const bool have_perigee = record.satcat_perigee_km.has_value();
+    const bool have_apogee = record.satcat_apogee_km.has_value();
+    if (have_perigee != have_apogee)
+        return false;
+
+    if (have_perigee)
+    {
+        const double perigee = *record.satcat_perigee_km;
+        const double apogee = *record.satcat_apogee_km;
+        if (!std::isfinite(perigee) || !std::isfinite(apogee)
+            || perigee <= -kEarthEquatorialRadiusKm || apogee < perigee)
+        {
+            return false;
+        }
+    }
+    else if (!record.satcat_period_minutes.has_value())
+    {
+        return false;
+    }
+
+    if (record.satcat_period_minutes.has_value()
+        && (!std::isfinite(*record.satcat_period_minutes) || *record.satcat_period_minutes <= 0.0))
+    {
+        return false;
+    }
+    return true;
+}
+
+SatellitePopulationCounts satellite_population_counts(const SatelliteCatalog& catalog)
+{
+    SatellitePopulationCounts counts;
+    for (const SatelliteRecord& record : catalog.objects)
+    {
+        switch (record.population)
+        {
+        case SatellitePopulation::ActivePayload:
+            ++counts.active_payloads;
+            break;
+        case SatellitePopulation::InactivePayload:
+            ++counts.inactive_payloads;
+            break;
+        case SatellitePopulation::RocketBody:
+            ++counts.rocket_bodies;
+            break;
+        case SatellitePopulation::Debris:
+            ++counts.debris;
+            break;
+        case SatellitePopulation::Unknown:
+            ++counts.unknown;
+            break;
+        }
+    }
+    return counts;
+}
+
+std::size_t renderable_satellite_count(const SatelliteCatalog& catalog)
+{
+    return static_cast<std::size_t>(std::ranges::count_if(
+        catalog.objects,
+        [](const SatelliteRecord& record) { return record.renderable; }));
+}
+
 CatalogParseResult parse_celestrak_gp_json(
     std::string_view json,
     std::string_view source_label,
@@ -719,12 +1108,188 @@ CatalogParseResult parse_celestrak_gp_json(
         else
         {
             ++result.catalog.skipped_records;
+            ++result.catalog.malformed_records;
         }
     }
 
     if (result.catalog.objects.empty() && !objects.empty())
         result.error = "no valid GP records found";
     return result;
+}
+
+CatalogParseResult parse_celestrak_satcat_csv(
+    std::string_view csv,
+    std::string_view source_label,
+    std::string_view source_url)
+{
+    PERF_MEASURE();
+    CatalogParseResult result;
+    result.catalog.source_label = std::string(source_label);
+    result.catalog.source_url = std::string(source_url);
+
+    std::vector<CsvRow> rows;
+    if (!parse_csv_rows(csv, rows, result.error))
+        return result;
+    if (rows.empty())
+    {
+        result.error = "empty SATCAT CSV";
+        return result;
+    }
+
+    if (!rows.front().empty() && rows.front().front().starts_with("\xEF\xBB\xBF"))
+        rows.front().front().erase(0, 3);
+
+    std::unordered_map<std::string, std::size_t> columns;
+    for (std::size_t i = 0; i < rows.front().size(); ++i)
+        columns[uppercase_ascii(rows.front()[i])] = i;
+
+    constexpr std::array<std::string_view, 6> required = {
+        "OBJECT_NAME", "NORAD_CAT_ID", "OBJECT_TYPE", "DECAY_DATE", "ORBIT_CENTER", "ORBIT_TYPE"
+    };
+    for (std::string_view name : required)
+    {
+        if (!columns.contains(std::string(name)))
+        {
+            result.error = "SATCAT CSV missing required column " + std::string(name);
+            return result;
+        }
+    }
+
+    const auto field = [&](const CsvRow& row, std::string_view name) -> std::string_view {
+        const auto it = columns.find(std::string(name));
+        if (it == columns.end() || it->second >= row.size())
+            return {};
+        return row[it->second];
+    };
+
+    result.catalog.objects.reserve(rows.size() - 1);
+    std::unordered_set<std::int64_t> seen_ids;
+    for (std::size_t row_index = 1; row_index < rows.size(); ++row_index)
+    {
+        const CsvRow& row = rows[row_index];
+        const auto catalog_id = parse_csv_int64(field(row, "NORAD_CAT_ID"));
+        if (!catalog_id.has_value() || *catalog_id <= 0 || !seen_ids.insert(*catalog_id).second)
+        {
+            ++result.catalog.skipped_records;
+            ++result.catalog.malformed_records;
+            continue;
+        }
+
+        const std::string decay_date = trim_ascii(field(row, "DECAY_DATE"));
+        const std::string orbit_center = uppercase_ascii(field(row, "ORBIT_CENTER"));
+        const std::string orbit_type = uppercase_ascii(field(row, "ORBIT_TYPE"));
+        if (!decay_date.empty()
+            || (!orbit_center.empty() && orbit_center != "EA")
+            || orbit_type != "ORB")
+        {
+            ++result.catalog.excluded_records;
+            continue;
+        }
+
+        SatelliteRecord record;
+        record.norad_catalog_id = *catalog_id;
+        record.object_name = trim_ascii(field(row, "OBJECT_NAME"));
+        record.object_id = trim_ascii(field(row, "OBJECT_ID"));
+        record.object_type = uppercase_ascii(field(row, "OBJECT_TYPE"));
+        record.object_kind = satcat_object_kind(record.object_type);
+        record.operational_status_code = uppercase_ascii(field(row, "OPS_STATUS_CODE"));
+        record.population = population_for_kind(
+            record.object_kind,
+            satcat_status_is_active(record.operational_status_code));
+        record.solution_kind = OrbitSolutionKind::SatcatSummaryEstimate;
+        record.owner = trim_ascii(field(row, "OWNER"));
+        record.data_status_code = uppercase_ascii(field(row, "DATA_STATUS_CODE"));
+        record.orbit_center = orbit_center.empty() ? "EA" : orbit_center;
+        record.orbit_type = orbit_type;
+
+        bool invalid_orbit_numeric = false;
+        record.satcat_period_minutes = parse_csv_optional_double(field(row, "PERIOD"), invalid_orbit_numeric);
+        record.satcat_inclination_deg = parse_csv_optional_double(field(row, "INCLINATION"), invalid_orbit_numeric);
+        record.satcat_apogee_km = parse_csv_optional_double(field(row, "APOGEE"), invalid_orbit_numeric);
+        record.satcat_perigee_km = parse_csv_optional_double(field(row, "PERIGEE"), invalid_orbit_numeric);
+        bool invalid_rcs = false;
+        record.radar_cross_section_m2 = parse_csv_optional_double(field(row, "RCS"), invalid_rcs);
+        if (invalid_rcs)
+            ++result.catalog.malformed_records;
+        record.renderable = !invalid_orbit_numeric && satellite_record_has_summary_orbit(record);
+        if (!record.renderable)
+            ++result.catalog.non_renderable_records;
+        else
+            derive_satcat_orbit_shape(record);
+
+        result.catalog.objects.push_back(std::move(record));
+    }
+
+    return result;
+}
+
+SatelliteCatalog merge_satellite_catalogs(
+    const SatelliteCatalog& active_gp,
+    const SatelliteCatalog& satcat)
+{
+    PERF_MEASURE();
+    SatelliteCatalog merged;
+    merged.source_label = "CelesTrak active GP + SATCAT";
+    merged.source_url = active_gp.source_url;
+    if (!satcat.source_url.empty())
+    {
+        if (!merged.source_url.empty())
+            merged.source_url += " | ";
+        merged.source_url += satcat.source_url;
+    }
+    merged.skipped_records = active_gp.skipped_records + satcat.skipped_records;
+    merged.malformed_records = active_gp.malformed_records + satcat.malformed_records;
+    merged.excluded_records = active_gp.excluded_records + satcat.excluded_records;
+    merged.objects.reserve(active_gp.objects.size() + satcat.objects.size());
+
+    std::unordered_map<std::int64_t, std::size_t> by_catalog_id;
+    for (const SatelliteRecord& source : active_gp.objects)
+    {
+        if (source.norad_catalog_id <= 0 || by_catalog_id.contains(source.norad_catalog_id))
+        {
+            ++merged.skipped_records;
+            ++merged.malformed_records;
+            continue;
+        }
+        SatelliteRecord record = source;
+        record.solution_kind = source.solution_kind == OrbitSolutionKind::Sample
+            ? OrbitSolutionKind::Sample
+            : OrbitSolutionKind::GeneralPerturbations;
+        record.renderable = true;
+        if (record.object_kind == SatelliteObjectKind::Unknown)
+        {
+            record.object_kind = SatelliteObjectKind::Payload;
+            if (record.object_type.empty())
+                record.object_type = "PAY";
+        }
+        record.population = population_for_kind(record.object_kind, true);
+        by_catalog_id.emplace(record.norad_catalog_id, merged.objects.size());
+        merged.objects.push_back(std::move(record));
+    }
+
+    for (const SatelliteRecord& satcat_record : satcat.objects)
+    {
+        const auto found = by_catalog_id.find(satcat_record.norad_catalog_id);
+        if (found != by_catalog_id.end())
+        {
+            SatelliteRecord& record = merged.objects[found->second];
+            overlay_satcat_metadata(record, satcat_record);
+            record.population = population_for_kind(
+                record.object_kind,
+                record.object_kind == SatelliteObjectKind::Payload);
+            continue;
+        }
+
+        SatelliteRecord record = satcat_record;
+        record.solution_kind = OrbitSolutionKind::SatcatSummaryEstimate;
+        by_catalog_id.emplace(record.norad_catalog_id, merged.objects.size());
+        merged.objects.push_back(std::move(record));
+    }
+
+    merged.non_renderable_records = static_cast<std::size_t>(std::ranges::count_if(
+        merged.objects,
+        [](const SatelliteRecord& record) { return !record.renderable; }));
+    return merged;
 }
 
 CatalogParseResult load_sample_satellite_catalog()
@@ -742,7 +1307,13 @@ CatalogParseResult load_sample_satellite_catalog()
         return result;
     }
 
-    return parse_celestrak_gp_json(*content, "sample", path.string());
+    CatalogParseResult result = parse_celestrak_gp_json(*content, "sample", path.string());
+    if (result)
+    {
+        for (SatelliteRecord& record : result.catalog.objects)
+            record.solution_kind = OrbitSolutionKind::Sample;
+    }
+    return result;
 }
 
 } // namespace draxul::satview

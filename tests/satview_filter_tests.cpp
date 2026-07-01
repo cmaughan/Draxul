@@ -1,9 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/satview/satview_filter.h>
+#include <memory>
 
 using draxul::satview::OrbitClass;
+using draxul::satview::OrbitSolutionKind;
 using draxul::satview::SatellitePropagatedState;
 using draxul::satview::SatelliteObjectKind;
+using draxul::satview::SatellitePopulation;
 using draxul::satview::SatViewFilterState;
 using draxul::satview::make_satview_filter_candidate;
 using draxul::satview::satview_filter_matches;
@@ -15,11 +18,14 @@ SatellitePropagatedState make_state()
 {
     SatellitePropagatedState state;
     state.norad_catalog_id = 25544;
-    state.object_name = "ISS (ZARYA)";
-    state.object_id = "1998-067A";
-    state.object_type = "PAYLOAD";
+    auto metadata = std::make_shared<draxul::satview::SatelliteStaticMetadata>();
+    metadata->object_name = "ISS (ZARYA)";
+    metadata->object_id = "1998-067A";
+    metadata->object_type = "PAYLOAD";
+    metadata->classification_type = "U";
+    state.metadata = std::move(metadata);
     state.object_kind = SatelliteObjectKind::Payload;
-    state.classification_type = "U";
+    state.population = SatellitePopulation::ActivePayload;
     state.orbit_class = OrbitClass::LowEarth;
     state.minutes_since_epoch = 90.0;
     return state;
@@ -79,7 +85,9 @@ TEST_CASE("SatView filter matches optional metadata and epoch age", "[satview][f
 TEST_CASE("SatView filter matches normalized object kind", "[satview][filter]")
 {
     SatellitePropagatedState state = make_state();
-    state.object_type.clear();
+    auto metadata = std::make_shared<draxul::satview::SatelliteStaticMetadata>(*state.metadata);
+    metadata->object_type.clear();
+    state.metadata = std::move(metadata);
     state.object_kind = SatelliteObjectKind::RocketBody;
 
     SatViewFilterState filter;
@@ -88,4 +96,40 @@ TEST_CASE("SatView filter matches normalized object kind", "[satview][filter]")
 
     filter.object_type_text = "payload";
     CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state, "active")));
+}
+
+TEST_CASE("SatView filter gates derived sun-synchronous candidates independently", "[satview][filter]")
+{
+    SatellitePropagatedState state = make_state();
+
+    SatViewFilterState filter;
+    filter.sun_synchronous_only = true;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    state.sun_synchronous_candidate = true;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    filter.show_low_earth = false;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+}
+
+TEST_CASE("SatView filter gates populations and summary estimates independently", "[satview][filter]")
+{
+    SatellitePropagatedState state = make_state();
+    state.population = SatellitePopulation::Debris;
+    state.solution_kind = OrbitSolutionKind::SatcatSummaryEstimate;
+
+    SatViewFilterState filter;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    filter.show_debris = false;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    filter.show_debris = true;
+    filter.show_summary_estimates = false;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    filter.show_summary_estimates = true;
+    filter.source_text = "satcat";
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
 }

@@ -29,6 +29,8 @@ constexpr double kSecondsPerDay = 86400.0;
 constexpr double kUnixEpochJulianDate = 2440587.5;
 constexpr double kSgp4EpochJulianDate = 2433281.5;
 constexpr double kReferenceMeanMotionScale = kMinutesPerDay / kTwoPi;
+constexpr double kEarthMuKm3PerS2 = 398600.4418;
+constexpr double kSummaryReferenceUnixSeconds = 946728000.0; // J2000 noon UTC.
 
 struct ParsedUtc
 {
@@ -42,8 +44,36 @@ struct ParsedUtc
 
 struct CompiledOrbit
 {
+    struct Summary
+    {
+        double semi_major_axis_km = 0.0;
+        double eccentricity = 0.0;
+        double inclination_radians = 0.0;
+        double right_ascension_radians = 0.0;
+        double argument_perigee_radians = 0.0;
+        double reference_mean_anomaly_radians = 0.0;
+        double period_seconds = 0.0;
+    };
+
+    OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
     elsetrec satrec{};
+    Summary summary;
 };
+
+std::uint64_t mix_catalog_id(std::int64_t catalog_id, std::uint64_t salt)
+{
+    std::uint64_t value = static_cast<std::uint64_t>(catalog_id) + salt + 0x9e3779b97f4a7c15ull;
+    value = (value ^ (value >> 30u)) * 0xbf58476d1ce4e5b9ull;
+    value = (value ^ (value >> 27u)) * 0x94d049bb133111ebull;
+    return value ^ (value >> 31u);
+}
+
+double stable_angle(std::int64_t catalog_id, std::uint64_t salt)
+{
+    constexpr double kInverse53Bits = 1.0 / 9007199254740992.0;
+    const std::uint64_t value = mix_catalog_id(catalog_id, salt) >> 11u;
+    return static_cast<double>(value) * kInverse53Bits * kTwoPi;
+}
 
 bool parse_fixed_uint(std::string_view text, std::size_t offset, std::size_t count, int& out)
 {
@@ -214,6 +244,7 @@ std::optional<CompiledOrbit> compile_record(const SatelliteRecord& record)
     const std::string satnum = sgp4_satellite_number(record.norad_catalog_id);
 
     CompiledOrbit orbit;
+    orbit.solution_kind = record.solution_kind;
     orbit.satrec.classification = record.classification_type.empty()
         ? 'U'
         : record.classification_type.front();
@@ -253,9 +284,143 @@ std::optional<CompiledOrbit> compile_record(const SatelliteRecord& record)
     return orbit;
 }
 
+std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& record)
+{
+    if (!record.renderable || !satellite_record_has_summary_orbit(record))
+        return std::nullopt;
+
+    CompiledOrbit orbit;
+    orbit.solution_kind = OrbitSolutionKind::SatcatSummaryEstimate;
+    auto& summary = orbit.summary;
+
+    if (record.satcat_perigee_km.has_value() && record.satcat_apogee_km.has_value())
+    {
+        const double rp = kSatViewEarthEquatorialRadiusKm + *record.satcat_perigee_km;
+        const double ra = kSatViewEarthEquatorialRadiusKm + *record.satcat_apogee_km;
+        summary.semi_major_axis_km = 0.5 * (rp + ra);
+        summary.eccentricity = (ra - rp) / (ra + rp);
+    }
+    else if (record.satcat_period_minutes.has_value())
+    {
+        const double period_seconds = *record.satcat_period_minutes * 60.0;
+        summary.semi_major_axis_km = std::cbrt(
+            kEarthMuKm3PerS2 * period_seconds * period_seconds / (kTwoPi * kTwoPi));
+        summary.eccentricity = 0.0;
+    }
+
+    summary.period_seconds = record.satcat_period_minutes.has_value()
+        ? *record.satcat_period_minutes * 60.0
+        : kTwoPi * std::sqrt(
+              summary.semi_major_axis_km * summary.semi_major_axis_km * summary.semi_major_axis_km
+              / kEarthMuKm3PerS2);
+    summary.inclination_radians = *record.satcat_inclination_deg * kPi / 180.0;
+    summary.right_ascension_radians = stable_angle(record.norad_catalog_id, 0x3c6ef372fe94f82bull);
+    summary.argument_perigee_radians = stable_angle(record.norad_catalog_id, 0xa54ff53a5f1d36f1ull);
+    summary.reference_mean_anomaly_radians = stable_angle(record.norad_catalog_id, 0x510e527fade682d1ull);
+
+    if (!std::isfinite(summary.semi_major_axis_km)
+        || summary.semi_major_axis_km <= kSatViewEarthEquatorialRadiusKm * 0.1
+        || !std::isfinite(summary.eccentricity)
+        || summary.eccentricity < 0.0
+        || summary.eccentricity >= 1.0
+        || !std::isfinite(summary.period_seconds)
+        || summary.period_seconds <= 0.0)
+    {
+        return std::nullopt;
+    }
+    return orbit;
+}
+
 std::size_t limited_count(std::size_t available, std::size_t limit)
 {
     return limit == 0 ? available : std::min(available, limit);
+}
+
+void populate_state_metadata(
+    const SatellitePropagationEntry& entry,
+    double simulation_unix_seconds,
+    SatellitePropagatedState& out)
+{
+    out.norad_catalog_id = entry.norad_catalog_id;
+    out.object_prefix_hash = entry.object_prefix_hash;
+    out.metadata = entry.metadata;
+    out.object_kind = entry.object_kind;
+    out.population = entry.population;
+    out.solution_kind = entry.solution_kind;
+    out.orbit_class = entry.orbit_class;
+    out.sun_synchronous_candidate = entry.sun_synchronous_candidate;
+    out.period_minutes = entry.period_minutes;
+    out.minutes_since_epoch = std::isfinite(entry.epoch_unix_seconds)
+        ? (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0
+        : std::numeric_limits<double>::quiet_NaN();
+}
+
+glm::dvec3 rotate_perifocal(
+    const glm::dvec3& value,
+    double right_ascension,
+    double inclination,
+    double argument_perigee)
+{
+    const double co = std::cos(right_ascension);
+    const double so = std::sin(right_ascension);
+    const double ci = std::cos(inclination);
+    const double si = std::sin(inclination);
+    const double cw = std::cos(argument_perigee);
+    const double sw = std::sin(argument_perigee);
+    return glm::dvec3(
+        (co * cw - so * sw * ci) * value.x + (-co * sw - so * cw * ci) * value.y,
+        (so * cw + co * sw * ci) * value.x + (-so * sw + co * cw * ci) * value.y,
+        sw * si * value.x + cw * si * value.y);
+}
+
+bool propagate_summary(
+    const CompiledOrbit::Summary& summary,
+    double simulation_unix_seconds,
+    glm::dvec3& position_km,
+    glm::dvec3& velocity_km_per_s)
+{
+    const double mean_motion_rad_s = kTwoPi / summary.period_seconds;
+    const double elapsed = simulation_unix_seconds - kSummaryReferenceUnixSeconds;
+    const double mean_anomaly = std::remainder(
+        summary.reference_mean_anomaly_radians + elapsed * mean_motion_rad_s,
+        kTwoPi);
+
+    double eccentric_anomaly = mean_anomaly;
+    for (int i = 0; i < 12; ++i)
+    {
+        const double f = eccentric_anomaly
+            - summary.eccentricity * std::sin(eccentric_anomaly)
+            - mean_anomaly;
+        const double derivative = 1.0 - summary.eccentricity * std::cos(eccentric_anomaly);
+        eccentric_anomaly -= f / derivative;
+    }
+
+    const double cosine = std::cos(eccentric_anomaly);
+    const double sine = std::sin(eccentric_anomaly);
+    const double minor_scale = std::sqrt(1.0 - summary.eccentricity * summary.eccentricity);
+    const double eccentric_rate = mean_motion_rad_s
+        / (1.0 - summary.eccentricity * cosine);
+    const glm::dvec3 perifocal_position(
+        summary.semi_major_axis_km * (cosine - summary.eccentricity),
+        summary.semi_major_axis_km * minor_scale * sine,
+        0.0);
+    const glm::dvec3 perifocal_velocity(
+        -summary.semi_major_axis_km * sine * eccentric_rate,
+        summary.semi_major_axis_km * minor_scale * cosine * eccentric_rate,
+        0.0);
+    position_km = rotate_perifocal(
+        perifocal_position,
+        summary.right_ascension_radians,
+        summary.inclination_radians,
+        summary.argument_perigee_radians);
+    velocity_km_per_s = rotate_perifocal(
+        perifocal_velocity,
+        summary.right_ascension_radians,
+        summary.inclination_radians,
+        summary.argument_perigee_radians);
+    return std::isfinite(position_km.x) && std::isfinite(position_km.y) && std::isfinite(position_km.z)
+        && std::isfinite(velocity_km_per_s.x) && std::isfinite(velocity_km_per_s.y)
+        && std::isfinite(velocity_km_per_s.z);
 }
 
 bool propagate_one(
@@ -265,32 +430,36 @@ bool propagate_one(
     double simulation_unix_seconds,
     SatellitePropagatedState& out)
 {
-    elsetrec satrec = orbit.satrec;
-    const double tsince_minutes =
-        (jd.day - satrec.jdsatepoch) * kMinutesPerDay
-        + (jd.fraction - satrec.jdsatepochF) * kMinutesPerDay;
-
-    double r[3]{};
-    double v[3]{};
-    SGP4Funcs::sgp4(satrec, tsince_minutes, r, v);
-    if (satrec.error != 0)
+    populate_state_metadata(entry, simulation_unix_seconds, out);
+    if (orbit.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate)
     {
-        out.sgp4_error = satrec.error;
-        return false;
+        if (!propagate_summary(
+                orbit.summary,
+                simulation_unix_seconds,
+                out.teme_position_km,
+                out.teme_velocity_km_per_s))
+        {
+            return false;
+        }
     }
+    else
+    {
+        elsetrec satrec = orbit.satrec;
+        const double tsince_minutes =
+            (jd.day - satrec.jdsatepoch) * kMinutesPerDay
+            + (jd.fraction - satrec.jdsatepochF) * kMinutesPerDay;
 
-    out.norad_catalog_id = entry.norad_catalog_id;
-    out.object_prefix_hash = entry.object_prefix_hash;
-    out.object_name = entry.object_name;
-    out.object_id = entry.object_id;
-    out.object_type = entry.object_type;
-    out.object_kind = entry.object_kind;
-    out.classification_type = entry.classification_type;
-    out.orbit_class = entry.orbit_class;
-    out.period_minutes = entry.period_minutes;
-    out.minutes_since_epoch = (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0;
-    out.teme_position_km = make_dvec3(r);
-    out.teme_velocity_km_per_s = make_dvec3(v);
+        double r[3]{};
+        double v[3]{};
+        SGP4Funcs::sgp4(satrec, tsince_minutes, r, v);
+        if (satrec.error != 0)
+        {
+            out.sgp4_error = satrec.error;
+            return false;
+        }
+        out.teme_position_km = make_dvec3(r);
+        out.teme_velocity_km_per_s = make_dvec3(v);
+    }
     out.ecef_position_km = teme_to_ecef_km(out.teme_position_km, jd);
     out.render_position_earth_radii = out.ecef_position_km / kSatViewEarthEquatorialRadiusKm;
     return true;
@@ -309,9 +478,18 @@ void append_track_samples(
     track.object_id = entry.object_id;
     track.object_type = entry.object_type;
     track.object_kind = entry.object_kind;
+    track.population = entry.population;
+    track.solution_kind = entry.solution_kind;
     track.classification_type = entry.classification_type;
+    track.owner = entry.owner;
+    track.operational_status_code = entry.operational_status_code;
+    track.data_status_code = entry.data_status_code;
+    track.radar_cross_section_m2 = entry.radar_cross_section_m2;
     track.orbit_class = entry.orbit_class;
-    track.minutes_since_epoch = (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0;
+    track.sun_synchronous_candidate = entry.sun_synchronous_candidate;
+    track.minutes_since_epoch = std::isfinite(entry.epoch_unix_seconds)
+        ? (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0
+        : std::numeric_limits<double>::quiet_NaN();
     track.sample_center_unix_seconds = simulation_unix_seconds;
     track.teme_points_km.reserve(settings.track_sample_count);
     track.ecef_points_km.reserve(settings.track_sample_count);
@@ -631,8 +809,24 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
     std::size_t skipped = catalog.skipped_records;
     for (const SatelliteRecord& record : catalog.objects)
     {
-        auto epoch_unix_seconds = parse_celestrak_epoch_utc(record.epoch_utc);
-        auto compiled = compile_record(record);
+        if (!record.renderable)
+        {
+            ++skipped;
+            continue;
+        }
+
+        std::optional<double> epoch_unix_seconds;
+        std::optional<CompiledOrbit> compiled;
+        if (record.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate)
+        {
+            epoch_unix_seconds = std::numeric_limits<double>::quiet_NaN();
+            compiled = compile_summary_record(record);
+        }
+        else
+        {
+            epoch_unix_seconds = parse_celestrak_epoch_utc(record.epoch_utc);
+            compiled = compile_record(record);
+        }
         if (!epoch_unix_seconds.has_value() || !compiled.has_value())
         {
             ++skipped;
@@ -646,8 +840,25 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
         entry.object_id = record.object_id;
         entry.object_type = record.object_type;
         entry.object_kind = record.object_kind;
+        entry.population = record.population;
+        entry.solution_kind = record.solution_kind;
         entry.classification_type = record.classification_type;
+        entry.owner = record.owner;
+        entry.operational_status_code = record.operational_status_code;
+        entry.data_status_code = record.data_status_code;
+        entry.radar_cross_section_m2 = record.radar_cross_section_m2;
+        auto metadata = std::make_shared<SatelliteStaticMetadata>();
+        metadata->object_name = record.object_name;
+        metadata->object_id = record.object_id;
+        metadata->object_type = record.object_type;
+        metadata->classification_type = record.classification_type;
+        metadata->owner = record.owner;
+        metadata->operational_status_code = record.operational_status_code;
+        metadata->data_status_code = record.data_status_code;
+        metadata->radar_cross_section_m2 = record.radar_cross_section_m2;
+        entry.metadata = std::move(metadata);
         entry.orbit_class = record.orbit_class;
+        entry.sun_synchronous_candidate = record.sun_synchronous_candidate;
         entry.epoch_unix_seconds = *epoch_unix_seconds;
         entry.period_minutes = record.period_minutes;
         SatellitePropagationBuilderAccess::append(result.model, std::move(entry), std::move(*compiled));
@@ -657,7 +868,7 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
     result.compiled_records = result.model.size();
     result.skipped_records = skipped;
     if (result.compiled_records == 0 && !catalog.objects.empty())
-        result.error = "no valid SGP4 records found";
+        result.error = "no renderable orbit records found";
     return result;
 }
 

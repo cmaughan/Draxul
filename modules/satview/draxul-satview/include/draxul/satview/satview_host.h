@@ -65,6 +65,7 @@ public:
 private:
     struct ObjectTreeEntry
     {
+        SatellitePopulation population = SatellitePopulation::Unknown;
         OrbitClass orbit_class = OrbitClass::Other;
         std::string prefix;
         std::string label;
@@ -113,7 +114,7 @@ private:
     char search_buffer_[128]{};
     char object_type_buffer_[64]{};
     char source_buffer_[96]{};
-    SatViewColorMode color_mode_ = SatViewColorMode::NamePrefix;
+    SatViewColorMode color_mode_ = SatViewColorMode::Population;
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
     SatViewSatelliteDisplayMode satellite_display_mode_ = SatViewSatelliteDisplayMode::TracksAndMarkers;
     SatViewProjectionMode projection_mode_ = SatViewProjectionMode::Globe;

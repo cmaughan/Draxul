@@ -2,6 +2,7 @@
 #include "live_city_metrics.h"
 #include "semantic_city_layout.h"
 
+#include <draxul/code_semantic_model.h>
 #include <draxul/module_path_resolver.h>
 #include <draxul/perf_timing.h>
 #include <imgui.h>
@@ -19,6 +20,35 @@
 
 namespace draxul
 {
+
+CodeVisualizationPanelCapabilities code_visualization_panel_capabilities(
+    CodeVisualizationPanelMode mode)
+{
+    switch (mode)
+    {
+    case CodeVisualizationPanelMode::City:
+        return {
+            .show_city_build_controls = true,
+            .show_biology_build_controls = false,
+            .show_city_sign_controls = true,
+            .show_city_surface_controls = true,
+            .show_city_preview = true,
+            .show_perf_overlay_controls = true,
+            .show_perf_debug = true,
+        };
+    case CodeVisualizationPanelMode::Biology:
+        return {
+            .show_city_build_controls = false,
+            .show_biology_build_controls = true,
+            .show_city_sign_controls = false,
+            .show_city_surface_controls = false,
+            .show_city_preview = false,
+            .show_perf_overlay_controls = false,
+            .show_perf_debug = false,
+        };
+    }
+    return {};
+}
 
 namespace
 {
@@ -400,7 +430,7 @@ void render_city_preview(const SemanticMegacityModel* semantic_model)
         "Semantic preview: %zu modules | %zu buildings",
         semantic_model->modules.size(),
         semantic_model->building_count());
-    ImGui::TextUnformatted("Preview reflects the last rebuilt DB-derived city model.");
+    ImGui::TextUnformatted("Preview reflects the last rebuilt Tree-sitter city projection.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
 
@@ -445,6 +475,158 @@ void render_city_preview(const SemanticMegacityModel* semantic_model)
                 building.metrics.footprint,
                 building.metrics.height,
                 building.metrics.road_width);
+
+            ImGui::TreePop();
+        }
+
+        ImGui::TreePop();
+    }
+}
+
+const char* biology_node_kind_label(CodeSemanticNodeKind kind)
+{
+    switch (kind)
+    {
+    case CodeSemanticNodeKind::Repository:
+        return "organism";
+    case CodeSemanticNodeKind::Module:
+        return "tissue";
+    case CodeSemanticNodeKind::File:
+        return "cell";
+    case CodeSemanticNodeKind::Type:
+        return "nucleus";
+    case CodeSemanticNodeKind::Function:
+        return "process body";
+    case CodeSemanticNodeKind::Method:
+        return "method organelle";
+    case CodeSemanticNodeKind::Field:
+        return "storage organelle";
+    case CodeSemanticNodeKind::Include:
+        return "include organelle";
+    }
+    return "semantic node";
+}
+
+ImVec4 biology_node_kind_color(CodeSemanticNodeKind kind)
+{
+    switch (kind)
+    {
+    case CodeSemanticNodeKind::Type:
+        return ImVec4(0.88f, 0.82f, 0.55f, 1.0f);
+    case CodeSemanticNodeKind::Function:
+        return ImVec4(0.60f, 0.85f, 1.00f, 1.0f);
+    case CodeSemanticNodeKind::Method:
+        return ImVec4(0.70f, 0.95f, 0.86f, 1.0f);
+    case CodeSemanticNodeKind::Field:
+        return ImVec4(0.95f, 0.88f, 0.45f, 1.0f);
+    case CodeSemanticNodeKind::Include:
+        return ImVec4(0.78f, 0.70f, 1.0f, 1.0f);
+    default:
+        return ImVec4(0.72f, 0.72f, 0.72f, 1.0f);
+    }
+}
+
+bool is_biology_body_node(CodeSemanticNodeKind kind)
+{
+    return kind == CodeSemanticNodeKind::Type || kind == CodeSemanticNodeKind::Function;
+}
+
+bool is_biology_organelle_node(CodeSemanticNodeKind kind)
+{
+    return kind == CodeSemanticNodeKind::Method
+        || kind == CodeSemanticNodeKind::Field
+        || kind == CodeSemanticNodeKind::Include;
+}
+
+void render_biology_preview(const CodeSemanticSnapshot* semantics)
+{
+    PERF_MEASURE();
+    if (!semantics || semantics->nodes.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+        ImGui::TextUnformatted("No biological entities yet.");
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    size_t tissue_count = 0;
+    size_t file_cell_count = 0;
+    size_t symbol_body_count = 0;
+    size_t organelle_count = 0;
+    size_t fibre_count = 0;
+    std::map<std::string, std::vector<const CodeSemanticNode*>> nodes_by_module;
+    for (const CodeSemanticNode& node : semantics->nodes)
+    {
+        if (node.kind == CodeSemanticNodeKind::Module)
+            ++tissue_count;
+        else if (node.kind == CodeSemanticNodeKind::File)
+            ++file_cell_count;
+        else if (is_biology_body_node(node.kind))
+            ++symbol_body_count;
+        else if (is_biology_organelle_node(node.kind))
+            ++organelle_count;
+
+        if (node.kind == CodeSemanticNodeKind::File
+            || is_biology_body_node(node.kind)
+            || is_biology_organelle_node(node.kind))
+        {
+            nodes_by_module[node.module_path].push_back(&node);
+        }
+    }
+    for (const CodeSemanticEdge& edge : semantics->edges)
+        if (edge.kind != CodeSemanticEdgeKind::Contains)
+            ++fibre_count;
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+    ImGui::Text(
+        "Biology preview: %zu tissues | %zu cells | %zu symbol bodies | %zu organelles | %zu fibres",
+        tissue_count,
+        file_cell_count,
+        symbol_body_count,
+        organelle_count,
+        fibre_count);
+    ImGui::TextUnformatted("Preview reflects the last rebuilt Tree-sitter semantic snapshot.");
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+
+    for (const auto& [module_path, nodes] : nodes_by_module)
+    {
+        const std::string label = module_path.empty()
+            ? "Tissue: (root)"
+            : ("Tissue: " + module_path);
+        const bool module_open = ImGui::TreeNodeEx(
+            label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth,
+            "%s (%zu)", label.c_str(), nodes.size());
+        if (!module_open)
+            continue;
+
+        for (const CodeSemanticNode* node : nodes)
+        {
+            if (!node)
+                continue;
+            const std::string module_file = file_path_within_module(node->source.file_path, module_path);
+            const std::string name = !node->qualified_name.empty() ? node->qualified_name : node->name;
+
+            ImGui::PushStyleColor(ImGuiCol_Text, biology_node_kind_color(node->kind));
+            const bool open = ImGui::TreeNodeEx(
+                (name + node->source.file_path).c_str(),
+                ImGuiTreeNodeFlags_SpanAvailWidth,
+                "%s [%s]  (%s)",
+                name.c_str(),
+                biology_node_kind_label(node->kind),
+                module_file.c_str());
+            ImGui::PopStyleColor();
+
+            if (!open)
+                continue;
+
+            ImGui::Text("file: %s", node->source.file_path.c_str());
+            ImGui::Text(
+                "semantic: lines=%u | fields=%u | methods=%u | references=%u",
+                node->metrics.line_count,
+                node->metrics.field_count,
+                node->metrics.method_count,
+                node->metrics.referenced_type_count);
 
             ImGui::TreePop();
         }
@@ -698,9 +880,11 @@ void render_objects_tree(const ObjectsTreeCache& cache)
     }
 }
 
-bool render_renderer_controls(MegacityRendererControls& controls)
+bool render_renderer_controls(MegacityRendererControls& controls, CodeVisualizationPanelMode visualization_mode)
 {
     PERF_MEASURE();
+    const CodeVisualizationPanelCapabilities capabilities
+        = code_visualization_panel_capabilities(visualization_mode);
     bool changed = false;
     controls.rebuild_requested = false;
     controls.reset_camera_requested = false;
@@ -766,7 +950,10 @@ bool render_renderer_controls(MegacityRendererControls& controls)
 
     if (ImGui::BeginPopupModal("##megacity_set_defaults", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Use the current Megacity config as the new defaults?");
+        ImGui::TextUnformatted(
+            capabilities.show_biology_build_controls
+                ? "Use the current BioView config as the new defaults?"
+                : "Use the current Megacity config as the new defaults?");
         if (ImGui::Button("Set Defaults"))
         {
             controls.defaults = config;
@@ -813,59 +1000,74 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         changed |= item_changed;
         note_commit();
     };
+    auto render_module_combo = [&]() {
+        const bool module_selection_missing = !config.selected_module_path.empty()
+            && std::find(
+                   controls.available_modules.begin(),
+                   controls.available_modules.end(),
+                   config.selected_module_path)
+                == controls.available_modules.end();
+        const std::string current_module_label = config.selected_module_path.empty()
+            ? "All Modules"
+            : module_selection_missing
+            ? ("Missing: " + config.selected_module_path)
+            : config.selected_module_path;
+        if (ImGui::BeginCombo("Module View", current_module_label.c_str()))
+        {
+            const bool all_modules_selected = config.selected_module_path.empty();
+            if (ImGui::Selectable("All Modules", all_modules_selected))
+            {
+                config.selected_module_path.clear();
+                changed = true;
+                controls.committed_edit = true;
+            }
+            if (all_modules_selected)
+                ImGui::SetItemDefaultFocus();
+
+            for (const std::string& module_path : controls.available_modules)
+            {
+                const bool module_selected = module_path == config.selected_module_path;
+                if (ImGui::Selectable(module_path.c_str(), module_selected))
+                {
+                    config.selected_module_path = module_path;
+                    changed = true;
+                    controls.committed_edit = true;
+                }
+                if (module_selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+
+            if (module_selection_missing)
+            {
+                ImGui::Separator();
+                ImGui::BeginDisabled();
+                ImGui::Selectable(current_module_label.c_str(), true);
+                ImGui::EndDisabled();
+            }
+
+            ImGui::EndCombo();
+        }
+    };
+
+    if (capabilities.show_biology_build_controls
+        && ImGui::TreeNodeEx("##renderer_biology_build", ImGuiTreeNodeFlags_SpanAvailWidth, "Biology Build"))
+    {
+        render_module_combo();
+        const bool hide_tests_changed = ImGui::Checkbox("Hide Test Sources", &config.hide_test_entities);
+        changed |= hide_tests_changed;
+        if (hide_tests_changed)
+            controls.committed_edit = true;
+        ImGui::TreePop();
+    }
 
     // -- City Build --------------------------------------------------------
-    if (ImGui::TreeNodeEx("##renderer_build", ImGuiTreeNodeFlags_SpanAvailWidth, "City Build"))
+    if (capabilities.show_city_build_controls
+        && ImGui::TreeNodeEx("##renderer_build", ImGuiTreeNodeFlags_SpanAvailWidth, "City Build"))
     {
         // Module / View
         if (ImGui::TreeNodeEx("##build_module", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "Module / View"))
         {
-            const bool module_selection_missing = !config.selected_module_path.empty()
-                && std::find(
-                       controls.available_modules.begin(),
-                       controls.available_modules.end(),
-                       config.selected_module_path)
-                    == controls.available_modules.end();
-            const std::string current_module_label = config.selected_module_path.empty()
-                ? "All Modules"
-                : module_selection_missing
-                ? ("Missing: " + config.selected_module_path)
-                : config.selected_module_path;
-            if (ImGui::BeginCombo("Module View", current_module_label.c_str()))
-            {
-                const bool all_modules_selected = config.selected_module_path.empty();
-                if (ImGui::Selectable("All Modules", all_modules_selected))
-                {
-                    config.selected_module_path.clear();
-                    changed = true;
-                    controls.committed_edit = true;
-                }
-                if (all_modules_selected)
-                    ImGui::SetItemDefaultFocus();
-
-                for (const std::string& module_path : controls.available_modules)
-                {
-                    const bool module_selected = module_path == config.selected_module_path;
-                    if (ImGui::Selectable(module_path.c_str(), module_selected))
-                    {
-                        config.selected_module_path = module_path;
-                        changed = true;
-                        controls.committed_edit = true;
-                    }
-                    if (module_selected)
-                        ImGui::SetItemDefaultFocus();
-                }
-
-                if (module_selection_missing)
-                {
-                    ImGui::Separator();
-                    ImGui::BeginDisabled();
-                    ImGui::Selectable(current_module_label.c_str(), true);
-                    ImGui::EndDisabled();
-                }
-
-                ImGui::EndCombo();
-            }
+            render_module_combo();
 
             const bool clamp_changed = ImGui::Checkbox("Clamp Semantic Metrics", &config.clamp_semantic_metrics);
             changed |= clamp_changed;
@@ -1009,7 +1211,8 @@ bool render_renderer_controls(MegacityRendererControls& controls)
     }
 
     // -- Signs -------------------------------------------------------------
-    if (ImGui::TreeNodeEx("##renderer_signs", ImGuiTreeNodeFlags_SpanAvailWidth, "Signs"))
+    if (capabilities.show_city_sign_controls
+        && ImGui::TreeNodeEx("##renderer_signs", ImGuiTreeNodeFlags_SpanAvailWidth, "Signs"))
     {
         // Text Rendering
         if (ImGui::TreeNodeEx("##signs_text", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "Text Rendering"))
@@ -1066,7 +1269,8 @@ bool render_renderer_controls(MegacityRendererControls& controls)
     }
 
     // -- Surfaces ----------------------------------------------------------
-    if (ImGui::TreeNodeEx("##renderer_surface", ImGuiTreeNodeFlags_SpanAvailWidth, "Surfaces"))
+    if (capabilities.show_city_surface_controls
+        && ImGui::TreeNodeEx("##renderer_surface", ImGuiTreeNodeFlags_SpanAvailWidth, "Surfaces"))
     {
         edit_float("Road Surface Height", config.road_surface_height, 0.001f, 0.001f, 4.0f, "%.3f");
         edit_float("Sidewalk Surface Height", config.sidewalk_surface_height, 0.005f, 0.001f, 8.0f, "%.3f");
@@ -1076,6 +1280,16 @@ bool render_renderer_controls(MegacityRendererControls& controls)
         edit_float("World Floor Grid Y Offset", config.world_floor_grid_y_offset, 0.001f, 0.0f, 4.0f, "%.3f");
         edit_float("World Floor Grid Tile Scale", config.world_floor_grid_tile_scale, 0.05f, 0.1f, 64.0f, "%.2f");
         edit_float("World Floor Grid Line Width", config.world_floor_grid_line_width, 0.005f, 0.001f, 4.0f, "%.3f");
+        ImGui::TreePop();
+    }
+    else if (!capabilities.show_city_surface_controls
+        && ImGui::TreeNodeEx("##renderer_ground_grid", ImGuiTreeNodeFlags_SpanAvailWidth, "Ground / Grid"))
+    {
+        edit_float("Floor Height Scale", config.world_floor_height_scale, 0.01f, 0.0f, 4.0f, "%.2f");
+        edit_float("Floor Top Y", config.world_floor_top_y, 0.001f, -8.0f, 8.0f, "%.3f");
+        edit_float("Grid Y Offset", config.world_floor_grid_y_offset, 0.001f, 0.0f, 4.0f, "%.3f");
+        edit_float("Grid Tile Scale", config.world_floor_grid_tile_scale, 0.05f, 0.1f, 64.0f, "%.2f");
+        edit_float("Grid Line Width", config.world_floor_grid_line_width, 0.005f, 0.001f, 4.0f, "%.3f");
         ImGui::TreePop();
     }
 
@@ -1183,9 +1397,13 @@ bool render_treesitter_panel(
     const std::shared_ptr<const CodebaseSnapshot>& snapshot,
     CodebaseScanProgress scan_progress,
     const SemanticMegacityModel* semantic_model,
-    MegacityRendererControls* renderer_controls)
+    const CodeSemanticSnapshot* code_semantics,
+    MegacityRendererControls* renderer_controls,
+    CodeVisualizationPanelMode visualization_mode)
 {
     PERF_MEASURE();
+    const CodeVisualizationPanelCapabilities capabilities
+        = code_visualization_panel_capabilities(visualization_mode);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoBringToFrontOnFocus;
     bool changed = false;
 
@@ -1206,7 +1424,7 @@ bool render_treesitter_panel(
     }
 
     auto render_overlay_controls = [&]() {
-        if (!renderer_controls)
+        if (!renderer_controls || !capabilities.show_perf_overlay_controls)
             return;
 
         static constexpr const char* kOverlayLabels[] = { "None", "Perf", "Coverage", "LCOV Coverage" };
@@ -1253,8 +1471,8 @@ bool render_treesitter_panel(
         ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), false,
             ImGuiWindowFlags_HorizontalScrollbar);
         if (renderer_controls)
-            changed |= render_renderer_controls(*renderer_controls);
-        if (renderer_controls)
+            changed |= render_renderer_controls(*renderer_controls, visualization_mode);
+        if (renderer_controls && capabilities.show_perf_debug)
             render_perf_debug_panel(renderer_controls->perf_debug);
         ImGui::EndChild();
 
@@ -1280,12 +1498,12 @@ bool render_treesitter_panel(
     ImGui::Separator();
 
     ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), false,
-        ImGuiWindowFlags_HorizontalScrollbar);
+    ImGuiWindowFlags_HorizontalScrollbar);
 
     if (renderer_controls)
-        changed |= render_renderer_controls(*renderer_controls);
+        changed |= render_renderer_controls(*renderer_controls, visualization_mode);
 
-    if (renderer_controls)
+    if (renderer_controls && capabilities.show_perf_debug)
         render_perf_debug_panel(renderer_controls->perf_debug);
 
     // ---- Files root ------------------------------------------------------------
@@ -1312,15 +1530,31 @@ bool render_treesitter_panel(
         ImGui::TreePop();
     }
 
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
-    const bool city_open = ImGui::TreeNodeEx(
-        "##city_preview_root", ImGuiTreeNodeFlags_SpanAvailWidth,
-        "City Preview");
-    ImGui::PopStyleColor();
-    if (city_open)
+    if (capabilities.show_city_preview)
     {
-        render_city_preview(semantic_model);
-        ImGui::TreePop();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
+        const bool city_open = ImGui::TreeNodeEx(
+            "##city_preview_root", ImGuiTreeNodeFlags_SpanAvailWidth,
+            "City Preview");
+        ImGui::PopStyleColor();
+        if (city_open)
+        {
+            render_city_preview(semantic_model);
+            ImGui::TreePop();
+        }
+    }
+    else
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
+        const bool biology_open = ImGui::TreeNodeEx(
+            "##biology_preview_root", ImGuiTreeNodeFlags_SpanAvailWidth,
+            "Biology Preview");
+        ImGui::PopStyleColor();
+        if (biology_open)
+        {
+            render_biology_preview(code_semantics);
+            ImGui::TreePop();
+        }
     }
 
     ImGui::EndChild();

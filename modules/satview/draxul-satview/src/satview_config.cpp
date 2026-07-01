@@ -42,6 +42,8 @@ std::string_view format_color_mode(SatViewColorMode mode)
 {
     switch (mode)
     {
+    case SatViewColorMode::Population:
+        return "population";
     case SatViewColorMode::NamePrefix:
         return "name_prefix";
     case SatViewColorMode::OrbitClass:
@@ -49,7 +51,7 @@ std::string_view format_color_mode(SatViewColorMode mode)
     case SatViewColorMode::ObjectType:
         return "object_type";
     }
-    return "name_prefix";
+    return "population";
 }
 
 std::string_view format_track_display_mode(SatViewTrackDisplayMode mode)
@@ -85,7 +87,9 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
 {
     if (auto value = toml_support::get_string(table, "color_mode"))
     {
-        if (*value == "name_prefix")
+        if (*value == "population")
+            config.color_mode = SatViewColorMode::Population;
+        else if (*value == "name_prefix")
             config.color_mode = SatViewColorMode::NamePrefix;
         else if (*value == "orbit_class")
             config.color_mode = SatViewColorMode::OrbitClass;
@@ -147,6 +151,13 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("show_geosynchronous", config.filter.show_geosynchronous);
     assign_bool("show_highly_elliptical", config.filter.show_highly_elliptical);
     assign_bool("show_other", config.filter.show_other);
+    assign_bool("sun_synchronous_only", config.filter.sun_synchronous_only);
+    assign_bool("show_active_payloads", config.filter.show_active_payloads);
+    assign_bool("show_inactive_payloads", config.filter.show_inactive_payloads);
+    assign_bool("show_rocket_bodies", config.filter.show_rocket_bodies);
+    assign_bool("show_debris", config.filter.show_debris);
+    assign_bool("show_unknown_population", config.filter.show_unknown_population);
+    assign_bool("show_summary_estimates", config.filter.show_summary_estimates);
     assign_bool("clouds", config.clouds_enabled);
     assign_bool("realistic_clouds", config.realistic_clouds_enabled);
     assign_bool("atmosphere", config.atmosphere_enabled);
@@ -192,6 +203,13 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("show_geosynchronous", config.filter.show_geosynchronous);
     table.insert_or_assign("show_highly_elliptical", config.filter.show_highly_elliptical);
     table.insert_or_assign("show_other", config.filter.show_other);
+    table.insert_or_assign("sun_synchronous_only", config.filter.sun_synchronous_only);
+    table.insert_or_assign("show_active_payloads", config.filter.show_active_payloads);
+    table.insert_or_assign("show_inactive_payloads", config.filter.show_inactive_payloads);
+    table.insert_or_assign("show_rocket_bodies", config.filter.show_rocket_bodies);
+    table.insert_or_assign("show_debris", config.filter.show_debris);
+    table.insert_or_assign("show_unknown_population", config.filter.show_unknown_population);
+    table.insert_or_assign("show_summary_estimates", config.filter.show_summary_estimates);
     table.insert_or_assign("clouds", config.clouds_enabled);
     table.insert_or_assign("realistic_clouds", config.realistic_clouds_enabled);
     table.insert_or_assign("atmosphere", config.atmosphere_enabled);

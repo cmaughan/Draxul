@@ -198,15 +198,36 @@ glm::vec4 object_kind_color(SatelliteObjectKind kind, float alpha)
     return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
 }
 
+glm::vec4 population_color(SatellitePopulation population, float alpha)
+{
+    switch (population)
+    {
+    case SatellitePopulation::ActivePayload:
+        return glm::vec4(0.18f, 0.88f, 1.00f, alpha);
+    case SatellitePopulation::InactivePayload:
+        return glm::vec4(0.48f, 0.55f, 0.72f, alpha);
+    case SatellitePopulation::RocketBody:
+        return glm::vec4(1.00f, 0.58f, 0.18f, alpha);
+    case SatellitePopulation::Debris:
+        return glm::vec4(1.00f, 0.28f, 0.36f, alpha);
+    case SatellitePopulation::Unknown:
+        return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
+    }
+    return glm::vec4(0.72f, 0.78f, 0.86f, alpha);
+}
+
 glm::vec4 satellite_color(
     OrbitClass orbit_class,
     SatelliteObjectKind object_kind,
+    SatellitePopulation population,
     std::uint32_t object_prefix_hash,
     SatViewColorMode color_mode,
     float alpha)
 {
     switch (color_mode)
     {
+    case SatViewColorMode::Population:
+        return population_color(population, alpha);
     case SatViewColorMode::NamePrefix:
         return satellite_prefix_color(object_prefix_hash, alpha);
     case SatViewColorMode::OrbitClass:
@@ -243,18 +264,37 @@ int orbit_class_sort_key(OrbitClass orbit_class)
     return 4;
 }
 
+int population_sort_key(SatellitePopulation population)
+{
+    switch (population)
+    {
+    case SatellitePopulation::ActivePayload:
+        return 0;
+    case SatellitePopulation::InactivePayload:
+        return 1;
+    case SatellitePopulation::RocketBody:
+        return 2;
+    case SatellitePopulation::Debris:
+        return 3;
+    case SatellitePopulation::Unknown:
+        return 4;
+    }
+    return 4;
+}
+
 std::string object_tree_label(const SatellitePropagatedState& state)
 {
     std::string label = std::to_string(state.norad_catalog_id);
-    if (!state.object_name.empty())
+    const SatelliteStaticMetadata* metadata = state.metadata.get();
+    if (metadata && !metadata->object_name.empty())
     {
         label += " - ";
-        label += state.object_name;
+        label += metadata->object_name;
     }
-    if (!state.object_id.empty())
+    if (metadata && !metadata->object_id.empty())
     {
         label += " [";
-        label += state.object_id;
+        label += metadata->object_id;
         label += "]";
     }
     return label;
@@ -323,12 +363,17 @@ void append_track_vertices(
         if (!selected && !satellite_visible(filter, track, source_label))
             continue;
 
+        const float fidelity_alpha = track.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate
+            ? 0.55f
+            : 1.0f;
         const glm::vec4 color = selected
             ? glm::mix(
-                  satellite_color(track.orbit_class, track.object_kind, track.object_prefix_hash, color_mode, 0.98f),
-                  glm::vec4(1.0f),
+                  satellite_color(track.orbit_class, track.object_kind, track.population,
+                      track.object_prefix_hash, color_mode, 0.98f * fidelity_alpha),
+                  glm::vec4(1.0f, 1.0f, 1.0f, 0.98f * fidelity_alpha),
                   0.38f)
-            : satellite_color(track.orbit_class, track.object_kind, track.object_prefix_hash, color_mode, 0.62f);
+            : satellite_color(track.orbit_class, track.object_kind, track.population,
+                  track.object_prefix_hash, color_mode, 0.62f * fidelity_alpha);
         const bool earth_ground_track = projection_mode == SatViewProjectionMode::Map
             && camera_pov == SatViewCameraPov::Earth;
         const auto& points = earth_ground_track
@@ -436,11 +481,15 @@ void append_marker_instances(
         const float range = glm::length(position0);
         const float base_size = std::clamp(0.006f + range * 0.0022f, 0.008f, 0.026f);
         const float size = selected ? base_size * 2.2f : base_size;
+        const float fidelity_alpha = state.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate
+            ? 0.55f
+            : 1.0f;
         const glm::vec4 color = selected
-            ? glm::vec4(1.0f, 0.96f, 0.68f, 1.0f)
+            ? glm::vec4(1.0f, 0.96f, 0.68f, fidelity_alpha)
             : glm::mix(
-                satellite_color(state.orbit_class, state.object_kind, state.object_prefix_hash, color_mode, 0.95f),
-                glm::vec4(1.0f),
+                satellite_color(state.orbit_class, state.object_kind, state.population,
+                    state.object_prefix_hash, color_mode, 0.95f * fidelity_alpha),
+                glm::vec4(1.0f, 1.0f, 1.0f, 0.95f * fidelity_alpha),
                 0.18f);
         markers.push_back({
             glm::vec4(position0, size),
@@ -1443,11 +1492,16 @@ void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
     for (std::size_t state_index = 0; state_index < snapshot->states.size(); ++state_index)
     {
         const SatellitePropagatedState& state = snapshot->states[state_index];
+        const SatelliteStaticMetadata* metadata = state.metadata.get();
+        const std::string_view object_name = metadata
+            ? std::string_view(metadata->object_name)
+            : std::string_view{};
         object_tree_entries_.push_back({
+            state.population,
             state.orbit_class,
-            normalized_satellite_prefix(state.object_name),
+            normalized_satellite_prefix(object_name),
             object_tree_label(state),
-            state.object_name,
+            std::string(object_name),
             state.norad_catalog_id,
             state_index,
         });
@@ -1455,6 +1509,10 @@ void SatViewHost::rebuild_object_tree(const SatViewSimulationSnapshot* snapshot)
 
     std::sort(object_tree_entries_.begin(), object_tree_entries_.end(),
         [](const ObjectTreeEntry& a, const ObjectTreeEntry& b) {
+            const int population_a = population_sort_key(a.population);
+            const int population_b = population_sort_key(b.population);
+            if (population_a != population_b)
+                return population_a < population_b;
             const int orbit_a = orbit_class_sort_key(a.orbit_class);
             const int orbit_b = orbit_class_sort_key(b.orbit_class);
             if (orbit_a != orbit_b)
@@ -1514,85 +1572,121 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
     }
 
     const ImGuiTreeNodeFlags group_flags = ImGuiTreeNodeFlags_SpanAvailWidth;
-    std::size_t orbit_begin = 0;
-    while (orbit_begin < filtered_object_tree_indices_.size())
+    std::size_t population_begin = 0;
+    while (population_begin < filtered_object_tree_indices_.size())
     {
-        const OrbitClass orbit_class = filtered_entry(orbit_begin).orbit_class;
-        std::size_t orbit_end = orbit_begin + 1;
-        while (orbit_end < filtered_object_tree_indices_.size()
-            && filtered_entry(orbit_end).orbit_class == orbit_class)
+        const SatellitePopulation population = filtered_entry(population_begin).population;
+        std::size_t population_end = population_begin + 1;
+        while (population_end < filtered_object_tree_indices_.size()
+            && filtered_entry(population_end).population == population)
         {
-            ++orbit_end;
+            ++population_end;
         }
 
-        const std::string_view orbit_name = orbit_class_name(orbit_class);
-        ImGui::PushID(orbit_class_sort_key(orbit_class));
-        const bool orbit_open = ImGui::TreeNodeEx(
-            "##orbit",
+        const std::string_view population_name = satellite_population_name(population);
+        ImGui::PushID(population_sort_key(population));
+        if (color_mode_ == SatViewColorMode::Population)
+        {
+            const glm::vec4 color = population_color(population, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(color.r, color.g, color.b, color.a));
+        }
+        const bool population_open = ImGui::TreeNodeEx(
+            "##population",
             group_flags,
             "%.*s (%zu)",
-            static_cast<int>(orbit_name.size()),
-            orbit_name.data(),
-            orbit_end - orbit_begin);
-        if (orbit_open)
+            static_cast<int>(population_name.size()),
+            population_name.data(),
+            population_end - population_begin);
+        if (color_mode_ == SatViewColorMode::Population)
+            ImGui::PopStyleColor();
+        if (population_open)
         {
-            std::size_t prefix_begin = orbit_begin;
-            while (prefix_begin < orbit_end)
+            std::size_t orbit_begin = population_begin;
+            while (orbit_begin < population_end)
             {
-                const std::string& prefix = filtered_entry(prefix_begin).prefix;
-                std::size_t prefix_end = prefix_begin + 1;
-                while (prefix_end < orbit_end && filtered_entry(prefix_end).prefix == prefix)
-                    ++prefix_end;
-
-                ImGui::PushID(prefix.c_str());
-                if (color_mode_ == SatViewColorMode::NamePrefix)
+                const OrbitClass orbit_class = filtered_entry(orbit_begin).orbit_class;
+                std::size_t orbit_end = orbit_begin + 1;
+                while (orbit_end < population_end
+                    && filtered_entry(orbit_end).orbit_class == orbit_class)
                 {
-                    const glm::vec4 prefix_color = satellite_prefix_color(stable_color_hash(prefix));
-                    ImGui::PushStyleColor(
-                        ImGuiCol_Text,
-                        ImVec4(prefix_color.r, prefix_color.g, prefix_color.b, prefix_color.a));
+                    ++orbit_end;
                 }
-                const bool prefix_open = ImGui::TreeNodeEx(
-                    "##prefix",
+
+                const std::string_view orbit_name = orbit_class_name(orbit_class);
+                ImGui::PushID(orbit_class_sort_key(orbit_class));
+                const bool orbit_open = ImGui::TreeNodeEx(
+                    "##orbit",
                     group_flags,
-                    "%s (%zu)",
-                    prefix.c_str(),
-                    prefix_end - prefix_begin);
-                if (color_mode_ == SatViewColorMode::NamePrefix)
-                    ImGui::PopStyleColor();
-                if (prefix_open)
+                    "%.*s (%zu)",
+                    static_cast<int>(orbit_name.size()),
+                    orbit_name.data(),
+                    orbit_end - orbit_begin);
+                if (orbit_open)
                 {
-                    ImGuiListClipper clipper;
-                    clipper.Begin(static_cast<int>(prefix_end - prefix_begin));
-                    while (clipper.Step())
+                    std::size_t prefix_begin = orbit_begin;
+                    while (prefix_begin < orbit_end)
                     {
-                        for (int local_index = clipper.DisplayStart; local_index < clipper.DisplayEnd; ++local_index)
+                        const std::string& prefix = filtered_entry(prefix_begin).prefix;
+                        std::size_t prefix_end = prefix_begin + 1;
+                        while (prefix_end < orbit_end && filtered_entry(prefix_end).prefix == prefix)
+                            ++prefix_end;
+
+                        ImGui::PushID(prefix.c_str());
+                        if (color_mode_ == SatViewColorMode::NamePrefix)
                         {
-                            const ObjectTreeEntry& entry =
-                                filtered_entry(prefix_begin + static_cast<std::size_t>(local_index));
-                            const bool selected = selected_norad_catalog_id_.has_value()
-                                && entry.norad_catalog_id == *selected_norad_catalog_id_;
-                            ImGui::PushID(entry.label.c_str());
-                            if (ImGui::Selectable(entry.label.c_str(), selected))
-                            {
-                                selected_norad_catalog_id_ = entry.norad_catalog_id;
-                                simulation_settings_dirty_ = true;
-                                changed = true;
-                            }
-                            if (selected)
-                                ImGui::SetItemDefaultFocus();
-                            ImGui::PopID();
+                            const glm::vec4 prefix_color = satellite_prefix_color(stable_color_hash(prefix));
+                            ImGui::PushStyleColor(
+                                ImGuiCol_Text,
+                                ImVec4(prefix_color.r, prefix_color.g, prefix_color.b, prefix_color.a));
                         }
+                        const bool prefix_open = ImGui::TreeNodeEx(
+                            "##prefix",
+                            group_flags,
+                            "%s (%zu)",
+                            prefix.c_str(),
+                            prefix_end - prefix_begin);
+                        if (color_mode_ == SatViewColorMode::NamePrefix)
+                            ImGui::PopStyleColor();
+                        if (prefix_open)
+                        {
+                            ImGuiListClipper clipper;
+                            clipper.Begin(static_cast<int>(prefix_end - prefix_begin));
+                            while (clipper.Step())
+                            {
+                                for (int local_index = clipper.DisplayStart;
+                                     local_index < clipper.DisplayEnd;
+                                     ++local_index)
+                                {
+                                    const ObjectTreeEntry& entry = filtered_entry(
+                                        prefix_begin + static_cast<std::size_t>(local_index));
+                                    const bool selected = selected_norad_catalog_id_.has_value()
+                                        && entry.norad_catalog_id == *selected_norad_catalog_id_;
+                                    ImGui::PushID(entry.label.c_str());
+                                    if (ImGui::Selectable(entry.label.c_str(), selected))
+                                    {
+                                        selected_norad_catalog_id_ = entry.norad_catalog_id;
+                                        simulation_settings_dirty_ = true;
+                                        changed = true;
+                                    }
+                                    if (selected)
+                                        ImGui::SetItemDefaultFocus();
+                                    ImGui::PopID();
+                                }
+                            }
+                            ImGui::TreePop();
+                        }
+                        ImGui::PopID();
+                        prefix_begin = prefix_end;
                     }
                     ImGui::TreePop();
                 }
                 ImGui::PopID();
-                prefix_begin = prefix_end;
+                orbit_begin = orbit_end;
             }
             ImGui::TreePop();
         }
         ImGui::PopID();
-        orbit_begin = orbit_end;
+        population_begin = population_end;
     }
 
     ImGui::EndChild();
@@ -1758,6 +1852,37 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     changed |= ImGui::Checkbox("HEO", &filter_.show_highly_elliptical);
     ImGui::SameLine();
     changed |= ImGui::Checkbox("Other", &filter_.show_other);
+    changed |= ImGui::Checkbox("SSO candidates only", &filter_.sun_synchronous_only);
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Derived from the current orbit's J2 nodal precession; "
+            "this is independent of the LEO/MEO/GEO/HEO class.");
+    }
+
+    ImGui::SeparatorText("Population");
+    const auto catalog_snapshot = catalog_service_.status();
+    const auto population_checkbox = [&](const char* label,
+                                         bool& visible,
+                                         SatellitePopulation population,
+                                         std::size_t count) {
+        const glm::vec4 color = population_color(population, 1.0f);
+        ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%zu", count);
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox(label, &visible);
+    };
+    population_checkbox("Active payloads", filter_.show_active_payloads,
+        SatellitePopulation::ActivePayload, catalog_snapshot.populations.active_payloads);
+    population_checkbox("Inactive payloads", filter_.show_inactive_payloads,
+        SatellitePopulation::InactivePayload, catalog_snapshot.populations.inactive_payloads);
+    population_checkbox("Rocket bodies", filter_.show_rocket_bodies,
+        SatellitePopulation::RocketBody, catalog_snapshot.populations.rocket_bodies);
+    population_checkbox("Debris", filter_.show_debris,
+        SatellitePopulation::Debris, catalog_snapshot.populations.debris);
+    population_checkbox("Unknown", filter_.show_unknown_population,
+        SatellitePopulation::Unknown, catalog_snapshot.populations.unknown);
+    changed |= ImGui::Checkbox("Show SATCAT summary estimates", &filter_.show_summary_estimates);
+    ImGui::TextDisabled("SATCAT-only positions are estimates; uncataloged debris is absent.");
 
     render_object_tree(snapshot, changed);
 
@@ -1788,9 +1913,9 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     }
 
     int color_mode_index = static_cast<int>(color_mode_);
-    const char* color_modes[] = { "Name Prefix", "Orbit Class", "Object Type" };
+    const char* color_modes[] = { "Population", "Name Prefix", "Orbit Class", "Object Type" };
     set_control_width("Color");
-    if (ImGui::Combo("Color", &color_mode_index, color_modes, 3))
+    if (ImGui::Combo("Color", &color_mode_index, color_modes, 4))
     {
         color_mode_ = static_cast<SatViewColorMode>(color_mode_index);
         changed = true;
@@ -1908,6 +2033,33 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     ImGui::SeparatorText("Catalog");
     const std::string catalog_status = catalog_service_.status_text();
     ImGui::TextWrapped("%s", catalog_status.empty() ? "catalog pending" : catalog_status.c_str());
+    const auto data_source_name = [](SatViewCatalogService::DataSource source) {
+        switch (source)
+        {
+        case SatViewCatalogService::DataSource::Live:
+            return "live";
+        case SatViewCatalogService::DataSource::Cache:
+            return "cache";
+        case SatViewCatalogService::DataSource::Sample:
+            return "sample";
+        case SatViewCatalogService::DataSource::None:
+            return "pending";
+        }
+        return "pending";
+    };
+    ImGui::Text("GP: %s, %zu records",
+        data_source_name(catalog_snapshot.gp.data_source),
+        catalog_snapshot.gp.object_count);
+    ImGui::Text("SATCAT: %s, %zu retained, %zu excluded",
+        data_source_name(catalog_snapshot.satcat.data_source),
+        catalog_snapshot.satcat.object_count,
+        catalog_snapshot.satcat.excluded_records);
+    ImGui::Text("Merged: %zu total, %zu renderable",
+        catalog_snapshot.object_count,
+        catalog_snapshot.renderable_count);
+    ImGui::Text("Skipped from scene: %zu (%zu retained without an orbit)",
+        catalog_snapshot.skipped_records,
+        catalog_snapshot.non_renderable_count);
     if (cloud_service_)
     {
         const std::string cloud_status = cloud_service_->status_text();
@@ -1933,22 +2085,43 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     ImGui::SeparatorText("Selection");
     if (const SatellitePropagatedState* selected = selected_satellite(snapshot))
     {
-        ImGui::TextWrapped("%s", selected->object_name.c_str());
+        const SatelliteStaticMetadata* metadata = selected->metadata.get();
+        ImGui::TextWrapped("%s",
+            metadata && !metadata->object_name.empty() ? metadata->object_name.c_str() : "Unnamed object");
         ImGui::Text("NORAD: %lld", static_cast<long long>(selected->norad_catalog_id));
-        if (!selected->object_id.empty())
-            ImGui::Text("Object ID: %s", selected->object_id.c_str());
+        if (metadata && !metadata->object_id.empty())
+            ImGui::Text("Object ID: %s", metadata->object_id.c_str());
         ImGui::Text("Orbit: %.*s",
             static_cast<int>(orbit_class_name(selected->orbit_class).size()),
             orbit_class_name(selected->orbit_class).data());
-        if (!selected->object_type.empty())
-            ImGui::Text("Type: %s", selected->object_type.c_str());
+        ImGui::Text("Sun-synchronous: %s",
+            selected->sun_synchronous_candidate ? "Candidate (derived)" : "No");
+        if (metadata && !metadata->object_type.empty())
+            ImGui::Text("Type: %s", metadata->object_type.c_str());
         ImGui::Text("Kind: %.*s",
             static_cast<int>(satellite_object_kind_name(selected->object_kind).size()),
             satellite_object_kind_name(selected->object_kind).data());
-        if (!selected->classification_type.empty())
-            ImGui::Text("Class: %s", selected->classification_type.c_str());
+        ImGui::Text("Population: %.*s",
+            static_cast<int>(satellite_population_name(selected->population).size()),
+            satellite_population_name(selected->population).data());
+        ImGui::Text("Solution: %.*s",
+            static_cast<int>(orbit_solution_kind_name(selected->solution_kind).size()),
+            orbit_solution_kind_name(selected->solution_kind).data());
+        if (metadata && !metadata->owner.empty())
+            ImGui::Text("Owner: %s", metadata->owner.c_str());
+        if (metadata && !metadata->operational_status_code.empty())
+            ImGui::Text("Status: %s", metadata->operational_status_code.c_str());
+        if (metadata && !metadata->data_status_code.empty())
+            ImGui::Text("Data status: %s", metadata->data_status_code.c_str());
+        if (metadata && metadata->radar_cross_section_m2.has_value())
+            ImGui::Text("Radar cross section: %.3g m^2", *metadata->radar_cross_section_m2);
+        if (metadata && !metadata->classification_type.empty())
+            ImGui::Text("Class: %s", metadata->classification_type.c_str());
         ImGui::Text("Period: %.1f min", selected->period_minutes);
-        ImGui::Text("Epoch age: %.1f h", selected->minutes_since_epoch / 60.0);
+        if (std::isfinite(selected->minutes_since_epoch))
+            ImGui::Text("Epoch age: %.1f h", selected->minutes_since_epoch / 60.0);
+        else
+            ImGui::TextDisabled("Epoch age: unavailable for SATCAT summary");
         const SatViewGeodeticPosition geodetic =
             satview_geodetic_from_ecef(selected->ecef_position_km);
         ImGui::Text("Latitude: %.3f %c",

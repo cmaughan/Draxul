@@ -83,6 +83,16 @@ std::filesystem::path cache_metadata_path(const std::filesystem::path& cache_dir
     return cache_dir / ("celestrak_" + cache_group_slug(group) + "_gp.meta");
 }
 
+std::filesystem::path satcat_csv_path(const std::filesystem::path& cache_dir)
+{
+    return cache_dir / "celestrak_satcat.csv";
+}
+
+std::filesystem::path satcat_metadata_path(const std::filesystem::path& cache_dir)
+{
+    return cache_dir / "celestrak_satcat.meta";
+}
+
 std::filesystem::path platform_cache_root()
 {
 #ifdef _WIN32
@@ -376,43 +386,43 @@ std::optional<SatViewCatalogService::CacheMetadata> read_metadata(
 }
 
 bool write_cache_files(
-    const std::filesystem::path& cache_dir,
-    std::string_view group,
-    const SatViewCatalogService::WorkerResult& result,
+    const std::filesystem::path& payload_path,
+    const std::filesystem::path& meta_path,
+    std::string_view raw_payload,
+    const SatelliteCatalog& catalog,
+    SatViewCatalogService::Clock::time_point fetched_at,
     std::string& error)
 {
-    const auto json_path = cache_json_path(cache_dir, group);
-    const auto meta_path = cache_metadata_path(cache_dir, group);
-    if (!write_text_atomic(json_path, result.raw_json, error))
+    if (!write_text_atomic(payload_path, raw_payload, error))
         return false;
 
     SatViewCatalogService::CacheMetadata meta;
-    meta.source_label = result.catalog.source_label;
-    meta.source_url = result.catalog.source_url;
-    meta.fetched_at = result.fetched_at;
-    meta.object_count = result.catalog.objects.size();
-    meta.skipped_records = result.catalog.skipped_records;
-    meta.epoch_min = epoch_range_min(result.catalog);
-    meta.epoch_max = epoch_range_max(result.catalog);
+    meta.source_label = catalog.source_label;
+    meta.source_url = catalog.source_url;
+    meta.fetched_at = fetched_at;
+    meta.object_count = catalog.objects.size();
+    meta.skipped_records = catalog.skipped_records;
+    meta.epoch_min = epoch_range_min(catalog);
+    meta.epoch_max = epoch_range_max(catalog);
     return write_text_atomic(meta_path, serialize_metadata(meta), error);
 }
 
+template <typename ParseFunction>
 std::optional<std::pair<SatelliteCatalog, SatViewCatalogService::CacheMetadata>> read_cache_files(
-    const std::filesystem::path& cache_dir,
-    std::string_view group,
+    const std::filesystem::path& payload_path,
+    const std::filesystem::path& meta_path,
+    ParseFunction&& parse,
     std::string& error)
 {
-    const auto json_path = cache_json_path(cache_dir, group);
-    const auto meta_path = cache_metadata_path(cache_dir, group);
     auto meta = read_metadata(meta_path, error);
     if (!meta.has_value())
         return std::nullopt;
 
-    auto json = read_text_file(json_path, error);
-    if (!json.has_value())
+    auto payload = read_text_file(payload_path, error);
+    if (!payload.has_value())
         return std::nullopt;
 
-    auto parsed = parse_celestrak_gp_json(*json, meta->source_label, meta->source_url);
+    auto parsed = parse(*payload, meta->source_label, meta->source_url);
     if (!parsed)
     {
         error = parsed.error;
@@ -443,64 +453,91 @@ void SatViewCatalogService::start(Config config)
         config.cache_directory = default_cache_directory();
     if (config.celestrak_group.empty())
         config.celestrak_group = kDefaultCelestrakGroup;
+    if (config.satcat_url.empty())
+        config.satcat_url = default_satcat_url();
     if (!config.fetch)
         config.fetch = run_curl_fetch;
 
     config_ = std::move(config);
     const auto now = Clock::now();
-    bool should_refresh = true;
-    std::string cache_error;
+    SatelliteCatalog gp_catalog;
+    SatelliteCatalog satcat_catalog;
+    SourceStatus gp_status;
+    SourceStatus satcat_status;
+    std::string gp_cache_error;
+    std::string satcat_cache_error;
+    std::string startup_error;
 
+    auto gp_cached = read_cache_files(
+        cache_json_path(config_.cache_directory, config_.celestrak_group),
+        cache_metadata_path(config_.cache_directory, config_.celestrak_group),
+        parse_celestrak_gp_json,
+        gp_cache_error);
+    if (gp_cached)
     {
-        std::lock_guard lock(mutex_);
-        catalog_ = {};
-        status_ = {};
-        catalog_generation_ = 0;
+        gp_catalog = std::move(gp_cached->first);
+        gp_status.data_source = DataSource::Cache;
+        gp_status.fetched_at = gp_cached->second.fetched_at;
+        gp_status.cache_age = std::chrono::duration_cast<std::chrono::seconds>(now - gp_status.fetched_at);
+        gp_status.source_label = gp_cached->second.source_label;
+        gp_status.source_url = gp_cached->second.source_url;
+        gp_status.object_count = gp_catalog.objects.size();
+        gp_status.malformed_records = gp_catalog.malformed_records;
+        gp_status.excluded_records = gp_catalog.excluded_records;
+        gp_status.non_renderable_records = gp_catalog.non_renderable_records;
     }
 
-    if (auto cached = read_cache_files(config_.cache_directory, config_.celestrak_group, cache_error))
+    auto satcat_cached = read_cache_files(
+        satcat_csv_path(config_.cache_directory),
+        satcat_metadata_path(config_.cache_directory),
+        parse_celestrak_satcat_csv,
+        satcat_cache_error);
+    if (satcat_cached)
     {
-        const auto age = std::chrono::duration_cast<std::chrono::seconds>(now - cached->second.fetched_at);
-        {
-            std::lock_guard lock(mutex_);
-            catalog_ = std::move(cached->first);
-            ++catalog_generation_;
-            status_.data_source = DataSource::Cache;
-            status_.refresh_state = RefreshState::Idle;
-            status_.fetched_at = cached->second.fetched_at;
-            status_.cache_age = age;
-            status_.source_label = cached->second.source_label.empty() ? config_.celestrak_group : cached->second.source_label;
-            status_.source_url = cached->second.source_url;
-            status_.object_count = catalog_.objects.size();
-            status_.skipped_records = catalog_.skipped_records;
-            publish_status_locked();
-        }
-        should_refresh = age >= config_.refresh_interval;
+        satcat_catalog = std::move(satcat_cached->first);
+        satcat_status.data_source = DataSource::Cache;
+        satcat_status.fetched_at = satcat_cached->second.fetched_at;
+        satcat_status.cache_age = std::chrono::duration_cast<std::chrono::seconds>(now - satcat_status.fetched_at);
+        satcat_status.source_label = satcat_cached->second.source_label;
+        satcat_status.source_url = satcat_cached->second.source_url;
+        satcat_status.object_count = satcat_catalog.objects.size();
+        satcat_status.malformed_records = satcat_catalog.malformed_records;
+        satcat_status.excluded_records = satcat_catalog.excluded_records;
+        satcat_status.non_renderable_records = satcat_catalog.non_renderable_records;
     }
-    else
+
+    SatelliteCatalog merged = merge_satellite_catalogs(gp_catalog, satcat_catalog);
+    if (merged.objects.empty())
     {
         auto sample = load_sample_satellite_catalog();
-        std::lock_guard lock(mutex_);
         if (sample)
-        {
-            catalog_ = std::move(sample.catalog);
-            ++catalog_generation_;
-            status_.data_source = DataSource::Sample;
-            status_.object_count = catalog_.objects.size();
-            status_.skipped_records = catalog_.skipped_records;
-            status_.source_label = catalog_.source_label;
-            status_.source_url = catalog_.source_url;
-        }
+            merged = std::move(sample.catalog);
         else
-        {
-            status_.data_source = DataSource::None;
-            status_.error = sample.error.empty() ? cache_error : sample.error;
-        }
-        status_.refresh_state = RefreshState::Idle;
+            startup_error = sample.error;
+    }
+
+    {
+        std::lock_guard lock(mutex_);
+        gp_catalog_ = std::move(gp_catalog);
+        satcat_catalog_ = std::move(satcat_catalog);
+        catalog_ = std::move(merged);
+        status_ = {};
+        status_.gp = std::move(gp_status);
+        status_.satcat = std::move(satcat_status);
+        status_.error = std::move(startup_error);
+        if (catalog_.source_label == "sample")
+            status_.data_source = DataSource::Sample;
+        catalog_generation_ = catalog_.objects.empty() ? 0 : 1;
         publish_status_locked();
     }
 
-    if (should_refresh)
+    const bool should_refresh_gp = !gp_cached
+        || std::chrono::duration_cast<std::chrono::seconds>(now - gp_cached->second.fetched_at)
+            >= config_.refresh_interval;
+    const bool should_refresh_satcat = !satcat_cached
+        || std::chrono::duration_cast<std::chrono::seconds>(now - satcat_cached->second.fetched_at)
+            >= config_.satcat_refresh_interval;
+    if (should_refresh_gp || should_refresh_satcat)
         start_refresh();
 }
 
@@ -543,8 +580,12 @@ bool SatViewCatalogService::request_refresh()
         std::lock_guard lock(mutex_);
         if (refresh_in_flight_)
             return false;
-        if (has_fresh_catalog_locked(Clock::now()))
+        const auto now = Clock::now();
+        if (has_fresh_source_locked(status_.gp, config_.refresh_interval, now)
+            && has_fresh_source_locked(status_.satcat, config_.satcat_refresh_interval, now))
+        {
             return false;
+        }
     }
     start_refresh();
     return true;
@@ -591,55 +632,143 @@ std::string SatViewCatalogService::default_celestrak_url(std::string_view group)
         + url_encode_query(to_lower_ascii(group)) + "&FORMAT=json";
 }
 
+std::string SatViewCatalogService::default_satcat_url()
+{
+    return "https://celestrak.org/pub/satcat.csv";
+}
+
 void SatViewCatalogService::start_refresh()
 {
     PERF_MEASURE();
     Config config;
-    std::string url;
+    SatelliteCatalog gp_catalog;
+    SatelliteCatalog satcat_catalog;
+    bool refresh_gp = false;
+    bool refresh_satcat = false;
     {
         std::lock_guard lock(mutex_);
         if (refresh_in_flight_)
             return;
-        if (has_fresh_catalog_locked(Clock::now()))
+        const auto now = Clock::now();
+        refresh_gp = !has_fresh_source_locked(status_.gp, config_.refresh_interval, now);
+        refresh_satcat = !has_fresh_source_locked(status_.satcat, config_.satcat_refresh_interval, now);
+        if (!refresh_gp && !refresh_satcat)
             return;
         config = config_;
-        url = default_celestrak_url(config.celestrak_group);
+        gp_catalog = gp_catalog_;
+        satcat_catalog = satcat_catalog_;
         status_.refresh_state = status_.data_source == DataSource::None ? RefreshState::Loading : RefreshState::Refreshing;
-        status_.error.clear();
+        if (refresh_gp)
+        {
+            status_.gp.refresh_state = status_.gp.data_source == DataSource::None
+                ? RefreshState::Loading
+                : RefreshState::Refreshing;
+            status_.gp.error.clear();
+        }
+        if (refresh_satcat)
+        {
+            status_.satcat.refresh_state = status_.satcat.data_source == DataSource::None
+                ? RefreshState::Loading
+                : RefreshState::Refreshing;
+            status_.satcat.error.clear();
+        }
         refresh_in_flight_ = true;
         completion_ready_ = false;
         publish_status_locked();
     }
 
-    worker_ = std::thread([this, config = std::move(config), url = std::move(url)]() mutable {
+    worker_ = std::thread([this,
+                              config = std::move(config),
+                              gp_catalog = std::move(gp_catalog),
+                              satcat_catalog = std::move(satcat_catalog),
+                              refresh_gp,
+                              refresh_satcat]() mutable {
         WorkerResult result;
-        result.fetched_at = Clock::now();
-        std::string fetch_error;
-        result.raw_json = config.fetch(url, fetch_error);
-        if (result.raw_json.empty())
+        if (refresh_gp)
         {
-            result.error = fetch_error.empty() ? "empty CelesTrak response" : fetch_error;
-        }
-        else
-        {
-            auto parsed = parse_celestrak_gp_json(result.raw_json, config.celestrak_group, url);
-            if (!parsed)
+            result.gp.attempted = true;
+            result.gp.fetched_at = Clock::now();
+            const std::string gp_url = default_celestrak_url(config.celestrak_group);
+            result.gp.raw_payload = config.fetch(gp_url, result.gp.error);
+            if (result.gp.raw_payload.empty())
             {
-                result.error = parsed.error;
+                if (result.gp.error.empty())
+                    result.gp.error = "empty CelesTrak GP response";
             }
             else
             {
-                result.success = true;
-                result.catalog = std::move(parsed.catalog);
-                std::string cache_error;
-                if (!write_cache_files(config.cache_directory, config.celestrak_group, result, cache_error))
+                auto parsed = parse_celestrak_gp_json(result.gp.raw_payload, config.celestrak_group, gp_url);
+                if (!parsed)
                 {
-                    DRAXUL_LOG_WARN(LogCategory::Renderer,
-                        "SatView: failed to write catalog cache: %s",
-                        cache_error.c_str());
+                    result.gp.error = parsed.error;
+                }
+                else
+                {
+                    result.gp.success = true;
+                    result.gp.catalog = std::move(parsed.catalog);
+                    gp_catalog = result.gp.catalog;
+                    std::string cache_error;
+                    if (!write_cache_files(
+                            cache_json_path(config.cache_directory, config.celestrak_group),
+                            cache_metadata_path(config.cache_directory, config.celestrak_group),
+                            result.gp.raw_payload,
+                            result.gp.catalog,
+                            result.gp.fetched_at,
+                            cache_error))
+                    {
+                        DRAXUL_LOG_WARN(LogCategory::Renderer,
+                            "SatView: failed to write GP cache: %s",
+                            cache_error.c_str());
+                    }
                 }
             }
         }
+
+        if (refresh_satcat)
+        {
+            result.satcat.attempted = true;
+            result.satcat.fetched_at = Clock::now();
+            result.satcat.raw_payload = config.fetch(config.satcat_url, result.satcat.error);
+            if (result.satcat.raw_payload.empty())
+            {
+                if (result.satcat.error.empty())
+                    result.satcat.error = "empty CelesTrak SATCAT response";
+            }
+            else
+            {
+                auto parsed = parse_celestrak_satcat_csv(
+                    result.satcat.raw_payload,
+                    "SATCAT",
+                    config.satcat_url);
+                if (!parsed)
+                {
+                    result.satcat.error = parsed.error;
+                }
+                else
+                {
+                    result.satcat.success = true;
+                    result.satcat.catalog = std::move(parsed.catalog);
+                    satcat_catalog = result.satcat.catalog;
+                    std::string cache_error;
+                    if (!write_cache_files(
+                            satcat_csv_path(config.cache_directory),
+                            satcat_metadata_path(config.cache_directory),
+                            result.satcat.raw_payload,
+                            result.satcat.catalog,
+                            result.satcat.fetched_at,
+                            cache_error))
+                    {
+                        DRAXUL_LOG_WARN(LogCategory::Renderer,
+                            "SatView: failed to write SATCAT cache: %s",
+                            cache_error.c_str());
+                    }
+                }
+            }
+        }
+
+        result.catalog_changed = result.gp.success || result.satcat.success;
+        if (result.catalog_changed)
+            result.merged_catalog = merge_satellite_catalogs(gp_catalog, satcat_catalog);
 
         std::lock_guard lock(mutex_);
         pending_result_ = std::move(result);
@@ -651,89 +780,156 @@ void SatViewCatalogService::start_refresh()
 void SatViewCatalogService::apply_worker_result(WorkerResult result)
 {
     std::lock_guard lock(mutex_);
-    if (result.success)
+    const auto apply_source = [](SourceStatus& status, const WorkerResult::SourceResult& source) {
+        if (!source.attempted)
+            return;
+        if (source.success)
+        {
+            status.data_source = DataSource::Live;
+            status.refresh_state = RefreshState::Idle;
+            status.object_count = source.catalog.objects.size();
+            status.malformed_records = source.catalog.malformed_records;
+            status.excluded_records = source.catalog.excluded_records;
+            status.non_renderable_records = source.catalog.non_renderable_records;
+            status.fetched_at = source.fetched_at;
+            status.cache_age = std::chrono::seconds::zero();
+            status.source_label = source.catalog.source_label;
+            status.source_url = source.catalog.source_url;
+            status.error.clear();
+        }
+        else
+        {
+            status.refresh_state = RefreshState::Failed;
+            status.error = source.error;
+        }
+    };
+
+    apply_source(status_.gp, result.gp);
+    apply_source(status_.satcat, result.satcat);
+    if (result.gp.success)
+        gp_catalog_ = result.gp.catalog;
+    if (result.satcat.success)
+        satcat_catalog_ = result.satcat.catalog;
+
+    if (result.catalog_changed)
     {
-        catalog_ = std::move(result.catalog);
+        catalog_ = std::move(result.merged_catalog);
         ++catalog_generation_;
-        status_.data_source = DataSource::Live;
-        status_.refresh_state = RefreshState::Idle;
-        status_.object_count = catalog_.objects.size();
-        status_.skipped_records = catalog_.skipped_records;
-        status_.fetched_at = result.fetched_at;
-        status_.cache_age = std::chrono::seconds::zero();
-        status_.source_label = catalog_.source_label;
-        status_.source_url = catalog_.source_url;
-        status_.error.clear();
     }
-    else
+
+    const bool failed = (result.gp.attempted && !result.gp.success)
+        || (result.satcat.attempted && !result.satcat.success);
+    status_.refresh_state = failed ? RefreshState::Failed : RefreshState::Idle;
+    status_.error.clear();
+    if (result.gp.attempted && !result.gp.success)
+        status_.error = "GP: " + result.gp.error;
+    if (result.satcat.attempted && !result.satcat.success)
     {
-        status_.refresh_state = RefreshState::Failed;
-        status_.error = std::move(result.error);
-        DRAXUL_LOG_WARN(LogCategory::Renderer,
-            "SatView: catalog fetch failed: %s",
-            status_.error.c_str());
+        if (!status_.error.empty())
+            status_.error += " | ";
+        status_.error += "SATCAT: " + result.satcat.error;
     }
+    if (failed)
+        DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: catalog refresh incomplete: %s", status_.error.c_str());
     publish_status_locked();
 }
 
 void SatViewCatalogService::publish_status_locked()
 {
-    if (status_.data_source == DataSource::Cache && status_.fetched_at != Clock::time_point{})
-    {
-        const auto now = Clock::now();
-        status_.cache_age = std::chrono::duration_cast<std::chrono::seconds>(now - status_.fetched_at);
-    }
+    const auto now = Clock::now();
+    const auto update_age = [&](SourceStatus& source) {
+        if ((source.data_source == DataSource::Cache || source.data_source == DataSource::Live)
+            && source.fetched_at != Clock::time_point{})
+        {
+            source.cache_age = std::chrono::duration_cast<std::chrono::seconds>(now - source.fetched_at);
+        }
+    };
+    update_age(status_.gp);
+    update_age(status_.satcat);
 
-    std::string source;
-    switch (status_.data_source)
-    {
-    case DataSource::Live:
-        source = "live";
-        break;
-    case DataSource::Cache:
-        source = "cached";
-        break;
-    case DataSource::Sample:
-        source = "sample";
-        break;
-    case DataSource::None:
-        source = "catalog";
-        break;
-    }
+    const auto source_text = [](std::string_view name, const SourceStatus& source) {
+        std::string text(name);
+        text += ": ";
+        switch (source.data_source)
+        {
+        case DataSource::Live:
+            text += "live";
+            break;
+        case DataSource::Cache:
+            text += "cached";
+            break;
+        case DataSource::Sample:
+            text += "sample";
+            break;
+        case DataSource::None:
+            text += "pending";
+            break;
+        }
+        if (source.data_source != DataSource::None)
+            text += " " + std::to_string(source.object_count);
+        if (source.data_source == DataSource::Cache)
+            text += " " + format_age(source.cache_age) + " old";
+        if (source.refresh_state == RefreshState::Loading)
+            text += " loading";
+        else if (source.refresh_state == RefreshState::Refreshing)
+            text += " refreshing";
+        else if (source.refresh_state == RefreshState::Failed)
+            text += " failed";
+        return text;
+    };
 
-    if (status_.data_source == DataSource::None)
+    status_.object_count = catalog_.objects.size();
+    status_.renderable_count = renderable_satellite_count(catalog_);
+    status_.non_renderable_count = catalog_.non_renderable_records;
+    status_.skipped_records = catalog_.skipped_records + catalog_.non_renderable_records;
+    status_.populations = satellite_population_counts(catalog_);
+    status_.source_label = catalog_.source_label;
+    status_.source_url = catalog_.source_url;
+
+    if (status_.gp.data_source != DataSource::None)
     {
-        status_.text = "catalog loading";
+        status_.data_source = status_.gp.data_source;
+        status_.fetched_at = status_.gp.fetched_at;
+        status_.cache_age = status_.gp.cache_age;
+    }
+    else if (status_.satcat.data_source != DataSource::None)
+    {
+        status_.data_source = status_.satcat.data_source;
+        status_.fetched_at = status_.satcat.fetched_at;
+        status_.cache_age = status_.satcat.cache_age;
+    }
+    else if (catalog_.source_label == "sample")
+    {
+        status_.data_source = DataSource::Sample;
     }
     else
     {
-        status_.text = source + " " + std::to_string(status_.object_count) + " sats";
-        if (status_.data_source == DataSource::Cache)
-            status_.text += " " + format_age(status_.cache_age) + " old";
+        status_.data_source = DataSource::None;
     }
 
-    if (status_.refresh_state == RefreshState::Loading)
+    if (status_.data_source == DataSource::Sample)
     {
-        status_.text += " | loading";
+        status_.text = "sample " + std::to_string(status_.object_count) + " sats";
     }
-    else if (status_.refresh_state == RefreshState::Refreshing)
+    else
     {
-        status_.text += " | refreshing";
-    }
-    else if (status_.refresh_state == RefreshState::Failed)
-    {
-        status_.text += " | fetch failed";
+        status_.text = source_text("GP", status_.gp) + " | " + source_text("SATCAT", status_.satcat);
+        status_.text += " | merged " + std::to_string(status_.object_count)
+            + " (" + std::to_string(status_.renderable_count) + " renderable)";
     }
 }
 
-bool SatViewCatalogService::has_fresh_catalog_locked(Clock::time_point now) const
+bool SatViewCatalogService::has_fresh_source_locked(
+    const SourceStatus& source,
+    std::chrono::seconds refresh_interval,
+    Clock::time_point now) const
 {
-    if (status_.fetched_at == Clock::time_point{})
+    if (source.fetched_at == Clock::time_point{})
         return false;
-    if (status_.data_source != DataSource::Cache && status_.data_source != DataSource::Live)
+    if (source.data_source != DataSource::Cache && source.data_source != DataSource::Live)
         return false;
-    const auto age = std::chrono::duration_cast<std::chrono::seconds>(now - status_.fetched_at);
-    return age < config_.refresh_interval;
+    const auto age = std::chrono::duration_cast<std::chrono::seconds>(now - source.fetched_at);
+    return age < refresh_interval;
 }
 
 } // namespace draxul::satview

@@ -1,3 +1,4 @@
+#include "biology_builder.h"
 #include "building_tooltip.h"
 #include "city_builder.h"
 #include "city_helpers.h"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <draxul/code_semantic_model.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
 #include <draxul/imgui_host.h>
@@ -583,10 +585,26 @@ void preserve_visible_tooltip(const IsometricScenePass* scene_pass, bool hover_t
     snapshot.tooltip = tooltip;
 }
 
+bool is_biology_view(MegaCityVisualizationMode mode)
+{
+    return mode == MegaCityVisualizationMode::Biology;
+}
+
+const char* visualization_host_name(MegaCityVisualizationMode mode)
+{
+    return is_biology_view(mode) ? "bioview" : "megacity";
+}
+
+const char* visualization_log_name(MegaCityVisualizationMode mode)
+{
+    return is_biology_view(mode) ? "BioViewHost" : "MegaCityHost";
+}
+
 } // namespace
 
-MegaCityHost::MegaCityHost()
-    : input_(std::make_unique<CityInputState>())
+MegaCityHost::MegaCityHost(MegaCityVisualizationMode mode)
+    : visualization_mode_(mode)
+    , input_(std::make_unique<CityInputState>())
 {
 }
 
@@ -673,7 +691,8 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
 
     // Create MegaCity's own ImGui context for isolated docking and layout.
     {
-        std::filesystem::path ini_path = ConfigDocument::default_path().parent_path() / "megacity_imgui.ini";
+        std::filesystem::path ini_path = ConfigDocument::default_path().parent_path()
+            / (is_biology_view(visualization_mode_) ? "bioview_imgui.ini" : "megacity_imgui.ini");
         imgui_ini_path_ = ini_path.string();
 
         imgui_context_ = ImGui::CreateContext();
@@ -703,14 +722,15 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     scene_pass_ = std::make_shared<IsometricScenePass>(1, 1, world_->tile_size());
     refresh_sign_text_service();
 
-    treesitter_source_ready_ = false;
+    semantic_snapshot_ready_ = false;
     world_rebuild_pending_ = false;
     city_bounds_valid_ = false;
     last_activity_time_ = std::chrono::steady_clock::now();
     last_pump_time_ = last_activity_time_;
     last_live_perf_refresh_time_ = last_activity_time_;
     last_live_perf_generation_ = 0;
-    runtime_perf_collector().set_enabled(is_live_perf_overlay(renderer_config_.overlay_mode));
+    runtime_perf_collector().set_enabled(
+        !is_biology_view(visualization_mode_) && is_live_perf_overlay(renderer_config_.overlay_mode));
 
     route_worker_stop_ = false;
     start_tree_sitter_semantic_source();
@@ -719,8 +739,8 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     route_thread_ = std::thread([this]() { route_worker_loop(); });
     mark_scene_dirty();
 
-    DRAXUL_LOG_INFO(LogCategory::App, "MegaCityHost initialized (%dx%d), scanning %s",
-        pixel_w_, pixel_h_, scan_root_.string().c_str());
+    DRAXUL_LOG_INFO(LogCategory::App, "%s initialized (%dx%d), scanning %s",
+        visualization_log_name(visualization_mode_), pixel_w_, pixel_h_, scan_root_.string().c_str());
     return true;
 }
 
@@ -922,6 +942,7 @@ void MegaCityHost::clear_semantic_city()
         world_->clear();
     semantic_model_ = std::make_shared<SemanticMegacityModel>();
     semantic_layout_.reset();
+    code_semantics_.reset();
     live_metrics_.reset();
     sign_label_atlas_.reset();
     tree_bark_mesh_.reset();
@@ -1017,9 +1038,9 @@ void MegaCityHost::join_all_grid_threads()
 void MegaCityHost::start_tree_sitter_semantic_source()
 {
     PERF_MEASURE();
-    treesitter_source_.reset();
     applied_treesitter_snapshot_.reset();
-    treesitter_source_ready_ = false;
+    code_semantics_.reset();
+    semantic_snapshot_ready_ = false;
     refresh_available_modules();
 
     if (!scanner_started_)
@@ -1038,18 +1059,26 @@ void MegaCityHost::stop_tree_sitter_semantic_source()
         scanner_.stop();
         scanner_started_ = false;
     }
-    treesitter_source_.reset();
     applied_treesitter_snapshot_.reset();
-    treesitter_source_ready_ = false;
+    code_semantics_.reset();
+    semantic_snapshot_ready_ = false;
 }
 
 void MegaCityHost::refresh_available_modules()
 {
     PERF_MEASURE();
     available_modules_.clear();
-    if (treesitter_source_)
+    if (code_semantics_)
     {
-        available_modules_ = treesitter_source_->list_modules();
+        for (const CodeSemanticNode& node : code_semantics_->nodes)
+        {
+            if (node.kind == CodeSemanticNodeKind::Module)
+                available_modules_.push_back(node.module_path);
+        }
+        std::sort(available_modules_.begin(), available_modules_.end());
+        available_modules_.erase(
+            std::unique(available_modules_.begin(), available_modules_.end()),
+            available_modules_.end());
     }
 }
 
@@ -1360,6 +1389,7 @@ void MegaCityHost::render_host_imgui(float dt)
     }
 
     // City map overview panel
+    if (!is_biology_view(visualization_mode_))
     {
 
         std::shared_ptr<const CityGrid> grid;
@@ -1371,7 +1401,7 @@ void MegaCityHost::render_host_imgui(float dt)
     }
 
     std::shared_ptr<const LiveCityPerfDebugState> perf_debug;
-    if (semantic_model_)
+    if (!is_biology_view(visualization_mode_) && semantic_model_)
     {
         if (pending_renderer_config_.overlay_mode == OverlayMode::LcovCoverage && lcov_lookup_)
         {
@@ -1403,6 +1433,9 @@ void MegaCityHost::render_host_imgui(float dt)
     };
     const auto scanner_snapshot = scanner_started_ ? scanner_.snapshot() : nullptr;
     const CodebaseScanProgress scanner_progress = scanner_started_ ? scanner_.progress() : CodebaseScanProgress{};
+    const CodeVisualizationPanelMode panel_mode = is_biology_view(visualization_mode_)
+        ? CodeVisualizationPanelMode::Biology
+        : CodeVisualizationPanelMode::City;
     if (render_treesitter_panel(
             viewport_.pixel_pos.x,
             viewport_.pixel_pos.y,
@@ -1411,7 +1444,9 @@ void MegaCityHost::render_host_imgui(float dt)
             scanner_snapshot,
             scanner_progress,
             semantic_model_.get(),
-            &renderer_controls))
+            code_semantics_.get(),
+            &renderer_controls,
+            panel_mode))
     {
         if (renderer_controls.reset_camera_requested)
             reset_camera_to_default_frame();
@@ -1521,11 +1556,11 @@ void MegaCityHost::render_host_imgui(float dt)
         {
             renderer_config_ = pending_renderer_config_;
             refresh_sign_text_service();
-            if (!treesitter_source_ready_ || !scanner_started_)
+            if (!semantic_snapshot_ready_ || !scanner_started_)
             {
                 start_tree_sitter_semantic_source();
             }
-            const bool semantic_source_ready = treesitter_source_ready_;
+            const bool semantic_source_ready = semantic_snapshot_ready_;
             if (semantic_source_ready)
                 rebuild_semantic_city();
             else
@@ -1560,8 +1595,8 @@ void MegaCityHost::shutdown()
         route_thread_.join();
     city_grid_.reset();
     semantic_layout_.reset();
-    treesitter_source_.reset();
     applied_treesitter_snapshot_.reset();
+    code_semantics_.reset();
 
     // Destroy pass-owned Vulkan debug textures while this ImGui backend is still alive.
     scene_pass_.reset();
@@ -1595,6 +1630,7 @@ void MegaCityHost::shutdown()
     sign_label_atlas_.reset();
     live_metrics_.reset();
     semantic_model_.reset();
+    code_semantics_.reset();
     camera_.reset();
     world_.reset();
     running_ = false;
@@ -1630,44 +1666,98 @@ void MegaCityHost::rebuild_semantic_city()
         return;
 
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
-    ICitySemanticSource* semantic_source = treesitter_source_.get();
-    if (!semantic_source)
+    if (!code_semantics_)
         return;
-    available_modules_ = semantic_source->list_modules();
+    refresh_available_modules();
 
-    auto result = build_city(
-        *world_, *semantic_source, sign_text_service_.get(),
-        available_modules_, renderer_config_, sign_label_revision_);
-    tree_bark_mesh_ = result.tree_bark_mesh;
-    tree_leaf_mesh_ = result.tree_leaf_mesh;
+    bool result_bounds_valid = false;
+    float result_min_x = 0.0f;
+    float result_max_x = 0.0f;
+    float result_min_z = 0.0f;
+    float result_max_z = 0.0f;
+    bool result_computed_default_light = false;
+    float result_default_light_x = 0.0f;
+    float result_default_light_y = 0.0f;
+    float result_default_light_z = 0.0f;
+    float result_default_light_radius = 0.0f;
+    std::shared_ptr<const SemanticMegacityModel> result_semantic_model;
+    std::shared_ptr<const LiveCityMetricsSnapshot> result_live_metrics;
+    std::shared_ptr<SignLabelAtlas> result_sign_label_atlas;
+    std::shared_ptr<SemanticMegacityLayout> result_semantic_layout;
 
-    // Apply city bounds.
-    city_bounds_valid_ = result.city_bounds_valid;
+    if (is_biology_view(visualization_mode_))
+    {
+        BiologyBuildResult result = build_biology_view(
+            *world_,
+            *code_semantics_,
+            renderer_config_);
+        tree_bark_mesh_.reset();
+        tree_leaf_mesh_.reset();
+        result_bounds_valid = result.bounds_valid;
+        result_min_x = result.min_x;
+        result_max_x = result.max_x;
+        result_min_z = result.min_z;
+        result_max_z = result.max_z;
+        result_computed_default_light = result.computed_default_light;
+        result_default_light_x = result.default_light_x;
+        result_default_light_y = result.default_light_y;
+        result_default_light_z = result.default_light_z;
+        result_default_light_radius = result.default_light_radius;
+        result_semantic_model.reset();
+        result_live_metrics.reset();
+    }
+    else
+    {
+        CityBuildResult result = build_city(
+            *world_, *code_semantics_, sign_text_service_.get(),
+            renderer_config_, sign_label_revision_);
+        tree_bark_mesh_ = result.tree_bark_mesh;
+        tree_leaf_mesh_ = result.tree_leaf_mesh;
+        result_bounds_valid = result.city_bounds_valid;
+        result_min_x = result.min_x;
+        result_max_x = result.max_x;
+        result_min_z = result.min_z;
+        result_max_z = result.max_z;
+        result_computed_default_light = result.computed_default_light;
+        result_default_light_x = result.default_light_x;
+        result_default_light_y = result.default_light_y;
+        result_default_light_z = result.default_light_z;
+        result_default_light_radius = result.default_light_radius;
+        result_semantic_model = std::move(result.semantic_model);
+        result_live_metrics = std::move(result.live_metrics);
+        result_sign_label_atlas = std::move(result.sign_label_atlas);
+        result_semantic_layout = result.layout
+            ? std::make_shared<SemanticMegacityLayout>(*result.layout)
+            : nullptr;
+    }
+
+    // Apply presentation bounds.
+    city_bounds_valid_ = result_bounds_valid;
     if (city_bounds_valid_)
     {
-        city_min_x_ = result.min_x;
-        city_max_x_ = result.max_x;
-        city_min_z_ = result.min_z;
-        city_max_z_ = result.max_z;
+        city_min_x_ = result_min_x;
+        city_max_x_ = result_max_x;
+        city_min_z_ = result_min_z;
+        city_max_z_ = result_max_z;
     }
 
     // Apply default point light if the builder computed one.
-    if (result.computed_default_light)
+    if (result_computed_default_light)
     {
         auto set_default_light = [&](MegaCityCodeConfig& config) {
             config.point_light_position_valid = true;
             config.point_light_position = glm::vec3(
-                result.default_light_x, result.default_light_y, result.default_light_z);
-            config.point_light_radius = result.default_light_radius;
+                result_default_light_x, result_default_light_y, result_default_light_z);
+            config.point_light_radius = result_default_light_radius;
         };
         set_default_light(renderer_config_);
         set_default_light(pending_renderer_config_);
     }
 
-    sign_label_atlas_ = std::move(result.sign_label_atlas);
-    live_metrics_ = std::move(result.live_metrics);
+    sign_label_atlas_ = std::move(result_sign_label_atlas);
+    live_metrics_ = std::move(result_live_metrics);
     last_live_perf_generation_ = 0;
-    semantic_model_ = std::move(result.semantic_model);
+    semantic_model_ = std::move(result_semantic_model);
 
     // If LCOV overlay is active, (re)load coverage data now that the model is available
     if (renderer_config_.overlay_mode == OverlayMode::LcovCoverage && semantic_model_)
@@ -1692,9 +1782,7 @@ void MegaCityHost::rebuild_semantic_city()
         }
     }
 
-    semantic_layout_ = result.layout
-        ? std::make_shared<SemanticMegacityLayout>(*result.layout)
-        : nullptr;
+    semantic_layout_ = std::move(result_semantic_layout);
     clear_active_routes(false);
     {
         std::lock_guard<std::mutex> lock(route_mutex_);
@@ -1702,6 +1790,15 @@ void MegaCityHost::rebuild_semantic_city()
         pending_route_request_.reset();
         completed_route_result_.reset();
         route_build_in_progress_ = false;
+    }
+    if (!semantic_layout_)
+    {
+        request_grid_build_cancel();
+        {
+            std::lock_guard<std::mutex> lock(grid_mutex_);
+            city_grid_.reset();
+        }
+        grid_build_in_progress_ = false;
     }
 
     // Camera framing for first build or empty city.
@@ -1809,7 +1906,8 @@ void MegaCityHost::pump()
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - last_pump_time_).count();
     last_imgui_delta_seconds_ = dt;
-    runtime_perf_collector().set_enabled(is_live_perf_overlay(renderer_config_.overlay_mode));
+    runtime_perf_collector().set_enabled(
+        !is_biology_view(visualization_mode_) && is_live_perf_overlay(renderer_config_.overlay_mode));
     bool camera_changed = false;
 
     if (camera_)
@@ -1867,7 +1965,7 @@ void MegaCityHost::pump()
 
     last_pump_time_ = now;
 
-    if (!treesitter_source_ready_
+    if (!semantic_snapshot_ready_
         && scanner_started_)
     {
         if (const auto snapshot = scanner_.snapshot(); snapshot && snapshot->complete)
@@ -1875,9 +1973,9 @@ void MegaCityHost::pump()
             const auto scan_end = std::chrono::steady_clock::now();
             const auto scan_ms = std::chrono::duration<double, std::milli>(scan_end - scan_start_time_).count();
             const auto semantic_start = std::chrono::steady_clock::now();
-            treesitter_source_ = std::make_unique<TreeSitterSemanticSource>(*snapshot);
+            code_semantics_ = std::make_shared<CodeSemanticSnapshot>(build_code_semantic_snapshot(*snapshot));
             applied_treesitter_snapshot_ = snapshot;
-            treesitter_source_ready_ = true;
+            semantic_snapshot_ready_ = true;
             refresh_available_modules();
             const auto layout_start = std::chrono::steady_clock::now();
             rebuild_semantic_city();
@@ -1885,18 +1983,23 @@ void MegaCityHost::pump()
             const auto semantic_ms = std::chrono::duration<double, std::milli>(layout_start - semantic_start).count();
             const auto layout_ms = std::chrono::duration<double, std::milli>(layout_end - layout_start).count();
             DRAXUL_LOG_INFO(LogCategory::App,
-                "MegaCityHost: built Tree-sitter semantic source (%zu files, %zu modules)",
+                "%s: built Tree-sitter semantic snapshot (%zu files, %zu modules)",
+                visualization_log_name(visualization_mode_),
                 snapshot->files.size(),
                 available_modules_.size());
             DRAXUL_LOG_DEBUG(LogCategory::App,
-                "MegaCityHost: scan %.0fms, semantic source %.0fms, city layout %.0fms",
-                scan_ms, semantic_ms, layout_ms);
+                "%s: scan %.0fms, semantic snapshot %.0fms, presentation %.0fms",
+                visualization_log_name(visualization_mode_),
+                scan_ms,
+                semantic_ms,
+                layout_ms);
         }
     }
 
     consume_completed_routes();
 
-    if (is_live_perf_overlay(renderer_config_.overlay_mode)
+    if (!is_biology_view(visualization_mode_)
+        && is_live_perf_overlay(renderer_config_.overlay_mode)
         && semantic_model_
         && now - last_live_perf_refresh_time_ >= kLivePerfRefreshTick)
     {
@@ -2369,7 +2472,7 @@ std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline
         return std::nullopt;
     if (input_->drag_smoothing_active())
         return std::chrono::steady_clock::now() + kDragSmoothingTick;
-    if (is_live_perf_overlay(renderer_config_.overlay_mode))
+    if (!is_biology_view(visualization_mode_) && is_live_perf_overlay(renderer_config_.overlay_mode))
         return std::chrono::steady_clock::now() + kLivePerfRefreshTick;
     return std::chrono::steady_clock::now() + kMovementTick;
 }
@@ -2403,11 +2506,13 @@ void MegaCityHost::request_close()
 
 std::string MegaCityHost::status_text() const
 {
-    return "megacity";
+    return visualization_host_name(visualization_mode_);
 }
 
 Color MegaCityHost::default_background() const
 {
+    if (is_biology_view(visualization_mode_))
+        return Color(0.035f, 0.055f, 0.045f, 1.0f);
     return Color(0.05f, 0.05f, 0.10f, 1.0f);
 }
 
@@ -2422,7 +2527,7 @@ HostRuntimeState MegaCityHost::runtime_state() const
 HostDebugState MegaCityHost::debug_state() const
 {
     HostDebugState s;
-    s.name = "megacity";
+    s.name = visualization_host_name(visualization_mode_);
     s.grid_cols = 0;
     s.grid_rows = 0;
     s.dirty_cells = scene_dirty_ ? 1u : 0u;
@@ -2871,9 +2976,15 @@ std::unique_ptr<IHost> create_megacity_host()
     return std::make_unique<MegaCityHost>();
 }
 
+std::unique_ptr<IHost> create_bioview_host()
+{
+    return std::make_unique<MegaCityHost>(MegaCityVisualizationMode::Biology);
+}
+
 void register_megacity_host_provider(HostProviderRegistry& registry)
 {
     registry.register_provider(HostKind::MegaCity, &create_megacity_host);
+    registry.register_provider(HostKind::BioView, &create_bioview_host);
 }
 
 } // namespace draxul

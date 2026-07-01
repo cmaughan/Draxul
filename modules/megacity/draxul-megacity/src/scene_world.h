@@ -53,6 +53,11 @@ public:
     entt::entity create_module_surface(float world_x, float world_z, const ModuleSurfaceMetrics& metrics,
         const glm::vec4& color, SourceSymbol source = {}, float elevation = 0.0f);
 
+    // Create a biology ellipsoid centered horizontally at the given position.
+    entt::entity create_biology_ellipsoid(float world_x, float world_z, float elevation,
+        const BiologyEllipsoidMetrics& metrics, const glm::vec4& color, SourceSymbol source = {},
+        std::shared_ptr<const GeometryMesh> custom_mesh = nullptr, bool double_sided = false);
+
     // Create a sign entity at the given world-space center position.
     entt::entity create_sign(float world_x, float world_z, float elevation,
         const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source = {},

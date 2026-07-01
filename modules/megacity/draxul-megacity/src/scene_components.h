@@ -3,6 +3,7 @@
 #include "isometric_scene_types.h"
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -77,6 +78,13 @@ struct ModuleSurfaceMetrics
     float extent_x = 1.0f;
     float extent_z = 1.0f;
     float height = 0.02f;
+};
+
+struct BiologyEllipsoidMetrics
+{
+    float radius_x = 0.5f;
+    float radius_y = 0.5f;
+    float radius_z = 0.5f;
 };
 
 struct SignMetrics

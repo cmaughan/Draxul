@@ -1,9 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <draxul/city_semantic_records.h>
-#include <draxul/city_semantic_source.h>
+#include "semantic_city_layout.h"
 
-TEST_CASE("semantic city records are available from citymodel", "[megacity][citymodel]")
+TEST_CASE("city presentation records are local to megacity", "[megacity]")
 {
     draxul::CityClassRecord row;
     row.name = "Widget";

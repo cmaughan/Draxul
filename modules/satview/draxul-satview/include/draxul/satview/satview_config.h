@@ -17,6 +17,7 @@ inline constexpr std::size_t kMaximumTrackSampleCount = 256;
 
 enum class SatViewColorMode
 {
+    Population,
     NamePrefix,
     OrbitClass,
     ObjectType
@@ -50,7 +51,7 @@ enum class SatViewCameraPov
 struct SatViewConfig
 {
     SatViewFilterState filter;
-    SatViewColorMode color_mode = SatViewColorMode::NamePrefix;
+    SatViewColorMode color_mode = SatViewColorMode::Population;
     SatViewTrackDisplayMode track_display_mode = SatViewTrackDisplayMode::AllSampled;
     SatViewSatelliteDisplayMode satellite_display_mode = SatViewSatelliteDisplayMode::TracksAndMarkers;
     SatViewProjectionMode projection_mode = SatViewProjectionMode::Globe;

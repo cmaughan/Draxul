@@ -1,6 +1,6 @@
 #pragma once
 
-#include <draxul/city_semantic_source.h>
+#include <draxul/code_semantic_model.h>
 #include <draxul/geometry_mesh.h>
 
 #include "semantic_city_layout.h"
@@ -41,6 +41,12 @@ struct CityBuildResult
     std::shared_ptr<const GeometryMesh> tree_leaf_mesh;
 };
 
+struct SemanticCodeModelBuildResult
+{
+    std::shared_ptr<SemanticMegacityModel> semantic_model;
+    std::shared_ptr<const LiveCityMetricsSnapshot> live_metrics;
+};
+
 [[nodiscard]] TreeMetrics tree_metrics_from_meshes(
     const GeometryMesh& bark_mesh, const GeometryMesh& leaf_mesh);
 
@@ -54,16 +60,20 @@ void emit_route_entities(
     const std::vector<CityGrid::RoutePolyline>& routes,
     const MegaCityCodeConfig& config);
 
+// Build the city presentation model from the neutral semantic code snapshot.
+SemanticCodeModelBuildResult build_semantic_code_model(
+    const CodeSemanticSnapshot& semantics,
+    const MegaCityCodeConfig& config);
+
 // Build (or rebuild) the semantic city into the given SceneWorld.
-// Clears the world, queries the semantic source, lays out modules, creates all ECS
+// Clears the world, projects the semantic snapshot into city records, lays out modules, creates all ECS
 // entities (buildings, parks, signs, sidewalks, road surfaces).
 //
 // The returned CityBuildResult owns the layout (for use by launch_grid_build).
 CityBuildResult build_city(
     SceneWorld& world,
-    ICitySemanticSource& semantic_source,
+    const CodeSemanticSnapshot& semantics,
     TextService* text_service,
-    const std::vector<std::string>& available_modules,
     const MegaCityCodeConfig& config,
     uint64_t& sign_label_revision);
 

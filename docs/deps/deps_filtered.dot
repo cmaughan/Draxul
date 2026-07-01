@@ -116,16 +116,16 @@ node [
     "node29" -> "node15"  // draxul-markdown-host -> draxul-renderer
     "node5" -> "node29" [ style = dotted ] // draxul -> draxul-markdown-host
     "node32" [ label = "draxul-megacity", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
-    "node33" [ label = "draxul-citymodel", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
+    "node33" [ label = "draxul-code-semantics", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
     "node34" [ label = "draxul-treesitter", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
     "node34" -> "node8"  // draxul-treesitter -> draxul-types
     "node35" [ label = "tree_sitter_core", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
     "node34" -> "node35"  // draxul-treesitter -> tree_sitter_core
     "node36" [ label = "tree_sitter_cpp_grammar", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];
     "node34" -> "node36"  // draxul-treesitter -> tree_sitter_cpp_grammar
-    "node33" -> "node34"  // draxul-citymodel -> draxul-treesitter
-    "node33" -> "node8"  // draxul-citymodel -> draxul-types
-    "node32" -> "node33"  // draxul-megacity -> draxul-citymodel
+    "node33" -> "node34"  // draxul-code-semantics -> draxul-treesitter
+    "node33" -> "node8"  // draxul-code-semantics -> draxul-types
+    "node32" -> "node33"  // draxul-megacity -> draxul-code-semantics
     "node32" -> "node7"  // draxul-megacity -> draxul-config
     "node32" -> "node10"  // draxul-megacity -> draxul-font
     "node37" [ label = "draxul-geometry", shape = octagon, fillcolor="#e8e8e8", fontcolor="black" ];

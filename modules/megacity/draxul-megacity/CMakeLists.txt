@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 if(APPLE)
     set(MEGACITY_SOURCES
+        src/biology_builder.cpp
         src/building_tooltip.cpp
         src/city_builder.cpp
         src/city_input_state.cpp
@@ -25,6 +26,7 @@ if(APPLE)
     )
 else()
     set(MEGACITY_SOURCES
+        src/biology_builder.cpp
         src/building_tooltip.cpp
         src/city_builder.cpp
         src/city_input_state.cpp
@@ -62,7 +64,7 @@ target_link_libraries(draxul-megacity PUBLIC
     draxul-renderer
     draxul-font
     draxul-config
-    draxul-citymodel
+    draxul-code-semantics
     draxul-treesitter
     draxul-gui
     imgui

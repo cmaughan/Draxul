@@ -221,6 +221,30 @@ entt::entity SceneWorld::create_module_surface(float world_x, float world_z,
     return entity;
 }
 
+entt::entity SceneWorld::create_biology_ellipsoid(float world_x, float world_z, float elevation,
+    const BiologyEllipsoidMetrics& metrics, const glm::vec4& color, SourceSymbol source,
+    std::shared_ptr<const GeometryMesh> custom_mesh, bool double_sided)
+{
+    PERF_MEASURE();
+    const auto entity = registry_.create();
+    registry_.emplace<WorldPosition>(entity, world_x, world_z);
+    registry_.emplace<Elevation>(entity, elevation);
+    registry_.emplace<BiologyEllipsoidMetrics>(entity, metrics);
+    const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
+    registry_.emplace<Appearance>(
+        entity,
+        mesh_id,
+        MaterialId::FlatColor,
+        double_sided,
+        color,
+        glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    if (custom_mesh)
+        registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), CustomMeshTransformMode::Baked);
+    if (!source.file.empty() || !source.name.empty())
+        registry_.emplace<SourceSymbol>(entity, std::move(source));
+    return entity;
+}
+
 entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevation,
     const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source,
     std::shared_ptr<const GeometryMesh> custom_mesh, CustomMeshTransformMode custom_mesh_transform_mode)

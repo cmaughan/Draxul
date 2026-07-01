@@ -19,9 +19,12 @@
 #include <filesystem>
 #include <glm/gtc/constants.hpp>
 #include <limits>
+#include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -634,6 +637,424 @@ SignMetrics make_sign_metrics(const RoofSignPlacementSpec& placement, const Sign
     };
 }
 
+enum class CityRole
+{
+    ConcreteClass,
+    AbstractClass,
+    DataStruct,
+    FreeFunction,
+    Method,
+    Include,
+};
+
+struct EntitySpec
+{
+    const char* entity_kind = "";
+};
+
+[[nodiscard]] EntitySpec entity_spec(CityRole role)
+{
+    switch (role)
+    {
+    case CityRole::ConcreteClass:
+        return { "building" };
+    case CityRole::AbstractClass:
+        return { "tower" };
+    case CityRole::DataStruct:
+        return { "block" };
+    case CityRole::FreeFunction:
+        return { "tree" };
+    case CityRole::Method:
+    case CityRole::Include:
+        return {};
+    }
+    return {};
+}
+
+[[nodiscard]] const CodeSemanticNode* find_semantic_node(
+    const CodeSemanticSnapshot& semantics,
+    CodeSemanticNodeId id)
+{
+    const auto index_it = semantics.indexes.node_index_by_id.find(id);
+    if (index_it == semantics.indexes.node_index_by_id.end()
+        || index_it->second >= semantics.nodes.size())
+    {
+        return nullptr;
+    }
+    return &semantics.nodes[index_it->second];
+}
+
+[[nodiscard]] std::vector<const CodeSemanticNode*> semantic_children(
+    const CodeSemanticSnapshot& semantics,
+    CodeSemanticNodeId parent_id)
+{
+    std::vector<const CodeSemanticNode*> children;
+    const auto child_ids_it = semantics.indexes.nodes_by_parent.find(parent_id);
+    if (child_ids_it == semantics.indexes.nodes_by_parent.end())
+        return children;
+
+    children.reserve(child_ids_it->second.size());
+    for (const CodeSemanticNodeId child_id : child_ids_it->second)
+    {
+        if (const CodeSemanticNode* child = find_semantic_node(semantics, child_id))
+            children.push_back(child);
+    }
+    return children;
+}
+
+[[nodiscard]] CityRole city_role_for_node(const CodeSemanticNode& node)
+{
+    if (node.kind == CodeSemanticNodeKind::Function)
+        return CityRole::FreeFunction;
+    if (node.kind == CodeSemanticNodeKind::Method)
+        return CityRole::Method;
+    if (node.kind == CodeSemanticNodeKind::Include)
+        return CityRole::Include;
+    if (node.kind == CodeSemanticNodeKind::Type)
+    {
+        if (node.is_abstract)
+            return CityRole::AbstractClass;
+        if (node.type_kind == CodeSemanticTypeKind::Struct && node.metrics.method_count == 0)
+            return CityRole::DataStruct;
+        return CityRole::ConcreteClass;
+    }
+    return CityRole::Include;
+}
+
+[[nodiscard]] int semantic_function_size(const CodeSemanticNode& node)
+{
+    return std::max(1, static_cast<int>(node.metrics.line_count));
+}
+
+[[nodiscard]] int semantic_free_function_size(const CodeSemanticNode& node)
+{
+    if (node.source.end_line >= node.source.start_line && node.source.start_line > 0)
+        return std::max(1, static_cast<int>(node.source.end_line - node.source.start_line));
+    return semantic_function_size(node);
+}
+
+[[nodiscard]] std::unordered_map<CodeSemanticNodeId, std::vector<CodeSemanticNodeId>>
+build_inheritance_descendants(const CodeSemanticSnapshot& semantics)
+{
+    PERF_MEASURE();
+    std::unordered_map<CodeSemanticNodeId, std::vector<CodeSemanticNodeId>> children_of;
+    for (const CodeSemanticEdge& edge : semantics.edges)
+    {
+        if (edge.kind != CodeSemanticEdgeKind::Inherits || edge.source_id == edge.target_id)
+            continue;
+        children_of[edge.target_id].push_back(edge.source_id);
+    }
+
+    std::unordered_map<CodeSemanticNodeId, std::vector<CodeSemanticNodeId>> descendants;
+    for (const auto& [parent_id, direct_children] : children_of)
+    {
+        std::vector<CodeSemanticNodeId> all;
+        all.push_back(parent_id);
+        std::unordered_set<CodeSemanticNodeId> visited;
+        visited.insert(parent_id);
+        std::vector<CodeSemanticNodeId> frontier = direct_children;
+        while (!frontier.empty())
+        {
+            const CodeSemanticNodeId current = frontier.back();
+            frontier.pop_back();
+            if (!visited.insert(current).second)
+                continue;
+
+            all.push_back(current);
+            const auto children_it = children_of.find(current);
+            if (children_it != children_of.end())
+            {
+                for (const CodeSemanticNodeId child : children_it->second)
+                    frontier.push_back(child);
+            }
+        }
+        descendants[parent_id] = std::move(all);
+    }
+    return descendants;
+}
+
+struct ModuleAgg
+{
+    int building_count = 0;
+    int total_functions = 0;
+    int total_function_lines = 0;
+    int total_fields = 0;
+    int total_road_size = 0;
+};
+
+struct EntityInfo
+{
+    CodeSemanticNodeId id = 0;
+    std::string qualified_name;
+    std::string module_path;
+    std::string source_file_path;
+};
+
+struct PendingDependency
+{
+    CodeSemanticNodeId source_entity_id = 0;
+    std::string field_name;
+    std::string field_type_name;
+    CodeSemanticNodeId target_type_id = 0;
+    bool is_abstract_ref = false;
+};
+
+struct CitySemanticProjection
+{
+    std::vector<SemanticCityModuleInput> modules;
+    CodebaseHealthMetrics health;
+};
+
+[[nodiscard]] bool module_is_visible(std::string_view module_path, const MegaCityCodeConfig& config)
+{
+    return config.selected_module_path.empty() || module_path == config.selected_module_path;
+}
+
+[[nodiscard]] const CodeSemanticNode* dependency_source_entity(
+    const CodeSemanticSnapshot& semantics,
+    const CodeSemanticNode& edge_source)
+{
+    if (edge_source.kind == CodeSemanticNodeKind::Field)
+    {
+        const CodeSemanticNode* parent = find_semantic_node(semantics, edge_source.parent_id);
+        if (parent && (parent->kind == CodeSemanticNodeKind::Type || parent->kind == CodeSemanticNodeKind::Function))
+            return parent;
+        return nullptr;
+    }
+    if (edge_source.kind == CodeSemanticNodeKind::Type || edge_source.kind == CodeSemanticNodeKind::Function)
+        return &edge_source;
+    return nullptr;
+}
+
+[[nodiscard]] CitySemanticProjection build_city_semantic_projection(
+    const CodeSemanticSnapshot& semantics,
+    const MegaCityCodeConfig& config)
+{
+    PERF_MEASURE();
+    CitySemanticProjection projection;
+    std::unordered_map<std::string, std::vector<CityClassRecord>> rows_by_module;
+    std::unordered_map<std::string, std::vector<CityDependencyRecord>> deps_by_module;
+    std::unordered_map<std::string, ModuleAgg> module_agg;
+    std::unordered_map<CodeSemanticNodeId, EntityInfo> entities_by_id;
+    std::unordered_map<CodeSemanticNodeId, std::unordered_set<CodeSemanticNodeId>> dependency_targets_by_source;
+    std::vector<PendingDependency> pending_dependencies;
+
+    const auto inheritance_descendants = build_inheritance_descendants(semantics);
+
+    for (const CodeSemanticEdge& edge : semantics.edges)
+    {
+        if (edge.kind != CodeSemanticEdgeKind::ReferencesType)
+            continue;
+
+        const CodeSemanticNode* edge_source = find_semantic_node(semantics, edge.source_id);
+        const CodeSemanticNode* direct_target = find_semantic_node(semantics, edge.target_id);
+        if (!edge_source || !direct_target || direct_target->kind != CodeSemanticNodeKind::Type)
+            continue;
+
+        const CodeSemanticNode* source_entity = dependency_source_entity(semantics, *edge_source);
+        if (!source_entity || !module_is_visible(source_entity->module_path, config))
+            continue;
+
+        std::vector<CodeSemanticNodeId> target_ids;
+        bool is_abstract_ref = direct_target->is_abstract;
+        if (is_abstract_ref)
+        {
+            const auto descendants_it = inheritance_descendants.find(direct_target->id);
+            if (descendants_it != inheritance_descendants.end())
+                target_ids = descendants_it->second;
+        }
+        if (target_ids.empty())
+            target_ids = { direct_target->id };
+
+        for (const CodeSemanticNodeId target_id : target_ids)
+        {
+            if (target_id == source_entity->id)
+                continue;
+            dependency_targets_by_source[source_entity->id].insert(target_id);
+            pending_dependencies.push_back(PendingDependency{
+                source_entity->id,
+                edge_source->kind == CodeSemanticNodeKind::Field ? edge_source->name : std::string(),
+                edge.label,
+                target_id,
+                is_abstract_ref,
+            });
+        }
+    }
+
+    for (const CodeSemanticNode& node : semantics.nodes)
+    {
+        if ((node.kind != CodeSemanticNodeKind::Type && node.kind != CodeSemanticNodeKind::Function)
+            || !module_is_visible(node.module_path, config))
+        {
+            continue;
+        }
+
+        const CityRole role = city_role_for_node(node);
+        if (role == CityRole::Method || role == CityRole::Include)
+            continue;
+
+        const EntitySpec spec = entity_spec(role);
+        CityClassRecord row;
+        row.name = node.name;
+        row.qualified_name = node.qualified_name;
+        row.module_path = node.module_path;
+        row.source_file_path = node.source.file_path;
+        row.entity_kind = spec.entity_kind;
+        row.is_struct = node.type_kind == CodeSemanticTypeKind::Struct && node.metrics.method_count == 0;
+        row.base_size = node.kind == CodeSemanticNodeKind::Type ? static_cast<int>(node.metrics.field_count) : 0;
+        row.is_abstract = node.is_abstract;
+
+        if (node.kind == CodeSemanticNodeKind::Type)
+        {
+            const std::vector<const CodeSemanticNode*> children = semantic_children(semantics, node.id);
+            for (const CodeSemanticNode* child : children)
+            {
+                if (!child || child->kind != CodeSemanticNodeKind::Method)
+                    continue;
+                row.function_sizes.push_back(semantic_function_size(*child));
+                row.function_names.push_back(child->name);
+            }
+            row.building_functions = static_cast<int>(row.function_sizes.size());
+        }
+        else
+        {
+            row.building_functions = 1;
+            row.function_sizes = { semantic_free_function_size(node) };
+            row.function_names = { row.name };
+        }
+
+        if (const auto deps_it = dependency_targets_by_source.find(node.id);
+            deps_it != dependency_targets_by_source.end())
+        {
+            row.road_size = static_cast<int>(deps_it->second.size());
+        }
+
+        const std::string module_path = row.module_path;
+        rows_by_module[module_path].push_back(row);
+        entities_by_id.emplace(node.id, EntityInfo{
+            node.id,
+            row.qualified_name,
+            module_path,
+            row.source_file_path,
+        });
+
+        if (role == CityRole::ConcreteClass || role == CityRole::AbstractClass || role == CityRole::DataStruct)
+        {
+            auto& agg = module_agg[module_path];
+            ++agg.building_count;
+            agg.total_functions += row.building_functions;
+            for (const int function_size : row.function_sizes)
+                agg.total_function_lines += function_size;
+            agg.total_fields += row.base_size;
+            agg.total_road_size += row.road_size;
+        }
+    }
+
+    std::set<std::tuple<CodeSemanticNodeId, CodeSemanticNodeId, std::string, std::string>> dependency_keys;
+    for (const PendingDependency& pending : pending_dependencies)
+    {
+        const auto source_it = entities_by_id.find(pending.source_entity_id);
+        const auto target_it = entities_by_id.find(pending.target_type_id);
+        if (source_it == entities_by_id.end() || target_it == entities_by_id.end())
+            continue;
+
+        const auto key = std::make_tuple(
+            pending.source_entity_id,
+            pending.target_type_id,
+            pending.field_name,
+            pending.field_type_name);
+        if (!dependency_keys.insert(key).second)
+            continue;
+
+        const EntityInfo& source = source_it->second;
+        const EntityInfo& target = target_it->second;
+        deps_by_module[source.module_path].push_back(CityDependencyRecord{
+            source.qualified_name,
+            source.module_path,
+            pending.field_name,
+            pending.field_type_name,
+            target.qualified_name,
+            target.module_path,
+            source.source_file_path,
+            target.source_file_path,
+            pending.is_abstract_ref,
+        });
+    }
+
+    float weighted_complexity = 0.0f;
+    float weighted_cohesion = 0.0f;
+    float weighted_coupling = 0.0f;
+    int total_weight = 0;
+    for (const auto& [module_path, rows] : rows_by_module)
+    {
+        float module_quality = 0.5f;
+        CodebaseHealthMetrics module_health;
+        if (const auto agg_it = module_agg.find(module_path); agg_it != module_agg.end())
+        {
+            const ModuleAgg& agg = agg_it->second;
+            const float avg_function_size = agg.total_functions > 0
+                ? static_cast<float>(agg.total_function_lines) / static_cast<float>(agg.total_functions)
+                : 0.0f;
+            module_health.complexity = agg.total_functions > 0
+                ? 1.0f / (1.0f + avg_function_size / 10.0f)
+                : 0.5f;
+            const float avg_cohesion_ratio = agg.building_count > 0
+                ? static_cast<float>(agg.total_functions) / static_cast<float>(std::max(agg.total_fields, 1))
+                : 0.0f;
+            module_health.cohesion = agg.building_count > 0
+                ? avg_cohesion_ratio / (avg_cohesion_ratio + 1.0f)
+                : 0.5f;
+            const float avg_deps = agg.building_count > 0
+                ? static_cast<float>(agg.total_road_size) / static_cast<float>(agg.building_count)
+                : 0.0f;
+            module_health.coupling = agg.building_count > 0
+                ? 1.0f / (1.0f + avg_deps / 3.0f)
+                : 0.5f;
+            module_quality = module_health.complexity;
+
+            weighted_complexity += static_cast<float>(agg.building_count) * module_health.complexity;
+            weighted_cohesion += static_cast<float>(agg.building_count) * module_health.cohesion;
+            weighted_coupling += static_cast<float>(agg.building_count) * module_health.coupling;
+            total_weight += agg.building_count;
+        }
+
+        auto deps_it = deps_by_module.find(module_path);
+        auto rows_copy = rows;
+        std::sort(rows_copy.begin(), rows_copy.end(), [](const CityClassRecord& a, const CityClassRecord& b) {
+            return a.qualified_name < b.qualified_name;
+        });
+        if (deps_it != deps_by_module.end())
+        {
+            std::sort(deps_it->second.begin(), deps_it->second.end(), [](const CityDependencyRecord& a, const CityDependencyRecord& b) {
+                return std::tie(a.source_qualified_name, a.field_name, a.target_qualified_name)
+                    < std::tie(b.source_qualified_name, b.field_name, b.target_qualified_name);
+            });
+        }
+
+        projection.modules.push_back(SemanticCityModuleInput{
+            module_path,
+            std::move(rows_copy),
+            deps_it != deps_by_module.end() ? std::move(deps_it->second) : std::vector<CityDependencyRecord>{},
+            module_quality,
+            module_health,
+        });
+    }
+
+    std::sort(projection.modules.begin(), projection.modules.end(), [](const SemanticCityModuleInput& a, const SemanticCityModuleInput& b) {
+        return a.module_path < b.module_path;
+    });
+
+    projection.health = semantics.health;
+    if (total_weight > 0)
+    {
+        projection.health.complexity = weighted_complexity / static_cast<float>(total_weight);
+        projection.health.cohesion = weighted_cohesion / static_cast<float>(total_weight);
+        projection.health.coupling = weighted_coupling / static_cast<float>(total_weight);
+    }
+
+    return projection;
+}
+
 } // namespace
 
 int procedural_building_side_count(
@@ -650,41 +1071,41 @@ int procedural_building_side_count(
     return 4;
 }
 
+SemanticCodeModelBuildResult build_semantic_code_model(
+    const CodeSemanticSnapshot& semantics,
+    const MegaCityCodeConfig& config)
+{
+    PERF_MEASURE();
+    SemanticCodeModelBuildResult result;
+
+    CitySemanticProjection projection = build_city_semantic_projection(semantics, config);
+
+    result.semantic_model = std::make_shared<SemanticMegacityModel>(
+        build_semantic_megacity_model(projection.modules, config));
+    result.semantic_model->codebase_health = projection.health;
+    const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
+    result.live_metrics = std::make_shared<LiveCityMetricsSnapshot>(
+        build_live_city_metrics_snapshot(
+            *result.semantic_model,
+            perf_snapshot.generation != 0 ? &perf_snapshot : nullptr));
+    return result;
+}
+
 CityBuildResult build_city(
     SceneWorld& world,
-    ICitySemanticSource& semantic_source,
+    const CodeSemanticSnapshot& semantics,
     TextService* text_service,
-    const std::vector<std::string>& available_modules,
     const MegaCityCodeConfig& config,
     uint64_t& sign_label_revision)
 {
     PERF_MEASURE();
     CityBuildResult result;
 
-    std::vector<SemanticCityModuleInput> modules;
-    for (const std::string& module_path : available_modules)
-    {
-        if (!config.selected_module_path.empty()
-            && module_path != config.selected_module_path)
-            continue;
-        const CityModuleRecord mod_record = semantic_source.module_record(module_path);
-        modules.push_back({
-            module_path,
-            semantic_source.list_classes_in_module(module_path),
-            semantic_source.list_class_dependencies_in_module(module_path),
-            mod_record.quality,
-            mod_record.health,
-        });
-    }
-
-    auto semantic_model = std::make_shared<SemanticMegacityModel>(
-        build_semantic_megacity_model(modules, config));
-    semantic_model->codebase_health = semantic_source.codebase_health();
-    const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
-    result.live_metrics = std::make_shared<LiveCityMetricsSnapshot>(
-        build_live_city_metrics_snapshot(
-            *semantic_model,
-            perf_snapshot.generation != 0 ? &perf_snapshot : nullptr));
+    SemanticCodeModelBuildResult semantic_result = build_semantic_code_model(
+        semantics,
+        config);
+    auto semantic_model = std::move(semantic_result.semantic_model);
+    result.live_metrics = std::move(semantic_result.live_metrics);
     const std::unordered_map<std::string, int> building_connection_counts
         = build_incident_connection_counts(*semantic_model);
     auto layout = std::make_unique<SemanticMegacityLayout>(

@@ -7,7 +7,6 @@
 #include <draxul/megacity_code_config.h>
 #include <draxul/perf_timing.h>
 #include <draxul/treesitter.h>
-#include <draxul/treesitter_semantic_source.h>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -28,10 +27,17 @@ class IsometricScenePass;
 struct LiveCityMetricsSnapshot;
 struct LcovFunctionLookup;
 struct SignLabelAtlas;
+struct CodeSemanticSnapshot;
 struct SemanticMegacityModel;
 struct SemanticMegacityLayout;
 struct CityGrid;
 class SceneWorld;
+
+enum class MegaCityVisualizationMode
+{
+    City,
+    Biology,
+};
 
 // MegaCityHost is a non-terminal host that renders a small 3D scene directly
 // into the GPU render pass. It does not use the grid path, but it does use the
@@ -39,7 +45,7 @@ class SceneWorld;
 class MegaCityHost final : public IHost
 {
 public:
-    MegaCityHost();
+    explicit MegaCityHost(MegaCityVisualizationMode mode = MegaCityVisualizationMode::City);
     ~MegaCityHost() override;
 
     bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
@@ -103,6 +109,7 @@ private:
     void sync_camera_state_to_configs();
     void reset_camera_to_default_frame();
 
+    MegaCityVisualizationMode visualization_mode_ = MegaCityVisualizationMode::City;
     std::unique_ptr<CityInputState> input_;
     IHostCallbacks* callbacks_ = nullptr;
     HostViewport viewport_;
@@ -111,8 +118,8 @@ private:
     std::unique_ptr<IsometricCamera> camera_;
     CodebaseScanner scanner_;
     std::filesystem::path scan_root_;
-    std::unique_ptr<TreeSitterSemanticSource> treesitter_source_;
     std::shared_ptr<const CodebaseSnapshot> applied_treesitter_snapshot_;
+    std::shared_ptr<const CodeSemanticSnapshot> code_semantics_;
     std::unique_ptr<TextService> sign_text_service_;
     std::unique_ptr<TextService> tooltip_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
@@ -135,7 +142,7 @@ private:
     float world_span_ = 5.0f;
     bool scene_dirty_ = true;
     bool world_rebuild_pending_ = false;
-    bool treesitter_source_ready_ = false;
+    bool semantic_snapshot_ready_ = false;
     bool scanner_started_ = false;
     bool restore_camera_after_initial_build_ = false;
     bool city_bounds_valid_ = false;
@@ -224,6 +231,7 @@ private:
 
 // Factory function — used by tests and by register_megacity_host_provider().
 std::unique_ptr<IHost> create_megacity_host();
+std::unique_ptr<IHost> create_bioview_host();
 
 // Registers the MegaCity host kind with the supplied registry. The executable
 // calls this from main.cpp under #ifdef DRAXUL_ENABLE_MEGACITY so that nothing

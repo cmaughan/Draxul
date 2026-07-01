@@ -2,8 +2,10 @@
 
 #ifdef DRAXUL_ENABLE_MEGACITY
 
+#include "city_builder.h"
+
+#include <draxul/code_semantic_model.h>
 #include <draxul/treesitter.h>
-#include <draxul/treesitter_semantic_source.h>
 
 #include <algorithm>
 #include <chrono>
@@ -78,21 +80,50 @@ std::shared_ptr<const CodebaseSnapshot> wait_for_complete_snapshot(
     return scanner.snapshot();
 }
 
+std::vector<std::string> semantic_module_paths(const CodeSemanticSnapshot& semantics)
+{
+    std::vector<std::string> modules;
+    for (const CodeSemanticNode& node : semantics.nodes)
+    {
+        if (node.kind == CodeSemanticNodeKind::Module)
+            modules.push_back(node.module_path);
+    }
+    std::sort(modules.begin(), modules.end());
+    modules.erase(std::unique(modules.begin(), modules.end()), modules.end());
+    return modules;
+}
+
+const SemanticCityBuilding* find_building(
+    const SemanticMegacityModel& model,
+    std::string_view qualified_name)
+{
+    for (const SemanticCityModuleModel& module : model.modules)
+    {
+        for (const SemanticCityBuilding& building : module.buildings)
+        {
+            if (building.qualified_name == qualified_name)
+                return &building;
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
-TEST_CASE("TreeSitterSemanticSource projects snapshot semantic records", "[megacity][treesitter]")
+TEST_CASE("Code semantic snapshot feeds the city presentation model", "[megacity][treesitter]")
 {
     const CodebaseSnapshot snapshot = make_semantic_fixture_snapshot();
 
-    const TreeSitterSemanticSource source(snapshot);
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+    CHECK(semantics.complete);
+    REQUIRE(semantic_module_paths(semantics) == std::vector<std::string>{ "src" });
 
-    REQUIRE(source.list_modules() == std::vector<std::string>{ "src" });
-
-    const CityModuleRecord module = source.module_record("src");
-    CHECK(module.building_count == 2);
-    CHECK(module.total_functions == 1);
-    CHECK(module.total_function_lines == 10);
-    CHECK(module.avg_function_size == 10.0f);
+    MegaCityCodeConfig config;
+    const SemanticCodeModelBuildResult city = build_semantic_code_model(semantics, config);
+    REQUIRE(city.semantic_model);
+    REQUIRE(city.semantic_model->modules.size() == 1);
+    const SemanticCityModuleModel& module = city.semantic_model->modules[0];
+    CHECK(module.module_path == "src");
     CHECK(module.quality == module.health.complexity);
     CHECK(module.health.complexity == 0.5f);
     CHECK(module.health.cohesion > 0.45f);
@@ -100,27 +131,24 @@ TEST_CASE("TreeSitterSemanticSource projects snapshot semantic records", "[megac
     CHECK(module.health.coupling > 0.85f);
     CHECK(module.health.coupling < 0.86f);
 
-    const auto classes = source.list_classes_in_module("src");
-    REQUIRE(classes.size() == 3);
-    CHECK(classes[0].qualified_name == "IWidget");
-    CHECK(classes[0].entity_kind == "tower");
-    CHECK(classes[0].is_abstract);
-    CHECK(classes[1].qualified_name == "Widget");
-    CHECK(classes[1].entity_kind == "building");
-    CHECK(classes[1].base_size == 1);
-    CHECK(classes[1].building_functions == 1);
-    REQUIRE(classes[1].function_sizes.size() == 1);
-    CHECK(classes[1].function_sizes[0] == 10);
-    REQUIRE(classes[1].function_names.size() == 1);
-    CHECK(classes[1].function_names[0] == "draw");
-    CHECK(classes[1].road_size == 1);
-    CHECK(classes[2].qualified_name == "make_widget");
-    CHECK(classes[2].entity_kind == "tree");
-    CHECK(classes[2].building_functions == 1);
-    REQUIRE(classes[2].function_sizes.size() == 1);
-    CHECK(classes[2].function_sizes[0] == 5);
+    const SemanticCityBuilding* widget = find_building(*city.semantic_model, "Widget");
+    REQUIRE(widget);
+    CHECK(widget->base_size == 1);
+    CHECK(widget->function_count == 1);
+    REQUIRE(widget->layers.size() == 1);
+    CHECK(widget->layers[0].function_name == "draw");
+    CHECK(widget->layers[0].function_size == 10);
+    CHECK(widget->road_size == 1);
 
-    const auto dependencies = source.list_class_dependencies_in_module("src");
+    const SemanticCityBuilding* functions = find_building(*city.semantic_model, "Functions");
+    REQUIRE(functions);
+    CHECK(functions->is_free_function);
+    CHECK(functions->function_count == 1);
+    REQUIRE(functions->layers.size() == 1);
+    CHECK(functions->layers[0].function_name == "make_widget");
+    CHECK(functions->layers[0].function_size == 5);
+
+    const auto& dependencies = city.semantic_model->dependencies;
     REQUIRE(dependencies.size() == 1);
     CHECK(dependencies[0].source_qualified_name == "Widget");
     CHECK(dependencies[0].source_module_path == "src");
@@ -132,12 +160,96 @@ TEST_CASE("TreeSitterSemanticSource projects snapshot semantic records", "[megac
     CHECK(dependencies[0].target_file_path == "src/app/widget.cpp");
     CHECK(dependencies[0].is_abstract_ref);
 
-    CHECK(source.codebase_health().complexity == module.health.complexity);
-    CHECK(source.codebase_health().cohesion == module.health.cohesion);
-    CHECK(source.codebase_health().coupling == module.health.coupling);
+    CHECK(city.semantic_model->codebase_health.complexity == module.health.complexity);
+    CHECK(city.semantic_model->codebase_health.cohesion == module.health.cohesion);
+    CHECK(city.semantic_model->codebase_health.coupling == module.health.coupling);
 }
 
-TEST_CASE("TreeSitterSemanticSource groups files by repository module boundary", "[megacity][treesitter]")
+TEST_CASE("CodeSemanticSnapshot keeps methods fields and relationships independent of city concepts", "[megacity][treesitter]")
+{
+    const CodebaseSnapshot snapshot = make_semantic_fixture_snapshot();
+
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+
+    auto count_nodes = [&](CodeSemanticNodeKind kind) {
+        return static_cast<size_t>(std::count_if(
+            semantics.nodes.begin(),
+            semantics.nodes.end(),
+            [kind](const CodeSemanticNode& node) { return node.kind == kind; }));
+    };
+    auto find_node = [&](CodeSemanticNodeKind kind, std::string_view qualified_name) -> const CodeSemanticNode* {
+        const auto it = std::find_if(
+            semantics.nodes.begin(),
+            semantics.nodes.end(),
+            [kind, qualified_name](const CodeSemanticNode& node) {
+                return node.kind == kind && node.qualified_name == qualified_name;
+            });
+        return it == semantics.nodes.end() ? nullptr : &*it;
+    };
+
+    CHECK(semantics.complete);
+    CHECK(count_nodes(CodeSemanticNodeKind::Repository) == 1);
+    CHECK(count_nodes(CodeSemanticNodeKind::Module) == 1);
+    CHECK(count_nodes(CodeSemanticNodeKind::File) == 1);
+    CHECK(count_nodes(CodeSemanticNodeKind::Type) == 2);
+    CHECK(count_nodes(CodeSemanticNodeKind::Method) == 1);
+    CHECK(count_nodes(CodeSemanticNodeKind::Function) == 1);
+    CHECK(count_nodes(CodeSemanticNodeKind::Field) == 1);
+
+    const CodeSemanticNode* widget = find_node(CodeSemanticNodeKind::Type, "Widget");
+    const CodeSemanticNode* draw = find_node(CodeSemanticNodeKind::Method, "Widget::draw");
+    const CodeSemanticNode* owner = find_node(CodeSemanticNodeKind::Field, "Widget::owner");
+    const CodeSemanticNode* iface = find_node(CodeSemanticNodeKind::Type, "IWidget");
+    REQUIRE(widget);
+    REQUIRE(draw);
+    REQUIRE(owner);
+    REQUIRE(iface);
+
+    CHECK(widget->type_kind == CodeSemanticTypeKind::Class);
+    CHECK(iface->type_kind == CodeSemanticTypeKind::Class);
+    CHECK(draw->parent_id == widget->id);
+    CHECK(owner->parent_id == widget->id);
+    CHECK(widget->metrics.method_count == 1);
+    CHECK(widget->metrics.field_count == 1);
+    CHECK(semantics.indexes.node_index_by_id.contains(widget->id));
+    CHECK(semantics.indexes.nodes_by_module.contains("src"));
+    REQUIRE(semantics.indexes.nodes_by_parent.contains(widget->id));
+    const auto& widget_children = semantics.indexes.nodes_by_parent.at(widget->id);
+    CHECK(std::find(widget_children.begin(), widget_children.end(), draw->id) != widget_children.end());
+    CHECK(std::find(widget_children.begin(), widget_children.end(), owner->id) != widget_children.end());
+    CHECK(semantics.health.complexity > 0.0f);
+    CHECK(semantics.health.cohesion > 0.0f);
+    CHECK(semantics.health.coupling > 0.0f);
+
+    const bool has_inherits_edge = std::any_of(
+        semantics.edges.begin(),
+        semantics.edges.end(),
+        [&](const CodeSemanticEdge& edge) {
+            return edge.kind == CodeSemanticEdgeKind::Inherits
+                && edge.source_id == widget->id
+                && edge.target_id == iface->id;
+        });
+    const bool has_reference_edge = std::any_of(
+        semantics.edges.begin(),
+        semantics.edges.end(),
+        [&](const CodeSemanticEdge& edge) {
+            return edge.kind == CodeSemanticEdgeKind::ReferencesType
+                && edge.source_id == owner->id
+                && edge.target_id == iface->id;
+        });
+    CHECK(has_inherits_edge);
+    CHECK(has_reference_edge);
+
+    const CodeSemanticSnapshot second = build_code_semantic_snapshot(snapshot);
+    REQUIRE(second.nodes.size() == semantics.nodes.size());
+    REQUIRE(second.edges.size() == semantics.edges.size());
+    for (size_t i = 0; i < semantics.nodes.size(); ++i)
+        CHECK(second.nodes[i].id == semantics.nodes[i].id);
+    for (size_t i = 0; i < semantics.edges.size(); ++i)
+        CHECK(second.edges[i].id == semantics.edges[i].id);
+}
+
+TEST_CASE("Code semantic snapshot groups files by repository module boundary", "[megacity][treesitter]")
 {
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
@@ -161,11 +273,11 @@ TEST_CASE("TreeSitterSemanticSource groups files by repository module boundary",
     add_class_file("libs/draxul-grid/src/grid.cpp", "Grid");
     add_class_file("modules/markdown/draxul-markdown/src/markdown_document.cpp", "MarkdownDocument");
     add_class_file("modules/kanban/draxul-kanban/src/kanban_board.cpp", "KanbanBoard");
-    add_class_file("modules/megacity/draxul-citymodel/src/treesitter_semantic_source.cpp", "CitySource");
+    add_class_file("modules/megacity/draxul-code-semantics/src/code_semantic_model.cpp", "CitySource");
 
-    const TreeSitterSemanticSource source(snapshot);
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
 
-    CHECK(source.list_modules() == std::vector<std::string>{
+    CHECK(semantic_module_paths(semantics) == std::vector<std::string>{
         ".",
         "app",
         "libs/draxul-grid",
@@ -173,12 +285,16 @@ TEST_CASE("TreeSitterSemanticSource groups files by repository module boundary",
         "modules/markdown",
         "modules/megacity",
     });
-    CHECK(source.module_record("modules/markdown").building_count == 1);
-    CHECK(source.module_record("modules/kanban").building_count == 1);
-    CHECK(source.module_record("modules/megacity").building_count == 1);
+
+    MegaCityCodeConfig config;
+    const SemanticCodeModelBuildResult city = build_semantic_code_model(semantics, config);
+    REQUIRE(city.semantic_model);
+    CHECK(find_building(*city.semantic_model, "MarkdownDocument"));
+    CHECK(find_building(*city.semantic_model, "KanbanBoard"));
+    CHECK(find_building(*city.semantic_model, "CitySource"));
 }
 
-TEST_CASE("TreeSitterSemanticSource does not cross-product nested type fields onto the parent class", "[megacity][treesitter]")
+TEST_CASE("City presentation does not cross-product nested type fields onto the parent class", "[megacity][treesitter]")
 {
     const auto temp_root = std::filesystem::temp_directory_path() / "draxul-treesitter-nested-fields";
     std::filesystem::remove_all(temp_root);
@@ -210,10 +326,12 @@ TEST_CASE("TreeSitterSemanticSource does not cross-product nested type fields on
     REQUIRE(snapshot);
     REQUIRE(snapshot->complete);
 
-    const TreeSitterSemanticSource source(*snapshot);
-    const std::vector<CityDependencyRecord> deps = source.list_class_dependencies_in_module("nested_fields.h");
-    std::vector<CityDependencyRecord> outer_deps;
-    for (const auto& dep : deps)
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(*snapshot);
+    MegaCityCodeConfig config;
+    const SemanticCodeModelBuildResult city = build_semantic_code_model(semantics, config);
+    REQUIRE(city.semantic_model);
+    std::vector<SemanticCityDependency> outer_deps;
+    for (const auto& dep : city.semantic_model->dependencies)
     {
         if (dep.source_qualified_name == "Outer")
             outer_deps.push_back(dep);
@@ -230,7 +348,7 @@ TEST_CASE("TreeSitterSemanticSource does not cross-product nested type fields on
     std::filesystem::remove_all(temp_root);
 }
 
-TEST_CASE("TreeSitterSemanticSource expands interface-typed field dependencies across the inheritance graph", "[megacity][treesitter]")
+TEST_CASE("City presentation expands interface-typed field dependencies across the inheritance graph", "[megacity][treesitter]")
 {
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
@@ -281,9 +399,12 @@ TEST_CASE("TreeSitterSemanticSource expands interface-typed field dependencies a
     file.symbols = { irenderer, vk_render_device, app };
     snapshot.files.push_back(file);
 
-    const TreeSitterSemanticSource source(snapshot);
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+    MegaCityCodeConfig config;
+    const SemanticCodeModelBuildResult city = build_semantic_code_model(semantics, config);
+    REQUIRE(city.semantic_model);
 
-    const std::vector<CityDependencyRecord> deps = source.list_class_dependencies_in_module("src");
+    const auto& deps = city.semantic_model->dependencies;
     REQUIRE(deps.size() == 2);
     CHECK(deps[0].source_qualified_name == "App");
     CHECK(deps[0].field_name == "renderer_");
@@ -292,11 +413,13 @@ TEST_CASE("TreeSitterSemanticSource expands interface-typed field dependencies a
     CHECK(deps[1].field_name == "renderer_");
     CHECK(deps[1].target_qualified_name == "VkRenderDevice");
 
-    const auto classes = source.list_classes_in_module("src");
-    const auto app_it = std::find_if(classes.begin(), classes.end(), [](const CityClassRecord& row) {
+    const auto app_it = std::find_if(
+        city.semantic_model->modules[0].buildings.begin(),
+        city.semantic_model->modules[0].buildings.end(),
+        [](const SemanticCityBuilding& row) {
         return row.qualified_name == "App";
     });
-    REQUIRE(app_it != classes.end());
+    REQUIRE(app_it != city.semantic_model->modules[0].buildings.end());
     CHECK(app_it->road_size == 2);
 }
 

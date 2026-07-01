@@ -31,6 +31,8 @@ bool is_terminal_shell_host(HostKind kind)
         return true;
     case Nvim:
     case MegaCity:
+    case BioView:
+    case SatView:
     case NanoVGDemo:
     case Markdown:
     case Kanban:

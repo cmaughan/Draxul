@@ -5,6 +5,7 @@
 #include <glm/geometric.hpp>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <string>
 
@@ -16,6 +17,7 @@ using draxul::satview::greenwich_sidereal_angle_radians;
 using draxul::satview::kSatViewEarthEquatorialRadiusKm;
 using draxul::satview::parse_celestrak_epoch_utc;
 using draxul::satview::parse_celestrak_gp_json;
+using draxul::satview::parse_celestrak_satcat_csv;
 using draxul::satview::propagate_satellites;
 using draxul::satview::solar_direction_render;
 using draxul::satview::solar_direction_teme;
@@ -206,6 +208,96 @@ TEST_CASE("SatView propagation generates configurable track samples", "[satview]
         1.0e-12);
 }
 
+TEST_CASE("SatView propagation retains derived sun-synchronous metadata", "[satview][propagation]")
+{
+    const std::string json = R"json([
+      {
+        "OBJECT_NAME": "LANDSAT 8",
+        "OBJECT_ID": "2013-008A",
+        "EPOCH": "2026-07-01T04:05:55.000000",
+        "MEAN_MOTION": 14.57103921,
+        "ECCENTRICITY": 0.0001347,
+        "INCLINATION": 98.2298,
+        "RA_OF_ASC_NODE": 252.1397,
+        "ARG_OF_PERICENTER": 93.4482,
+        "MEAN_ANOMALY": 266.6871,
+        "NORAD_CAT_ID": 39084
+      }
+    ])json";
+    const auto catalog = parse_celestrak_gp_json(json, "active", "test");
+    REQUIRE(catalog);
+    REQUIRE(catalog.catalog.objects.size() == 1);
+    REQUIRE(catalog.catalog.objects[0].sun_synchronous_candidate);
+
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    REQUIRE(build);
+    REQUIRE(build.model.entries().size() == 1);
+    CHECK(build.model.entries()[0].sun_synchronous_candidate);
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 8;
+    const double epoch_seconds = *parse_celestrak_epoch_utc("2026-07-01T04:05:55.000000");
+    const auto result = propagate_satellites(build.model, epoch_seconds, settings);
+    REQUIRE(result);
+    REQUIRE(result.states.size() == 1);
+    REQUIRE(result.tracks.size() == 1);
+    CHECK(result.states[0].sun_synchronous_candidate);
+    CHECK(result.tracks[0].sun_synchronous_candidate);
+}
+
+TEST_CASE("SatView SATCAT summary propagation is deterministic periodic and bounded", "[satview][propagation]")
+{
+    const std::string csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "ESTIMATED,123456789,2026-001A,PAY,-,,240,63,3500,500,EA,ORB\n";
+    const auto catalog = parse_celestrak_satcat_csv(csv);
+    REQUIRE(catalog);
+    REQUIRE(catalog.catalog.objects.size() == 1);
+
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    REQUIRE(build);
+    REQUIRE(build.compiled_records == 1);
+
+    constexpr double reference_seconds = 946728000.0;
+    const double period_seconds = catalog.catalog.objects[0].period_minutes * 60.0;
+    const auto first = propagate_satellites(build.model, reference_seconds);
+    const auto repeated = propagate_satellites(build.model, reference_seconds + period_seconds);
+    REQUIRE(first);
+    REQUIRE(repeated);
+    REQUIRE(first.states.size() == 1);
+    REQUIRE(repeated.states.size() == 1);
+    CHECK(first.states[0].solution_kind
+        == draxul::satview::OrbitSolutionKind::SatcatSummaryEstimate);
+    CHECK(first.states[0].population == draxul::satview::SatellitePopulation::InactivePayload);
+    CHECK(glm::length(first.states[0].teme_position_km - repeated.states[0].teme_position_km)
+        == Approx(0.0).margin(1.0e-6));
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 257;
+    settings.track_satellite_limit = 1;
+    const auto with_track = propagate_satellites(build.model, reference_seconds, settings);
+    REQUIRE(with_track);
+    REQUIRE(with_track.tracks.size() == 1);
+    CHECK(with_track.tracks[0].solution_kind
+        == draxul::satview::OrbitSolutionKind::SatcatSummaryEstimate);
+    CHECK(with_track.tracks[0].population == draxul::satview::SatellitePopulation::InactivePayload);
+    const auto& points = with_track.tracks[0].teme_points_km;
+    REQUIRE(points.size() == 257);
+    double minimum_altitude = std::numeric_limits<double>::max();
+    double maximum_altitude = std::numeric_limits<double>::lowest();
+    for (const auto& point : points)
+    {
+        const double altitude = glm::length(point) - kSatViewEarthEquatorialRadiusKm;
+        minimum_altitude = std::min(minimum_altitude, altitude);
+        maximum_altitude = std::max(maximum_altitude, altitude);
+        CHECK(std::isfinite(altitude));
+    }
+    CHECK(minimum_altitude == Approx(500.0).margin(1.0));
+    CHECK(maximum_altitude == Approx(3500.0).margin(1.0));
+    CHECK(glm::length(points.front() - points.back()) == Approx(0.0).margin(1.0e-6));
+}
+
 TEST_CASE("SatView parallel propagation matches sequential results", "[satview][propagation][parallel]")
 {
     const auto parsed = parse_celestrak_gp_json(kVallado00005Json, "parallel", "test");
@@ -252,7 +344,9 @@ TEST_CASE("SatView parallel propagation matches sequential results", "[satview][
         const auto& expected = sequential.states[i];
         const auto& actual = parallel.states[i];
         CHECK(actual.norad_catalog_id == expected.norad_catalog_id);
-        CHECK(actual.object_name == expected.object_name);
+        REQUIRE(actual.metadata);
+        REQUIRE(expected.metadata);
+        CHECK(actual.metadata->object_name == expected.metadata->object_name);
         CHECK(glm::length(actual.teme_position_km - expected.teme_position_km) == 0.0);
         CHECK(glm::length(actual.teme_velocity_km_per_s - expected.teme_velocity_km_per_s) == 0.0);
         CHECK(glm::length(actual.ecef_position_km - expected.ecef_position_km) == 0.0);

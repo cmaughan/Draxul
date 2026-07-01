@@ -353,7 +353,19 @@ SceneSnapshotResult build_scene_snapshot(
             obj.custom_mesh_index = find_or_append_custom_mesh(scene, mesh_index_map, custom_mesh->mesh);
         }
 
-        if (const auto* bm = reg.try_get<BuildingMetrics>(entity))
+        if (const auto* ellipsoid = reg.try_get<BiologyEllipsoidMetrics>(entity))
+        {
+            extent_x = ellipsoid->radius_x * 2.0f;
+            extent_z = ellipsoid->radius_z * 2.0f;
+            transform = glm::translate(transform, glm::vec3(0.0f, ellipsoid->radius_y, 0.0f));
+            transform = glm::scale(
+                transform,
+                glm::vec3(
+                    ellipsoid->radius_x * 2.0f,
+                    ellipsoid->radius_y * 2.0f,
+                    ellipsoid->radius_z * 2.0f));
+        }
+        else if (const auto* bm = reg.try_get<BuildingMetrics>(entity))
         {
             if (const auto* sym = reg.try_get<SourceSymbol>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)

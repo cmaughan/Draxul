@@ -278,6 +278,31 @@ TEST_CASE("unit cube geometry uses the shared vertex format", "[geometry]")
     }
 }
 
+TEST_CASE("unit sphere geometry uses the shared vertex format", "[geometry]")
+{
+    const int latitude_segments = 8;
+    const int longitude_segments = 16;
+    const GeometryMesh mesh = build_unit_uv_sphere_geometry(latitude_segments, longitude_segments);
+
+    REQUIRE(mesh.vertices.size() == 2u + static_cast<size_t>(latitude_segments - 1) * static_cast<size_t>(longitude_segments + 1));
+    REQUIRE(mesh.indices.size() == static_cast<size_t>(longitude_segments) * static_cast<size_t>(latitude_segments - 1) * 6u);
+    REQUIRE(mesh.vertices.size() <= static_cast<size_t>(std::numeric_limits<uint16_t>::max()));
+
+    for (const GeometryVertex& vertex : mesh.vertices)
+    {
+        CHECK(glm::length(vertex.position) == Catch::Approx(0.5f).margin(0.001f));
+        CHECK(glm::length(vertex.normal) == Catch::Approx(1.0f).margin(0.001f));
+        CHECK(std::abs(glm::dot(vertex.normal, glm::vec3(vertex.tangent))) <= Catch::Approx(0.001f));
+        CHECK(vertex.uv.x >= Catch::Approx(0.0f));
+        CHECK(vertex.uv.x <= Catch::Approx(1.0f));
+        CHECK(vertex.uv.y >= Catch::Approx(0.0f));
+        CHECK(vertex.uv.y <= Catch::Approx(1.0f));
+    }
+
+    for (uint16_t index : mesh.indices)
+        CHECK(index < mesh.vertices.size());
+}
+
 TEST_CASE("building generator emits valid prism shell geometry", "[geometry]")
 {
     DraxulBuildingParams params;

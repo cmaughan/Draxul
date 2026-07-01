@@ -17,9 +17,9 @@ constexpr auto kPositionTick = std::chrono::milliseconds(16);
 std::string make_status_text(const SatViewSimulationSnapshot& snapshot)
 {
     if (!snapshot.error.empty())
-        return "sgp4 " + snapshot.error;
+        return "orbit " + snapshot.error;
 
-    std::string text = "sgp4 " + std::to_string(snapshot.states.size()) + " positions";
+    std::string text = "orbit " + std::to_string(snapshot.states.size()) + " positions";
     if (snapshot.tracks && !snapshot.tracks->empty())
         text += ", " + std::to_string(snapshot.tracks->size()) + " tracks";
     text += ", " + std::to_string(snapshot.propagation_concurrency) + " threads";
@@ -344,7 +344,7 @@ void SatViewSimulationWorker::run_loop()
                     snapshot_generation,
                     model_catalog_generation,
                     simulation_seconds,
-                    "sgp4 unavailable",
+                    "orbit propagation unavailable",
                     build.error.empty() ? "unavailable" : build.error);
                 next_position_time = now + kPositionTick;
                 continue;
@@ -358,7 +358,7 @@ void SatViewSimulationWorker::run_loop()
 
         if (model.empty())
         {
-            publish_empty_snapshot(snapshot_generation, model_catalog_generation, simulation_seconds, "sgp4 awaiting catalog");
+            publish_empty_snapshot(snapshot_generation, model_catalog_generation, simulation_seconds, "orbit awaiting catalog");
             next_position_time = now + kPositionTick;
             continue;
         }

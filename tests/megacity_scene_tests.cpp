@@ -2,6 +2,7 @@
 
 #ifdef DRAXUL_ENABLE_MEGACITY
 
+#include "biology_builder.h"
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_picking.h"
@@ -17,6 +18,7 @@
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
 #include "support/test_host_callbacks.h"
+#include "ui_treesitter_panel.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <draxul/app_config.h>
@@ -28,7 +30,6 @@
 #undef private
 #include <draxul/roof_sign_generator.h>
 #include <draxul/text_service.h>
-#include <draxul/treesitter_semantic_source.h>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -40,37 +41,6 @@ using namespace draxul;
 
 namespace
 {
-
-class TestSemanticSource final : public draxul::ICitySemanticSource
-{
-public:
-    std::vector<std::string> modules{ "app" };
-    draxul::CityModuleRecord module;
-    std::vector<draxul::CityClassRecord> rows;
-    std::vector<draxul::CityDependencyRecord> deps;
-    draxul::CodebaseHealthMetrics health;
-
-    std::vector<std::string> list_modules() const override
-    {
-        return modules;
-    }
-    draxul::CityModuleRecord module_record(std::string_view) const override
-    {
-        return module;
-    }
-    std::vector<draxul::CityClassRecord> list_classes_in_module(std::string_view) const override
-    {
-        return rows;
-    }
-    std::vector<draxul::CityDependencyRecord> list_class_dependencies_in_module(std::string_view) const override
-    {
-        return deps;
-    }
-    draxul::CodebaseHealthMetrics codebase_health() const override
-    {
-        return health;
-    }
-};
 
 float triangle_up_normal_y(const MeshData& mesh, size_t triangle_index)
 {
@@ -358,38 +328,193 @@ TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
     CHECK(elevation.value == Catch::Approx(0.25f));
 }
 
-TEST_CASE("MegaCity build_city consumes a semantic source adapter", "[megacity]")
+TEST_CASE("MegaCity build_city consumes a neutral semantic snapshot", "[megacity]")
 {
-    SceneWorld world;
-    TestSemanticSource source;
-    source.module.module_path = "app";
-    source.module.building_count = 1;
-    source.module.quality = 0.8f;
-    source.rows.push_back({
+    CodebaseSnapshot snapshot;
+    snapshot.complete = true;
+    snapshot.scan_time = std::chrono::steady_clock::now();
+
+    ParsedFile file;
+    file.path = "app/widget.cpp";
+    file.symbols.push_back(SymbolRecord{
+        SymbolKind::Class,
         "Widget",
-        "app::Widget",
-        "app",
-        "app/widget.cpp",
-        "building",
+        "",
         false,
+        1,
+        20,
         2,
-        1,
-        { 7 },
-        { "draw" },
-        1,
-        false,
+        {},
+        {},
     });
+    file.symbols.push_back(SymbolRecord{
+        SymbolKind::Function,
+        "draw",
+        "Widget",
+        false,
+        10,
+        16,
+    });
+    snapshot.files.push_back(std::move(file));
+
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+    SceneWorld world;
 
     MegaCityCodeConfig config;
     uint64_t sign_revision = 0;
     const CityBuildResult result = build_city(
-        world, source, nullptr, source.list_modules(), config, sign_revision);
+        world, semantics, nullptr, config, sign_revision);
 
     REQUIRE(result.semantic_model);
     REQUIRE(result.semantic_model->modules.size() == 1);
     REQUIRE(result.semantic_model->modules[0].module_path == "app");
     REQUIRE(result.semantic_model->modules[0].buildings.size() == 1);
-    REQUIRE(result.semantic_model->modules[0].buildings[0].qualified_name == "app::Widget");
+    REQUIRE(result.semantic_model->modules[0].buildings[0].qualified_name == "Widget");
+}
+
+TEST_CASE("BioView analysis panel does not expose city-only controls", "[megacity][bioview]")
+{
+    const CodeVisualizationPanelCapabilities city
+        = code_visualization_panel_capabilities(CodeVisualizationPanelMode::City);
+    const CodeVisualizationPanelCapabilities biology
+        = code_visualization_panel_capabilities(CodeVisualizationPanelMode::Biology);
+
+    CHECK(city.show_city_build_controls);
+    CHECK(city.show_city_sign_controls);
+    CHECK(city.show_city_surface_controls);
+    CHECK(city.show_city_preview);
+    CHECK(city.show_perf_overlay_controls);
+    CHECK(city.show_perf_debug);
+    CHECK_FALSE(city.show_biology_build_controls);
+
+    CHECK(biology.show_biology_build_controls);
+    CHECK_FALSE(biology.show_city_build_controls);
+    CHECK_FALSE(biology.show_city_sign_controls);
+    CHECK_FALSE(biology.show_city_surface_controls);
+    CHECK_FALSE(biology.show_city_preview);
+    CHECK_FALSE(biology.show_perf_overlay_controls);
+    CHECK_FALSE(biology.show_perf_debug);
+}
+
+TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fibres", "[megacity][bioview]")
+{
+    SceneWorld world;
+    CodebaseSnapshot snapshot;
+    snapshot.complete = true;
+
+    ParsedFile widget_file;
+    widget_file.path = "app/widget.cpp";
+    SymbolRecord widget;
+    widget.kind = SymbolKind::Class;
+    widget.name = "Widget";
+    widget.line = 3;
+    widget.end_line = 28;
+    widget.field_count = 1;
+    widget.fields.push_back(SymbolRecord::FieldRecord{
+        "config_",
+        "WidgetConfig",
+        { "WidgetConfig" },
+    });
+    SymbolRecord draw;
+    draw.kind = SymbolKind::Function;
+    draw.name = "draw";
+    draw.parent = "Widget";
+    draw.line = 10;
+    draw.end_line = 16;
+    SymbolRecord resize;
+    resize.kind = SymbolKind::Function;
+    resize.name = "resize";
+    resize.parent = "Widget";
+    resize.line = 18;
+    resize.end_line = 22;
+    widget_file.symbols = { widget, draw, resize };
+    snapshot.files.push_back(std::move(widget_file));
+
+    ParsedFile config_file;
+    config_file.path = "app/widget_config.h";
+    SymbolRecord widget_config;
+    widget_config.kind = SymbolKind::Struct;
+    widget_config.name = "WidgetConfig";
+    widget_config.line = 1;
+    widget_config.end_line = 6;
+    widget_config.field_count = 2;
+    config_file.symbols = { widget_config };
+    snapshot.files.push_back(std::move(config_file));
+
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+
+    MegaCityCodeConfig config;
+    config.hide_struct_entities = true;
+    config.hide_function_entities = true;
+    config.enable_struct_stacking = true;
+    config.functions_per_building_max = 1;
+    const BiologyBuildResult result = build_biology_view(
+        world,
+        semantics,
+        config);
+
+    CHECK(result.stats.tissue_count == 1);
+    CHECK(result.stats.file_cell_count == 2);
+    CHECK(result.stats.symbol_body_count == 2);
+    CHECK(result.stats.organelle_count == 3);
+    CHECK(result.stats.fibre_count == 1);
+    CHECK(result.bounds_valid);
+
+    size_t file_cells = 0;
+    size_t nuclei = 0;
+    size_t organelles = 0;
+    auto city_building_view = world.registry().view<const BuildingMetrics>();
+    CHECK(city_building_view.begin() == city_building_view.end());
+
+    auto ellipsoid_view = world.registry().view<const BiologyEllipsoidMetrics, const SourceSymbol>();
+    for (const entt::entity entity : ellipsoid_view)
+    {
+        const auto& source_symbol = ellipsoid_view.get<const SourceSymbol>(entity);
+        if (source_symbol.name == source_symbol.file && !source_symbol.file.empty())
+            ++file_cells;
+        if (source_symbol.name == "Widget" || source_symbol.name == "WidgetConfig")
+            ++nuclei;
+        if (source_symbol.name == "Widget::draw"
+            || source_symbol.name == "Widget::resize"
+            || source_symbol.name == "Widget::config_")
+        {
+            ++organelles;
+        }
+    }
+
+    CHECK(file_cells == 2);
+    CHECK(nuclei == 2);
+    CHECK(organelles == 3);
+
+    size_t fibres = 0;
+    auto fibre_view = world.registry().view<const RouteSegmentMetrics, const RouteLink>();
+    for (const entt::entity entity : fibre_view)
+    {
+        const auto& link = fibre_view.get<const RouteLink>(entity);
+        if (link.source_qualified_name == "Widget::config_"
+            && link.target_qualified_name == "WidgetConfig")
+        {
+            ++fibres;
+        }
+    }
+    CHECK(fibres == 1);
+
+    IsometricCamera camera;
+    camera.set_viewport(800, 600);
+    const SceneSnapshotResult scene = build_scene_snapshot(
+        camera,
+        world,
+        config,
+        nullptr,
+        {},
+        nullptr,
+        nullptr);
+    CHECK(scene.snapshot.custom_meshes.size() == 1);
+    CHECK(std::count_if(
+              scene.snapshot.objects.begin(),
+              scene.snapshot.objects.end(),
+              [](const SceneObject& object) { return object.mesh == MeshId::Custom; })
+        == static_cast<int>(file_cells + nuclei + organelles));
 }
 
 TEST_CASE("megacity world creates module surface entities", "[megacity]")
@@ -450,15 +575,12 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     SceneWorld world;
     MegaCityCodeConfig config;
     uint64_t sign_label_revision = 1;
-    TreeSitterSemanticSource semantic_source(snapshot);
-    const std::vector<std::string> modules = semantic_source.list_modules();
-    REQUIRE(modules.size() == 1);
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
 
     CityBuildResult build = build_city(
         world,
-        semantic_source,
+        semantics,
         &text_service,
-        modules,
         config,
         sign_label_revision);
 
@@ -867,15 +989,12 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
     MegaCityCodeConfig config;
     config.roof_sign_min_width_per_character = 0.6f;
     uint64_t sign_label_revision = 1;
-    TreeSitterSemanticSource semantic_source(snapshot);
-    const std::vector<std::string> modules = semantic_source.list_modules();
-    REQUIRE(modules.size() == 1);
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
 
     build_city(
         world,
-        semantic_source,
+        semantics,
         &text_service,
-        modules,
         config,
         sign_label_revision);
 
@@ -2598,7 +2717,7 @@ TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[
     host.shutdown();
 }
 
-TEST_CASE("megacity host starts tree-sitter semantic source without database state", "[megacity][treesitter]")
+TEST_CASE("megacity host publishes a code semantic snapshot without database state", "[megacity][treesitter]")
 {
     tests::TempDir temp("draxul-megacity-treesitter-source-state");
     const auto scan_root = temp.path / "src";
@@ -2633,9 +2752,9 @@ TEST_CASE("megacity host starts tree-sitter semantic source without database sta
 
     REQUIRE(host.initialize(context, callbacks));
     CHECK(host.scanner_started_);
-    CHECK(host.treesitter_source_ == nullptr);
+    CHECK(host.code_semantics_ == nullptr);
     CHECK(host.applied_treesitter_snapshot_ == nullptr);
-    CHECK_FALSE(host.treesitter_source_ready_);
+    CHECK_FALSE(host.semantic_snapshot_ready_);
 
     const auto snapshot = wait_for_complete_snapshot(host.scanner_);
     REQUIRE(snapshot);
@@ -2643,8 +2762,9 @@ TEST_CASE("megacity host starts tree-sitter semantic source without database sta
 
     host.pump();
 
-    CHECK(host.treesitter_source_ready_);
-    CHECK(host.treesitter_source_ != nullptr);
+    CHECK(host.semantic_snapshot_ready_);
+    REQUIRE(host.code_semantics_ != nullptr);
+    CHECK(host.code_semantics_->complete);
     CHECK(host.applied_treesitter_snapshot_ == snapshot);
     CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
     REQUIRE(host.semantic_model_ != nullptr);
@@ -2696,9 +2816,9 @@ TEST_CASE("megacity host treats stale graphify config as Tree-sitter source", "[
 
     REQUIRE(host.initialize(context, callbacks));
     CHECK(host.scanner_started_);
-    CHECK(host.treesitter_source_ == nullptr);
+    CHECK(host.code_semantics_ == nullptr);
     CHECK(host.applied_treesitter_snapshot_ == nullptr);
-    CHECK_FALSE(host.treesitter_source_ready_);
+    CHECK_FALSE(host.semantic_snapshot_ready_);
 
     const auto snapshot = wait_for_complete_snapshot(host.scanner_);
     REQUIRE(snapshot);
@@ -2706,13 +2826,70 @@ TEST_CASE("megacity host treats stale graphify config as Tree-sitter source", "[
 
     host.pump();
 
-    CHECK(host.treesitter_source_ready_);
-    CHECK(host.treesitter_source_ != nullptr);
+    CHECK(host.semantic_snapshot_ready_);
+    CHECK(host.code_semantics_ != nullptr);
+    CHECK(host.code_semantics_->complete);
     CHECK(host.applied_treesitter_snapshot_ == snapshot);
     CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
     REQUIRE(host.semantic_model_ != nullptr);
     REQUIRE(host.semantic_model_->modules.size() == 1);
     CHECK(host.semantic_model_->modules[0].module_path == "src");
+
+    host.shutdown();
+}
+
+TEST_CASE("bioview host builds from neutral semantics without a city model", "[megacity][bioview][treesitter]")
+{
+    tests::TempDir temp("draxul-bioview-semantic-source-state");
+    const auto scan_root = temp.path / "src";
+    std::filesystem::create_directories(scan_root);
+    {
+        std::ofstream out(scan_root / "widget.cpp", std::ios::trunc);
+        out << "struct WidgetConfig { int value; };\n"
+            << "class Widget { WidgetConfig config_; void draw(); };\n"
+            << "void Widget::draw() {}\n";
+    }
+
+    tests::FakeWindow window;
+    tests::TestHostCallbacks callbacks;
+    TextService text_service;
+    tests::FakeTermRenderer renderer;
+    MegaCityHost host(MegaCityVisualizationMode::Biology);
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::BioView;
+    launch.source_path = temp.path.string();
+
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    viewport.grid_size = { 1, 1 };
+
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = std::move(launch),
+        .initial_viewport = viewport,
+        .display_ppi = window.display_ppi_,
+    };
+
+    REQUIRE(host.initialize(context, callbacks));
+    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->complete);
+
+    host.pump();
+
+    CHECK(host.semantic_snapshot_ready_);
+    REQUIRE(host.code_semantics_ != nullptr);
+    CHECK(host.code_semantics_->complete);
+    CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
+    CHECK(host.semantic_model_ == nullptr);
+    CHECK(host.semantic_layout_ == nullptr);
+    CHECK(host.city_grid_ == nullptr);
+    REQUIRE(host.world_ != nullptr);
+    auto ellipsoid_view = host.world_->registry().view<const BiologyEllipsoidMetrics>();
+    CHECK(ellipsoid_view.begin() != ellipsoid_view.end());
 
     host.shutdown();
 }
