@@ -93,7 +93,7 @@ void clamp_small_orbit(float& orbit)
 
 } // namespace
 
-void CityInputState::reset_keys()
+void CodeVizInputState::reset_keys()
 {
     move_left_ = false;
     move_right_ = false;
@@ -107,7 +107,7 @@ void CityInputState::reset_keys()
     pitch_down_ = false;
 }
 
-bool CityInputState::on_key(const KeyEvent& event)
+bool CodeVizInputState::on_key(const KeyEvent& event)
 {
     PERF_MEASURE();
     bool changed = false;
@@ -165,7 +165,7 @@ bool CityInputState::on_key(const KeyEvent& event)
     return changed;
 }
 
-void CityInputState::on_mouse_button(const MouseButtonEvent& event)
+void CodeVizInputState::on_mouse_button(const MouseButtonEvent& event)
 {
     PERF_MEASURE();
     if (event.button != SDL_BUTTON_LEFT)
@@ -208,7 +208,7 @@ void CityInputState::on_mouse_button(const MouseButtonEvent& event)
     }
 }
 
-bool CityInputState::on_mouse_move(const MouseMoveEvent& event, IsometricCamera& camera)
+bool CodeVizInputState::on_mouse_move(const MouseMoveEvent& event, IsometricCamera& camera)
 {
     PERF_MEASURE();
     if (!dragging_scene_)
@@ -254,19 +254,19 @@ bool CityInputState::on_mouse_move(const MouseMoveEvent& event, IsometricCamera&
     return true;
 }
 
-bool CityInputState::movement_active() const
+bool CodeVizInputState::movement_active() const
 {
     return move_left_ || move_right_ || move_up_ || move_down_ || orbit_left_ || orbit_right_
         || zoom_in_ || zoom_out_ || pitch_up_ || pitch_down_;
 }
 
-bool CityInputState::drag_smoothing_active() const
+bool CodeVizInputState::drag_smoothing_active() const
 {
     return glm::dot(pending_drag_pan_, pending_drag_pan_) > kDragPanSettleEpsilon * kDragPanSettleEpsilon
         || std::abs(pending_drag_orbit_) > kDragOrbitSettleEpsilon;
 }
 
-CameraMovement CityInputState::movement() const
+CameraMovement CodeVizInputState::movement() const
 {
     PERF_MEASURE();
     CameraMovement m;
@@ -297,7 +297,7 @@ CameraMovement CityInputState::movement() const
     return m;
 }
 
-bool CityInputState::apply_drag_smoothing(float dt, IsometricCamera& camera)
+bool CodeVizInputState::apply_drag_smoothing(float dt, IsometricCamera& camera)
 {
     PERF_MEASURE();
     if (!drag_smoothing_active())
@@ -329,14 +329,14 @@ bool CityInputState::apply_drag_smoothing(float dt, IsometricCamera& camera)
     return changed;
 }
 
-std::optional<glm::ivec2> CityInputState::consume_click()
+std::optional<glm::ivec2> CodeVizInputState::consume_click()
 {
     auto click = pending_click_;
     pending_click_.reset();
     return click;
 }
 
-std::optional<glm::ivec2> CityInputState::consume_double_click()
+std::optional<glm::ivec2> CodeVizInputState::consume_double_click()
 {
     auto dbl = pending_double_click_;
     pending_double_click_.reset();

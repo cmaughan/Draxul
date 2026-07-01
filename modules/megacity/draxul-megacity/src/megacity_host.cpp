@@ -457,10 +457,10 @@ std::unordered_set<std::string> connected_building_identities(
     return connected;
 }
 
-bool is_module_context_object(const SceneObject& obj)
+bool is_module_context_object(const CodeVizRenderable& obj)
 {
-    return obj.role == SceneObject::Role::ModuleOutline
-        || obj.role == SceneObject::Role::ModuleLabel;
+    return obj.role == CodeVizRenderable::Role::ModuleOutline
+        || obj.role == CodeVizRenderable::Role::ModuleLabel;
 }
 
 bool runtime_timing_has_activity(const RuntimePerfFunctionTiming& timing)
@@ -573,7 +573,7 @@ const LiveCityFunctionMetric* find_function_metric(
     return nullptr;
 }
 
-void preserve_visible_tooltip(const IsometricScenePass* scene_pass, bool hover_tooltip_visible, SceneSnapshot& snapshot)
+void preserve_visible_tooltip(const IsometricScenePass* scene_pass, bool hover_tooltip_visible, CodeVizSceneSnapshot& snapshot)
 {
     if (!scene_pass || !hover_tooltip_visible)
         return;
@@ -604,7 +604,7 @@ const char* visualization_log_name(MegaCityVisualizationMode mode)
 
 MegaCityHost::MegaCityHost(MegaCityVisualizationMode mode)
     : visualization_mode_(mode)
-    , input_(std::make_unique<CityInputState>())
+    , input_(std::make_unique<CodeVizInputState>())
 {
 }
 
@@ -714,7 +714,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     pixel_w_ = viewport_.pixel_size.x > 0 ? viewport_.pixel_size.x : 800;
     pixel_h_ = viewport_.pixel_size.y > 0 ? viewport_.pixel_size.y : 600;
 
-    world_ = std::make_unique<SceneWorld>();
+    world_ = std::make_unique<CodeVizSceneWorld>();
     camera_ = std::make_unique<IsometricCamera>();
     camera_->set_viewport(pixel_w_, pixel_h_);
     camera_->set_projection_mode(renderer_config_.projection_mode);
@@ -1423,7 +1423,7 @@ void MegaCityHost::render_host_imgui(float dt)
         }
     }
 
-    MegacityRendererControls renderer_controls{
+    CodeVizRendererControls renderer_controls{
         .config = pending_renderer_config_,
         .defaults = renderer_defaults_,
         .available_modules = available_modules_,
@@ -2871,7 +2871,7 @@ void MegaCityHost::apply_selection_opacity()
         selected_building_module_path_,
         selected_building_name_,
         selected_function_name_);
-    SceneSnapshot& scene = scene_pass_->scene();
+    CodeVizSceneSnapshot& scene = scene_pass_->scene();
     std::unordered_set<std::string> visible_modules;
     visible_modules.emplace(selected_building_module_path_);
     for (const auto& obj : scene.objects)
@@ -2961,7 +2961,7 @@ void MegaCityHost::clear_selection()
 
     if (scene_pass_)
     {
-        SceneSnapshot& scene = scene_pass_->scene();
+        CodeVizSceneSnapshot& scene = scene_pass_->scene();
         for (auto& obj : scene.objects)
             obj.color.a = 1.0f;
         sort_scene_objects(scene);

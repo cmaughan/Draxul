@@ -121,7 +121,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
     spec.layers = { { 1.0f, 1.0f, 0u } };
     const auto mesh = cache.building_ring(spec);
 
-    SceneWorld world;
+    CodeVizSceneWorld world;
     const BuildingMetrics metrics{
         .footprint = 8.0f,
         .height = 6.0f,
@@ -134,7 +134,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
         2.0f,
         metrics,
         glm::vec4(0.4f, 0.6f, 0.8f, 1.0f),
-        SourceSymbol{ "src/app.cpp", "App", "src" },
+        CodeVizSemanticRef{ "src/app.cpp", "App", "src" },
         MaterialId::FlatColor,
         mesh,
         0.0f,
@@ -145,7 +145,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
         1.0f,
         metrics,
         glm::vec4(0.8f, 0.6f, 0.4f, 1.0f),
-        SourceSymbol{ "src/app.cpp", "Other", "src" },
+        CodeVizSemanticRef{ "src/app.cpp", "Other", "src" },
         MaterialId::FlatColor,
         mesh,
         0.0f,
@@ -156,13 +156,13 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
     camera.set_viewport(800, 600);
     MegaCityCodeConfig config;
 
-    const SceneSnapshotResult result = build_scene_snapshot(camera, world, config, {}, {}, {}, {});
+    const CodeVizSceneSnapshotResult result = build_scene_snapshot(camera, world, config, {}, {}, {}, {});
 
     REQUIRE(result.snapshot.objects.size() == 2);
     REQUIRE(result.snapshot.custom_meshes.size() == 1);
     CHECK(result.snapshot.objects[0].custom_mesh_index == result.snapshot.objects[1].custom_mesh_index);
 
-    const SceneObject& object = result.snapshot.objects[0].source_name == "App"
+    const CodeVizRenderable& object = result.snapshot.objects[0].source_name == "App"
         ? result.snapshot.objects[0]
         : result.snapshot.objects[1];
     const glm::vec3 scaled_top = glm::vec3(object.world * glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));

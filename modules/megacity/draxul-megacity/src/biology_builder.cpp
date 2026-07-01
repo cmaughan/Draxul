@@ -287,7 +287,7 @@ bool valid_endpoint(const BiologyEndpoint& endpoint)
 }
 
 void create_fibre(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const BiologyEndpoint& source,
     const BiologyEndpoint& target,
     const CodeSemanticNode& source_node,
@@ -312,7 +312,7 @@ void create_fibre(
             pitch,
         },
         glm::vec4(glm::vec3(color), 0.74f),
-        SourceSymbol{},
+        CodeVizSemanticRef{},
         (source.elevation + target.elevation) * 0.5f,
         RouteLink{
             source_node.source.file_path,
@@ -327,7 +327,7 @@ void create_fibre(
 } // namespace
 
 BiologyBuildResult build_biology_view(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const CodeSemanticSnapshot& semantics,
     const MegaCityCodeConfig& config)
 {
@@ -376,17 +376,17 @@ BiologyBuildResult build_biology_view(
             const glm::vec4 file_color = glm::vec4(
                 glm::mix(glm::vec3(module_color), glm::vec3(pastel_color_from_hash(file_hash)), 0.32f),
                 0.46f);
-            world.create_biology_ellipsoid(
+            world.create_ellipsoid(
                 file.center.x,
                 file.center.y,
                 0.0f,
-                BiologyEllipsoidMetrics{
+                EllipsoidMetrics{
                     .radius_x = cell_footprint * 0.5f,
                     .radius_y = kCellHeight * 0.5f,
                     .radius_z = cell_footprint * 0.5f,
                 },
                 file_color,
-                SourceSymbol{ file.file->source.file_path, file.file->source.file_path, file.file->module_path },
+                CodeVizSemanticRef{ file.file->source.file_path, file.file->source.file_path, file.file->module_path },
                 ellipsoid_mesh);
             endpoints.emplace(file.file->id, BiologyEndpoint{ file.center, kCellHeight, file_color });
             expand_bounds(file.center.x, file.center.y, cell_footprint * 0.5f, result);
@@ -406,17 +406,17 @@ BiologyBuildResult build_biology_view(
                 const float height = std::clamp(kBodyBaseHeight + std::sqrt(mass) * 0.10f, 0.42f, 2.2f);
                 const glm::vec4 color = body_color(node, module_color);
                 const float elevation = kCellHeight + 0.03f;
-                world.create_biology_ellipsoid(
+                world.create_ellipsoid(
                     center.x,
                     center.y,
                     elevation,
-                    BiologyEllipsoidMetrics{
+                    EllipsoidMetrics{
                         .radius_x = footprint * 0.5f,
                         .radius_y = height * 0.5f,
                         .radius_z = footprint * 0.5f,
                     },
                     color,
-                    SourceSymbol{ node.source.file_path, std::string(display_name(node)), node.module_path },
+                    CodeVizSemanticRef{ node.source.file_path, std::string(display_name(node)), node.module_path },
                     ellipsoid_mesh);
                 endpoints.emplace(node.id, BiologyEndpoint{ center, elevation + height, color });
                 ++result.stats.symbol_body_count;
@@ -451,17 +451,17 @@ BiologyBuildResult build_biology_view(
                 const glm::vec2 center = parent_endpoint.center + glm::vec2(std::cos(angle), std::sin(angle)) * radius;
                 const glm::vec4 color = organelle_color(*organelle, parent_endpoint.color);
                 const float elevation = kCellHeight + 0.06f;
-                world.create_biology_ellipsoid(
+                world.create_ellipsoid(
                     center.x,
                     center.y,
                     elevation,
-                    BiologyEllipsoidMetrics{
+                    EllipsoidMetrics{
                         .radius_x = kOrganelleFootprint * 0.5f,
                         .radius_y = kOrganelleHeight * 0.5f,
                         .radius_z = kOrganelleFootprint * 0.5f,
                     },
                     color,
-                    SourceSymbol{
+                    CodeVizSemanticRef{
                         organelle->source.file_path,
                         std::string(display_name(*organelle)),
                         organelle->module_path,

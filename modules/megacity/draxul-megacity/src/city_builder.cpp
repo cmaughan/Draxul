@@ -333,7 +333,7 @@ std::shared_ptr<const GeometryMesh> build_building_roof_sign_mesh(
 }
 
 void build_point_shadow_debug_scene(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     StaticMeshFamilyCache& static_meshes,
     const MegaCityCodeConfig& config,
     const std::shared_ptr<const GeometryMesh>& tree_bark_mesh,
@@ -352,7 +352,7 @@ void build_point_shadow_debug_scene(
             1.0f,
             1.0f,
         },
-        SourceSymbol{ "", "PointShadowDebugGround", "" },
+        CodeVizSemanticRef{ "", "PointShadowDebugGround", "" },
         kRoadSurfaceTextureLift);
 
     BuildingMetrics primary_metrics;
@@ -366,7 +366,7 @@ void build_point_shadow_debug_scene(
         building_base_elevation(config),
         primary_metrics,
         glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
-        SourceSymbol{ "", "PointShadowDebugPrimary", "" },
+        CodeVizSemanticRef{ "", "PointShadowDebugPrimary", "" },
         MaterialId::FlatColor,
         build_procedural_building_mesh(
             static_meshes,
@@ -390,7 +390,7 @@ void build_point_shadow_debug_scene(
         building_base_elevation(config),
         secondary_metrics,
         glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
-        SourceSymbol{ "", "PointShadowDebugSecondary", "" },
+        CodeVizSemanticRef{ "", "PointShadowDebugSecondary", "" },
         MaterialId::FlatColor,
         build_procedural_building_mesh(
             static_meshes,
@@ -411,14 +411,14 @@ void build_point_shadow_debug_scene(
             building_base_elevation(config),
             tree_metrics,
             glm::vec4(1.0f),
-            SourceSymbol{ "", "PointShadowDebugTreeBark", "" });
+            CodeVizSemanticRef{ "", "PointShadowDebugTreeBark", "" });
         world.create_tree_leaves(
             kPointShadowDebugTreeCenter.x,
             kPointShadowDebugTreeCenter.y,
             building_base_elevation(config),
             tree_metrics,
             glm::vec4(1.0f),
-            SourceSymbol{ "", "PointShadowDebugTreeLeaves", "" });
+            CodeVizSemanticRef{ "", "PointShadowDebugTreeLeaves", "" });
     }
 }
 
@@ -1092,7 +1092,7 @@ SemanticCodeModelBuildResult build_semantic_code_model(
 }
 
 CityBuildResult build_city(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const CodeSemanticSnapshot& semantics,
     TextService* text_service,
     const MegaCityCodeConfig& config,
@@ -1245,7 +1245,7 @@ CityBuildResult build_city(
                 1.0f,
                 1.0f,
             },
-            SourceSymbol{},
+            CodeVizSemanticRef{},
             kRoadSurfaceTextureLift);
     }
 
@@ -1276,28 +1276,28 @@ CityBuildResult build_city(
             module_layout.max_z - border_width * 0.5f,
             ModuleSurfaceMetrics{ extent_x, border_width, kModuleSurfaceHeight },
             module_color,
-            SourceSymbol{ "", module_layout.module_path, module_layout.module_path },
+            CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
             module_surface_elevation);
         world.create_module_surface(
             center_x,
             module_layout.min_z + border_width * 0.5f,
             ModuleSurfaceMetrics{ extent_x, border_width, kModuleSurfaceHeight },
             module_color,
-            SourceSymbol{ "", module_layout.module_path, module_layout.module_path },
+            CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
             module_surface_elevation);
         world.create_module_surface(
             module_layout.min_x + border_width * 0.5f,
             center_z,
             ModuleSurfaceMetrics{ border_width, inner_extent_z, kModuleSurfaceHeight },
             module_color,
-            SourceSymbol{ "", module_layout.module_path, module_layout.module_path },
+            CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
             module_surface_elevation);
         world.create_module_surface(
             module_layout.max_x - border_width * 0.5f,
             center_z,
             ModuleSurfaceMetrics{ border_width, inner_extent_z, kModuleSurfaceHeight },
             module_color,
-            SourceSymbol{ "", module_layout.module_path, module_layout.module_path },
+            CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
             module_surface_elevation);
     }
 
@@ -1323,7 +1323,7 @@ CityBuildResult build_city(
                 building_base_elevation(config),
                 park_metrics,
                 park_color,
-                SourceSymbol{ "", module_layout.module_path, module_layout.module_path },
+                CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
                 MaterialId::FlatColor);
 
             if (module_layout.is_central_park)
@@ -1334,14 +1334,14 @@ CityBuildResult build_city(
                     building_base_elevation(config) + config.park_height,
                     central_park_tree_metrics,
                     glm::vec4(1.0f),
-                    SourceSymbol{ "", "CentralParkTreeBark", module_layout.module_path });
+                    CodeVizSemanticRef{ "", "CentralParkTreeBark", module_layout.module_path });
                 world.create_tree_leaves(
                     module_layout.park_center.x,
                     module_layout.park_center.y,
                     building_base_elevation(config) + config.park_height,
                     central_park_tree_metrics,
                     glm::vec4(1.0f),
-                    SourceSymbol{ "", "CentralParkTreeLeaves", module_layout.module_path });
+                    CodeVizSemanticRef{ "", "CentralParkTreeLeaves", module_layout.module_path });
             }
 
             // Reuse the building sidewalk/road segment builders for the park.
@@ -1356,7 +1356,7 @@ CityBuildResult build_city(
                     sidewalk.center.y,
                     RoadMetrics{ sidewalk.extent.x, sidewalk.extent.y, config.sidewalk_surface_height },
                     kSidewalkSurfaceColor,
-                    SourceSymbol{ "", module_layout.module_path, module_layout.module_path },
+                    CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
                     config.sidewalk_surface_lift);
             }
         }
@@ -1386,7 +1386,7 @@ CityBuildResult build_city(
                 building_base_elevation(config),
                 building.metrics,
                 module_color,
-                SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
+                CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
                 MaterialId::FlatColor,
                 std::move(building_mesh),
                 1.0f,
@@ -1421,7 +1421,7 @@ CityBuildResult build_city(
                             building_base_elevation(config) + building.metrics.height,
                             cap_metrics,
                             cap_color,
-                            SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
+                            CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
                             MaterialId::FlatColor,
                             build_procedural_building_cap_mesh(
                                 static_meshes,
@@ -1445,7 +1445,7 @@ CityBuildResult build_city(
                         sign_metrics,
                         MeshId::Custom,
                         sign_board,
-                        SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
+                        CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
                         build_building_roof_sign_mesh(static_meshes, roof_sign),
                         CustomMeshTransformMode::ScaleBySignMetrics);
                 }
@@ -1468,7 +1468,7 @@ CityBuildResult build_city(
                     config.sidewalk_surface_lift,
                     sidewalk_metrics,
                     kSidewalkSurfaceColor,
-                    SourceSymbol{ building.source_file_path, building.qualified_name, building.module_path },
+                    CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
                     MaterialId::PavingSidewalk,
                     std::move(ring_mesh),
                     0.0f,
@@ -1510,7 +1510,7 @@ CityBuildResult build_city(
                         sign,
                         boundary_sign.mesh,
                         dark_module_sign_board_color(module_layout.module_path),
-                        SourceSymbol{ "", module_layout.module_path, module_layout.module_path });
+                        CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path });
                 }
             }
         }
@@ -1556,7 +1556,7 @@ CityBuildResult build_city(
 }
 
 void emit_route_entities(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const std::vector<CityGrid::RoutePolyline>& routes,
     const MegaCityCodeConfig& config)
 {
@@ -1627,7 +1627,7 @@ void emit_route_entities(
                         pitch,
                     },
                     color,
-                    SourceSymbol{},
+                    CodeVizSemanticRef{},
                     seg_elev,
                     RouteLink{
                         route.source_file_path,

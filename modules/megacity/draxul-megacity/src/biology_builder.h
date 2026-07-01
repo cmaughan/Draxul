@@ -8,7 +8,7 @@
 namespace draxul
 {
 
-class SceneWorld;
+class CodeVizSceneWorld;
 
 struct BiologyBuildStats
 {
@@ -35,7 +35,7 @@ struct BiologyBuildResult
 };
 
 BiologyBuildResult build_biology_view(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const CodeSemanticSnapshot& semantics,
     const MegaCityCodeConfig& config);
 

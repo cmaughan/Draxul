@@ -880,7 +880,7 @@ void render_objects_tree(const ObjectsTreeCache& cache)
     }
 }
 
-bool render_renderer_controls(MegacityRendererControls& controls, CodeVisualizationPanelMode visualization_mode)
+bool render_renderer_controls(CodeVizRendererControls& controls, CodeVisualizationPanelMode visualization_mode)
 {
     PERF_MEASURE();
     const CodeVisualizationPanelCapabilities capabilities
@@ -1398,7 +1398,7 @@ bool render_treesitter_panel(
     CodebaseScanProgress scan_progress,
     const SemanticMegacityModel* semantic_model,
     const CodeSemanticSnapshot* code_semantics,
-    MegacityRendererControls* renderer_controls,
+    CodeVizRendererControls* renderer_controls,
     CodeVisualizationPanelMode visualization_mode)
 {
     PERF_MEASURE();

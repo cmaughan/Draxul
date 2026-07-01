@@ -1,5 +1,11 @@
 # Semantic Code Visualization Separation Plan
 
+> Refinement note, July 2026: the intended direction is now to keep one shared
+> backend-neutral scene/render path and split only the city and biology
+> metaphor builders. See
+> `plans/design/shared-code-visualization-renderer-module-split-plan.md` for
+> the current module-split plan.
+
 ## Goal
 
 Keep Draxul's existing Tree-sitter analysis, but make its output independent of any visual metaphor.

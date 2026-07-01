@@ -153,14 +153,14 @@ simd_float4x4 to_simd_matrix(const glm::mat4& mat)
     return out;
 }
 
-MaterialUniforms build_material_uniforms(const SceneSnapshot& scene)
+MaterialUniforms build_material_uniforms(const CodeVizSceneSnapshot& scene)
 {
     PERF_MEASURE();
     MaterialUniforms uniforms{};
     const size_t material_count = std::min(scene.materials.size(), uniforms.materials.size());
     for (size_t index = 0; index < material_count; ++index)
     {
-        const SceneMaterial& material = scene.materials[index];
+        const CodeVizMaterial& material = scene.materials[index];
         uniforms.materials[index].scalar_params = simd_make_float4(
             material.scalar_params.x,
             material.scalar_params.y,
@@ -1461,7 +1461,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
 
     const uint32_t gbuffer_opaque_count = std::min(scene_.opaque_count,
         static_cast<uint32_t>(scene_.objects.size()));
-    auto object_casts_shadow = [&](const SceneObject& obj) {
+    auto object_casts_shadow = [&](const CodeVizRenderable& obj) {
         if (obj.mesh == MeshId::Grid || obj.color.a < 1.0f)
             return false;
         if (!obj.route_source.empty() || !obj.route_target.empty())
@@ -1512,7 +1512,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
 
         for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
         {
-            const SceneObject& obj = scene_.objects[gi];
+            const CodeVizRenderable& obj = scene_.objects[gi];
             if (!object_casts_shadow(obj))
                 continue;
 
@@ -1616,7 +1616,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
 
             for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
             {
-                const SceneObject& obj = scene_.objects[gi];
+                const CodeVizRenderable& obj = scene_.objects[gi];
                 if (!object_casts_shadow(obj))
                     continue;
 
@@ -1705,7 +1705,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     // Draw scene objects (GBuffer: opaque only)
     for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
     {
-        const SceneObject& obj = scene_.objects[gi];
+        const CodeVizRenderable& obj = scene_.objects[gi];
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
@@ -1874,7 +1874,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     [sceneEncoder setFragmentSamplerState:state_->shadow_compare_sampler.get() atIndex:3];
     [sceneEncoder setFragmentSamplerState:state_->gbuffer_point_sampler.get() atIndex:4];
 
-    auto draw_scene_object = [&](const SceneObject& obj) {
+    auto draw_scene_object = [&](const CodeVizRenderable& obj) {
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {

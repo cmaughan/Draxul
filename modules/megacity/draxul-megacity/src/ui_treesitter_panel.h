@@ -30,7 +30,7 @@ struct CodeVisualizationPanelCapabilities
     bool show_perf_debug = false;
 };
 
-struct MegacityRendererControls
+struct CodeVizRendererControls
 {
     MegaCityCodeConfig config;
     MegaCityCodeConfig defaults;
@@ -57,7 +57,7 @@ bool render_treesitter_panel(
     CodebaseScanProgress scan_progress = {},
     const SemanticMegacityModel* semantic_model = nullptr,
     const CodeSemanticSnapshot* code_semantics = nullptr,
-    MegacityRendererControls* renderer_controls = nullptr,
+    CodeVizRendererControls* renderer_controls = nullptr,
     CodeVisualizationPanelMode visualization_mode = CodeVisualizationPanelMode::City);
 
 } // namespace draxul

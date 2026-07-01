@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">Current Megacity Semantic Visualization Architecture</title>
+  <desc id="desc">Diagram of the current Draxul Megacity module split, showing Tree-sitter parsing, neutral code semantics, geometry support, the draxul-megacity host, city and biology builders, shared scene state, and Vulkan/Metal render backends.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f6f7f2; }
+      .title { font: 700 30px "Segoe UI", Arial, sans-serif; fill: #182026; }
+      .subtitle { font: 15px "Segoe UI", Arial, sans-serif; fill: #51606a; }
+      .groupTitle { font: 700 17px "Segoe UI", Arial, sans-serif; fill: #1d2830; }
+      .boxTitle { font: 700 16px "Segoe UI", Arial, sans-serif; fill: #162129; }
+      .smallTitle { font: 700 14px "Segoe UI", Arial, sans-serif; fill: #162129; }
+      .body { font: 13px "Segoe UI", Arial, sans-serif; fill: #28343b; }
+      .small { font: 12px "Segoe UI", Arial, sans-serif; fill: #39464d; }
+      .tiny { font: 11px "Segoe UI", Arial, sans-serif; fill: #4a565c; }
+      .note { font: 12px "Segoe UI", Arial, sans-serif; fill: #5a4631; }
+      .outer { fill: #ffffff; stroke: #9aa7a6; stroke-width: 1.5; rx: 10; }
+      .module { fill: #fdfcf8; stroke: #73818a; stroke-width: 1.5; rx: 9; }
+      .clean { fill: #e9f3ee; stroke: #4f8a6a; stroke-width: 1.4; rx: 8; }
+      .mixed { fill: #fff1da; stroke: #c98534; stroke-width: 1.4; rx: 8; }
+      .render { fill: #e9eff8; stroke: #4b74a6; stroke-width: 1.4; rx: 8; }
+      .city { fill: #f5e7e4; stroke: #b5665d; stroke-width: 1.4; rx: 8; }
+      .bio { fill: #e7f2df; stroke: #6e9656; stroke-width: 1.4; rx: 8; }
+      .support { fill: #eee8f4; stroke: #8060a0; stroke-width: 1.4; rx: 8; }
+      .leak { fill: #fff8ed; stroke: #d09a4f; stroke-width: 1; rx: 6; stroke-dasharray: 5 4; }
+      .arrow { fill: none; stroke: #46535a; stroke-width: 2.2; marker-end: url(#arrow); }
+      .arrowSoft { fill: none; stroke: #73818a; stroke-width: 1.8; marker-end: url(#arrowSoft); }
+      .arrowWarn { fill: none; stroke: #bd7e2d; stroke-width: 2; marker-end: url(#arrowWarn); stroke-dasharray: 8 5; }
+      .divider { stroke: #d4dad8; stroke-width: 1; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#46535a"/>
+    </marker>
+    <marker id="arrowSoft" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#73818a"/>
+    </marker>
+    <marker id="arrowWarn" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#bd7e2d"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="1120"/>
+
+  <text class="title" x="60" y="58">Megacity Semantic Visualization: Current Architecture</text>
+  <text class="subtitle" x="60" y="86">As implemented today: neutral parser/semantic libraries feed a still-mixed draxul-megacity presentation, scene, UI, and renderer target.</text>
+
+  <rect class="outer" x="42" y="116" width="1516" height="932"/>
+  <text class="groupTitle" x="66" y="148">modules/megacity/ optional module, gated by DRAXUL_ENABLE_MEGACITY</text>
+
+  <!-- Source parsing -->
+  <rect class="clean" x="82" y="188" width="250" height="150"/>
+  <text class="boxTitle" x="104" y="220">draxul-treesitter</text>
+  <text class="body" x="104" y="250">include/draxul/treesitter.h</text>
+  <text class="body" x="104" y="272">src/treesitter.cpp</text>
+  <line class="divider" x1="104" y1="288" x2="306" y2="288"/>
+  <text class="small" x="104" y="310">Raw code scan:</text>
+  <text class="small" x="104" y="328">files, symbols, parse errors</text>
+
+  <!-- Neutral semantics -->
+  <rect class="clean" x="420" y="178" width="295" height="170"/>
+  <text class="boxTitle" x="442" y="210">draxul-code-semantics</text>
+  <text class="body" x="442" y="240">code_semantic_model.*</text>
+  <text class="body" x="442" y="262">module_path_resolver.*</text>
+  <line class="divider" x1="442" y1="278" x2="690" y2="278"/>
+  <text class="small" x="442" y="300">Neutral CodeSemanticSnapshot:</text>
+  <text class="small" x="442" y="318">repository, modules, files,</text>
+  <text class="small" x="442" y="336">types, functions, fields, edges</text>
+
+  <!-- Geometry -->
+  <rect class="support" x="82" y="442" width="278" height="208"/>
+  <text class="boxTitle" x="104" y="474">draxul-geometry</text>
+  <text class="body" x="104" y="504">geometry_mesh.h</text>
+  <text class="body" x="104" y="526">primitive_meshes.*</text>
+  <text class="body" x="104" y="548">building_generator.*</text>
+  <text class="body" x="104" y="570">roof_sign_generator.*</text>
+  <text class="body" x="104" y="592">tree_generator.*</text>
+  <line class="divider" x1="104" y1="608" x2="334" y2="608"/>
+  <text class="small" x="104" y="630">Mixed support library:</text>
+  <text class="small" x="104" y="648">generic mesh data plus city meshes</text>
+
+  <!-- Megacity monolith -->
+  <rect class="module" x="790" y="166" width="710" height="742"/>
+  <text class="groupTitle" x="818" y="198">draxul-megacity static library</text>
+  <text class="subtitle" x="818" y="222">Host orchestration, city/bio builders, shared scene state, UI, and Vulkan/Metal render implementation live together today.</text>
+
+  <!-- Host/UI/config -->
+  <rect class="mixed" x="830" y="258" width="286" height="185"/>
+  <text class="boxTitle" x="852" y="290">Host, UI, config</text>
+  <text class="body" x="852" y="318">megacity_host.*</text>
+  <text class="body" x="852" y="340">megacity_code_config.*</text>
+  <text class="body" x="852" y="362">ui_treesitter_panel.*</text>
+  <text class="body" x="852" y="384">ui_city_map_panel.*</text>
+  <line class="divider" x1="852" y1="400" x2="1090" y2="400"/>
+  <text class="note" x="852" y="422">Mixed: render, city, biology,</text>
+  <text class="note" x="852" y="438">selection, routes, panels</text>
+
+  <!-- City builder -->
+  <rect class="city" x="830" y="488" width="286" height="260"/>
+  <text class="boxTitle" x="852" y="520">City metaphor</text>
+  <text class="body" x="852" y="548">city_builder.*</text>
+  <text class="body" x="852" y="570">semantic_city_layout.*</text>
+  <text class="body" x="852" y="592">static_mesh_family_cache.*</text>
+  <text class="body" x="852" y="614">city_picking.*</text>
+  <text class="body" x="852" y="636">building_tooltip.*</text>
+  <text class="body" x="852" y="658">live_city_metrics.*</text>
+  <text class="body" x="852" y="680">sign_label_atlas.*</text>
+  <line class="divider" x1="852" y1="696" x2="1090" y2="696"/>
+  <text class="small" x="852" y="718">Projects code into buildings,</text>
+  <text class="small" x="852" y="736">roads, parks, signs, routes</text>
+
+  <!-- Biology builder -->
+  <rect class="bio" x="830" y="786" width="286" height="92"/>
+  <text class="boxTitle" x="852" y="818">Biology metaphor</text>
+  <text class="body" x="852" y="846">biology_builder.*</text>
+  <text class="small" x="852" y="866">Tissues, cells, bodies, fibres</text>
+
+  <!-- Shared scene/runtime -->
+  <rect class="render" x="1190" y="258" width="270" height="292"/>
+  <text class="boxTitle" x="1212" y="290">Shared scene state</text>
+  <text class="body" x="1212" y="318">scene_world.*</text>
+  <text class="body" x="1212" y="340">scene_components.h</text>
+  <text class="body" x="1212" y="362">scene_snapshot_builder.*</text>
+  <text class="body" x="1212" y="384">isometric_scene_types.h</text>
+  <text class="body" x="1212" y="406">isometric_camera.*</text>
+  <text class="body" x="1212" y="428">city_input_state.*</text>
+  <line class="divider" x1="1212" y1="444" x2="1436" y2="444"/>
+  <text class="note" x="1212" y="466">Shared render seam is correct.</text>
+  <text class="note" x="1212" y="484">Vocabulary is still city-shaped:</text>
+  <text class="note" x="1212" y="502">BuildingMetrics, RoadMetrics,</text>
+  <text class="note" x="1212" y="520">SignMetrics, RouteLink, etc.</text>
+
+  <!-- Renderer -->
+  <rect class="render" x="1190" y="606" width="270" height="272"/>
+  <text class="boxTitle" x="1212" y="638">Shared renderer backends</text>
+  <text class="body" x="1212" y="666">isometric_scene_pass.h</text>
+  <text class="body" x="1212" y="688">megacity_render_vk.cpp</text>
+  <text class="body" x="1212" y="710">megacity_render.mm</text>
+  <text class="body" x="1212" y="732">shadow_cascade.*</text>
+  <text class="body" x="1212" y="754">mesh_library.*</text>
+  <text class="body" x="1212" y="776">megacity_material_assets.*</text>
+  <line class="divider" x1="1212" y1="792" x2="1436" y2="792"/>
+  <text class="small" x="1212" y="814">Buffers, G-buffer, AO, shadows,</text>
+  <text class="small" x="1212" y="832">post pass, Vulkan and Metal.</text>
+  <text class="note" x="1212" y="854">Still hardcodes city meshes/assets.</text>
+
+  <!-- Leak notes -->
+  <rect class="leak" x="420" y="442" width="295" height="208"/>
+  <text class="boxTitle" x="442" y="474">Current dependency leaks</text>
+  <text class="note" x="442" y="504">1. Scene components are shared,</text>
+  <text class="note" x="460" y="522">but named as city concepts.</text>
+  <text class="note" x="442" y="548">2. Renderer owns city material slots:</text>
+  <text class="note" x="460" y="566">asphalt, sidewalk, wood, leaves.</text>
+  <text class="note" x="442" y="592">3. One config drives render, city,</text>
+  <text class="note" x="460" y="610">biology, camera, and UI panels.</text>
+  <text class="note" x="442" y="636">4. Host stores city grid/routes even</text>
+  <text class="note" x="460" y="654">when visualization mode is Biology.</text>
+
+  <!-- Runtime flow strip -->
+  <rect class="outer" x="82" y="732" width="633" height="176"/>
+  <text class="groupTitle" x="104" y="766">Runtime data flow today</text>
+  <text class="body" x="104" y="802">Tree-sitter scan -&gt; CodeSemanticSnapshot -&gt; active builder</text>
+  <text class="body" x="104" y="828">City builder: SemanticMegacityModel/Layout -&gt; SceneWorld</text>
+  <text class="body" x="104" y="854">Biology builder: direct CodeSemanticSnapshot -&gt; SceneWorld</text>
+  <text class="body" x="104" y="880">SceneWorld -&gt; SceneSnapshot -&gt; IsometricScenePass -&gt; Vulkan/Metal</text>
+
+  <!-- Arrows -->
+  <path class="arrow" d="M332,263 C364,263 386,263 420,263"/>
+  <path class="arrow" d="M715,263 C754,263 772,314 830,338"/>
+  <path class="arrow" d="M715,263 C772,346 774,560 830,585"/>
+  <path class="arrow" d="M715,263 C770,405 772,808 830,832"/>
+  <path class="arrowSoft" d="M360,536 C520,536 624,603 830,618"/>
+  <path class="arrow" d="M1116,360 C1148,360 1162,366 1190,382"/>
+  <path class="arrow" d="M1116,618 C1154,618 1164,456 1190,428"/>
+  <path class="arrow" d="M1116,832 C1152,832 1160,510 1190,478"/>
+  <path class="arrow" d="M1325,550 L1325,606"/>
+  <path class="arrowSoft" d="M716,546 C756,546 778,434 830,398"/>
+  <path class="arrowWarn" d="M715,546 C790,530 1068,508 1190,478"/>
+
+  <!-- Arrow labels -->
+  <text class="tiny" x="352" y="248">CodebaseSnapshot</text>
+  <text class="tiny" x="735" y="246">CodeSemanticSnapshot</text>
+  <text class="tiny" x="1146" y="348">orchestrates</text>
+  <text class="tiny" x="1132" y="590">emits ECS</text>
+  <text class="tiny" x="1342" y="584">snapshot</text>
+  <text class="tiny" x="504" y="528">mesh support</text>
+  <text class="tiny" x="785" y="524">leaky shared vocabulary</text>
+
+  <!-- Legend -->
+  <rect class="outer" x="82" y="946" width="1418" height="70"/>
+  <text class="smallTitle" x="104" y="976">Legend</text>
+  <rect class="clean" x="180" y="958" width="24" height="18"/>
+  <text class="small" x="214" y="973">Clean or mostly neutral library</text>
+  <rect class="support" x="438" y="958" width="24" height="18"/>
+  <text class="small" x="472" y="973">Support library with mixed generic/metaphor pieces</text>
+  <rect class="mixed" x="802" y="958" width="24" height="18"/>
+  <text class="small" x="836" y="973">Mixed orchestration/config/UI concern</text>
+  <rect class="render" x="1100" y="958" width="24" height="18"/>
+  <text class="small" x="1134" y="973">Shared scene/render infrastructure</text>
+  <rect class="leak" x="180" y="988" width="24" height="18"/>
+  <text class="small" x="214" y="1003">Specific cleanup pressure point</text>
+  <path class="arrowWarn" d="M438,997 L500,997"/>
+  <text class="small" x="514" y="1003">Metaphor-specific dependency leaking into shared layer</text>
+
+  <text class="subtitle" x="60" y="1082">Suggested next target: keep the shared SceneSnapshot/render path, but move city/biology vocabulary into separate builders and feed neutral render primitives into the shared renderer.</text>
+</svg>

@@ -34,11 +34,11 @@ struct PointShadowMapSet
 };
 
 [[nodiscard]] DirectionalShadowCascadeSet build_directional_shadow_cascades(
-    const SceneCameraData& camera,
+    const CodeVizCameraData& camera,
     int resolution = 4096);
 
 [[nodiscard]] PointShadowMapSet build_point_shadow_map(
-    const SceneCameraData& camera,
+    const CodeVizCameraData& camera,
     int resolution = 1024);
 
 [[nodiscard]] glm::mat4 shadow_texture_matrix(const glm::mat4& world_to_clip);

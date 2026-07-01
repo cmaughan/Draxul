@@ -93,7 +93,7 @@ struct LabelAtlasData
     }
 };
 
-struct SceneObject
+struct CodeVizRenderable
 {
     enum class Role : uint32_t
     {
@@ -119,6 +119,8 @@ struct SceneObject
     std::string source_name;
     std::string source_module_path;
     std::string source_file_path;
+    uint64_t semantic_node_id = 0;
+    uint64_t semantic_edge_id = 0;
     std::string route_source_file_path;
     std::string route_source_module_path;
     std::string route_source;
@@ -127,7 +129,7 @@ struct SceneObject
     std::string route_target;
 };
 
-struct SceneMaterial
+struct CodeVizMaterial
 {
     MaterialShadingModel shading_model = MaterialShadingModel::FlatColor;
     glm::vec4 scalar_params{ 1.0f, 1.0f, 1.0f, 0.0f }; // x = material-specific primary scalar, y = normal strength, z = material-specific secondary scalar, w = metallic
@@ -140,7 +142,7 @@ struct SceneMaterial
     glm::uvec4 metadata{ 0u };
 };
 
-struct SceneCameraData
+struct CodeVizCameraData
 {
     glm::mat4 view{ 1.0f };
     glm::mat4 proj{ 1.0f };
@@ -188,17 +190,17 @@ struct TooltipOverlay
     }
 };
 
-struct SceneSnapshot
+struct CodeVizSceneSnapshot
 {
-    SceneCameraData camera;
+    CodeVizCameraData camera;
     FloorGridSpec floor_grid;
     std::shared_ptr<const LabelAtlasData> label_atlas;
     std::shared_ptr<const MeshData> tree_bark_mesh;
     std::shared_ptr<const MeshData> tree_leaf_mesh;
     std::vector<std::shared_ptr<const MeshData>> custom_meshes;
     std::vector<float> performance_heat_values;
-    std::vector<SceneMaterial> materials;
-    std::vector<SceneObject> objects;
+    std::vector<CodeVizMaterial> materials;
+    std::vector<CodeVizRenderable> objects;
     uint32_t opaque_count = 0;
     TooltipOverlay tooltip;
 };

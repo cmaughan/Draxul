@@ -253,14 +253,14 @@ bool same_grid_spec(const FloorGridSpec& a, const FloorGridSpec& b)
         && a.color.w == b.color.w;
 }
 
-MaterialUniforms build_material_uniforms(const SceneSnapshot& scene)
+MaterialUniforms build_material_uniforms(const CodeVizSceneSnapshot& scene)
 {
     PERF_MEASURE();
     MaterialUniforms uniforms{};
     const size_t material_count = std::min(scene.materials.size(), uniforms.materials.size());
     for (size_t index = 0; index < material_count; ++index)
     {
-        const SceneMaterial& material = scene.materials[index];
+        const CodeVizMaterial& material = scene.materials[index];
         uniforms.materials[index].scalar_params = material.scalar_params;
         uniforms.materials[index].texture_indices = material.texture_indices;
         uniforms.materials[index].metadata = glm::uvec4(
@@ -4244,7 +4244,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
 
     const uint32_t shadow_opaque_count = std::min(scene_.opaque_count,
         static_cast<uint32_t>(scene_.objects.size()));
-    auto object_casts_shadow = [&](const SceneObject& obj) {
+    auto object_casts_shadow = [&](const CodeVizRenderable& obj) {
         if (obj.mesh == MeshId::Grid || obj.color.a < 1.0f)
             return false;
         if (!obj.route_source.empty() || !obj.route_target.empty())
@@ -4297,7 +4297,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         const MeshBuffers* last_shadow_mesh = nullptr;
         for (uint32_t shadow_index = 0; shadow_index < shadow_opaque_count; ++shadow_index)
         {
-            const SceneObject& obj = scene_.objects[shadow_index];
+            const CodeVizRenderable& obj = scene_.objects[shadow_index];
             if (!object_casts_shadow(obj))
                 continue;
 
@@ -4400,7 +4400,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
             const MeshBuffers* last_point_shadow_mesh = nullptr;
             for (uint32_t shadow_index = 0; shadow_index < shadow_opaque_count; ++shadow_index)
             {
-                const SceneObject& obj = scene_.objects[shadow_index];
+                const CodeVizRenderable& obj = scene_.objects[shadow_index];
                 if (!object_casts_shadow(obj))
                     continue;
 
@@ -4497,7 +4497,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
     const MeshBuffers* last_mesh = nullptr;
     for (uint32_t gi = 0; gi < gbuffer_opaque_count; ++gi)
     {
-        const SceneObject& obj = scene_.objects[gi];
+        const CodeVizRenderable& obj = scene_.objects[gi];
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
@@ -4651,7 +4651,7 @@ void IsometricScenePass::record_prepass(IRenderContext& ctx)
         0, 1, &frame_res.descriptor_set, 0, nullptr);
 
     const MeshBuffers* last_scene_mesh = nullptr;
-    auto draw_scene_object = [&](const SceneObject& obj) {
+    auto draw_scene_object = [&](const CodeVizRenderable& obj) {
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {

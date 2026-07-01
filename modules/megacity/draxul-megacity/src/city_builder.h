@@ -18,7 +18,7 @@ struct LiveCityMetricsSnapshot;
 struct SemanticMegacityModel;
 struct SemanticMegacityLayout;
 struct SignLabelAtlas;
-class SceneWorld;
+class CodeVizSceneWorld;
 class TextService;
 
 struct CityBuildResult
@@ -56,7 +56,7 @@ struct SemanticCodeModelBuildResult
     int connected_oct_building_threshold);
 
 void emit_route_entities(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const std::vector<CityGrid::RoutePolyline>& routes,
     const MegaCityCodeConfig& config);
 
@@ -65,13 +65,13 @@ SemanticCodeModelBuildResult build_semantic_code_model(
     const CodeSemanticSnapshot& semantics,
     const MegaCityCodeConfig& config);
 
-// Build (or rebuild) the semantic city into the given SceneWorld.
+// Build (or rebuild) the semantic city into the given CodeVizSceneWorld.
 // Clears the world, projects the semantic snapshot into city records, lays out modules, creates all ECS
 // entities (buildings, parks, signs, sidewalks, road surfaces).
 //
 // The returned CityBuildResult owns the layout (for use by launch_grid_build).
 CityBuildResult build_city(
-    SceneWorld& world,
+    CodeVizSceneWorld& world,
     const CodeSemanticSnapshot& semantics,
     TextService* text_service,
     const MegaCityCodeConfig& config,

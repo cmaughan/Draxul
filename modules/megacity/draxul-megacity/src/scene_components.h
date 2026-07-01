@@ -80,7 +80,7 @@ struct ModuleSurfaceMetrics
     float height = 0.02f;
 };
 
-struct BiologyEllipsoidMetrics
+struct EllipsoidMetrics
 {
     float radius_x = 0.5f;
     float radius_y = 0.5f;
@@ -105,11 +105,13 @@ struct TreeMetrics
 };
 
 // Optional link back to the source symbol that generated this entity.
-struct SourceSymbol
+struct CodeVizSemanticRef
 {
     std::string file;
     std::string name;
     std::string module_path;
+    uint64_t semantic_node_id = 0;
+    uint64_t semantic_edge_id = 0;
 };
 
 enum class CustomMeshTransformMode : uint8_t

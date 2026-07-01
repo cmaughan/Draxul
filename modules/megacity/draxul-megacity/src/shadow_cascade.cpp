@@ -76,7 +76,7 @@ float perspective_depth_to_ndc(const glm::mat4& proj, float view_depth)
     return std::clamp(-a + (b / std::max(view_depth, 1e-3f)), 0.0f, 1.0f);
 }
 
-std::array<float, kShadowCascadeCount> cascade_split_depths(const SceneCameraData& camera)
+std::array<float, kShadowCascadeCount> cascade_split_depths(const CodeVizCameraData& camera)
 {
     if (camera.projection_mode != MegaCityProjectionMode::Perspective)
         return kCascadeSplitDepths;
@@ -98,7 +98,7 @@ std::array<float, kShadowCascadeCount> cascade_split_depths(const SceneCameraDat
 }
 
 DirectionalShadowCascade build_cascade(
-    const SceneCameraData& camera,
+    const CodeVizCameraData& camera,
     float split_start,
     float split_end,
     int resolution)
@@ -160,7 +160,7 @@ DirectionalShadowCascade build_cascade(
 
 } // namespace
 
-DirectionalShadowCascadeSet build_directional_shadow_cascades(const SceneCameraData& camera, int resolution)
+DirectionalShadowCascadeSet build_directional_shadow_cascades(const CodeVizCameraData& camera, int resolution)
 {
     PERF_MEASURE();
     DirectionalShadowCascadeSet cascade_set;
@@ -181,7 +181,7 @@ DirectionalShadowCascadeSet build_directional_shadow_cascades(const SceneCameraD
     return cascade_set;
 }
 
-PointShadowMapSet build_point_shadow_map(const SceneCameraData& camera, int resolution)
+PointShadowMapSet build_point_shadow_map(const CodeVizCameraData& camera, int resolution)
 {
     PERF_MEASURE();
     PointShadowMapSet shadow_map;

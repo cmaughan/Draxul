@@ -107,10 +107,10 @@ PerformanceHeatTable build_performance_heat_table(const LiveCityMetricsSnapshot*
     return table;
 }
 
-SceneMaterial build_scene_material(const Appearance& appearance, const MegaCityCodeConfig& config)
+CodeVizMaterial build_scene_material(const Appearance& appearance, const MegaCityCodeConfig& config)
 {
     PERF_MEASURE();
-    SceneMaterial material;
+    CodeVizMaterial material;
     switch (appearance.material)
     {
     case MaterialId::AsphaltRoad:
@@ -198,7 +198,7 @@ SceneMaterial build_scene_material(const Appearance& appearance, const MegaCityC
     return material;
 }
 
-bool same_scene_material(const SceneMaterial& lhs, const SceneMaterial& rhs)
+bool same_scene_material(const CodeVizMaterial& lhs, const CodeVizMaterial& rhs)
 {
     return lhs.shading_model == rhs.shading_model
         && lhs.scalar_params == rhs.scalar_params
@@ -206,10 +206,10 @@ bool same_scene_material(const SceneMaterial& lhs, const SceneMaterial& rhs)
         && lhs.metadata == rhs.metadata;
 }
 
-uint32_t find_or_append_material(SceneSnapshot& scene, const Appearance& appearance, const MegaCityCodeConfig& config)
+uint32_t find_or_append_material(CodeVizSceneSnapshot& scene, const Appearance& appearance, const MegaCityCodeConfig& config)
 {
     PERF_MEASURE();
-    const SceneMaterial candidate = build_scene_material(appearance, config);
+    const CodeVizMaterial candidate = build_scene_material(appearance, config);
     for (uint32_t index = 0; index < scene.materials.size(); ++index)
     {
         if (same_scene_material(scene.materials[index], candidate))
@@ -223,7 +223,7 @@ uint32_t find_or_append_material(SceneSnapshot& scene, const Appearance& appeara
     return static_cast<uint32_t>(scene.materials.size() - 1);
 }
 
-uint32_t find_or_append_custom_mesh(SceneSnapshot& scene,
+uint32_t find_or_append_custom_mesh(CodeVizSceneSnapshot& scene,
     std::unordered_map<const MeshData*, uint32_t>& mesh_index_map,
     const std::shared_ptr<const MeshData>& mesh)
 {
@@ -240,9 +240,9 @@ uint32_t find_or_append_custom_mesh(SceneSnapshot& scene,
 
 } // namespace
 
-SceneSnapshotResult build_scene_snapshot(
+CodeVizSceneSnapshotResult build_scene_snapshot(
     const IsometricCamera& camera,
-    const SceneWorld& world,
+    const CodeVizSceneWorld& world,
     const MegaCityCodeConfig& config,
     const std::shared_ptr<const LiveCityMetricsSnapshot>& live_metrics,
     const std::shared_ptr<SignLabelAtlas>& label_atlas,
@@ -250,8 +250,8 @@ SceneSnapshotResult build_scene_snapshot(
     const std::shared_ptr<const MeshData>& tree_leaf_mesh)
 {
     PERF_MEASURE();
-    SceneSnapshotResult result;
-    SceneSnapshot& scene = result.snapshot;
+    CodeVizSceneSnapshotResult result;
+    CodeVizSceneSnapshot& scene = result.snapshot;
     const PerformanceHeatTable performance_heat_table = build_performance_heat_table(live_metrics.get());
     scene.tree_bark_mesh = tree_bark_mesh;
     scene.tree_leaf_mesh = tree_leaf_mesh;
@@ -318,7 +318,7 @@ SceneSnapshotResult build_scene_snapshot(
     }
 
     scene.materials.clear();
-    scene.materials.push_back(SceneMaterial{});
+    scene.materials.push_back(CodeVizMaterial{});
     scene.custom_meshes.clear();
     std::unordered_map<const MeshData*, uint32_t> mesh_index_map;
 
@@ -336,7 +336,7 @@ SceneSnapshotResult build_scene_snapshot(
     float max_building_lot_margin = 0.0f;
     for (auto [entity, pos, elev, appearance] : view.each())
     {
-        SceneObject obj;
+        CodeVizRenderable obj;
         obj.mesh = appearance.mesh;
         obj.material_index = find_or_append_material(scene, appearance, config);
         obj.double_sided = appearance.double_sided;
@@ -353,7 +353,7 @@ SceneSnapshotResult build_scene_snapshot(
             obj.custom_mesh_index = find_or_append_custom_mesh(scene, mesh_index_map, custom_mesh->mesh);
         }
 
-        if (const auto* ellipsoid = reg.try_get<BiologyEllipsoidMetrics>(entity))
+        if (const auto* ellipsoid = reg.try_get<EllipsoidMetrics>(entity))
         {
             extent_x = ellipsoid->radius_x * 2.0f;
             extent_z = ellipsoid->radius_z * 2.0f;
@@ -367,10 +367,10 @@ SceneSnapshotResult build_scene_snapshot(
         }
         else if (const auto* bm = reg.try_get<BuildingMetrics>(entity))
         {
-            if (const auto* sym = reg.try_get<SourceSymbol>(entity);
+            if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)
             {
-                obj.role = SceneObject::Role::ModulePark;
+                obj.role = CodeVizRenderable::Role::ModulePark;
             }
             extent_x = bm->footprint;
             extent_z = bm->footprint;
@@ -399,10 +399,10 @@ SceneSnapshotResult build_scene_snapshot(
         }
         else if (const auto* rm = reg.try_get<RoadMetrics>(entity))
         {
-            if (const auto* sym = reg.try_get<SourceSymbol>(entity);
+            if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)
             {
-                obj.role = SceneObject::Role::ModulePark;
+                obj.role = CodeVizRenderable::Role::ModulePark;
             }
             extent_x = rm->extent_x;
             extent_z = rm->extent_z;
@@ -430,7 +430,7 @@ SceneSnapshotResult build_scene_snapshot(
         }
         else if (const auto* module_surface = reg.try_get<ModuleSurfaceMetrics>(entity))
         {
-            obj.role = SceneObject::Role::ModuleOutline;
+            obj.role = CodeVizRenderable::Role::ModuleOutline;
             extent_x = module_surface->extent_x;
             extent_z = module_surface->extent_z;
             transform = glm::translate(transform, glm::vec3(0.0f, module_surface->height * 0.5f, 0.0f));
@@ -438,10 +438,10 @@ SceneSnapshotResult build_scene_snapshot(
         }
         else if (const auto* sm = reg.try_get<SignMetrics>(entity))
         {
-            if (const auto* sym = reg.try_get<SourceSymbol>(entity);
+            if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity);
                 sym && sym->file.empty() && !sym->module_path.empty() && sym->name == sym->module_path)
             {
-                obj.role = SceneObject::Role::ModuleLabel;
+                obj.role = CodeVizRenderable::Role::ModuleLabel;
             }
             if (obj.mesh == MeshId::Custom)
             {
@@ -470,11 +470,13 @@ SceneSnapshotResult build_scene_snapshot(
         obj.world = transform;
         obj.color = appearance.color;
 
-        if (const auto* sym = reg.try_get<SourceSymbol>(entity))
+        if (const auto* sym = reg.try_get<CodeVizSemanticRef>(entity))
         {
             obj.source_name = sym->name;
             obj.source_module_path = sym->module_path;
             obj.source_file_path = sym->file;
+            obj.semantic_node_id = sym->semantic_node_id;
+            obj.semantic_edge_id = sym->semantic_edge_id;
 
             if (reg.all_of<BuildingMetrics>(entity) && !sym->file.empty())
             {
@@ -545,7 +547,7 @@ SceneSnapshotResult build_scene_snapshot(
     return result;
 }
 
-void sort_scene_objects(SceneSnapshot& scene)
+void sort_scene_objects(CodeVizSceneSnapshot& scene)
 {
     PERF_MEASURE();
     const glm::vec3 cam_pos(scene.camera.camera_pos);
@@ -553,13 +555,13 @@ void sort_scene_objects(SceneSnapshot& scene)
     // Partition: opaque objects first, then transparent.
     auto partition_it = std::stable_partition(
         scene.objects.begin(), scene.objects.end(),
-        [](const SceneObject& obj) { return obj.color.a >= 1.0f; });
+        [](const CodeVizRenderable& obj) { return obj.color.a >= 1.0f; });
 
     scene.opaque_count = static_cast<uint32_t>(std::distance(scene.objects.begin(), partition_it));
 
     // Sort transparent objects back-to-front by distance from camera.
     std::sort(partition_it, scene.objects.end(),
-        [&cam_pos](const SceneObject& a, const SceneObject& b) {
+        [&cam_pos](const CodeVizRenderable& a, const CodeVizRenderable& b) {
             const glm::vec3 ca(a.world[3]);
             const glm::vec3 cb(b.world[3]);
             return glm::dot(ca - cam_pos, ca - cam_pos) > glm::dot(cb - cam_pos, cb - cam_pos);

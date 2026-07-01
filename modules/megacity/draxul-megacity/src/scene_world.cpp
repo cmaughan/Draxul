@@ -23,14 +23,14 @@ constexpr float kLeafAtlasScatteringStrength = 0.85f;
 
 } // namespace
 
-SceneWorld::SceneWorld() = default;
+CodeVizSceneWorld::CodeVizSceneWorld() = default;
 
-void SceneWorld::clear()
+void CodeVizSceneWorld::clear()
 {
     registry_.clear();
 }
 
-void SceneWorld::clear_route_segments()
+void CodeVizSceneWorld::clear_route_segments()
 {
     PERF_MEASURE();
     std::vector<entt::entity> entities;
@@ -41,8 +41,8 @@ void SceneWorld::clear_route_segments()
         registry_.destroy(entity);
 }
 
-entt::entity SceneWorld::create_building(float world_x, float world_z, float elevation,
-    const BuildingMetrics& metrics, const glm::vec4& color, SourceSymbol source,
+entt::entity CodeVizSceneWorld::create_building(float world_x, float world_z, float elevation,
+    const BuildingMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source,
     MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic,
     CustomMeshTransformMode custom_mesh_transform_mode)
 {
@@ -88,12 +88,12 @@ entt::entity SceneWorld::create_building(float world_x, float world_z, float ele
     if (custom_mesh)
         registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), custom_mesh_transform_mode);
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_tree_bark(float world_x, float world_z, float elevation,
-    const TreeMetrics& metrics, const glm::vec4& color, SourceSymbol source)
+entt::entity CodeVizSceneWorld::create_tree_bark(float world_x, float world_z, float elevation,
+    const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -112,12 +112,12 @@ entt::entity SceneWorld::create_tree_bark(float world_x, float world_z, float el
             kTreeBarkNormalStrength,
             kTreeBarkAoStrength));
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_tree_leaves(float world_x, float world_z, float elevation,
-    const TreeMetrics& metrics, const glm::vec4& color, SourceSymbol source)
+entt::entity CodeVizSceneWorld::create_tree_leaves(float world_x, float world_z, float elevation,
+    const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -136,12 +136,12 @@ entt::entity SceneWorld::create_tree_leaves(float world_x, float world_z, float 
             kLeafAtlasNormalStrength,
             kLeafAtlasScatteringStrength));
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_road(float world_x, float world_z,
-    const RoadMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation)
+entt::entity CodeVizSceneWorld::create_road(float world_x, float world_z,
+    const RoadMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -160,12 +160,12 @@ entt::entity SceneWorld::create_road(float world_x, float world_z,
             kSidewalkPavingNormalStrength,
             kSidewalkPavingAoStrength));
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_road_surface(float world_x, float world_z,
-    const RoadSurfaceMetrics& metrics, SourceSymbol source, float elevation)
+entt::entity CodeVizSceneWorld::create_road_surface(float world_x, float world_z,
+    const RoadSurfaceMetrics& metrics, CodeVizSemanticRef source, float elevation)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -180,12 +180,12 @@ entt::entity SceneWorld::create_road_surface(float world_x, float world_z,
         glm::vec4(1.0f),
         glm::vec4(static_cast<float>(MaterialId::AsphaltRoad), metrics.uv_scale, metrics.normal_strength, metrics.ao_strength));
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_route_segment(float world_x, float world_z,
-    const RouteSegmentMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation,
+entt::entity CodeVizSceneWorld::create_route_segment(float world_x, float world_z,
+    const RouteSegmentMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation,
     RouteLink route_link)
 {
     PERF_MEASURE();
@@ -195,14 +195,14 @@ entt::entity SceneWorld::create_route_segment(float world_x, float world_z,
     registry_.emplace<RouteSegmentMetrics>(entity, metrics);
     registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     if (!route_link.source_qualified_name.empty() || !route_link.target_qualified_name.empty())
         registry_.emplace<RouteLink>(entity, std::move(route_link));
     return entity;
 }
 
-entt::entity SceneWorld::create_module_surface(float world_x, float world_z,
-    const ModuleSurfaceMetrics& metrics, const glm::vec4& color, SourceSymbol source, float elevation)
+entt::entity CodeVizSceneWorld::create_module_surface(float world_x, float world_z,
+    const ModuleSurfaceMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source, float elevation)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
@@ -217,19 +217,19 @@ entt::entity SceneWorld::create_module_surface(float world_x, float world_z,
         color,
         glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_biology_ellipsoid(float world_x, float world_z, float elevation,
-    const BiologyEllipsoidMetrics& metrics, const glm::vec4& color, SourceSymbol source,
+entt::entity CodeVizSceneWorld::create_ellipsoid(float world_x, float world_z, float elevation,
+    const EllipsoidMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source,
     std::shared_ptr<const GeometryMesh> custom_mesh, bool double_sided)
 {
     PERF_MEASURE();
     const auto entity = registry_.create();
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
-    registry_.emplace<BiologyEllipsoidMetrics>(entity, metrics);
+    registry_.emplace<EllipsoidMetrics>(entity, metrics);
     const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
     registry_.emplace<Appearance>(
         entity,
@@ -241,12 +241,12 @@ entt::entity SceneWorld::create_biology_ellipsoid(float world_x, float world_z, 
     if (custom_mesh)
         registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), CustomMeshTransformMode::Baked);
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevation,
-    const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source,
+entt::entity CodeVizSceneWorld::create_sign(float world_x, float world_z, float elevation,
+    const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source,
     std::shared_ptr<const GeometryMesh> custom_mesh, CustomMeshTransformMode custom_mesh_transform_mode)
 {
     PERF_MEASURE();
@@ -259,11 +259,11 @@ entt::entity SceneWorld::create_sign(float world_x, float world_z, float elevati
     if (custom_mesh)
         registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), custom_mesh_transform_mode);
     if (!source.file.empty() || !source.name.empty())
-        registry_.emplace<SourceSymbol>(entity, std::move(source));
+        registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
 }
 
-glm::vec3 SceneWorld::grid_to_world(float x, float z, float elevation) const
+glm::vec3 CodeVizSceneWorld::grid_to_world(float x, float z, float elevation) const
 {
     return {
         (x + 0.5f) * tile_size_,

@@ -18,9 +18,9 @@ struct CameraMovement
     float pitch = 0.0f;
 };
 
-// Self-contained input state machine for the megacity view.
+// Self-contained input state machine for code-visualization views.
 // Translates SDL key/mouse events into camera movement intent.
-class CityInputState
+class CodeVizInputState
 {
 public:
     // Clear all pressed-key state (called when the host loses focus).

@@ -20,7 +20,7 @@ struct ImGuiContext;
 namespace draxul
 {
 
-class CityInputState;
+class CodeVizInputState;
 struct GeometryMesh;
 class IsometricCamera;
 class IsometricScenePass;
@@ -31,7 +31,7 @@ struct CodeSemanticSnapshot;
 struct SemanticMegacityModel;
 struct SemanticMegacityLayout;
 struct CityGrid;
-class SceneWorld;
+class CodeVizSceneWorld;
 
 enum class MegaCityVisualizationMode
 {
@@ -110,11 +110,11 @@ private:
     void reset_camera_to_default_frame();
 
     MegaCityVisualizationMode visualization_mode_ = MegaCityVisualizationMode::City;
-    std::unique_ptr<CityInputState> input_;
+    std::unique_ptr<CodeVizInputState> input_;
     IHostCallbacks* callbacks_ = nullptr;
     HostViewport viewport_;
     std::shared_ptr<IsometricScenePass> scene_pass_;
-    std::unique_ptr<SceneWorld> world_;
+    std::unique_ptr<CodeVizSceneWorld> world_;
     std::unique_ptr<IsometricCamera> camera_;
     CodebaseScanner scanner_;
     std::filesystem::path scan_root_;

@@ -51,15 +51,15 @@ float triangle_up_normal_y(const MeshData& mesh, size_t triangle_index)
     return glm::cross(p1 - p0, p2 - p0).y;
 }
 
-glm::vec2 ndc_of_point(const SceneSnapshot& scene, const glm::vec3& point)
+glm::vec2 ndc_of_point(const CodeVizSceneSnapshot& scene, const glm::vec3& point)
 {
     const glm::vec4 clip = scene.camera.proj * scene.camera.view * glm::vec4(point, 1.0f);
     return glm::vec2(clip) / clip.w;
 }
 
-SceneSnapshot snapshot_from_camera(const IsometricCamera& camera)
+CodeVizSceneSnapshot snapshot_from_camera(const IsometricCamera& camera)
 {
-    SceneSnapshot scene;
+    CodeVizSceneSnapshot scene;
     scene.camera.view = camera.view_matrix();
     scene.camera.proj = camera.proj_matrix();
     return scene;
@@ -259,7 +259,7 @@ bool init_text_service(TextService& text_service)
 
 TEST_CASE("megacity world maps grid coordinates to tile centers", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
 
     const glm::vec3 origin = world.grid_to_world(0, 0);
     const glm::vec3 corner = world.grid_to_world(4, 4);
@@ -283,7 +283,7 @@ TEST_CASE("megacity world maps grid coordinates to tile centers", "[megacity]")
 
 TEST_CASE("megacity world starts empty", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
 
     const auto view = world.registry().view<const Appearance>();
     CHECK(view.begin() == view.end());
@@ -291,7 +291,7 @@ TEST_CASE("megacity world starts empty", "[megacity]")
 
 TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
     const TreeMetrics metrics{
         .height = 7.0f,
         .canopy_radius = 1.6f,
@@ -303,14 +303,14 @@ TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
         0.25f,
         metrics,
         glm::vec4(1.0f),
-        SourceSymbol{ "", "CentralParkTreeBark" });
+        CodeVizSemanticRef{ "", "CentralParkTreeBark" });
     const entt::entity leaf_entity = world.create_tree_leaves(
         2.0f,
         3.0f,
         0.25f,
         metrics,
         glm::vec4(1.0f),
-        SourceSymbol{ "", "CentralParkTreeLeaves" });
+        CodeVizSemanticRef{ "", "CentralParkTreeLeaves" });
 
     const auto& bark_appearance = world.registry().get<Appearance>(bark_entity);
     const auto& leaf_appearance = world.registry().get<Appearance>(leaf_entity);
@@ -358,7 +358,7 @@ TEST_CASE("MegaCity build_city consumes a neutral semantic snapshot", "[megacity
     snapshot.files.push_back(std::move(file));
 
     const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
-    SceneWorld world;
+    CodeVizSceneWorld world;
 
     MegaCityCodeConfig config;
     uint64_t sign_revision = 0;
@@ -398,7 +398,7 @@ TEST_CASE("BioView analysis panel does not expose city-only controls", "[megacit
 
 TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fibres", "[megacity][bioview]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
     CodebaseSnapshot snapshot;
     snapshot.complete = true;
 
@@ -466,10 +466,10 @@ TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fib
     auto city_building_view = world.registry().view<const BuildingMetrics>();
     CHECK(city_building_view.begin() == city_building_view.end());
 
-    auto ellipsoid_view = world.registry().view<const BiologyEllipsoidMetrics, const SourceSymbol>();
+    auto ellipsoid_view = world.registry().view<const EllipsoidMetrics, const CodeVizSemanticRef>();
     for (const entt::entity entity : ellipsoid_view)
     {
-        const auto& source_symbol = ellipsoid_view.get<const SourceSymbol>(entity);
+        const auto& source_symbol = ellipsoid_view.get<const CodeVizSemanticRef>(entity);
         if (source_symbol.name == source_symbol.file && !source_symbol.file.empty())
             ++file_cells;
         if (source_symbol.name == "Widget" || source_symbol.name == "WidgetConfig")
@@ -501,7 +501,7 @@ TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fib
 
     IsometricCamera camera;
     camera.set_viewport(800, 600);
-    const SceneSnapshotResult scene = build_scene_snapshot(
+    const CodeVizSceneSnapshotResult scene = build_scene_snapshot(
         camera,
         world,
         config,
@@ -513,13 +513,13 @@ TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fib
     CHECK(std::count_if(
               scene.snapshot.objects.begin(),
               scene.snapshot.objects.end(),
-              [](const SceneObject& object) { return object.mesh == MeshId::Custom; })
+              [](const CodeVizRenderable& object) { return object.mesh == MeshId::Custom; })
         == static_cast<int>(file_cells + nuclei + organelles));
 }
 
 TEST_CASE("megacity world creates module surface entities", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
 
     const entt::entity entity = world.create_module_surface(
         4.0f,
@@ -530,7 +530,7 @@ TEST_CASE("megacity world creates module surface entities", "[megacity]")
             .height = 0.018f,
         },
         glm::vec4(0.2f, 0.4f, 0.8f, 1.0f),
-        SourceSymbol{ "", "libs/example" },
+        CodeVizSemanticRef{ "", "libs/example" },
         0.05f);
 
     const auto& appearance = world.registry().get<Appearance>(entity);
@@ -572,7 +572,7 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     });
     snapshot.files.push_back(file);
 
-    SceneWorld world;
+    CodeVizSceneWorld world;
     MegaCityCodeConfig config;
     uint64_t sign_label_revision = 1;
     const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
@@ -597,12 +597,12 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     REQUIRE(extent_z > 0.0f);
 
     std::vector<glm::vec2> horizontal_border_centers;
-    auto border_view = world.registry().view<const ModuleSurfaceMetrics, const WorldPosition, const SourceSymbol>();
+    auto border_view = world.registry().view<const ModuleSurfaceMetrics, const WorldPosition, const CodeVizSemanticRef>();
     for (const entt::entity entity : border_view)
     {
         const auto& metrics = border_view.get<const ModuleSurfaceMetrics>(entity);
         const auto& position = border_view.get<const WorldPosition>(entity);
-        const auto& source = border_view.get<const SourceSymbol>(entity);
+        const auto& source = border_view.get<const CodeVizSemanticRef>(entity);
         if (source.module_path != module_layout.module_path || source.name != module_layout.module_path)
             continue;
         if (metrics.extent_x <= metrics.extent_z)
@@ -616,12 +616,12 @@ TEST_CASE("megacity module signs are placed on module border strips", "[megacity
     std::vector<float> sign_heights;
     std::vector<float> sign_depths;
     std::vector<glm::vec4> sign_colors;
-    auto sign_view = world.registry().view<const SignMetrics, const WorldPosition, const SourceSymbol, const Appearance>();
+    auto sign_view = world.registry().view<const SignMetrics, const WorldPosition, const CodeVizSemanticRef, const Appearance>();
     for (const entt::entity entity : sign_view)
     {
         const auto& metrics = sign_view.get<const SignMetrics>(entity);
         const auto& position = sign_view.get<const WorldPosition>(entity);
-        const auto& source = sign_view.get<const SourceSymbol>(entity);
+        const auto& source = sign_view.get<const CodeVizSemanticRef>(entity);
         const auto& appearance = sign_view.get<const Appearance>(entity);
         if (source.file.empty()
             && source.module_path == module_layout.module_path
@@ -899,7 +899,7 @@ TEST_CASE("megacity perf debug state reports matched and unmatched runtime funct
 
 TEST_CASE("megacity scene snapshot carries per-layer performance heat state for buildings", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
     world.create_building(
         2.0f,
         3.0f,
@@ -911,7 +911,7 @@ TEST_CASE("megacity scene snapshot carries per-layer performance heat state for 
             .road_width = 0.0f,
         },
         glm::vec4(1.0f),
-        SourceSymbol{ "app/renderer.cpp", "Renderer", "app" },
+        CodeVizSemanticRef{ "app/renderer.cpp", "Renderer", "app" },
         MaterialId::FlatColor);
 
     auto live_metrics = std::make_shared<LiveCityMetricsSnapshot>();
@@ -947,7 +947,7 @@ TEST_CASE("megacity scene snapshot carries per-layer performance heat state for 
 
     MegaCityCodeConfig config;
     config.overlay_mode = OverlayMode::Perf;
-    SceneSnapshotResult result = build_scene_snapshot(camera, world, config, live_metrics, {}, nullptr, nullptr);
+    CodeVizSceneSnapshotResult result = build_scene_snapshot(camera, world, config, live_metrics, {}, nullptr, nullptr);
 
     REQUIRE(result.snapshot.camera.label_fade_px.z == Catch::Approx(1.0f));
     REQUIRE_FALSE(result.snapshot.objects.empty());
@@ -985,7 +985,7 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
     });
     snapshot.files.push_back(file);
 
-    SceneWorld world;
+    CodeVizSceneWorld world;
     MegaCityCodeConfig config;
     config.roof_sign_min_width_per_character = 0.6f;
     uint64_t sign_label_revision = 1;
@@ -1005,11 +1005,11 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
         + 2.0f * config.wall_sign_side_inset;
 
     bool found_building_sign = false;
-    auto sign_view = world.registry().view<const SignMetrics, const SourceSymbol>();
+    auto sign_view = world.registry().view<const SignMetrics, const CodeVizSemanticRef>();
     for (const entt::entity entity : sign_view)
     {
         const auto& metrics = sign_view.get<const SignMetrics>(entity);
-        const auto& source = sign_view.get<const SourceSymbol>(entity);
+        const auto& source = sign_view.get<const CodeVizSemanticRef>(entity);
         if (source.file != "src/example.cpp" || source.name != kBuildingName || source.module_path != "src")
             continue;
         found_building_sign = true;
@@ -1022,7 +1022,7 @@ TEST_CASE("megacity building roof sign expands for long text", "[megacity]")
 
 TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
     DraxulBuildingParams params;
     params.footprint = 4.0f;
     params.sides = 4;
@@ -1044,7 +1044,7 @@ TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]"
         0.25f,
         metrics,
         glm::vec4(1.0f),
-        SourceSymbol{ "src/app.cpp", "App" },
+        CodeVizSemanticRef{ "src/app.cpp", "App" },
         MaterialId::WoodBuilding,
         custom_mesh);
 
@@ -1053,7 +1053,7 @@ TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]"
     camera.set_viewport(800, 600);
     MegaCityCodeConfig config;
 
-    const SceneSnapshotResult result = build_scene_snapshot(
+    const CodeVizSceneSnapshotResult result = build_scene_snapshot(
         camera,
         world,
         config,
@@ -1071,7 +1071,7 @@ TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]"
 
 TEST_CASE("megacity scene snapshot carries custom sign meshes", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
     DraxulRoofSignParams params;
     params.sides = 6;
     params.inner_radius = 1.8f;
@@ -1091,7 +1091,7 @@ TEST_CASE("megacity scene snapshot carries custom sign meshes", "[megacity]")
         sign,
         MeshId::Custom,
         glm::vec4(1.0f),
-        SourceSymbol{ "src/app.cpp", "App" },
+        CodeVizSemanticRef{ "src/app.cpp", "App" },
         custom_mesh);
 
     IsometricCamera camera;
@@ -1099,7 +1099,7 @@ TEST_CASE("megacity scene snapshot carries custom sign meshes", "[megacity]")
     camera.set_viewport(800, 600);
     MegaCityCodeConfig config;
 
-    const SceneSnapshotResult result = build_scene_snapshot(
+    const CodeVizSceneSnapshotResult result = build_scene_snapshot(
         camera,
         world,
         config,
@@ -1145,7 +1145,7 @@ TEST_CASE("megacity picking distinguishes duplicate names in the same module by 
     camera.set_viewport(800, 600);
     camera.frame_world_bounds(-8.0f, 8.0f, -4.0f, 4.0f);
 
-    const SceneSnapshot scene = snapshot_from_camera(camera);
+    const CodeVizSceneSnapshot scene = snapshot_from_camera(camera);
     const glm::vec2 right_ndc = ndc_of_point(scene, glm::vec3(right.center.x, right.metrics.height * 0.5f, right.center.y));
     const glm::ivec2 screen_pos(
         static_cast<int>(std::lround((right_ndc.x * 0.5f + 0.5f) * 800.0f)),
@@ -1191,7 +1191,7 @@ TEST_CASE("megacity picking still resolves the correct building in perspective m
     camera.frame_world_bounds(-8.0f, 8.0f, -4.0f, 4.0f);
     camera.set_projection_mode(MegaCityProjectionMode::Perspective);
 
-    const SceneSnapshot scene = snapshot_from_camera(camera);
+    const CodeVizSceneSnapshot scene = snapshot_from_camera(camera);
     const glm::vec2 right_ndc = ndc_of_point(scene, glm::vec3(right.center.x, right.metrics.height * 0.5f, right.center.y));
     const glm::ivec2 screen_pos(
         static_cast<int>(std::lround((right_ndc.x * 0.5f + 0.5f) * 800.0f)),
@@ -1232,7 +1232,7 @@ TEST_CASE("megacity picking filter can skip disallowed duplicate-name buildings"
     camera.set_viewport(800, 600);
     camera.frame_world_bounds(-4.0f, 4.0f, -4.0f, 4.0f);
 
-    const SceneSnapshot scene = snapshot_from_camera(camera);
+    const CodeVizSceneSnapshot scene = snapshot_from_camera(camera);
     const glm::vec2 ndc = ndc_of_point(scene, glm::vec3(0.0f, first.metrics.height * 0.5f, 0.0f));
     const glm::ivec2 screen_pos(
         static_cast<int>(std::lround((ndc.x * 0.5f + 0.5f) * 800.0f)),
@@ -1265,7 +1265,7 @@ TEST_CASE("procedural building side count becomes hex for heavily connected buil
 
 TEST_CASE("route segment world transform follows its intended direction", "[megacity]")
 {
-    SceneWorld world;
+    CodeVizSceneWorld world;
     const glm::vec2 a{ 1.0f, 2.0f };
     const glm::vec2 b{ 4.0f, 5.0f };
     const glm::vec2 delta = glm::normalize(b - a);
@@ -1288,7 +1288,7 @@ TEST_CASE("route segment world transform follows its intended direction", "[mega
     camera.set_viewport(800, 600);
     MegaCityCodeConfig config;
 
-    const SceneSnapshotResult result = build_scene_snapshot(
+    const CodeVizSceneSnapshotResult result = build_scene_snapshot(
         camera,
         world,
         config,
@@ -2888,7 +2888,7 @@ TEST_CASE("bioview host builds from neutral semantics without a city model", "[m
     CHECK(host.semantic_layout_ == nullptr);
     CHECK(host.city_grid_ == nullptr);
     REQUIRE(host.world_ != nullptr);
-    auto ellipsoid_view = host.world_->registry().view<const BiologyEllipsoidMetrics>();
+    auto ellipsoid_view = host.world_->registry().view<const EllipsoidMetrics>();
     CHECK(ellipsoid_view.begin() != ellipsoid_view.end());
 
     host.shutdown();

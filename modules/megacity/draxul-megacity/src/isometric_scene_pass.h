@@ -14,7 +14,7 @@ public:
     IsometricScenePass(int grid_width, int grid_height, float tile_size);
     ~IsometricScenePass() override;
 
-    void set_scene(SceneSnapshot snapshot)
+    void set_scene(CodeVizSceneSnapshot snapshot)
     {
         scene_ = std::move(snapshot);
     }
@@ -38,11 +38,11 @@ public:
     {
         return tile_size_;
     }
-    const SceneSnapshot& scene() const
+    const CodeVizSceneSnapshot& scene() const
     {
         return scene_;
     }
-    SceneSnapshot& scene()
+    CodeVizSceneSnapshot& scene()
     {
         return scene_;
     }
@@ -53,7 +53,7 @@ private:
     int grid_width_ = 0;
     int grid_height_ = 0;
     float tile_size_ = 1.0f;
-    SceneSnapshot scene_;
+    CodeVizSceneSnapshot scene_;
     std::unique_ptr<State> state_;
 };
 

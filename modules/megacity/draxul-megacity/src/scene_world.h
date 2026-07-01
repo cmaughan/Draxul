@@ -8,12 +8,12 @@ namespace draxul
 
 // ECS-backed world. Entities are stored in an EnTT registry;
 // the world itself has no fixed bounds.
-class SceneWorld
+class CodeVizSceneWorld
 {
 public:
     static constexpr float kDefaultTileSize = 1.0f;
 
-    SceneWorld();
+    CodeVizSceneWorld();
 
     void clear();
     void clear_route_segments();
@@ -22,7 +22,7 @@ public:
 
     // Create a building entity at the given world-space center position.
     entt::entity create_building(float world_x, float world_z, float elevation,
-        const BuildingMetrics& metrics, const glm::vec4& color, SourceSymbol source = {},
+        const BuildingMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {},
         MaterialId material = MaterialId::WoodBuilding,
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
         float flat_metallic = 0.0f,
@@ -30,37 +30,37 @@ public:
 
     // Create a bark tree entity at the given world-space center position.
     entt::entity create_tree_bark(float world_x, float world_z, float elevation,
-        const TreeMetrics& metrics, const glm::vec4& color, SourceSymbol source = {});
+        const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {});
 
     // Create a leaf tree entity at the given world-space center position.
     entt::entity create_tree_leaves(float world_x, float world_z, float elevation,
-        const TreeMetrics& metrics, const glm::vec4& color, SourceSymbol source = {});
+        const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {});
 
     // Create a road-strip entity at the given world-space center position.
     entt::entity create_road(float world_x, float world_z, const RoadMetrics& metrics,
-        const glm::vec4& color, SourceSymbol source = {}, float elevation = 0.0f);
+        const glm::vec4& color, CodeVizSemanticRef source = {}, float elevation = 0.0f);
 
     // Create a textured road surface cuboid at the given world-space center position.
     entt::entity create_road_surface(float world_x, float world_z, const RoadSurfaceMetrics& metrics,
-        SourceSymbol source = {}, float elevation = 0.0f);
+        CodeVizSemanticRef source = {}, float elevation = 0.0f);
 
     // Create a thin dependency route segment at the given world-space center position.
     entt::entity create_route_segment(float world_x, float world_z, const RouteSegmentMetrics& metrics,
-        const glm::vec4& color, SourceSymbol source = {}, float elevation = 0.0f,
+        const glm::vec4& color, CodeVizSemanticRef source = {}, float elevation = 0.0f,
         RouteLink route_link = {});
 
     // Create a thin colored surface spanning a module's extents.
     entt::entity create_module_surface(float world_x, float world_z, const ModuleSurfaceMetrics& metrics,
-        const glm::vec4& color, SourceSymbol source = {}, float elevation = 0.0f);
+        const glm::vec4& color, CodeVizSemanticRef source = {}, float elevation = 0.0f);
 
-    // Create a biology ellipsoid centered horizontally at the given position.
-    entt::entity create_biology_ellipsoid(float world_x, float world_z, float elevation,
-        const BiologyEllipsoidMetrics& metrics, const glm::vec4& color, SourceSymbol source = {},
+    // Create an ellipsoid centered horizontally at the given position.
+    entt::entity create_ellipsoid(float world_x, float world_z, float elevation,
+        const EllipsoidMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {},
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr, bool double_sided = false);
 
     // Create a sign entity at the given world-space center position.
     entt::entity create_sign(float world_x, float world_z, float elevation,
-        const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, SourceSymbol source = {},
+        const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source = {},
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
         CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked);
 
