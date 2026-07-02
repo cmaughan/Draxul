@@ -982,7 +982,7 @@ bool MetalRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewpo
     [active_encoder_.get() setScissorRect:pass_scissor];
 
     MetalRenderContext ctx(active_command_buffer_.get(), active_encoder_.get(), current_frame_, MAX_FRAMES_IN_FLIGHT,
-        pixel_w_, pixel_h_, vx, vy, vw, vh);
+        pixel_w_, pixel_h_, vx, vy, vw, vh, device_.get(), drawable_tex);
     pass.record(ctx);
     chunk_has_work_ = true;
     return true;
