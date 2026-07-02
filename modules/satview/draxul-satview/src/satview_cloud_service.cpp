@@ -183,6 +183,11 @@ SatViewCloudService::~SatViewCloudService()
     stop();
 }
 
+void SatViewCloudService::start()
+{
+    start(Config{});
+}
+
 void SatViewCloudService::start(Config config)
 {
     stop();

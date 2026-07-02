@@ -444,6 +444,11 @@ SatViewCatalogService::~SatViewCatalogService()
     stop();
 }
 
+void SatViewCatalogService::start()
+{
+    start(Config{});
+}
+
 void SatViewCatalogService::start(Config config)
 {
     PERF_MEASURE();

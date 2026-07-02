@@ -61,7 +61,8 @@ public:
     SatViewCloudService(const SatViewCloudService&) = delete;
     SatViewCloudService& operator=(const SatViewCloudService&) = delete;
 
-    void start(Config config = {});
+    void start();
+    void start(Config config);
     void stop();
     void pump();
     bool request_refresh();

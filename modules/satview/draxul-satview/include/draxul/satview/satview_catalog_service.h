@@ -115,7 +115,8 @@ public:
     SatViewCatalogService(const SatViewCatalogService&) = delete;
     SatViewCatalogService& operator=(const SatViewCatalogService&) = delete;
 
-    void start(Config config = {});
+    void start();
+    void start(Config config);
     void stop();
     void pump();
     bool request_refresh();

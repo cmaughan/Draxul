@@ -138,9 +138,9 @@ static float2 map_position_from_render_teme(
         2.0f * asin(clamp(local.z / radius, -1.0f, 1.0f)) / kPi);
 }
 
-static float2 quad_corner(uint vertex)
+static float2 quad_corner(uint corner_index)
 {
-    switch (vertex)
+    switch (corner_index)
     {
     case 0:
         return float2(0.0f, 0.0f);
@@ -161,7 +161,6 @@ vertex SatViewVertexOut satview_earth_vertex(
     uint vertex_id [[vertex_id]],
     constant SatViewFrameUniforms& frame [[buffer(0)]])
 {
-    bool map_projection = frame.camera_pos.w < 0.0f;
     uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
     uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
     uint tri_vertex = vertex_id % 6u;
@@ -591,13 +590,13 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     constant SatViewSceneVertex* vertices [[buffer(1)]])
 {
     SatViewOrbitOut out;
-    SatViewSceneVertex vertex = vertices[vertex_id];
+    SatViewSceneVertex scene_vertex = vertices[vertex_id];
     if (frame.camera_pos.w < 0.0f)
     {
-        bool earth_fixed = abs(vertex.position.w) > 1.5f;
-        float2 projected = map_position_from_render_teme(vertex.position.xyz, frame, earth_fixed);
-        float2 paired = map_position_from_render_teme(vertex.paired_position.xyz, frame, earth_fixed);
-        if (vertex.position.w > 0.0f)
+        bool earth_fixed = abs(scene_vertex.position.w) > 1.5f;
+        float2 projected = map_position_from_render_teme(scene_vertex.position.xyz, frame, earth_fixed);
+        float2 paired = map_position_from_render_teme(scene_vertex.paired_position.xyz, frame, earth_fixed);
+        if (scene_vertex.position.w > 0.0f)
         {
             float delta = projected.x - paired.x;
             if (delta > 1.0f)
@@ -610,9 +609,9 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     }
     else
     {
-        out.position = frame.view_proj * float4(vertex.position.xyz, 1.0f);
+        out.position = frame.view_proj * float4(scene_vertex.position.xyz, 1.0f);
     }
-    out.color = vertex.color;
+    out.color = scene_vertex.color;
     return out;
 }
 
