@@ -25,7 +25,7 @@ public:
     // Create a block entity at the given world-space center position.
     entt::entity create_block(float world_x, float world_z, float elevation,
         const BlockMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {},
-        MaterialId material = MaterialId::WoodBuilding,
+        CodeVizMaterialPreset material = CodeVizMaterialPreset::VertexTintPbr0,
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
         float flat_metallic = 0.0f,
         CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked);
@@ -69,7 +69,7 @@ public:
     // City-metaphor compatibility wrappers.
     entt::entity create_building(float world_x, float world_z, float elevation,
         const BuildingMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {},
-        MaterialId material = MaterialId::WoodBuilding,
+        CodeVizMaterialPreset material = CodeVizMaterialPreset::VertexTintPbr0,
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
         float flat_metallic = 0.0f,
         CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked)

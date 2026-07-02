@@ -2,6 +2,7 @@
 
 #include <draxul/isometric_camera.h>
 #include <draxul/megacity_code_config.h>
+#include "city_materials.h"
 #include "scene_snapshot_builder.h"
 #include <draxul/codeviz_scene_world.h>
 #include "static_mesh_family_cache.h"
@@ -136,7 +137,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
         metrics,
         glm::vec4(0.4f, 0.6f, 0.8f, 1.0f),
         CodeVizSemanticRef{ "src/app.cpp", "App", "src" },
-        MaterialId::FlatColor,
+        CodeVizMaterialPreset::FlatColor,
         mesh,
         0.0f,
         CustomMeshTransformMode::ScaleByBlockMetrics);
@@ -147,7 +148,7 @@ TEST_CASE("scene snapshot scales reusable custom building meshes from building m
         metrics,
         glm::vec4(0.8f, 0.6f, 0.4f, 1.0f),
         CodeVizSemanticRef{ "src/app.cpp", "Other", "src" },
-        MaterialId::FlatColor,
+        CodeVizMaterialPreset::FlatColor,
         mesh,
         0.0f,
         CustomMeshTransformMode::ScaleByBlockMetrics);

@@ -32,54 +32,54 @@ enum class MeshId : uint32_t
     Custom,
 };
 
-enum class MaterialId : uint32_t
+enum class CodeVizMaterialPreset : uint32_t
 {
     FlatColor = 0,
-    AsphaltRoad = 1,
-    PavingSidewalk = 2,
-    WoodBuilding = 3,
-    LeafCards = 4,
-    TreeBark = 5,
+    TexturedPbr0 = 1,
+    TexturedPbr1 = 2,
+    VertexTintPbr0 = 3,
+    AlphaMaskedPbr0 = 4,
+    TexturedPbr2 = 5,
 };
 
-enum class MaterialShadingModel : uint32_t
+enum class CodeVizShadingModel : uint32_t
 {
     FlatColor = 0,
-    TexturedTintedPbr = 1,
+    TexturedPbr = 1,
     VertexTintPbr = 2,
-    LeafCutoutPbr = 3,
+    AlphaMaskedPbr = 3,
 };
 
-enum class SceneTextureId : uint32_t
+enum class CodeVizTextureId : uint32_t
 {
-    FallbackAlbedoSrgb = 0,
+    FallbackBaseColorSrgb = 0,
     FallbackScalar = 1,
     FallbackNormal = 2,
-    AsphaltAlbedo = 3,
-    AsphaltNormal = 4,
-    AsphaltRoughness = 5,
-    AsphaltAo = 6,
-    SidewalkAlbedo = 7,
-    SidewalkNormal = 8,
-    SidewalkRoughness = 9,
-    SidewalkAo = 10,
-    WoodAlbedo = 11,
-    WoodNormal = 12,
-    WoodRoughness = 13,
-    WoodMetalness = 14,
-    WoodAo = 15,
-    LeafAlbedo = 16,
-    LeafNormal = 17,
-    LeafRoughness = 18,
-    LeafOpacity = 19,
-    LeafScattering = 20,
-    BarkAlbedo = 21,
-    BarkNormal = 22,
-    BarkRoughness = 23,
-    BarkAo = 24,
+    Material0BaseColor = 3,
+    Material0Normal = 4,
+    Material0Roughness = 5,
+    Material0AmbientOcclusion = 6,
+    Material1BaseColor = 7,
+    Material1Normal = 8,
+    Material1Roughness = 9,
+    Material1AmbientOcclusion = 10,
+    Material2BaseColor = 11,
+    Material2Normal = 12,
+    Material2Roughness = 13,
+    Material2Metallic = 14,
+    Material2AmbientOcclusion = 15,
+    Material4BaseColor = 16,
+    Material4Normal = 17,
+    Material4Roughness = 18,
+    Material4Opacity = 19,
+    Material4Scattering = 20,
+    Material3BaseColor = 21,
+    Material3Normal = 22,
+    Material3Roughness = 23,
+    Material3AmbientOcclusion = 24,
 };
 
-constexpr uint32_t kSceneMaterialTextureCount = 25;
+constexpr uint32_t kCodeVizMaterialTextureCount = 25;
 constexpr uint32_t kMaxSceneMaterials = 64;
 constexpr uint32_t kShadowCascadeCount = 3;
 constexpr uint32_t kPointShadowFaceCount = 6;
@@ -136,13 +136,13 @@ struct CodeVizRenderable
 
 struct CodeVizMaterial
 {
-    MaterialShadingModel shading_model = MaterialShadingModel::FlatColor;
+    CodeVizShadingModel shading_model = CodeVizShadingModel::FlatColor;
     glm::vec4 scalar_params{ 1.0f, 1.0f, 1.0f, 0.0f }; // x = material-specific primary scalar, y = normal strength, z = material-specific secondary scalar, w = metallic
     glm::uvec4 texture_indices{
-        static_cast<uint32_t>(SceneTextureId::FallbackAlbedoSrgb),
-        static_cast<uint32_t>(SceneTextureId::FallbackNormal),
-        static_cast<uint32_t>(SceneTextureId::FallbackScalar),
-        static_cast<uint32_t>(SceneTextureId::FallbackScalar),
+        static_cast<uint32_t>(CodeVizTextureId::FallbackBaseColorSrgb),
+        static_cast<uint32_t>(CodeVizTextureId::FallbackNormal),
+        static_cast<uint32_t>(CodeVizTextureId::FallbackScalar),
+        static_cast<uint32_t>(CodeVizTextureId::FallbackScalar),
     };
     glm::uvec4 metadata{ 0u };
 };

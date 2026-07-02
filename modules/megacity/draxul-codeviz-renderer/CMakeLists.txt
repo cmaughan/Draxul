@@ -11,7 +11,7 @@ else()
 endif()
 
 add_library(draxul-codeviz-renderer STATIC
-    src/megacity_material_assets.cpp
+    src/codeviz_material_library.cpp
     src/mesh_library.cpp
     src/shadow_cascade.cpp
     ${CODEVIZ_RENDERER_PLATFORM_SOURCES}

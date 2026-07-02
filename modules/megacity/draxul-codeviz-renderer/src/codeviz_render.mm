@@ -1,6 +1,6 @@
 #include <draxul/codeviz_scene_pass.h>
 
-#include "megacity_material_assets.h"
+#include "codeviz_material_library.h"
 #include "mesh_library.h"
 #include "shadow_cascade.h"
 #import <Metal/Metal.h>
@@ -388,7 +388,7 @@ struct CodeVizScenePass::State
     ObjCRef<id<MTLSamplerState>> gbuffer_point_sampler;
     ObjCRef<id<MTLSamplerState>> shadow_compare_sampler;
     ObjCRef<id<MTLSamplerState>> material_sampler;
-    std::array<ObjCRef<id<MTLTexture>>, kSceneMaterialTextureCount> material_textures;
+    std::array<ObjCRef<id<MTLTexture>>, kCodeVizMaterialTextureCount> material_textures;
     std::vector<GBufferTargets> gbuffer_targets; // per frame
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
@@ -870,7 +870,7 @@ struct CodeVizScenePass::State
         return make_texture(cmd_buf, format, image);
     }
 
-    bool ensure_road_materials(id<MTLCommandBuffer> cmd_buf)
+    bool ensure_codeviz_material_library(id<MTLCommandBuffer> cmd_buf)
     {
         PERF_MEASURE();
         if (std::all_of(material_textures.begin(), material_textures.end(),
@@ -878,68 +878,63 @@ struct CodeVizScenePass::State
             && material_sampler)
             return true;
 
-        const AsphaltRoadMaterialImages road_images = load_asphalt_road_material_images();
-        const PavingSidewalkMaterialImages sidewalk_images = load_paving_sidewalk_material_images();
-        const WoodBuildingMaterialImages wood_images = load_wood_building_material_images();
-        const BarkTreeMaterialImages bark_images = load_bark_tree_material_images();
-        const LeafAtlasMaterialImages leaf_images = load_leaf_atlas_material_images();
-        if (!road_images.valid() || !sidewalk_images.valid() || !wood_images.valid()
-            || !bark_images.valid() || !leaf_images.valid())
+        const CodeVizMaterialLibraryImages library_images = load_codeviz_material_library_images();
+        if (!library_images.valid())
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load Megacity material images");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "CodeViz: failed to load material library images");
             return false;
         }
 
-        material_textures[static_cast<size_t>(SceneTextureId::FallbackAlbedoSrgb)].reset(
+        material_textures[static_cast<size_t>(CodeVizTextureId::FallbackBaseColorSrgb)].reset(
             make_solid_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, { 255, 255, 255, 255 }));
-        material_textures[static_cast<size_t>(SceneTextureId::FallbackScalar)].reset(
+        material_textures[static_cast<size_t>(CodeVizTextureId::FallbackScalar)].reset(
             make_solid_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, { 255, 255, 255, 255 }));
-        material_textures[static_cast<size_t>(SceneTextureId::FallbackNormal)].reset(
+        material_textures[static_cast<size_t>(CodeVizTextureId::FallbackNormal)].reset(
             make_solid_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, { 128, 128, 255, 255 }));
-        material_textures[static_cast<size_t>(SceneTextureId::AsphaltAlbedo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, road_images.albedo));
-        material_textures[static_cast<size_t>(SceneTextureId::AsphaltNormal)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, road_images.normal));
-        material_textures[static_cast<size_t>(SceneTextureId::AsphaltRoughness)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, road_images.roughness));
-        material_textures[static_cast<size_t>(SceneTextureId::AsphaltAo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, road_images.ao));
-        material_textures[static_cast<size_t>(SceneTextureId::SidewalkAlbedo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, sidewalk_images.albedo));
-        material_textures[static_cast<size_t>(SceneTextureId::SidewalkNormal)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, sidewalk_images.normal));
-        material_textures[static_cast<size_t>(SceneTextureId::SidewalkRoughness)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, sidewalk_images.roughness));
-        material_textures[static_cast<size_t>(SceneTextureId::SidewalkAo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, sidewalk_images.ao));
-        material_textures[static_cast<size_t>(SceneTextureId::WoodAlbedo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, wood_images.albedo));
-        material_textures[static_cast<size_t>(SceneTextureId::WoodNormal)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.normal));
-        material_textures[static_cast<size_t>(SceneTextureId::WoodRoughness)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.roughness));
-        material_textures[static_cast<size_t>(SceneTextureId::WoodMetalness)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.metalness));
-        material_textures[static_cast<size_t>(SceneTextureId::WoodAo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, wood_images.ao));
-        material_textures[static_cast<size_t>(SceneTextureId::BarkAlbedo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, bark_images.albedo));
-        material_textures[static_cast<size_t>(SceneTextureId::BarkNormal)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, bark_images.normal));
-        material_textures[static_cast<size_t>(SceneTextureId::BarkRoughness)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, bark_images.roughness));
-        material_textures[static_cast<size_t>(SceneTextureId::BarkAo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, bark_images.ao));
-        material_textures[static_cast<size_t>(SceneTextureId::LeafAlbedo)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, leaf_images.albedo));
-        material_textures[static_cast<size_t>(SceneTextureId::LeafNormal)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, leaf_images.normal));
-        material_textures[static_cast<size_t>(SceneTextureId::LeafRoughness)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, leaf_images.roughness));
-        material_textures[static_cast<size_t>(SceneTextureId::LeafOpacity)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, leaf_images.opacity));
-        material_textures[static_cast<size_t>(SceneTextureId::LeafScattering)].reset(
-            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, leaf_images.scattering));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material0BaseColor)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, library_images.textured_pbr0.albedo));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material0Normal)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr0.normal));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material0Roughness)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr0.roughness));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material0AmbientOcclusion)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr0.ao));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material1BaseColor)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, library_images.textured_pbr1.albedo));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material1Normal)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr1.normal));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material1Roughness)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr1.roughness));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material1AmbientOcclusion)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr1.ao));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material2BaseColor)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, library_images.vertex_tint_pbr0.albedo));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material2Normal)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.vertex_tint_pbr0.normal));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material2Roughness)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.vertex_tint_pbr0.roughness));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material2Metallic)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.vertex_tint_pbr0.metalness));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material2AmbientOcclusion)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.vertex_tint_pbr0.ao));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material3BaseColor)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, library_images.textured_pbr2.albedo));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material3Normal)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr2.normal));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material3Roughness)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr2.roughness));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material3AmbientOcclusion)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.textured_pbr2.ao));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material4BaseColor)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm_sRGB, library_images.alpha_masked_pbr0.albedo));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material4Normal)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.alpha_masked_pbr0.normal));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material4Roughness)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.alpha_masked_pbr0.roughness));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material4Opacity)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.alpha_masked_pbr0.opacity));
+        material_textures[static_cast<size_t>(CodeVizTextureId::Material4Scattering)].reset(
+            make_texture(cmd_buf, MTLPixelFormatRGBA8Unorm, library_images.alpha_masked_pbr0.scattering));
         if (!std::all_of(material_textures.begin(), material_textures.end(),
                 [](const ObjCRef<id<MTLTexture>>& texture) { return texture.get() != nil; }))
             return false;
@@ -1344,7 +1339,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
         return;
     if (!state_->ensure_gbuffer_targets(cmd_buf.device, frame_count, vw, vh))
         return;
-    if (!state_->ensure_road_materials(cmd_buf))
+    if (!state_->ensure_codeviz_material_library(cmd_buf))
         return;
     if (!state_->ensure_label_atlas(cmd_buf.device, scene_.label_atlas))
         return;
@@ -1467,7 +1462,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
         if (!obj.route_source.empty() || !obj.route_target.empty())
             return false;
         if (obj.material_index < scene_.materials.size()
-            && scene_.materials[obj.material_index].shading_model == MaterialShadingModel::LeafCutoutPbr)
+            && scene_.materials[obj.material_index].shading_model == CodeVizShadingModel::AlphaMaskedPbr)
         {
             return false;
         }

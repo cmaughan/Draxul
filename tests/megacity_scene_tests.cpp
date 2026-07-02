@@ -5,6 +5,7 @@
 #include "biology_builder.h"
 #include "city_builder.h"
 #include "city_helpers.h"
+#include "city_materials.h"
 #include "city_picking.h"
 #include <draxul/isometric_camera.h>
 #include <draxul/codeviz_scene_pass.h>
@@ -318,10 +319,10 @@ TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
     const auto& elevation = world.registry().get<Elevation>(bark_entity);
 
     CHECK(bark_appearance.mesh == MeshId::TreeBark);
-    CHECK(bark_appearance.material == MaterialId::TreeBark);
+    CHECK(bark_appearance.material == kCityTreeBarkMaterial);
     CHECK_FALSE(bark_appearance.double_sided);
     CHECK(leaf_appearance.mesh == MeshId::TreeLeaves);
-    CHECK(leaf_appearance.material == MaterialId::LeafCards);
+    CHECK(leaf_appearance.material == kCityLeafCardMaterial);
     CHECK_FALSE(leaf_appearance.double_sided);
     CHECK(stored_metrics.height == Catch::Approx(7.0f));
     CHECK(stored_metrics.canopy_radius == Catch::Approx(1.6f));
@@ -538,7 +539,7 @@ TEST_CASE("megacity world creates module surface entities", "[megacity]")
     const auto& elevation = world.registry().get<Elevation>(entity);
 
     CHECK(appearance.mesh == MeshId::Cube);
-    CHECK(appearance.material == MaterialId::FlatColor);
+    CHECK(appearance.material == CodeVizMaterialPreset::FlatColor);
     CHECK(metrics.extent_x == Catch::Approx(10.0f));
     CHECK(metrics.extent_z == Catch::Approx(14.0f));
     CHECK(metrics.height == Catch::Approx(0.018f));
@@ -912,7 +913,7 @@ TEST_CASE("megacity scene snapshot carries per-layer performance heat state for 
         },
         glm::vec4(1.0f),
         CodeVizSemanticRef{ "app/renderer.cpp", "Renderer", "app" },
-        MaterialId::FlatColor);
+        CodeVizMaterialPreset::FlatColor);
 
     auto live_metrics = std::make_shared<LiveCityMetricsSnapshot>();
     live_metrics->buildings.push_back({
@@ -1045,7 +1046,7 @@ TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]"
         metrics,
         glm::vec4(1.0f),
         CodeVizSemanticRef{ "src/app.cpp", "App" },
-        MaterialId::WoodBuilding,
+        kCityWoodBuildingMaterial,
         custom_mesh);
 
     IsometricCamera camera;

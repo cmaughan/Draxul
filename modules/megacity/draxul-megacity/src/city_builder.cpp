@@ -1,5 +1,6 @@
 #include "city_builder.h"
 #include "city_helpers.h"
+#include "city_materials.h"
 #include "live_city_metrics.h"
 #include <draxul/codeviz_scene_world.h>
 #include "semantic_city_layout.h"
@@ -367,7 +368,7 @@ void build_point_shadow_debug_scene(
         primary_metrics,
         glm::vec4(0.86f, 0.74f, 0.62f, 1.0f),
         CodeVizSemanticRef{ "", "PointShadowDebugPrimary", "" },
-        MaterialId::FlatColor,
+        CodeVizMaterialPreset::FlatColor,
         build_procedural_building_mesh(
             static_meshes,
             SemanticCityBuilding{
@@ -391,7 +392,7 @@ void build_point_shadow_debug_scene(
         secondary_metrics,
         glm::vec4(0.58f, 0.72f, 0.90f, 1.0f),
         CodeVizSemanticRef{ "", "PointShadowDebugSecondary", "" },
-        MaterialId::FlatColor,
+        CodeVizMaterialPreset::FlatColor,
         build_procedural_building_mesh(
             static_meshes,
             SemanticCityBuilding{
@@ -1324,7 +1325,7 @@ CityBuildResult build_city(
                 park_metrics,
                 park_color,
                 CodeVizSemanticRef{ "", module_layout.module_path, module_layout.module_path },
-                MaterialId::FlatColor);
+                CodeVizMaterialPreset::FlatColor);
 
             if (module_layout.is_central_park)
             {
@@ -1387,7 +1388,7 @@ CityBuildResult build_city(
                 building.metrics,
                 module_color,
                 CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
-                MaterialId::FlatColor,
+                CodeVizMaterialPreset::FlatColor,
                 std::move(building_mesh),
                 1.0f,
                 CustomMeshTransformMode::ScaleByBlockMetrics);
@@ -1422,7 +1423,7 @@ CityBuildResult build_city(
                             cap_metrics,
                             cap_color,
                             CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
-                            MaterialId::FlatColor,
+                            CodeVizMaterialPreset::FlatColor,
                             build_procedural_building_cap_mesh(
                                 static_meshes,
                                 building,
@@ -1469,7 +1470,7 @@ CityBuildResult build_city(
                     sidewalk_metrics,
                     kSidewalkSurfaceColor,
                     CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
-                    MaterialId::PavingSidewalk,
+                    kCityPavingSidewalkMaterial,
                     std::move(ring_mesh),
                     0.0f,
                     CustomMeshTransformMode::ScaleByBlockMetrics);

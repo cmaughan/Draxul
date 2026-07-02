@@ -8,18 +8,18 @@ namespace draxul
 namespace
 {
 
-constexpr float kWoodBuildingUvScale = 0.45f;
-constexpr float kWoodBuildingNormalStrength = 0.7f;
-constexpr float kWoodBuildingAoStrength = 0.45f;
-constexpr float kTreeBarkUvScale = 1.0f;
-constexpr float kTreeBarkNormalStrength = 0.6f;
-constexpr float kTreeBarkAoStrength = 0.28f;
-constexpr float kSidewalkPavingUvScale = 0.10625f;
-constexpr float kSidewalkPavingNormalStrength = 0.8f;
-constexpr float kSidewalkPavingAoStrength = 0.55f;
-constexpr float kLeafAtlasUvScale = 1.0f;
-constexpr float kLeafAtlasNormalStrength = 0.55f;
-constexpr float kLeafAtlasScatteringStrength = 0.85f;
+constexpr float kVertexTintPbr0UvScale = 0.45f;
+constexpr float kVertexTintPbr0NormalStrength = 0.7f;
+constexpr float kVertexTintPbr0AoStrength = 0.45f;
+constexpr float kTexturedPbr2UvScale = 1.0f;
+constexpr float kTexturedPbr2NormalStrength = 0.6f;
+constexpr float kTexturedPbr2AoStrength = 0.28f;
+constexpr float kTexturedPbr1UvScale = 0.10625f;
+constexpr float kTexturedPbr1NormalStrength = 0.8f;
+constexpr float kTexturedPbr1AoStrength = 0.55f;
+constexpr float kAlphaMaskedPbr0UvScale = 1.0f;
+constexpr float kAlphaMaskedPbr0NormalStrength = 0.55f;
+constexpr float kAlphaMaskedPbr0ScatteringStrength = 0.85f;
 
 } // namespace
 
@@ -48,7 +48,7 @@ void CodeVizSceneWorld::clear_route_segments()
 
 entt::entity CodeVizSceneWorld::create_block(float world_x, float world_z, float elevation,
     const BlockMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source,
-    MaterialId material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic,
+    CodeVizMaterialPreset material, std::shared_ptr<const GeometryMesh> custom_mesh, float flat_metallic,
     CustomMeshTransformMode custom_mesh_transform_mode)
 {
     PERF_MEASURE();
@@ -57,33 +57,33 @@ entt::entity CodeVizSceneWorld::create_block(float world_x, float world_z, float
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<BlockMetrics>(entity, metrics);
     const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
-    if (material == MaterialId::WoodBuilding)
+    if (material == CodeVizMaterialPreset::VertexTintPbr0)
     {
         registry_.emplace<Appearance>(
             entity,
             mesh_id,
-            MaterialId::WoodBuilding,
+            CodeVizMaterialPreset::VertexTintPbr0,
             false,
             color,
             glm::vec4(
-                static_cast<float>(MaterialId::WoodBuilding),
-                kWoodBuildingUvScale,
-                kWoodBuildingNormalStrength,
-                kWoodBuildingAoStrength));
+                static_cast<float>(CodeVizMaterialPreset::VertexTintPbr0),
+                kVertexTintPbr0UvScale,
+                kVertexTintPbr0NormalStrength,
+                kVertexTintPbr0AoStrength));
     }
-    else if (material == MaterialId::PavingSidewalk)
+    else if (material == CodeVizMaterialPreset::TexturedPbr1)
     {
         registry_.emplace<Appearance>(
             entity,
             mesh_id,
-            MaterialId::PavingSidewalk,
+            CodeVizMaterialPreset::TexturedPbr1,
             false,
             color,
             glm::vec4(
-                static_cast<float>(MaterialId::PavingSidewalk),
-                kSidewalkPavingUvScale,
-                kSidewalkPavingNormalStrength,
-                kSidewalkPavingAoStrength));
+                static_cast<float>(CodeVizMaterialPreset::TexturedPbr1),
+                kTexturedPbr1UvScale,
+                kTexturedPbr1NormalStrength,
+                kTexturedPbr1AoStrength));
     }
     else
     {
@@ -108,14 +108,14 @@ entt::entity CodeVizSceneWorld::create_foliage_bark(float world_x, float world_z
     registry_.emplace<Appearance>(
         entity,
         MeshId::TreeBark,
-        MaterialId::TreeBark,
+        CodeVizMaterialPreset::TexturedPbr2,
         false,
         color,
         glm::vec4(
-            static_cast<float>(MaterialId::TreeBark),
-            kTreeBarkUvScale,
-            kTreeBarkNormalStrength,
-            kTreeBarkAoStrength));
+            static_cast<float>(CodeVizMaterialPreset::TexturedPbr2),
+            kTexturedPbr2UvScale,
+            kTexturedPbr2NormalStrength,
+            kTexturedPbr2AoStrength));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
@@ -132,14 +132,14 @@ entt::entity CodeVizSceneWorld::create_foliage_leaves(float world_x, float world
     registry_.emplace<Appearance>(
         entity,
         MeshId::TreeLeaves,
-        MaterialId::LeafCards,
+        CodeVizMaterialPreset::AlphaMaskedPbr0,
         false,
         color,
         glm::vec4(
-            static_cast<float>(MaterialId::LeafCards),
-            kLeafAtlasUvScale,
-            kLeafAtlasNormalStrength,
-            kLeafAtlasScatteringStrength));
+            static_cast<float>(CodeVizMaterialPreset::AlphaMaskedPbr0),
+            kAlphaMaskedPbr0UvScale,
+            kAlphaMaskedPbr0NormalStrength,
+            kAlphaMaskedPbr0ScatteringStrength));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
@@ -156,14 +156,14 @@ entt::entity CodeVizSceneWorld::create_strip(float world_x, float world_z,
     registry_.emplace<Appearance>(
         entity,
         MeshId::Cube,
-        MaterialId::PavingSidewalk,
+        CodeVizMaterialPreset::TexturedPbr1,
         false,
         color,
         glm::vec4(
-            static_cast<float>(MaterialId::PavingSidewalk),
-            kSidewalkPavingUvScale,
-            kSidewalkPavingNormalStrength,
-            kSidewalkPavingAoStrength));
+            static_cast<float>(CodeVizMaterialPreset::TexturedPbr1),
+            kTexturedPbr1UvScale,
+            kTexturedPbr1NormalStrength,
+            kTexturedPbr1AoStrength));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
@@ -180,10 +180,14 @@ entt::entity CodeVizSceneWorld::create_textured_surface(float world_x, float wor
     registry_.emplace<Appearance>(
         entity,
         MeshId::RoadSurface,
-        MaterialId::AsphaltRoad,
+        CodeVizMaterialPreset::TexturedPbr0,
         false,
         glm::vec4(1.0f),
-        glm::vec4(static_cast<float>(MaterialId::AsphaltRoad), metrics.uv_scale, metrics.normal_strength, metrics.ao_strength));
+        glm::vec4(
+            static_cast<float>(CodeVizMaterialPreset::TexturedPbr0),
+            metrics.uv_scale,
+            metrics.normal_strength,
+            metrics.ao_strength));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     return entity;
@@ -198,7 +202,7 @@ entt::entity CodeVizSceneWorld::create_link_segment(float world_x, float world_z
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<LinkSegmentMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, MeshId::Cube, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    registry_.emplace<Appearance>(entity, MeshId::Cube, CodeVizMaterialPreset::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     if (!relationship_link.source_qualified_name.empty() || !relationship_link.target_qualified_name.empty())
@@ -217,7 +221,7 @@ entt::entity CodeVizSceneWorld::create_region_surface(float world_x, float world
     registry_.emplace<Appearance>(
         entity,
         MeshId::Cube,
-        MaterialId::FlatColor,
+        CodeVizMaterialPreset::FlatColor,
         false,
         color,
         glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
@@ -239,7 +243,7 @@ entt::entity CodeVizSceneWorld::create_ellipsoid(float world_x, float world_z, f
     registry_.emplace<Appearance>(
         entity,
         mesh_id,
-        MaterialId::FlatColor,
+        CodeVizMaterialPreset::FlatColor,
         double_sided,
         color,
         glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
@@ -260,7 +264,7 @@ entt::entity CodeVizSceneWorld::create_label_panel(float world_x, float world_z,
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<LabelPanelMetrics>(entity, metrics);
     const MeshId mesh_id = custom_mesh ? MeshId::Custom : mesh;
-    registry_.emplace<Appearance>(entity, mesh_id, MaterialId::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    registry_.emplace<Appearance>(entity, mesh_id, CodeVizMaterialPreset::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (custom_mesh)
         registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), custom_mesh_transform_mode);
     if (!source.file.empty() || !source.name.empty())

@@ -1,5 +1,6 @@
 #include "scene_snapshot_builder.h"
 #include "city_helpers.h"
+#include "city_materials.h"
 #include <draxul/isometric_camera.h>
 #include "live_city_metrics.h"
 #include <draxul/codeviz_scene_world.h>
@@ -114,82 +115,82 @@ CodeVizMaterial build_scene_material(const Appearance& appearance, const MegaCit
     CodeVizMaterial material;
     switch (appearance.material)
     {
-    case MaterialId::AsphaltRoad:
-        material.shading_model = MaterialShadingModel::TexturedTintedPbr;
+    case kCityAsphaltRoadMaterial:
+        material.shading_model = CodeVizShadingModel::TexturedPbr;
         material.scalar_params = glm::vec4(
             appearance.material_info.y,
             appearance.material_info.z,
             appearance.material_info.w,
             0.0f);
         material.texture_indices = glm::uvec4(
-            static_cast<uint32_t>(SceneTextureId::AsphaltAlbedo),
-            static_cast<uint32_t>(SceneTextureId::AsphaltNormal),
-            static_cast<uint32_t>(SceneTextureId::AsphaltRoughness),
-            static_cast<uint32_t>(SceneTextureId::AsphaltAo));
+            static_cast<uint32_t>(CodeVizTextureId::Material0BaseColor),
+            static_cast<uint32_t>(CodeVizTextureId::Material0Normal),
+            static_cast<uint32_t>(CodeVizTextureId::Material0Roughness),
+            static_cast<uint32_t>(CodeVizTextureId::Material0AmbientOcclusion));
         break;
-    case MaterialId::PavingSidewalk:
-        material.shading_model = MaterialShadingModel::TexturedTintedPbr;
+    case kCityPavingSidewalkMaterial:
+        material.shading_model = CodeVizShadingModel::TexturedPbr;
         material.scalar_params = glm::vec4(
             appearance.material_info.y,
             appearance.material_info.z,
             appearance.material_info.w,
             0.0f);
         material.texture_indices = glm::uvec4(
-            static_cast<uint32_t>(SceneTextureId::SidewalkAlbedo),
-            static_cast<uint32_t>(SceneTextureId::SidewalkNormal),
-            static_cast<uint32_t>(SceneTextureId::SidewalkRoughness),
-            static_cast<uint32_t>(SceneTextureId::SidewalkAo));
+            static_cast<uint32_t>(CodeVizTextureId::Material1BaseColor),
+            static_cast<uint32_t>(CodeVizTextureId::Material1Normal),
+            static_cast<uint32_t>(CodeVizTextureId::Material1Roughness),
+            static_cast<uint32_t>(CodeVizTextureId::Material1AmbientOcclusion));
         break;
-    case MaterialId::WoodBuilding:
-        material.shading_model = MaterialShadingModel::VertexTintPbr;
+    case kCityWoodBuildingMaterial:
+        material.shading_model = CodeVizShadingModel::VertexTintPbr;
         material.scalar_params = glm::vec4(
             appearance.material_info.y,
             appearance.material_info.z,
             appearance.material_info.w,
             1.0f);
         material.texture_indices = glm::uvec4(
-            static_cast<uint32_t>(SceneTextureId::WoodAlbedo),
-            static_cast<uint32_t>(SceneTextureId::WoodNormal),
-            static_cast<uint32_t>(SceneTextureId::WoodRoughness),
-            static_cast<uint32_t>(SceneTextureId::WoodAo));
+            static_cast<uint32_t>(CodeVizTextureId::Material2BaseColor),
+            static_cast<uint32_t>(CodeVizTextureId::Material2Normal),
+            static_cast<uint32_t>(CodeVizTextureId::Material2Roughness),
+            static_cast<uint32_t>(CodeVizTextureId::Material2AmbientOcclusion));
         material.metadata = glm::uvec4(
             0u,
-            static_cast<uint32_t>(SceneTextureId::WoodMetalness),
+            static_cast<uint32_t>(CodeVizTextureId::Material2Metallic),
             0u,
             0u);
         break;
-    case MaterialId::LeafCards:
-        material.shading_model = MaterialShadingModel::LeafCutoutPbr;
+    case kCityLeafCardMaterial:
+        material.shading_model = CodeVizShadingModel::AlphaMaskedPbr;
         material.scalar_params = glm::vec4(
             appearance.material_info.y,
             appearance.material_info.z,
             appearance.material_info.w,
             0.0f);
         material.texture_indices = glm::uvec4(
-            static_cast<uint32_t>(SceneTextureId::LeafAlbedo),
-            static_cast<uint32_t>(SceneTextureId::LeafNormal),
-            static_cast<uint32_t>(SceneTextureId::LeafRoughness),
-            static_cast<uint32_t>(SceneTextureId::LeafOpacity));
+            static_cast<uint32_t>(CodeVizTextureId::Material4BaseColor),
+            static_cast<uint32_t>(CodeVizTextureId::Material4Normal),
+            static_cast<uint32_t>(CodeVizTextureId::Material4Roughness),
+            static_cast<uint32_t>(CodeVizTextureId::Material4Opacity));
         material.metadata = glm::uvec4(
             0u,
-            static_cast<uint32_t>(SceneTextureId::LeafScattering),
+            static_cast<uint32_t>(CodeVizTextureId::Material4Scattering),
             0u,
             0u);
         break;
-    case MaterialId::TreeBark:
-        material.shading_model = MaterialShadingModel::TexturedTintedPbr;
+    case kCityTreeBarkMaterial:
+        material.shading_model = CodeVizShadingModel::TexturedPbr;
         material.scalar_params = glm::vec4(
             appearance.material_info.y,
             appearance.material_info.z,
             appearance.material_info.w,
             0.0f);
         material.texture_indices = glm::uvec4(
-            static_cast<uint32_t>(SceneTextureId::BarkAlbedo),
-            static_cast<uint32_t>(SceneTextureId::BarkNormal),
-            static_cast<uint32_t>(SceneTextureId::BarkRoughness),
-            static_cast<uint32_t>(SceneTextureId::BarkAo));
+            static_cast<uint32_t>(CodeVizTextureId::Material3BaseColor),
+            static_cast<uint32_t>(CodeVizTextureId::Material3Normal),
+            static_cast<uint32_t>(CodeVizTextureId::Material3Roughness),
+            static_cast<uint32_t>(CodeVizTextureId::Material3AmbientOcclusion));
         break;
-    case MaterialId::FlatColor:
+    case CodeVizMaterialPreset::FlatColor:
         material.scalar_params.x = glm::clamp(config.flat_color_roughness, 0.04f, 1.0f);
         material.scalar_params.w = glm::clamp(appearance.material_info.x * config.flat_color_metallic, 0.0f, 1.0f);
         break;
@@ -378,7 +379,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             else if (custom_mesh->transform_mode == CustomMeshTransformMode::ScaleByBlockMetrics)
             {
                 transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
-                if (appearance.material == MaterialId::PavingSidewalk)
+                if (appearance.material == kCityPavingSidewalkMaterial)
                     obj.uv_rect = glm::vec4(0.0f, 0.0f, bm->footprint, bm->footprint);
             }
         }

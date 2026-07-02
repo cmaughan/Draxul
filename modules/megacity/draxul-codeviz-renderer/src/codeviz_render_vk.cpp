@@ -1,6 +1,6 @@
 #include <draxul/codeviz_scene_pass.h>
 
-#include "megacity_material_assets.h"
+#include "codeviz_material_library.h"
 #include "mesh_library.h"
 #include "shadow_cascade.h"
 #include <algorithm>
@@ -948,7 +948,7 @@ struct CodeVizScenePass::State
     VkSampler gbuffer_sampler = VK_NULL_HANDLE;
     VkSampler gbuffer_point_sampler = VK_NULL_HANDLE;
     VkSampler shadow_compare_sampler = VK_NULL_HANDLE;
-    std::array<ImageResource, kSceneMaterialTextureCount> material_textures;
+    std::array<ImageResource, kCodeVizMaterialTextureCount> material_textures;
     std::vector<GBufferTargets> gbuffer_targets;
     bool gbuffer_initialized = false;
     uint32_t last_prepass_frame = 0;
@@ -1141,7 +1141,7 @@ struct CodeVizScenePass::State
         scene_bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         scene_bindings[4].binding = 4;
         scene_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        scene_bindings[4].descriptorCount = kSceneMaterialTextureCount;
+        scene_bindings[4].descriptorCount = kCodeVizMaterialTextureCount;
         scene_bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         scene_bindings[5].binding = 5;
         scene_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -1221,7 +1221,7 @@ struct CodeVizScenePass::State
         pool_sizes[0].descriptorCount = frame_count * 2;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         pool_sizes[1].descriptorCount
-            = frame_count * (3 + kSceneMaterialTextureCount + kShadowCascadeCount + kPointShadowFaceCount);
+            = frame_count * (3 + kCodeVizMaterialTextureCount + kShadowCascadeCount + kPointShadowFaceCount);
         pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         pool_sizes[2].descriptorCount = frame_count;
 
@@ -1433,7 +1433,7 @@ struct CodeVizScenePass::State
         return true;
     }
 
-    bool ensure_road_materials(const VkRenderContext& ctx, VkCommandBuffer cmd)
+    bool ensure_codeviz_material_library(const VkRenderContext& ctx, VkCommandBuffer cmd)
     {
         PERF_MEASURE();
         if (std::all_of(material_textures.begin(), material_textures.end(),
@@ -1442,15 +1442,10 @@ struct CodeVizScenePass::State
             return true;
         }
 
-        const AsphaltRoadMaterialImages road_images = load_asphalt_road_material_images();
-        const PavingSidewalkMaterialImages sidewalk_images = load_paving_sidewalk_material_images();
-        const WoodBuildingMaterialImages wood_images = load_wood_building_material_images();
-        const BarkTreeMaterialImages bark_images = load_bark_tree_material_images();
-        const LeafAtlasMaterialImages leaf_images = load_leaf_atlas_material_images();
-        if (!road_images.valid() || !sidewalk_images.valid() || !wood_images.valid()
-            || !bark_images.valid() || !leaf_images.valid())
+        const CodeVizMaterialLibraryImages library_images = load_codeviz_material_library_images();
+        if (!library_images.valid())
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to load Megacity material images");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "CodeViz: failed to load material library images");
             return false;
         }
 
@@ -1469,40 +1464,40 @@ struct CodeVizScenePass::State
 
         struct TextureLoadSpec
         {
-            SceneTextureId id;
+            CodeVizTextureId id;
             const LoadedTextureImage* image = nullptr;
             VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
         };
 
-        const std::array<TextureLoadSpec, kSceneMaterialTextureCount> load_specs = { {
-            { SceneTextureId::FallbackAlbedoSrgb, &fallback_albedo, VK_FORMAT_R8G8B8A8_SRGB },
-            { SceneTextureId::FallbackScalar, &fallback_scalar, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::FallbackNormal, &fallback_normal, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::AsphaltAlbedo, &road_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
-            { SceneTextureId::AsphaltNormal, &road_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::AsphaltRoughness, &road_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::AsphaltAo, &road_images.ao, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::SidewalkAlbedo, &sidewalk_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
-            { SceneTextureId::SidewalkNormal, &sidewalk_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::SidewalkRoughness, &sidewalk_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::SidewalkAo, &sidewalk_images.ao, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::WoodAlbedo, &wood_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
-            { SceneTextureId::WoodNormal, &wood_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::WoodRoughness, &wood_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::WoodMetalness, &wood_images.metalness, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::WoodAo, &wood_images.ao, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::BarkAlbedo, &bark_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
-            { SceneTextureId::BarkNormal, &bark_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::BarkRoughness, &bark_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::BarkAo, &bark_images.ao, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::LeafAlbedo, &leaf_images.albedo, VK_FORMAT_R8G8B8A8_SRGB },
-            { SceneTextureId::LeafNormal, &leaf_images.normal, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::LeafRoughness, &leaf_images.roughness, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::LeafOpacity, &leaf_images.opacity, VK_FORMAT_R8G8B8A8_UNORM },
-            { SceneTextureId::LeafScattering, &leaf_images.scattering, VK_FORMAT_R8G8B8A8_UNORM },
+        const std::array<TextureLoadSpec, kCodeVizMaterialTextureCount> load_specs = { {
+            { CodeVizTextureId::FallbackBaseColorSrgb, &fallback_albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { CodeVizTextureId::FallbackScalar, &fallback_scalar, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::FallbackNormal, &fallback_normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material0BaseColor, &library_images.textured_pbr0.albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { CodeVizTextureId::Material0Normal, &library_images.textured_pbr0.normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material0Roughness, &library_images.textured_pbr0.roughness, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material0AmbientOcclusion, &library_images.textured_pbr0.ao, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material1BaseColor, &library_images.textured_pbr1.albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { CodeVizTextureId::Material1Normal, &library_images.textured_pbr1.normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material1Roughness, &library_images.textured_pbr1.roughness, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material1AmbientOcclusion, &library_images.textured_pbr1.ao, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material2BaseColor, &library_images.vertex_tint_pbr0.albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { CodeVizTextureId::Material2Normal, &library_images.vertex_tint_pbr0.normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material2Roughness, &library_images.vertex_tint_pbr0.roughness, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material2Metallic, &library_images.vertex_tint_pbr0.metalness, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material2AmbientOcclusion, &library_images.vertex_tint_pbr0.ao, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material3BaseColor, &library_images.textured_pbr2.albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { CodeVizTextureId::Material3Normal, &library_images.textured_pbr2.normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material3Roughness, &library_images.textured_pbr2.roughness, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material3AmbientOcclusion, &library_images.textured_pbr2.ao, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material4BaseColor, &library_images.alpha_masked_pbr0.albedo, VK_FORMAT_R8G8B8A8_SRGB },
+            { CodeVizTextureId::Material4Normal, &library_images.alpha_masked_pbr0.normal, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material4Roughness, &library_images.alpha_masked_pbr0.roughness, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material4Opacity, &library_images.alpha_masked_pbr0.opacity, VK_FORMAT_R8G8B8A8_UNORM },
+            { CodeVizTextureId::Material4Scattering, &library_images.alpha_masked_pbr0.scattering, VK_FORMAT_R8G8B8A8_UNORM },
         } };
 
-        std::array<size_t, kSceneMaterialTextureCount> upload_offsets{};
+        std::array<size_t, kCodeVizMaterialTextureCount> upload_offsets{};
         size_t total_upload_bytes = 0;
         for (size_t spec_index = 0; spec_index < load_specs.size(); ++spec_index)
         {
@@ -1715,7 +1710,7 @@ struct CodeVizScenePass::State
                 point_shadow_infos[face_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
 
-            std::array<VkDescriptorImageInfo, kSceneMaterialTextureCount> material_infos{};
+            std::array<VkDescriptorImageInfo, kCodeVizMaterialTextureCount> material_infos{};
             for (size_t texture_index = 0; texture_index < material_textures.size(); ++texture_index)
             {
                 material_infos[texture_index].sampler = material_textures[texture_index].sampler;
@@ -4129,7 +4124,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
     auto& frame_res = state_->frame_resources[frame_index];
     frame_res.geometry_arena.reset();
 
-    if (!state_->ensure_road_materials(*vk_ctx, cmd))
+    if (!state_->ensure_codeviz_material_library(*vk_ctx, cmd))
         return;
     if (!state_->ensure_label_atlas(*vk_ctx, cmd, scene_.label_atlas, frame_index))
         return;
@@ -4250,7 +4245,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
         if (!obj.route_source.empty() || !obj.route_target.empty())
             return false;
         if (obj.material_index < scene_.materials.size()
-            && scene_.materials[obj.material_index].shading_model == MaterialShadingModel::LeafCutoutPbr)
+            && scene_.materials[obj.material_index].shading_model == CodeVizShadingModel::AlphaMaskedPbr)
         {
             return false;
         }

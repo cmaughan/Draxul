@@ -33,10 +33,6 @@ struct TexturedMaterialImages
     }
 };
 
-using AsphaltRoadMaterialImages = TexturedMaterialImages;
-using PavingSidewalkMaterialImages = TexturedMaterialImages;
-using BarkTreeMaterialImages = TexturedMaterialImages;
-
 struct VertexTintPbrMaterialImages
 {
     LoadedTextureImage albedo;
@@ -52,9 +48,7 @@ struct VertexTintPbrMaterialImages
     }
 };
 
-using WoodBuildingMaterialImages = VertexTintPbrMaterialImages;
-
-struct LeafAtlasMaterialImages
+struct AlphaMaskedPbrMaterialImages
 {
     LoadedTextureImage albedo;
     LoadedTextureImage normal;
@@ -69,11 +63,24 @@ struct LeafAtlasMaterialImages
     }
 };
 
-[[nodiscard]] std::filesystem::path resolve_megacity_asset_path(const std::filesystem::path& relative_path);
-[[nodiscard]] AsphaltRoadMaterialImages load_asphalt_road_material_images();
-[[nodiscard]] PavingSidewalkMaterialImages load_paving_sidewalk_material_images();
-[[nodiscard]] WoodBuildingMaterialImages load_wood_building_material_images();
-[[nodiscard]] BarkTreeMaterialImages load_bark_tree_material_images();
-[[nodiscard]] LeafAtlasMaterialImages load_leaf_atlas_material_images();
+[[nodiscard]] std::filesystem::path resolve_codeviz_material_asset_path(const std::filesystem::path& relative_path);
+
+struct CodeVizMaterialLibraryImages
+{
+    TexturedMaterialImages textured_pbr0;
+    TexturedMaterialImages textured_pbr1;
+    VertexTintPbrMaterialImages vertex_tint_pbr0;
+    TexturedMaterialImages textured_pbr2;
+    AlphaMaskedPbrMaterialImages alpha_masked_pbr0;
+
+    [[nodiscard]] bool valid() const
+    {
+        return textured_pbr0.valid() && textured_pbr1.valid()
+            && vertex_tint_pbr0.valid() && textured_pbr2.valid()
+            && alpha_masked_pbr0.valid();
+    }
+};
+
+[[nodiscard]] CodeVizMaterialLibraryImages load_codeviz_material_library_images();
 
 } // namespace draxul
