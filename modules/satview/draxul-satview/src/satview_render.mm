@@ -22,10 +22,13 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> moon_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> cloud_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> atmosphere_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> ground_atmosphere_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> ground_surface_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> orbit_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> marker_pipeline;
     ObjCRef<id<MTLDepthStencilState>> depth_write_state;
     ObjCRef<id<MTLDepthStencilState>> depth_read_state;
+    ObjCRef<id<MTLDepthStencilState>> depth_disabled_state;
     ObjCRef<id<MTLTexture>> earth_day_texture;
     ObjCRef<id<MTLTexture>> earth_night_texture;
     ObjCRef<id<MTLTexture>> earth_cloud_texture;
@@ -134,8 +137,9 @@ struct SatViewScenePass::State
     bool ensure(id<MTLDevice> new_device)
     {
         if (earth_pipeline.get() && moon_pipeline.get() && cloud_pipeline.get()
-            && atmosphere_pipeline.get() && orbit_pipeline.get()
-            && depth_write_state.get() && depth_read_state.get()
+            && atmosphere_pipeline.get() && ground_atmosphere_pipeline.get() && orbit_pipeline.get()
+            && ground_surface_pipeline.get()
+            && depth_write_state.get() && depth_read_state.get() && depth_disabled_state.get()
             && earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && earth_sampler.get()
             && device.get() == new_device)
@@ -146,10 +150,13 @@ struct SatViewScenePass::State
         moon_pipeline.reset();
         cloud_pipeline.reset();
         atmosphere_pipeline.reset();
+        ground_atmosphere_pipeline.reset();
+        ground_surface_pipeline.reset();
         orbit_pipeline.reset();
         marker_pipeline.reset();
         depth_write_state.reset();
         depth_read_state.reset();
+        depth_disabled_state.reset();
         earth_day_texture.reset();
         earth_night_texture.reset();
         earth_cloud_texture.reset();
@@ -190,12 +197,17 @@ struct SatViewScenePass::State
         id<MTLFunction> cloud_fragment = [library newFunctionWithName:@"satview_cloud_fragment"];
         id<MTLFunction> atmosphere_vertex = [library newFunctionWithName:@"satview_atmosphere_vertex"];
         id<MTLFunction> atmosphere_fragment = [library newFunctionWithName:@"satview_atmosphere_fragment"];
+        id<MTLFunction> ground_atmosphere_vertex = [library newFunctionWithName:@"satview_ground_atmosphere_vertex"];
+        id<MTLFunction> ground_atmosphere_fragment = [library newFunctionWithName:@"satview_ground_atmosphere_fragment"];
+        id<MTLFunction> ground_surface_fragment = [library newFunctionWithName:@"satview_ground_surface_fragment"];
         id<MTLFunction> orbit_vertex = [library newFunctionWithName:@"satview_orbit_vertex"];
         id<MTLFunction> marker_vertex = [library newFunctionWithName:@"satview_marker_vertex"];
         id<MTLFunction> orbit_fragment = [library newFunctionWithName:@"satview_orbit_fragment"];
         if (!vertex || !fragment || !moon_vertex || !moon_fragment
             || !cloud_vertex || !cloud_fragment
             || !atmosphere_vertex || !atmosphere_fragment
+            || !ground_atmosphere_vertex || !ground_atmosphere_fragment
+            || !ground_surface_fragment
             || !orbit_vertex || !orbit_fragment)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer,
@@ -269,6 +281,37 @@ struct SatViewScenePass::State
         }
         atmosphere_pipeline.reset(created);
 
+        desc.vertexFunction = ground_atmosphere_vertex;
+        desc.fragmentFunction = ground_atmosphere_fragment;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal ground atmosphere pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
+            return false;
+        }
+        ground_atmosphere_pipeline.reset(created);
+
+        desc.vertexFunction = ground_atmosphere_vertex;
+        desc.fragmentFunction = ground_surface_fragment;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal ground surface pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
+            ground_atmosphere_pipeline.reset();
+            return false;
+        }
+        ground_surface_pipeline.reset(created);
+
         desc.vertexFunction = orbit_vertex;
         desc.fragmentFunction = orbit_fragment;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
@@ -286,6 +329,8 @@ struct SatViewScenePass::State
             moon_pipeline.reset();
             cloud_pipeline.reset();
             atmosphere_pipeline.reset();
+            ground_atmosphere_pipeline.reset();
+            ground_surface_pipeline.reset();
             return false;
         }
         orbit_pipeline.reset(created);
@@ -317,6 +362,8 @@ struct SatViewScenePass::State
             moon_pipeline.reset();
             cloud_pipeline.reset();
             atmosphere_pipeline.reset();
+            ground_atmosphere_pipeline.reset();
+            ground_surface_pipeline.reset();
             orbit_pipeline.reset();
             return false;
         }
@@ -331,11 +378,32 @@ struct SatViewScenePass::State
             moon_pipeline.reset();
             cloud_pipeline.reset();
             atmosphere_pipeline.reset();
+            ground_atmosphere_pipeline.reset();
+            ground_surface_pipeline.reset();
             orbit_pipeline.reset();
             depth_write_state.reset();
             return false;
         }
         depth_read_state.reset(depth);
+
+        depth_desc.depthCompareFunction = MTLCompareFunctionAlways;
+        depth_desc.depthWriteEnabled = NO;
+        depth = [new_device newDepthStencilStateWithDescriptor:depth_desc];
+        if (!depth)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal disabled-depth state");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
+            ground_atmosphere_pipeline.reset();
+            ground_surface_pipeline.reset();
+            orbit_pipeline.reset();
+            depth_write_state.reset();
+            depth_read_state.reset();
+            return false;
+        }
+        depth_disabled_state.reset(depth);
         return true;
     }
 
@@ -446,6 +514,40 @@ void SatViewScenePass::record(IRenderContext& ctx)
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
                     vertexCount:6];
+    }
+    else if (ground_projection_)
+    {
+        if (atmosphere_enabled_)
+        {
+            [encoder setRenderPipelineState:state_->ground_atmosphere_pipeline.get()];
+            [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+            [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:3];
+        }
+
+        if (moon_enabled_ && moon_position_radius_.w > 0.0f)
+        {
+            SatViewFrameUniforms moon_frame = frame_;
+            moon_frame.camera_orientation = moon_position_radius_;
+            [encoder setRenderPipelineState:state_->moon_pipeline.get()];
+            [encoder setDepthStencilState:state_->depth_write_state.get()];
+            [encoder setVertexBytes:&moon_frame length:sizeof(moon_frame) atIndex:0];
+            [encoder setFragmentBytes:&moon_frame length:sizeof(moon_frame) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:kSatViewSphereVertexCount];
+        }
+
+        [encoder setRenderPipelineState:state_->ground_surface_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:3];
     }
     else
     {

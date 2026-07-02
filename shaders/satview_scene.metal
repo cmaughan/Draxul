@@ -591,6 +591,172 @@ fragment float4 satview_atmosphere_fragment(
     return float4(scattering, alpha);
 }
 
+static float2 fullscreen_corner(uint vertex_id)
+{
+    switch (vertex_id)
+    {
+    case 0:
+        return float2(-1.0f, -1.0f);
+    case 1:
+        return float2(-1.0f, 3.0f);
+    default:
+        return float2(3.0f, -1.0f);
+    }
+}
+
+vertex SatViewVertexOut satview_ground_atmosphere_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    float2 ndc = fullscreen_corner(vertex_id);
+
+    SatViewVertexOut out;
+    out.position = float4(ndc, 1.0f, 1.0f);
+    out.normal = float3(0.0f);
+    out.world = float3(0.0f);
+    out.uv = ndc;
+    return out;
+}
+
+static float3 ground_ray_direction(float2 ndc, constant SatViewFrameUniforms& frame)
+{
+    float4x4 inv_view_proj = inverse(frame.view_proj);
+    float4 world_far = inv_view_proj * float4(ndc, 1.0f, 1.0f);
+    world_far /= world_far.w;
+    return normalize(world_far.xyz - frame.camera_pos.xyz);
+}
+
+fragment float4 satview_ground_atmosphere_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    float3 ray_origin = frame.camera_pos.xyz;
+    float3 ray_direction = ground_ray_direction(in.uv, frame);
+    float3 sun_direction = normalize(frame.sun_dir_time.xyz);
+
+    float2 atmosphere_hit = atmosphere_ray_sphere(ray_origin, ray_direction, kAtmosphereRadius);
+    if (atmosphere_hit.y <= 0.0f)
+        discard_fragment();
+
+    float ray_start = 0.0f;
+    float ray_end = atmosphere_hit.y;
+    if (ray_end <= ray_start)
+        discard_fragment();
+
+    float segment_length = ray_end - ray_start;
+    float2 view_optical_depth = float2(0.0f);
+    float3 rayleigh_sum = float3(0.0f);
+    float3 mie_sum = float3(0.0f);
+    for (int step_index = 0; step_index < 16; ++step_index)
+    {
+        float u0 = float(step_index) / 16.0f;
+        float u1 = float(step_index + 1) / 16.0f;
+        float distance0 = segment_length * (1.0f - (1.0f - u0) * (1.0f - u0));
+        float distance1 = segment_length * (1.0f - (1.0f - u1) * (1.0f - u1));
+        float step_length = distance1 - distance0;
+        float distance = ray_start + 0.5f * (distance0 + distance1);
+        float3 sample_position = ray_origin + ray_direction * distance;
+        float2 density = atmosphere_density(sample_position);
+        float2 light_optical_depth = atmosphere_optical_depth_to_sun(sample_position, sun_direction);
+        if (light_optical_depth.x >= 0.0f)
+        {
+            float2 total_optical_depth = view_optical_depth + light_optical_depth;
+            float3 transmittance = exp(-(
+                kRayleighBeta * total_optical_depth.x
+                + kMieBeta * total_optical_depth.y));
+            rayleigh_sum += density.x * transmittance * step_length;
+            mie_sum += density.y * transmittance * step_length;
+        }
+        view_optical_depth += density * step_length;
+    }
+
+    float cosine = dot(-ray_direction, sun_direction);
+    float rayleigh_phase = 3.0f * (1.0f + cosine * cosine) / (16.0f * kPi);
+    float mie_denominator = pow(1.0f + kMieG * kMieG - 2.0f * kMieG * cosine, 1.5f);
+    float mie_phase = (1.0f - kMieG * kMieG) / (4.0f * kPi * mie_denominator);
+    float3 scattering = (
+        rayleigh_sum * kRayleighBeta * rayleigh_phase
+        + mie_sum * kMieBeta * mie_phase)
+        * 4.5f;
+    float extinction = dot(
+        kRayleighBeta * view_optical_depth.x + kMieBeta * view_optical_depth.y,
+        float3(0.2126f, 0.7152f, 0.0722f));
+    float alpha = clamp(1.0f - exp(-extinction), 0.0f, 1.0f);
+    float3 night_tint = float3(0.004f, 0.006f, 0.014f);
+    scattering = max(scattering, night_tint * (1.0f - alpha));
+    return float4(scattering, 1.0f);
+}
+
+fragment float4 satview_ground_surface_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> earth_day_tex [[texture(0)]],
+    texture2d<float> earth_night_tex [[texture(1)]],
+    texture2d<float> earth_cloud_tex [[texture(2)]],
+    texture2d<float> earth_live_cloud_tex [[texture(3)]],
+    sampler earth_sampler [[sampler(0)]])
+{
+    float3 ray_origin = frame.camera_pos.xyz;
+    float3 ray_direction = ground_ray_direction(in.uv, frame);
+    float3 up = normalize(ray_origin);
+    float observer_radius_sq = max(dot(ray_origin, ray_origin), 1.0f);
+    float horizon_cosine = -sqrt(max(1.0f - 1.0f / observer_radius_sq, 0.0f));
+    float ground_alpha = 1.0f - smoothstep(
+        horizon_cosine - 0.0015f,
+        horizon_cosine + 0.0015f,
+        dot(ray_direction, up));
+    if (ground_alpha <= 0.001f)
+        discard_fragment();
+
+    float2 planet_hit = atmosphere_ray_sphere(ray_origin, ray_direction, 1.0f);
+    float hit_distance = planet_hit.x > 0.0f ? planet_hit.x : planet_hit.y;
+    if (hit_distance <= 0.0f)
+        discard_fragment();
+
+    float3 world = ray_origin + ray_direction * hit_distance;
+    float3 normal = normalize(world);
+    float3 ecef = normalize(render_teme_to_ecef(normal, frame.render_params.z));
+    float longitude = atan2(ecef.y, ecef.x);
+    float latitude = asin(clamp(ecef.z, -1.0f, 1.0f));
+    float2 uv = float2(
+        fract(longitude / (2.0f * kPi) + 0.5f),
+        0.5f - latitude / kPi);
+
+    float3 light = normalize(frame.sun_dir_time.xyz);
+    float3 view = normalize(frame.camera_pos.xyz - world);
+    float3 day_surface = earth_day_tex.sample(earth_sampler, uv).rgb;
+    float3 night_surface = earth_night_tex.sample(earth_sampler, uv).rgb;
+    float ndl = dot(normal, light);
+    float day = smoothstep(-0.08f, 0.14f, ndl);
+    float diffuse = max(ndl, 0.0f);
+    float3 lit = day_surface * (0.22f + diffuse * 1.08f);
+    float ocean_hint = smoothstep(0.03f, 0.24f, day_surface.b - max(day_surface.r, day_surface.g));
+    float specular = pow(max(dot(reflect(-light, normal), view), 0.0f), 48.0f)
+        * ocean_hint * smoothstep(0.0f, 0.25f, ndl);
+    lit += float3(0.55f, 0.72f, 0.90f) * specular * 0.30f;
+
+    float3 night = night_surface * 1.85f + day_surface * 0.015f;
+    float3 color = mix(night, lit, day);
+    if (frame.sun_dir_time.w > 0.5f)
+    {
+        float3 bundled_cloud_sample = earth_cloud_tex.sample(earth_sampler, uv).rgb;
+        float3 live_cloud_sample = earth_live_cloud_tex.sample(earth_sampler, uv).rgb;
+        float3 cloud_sample = mix(
+            bundled_cloud_sample,
+            live_cloud_sample,
+            clamp(frame.sun_dir_time.w - 1.0f, 0.0f, 1.0f));
+        float opacity = smoothstep(
+            0.20f, 0.78f, dot(cloud_sample, float3(0.299f, 0.587f, 0.114f)));
+        float daylight = smoothstep(-0.10f, 0.16f, ndl);
+        float3 day_cloud = float3(0.91f, 0.95f, 1.0f) * (0.34f + diffuse * 0.76f);
+        float3 night_cloud = float3(0.025f, 0.030f, 0.042f);
+        float3 cloud_color = mix(night_cloud, day_cloud, daylight);
+        float cloud_alpha = opacity * mix(0.32f, 0.78f, daylight);
+        color = mix(color, cloud_color, cloud_alpha);
+    }
+    return float4(color * ground_alpha, ground_alpha);
+}
+
 vertex SatViewOrbitOut satview_orbit_vertex(
     uint vertex_id [[vertex_id]],
     constant SatViewFrameUniforms& frame [[buffer(0)]],
@@ -657,6 +823,23 @@ vertex SatViewOrbitOut satview_marker_vertex(
         float2 map_position = map_center
             + map_axis * marker.position0_size.w * 0.75f * endpoint_sign;
         out.position = frame.view_proj * float4(map_position, 0.2f, 1.0f);
+    }
+    else if (frame.camera_pos.w > 1.5f)
+    {
+        float4 center_clip = frame.view_proj * float4(center, 1.0f);
+        if (center_clip.w <= 0.0f)
+        {
+            out.color.a = 0.0f;
+            out.position = float4(2.0f, 2.0f, 0.0f, 1.0f);
+            return out;
+        }
+        float x_scale = frame.camera_pos.w - 2.0f;
+        float2 screen_axis = segment == 0u ? float2(x_scale, 0.0f)
+            : segment == 1u ? float2(0.0f, 1.0f)
+            : segment == 2u ? float2(x_scale, 1.0f) * 0.70710678f
+            : float2(x_scale, -1.0f) * 0.70710678f;
+        center_clip.xy += screen_axis * marker.position0_size.w * 0.75f * endpoint_sign * center_clip.w;
+        out.position = center_clip;
     }
     else
     {

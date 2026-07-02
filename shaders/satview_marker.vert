@@ -105,6 +105,23 @@ void main()
             + map_axis * in_position0_size.w * 0.75 * endpoint_sign;
         gl_Position = push.view_proj * vec4(map_position, 0.2, 1.0);
     }
+    else if (push.camera_pos.w > 1.5)
+    {
+        vec4 center_clip = push.view_proj * vec4(center, 1.0);
+        if (center_clip.w <= 0.0)
+        {
+            out_color.a = 0.0;
+            gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+            return;
+        }
+        float x_scale = push.camera_pos.w - 2.0;
+        vec2 screen_axis = segment == 0 ? vec2(x_scale, 0.0)
+            : segment == 1 ? vec2(0.0, 1.0)
+            : segment == 2 ? vec2(x_scale, 1.0) * 0.70710678
+            : vec2(x_scale, -1.0) * 0.70710678;
+        center_clip.xy += screen_axis * in_position0_size.w * 0.75 * endpoint_sign * center_clip.w;
+        gl_Position = center_clip;
+    }
     else
     {
         vec3 right = normalize(rotate_by_quaternion(vec3(1.0, 0.0, 0.0), push.camera_orientation));

@@ -69,10 +69,11 @@ public:
         atmosphere_enabled_ = enabled;
     }
 
-    void set_map_projection(bool enabled, bool moon_centered)
+    void set_projection_mode(bool map_enabled, bool moon_map_centered, bool ground_enabled)
     {
-        map_projection_ = enabled;
-        moon_map_projection_ = enabled && moon_centered;
+        map_projection_ = map_enabled;
+        moon_map_projection_ = map_enabled && moon_map_centered;
+        ground_projection_ = ground_enabled;
     }
 
     void set_moon(glm::vec4 position_radius, bool enabled)
@@ -123,6 +124,7 @@ private:
     bool moon_enabled_ = true;
     bool map_projection_ = false;
     bool moon_map_projection_ = false;
+    bool ground_projection_ = false;
     std::unique_ptr<State> state_;
 };
 

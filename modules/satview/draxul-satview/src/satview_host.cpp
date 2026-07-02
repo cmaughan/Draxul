@@ -884,9 +884,12 @@ void SatViewHost::draw(IFrameContext& frame)
 
     SatViewFrameUniforms uniforms;
     uniforms.view_proj = map_projection ? glm::mat4(1.0f) : proj * view;
+    const float projection_aspect_scale = static_cast<float>(pixel_h) / static_cast<float>(pixel_w);
     const float projection_scale = map_projection
-        ? -static_cast<float>(pixel_h) / static_cast<float>(pixel_w)
-        : 1.0f;
+        ? -projection_aspect_scale
+        : ground_projection
+            ? 2.0f + projection_aspect_scale
+            : 1.0f;
     uniforms.camera_pos = map_projection
         ? glm::vec4(
               camera_pov_ == SatViewCameraPov::Moon
@@ -929,9 +932,10 @@ void SatViewHost::draw(IFrameContext& frame)
         snapshot ? marker_interpolation_alpha(*snapshot, simulation_seconds) : 0.0f);
     scene_pass_->set_frame(uniforms);
     scene_pass_->set_atmosphere_enabled(atmosphere_enabled_);
-    scene_pass_->set_map_projection(
+    scene_pass_->set_projection_mode(
         map_projection,
-        camera_pov_ == SatViewCameraPov::Moon);
+        camera_pov_ == SatViewCameraPov::Moon,
+        ground_projection);
     scene_pass_->set_moon(
         glm::vec4(glm::vec3(moon.render_position_earth_radii), kMoonRadiusEarthRadii),
         moon_enabled_);
@@ -2193,7 +2197,7 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         request_redraw();
     if (!clouds_enabled_)
         ImGui::EndDisabled();
-    if (ImGui::Checkbox("Atmosphere", &atmosphere_enabled_))
+    if (ImGui::Checkbox("Show atmosphere", &atmosphere_enabled_))
         request_redraw();
     ImGui::SameLine();
     if (camera_pov_ == SatViewCameraPov::Moon)
