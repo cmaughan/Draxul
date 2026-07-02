@@ -87,6 +87,9 @@ private:
     void set_camera_pov(SatViewCameraPov pov, double simulation_seconds);
     void reset_camera();
     void pan_map(glm::vec2 delta_radians);
+    void enter_ground_view_at(glm::dvec2 longitude_latitude_radians);
+    bool enter_ground_view_from_screen(glm::ivec2 screen_pos, double simulation_seconds);
+    [[nodiscard]] glm::dvec3 ground_observer_render_position(double simulation_seconds) const;
     void rebuild_object_tree(const SatViewSimulationSnapshot* snapshot);
     void render_object_tree(const SatViewSimulationSnapshot* snapshot, bool& changed);
     void render_host_imgui(float dt, const SatViewSimulationSnapshot* snapshot);
@@ -149,6 +152,10 @@ private:
     std::unique_ptr<Manipulator> camera_manipulator_;
     std::unique_ptr<SatViewCameraKeyState> camera_keys_;
     float time_speed_ = 60.0f;
+    float ground_fov_degrees_ = 60.0f;
+    float ground_marker_scale_ = 0.1f;
+    float ground_yaw_radians_ = 0.0f;
+    float ground_pitch_radians_ = 0.0f;
     double simulated_seconds_ = 0.0;
     double last_draw_simulation_seconds_ = 0.0;
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
@@ -156,7 +163,9 @@ private:
     std::chrono::steady_clock::time_point next_frame_time_ = std::chrono::steady_clock::now();
     glm::ivec2 click_start_pos_{ 0, 0 };
     glm::ivec2 last_map_drag_pos_{ 0, 0 };
+    glm::ivec2 last_ground_drag_pos_{ 0, 0 };
     glm::vec2 map_center_radians_{ 0.0f };
+    glm::dvec2 ground_location_radians_{ 0.0, 0.0 };
     float last_imgui_delta_seconds_ = 1.0f / 60.0f;
 };
 

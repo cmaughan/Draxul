@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <draxul/config_document.h>
 #include <draxul/toml_support.h>
 #include <limits>
+#include <numbers>
 #include <string_view>
 #include <toml++/toml.hpp>
 
@@ -20,6 +22,8 @@ constexpr std::size_t kMaximumSearchLength = 127;
 constexpr std::size_t kMaximumObjectTypeLength = 63;
 constexpr std::size_t kMaximumSourceLength = 95;
 constexpr std::array<std::size_t, 6> kMarkerLimits = { 0, 512, 1024, 2048, 4096, 8192 };
+constexpr double kPi = std::numbers::pi_v<double>;
+constexpr double kLatitudeLimitRadians = 0.5 * kPi - 0.001;
 
 std::string truncate(std::string value, std::size_t maximum_length)
 {
@@ -75,7 +79,16 @@ std::string_view format_satellite_display_mode(SatViewSatelliteDisplayMode mode)
 
 std::string_view format_projection_mode(SatViewProjectionMode mode)
 {
-    return mode == SatViewProjectionMode::Map ? "map" : "globe";
+    switch (mode)
+    {
+    case SatViewProjectionMode::Globe:
+        return "globe";
+    case SatViewProjectionMode::Map:
+        return "map";
+    case SatViewProjectionMode::Ground:
+        return "ground";
+    }
+    return "globe";
 }
 
 std::string_view format_camera_pov(SatViewCameraPov pov)
@@ -118,6 +131,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
             config.projection_mode = SatViewProjectionMode::Globe;
         else if (*value == "map")
             config.projection_mode = SatViewProjectionMode::Map;
+        else if (*value == "ground")
+            config.projection_mode = SatViewProjectionMode::Ground;
     }
     if (auto value = toml_support::get_string(table, "camera_pov"))
     {
@@ -141,6 +156,23 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
         config.time_speed = static_cast<float>(std::clamp(*value, 1.0, 3600.0));
     else if (auto value = toml_support::get_int(table, "time_speed"))
         config.time_speed = static_cast<float>(std::clamp<std::int64_t>(*value, 1, 3600));
+    if (auto value = toml_support::get_double(table, "ground_fov_degrees"))
+        config.ground_fov_degrees = static_cast<float>(std::clamp(*value, 20.0, 120.0));
+    else if (auto value = toml_support::get_int(table, "ground_fov_degrees"))
+        config.ground_fov_degrees = static_cast<float>(std::clamp<std::int64_t>(*value, 20, 120));
+    if (auto value = toml_support::get_double(table, "ground_marker_scale"))
+        config.ground_marker_scale = static_cast<float>(std::clamp(*value, 0.05, 2.0));
+    else if (auto value = toml_support::get_int(table, "ground_marker_scale"))
+        config.ground_marker_scale = static_cast<float>(
+            std::clamp(static_cast<double>(*value), 0.05, 2.0));
+    if (auto value = toml_support::get_double(table, "ground_longitude_radians"))
+        config.ground_longitude_radians = std::remainder(*value, 2.0 * kPi);
+    else if (auto value = toml_support::get_int(table, "ground_longitude_radians"))
+        config.ground_longitude_radians = std::remainder(static_cast<double>(*value), 2.0 * kPi);
+    if (auto value = toml_support::get_double(table, "ground_latitude_radians"))
+        config.ground_latitude_radians = std::clamp(*value, -kLatitudeLimitRadians, kLatitudeLimitRadians);
+    else if (auto value = toml_support::get_int(table, "ground_latitude_radians"))
+        config.ground_latitude_radians = std::clamp(static_cast<double>(*value), -kLatitudeLimitRadians, kLatitudeLimitRadians);
 
     auto assign_bool = [&](std::string_view key, bool& target) {
         if (auto value = toml_support::get_bool(table, key))
@@ -215,6 +247,10 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("atmosphere", config.atmosphere_enabled);
     table.insert_or_assign("moon", config.moon_enabled);
     table.insert_or_assign("moon_track", config.moon_track_enabled);
+    table.insert_or_assign("ground_fov_degrees", static_cast<double>(config.ground_fov_degrees));
+    table.insert_or_assign("ground_marker_scale", static_cast<double>(config.ground_marker_scale));
+    table.insert_or_assign("ground_longitude_radians", config.ground_longitude_radians);
+    table.insert_or_assign("ground_latitude_radians", config.ground_latitude_radians);
     return table;
 }
 

@@ -8,6 +8,7 @@ if(APPLE)
         src/satview_config.cpp
         src/satview_filter.cpp
         src/satview_geodetic.cpp
+        src/satview_ground_view.cpp
         src/satview_host.cpp
         src/satview_map_projection.cpp
         src/satview_moon_ephemeris.cpp
@@ -24,6 +25,7 @@ else()
         src/satview_config.cpp
         src/satview_filter.cpp
         src/satview_geodetic.cpp
+        src/satview_ground_view.cpp
         src/satview_host.cpp
         src/satview_map_projection.cpp
         src/satview_moon_ephemeris.cpp

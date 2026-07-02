@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/config_document.h>
 #include <draxul/satview/satview_config.h>
+#include <numbers>
 
 using namespace draxul;
 using namespace draxul::satview;
@@ -15,6 +16,8 @@ TEST_CASE("SatView config defaults to 1024 tracks", "[satview][config]")
     CHECK(config.track_satellite_limit == 1024);
     CHECK(config.track_sample_count == 48);
     CHECK_FALSE(config.refresh_tracks_each_step);
+    CHECK(config.ground_fov_degrees == 60.0f);
+    CHECK(config.ground_marker_scale == 0.1f);
     CHECK(config.filter.show_active_payloads);
     CHECK(config.filter.show_inactive_payloads);
     CHECK(config.filter.show_rocket_bodies);
@@ -40,7 +43,7 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.color_mode = SatViewColorMode::OrbitClass;
     expected.track_display_mode = SatViewTrackDisplayMode::SelectedOnly;
     expected.satellite_display_mode = SatViewSatelliteDisplayMode::MarkersOnly;
-    expected.projection_mode = SatViewProjectionMode::Map;
+    expected.projection_mode = SatViewProjectionMode::Ground;
     expected.camera_pov = SatViewCameraPov::Moon;
     expected.track_satellite_limit = 4096;
     expected.track_sample_count = 256;
@@ -52,6 +55,10 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.atmosphere_enabled = false;
     expected.moon_enabled = true;
     expected.moon_track_enabled = false;
+    expected.ground_fov_degrees = 75.0f;
+    expected.ground_marker_scale = 0.45f;
+    expected.ground_longitude_radians = -1.25;
+    expected.ground_latitude_radians = 0.7;
 
     store_satview_config(document, expected);
 
@@ -67,6 +74,10 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     table.insert_or_assign("marker_cap", 1234);
     table.insert_or_assign("satellite_display_mode", "not_a_mode");
     table.insert_or_assign("time_speed", 9000.0);
+    table.insert_or_assign("ground_fov_degrees", 200.0);
+    table.insert_or_assign("ground_marker_scale", 20.0);
+    table.insert_or_assign("ground_longitude_radians", 9.0);
+    table.insert_or_assign("ground_latitude_radians", 3.0);
     table.insert_or_assign("max_epoch_age_days", 45.0);
 
     const SatViewConfig config = load_satview_config(document);
@@ -76,5 +87,10 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     CHECK(config.track_sample_count == kMaximumTrackSampleCount);
     CHECK(config.marker_satellite_limit == 0);
     CHECK(config.time_speed == 3600.0f);
+    CHECK(config.ground_fov_degrees == 120.0f);
+    CHECK(config.ground_marker_scale == 2.0f);
+    CHECK(config.ground_longitude_radians >= -std::numbers::pi_v<double>);
+    CHECK(config.ground_longitude_radians <= std::numbers::pi_v<double>);
+    CHECK(config.ground_latitude_radians < 0.5 * std::numbers::pi_v<double>);
     CHECK(config.filter.max_epoch_age_days == 30.0);
 }

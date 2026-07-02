@@ -167,17 +167,24 @@ vertex SatViewVertexOut satview_earth_vertex(
     uint quad = vertex_id / 6u;
     uint lon = quad % lon_bands;
     uint lat = quad / lon_bands;
+    bool map_projection = frame.camera_pos.w < 0.0f;
 
     float2 corner = quad_corner(tri_vertex);
-    float u = (float(lon) + corner.x) / float(lon_bands);
-    float v = (float(lat) + corner.y) / float(lat_bands);
+    float u = map_projection
+        ? corner.x
+        : (float(lon) + corner.x) / float(lon_bands);
+    float v = map_projection
+        ? corner.y
+        : (float(lat) + corner.y) / float(lat_bands);
     float theta = u * 2.0f * kPi + frame.render_params.z;
     float phi = mix(-0.5f * kPi, 0.5f * kPi, v);
     float cp = cos(phi);
     float3 world = float3(cp * sin(theta), sin(phi), cp * cos(theta));
 
     SatViewVertexOut out;
-    out.position = frame.view_proj * float4(world, 1.0f);
+    out.position = map_projection
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        : frame.view_proj * float4(world, 1.0f);
     out.normal = world;
     out.world = world;
     out.uv = float2(u, v);
