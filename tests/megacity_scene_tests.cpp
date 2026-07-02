@@ -6,6 +6,7 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_materials.h"
+#include "city_meshes.h"
 #include "city_picking.h"
 #include <draxul/isometric_camera.h>
 #include <draxul/codeviz_scene_pass.h>
@@ -318,10 +319,10 @@ TEST_CASE("megacity world creates bark and leaf tree entities", "[megacity]")
     const auto& stored_metrics = world.registry().get<TreeMetrics>(bark_entity);
     const auto& elevation = world.registry().get<Elevation>(bark_entity);
 
-    CHECK(bark_appearance.mesh == MeshId::TreeBark);
+    CHECK(bark_appearance.mesh == kCityTreeBarkMesh);
     CHECK(bark_appearance.material == kCityTreeBarkMaterial);
     CHECK_FALSE(bark_appearance.double_sided);
-    CHECK(leaf_appearance.mesh == MeshId::TreeLeaves);
+    CHECK(leaf_appearance.mesh == kCityTreeLeavesMesh);
     CHECK(leaf_appearance.material == kCityLeafCardMaterial);
     CHECK_FALSE(leaf_appearance.double_sided);
     CHECK(stored_metrics.height == Catch::Approx(7.0f));
@@ -514,7 +515,7 @@ TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fib
     CHECK(std::count_if(
               scene.snapshot.objects.begin(),
               scene.snapshot.objects.end(),
-              [](const CodeVizRenderable& object) { return object.mesh == MeshId::Custom; })
+              [](const CodeVizRenderable& object) { return object.mesh == CodeVizMeshId::Custom; })
         == static_cast<int>(file_cells + nuclei + organelles));
 }
 
@@ -538,7 +539,7 @@ TEST_CASE("megacity world creates module surface entities", "[megacity]")
     const auto& metrics = world.registry().get<ModuleSurfaceMetrics>(entity);
     const auto& elevation = world.registry().get<Elevation>(entity);
 
-    CHECK(appearance.mesh == MeshId::Cube);
+    CHECK(appearance.mesh == CodeVizMeshId::Cube);
     CHECK(appearance.material == CodeVizMaterialPreset::FlatColor);
     CHECK(metrics.extent_x == Catch::Approx(10.0f));
     CHECK(metrics.extent_z == Catch::Approx(14.0f));
@@ -1065,7 +1066,7 @@ TEST_CASE("megacity scene snapshot carries custom building meshes", "[megacity]"
 
     REQUIRE(result.snapshot.objects.size() == 1);
     REQUIRE(result.snapshot.custom_meshes.size() == 1);
-    CHECK(result.snapshot.objects[0].mesh == MeshId::Custom);
+    CHECK(result.snapshot.objects[0].mesh == CodeVizMeshId::Custom);
     CHECK(result.snapshot.objects[0].custom_mesh_index == 0);
     CHECK(result.snapshot.custom_meshes[0].get() == custom_mesh.get());
 }
@@ -1090,7 +1091,7 @@ TEST_CASE("megacity scene snapshot carries custom sign meshes", "[megacity]")
         0.0f,
         3.0f,
         sign,
-        MeshId::Custom,
+        CodeVizMeshId::Custom,
         glm::vec4(1.0f),
         CodeVizSemanticRef{ "src/app.cpp", "App" },
         custom_mesh);
@@ -1111,7 +1112,7 @@ TEST_CASE("megacity scene snapshot carries custom sign meshes", "[megacity]")
 
     REQUIRE(result.snapshot.objects.size() == 1);
     REQUIRE(result.snapshot.custom_meshes.size() == 1);
-    CHECK(result.snapshot.objects[0].mesh == MeshId::Custom);
+    CHECK(result.snapshot.objects[0].mesh == CodeVizMeshId::Custom);
     CHECK(result.snapshot.objects[0].custom_mesh_index == 0);
     CHECK(result.snapshot.custom_meshes[0].get() == custom_mesh.get());
 }
@@ -2227,7 +2228,7 @@ TEST_CASE("selection routes distinguish duplicate names in the same module by so
 
 TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
 {
-    const MeshData mesh = build_roof_sign_mesh();
+    const MeshData mesh = build_top_label_panel_mesh();
 
     REQUIRE(mesh.vertices.size() == 24);
     REQUIRE(mesh.indices.size() == 36);
@@ -2250,7 +2251,7 @@ TEST_CASE("roof sign mesh textures only the top face", "[megacity]")
 
 TEST_CASE("wall sign mesh textures only the front face", "[megacity]")
 {
-    const MeshData mesh = build_wall_sign_mesh();
+    const MeshData mesh = build_front_label_panel_mesh();
 
     REQUIRE(mesh.vertices.size() == 24);
     REQUIRE(mesh.indices.size() == 36);
@@ -3376,8 +3377,8 @@ TEST_CASE("megacity mesh library builds expected primitive counts", "[megacity]"
 {
     const MeshData cube = build_unit_cube_mesh();
     const MeshData floor = build_floor_box_mesh();
-    const MeshData tree_bark = build_tree_bark_mesh();
-    const MeshData tree_leaf = build_tree_leaf_mesh();
+    const MeshData foliage_stem = build_foliage_stem_mesh();
+    const MeshData foliage_card = build_foliage_card_mesh();
     const MeshData filled = build_grid_mesh(2, 2, 1.0f);
 
     FloorGridSpec grid;
@@ -3398,16 +3399,16 @@ TEST_CASE("megacity mesh library builds expected primitive counts", "[megacity]"
     CHECK(floor.indices.size() == 36);
     CHECK(triangle_up_normal_y(floor, 8) > 0.0f);
 
-    CHECK_FALSE(tree_bark.vertices.empty());
-    CHECK_FALSE(tree_bark.indices.empty());
-    CHECK(tree_bark.indices.size() % 3 == 0);
-    CHECK_FALSE(tree_leaf.vertices.empty());
-    CHECK_FALSE(tree_leaf.indices.empty());
-    CHECK(tree_leaf.indices.size() % 3 == 0);
+    CHECK_FALSE(foliage_stem.vertices.empty());
+    CHECK_FALSE(foliage_stem.indices.empty());
+    CHECK(foliage_stem.indices.size() % 3 == 0);
+    CHECK_FALSE(foliage_card.vertices.empty());
+    CHECK_FALSE(foliage_card.indices.empty());
+    CHECK(foliage_card.indices.size() % 3 == 0);
     float tree_max_y = 0.0f;
-    for (const auto& vertex : tree_bark.vertices)
+    for (const auto& vertex : foliage_stem.vertices)
         tree_max_y = std::max(tree_max_y, vertex.position.y);
-    for (const auto& vertex : tree_leaf.vertices)
+    for (const auto& vertex : foliage_card.vertices)
         tree_max_y = std::max(tree_max_y, vertex.position.y);
     CHECK(tree_max_y >= Catch::Approx(7.0f).margin(0.01f));
 

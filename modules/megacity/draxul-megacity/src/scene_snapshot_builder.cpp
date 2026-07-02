@@ -248,15 +248,15 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
     const MegaCityCodeConfig& config,
     const std::shared_ptr<const LiveCityMetricsSnapshot>& live_metrics,
     const std::shared_ptr<SignLabelAtlas>& label_atlas,
-    const std::shared_ptr<const MeshData>& tree_bark_mesh,
-    const std::shared_ptr<const MeshData>& tree_leaf_mesh)
+    const std::shared_ptr<const MeshData>& foliage_stem_mesh,
+    const std::shared_ptr<const MeshData>& foliage_card_mesh)
 {
     PERF_MEASURE();
     CodeVizSceneSnapshotResult result;
     CodeVizSceneSnapshot& scene = result.snapshot;
     const PerformanceHeatTable performance_heat_table = build_performance_heat_table(live_metrics.get());
-    scene.tree_bark_mesh = tree_bark_mesh;
-    scene.tree_leaf_mesh = tree_leaf_mesh;
+    scene.foliage_stem_mesh = foliage_stem_mesh;
+    scene.foliage_card_mesh = foliage_card_mesh;
     scene.performance_heat_values = performance_heat_table.values;
 
     scene.camera.view = camera.view_matrix();
@@ -346,7 +346,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
         const auto* custom_mesh = reg.try_get<CustomMeshRef>(entity);
         if (custom_mesh && custom_mesh->mesh)
         {
-            obj.mesh = MeshId::Custom;
+            obj.mesh = CodeVizMeshId::Custom;
             obj.custom_mesh_index = find_or_append_custom_mesh(scene, mesh_index_map, custom_mesh->mesh);
         }
 
@@ -371,7 +371,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             }
             extent_x = bm->footprint;
             extent_z = bm->footprint;
-            if (obj.mesh != MeshId::Custom)
+            if (obj.mesh != CodeVizMeshId::Custom)
             {
                 transform = glm::translate(transform, glm::vec3(0.0f, bm->height * 0.5f, 0.0f));
                 transform = glm::scale(transform, glm::vec3(bm->footprint, bm->height, bm->footprint));
@@ -434,7 +434,7 @@ CodeVizSceneSnapshotResult build_scene_snapshot(
             {
                 obj.role = CodeVizRenderable::Role::ModuleLabel;
             }
-            if (obj.mesh == MeshId::Custom)
+            if (obj.mesh == CodeVizMeshId::Custom)
             {
                 extent_x = sm->width;
                 extent_z = sm->width;

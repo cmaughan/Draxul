@@ -19,16 +19,16 @@ enum class CodeVizProjectionMode : uint8_t
     Perspective,
 };
 
-enum class MeshId : uint32_t
+enum class CodeVizMeshId : uint32_t
 {
     Grid,
     Floor,
     Cube,
-    TreeBark,
-    TreeLeaves,
-    RoadSurface,
-    RoofSign,
-    WallSign,
+    FoliageStem,
+    FoliageCards,
+    TexturedSurface,
+    TopLabelPanel,
+    FrontLabelPanel,
     Custom,
 };
 
@@ -108,7 +108,7 @@ struct CodeVizRenderable
         ModuleLabel = 3,
     };
 
-    MeshId mesh = MeshId::Cube;
+    CodeVizMeshId mesh = CodeVizMeshId::Cube;
     uint32_t custom_mesh_index = UINT32_MAX;
     uint32_t material_index = 0;
     bool double_sided = false;
@@ -200,8 +200,8 @@ struct CodeVizSceneSnapshot
     CodeVizCameraData camera;
     FloorGridSpec floor_grid;
     std::shared_ptr<const LabelAtlasData> label_atlas;
-    std::shared_ptr<const MeshData> tree_bark_mesh;
-    std::shared_ptr<const MeshData> tree_leaf_mesh;
+    std::shared_ptr<const MeshData> foliage_stem_mesh;
+    std::shared_ptr<const MeshData> foliage_card_mesh;
     std::vector<std::shared_ptr<const MeshData>> custom_meshes;
     std::vector<float> performance_heat_values;
     std::vector<CodeVizMaterial> materials;

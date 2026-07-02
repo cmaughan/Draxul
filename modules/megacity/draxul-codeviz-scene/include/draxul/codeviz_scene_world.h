@@ -30,12 +30,12 @@ public:
         float flat_metallic = 0.0f,
         CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked);
 
-    // Create a foliage bark/stem entity at the given world-space center position.
-    entt::entity create_foliage_bark(float world_x, float world_z, float elevation,
+    // Create a foliage stem entity at the given world-space center position.
+    entt::entity create_foliage_stem(float world_x, float world_z, float elevation,
         const FoliageMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {});
 
-    // Create a foliage leaf/canopy entity at the given world-space center position.
-    entt::entity create_foliage_leaves(float world_x, float world_z, float elevation,
+    // Create a foliage card/canopy entity at the given world-space center position.
+    entt::entity create_foliage_cards(float world_x, float world_z, float elevation,
         const FoliageMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {});
 
     // Create a strip entity at the given world-space center position.
@@ -62,7 +62,7 @@ public:
 
     // Create a label panel entity at the given world-space center position.
     entt::entity create_label_panel(float world_x, float world_z, float elevation,
-        const LabelPanelMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source = {},
+        const LabelPanelMetrics& metrics, CodeVizMeshId mesh, const glm::vec4& color, CodeVizSemanticRef source = {},
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
         CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked);
 
@@ -82,13 +82,13 @@ public:
     entt::entity create_tree_bark(float world_x, float world_z, float elevation,
         const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {})
     {
-        return create_foliage_bark(world_x, world_z, elevation, metrics, color, std::move(source));
+        return create_foliage_stem(world_x, world_z, elevation, metrics, color, std::move(source));
     }
 
     entt::entity create_tree_leaves(float world_x, float world_z, float elevation,
         const TreeMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source = {})
     {
-        return create_foliage_leaves(world_x, world_z, elevation, metrics, color, std::move(source));
+        return create_foliage_cards(world_x, world_z, elevation, metrics, color, std::move(source));
     }
 
     entt::entity create_road(float world_x, float world_z, const RoadMetrics& metrics,
@@ -118,7 +118,7 @@ public:
     }
 
     entt::entity create_sign(float world_x, float world_z, float elevation,
-        const SignMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source = {},
+        const SignMetrics& metrics, CodeVizMeshId mesh, const glm::vec4& color, CodeVizSemanticRef source = {},
         std::shared_ptr<const GeometryMesh> custom_mesh = nullptr,
         CustomMeshTransformMode custom_mesh_transform_mode = CustomMeshTransformMode::Baked)
     {

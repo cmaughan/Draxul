@@ -56,7 +56,7 @@ entt::entity CodeVizSceneWorld::create_block(float world_x, float world_z, float
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<BlockMetrics>(entity, metrics);
-    const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
+    const CodeVizMeshId mesh_id = custom_mesh ? CodeVizMeshId::Custom : CodeVizMeshId::Cube;
     if (material == CodeVizMaterialPreset::VertexTintPbr0)
     {
         registry_.emplace<Appearance>(
@@ -97,7 +97,7 @@ entt::entity CodeVizSceneWorld::create_block(float world_x, float world_z, float
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_foliage_bark(float world_x, float world_z, float elevation,
+entt::entity CodeVizSceneWorld::create_foliage_stem(float world_x, float world_z, float elevation,
     const FoliageMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
 {
     PERF_MEASURE();
@@ -107,7 +107,7 @@ entt::entity CodeVizSceneWorld::create_foliage_bark(float world_x, float world_z
     registry_.emplace<FoliageMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
-        MeshId::TreeBark,
+        CodeVizMeshId::FoliageStem,
         CodeVizMaterialPreset::TexturedPbr2,
         false,
         color,
@@ -121,7 +121,7 @@ entt::entity CodeVizSceneWorld::create_foliage_bark(float world_x, float world_z
     return entity;
 }
 
-entt::entity CodeVizSceneWorld::create_foliage_leaves(float world_x, float world_z, float elevation,
+entt::entity CodeVizSceneWorld::create_foliage_cards(float world_x, float world_z, float elevation,
     const FoliageMetrics& metrics, const glm::vec4& color, CodeVizSemanticRef source)
 {
     PERF_MEASURE();
@@ -131,7 +131,7 @@ entt::entity CodeVizSceneWorld::create_foliage_leaves(float world_x, float world
     registry_.emplace<FoliageMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
-        MeshId::TreeLeaves,
+        CodeVizMeshId::FoliageCards,
         CodeVizMaterialPreset::AlphaMaskedPbr0,
         false,
         color,
@@ -155,7 +155,7 @@ entt::entity CodeVizSceneWorld::create_strip(float world_x, float world_z,
     registry_.emplace<StripMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
-        MeshId::Cube,
+        CodeVizMeshId::Cube,
         CodeVizMaterialPreset::TexturedPbr1,
         false,
         color,
@@ -179,7 +179,7 @@ entt::entity CodeVizSceneWorld::create_textured_surface(float world_x, float wor
     registry_.emplace<TexturedSurfaceMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
-        MeshId::RoadSurface,
+        CodeVizMeshId::TexturedSurface,
         CodeVizMaterialPreset::TexturedPbr0,
         false,
         glm::vec4(1.0f),
@@ -202,7 +202,7 @@ entt::entity CodeVizSceneWorld::create_link_segment(float world_x, float world_z
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<LinkSegmentMetrics>(entity, metrics);
-    registry_.emplace<Appearance>(entity, MeshId::Cube, CodeVizMaterialPreset::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
+    registry_.emplace<Appearance>(entity, CodeVizMeshId::Cube, CodeVizMaterialPreset::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (!source.file.empty() || !source.name.empty())
         registry_.emplace<CodeVizSemanticRef>(entity, std::move(source));
     if (!relationship_link.source_qualified_name.empty() || !relationship_link.target_qualified_name.empty())
@@ -220,7 +220,7 @@ entt::entity CodeVizSceneWorld::create_region_surface(float world_x, float world
     registry_.emplace<RegionSurfaceMetrics>(entity, metrics);
     registry_.emplace<Appearance>(
         entity,
-        MeshId::Cube,
+        CodeVizMeshId::Cube,
         CodeVizMaterialPreset::FlatColor,
         false,
         color,
@@ -239,7 +239,7 @@ entt::entity CodeVizSceneWorld::create_ellipsoid(float world_x, float world_z, f
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<EllipsoidMetrics>(entity, metrics);
-    const MeshId mesh_id = custom_mesh ? MeshId::Custom : MeshId::Cube;
+    const CodeVizMeshId mesh_id = custom_mesh ? CodeVizMeshId::Custom : CodeVizMeshId::Cube;
     registry_.emplace<Appearance>(
         entity,
         mesh_id,
@@ -255,7 +255,7 @@ entt::entity CodeVizSceneWorld::create_ellipsoid(float world_x, float world_z, f
 }
 
 entt::entity CodeVizSceneWorld::create_label_panel(float world_x, float world_z, float elevation,
-    const LabelPanelMetrics& metrics, MeshId mesh, const glm::vec4& color, CodeVizSemanticRef source,
+    const LabelPanelMetrics& metrics, CodeVizMeshId mesh, const glm::vec4& color, CodeVizSemanticRef source,
     std::shared_ptr<const GeometryMesh> custom_mesh, CustomMeshTransformMode custom_mesh_transform_mode)
 {
     PERF_MEASURE();
@@ -263,7 +263,7 @@ entt::entity CodeVizSceneWorld::create_label_panel(float world_x, float world_z,
     registry_.emplace<WorldPosition>(entity, world_x, world_z);
     registry_.emplace<Elevation>(entity, elevation);
     registry_.emplace<LabelPanelMetrics>(entity, metrics);
-    const MeshId mesh_id = custom_mesh ? MeshId::Custom : mesh;
+    const CodeVizMeshId mesh_id = custom_mesh ? CodeVizMeshId::Custom : mesh;
     registry_.emplace<Appearance>(entity, mesh_id, CodeVizMaterialPreset::FlatColor, false, color, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f));
     if (custom_mesh)
         registry_.emplace<CustomMeshRef>(entity, std::move(custom_mesh), custom_mesh_transform_mode);

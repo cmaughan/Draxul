@@ -29,7 +29,7 @@ struct Elevation
 
 struct Appearance
 {
-    MeshId mesh = MeshId::Cube;
+    CodeVizMeshId mesh = CodeVizMeshId::Cube;
     CodeVizMaterialPreset material = CodeVizMaterialPreset::FlatColor;
     bool double_sided = false;
     glm::vec4 color{ 1.0f };

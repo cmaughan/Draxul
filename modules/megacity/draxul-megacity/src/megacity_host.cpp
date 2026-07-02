@@ -2,6 +2,7 @@
 #include "building_tooltip.h"
 #include "city_builder.h"
 #include "city_helpers.h"
+#include "city_meshes.h"
 #include <draxul/codeviz_input_state.h>
 #include "city_picking.h"
 #include <draxul/isometric_camera.h>
@@ -946,8 +947,8 @@ void MegaCityHost::clear_semantic_city()
     code_semantics_.reset();
     live_metrics_.reset();
     sign_label_atlas_.reset();
-    tree_bark_mesh_.reset();
-    tree_leaf_mesh_.reset();
+    foliage_stem_mesh_.reset();
+    foliage_card_mesh_.reset();
     city_bounds_valid_ = false;
     {
         std::lock_guard<std::mutex> lock(grid_mutex_);
@@ -1692,8 +1693,8 @@ void MegaCityHost::rebuild_semantic_city()
             *world_,
             *code_semantics_,
             renderer_config_);
-        tree_bark_mesh_.reset();
-        tree_leaf_mesh_.reset();
+        foliage_stem_mesh_.reset();
+        foliage_card_mesh_.reset();
         result_bounds_valid = result.bounds_valid;
         result_min_x = result.min_x;
         result_max_x = result.max_x;
@@ -1712,8 +1713,8 @@ void MegaCityHost::rebuild_semantic_city()
         CityBuildResult result = build_city(
             *world_, *code_semantics_, sign_text_service_.get(),
             renderer_config_, sign_label_revision_);
-        tree_bark_mesh_ = result.tree_bark_mesh;
-        tree_leaf_mesh_ = result.tree_leaf_mesh;
+        foliage_stem_mesh_ = result.foliage_stem_mesh;
+        foliage_card_mesh_ = result.foliage_card_mesh;
         result_bounds_valid = result.city_bounds_valid;
         result_min_x = result.min_x;
         result_max_x = result.max_x;
@@ -2050,8 +2051,8 @@ void MegaCityHost::pump()
             renderer_config_,
             live_metrics_,
             sign_label_atlas_,
-            tree_bark_mesh_,
-            tree_leaf_mesh_);
+            foliage_stem_mesh_,
+            foliage_card_mesh_);
         preserve_visible_tooltip(scene_pass_.get(), hover_tooltip_visible_, result.snapshot);
         world_span_ = result.world_span;
         scene_pass_->set_scene(std::move(result.snapshot));
@@ -2428,8 +2429,8 @@ void MegaCityHost::draw(IFrameContext& frame)
             renderer_config_,
             live_metrics_,
             sign_label_atlas_,
-            tree_bark_mesh_,
-            tree_leaf_mesh_);
+            foliage_stem_mesh_,
+            foliage_card_mesh_);
         preserve_visible_tooltip(scene_pass_.get(), hover_tooltip_visible_, result.snapshot);
         world_span_ = result.world_span;
         scene_pass_->set_scene(std::move(result.snapshot));
@@ -2926,14 +2927,14 @@ void MegaCityHost::apply_selection_opacity()
                        obj.route_target)
                     == selected_identity);
 
-        float alpha = obj.mesh == MeshId::RoadSurface
+        float alpha = obj.mesh == kCityRoadSurfaceMesh
             ? renderer_config_.selection_hidden_road_alpha
             : renderer_config_.selection_hidden_alpha;
         if (!is_selected
             && !is_connected
             && !is_module_context
             && !is_selected_route
-            && obj.mesh != MeshId::RoadSurface)
+            && obj.mesh != kCityRoadSurfaceMesh)
             alpha = hidden_building_alpha;
         if (is_connected || is_module_context)
             alpha = renderer_config_.selection_dependency_alpha;

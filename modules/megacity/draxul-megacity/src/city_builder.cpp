@@ -1,6 +1,7 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_materials.h"
+#include "city_meshes.h"
 #include "live_city_metrics.h"
 #include <draxul/codeviz_scene_world.h>
 #include "semantic_city_layout.h"
@@ -57,7 +58,7 @@ struct SignPlacementSpec
     float height = 0.05f;
     float depth = 0.25f;
     float yaw_radians = 0.0f;
-    MeshId mesh = MeshId::WallSign;
+    CodeVizMeshId mesh = kCityWallSignMesh;
 };
 
 struct RoofSignPlacementSpec
@@ -337,8 +338,8 @@ void build_point_shadow_debug_scene(
     CodeVizSceneWorld& world,
     StaticMeshFamilyCache& static_meshes,
     const MegaCityCodeConfig& config,
-    const std::shared_ptr<const GeometryMesh>& tree_bark_mesh,
-    const std::shared_ptr<const GeometryMesh>& tree_leaf_mesh,
+    const std::shared_ptr<const GeometryMesh>& foliage_stem_mesh,
+    const std::shared_ptr<const GeometryMesh>& foliage_card_mesh,
     const TreeMetrics& tree_metrics)
 {
     PERF_MEASURE();
@@ -404,7 +405,7 @@ void build_point_shadow_debug_scene(
         1.0f,
         CustomMeshTransformMode::ScaleByBlockMetrics);
 
-    if (tree_bark_mesh && tree_leaf_mesh && tree_metrics.height > 0.0f)
+    if (foliage_stem_mesh && foliage_card_mesh && tree_metrics.height > 0.0f)
     {
         world.create_tree_bark(
             kPointShadowDebugTreeCenter.x,
@@ -565,7 +566,7 @@ std::array<SignPlacementSpec, 2> place_module_boundary_signs(
         signs[index].height = sign_height;
         signs[index].depth = placements[index].depth;
         signs[index].yaw_radians = placements[index].yaw_radians;
-        signs[index].mesh = MeshId::WallSign;
+        signs[index].mesh = kCityWallSignMesh;
     }
     return signs;
 }
@@ -1198,8 +1199,8 @@ CityBuildResult build_city(
             break;
         }
     }
-    result.tree_bark_mesh = central_park_tree_bark_mesh;
-    result.tree_leaf_mesh = central_park_tree_leaf_mesh;
+    result.foliage_stem_mesh = central_park_tree_bark_mesh;
+    result.foliage_card_mesh = central_park_tree_leaf_mesh;
 
     StaticMeshFamilyCache static_meshes;
 
@@ -1444,7 +1445,7 @@ CityBuildResult build_city(
                         roof_sign.center.y,
                         sign_y,
                         sign_metrics,
-                        MeshId::Custom,
+                        CodeVizMeshId::Custom,
                         sign_board,
                         CodeVizSemanticRef{ building.source_file_path, building.qualified_name, building.module_path },
                         build_building_roof_sign_mesh(static_meshes, roof_sign),

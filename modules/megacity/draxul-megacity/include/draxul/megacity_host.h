@@ -123,8 +123,8 @@ private:
     std::unique_ptr<TextService> sign_text_service_;
     std::unique_ptr<TextService> tooltip_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
-    std::shared_ptr<const GeometryMesh> tree_bark_mesh_;
-    std::shared_ptr<const GeometryMesh> tree_leaf_mesh_;
+    std::shared_ptr<const GeometryMesh> foliage_stem_mesh_;
+    std::shared_ptr<const GeometryMesh> foliage_card_mesh_;
     std::shared_ptr<const LiveCityMetricsSnapshot> live_metrics_;
     std::shared_ptr<const SemanticMegacityModel> semantic_model_;
     std::shared_ptr<const SemanticMegacityLayout> semantic_layout_;

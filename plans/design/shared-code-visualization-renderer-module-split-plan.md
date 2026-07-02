@@ -24,6 +24,7 @@ The renderer should not know whether an object came from a building, cell, fibre
 - Custom mesh transform modes now describe generic block and label scaling rather than building and sign scaling.
 - Phase 4 and Phase 5 have started: `draxul-codeviz-scene` now owns the public scene records, presentation ECS world, neutral shape component names, generic material presets, and shared scene sorting, while `draxul-codeviz-renderer` owns `CodeVizScenePass`, Vulkan/Metal render files, shadow helpers, builtin mesh helpers, and generic material library texture loading.
 - City material vocabulary such as asphalt, paving, wood, bark, and leaf-card recipes now lives behind `CityMaterialId`/`kCity*Material` aliases in `draxul-megacity`.
+- City mesh vocabulary such as road surfaces, trees, and wall/roof signs now lives behind `CityMeshId`/`kCity*Mesh` aliases in `draxul-megacity`; shared scene/render code uses generic `CodeVizMeshId` slots.
 - `draxul-codeviz-host` now owns shared camera and input helpers.
 - City and biology builders, snapshot building, config, and UI are still in `draxul-megacity`; the next high-value step is splitting city/biology metaphor builders and config/UI controls behind a metaphor interface.
 
@@ -49,7 +50,6 @@ The renderer should not know whether an object came from a building, cell, fibre
 
 The render infrastructure itself is the right shared foundation, but some shared inputs still use city-shaped names:
 
-- `MeshId::RoadSurface`, `MeshId::RoofSign`, `MeshId::WallSign`;
 - `SceneObject::Role::ModulePark`, `ModuleLabel`, `ModuleOutline`;
 - `MegaCityCodeConfig` mixes renderer, camera, city layout, signs, parks, performance overlay, and biology controls.
 

@@ -908,13 +908,13 @@ struct CodeVizScenePass::State
     VkPipeline present_pipeline = VK_NULL_HANDLE;
     MeshBuffers cube_mesh;
     MeshBuffers floor_mesh;
-    MeshBuffers tree_bark_mesh;
-    MeshBuffers tree_leaf_mesh;
-    MeshBuffers road_surface_mesh;
-    MeshBuffers roof_sign_mesh;
-    MeshBuffers wall_sign_mesh;
-    const MeshData* tree_bark_mesh_source = nullptr;
-    const MeshData* tree_leaf_mesh_source = nullptr;
+    MeshBuffers foliage_stem_mesh;
+    MeshBuffers foliage_card_mesh;
+    MeshBuffers textured_surface_mesh;
+    MeshBuffers top_label_panel_mesh;
+    MeshBuffers front_label_panel_mesh;
+    const MeshData* foliage_stem_mesh_source = nullptr;
+    const MeshData* foliage_card_mesh_source = nullptr;
     std::vector<MeshBuffers> custom_meshes;
     Buffer custom_vertex_pool;
     Buffer custom_index_pool;
@@ -1386,29 +1386,29 @@ struct CodeVizScenePass::State
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload floor mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_tree_bark_mesh(), tree_bark_mesh))
+        if (!upload_mesh(allocator, build_foliage_stem_mesh(), foliage_stem_mesh))
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload tree bark mesh");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload foliage stem mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_tree_leaf_mesh(), tree_leaf_mesh))
+        if (!upload_mesh(allocator, build_foliage_card_mesh(), foliage_card_mesh))
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload tree leaf mesh");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload foliage card mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_road_surface_mesh(), road_surface_mesh))
+        if (!upload_mesh(allocator, build_textured_surface_mesh(), textured_surface_mesh))
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload road surface mesh");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload textured surface mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_roof_sign_mesh(), roof_sign_mesh))
+        if (!upload_mesh(allocator, build_top_label_panel_mesh(), top_label_panel_mesh))
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload roof sign mesh");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload top label panel mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_wall_sign_mesh(), wall_sign_mesh))
+        if (!upload_mesh(allocator, build_front_label_panel_mesh(), front_label_panel_mesh))
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload wall sign mesh");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload front label panel mesh");
             return false;
         }
         return true;
@@ -1542,37 +1542,37 @@ struct CodeVizScenePass::State
         return true;
     }
 
-    bool ensure_tree_mesh(
-        const std::shared_ptr<const MeshData>& tree_bark_mesh_data,
-        const std::shared_ptr<const MeshData>& tree_leaf_mesh_data,
+    bool ensure_foliage_mesh(
+        const std::shared_ptr<const MeshData>& foliage_stem_mesh_data,
+        const std::shared_ptr<const MeshData>& foliage_card_mesh_data,
         uint32_t current_frame_index)
     {
         PERF_MEASURE();
-        if (tree_bark_mesh_data
-            && !(tree_bark_mesh_source == tree_bark_mesh_data.get() && tree_bark_mesh.index_count > 0))
+        if (foliage_stem_mesh_data
+            && !(foliage_stem_mesh_source == foliage_stem_mesh_data.get() && foliage_stem_mesh.index_count > 0))
         {
             MeshBuffers replacement;
-            if (!upload_mesh(allocator, *tree_bark_mesh_data, replacement))
+            if (!upload_mesh(allocator, *foliage_stem_mesh_data, replacement))
             {
-                DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural tree bark mesh");
+                DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural foliage stem mesh");
                 return false;
             }
-            retire_mesh(tree_bark_mesh, current_frame_index);
-            tree_bark_mesh = std::move(replacement);
-            tree_bark_mesh_source = tree_bark_mesh_data.get();
+            retire_mesh(foliage_stem_mesh, current_frame_index);
+            foliage_stem_mesh = std::move(replacement);
+            foliage_stem_mesh_source = foliage_stem_mesh_data.get();
         }
-        if (tree_leaf_mesh_data
-            && !(tree_leaf_mesh_source == tree_leaf_mesh_data.get() && tree_leaf_mesh.index_count > 0))
+        if (foliage_card_mesh_data
+            && !(foliage_card_mesh_source == foliage_card_mesh_data.get() && foliage_card_mesh.index_count > 0))
         {
             MeshBuffers replacement;
-            if (!upload_mesh(allocator, *tree_leaf_mesh_data, replacement))
+            if (!upload_mesh(allocator, *foliage_card_mesh_data, replacement))
             {
-                DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural tree leaf mesh");
+                DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural foliage card mesh");
                 return false;
             }
-            retire_mesh(tree_leaf_mesh, current_frame_index);
-            tree_leaf_mesh = std::move(replacement);
-            tree_leaf_mesh_source = tree_leaf_mesh_data.get();
+            retire_mesh(foliage_card_mesh, current_frame_index);
+            foliage_card_mesh = std::move(replacement);
+            foliage_card_mesh_source = foliage_card_mesh_data.get();
         }
         return true;
     }
@@ -3985,14 +3985,14 @@ struct CodeVizScenePass::State
         {
             destroy_mesh(allocator, cube_mesh);
             destroy_mesh(allocator, floor_mesh);
-            destroy_mesh(allocator, tree_bark_mesh);
-            destroy_mesh(allocator, tree_leaf_mesh);
+            destroy_mesh(allocator, foliage_stem_mesh);
+            destroy_mesh(allocator, foliage_card_mesh);
             custom_meshes.clear(); // Non-owning views — don't destroy individually
             destroy_buffer(allocator, custom_vertex_pool);
             destroy_buffer(allocator, custom_index_pool);
-            destroy_mesh(allocator, road_surface_mesh);
-            destroy_mesh(allocator, roof_sign_mesh);
-            destroy_mesh(allocator, wall_sign_mesh);
+            destroy_mesh(allocator, textured_surface_mesh);
+            destroy_mesh(allocator, top_label_panel_mesh);
+            destroy_mesh(allocator, front_label_panel_mesh);
             destroy_image(device, allocator, label_atlas);
             for (auto& texture : material_textures)
                 destroy_image(device, allocator, texture);
@@ -4137,7 +4137,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
     // Ensure floor grid mesh
     if (!state_->ensure_floor_grid(scene_.floor_grid))
         return;
-    if (!state_->ensure_tree_mesh(scene_.tree_bark_mesh, scene_.tree_leaf_mesh, frame_index)
+    if (!state_->ensure_foliage_mesh(scene_.foliage_stem_mesh, scene_.foliage_card_mesh, frame_index)
         || !state_->ensure_custom_meshes(scene_.custom_meshes, frame_index))
         return;
     MeshSlice grid_slice;
@@ -4240,7 +4240,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
     const uint32_t shadow_opaque_count = std::min(scene_.opaque_count,
         static_cast<uint32_t>(scene_.objects.size()));
     auto object_casts_shadow = [&](const CodeVizRenderable& obj) {
-        if (obj.mesh == MeshId::Grid || obj.color.a < 1.0f)
+        if (obj.mesh == CodeVizMeshId::Grid || obj.color.a < 1.0f)
             return false;
         if (!obj.route_source.empty() || !obj.route_target.empty())
             return false;
@@ -4299,32 +4299,32 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
             const MeshBuffers* mesh = nullptr;
             switch (obj.mesh)
             {
-            case MeshId::Floor:
+            case CodeVizMeshId::Floor:
                 mesh = &state_->floor_mesh;
                 break;
-            case MeshId::Cube:
+            case CodeVizMeshId::Cube:
                 mesh = &state_->cube_mesh;
                 break;
-            case MeshId::TreeBark:
-                mesh = &state_->tree_bark_mesh;
+            case CodeVizMeshId::FoliageStem:
+                mesh = &state_->foliage_stem_mesh;
                 break;
-            case MeshId::TreeLeaves:
-                mesh = &state_->tree_leaf_mesh;
+            case CodeVizMeshId::FoliageCards:
+                mesh = &state_->foliage_card_mesh;
                 break;
-            case MeshId::RoadSurface:
-                mesh = &state_->road_surface_mesh;
+            case CodeVizMeshId::TexturedSurface:
+                mesh = &state_->textured_surface_mesh;
                 break;
-            case MeshId::RoofSign:
-                mesh = &state_->roof_sign_mesh;
+            case CodeVizMeshId::TopLabelPanel:
+                mesh = &state_->top_label_panel_mesh;
                 break;
-            case MeshId::WallSign:
-                mesh = &state_->wall_sign_mesh;
+            case CodeVizMeshId::FrontLabelPanel:
+                mesh = &state_->front_label_panel_mesh;
                 break;
-            case MeshId::Custom:
+            case CodeVizMeshId::Custom:
                 if (obj.custom_mesh_index < state_->custom_meshes.size())
                     mesh = &state_->custom_meshes[obj.custom_mesh_index];
                 break;
-            case MeshId::Grid:
+            case CodeVizMeshId::Grid:
                 break;
             }
             if (!mesh || mesh->index_count == 0)
@@ -4402,32 +4402,32 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
                 const MeshBuffers* mesh = nullptr;
                 switch (obj.mesh)
                 {
-                case MeshId::Floor:
+                case CodeVizMeshId::Floor:
                     mesh = &state_->floor_mesh;
                     break;
-                case MeshId::Cube:
+                case CodeVizMeshId::Cube:
                     mesh = &state_->cube_mesh;
                     break;
-                case MeshId::TreeBark:
-                    mesh = &state_->tree_bark_mesh;
+                case CodeVizMeshId::FoliageStem:
+                    mesh = &state_->foliage_stem_mesh;
                     break;
-                case MeshId::TreeLeaves:
-                    mesh = &state_->tree_leaf_mesh;
+                case CodeVizMeshId::FoliageCards:
+                    mesh = &state_->foliage_card_mesh;
                     break;
-                case MeshId::RoadSurface:
-                    mesh = &state_->road_surface_mesh;
+                case CodeVizMeshId::TexturedSurface:
+                    mesh = &state_->textured_surface_mesh;
                     break;
-                case MeshId::RoofSign:
-                    mesh = &state_->roof_sign_mesh;
+                case CodeVizMeshId::TopLabelPanel:
+                    mesh = &state_->top_label_panel_mesh;
                     break;
-                case MeshId::WallSign:
-                    mesh = &state_->wall_sign_mesh;
+                case CodeVizMeshId::FrontLabelPanel:
+                    mesh = &state_->front_label_panel_mesh;
                     break;
-                case MeshId::Custom:
+                case CodeVizMeshId::Custom:
                     if (obj.custom_mesh_index < state_->custom_meshes.size())
                         mesh = &state_->custom_meshes[obj.custom_mesh_index];
                     break;
-                case MeshId::Grid:
+                case CodeVizMeshId::Grid:
                     break;
                 }
                 if (!mesh || mesh->index_count == 0)
@@ -4496,32 +4496,32 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
-        case MeshId::Floor:
+        case CodeVizMeshId::Floor:
             mesh = &state_->floor_mesh;
             break;
-        case MeshId::Cube:
+        case CodeVizMeshId::Cube:
             mesh = &state_->cube_mesh;
             break;
-        case MeshId::TreeBark:
-            mesh = &state_->tree_bark_mesh;
+        case CodeVizMeshId::FoliageStem:
+            mesh = &state_->foliage_stem_mesh;
             break;
-        case MeshId::TreeLeaves:
-            mesh = &state_->tree_leaf_mesh;
+        case CodeVizMeshId::FoliageCards:
+            mesh = &state_->foliage_card_mesh;
             break;
-        case MeshId::RoadSurface:
-            mesh = &state_->road_surface_mesh;
+        case CodeVizMeshId::TexturedSurface:
+            mesh = &state_->textured_surface_mesh;
             break;
-        case MeshId::RoofSign:
-            mesh = &state_->roof_sign_mesh;
+        case CodeVizMeshId::TopLabelPanel:
+            mesh = &state_->top_label_panel_mesh;
             break;
-        case MeshId::WallSign:
-            mesh = &state_->wall_sign_mesh;
+        case CodeVizMeshId::FrontLabelPanel:
+            mesh = &state_->front_label_panel_mesh;
             break;
-        case MeshId::Custom:
+        case CodeVizMeshId::Custom:
             if (obj.custom_mesh_index < state_->custom_meshes.size())
                 mesh = &state_->custom_meshes[obj.custom_mesh_index];
             break;
-        case MeshId::Grid:
+        case CodeVizMeshId::Grid:
             continue;
         }
         if (!mesh || mesh->index_count == 0)
@@ -4650,32 +4650,32 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
         const MeshBuffers* mesh = nullptr;
         switch (obj.mesh)
         {
-        case MeshId::Floor:
+        case CodeVizMeshId::Floor:
             mesh = &state_->floor_mesh;
             break;
-        case MeshId::Cube:
+        case CodeVizMeshId::Cube:
             mesh = &state_->cube_mesh;
             break;
-        case MeshId::TreeBark:
-            mesh = &state_->tree_bark_mesh;
+        case CodeVizMeshId::FoliageStem:
+            mesh = &state_->foliage_stem_mesh;
             break;
-        case MeshId::TreeLeaves:
-            mesh = &state_->tree_leaf_mesh;
+        case CodeVizMeshId::FoliageCards:
+            mesh = &state_->foliage_card_mesh;
             break;
-        case MeshId::RoadSurface:
-            mesh = &state_->road_surface_mesh;
+        case CodeVizMeshId::TexturedSurface:
+            mesh = &state_->textured_surface_mesh;
             break;
-        case MeshId::RoofSign:
-            mesh = &state_->roof_sign_mesh;
+        case CodeVizMeshId::TopLabelPanel:
+            mesh = &state_->top_label_panel_mesh;
             break;
-        case MeshId::WallSign:
-            mesh = &state_->wall_sign_mesh;
+        case CodeVizMeshId::FrontLabelPanel:
+            mesh = &state_->front_label_panel_mesh;
             break;
-        case MeshId::Custom:
+        case CodeVizMeshId::Custom:
             if (obj.custom_mesh_index < state_->custom_meshes.size())
                 mesh = &state_->custom_meshes[obj.custom_mesh_index];
             break;
-        case MeshId::Grid:
+        case CodeVizMeshId::Grid:
             return;
         }
         if (!mesh || mesh->index_count == 0)
