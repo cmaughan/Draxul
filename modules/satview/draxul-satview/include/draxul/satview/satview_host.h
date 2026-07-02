@@ -27,6 +27,7 @@ class SatViewCameraKeyState;
 class SatViewCloudService;
 class Camera;
 class Manipulator;
+struct SatViewStarInstance;
 struct SatViewSimulationSnapshot;
 
 class SatViewHost final : public draxul::IHost
@@ -126,6 +127,8 @@ private:
     std::size_t track_sample_count_ = kDefaultTrackSampleCount;
     bool refresh_tracks_each_step_ = false;
     std::size_t marker_satellite_limit_ = 0;
+    std::size_t star_count_ = kDefaultStarCount;
+    float star_magnitude_contrast_ = kDefaultStarMagnitudeContrast;
     bool running_ = false;
     bool paused_ = false;
     bool dragging_ = false;
@@ -148,6 +151,7 @@ private:
     std::size_t object_tree_state_count_ = 0;
     std::vector<ObjectTreeEntry> object_tree_entries_;
     std::vector<std::size_t> filtered_object_tree_indices_;
+    std::vector<SatViewStarInstance> stars_;
     std::shared_ptr<Camera> camera_;
     std::unique_ptr<Manipulator> camera_manipulator_;
     std::unique_ptr<SatViewCameraKeyState> camera_keys_;

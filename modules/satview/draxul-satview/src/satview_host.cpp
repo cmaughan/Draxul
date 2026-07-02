@@ -11,6 +11,7 @@
 #include "satview_object_style.h"
 #include "satview_scene_pass.h"
 #include "satview_simulation_worker.h"
+#include "satview_star_catalog.h"
 #include "satview_time_format.h"
 
 #include <SDL3/SDL_keycode.h>
@@ -70,6 +71,8 @@ constexpr float kGroundMinimumFovDegrees = 20.0f;
 constexpr float kGroundMaximumFovDegrees = 120.0f;
 constexpr float kGroundMinimumMarkerScale = 0.05f;
 constexpr float kGroundMaximumMarkerScale = 2.0f;
+constexpr float kMinimumStarMagnitudeContrast = 0.5f;
+constexpr float kMaximumStarMagnitudeContrast = 2.0f;
 constexpr float kGroundObserverAltitudeEarthRadii = 0.0003f;
 constexpr float kMoonRadiusEarthRadii = static_cast<float>(kSatViewMoonMeanRadiusKm / kSatViewEarthEquatorialRadiusKm);
 
@@ -695,6 +698,10 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     last_activity_time_ = last_pump_time_;
     next_frame_time_ = last_pump_time_ + kFrameTick;
     scene_pass_ = std::make_shared<SatViewScenePass>();
+    stars_ = load_satview_star_catalog(kMaximumStarCount);
+    scene_pass_->set_stars(stars_);
+    scene_pass_->set_star_count(star_count_);
+    scene_pass_->set_star_magnitude_contrast(star_magnitude_contrast_);
     SatViewSimulationControls simulation_controls;
     simulation_controls.time_speed = time_speed_;
     simulation_controls.paused = paused_;
@@ -939,6 +946,9 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_moon(
         glm::vec4(glm::vec3(moon.render_position_earth_radii), kMoonRadiusEarthRadii),
         moon_enabled_);
+    scene_pass_->set_star_count(star_count_);
+    scene_pass_->set_star_magnitude_contrast(star_magnitude_contrast_);
+    scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
 
     const void* track_source = snapshot && snapshot->tracks
         ? snapshot->tracks.get()
@@ -1499,6 +1509,8 @@ SatViewConfig SatViewHost::current_config() const
     config.track_sample_count = track_sample_count_;
     config.refresh_tracks_each_step = refresh_tracks_each_step_;
     config.marker_satellite_limit = marker_satellite_limit_;
+    config.star_count = star_count_;
+    config.star_magnitude_contrast = star_magnitude_contrast_;
     config.time_speed = time_speed_;
     config.clouds_enabled = clouds_enabled_;
     config.realistic_clouds_enabled = realistic_clouds_enabled_;
@@ -1524,6 +1536,11 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     track_sample_count_ = config.track_sample_count;
     refresh_tracks_each_step_ = config.refresh_tracks_each_step;
     marker_satellite_limit_ = config.marker_satellite_limit;
+    star_count_ = std::min(config.star_count, kMaximumStarCount);
+    star_magnitude_contrast_ = std::clamp(
+        config.star_magnitude_contrast,
+        kMinimumStarMagnitudeContrast,
+        kMaximumStarMagnitudeContrast);
     time_speed_ = config.time_speed;
     clouds_enabled_ = config.clouds_enabled;
     realistic_clouds_enabled_ = config.realistic_clouds_enabled;
@@ -2213,6 +2230,24 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         request_redraw();
     }
 
+    int star_count = static_cast<int>(std::min(star_count_, kMaximumStarCount));
+    set_control_width("Stars");
+    if (ImGui::SliderInt("Stars", &star_count, 0, static_cast<int>(kMaximumStarCount)))
+    {
+        star_count_ = static_cast<std::size_t>(std::max(0, star_count));
+        request_redraw();
+    }
+    set_control_width("Star contrast");
+    if (ImGui::SliderFloat(
+            "Star contrast",
+            &star_magnitude_contrast_,
+            kMinimumStarMagnitudeContrast,
+            kMaximumStarMagnitudeContrast,
+            "%.2fx"))
+    {
+        request_redraw();
+    }
+
     int color_mode_index = static_cast<int>(color_mode_);
     const char* color_modes[] = { "Population", "Name Prefix", "Orbit Class", "Object Type" };
     set_control_width("Color");
@@ -2382,6 +2417,9 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     const std::size_t total_tracks = (snapshot && snapshot->tracks) ? snapshot->tracks->size() : 0;
     ImGui::Text("Markers: %zu / %zu", rendered_markers, total_markers);
     ImGui::Text("Paths: %zu / %zu", visible_track_count(snapshot), total_tracks);
+    ImGui::Text("Stars: %zu / %zu",
+        std::min(star_count_, stars_.size()),
+        stars_.size());
 
     ImGui::SeparatorText("Selection");
     if (const SatellitePropagatedState* selected = selected_satellite(snapshot))

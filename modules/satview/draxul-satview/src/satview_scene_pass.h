@@ -3,6 +3,7 @@
 #include "satview_texture_assets.h"
 
 #include <draxul/base_renderer.h>
+#include <algorithm>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <memory>
@@ -46,7 +47,14 @@ struct SatViewMarkerInstance
     glm::vec4 color{ 1.0f };
 };
 
+struct SatViewStarInstance
+{
+    glm::vec4 direction_magnitude{ 0.0f, 1.0f, 0.0f, 0.0f };
+    glm::vec4 color_size{ 1.0f, 1.0f, 1.0f, 0.002f };
+};
+
 inline constexpr uint32_t kSatViewMarkerVerticesPerInstance = 8;
+inline constexpr uint32_t kSatViewStarVerticesPerInstance = 6;
 
 class SatViewScenePass final : public draxul::IRenderPass
 {
@@ -98,6 +106,30 @@ public:
         ++marker_revision_;
     }
 
+    void set_stars(std::span<const SatViewStarInstance> stars)
+    {
+        if (stars.empty() && stars_.empty())
+            return;
+        stars_.assign(stars.begin(), stars.end());
+        visible_star_count_ = std::min(visible_star_count_, stars_.size());
+        ++star_revision_;
+    }
+
+    void set_star_count(std::size_t count)
+    {
+        visible_star_count_ = std::min(count, stars_.size());
+    }
+
+    void set_star_magnitude_contrast(float contrast)
+    {
+        star_magnitude_contrast_ = contrast;
+    }
+
+    void set_star_projection_aspect_scale(float aspect_scale)
+    {
+        star_projection_aspect_scale_ = aspect_scale;
+    }
+
     void set_cloud_image(std::shared_ptr<const LoadedTextureImage> image)
     {
         if (!image || !image->valid())
@@ -115,8 +147,13 @@ private:
     SatViewFrameUniforms frame_;
     std::vector<SatViewSceneVertex> track_vertices_;
     std::vector<SatViewMarkerInstance> markers_;
+    std::vector<SatViewStarInstance> stars_;
     uint64_t track_revision_ = 0;
     uint64_t marker_revision_ = 0;
+    uint64_t star_revision_ = 0;
+    std::size_t visible_star_count_ = 0;
+    float star_magnitude_contrast_ = 1.0f;
+    float star_projection_aspect_scale_ = 1.0f;
     std::shared_ptr<const LoadedTextureImage> pending_cloud_image_;
     uint64_t cloud_revision_ = 0;
     glm::vec4 moon_position_radius_{ 0.0f };

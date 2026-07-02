@@ -57,6 +57,26 @@ Contains modified EUMETSAT data
 When the service or network is unavailable, SatView keeps using the bundled
 `earth_clouds_8k.jpg` texture.
 
+## Star Catalog
+
+`catalog/stars.dxstar` is a compact binary catalog generated from the Hipparcos
+main catalog (`I/239/hip_main`) through VizieR:
+
+https://cdsarc.cds.unistra.fr/viz-bin/cat/I/239
+
+The file contains the 100,000 brightest usable Hipparcos records sorted by
+visual magnitude. Each record stores a render-space unit direction, source
+visual magnitude, saturated display color, and tiny-quad screen size. SatView
+defaults to drawing the first 20,000 records and exposes a `Stars` slider from
+0 to 100,000 plus a `Star contrast` slider for tuning the apparent-magnitude
+response.
+
+Regenerate it from the repository root with:
+
+```powershell
+python scripts\build_satview_star_catalog.py --max-stars 100000
+```
+
 ## Sample Catalog
 
 `catalog/sample_gp.json` is a tiny synthetic fixture using the CelesTrak GP JSON

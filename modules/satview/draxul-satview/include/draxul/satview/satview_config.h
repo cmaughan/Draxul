@@ -14,6 +14,9 @@ namespace draxul::satview
 inline constexpr std::size_t kDefaultTrackSatelliteLimit = 1024;
 inline constexpr std::size_t kDefaultTrackSampleCount = 48;
 inline constexpr std::size_t kMaximumTrackSampleCount = 256;
+inline constexpr std::size_t kDefaultStarCount = 20000;
+inline constexpr std::size_t kMaximumStarCount = 100000;
+inline constexpr float kDefaultStarMagnitudeContrast = 1.0f;
 
 enum class SatViewColorMode
 {
@@ -61,6 +64,8 @@ struct SatViewConfig
     std::size_t track_sample_count = kDefaultTrackSampleCount;
     bool refresh_tracks_each_step = false;
     std::size_t marker_satellite_limit = 0;
+    std::size_t star_count = kDefaultStarCount;
+    float star_magnitude_contrast = kDefaultStarMagnitudeContrast;
     float time_speed = 60.0f;
     bool clouds_enabled = true;
     bool realistic_clouds_enabled = false;
