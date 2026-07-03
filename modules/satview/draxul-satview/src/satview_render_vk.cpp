@@ -984,10 +984,10 @@ struct SatViewScenePass::State
             depth.depthWriteEnable = VK_FALSE;
             blend_attachment.blendEnable = VK_TRUE;
             blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
             blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
-            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
             blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
             result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &star_pipeline);
             depth.depthTestEnable = VK_TRUE;
@@ -1154,9 +1154,7 @@ void SatViewScenePass::record(IRenderContext& ctx)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->layout,
         0, 1, &state_->descriptor_set, 0, nullptr);
     auto draw_stars = [&]() {
-        const uint32_t draw_count = static_cast<uint32_t>(std::min<std::size_t>(
-            visible_star_count_,
-            state_->star_count));
+        const uint32_t draw_count = state_->star_count;
         if (draw_count == 0
             || state_->star_buffer.buffer == VK_NULL_HANDLE
             || state_->star_pipeline == VK_NULL_HANDLE)
@@ -1164,8 +1162,10 @@ void SatViewScenePass::record(IRenderContext& ctx)
 
         VkDeviceSize offset = 0;
         SatViewFrameUniforms star_frame = frame;
-        star_frame.render_params.x = star_magnitude_contrast_;
-        star_frame.render_params.y = star_projection_aspect_scale_;
+        star_frame.render_params.x = star_min_magnitude_;
+        star_frame.render_params.y = star_max_magnitude_;
+        star_frame.render_params.z = star_projection_aspect_scale_;
+        star_frame.render_params.w = star_brightness_scale_;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->star_pipeline);
         vkCmdBindVertexBuffers(cmd, 0, 1, &state_->star_buffer.buffer, &offset);
         vkCmdPushConstants(cmd, state_->layout,

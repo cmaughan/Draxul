@@ -67,9 +67,11 @@ https://cdsarc.cds.unistra.fr/viz-bin/cat/I/239
 The file contains the 100,000 brightest usable Hipparcos records sorted by
 visual magnitude. Each record stores a render-space unit direction, source
 visual magnitude, saturated display color, and tiny-quad screen size. SatView
-defaults to drawing the first 20,000 records and exposes a `Stars` slider from
-0 to 100,000 plus a `Star contrast` slider for tuning the apparent-magnitude
-response.
+defaults to drawing stars with apparent visual magnitudes from -1.5 through 6.0.
+The UI exposes minimum and maximum apparent-magnitude controls; records outside
+that range are not uploaded for drawing, and stars inside it are scaled across
+the selected range. A separate brightness scalar multiplies the resulting
+starfield without changing which stars are included.
 
 Regenerate it from the repository root with:
 

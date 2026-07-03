@@ -802,11 +802,26 @@ vertex SatViewStarOut satview_star_vertex(
     float4 center_clip = frame.view_proj * float4(center, 1.0f);
 
     SatViewStarOut out;
-    float contrast = max(frame.render_params.x, 0.01f);
-    float magnitude_boost = pow(10.0f, -0.4f * (star.direction_magnitude.w - 4.0f) * (contrast - 1.0f));
-    float brightness_boost = clamp(magnitude_boost, 0.10f, 4.0f);
-    float size_boost = clamp(pow(magnitude_boost, 0.25f), 0.55f, 1.7f);
-    out.color = float4(star.color_size.rgb * brightness_boost, 1.0f);
+    float min_magnitude = frame.render_params.x;
+    float max_magnitude = max(frame.render_params.y, min_magnitude + 0.001f);
+    if (star.direction_magnitude.w < min_magnitude || star.direction_magnitude.w > max_magnitude)
+    {
+        out.color = float4(0.0f);
+        out.uv = float2(2.0f);
+        out.position = float4(2.0f, 2.0f, 0.0f, 1.0f);
+        return out;
+    }
+
+    float magnitude_t = clamp(
+        (star.direction_magnitude.w - min_magnitude) / (max_magnitude - min_magnitude),
+        0.0f,
+        1.0f);
+    float visibility = 1.0f - magnitude_t;
+    float max_channel = max(star.color_size.r, max(star.color_size.g, star.color_size.b));
+    float3 chroma = max_channel > 0.00001f ? star.color_size.rgb / max_channel : float3(1.0f);
+    float brightness = mix(0.035f, 1.0f, pow(visibility, 1.85f)) * max(frame.render_params.w, 0.0f);
+    float star_size = mix(0.0009f, 0.0090f, pow(visibility, 0.72f));
+    out.color = float4(chroma * brightness, 1.0f);
     if (center_clip.w <= 0.0f)
     {
         out.color.a = 0.0f;
@@ -816,8 +831,8 @@ vertex SatViewStarOut satview_star_vertex(
     }
 
     float2 corner = star_quad_corner(vertex_id);
-    float x_scale = max(frame.render_params.y, 0.0001f);
-    center_clip.xy += corner * float2(x_scale, 1.0f) * star.color_size.w * size_boost * center_clip.w;
+    float x_scale = max(frame.render_params.z, 0.0001f);
+    center_clip.xy += corner * float2(x_scale, 1.0f) * star_size * center_clip.w;
     out.position = center_clip;
     out.uv = corner;
     return out;
@@ -828,7 +843,7 @@ fragment float4 satview_star_fragment(SatViewStarOut in [[stage_in]])
     float radius2 = dot(in.uv, in.uv);
     float alpha = (1.0f - smoothstep(0.0f, 1.0f, radius2)) * in.color.a;
     alpha *= alpha;
-    return float4(in.color.rgb * alpha, alpha);
+    return float4(in.color.rgb * alpha, 0.0f);
 }
 
 vertex SatViewOrbitOut satview_orbit_vertex(

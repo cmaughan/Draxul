@@ -71,8 +71,6 @@ constexpr float kGroundMinimumFovDegrees = 20.0f;
 constexpr float kGroundMaximumFovDegrees = 120.0f;
 constexpr float kGroundMinimumMarkerScale = 0.05f;
 constexpr float kGroundMaximumMarkerScale = 2.0f;
-constexpr float kMinimumStarMagnitudeContrast = 0.5f;
-constexpr float kMaximumStarMagnitudeContrast = 2.0f;
 constexpr float kGroundObserverAltitudeEarthRadii = 0.0003f;
 constexpr float kMoonRadiusEarthRadii = static_cast<float>(kSatViewMoonMeanRadiusKm / kSatViewEarthEquatorialRadiusKm);
 
@@ -698,10 +696,11 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     last_activity_time_ = last_pump_time_;
     next_frame_time_ = last_pump_time_ + kFrameTick;
     scene_pass_ = std::make_shared<SatViewScenePass>();
-    stars_ = load_satview_star_catalog(kMaximumStarCount);
-    scene_pass_->set_stars(stars_);
-    scene_pass_->set_star_count(star_count_);
-    scene_pass_->set_star_magnitude_contrast(star_magnitude_contrast_);
+    stars_ = load_satview_star_catalog(kMaximumStarCatalogCount);
+    rebuild_visible_stars();
+    scene_pass_->set_stars(visible_stars_);
+    scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
+    scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     SatViewSimulationControls simulation_controls;
     simulation_controls.time_speed = time_speed_;
     simulation_controls.paused = paused_;
@@ -946,8 +945,8 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_moon(
         glm::vec4(glm::vec3(moon.render_position_earth_radii), kMoonRadiusEarthRadii),
         moon_enabled_);
-    scene_pass_->set_star_count(star_count_);
-    scene_pass_->set_star_magnitude_contrast(star_magnitude_contrast_);
+    scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
+    scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
 
     const void* track_source = snapshot && snapshot->tracks
@@ -1509,8 +1508,9 @@ SatViewConfig SatViewHost::current_config() const
     config.track_sample_count = track_sample_count_;
     config.refresh_tracks_each_step = refresh_tracks_each_step_;
     config.marker_satellite_limit = marker_satellite_limit_;
-    config.star_count = star_count_;
-    config.star_magnitude_contrast = star_magnitude_contrast_;
+    config.star_min_magnitude = star_min_magnitude_;
+    config.star_max_magnitude = star_max_magnitude_;
+    config.star_brightness_scale = star_brightness_scale_;
     config.time_speed = time_speed_;
     config.clouds_enabled = clouds_enabled_;
     config.realistic_clouds_enabled = realistic_clouds_enabled_;
@@ -1536,11 +1536,20 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     track_sample_count_ = config.track_sample_count;
     refresh_tracks_each_step_ = config.refresh_tracks_each_step;
     marker_satellite_limit_ = config.marker_satellite_limit;
-    star_count_ = std::min(config.star_count, kMaximumStarCount);
-    star_magnitude_contrast_ = std::clamp(
-        config.star_magnitude_contrast,
-        kMinimumStarMagnitudeContrast,
-        kMaximumStarMagnitudeContrast);
+    star_min_magnitude_ = std::clamp(
+        config.star_min_magnitude,
+        kMinimumStarMagnitude,
+        kMaximumStarMagnitude);
+    star_max_magnitude_ = std::clamp(
+        config.star_max_magnitude,
+        kMinimumStarMagnitude,
+        kMaximumStarMagnitude);
+    if (star_min_magnitude_ > star_max_magnitude_)
+        std::swap(star_min_magnitude_, star_max_magnitude_);
+    star_brightness_scale_ = std::clamp(
+        config.star_brightness_scale,
+        kMinimumStarBrightnessScale,
+        kMaximumStarBrightnessScale);
     time_speed_ = config.time_speed;
     clouds_enabled_ = config.clouds_enabled;
     realistic_clouds_enabled_ = config.realistic_clouds_enabled;
@@ -1555,6 +1564,7 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     copy_to_buffer(search_buffer_, filter_.search_text);
     copy_to_buffer(object_type_buffer_, filter_.object_type_text);
     copy_to_buffer(source_buffer_, filter_.source_text);
+    rebuild_visible_stars();
 }
 
 void SatViewHost::persist_config()
@@ -1578,6 +1588,20 @@ void SatViewHost::sync_simulation_render_settings()
             refresh_tracks_each_step_,
             selected_norad_catalog_id_);
     }
+}
+
+void SatViewHost::rebuild_visible_stars()
+{
+    visible_stars_.clear();
+    visible_stars_.reserve(stars_.size());
+    for (const SatViewStarInstance& star : stars_)
+    {
+        const float magnitude = star.direction_magnitude.w;
+        if (magnitude >= star_min_magnitude_ && magnitude <= star_max_magnitude_)
+            visible_stars_.push_back(star);
+    }
+    if (scene_pass_)
+        scene_pass_->set_stars(visible_stars_);
 }
 
 void SatViewHost::set_real_time()
@@ -1647,6 +1671,45 @@ void SatViewHost::reset_camera()
     camera_->SetPositionAndFocalPoint(
         target + camera_position_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f, std::min(kCameraDefaultDistance * target_radius, camera_->GetMaxDistance())),
         target);
+    request_redraw();
+}
+
+void SatViewHost::reset_to_default_settings()
+{
+    apply_config(SatViewConfig{});
+    selected_norad_catalog_id_.reset();
+    map_center_radians_ = glm::vec2(0.0f);
+    ground_yaw_radians_ = 0.0f;
+    ground_pitch_radians_ = 0.0f;
+    moon_track_center_seconds_.reset();
+    dragging_ = false;
+    pending_click_ = false;
+    paused_ = false;
+    simulated_seconds_ = unix_seconds_now();
+    last_draw_simulation_seconds_ = simulated_seconds_;
+
+    const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
+    const SatViewMoonPosition moon = satview_moon_position(simulated_seconds_);
+    const glm::vec3 target = camera_target_position(camera_pov_, moon);
+    const float target_radius = camera_target_radius(camera_pov_);
+    camera_->ClearMotion();
+    camera_manipulator_->Cancel();
+    camera_keys_->reset();
+    camera_->SetDistanceLimits(
+        camera_min_distance(camera_pov_),
+        kCameraDefaultMaxDistance);
+    camera_->SetPositionAndFocalPoint(
+        target + camera_position_from_yaw_pitch(
+                     std::atan2(sun.x, sun.z) + 0.65f,
+                     0.25f,
+                     kCameraDefaultDistance * target_radius),
+        target);
+
+    if (simulation_worker_)
+        simulation_worker_->set_clock(simulated_seconds_, time_speed_, paused_);
+    simulation_settings_dirty_ = true;
+    config_dirty_ = true;
+    invalidate_visual_buffers();
     request_redraw();
 }
 
@@ -2069,6 +2132,11 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
             cloud_service_->request_refresh();
         changed = true;
     }
+    if (ImGui::Button("Reset Defaults"))
+    {
+        reset_to_default_settings();
+        changed = true;
+    }
 
     float speed = time_speed_;
     set_control_width("Speed");
@@ -2230,21 +2298,49 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         request_redraw();
     }
 
-    int star_count = static_cast<int>(std::min(star_count_, kMaximumStarCount));
-    set_control_width("Stars");
-    if (ImGui::SliderInt("Stars", &star_count, 0, static_cast<int>(kMaximumStarCount)))
+    float star_min_magnitude = star_min_magnitude_;
+    set_control_width("Star min mag");
+    if (ImGui::SliderFloat(
+            "Star min mag",
+            &star_min_magnitude,
+            kMinimumStarMagnitude,
+            kMaximumStarMagnitude,
+            "%.1f"))
     {
-        star_count_ = static_cast<std::size_t>(std::max(0, star_count));
+        star_min_magnitude_ = std::min(
+            std::clamp(star_min_magnitude, kMinimumStarMagnitude, kMaximumStarMagnitude),
+            star_max_magnitude_);
+        rebuild_visible_stars();
         request_redraw();
     }
-    set_control_width("Star contrast");
+    float star_max_magnitude = star_max_magnitude_;
+    set_control_width("Star max mag");
     if (ImGui::SliderFloat(
-            "Star contrast",
-            &star_magnitude_contrast_,
-            kMinimumStarMagnitudeContrast,
-            kMaximumStarMagnitudeContrast,
+            "Star max mag",
+            &star_max_magnitude,
+            kMinimumStarMagnitude,
+            kMaximumStarMagnitude,
+            "%.1f"))
+    {
+        star_max_magnitude_ = std::max(
+            std::clamp(star_max_magnitude, kMinimumStarMagnitude, kMaximumStarMagnitude),
+            star_min_magnitude_);
+        rebuild_visible_stars();
+        request_redraw();
+    }
+    float star_brightness = star_brightness_scale_;
+    set_control_width("Star brightness");
+    if (ImGui::SliderFloat(
+            "Star brightness",
+            &star_brightness,
+            kMinimumStarBrightnessScale,
+            kMaximumStarBrightnessScale,
             "%.2fx"))
     {
+        star_brightness_scale_ = std::clamp(
+            star_brightness,
+            kMinimumStarBrightnessScale,
+            kMaximumStarBrightnessScale);
         request_redraw();
     }
 
@@ -2418,7 +2514,7 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     ImGui::Text("Markers: %zu / %zu", rendered_markers, total_markers);
     ImGui::Text("Paths: %zu / %zu", visible_track_count(snapshot), total_tracks);
     ImGui::Text("Stars: %zu / %zu",
-        std::min(star_count_, stars_.size()),
+        visible_stars_.size(),
         stars_.size());
 
     ImGui::SeparatorText("Selection");

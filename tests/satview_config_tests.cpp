@@ -6,16 +6,19 @@
 using namespace draxul;
 using namespace draxul::satview;
 
-TEST_CASE("SatView config defaults to 1024 tracks", "[satview][config]")
+TEST_CASE("SatView config uses the shared default track count", "[satview][config]")
 {
     const ConfigDocument document;
     const SatViewConfig config = load_satview_config(document);
 
     CHECK(config.color_mode == SatViewColorMode::Population);
     CHECK(config.satellite_display_mode == SatViewSatelliteDisplayMode::TracksAndMarkers);
-    CHECK(config.track_satellite_limit == 1024);
+    CHECK(config.track_satellite_limit == kDefaultTrackSatelliteLimit);
     CHECK(config.track_sample_count == 48);
     CHECK_FALSE(config.refresh_tracks_each_step);
+    CHECK(config.star_min_magnitude == kDefaultStarMinMagnitude);
+    CHECK(config.star_max_magnitude == kDefaultStarMaxMagnitude);
+    CHECK(config.star_brightness_scale == kDefaultStarBrightnessScale);
     CHECK(config.ground_fov_degrees == 60.0f);
     CHECK(config.ground_marker_scale == 0.1f);
     CHECK(config.filter.show_active_payloads);
@@ -49,6 +52,9 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.track_sample_count = 256;
     expected.refresh_tracks_each_step = true;
     expected.marker_satellite_limit = 2048;
+    expected.star_min_magnitude = -0.5f;
+    expected.star_max_magnitude = 7.5f;
+    expected.star_brightness_scale = 2.5f;
     expected.time_speed = 120.0f;
     expected.clouds_enabled = false;
     expected.realistic_clouds_enabled = true;
@@ -73,6 +79,9 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     table.insert_or_assign("track_samples", 999);
     table.insert_or_assign("marker_cap", 1234);
     table.insert_or_assign("satellite_display_mode", "not_a_mode");
+    table.insert_or_assign("star_min_magnitude", 99.0);
+    table.insert_or_assign("star_max_magnitude", -99.0);
+    table.insert_or_assign("star_brightness", 99.0);
     table.insert_or_assign("time_speed", 9000.0);
     table.insert_or_assign("ground_fov_degrees", 200.0);
     table.insert_or_assign("ground_marker_scale", 20.0);
@@ -86,6 +95,9 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     CHECK(config.track_satellite_limit == kDefaultTrackSatelliteLimit);
     CHECK(config.track_sample_count == kMaximumTrackSampleCount);
     CHECK(config.marker_satellite_limit == 0);
+    CHECK(config.star_min_magnitude == kMinimumStarMagnitude);
+    CHECK(config.star_max_magnitude == kMaximumStarMagnitude);
+    CHECK(config.star_brightness_scale == kMaximumStarBrightnessScale);
     CHECK(config.time_speed == 3600.0f);
     CHECK(config.ground_fov_degrees == 120.0f);
     CHECK(config.ground_marker_scale == 2.0f);

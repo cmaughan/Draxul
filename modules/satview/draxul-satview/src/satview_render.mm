@@ -325,6 +325,12 @@ struct SatViewScenePass::State
 
         desc.vertexFunction = star_vertex;
         desc.fragmentFunction = star_fragment;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorZero;
+        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
         created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
         if (!created)
         {
@@ -544,15 +550,15 @@ void SatViewScenePass::record(IRenderContext& ctx)
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
 
     auto draw_stars = [&]() {
-        const NSUInteger draw_count = static_cast<NSUInteger>(std::min<std::size_t>(
-            visible_star_count_,
-            state_->star_count));
+        const NSUInteger draw_count = state_->star_count;
         if (draw_count == 0 || !state_->star_buffer.get() || !state_->star_pipeline.get())
             return;
 
         SatViewFrameUniforms star_frame = frame_;
-        star_frame.render_params.x = star_magnitude_contrast_;
-        star_frame.render_params.y = star_projection_aspect_scale_;
+        star_frame.render_params.x = star_min_magnitude_;
+        star_frame.render_params.y = star_max_magnitude_;
+        star_frame.render_params.z = star_projection_aspect_scale_;
+        star_frame.render_params.w = star_brightness_scale_;
         [encoder setRenderPipelineState:state_->star_pipeline.get()];
         [encoder setDepthStencilState:state_->depth_disabled_state.get()];
         [encoder setVertexBytes:&star_frame length:sizeof(star_frame) atIndex:0];

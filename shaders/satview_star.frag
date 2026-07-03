@@ -10,5 +10,5 @@ void main()
     float radius2 = dot(in_uv, in_uv);
     float alpha = (1.0 - smoothstep(0.0, 1.0, radius2)) * in_color.a;
     alpha *= alpha;
-    out_color = vec4(in_color.rgb * alpha, alpha);
+    out_color = vec4(in_color.rgb * alpha, 0.0);
 }

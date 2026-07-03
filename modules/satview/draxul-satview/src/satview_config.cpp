@@ -9,6 +9,7 @@
 #include <numbers>
 #include <string_view>
 #include <toml++/toml.hpp>
+#include <utility>
 
 namespace draxul::satview
 {
@@ -24,8 +25,6 @@ constexpr std::size_t kMaximumSourceLength = 95;
 constexpr std::array<std::size_t, 6> kMarkerLimits = { 0, 512, 1024, 2048, 4096, 8192 };
 constexpr double kPi = std::numbers::pi_v<double>;
 constexpr double kLatitudeLimitRadians = 0.5 * kPi - 0.001;
-constexpr double kMinimumStarMagnitudeContrast = 0.5;
-constexpr double kMaximumStarMagnitudeContrast = 2.0;
 
 std::string truncate(std::string value, std::size_t maximum_length)
 {
@@ -42,6 +41,21 @@ std::size_t clamped_size(const toml::table& table, std::string_view key, std::si
         return fallback;
     const auto value = static_cast<std::uint64_t>(*parsed);
     return static_cast<std::size_t>(std::clamp<std::uint64_t>(value, minimum, maximum));
+}
+
+float clamped_float(const toml::table& table, std::string_view key, float fallback,
+    float minimum, float maximum)
+{
+    if (auto value = toml_support::get_double(table, key))
+        return static_cast<float>(std::clamp(*value,
+            static_cast<double>(minimum),
+            static_cast<double>(maximum)));
+    if (auto value = toml_support::get_int(table, key))
+        return static_cast<float>(std::clamp(
+            static_cast<double>(*value),
+            static_cast<double>(minimum),
+            static_cast<double>(maximum)));
+    return fallback;
 }
 
 std::string_view format_color_mode(SatViewColorMode mode)
@@ -153,19 +167,19 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
         config.marker_satellite_limit, 0, kMarkerLimits.back());
     if (std::ranges::find(kMarkerLimits, marker_limit) != kMarkerLimits.end())
         config.marker_satellite_limit = marker_limit;
-    config.star_count = clamped_size(table, "star_count",
-        config.star_count, 0, kMaximumStarCount);
+    config.star_min_magnitude = clamped_float(table, "star_min_magnitude",
+        config.star_min_magnitude, kMinimumStarMagnitude, kMaximumStarMagnitude);
+    config.star_max_magnitude = clamped_float(table, "star_max_magnitude",
+        config.star_max_magnitude, kMinimumStarMagnitude, kMaximumStarMagnitude);
+    if (config.star_min_magnitude > config.star_max_magnitude)
+        std::swap(config.star_min_magnitude, config.star_max_magnitude);
+    config.star_brightness_scale = clamped_float(table, "star_brightness",
+        config.star_brightness_scale, kMinimumStarBrightnessScale, kMaximumStarBrightnessScale);
 
     if (auto value = toml_support::get_double(table, "time_speed"))
         config.time_speed = static_cast<float>(std::clamp(*value, 1.0, 3600.0));
     else if (auto value = toml_support::get_int(table, "time_speed"))
         config.time_speed = static_cast<float>(std::clamp<std::int64_t>(*value, 1, 3600));
-    if (auto value = toml_support::get_double(table, "star_contrast"))
-        config.star_magnitude_contrast = static_cast<float>(
-            std::clamp(*value, kMinimumStarMagnitudeContrast, kMaximumStarMagnitudeContrast));
-    else if (auto value = toml_support::get_int(table, "star_contrast"))
-        config.star_magnitude_contrast = static_cast<float>(
-            std::clamp(static_cast<double>(*value), kMinimumStarMagnitudeContrast, kMaximumStarMagnitudeContrast));
     if (auto value = toml_support::get_double(table, "ground_fov_degrees"))
         config.ground_fov_degrees = static_cast<float>(std::clamp(*value, 20.0, 120.0));
     else if (auto value = toml_support::get_int(table, "ground_fov_degrees"))
@@ -235,8 +249,9 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("track_samples", static_cast<std::int64_t>(config.track_sample_count));
     table.insert_or_assign("refresh_tracks_each_step", config.refresh_tracks_each_step);
     table.insert_or_assign("marker_cap", static_cast<std::int64_t>(config.marker_satellite_limit));
-    table.insert_or_assign("star_count", static_cast<std::int64_t>(config.star_count));
-    table.insert_or_assign("star_contrast", static_cast<double>(config.star_magnitude_contrast));
+    table.insert_or_assign("star_min_magnitude", static_cast<double>(config.star_min_magnitude));
+    table.insert_or_assign("star_max_magnitude", static_cast<double>(config.star_max_magnitude));
+    table.insert_or_assign("star_brightness", static_cast<double>(config.star_brightness_scale));
     table.insert_or_assign("time_speed", static_cast<double>(config.time_speed));
     table.insert_or_assign("search", config.filter.search_text);
     table.insert_or_assign("object_type", config.filter.object_type_text);

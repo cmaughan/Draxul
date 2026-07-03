@@ -111,18 +111,18 @@ public:
         if (stars.empty() && stars_.empty())
             return;
         stars_.assign(stars.begin(), stars.end());
-        visible_star_count_ = std::min(visible_star_count_, stars_.size());
         ++star_revision_;
     }
 
-    void set_star_count(std::size_t count)
+    void set_star_magnitude_range(float minimum_magnitude, float maximum_magnitude)
     {
-        visible_star_count_ = std::min(count, stars_.size());
+        star_min_magnitude_ = minimum_magnitude;
+        star_max_magnitude_ = maximum_magnitude;
     }
 
-    void set_star_magnitude_contrast(float contrast)
+    void set_star_brightness_scale(float scale)
     {
-        star_magnitude_contrast_ = contrast;
+        star_brightness_scale_ = scale;
     }
 
     void set_star_projection_aspect_scale(float aspect_scale)
@@ -151,8 +151,9 @@ private:
     uint64_t track_revision_ = 0;
     uint64_t marker_revision_ = 0;
     uint64_t star_revision_ = 0;
-    std::size_t visible_star_count_ = 0;
-    float star_magnitude_contrast_ = 1.0f;
+    float star_min_magnitude_ = -1.5f;
+    float star_max_magnitude_ = 6.0f;
+    float star_brightness_scale_ = 1.0f;
     float star_projection_aspect_scale_ = 1.0f;
     std::shared_ptr<const LoadedTextureImage> pending_cloud_image_;
     uint64_t cloud_revision_ = 0;

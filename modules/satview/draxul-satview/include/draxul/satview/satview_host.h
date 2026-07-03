@@ -84,9 +84,11 @@ private:
     void persist_config();
     void sync_simulation_controls();
     void sync_simulation_render_settings();
+    void rebuild_visible_stars();
     void set_real_time();
     void set_camera_pov(SatViewCameraPov pov, double simulation_seconds);
     void reset_camera();
+    void reset_to_default_settings();
     void pan_map(glm::vec2 delta_radians);
     void enter_ground_view_at(glm::dvec2 longitude_latitude_radians);
     bool enter_ground_view_from_screen(glm::ivec2 screen_pos, double simulation_seconds);
@@ -127,8 +129,9 @@ private:
     std::size_t track_sample_count_ = kDefaultTrackSampleCount;
     bool refresh_tracks_each_step_ = false;
     std::size_t marker_satellite_limit_ = 0;
-    std::size_t star_count_ = kDefaultStarCount;
-    float star_magnitude_contrast_ = kDefaultStarMagnitudeContrast;
+    float star_min_magnitude_ = kDefaultStarMinMagnitude;
+    float star_max_magnitude_ = kDefaultStarMaxMagnitude;
+    float star_brightness_scale_ = kDefaultStarBrightnessScale;
     bool running_ = false;
     bool paused_ = false;
     bool dragging_ = false;
@@ -152,6 +155,7 @@ private:
     std::vector<ObjectTreeEntry> object_tree_entries_;
     std::vector<std::size_t> filtered_object_tree_indices_;
     std::vector<SatViewStarInstance> stars_;
+    std::vector<SatViewStarInstance> visible_stars_;
     std::shared_ptr<Camera> camera_;
     std::unique_ptr<Manipulator> camera_manipulator_;
     std::unique_ptr<SatViewCameraKeyState> camera_keys_;

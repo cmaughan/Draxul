@@ -11,12 +11,17 @@ class ConfigDocument;
 namespace draxul::satview
 {
 
-inline constexpr std::size_t kDefaultTrackSatelliteLimit = 1024;
+inline constexpr std::size_t kDefaultTrackSatelliteLimit = 10;
 inline constexpr std::size_t kDefaultTrackSampleCount = 48;
 inline constexpr std::size_t kMaximumTrackSampleCount = 256;
-inline constexpr std::size_t kDefaultStarCount = 20000;
-inline constexpr std::size_t kMaximumStarCount = 100000;
-inline constexpr float kDefaultStarMagnitudeContrast = 1.0f;
+inline constexpr std::size_t kMaximumStarCatalogCount = 100000;
+inline constexpr float kMinimumStarMagnitude = -2.0f;
+inline constexpr float kMaximumStarMagnitude = 10.0f;
+inline constexpr float kDefaultStarMinMagnitude = -1.5f;
+inline constexpr float kDefaultStarMaxMagnitude = 6.0f;
+inline constexpr float kMinimumStarBrightnessScale = 0.0f;
+inline constexpr float kMaximumStarBrightnessScale = 8.0f;
+inline constexpr float kDefaultStarBrightnessScale = 1.0f;
 
 enum class SatViewColorMode
 {
@@ -64,8 +69,9 @@ struct SatViewConfig
     std::size_t track_sample_count = kDefaultTrackSampleCount;
     bool refresh_tracks_each_step = false;
     std::size_t marker_satellite_limit = 0;
-    std::size_t star_count = kDefaultStarCount;
-    float star_magnitude_contrast = kDefaultStarMagnitudeContrast;
+    float star_min_magnitude = kDefaultStarMinMagnitude;
+    float star_max_magnitude = kDefaultStarMaxMagnitude;
+    float star_brightness_scale = kDefaultStarBrightnessScale;
     float time_speed = 60.0f;
     bool clouds_enabled = true;
     bool realistic_clouds_enabled = false;
