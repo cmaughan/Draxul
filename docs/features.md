@@ -382,6 +382,7 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
 - `do run release --host megacity --parser treesitter` strips the helper flag before launching, writes `[mega_city_code].code_source = "treesitter_db"`, and removes stale `graphify_graph_path` entries from that section. `--parser treesitter_db` is accepted as the same helper alias
+- `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder
 - `do review` / `do review-bugs` run Codex + Claude review passes by default, add Gemini on macOS, and use Codex for the final consensus pass
 - `do consensus` / `do consensus-bugs` default to Codex; `claude`, `gemini`, and legacy `gpt` selector arguments are also accepted
 - `do review-codex` runs just the Codex review helper; `do review-gpt` remains as a compatibility alias

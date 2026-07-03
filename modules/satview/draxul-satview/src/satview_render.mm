@@ -6,13 +6,13 @@
 #include <draxul/metal/objc_ref.h>
 #include <draxul/perf_timing.h>
 
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 #include <algorithm>
 #include <cstring>
 #include <imgui.h>
 #include <limits>
 #include <vector>
-#import <Foundation/Foundation.h>
-#import <Metal/Metal.h>
 
 namespace draxul::satview
 {
@@ -93,9 +93,9 @@ struct SatViewScenePass::State
             static_cast<NSUInteger>(image.width),
             static_cast<NSUInteger>(image.height));
         [texture replaceRegion:region
-                    mipmapLevel:0
-                      withBytes:image.rgba.data()
-                    bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
+                   mipmapLevel:0
+                     withBytes:image.rgba.data()
+                   bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
         return texture;
     }
 
@@ -162,9 +162,9 @@ struct SatViewScenePass::State
 
         const MTLRegion region = MTLRegionMake2D(0, 0, texture.width, texture.height);
         [texture replaceRegion:region
-                  mipmapLevel:0
-                    withBytes:image.rgba.data()
-                  bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
+                   mipmapLevel:0
+                     withBytes:image.rgba.data()
+                   bytesPerRow:static_cast<NSUInteger>(image.width * 4)];
         uploaded_cloud_revision = revision;
         return true;
     }
@@ -225,8 +225,8 @@ struct SatViewScenePass::State
         if (!new_device)
             return false;
         scene_sample_count = [new_device supportsTextureSampleCount:4] ? 4
-            : [new_device supportsTextureSampleCount:2] ? 2
-                                                        : 1;
+            : [new_device supportsTextureSampleCount:2]                ? 2
+                                                                       : 1;
         if (!ensure_textures(new_device))
             return false;
 
@@ -234,7 +234,8 @@ struct SatViewScenePass::State
         NSString* exe_path = [[NSBundle mainBundle] executablePath];
         NSString* exe_dir = [exe_path stringByDeletingLastPathComponent];
         NSString* lib_path = [exe_dir stringByAppendingPathComponent:@"shaders/satview_scene.metallib"];
-        id<MTLLibrary> library = [new_device newLibraryWithFile:lib_path error:&error];
+        NSURL* lib_url = [NSURL fileURLWithPath:lib_path];
+        id<MTLLibrary> library = [new_device newLibraryWithURL:lib_url error:&error];
         if (!library)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer,
@@ -678,7 +679,7 @@ struct SatViewScenePass::State
             const NSUInteger current_size = buffer.get() ? [buffer.get() length] : 0;
             const NSUInteger new_size = std::max(byte_size, std::max<NSUInteger>(current_size * 2, 4096));
             id<MTLBuffer> replacement = [metal_device newBufferWithLength:new_size
-                                                                   options:MTLResourceStorageModeShared];
+                                                                  options:MTLResourceStorageModeShared];
             if (!replacement)
             {
                 item_count = 0;
@@ -789,9 +790,9 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     [encoder setFragmentTexture:state_->earth_night_texture.get() atIndex:1];
     [encoder setFragmentTexture:state_->earth_cloud_texture.get() atIndex:2];
     [encoder setFragmentTexture:(state_->live_cloud_texture.get()
-                                    ? state_->live_cloud_texture.get()
-                                    : state_->earth_cloud_texture.get())
-                         atIndex:3];
+                                        ? state_->live_cloud_texture.get()
+                                        : state_->earth_cloud_texture.get())
+                        atIndex:3];
     [encoder setFragmentTexture:state_->moon_texture.get() atIndex:4];
     [encoder setFragmentTexture:state_->sun_texture.get() atIndex:5];
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
@@ -1098,8 +1099,7 @@ void SatViewScenePass::render_hdr_debug_ui()
 {
     if (state_->hdr_targets.empty())
         return;
-    const auto& targets = state_->hdr_targets[
-        state_->last_prepass_frame % static_cast<uint32_t>(state_->hdr_targets.size())];
+    const auto& targets = state_->hdr_targets[state_->last_prepass_frame % static_cast<uint32_t>(state_->hdr_targets.size())];
     if (!ImGui::Begin("SatView HDR Buffers"))
     {
         ImGui::End();

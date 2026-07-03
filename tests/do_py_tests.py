@@ -5,6 +5,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+import zipfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -108,6 +109,47 @@ class BuildCacheTests(unittest.TestCase):
             (bd / "build-Release.ninja").write_text("")
 
             self.assertIsNone(draxul_do._missing_generated_build_file(cache_file, bd, "Release"))
+
+
+class DeployPackagingTests(unittest.TestCase):
+    def test_deploy_args_default_to_release_build_flags(self) -> None:
+        force_reconfigure, build_system = draxul_do._parse_deploy_args([])
+
+        self.assertFalse(force_reconfigure)
+        self.assertEqual("ninja", build_system)
+
+    def test_deploy_args_reject_debug_mode(self) -> None:
+        with self.assertRaisesRegex(ValueError, "deploy always creates a release build"):
+            draxul_do._parse_deploy_args(["debug"])
+
+    def test_deploy_output_paths_use_date_and_platform_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+
+            platform_dir, archive_path = draxul_do._deploy_output_paths(root, "2026_07_03", "darwin")
+
+            self.assertEqual(root / "deploy" / "2026_07_03" / "mac", platform_dir)
+            self.assertEqual(root / "deploy" / "2026_07_03" / "draxul-2026_07_03-mac.zip", archive_path)
+
+    def test_stage_deploy_payload_replaces_existing_folder_and_zips_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "build" / "draxul.app"
+            (source / "Contents" / "MacOS").mkdir(parents=True)
+            (source / "Contents" / "MacOS" / "draxul").write_text("exe")
+            platform_dir = root / "deploy" / "2026_07_03" / "mac"
+            archive_path = root / "deploy" / "2026_07_03" / "draxul-2026_07_03-mac.zip"
+            stale_file = platform_dir / "old.txt"
+            stale_file.parent.mkdir(parents=True)
+            stale_file.write_text("stale")
+
+            draxul_do._stage_deploy_payload(source, platform_dir, archive_path)
+
+            self.assertFalse(stale_file.exists())
+            self.assertTrue((platform_dir / "draxul.app" / "Contents" / "MacOS" / "draxul").exists())
+            self.assertTrue(archive_path.exists())
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertIn("mac/draxul.app/Contents/MacOS/draxul", archive.namelist())
 
 
 class ReviewArgumentParsingTests(unittest.TestCase):

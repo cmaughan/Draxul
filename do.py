@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from types import SimpleNamespace
 
 
@@ -500,6 +501,102 @@ def cmd_run(root: pathlib.Path, args: list[str]) -> int:
         return proc.returncode
     else:
         return run(cmd, root, env=env)
+
+
+def _deploy_platform_name(platform: str = sys.platform) -> str:
+    if platform.startswith("win"):
+        return "win"
+    if platform == "darwin":
+        return "mac"
+    raise RuntimeError("deploy is currently supported only on macOS and Windows")
+
+
+def _deploy_date_label(now: datetime | None = None) -> str:
+    return (now or datetime.now()).strftime("%Y_%m_%d")
+
+
+def _deploy_output_paths(
+    root: pathlib.Path,
+    date_label: str,
+    platform: str = sys.platform,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    platform_name = _deploy_platform_name(platform)
+    date_dir = root / "deploy" / date_label
+    platform_dir = date_dir / platform_name
+    archive_path = date_dir / f"draxul-{date_label}-{platform_name}.zip"
+    return platform_dir, archive_path
+
+
+def _deploy_payload_source(bd: pathlib.Path, config: str, platform: str = sys.platform) -> pathlib.Path:
+    if platform == "darwin":
+        bundle = bd / "draxul.app"
+        if bundle.exists():
+            return bundle
+    exe = draxul_exe(bd, config)
+    return exe.parent if platform.startswith("win") else exe
+
+
+def _parse_deploy_args(args: list[str]) -> tuple[bool, str]:
+    mode, force_reconfigure, build_system, _, app_args = _parse_build_args(args)
+    requested_modes = [arg.lower() for arg in args if arg.lower() in ("debug", "release", "relwithdebinfo")]
+    if app_args:
+        raise ValueError("deploy accepts build flags only: [release] [--reconfigure] [--vs|--ninja]")
+    if requested_modes and mode != "release":
+        raise ValueError("deploy always creates a release build; use `do deploy` or `do deploy release`")
+    return force_reconfigure, build_system
+
+
+def _stage_deploy_payload(source: pathlib.Path, platform_dir: pathlib.Path, archive_path: pathlib.Path) -> None:
+    if platform_dir.exists():
+        shutil.rmtree(platform_dir)
+    platform_dir.mkdir(parents=True, exist_ok=True)
+
+    if source.is_dir() and source.suffix == ".app":
+        shutil.copytree(source, platform_dir / source.name)
+    elif source.is_dir():
+        for child in source.iterdir():
+            destination = platform_dir / child.name
+            if child.is_dir():
+                shutil.copytree(child, destination)
+            else:
+                shutil.copy2(child, destination)
+    else:
+        shutil.copy2(source, platform_dir / source.name)
+
+    if archive_path.exists():
+        archive_path.unlink()
+    archive_base = archive_path.with_suffix("")
+    shutil.make_archive(
+        str(archive_base),
+        "zip",
+        root_dir=platform_dir.parent,
+        base_dir=platform_dir.name,
+    )
+
+
+def cmd_deploy(root: pathlib.Path, args: list[str]) -> int:
+    """Build Release and write a compressed deploy package."""
+    try:
+        force_reconfigure, build_system = _parse_deploy_args(args)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
+    rc, bd, config, _ = _configure_and_build(root, "release", force_reconfigure, build_system)
+    if rc != 0:
+        return rc
+
+    source = _deploy_payload_source(bd, config)
+    if not source.exists():
+        print(f"Missing deploy payload: {source}", file=sys.stderr)
+        return 1
+
+    date_label = _deploy_date_label()
+    platform_dir, archive_path = _deploy_output_paths(root, date_label)
+    _stage_deploy_payload(source, platform_dir, archive_path)
+    print(f"\nDeploy folder:  {platform_dir}")
+    print(f"Deploy archive: {archive_path}")
+    return 0
 
 
 def scenario_path(root: pathlib.Path, name: str) -> pathlib.Path:
@@ -1117,6 +1214,8 @@ Single-word shortcuts:
   run [debug|release|relwithdebinfo] [--reconfigure] [--vs|--ninja] [--console]
       [--host megacity --parser treesitter|treesitter_db] [-- app-args...]
                Configure, build, and run Draxul
+  deploy [release] [--reconfigure] [--vs|--ninja]
+               Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   smoke        Run the app smoke test
   test         Run the full local test suite (t.bat / run_tests.sh)
   shot         Regenerate the README hero screenshot
@@ -1161,6 +1260,7 @@ Examples:
   do run release --vs      # Release build with VS generator (Windows)
   do run release --host megacity --parser treesitter
                              # MegaCity with Tree-sitter semantic source config
+  do deploy                 # Release build + deploy/YYYY_MM_DD/mac|win zip package
   do run --reconfigure     # Force CMake reconfigure
   do smoke
   do basic
@@ -1311,6 +1411,9 @@ def main() -> int:
 
     if command == "run":
         return cmd_run(root, args[1:])
+
+    if command == "deploy":
+        return cmd_deploy(root, args[1:])
 
     if command == "smoke":
         rc, exe, env = build_shortcut_exe(root)

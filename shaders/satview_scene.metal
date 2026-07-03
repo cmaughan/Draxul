@@ -732,10 +732,21 @@ vertex SatViewVertexOut satview_ground_atmosphere_vertex(
 
 static float3 ground_ray_direction(float2 ndc, constant SatViewFrameUniforms& frame)
 {
-    float4x4 inv_view_proj = inverse(frame.view_proj);
-    float4 world_far = inv_view_proj * float4(ndc, 1.0f, 1.0f);
-    world_far /= world_far.w;
-    return normalize(world_far.xyz - frame.camera_pos.xyz);
+    float3 right = normalize(rotate_vector_by_quaternion(float3(1.0f, 0.0f, 0.0f), frame.camera_orientation));
+    float3 up = normalize(rotate_vector_by_quaternion(float3(0.0f, 1.0f, 0.0f), frame.camera_orientation));
+    float3 forward = normalize(rotate_vector_by_quaternion(float3(0.0f, 0.0f, -1.0f), frame.camera_orientation));
+
+    const float3 center = frame.camera_pos.xyz + forward;
+    float4 center_clip = frame.view_proj * float4(center, 1.0f);
+    float4 right_clip = frame.view_proj * float4(center + right, 1.0f);
+    float4 up_clip = frame.view_proj * float4(center + up, 1.0f);
+    float2 center_ndc = center_clip.xy / center_clip.w;
+    const float x_scale = max(abs(right_clip.x / right_clip.w - center_ndc.x), 0.0001f);
+    const float y_scale = max(abs(up_clip.y / up_clip.w - center_ndc.y), 0.0001f);
+
+    float2 local_ndc = ndc - center_ndc;
+    float3 camera_ray = normalize(float3(local_ndc.x / x_scale, local_ndc.y / y_scale, -1.0f));
+    return normalize(rotate_vector_by_quaternion(camera_ray, frame.camera_orientation));
 }
 
 fragment float4 satview_ground_atmosphere_fragment(

@@ -5,6 +5,8 @@
 #include <draxul/metal/objc_ref.h>
 #include <draxul/runtime_path.h>
 
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -12,8 +14,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#import <Foundation/Foundation.h>
-#import <Metal/Metal.h>
 
 namespace draxul::markdown
 {
@@ -284,7 +284,7 @@ struct MarkdownRenderPass::State
         if (!ensure_atlas_texture(atlas, upload))
             return false;
 
-        prepared.push_back(PreparedAtlasUpload { &upload, bytes_per_row, required_bytes });
+        prepared.push_back(PreparedAtlasUpload{ &upload, bytes_per_row, required_bytes });
         total_bytes += required_bytes;
         return true;
     }
@@ -343,16 +343,16 @@ struct MarkdownRenderPass::State
             }
 
             [blit copyFromBuffer:frame.atlas_staging_buffer.get()
-                     sourceOffset:static_cast<NSUInteger>(offset)
-                sourceBytesPerRow:static_cast<NSUInteger>(entry.bytes_per_row)
-              sourceBytesPerImage:static_cast<NSUInteger>(entry.byte_count)
-                       sourceSize:MTLSizeMake(static_cast<NSUInteger>(upload.rect.size.x),
-                                      static_cast<NSUInteger>(upload.rect.size.y), 1)
-                        toTexture:atlas_it->second.texture.get()
-                 destinationSlice:0
-                 destinationLevel:0
-                destinationOrigin:MTLOriginMake(static_cast<NSUInteger>(upload.rect.pos.x),
-                                      static_cast<NSUInteger>(upload.rect.pos.y), 0)];
+                       sourceOffset:static_cast<NSUInteger>(offset)
+                  sourceBytesPerRow:static_cast<NSUInteger>(entry.bytes_per_row)
+                sourceBytesPerImage:static_cast<NSUInteger>(entry.byte_count)
+                         sourceSize:MTLSizeMake(static_cast<NSUInteger>(upload.rect.size.x),
+                                        static_cast<NSUInteger>(upload.rect.size.y), 1)
+                          toTexture:atlas_it->second.texture.get()
+                   destinationSlice:0
+                   destinationLevel:0
+                  destinationOrigin:MTLOriginMake(static_cast<NSUInteger>(upload.rect.pos.x),
+                                        static_cast<NSUInteger>(upload.rect.pos.y), 0)];
             atlas_it->second.upload_revision = upload.upload_revision;
             atlas_it->second.ready = true;
             offset += entry.byte_count;
@@ -411,7 +411,8 @@ struct MarkdownRenderPass::State
         const auto shader_path = bundled_asset_path("shaders") / "markdown.metallib";
         NSString* path = [NSString stringWithUTF8String:shader_path.string().c_str()];
         NSError* error = nil;
-        id<MTLLibrary> library = [device.get() newLibraryWithFile:path error:&error];
+        NSURL* url = [NSURL fileURLWithPath:path];
+        id<MTLLibrary> library = [device.get() newLibraryWithURL:url error:&error];
         if (!library)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to load markdown.metallib: %s",
@@ -519,10 +520,10 @@ void MarkdownRenderPass::record(IRenderContext& ctx)
         [encoder setVertexBuffer:frame.rect_buffer.get() offset:0 atIndex:0];
         [encoder setVertexBytes:&push length:sizeof(push) atIndex:1];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                     vertexStart:0
-                     vertexCount:6
-                   instanceCount:static_cast<NSUInteger>(draw_list_.rects.size())
-                    baseInstance:0];
+                    vertexStart:0
+                    vertexCount:6
+                  instanceCount:static_cast<NSUInteger>(draw_list_.rects.size())
+                   baseInstance:0];
     }
 
     if (draw_list_.glyph_batches.empty() || !frame.glyph_buffer)
@@ -548,10 +549,10 @@ void MarkdownRenderPass::record(IRenderContext& ctx)
                          atIndex:0];
         [encoder setFragmentTexture:atlas->texture.get() atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                     vertexStart:0
-                     vertexCount:6
-                   instanceCount:static_cast<NSUInteger>(batch.count)
-                    baseInstance:0];
+                    vertexStart:0
+                    vertexCount:6
+                  instanceCount:static_cast<NSUInteger>(batch.count)
+                   baseInstance:0];
     }
 }
 
