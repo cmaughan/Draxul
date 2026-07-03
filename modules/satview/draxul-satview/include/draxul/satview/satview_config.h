@@ -22,6 +22,12 @@ inline constexpr float kDefaultStarMaxMagnitude = 6.0f;
 inline constexpr float kMinimumStarBrightnessScale = 0.0f;
 inline constexpr float kMaximumStarBrightnessScale = 8.0f;
 inline constexpr float kDefaultStarBrightnessScale = 1.0f;
+inline constexpr float kMinimumToneMapExposure = 0.0f;
+inline constexpr float kMaximumToneMapExposure = 8.0f;
+inline constexpr float kDefaultToneMapExposure = 1.32f;
+inline constexpr float kMinimumToneMapWhitePoint = 0.5f;
+inline constexpr float kMaximumToneMapWhitePoint = 32.0f;
+inline constexpr float kDefaultToneMapWhitePoint = 0.9f;
 
 enum class SatViewColorMode
 {
@@ -72,6 +78,9 @@ struct SatViewConfig
     float star_min_magnitude = kDefaultStarMinMagnitude;
     float star_max_magnitude = kDefaultStarMaxMagnitude;
     float star_brightness_scale = kDefaultStarBrightnessScale;
+    float tone_map_exposure = kDefaultToneMapExposure;
+    float tone_map_white_point = kDefaultToneMapWhitePoint;
+    bool show_hdr_debug_panel = false;
     float time_speed = 60.0f;
     bool clouds_enabled = true;
     bool realistic_clouds_enabled = false;

@@ -19,6 +19,9 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK(config.star_min_magnitude == kDefaultStarMinMagnitude);
     CHECK(config.star_max_magnitude == kDefaultStarMaxMagnitude);
     CHECK(config.star_brightness_scale == kDefaultStarBrightnessScale);
+    CHECK(config.tone_map_exposure == kDefaultToneMapExposure);
+    CHECK(config.tone_map_white_point == kDefaultToneMapWhitePoint);
+    CHECK_FALSE(config.show_hdr_debug_panel);
     CHECK(config.ground_fov_degrees == 60.0f);
     CHECK(config.ground_marker_scale == 0.1f);
     CHECK(config.filter.show_active_payloads);
@@ -55,6 +58,9 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.star_min_magnitude = -0.5f;
     expected.star_max_magnitude = 7.5f;
     expected.star_brightness_scale = 2.5f;
+    expected.tone_map_exposure = 2.25f;
+    expected.tone_map_white_point = 4.0f;
+    expected.show_hdr_debug_panel = true;
     expected.time_speed = 120.0f;
     expected.clouds_enabled = false;
     expected.realistic_clouds_enabled = true;
@@ -82,6 +88,8 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     table.insert_or_assign("star_min_magnitude", 99.0);
     table.insert_or_assign("star_max_magnitude", -99.0);
     table.insert_or_assign("star_brightness", 99.0);
+    table.insert_or_assign("tone_map_exposure", 99.0);
+    table.insert_or_assign("tone_map_white_point", -4.0);
     table.insert_or_assign("time_speed", 9000.0);
     table.insert_or_assign("ground_fov_degrees", 200.0);
     table.insert_or_assign("ground_marker_scale", 20.0);
@@ -98,6 +106,8 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     CHECK(config.star_min_magnitude == kMinimumStarMagnitude);
     CHECK(config.star_max_magnitude == kMaximumStarMagnitude);
     CHECK(config.star_brightness_scale == kMaximumStarBrightnessScale);
+    CHECK(config.tone_map_exposure == kMaximumToneMapExposure);
+    CHECK(config.tone_map_white_point == kMinimumToneMapWhitePoint);
     CHECK(config.time_speed == 3600.0f);
     CHECK(config.ground_fov_degrees == 120.0f);
     CHECK(config.ground_marker_scale == 2.0f);

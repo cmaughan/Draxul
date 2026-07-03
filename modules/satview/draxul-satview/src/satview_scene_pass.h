@@ -62,11 +62,6 @@ public:
     SatViewScenePass();
     ~SatViewScenePass() override;
 
-    bool requires_main_depth_attachment() const override
-    {
-        return true;
-    }
-
     void set_frame(const SatViewFrameUniforms& frame)
     {
         frame_ = frame;
@@ -125,6 +120,17 @@ public:
         star_brightness_scale_ = scale;
     }
 
+    void set_tone_mapping(float exposure, float white_point)
+    {
+        tone_map_exposure_ = exposure;
+        tone_map_white_point_ = white_point;
+    }
+
+    void set_hdr_debug_enabled(bool enabled)
+    {
+        hdr_debug_enabled_ = enabled;
+    }
+
     void set_star_projection_aspect_scale(float aspect_scale)
     {
         star_projection_aspect_scale_ = aspect_scale;
@@ -140,6 +146,7 @@ public:
 
     void record_prepass(draxul::IRenderContext& ctx) override;
     void record(draxul::IRenderContext& ctx) override;
+    void render_hdr_debug_ui();
 
     struct State;
 
@@ -155,6 +162,8 @@ private:
     float star_max_magnitude_ = 6.0f;
     float star_brightness_scale_ = 1.0f;
     float star_projection_aspect_scale_ = 1.0f;
+    float tone_map_exposure_ = 1.32f;
+    float tone_map_white_point_ = 0.9f;
     std::shared_ptr<const LoadedTextureImage> pending_cloud_image_;
     uint64_t cloud_revision_ = 0;
     glm::vec4 moon_position_radius_{ 0.0f };
@@ -163,6 +172,7 @@ private:
     bool map_projection_ = false;
     bool moon_map_projection_ = false;
     bool ground_projection_ = false;
+    bool hdr_debug_enabled_ = false;
     std::unique_ptr<State> state_;
 };
 

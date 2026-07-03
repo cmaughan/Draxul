@@ -175,6 +175,10 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
         std::swap(config.star_min_magnitude, config.star_max_magnitude);
     config.star_brightness_scale = clamped_float(table, "star_brightness",
         config.star_brightness_scale, kMinimumStarBrightnessScale, kMaximumStarBrightnessScale);
+    config.tone_map_exposure = clamped_float(table, "tone_map_exposure",
+        config.tone_map_exposure, kMinimumToneMapExposure, kMaximumToneMapExposure);
+    config.tone_map_white_point = clamped_float(table, "tone_map_white_point",
+        config.tone_map_white_point, kMinimumToneMapWhitePoint, kMaximumToneMapWhitePoint);
 
     if (auto value = toml_support::get_double(table, "time_speed"))
         config.time_speed = static_cast<float>(std::clamp(*value, 1.0, 3600.0));
@@ -220,6 +224,7 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("moon", config.moon_enabled);
     assign_bool("moon_track", config.moon_track_enabled);
     assign_bool("refresh_tracks_each_step", config.refresh_tracks_each_step);
+    assign_bool("show_hdr_debug_panel", config.show_hdr_debug_panel);
 
     if (auto value = toml_support::get_string(table, "search"))
         config.filter.search_text = truncate(std::move(*value), kMaximumSearchLength);
@@ -252,6 +257,9 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("star_min_magnitude", static_cast<double>(config.star_min_magnitude));
     table.insert_or_assign("star_max_magnitude", static_cast<double>(config.star_max_magnitude));
     table.insert_or_assign("star_brightness", static_cast<double>(config.star_brightness_scale));
+    table.insert_or_assign("tone_map_exposure", static_cast<double>(config.tone_map_exposure));
+    table.insert_or_assign("tone_map_white_point", static_cast<double>(config.tone_map_white_point));
+    table.insert_or_assign("show_hdr_debug_panel", config.show_hdr_debug_panel);
     table.insert_or_assign("time_speed", static_cast<double>(config.time_speed));
     table.insert_or_assign("search", config.filter.search_text);
     table.insert_or_assign("object_type", config.filter.object_type_text);

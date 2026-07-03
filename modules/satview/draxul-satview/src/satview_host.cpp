@@ -701,6 +701,8 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     scene_pass_->set_stars(visible_stars_);
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
+    scene_pass_->set_tone_mapping(tone_map_exposure_, tone_map_white_point_);
+    scene_pass_->set_hdr_debug_enabled(show_hdr_debug_panel_);
     SatViewSimulationControls simulation_controls;
     simulation_controls.time_speed = time_speed_;
     simulation_controls.paused = paused_;
@@ -948,6 +950,8 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
+    scene_pass_->set_tone_mapping(tone_map_exposure_, tone_map_white_point_);
+    scene_pass_->set_hdr_debug_enabled(show_hdr_debug_panel_);
 
     const void* track_source = snapshot && snapshot->tracks
         ? snapshot->tracks.get()
@@ -1511,6 +1515,9 @@ SatViewConfig SatViewHost::current_config() const
     config.star_min_magnitude = star_min_magnitude_;
     config.star_max_magnitude = star_max_magnitude_;
     config.star_brightness_scale = star_brightness_scale_;
+    config.tone_map_exposure = tone_map_exposure_;
+    config.tone_map_white_point = tone_map_white_point_;
+    config.show_hdr_debug_panel = show_hdr_debug_panel_;
     config.time_speed = time_speed_;
     config.clouds_enabled = clouds_enabled_;
     config.realistic_clouds_enabled = realistic_clouds_enabled_;
@@ -1550,6 +1557,15 @@ void SatViewHost::apply_config(const SatViewConfig& config)
         config.star_brightness_scale,
         kMinimumStarBrightnessScale,
         kMaximumStarBrightnessScale);
+    tone_map_exposure_ = std::clamp(
+        config.tone_map_exposure,
+        kMinimumToneMapExposure,
+        kMaximumToneMapExposure);
+    tone_map_white_point_ = std::clamp(
+        config.tone_map_white_point,
+        kMinimumToneMapWhitePoint,
+        kMaximumToneMapWhitePoint);
+    show_hdr_debug_panel_ = config.show_hdr_debug_panel;
     time_speed_ = config.time_speed;
     clouds_enabled_ = config.clouds_enabled;
     realistic_clouds_enabled_ = config.realistic_clouds_enabled;
@@ -2034,6 +2050,8 @@ void SatViewHost::render_host_imgui(float dt, const SatViewSimulationSnapshot* s
 
     if (show_ui_panel_)
         render_control_panel(snapshot);
+    if (show_hdr_debug_panel_ && scene_pass_)
+        scene_pass_->render_hdr_debug_ui();
 
     ImGui::Render();
 }
@@ -2343,6 +2361,41 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
             kMaximumStarBrightnessScale);
         request_redraw();
     }
+
+    ImGui::SeparatorText("Tone Mapping");
+    float exposure = tone_map_exposure_;
+    set_control_width("Exposure");
+    if (ImGui::SliderFloat(
+            "Exposure",
+            &exposure,
+            kMinimumToneMapExposure,
+            kMaximumToneMapExposure,
+            "%.2f"))
+    {
+        tone_map_exposure_ = std::clamp(
+            exposure,
+            kMinimumToneMapExposure,
+            kMaximumToneMapExposure);
+        request_redraw();
+    }
+    float white_point = tone_map_white_point_;
+    set_control_width("White point");
+    if (ImGui::SliderFloat(
+            "White point",
+            &white_point,
+            kMinimumToneMapWhitePoint,
+            kMaximumToneMapWhitePoint,
+            "%.2f",
+            ImGuiSliderFlags_Logarithmic))
+    {
+        tone_map_white_point_ = std::clamp(
+            white_point,
+            kMinimumToneMapWhitePoint,
+            kMaximumToneMapWhitePoint);
+        request_redraw();
+    }
+    if (ImGui::Checkbox("HDR buffer debug", &show_hdr_debug_panel_))
+        request_redraw();
 
     int color_mode_index = static_cast<int>(color_mode_);
     const char* color_modes[] = { "Population", "Name Prefix", "Orbit Class", "Object Type" };

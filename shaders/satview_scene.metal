@@ -843,7 +843,10 @@ fragment float4 satview_star_fragment(SatViewStarOut in [[stage_in]])
     float radius2 = dot(in.uv, in.uv);
     float alpha = (1.0f - smoothstep(0.0f, 1.0f, radius2)) * in.color.a;
     alpha *= alpha;
-    return float4(in.color.rgb * alpha, 0.0f);
+    float3 low = in.color.rgb / 12.92f;
+    float3 high = pow((in.color.rgb + 0.055f) / 1.055f, float3(2.4f));
+    float3 linear_color = select(high, low, in.color.rgb <= 0.04045f);
+    return float4(linear_color * alpha, 0.0f);
 }
 
 vertex SatViewOrbitOut satview_orbit_vertex(
@@ -946,5 +949,95 @@ vertex SatViewOrbitOut satview_marker_vertex(
 
 fragment float4 satview_orbit_fragment(SatViewOrbitOut in [[stage_in]])
 {
-    return in.color;
+    float3 low = in.color.rgb / 12.92f;
+    float3 high = pow((in.color.rgb + 0.055f) / 1.055f, float3(2.4f));
+    float3 linear_color = select(high, low, in.color.rgb <= 0.04045f);
+    return float4(linear_color, in.color.a);
+}
+
+struct SatViewFullscreenOut
+{
+    float4 position [[position]];
+    float2 uv;
+};
+
+vertex SatViewFullscreenOut satview_fullscreen_vertex(uint vertex_id [[vertex_id]])
+{
+    const float2 positions[3] = {
+        float2(-1.0f, -1.0f),
+        float2(3.0f, -1.0f),
+        float2(-1.0f, 3.0f)
+    };
+    const float2 uvs[3] = {
+        float2(0.0f, 1.0f),
+        float2(2.0f, 1.0f),
+        float2(0.0f, -1.0f)
+    };
+    SatViewFullscreenOut out;
+    out.position = float4(positions[vertex_id], 0.0f, 1.0f);
+    out.uv = uvs[vertex_id];
+    return out;
+}
+
+static float3 satview_tone_map_aces(float3 hdr, float exposure, float white_point)
+{
+    float3 color = max(hdr, float3(0.0f)) * max(exposure, 0.0f);
+    color /= max(white_point, 1e-3f);
+    constexpr float a = 2.51f;
+    constexpr float b = 0.03f;
+    constexpr float c = 2.43f;
+    constexpr float d = 0.59f;
+    constexpr float e = 0.14f;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0f, 1.0f);
+}
+
+fragment float4 satview_post_fragment(
+    SatViewFullscreenOut in [[stage_in]],
+    constant float4& tone_map [[buffer(0)]],
+    texture2d<float> hdr_scene [[texture(0)]],
+    sampler linear_sampler [[sampler(0)]])
+{
+    float4 hdr = hdr_scene.sample(linear_sampler, in.uv);
+    return float4(satview_tone_map_aces(hdr.rgb, tone_map.x, tone_map.y), clamp(hdr.a, 0.0f, 1.0f));
+}
+
+fragment float4 satview_present_fragment(
+    SatViewFullscreenOut in [[stage_in]],
+    texture2d<float> final_scene [[texture(0)]],
+    sampler linear_sampler [[sampler(0)]])
+{
+    return final_scene.sample(linear_sampler, in.uv);
+}
+
+static float3 satview_msaa_heat_map(float value)
+{
+    float t = clamp(value, 0.0f, 1.0f);
+    return clamp(float3(
+        1.5f * t,
+        1.5f * (1.0f - abs(2.0f * t - 1.0f)),
+        1.5f * (1.0f - t)),
+        0.0f,
+        1.0f);
+}
+
+fragment float4 satview_msaa_debug_fragment(
+    SatViewFullscreenOut in [[stage_in]],
+    constant uint& sample_count_value [[buffer(0)]],
+    texture2d_ms<float> msaa_scene [[texture(0)]])
+{
+    uint sample_count = clamp(sample_count_value, 1u, 4u);
+    uint2 size = uint2(msaa_scene.get_width(), msaa_scene.get_height());
+    uint2 coord = min(uint2(in.position.xy), size - uint2(1u));
+    float3 minimum_color = msaa_scene.read(coord, 0).rgb;
+    float3 maximum_color = minimum_color;
+    for (uint sample_index = 1; sample_index < sample_count; ++sample_index)
+    {
+        float3 color = msaa_scene.read(coord, sample_index).rgb;
+        minimum_color = min(minimum_color, color);
+        maximum_color = max(maximum_color, color);
+    }
+    float3 difference_rgb = maximum_color - minimum_color;
+    float difference = max(difference_rgb.r, max(difference_rgb.g, difference_rgb.b));
+    float intensity = sample_count > 1u ? 1.0f - exp(-difference * 6.0f) : 0.0f;
+    return float4(satview_msaa_heat_map(intensity) * intensity, 1.0f);
 }

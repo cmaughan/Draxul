@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <imgui.h>
 #include <limits>
+#include <vector>
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
@@ -17,6 +19,19 @@ namespace draxul::satview
 
 struct SatViewScenePass::State
 {
+    struct HdrTargets
+    {
+        ObjCRef<id<MTLTexture>> scene_msaa;
+        ObjCRef<id<MTLTexture>> scene_depth;
+        ObjCRef<id<MTLTexture>> scene_hdr;
+        ObjCRef<id<MTLTexture>> scene_final_srgb;
+        ObjCRef<id<MTLTexture>> scene_final_unorm;
+        ObjCRef<id<MTLTexture>> msaa_difference;
+        int width = 0;
+        int height = 0;
+        bool debug_ready = false;
+    };
+
     ObjCRef<id<MTLDevice>> device;
     ObjCRef<id<MTLRenderPipelineState>> earth_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> moon_pipeline;
@@ -27,6 +42,9 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> star_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> orbit_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> marker_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> tone_map_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> present_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> msaa_debug_pipeline;
     ObjCRef<id<MTLDepthStencilState>> depth_write_state;
     ObjCRef<id<MTLDepthStencilState>> depth_read_state;
     ObjCRef<id<MTLDepthStencilState>> depth_disabled_state;
@@ -36,6 +54,7 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLTexture>> moon_texture;
     ObjCRef<id<MTLTexture>> live_cloud_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
+    ObjCRef<id<MTLSamplerState>> hdr_sampler;
     ObjCRef<id<MTLBuffer>> track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> marker_buffer;
     ObjCRef<id<MTLBuffer>> star_buffer;
@@ -46,6 +65,9 @@ struct SatViewScenePass::State
     uint64_t uploaded_marker_revision = 0;
     uint64_t uploaded_star_revision = 0;
     uint64_t uploaded_cloud_revision = 0;
+    NSUInteger scene_sample_count = 1;
+    std::vector<HdrTargets> hdr_targets;
+    uint32_t last_prepass_frame = 0;
 
     id<MTLTexture> create_texture(id<MTLDevice> metal_device, const LoadedTextureImage& image)
     {
@@ -53,7 +75,7 @@ struct SatViewScenePass::State
             return nil;
 
         MTLTextureDescriptor* desc = [MTLTextureDescriptor
-            texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB
                                          width:static_cast<NSUInteger>(image.width)
                                         height:static_cast<NSUInteger>(image.height)
                                      mipmapped:NO];
@@ -143,9 +165,11 @@ struct SatViewScenePass::State
         if (earth_pipeline.get() && moon_pipeline.get() && cloud_pipeline.get()
             && atmosphere_pipeline.get() && ground_atmosphere_pipeline.get() && orbit_pipeline.get()
             && ground_surface_pipeline.get() && star_pipeline.get()
+            && tone_map_pipeline.get() && present_pipeline.get()
+            && (scene_sample_count == 1 || msaa_debug_pipeline.get())
             && depth_write_state.get() && depth_read_state.get() && depth_disabled_state.get()
             && earth_day_texture.get() && earth_night_texture.get()
-            && earth_cloud_texture.get() && moon_texture.get() && earth_sampler.get()
+            && earth_cloud_texture.get() && moon_texture.get() && earth_sampler.get() && hdr_sampler.get()
             && device.get() == new_device)
             return true;
 
@@ -159,6 +183,9 @@ struct SatViewScenePass::State
         star_pipeline.reset();
         orbit_pipeline.reset();
         marker_pipeline.reset();
+        tone_map_pipeline.reset();
+        present_pipeline.reset();
+        msaa_debug_pipeline.reset();
         depth_write_state.reset();
         depth_read_state.reset();
         depth_disabled_state.reset();
@@ -168,6 +195,8 @@ struct SatViewScenePass::State
         moon_texture.reset();
         live_cloud_texture.reset();
         earth_sampler.reset();
+        hdr_sampler.reset();
+        hdr_targets.clear();
         track_vertex_buffer.reset();
         marker_buffer.reset();
         star_buffer.reset();
@@ -180,6 +209,9 @@ struct SatViewScenePass::State
         uploaded_cloud_revision = 0;
         if (!new_device)
             return false;
+        scene_sample_count = [new_device supportsTextureSampleCount:4] ? 4
+            : [new_device supportsTextureSampleCount:2] ? 2
+                                                        : 1;
         if (!ensure_textures(new_device))
             return false;
 
@@ -213,13 +245,19 @@ struct SatViewScenePass::State
         id<MTLFunction> orbit_vertex = [library newFunctionWithName:@"satview_orbit_vertex"];
         id<MTLFunction> marker_vertex = [library newFunctionWithName:@"satview_marker_vertex"];
         id<MTLFunction> orbit_fragment = [library newFunctionWithName:@"satview_orbit_fragment"];
+        id<MTLFunction> fullscreen_vertex = [library newFunctionWithName:@"satview_fullscreen_vertex"];
+        id<MTLFunction> post_fragment = [library newFunctionWithName:@"satview_post_fragment"];
+        id<MTLFunction> present_fragment = [library newFunctionWithName:@"satview_present_fragment"];
+        id<MTLFunction> msaa_debug_fragment = [library newFunctionWithName:@"satview_msaa_debug_fragment"];
         if (!vertex || !fragment || !moon_vertex || !moon_fragment
             || !cloud_vertex || !cloud_fragment
             || !atmosphere_vertex || !atmosphere_fragment
             || !ground_atmosphere_vertex || !ground_atmosphere_fragment
             || !ground_surface_fragment
             || !star_vertex || !star_fragment
-            || !orbit_vertex || !orbit_fragment)
+            || !orbit_vertex || !orbit_fragment
+            || !fullscreen_vertex || !post_fragment || !present_fragment
+            || (scene_sample_count > 1 && !msaa_debug_fragment))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer,
                 "SatView: required Metal shader functions missing from satview_scene.metallib");
@@ -234,8 +272,9 @@ struct SatViewScenePass::State
         MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
         desc.vertexFunction = vertex;
         desc.fragmentFunction = fragment;
-        desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA16Float;
         desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+        desc.rasterSampleCount = scene_sample_count;
 
         id<MTLRenderPipelineState> created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
         if (!created)
@@ -386,6 +425,58 @@ struct SatViewScenePass::State
             }
         }
 
+        MTLRenderPipelineDescriptor* fullscreen_desc = [[MTLRenderPipelineDescriptor alloc] init];
+        fullscreen_desc.vertexFunction = fullscreen_vertex;
+        fullscreen_desc.fragmentFunction = post_fragment;
+        fullscreen_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
+        fullscreen_desc.rasterSampleCount = 1;
+        created = [new_device newRenderPipelineStateWithDescriptor:fullscreen_desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal tone-map pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        tone_map_pipeline.reset(created);
+
+        fullscreen_desc.fragmentFunction = present_fragment;
+        fullscreen_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        created = [new_device newRenderPipelineStateWithDescriptor:fullscreen_desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal present pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        present_pipeline.reset(created);
+
+        if (scene_sample_count > 1)
+        {
+            fullscreen_desc.fragmentFunction = msaa_debug_fragment;
+            fullscreen_desc.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+            created = [new_device newRenderPipelineStateWithDescriptor:fullscreen_desc error:&error];
+            if (!created)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal MSAA debug pipeline: %s",
+                    error ? [[error localizedDescription] UTF8String] : "unknown");
+                return false;
+            }
+            msaa_debug_pipeline.reset(created);
+        }
+
+        MTLSamplerDescriptor* hdr_sampler_desc = [[MTLSamplerDescriptor alloc] init];
+        hdr_sampler_desc.minFilter = MTLSamplerMinMagFilterLinear;
+        hdr_sampler_desc.magFilter = MTLSamplerMinMagFilterLinear;
+        hdr_sampler_desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
+        hdr_sampler_desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        hdr_sampler_desc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+        hdr_sampler.reset([new_device newSamplerStateWithDescriptor:hdr_sampler_desc]);
+        if (!hdr_sampler.get())
+            return false;
+
+        DRAXUL_LOG_INFO(LogCategory::Renderer, "SatView: HDR scene using %lux MSAA",
+            static_cast<unsigned long>(scene_sample_count));
+
         MTLDepthStencilDescriptor* depth_desc = [[MTLDepthStencilDescriptor alloc] init];
         depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
         depth_desc.depthWriteEnabled = YES;
@@ -445,6 +536,91 @@ struct SatViewScenePass::State
         return true;
     }
 
+    bool ensure_hdr_targets(id<MTLDevice> metal_device, uint32_t frame_count, int width, int height)
+    {
+        frame_count = std::max(1u, frame_count);
+        if (hdr_targets.size() == frame_count && !hdr_targets.empty()
+            && hdr_targets.front().width == width && hdr_targets.front().height == height)
+            return true;
+
+        hdr_targets.clear();
+        hdr_targets.resize(frame_count);
+        const bool multisampled = scene_sample_count > 1;
+        for (auto& targets : hdr_targets)
+        {
+            if (multisampled)
+            {
+                MTLTextureDescriptor* msaa_desc = [MTLTextureDescriptor
+                    texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                 width:static_cast<NSUInteger>(width)
+                                                height:static_cast<NSUInteger>(height)
+                                             mipmapped:NO];
+                msaa_desc.textureType = MTLTextureType2DMultisample;
+                msaa_desc.sampleCount = scene_sample_count;
+                msaa_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+                msaa_desc.storageMode = MTLStorageModePrivate;
+                targets.scene_msaa.reset([metal_device newTextureWithDescriptor:msaa_desc]);
+            }
+
+            MTLTextureDescriptor* depth_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                             width:static_cast<NSUInteger>(width)
+                                            height:static_cast<NSUInteger>(height)
+                                         mipmapped:NO];
+            depth_desc.textureType = multisampled ? MTLTextureType2DMultisample : MTLTextureType2D;
+            depth_desc.sampleCount = scene_sample_count;
+            depth_desc.usage = MTLTextureUsageRenderTarget;
+            depth_desc.storageMode = MTLStorageModePrivate;
+            targets.scene_depth.reset([metal_device newTextureWithDescriptor:depth_desc]);
+
+            MTLTextureDescriptor* hdr_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                             width:static_cast<NSUInteger>(width)
+                                            height:static_cast<NSUInteger>(height)
+                                         mipmapped:NO];
+            hdr_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            hdr_desc.storageMode = MTLStorageModePrivate;
+            targets.scene_hdr.reset([metal_device newTextureWithDescriptor:hdr_desc]);
+
+            MTLTextureDescriptor* final_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB
+                                             width:static_cast<NSUInteger>(width)
+                                            height:static_cast<NSUInteger>(height)
+                                         mipmapped:NO];
+            final_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead
+                | MTLTextureUsagePixelFormatView;
+            final_desc.storageMode = MTLStorageModePrivate;
+            targets.scene_final_srgb.reset([metal_device newTextureWithDescriptor:final_desc]);
+            if (targets.scene_final_srgb.get())
+            {
+                targets.scene_final_unorm.reset(
+                    [targets.scene_final_srgb.get() newTextureViewWithPixelFormat:MTLPixelFormatBGRA8Unorm]);
+            }
+
+            MTLTextureDescriptor* debug_desc = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                             width:static_cast<NSUInteger>(width)
+                                            height:static_cast<NSUInteger>(height)
+                                         mipmapped:NO];
+            debug_desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            debug_desc.storageMode = MTLStorageModePrivate;
+            targets.msaa_difference.reset([metal_device newTextureWithDescriptor:debug_desc]);
+
+            if ((multisampled && !targets.scene_msaa.get())
+                || !targets.scene_depth.get() || !targets.scene_hdr.get()
+                || !targets.scene_final_srgb.get() || !targets.scene_final_unorm.get()
+                || !targets.msaa_difference.get())
+            {
+                DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal HDR targets");
+                hdr_targets.clear();
+                return false;
+            }
+            targets.width = width;
+            targets.height = height;
+        }
+        return true;
+    }
+
     template <typename T>
     bool ensure_buffer(
         id<MTLDevice> metal_device,
@@ -501,15 +677,15 @@ SatViewScenePass::~SatViewScenePass() = default;
 
 void SatViewScenePass::record_prepass(IRenderContext& ctx)
 {
-    (void)ctx;
-}
-
-void SatViewScenePass::record(IRenderContext& ctx)
-{
     PERF_MEASURE();
     auto* metal_ctx = static_cast<MetalRenderContext*>(&ctx);
-    id<MTLRenderCommandEncoder> encoder = metal_ctx->encoder();
-    if (!encoder || !state_->ensure(metal_ctx->device()))
+    id<MTLCommandBuffer> command_buffer = metal_ctx->command_buffer();
+    if (!command_buffer || !state_->ensure(metal_ctx->device()))
+        return;
+    const int width = std::max(1, ctx.viewport_w());
+    const int height = std::max(1, ctx.viewport_h());
+    if (!state_->ensure_hdr_targets(
+            metal_ctx->device(), ctx.buffered_frame_count(), width, height))
         return;
     if (pending_cloud_image_
         && state_->ensure_cloud_texture(*pending_cloud_image_, cloud_revision_))
@@ -537,6 +713,38 @@ void SatViewScenePass::record(IRenderContext& ctx)
         state_->star_buffer,
         state_->star_count,
         state_->uploaded_star_revision);
+
+    const uint32_t frame_index = ctx.frame_index() % static_cast<uint32_t>(state_->hdr_targets.size());
+    auto& targets = state_->hdr_targets[frame_index];
+    MTLRenderPassDescriptor* scene_desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    scene_desc.colorAttachments[0].texture = state_->scene_sample_count > 1
+        ? targets.scene_msaa.get()
+        : targets.scene_hdr.get();
+    scene_desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    scene_desc.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+    if (state_->scene_sample_count > 1)
+    {
+        scene_desc.colorAttachments[0].resolveTexture = targets.scene_hdr.get();
+        scene_desc.colorAttachments[0].storeAction = hdr_debug_enabled_
+            ? MTLStoreActionStoreAndMultisampleResolve
+            : MTLStoreActionMultisampleResolve;
+    }
+    else
+    {
+        scene_desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    }
+    scene_desc.depthAttachment.texture = targets.scene_depth.get();
+    scene_desc.depthAttachment.loadAction = MTLLoadActionClear;
+    scene_desc.depthAttachment.storeAction = MTLStoreActionDontCare;
+    scene_desc.depthAttachment.clearDepth = 1.0;
+
+    id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:scene_desc];
+    if (!encoder)
+        return;
+    MTLViewport viewport{ 0.0, 0.0, static_cast<double>(width), static_cast<double>(height), 0.0, 1.0 };
+    MTLScissorRect scissor{ 0, 0, static_cast<NSUInteger>(width), static_cast<NSUInteger>(height) };
+    [encoder setViewport:viewport];
+    [encoder setScissorRect:scissor];
 
     [encoder setDepthStencilState:state_->depth_write_state.get()];
     [encoder setFragmentTexture:state_->earth_day_texture.get() atIndex:0];
@@ -700,6 +908,131 @@ void SatViewScenePass::record(IRenderContext& ctx)
                     vertexCount:kSatViewMarkerVerticesPerInstance
                   instanceCount:state_->marker_count];
     }
+
+    [encoder endEncoding];
+
+    if (hdr_debug_enabled_)
+    {
+        MTLRenderPassDescriptor* debug_desc = [MTLRenderPassDescriptor renderPassDescriptor];
+        debug_desc.colorAttachments[0].texture = targets.msaa_difference.get();
+        debug_desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+        debug_desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+        debug_desc.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+        id<MTLRenderCommandEncoder> debug_encoder =
+            [command_buffer renderCommandEncoderWithDescriptor:debug_desc];
+        if (debug_encoder)
+        {
+            [debug_encoder setViewport:viewport];
+            [debug_encoder setScissorRect:scissor];
+            if (state_->scene_sample_count > 1 && state_->msaa_debug_pipeline.get())
+            {
+                const uint32_t sample_count = static_cast<uint32_t>(state_->scene_sample_count);
+                [debug_encoder setRenderPipelineState:state_->msaa_debug_pipeline.get()];
+                [debug_encoder setFragmentBytes:&sample_count length:sizeof(sample_count) atIndex:0];
+                [debug_encoder setFragmentTexture:targets.scene_msaa.get() atIndex:0];
+                [debug_encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+            }
+            [debug_encoder endEncoding];
+            targets.debug_ready = true;
+        }
+    }
+
+    MTLRenderPassDescriptor* post_desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    post_desc.colorAttachments[0].texture = targets.scene_final_srgb.get();
+    post_desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    post_desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    post_desc.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+    id<MTLRenderCommandEncoder> post_encoder =
+        [command_buffer renderCommandEncoderWithDescriptor:post_desc];
+    if (!post_encoder)
+        return;
+    const glm::vec4 tone_map(tone_map_exposure_, tone_map_white_point_, 0.0f, 0.0f);
+    [post_encoder setViewport:viewport];
+    [post_encoder setScissorRect:scissor];
+    [post_encoder setRenderPipelineState:state_->tone_map_pipeline.get()];
+    [post_encoder setFragmentBytes:&tone_map length:sizeof(tone_map) atIndex:0];
+    [post_encoder setFragmentTexture:targets.scene_hdr.get() atIndex:0];
+    [post_encoder setFragmentSamplerState:state_->hdr_sampler.get() atIndex:0];
+    [post_encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [post_encoder endEncoding];
+    state_->last_prepass_frame = frame_index;
+}
+
+void SatViewScenePass::record(IRenderContext& ctx)
+{
+    PERF_MEASURE();
+    auto* metal_ctx = static_cast<MetalRenderContext*>(&ctx);
+    id<MTLRenderCommandEncoder> encoder = metal_ctx->encoder();
+    if (!encoder || state_->hdr_targets.empty() || !state_->present_pipeline.get())
+        return;
+    const uint32_t frame_index = ctx.frame_index() % static_cast<uint32_t>(state_->hdr_targets.size());
+    const auto& targets = state_->hdr_targets[frame_index];
+    if (!targets.scene_final_unorm.get())
+        return;
+
+    MTLViewport viewport;
+    viewport.originX = ctx.viewport_x();
+    viewport.originY = ctx.viewport_y();
+    viewport.width = ctx.viewport_w();
+    viewport.height = ctx.viewport_h();
+    viewport.znear = 0.0;
+    viewport.zfar = 1.0;
+    MTLScissorRect scissor;
+    scissor.x = static_cast<NSUInteger>(std::max(0, ctx.viewport_x()));
+    scissor.y = static_cast<NSUInteger>(std::max(0, ctx.viewport_y()));
+    scissor.width = static_cast<NSUInteger>(std::max(0, ctx.viewport_w()));
+    scissor.height = static_cast<NSUInteger>(std::max(0, ctx.viewport_h()));
+    [encoder setViewport:viewport];
+    [encoder setScissorRect:scissor];
+    [encoder setRenderPipelineState:state_->present_pipeline.get()];
+    [encoder setFragmentTexture:targets.scene_final_unorm.get() atIndex:0];
+    [encoder setFragmentSamplerState:state_->hdr_sampler.get() atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+}
+
+void SatViewScenePass::render_hdr_debug_ui()
+{
+    if (state_->hdr_targets.empty())
+        return;
+    const auto& targets = state_->hdr_targets[
+        state_->last_prepass_frame % static_cast<uint32_t>(state_->hdr_targets.size())];
+    if (!ImGui::Begin("SatView HDR Buffers"))
+    {
+        ImGui::End();
+        return;
+    }
+    const uint32_t samples = static_cast<uint32_t>(state_->scene_sample_count);
+    ImGui::Text("Requested: 4x  Active: %ux%s", samples, samples < 4 ? " (fallback)" : "");
+    ImGui::Text("Size: %dx%d  Exposure: %.2f  White point: %.2f",
+        targets.width, targets.height, tone_map_exposure_, tone_map_white_point_);
+
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const float aspect = targets.height > 0
+        ? static_cast<float>(targets.width) / static_cast<float>(targets.height)
+        : 1.0f;
+    const float image_width = std::max(64.0f,
+        (available.x - ImGui::GetStyle().ItemSpacing.x) * 0.5f);
+    const ImVec2 size(image_width, image_width / aspect);
+    if (ImGui::BeginTable("##satview_hdr_grid", 2))
+    {
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("MSAA Difference");
+        if (targets.debug_ready && targets.msaa_difference.get())
+            ImGui::Image((__bridge void*)targets.msaa_difference.get(), size);
+        else
+            ImGui::TextDisabled("Waiting for debug frame");
+
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("Scene HDR Resolved");
+        ImGui::Image((__bridge void*)targets.scene_hdr.get(), size);
+
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("Scene Final");
+        ImGui::Image((__bridge void*)targets.scene_final_unorm.get(),
+            size, ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::EndTable();
+    }
+    ImGui::End();
 }
 
 } // namespace draxul::satview

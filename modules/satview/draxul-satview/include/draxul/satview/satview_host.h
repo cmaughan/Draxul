@@ -132,6 +132,9 @@ private:
     float star_min_magnitude_ = kDefaultStarMinMagnitude;
     float star_max_magnitude_ = kDefaultStarMaxMagnitude;
     float star_brightness_scale_ = kDefaultStarBrightnessScale;
+    float tone_map_exposure_ = kDefaultToneMapExposure;
+    float tone_map_white_point_ = kDefaultToneMapWhitePoint;
+    bool show_hdr_debug_panel_ = false;
     bool running_ = false;
     bool paused_ = false;
     bool dragging_ = false;

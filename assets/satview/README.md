@@ -73,6 +73,20 @@ that range are not uploaded for drawing, and stars inside it are scaled across
 the selected range. A separate brightness scalar multiplies the resulting
 starfield without changing which stars are included.
 
+## HDR Rendering
+
+SatView samples the Earth, Moon, and cloud color maps as sRGB textures and
+renders the complete scene in linear light to an `RGBA16F` target. The scene
+uses the highest supported common color/depth MSAA mode in the order 4x, 2x,
+then 1x, resolves before tone mapping, applies the ACES curve using the saved
+`Exposure` and `White point` controls, and lets the final sRGB attachment encode
+the display image. `Star brightness` remains a star-only linear-light gain;
+exposure affects the whole scene.
+
+Enable `HDR buffer debug` in the SatView panel to open the `SatView HDR
+Buffers` window. It reports the active MSAA fallback and displays a sample
+difference heat map, the resolved HDR image, and the final tone-mapped image.
+
 Regenerate it from the repository root with:
 
 ```powershell
