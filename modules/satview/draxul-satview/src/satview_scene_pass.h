@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <span>
 #include <vector>
@@ -72,10 +73,15 @@ public:
         atmosphere_enabled_ = enabled;
     }
 
-    void set_projection_mode(bool map_enabled, bool moon_map_centered, bool ground_enabled)
+    void set_projection_mode(
+        bool map_enabled,
+        bool moon_map_centered,
+        bool sun_map_centered,
+        bool ground_enabled)
     {
         map_projection_ = map_enabled;
         moon_map_projection_ = map_enabled && moon_map_centered;
+        sun_map_projection_ = map_enabled && sun_map_centered;
         ground_projection_ = ground_enabled;
     }
 
@@ -93,12 +99,27 @@ public:
         ++track_revision_;
     }
 
+    void set_earth_track_vertices(std::span<const SatViewSceneVertex> vertices)
+    {
+        if (vertices.empty() && earth_track_vertices_.empty())
+            return;
+        earth_track_vertices_.assign(vertices.begin(), vertices.end());
+        ++earth_track_revision_;
+    }
+
     void set_markers(std::span<const SatViewMarkerInstance> markers)
     {
         if (markers.empty() && markers_.empty())
             return;
         markers_.assign(markers.begin(), markers.end());
         ++marker_revision_;
+    }
+
+    void set_sun(glm::vec4 position_radius, glm::quat body_to_render, bool enabled)
+    {
+        sun_position_radius_ = position_radius;
+        sun_body_to_render_ = body_to_render;
+        sun_enabled_ = enabled;
     }
 
     void set_stars(std::span<const SatViewStarInstance> stars)
@@ -153,9 +174,11 @@ public:
 private:
     SatViewFrameUniforms frame_;
     std::vector<SatViewSceneVertex> track_vertices_;
+    std::vector<SatViewSceneVertex> earth_track_vertices_;
     std::vector<SatViewMarkerInstance> markers_;
     std::vector<SatViewStarInstance> stars_;
     uint64_t track_revision_ = 0;
+    uint64_t earth_track_revision_ = 0;
     uint64_t marker_revision_ = 0;
     uint64_t star_revision_ = 0;
     float star_min_magnitude_ = -1.5f;
@@ -167,10 +190,14 @@ private:
     std::shared_ptr<const LoadedTextureImage> pending_cloud_image_;
     uint64_t cloud_revision_ = 0;
     glm::vec4 moon_position_radius_{ 0.0f };
+    glm::vec4 sun_position_radius_{ 0.0f };
+    glm::quat sun_body_to_render_{ 1.0f, 0.0f, 0.0f, 0.0f };
     bool atmosphere_enabled_ = true;
     bool moon_enabled_ = true;
+    bool sun_enabled_ = true;
     bool map_projection_ = false;
     bool moon_map_projection_ = false;
+    bool sun_map_projection_ = false;
     bool ground_projection_ = false;
     bool hdr_debug_enabled_ = false;
     std::unique_ptr<State> state_;

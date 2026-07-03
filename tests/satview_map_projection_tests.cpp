@@ -1,5 +1,6 @@
 #include "satview_map_projection.h"
 #include "satview_moon_ephemeris.h"
+#include "satview_sun_ephemeris.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -16,6 +17,8 @@ using draxul::satview::SatViewMapBody;
 using draxul::satview::satview_map_position_from_teme;
 using draxul::satview::satview_map_pan_delta;
 using draxul::satview::satview_moon_position;
+using draxul::satview::satview_sun_position;
+using draxul::satview::kSatViewEarthEquatorialRadiusKm;
 
 TEST_CASE("SatView map projection aligns TEME Greenwich with the map center", "[satview][map]")
 {
@@ -71,6 +74,32 @@ TEST_CASE("SatView Moon map places Earth in the center of the near side", "[satv
 
     CHECK_THAT(map_position.x, WithinAbs(0.0f, 1.0e-6f));
     CHECK_THAT(map_position.y, WithinAbs(0.0f, 1.0e-6f));
+}
+
+TEST_CASE("SatView Sun map uses the rotating solar body frame", "[satview][map][sun]")
+{
+    constexpr double kJ2000UnixSeconds = 946728000.0;
+    const auto moon = satview_moon_position(kJ2000UnixSeconds);
+    const auto sun = satview_sun_position(kJ2000UnixSeconds);
+    const glm::dvec3 body_meridian_render =
+        sun.render_position_earth_radii
+        + sun.body_to_render_orientation * glm::dvec3(10.0, 0.0, 0.0);
+    const glm::dvec3 body_meridian_teme_km(
+        -body_meridian_render.z,
+        -body_meridian_render.x,
+        body_meridian_render.y);
+
+    const glm::vec2 map_position = satview_map_position_from_teme(
+        body_meridian_teme_km * kSatViewEarthEquatorialRadiusKm,
+        kJ2000UnixSeconds,
+        glm::vec2(0.0f),
+        SatViewMapBody::Sun,
+        moon.render_position_earth_radii,
+        sun.render_position_earth_radii,
+        sun.body_to_render_orientation);
+
+    CHECK_THAT(map_position.x, WithinAbs(0.0f, 1.0e-5f));
+    CHECK_THAT(map_position.y, WithinAbs(0.0f, 1.0e-5f));
 }
 
 TEST_CASE("SatView map center wraps longitude and clamps latitude", "[satview][map]")

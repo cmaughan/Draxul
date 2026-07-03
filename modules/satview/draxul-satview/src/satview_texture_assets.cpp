@@ -97,4 +97,14 @@ LoadedTextureImage load_moon_texture_image()
     return image;
 }
 
+LoadedTextureImage load_sun_texture_image()
+{
+    PERF_MEASURE();
+    LoadedTextureImage image = load_rgba8_image_impl(
+        resolve_satview_asset_path("textures/sun_solar_system_scope_4k.jpg"));
+    if (!image.valid())
+        image = make_solid_rgba8(255, 132, 18, 255);
+    return image;
+}
+
 } // namespace draxul::satview

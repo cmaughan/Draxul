@@ -78,6 +78,15 @@ glm::dvec3 render_to_lunar_body(
         glm::dot(moon_relative, north_axis));
 }
 
+glm::dvec3 render_to_solar_body(
+    const glm::dvec3& render_position,
+    const glm::dvec3& sun_position,
+    const glm::dquat& body_to_render_orientation)
+{
+    return glm::conjugate(glm::normalize(body_to_render_orientation))
+        * (render_position - sun_position);
+}
+
 glm::vec2 map_position_from_cartesian(const glm::dvec3& position)
 {
     const double radius = glm::length(position);
@@ -96,16 +105,31 @@ glm::vec2 satview_map_position_from_teme(
     double unix_seconds,
     glm::vec2 center_radians,
     SatViewMapBody body,
-    const glm::dvec3& moon_render_position_earth_radii)
+    const glm::dvec3& moon_render_position_earth_radii,
+    const glm::dvec3& sun_render_position_earth_radii,
+    const glm::dquat& sun_body_to_render_orientation)
 {
     center_radians = normalized_satview_map_center(center_radians);
-    const glm::dvec3 body_position = body == SatViewMapBody::Moon
-        ? render_to_lunar_body(
-              teme_position_to_render_earth_radii(teme_position),
-              moon_render_position_earth_radii)
-        : teme_to_ecef(
-              teme_position,
-              greenwich_sidereal_angle_radians(unix_seconds));
+    glm::dvec3 body_position;
+    if (body == SatViewMapBody::Moon)
+    {
+        body_position = render_to_lunar_body(
+            teme_position_to_render_earth_radii(teme_position),
+            moon_render_position_earth_radii);
+    }
+    else if (body == SatViewMapBody::Sun)
+    {
+        body_position = render_to_solar_body(
+            teme_position_to_render_earth_radii(teme_position),
+            sun_render_position_earth_radii,
+            sun_body_to_render_orientation);
+    }
+    else
+    {
+        body_position = teme_to_ecef(
+            teme_position,
+            greenwich_sidereal_angle_radians(unix_seconds));
+    }
     return map_position_from_cartesian(ecef_to_map_local(
         body_position,
         glm::dvec2(center_radians)));

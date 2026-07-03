@@ -73,6 +73,14 @@ vec3 render_to_lunar_body(vec3 render_position)
         dot(moon_relative, north_axis));
 }
 
+vec3 render_to_solar_body(vec3 render_position)
+{
+    vec4 render_to_body = vec4(-push.sun_dir_time.xyz, push.sun_dir_time.w);
+    return rotate_by_quaternion(
+        render_position - push.camera_pos.xyz,
+        render_to_body);
+}
+
 void main()
 {
     int segment = gl_VertexIndex / 2;
@@ -88,7 +96,9 @@ void main()
 
     if (push.camera_pos.w < 0.0)
     {
-        vec3 body_position = push.camera_orientation.z > 0.5
+        vec3 body_position = push.camera_orientation.z > 1.5
+            ? render_to_solar_body(center)
+            : push.camera_orientation.z > 0.5
             ? render_to_lunar_body(center)
             : render_teme_to_ecef(center, push.render_params.z);
         vec3 local = ecef_to_map_local(body_position, push.camera_orientation.xy);

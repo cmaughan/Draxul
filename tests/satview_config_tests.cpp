@@ -22,6 +22,8 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK(config.tone_map_exposure == kDefaultToneMapExposure);
     CHECK(config.tone_map_white_point == kDefaultToneMapWhitePoint);
     CHECK_FALSE(config.show_hdr_debug_panel);
+    CHECK(config.sun_enabled);
+    CHECK(config.earth_track_enabled);
     CHECK(config.ground_fov_degrees == 60.0f);
     CHECK(config.ground_marker_scale == 0.1f);
     CHECK(config.filter.show_active_payloads);
@@ -50,7 +52,7 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.track_display_mode = SatViewTrackDisplayMode::SelectedOnly;
     expected.satellite_display_mode = SatViewSatelliteDisplayMode::MarkersOnly;
     expected.projection_mode = SatViewProjectionMode::Ground;
-    expected.camera_pov = SatViewCameraPov::Moon;
+    expected.camera_pov = SatViewCameraPov::Sun;
     expected.track_satellite_limit = 4096;
     expected.track_sample_count = 256;
     expected.refresh_tracks_each_step = true;
@@ -65,8 +67,10 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.clouds_enabled = false;
     expected.realistic_clouds_enabled = true;
     expected.atmosphere_enabled = false;
-    expected.moon_enabled = true;
+    expected.moon_enabled = false;
     expected.moon_track_enabled = false;
+    expected.earth_track_enabled = false;
+    expected.sun_enabled = true;
     expected.ground_fov_degrees = 75.0f;
     expected.ground_marker_scale = 0.45f;
     expected.ground_longitude_radians = -1.25;

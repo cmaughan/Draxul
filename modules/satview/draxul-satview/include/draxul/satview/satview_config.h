@@ -60,7 +60,8 @@ enum class SatViewProjectionMode
 enum class SatViewCameraPov
 {
     Earth,
-    Moon
+    Moon,
+    Sun
 };
 
 struct SatViewConfig
@@ -87,6 +88,8 @@ struct SatViewConfig
     bool atmosphere_enabled = true;
     bool moon_enabled = true;
     bool moon_track_enabled = true;
+    bool earth_track_enabled = true;
+    bool sun_enabled = true;
     float ground_fov_degrees = 60.0f;
     float ground_marker_scale = 0.1f;
     double ground_longitude_radians = 0.0;

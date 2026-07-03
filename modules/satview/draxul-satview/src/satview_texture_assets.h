@@ -36,5 +36,6 @@ struct EarthTextureImages
 [[nodiscard]] LoadedTextureImage load_rgba8_image(const std::filesystem::path& path);
 [[nodiscard]] EarthTextureImages load_earth_texture_images();
 [[nodiscard]] LoadedTextureImage load_moon_texture_image();
+[[nodiscard]] LoadedTextureImage load_sun_texture_image();
 
 } // namespace draxul::satview

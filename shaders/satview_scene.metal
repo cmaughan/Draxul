@@ -58,6 +58,12 @@ constant float3 kLunarNorthPoleRender = float3(
     0.91733267f,
     0.00003544f);
 
+static float3 rotate_vector_by_quaternion(float3 value, float4 quaternion)
+{
+    float3 twice_cross = 2.0f * cross(quaternion.xyz, value);
+    return value + quaternion.w * twice_cross + cross(quaternion.xyz, twice_cross);
+}
+
 static float3 render_teme_to_ecef(float3 render_position, float sidereal_angle)
 {
     float3 teme = float3(-render_position.z, -render_position.x, render_position.y);
@@ -135,12 +141,24 @@ static float3 render_to_lunar_body(
         dot(moon_relative, north_axis));
 }
 
+static float3 render_to_solar_body(
+    float3 render_position,
+    constant SatViewFrameUniforms& frame)
+{
+    float4 render_to_body = float4(-frame.sun_dir_time.xyz, frame.sun_dir_time.w);
+    return rotate_vector_by_quaternion(
+        render_position - frame.camera_pos.xyz,
+        render_to_body);
+}
+
 static float2 map_position_from_render_teme(
     float3 render_position,
     constant SatViewFrameUniforms& frame,
     bool earth_fixed)
 {
-    float3 body_position = frame.camera_orientation.z > 0.5f
+    float3 body_position = frame.camera_orientation.z > 1.5f
+        ? render_to_solar_body(render_position, frame)
+        : frame.camera_orientation.z > 0.5f
         ? render_to_lunar_body(render_position, frame)
         : earth_fixed
             ? render_position
@@ -364,6 +382,86 @@ fragment float4 satview_moon_fragment(
     float earthshine = max(dot(normal, earth_direction), 0.0f) * earth_phase * 0.055f;
     float illumination = 0.006f + diffuse * 1.12f + earthshine;
     return float4(surface * illumination, 1.0f);
+}
+
+vertex SatViewVertexOut satview_sun_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    bool map_projection = frame.camera_pos.w < 0.0f;
+    uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
+    uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
+    uint tri_vertex = vertex_id % 6u;
+    uint quad = vertex_id / 6u;
+    uint lon = quad % lon_bands;
+    uint lat = quad / lon_bands;
+
+    float2 corner = quad_corner(tri_vertex);
+    float u = map_projection
+        ? corner.x
+        : (float(lon) + corner.x) / float(lon_bands);
+    float v = map_projection
+        ? corner.y
+        : (float(lat) + corner.y) / float(lat_bands);
+    float longitude = (u - 0.5f) * 2.0f * kPi;
+    float latitude = mix(-0.5f * kPi, 0.5f * kPi, v);
+    float cp = cos(latitude);
+    float3 body_normal = float3(
+        cp * cos(longitude),
+        cp * sin(longitude),
+        sin(latitude));
+    float3 normal = normalize(rotate_vector_by_quaternion(body_normal, frame.sun_dir_time));
+    float3 sun_position = map_projection
+        ? frame.camera_pos.xyz
+        : frame.camera_orientation.xyz;
+    float3 world = sun_position + normal * frame.camera_orientation.w;
+
+    SatViewVertexOut out;
+    out.position = map_projection
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        : frame.view_proj * float4(world, 1.0f);
+    out.normal = normal;
+    out.world = world;
+    out.uv = float2(u, v);
+    return out;
+}
+
+fragment float4 satview_sun_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> sun_tex [[texture(5)]],
+    sampler sun_sampler [[sampler(0)]])
+{
+    bool map_projection = frame.camera_pos.w < 0.0f;
+    float2 uv = float2(fract(in.uv.x), 1.0f - clamp(in.uv.y, 0.0f, 1.0f));
+    if (map_projection)
+    {
+        float map_longitude = (in.uv.x - 0.5f) * 2.0f * kPi;
+        float map_latitude = mix(-0.5f * kPi, 0.5f * kPi, in.uv.y);
+        float cp = cos(map_latitude);
+        float3 body = map_local_to_ecef(
+            float3(cp * cos(map_longitude), cp * sin(map_longitude), sin(map_latitude)),
+            frame.camera_orientation.xy);
+        float longitude = atan2(body.y, body.x);
+        float latitude = asin(clamp(body.z, -1.0f, 1.0f));
+        uv = float2(
+            fract(longitude / (2.0f * kPi) + 0.5f),
+            0.5f - latitude / kPi);
+    }
+
+    float3 surface = sun_tex.sample(sun_sampler, uv).rgb;
+    float3 emission = surface * float3(1.16f, 0.94f, 0.72f)
+        * (map_projection ? 0.65f : 2.15f);
+    if (!map_projection)
+    {
+        float3 view_direction = normalize(frame.camera_pos.xyz - in.world);
+        float mu = max(dot(normalize(in.normal), view_direction), 0.0f);
+        float limb_darkening = mix(0.48f, 1.0f, pow(mu, 0.42f));
+        float limb_glow = pow(1.0f - mu, 3.0f);
+        emission = emission * limb_darkening
+            + float3(1.25f, 0.30f, 0.035f) * limb_glow * 0.55f;
+    }
+    return float4(emission, 1.0f);
 }
 
 constant float kCloudRadius = 1.0015f;
@@ -856,11 +954,19 @@ vertex SatViewOrbitOut satview_orbit_vertex(
 {
     SatViewOrbitOut out;
     SatViewSceneVertex scene_vertex = vertices[vertex_id];
+    bool sun_centered = frame.render_params.w < -0.5f;
+    float3 track_center = frame.camera_pos.w < 0.0f
+        ? frame.camera_pos.xyz
+        : frame.camera_orientation.xyz;
+    float3 position = scene_vertex.position.xyz
+        + (sun_centered ? track_center : float3(0.0f));
+    float3 paired_position = scene_vertex.paired_position.xyz
+        + (sun_centered ? track_center : float3(0.0f));
     if (frame.camera_pos.w < 0.0f)
     {
         bool earth_fixed = abs(scene_vertex.position.w) > 1.5f;
-        float2 projected = map_position_from_render_teme(scene_vertex.position.xyz, frame, earth_fixed);
-        float2 paired = map_position_from_render_teme(scene_vertex.paired_position.xyz, frame, earth_fixed);
+        float2 projected = map_position_from_render_teme(position, frame, earth_fixed);
+        float2 paired = map_position_from_render_teme(paired_position, frame, earth_fixed);
         if (scene_vertex.position.w > 0.0f)
         {
             float delta = projected.x - paired.x;
@@ -874,7 +980,7 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     }
     else
     {
-        out.position = frame.view_proj * float4(scene_vertex.position.xyz, 1.0f);
+        out.position = frame.view_proj * float4(position, 1.0f);
     }
     out.color = scene_vertex.color;
     return out;

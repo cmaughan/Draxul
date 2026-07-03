@@ -11,6 +11,12 @@ struct SatViewGroundLocation
     double latitude_radians = 0.0;
 };
 
+struct SatViewGroundBodyProxy
+{
+    glm::dvec3 render_position_earth_radii{ 0.0 };
+    double radius_earth_radii = 0.0;
+};
+
 [[nodiscard]] SatViewGroundLocation satview_ground_location_from_map_ndc(
     glm::vec2 ndc_position,
     glm::vec2 center_radians);
@@ -30,5 +36,10 @@ struct SatViewGroundLocation
 [[nodiscard]] float satview_ground_marker_base_size(
     const glm::dvec3& satellite_render_position,
     const glm::dvec3& observer_render_position);
+[[nodiscard]] SatViewGroundBodyProxy satview_ground_body_proxy(
+    const glm::dvec3& body_render_position,
+    double body_radius_earth_radii,
+    const glm::dvec3& observer_render_position,
+    double proxy_distance_earth_radii);
 
 } // namespace draxul::satview

@@ -9,6 +9,7 @@ namespace
 {
 
 using Catch::Matchers::WithinAbs;
+using draxul::satview::satview_ground_body_proxy;
 using draxul::satview::satview_ground_location_from_map_ndc;
 using draxul::satview::satview_ground_location_from_render_position;
 using draxul::satview::satview_ground_marker_base_size;
@@ -106,6 +107,26 @@ TEST_CASE("SatView ground view marker size shrinks toward the horizon", "[satvie
 
     CHECK_THAT(overhead_size, WithinAbs(0.026f, 1.0e-6f));
     CHECK_THAT(horizon_size, WithinAbs(0.008f, 1.0e-6f));
+}
+
+TEST_CASE("SatView ground view proxy preserves distant body direction and angular size", "[satview][ground]")
+{
+    const glm::dvec3 observer(1.0, 0.0, 0.0);
+    const glm::dvec3 body(15000.0, 18000.0, -7000.0);
+    constexpr double kBodyRadius = 109.0;
+    constexpr double kProxyDistance = 96.0;
+
+    const auto proxy = satview_ground_body_proxy(body, kBodyRadius, observer, kProxyDistance);
+    const glm::dvec3 actual_offset = body - observer;
+    const glm::dvec3 proxy_offset = proxy.render_position_earth_radii - observer;
+
+    CHECK_THAT(glm::length(proxy_offset), WithinAbs(kProxyDistance, 1.0e-9));
+    CHECK_THAT(
+        glm::dot(glm::normalize(actual_offset), glm::normalize(proxy_offset)),
+        WithinAbs(1.0, 1.0e-12));
+    CHECK_THAT(
+        proxy.radius_earth_radii / glm::length(proxy_offset),
+        WithinAbs(kBodyRadius / glm::length(actual_offset), 1.0e-12));
 }
 
 } // namespace

@@ -150,8 +150,12 @@ private:
     bool atmosphere_enabled_ = true;
     bool moon_enabled_ = true;
     bool moon_track_enabled_ = true;
+    bool earth_track_enabled_ = true;
+    bool sun_enabled_ = true;
     const void* uploaded_track_source_ = nullptr;
     std::optional<double> moon_track_center_seconds_;
+    std::optional<double> earth_track_center_seconds_;
+    bool uploaded_earth_track_visible_ = false;
     std::uint64_t uploaded_marker_generation_ = 0;
     std::uint64_t object_tree_catalog_generation_ = 0;
     std::size_t object_tree_state_count_ = 0;

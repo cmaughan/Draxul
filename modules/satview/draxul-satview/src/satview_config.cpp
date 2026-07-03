@@ -109,7 +109,16 @@ std::string_view format_projection_mode(SatViewProjectionMode mode)
 
 std::string_view format_camera_pov(SatViewCameraPov pov)
 {
-    return pov == SatViewCameraPov::Moon ? "moon" : "earth";
+    switch (pov)
+    {
+    case SatViewCameraPov::Earth:
+        return "earth";
+    case SatViewCameraPov::Moon:
+        return "moon";
+    case SatViewCameraPov::Sun:
+        return "sun";
+    }
+    return "earth";
 }
 
 void apply_satview_table(SatViewConfig& config, const toml::table& table)
@@ -156,6 +165,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
             config.camera_pov = SatViewCameraPov::Earth;
         else if (*value == "moon")
             config.camera_pov = SatViewCameraPov::Moon;
+        else if (*value == "sun")
+            config.camera_pov = SatViewCameraPov::Sun;
     }
 
     config.track_satellite_limit = clamped_size(table, "track_count",
@@ -223,6 +234,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("atmosphere", config.atmosphere_enabled);
     assign_bool("moon", config.moon_enabled);
     assign_bool("moon_track", config.moon_track_enabled);
+    assign_bool("earth_track", config.earth_track_enabled);
+    assign_bool("sun", config.sun_enabled);
     assign_bool("refresh_tracks_each_step", config.refresh_tracks_each_step);
     assign_bool("show_hdr_debug_panel", config.show_hdr_debug_panel);
 
@@ -239,6 +252,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
 
     if (config.camera_pov == SatViewCameraPov::Moon)
         config.moon_enabled = true;
+    if (config.camera_pov == SatViewCameraPov::Sun)
+        config.sun_enabled = true;
 }
 
 toml::table serialize_satview_table(const SatViewConfig& config)
@@ -282,6 +297,8 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("atmosphere", config.atmosphere_enabled);
     table.insert_or_assign("moon", config.moon_enabled);
     table.insert_or_assign("moon_track", config.moon_track_enabled);
+    table.insert_or_assign("earth_track", config.earth_track_enabled);
+    table.insert_or_assign("sun", config.sun_enabled);
     table.insert_or_assign("ground_fov_degrees", static_cast<double>(config.ground_fov_degrees));
     table.insert_or_assign("ground_marker_scale", static_cast<double>(config.ground_marker_scale));
     table.insert_or_assign("ground_longitude_radians", config.ground_longitude_radians);

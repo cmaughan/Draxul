@@ -37,6 +37,22 @@ Credit: NASA's Scientific Visualization Studio; Ernie Wright (USRA),
 visualizer; Noah Petro (NASA/GSFC), scientist; LROC WAC data from the Lunar
 Reconnaissance Orbiter Camera team at Arizona State University.
 
+## Sun Texture
+
+`textures/sun_solar_system_scope_4k.jpg` is the 4096x2048 equirectangular Sun
+surface texture published by Solar System Scope. It is based on NASA imagery,
+with color saturation and gap filling intended for visual presentation:
+
+https://commons.wikimedia.org/wiki/File:Solarsystemscope_texture_8k_sun.jpg
+
+Solar System Scope publishes the texture under the Creative Commons
+Attribution 4.0 International license:
+
+https://creativecommons.org/licenses/by/4.0/
+
+Attribution: Sun texture map by Solar System Scope, based on NASA imagery,
+used under CC BY 4.0.
+
 ## Live Cloud Map
 
 At runtime SatView asynchronously downloads the latest 8192x4096 greyscale
@@ -75,7 +91,7 @@ starfield without changing which stars are included.
 
 ## HDR Rendering
 
-SatView samples the Earth, Moon, and cloud color maps as sRGB textures and
+SatView samples the Earth, Moon, Sun, and cloud color maps as sRGB textures and
 renders the complete scene in linear light to an `RGBA16F` target. The scene
 uses the highest supported common color/depth MSAA mode in the order 4x, 2x,
 then 1x, resolves before tone mapping, applies the ACES curve using the saved

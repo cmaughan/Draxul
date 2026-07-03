@@ -12,6 +12,7 @@
 #include "satview_scene_pass.h"
 #include "satview_simulation_worker.h"
 #include "satview_star_catalog.h"
+#include "satview_sun_ephemeris.h"
 #include "satview_time_format.h"
 
 #include <SDL3/SDL_keycode.h>
@@ -53,9 +54,10 @@ constexpr int kClickDragSlopPixels = 5;
 constexpr float kCameraDefaultDistance = 3.6f;
 constexpr float kCameraMinDistance = 1.7f;
 constexpr float kCameraDefaultMaxDistance = 12.0f;
-constexpr float kCameraMaxDistanceCap = 256.0f;
+constexpr float kCameraMaxDistanceCap = 100000.0f;
 constexpr float kCameraFitRadiusScale = 3.1f;
 constexpr float kMoonCameraSurfaceDistanceScale = 1.03f;
+constexpr float kSunCameraSurfaceDistanceScale = 1.015f;
 constexpr float kCameraDefaultNearPlane = 0.05f;
 constexpr float kCameraMinNearPlane = 0.0005f;
 constexpr float kCameraHorizontalOrbitRadiansPerSecond = 1.8f;
@@ -72,7 +74,12 @@ constexpr float kGroundMaximumFovDegrees = 120.0f;
 constexpr float kGroundMinimumMarkerScale = 0.05f;
 constexpr float kGroundMaximumMarkerScale = 2.0f;
 constexpr float kGroundObserverAltitudeEarthRadii = 0.0003f;
+// Keep distant-body geometry inside the local depth range while preserving its angular size.
+constexpr double kGroundCelestialProxyDistanceEarthRadii = 96.0;
 constexpr float kMoonRadiusEarthRadii = static_cast<float>(kSatViewMoonMeanRadiusKm / kSatViewEarthEquatorialRadiusKm);
+constexpr float kSunRadiusEarthRadii = static_cast<float>(kSatViewSunMeanRadiusKm / kSatViewEarthEquatorialRadiusKm);
+constexpr float kEarthOrbitMaximumRadiusEarthRadii = static_cast<float>(
+    1.02 * kSatViewAstronomicalUnitKm / kSatViewEarthEquatorialRadiusKm);
 
 double unix_seconds_now()
 {
@@ -114,14 +121,30 @@ float camera_far_plane(float distance, float scene_radius)
 
 float camera_target_radius(SatViewCameraPov pov)
 {
-    return pov == SatViewCameraPov::Moon ? kMoonRadiusEarthRadii : 1.0f;
+    switch (pov)
+    {
+    case SatViewCameraPov::Earth:
+        return 1.0f;
+    case SatViewCameraPov::Moon:
+        return kMoonRadiusEarthRadii;
+    case SatViewCameraPov::Sun:
+        return kSunRadiusEarthRadii;
+    }
+    return 1.0f;
 }
 
 float camera_min_distance(SatViewCameraPov pov)
 {
-    return pov == SatViewCameraPov::Moon
-        ? kMoonCameraSurfaceDistanceScale * kMoonRadiusEarthRadii
-        : kCameraMinDistance;
+    switch (pov)
+    {
+    case SatViewCameraPov::Earth:
+        return kCameraMinDistance;
+    case SatViewCameraPov::Moon:
+        return kMoonCameraSurfaceDistanceScale * kMoonRadiusEarthRadii;
+    case SatViewCameraPov::Sun:
+        return kSunCameraSurfaceDistanceScale * kSunRadiusEarthRadii;
+    }
+    return kCameraMinDistance;
 }
 
 float camera_near_plane(SatViewCameraPov pov, float distance)
@@ -190,25 +213,69 @@ std::optional<glm::dvec3> ray_sphere_hit(
 
 glm::vec3 camera_target_position(
     SatViewCameraPov pov,
-    const SatViewMoonPosition& moon)
+    const SatViewMoonPosition& moon,
+    const SatViewSunPosition& sun)
 {
-    return pov == SatViewCameraPov::Moon
-        ? glm::vec3(moon.render_position_earth_radii)
-        : glm::vec3(0.0f);
+    switch (pov)
+    {
+    case SatViewCameraPov::Earth:
+        return glm::vec3(0.0f);
+    case SatViewCameraPov::Moon:
+        return glm::vec3(moon.render_position_earth_radii);
+    case SatViewCameraPov::Sun:
+        return glm::vec3(sun.render_position_earth_radii);
+    }
+    return glm::vec3(0.0f);
 }
 
 float camera_scene_radius(
     float earth_scene_radius,
     const SatViewMoonPosition& moon,
+    const SatViewSunPosition& sun,
     SatViewCameraPov pov,
-    bool moon_visible)
+    bool moon_visible,
+    bool sun_visible,
+    bool earth_track_visible)
 {
-    const float moon_distance = static_cast<float>(glm::length(moon.render_position_earth_radii));
-    if (pov == SatViewCameraPov::Moon)
-        return std::max(kMoonRadiusEarthRadii, moon_distance + earth_scene_radius);
+    const glm::vec3 target = camera_target_position(pov, moon, sun);
+    float radius = camera_target_radius(pov);
+    radius = std::max(radius, glm::length(target) + earth_scene_radius);
     if (moon_visible)
-        return std::max(earth_scene_radius, moon_distance + kMoonRadiusEarthRadii);
-    return earth_scene_radius;
+    {
+        radius = std::max(
+            radius,
+            glm::length(glm::vec3(moon.render_position_earth_radii) - target)
+                + kMoonRadiusEarthRadii);
+    }
+    if (sun_visible)
+    {
+        radius = std::max(
+            radius,
+            glm::length(glm::vec3(sun.render_position_earth_radii) - target)
+                + kSunRadiusEarthRadii);
+    }
+    if (earth_track_visible)
+    {
+        radius = std::max(
+            radius,
+            glm::length(glm::vec3(sun.render_position_earth_radii) - target)
+                + kEarthOrbitMaximumRadiusEarthRadii);
+    }
+    return radius;
+}
+
+const char* camera_pov_name(SatViewCameraPov pov)
+{
+    switch (pov)
+    {
+    case SatViewCameraPov::Earth:
+        return "earth";
+    case SatViewCameraPov::Moon:
+        return "moon";
+    case SatViewCameraPov::Sun:
+        return "sun";
+    }
+    return "earth";
 }
 
 glm::vec3 camera_position_from_yaw_pitch(float yaw, float pitch, float distance)
@@ -484,6 +551,21 @@ void append_moon_track_vertices(
     append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), color);
 }
 
+void append_earth_track_vertices(
+    std::vector<SatViewSceneVertex>& vertices,
+    double center_seconds,
+    std::size_t segment_count)
+{
+    const glm::vec4 color(0.30f, 0.68f, 1.00f, 0.88f);
+    const std::vector<glm::dvec3> points =
+        satview_earth_orbit_track(center_seconds, segment_count);
+    if (points.size() < 2)
+        return;
+    for (std::size_t i = 1; i < points.size(); ++i)
+        append_line(vertices, to_vec3(points[i - 1]), to_vec3(points[i]), color);
+    append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), color);
+}
+
 double render_simulation_seconds(const SatViewSimulationSnapshot& snapshot)
 {
     return satview_snapshot_render_seconds(snapshot, std::chrono::steady_clock::now());
@@ -684,11 +766,12 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     last_draw_simulation_seconds_ = simulated_seconds_;
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
     const SatViewMoonPosition moon = satview_moon_position(simulated_seconds_);
-    const glm::vec3 target = camera_target_position(camera_pov_, moon);
+    const SatViewSunPosition sun_position = satview_sun_position(simulated_seconds_);
+    const glm::vec3 target = camera_target_position(camera_pov_, moon, sun_position);
     const float target_radius = camera_target_radius(camera_pov_);
     camera_->SetDistanceLimits(
         camera_min_distance(camera_pov_),
-        kCameraDefaultMaxDistance);
+        std::max(kCameraDefaultMaxDistance, kCameraDefaultMaxDistance * target_radius));
     camera_->SetPositionAndFocalPoint(
         target + camera_position_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f, kCameraDefaultDistance * target_radius),
         target);
@@ -855,19 +938,44 @@ void SatViewHost::draw(IFrameContext& frame)
     last_draw_simulation_seconds_ = simulation_seconds;
     const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
     const bool ground_projection = projection_mode_ == SatViewProjectionMode::Ground;
+    const bool earth_track_visible = earth_track_enabled_
+        && satellite_display_mode_ != SatViewSatelliteDisplayMode::MarkersOnly
+        && !ground_projection
+        && (!map_projection || camera_pov_ == SatViewCameraPov::Sun);
     const SatViewMoonPosition moon = satview_moon_position(simulation_seconds);
+    const SatViewSunPosition sun_position = satview_sun_position(simulation_seconds);
     const float earth_scene_radius = visible_scene_radius(
         snapshot,
         filter_,
         selected_norad_catalog_id_,
         track_display_mode_,
         satellite_display_mode_);
-    const float scene_radius = camera_scene_radius(
+    const glm::dvec3 ground_observer = ground_observer_render_position(simulation_seconds);
+    const glm::vec3 ground_eye = glm::vec3(
+        ground_observer * (1.0 + static_cast<double>(kGroundObserverAltitudeEarthRadii)));
+    const SatViewGroundBodyProxy ground_sun_proxy = ground_projection && sun_enabled_
+        ? satview_ground_body_proxy(
+              sun_position.render_position_earth_radii,
+              static_cast<double>(kSunRadiusEarthRadii),
+              glm::dvec3(ground_eye),
+              kGroundCelestialProxyDistanceEarthRadii)
+        : SatViewGroundBodyProxy{};
+    float scene_radius = camera_scene_radius(
         earth_scene_radius,
         moon,
+        sun_position,
         camera_pov_,
-        moon_enabled_);
-    camera_->SetFocalPoint(camera_target_position(camera_pov_, moon));
+        moon_enabled_,
+        sun_enabled_ && !ground_projection,
+        earth_track_visible);
+    if (ground_sun_proxy.radius_earth_radii > 0.0)
+    {
+        scene_radius = std::max(
+            scene_radius,
+            static_cast<float>(glm::length(ground_sun_proxy.render_position_earth_radii)
+                + ground_sun_proxy.radius_earth_radii));
+    }
+    camera_->SetFocalPoint(camera_target_position(camera_pov_, moon, sun_position));
     camera_->SetDistanceLimits(
         camera_min_distance(camera_pov_),
         camera_max_distance_for_radius(scene_radius));
@@ -877,9 +985,6 @@ void SatViewHost::draw(IFrameContext& frame)
     camera_->SetFilmSize(static_cast<float>(pixel_w), static_cast<float>(pixel_h));
     if (!map_projection && !ground_projection && camera_->PreRender())
         request_redraw();
-    const glm::dvec3 ground_observer = ground_observer_render_position(simulation_seconds);
-    const glm::vec3 ground_eye = glm::vec3(
-        ground_observer * (1.0 + static_cast<double>(kGroundObserverAltitudeEarthRadii)));
     const glm::mat4 view = ground_projection
         ? satview_ground_view_matrix(ground_eye, ground_yaw_radians_, ground_pitch_radians_)
         : camera_view_matrix(*camera_);
@@ -900,16 +1005,17 @@ void SatViewHost::draw(IFrameContext& frame)
             : 1.0f;
     uniforms.camera_pos = map_projection
         ? glm::vec4(
-              camera_pov_ == SatViewCameraPov::Moon
-                  ? glm::vec3(moon.render_position_earth_radii)
-                  : glm::vec3(0.0f),
+              camera_target_position(camera_pov_, moon, sun_position),
               projection_scale)
         : glm::vec4(eye, projection_scale);
     if (map_projection)
     {
         uniforms.camera_orientation = glm::vec4(
             map_center_radians_,
-            camera_pov_ == SatViewCameraPov::Moon ? 1.0f : 0.0f,
+            camera_pov_ == SatViewCameraPov::Moon
+                ? 1.0f
+                : camera_pov_ == SatViewCameraPov::Sun ? 2.0f
+                                                       : 0.0f,
             0.0f);
     }
     else if (ground_projection)
@@ -933,6 +1039,15 @@ void SatViewHost::draw(IFrameContext& frame)
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulation_seconds));
     const float cloud_mode = !clouds_enabled_ ? 0.0f : (realistic_clouds_enabled_ ? 2.0f : 1.0f);
     uniforms.sun_dir_time = glm::vec4(sun, cloud_mode);
+    const glm::quat sun_orientation = glm::quat(sun_position.body_to_render_orientation);
+    if (map_projection && camera_pov_ == SatViewCameraPov::Sun)
+    {
+        uniforms.sun_dir_time = glm::vec4(
+            sun_orientation.x,
+            sun_orientation.y,
+            sun_orientation.z,
+            sun_orientation.w);
+    }
     uniforms.render_params = glm::vec4(
         static_cast<float>(kSatViewSphereLatitudeBands),
         static_cast<float>(kSatViewSphereLongitudeBands),
@@ -943,10 +1058,20 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_projection_mode(
         map_projection,
         camera_pov_ == SatViewCameraPov::Moon,
+        camera_pov_ == SatViewCameraPov::Sun,
         ground_projection);
     scene_pass_->set_moon(
         glm::vec4(glm::vec3(moon.render_position_earth_radii), kMoonRadiusEarthRadii),
         moon_enabled_);
+    const glm::vec4 sun_render_position_radius = ground_sun_proxy.radius_earth_radii > 0.0
+        ? glm::vec4(
+              glm::vec3(ground_sun_proxy.render_position_earth_radii),
+              static_cast<float>(ground_sun_proxy.radius_earth_radii))
+        : glm::vec4(glm::vec3(sun_position.render_position_earth_radii), kSunRadiusEarthRadii);
+    scene_pass_->set_sun(
+        sun_render_position_radius,
+        sun_orientation,
+        sun_enabled_);
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
@@ -971,6 +1096,31 @@ void SatViewHost::draw(IFrameContext& frame)
     {
         moon_track_center_seconds_ = simulation_seconds;
         moon_track_window_changed = true;
+    }
+    bool earth_track_window_changed = false;
+    if (earth_track_visible
+        && (!earth_track_center_seconds_.has_value()
+            || std::abs(simulation_seconds - *earth_track_center_seconds_)
+                >= 0.5 * kSatViewEarthOrbitPeriodSeconds))
+    {
+        earth_track_center_seconds_ = simulation_seconds;
+        earth_track_window_changed = true;
+    }
+    if (track_buffer_dirty_
+        || earth_track_window_changed
+        || earth_track_visible != uploaded_earth_track_visible_)
+    {
+        std::vector<SatViewSceneVertex> earth_track_vertices;
+        if (earth_track_visible)
+        {
+            earth_track_vertices.reserve((track_sample_count_ + 1) * 2);
+            append_earth_track_vertices(
+                earth_track_vertices,
+                *earth_track_center_seconds_,
+                track_sample_count_);
+        }
+        scene_pass_->set_earth_track_vertices(earth_track_vertices);
+        uploaded_earth_track_visible_ = earth_track_visible;
     }
 
     if (track_buffer_dirty_
@@ -1409,8 +1559,8 @@ std::string SatViewHost::status_text() const
     const std::string view = projection_mode_ == SatViewProjectionMode::Ground
         ? "earth ground"
         : projection_mode_ == SatViewProjectionMode::Map
-        ? (camera_pov_ == SatViewCameraPov::Moon ? "moon map" : "earth map")
-        : (camera_pov_ == SatViewCameraPov::Moon ? "moon" : "earth");
+        ? std::string(camera_pov_name(camera_pov_)) + " map"
+        : camera_pov_name(camera_pov_);
     const std::string mode = paused_ ? "satview paused " + view : "satview " + view;
     const std::string catalog_status = catalog_service_.status_text();
     auto snapshot = simulation_worker_ ? simulation_worker_->acquire_latest() : SatViewSnapshotExchange::ReadGuard{};
@@ -1524,6 +1674,8 @@ SatViewConfig SatViewHost::current_config() const
     config.atmosphere_enabled = atmosphere_enabled_;
     config.moon_enabled = moon_enabled_;
     config.moon_track_enabled = moon_track_enabled_;
+    config.earth_track_enabled = earth_track_enabled_;
+    config.sun_enabled = sun_enabled_;
     config.ground_fov_degrees = ground_fov_degrees_;
     config.ground_marker_scale = ground_marker_scale_;
     config.ground_longitude_radians = ground_location_radians_.x;
@@ -1572,6 +1724,8 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     atmosphere_enabled_ = config.atmosphere_enabled;
     moon_enabled_ = config.moon_enabled || camera_pov_ == SatViewCameraPov::Moon;
     moon_track_enabled_ = config.moon_track_enabled;
+    earth_track_enabled_ = config.earth_track_enabled;
+    sun_enabled_ = config.sun_enabled || camera_pov_ == SatViewCameraPov::Sun;
     ground_fov_degrees_ = clamp_ground_fov(config.ground_fov_degrees);
     ground_marker_scale_ = clamp_ground_marker_scale(config.ground_marker_scale);
     ground_location_radians_ = glm::dvec2(
@@ -1641,8 +1795,11 @@ void SatViewHost::set_camera_pov(SatViewCameraPov pov, double simulation_seconds
     simulation_settings_dirty_ = true;
     if (camera_pov_ == SatViewCameraPov::Moon)
         moon_enabled_ = true;
+    if (camera_pov_ == SatViewCameraPov::Sun)
+        sun_enabled_ = true;
 
     const SatViewMoonPosition moon = satview_moon_position(simulation_seconds);
+    const SatViewSunPosition sun = satview_sun_position(simulation_seconds);
     const float target_radius = camera_target_radius(camera_pov_);
     camera_->ClearMotion();
     camera_manipulator_->Cancel();
@@ -1651,7 +1808,7 @@ void SatViewHost::set_camera_pov(SatViewCameraPov pov, double simulation_seconds
         camera_min_distance(camera_pov_),
         kCameraMaxDistanceCap);
     camera_->SetFocalPointAndDistance(
-        camera_target_position(camera_pov_, moon),
+        camera_target_position(camera_pov_, moon, sun),
         normalized_distance * target_radius);
     request_redraw();
 }
@@ -1678,7 +1835,8 @@ void SatViewHost::reset_camera()
         : last_draw_simulation_seconds_;
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulation_seconds));
     const SatViewMoonPosition moon = satview_moon_position(simulation_seconds);
-    const glm::vec3 target = camera_target_position(camera_pov_, moon);
+    const SatViewSunPosition sun_position = satview_sun_position(simulation_seconds);
+    const glm::vec3 target = camera_target_position(camera_pov_, moon, sun_position);
     const float target_radius = camera_target_radius(camera_pov_);
     camera_->ClearMotion();
     camera_->SetDistanceLimits(
@@ -1698,6 +1856,8 @@ void SatViewHost::reset_to_default_settings()
     ground_yaw_radians_ = 0.0f;
     ground_pitch_radians_ = 0.0f;
     moon_track_center_seconds_.reset();
+    earth_track_center_seconds_.reset();
+    uploaded_earth_track_visible_ = false;
     dragging_ = false;
     pending_click_ = false;
     paused_ = false;
@@ -1706,14 +1866,15 @@ void SatViewHost::reset_to_default_settings()
 
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
     const SatViewMoonPosition moon = satview_moon_position(simulated_seconds_);
-    const glm::vec3 target = camera_target_position(camera_pov_, moon);
+    const SatViewSunPosition sun_position = satview_sun_position(simulated_seconds_);
+    const glm::vec3 target = camera_target_position(camera_pov_, moon, sun_position);
     const float target_radius = camera_target_radius(camera_pov_);
     camera_->ClearMotion();
     camera_manipulator_->Cancel();
     camera_keys_->reset();
     camera_->SetDistanceLimits(
         camera_min_distance(camera_pov_),
-        kCameraDefaultMaxDistance);
+        std::max(kCameraDefaultMaxDistance, kCameraDefaultMaxDistance * target_radius));
     camera_->SetPositionAndFocalPoint(
         target + camera_position_from_yaw_pitch(
                      std::atan2(sun.x, sun.z) + 0.65f,
@@ -2123,6 +2284,12 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
         set_camera_pov(SatViewCameraPov::Moon, displayed_simulation_seconds);
         changed = true;
     }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Sun", camera_pov_ == SatViewCameraPov::Sun))
+    {
+        set_camera_pov(SatViewCameraPov::Sun, displayed_simulation_seconds);
+        changed = true;
+    }
     if (projection_mode_ == SatViewProjectionMode::Ground)
         ImGui::EndDisabled();
     ImGui::PopID();
@@ -2310,7 +2477,19 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     if (camera_pov_ == SatViewCameraPov::Moon)
         ImGui::EndDisabled();
     ImGui::SameLine();
+    if (camera_pov_ == SatViewCameraPov::Sun)
+        ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Sun", &sun_enabled_))
+        request_redraw();
+    if (camera_pov_ == SatViewCameraPov::Sun)
+        ImGui::EndDisabled();
     if (ImGui::Checkbox("Moon track", &moon_track_enabled_))
+    {
+        track_buffer_dirty_ = true;
+        request_redraw();
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Earth track", &earth_track_enabled_))
     {
         track_buffer_dirty_ = true;
         request_redraw();
@@ -2657,6 +2836,11 @@ std::size_t SatViewHost::visible_track_count(const SatViewSimulationSnapshot* sn
         return 0;
 
     const bool ground_projection = projection_mode_ == SatViewProjectionMode::Ground;
+    const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
+    const bool earth_track_visible = earth_track_enabled_
+        && satellite_display_mode_ != SatViewSatelliteDisplayMode::MarkersOnly
+        && !ground_projection
+        && (!map_projection || camera_pov_ == SatViewCameraPov::Sun);
     const std::optional<glm::dvec3> ground_observer = ground_projection && snapshot
         ? std::optional<glm::dvec3>(ground_observer_render_position(render_simulation_seconds(*snapshot)))
         : std::nullopt;
@@ -2666,6 +2850,8 @@ std::size_t SatViewHost::visible_track_count(const SatViewSimulationSnapshot* sn
                 && camera_pov_ == SatViewCameraPov::Moon)
         ? 1
         : 0;
+    if (earth_track_visible)
+        ++count;
     if (!snapshot || !snapshot->tracks)
         return count;
 
@@ -2735,21 +2921,42 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
     const int pixel_h = std::max(1, viewport_.pixel_size.y);
     const double render_seconds = render_simulation_seconds(*snapshot);
     const SatViewMoonPosition moon = satview_moon_position(render_seconds);
+    const SatViewSunPosition sun = satview_sun_position(render_seconds);
+    const bool ground_projection = projection_mode_ == SatViewProjectionMode::Ground;
+    const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
+    const bool earth_track_visible = earth_track_enabled_
+        && satellite_display_mode_ != SatViewSatelliteDisplayMode::MarkersOnly
+        && !ground_projection
+        && (!map_projection || camera_pov_ == SatViewCameraPov::Sun);
     const float earth_scene_radius = visible_scene_radius(
         snapshot,
         filter_,
         selected_norad_catalog_id_,
         track_display_mode_,
         satellite_display_mode_);
-    const float scene_radius = camera_scene_radius(
+    float scene_radius = camera_scene_radius(
         earth_scene_radius,
         moon,
+        sun,
         camera_pov_,
-        moon_enabled_);
-    const bool ground_projection = projection_mode_ == SatViewProjectionMode::Ground;
+        moon_enabled_,
+        sun_enabled_ && !ground_projection,
+        earth_track_visible);
     const glm::dvec3 ground_observer = ground_observer_render_position(render_seconds);
     const glm::vec3 ground_eye = glm::vec3(
         ground_observer * (1.0 + static_cast<double>(kGroundObserverAltitudeEarthRadii)));
+    if (ground_projection && sun_enabled_)
+    {
+        const SatViewGroundBodyProxy ground_sun_proxy = satview_ground_body_proxy(
+            sun.render_position_earth_radii,
+            static_cast<double>(kSunRadiusEarthRadii),
+            glm::dvec3(ground_eye),
+            kGroundCelestialProxyDistanceEarthRadii);
+        scene_radius = std::max(
+            scene_radius,
+            static_cast<float>(glm::length(ground_sun_proxy.render_position_earth_radii)
+                + ground_sun_proxy.radius_earth_radii));
+    }
     const glm::mat4 view = ground_projection
         ? satview_ground_view_matrix(ground_eye, ground_yaw_radians_, ground_pitch_radians_)
         : camera_view_matrix(*camera_);
@@ -2785,8 +2992,12 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
                 map_center_radians_,
                 camera_pov_ == SatViewCameraPov::Moon
                     ? SatViewMapBody::Moon
+                    : camera_pov_ == SatViewCameraPov::Sun
+                    ? SatViewMapBody::Sun
                     : SatViewMapBody::Earth,
-                moon.render_position_earth_radii);
+                moon.render_position_earth_radii,
+                sun.render_position_earth_radii,
+                sun.body_to_render_orientation);
             ndc = glm::vec3(map_position, 0.2f);
         }
         else
