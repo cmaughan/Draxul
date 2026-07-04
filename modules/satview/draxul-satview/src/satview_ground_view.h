@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace draxul::satview
 {
@@ -26,10 +27,16 @@ struct SatViewGroundBodyProxy
 [[nodiscard]] SatViewGroundLocation satview_ground_location_from_render_position(
     const glm::dvec3& render_position,
     double unix_seconds);
+[[nodiscard]] glm::quat satview_default_ground_camera_orientation();
+[[nodiscard]] glm::quat satview_rotate_ground_camera(
+    glm::quat local_camera_orientation,
+    glm::vec2 yaw_pitch_delta_radians);
+[[nodiscard]] glm::quat satview_ground_camera_world_orientation(
+    const glm::dvec3& observer_render_position,
+    glm::quat local_camera_orientation);
 [[nodiscard]] glm::mat4 satview_ground_view_matrix(
     const glm::dvec3& observer_render_position,
-    float yaw_radians,
-    float pitch_radians);
+    glm::quat local_camera_orientation);
 [[nodiscard]] double satview_ground_visibility_dot(
     const glm::dvec3& satellite_render_position,
     const glm::dvec3& observer_render_position);

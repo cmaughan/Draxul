@@ -1939,11 +1939,9 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
             vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
         }
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->ground_surface_pipeline);
         vkCmdPushConstants(cmd, state_->layout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             0, sizeof(SatViewFrameUniforms), &frame);
-        vkCmdDraw(cmd, 3, 1, 0, 0);
     }
     else
     {
@@ -2061,6 +2059,15 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->marker_pipeline);
         vkCmdBindVertexBuffers(cmd, 0, 1, &state_->marker_buffer.buffer, &offset);
         vkCmdDraw(cmd, kSatViewMarkerVerticesPerInstance, state_->marker_count, 0, 0);
+    }
+
+    if (ground_projection_ && ground_visible_)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->ground_surface_pipeline);
+        vkCmdPushConstants(cmd, state_->layout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, sizeof(SatViewFrameUniforms), &frame);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
     }
 
     vkCmdEndRenderPass(cmd);

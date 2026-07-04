@@ -9,6 +9,8 @@ layout(push_constant) uniform SatViewFrame
     vec4 render_params;
 } push;
 
+#include "satview_sky_projection.glsl"
+
 layout(location = 0) in vec2 in_ndc;
 layout(location = 0) out vec4 out_color;
 
@@ -66,19 +68,18 @@ vec2 optical_depth_to_sun(vec3 origin, vec3 sun_direction)
     return optical_depth;
 }
 
-vec3 ground_ray_direction()
-{
-    mat4 inv_view_proj = inverse(push.view_proj);
-    vec4 world_far = inv_view_proj * vec4(in_ndc, 1.0, 1.0);
-    world_far /= world_far.w;
-    return normalize(world_far.xyz - push.camera_pos.xyz);
-}
-
 void main()
 {
     vec3 ray_origin = push.camera_pos.xyz;
-    vec3 ray_direction = ground_ray_direction();
+    vec3 ray_direction = satview_ground_ray_direction(in_ndc);
     vec3 sun_direction = normalize(push.sun_dir_time.xyz);
+    vec3 observer_up = normalize(ray_origin);
+    float observer_radius_sq = max(dot(ray_origin, ray_origin), PLANET_RADIUS * PLANET_RADIUS);
+    float horizon_cosine = -sqrt(max(
+        1.0 - (PLANET_RADIUS * PLANET_RADIUS) / observer_radius_sq,
+        0.0));
+    if (dot(ray_direction, observer_up) <= horizon_cosine)
+        discard;
 
     vec2 atmosphere_hit = ray_sphere(ray_origin, ray_direction, ATMOSPHERE_RADIUS);
     if (atmosphere_hit.y <= 0.0)
@@ -86,6 +87,9 @@ void main()
 
     float ray_start = 0.0;
     float ray_end = atmosphere_hit.y;
+    vec2 planet_hit = ray_sphere(ray_origin, ray_direction, PLANET_RADIUS);
+    if (planet_hit.x > 0.0)
+        ray_end = min(ray_end, planet_hit.x);
     if (ray_end <= ray_start)
         discard;
 

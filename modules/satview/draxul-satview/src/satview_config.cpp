@@ -1,5 +1,7 @@
 #include <draxul/satview/satview_config.h>
 
+#include "satview_sky_projection.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -107,6 +109,13 @@ std::string_view format_projection_mode(SatViewProjectionMode mode)
     return "globe";
 }
 
+std::string_view format_ground_projection(SatViewGroundProjection projection)
+{
+    return projection == SatViewGroundProjection::Perspective
+        ? "perspective"
+        : "stereographic";
+}
+
 std::string_view format_camera_pov(SatViewCameraPov pov)
 {
     switch (pov)
@@ -168,6 +177,13 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
         else if (*value == "sun")
             config.camera_pov = SatViewCameraPov::Sun;
     }
+    if (auto value = toml_support::get_string(table, "ground_projection"))
+    {
+        if (*value == "stereographic")
+            config.ground_projection = SatViewGroundProjection::Stereographic;
+        else if (*value == "perspective")
+            config.ground_projection = SatViewGroundProjection::Perspective;
+    }
 
     config.track_satellite_limit = clamped_size(table, "track_count",
         config.track_satellite_limit, kMinimumTrackSatelliteLimit,
@@ -195,10 +211,14 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
         config.time_speed = static_cast<float>(std::clamp(*value, 1.0, 3600.0));
     else if (auto value = toml_support::get_int(table, "time_speed"))
         config.time_speed = static_cast<float>(std::clamp<std::int64_t>(*value, 1, 3600));
-    if (auto value = toml_support::get_double(table, "ground_fov_degrees"))
-        config.ground_fov_degrees = static_cast<float>(std::clamp(*value, 20.0, 120.0));
-    else if (auto value = toml_support::get_int(table, "ground_fov_degrees"))
-        config.ground_fov_degrees = static_cast<float>(std::clamp<std::int64_t>(*value, 20, 120));
+    config.ground_fov_degrees = satview_clamp_ground_fov_degrees(
+        config.ground_projection,
+        clamped_float(
+            table,
+            "ground_fov_degrees",
+            config.ground_fov_degrees,
+            20.0f,
+            satview_maximum_ground_fov_degrees(config.ground_projection)));
     if (auto value = toml_support::get_double(table, "ground_marker_scale"))
         config.ground_marker_scale = static_cast<float>(std::clamp(*value, 0.05, 2.0));
     else if (auto value = toml_support::get_int(table, "ground_marker_scale"))
@@ -236,6 +256,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("moon_track", config.moon_track_enabled);
     assign_bool("earth_track", config.earth_track_enabled);
     assign_bool("sun", config.sun_enabled);
+    assign_bool("ground_visible", config.ground_visible);
+    assign_bool("ground_horizon_occlusion", config.ground_horizon_occlusion);
     assign_bool("refresh_tracks_each_step", config.refresh_tracks_each_step);
     assign_bool("show_hdr_debug_panel", config.show_hdr_debug_panel);
 
@@ -264,6 +286,7 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("satellite_display_mode",
         std::string(format_satellite_display_mode(config.satellite_display_mode)));
     table.insert_or_assign("projection_mode", std::string(format_projection_mode(config.projection_mode)));
+    table.insert_or_assign("ground_projection", std::string(format_ground_projection(config.ground_projection)));
     table.insert_or_assign("camera_pov", std::string(format_camera_pov(config.camera_pov)));
     table.insert_or_assign("track_count", static_cast<std::int64_t>(config.track_satellite_limit));
     table.insert_or_assign("track_samples", static_cast<std::int64_t>(config.track_sample_count));
@@ -299,6 +322,8 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("moon_track", config.moon_track_enabled);
     table.insert_or_assign("earth_track", config.earth_track_enabled);
     table.insert_or_assign("sun", config.sun_enabled);
+    table.insert_or_assign("ground_visible", config.ground_visible);
+    table.insert_or_assign("ground_horizon_occlusion", config.ground_horizon_occlusion);
     table.insert_or_assign("ground_fov_degrees", static_cast<double>(config.ground_fov_degrees));
     table.insert_or_assign("ground_marker_scale", static_cast<double>(config.ground_marker_scale));
     table.insert_or_assign("ground_longitude_radians", config.ground_longitude_radians);

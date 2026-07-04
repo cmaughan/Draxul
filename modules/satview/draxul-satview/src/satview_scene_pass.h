@@ -20,6 +20,9 @@ inline constexpr uint32_t kSatViewSphereVertexCount =
     kSatViewSphereLatitudeBands * kSatViewSphereLongitudeBands * 6;
 struct alignas(16) SatViewFrameUniforms
 {
+    // Stereographic Ground mode stores world-to-camera rotation in the upper 3x3,
+    // lens scale in [3][2], and viewport height/width in [3][3]. camera_pos.w is
+    // negative for Map, zero for Globe, and 1..4 for Ground lens/occlusion modes.
     glm::mat4 view_proj{ 1.0f };
     glm::vec4 camera_pos{ 0.0f, 0.0f, 4.0f, 1.0f };
     glm::vec4 camera_orientation{ 0.0f, 0.0f, 0.0f, 1.0f };
@@ -71,6 +74,11 @@ public:
     void set_atmosphere_enabled(bool enabled)
     {
         atmosphere_enabled_ = enabled;
+    }
+
+    void set_ground_visible(bool visible)
+    {
+        ground_visible_ = visible;
     }
 
     void set_projection_mode(
@@ -199,6 +207,7 @@ private:
     bool moon_map_projection_ = false;
     bool sun_map_projection_ = false;
     bool ground_projection_ = false;
+    bool ground_visible_ = true;
     bool hdr_debug_enabled_ = false;
     std::unique_ptr<State> state_;
 };

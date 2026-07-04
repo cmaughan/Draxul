@@ -5,6 +5,7 @@
 #include <draxul/satview/satview_propagation.h>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <numbers>
 
 namespace draxul::satview
@@ -107,10 +108,27 @@ SatViewGroundLocation satview_ground_location_from_render_position(
     };
 }
 
-glm::mat4 satview_ground_view_matrix(
+glm::quat satview_default_ground_camera_orientation()
+{
+    return glm::angleAxis(std::numbers::pi_v<float>, glm::vec3(1.0f, 0.0f, 0.0f));
+}
+
+glm::quat satview_rotate_ground_camera(
+    glm::quat local_camera_orientation,
+    glm::vec2 yaw_pitch_delta_radians)
+{
+    const glm::quat yaw = glm::angleAxis(
+        yaw_pitch_delta_radians.x,
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::quat pitch = glm::angleAxis(
+        yaw_pitch_delta_radians.y,
+        glm::vec3(1.0f, 0.0f, 0.0f));
+    return glm::normalize(local_camera_orientation * yaw * pitch);
+}
+
+glm::quat satview_ground_camera_world_orientation(
     const glm::dvec3& observer_render_position,
-    float yaw_radians,
-    float pitch_radians)
+    glm::quat local_camera_orientation)
 {
     const glm::vec3 eye = glm::vec3(observer_render_position);
     const glm::vec3 up = glm::normalize(eye);
@@ -119,10 +137,20 @@ glm::mat4 satview_ground_view_matrix(
         : glm::vec3(0.0f, 1.0f, 0.0f);
     const glm::vec3 east = glm::normalize(glm::cross(reference, up));
     const glm::vec3 north = glm::normalize(glm::cross(up, east));
-    const glm::vec3 horizontal = glm::normalize(std::cos(yaw_radians) * north + std::sin(yaw_radians) * east);
-    const glm::vec3 forward = glm::normalize(std::cos(pitch_radians) * up + std::sin(pitch_radians) * horizontal);
-    const glm::vec3 camera_up = glm::normalize(std::sin(pitch_radians) * up - std::cos(pitch_radians) * horizontal);
-    return glm::lookAtRH(eye, eye + forward, camera_up);
+    const glm::quat local_to_world = glm::quat_cast(glm::mat3(east, north, up));
+    return glm::normalize(local_to_world * glm::normalize(local_camera_orientation));
+}
+
+glm::mat4 satview_ground_view_matrix(
+    const glm::dvec3& observer_render_position,
+    glm::quat local_camera_orientation)
+{
+    const glm::vec3 eye = glm::vec3(observer_render_position);
+    const glm::quat world_orientation = satview_ground_camera_world_orientation(
+        observer_render_position,
+        local_camera_orientation);
+    return glm::mat4_cast(glm::conjugate(world_orientation))
+        * glm::translate(glm::mat4(1.0f), -eye);
 }
 
 double satview_ground_visibility_dot(

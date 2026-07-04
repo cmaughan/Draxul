@@ -9,6 +9,8 @@ layout(push_constant) uniform SatViewFrame
     vec4 render_params;
 } push;
 
+#include "satview_sky_projection.glsl"
+
 layout(location = 0) out vec3 out_normal;
 layout(location = 1) out vec3 out_world;
 layout(location = 2) out vec2 out_uv;
@@ -75,5 +77,5 @@ void main()
     out_uv = vec2(u, v);
     gl_Position = map_projection
         ? push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.8, 1.0)
-        : push.view_proj * vec4(world, 1.0);
+        : satview_project_world_position(world);
 }

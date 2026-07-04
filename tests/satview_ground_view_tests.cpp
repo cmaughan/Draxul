@@ -10,12 +10,15 @@ namespace
 
 using Catch::Matchers::WithinAbs;
 using draxul::satview::satview_ground_body_proxy;
+using draxul::satview::satview_default_ground_camera_orientation;
+using draxul::satview::satview_ground_camera_world_orientation;
 using draxul::satview::satview_ground_location_from_map_ndc;
 using draxul::satview::satview_ground_location_from_render_position;
 using draxul::satview::satview_ground_marker_base_size;
 using draxul::satview::satview_ground_render_position;
 using draxul::satview::satview_ground_view_matrix;
 using draxul::satview::satview_ground_visibility_dot;
+using draxul::satview::satview_rotate_ground_camera;
 using draxul::satview::SatViewGroundLocation;
 
 constexpr double kHalfPi = 0.5 * std::numbers::pi_v<double>;
@@ -73,7 +76,9 @@ TEST_CASE("SatView ground view matrix looks above the observer by default", "[sa
         .latitude_radians = 0.0,
     };
     const glm::dvec3 observer = satview_ground_render_position(location, 0.0);
-    const glm::mat4 view = satview_ground_view_matrix(observer, 0.0f, 0.0f);
+    const glm::mat4 view = satview_ground_view_matrix(
+        observer,
+        satview_default_ground_camera_orientation());
     const glm::vec4 eye = view * glm::vec4(observer, 1.0f);
     const glm::vec4 above = view * glm::vec4(observer * 2.0, 1.0f);
 
@@ -82,18 +87,25 @@ TEST_CASE("SatView ground view matrix looks above the observer by default", "[sa
     CHECK(above.z < eye.z);
 }
 
-TEST_CASE("SatView ground view keeps zenith above the horizon when tilted", "[satview][ground]")
+TEST_CASE("SatView ground camera crosses zenith and nadir without degenerating", "[satview][ground]")
 {
     const SatViewGroundLocation location{
         .longitude_radians = 0.0,
         .latitude_radians = 0.0,
     };
     const glm::dvec3 observer = satview_ground_render_position(location, 0.0);
-    const glm::mat4 view = satview_ground_view_matrix(observer, 0.0f, 1.4f);
-    const glm::vec4 eye = view * glm::vec4(observer, 1.0f);
-    const glm::vec4 zenith = view * glm::vec4(observer * 2.0, 1.0f);
+    glm::quat orientation = satview_default_ground_camera_orientation();
+    for (int step = 0; step < 200; ++step)
+        orientation = satview_rotate_ground_camera(orientation, glm::vec2(0.0f, 0.01f));
 
-    CHECK(zenith.y > eye.y);
+    const glm::quat world_orientation = satview_ground_camera_world_orientation(observer, orientation);
+    const glm::vec3 forward = world_orientation * glm::vec3(0.0f, 0.0f, -1.0f);
+    const glm::vec3 camera_up = world_orientation * glm::vec3(0.0f, 1.0f, 0.0f);
+
+    CHECK_THAT(glm::length(forward), WithinAbs(1.0f, 1.0e-5f));
+    CHECK_THAT(glm::length(camera_up), WithinAbs(1.0f, 1.0e-5f));
+    CHECK_THAT(glm::dot(forward, camera_up), WithinAbs(0.0f, 1.0e-5f));
+    CHECK(glm::dot(forward, glm::normalize(glm::vec3(observer))) < 0.0f);
 }
 
 TEST_CASE("SatView ground view marker size shrinks toward the horizon", "[satview][ground]")

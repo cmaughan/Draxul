@@ -57,6 +57,12 @@ enum class SatViewProjectionMode
     Ground
 };
 
+enum class SatViewGroundProjection
+{
+    Stereographic,
+    Perspective
+};
+
 enum class SatViewCameraPov
 {
     Earth,
@@ -90,8 +96,11 @@ struct SatViewConfig
     bool moon_track_enabled = true;
     bool earth_track_enabled = true;
     bool sun_enabled = true;
+    SatViewGroundProjection ground_projection = SatViewGroundProjection::Stereographic;
     float ground_fov_degrees = 60.0f;
     float ground_marker_scale = 0.1f;
+    bool ground_visible = true;
+    bool ground_horizon_occlusion = true;
     double ground_longitude_radians = 0.0;
     double ground_latitude_radians = 0.0;
 

@@ -24,8 +24,11 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK_FALSE(config.show_hdr_debug_panel);
     CHECK(config.sun_enabled);
     CHECK(config.earth_track_enabled);
+    CHECK(config.ground_projection == SatViewGroundProjection::Stereographic);
     CHECK(config.ground_fov_degrees == 60.0f);
     CHECK(config.ground_marker_scale == 0.1f);
+    CHECK(config.ground_visible);
+    CHECK(config.ground_horizon_occlusion);
     CHECK(config.filter.show_active_payloads);
     CHECK(config.filter.show_inactive_payloads);
     CHECK(config.filter.show_rocket_bodies);
@@ -71,8 +74,11 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.moon_track_enabled = false;
     expected.earth_track_enabled = false;
     expected.sun_enabled = true;
+    expected.ground_projection = SatViewGroundProjection::Perspective;
     expected.ground_fov_degrees = 75.0f;
     expected.ground_marker_scale = 0.45f;
+    expected.ground_visible = false;
+    expected.ground_horizon_occlusion = false;
     expected.ground_longitude_radians = -1.25;
     expected.ground_latitude_radians = 0.7;
 
@@ -95,7 +101,7 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     table.insert_or_assign("tone_map_exposure", 99.0);
     table.insert_or_assign("tone_map_white_point", -4.0);
     table.insert_or_assign("time_speed", 9000.0);
-    table.insert_or_assign("ground_fov_degrees", 200.0);
+    table.insert_or_assign("ground_fov_degrees", 300.0);
     table.insert_or_assign("ground_marker_scale", 20.0);
     table.insert_or_assign("ground_longitude_radians", 9.0);
     table.insert_or_assign("ground_latitude_radians", 3.0);
@@ -113,10 +119,23 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     CHECK(config.tone_map_exposure == kMaximumToneMapExposure);
     CHECK(config.tone_map_white_point == kMinimumToneMapWhitePoint);
     CHECK(config.time_speed == 3600.0f);
-    CHECK(config.ground_fov_degrees == 120.0f);
+    CHECK(config.ground_fov_degrees == 235.0f);
     CHECK(config.ground_marker_scale == 2.0f);
     CHECK(config.ground_longitude_radians >= -std::numbers::pi_v<double>);
     CHECK(config.ground_longitude_radians <= std::numbers::pi_v<double>);
     CHECK(config.ground_latitude_radians < 0.5 * std::numbers::pi_v<double>);
     CHECK(config.filter.max_epoch_age_days == 30.0);
+}
+
+TEST_CASE("SatView perspective ground projection keeps its narrower field of view limit", "[satview][config]")
+{
+    ConfigDocument document;
+    toml::table& table = document.ensure_table("satview");
+    table.insert_or_assign("ground_projection", "perspective");
+    table.insert_or_assign("ground_fov_degrees", 200.0);
+
+    const SatViewConfig config = load_satview_config(document);
+
+    CHECK(config.ground_projection == SatViewGroundProjection::Perspective);
+    CHECK(config.ground_fov_degrees == 120.0f);
 }

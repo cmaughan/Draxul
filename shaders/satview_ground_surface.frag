@@ -9,6 +9,8 @@ layout(push_constant) uniform SatViewFrame
     vec4 render_params;
 } push;
 
+#include "satview_sky_projection.glsl"
+
 layout(location = 0) in vec2 in_ndc;
 layout(location = 0) out vec4 out_color;
 
@@ -42,18 +44,10 @@ vec3 render_teme_to_ecef(vec3 render_position, float sidereal_angle)
         teme.z);
 }
 
-vec3 ground_ray_direction()
-{
-    mat4 inv_view_proj = inverse(push.view_proj);
-    vec4 world_far = inv_view_proj * vec4(in_ndc, 1.0, 1.0);
-    world_far /= world_far.w;
-    return normalize(world_far.xyz - push.camera_pos.xyz);
-}
-
 void main()
 {
     vec3 ray_origin = push.camera_pos.xyz;
-    vec3 ray_direction = ground_ray_direction();
+    vec3 ray_direction = satview_ground_ray_direction(in_ndc);
     vec3 up = normalize(ray_origin);
     float observer_radius_sq = max(dot(ray_origin, ray_origin), PLANET_RADIUS * PLANET_RADIUS);
     float horizon_cosine = -sqrt(max(1.0 - (PLANET_RADIUS * PLANET_RADIUS) / observer_radius_sq, 0.0));

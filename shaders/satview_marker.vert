@@ -9,6 +9,8 @@ layout(push_constant) uniform SatViewFrame
     vec4 render_params;
 } push;
 
+#include "satview_sky_projection.glsl"
+
 layout(location = 0) in vec4 in_position0_size;
 layout(location = 1) in vec4 in_position1_selected;
 layout(location = 2) in vec4 in_color;
@@ -115,16 +117,19 @@ void main()
             + map_axis * in_position0_size.w * 0.75 * endpoint_sign;
         gl_Position = push.view_proj * vec4(map_position, 0.2, 1.0);
     }
-    else if (push.camera_pos.w > 1.5)
+    else if (satview_is_ground_projection())
     {
-        vec4 center_clip = push.view_proj * vec4(center, 1.0);
-        if (center_clip.w <= 0.0)
+        vec4 center_clip = satview_project_world_position(center);
+        if (!satview_ground_world_position_visible(center)
+            || center_clip.w <= 0.0
+            || abs(center_clip.x) > 1.5
+            || abs(center_clip.y) > 1.5)
         {
             out_color.a = 0.0;
             gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
             return;
         }
-        float x_scale = push.camera_pos.w - 2.0;
+        float x_scale = satview_ground_projection_aspect_scale();
         vec2 screen_axis = segment == 0 ? vec2(x_scale, 0.0)
             : segment == 1 ? vec2(0.0, 1.0)
             : segment == 2 ? vec2(x_scale, 1.0) * 0.70710678

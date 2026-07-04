@@ -9,6 +9,8 @@ layout(push_constant) uniform SatViewFrame
     vec4 render_params;
 } push;
 
+#include "satview_sky_projection.glsl"
+
 layout(location = 0) in vec4 in_position;
 layout(location = 1) in vec4 in_color;
 layout(location = 2) in vec4 in_paired_position;
@@ -124,5 +126,5 @@ void main()
         gl_Position = push.view_proj * vec4(projected, 0.4, 1.0);
     }
     else
-        gl_Position = push.view_proj * vec4(position, 1.0);
+        gl_Position = satview_project_world_position(position);
 }

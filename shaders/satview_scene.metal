@@ -64,6 +64,72 @@ static float3 rotate_vector_by_quaternion(float3 value, float4 quaternion)
     return value + quaternion.w * twice_cross + cross(quaternion.xyz, twice_cross);
 }
 
+static bool is_ground_projection(constant SatViewFrameUniforms& frame)
+{
+    return frame.camera_pos.w >= 0.5f;
+}
+
+static bool is_stereographic_ground_projection(constant SatViewFrameUniforms& frame)
+{
+    return frame.camera_pos.w >= 2.5f;
+}
+
+static bool ground_horizon_occlusion_enabled(constant SatViewFrameUniforms& frame)
+{
+    int projection_code = int(floor(frame.camera_pos.w + 0.5f));
+    return projection_code == 2 || projection_code == 4;
+}
+
+static float3x3 ground_world_to_camera(constant SatViewFrameUniforms& frame)
+{
+    return float3x3(
+        frame.view_proj[0].xyz,
+        frame.view_proj[1].xyz,
+        frame.view_proj[2].xyz);
+}
+
+static float ground_projection_aspect_scale(constant SatViewFrameUniforms& frame)
+{
+    if (is_stereographic_ground_projection(frame))
+        return max(abs(frame.view_proj[3][3]), 0.000001f);
+    return max(abs(frame.view_proj[0][0] / frame.view_proj[1][1]), 0.000001f);
+}
+
+static bool ground_world_position_visible(
+    float3 world_position,
+    constant SatViewFrameUniforms& frame)
+{
+    if (!is_ground_projection(frame) || !ground_horizon_occlusion_enabled(frame))
+        return true;
+    float3 observer_up = normalize(frame.camera_pos.xyz);
+    return dot(world_position - frame.camera_pos.xyz, observer_up) > 0.0f;
+}
+
+static float4 project_world_position(
+    float3 world_position,
+    constant SatViewFrameUniforms& frame)
+{
+    if (!is_stereographic_ground_projection(frame))
+        return frame.view_proj * float4(world_position, 1.0f);
+
+    float3 offset = world_position - frame.camera_pos.xyz;
+    float distance_to_camera = length(offset);
+    if (distance_to_camera <= 0.000001f)
+        return float4(2.0f, 2.0f, 1.0f, 1.0f);
+
+    float3 camera_direction = ground_world_to_camera(frame) * (offset / distance_to_camera);
+    float denominator = 1.0f - camera_direction.z;
+    if (denominator <= 0.000001f)
+        return float4(2.0f, 2.0f, 1.0f, 1.0f);
+
+    float scale = max(abs(frame.view_proj[3][2]), 0.000001f);
+    float aspect_scale = ground_projection_aspect_scale(frame);
+    float2 plane = camera_direction.xy / denominator;
+    float2 ndc = plane * float2(aspect_scale, 1.0f) / scale;
+    float depth = distance_to_camera / (distance_to_camera + 1.0f);
+    return float4(ndc, depth, 1.0f);
+}
+
 static float3 render_teme_to_ecef(float3 render_position, float sidereal_angle)
 {
     float3 teme = float3(-render_position.z, -render_position.x, render_position.y);
@@ -216,7 +282,7 @@ vertex SatViewVertexOut satview_earth_vertex(
     SatViewVertexOut out;
     out.position = map_projection
         ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
-        : frame.view_proj * float4(world, 1.0f);
+        : project_world_position(world, frame);
     out.normal = world;
     out.world = world;
     out.uv = float2(u, v);
@@ -330,7 +396,7 @@ vertex SatViewVertexOut satview_moon_vertex(
     SatViewVertexOut out;
     out.position = map_projection
         ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
-        : frame.view_proj * float4(world, 1.0f);
+        : project_world_position(world, frame);
     out.normal = normal;
     out.world = world;
     out.uv = float2(u, v);
@@ -419,7 +485,7 @@ vertex SatViewVertexOut satview_sun_vertex(
     SatViewVertexOut out;
     out.position = map_projection
         ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
-        : frame.view_proj * float4(world, 1.0f);
+        : project_world_position(world, frame);
     out.normal = normal;
     out.world = world;
     out.uv = float2(u, v);
@@ -732,12 +798,24 @@ vertex SatViewVertexOut satview_ground_atmosphere_vertex(
 
 static float3 ground_ray_direction(float2 ndc, constant SatViewFrameUniforms& frame)
 {
+    if (is_stereographic_ground_projection(frame))
+    {
+        float scale = max(abs(frame.view_proj[3][2]), 0.000001f);
+        float aspect_scale = ground_projection_aspect_scale(frame);
+        float2 plane = float2(ndc.x / aspect_scale, ndc.y) * scale;
+        float radius_sq = dot(plane, plane);
+        float3 camera_direction = float3(
+            2.0f * plane,
+            radius_sq - 1.0f) / (1.0f + radius_sq);
+        return normalize(transpose(ground_world_to_camera(frame)) * camera_direction);
+    }
+
     float3 right = normalize(rotate_vector_by_quaternion(float3(1.0f, 0.0f, 0.0f), frame.camera_orientation));
     float3 up = normalize(rotate_vector_by_quaternion(float3(0.0f, 1.0f, 0.0f), frame.camera_orientation));
     float3 forward = normalize(rotate_vector_by_quaternion(float3(0.0f, 0.0f, -1.0f), frame.camera_orientation));
 
     const float3 center = frame.camera_pos.xyz + forward;
-    float4 center_clip = frame.view_proj * float4(center, 1.0f);
+    float4 center_clip = project_world_position(center, frame);
     float4 right_clip = frame.view_proj * float4(center + right, 1.0f);
     float4 up_clip = frame.view_proj * float4(center + up, 1.0f);
     float2 center_ndc = center_clip.xy / center_clip.w;
@@ -756,6 +834,11 @@ fragment float4 satview_ground_atmosphere_fragment(
     float3 ray_origin = frame.camera_pos.xyz;
     float3 ray_direction = ground_ray_direction(in.uv, frame);
     float3 sun_direction = normalize(frame.sun_dir_time.xyz);
+    float3 observer_up = normalize(ray_origin);
+    float observer_radius_sq = max(dot(ray_origin, ray_origin), 1.0f);
+    float horizon_cosine = -sqrt(max(1.0f - 1.0f / observer_radius_sq, 0.0f));
+    if (dot(ray_direction, observer_up) <= horizon_cosine)
+        discard_fragment();
 
     float2 atmosphere_hit = atmosphere_ray_sphere(ray_origin, ray_direction, kAtmosphereRadius);
     if (atmosphere_hit.y <= 0.0f)
@@ -763,6 +846,9 @@ fragment float4 satview_ground_atmosphere_fragment(
 
     float ray_start = 0.0f;
     float ray_end = atmosphere_hit.y;
+    float2 planet_hit = atmosphere_ray_sphere(ray_origin, ray_direction, 1.0f);
+    if (planet_hit.x > 0.0f)
+        ray_end = min(ray_end, planet_hit.x);
     if (ray_end <= ray_start)
         discard_fragment();
 
@@ -908,7 +994,7 @@ vertex SatViewStarOut satview_star_vertex(
     SatViewStarInstance star = stars[instance_id];
     float3 direction = normalize(star.direction_magnitude.xyz);
     float3 center = frame.camera_pos.xyz + direction * kStarDistanceEarthRadii;
-    float4 center_clip = frame.view_proj * float4(center, 1.0f);
+    float4 center_clip = project_world_position(center, frame);
 
     SatViewStarOut out;
     float min_magnitude = frame.render_params.x;
@@ -931,7 +1017,7 @@ vertex SatViewStarOut satview_star_vertex(
     float brightness = mix(0.035f, 1.0f, pow(visibility, 1.85f)) * max(frame.render_params.w, 0.0f);
     float star_size = mix(0.0009f, 0.0090f, pow(visibility, 0.72f));
     out.color = float4(chroma * brightness, 1.0f);
-    if (center_clip.w <= 0.0f)
+    if (!ground_world_position_visible(center, frame) || center_clip.w <= 0.0f)
     {
         out.color.a = 0.0f;
         out.uv = float2(2.0f);
@@ -991,7 +1077,7 @@ vertex SatViewOrbitOut satview_orbit_vertex(
     }
     else
     {
-        out.position = frame.view_proj * float4(position, 1.0f);
+        out.position = project_world_position(position, frame);
     }
     out.color = scene_vertex.color;
     return out;
@@ -1033,16 +1119,19 @@ vertex SatViewOrbitOut satview_marker_vertex(
             + map_axis * marker.position0_size.w * 0.75f * endpoint_sign;
         out.position = frame.view_proj * float4(map_position, 0.2f, 1.0f);
     }
-    else if (frame.camera_pos.w > 1.5f)
+    else if (is_ground_projection(frame))
     {
-        float4 center_clip = frame.view_proj * float4(center, 1.0f);
-        if (center_clip.w <= 0.0f)
+        float4 center_clip = project_world_position(center, frame);
+        if (!ground_world_position_visible(center, frame)
+            || center_clip.w <= 0.0f
+            || abs(center_clip.x) > 1.5f
+            || abs(center_clip.y) > 1.5f)
         {
             out.color.a = 0.0f;
             out.position = float4(2.0f, 2.0f, 0.0f, 1.0f);
             return out;
         }
-        float x_scale = frame.camera_pos.w - 2.0f;
+        float x_scale = ground_projection_aspect_scale(frame);
         float2 screen_axis = segment == 0u ? float2(x_scale, 0.0f)
             : segment == 1u ? float2(0.0f, 1.0f)
             : segment == 2u ? float2(x_scale, 1.0f) * 0.70710678f

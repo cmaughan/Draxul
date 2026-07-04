@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <glm/gtc/quaternion.hpp>
 
 struct ImGuiContext;
 
@@ -124,6 +125,7 @@ private:
     SatViewTrackDisplayMode track_display_mode_ = SatViewTrackDisplayMode::AllSampled;
     SatViewSatelliteDisplayMode satellite_display_mode_ = SatViewSatelliteDisplayMode::TracksAndMarkers;
     SatViewProjectionMode projection_mode_ = SatViewProjectionMode::Globe;
+    SatViewGroundProjection ground_projection_ = SatViewGroundProjection::Stereographic;
     SatViewCameraPov camera_pov_ = SatViewCameraPov::Earth;
     std::size_t track_satellite_limit_ = kDefaultTrackSatelliteLimit;
     std::size_t track_sample_count_ = kDefaultTrackSampleCount;
@@ -152,6 +154,8 @@ private:
     bool moon_track_enabled_ = true;
     bool earth_track_enabled_ = true;
     bool sun_enabled_ = true;
+    bool ground_visible_ = true;
+    bool ground_horizon_occlusion_ = true;
     const void* uploaded_track_source_ = nullptr;
     std::optional<double> moon_track_center_seconds_;
     std::optional<double> earth_track_center_seconds_;
@@ -169,8 +173,7 @@ private:
     float time_speed_ = 60.0f;
     float ground_fov_degrees_ = 60.0f;
     float ground_marker_scale_ = 0.1f;
-    float ground_yaw_radians_ = 0.0f;
-    float ground_pitch_radians_ = 0.0f;
+    glm::quat ground_camera_orientation_{ 0.0f, 1.0f, 0.0f, 0.0f };
     double simulated_seconds_ = 0.0;
     double last_draw_simulation_seconds_ = 0.0;
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();

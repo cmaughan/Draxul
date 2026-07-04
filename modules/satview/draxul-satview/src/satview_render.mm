@@ -875,13 +875,8 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         vertexCount:kSatViewSphereVertexCount];
         }
 
-        [encoder setRenderPipelineState:state_->ground_surface_pipeline.get()];
-        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
         [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
         [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                    vertexStart:0
-                    vertexCount:3];
     }
     else
     {
@@ -1012,6 +1007,17 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                     vertexStart:0
                     vertexCount:kSatViewMarkerVerticesPerInstance
                   instanceCount:state_->marker_count];
+    }
+
+    if (ground_projection_ && ground_visible_)
+    {
+        [encoder setRenderPipelineState:state_->ground_surface_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:3];
     }
 
     [encoder endEncoding];
