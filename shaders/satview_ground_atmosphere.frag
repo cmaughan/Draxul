@@ -134,5 +134,5 @@ void main()
     float alpha = clamp(1.0 - exp(-extinction), 0.0, 1.0);
     vec3 night_tint = vec3(0.004, 0.006, 0.014);
     scattering = max(scattering, night_tint * (1.0 - alpha));
-    out_color = vec4(scattering, 1.0);
+    out_color = vec4(scattering, alpha);
 }

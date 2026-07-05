@@ -107,4 +107,14 @@ LoadedTextureImage load_sun_texture_image()
     return image;
 }
 
+LoadedTextureImage load_milky_way_texture_image()
+{
+    PERF_MEASURE();
+    LoadedTextureImage image =
+        load_rgba8_image_impl(resolve_satview_asset_path("textures/milky_way_nasa_4k.jpg"));
+    if (!image.valid())
+        image = make_solid_rgba8(0, 0, 0, 255);
+    return image;
+}
+
 } // namespace draxul::satview

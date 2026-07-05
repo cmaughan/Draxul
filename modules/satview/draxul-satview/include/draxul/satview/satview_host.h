@@ -29,6 +29,7 @@ class SatViewCloudService;
 class Camera;
 class Manipulator;
 struct SatViewStarInstance;
+struct SatViewSceneVertex;
 struct SatViewSimulationSnapshot;
 
 class SatViewHost final : public draxul::IHost
@@ -134,6 +135,8 @@ private:
     float star_min_magnitude_ = kDefaultStarMinMagnitude;
     float star_max_magnitude_ = kDefaultStarMaxMagnitude;
     float star_brightness_scale_ = kDefaultStarBrightnessScale;
+    bool constellation_lines_enabled_ = false;
+    bool milky_way_enabled_ = false;
     float tone_map_exposure_ = kDefaultToneMapExposure;
     float tone_map_white_point_ = kDefaultToneMapWhitePoint;
     bool show_hdr_debug_panel_ = false;
@@ -167,6 +170,7 @@ private:
     std::vector<std::size_t> filtered_object_tree_indices_;
     std::vector<SatViewStarInstance> stars_;
     std::vector<SatViewStarInstance> visible_stars_;
+    std::vector<SatViewSceneVertex> constellation_vertices_;
     std::shared_ptr<Camera> camera_;
     std::unique_ptr<Manipulator> camera_manipulator_;
     std::unique_ptr<SatViewCameraKeyState> camera_keys_;

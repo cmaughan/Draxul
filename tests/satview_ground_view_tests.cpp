@@ -15,10 +15,12 @@ using draxul::satview::satview_ground_camera_world_orientation;
 using draxul::satview::satview_ground_location_from_map_ndc;
 using draxul::satview::satview_ground_location_from_render_position;
 using draxul::satview::satview_ground_marker_base_size;
+using draxul::satview::satview_ground_track_subdivision_count;
 using draxul::satview::satview_ground_render_position;
 using draxul::satview::satview_ground_view_matrix;
 using draxul::satview::satview_ground_visibility_dot;
 using draxul::satview::satview_rotate_ground_camera;
+using draxul::satview::satview_interpolate_track_arc;
 using draxul::satview::SatViewGroundLocation;
 
 constexpr double kHalfPi = 0.5 * std::numbers::pi_v<double>;
@@ -119,6 +121,31 @@ TEST_CASE("SatView ground view marker size shrinks toward the horizon", "[satvie
 
     CHECK_THAT(overhead_size, WithinAbs(0.026f, 1.0e-6f));
     CHECK_THAT(horizon_size, WithinAbs(0.008f, 1.0e-6f));
+}
+
+TEST_CASE("SatView ground tracks subdivide large apparent sweeps", "[satview][ground]")
+{
+    const glm::dvec3 observer(1.0, 0.0, 0.0);
+    const glm::dvec3 overhead(1.06, 0.0, 0.0);
+    const glm::dvec3 nearby(1.06, 0.002, 0.0);
+    const glm::dvec3 horizon(1.0, 0.36, 0.0);
+
+    CHECK(satview_ground_track_subdivision_count(overhead, nearby, observer) == 1);
+    CHECK(satview_ground_track_subdivision_count(overhead, horizon, observer) >= 20);
+}
+
+TEST_CASE("SatView ground track interpolation follows the Earth-centered arc", "[satview][ground]")
+{
+    constexpr double radius = 1.2;
+    const glm::dvec3 start(radius, 0.0, 0.0);
+    const glm::dvec3 end(0.0, radius, 0.0);
+
+    const glm::dvec3 midpoint = satview_interpolate_track_arc(start, end, 0.5);
+
+    CHECK_THAT(glm::length(midpoint), WithinAbs(radius, 1.0e-12));
+    CHECK_THAT(midpoint.x, WithinAbs(radius / std::sqrt(2.0), 1.0e-12));
+    CHECK_THAT(midpoint.y, WithinAbs(radius / std::sqrt(2.0), 1.0e-12));
+    CHECK_THAT(midpoint.z, WithinAbs(0.0, 1.0e-12));
 }
 
 TEST_CASE("SatView ground view proxy preserves distant body direction and angular size", "[satview][ground]")

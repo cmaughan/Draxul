@@ -19,6 +19,8 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK(config.star_min_magnitude == kDefaultStarMinMagnitude);
     CHECK(config.star_max_magnitude == kDefaultStarMaxMagnitude);
     CHECK(config.star_brightness_scale == kDefaultStarBrightnessScale);
+    CHECK_FALSE(config.constellation_lines_enabled);
+    CHECK_FALSE(config.milky_way_enabled);
     CHECK(config.tone_map_exposure == kDefaultToneMapExposure);
     CHECK(config.tone_map_white_point == kDefaultToneMapWhitePoint);
     CHECK_FALSE(config.show_hdr_debug_panel);
@@ -63,6 +65,8 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.star_min_magnitude = -0.5f;
     expected.star_max_magnitude = 7.5f;
     expected.star_brightness_scale = 2.5f;
+    expected.constellation_lines_enabled = true;
+    expected.milky_way_enabled = true;
     expected.tone_map_exposure = 2.25f;
     expected.tone_map_white_point = 4.0f;
     expected.show_hdr_debug_panel = true;

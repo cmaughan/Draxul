@@ -37,5 +37,6 @@ struct EarthTextureImages
 [[nodiscard]] EarthTextureImages load_earth_texture_images();
 [[nodiscard]] LoadedTextureImage load_moon_texture_image();
 [[nodiscard]] LoadedTextureImage load_sun_texture_image();
+[[nodiscard]] LoadedTextureImage load_milky_way_texture_image();
 
 } // namespace draxul::satview

@@ -120,10 +120,11 @@ void main()
     else if (satview_is_ground_projection())
     {
         vec4 center_clip = satview_project_world_position(center);
+        vec2 center_ndc = center_clip.xy / max(center_clip.w, 0.000001);
         if (!satview_ground_world_position_visible(center)
             || center_clip.w <= 0.0
-            || abs(center_clip.x) > 1.5
-            || abs(center_clip.y) > 1.5)
+            || abs(center_ndc.x) > 1.5
+            || abs(center_ndc.y) > 1.5)
         {
             out_color.a = 0.0;
             gl_Position = vec4(2.0, 2.0, 0.0, 1.0);

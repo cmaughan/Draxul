@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <cstddef>
 
 namespace draxul::satview
 {
@@ -43,6 +44,14 @@ struct SatViewGroundBodyProxy
 [[nodiscard]] float satview_ground_marker_base_size(
     const glm::dvec3& satellite_render_position,
     const glm::dvec3& observer_render_position);
+[[nodiscard]] std::size_t satview_ground_track_subdivision_count(
+    const glm::dvec3& segment_start,
+    const glm::dvec3& segment_end,
+    const glm::dvec3& observer_render_position);
+[[nodiscard]] glm::dvec3 satview_interpolate_track_arc(
+    const glm::dvec3& segment_start,
+    const glm::dvec3& segment_end,
+    double interpolation);
 [[nodiscard]] SatViewGroundBodyProxy satview_ground_body_proxy(
     const glm::dvec3& body_render_position,
     double body_radius_earth_radii,

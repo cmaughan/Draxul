@@ -138,6 +138,24 @@ public:
         ++star_revision_;
     }
 
+    void set_constellation_vertices(std::span<const SatViewSceneVertex> vertices)
+    {
+        if (vertices.empty() && constellation_vertices_.empty())
+            return;
+        constellation_vertices_.assign(vertices.begin(), vertices.end());
+        ++constellation_revision_;
+    }
+
+    void set_constellation_lines_enabled(bool enabled)
+    {
+        constellation_lines_enabled_ = enabled;
+    }
+
+    void set_milky_way_enabled(bool enabled)
+    {
+        milky_way_enabled_ = enabled;
+    }
+
     void set_star_magnitude_range(float minimum_magnitude, float maximum_magnitude)
     {
         star_min_magnitude_ = minimum_magnitude;
@@ -185,10 +203,12 @@ private:
     std::vector<SatViewSceneVertex> earth_track_vertices_;
     std::vector<SatViewMarkerInstance> markers_;
     std::vector<SatViewStarInstance> stars_;
+    std::vector<SatViewSceneVertex> constellation_vertices_;
     uint64_t track_revision_ = 0;
     uint64_t earth_track_revision_ = 0;
     uint64_t marker_revision_ = 0;
     uint64_t star_revision_ = 0;
+    uint64_t constellation_revision_ = 0;
     float star_min_magnitude_ = -1.5f;
     float star_max_magnitude_ = 6.0f;
     float star_brightness_scale_ = 1.0f;
@@ -208,6 +228,8 @@ private:
     bool sun_map_projection_ = false;
     bool ground_projection_ = false;
     bool ground_visible_ = true;
+    bool constellation_lines_enabled_ = false;
+    bool milky_way_enabled_ = false;
     bool hdr_debug_enabled_ = false;
     std::unique_ptr<State> state_;
 };

@@ -827,6 +827,31 @@ static float3 ground_ray_direction(float2 ndc, constant SatViewFrameUniforms& fr
     return normalize(rotate_vector_by_quaternion(camera_ray, frame.camera_orientation));
 }
 
+fragment float4 satview_skybox_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> milky_way_tex [[texture(6)]],
+    sampler sky_sampler [[sampler(0)]])
+{
+    float3 direction = ground_ray_direction(in.uv, frame);
+    if (is_ground_projection(frame) && ground_horizon_occlusion_enabled(frame))
+    {
+        float3 observer_up = normalize(frame.camera_pos.xyz);
+        float observer_radius_sq = max(dot(frame.camera_pos.xyz, frame.camera_pos.xyz), 1.0f);
+        float horizon_cosine = -sqrt(max(1.0f - 1.0f / observer_radius_sq, 0.0f));
+        if (dot(direction, observer_up) <= horizon_cosine)
+            discard_fragment();
+    }
+
+    // Inverse of SatView's ICRF-to-render basis: eq = (-z, -x, y).
+    float right_ascension = atan2(-direction.x, -direction.z);
+    float declination = asin(clamp(direction.y, -1.0f, 1.0f));
+    float2 uv = float2(
+        fract(0.5f - right_ascension / (2.0f * kPi)),
+        0.5f - declination / kPi);
+    return float4(milky_way_tex.sample(sky_sampler, uv).rgb * 0.55f, 1.0f);
+}
+
 fragment float4 satview_ground_atmosphere_fragment(
     SatViewVertexOut in [[stage_in]],
     constant SatViewFrameUniforms& frame [[buffer(0)]])
@@ -893,7 +918,7 @@ fragment float4 satview_ground_atmosphere_fragment(
     float alpha = clamp(1.0f - exp(-extinction), 0.0f, 1.0f);
     float3 night_tint = float3(0.004f, 0.006f, 0.014f);
     scattering = max(scattering, night_tint * (1.0f - alpha));
-    return float4(scattering, 1.0f);
+    return float4(scattering, alpha);
 }
 
 fragment float4 satview_ground_surface_fragment(
@@ -1033,6 +1058,35 @@ vertex SatViewStarOut satview_star_vertex(
     return out;
 }
 
+vertex SatViewOrbitOut satview_constellation_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewSceneVertex* vertices [[buffer(1)]])
+{
+    SatViewSceneVertex scene_vertex = vertices[vertex_id];
+    float3 world_position = frame.camera_pos.xyz
+        + normalize(scene_vertex.position.xyz) * kStarDistanceEarthRadii;
+    float3 paired_world_position = frame.camera_pos.xyz
+        + normalize(scene_vertex.paired_position.xyz) * kStarDistanceEarthRadii;
+    float4 projected = project_world_position(world_position, frame);
+    float4 paired_projected = project_world_position(paired_world_position, frame);
+    bool visible = ground_world_position_visible(world_position, frame)
+        && ground_world_position_visible(paired_world_position, frame)
+        && projected.w > 0.0f
+        && paired_projected.w > 0.0f;
+    if (visible && is_stereographic_ground_projection(frame))
+    {
+        float2 ndc = projected.xy / projected.w;
+        float2 paired_ndc = paired_projected.xy / paired_projected.w;
+        visible = distance(ndc, paired_ndc) < 8.0f;
+    }
+
+    SatViewOrbitOut out;
+    out.color = visible ? scene_vertex.color : float4(0.0f);
+    out.position = visible ? projected : float4(2.0f, 2.0f, 0.0f, 1.0f);
+    return out;
+}
+
 fragment float4 satview_star_fragment(SatViewStarOut in [[stage_in]])
 {
     float radius2 = dot(in.uv, in.uv);
@@ -1122,10 +1176,11 @@ vertex SatViewOrbitOut satview_marker_vertex(
     else if (is_ground_projection(frame))
     {
         float4 center_clip = project_world_position(center, frame);
+        float2 center_ndc = center_clip.xy / max(center_clip.w, 0.000001f);
         if (!ground_world_position_visible(center, frame)
             || center_clip.w <= 0.0f
-            || abs(center_clip.x) > 1.5f
-            || abs(center_clip.y) > 1.5f)
+            || abs(center_ndc.x) > 1.5f
+            || abs(center_ndc.y) > 1.5f)
         {
             out.color.a = 0.0f;
             out.position = float4(2.0f, 2.0f, 0.0f, 1.0f);

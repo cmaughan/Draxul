@@ -6,6 +6,7 @@ if(APPLE)
         src/satview_catalog_service.cpp
         src/satview_cloud_service.cpp
         src/satview_config.cpp
+        src/satview_constellation_catalog.cpp
         src/satview_filter.cpp
         src/satview_geodetic.cpp
         src/satview_ground_view.cpp
@@ -26,6 +27,7 @@ else()
         src/satview_catalog_service.cpp
         src/satview_cloud_service.cpp
         src/satview_config.cpp
+        src/satview_constellation_catalog.cpp
         src/satview_filter.cpp
         src/satview_geodetic.cpp
         src/satview_ground_view.cpp

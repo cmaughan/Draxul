@@ -85,6 +85,8 @@ struct SatViewConfig
     float star_min_magnitude = kDefaultStarMinMagnitude;
     float star_max_magnitude = kDefaultStarMaxMagnitude;
     float star_brightness_scale = kDefaultStarBrightnessScale;
+    bool constellation_lines_enabled = false;
+    bool milky_way_enabled = false;
     float tone_map_exposure = kDefaultToneMapExposure;
     float tone_map_white_point = kDefaultToneMapWhitePoint;
     bool show_hdr_debug_panel = false;

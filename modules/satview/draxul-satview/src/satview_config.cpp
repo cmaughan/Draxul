@@ -249,6 +249,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("show_debris", config.filter.show_debris);
     assign_bool("show_unknown_population", config.filter.show_unknown_population);
     assign_bool("show_summary_estimates", config.filter.show_summary_estimates);
+    assign_bool("constellation_lines", config.constellation_lines_enabled);
+    assign_bool("milky_way", config.milky_way_enabled);
     assign_bool("clouds", config.clouds_enabled);
     assign_bool("realistic_clouds", config.realistic_clouds_enabled);
     assign_bool("atmosphere", config.atmosphere_enabled);
@@ -315,6 +317,8 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("show_debris", config.filter.show_debris);
     table.insert_or_assign("show_unknown_population", config.filter.show_unknown_population);
     table.insert_or_assign("show_summary_estimates", config.filter.show_summary_estimates);
+    table.insert_or_assign("constellation_lines", config.constellation_lines_enabled);
+    table.insert_or_assign("milky_way", config.milky_way_enabled);
     table.insert_or_assign("clouds", config.clouds_enabled);
     table.insert_or_assign("realistic_clouds", config.realistic_clouds_enabled);
     table.insert_or_assign("atmosphere", config.atmosphere_enabled);

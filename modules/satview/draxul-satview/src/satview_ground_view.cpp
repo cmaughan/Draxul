@@ -14,6 +14,10 @@ namespace draxul::satview
 namespace
 {
 
+constexpr double kMaximumGroundTrackSegmentAngle = 4.0 * std::numbers::pi_v<double> / 180.0;
+constexpr std::size_t kMaximumGroundTrackSubdivisions = 32;
+constexpr double kVectorEpsilon = 1.0e-12;
+
 glm::dvec3 ecef_surface_from_geodetic(SatViewGroundLocation location)
 {
     const double cos_latitude = std::cos(location.latitude_radians);
@@ -176,6 +180,74 @@ float satview_ground_marker_base_size(
         0.0f,
         1.0f);
     return kMaximumMarkerSize + (kMinimumMarkerSize - kMaximumMarkerSize) * t;
+}
+
+std::size_t satview_ground_track_subdivision_count(
+    const glm::dvec3& segment_start,
+    const glm::dvec3& segment_end,
+    const glm::dvec3& observer_render_position)
+{
+    const glm::dvec3 start_offset = segment_start - observer_render_position;
+    const glm::dvec3 end_offset = segment_end - observer_render_position;
+    const double start_length = glm::length(start_offset);
+    const double end_length = glm::length(end_offset);
+    if (!(start_length > kVectorEpsilon) || !(end_length > kVectorEpsilon))
+        return kMaximumGroundTrackSubdivisions;
+
+    const double cosine = std::clamp(
+        glm::dot(start_offset, end_offset) / (start_length * end_length),
+        -1.0,
+        1.0);
+    const double apparent_angle = std::acos(cosine);
+    if (!std::isfinite(apparent_angle))
+        return 1;
+    return std::clamp<std::size_t>(
+        static_cast<std::size_t>(std::ceil(apparent_angle / kMaximumGroundTrackSegmentAngle)),
+        1,
+        kMaximumGroundTrackSubdivisions);
+}
+
+glm::dvec3 satview_interpolate_track_arc(
+    const glm::dvec3& segment_start,
+    const glm::dvec3& segment_end,
+    double interpolation)
+{
+    const double t = std::clamp(interpolation, 0.0, 1.0);
+    const double start_radius = glm::length(segment_start);
+    const double end_radius = glm::length(segment_end);
+    if (!(start_radius > kVectorEpsilon) || !(end_radius > kVectorEpsilon))
+        return glm::mix(segment_start, segment_end, t);
+
+    const glm::dvec3 start_direction = segment_start / start_radius;
+    const glm::dvec3 end_direction = segment_end / end_radius;
+    const double cosine = std::clamp(glm::dot(start_direction, end_direction), -1.0, 1.0);
+    glm::dvec3 direction;
+    if (cosine > 0.9995)
+    {
+        direction = glm::normalize(glm::mix(start_direction, end_direction, t));
+    }
+    else if (cosine < -0.9995)
+    {
+        const glm::dvec3 reference = std::abs(start_direction.x) < 0.9
+            ? glm::dvec3(1.0, 0.0, 0.0)
+            : glm::dvec3(0.0, 1.0, 0.0);
+        const glm::dvec3 orthogonal = glm::normalize(glm::cross(start_direction, reference));
+        direction = start_direction * std::cos(std::numbers::pi_v<double> * t)
+            + orthogonal * std::sin(std::numbers::pi_v<double> * t);
+    }
+    else
+    {
+        const double angle = std::acos(cosine);
+        const double sine = std::sin(angle);
+        if (std::abs(sine) <= kVectorEpsilon)
+            direction = glm::normalize(glm::mix(start_direction, end_direction, t));
+        else
+            direction = (
+                start_direction * std::sin((1.0 - t) * angle)
+                + end_direction * std::sin(t * angle))
+                / sine;
+    }
+    return direction * std::lerp(start_radius, end_radius, t);
 }
 
 SatViewGroundBodyProxy satview_ground_body_proxy(

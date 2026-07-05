@@ -4,6 +4,7 @@
 #include "camera_manipulator.h"
 #include "satview_camera_key_state.h"
 #include "satview_cloud_service.h"
+#include "satview_constellation_catalog.h"
 #include "satview_geodetic.h"
 #include "satview_ground_view.h"
 #include "satview_map_projection.h"
@@ -426,6 +427,35 @@ void append_line(
     vertices.push_back({ glm::vec4(b, coordinate_tag), color, glm::vec4(a, coordinate_tag) });
 }
 
+void append_ground_track_arc(
+    std::vector<SatViewSceneVertex>& vertices,
+    const glm::dvec3& start,
+    const glm::dvec3& end,
+    glm::vec4 color,
+    const glm::dvec3& observer_render_position,
+    bool ground_horizon_occlusion)
+{
+    const std::size_t subdivisions = satview_ground_track_subdivision_count(
+        start,
+        end,
+        observer_render_position);
+    glm::dvec3 previous = start;
+    for (std::size_t step = 1; step <= subdivisions; ++step)
+    {
+        const glm::dvec3 current = satview_interpolate_track_arc(
+            start,
+            end,
+            static_cast<double>(step) / static_cast<double>(subdivisions));
+        if (!ground_horizon_occlusion
+            || (satview_ground_visibility_dot(previous, observer_render_position) > 0.0
+                && satview_ground_visibility_dot(current, observer_render_position) > 0.0))
+        {
+            append_line(vertices, to_vec3(previous), to_vec3(current), color);
+        }
+        previous = current;
+    }
+}
+
 bool satellite_visible(
     const SatViewFilterState& filter,
     const SatelliteOrbitTrack& track,
@@ -462,7 +492,8 @@ void append_track_vertices(
     SatViewColorMode color_mode,
     SatViewProjectionMode projection_mode,
     SatViewCameraPov camera_pov,
-    std::optional<glm::dvec3> ground_observer_render_position)
+    std::optional<glm::dvec3> ground_observer_render_position,
+    bool ground_horizon_occlusion)
 {
     if (!snapshot.tracks)
         return;
@@ -498,26 +529,54 @@ void append_track_vertices(
             continue;
         for (std::size_t i = 1; i < points.size(); ++i)
         {
-            if (ground_observer_render_position.has_value()
+            if (ground_horizon_occlusion
+                && ground_observer_render_position.has_value()
                 && (satview_ground_visibility_dot(points[i - 1], *ground_observer_render_position) <= 0.0
                     || satview_ground_visibility_dot(points[i], *ground_observer_render_position) <= 0.0))
             {
                 continue;
             }
-            append_line(
-                vertices,
-                to_vec3(points[i - 1]),
-                to_vec3(points[i]),
-                color,
-                earth_ground_track);
+            if (ground_observer_render_position.has_value())
+            {
+                append_ground_track_arc(
+                    vertices,
+                    points[i - 1],
+                    points[i],
+                    color,
+                    *ground_observer_render_position,
+                    ground_horizon_occlusion);
+            }
+            else
+            {
+                append_line(
+                    vertices,
+                    to_vec3(points[i - 1]),
+                    to_vec3(points[i]),
+                    color,
+                    earth_ground_track);
+            }
         }
-        const bool closing_segment_visible = !ground_observer_render_position.has_value()
+        const bool closing_segment_visible = !ground_horizon_occlusion
+            || !ground_observer_render_position.has_value()
             || (satview_ground_visibility_dot(points.back(), *ground_observer_render_position) > 0.0
                 && satview_ground_visibility_dot(points.front(), *ground_observer_render_position) > 0.0);
         if (!earth_ground_track && closing_segment_visible)
         {
-            append_line(vertices, to_vec3(points.back()), to_vec3(points.front()),
-                color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
+            const glm::vec4 closing_color = color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f);
+            if (ground_observer_render_position.has_value())
+            {
+                append_ground_track_arc(
+                    vertices,
+                    points.back(),
+                    points.front(),
+                    closing_color,
+                    *ground_observer_render_position,
+                    ground_horizon_occlusion);
+            }
+            else
+            {
+                append_line(vertices, to_vec3(points.back()), to_vec3(points.front()), closing_color);
+            }
         }
     }
 }
@@ -767,8 +826,12 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     next_frame_time_ = last_pump_time_ + kFrameTick;
     scene_pass_ = std::make_shared<SatViewScenePass>();
     stars_ = load_satview_star_catalog(kMaximumStarCatalogCount);
+    constellation_vertices_ = load_satview_constellation_catalog();
     rebuild_visible_stars();
     scene_pass_->set_stars(visible_stars_);
+    scene_pass_->set_constellation_vertices(constellation_vertices_);
+    scene_pass_->set_constellation_lines_enabled(constellation_lines_enabled_);
+    scene_pass_->set_milky_way_enabled(milky_way_enabled_);
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_tone_mapping(tone_map_exposure_, tone_map_white_point_);
@@ -1084,6 +1147,8 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
+    scene_pass_->set_constellation_lines_enabled(constellation_lines_enabled_);
+    scene_pass_->set_milky_way_enabled(milky_way_enabled_);
     scene_pass_->set_tone_mapping(tone_map_exposure_, tone_map_white_point_);
     scene_pass_->set_hdr_debug_enabled(show_hdr_debug_panel_);
 
@@ -1094,9 +1159,6 @@ void SatViewHost::draw(IFrameContext& frame)
     const bool show_markers = satellite_display_shows_markers(satellite_display_mode_);
     const std::optional<glm::dvec3> ground_context = ground_projection
         ? std::optional<glm::dvec3>(ground_observer)
-        : std::nullopt;
-    const std::optional<glm::dvec3> ground_filter = ground_projection && ground_horizon_occlusion_
-        ? ground_context
         : std::nullopt;
     const bool show_moon_track = show_tracks
         && moon_track_enabled_
@@ -1162,7 +1224,8 @@ void SatViewHost::draw(IFrameContext& frame)
                     color_mode_,
                     projection_mode_,
                     camera_pov_,
-                    ground_filter);
+                    ground_context,
+                    ground_horizon_occlusion_);
             }
             if (show_moon_track)
             {
@@ -1683,6 +1746,8 @@ SatViewConfig SatViewHost::current_config() const
     config.star_min_magnitude = star_min_magnitude_;
     config.star_max_magnitude = star_max_magnitude_;
     config.star_brightness_scale = star_brightness_scale_;
+    config.constellation_lines_enabled = constellation_lines_enabled_;
+    config.milky_way_enabled = milky_way_enabled_;
     config.tone_map_exposure = tone_map_exposure_;
     config.tone_map_white_point = tone_map_white_point_;
     config.show_hdr_debug_panel = show_hdr_debug_panel_;
@@ -1730,6 +1795,8 @@ void SatViewHost::apply_config(const SatViewConfig& config)
         config.star_brightness_scale,
         kMinimumStarBrightnessScale,
         kMaximumStarBrightnessScale);
+    constellation_lines_enabled_ = config.constellation_lines_enabled;
+    milky_way_enabled_ = config.milky_way_enabled;
     tone_map_exposure_ = std::clamp(
         config.tone_map_exposure,
         kMinimumToneMapExposure,
@@ -2593,6 +2660,10 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
             kMaximumStarBrightnessScale);
         request_redraw();
     }
+    if (ImGui::Checkbox("Constellation lines", &constellation_lines_enabled_))
+        request_redraw();
+    if (ImGui::Checkbox("Milky Way background", &milky_way_enabled_))
+        request_redraw();
 
     ImGui::SeparatorText("Tone Mapping");
     float exposure = tone_map_exposure_;

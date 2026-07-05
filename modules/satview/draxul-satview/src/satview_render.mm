@@ -40,7 +40,9 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> atmosphere_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ground_atmosphere_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ground_surface_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> skybox_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> star_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> constellation_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> orbit_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> marker_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> tone_map_pipeline;
@@ -54,6 +56,7 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLTexture>> earth_cloud_texture;
     ObjCRef<id<MTLTexture>> moon_texture;
     ObjCRef<id<MTLTexture>> sun_texture;
+    ObjCRef<id<MTLTexture>> milky_way_texture;
     ObjCRef<id<MTLTexture>> live_cloud_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
     ObjCRef<id<MTLSamplerState>> hdr_sampler;
@@ -61,14 +64,17 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLBuffer>> earth_track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> marker_buffer;
     ObjCRef<id<MTLBuffer>> star_buffer;
+    ObjCRef<id<MTLBuffer>> constellation_buffer;
     NSUInteger track_vertex_count = 0;
     NSUInteger earth_track_vertex_count = 0;
     NSUInteger marker_count = 0;
     NSUInteger star_count = 0;
+    NSUInteger constellation_vertex_count = 0;
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_earth_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
     uint64_t uploaded_star_revision = 0;
+    uint64_t uploaded_constellation_revision = 0;
     uint64_t uploaded_cloud_revision = 0;
     NSUInteger scene_sample_count = 1;
     std::vector<HdrTargets> hdr_targets;
@@ -103,6 +109,7 @@ struct SatViewScenePass::State
     {
         if (earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && sun_texture.get()
+            && milky_way_texture.get()
             && earth_sampler.get())
             return true;
 
@@ -112,8 +119,10 @@ struct SatViewScenePass::State
         earth_cloud_texture.reset(create_texture(metal_device, images.clouds));
         moon_texture.reset(create_texture(metal_device, load_moon_texture_image()));
         sun_texture.reset(create_texture(metal_device, load_sun_texture_image()));
+        milky_way_texture.reset(create_texture(metal_device, load_milky_way_texture_image()));
         if (!earth_day_texture.get() || !earth_night_texture.get()
-            || !earth_cloud_texture.get() || !moon_texture.get() || !sun_texture.get())
+            || !earth_cloud_texture.get() || !moon_texture.get() || !sun_texture.get()
+            || !milky_way_texture.get())
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal scene textures");
             earth_day_texture.reset();
@@ -121,6 +130,7 @@ struct SatViewScenePass::State
             earth_cloud_texture.reset();
             moon_texture.reset();
             sun_texture.reset();
+            milky_way_texture.reset();
             return false;
         }
 
@@ -139,6 +149,7 @@ struct SatViewScenePass::State
             earth_cloud_texture.reset();
             moon_texture.reset();
             sun_texture.reset();
+            milky_way_texture.reset();
             return false;
         }
         return true;
@@ -173,12 +184,14 @@ struct SatViewScenePass::State
     {
         if (earth_pipeline.get() && moon_pipeline.get() && sun_pipeline.get() && cloud_pipeline.get()
             && atmosphere_pipeline.get() && ground_atmosphere_pipeline.get() && orbit_pipeline.get()
-            && ground_surface_pipeline.get() && star_pipeline.get()
+            && ground_surface_pipeline.get() && star_pipeline.get() && constellation_pipeline.get()
+            && skybox_pipeline.get()
             && tone_map_pipeline.get() && present_pipeline.get()
             && (scene_sample_count == 1 || msaa_debug_pipeline.get())
             && depth_write_state.get() && depth_read_state.get() && depth_disabled_state.get()
             && earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && sun_texture.get()
+            && milky_way_texture.get()
             && earth_sampler.get() && hdr_sampler.get()
             && device.get() == new_device)
             return true;
@@ -191,7 +204,9 @@ struct SatViewScenePass::State
         atmosphere_pipeline.reset();
         ground_atmosphere_pipeline.reset();
         ground_surface_pipeline.reset();
+        skybox_pipeline.reset();
         star_pipeline.reset();
+        constellation_pipeline.reset();
         orbit_pipeline.reset();
         marker_pipeline.reset();
         tone_map_pipeline.reset();
@@ -205,6 +220,7 @@ struct SatViewScenePass::State
         earth_cloud_texture.reset();
         moon_texture.reset();
         sun_texture.reset();
+        milky_way_texture.reset();
         live_cloud_texture.reset();
         earth_sampler.reset();
         hdr_sampler.reset();
@@ -213,14 +229,17 @@ struct SatViewScenePass::State
         earth_track_vertex_buffer.reset();
         marker_buffer.reset();
         star_buffer.reset();
+        constellation_buffer.reset();
         track_vertex_count = 0;
         earth_track_vertex_count = 0;
         marker_count = 0;
         star_count = 0;
+        constellation_vertex_count = 0;
         uploaded_track_revision = 0;
         uploaded_earth_track_revision = 0;
         uploaded_marker_revision = 0;
         uploaded_star_revision = 0;
+        uploaded_constellation_revision = 0;
         uploaded_cloud_revision = 0;
         if (!new_device)
             return false;
@@ -258,8 +277,11 @@ struct SatViewScenePass::State
         id<MTLFunction> ground_atmosphere_vertex = [library newFunctionWithName:@"satview_ground_atmosphere_vertex"];
         id<MTLFunction> ground_atmosphere_fragment = [library newFunctionWithName:@"satview_ground_atmosphere_fragment"];
         id<MTLFunction> ground_surface_fragment = [library newFunctionWithName:@"satview_ground_surface_fragment"];
+        id<MTLFunction> skybox_fragment = [library newFunctionWithName:@"satview_skybox_fragment"];
         id<MTLFunction> star_vertex = [library newFunctionWithName:@"satview_star_vertex"];
         id<MTLFunction> star_fragment = [library newFunctionWithName:@"satview_star_fragment"];
+        id<MTLFunction> constellation_vertex =
+            [library newFunctionWithName:@"satview_constellation_vertex"];
         id<MTLFunction> orbit_vertex = [library newFunctionWithName:@"satview_orbit_vertex"];
         id<MTLFunction> marker_vertex = [library newFunctionWithName:@"satview_marker_vertex"];
         id<MTLFunction> orbit_fragment = [library newFunctionWithName:@"satview_orbit_fragment"];
@@ -272,8 +294,9 @@ struct SatViewScenePass::State
             || !cloud_vertex || !cloud_fragment
             || !atmosphere_vertex || !atmosphere_fragment
             || !ground_atmosphere_vertex || !ground_atmosphere_fragment
-            || !ground_surface_fragment
+            || !ground_surface_fragment || !skybox_fragment
             || !star_vertex || !star_fragment
+            || !constellation_vertex
             || !orbit_vertex || !orbit_fragment
             || !fullscreen_vertex || !post_fragment || !present_fragment
             || (scene_sample_count > 1 && !msaa_debug_fragment))
@@ -394,8 +417,21 @@ struct SatViewScenePass::State
         }
         ground_surface_pipeline.reset(created);
 
+        desc.vertexFunction = ground_atmosphere_vertex;
+        desc.fragmentFunction = skybox_fragment;
+        desc.colorAttachments[0].blendingEnabled = NO;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal skybox pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        skybox_pipeline.reset(created);
+
         desc.vertexFunction = star_vertex;
         desc.fragmentFunction = star_fragment;
+        desc.colorAttachments[0].blendingEnabled = YES;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
         desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
         desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
@@ -417,6 +453,31 @@ struct SatViewScenePass::State
         }
         star_pipeline.reset(created);
 
+        desc.vertexFunction = constellation_vertex;
+        desc.fragmentFunction = orbit_fragment;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                "SatView: failed to create Metal constellation pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            cloud_pipeline.reset();
+            atmosphere_pipeline.reset();
+            ground_atmosphere_pipeline.reset();
+            ground_surface_pipeline.reset();
+            star_pipeline.reset();
+            return false;
+        }
+        constellation_pipeline.reset(created);
+
         desc.vertexFunction = orbit_vertex;
         desc.fragmentFunction = orbit_fragment;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
@@ -437,6 +498,7 @@ struct SatViewScenePass::State
             ground_atmosphere_pipeline.reset();
             ground_surface_pipeline.reset();
             star_pipeline.reset();
+            constellation_pipeline.reset();
             return false;
         }
         orbit_pipeline.reset(created);
@@ -523,6 +585,7 @@ struct SatViewScenePass::State
             ground_atmosphere_pipeline.reset();
             ground_surface_pipeline.reset();
             star_pipeline.reset();
+            constellation_pipeline.reset();
             orbit_pipeline.reset();
             return false;
         }
@@ -540,6 +603,7 @@ struct SatViewScenePass::State
             ground_atmosphere_pipeline.reset();
             ground_surface_pipeline.reset();
             star_pipeline.reset();
+            constellation_pipeline.reset();
             orbit_pipeline.reset();
             depth_write_state.reset();
             return false;
@@ -559,6 +623,7 @@ struct SatViewScenePass::State
             ground_atmosphere_pipeline.reset();
             ground_surface_pipeline.reset();
             star_pipeline.reset();
+            constellation_pipeline.reset();
             orbit_pipeline.reset();
             depth_write_state.reset();
             depth_read_state.reset();
@@ -752,6 +817,13 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         state_->star_buffer,
         state_->star_count,
         state_->uploaded_star_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        constellation_vertices_,
+        constellation_revision_,
+        state_->constellation_buffer,
+        state_->constellation_vertex_count,
+        state_->uploaded_constellation_revision);
 
     const uint32_t frame_index = ctx.frame_index() % static_cast<uint32_t>(state_->hdr_targets.size());
     auto& targets = state_->hdr_targets[frame_index];
@@ -795,6 +867,7 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         atIndex:3];
     [encoder setFragmentTexture:state_->moon_texture.get() atIndex:4];
     [encoder setFragmentTexture:state_->sun_texture.get() atIndex:5];
+    [encoder setFragmentTexture:state_->milky_way_texture.get() atIndex:6];
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
 
     auto draw_stars = [&]() {
@@ -816,6 +889,32 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                     vertexCount:kSatViewStarVerticesPerInstance
                   instanceCount:draw_count];
     };
+    auto draw_constellations = [&]() {
+        if (!constellation_lines_enabled_
+            || state_->constellation_vertex_count == 0
+            || !state_->constellation_buffer.get()
+            || !state_->constellation_pipeline.get())
+            return;
+
+        [encoder setRenderPipelineState:state_->constellation_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setVertexBuffer:state_->constellation_buffer.get() offset:0 atIndex:1];
+        [encoder drawPrimitives:MTLPrimitiveTypeLine
+                    vertexStart:0
+                    vertexCount:state_->constellation_vertex_count];
+    };
+
+    if (milky_way_enabled_ && !map_projection_)
+    {
+        [encoder setRenderPipelineState:state_->skybox_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:3];
+    }
 
     if (map_projection_)
     {
@@ -842,6 +941,7 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         vertexCount:3];
         }
 
+        draw_constellations();
         draw_stars();
 
         if (sun_enabled_ && sun_position_radius_.w > 0.0f)
@@ -880,6 +980,7 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     }
     else
     {
+        draw_constellations();
         draw_stars();
         [encoder setDepthStencilState:state_->depth_write_state.get()];
 
