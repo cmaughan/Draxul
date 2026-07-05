@@ -16,3 +16,10 @@ cross-referenced through HD identifiers to use the same Hipparcos astrometry as
 the SatView starfield, with Bright Star Catalogue J2000 coordinates retained as
 the fallback. The generated binary data remains available under CC BY 4.0.
 Draxul's renderer code is not derived from the ConstellationLines project.
+
+Constellation stick figures are interpretive and are not standardized by the
+International Astronomical Union. This source can therefore use different
+stars, branch points, or line topology from Stellarium's Modern sky culture and
+other charts. Draxul preserves the selected source's segment topology; such
+visual differences are expected and are distinct from the separately bundled
+IAU constellation boundaries.

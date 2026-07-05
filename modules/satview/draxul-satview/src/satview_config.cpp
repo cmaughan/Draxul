@@ -202,6 +202,16 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
         std::swap(config.star_min_magnitude, config.star_max_magnitude);
     config.star_brightness_scale = clamped_float(table, "star_brightness",
         config.star_brightness_scale, kMinimumStarBrightnessScale, kMaximumStarBrightnessScale);
+    config.constellation_figure_width = clamped_float(table, "constellation_figure_width",
+        config.constellation_figure_width,
+        kMinimumConstellationLineWidth,
+        kMaximumConstellationLineWidth);
+    config.constellation_boundary_width = clamped_float(table, "constellation_boundary_width",
+        config.constellation_boundary_width,
+        kMinimumConstellationLineWidth,
+        kMaximumConstellationLineWidth);
+    config.milky_way_brightness = clamped_float(table, "milky_way_brightness",
+        config.milky_way_brightness, kMinimumMilkyWayBrightness, kMaximumMilkyWayBrightness);
     config.tone_map_exposure = clamped_float(table, "tone_map_exposure",
         config.tone_map_exposure, kMinimumToneMapExposure, kMaximumToneMapExposure);
     config.tone_map_white_point = clamped_float(table, "tone_map_white_point",
@@ -249,7 +259,12 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("show_debris", config.filter.show_debris);
     assign_bool("show_unknown_population", config.filter.show_unknown_population);
     assign_bool("show_summary_estimates", config.filter.show_summary_estimates);
+    assign_bool("show_catalog_only", config.filter.show_catalog_only);
+    assign_bool("show_earth_objects", config.filter.show_earth);
+    assign_bool("show_moon_objects", config.filter.show_moon);
     assign_bool("constellation_lines", config.constellation_lines_enabled);
+    assign_bool("constellation_boundaries", config.constellation_boundaries_enabled);
+    assign_bool("constellation_labels", config.constellation_labels_enabled);
     assign_bool("milky_way", config.milky_way_enabled);
     assign_bool("clouds", config.clouds_enabled);
     assign_bool("realistic_clouds", config.realistic_clouds_enabled);
@@ -260,6 +275,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("sun", config.sun_enabled);
     assign_bool("ground_visible", config.ground_visible);
     assign_bool("ground_horizon_occlusion", config.ground_horizon_occlusion);
+    assign_bool("observatory_horizon", config.observatory_horizon_enabled);
+    assign_bool("cardinal_labels", config.cardinal_labels_enabled);
     assign_bool("refresh_tracks_each_step", config.refresh_tracks_each_step);
     assign_bool("show_hdr_debug_panel", config.show_hdr_debug_panel);
 
@@ -297,6 +314,11 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("star_min_magnitude", static_cast<double>(config.star_min_magnitude));
     table.insert_or_assign("star_max_magnitude", static_cast<double>(config.star_max_magnitude));
     table.insert_or_assign("star_brightness", static_cast<double>(config.star_brightness_scale));
+    table.insert_or_assign(
+        "constellation_figure_width", static_cast<double>(config.constellation_figure_width));
+    table.insert_or_assign(
+        "constellation_boundary_width", static_cast<double>(config.constellation_boundary_width));
+    table.insert_or_assign("milky_way_brightness", static_cast<double>(config.milky_way_brightness));
     table.insert_or_assign("tone_map_exposure", static_cast<double>(config.tone_map_exposure));
     table.insert_or_assign("tone_map_white_point", static_cast<double>(config.tone_map_white_point));
     table.insert_or_assign("show_hdr_debug_panel", config.show_hdr_debug_panel);
@@ -317,7 +339,12 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("show_debris", config.filter.show_debris);
     table.insert_or_assign("show_unknown_population", config.filter.show_unknown_population);
     table.insert_or_assign("show_summary_estimates", config.filter.show_summary_estimates);
+    table.insert_or_assign("show_catalog_only", config.filter.show_catalog_only);
+    table.insert_or_assign("show_earth_objects", config.filter.show_earth);
+    table.insert_or_assign("show_moon_objects", config.filter.show_moon);
     table.insert_or_assign("constellation_lines", config.constellation_lines_enabled);
+    table.insert_or_assign("constellation_boundaries", config.constellation_boundaries_enabled);
+    table.insert_or_assign("constellation_labels", config.constellation_labels_enabled);
     table.insert_or_assign("milky_way", config.milky_way_enabled);
     table.insert_or_assign("clouds", config.clouds_enabled);
     table.insert_or_assign("realistic_clouds", config.realistic_clouds_enabled);
@@ -328,6 +355,8 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("sun", config.sun_enabled);
     table.insert_or_assign("ground_visible", config.ground_visible);
     table.insert_or_assign("ground_horizon_occlusion", config.ground_horizon_occlusion);
+    table.insert_or_assign("observatory_horizon", config.observatory_horizon_enabled);
+    table.insert_or_assign("cardinal_labels", config.cardinal_labels_enabled);
     table.insert_or_assign("ground_fov_degrees", static_cast<double>(config.ground_fov_degrees));
     table.insert_or_assign("ground_marker_scale", static_cast<double>(config.ground_marker_scale));
     table.insert_or_assign("ground_longitude_radians", config.ground_longitude_radians);

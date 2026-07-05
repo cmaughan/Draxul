@@ -1,5 +1,6 @@
 #pragma once
 
+#include <draxul/text_atlas.h>
 #include <cstdint>
 #include <draxul/geometry_mesh.h>
 #include <glm/glm.hpp>
@@ -84,19 +85,7 @@ constexpr uint32_t kMaxSceneMaterials = 64;
 constexpr uint32_t kShadowCascadeCount = 3;
 constexpr uint32_t kPointShadowFaceCount = 6;
 
-struct LabelAtlasData
-{
-    int width = 0;
-    int height = 0;
-    uint64_t revision = 0;
-    std::vector<uint8_t> rgba;
-
-    [[nodiscard]] bool valid() const
-    {
-        return width > 0 && height > 0
-            && rgba.size() == static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
-    }
-};
+using LabelAtlasData = TextAtlasImage;
 
 struct CodeVizRenderable
 {

@@ -1,8 +1,11 @@
 #pragma once
 
+#include "satview_label_layout.h"
+#include "satview_landscape.h"
 #include "satview_texture_assets.h"
 
 #include <draxul/base_renderer.h>
+#include <draxul/text_atlas.h>
 #include <algorithm>
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -56,6 +59,16 @@ struct SatViewStarInstance
     glm::vec4 direction_magnitude{ 0.0f, 1.0f, 0.0f, 0.0f };
     glm::vec4 color_size{ 1.0f, 1.0f, 1.0f, 0.002f };
 };
+
+struct SatViewCelestialLineInstance
+{
+    glm::vec4 start_direction_width{ 0.0f, 1.0f, 0.0f, 1.0f };
+    glm::vec4 end_direction_dash{ 0.0f, 1.0f, 0.0f, 0.0f };
+    glm::vec4 color{ 1.0f };
+    // x is dash gap in pixels; y is cumulative angular phase in radians.
+    glm::vec4 style{ 0.0f };
+};
+static_assert(sizeof(SatViewCelestialLineInstance) == 64);
 
 inline constexpr uint32_t kSatViewMarkerVerticesPerInstance = 8;
 inline constexpr uint32_t kSatViewStarVerticesPerInstance = 6;
@@ -138,11 +151,11 @@ public:
         ++star_revision_;
     }
 
-    void set_constellation_vertices(std::span<const SatViewSceneVertex> vertices)
+    void set_constellation_lines(std::span<const SatViewCelestialLineInstance> lines)
     {
-        if (vertices.empty() && constellation_vertices_.empty())
+        if (lines.empty() && constellation_lines_.empty())
             return;
-        constellation_vertices_.assign(vertices.begin(), vertices.end());
+        constellation_lines_.assign(lines.begin(), lines.end());
         ++constellation_revision_;
     }
 
@@ -151,9 +164,59 @@ public:
         constellation_lines_enabled_ = enabled;
     }
 
+    void set_constellation_boundary_lines(std::span<const SatViewCelestialLineInstance> lines)
+    {
+        if (lines.empty() && constellation_boundary_lines_.empty())
+            return;
+        constellation_boundary_lines_.assign(lines.begin(), lines.end());
+        ++constellation_boundary_revision_;
+    }
+
+    void set_constellation_boundaries_enabled(bool enabled)
+    {
+        constellation_boundaries_enabled_ = enabled;
+    }
+
+    void set_label_atlas(std::shared_ptr<const TextAtlasImage> atlas)
+    {
+        if (!atlas || !atlas->valid())
+            return;
+        label_atlas_ = std::move(atlas);
+        ++label_atlas_revision_;
+    }
+
+    void set_constellation_labels(std::span<const SatViewLabelInstance> labels)
+    {
+        constellation_labels_.assign(labels.begin(), labels.end());
+        ++constellation_label_revision_;
+    }
+
+    void set_cardinal_labels(std::span<const SatViewLabelInstance> labels)
+    {
+        cardinal_labels_.assign(labels.begin(), labels.end());
+        ++cardinal_label_revision_;
+    }
+
+    void set_observatory_landscape(const SatViewLandscapeMesh& landscape)
+    {
+        observatory_fill_triangles_ = landscape.fill_triangles;
+        observatory_rim_lines_ = landscape.rim_lines;
+        ++observatory_revision_;
+    }
+
+    void set_observatory_horizon_enabled(bool enabled)
+    {
+        observatory_horizon_enabled_ = enabled;
+    }
+
     void set_milky_way_enabled(bool enabled)
     {
         milky_way_enabled_ = enabled;
+    }
+
+    void set_milky_way_brightness(float brightness)
+    {
+        milky_way_brightness_ = std::clamp(brightness, 0.0f, 1.0f);
     }
 
     void set_star_magnitude_range(float minimum_magnitude, float maximum_magnitude)
@@ -203,12 +266,23 @@ private:
     std::vector<SatViewSceneVertex> earth_track_vertices_;
     std::vector<SatViewMarkerInstance> markers_;
     std::vector<SatViewStarInstance> stars_;
-    std::vector<SatViewSceneVertex> constellation_vertices_;
+    std::vector<SatViewCelestialLineInstance> constellation_lines_;
+    std::vector<SatViewCelestialLineInstance> constellation_boundary_lines_;
+    std::vector<SatViewLabelInstance> constellation_labels_;
+    std::vector<SatViewLabelInstance> cardinal_labels_;
+    std::vector<SatViewLandscapeTriangleInstance> observatory_fill_triangles_;
+    std::vector<SatViewLandscapeLineInstance> observatory_rim_lines_;
+    std::shared_ptr<const TextAtlasImage> label_atlas_;
     uint64_t track_revision_ = 0;
     uint64_t earth_track_revision_ = 0;
     uint64_t marker_revision_ = 0;
     uint64_t star_revision_ = 0;
     uint64_t constellation_revision_ = 0;
+    uint64_t constellation_boundary_revision_ = 0;
+    uint64_t constellation_label_revision_ = 0;
+    uint64_t cardinal_label_revision_ = 0;
+    uint64_t observatory_revision_ = 0;
+    uint64_t label_atlas_revision_ = 0;
     float star_min_magnitude_ = -1.5f;
     float star_max_magnitude_ = 6.0f;
     float star_brightness_scale_ = 1.0f;
@@ -229,7 +303,10 @@ private:
     bool ground_projection_ = false;
     bool ground_visible_ = true;
     bool constellation_lines_enabled_ = false;
+    bool constellation_boundaries_enabled_ = false;
+    bool observatory_horizon_enabled_ = true;
     bool milky_way_enabled_ = false;
+    float milky_way_brightness_ = 0.55f;
     bool hdr_debug_enabled_ = false;
     std::unique_ptr<State> state_;
 };

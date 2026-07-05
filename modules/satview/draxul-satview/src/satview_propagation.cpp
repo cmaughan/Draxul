@@ -1,6 +1,7 @@
 #include <draxul/satview/satview_propagation.h>
 
 #include "satview_object_style.h"
+#include "satview_moon_ephemeris.h"
 
 #include "SGP4.h"
 
@@ -30,6 +31,7 @@ constexpr double kUnixEpochJulianDate = 2440587.5;
 constexpr double kSgp4EpochJulianDate = 2433281.5;
 constexpr double kReferenceMeanMotionScale = kMinutesPerDay / kTwoPi;
 constexpr double kEarthMuKm3PerS2 = 398600.4418;
+constexpr double kMoonMuKm3PerS2 = 4902.800118;
 constexpr double kSummaryReferenceUnixSeconds = 946728000.0; // J2000 noon UTC.
 
 struct ParsedUtc
@@ -56,8 +58,10 @@ struct CompiledOrbit
     };
 
     OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
+    CentralBody central_body = CentralBody::Earth;
     elsetrec satrec{};
     Summary summary;
+    std::vector<SampledEphemerisPoint> samples;
 };
 
 std::uint64_t mix_catalog_id(std::int64_t catalog_id, std::uint64_t salt)
@@ -233,6 +237,8 @@ std::string sgp4_satellite_number(std::int64_t catalog_id)
 
 std::optional<CompiledOrbit> compile_record(const SatelliteRecord& record)
 {
+    if (record.central_body != CentralBody::Earth)
+        return std::nullopt;
     if (!is_valid_record_for_sgp4(record))
         return std::nullopt;
 
@@ -245,6 +251,7 @@ std::optional<CompiledOrbit> compile_record(const SatelliteRecord& record)
 
     CompiledOrbit orbit;
     orbit.solution_kind = record.solution_kind;
+    orbit.central_body = record.central_body;
     orbit.satrec.classification = record.classification_type.empty()
         ? 'U'
         : record.classification_type.front();
@@ -291,12 +298,20 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
 
     CompiledOrbit orbit;
     orbit.solution_kind = OrbitSolutionKind::SatcatSummaryEstimate;
+    orbit.central_body = record.central_body;
     auto& summary = orbit.summary;
+
+    const double body_radius_km = record.central_body == CentralBody::Moon
+        ? kSatViewMoonMeanRadiusKm
+        : kSatViewEarthEquatorialRadiusKm;
+    const double body_mu_km3_per_s2 = record.central_body == CentralBody::Moon
+        ? kMoonMuKm3PerS2
+        : kEarthMuKm3PerS2;
 
     if (record.satcat_perigee_km.has_value() && record.satcat_apogee_km.has_value())
     {
-        const double rp = kSatViewEarthEquatorialRadiusKm + *record.satcat_perigee_km;
-        const double ra = kSatViewEarthEquatorialRadiusKm + *record.satcat_apogee_km;
+        const double rp = body_radius_km + *record.satcat_perigee_km;
+        const double ra = body_radius_km + *record.satcat_apogee_km;
         summary.semi_major_axis_km = 0.5 * (rp + ra);
         summary.eccentricity = (ra - rp) / (ra + rp);
     }
@@ -304,7 +319,7 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
     {
         const double period_seconds = *record.satcat_period_minutes * 60.0;
         summary.semi_major_axis_km = std::cbrt(
-            kEarthMuKm3PerS2 * period_seconds * period_seconds / (kTwoPi * kTwoPi));
+            body_mu_km3_per_s2 * period_seconds * period_seconds / (kTwoPi * kTwoPi));
         summary.eccentricity = 0.0;
     }
 
@@ -312,14 +327,14 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
         ? *record.satcat_period_minutes * 60.0
         : kTwoPi * std::sqrt(
               summary.semi_major_axis_km * summary.semi_major_axis_km * summary.semi_major_axis_km
-              / kEarthMuKm3PerS2);
+              / body_mu_km3_per_s2);
     summary.inclination_radians = *record.satcat_inclination_deg * kPi / 180.0;
     summary.right_ascension_radians = stable_angle(record.norad_catalog_id, 0x3c6ef372fe94f82bull);
     summary.argument_perigee_radians = stable_angle(record.norad_catalog_id, 0xa54ff53a5f1d36f1ull);
     summary.reference_mean_anomaly_radians = stable_angle(record.norad_catalog_id, 0x510e527fade682d1ull);
 
     if (!std::isfinite(summary.semi_major_axis_km)
-        || summary.semi_major_axis_km <= kSatViewEarthEquatorialRadiusKm * 0.1
+        || summary.semi_major_axis_km <= body_radius_km * 0.1
         || !std::isfinite(summary.eccentricity)
         || summary.eccentricity < 0.0
         || summary.eccentricity >= 1.0
@@ -328,6 +343,17 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
     {
         return std::nullopt;
     }
+    return orbit;
+}
+
+std::optional<CompiledOrbit> compile_sampled_ephemeris_record(const SatelliteRecord& record)
+{
+    if (record.central_body != CentralBody::Moon || record.ephemeris_samples.size() < 2)
+        return std::nullopt;
+    CompiledOrbit orbit;
+    orbit.solution_kind = OrbitSolutionKind::SampledEphemeris;
+    orbit.central_body = record.central_body;
+    orbit.samples = record.ephemeris_samples;
     return orbit;
 }
 
@@ -347,6 +373,7 @@ void populate_state_metadata(
     out.object_kind = entry.object_kind;
     out.population = entry.population;
     out.solution_kind = entry.solution_kind;
+    out.central_body = entry.central_body;
     out.orbit_class = entry.orbit_class;
     out.sun_synchronous_candidate = entry.sun_synchronous_candidate;
     out.period_minutes = entry.period_minutes;
@@ -423,6 +450,46 @@ bool propagate_summary(
         && std::isfinite(velocity_km_per_s.z);
 }
 
+bool propagate_sampled_ephemeris(
+    const CompiledOrbit& orbit,
+    double simulation_unix_seconds,
+    glm::dvec3& position_km,
+    glm::dvec3& velocity_km_per_s)
+{
+    if (orbit.samples.size() < 2
+        || simulation_unix_seconds < orbit.samples.front().unix_seconds
+        || simulation_unix_seconds > orbit.samples.back().unix_seconds)
+    {
+        return false;
+    }
+    const auto upper = std::ranges::upper_bound(
+        orbit.samples,
+        simulation_unix_seconds,
+        {},
+        &SampledEphemerisPoint::unix_seconds);
+    const auto second = upper == orbit.samples.end() ? std::prev(upper) : upper;
+    const auto first = second == orbit.samples.begin() ? second : std::prev(second);
+    const double span = second->unix_seconds - first->unix_seconds;
+    const double alpha = span > 0.0
+        ? (simulation_unix_seconds - first->unix_seconds) / span
+        : 0.0;
+    const glm::dvec3 p0(first->x_km, first->y_km, first->z_km);
+    const glm::dvec3 p1(second->x_km, second->y_km, second->z_km);
+    const glm::dvec3 v0(first->vx_km_per_s, first->vy_km_per_s, first->vz_km_per_s);
+    const glm::dvec3 v1(second->vx_km_per_s, second->vy_km_per_s, second->vz_km_per_s);
+    const double alpha2 = alpha * alpha;
+    const double alpha3 = alpha2 * alpha;
+    position_km = (2.0 * alpha3 - 3.0 * alpha2 + 1.0) * p0
+        + (alpha3 - 2.0 * alpha2 + alpha) * span * v0
+        + (-2.0 * alpha3 + 3.0 * alpha2) * p1
+        + (alpha3 - alpha2) * span * v1;
+    velocity_km_per_s = ((6.0 * alpha2 - 6.0 * alpha) / span) * p0
+        + (3.0 * alpha2 - 4.0 * alpha + 1.0) * v0
+        + ((-6.0 * alpha2 + 6.0 * alpha) / span) * p1
+        + (3.0 * alpha2 - 2.0 * alpha) * v1;
+    return true;
+}
+
 bool propagate_one(
     const CompiledOrbit& orbit,
     const SatellitePropagationEntry& entry,
@@ -431,15 +498,34 @@ bool propagate_one(
     SatellitePropagatedState& out)
 {
     populate_state_metadata(entry, simulation_unix_seconds, out);
-    if (orbit.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate)
+    if (orbit.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate
+        || orbit.solution_kind == OrbitSolutionKind::SampledEphemeris)
     {
-        if (!propagate_summary(
-                orbit.summary,
-                simulation_unix_seconds,
-                out.teme_position_km,
-                out.teme_velocity_km_per_s))
+        const bool propagated = orbit.solution_kind == OrbitSolutionKind::SampledEphemeris
+            ? propagate_sampled_ephemeris(
+                  orbit,
+                  simulation_unix_seconds,
+                  out.teme_position_km,
+                  out.teme_velocity_km_per_s)
+            : propagate_summary(
+                  orbit.summary,
+                  simulation_unix_seconds,
+                  out.teme_position_km,
+                  out.teme_velocity_km_per_s);
+        if (!propagated)
         {
             return false;
+        }
+        if (orbit.central_body == CentralBody::Moon)
+        {
+            const SatViewMoonPosition moon = satview_moon_position(simulation_unix_seconds);
+            constexpr double kVelocitySampleSeconds = 1.0;
+            const glm::dvec3 moon_next = satview_moon_position(
+                simulation_unix_seconds + kVelocitySampleSeconds)
+                                             .equatorial_position_km;
+            out.teme_position_km += moon.equatorial_position_km;
+            out.teme_velocity_km_per_s +=
+                (moon_next - moon.equatorial_position_km) / kVelocitySampleSeconds;
         }
     }
     else
@@ -480,6 +566,7 @@ void append_track_samples(
     track.object_kind = entry.object_kind;
     track.population = entry.population;
     track.solution_kind = entry.solution_kind;
+    track.central_body = entry.central_body;
     track.classification_type = entry.classification_type;
     track.owner = entry.owner;
     track.operational_status_code = entry.operational_status_code;
@@ -501,12 +588,19 @@ void append_track_samples(
 
     const double horizon_minutes = settings.track_horizon_minutes > 0.0
         ? settings.track_horizon_minutes
-        : std::max(1.0, entry.period_minutes);
+        : std::max(1.0,
+              entry.track_horizon_minutes > 0.0
+                  ? entry.track_horizon_minutes
+                  : entry.period_minutes);
     track.sample_horizon_minutes = horizon_minutes;
     const double center_minutes = horizon_minutes * 0.5;
     const double divisor = settings.track_sample_count > 1
         ? static_cast<double>(settings.track_sample_count - 1)
         : 1.0;
+    const std::optional<glm::dvec3> track_center = entry.central_body == CentralBody::Moon
+        ? std::optional<glm::dvec3>(
+              satview_moon_position(simulation_unix_seconds).equatorial_position_km)
+        : std::nullopt;
 
     for (std::size_t i = 0; i < settings.track_sample_count; ++i)
     {
@@ -517,11 +611,23 @@ void append_track_samples(
         SatellitePropagatedState state;
         if (!propagate_one(orbit, entry, jd, sample_unix_seconds, state))
             continue;
-        track.teme_points_km.push_back(state.teme_position_km);
-        track.ecef_points_km.push_back(state.ecef_position_km);
+        glm::dvec3 display_teme_position_km = state.teme_position_km;
+        if (track_center.has_value())
+        {
+            // A Moon POV renders the Moon at its position at the simulation time. Keep
+            // every historical/future sample relative to that same center; otherwise
+            // the Moon's translation during the sampling window distorts the orbit.
+            display_teme_position_km += *track_center
+                - satview_moon_position(sample_unix_seconds).equatorial_position_km;
+        }
+        const glm::dvec3 display_ecef_position_km =
+            teme_to_ecef_km(display_teme_position_km, jd);
+        track.teme_points_km.push_back(display_teme_position_km);
+        track.ecef_points_km.push_back(display_ecef_position_km);
         track.render_teme_points_earth_radii.push_back(
-            teme_position_to_render_earth_radii(state.teme_position_km));
-        track.render_points_earth_radii.push_back(state.render_position_earth_radii);
+            teme_position_to_render_earth_radii(display_teme_position_km));
+        track.render_points_earth_radii.push_back(
+            display_ecef_position_km / kSatViewEarthEquatorialRadiusKm);
     }
 }
 
@@ -800,6 +906,20 @@ glm::dvec3 teme_position_to_render_earth_radii(const glm::dvec3& teme_position_k
     return glm::dvec3(-earth_radii.y, earth_radii.z, -earth_radii.x);
 }
 
+glm::dvec3 satellite_track_anchor_offset_km(
+    const SatelliteOrbitTrack& track,
+    double simulation_unix_seconds)
+{
+    if (track.central_body != CentralBody::Moon
+        || !std::isfinite(track.sample_center_unix_seconds)
+        || !std::isfinite(simulation_unix_seconds))
+    {
+        return glm::dvec3(0.0);
+    }
+    return satview_moon_position(simulation_unix_seconds).equatorial_position_km
+        - satview_moon_position(track.sample_center_unix_seconds).equatorial_position_km;
+}
+
 SatellitePropagationBuildResult build_satellite_propagation_model(const SatelliteCatalog& catalog)
 {
     SatellitePropagationBuildResult result;
@@ -822,6 +942,13 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
             epoch_unix_seconds = std::numeric_limits<double>::quiet_NaN();
             compiled = compile_summary_record(record);
         }
+        else if (record.solution_kind == OrbitSolutionKind::SampledEphemeris)
+        {
+            epoch_unix_seconds = record.ephemeris_samples.empty()
+                ? std::optional<double>{}
+                : std::optional<double>{ record.ephemeris_samples.front().unix_seconds };
+            compiled = compile_sampled_ephemeris_record(record);
+        }
         else
         {
             epoch_unix_seconds = parse_celestrak_epoch_utc(record.epoch_utc);
@@ -842,6 +969,7 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
         entry.object_kind = record.object_kind;
         entry.population = record.population;
         entry.solution_kind = record.solution_kind;
+        entry.central_body = record.central_body;
         entry.classification_type = record.classification_type;
         entry.owner = record.owner;
         entry.operational_status_code = record.operational_status_code;
@@ -855,12 +983,20 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
         metadata->owner = record.owner;
         metadata->operational_status_code = record.operational_status_code;
         metadata->data_status_code = record.data_status_code;
+        metadata->ephemeris_source = record.ephemeris_source;
+        metadata->ephemeris_frame = record.ephemeris_frame;
+        if (!record.ephemeris_samples.empty())
+        {
+            metadata->ephemeris_start_unix_seconds = record.ephemeris_samples.front().unix_seconds;
+            metadata->ephemeris_end_unix_seconds = record.ephemeris_samples.back().unix_seconds;
+        }
         metadata->radar_cross_section_m2 = record.radar_cross_section_m2;
         entry.metadata = std::move(metadata);
         entry.orbit_class = record.orbit_class;
         entry.sun_synchronous_candidate = record.sun_synchronous_candidate;
         entry.epoch_unix_seconds = *epoch_unix_seconds;
         entry.period_minutes = record.period_minutes;
+        entry.track_horizon_minutes = record.ephemeris_track_horizon_minutes;
         SatellitePropagationBuilderAccess::append(result.model, std::move(entry), std::move(*compiled));
     }
 
@@ -925,15 +1061,29 @@ SatellitePropagationResult propagate_satellites(
     }
     result.states.resize(output_state_index);
 
-    const std::size_t track_count = settings.track_sample_count == 0
-        ? 0
-        : limited_count(count, settings.track_satellite_limit);
+    std::vector<std::size_t> eligible_track_indices;
+    if (settings.track_sample_count != 0)
+    {
+        eligible_track_indices.reserve(count);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (!settings.track_central_body.has_value()
+                || entries[i].central_body == *settings.track_central_body)
+            {
+                eligible_track_indices.push_back(i);
+            }
+        }
+    }
+    const std::size_t track_count = limited_count(
+        eligible_track_indices.size(), settings.track_satellite_limit);
     std::optional<std::size_t> selected_track_index;
     if (track_count != 0 && settings.selected_track_norad_catalog_id.has_value())
     {
         for (std::size_t i = 0; i < count; ++i)
         {
-            if (entries[i].norad_catalog_id == *settings.selected_track_norad_catalog_id)
+            if (entries[i].norad_catalog_id == *settings.selected_track_norad_catalog_id
+                && (!settings.track_central_body.has_value()
+                    || entries[i].central_body == *settings.track_central_body))
             {
                 selected_track_index = i;
                 break;
@@ -941,14 +1091,17 @@ SatellitePropagationResult propagate_satellites(
         }
     }
 
-    const bool selected_outside_track_budget = selected_track_index.has_value()
-        && *selected_track_index >= track_count;
+    const auto selected_position = selected_track_index.has_value()
+        ? std::ranges::find(eligible_track_indices, *selected_track_index)
+        : eligible_track_indices.end();
+    const bool selected_outside_track_budget = selected_position != eligible_track_indices.end()
+        && static_cast<std::size_t>(selected_position - eligible_track_indices.begin()) >= track_count;
     const std::size_t general_track_count = track_count
         - (selected_outside_track_budget ? 1 : 0);
     std::vector<std::size_t> track_indices;
     track_indices.reserve(track_count);
     for (std::size_t i = 0; i < general_track_count; ++i)
-        track_indices.push_back(i);
+        track_indices.push_back(eligible_track_indices[i]);
 
     if (selected_outside_track_budget)
         track_indices.push_back(*selected_track_index);

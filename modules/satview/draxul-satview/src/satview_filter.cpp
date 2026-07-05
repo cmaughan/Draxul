@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <limits>
 #include <string>
 
 namespace draxul::satview
@@ -93,10 +94,36 @@ bool satview_population_visible(
     return filter.show_unknown_population;
 }
 
+bool satview_central_body_visible(
+    const SatViewFilterState& filter,
+    CentralBody central_body)
+{
+    switch (central_body)
+    {
+    case CentralBody::Earth:
+        return filter.show_earth;
+    case CentralBody::Moon:
+        return filter.show_moon;
+    case CentralBody::Other:
+        return false;
+    }
+    return false;
+}
+
+void satview_select_central_body(
+    SatViewFilterState& filter,
+    CentralBody central_body)
+{
+    filter.show_earth = central_body == CentralBody::Earth;
+    filter.show_moon = central_body == CentralBody::Moon;
+}
+
 bool satview_filter_matches(
     const SatViewFilterState& filter,
     const SatViewFilterCandidate& candidate)
 {
+    if (!satview_central_body_visible(filter, candidate.central_body))
+        return false;
     if (!satview_orbit_class_visible(filter, candidate.orbit_class))
         return false;
     if (filter.sun_synchronous_only && !candidate.sun_synchronous_candidate)
@@ -105,6 +132,11 @@ bool satview_filter_matches(
         return false;
     if (!filter.show_summary_estimates
         && candidate.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate)
+    {
+        return false;
+    }
+    if (!filter.show_catalog_only
+        && candidate.solution_kind == OrbitSolutionKind::CatalogOnly)
     {
         return false;
     }
@@ -146,6 +178,27 @@ bool satview_filter_matches(
 }
 
 SatViewFilterCandidate make_satview_filter_candidate(
+    const SatelliteRecord& record,
+    std::string_view)
+{
+    return SatViewFilterCandidate{
+        .norad_catalog_id = record.norad_catalog_id,
+        .object_name = record.object_name,
+        .object_id = record.object_id,
+        .object_type = record.object_type,
+        .object_kind = record.object_kind,
+        .classification_type = record.classification_type,
+        .source_label = orbit_solution_source_name(record.solution_kind),
+        .population = record.population,
+        .solution_kind = record.solution_kind,
+        .central_body = record.central_body,
+        .orbit_class = record.orbit_class,
+        .sun_synchronous_candidate = record.sun_synchronous_candidate,
+        .minutes_since_epoch = std::numeric_limits<double>::quiet_NaN(),
+    };
+}
+
+SatViewFilterCandidate make_satview_filter_candidate(
     const SatellitePropagationEntry& entry,
     std::string_view)
 {
@@ -159,6 +212,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .source_label = orbit_solution_source_name(entry.solution_kind),
         .population = entry.population,
         .solution_kind = entry.solution_kind,
+        .central_body = entry.central_body,
         .orbit_class = entry.orbit_class,
         .sun_synchronous_candidate = entry.sun_synchronous_candidate,
         .minutes_since_epoch = 0.0,
@@ -180,6 +234,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .source_label = orbit_solution_source_name(state.solution_kind),
         .population = state.population,
         .solution_kind = state.solution_kind,
+        .central_body = state.central_body,
         .orbit_class = state.orbit_class,
         .sun_synchronous_candidate = state.sun_synchronous_candidate,
         .minutes_since_epoch = state.minutes_since_epoch,
@@ -200,6 +255,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .source_label = orbit_solution_source_name(track.solution_kind),
         .population = track.population,
         .solution_kind = track.solution_kind,
+        .central_body = track.central_body,
         .orbit_class = track.orbit_class,
         .sun_synchronous_candidate = track.sun_synchronous_candidate,
         .minutes_since_epoch = track.minutes_since_epoch,

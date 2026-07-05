@@ -10,6 +10,8 @@ namespace
 
 using Catch::Matchers::WithinAbs;
 using draxul::satview::satview_ground_body_proxy;
+using draxul::satview::satview_ground_basis;
+using draxul::satview::satview_ground_local_direction_to_render;
 using draxul::satview::satview_default_ground_camera_orientation;
 using draxul::satview::satview_ground_camera_world_orientation;
 using draxul::satview::satview_ground_location_from_map_ndc;
@@ -22,6 +24,7 @@ using draxul::satview::satview_ground_visibility_dot;
 using draxul::satview::satview_rotate_ground_camera;
 using draxul::satview::satview_interpolate_track_arc;
 using draxul::satview::SatViewGroundLocation;
+using draxul::satview::SatViewGroundBasis;
 
 constexpr double kHalfPi = 0.5 * std::numbers::pi_v<double>;
 
@@ -166,6 +169,22 @@ TEST_CASE("SatView ground view proxy preserves distant body direction and angula
     CHECK_THAT(
         proxy.radius_earth_radii / glm::length(proxy_offset),
         WithinAbs(kBodyRadius / glm::length(actual_offset), 1.0e-12));
+}
+
+TEST_CASE("SatView ground basis maps local east north and up consistently", "[satview][ground]")
+{
+    const glm::dvec3 observer = glm::normalize(glm::dvec3(-0.4, 0.7, -0.5));
+    const SatViewGroundBasis basis = satview_ground_basis(observer);
+
+    CHECK_THAT(glm::length(basis.east), WithinAbs(1.0, 1.0e-12));
+    CHECK_THAT(glm::length(basis.north), WithinAbs(1.0, 1.0e-12));
+    CHECK_THAT(glm::length(basis.up), WithinAbs(1.0, 1.0e-12));
+    CHECK_THAT(glm::dot(basis.east, basis.north), WithinAbs(0.0, 1.0e-12));
+    CHECK_THAT(glm::dot(basis.east, basis.up), WithinAbs(0.0, 1.0e-12));
+    CHECK_THAT(glm::dot(basis.north, basis.up), WithinAbs(0.0, 1.0e-12));
+    CHECK_THAT(
+        glm::dot(satview_ground_local_direction_to_render(observer, { 1.0, 0.0, 0.0 }), basis.east),
+        WithinAbs(1.0, 1.0e-12));
 }
 
 } // namespace

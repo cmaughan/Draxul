@@ -8,18 +8,19 @@ using namespace draxul::satview;
 
 TEST_CASE("SatView loads the pinned constellation line catalog", "[satview][constellations]")
 {
-    const std::vector<SatViewSceneVertex> vertices = load_satview_constellation_catalog();
+    const std::vector<SatViewCelestialLineInstance> lines = load_satview_constellation_catalog();
 
-    REQUIRE(vertices.size() == 656u * 2u);
-    for (std::size_t index = 0; index < vertices.size(); index += 2u)
+    REQUIRE(lines.size() == 656u);
+    for (const SatViewCelestialLineInstance& line : lines)
     {
-        const SatViewSceneVertex& start = vertices[index];
-        const SatViewSceneVertex& end = vertices[index + 1u];
-        CHECK(glm::length(glm::vec3(start.position)) == Catch::Approx(1.0f).margin(0.0001f));
-        CHECK(glm::length(glm::vec3(end.position)) == Catch::Approx(1.0f).margin(0.0001f));
-        CHECK(glm::vec3(start.paired_position) == glm::vec3(end.position));
-        CHECK(glm::vec3(end.paired_position) == glm::vec3(start.position));
-        CHECK(start.color.a > 0.0f);
-        CHECK(start.color.a < 1.0f);
+        CHECK(glm::length(glm::vec3(line.start_direction_width))
+            == Catch::Approx(1.0f).margin(0.0001f));
+        CHECK(glm::length(glm::vec3(line.end_direction_dash))
+            == Catch::Approx(1.0f).margin(0.0001f));
+        CHECK(line.start_direction_width.w > 0.0f);
+        CHECK(line.end_direction_dash.w == 0.0f);
+        CHECK(line.style.x == 0.0f);
+        CHECK(line.color.a > 0.0f);
+        CHECK(line.color.a < 1.0f);
     }
 }

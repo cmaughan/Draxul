@@ -500,6 +500,15 @@ void SatViewCatalogService::start(Config config)
     if (satcat_cached)
     {
         satcat_catalog = std::move(satcat_cached->first);
+        std::string disposition_error;
+        const std::size_t disposition_count =
+            load_bundled_lunar_dispositions(satcat_catalog, &disposition_error);
+        if (disposition_count > 0)
+            DRAXUL_LOG_DEBUG(LogCategory::Renderer,
+                "SatView: excluded %zu confirmed non-orbiting lunar objects",
+                disposition_count);
+        if (!disposition_error.empty())
+            DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: %s", disposition_error.c_str());
         satcat_status.data_source = DataSource::Cache;
         satcat_status.fetched_at = satcat_cached->second.fetched_at;
         satcat_status.cache_age = std::chrono::duration_cast<std::chrono::seconds>(now - satcat_status.fetched_at);
@@ -512,6 +521,13 @@ void SatViewCatalogService::start(Config config)
     }
 
     SatelliteCatalog merged = merge_satellite_catalogs(gp_catalog, satcat_catalog);
+    std::string ephemeris_error;
+    const std::size_t ephemeris_count = load_bundled_sampled_ephemeris(merged, &ephemeris_error);
+    if (ephemeris_count > 0)
+        DRAXUL_LOG_DEBUG(LogCategory::Renderer,
+            "SatView: applied sampled ephemerides to %zu lunar objects", ephemeris_count);
+    if (!ephemeris_error.empty())
+        DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: %s", ephemeris_error.c_str());
     if (merged.objects.empty())
     {
         auto sample = load_sample_satellite_catalog();
@@ -753,6 +769,19 @@ void SatViewCatalogService::start_refresh()
                 {
                     result.satcat.success = true;
                     result.satcat.catalog = std::move(parsed.catalog);
+                    std::string disposition_error;
+                    const std::size_t disposition_count =
+                        load_bundled_lunar_dispositions(
+                            result.satcat.catalog,
+                            &disposition_error);
+                    if (disposition_count > 0)
+                        DRAXUL_LOG_DEBUG(LogCategory::Renderer,
+                            "SatView: excluded %zu confirmed non-orbiting lunar objects",
+                            disposition_count);
+                    if (!disposition_error.empty())
+                        DRAXUL_LOG_WARN(LogCategory::Renderer,
+                            "SatView: %s",
+                            disposition_error.c_str());
                     satcat_catalog = result.satcat.catalog;
                     std::string cache_error;
                     if (!write_cache_files(
@@ -773,7 +802,17 @@ void SatViewCatalogService::start_refresh()
 
         result.catalog_changed = result.gp.success || result.satcat.success;
         if (result.catalog_changed)
+        {
             result.merged_catalog = merge_satellite_catalogs(gp_catalog, satcat_catalog);
+            std::string ephemeris_error;
+            const std::size_t ephemeris_count =
+                load_bundled_sampled_ephemeris(result.merged_catalog, &ephemeris_error);
+            if (ephemeris_count > 0)
+                DRAXUL_LOG_DEBUG(LogCategory::Renderer,
+                    "SatView: applied sampled ephemerides to %zu lunar objects", ephemeris_count);
+            if (!ephemeris_error.empty())
+                DRAXUL_LOG_WARN(LogCategory::Renderer, "SatView: %s", ephemeris_error.c_str());
+        }
 
         std::lock_guard lock(mutex_);
         pending_result_ = std::move(result);

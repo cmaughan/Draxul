@@ -22,6 +22,13 @@ inline constexpr float kDefaultStarMaxMagnitude = 6.0f;
 inline constexpr float kMinimumStarBrightnessScale = 0.0f;
 inline constexpr float kMaximumStarBrightnessScale = 8.0f;
 inline constexpr float kDefaultStarBrightnessScale = 1.0f;
+inline constexpr float kMinimumConstellationLineWidth = 0.5f;
+inline constexpr float kMaximumConstellationLineWidth = 8.0f;
+inline constexpr float kDefaultConstellationFigureWidth = 2.0f;
+inline constexpr float kDefaultConstellationBoundaryWidth = 2.0f;
+inline constexpr float kMinimumMilkyWayBrightness = 0.0f;
+inline constexpr float kMaximumMilkyWayBrightness = 1.0f;
+inline constexpr float kDefaultMilkyWayBrightness = 0.55f;
 inline constexpr float kMinimumToneMapExposure = 0.0f;
 inline constexpr float kMaximumToneMapExposure = 8.0f;
 inline constexpr float kDefaultToneMapExposure = 1.32f;
@@ -85,8 +92,13 @@ struct SatViewConfig
     float star_min_magnitude = kDefaultStarMinMagnitude;
     float star_max_magnitude = kDefaultStarMaxMagnitude;
     float star_brightness_scale = kDefaultStarBrightnessScale;
+    float constellation_figure_width = kDefaultConstellationFigureWidth;
+    float constellation_boundary_width = kDefaultConstellationBoundaryWidth;
     bool constellation_lines_enabled = false;
+    bool constellation_boundaries_enabled = false;
+    bool constellation_labels_enabled = false;
     bool milky_way_enabled = false;
+    float milky_way_brightness = kDefaultMilkyWayBrightness;
     float tone_map_exposure = kDefaultToneMapExposure;
     float tone_map_white_point = kDefaultToneMapWhitePoint;
     bool show_hdr_debug_panel = false;
@@ -103,6 +115,8 @@ struct SatViewConfig
     float ground_marker_scale = 0.1f;
     bool ground_visible = true;
     bool ground_horizon_occlusion = true;
+    bool observatory_horizon_enabled = true;
+    bool cardinal_labels_enabled = false;
     double ground_longitude_radians = 0.0;
     double ground_latitude_radians = 0.0;
 

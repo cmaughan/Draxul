@@ -7,6 +7,6 @@
 namespace draxul::satview
 {
 
-[[nodiscard]] std::vector<SatViewSceneVertex> load_satview_constellation_catalog();
+[[nodiscard]] std::vector<SatViewCelestialLineInstance> load_satview_constellation_catalog();
 
 } // namespace draxul::satview

@@ -6,11 +6,14 @@ if(APPLE)
         src/satview_catalog_service.cpp
         src/satview_cloud_service.cpp
         src/satview_config.cpp
+        src/satview_constellation_boundary_catalog.cpp
         src/satview_constellation_catalog.cpp
         src/satview_filter.cpp
         src/satview_geodetic.cpp
         src/satview_ground_view.cpp
         src/satview_host.cpp
+        src/satview_label_layout.cpp
+        src/satview_landscape.cpp
         src/satview_map_projection.cpp
         src/satview_moon_ephemeris.cpp
         src/satview_propagation.cpp
@@ -27,11 +30,14 @@ else()
         src/satview_catalog_service.cpp
         src/satview_cloud_service.cpp
         src/satview_config.cpp
+        src/satview_constellation_boundary_catalog.cpp
         src/satview_constellation_catalog.cpp
         src/satview_filter.cpp
         src/satview_geodetic.cpp
         src/satview_ground_view.cpp
         src/satview_host.cpp
+        src/satview_label_layout.cpp
+        src/satview_landscape.cpp
         src/satview_map_projection.cpp
         src/satview_moon_ephemeris.cpp
         src/satview_propagation.cpp
@@ -74,7 +80,12 @@ target_link_libraries(draxul-satview PUBLIC
     draxul-renderer
     imgui
 )
-target_link_libraries(draxul-satview PRIVATE celestrak-sgp4 draxul-config draxul-ui)
+target_link_libraries(draxul-satview PRIVATE
+    celestrak-sgp4
+    draxul-config
+    draxul-font
+    draxul-ui
+)
 
 if(APPLE)
     find_library(METAL_FRAMEWORK Metal REQUIRED)

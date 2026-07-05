@@ -2,7 +2,8 @@
 
 #include <draxul/codeviz_scene_types.h>
 
-#include <draxul/text_service.h>
+#include <draxul/text_atlas.h>
+#include <draxul/text_atlas_builder.h>
 
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
@@ -14,12 +15,7 @@
 namespace draxul
 {
 
-struct SignAtlasEntry
-{
-    glm::vec4 uv_rect{ 0.0f, 0.0f, 1.0f, 1.0f };
-    glm::ivec2 pixel_size{ 0 };
-    glm::ivec2 ink_pixel_size{ 0 };
-};
+using SignAtlasEntry = TextAtlasEntry;
 
 enum class SignLabelVerticalAlign
 {
@@ -40,10 +36,8 @@ struct SignLabelRequest
     uint8_t text_b = 0;
 };
 
-struct SignLabelAtlas
+struct SignLabelAtlas : TextAtlas
 {
-    LabelAtlasData image;
-    std::unordered_map<std::string, SignAtlasEntry> entries;
 };
 
 [[nodiscard]] std::shared_ptr<SignLabelAtlas> build_sign_label_atlas(

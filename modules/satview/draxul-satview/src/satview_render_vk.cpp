@@ -23,12 +23,13 @@ namespace
 {
 
 constexpr size_t kEarthTextureCount = 3;
-constexpr uint32_t kSatViewSamplerCount = 7;
+constexpr uint32_t kSatViewSamplerCount = 8;
 constexpr uint32_t kBundledCloudTextureIndex = 2;
 constexpr uint32_t kLiveCloudTextureBinding = 3;
 constexpr uint32_t kMoonTextureBinding = 4;
 constexpr uint32_t kSunTextureBinding = 5;
 constexpr uint32_t kMilkyWayTextureBinding = 6;
+constexpr uint32_t kLabelTextureBinding = 7;
 
 struct BufferResource
 {
@@ -234,12 +235,14 @@ bool create_staging_buffer(VmaAllocator allocator, const LoadedTextureImage& ima
 }
 
 bool create_texture_resource(VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator,
-    const LoadedTextureImage& image, TextureResource& texture)
+    const LoadedTextureImage& image, TextureResource& texture,
+    VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
+    VkSamplerAddressMode address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT)
 {
     PERF_MEASURE();
     VkImageCreateInfo image_ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     image_ci.imageType = VK_IMAGE_TYPE_2D;
-    image_ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    image_ci.format = format;
     image_ci.extent = {
         static_cast<uint32_t>(image.width),
         static_cast<uint32_t>(image.height),
@@ -275,8 +278,8 @@ bool create_texture_resource(VkPhysicalDevice physical_device, VkDevice device, 
     sampler_ci.magFilter = VK_FILTER_LINEAR;
     sampler_ci.minFilter = VK_FILTER_LINEAR;
     sampler_ci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_ci.addressModeU = address_mode;
+    sampler_ci.addressModeV = address_mode;
     sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_ci.maxLod = 0.0f;
 
@@ -521,9 +524,12 @@ bool upload_texture_immediate(const VkRenderContext& ctx,
 }
 
 bool create_texture_immediate(
-    const VkRenderContext& ctx, const LoadedTextureImage& image, TextureResource& texture)
+    const VkRenderContext& ctx, const LoadedTextureImage& image, TextureResource& texture,
+    VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
+    VkSamplerAddressMode address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT)
 {
-    if (!create_texture_resource(ctx.physical_device(), ctx.device(), ctx.allocator(), image, texture))
+    if (!create_texture_resource(
+            ctx.physical_device(), ctx.device(), ctx.allocator(), image, texture, format, address_mode))
         return false;
     if (upload_texture_immediate(ctx, image, texture, VK_IMAGE_LAYOUT_UNDEFINED))
         return true;
@@ -591,6 +597,9 @@ struct SatViewScenePass::State
     VkPipeline skybox_pipeline = VK_NULL_HANDLE;
     VkPipeline star_pipeline = VK_NULL_HANDLE;
     VkPipeline constellation_pipeline = VK_NULL_HANDLE;
+    VkPipeline label_pipeline = VK_NULL_HANDLE;
+    VkPipeline landscape_fill_pipeline = VK_NULL_HANDLE;
+    VkPipeline landscape_rim_pipeline = VK_NULL_HANDLE;
     VkPipeline orbit_pipeline = VK_NULL_HANDLE;
     VkPipeline marker_pipeline = VK_NULL_HANDLE;
     VkPipeline tone_map_pipeline = VK_NULL_HANDLE;
@@ -605,21 +614,38 @@ struct SatViewScenePass::State
     TextureResource sun_texture;
     TextureResource milky_way_texture;
     TextureResource live_cloud_texture;
+    TextureResource label_texture;
     BufferResource track_vertex_buffer;
     BufferResource earth_track_vertex_buffer;
     BufferResource marker_buffer;
     BufferResource star_buffer;
     BufferResource constellation_buffer;
+    BufferResource constellation_boundary_buffer;
+    BufferResource constellation_label_buffer;
+    BufferResource cardinal_label_buffer;
+    BufferResource observatory_fill_buffer;
+    BufferResource observatory_rim_buffer;
     uint32_t track_vertex_count = 0;
     uint32_t earth_track_vertex_count = 0;
     uint32_t marker_count = 0;
     uint32_t star_count = 0;
-    uint32_t constellation_vertex_count = 0;
+    uint32_t constellation_line_count = 0;
+    uint32_t constellation_boundary_line_count = 0;
+    uint32_t constellation_label_count = 0;
+    uint32_t cardinal_label_count = 0;
+    uint32_t observatory_fill_triangle_count = 0;
+    uint32_t observatory_rim_line_count = 0;
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_earth_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
     uint64_t uploaded_star_revision = 0;
     uint64_t uploaded_constellation_revision = 0;
+    uint64_t uploaded_constellation_boundary_revision = 0;
+    uint64_t uploaded_constellation_label_revision = 0;
+    uint64_t uploaded_cardinal_label_revision = 0;
+    uint64_t uploaded_observatory_revision = 0;
+    uint64_t uploaded_observatory_rim_revision = 0;
+    uint64_t uploaded_label_atlas_revision = 0;
     uint64_t uploaded_cloud_revision = 0;
 
     ~State()
@@ -651,6 +677,12 @@ struct SatViewScenePass::State
                 vkDestroyPipeline(device, star_pipeline, nullptr);
             if (constellation_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, constellation_pipeline, nullptr);
+            if (label_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, label_pipeline, nullptr);
+            if (landscape_fill_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, landscape_fill_pipeline, nullptr);
+            if (landscape_rim_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, landscape_rim_pipeline, nullptr);
             if (orbit_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, orbit_pipeline, nullptr);
             if (marker_pipeline != VK_NULL_HANDLE)
@@ -666,6 +698,9 @@ struct SatViewScenePass::State
         skybox_pipeline = VK_NULL_HANDLE;
         star_pipeline = VK_NULL_HANDLE;
         constellation_pipeline = VK_NULL_HANDLE;
+        label_pipeline = VK_NULL_HANDLE;
+        landscape_fill_pipeline = VK_NULL_HANDLE;
+        landscape_rim_pipeline = VK_NULL_HANDLE;
         orbit_pipeline = VK_NULL_HANDLE;
         marker_pipeline = VK_NULL_HANDLE;
     }
@@ -773,11 +808,17 @@ struct SatViewScenePass::State
                 destroy_texture(device, allocator, sun_texture);
                 destroy_texture(device, allocator, milky_way_texture);
                 destroy_texture(device, allocator, live_cloud_texture);
+                destroy_texture(device, allocator, label_texture);
                 destroy_buffer(allocator, track_vertex_buffer);
                 destroy_buffer(allocator, earth_track_vertex_buffer);
                 destroy_buffer(allocator, marker_buffer);
                 destroy_buffer(allocator, star_buffer);
                 destroy_buffer(allocator, constellation_buffer);
+                destroy_buffer(allocator, constellation_boundary_buffer);
+                destroy_buffer(allocator, constellation_label_buffer);
+                destroy_buffer(allocator, cardinal_label_buffer);
+                destroy_buffer(allocator, observatory_fill_buffer);
+                destroy_buffer(allocator, observatory_rim_buffer);
             }
         }
         layout = VK_NULL_HANDLE;
@@ -792,12 +833,23 @@ struct SatViewScenePass::State
         earth_track_vertex_count = 0;
         marker_count = 0;
         star_count = 0;
-        constellation_vertex_count = 0;
+        constellation_line_count = 0;
+        constellation_boundary_line_count = 0;
+        constellation_label_count = 0;
+        cardinal_label_count = 0;
+        observatory_fill_triangle_count = 0;
+        observatory_rim_line_count = 0;
         uploaded_track_revision = 0;
         uploaded_earth_track_revision = 0;
         uploaded_marker_revision = 0;
         uploaded_star_revision = 0;
         uploaded_constellation_revision = 0;
+        uploaded_constellation_boundary_revision = 0;
+        uploaded_constellation_label_revision = 0;
+        uploaded_cardinal_label_revision = 0;
+        uploaded_observatory_revision = 0;
+        uploaded_observatory_rim_revision = 0;
+        uploaded_label_atlas_revision = 0;
         uploaded_cloud_revision = 0;
     }
 
@@ -844,6 +896,18 @@ struct SatViewScenePass::State
         if (!create_texture_immediate(ctx, milky_way_image, milky_way_texture))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to upload Milky Way texture");
+            destroy();
+            return false;
+        }
+        const LoadedTextureImage transparent_label{ 1, 1, { 0, 0, 0, 0 } };
+        if (!create_texture_immediate(
+                ctx,
+                transparent_label,
+                label_texture,
+                VK_FORMAT_R8G8B8A8_UNORM,
+                VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create label atlas texture");
             destroy();
             return false;
         }
@@ -917,6 +981,8 @@ struct SatViewScenePass::State
             const TextureResource* texture = nullptr;
             if (index == kMilkyWayTextureBinding)
                 texture = &milky_way_texture;
+            else if (index == kLabelTextureBinding)
+                texture = &label_texture;
             else if (index == kSunTextureBinding)
                 texture = &sun_texture;
             else if (index == kMoonTextureBinding)
@@ -1036,6 +1102,52 @@ struct SatViewScenePass::State
         std::memcpy(buffer.mapped, items.data(), byte_size);
         vmaFlushAllocation(ctx.allocator(), buffer.allocation, 0, byte_size);
         uploaded_revision = revision;
+        return true;
+    }
+
+    bool ensure_label_texture(
+        const VkRenderContext& ctx,
+        const TextAtlasImage& image,
+        uint64_t revision)
+    {
+        if (revision == uploaded_label_atlas_revision)
+            return true;
+        LoadedTextureImage upload_image{ image.width, image.height, image.rgba };
+        bool uploaded = false;
+        if (label_texture.image == VK_NULL_HANDLE
+            || image.width != label_texture.width
+            || image.height != label_texture.height)
+        {
+            destroy_texture(ctx.device(), ctx.allocator(), label_texture);
+            uploaded = create_texture_immediate(
+                ctx,
+                upload_image,
+                label_texture,
+                VK_FORMAT_R8G8B8A8_UNORM,
+                VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+        }
+        else
+        {
+            uploaded = update_texture_immediate(ctx, upload_image, label_texture);
+        }
+        if (!uploaded)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to upload label atlas texture");
+            return false;
+        }
+
+        VkDescriptorImageInfo image_info{};
+        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info.imageView = label_texture.view;
+        image_info.sampler = label_texture.sampler;
+        VkWriteDescriptorSet write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet = descriptor_set;
+        write.dstBinding = kLabelTextureBinding;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &image_info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        uploaded_label_atlas_revision = revision;
         return true;
     }
 
@@ -1473,6 +1585,9 @@ struct SatViewScenePass::State
             && skybox_pipeline != VK_NULL_HANDLE
             && star_pipeline != VK_NULL_HANDLE
             && constellation_pipeline != VK_NULL_HANDLE
+            && label_pipeline != VK_NULL_HANDLE
+            && landscape_fill_pipeline != VK_NULL_HANDLE
+            && landscape_rim_pipeline != VK_NULL_HANDLE
             && orbit_pipeline != VK_NULL_HANDLE
             && device == new_device && render_pass == new_render_pass)
             return true;
@@ -1506,8 +1621,18 @@ struct SatViewScenePass::State
             load_shader(device, (shader_dir / "satview_skybox.frag.spv").string());
         VkShaderModule star_vert = load_shader(device, (shader_dir / "satview_star.vert.spv").string());
         VkShaderModule star_frag = load_shader(device, (shader_dir / "satview_star.frag.spv").string());
-        VkShaderModule constellation_vert =
-            load_shader(device, (shader_dir / "satview_constellation.vert.spv").string());
+        VkShaderModule celestial_line_vert =
+            load_shader(device, (shader_dir / "satview_celestial_line.vert.spv").string());
+        VkShaderModule celestial_line_frag =
+            load_shader(device, (shader_dir / "satview_celestial_line.frag.spv").string());
+        VkShaderModule label_vert =
+            load_shader(device, (shader_dir / "satview_label.vert.spv").string());
+        VkShaderModule label_frag =
+            load_shader(device, (shader_dir / "satview_label.frag.spv").string());
+        VkShaderModule landscape_vert =
+            load_shader(device, (shader_dir / "satview_landscape.vert.spv").string());
+        VkShaderModule landscape_rim_vert =
+            load_shader(device, (shader_dir / "satview_landscape_rim.vert.spv").string());
         VkShaderModule orbit_vert = load_shader(device, (shader_dir / "satview_orbit.vert.spv").string());
         VkShaderModule marker_vert = load_shader(device, (shader_dir / "satview_marker.vert.spv").string(), false);
         VkShaderModule orbit_frag = load_shader(device, (shader_dir / "satview_orbit.frag.spv").string());
@@ -1519,7 +1644,9 @@ struct SatViewScenePass::State
             || ground_atmosphere_vert == VK_NULL_HANDLE || ground_atmosphere_frag == VK_NULL_HANDLE
             || ground_surface_frag == VK_NULL_HANDLE || skybox_frag == VK_NULL_HANDLE
             || star_vert == VK_NULL_HANDLE || star_frag == VK_NULL_HANDLE
-            || constellation_vert == VK_NULL_HANDLE
+            || celestial_line_vert == VK_NULL_HANDLE || celestial_line_frag == VK_NULL_HANDLE
+            || label_vert == VK_NULL_HANDLE || label_frag == VK_NULL_HANDLE
+            || landscape_vert == VK_NULL_HANDLE || landscape_rim_vert == VK_NULL_HANDLE
             || orbit_vert == VK_NULL_HANDLE || orbit_frag == VK_NULL_HANDLE)
         {
             if (vert != VK_NULL_HANDLE)
@@ -1554,8 +1681,18 @@ struct SatViewScenePass::State
                 vkDestroyShaderModule(device, star_vert, nullptr);
             if (star_frag != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, star_frag, nullptr);
-            if (constellation_vert != VK_NULL_HANDLE)
-                vkDestroyShaderModule(device, constellation_vert, nullptr);
+            if (celestial_line_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, celestial_line_vert, nullptr);
+            if (celestial_line_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, celestial_line_frag, nullptr);
+            if (label_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, label_vert, nullptr);
+            if (label_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, label_frag, nullptr);
+            if (landscape_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, landscape_vert, nullptr);
+            if (landscape_rim_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, landscape_rim_vert, nullptr);
             if (orbit_vert != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, orbit_vert, nullptr);
             if (marker_vert != VK_NULL_HANDLE)
@@ -1731,33 +1868,28 @@ struct SatViewScenePass::State
         }
         if (result == VK_SUCCESS)
         {
-            VkVertexInputBindingDescription orbit_binding{};
-            orbit_binding.binding = 0;
-            orbit_binding.stride = sizeof(SatViewSceneVertex);
-            orbit_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-            VkVertexInputAttributeDescription orbit_attributes[3]{};
-            orbit_attributes[0].binding = 0;
-            orbit_attributes[0].location = 0;
-            orbit_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-            orbit_attributes[0].offset = offsetof(SatViewSceneVertex, position);
-            orbit_attributes[1].binding = 0;
-            orbit_attributes[1].location = 1;
-            orbit_attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-            orbit_attributes[1].offset = offsetof(SatViewSceneVertex, color);
-            orbit_attributes[2].binding = 0;
-            orbit_attributes[2].location = 2;
-            orbit_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-            orbit_attributes[2].offset = offsetof(SatViewSceneVertex, paired_position);
-
+            VkVertexInputBindingDescription line_binding{};
+            line_binding.binding = 0;
+            line_binding.stride = sizeof(SatViewCelestialLineInstance);
+            line_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+            VkVertexInputAttributeDescription line_attributes[4]{};
+            for (uint32_t index = 0; index < 4; ++index)
+            {
+                line_attributes[index].binding = 0;
+                line_attributes[index].location = index;
+                line_attributes[index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            }
+            line_attributes[0].offset = offsetof(SatViewCelestialLineInstance, start_direction_width);
+            line_attributes[1].offset = offsetof(SatViewCelestialLineInstance, end_direction_dash);
+            line_attributes[2].offset = offsetof(SatViewCelestialLineInstance, color);
+            line_attributes[3].offset = offsetof(SatViewCelestialLineInstance, style);
             vertex_input.vertexBindingDescriptionCount = 1;
-            vertex_input.pVertexBindingDescriptions = &orbit_binding;
-            vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(std::size(orbit_attributes));
-            vertex_input.pVertexAttributeDescriptions = orbit_attributes;
-
-            stages[0].module = constellation_vert;
-            stages[1].module = orbit_frag;
-            input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            vertex_input.pVertexBindingDescriptions = &line_binding;
+            vertex_input.vertexAttributeDescriptionCount = 4;
+            vertex_input.pVertexAttributeDescriptions = line_attributes;
+            stages[0].module = celestial_line_vert;
+            stages[1].module = celestial_line_frag;
+            input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             depth.depthTestEnable = VK_FALSE;
             depth.depthWriteEnable = VK_FALSE;
             blend_attachment.blendEnable = VK_TRUE;
@@ -1769,13 +1901,123 @@ struct SatViewScenePass::State
             blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
             result = vkCreateGraphicsPipelines(
                 device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &constellation_pipeline);
+        }
+        if (result == VK_SUCCESS)
+        {
+            VkVertexInputBindingDescription orbit_binding{};
+            orbit_binding.binding = 0;
+            orbit_binding.stride = sizeof(SatViewSceneVertex);
+            orbit_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+            VkVertexInputAttributeDescription orbit_attributes[3]{};
+            orbit_attributes[0] = { 0, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                static_cast<uint32_t>(offsetof(SatViewSceneVertex, position)) };
+            orbit_attributes[1] = { 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                static_cast<uint32_t>(offsetof(SatViewSceneVertex, color)) };
+            orbit_attributes[2] = { 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                static_cast<uint32_t>(offsetof(SatViewSceneVertex, paired_position)) };
+            vertex_input.vertexBindingDescriptionCount = 1;
+            vertex_input.pVertexBindingDescriptions = &orbit_binding;
+            vertex_input.vertexAttributeDescriptionCount = 3;
+            vertex_input.pVertexAttributeDescriptions = orbit_attributes;
+            stages[0].module = orbit_vert;
+            stages[1].module = orbit_frag;
+            input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            depth.depthTestEnable = VK_TRUE;
+            depth.depthWriteEnable = VK_FALSE;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &orbit_pipeline);
+        }
+        if (result == VK_SUCCESS)
+        {
+            VkVertexInputBindingDescription landscape_binding{};
+            landscape_binding.binding = 0;
+            landscape_binding.stride = sizeof(SatViewLandscapeTriangleInstance);
+            landscape_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+            VkVertexInputAttributeDescription landscape_attributes[4]{};
+            for (uint32_t index = 0; index < 4; ++index)
+            {
+                landscape_attributes[index].binding = 0;
+                landscape_attributes[index].location = index;
+                landscape_attributes[index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            }
+            landscape_attributes[0].offset = offsetof(SatViewLandscapeTriangleInstance, local_direction0);
+            landscape_attributes[1].offset = offsetof(SatViewLandscapeTriangleInstance, local_direction1);
+            landscape_attributes[2].offset = offsetof(SatViewLandscapeTriangleInstance, local_direction2);
+            landscape_attributes[3].offset = offsetof(SatViewLandscapeTriangleInstance, color);
+            vertex_input.vertexBindingDescriptionCount = 1;
+            vertex_input.pVertexBindingDescriptions = &landscape_binding;
+            vertex_input.vertexAttributeDescriptionCount = 4;
+            vertex_input.pVertexAttributeDescriptions = landscape_attributes;
+            stages[0].module = landscape_vert;
+            stages[1].module = orbit_frag;
+            depth.depthTestEnable = VK_FALSE;
+            depth.depthWriteEnable = VK_FALSE;
+            blend_attachment.blendEnable = VK_TRUE;
+            blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &landscape_fill_pipeline);
             if (result == VK_SUCCESS)
             {
-                depth.depthTestEnable = VK_TRUE;
-                stages[0].module = orbit_vert;
+                VkVertexInputBindingDescription rim_binding{};
+                rim_binding.binding = 0;
+                rim_binding.stride = sizeof(SatViewLandscapeLineInstance);
+                rim_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+                VkVertexInputAttributeDescription rim_attributes[3]{};
+                for (uint32_t index = 0; index < 3; ++index)
+                {
+                    rim_attributes[index].binding = 0;
+                    rim_attributes[index].location = index;
+                    rim_attributes[index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+                }
+                rim_attributes[0].offset = offsetof(SatViewLandscapeLineInstance, local_direction0);
+                rim_attributes[1].offset = offsetof(SatViewLandscapeLineInstance, local_direction1);
+                rim_attributes[2].offset = offsetof(SatViewLandscapeLineInstance, color);
+                vertex_input.pVertexBindingDescriptions = &rim_binding;
+                vertex_input.vertexAttributeDescriptionCount = 3;
+                vertex_input.pVertexAttributeDescriptions = rim_attributes;
+                stages[0].module = landscape_rim_vert;
+                input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
                 result = vkCreateGraphicsPipelines(
-                    device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &orbit_pipeline);
+                    device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &landscape_rim_pipeline);
             }
+        }
+        if (result == VK_SUCCESS)
+        {
+            VkVertexInputBindingDescription label_binding{};
+            label_binding.binding = 0;
+            label_binding.stride = sizeof(SatViewLabelInstance);
+            label_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+            VkVertexInputAttributeDescription label_attributes[4]{};
+            for (uint32_t index = 0; index < 4; ++index)
+            {
+                label_attributes[index].binding = 0;
+                label_attributes[index].location = index;
+                label_attributes[index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            }
+            label_attributes[0].offset = offsetof(SatViewLabelInstance, direction_priority);
+            label_attributes[1].offset = offsetof(SatViewLabelInstance, uv_rect);
+            label_attributes[2].offset = offsetof(SatViewLabelInstance, pixel_size_offset);
+            label_attributes[3].offset = offsetof(SatViewLabelInstance, color);
+            vertex_input.vertexBindingDescriptionCount = 1;
+            vertex_input.pVertexBindingDescriptions = &label_binding;
+            vertex_input.vertexAttributeDescriptionCount = 4;
+            vertex_input.pVertexAttributeDescriptions = label_attributes;
+            stages[0].module = label_vert;
+            stages[1].module = label_frag;
+            input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            depth.depthTestEnable = VK_FALSE;
+            depth.depthWriteEnable = VK_FALSE;
+            blend_attachment.blendEnable = VK_TRUE;
+            blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &label_pipeline);
         }
         if (result == VK_SUCCESS && marker_vert != VK_NULL_HANDLE)
         {
@@ -1806,7 +2048,10 @@ struct SatViewScenePass::State
             stages[0].module = marker_vert;
             stages[1].module = orbit_frag;
             input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            depth.depthTestEnable = VK_TRUE;
             depth.depthWriteEnable = VK_FALSE;
+            blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
             const VkResult marker_result =
                 vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &marker_pipeline);
             if (marker_result != VK_SUCCESS)
@@ -1832,7 +2077,12 @@ struct SatViewScenePass::State
         vkDestroyShaderModule(device, skybox_frag, nullptr);
         vkDestroyShaderModule(device, star_vert, nullptr);
         vkDestroyShaderModule(device, star_frag, nullptr);
-        vkDestroyShaderModule(device, constellation_vert, nullptr);
+        vkDestroyShaderModule(device, celestial_line_vert, nullptr);
+        vkDestroyShaderModule(device, celestial_line_frag, nullptr);
+        vkDestroyShaderModule(device, label_vert, nullptr);
+        vkDestroyShaderModule(device, label_frag, nullptr);
+        vkDestroyShaderModule(device, landscape_vert, nullptr);
+        vkDestroyShaderModule(device, landscape_rim_vert, nullptr);
         vkDestroyShaderModule(device, orbit_vert, nullptr);
         if (marker_vert != VK_NULL_HANDLE)
             vkDestroyShaderModule(device, marker_vert, nullptr);
@@ -1868,6 +2118,8 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     if (pending_cloud_image_
         && state_->ensure_cloud_texture(*vk_ctx, *pending_cloud_image_, cloud_revision_))
         pending_cloud_image_.reset();
+    if (label_atlas_)
+        state_->ensure_label_texture(*vk_ctx, *label_atlas_, label_atlas_revision_);
     state_->ensure_vertex_buffer(
         *vk_ctx,
         track_vertices_,
@@ -1898,11 +2150,46 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         state_->uploaded_star_revision);
     state_->ensure_vertex_buffer(
         *vk_ctx,
-        constellation_vertices_,
+        constellation_lines_,
         constellation_revision_,
         state_->constellation_buffer,
-        state_->constellation_vertex_count,
+        state_->constellation_line_count,
         state_->uploaded_constellation_revision);
+    state_->ensure_vertex_buffer(
+        *vk_ctx,
+        constellation_boundary_lines_,
+        constellation_boundary_revision_,
+        state_->constellation_boundary_buffer,
+        state_->constellation_boundary_line_count,
+        state_->uploaded_constellation_boundary_revision);
+    state_->ensure_vertex_buffer(
+        *vk_ctx,
+        constellation_labels_,
+        constellation_label_revision_,
+        state_->constellation_label_buffer,
+        state_->constellation_label_count,
+        state_->uploaded_constellation_label_revision);
+    state_->ensure_vertex_buffer(
+        *vk_ctx,
+        cardinal_labels_,
+        cardinal_label_revision_,
+        state_->cardinal_label_buffer,
+        state_->cardinal_label_count,
+        state_->uploaded_cardinal_label_revision);
+    state_->ensure_vertex_buffer(
+        *vk_ctx,
+        observatory_fill_triangles_,
+        observatory_revision_,
+        state_->observatory_fill_buffer,
+        state_->observatory_fill_triangle_count,
+        state_->uploaded_observatory_revision);
+    state_->ensure_vertex_buffer(
+        *vk_ctx,
+        observatory_rim_lines_,
+        observatory_revision_,
+        state_->observatory_rim_buffer,
+        state_->observatory_rim_line_count,
+        state_->uploaded_observatory_rim_revision);
 
     const uint32_t frame_index = vk_ctx->frame_index() % static_cast<uint32_t>(state_->hdr_targets.size());
     auto& targets = state_->hdr_targets[frame_index];
@@ -1957,25 +2244,61 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     };
     auto draw_constellations = [&]() {
         if (!constellation_lines_enabled_
-            || state_->constellation_vertex_count == 0
+            || state_->constellation_line_count == 0
             || state_->constellation_buffer.buffer == VK_NULL_HANDLE
             || state_->constellation_pipeline == VK_NULL_HANDLE)
             return;
 
         VkDeviceSize offset = 0;
+        SatViewFrameUniforms line_frame = frame;
+        line_frame.render_params = glm::vec4(
+            static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->constellation_pipeline);
         vkCmdBindVertexBuffers(cmd, 0, 1, &state_->constellation_buffer.buffer, &offset);
         vkCmdPushConstants(cmd, state_->layout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            0, sizeof(SatViewFrameUniforms), &frame);
-        vkCmdDraw(cmd, state_->constellation_vertex_count, 1, 0, 0);
+            0, sizeof(SatViewFrameUniforms), &line_frame);
+        vkCmdDraw(cmd, 6, state_->constellation_line_count, 0, 0);
+    };
+    auto draw_boundaries = [&]() {
+        if (!constellation_boundaries_enabled_
+            || state_->constellation_boundary_line_count == 0
+            || state_->constellation_boundary_buffer.buffer == VK_NULL_HANDLE
+            || state_->constellation_pipeline == VK_NULL_HANDLE)
+            return;
+        VkDeviceSize offset = 0;
+        SatViewFrameUniforms line_frame = frame;
+        line_frame.render_params = glm::vec4(
+            static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->constellation_pipeline);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &state_->constellation_boundary_buffer.buffer, &offset);
+        vkCmdPushConstants(cmd, state_->layout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, sizeof(SatViewFrameUniforms), &line_frame);
+        vkCmdDraw(cmd, 6, state_->constellation_boundary_line_count, 0, 0);
+    };
+    auto draw_labels = [&](BufferResource& buffer, uint32_t count) {
+        if (count == 0 || buffer.buffer == VK_NULL_HANDLE || state_->label_pipeline == VK_NULL_HANDLE)
+            return;
+        VkDeviceSize offset = 0;
+        SatViewFrameUniforms label_frame = frame;
+        label_frame.render_params = glm::vec4(
+            static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->label_pipeline);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &buffer.buffer, &offset);
+        vkCmdPushConstants(cmd, state_->layout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0, sizeof(SatViewFrameUniforms), &label_frame);
+        vkCmdDraw(cmd, 6, count, 0, 0);
     };
     if (milky_way_enabled_ && !map_projection_)
     {
+        SatViewFrameUniforms skybox_frame = frame;
+        skybox_frame.render_params.w = milky_way_brightness_;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->skybox_pipeline);
         vkCmdPushConstants(cmd, state_->layout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            0, sizeof(SatViewFrameUniforms), &frame);
+            0, sizeof(SatViewFrameUniforms), &skybox_frame);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
     if (map_projection_)
@@ -2000,8 +2323,10 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
             vkCmdDraw(cmd, 3, 1, 0, 0);
         }
 
+        draw_boundaries();
         draw_constellations();
         draw_stars();
+        draw_labels(state_->constellation_label_buffer, state_->constellation_label_count);
 
         if (sun_enabled_ && sun_position_radius_.w > 0.0f)
         {
@@ -2036,8 +2361,10 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     }
     else
     {
+        draw_boundaries();
         draw_constellations();
         draw_stars();
+        draw_labels(state_->constellation_label_buffer, state_->constellation_label_count);
 
         if (sun_enabled_ && sun_position_radius_.w > 0.0f)
         {
@@ -2161,6 +2488,30 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
             0, sizeof(SatViewFrameUniforms), &frame);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
+
+    if (ground_projection_ && observatory_horizon_enabled_)
+    {
+        VkDeviceSize offset = 0;
+        if (state_->observatory_fill_triangle_count != 0
+            && state_->observatory_fill_buffer.buffer != VK_NULL_HANDLE)
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->landscape_fill_pipeline);
+            vkCmdBindVertexBuffers(cmd, 0, 1, &state_->observatory_fill_buffer.buffer, &offset);
+            vkCmdPushConstants(cmd, state_->layout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0, sizeof(SatViewFrameUniforms), &frame);
+            vkCmdDraw(cmd, 3, state_->observatory_fill_triangle_count, 0, 0);
+        }
+        if (state_->observatory_rim_line_count != 0
+            && state_->observatory_rim_buffer.buffer != VK_NULL_HANDLE)
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->landscape_rim_pipeline);
+            vkCmdBindVertexBuffers(cmd, 0, 1, &state_->observatory_rim_buffer.buffer, &offset);
+            vkCmdDraw(cmd, 2, state_->observatory_rim_line_count, 0, 0);
+        }
+    }
+    if (ground_projection_)
+        draw_labels(state_->cardinal_label_buffer, state_->cardinal_label_count);
 
     vkCmdEndRenderPass(cmd);
 

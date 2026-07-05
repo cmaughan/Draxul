@@ -17,6 +17,7 @@ struct ImGuiContext;
 namespace draxul
 {
 class HostProviderRegistry;
+struct TextAtlas;
 }
 
 namespace draxul::satview
@@ -29,7 +30,9 @@ class SatViewCloudService;
 class Camera;
 class Manipulator;
 struct SatViewStarInstance;
-struct SatViewSceneVertex;
+struct SatViewCelestialLineInstance;
+struct SatViewLabelInstance;
+struct SatViewConstellationBoundaryCatalog;
 struct SatViewSimulationSnapshot;
 
 class SatViewHost final : public draxul::IHost
@@ -44,6 +47,7 @@ public:
     std::string init_error() const override;
 
     void set_viewport(const draxul::HostViewport& viewport) override;
+    void on_font_metrics_changed() override;
     void pump() override;
     void draw(draxul::IFrameContext& frame) override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
@@ -68,13 +72,15 @@ public:
 private:
     struct ObjectTreeEntry
     {
+        CentralBody central_body = CentralBody::Earth;
         SatellitePopulation population = SatellitePopulation::Unknown;
         OrbitClass orbit_class = OrbitClass::Other;
         std::string prefix;
         std::string label;
         std::string object_name;
         std::int64_t norad_catalog_id = 0;
-        std::size_t state_index = 0;
+        std::size_t catalog_index = 0;
+        std::optional<std::size_t> state_index;
     };
 
     void request_redraw();
@@ -87,6 +93,18 @@ private:
     void sync_simulation_controls();
     void sync_simulation_render_settings();
     void rebuild_visible_stars();
+    void update_constellation_line_styles();
+    void render_dockspace(bool keep_alive_only);
+    void render_view_display_controls(bool& changed);
+    void render_visual_controls();
+    void refresh_scene_text_service();
+    void rebuild_scene_text_atlas();
+    void rebuild_scene_labels(
+        const glm::mat4& view,
+        const glm::mat4& projection,
+        const glm::dvec3& ground_observer,
+        glm::vec4 moon_position_radius,
+        glm::vec4 sun_position_radius);
     void set_real_time();
     void set_camera_pov(SatViewCameraPov pov, double simulation_seconds);
     void reset_camera();
@@ -101,6 +119,7 @@ private:
     void render_control_panel(const SatViewSimulationSnapshot* snapshot);
     std::size_t visible_track_count(const SatViewSimulationSnapshot* snapshot) const;
     const SatellitePropagatedState* selected_satellite(const SatViewSimulationSnapshot* snapshot) const;
+    const SatelliteRecord* selected_catalog_record() const;
     void clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot);
     void select_nearest_satellite(const glm::ivec2& screen_pos);
 
@@ -112,6 +131,7 @@ private:
     std::unique_ptr<SatViewCloudService> cloud_service_;
     std::unique_ptr<SatViewSimulationWorker> simulation_worker_;
     std::uint64_t simulation_catalog_generation_ = 0;
+    SatelliteCatalog catalog_snapshot_;
     std::string init_error_;
     SatViewFilterState filter_;
     std::optional<std::int64_t> selected_norad_catalog_id_;
@@ -135,8 +155,13 @@ private:
     float star_min_magnitude_ = kDefaultStarMinMagnitude;
     float star_max_magnitude_ = kDefaultStarMaxMagnitude;
     float star_brightness_scale_ = kDefaultStarBrightnessScale;
+    float constellation_figure_width_ = kDefaultConstellationFigureWidth;
+    float constellation_boundary_width_ = kDefaultConstellationBoundaryWidth;
     bool constellation_lines_enabled_ = false;
+    bool constellation_boundaries_enabled_ = false;
+    bool constellation_labels_enabled_ = false;
     bool milky_way_enabled_ = false;
+    float milky_way_brightness_ = kDefaultMilkyWayBrightness;
     float tone_map_exposure_ = kDefaultToneMapExposure;
     float tone_map_white_point_ = kDefaultToneMapWhitePoint;
     bool show_hdr_debug_panel_ = false;
@@ -159,6 +184,8 @@ private:
     bool sun_enabled_ = true;
     bool ground_visible_ = true;
     bool ground_horizon_occlusion_ = true;
+    bool observatory_horizon_enabled_ = true;
+    bool cardinal_labels_enabled_ = false;
     const void* uploaded_track_source_ = nullptr;
     std::optional<double> moon_track_center_seconds_;
     std::optional<double> earth_track_center_seconds_;
@@ -170,7 +197,17 @@ private:
     std::vector<std::size_t> filtered_object_tree_indices_;
     std::vector<SatViewStarInstance> stars_;
     std::vector<SatViewStarInstance> visible_stars_;
-    std::vector<SatViewSceneVertex> constellation_vertices_;
+    std::vector<SatViewCelestialLineInstance> constellation_lines_;
+    std::vector<SatViewCelestialLineInstance> constellation_boundary_lines_;
+    std::vector<SatViewLabelInstance> constellation_label_instances_;
+    std::vector<SatViewLabelInstance> cardinal_label_instances_;
+    std::unique_ptr<SatViewConstellationBoundaryCatalog> constellation_boundary_catalog_;
+    draxul::TextService* app_text_service_ = nullptr;
+    std::unique_ptr<draxul::TextService> scene_text_service_;
+    std::shared_ptr<draxul::TextAtlas> scene_text_atlas_;
+    std::string scene_font_path_;
+    float display_ppi_ = 96.0f;
+    std::uint64_t scene_text_atlas_revision_ = 0;
     std::shared_ptr<Camera> camera_;
     std::unique_ptr<Manipulator> camera_manipulator_;
     std::unique_ptr<SatViewCameraKeyState> camera_keys_;

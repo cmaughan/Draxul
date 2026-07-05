@@ -4,6 +4,7 @@ add_library(draxul-font
     src/font_resolver.cpp
     src/glyph_cache.cpp
     src/rich_text_service.cpp
+    src/text_atlas_builder.cpp
     src/text_shaper.cpp
     src/text_service.cpp
 )

@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/satview/satview_catalog.h>
 #include <draxul/satview/satview_propagation.h>
+#include "satview_moon_ephemeris.h"
 #include <glm/geometric.hpp>
 #include <algorithm>
 #include <cmath>
@@ -11,6 +12,7 @@
 
 using Catch::Approx;
 using draxul::satview::SatellitePropagationExecutor;
+using draxul::satview::CentralBody;
 using draxul::satview::SatellitePropagationSettings;
 using draxul::satview::build_satellite_propagation_model;
 using draxul::satview::greenwich_sidereal_angle_radians;
@@ -19,6 +21,7 @@ using draxul::satview::parse_celestrak_epoch_utc;
 using draxul::satview::parse_celestrak_gp_json;
 using draxul::satview::parse_celestrak_satcat_csv;
 using draxul::satview::propagate_satellites;
+using draxul::satview::load_bundled_sampled_ephemeris;
 using draxul::satview::solar_direction_render;
 using draxul::satview::solar_direction_teme;
 using draxul::satview::teme_position_to_render_earth_radii;
@@ -296,6 +299,124 @@ TEST_CASE("SatView SATCAT summary propagation is deterministic periodic and boun
     CHECK(minimum_altitude == Approx(500.0).margin(1.0));
     CHECK(maximum_altitude == Approx(3500.0).margin(1.0));
     CHECK(glm::length(points.front() - points.back()) == Approx(0.0).margin(1.0e-6));
+}
+
+TEST_CASE("SatView does not invent Moon-relative states from SATCAT summaries", "[satview][propagation][moon]")
+{
+    const std::string csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "DRO-A,81002,2026-001B,PAY,+,,13000,5,70000,69000,MO,ORB\n";
+    const auto catalog = parse_celestrak_satcat_csv(csv);
+    REQUIRE(catalog);
+    REQUIRE(catalog.catalog.objects.size() == 1);
+    CHECK_FALSE(catalog.catalog.objects[0].renderable);
+    CHECK(catalog.catalog.objects[0].solution_kind
+        == draxul::satview::OrbitSolutionKind::CatalogOnly);
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    CHECK_FALSE(build);
+    CHECK(build.compiled_records == 0);
+}
+
+TEST_CASE("SatView sampled lunar ephemerides interpolate only within their validity range", "[satview][propagation][moon]")
+{
+    draxul::satview::SatelliteCatalog catalog;
+    draxul::satview::SatelliteRecord record;
+    record.norad_catalog_id = 38301;
+    record.object_name = "LRO";
+    record.central_body = CentralBody::Moon;
+    record.solution_kind = draxul::satview::OrbitSolutionKind::SampledEphemeris;
+    record.renderable = true;
+    record.ephemeris_track_horizon_minutes = 2.0;
+    record.ephemeris_samples = {
+        { 970.0, 1800.0, 0.0, 0.0, 1.0, 1.6, 0.0 },
+        { 1090.0, 1800.0, 192.0, 0.0, -1.0, 1.6, 0.0 },
+    };
+    catalog.objects.push_back(record);
+    auto build = build_satellite_propagation_model(catalog);
+    REQUIRE(build);
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 3;
+    settings.track_satellite_limit = 1;
+    const auto midpoint = propagate_satellites(build.model, 1030.0, settings);
+    REQUIRE(midpoint);
+    REQUIRE(midpoint.states.size() == 1);
+    const glm::dvec3 moon = draxul::satview::satview_moon_position(1030.0).equatorial_position_km;
+    CHECK(midpoint.states[0].teme_position_km.x - moon.x == Approx(1830.0));
+    CHECK(midpoint.states[0].teme_position_km.y - moon.y == Approx(96.0));
+    REQUIRE(midpoint.tracks.size() == 1);
+    CHECK(midpoint.tracks[0].sample_horizon_minutes == Approx(2.0));
+    CHECK(midpoint.tracks[0].teme_points_km.size() == 3);
+    const auto& track_points = midpoint.tracks[0].teme_points_km;
+    CHECK(track_points[0].x - moon.x == Approx(1800.0));
+    CHECK(track_points[0].y - moon.y == Approx(0.0));
+    CHECK(track_points[1].x - moon.x == Approx(1830.0));
+    CHECK(track_points[1].y - moon.y == Approx(96.0));
+    CHECK(track_points[2].x - moon.x == Approx(1800.0));
+    CHECK(track_points[2].y - moon.y == Approx(192.0));
+    const glm::dvec3 later_moon = draxul::satview::satview_moon_position(1090.0)
+                                      .equatorial_position_km;
+    const glm::dvec3 anchor_offset =
+        draxul::satview::satellite_track_anchor_offset_km(midpoint.tracks[0], 1090.0);
+    CHECK(moon.x + anchor_offset.x == Approx(later_moon.x));
+    CHECK(moon.y + anchor_offset.y == Approx(later_moon.y));
+    CHECK(moon.z + anchor_offset.z == Approx(later_moon.z));
+
+    const auto stale = propagate_satellites(build.model, 1091.0);
+    REQUIRE(stale);
+    CHECK(stale.states.empty());
+    CHECK(stale.failed_propagations == 1);
+}
+
+TEST_CASE("SatView propagates the bundled curated Horizons missions near the Moon", "[satview][propagation][moon]")
+{
+    const std::string satcat_csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "ARTEMIS P1 (THEMIS B),30581,PAY,,,,,,MO,ORB\n"
+        "ARTEMIS P2 (THEMIS C),30582,PAY,,,,,,MO,ORB\n"
+        "LRO,35315,PAY,,,,,,MO,ORB\n"
+        "CHANDRAYAAN-2,44441,PAY,,,,,,MO,ORB\n"
+        "CAPSTONE,52914,PAY,,,,,,MO,ORB\n"
+        "DANURI,53365,PAY,,,,,,MO,ORB\n";
+    auto parsed = parse_celestrak_satcat_csv(satcat_csv);
+    REQUIRE(parsed);
+    REQUIRE(load_bundled_sampled_ephemeris(parsed.catalog) == 6);
+    const auto earth = parse_celestrak_gp_json(kVallado00005Json);
+    REQUIRE(earth);
+    parsed.catalog.objects.insert(
+        parsed.catalog.objects.begin(),
+        earth.catalog.objects.front());
+    auto build = build_satellite_propagation_model(parsed.catalog);
+    REQUIRE(build);
+    REQUIRE(build.compiled_records == 7);
+
+    constexpr double kJuly5NoonUtc = 1783252800.0;
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 16;
+    settings.track_satellite_limit = 6;
+    settings.track_central_body = CentralBody::Moon;
+    const auto result = propagate_satellites(build.model, kJuly5NoonUtc, settings);
+    REQUIRE(result);
+    REQUIRE(result.states.size() == 7);
+    REQUIRE(result.tracks.size() == 6);
+    const glm::dvec3 moon = draxul::satview::satview_moon_position(kJuly5NoonUtc)
+                                 .equatorial_position_km;
+    for (const auto& state : result.states)
+    {
+        if (state.central_body != CentralBody::Moon)
+            continue;
+        const double moon_distance = glm::length(state.teme_position_km - moon);
+        CHECK(moon_distance > draxul::satview::kSatViewMoonMeanRadiusKm);
+        CHECK(moon_distance < 150000.0);
+        CHECK(state.solution_kind == draxul::satview::OrbitSolutionKind::SampledEphemeris);
+    }
+    for (const auto& track : result.tracks)
+    {
+        CHECK(track.central_body == CentralBody::Moon);
+        CHECK(track.teme_points_km.size() == 16);
+        CHECK(track.sample_horizon_minutes >= 120.0);
+    }
 }
 
 TEST_CASE("SatView parallel propagation matches sequential results", "[satview][propagation][parallel]")

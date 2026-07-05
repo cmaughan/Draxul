@@ -51,6 +51,53 @@ struct SatViewStarOut
     float2 uv;
 };
 
+struct SatViewLabelInstance
+{
+    float4 direction_priority;
+    float4 uv_rect;
+    float4 pixel_size_offset;
+    float4 color;
+};
+
+struct SatViewLabelOut
+{
+    float4 position [[position]];
+    float4 color;
+    float2 uv;
+};
+
+struct SatViewLandscapeTriangleInstance
+{
+    float4 local_direction0;
+    float4 local_direction1;
+    float4 local_direction2;
+    float4 color;
+};
+
+struct SatViewLandscapeLineInstance
+{
+    float4 local_direction0;
+    float4 local_direction1;
+    float4 color;
+};
+
+struct SatViewCelestialLineInstance
+{
+    float4 start_direction_width;
+    float4 end_direction_dash;
+    float4 color;
+    float4 style;
+};
+
+struct SatViewCelestialLineOut
+{
+    float4 position [[position]];
+    float4 color;
+    float line_distance [[center_no_perspective]];
+    float line_across [[center_no_perspective]];
+    float2 dash_gap [[flat]];
+};
+
 constant float kPi = 3.14159265358979323846f;
 constant float kStarDistanceEarthRadii = 48.0f;
 constant float3 kLunarNorthPoleRender = float3(
@@ -849,7 +896,10 @@ fragment float4 satview_skybox_fragment(
     float2 uv = float2(
         fract(0.5f - right_ascension / (2.0f * kPi)),
         0.5f - declination / kPi);
-    return float4(milky_way_tex.sample(sky_sampler, uv).rgb * 0.55f, 1.0f);
+    return float4(
+        milky_way_tex.sample(sky_sampler, uv).rgb
+            * clamp(frame.render_params.w, 0.0f, 1.0f),
+        1.0f);
 }
 
 fragment float4 satview_ground_atmosphere_fragment(
@@ -1058,32 +1108,253 @@ vertex SatViewStarOut satview_star_vertex(
     return out;
 }
 
-vertex SatViewOrbitOut satview_constellation_vertex(
-    uint vertex_id [[vertex_id]],
-    constant SatViewFrameUniforms& frame [[buffer(0)]],
-    constant SatViewSceneVertex* vertices [[buffer(1)]])
+static float2 celestial_line_endpoint_side(uint vertex_id)
 {
-    SatViewSceneVertex scene_vertex = vertices[vertex_id];
-    float3 world_position = frame.camera_pos.xyz
-        + normalize(scene_vertex.position.xyz) * kStarDistanceEarthRadii;
-    float3 paired_world_position = frame.camera_pos.xyz
-        + normalize(scene_vertex.paired_position.xyz) * kStarDistanceEarthRadii;
-    float4 projected = project_world_position(world_position, frame);
-    float4 paired_projected = project_world_position(paired_world_position, frame);
-    bool visible = ground_world_position_visible(world_position, frame)
-        && ground_world_position_visible(paired_world_position, frame)
-        && projected.w > 0.0f
-        && paired_projected.w > 0.0f;
-    if (visible && is_stereographic_ground_projection(frame))
+    switch (vertex_id)
     {
-        float2 ndc = projected.xy / projected.w;
-        float2 paired_ndc = paired_projected.xy / paired_projected.w;
-        visible = distance(ndc, paired_ndc) < 8.0f;
+    case 0:
+        return float2(0.0f, -1.0f);
+    case 1:
+        return float2(0.0f, 1.0f);
+    case 2:
+        return float2(1.0f, -1.0f);
+    case 3:
+        return float2(0.0f, 1.0f);
+    case 4:
+        return float2(1.0f, 1.0f);
+    default:
+        return float2(1.0f, -1.0f);
     }
+}
+
+vertex SatViewCelestialLineOut satview_celestial_line_vertex(
+    uint vertex_id [[vertex_id]],
+    uint instance_id [[instance_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewCelestialLineInstance* lines [[buffer(1)]])
+{
+    const float kLineDistanceEarthRadii = 48.0f;
+    SatViewCelestialLineInstance line = lines[instance_id];
+    float3 start_world = frame.camera_pos.xyz
+        + normalize(line.start_direction_width.xyz) * kLineDistanceEarthRadii;
+    float3 end_world = frame.camera_pos.xyz
+        + normalize(line.end_direction_dash.xyz) * kLineDistanceEarthRadii;
+    float4 start_clip = project_world_position(start_world, frame);
+    float4 end_clip = project_world_position(end_world, frame);
+    bool visible = ground_world_position_visible(start_world, frame)
+        && ground_world_position_visible(end_world, frame)
+        && start_clip.w > 0.0f
+        && end_clip.w > 0.0f;
+
+    float2 start_ndc = start_clip.xy / max(start_clip.w, 0.000001f);
+    float2 end_ndc = end_clip.xy / max(end_clip.w, 0.000001f);
+    float2 viewport = max(frame.render_params.xy, float2(1.0f));
+    float2 screen_delta = (end_ndc - start_ndc) * viewport * 0.5f;
+    float segment_pixels = length(screen_delta);
+    visible = visible
+        && !any(isnan(float4(start_ndc, end_ndc)))
+        && !any(isinf(float4(start_ndc, end_ndc)))
+        && segment_pixels > 0.0001f
+        && length(end_ndc - start_ndc) < 8.0f;
+
+    float2 endpoint_side = celestial_line_endpoint_side(vertex_id);
+    float t = endpoint_side.x;
+    float4 clip = mix(start_clip, end_clip, t);
+    float2 perpendicular = segment_pixels > 0.0001f
+        ? normalize(float2(-screen_delta.y, screen_delta.x))
+        : float2(0.0f, 1.0f);
+    float half_width = max(line.start_direction_width.w, 0.5f) * 0.5f;
+    float2 offset_ndc = perpendicular * endpoint_side.y * half_width * 2.0f / viewport;
+    clip.xy = (mix(start_ndc, end_ndc, t) + offset_ndc) * clip.w;
+
+    SatViewCelestialLineOut out;
+    out.position = visible ? clip : float4(2.0f, 2.0f, 0.0f, 1.0f);
+    out.color = visible ? line.color : float4(0.0f);
+    float segment_angle = acos(clamp(dot(
+        normalize(line.start_direction_width.xyz),
+        normalize(line.end_direction_dash.xyz)), -1.0f, 1.0f));
+    float phase_pixels = line.style.y * segment_pixels / max(segment_angle, 0.0001f);
+    out.line_distance = phase_pixels + t * segment_pixels;
+    out.line_across = endpoint_side.y;
+    out.dash_gap = float2(max(line.end_direction_dash.w, 0.0f), max(line.style.x, 0.0f));
+    return out;
+}
+
+fragment float4 satview_celestial_line_fragment(SatViewCelestialLineOut in [[stage_in]])
+{
+    float edge_width = max(fwidth(in.line_across), 0.02f);
+    float edge_alpha = 1.0f - smoothstep(
+        1.0f - edge_width, 1.0f, abs(in.line_across));
+    float dash_alpha = 1.0f;
+    if (in.dash_gap.x > 0.0f && in.dash_gap.y > 0.0f)
+    {
+        float period = in.dash_gap.x + in.dash_gap.y;
+        float position = fmod(in.line_distance, period);
+        float dash_edge = max(fwidth(in.line_distance), 0.5f);
+        dash_alpha = 1.0f - smoothstep(
+            in.dash_gap.x - dash_edge,
+            in.dash_gap.x + dash_edge,
+            position);
+    }
+    return float4(in.color.rgb, in.color.a * edge_alpha * dash_alpha);
+}
+
+static float2 label_quad_corner(uint corner_index)
+{
+    switch (corner_index)
+    {
+    case 0:
+        return float2(-1.0f, -1.0f);
+    case 1:
+        return float2(1.0f, -1.0f);
+    case 2:
+        return float2(1.0f, 1.0f);
+    case 3:
+        return float2(-1.0f, -1.0f);
+    case 4:
+        return float2(1.0f, 1.0f);
+    default:
+        return float2(-1.0f, 1.0f);
+    }
+}
+
+vertex SatViewLabelOut satview_label_vertex(
+    uint vertex_id [[vertex_id]],
+    uint instance_id [[instance_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewLabelInstance* labels [[buffer(1)]])
+{
+    const float kLabelDistanceEarthRadii = 48.0f;
+    SatViewLabelInstance label = labels[instance_id];
+    float3 world_position = frame.camera_pos.xyz
+        + normalize(label.direction_priority.xyz) * kLabelDistanceEarthRadii;
+    float4 projected = project_world_position(world_position, frame);
+    bool visible = ground_world_position_visible(world_position, frame)
+        && projected.w > 0.0f;
+    float2 corner = label_quad_corner(vertex_id);
+    float2 viewport = max(frame.render_params.xy, float2(1.0f));
+    float2 pixel_offset = corner * label.pixel_size_offset.xy * 0.5f
+        + label.pixel_size_offset.zw;
+    projected.xy += pixel_offset * (2.0f / viewport) * projected.w;
+
+    SatViewLabelOut out;
+    out.position = visible ? projected : float4(2.0f, 2.0f, 0.0f, 1.0f);
+    out.color = visible ? label.color : float4(0.0f);
+    out.uv = mix(label.uv_rect.xy, label.uv_rect.zw, corner * 0.5f + 0.5f);
+    return out;
+}
+
+fragment float4 satview_label_fragment(
+    SatViewLabelOut in [[stage_in]],
+    texture2d<float> label_atlas [[texture(7)]],
+    sampler label_sampler [[sampler(1)]])
+{
+    float2 texel = 1.0f / float2(label_atlas.get_width(), label_atlas.get_height());
+    float coverage = label_atlas.sample(label_sampler, in.uv).a;
+    float nearby = coverage;
+    nearby = max(nearby, label_atlas.sample(label_sampler, in.uv + float2(texel.x, 0.0f)).a);
+    nearby = max(nearby, label_atlas.sample(label_sampler, in.uv - float2(texel.x, 0.0f)).a);
+    nearby = max(nearby, label_atlas.sample(label_sampler, in.uv + float2(0.0f, texel.y)).a);
+    nearby = max(nearby, label_atlas.sample(label_sampler, in.uv - float2(0.0f, texel.y)).a);
+    float glyph_alpha = coverage * in.color.a;
+    float halo_alpha = max(nearby - coverage, 0.0f) * 0.72f * in.color.a;
+    float alpha = glyph_alpha + halo_alpha * (1.0f - glyph_alpha);
+    float3 premultiplied = in.color.rgb * glyph_alpha
+        + float3(0.004f, 0.006f, 0.010f) * halo_alpha * (1.0f - glyph_alpha);
+    return float4(premultiplied, alpha);
+}
+
+static float3 landscape_world_direction(
+    float3 local_direction,
+    constant SatViewFrameUniforms& frame)
+{
+    float3 up = normalize(frame.camera_pos.xyz);
+    float3 east = cross(float3(0.0f, 1.0f, 0.0f), up);
+    if (dot(east, east) < 1.0e-8f)
+        east = float3(1.0f, 0.0f, 0.0f);
+    east = normalize(east);
+    float3 north = normalize(cross(up, east));
+    return normalize(
+        east * local_direction.x
+        + north * local_direction.y
+        + up * local_direction.z);
+}
+
+static float4 project_landscape_direction(
+    float3 direction,
+    constant SatViewFrameUniforms& frame)
+{
+    const float kLandscapeDistanceEarthRadii = 48.0f;
+    return project_world_position(
+        frame.camera_pos.xyz + direction * kLandscapeDistanceEarthRadii,
+        frame);
+}
+
+static bool landscape_projection_valid(
+    float3 direction,
+    float4 projected,
+    constant SatViewFrameUniforms& frame)
+{
+    float2 ndc = projected.xy / max(projected.w, 0.000001f);
+    bool valid = projected.w > 0.0f
+        && all(isfinite(ndc))
+        && max(abs(ndc.x), abs(ndc.y)) < 8.0f;
+    if (is_stereographic_ground_projection(frame))
+    {
+        float3 camera_direction = ground_world_to_camera(frame) * direction;
+        valid = valid && (1.0f - camera_direction.z) > 0.02f;
+    }
+    return valid;
+}
+
+vertex SatViewOrbitOut satview_landscape_vertex(
+    uint vertex_id [[vertex_id]],
+    uint instance_id [[instance_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewLandscapeTriangleInstance* instances [[buffer(1)]])
+{
+    SatViewLandscapeTriangleInstance instance = instances[instance_id];
+    float3 directions[3] = {
+        landscape_world_direction(instance.local_direction0.xyz, frame),
+        landscape_world_direction(instance.local_direction1.xyz, frame),
+        landscape_world_direction(instance.local_direction2.xyz, frame)
+    };
+    float4 projected[3] = {
+        project_landscape_direction(directions[0], frame),
+        project_landscape_direction(directions[1], frame),
+        project_landscape_direction(directions[2], frame)
+    };
+    bool visible = landscape_projection_valid(directions[0], projected[0], frame)
+        && landscape_projection_valid(directions[1], projected[1], frame)
+        && landscape_projection_valid(directions[2], projected[2], frame);
 
     SatViewOrbitOut out;
-    out.color = visible ? scene_vertex.color : float4(0.0f);
-    out.position = visible ? projected : float4(2.0f, 2.0f, 0.0f, 1.0f);
+    out.position = visible ? projected[vertex_id] : float4(2.0f, 2.0f, 0.0f, 1.0f);
+    out.color = visible ? instance.color : float4(0.0f);
+    return out;
+}
+
+vertex SatViewOrbitOut satview_landscape_rim_vertex(
+    uint vertex_id [[vertex_id]],
+    uint instance_id [[instance_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    constant SatViewLandscapeLineInstance* instances [[buffer(1)]])
+{
+    SatViewLandscapeLineInstance instance = instances[instance_id];
+    float3 directions[2] = {
+        landscape_world_direction(instance.local_direction0.xyz, frame),
+        landscape_world_direction(instance.local_direction1.xyz, frame)
+    };
+    float4 projected[2] = {
+        project_landscape_direction(directions[0], frame),
+        project_landscape_direction(directions[1], frame)
+    };
+    bool visible = landscape_projection_valid(directions[0], projected[0], frame)
+        && landscape_projection_valid(directions[1], projected[1], frame);
+
+    SatViewOrbitOut out;
+    out.position = visible ? projected[vertex_id] : float4(2.0f, 2.0f, 0.0f, 1.0f);
+    out.color = visible ? instance.color : float4(0.0f);
     return out;
 }
 

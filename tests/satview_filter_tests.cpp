@@ -4,12 +4,14 @@
 
 using draxul::satview::OrbitClass;
 using draxul::satview::OrbitSolutionKind;
+using draxul::satview::CentralBody;
 using draxul::satview::SatellitePropagatedState;
 using draxul::satview::SatelliteObjectKind;
 using draxul::satview::SatellitePopulation;
 using draxul::satview::SatViewFilterState;
 using draxul::satview::make_satview_filter_candidate;
 using draxul::satview::satview_filter_matches;
+using draxul::satview::satview_select_central_body;
 
 namespace
 {
@@ -132,4 +134,35 @@ TEST_CASE("SatView filter gates populations and summary estimates independently"
     filter.show_summary_estimates = true;
     filter.source_text = "satcat";
     CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+}
+
+TEST_CASE("SatView filter composes central body and catalog-only fidelity", "[satview][filter][moon]")
+{
+    draxul::satview::SatelliteRecord record;
+    record.norad_catalog_id = 81001;
+    record.object_name = "LUNAR CATALOG ONLY";
+    record.central_body = CentralBody::Moon;
+    record.solution_kind = OrbitSolutionKind::CatalogOnly;
+
+    SatViewFilterState filter;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(record)));
+
+    filter.show_earth = false;
+    filter.show_moon = true;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(record)));
+
+    filter.show_catalog_only = false;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(record)));
+}
+
+TEST_CASE("SatView POV body selection replaces the object body filter", "[satview][filter][moon]")
+{
+    SatViewFilterState filter;
+    satview_select_central_body(filter, CentralBody::Moon);
+    CHECK_FALSE(filter.show_earth);
+    CHECK(filter.show_moon);
+
+    satview_select_central_body(filter, CentralBody::Earth);
+    CHECK(filter.show_earth);
+    CHECK_FALSE(filter.show_moon);
 }

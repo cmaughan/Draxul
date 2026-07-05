@@ -15,6 +15,7 @@ namespace draxul::satview
 {
 
 inline constexpr double kSatViewEarthEquatorialRadiusKm = 6378.137;
+inline constexpr double kSatViewMoonMeanRadiusKm = 1737.4;
 
 struct SatViewJulianDate
 {
@@ -36,6 +37,10 @@ struct SatelliteStaticMetadata
     std::string owner;
     std::string operational_status_code;
     std::string data_status_code;
+    std::string ephemeris_source;
+    std::string ephemeris_frame;
+    std::optional<double> ephemeris_start_unix_seconds;
+    std::optional<double> ephemeris_end_unix_seconds;
     std::optional<double> radar_cross_section_m2;
 };
 
@@ -49,6 +54,7 @@ struct SatellitePropagationEntry
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     SatellitePopulation population = SatellitePopulation::Unknown;
     OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
+    CentralBody central_body = CentralBody::Earth;
     std::string classification_type;
     std::string owner;
     std::string operational_status_code;
@@ -59,6 +65,7 @@ struct SatellitePropagationEntry
     bool sun_synchronous_candidate = false;
     double epoch_unix_seconds = 0.0;
     double period_minutes = 0.0;
+    double track_horizon_minutes = 0.0;
 };
 
 class SatellitePropagationModel
@@ -113,6 +120,7 @@ struct SatellitePropagatedState
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     SatellitePopulation population = SatellitePopulation::Unknown;
     OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
+    CentralBody central_body = CentralBody::Earth;
     OrbitClass orbit_class = OrbitClass::Other;
     bool sun_synchronous_candidate = false;
     double period_minutes = 0.0;
@@ -134,6 +142,7 @@ struct SatelliteOrbitTrack
     SatelliteObjectKind object_kind = SatelliteObjectKind::Unknown;
     SatellitePopulation population = SatellitePopulation::Unknown;
     OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
+    CentralBody central_body = CentralBody::Earth;
     std::string classification_type;
     std::string owner;
     std::string operational_status_code;
@@ -157,6 +166,7 @@ struct SatellitePropagationSettings
     std::size_t track_satellite_limit = 0;
     std::size_t track_sample_count = 0;
     std::optional<std::int64_t> selected_track_norad_catalog_id;
+    std::optional<CentralBody> track_central_body;
 
     // Zero or negative means sample one orbital period per satellite.
     double track_horizon_minutes = 0.0;
@@ -214,6 +224,9 @@ private:
 [[nodiscard]] glm::dvec3 solar_direction_teme(double unix_seconds);
 [[nodiscard]] glm::dvec3 solar_direction_render(double unix_seconds);
 [[nodiscard]] glm::dvec3 teme_position_to_render_earth_radii(const glm::dvec3& teme_position_km);
+[[nodiscard]] glm::dvec3 satellite_track_anchor_offset_km(
+    const SatelliteOrbitTrack& track,
+    double simulation_unix_seconds);
 [[nodiscard]] SatellitePropagationBuildResult build_satellite_propagation_model(
     const SatelliteCatalog& catalog);
 [[nodiscard]] SatellitePropagationResult propagate_satellites(

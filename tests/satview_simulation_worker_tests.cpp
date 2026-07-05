@@ -164,7 +164,7 @@ TEST_CASE("SatView worker caches tracks until geometry settings change", "[satvi
     CHECK(stable_snapshot->propagation_concurrency <= 16);
     CHECK(stable_snapshot->tracks == initial_tracks);
 
-    worker.set_render_settings(1, 24, false, std::nullopt);
+    worker.set_render_settings(1, 24, false, std::nullopt, std::nullopt);
     REQUIRE(wait_for_snapshot(worker, [&](const SatViewSimulationSnapshot& snapshot) {
         return snapshot.tracks && snapshot.tracks != initial_tracks
             && !snapshot.tracks->empty()

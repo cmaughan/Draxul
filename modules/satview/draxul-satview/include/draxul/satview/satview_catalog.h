@@ -36,10 +36,19 @@ enum class SatellitePopulation
     Unknown
 };
 
+enum class CentralBody
+{
+    Earth,
+    Moon,
+    Other
+};
+
 enum class OrbitSolutionKind
 {
     GeneralPerturbations,
     SatcatSummaryEstimate,
+    CatalogOnly,
+    SampledEphemeris,
     Sample
 };
 
@@ -55,6 +64,17 @@ struct SatellitePopulationCounts
     {
         return active_payloads + inactive_payloads + rocket_bodies + debris + unknown;
     }
+};
+
+struct SampledEphemerisPoint
+{
+    double unix_seconds = 0.0;
+    double x_km = 0.0;
+    double y_km = 0.0;
+    double z_km = 0.0;
+    double vx_km_per_s = 0.0;
+    double vy_km_per_s = 0.0;
+    double vz_km_per_s = 0.0;
 };
 
 struct SatelliteRecord
@@ -73,6 +93,7 @@ struct SatelliteRecord
     std::string data_status_code;
     std::string orbit_center;
     std::string orbit_type;
+    CentralBody central_body = CentralBody::Earth;
     std::optional<double> radar_cross_section_m2;
 
     double mean_motion_rev_per_day = 0.0;
@@ -101,6 +122,10 @@ struct SatelliteRecord
     std::optional<double> satcat_perigee_km;
     std::optional<double> satcat_apogee_km;
     bool renderable = true;
+    std::string ephemeris_source;
+    std::string ephemeris_frame;
+    double ephemeris_track_horizon_minutes = 0.0;
+    std::vector<SampledEphemerisPoint> ephemeris_samples;
 };
 
 struct SatelliteCatalog
@@ -128,6 +153,7 @@ struct CatalogParseResult
 [[nodiscard]] std::string_view orbit_class_name(OrbitClass orbit_class);
 [[nodiscard]] std::string_view satellite_object_kind_name(SatelliteObjectKind kind);
 [[nodiscard]] std::string_view satellite_population_name(SatellitePopulation population);
+[[nodiscard]] std::string_view central_body_name(CentralBody central_body);
 [[nodiscard]] std::string_view orbit_solution_kind_name(OrbitSolutionKind kind);
 [[nodiscard]] std::string_view orbit_solution_source_name(OrbitSolutionKind kind);
 [[nodiscard]] bool satcat_status_is_active(std::string_view status_code);
@@ -144,6 +170,29 @@ struct CatalogParseResult
     std::string_view csv,
     std::string_view source_label = "SATCAT",
     std::string_view source_url = {});
+
+// Applies Moon-relative equatorial sampled vectors to matching SATCAT records.
+// Rows outside their sample range are deliberately not extrapolated.
+[[nodiscard]] std::size_t apply_sampled_ephemeris_csv(
+    SatelliteCatalog& catalog,
+    std::string_view csv,
+    std::string* error = nullptr);
+
+[[nodiscard]] std::size_t load_bundled_sampled_ephemeris(
+    SatelliteCatalog& catalog,
+    std::string* error = nullptr);
+
+// Removes records which a curated source confirms are no longer orbiting the
+// Moon (for example, landed or impacted objects still lacking a SATCAT decay
+// date). Returns the number of removed records.
+[[nodiscard]] std::size_t apply_lunar_disposition_csv(
+    SatelliteCatalog& catalog,
+    std::string_view csv,
+    std::string* error = nullptr);
+
+[[nodiscard]] std::size_t load_bundled_lunar_dispositions(
+    SatelliteCatalog& catalog,
+    std::string* error = nullptr);
 
 [[nodiscard]] SatelliteCatalog merge_satellite_catalogs(
     const SatelliteCatalog& active_gp,

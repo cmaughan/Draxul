@@ -51,7 +51,7 @@ bool valid_direction(const glm::vec3& direction)
 
 } // namespace
 
-std::vector<SatViewSceneVertex> load_satview_constellation_catalog()
+std::vector<SatViewCelestialLineInstance> load_satview_constellation_catalog()
 {
     PERF_MEASURE();
     const auto path = resolve_satview_asset_path("catalog/constellations.dxline");
@@ -78,8 +78,8 @@ std::vector<SatViewSceneVertex> load_satview_constellation_catalog()
     }
 
     file.seekg(static_cast<std::streamoff>(header.header_size), std::ios::beg);
-    std::vector<SatViewSceneVertex> vertices;
-    vertices.reserve(static_cast<std::size_t>(header.record_count) * 2u);
+    std::vector<SatViewCelestialLineInstance> lines;
+    lines.reserve(header.record_count);
     for (std::uint32_t index = 0; index < header.record_count; ++index)
     {
         ConstellationCatalogRecord record;
@@ -93,23 +93,19 @@ std::vector<SatViewSceneVertex> load_satview_constellation_catalog()
             continue;
         const glm::vec3 start_direction = glm::normalize(start);
         const glm::vec3 end_direction = glm::normalize(end);
-        vertices.push_back({
-            glm::vec4(start_direction, -1.0f),
+        lines.push_back({
+            glm::vec4(start_direction, 1.35f),
+            glm::vec4(end_direction, 0.0f),
             kConstellationLineColor,
-            glm::vec4(end_direction, 1.0f),
-        });
-        vertices.push_back({
-            glm::vec4(end_direction, 1.0f),
-            kConstellationLineColor,
-            glm::vec4(start_direction, -1.0f),
+            glm::vec4(0.0f),
         });
     }
 
     DRAXUL_LOG_INFO(LogCategory::Renderer,
         "SatView: loaded %zu constellation segments from %s",
-        vertices.size() / 2u,
+        lines.size(),
         path.string().c_str());
-    return vertices;
+    return lines;
 }
 
 } // namespace draxul::satview

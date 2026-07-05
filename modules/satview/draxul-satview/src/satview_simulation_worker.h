@@ -27,6 +27,7 @@ struct SatViewSimulationControls
     std::size_t track_sample_count = kDefaultTrackSampleCount;
     bool refresh_tracks_each_step = false;
     std::optional<std::int64_t> selected_track_norad_catalog_id;
+    std::optional<CentralBody> track_central_body;
 };
 
 struct SatViewSimulationSnapshot
@@ -123,7 +124,8 @@ public:
         std::size_t track_satellite_limit,
         std::size_t track_sample_count,
         bool refresh_tracks_each_step,
-        std::optional<std::int64_t> selected_track_norad_catalog_id);
+        std::optional<std::int64_t> selected_track_norad_catalog_id,
+        std::optional<CentralBody> track_central_body);
 
     [[nodiscard]] SatViewSnapshotExchange::ReadGuard acquire_latest() const;
     [[nodiscard]] double current_simulation_seconds() const;

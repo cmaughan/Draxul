@@ -1,321 +1,189 @@
-# Draxul Codebase Technical Review
+All six review agents have completed. Synthesizing the full report now.
 
-## Executive Summary
+# Draxul Codebase Review
 
-Draxul is a GPU-accelerated Neovim GUI frontend with cross-platform rendering (Vulkan/Metal), advanced terminal emulation, and a 3D code visualization (MegaCity). The codebase demonstrates strong architectural discipline, excellent test coverage (87 test files, 27K+ test LOC), and meticulous platform code hygiene. 391 completed work items tracked.
-
----
-
-## 1. Module Separation & Architecture
-
-### Strengths
-- **Clean layering**: Excellent separation between draxul-types (POD), draxul-window (SDL abstraction), draxul-renderer (GPU backends), draxul-font (text pipeline), draxul-grid (terminal grid), and draxul-host.
-- **Platform abstraction**: Vulkan vs Metal cleanly separated at compile time via `src/vulkan/` and `src/metal/` directories with no platform ifdefs leaking into shared code.
-- **Interface-first design**: Heavy use of pure virtual base classes (`IWindow`, `IGridRenderer`, `IHost`, `IBaseRenderer`) enables testability and loose coupling.
-- **Dependency injection pattern**: `AppDeps`, `HostManager::Deps`, `InputDispatcher::Deps` all use struct-based dependency bundles rather than singletons — excellent for testing.
-- **No circular dependencies**: Dependency graph is strictly acyclic (types < window < renderer < font < grid < host < app).
-
-### Issues
-- **IHost interface is large** (100+ methods including nested callbacks) — could be split into smaller focused interfaces (`IGridHost`, `IInputHandler`, `IDrawable`).
-- **`draxul-app-support` is vaguely named**: What "support" means is unclear from the name alone.
-- **60+ uses of `std::function`**: Indicates callback/lambda density that could be reduced with static dispatch.
-- **HostManager is somewhat large** (~200 lines of header) — manages tree, hosts, viewports, zoom, splitting, renaming. Could split into smaller focused types.
+**Date:** 2026-07-05 · **Branch:** `codex/satview-ground-projections` (includes uncommitted SatView WIP) · **Scope:** ~540 source files read across `app/`, `libs/` (14 libraries), `modules/` (kanban, markdown, megacity, satview), `shaders/`, `tests/` (~146 test files, ~41k lines), `scripts/`, `do.py`, CMake, CI workflows, `docs/features.md`, and `plans/`. Completed work (`kanban/done/`, 450 items) and iced items (`kanban/ice-box/`, 76 items) were cross-checked and are not re-raised here.
 
 ---
 
-## 2. Code Smells
+## 1. Architecture & Module Separation
 
-### Critical Issues
+The overall layering is genuinely good and mostly honored in practice:
 
-1. **Raw pointers in critical paths**: `IWindow*`, `IGridRenderer*`, `TextService*` stored as raw borrowed pointers in `GridHostBase`, `HostManager`, `HostContext`. If App reshuffles ownership, dangling pointers are possible.
+- **Foundation → app layering is real.** `draxul-window → types+SDL3`, `draxul-grid → types`, `draxul-font → types+freetype+harfbuzz` are clean ~5-line CMake edges. Public headers live only in `include/draxul/`, internal headers only in `src/` (the one-header-one-place rule is followed, including pimpl discipline in `draxul-font` — no FreeType/HarfBuzz types leak from `text_service.h`).
+- **Modules are properly isolated.** No module includes another module's headers; none reach into libs' `src/` internals; hosts self-register via `HostProviderRegistry` (`libs/draxul-host/include/draxul/host_registry.h`) so the app has zero source dependency on modules. There is **zero `dynamic_cast`** in app/host/nvim code — capability queries are typed virtuals.
+- **The best pattern in the repo** — pure logic separated from threading/IO shells — recurs deliberately: `UiRequestWorkerState` vs `UiRequestWorker`, `RenderTestDriverEnv` (a struct of `std::function`s driving the snapshot state machine), `RendererState` (all grid/cursor/overlay CPU logic, platform-free, shared by both GPU backends), draxul-gui's pure `render_palette`/`render_toasts`, and satview's pure math units (`satview_ground_view.cpp`, `satview_label_layout.cpp`). Everything shaped like this has tests; everything not shaped like this doesn't.
 
-2. **Magic numbers scattered**:
-   - `kMaxNotificationQueueDepth = 4096`, `kNotificationQueueWarnDepth = 512`
-   - Scrollback line count hardcoded in comments rather than named constants
-   - Cell buffer size calculations without clear documentation
+But four structural violations undermine it:
 
-3. **Long functions**: `App::initialize()` is 200+ lines. `create_host_for_leaf()` similarly long. Not critical (well-structured), but could benefit from helper extractions.
+1. **`draxul-types` is no longer "POD types (header-only)"** as CLAUDE.md claims. It now contains a logging subsystem with global state (`src/log.cpp`), a perf singleton, a BMP codec, filesystem probing, a 530-line Unicode table header, and `Result<T,E>`. It's a "common" grab-bag at the bottom of the graph — every edit recompiles the world, and it's a merge magnet.
+2. **App knowledge leaks downward:** `host_kind.h:13-25` in the foundation layer enumerates `MegaCity`, `SatView`, `Kanban`, `Markdown` — every new host module edits the bottom-layer enum + `parse_host_kind` + `to_string`, plus the `is_terminal_shell_host()` switch in `app/host_manager.cpp:22-42`.
+3. **Sideways coupling:** `draxul-config` links SDL3 (`libs/draxul-config/CMakeLists.txt:20-22`) because keybinding parsing uses `SDLK_*`, despite `input_types.h` documenting the opposite intent. `draxul-runtime-support` PUBLIC-links config, font, grid, nvim, renderer, and window — a bucket, not a layer.
+4. **`app/` is not "just wiring."** It is 43 files / 14,108 lines containing workspace management, session save/load with hand-rolled rollback, a weather HTTP client, fuzzy matching, split-tree layout, and chrome rendering. `renderer_factory.cpp`, listed in CLAUDE.md, no longer exists.
 
-4. **Inconsistent error handling**:
-   - Some functions return `bool` with `.error()` method
-   - Others use `std::optional` or `RpcResult`
-   - Some silently fail (clipboard operations log warning but don't propagate failure)
-   - No unified `Result<T, Error>` type
+### Stale documentation is an active hazard
 
-5. **Notification queue backpressure undefined**: Queue reaches 4096 before warning, 512 for early warning. Unclear what happens when full — silent drop risk under high RPC traffic.
+This is the highest-leverage, cheapest fix in the whole review, and it matters disproportionately in a multi-agent workflow because agents read CLAUDE.md first:
 
-6. **Dynamic casts in render bundle**: `RendererBundle::reset()` uses `dynamic_cast` twice to detect optional interfaces. Fragile if subclass hierarchy changes.
+- CLAUDE.md describes a host hierarchy `IHost → I3DHost → IGridHost → GridHostBase` with `attach_3d_renderer()`. **`I3DHost` and `IGridHost` do not exist anywhere in the code.** The real hierarchy is `IHost → GridHostBase → {TerminalHostBase, NvimHost}`, and `HostManager` lives in `app/`, not `libs/draxul-host`.
+- CLAUDE.md describes `IBaseRenderer → I3DRenderer → IGridRenderer` and `register_render_pass(shared_ptr<IRenderPass>)`. `I3DRenderer` is gone; the design moved to `IFrameContext::record_render_pass`.
+- CLAUDE.md's Validation Expectations and `plans/README.md` reference `plans/work-items/`, `plans/work-items-complete/`, `plans/work-items-icebox/` — **deleted in commit `0b950d59` (May 2026)**. The real system is the root `kanban/` folder (`done/`, `ice-box/`, `pending/`).
+- `docs/features.md:411` omits several fetched deps; root `FEATURES.md` duplicates `docs/features.md` and will diverge.
 
-### Medium Issues
-
-7. **Null checks via assertions**: `GridHostBase::callbacks()` asserts pointer is non-null but doesn't guard against misuse. Should be null checks with clear error messages.
-
-8. **Thread safety in RPC**: `running_` is atomic while `responses_` and `notifications_` are behind mutexes. Benign in practice but not formally provable.
-
-9. **Disabled copy but no explicit move constructors** in some classes (`FontManager`, `TextShaper`). Should explicitly `=delete` copy constructors for clarity.
-
-10. **High static cast count** (459 occurrences): Indicates possible type system inconsistency mixing `int`/`uint`/`float` for dimensions.
+Agents following these docs will design against phantom types and update dead directories.
 
 ---
 
-## 3. Testing Gaps
+## 2. Major Findings by Area
 
-### What's Well Tested (87 test files)
-- VT parser, terminal state machine
-- Grid rendering pipeline, dirty cells, highlight attributes
-- Unicode handling, wide characters, ligatures
-- RPC communication, Neovim process startup/crashes
-- UI event handling, keybinding dispatch, fuzzy matching
-- Config parsing and I/O roundtrips
-- DPI hotplug, window resizing
-- Render test infrastructure with reference images
+### 2.1 Core libraries (`libs/`)
 
-### Critical Gaps
+**Good:** thin decoupling interfaces (`IGridSink`, `IGlyphAtlas`); `AttributeCache` with a documented caller contract; `gui_actions.h` single-source action registry with an enforcing parity test; lock-free `log_would_emit()` fast path; excellent correctness comments (`sdl_window.cpp:679-691` IME deadlock rationale, `glyph_cache.cpp:315-329` cell-pitch pinning).
 
-1. **No HostManager split/close stress tests**: Rapid split/close cycles, zoom during pending splits, rename during shutdown — all untested.
+**Issues:**
+- **UTF-8 decoding implemented twice**: `unicode.h:43-125` vs a private copy in `grid.cpp:16-98` — and `grid.cpp` already includes `unicode.h`.
+- **Bold/italic/bold-italic triplication** throughout `font_resolver.cpp` (`:94-149`, `:185-276`, `:334-357`) and `font_selector.h` (four parallel caches). A `FontStyle` enum indexing an array would delete ~250 lines.
+- **Config-key sprawl:** `kKnownTopLevelKeys` (25 entries, `app_config_io.cpp:42-68`) vs `kCoreTopLevelKeys` (16 entries, `config_document.cpp:19-36`) vs the serialize body vs `AppConfig` fields — all hand-synced. `"chrome"` is "known" but not "core", so `merge_core_config` silently never merges chrome. `url_detection`/`enable_osc8_hyperlinks`/`enable_shell_integration_marks` are parsed **twice** (`app_config_io.cpp:312-317` and `:332-337`). Config path resolution is duplicated verbatim between `app_config_io.cpp:93-130` and `config_document.cpp:58-95`.
+- **Wrong error category:** `GlyphCache::rasterize_cluster` reports FreeType failures as `ErrorKind::AtlasOverflow` (`glyph_cache.cpp:343-361`), which can trigger the overflow-reset retry policy for a font error. `AppConfig::parse` swallows TOML syntax errors with no warning entry (`app_config_io.cpp:741-747`).
+- **Dangling-pointer globals in platform glue:** `sdl_window_win32.cpp:32-35` (tray icon) and `sdl_window_macos.mm:43` (dock reopen) store raw pointers to members of one `SdlWindow` instance — dangles if the window dies while the handler is live, and hard-caps the design at one window. `sdl_window_macos.mm:56-63` installs a dead ObjC handler then immediately installs the C-API one "instead".
+- **Fat `IWindow`:** ~20 virtuals plus 12 public mutable `std::function` callbacks (`window.h:117-133`) any subsystem can silently overwrite. `FontResolver` has public data members above a `private:` section holding parallel fields (`font_resolver.h:157-164`).
+- `session_attach.cpp` is a 1,385-line mixed-platform monolith of interleaved `#ifdef` blocks — split per-platform like `sdl_window_*` already does.
+- `PERF_MEASURE()` is on trivial functions everywhere (every `translate_*`, `parse_modifier_token`), taking a global singleton mutex when profiling — distorting the measurements it exists to take, and adding one-line diff noise to nearly every function.
 
-2. **Host lifecycle edge cases**: `pump()` before `initialize()`, double `shutdown()`, host crash between `pump()` calls — no coverage.
+### 2.2 Renderer & shaders
 
-3. **Cross-host communication**: `dispatch_to_nvim_host()` to non-existent host, dispatch during shutdown, malformed action strings.
+**Good:** `RendererState` extraction is the star of the codebase — 400 platform-free lines shared by both backends, unit-tested. `GpuCell` defended by size/offsetof static_asserts referencing the shader structs. `quad_offsets_shared.h`/`decoration_constants_shared.h` genuinely shared between GLSL and MSL. Typed render contexts instead of `void*`. Transactional Vulkan swapchain rebuild (`vk_context.cpp:346-471`) and fence-disciplined resource retirement. The interface hierarchy is now clean and small (`IBaseRenderer`: 6 methods; `IRenderPass`: 3), with `IImGuiHost`/`ICaptureRenderer` as side capabilities — good ISP.
 
-4. **Renderer integration limits**: Atlas exhaustion (>2048x2048 glyphs), concurrent handle creation/destruction, frame-dropping under high cell-update load.
+**Issues:**
+- **Metal grid upload failure draws with a stale, too-small buffer** (GPU OOB risk): `MetalGridHandle::upload_state` returns `void` and silently bails on allocation failure (`metal_renderer.mm:103-130`), but `draw_grid_handle_now` (`:856-923`) then draws instance counts computed from the *new* state. Vulkan handles this correctly (`vk_renderer.cpp:1029-1033` cancels the frame). This is what backend divergence looks like as a real bug.
+- **NanoVG Vulkan is spec-illegal:** textures are sampled as `SHADER_READ_ONLY_OPTIMAL` with no layout transition anywhere (`nanovg_vk.cpp:1009-1070`, `:1408`); the only barrier is the dummy texture transitioned **from UNDEFINED every flush** (`:1458-1474`), which legally discards contents; `vmaMapMemory`+`memcpy` with no flush. Also `kMaxFramesInFlight = 3` (`nanovg_vk.cpp:165`) vs the renderer's 2 — `IRenderContext::buffered_frame_count()` exists precisely for this and is ignored.
+- **~300-400 lines of orchestration duplicated between `vk_renderer.cpp` (1,358) and `metal_renderer.mm` (1,130):** identical grid-handle facades, byte-for-byte `FrameContext` trampolines, the frame/chunk flag state machine, viewport clamp math duplicated four times (**already drifted** — Metal's grid scissor is missing an outer `std::max(0,…)` Vulkan has), capture swizzle loops, six trivial setters. A shared `RendererBase` skeleton would remove the lines *and* the divergence bug class.
+- **Shader mirroring scales badly:** `satview_scene.metal` is a single 1,304-line MSL file manually tracking ~25 GLSL files (megacity: 780 lines vs ~15 files). No automated cross-check. NanoVG's Metal shader is an embedded source string (`nanovg_mtl_shaders.h`) — a third copy invisible to the shader build. **Real stale-build bug:** `CompileShaders_Metal.cmake:14` lists `decoration_constants_shared.h` but not `quad_offsets_shared.h` as a dependency of grid.metallib — editing quad offsets won't rebuild it.
+- **Dead machinery:** `RendererState`'s dirty-range upload path (`copy_dirty_cells_to`, `force_dirty`) has no production caller — both backends full-copy every frame. Wire it or delete it.
+- `nanovg_vk.cpp` (1,775 lines) contains five nearly identical 90-line pipeline-creation blocks (`:758-957`); `create_sync_objects` is a 60-line copy-pasted unwind ladder (`vk_renderer.cpp:484-544`); `goto finish_begin_frame` with four targets (`:839-921`).
 
-5. **Memory sanitizer gaps**: ASan preset exists; no evidence of TSan, UBSan, or MSan in CI. WI 112 (tsan-build-preset) on backlog.
+### 2.3 App, nvim, host
 
-6. **Config persistence edge cases**: Concurrent reloads, malformed TOML mid-reload, partial reload success leaving inconsistent state.
+**Good:** `NvimRpc` threading is exemplary — callbacks installed before thread spawn with explicit happens-before comments, bounded notification queue with warn/drop thresholds, timed-out msgid eviction, malformed-packet tolerance with hex dumps and an abort cap, 256 MB accumulation cap, and a main-thread-blocking guard that works in Release (`rpc.cpp` throughout). `NvimProcess` has partial-write loops, a POSIX exec-status pipe, non-blocking SIGTERM→SIGKILL shutdown escalation, atomics with acquire/release discipline. `UiEventHandler` parsing is defensive with compile-time-verified sorted dispatch tables. Init rollback guards exist in both `App::initialize()` and `NvimHost::initialize_host()` — with dedicated tests.
 
----
+**Issues:**
+- **`App` is a god class:** `app.cpp` is 2,869 lines, 60+ private methods, ~45 member fields spanning frame loop, session persistence, workspace CRUD, detach/attach, toasts, diagnostics. `wire_gui_actions()` is one ~290-line function assigning ~40 lambdas (`app.cpp:845-1137`). `main.cpp` is 940 lines whose `draxul_main()` spans ~450 lines including session-owner process spawning and attach-with-retry — untested product logic in the entry point.
+- **Copy-paste rituals:** the 4-line "recompute viewports after layout change" sequence appears ~10 times in app.cpp; the last-pane-died teardown block is duplicated between `on_close_pane` and `close_dead_panes()`; `imgui_font_size_from_metrics()` is defined identically in `app.cpp:50` and `host_manager.cpp:109`; `SavedLaunchOptions` mirrors `HostLaunchOptions` field-by-field (4 edit sites per new field).
+- **Mutable static fallback:** `App::active_host_manager()` returns a function-local `static HostManager dummy` when no workspace matches (`app.cpp:2782`) — the non-const overload lets callers silently persist state into a process-wide singleton (tests instantiate multiple Apps).
+- **Shutdown/threading:** the weather worker joins a curl call with `--max-time 15` (`weather_service.cpp:362`, `:101-105`) — up to ~15 s exit stall, violating the repo's own non-blocking-shutdown rule. `run_curl` builds a `popen` shell string where user config (`weather_location`) is only partially escaped — `"`, backtick, `$(` reach the shell. Windows `NvimProcess::is_running()` can race `shutdown()`'s handle close (`nvim_process.cpp:217-225`) — POSIX avoids this with an atomic pid; Windows `proc_info_` is not atomic.
+- **Interface accretion:** `IHost` has ~25 virtuals, several single-consumer probes; `IHostCallbacks` is absorbing app-routing concerns; `GuiActionHandler::Deps` carries 38 `std::function` fields; `CallbackInputRouter` (`app.cpp:85-177`) is 14 function shims App could delete by implementing `IInputRouter` directly. Toast severity flows through callbacks as raw ints instead of the existing `gui::ToastLevel`.
 
-## 4. Maintainability
+### 2.4 GUI / UI / render-test
 
-### Positive Signals
-- Clear dependency boundaries in each lib's `CMakeLists.txt`
-- Consistent naming conventions throughout (snake_case functions, kCamelCase constants, ICapitalCase interfaces)
-- Config-driven behavior for keybindings, font size, scroll speed
-- Diagnostic overlay for real-time debugging
-- Extensive structured logging with category filtering
+**Good:** all three libs are small (~2,950 lines total); draxul-gui's pure functions are ideal for testing and parallel work; `run_render_test_driver`'s phase state machine is fully unit-tested with no app instance; timeout diagnostics are first-class; the snapshot rig (settle/quiet detection, per-platform references, per-scenario tolerances, CI artifact upload, JSON reports) is more robust than most home-grown snapshot systems.
 
-### Friction Points
+**Issues:**
+- **"gui" vs "ui" is a coin flip.** The split (cell-grid overlays vs ImGui panel) is architecturally sound but the names encode none of it; neither lib has a README stating its charter, and there are *two unrelated `PanelLayout` types* (`ui_panel.h:49` and `palette_renderer.cpp:27`).
+- **Latent Unicode bug, duplicated 3×:** `toast_renderer.cpp:143`, `palette_renderer.cpp:119/184/237`, and `tooltip.cpp:44` all emit `std::string(1, ch)` per **byte** — any non-ASCII toast/palette text becomes invalid one-byte "clusters", and widths count bytes not columns. The U+2588 full-block occlusion hack is copy-pasted with matching comments in two files. CPU glyph blitting is now being written a **third** time (`tooltip.cpp:31-99` vs the new `text_atlas_builder.cpp`).
+- `UiPanel` exposes two overlapping frame-driving APIs (`render()` vs the public `begin_frame`/`end_frame` trio) with no canonical choice; `set_imgui_backend` takes a raw pointer with an undocumented lifecycle contract.
+- **Blessing is per-platform-manual** (`py do.py blessall` only regenerates for the current OS; no documented promotion path for the other platform's CI artifacts), and **do.py holds the scenario list in triplicate** (`render_map` ~do.py:1472, `renderall`, `blessall`) while `tests/render/` contains scenarios in no list at all.
 
-1. **InputDispatcher dependency injection is bloated**: `Deps` struct has 20+ function pointers (`tab_bar_height_phys`, `hit_test_tab`, `hit_test_pane_pill`, etc.). One missing callback and mouse input silently fails.
+### 2.5 Modules (kanban, markdown, megacity, satview)
 
-2. **Test fixtures are scattered**: No centralized `FakeWindow`, `FakeRenderer`, `FakeHost` library. Each test reinvents mocks. Adding a new host type requires understanding many mock patterns.
+**Good:** clean mutual independence; defensive binary catalog readers (magic/version/record-size static_asserts, bounds checks, NaN validation in `satview_constellation_boundary_catalog.cpp:19-60`) with attribution files and pinned-commit generator scripts; the WIP `text_atlas_builder` extraction is de-duplication in exactly the right direction (megacity's `sign_label_atlas.cpp` is now a 43-line adapter); megacity's four-layer sub-library split; small tested pure units everywhere in kanban/markdown/satview.
 
-3. **CMake is moderately complex**: `CompileShaders.cmake` and `CompileShaders_Metal.cmake` duplicate logic. Shader staging is verbose.
+**Issues:**
+- **God files:** `codeviz_render_vk.cpp` **4,994 lines** (with a **785-line** `init_gbuffer()` and **679-line** `record_prepass()`), `satview_host.cpp` **3,198** (653-line `render_control_panel()`), `megacity_host.cpp` **2,992** (505-line `pump()` mixing camera, tree-sitter polling, perf overlays, and inline ray/AABB picking math that belongs in the existing `city_picking.cpp`). 56 functions exceed 100 lines in modules/.
+- **Vulkan boilerplate hand-rolled three times** (buffers, `load_shader`, `transition_image`, staging upload, attachment creation) in `codeviz_render_vk.cpp:69-885`, `satview_render_vk.cpp:34-190`, `markdown_render_pass_vk.cpp:26-90` — and again in each Metal twin, so the duplication factor is ~6. `vk_resource_helpers.h` exists but only offers `ensure_buffer_size`.
+- **The 4-5-edit config ritual:** every satview toggle touches the ~90-field member blob, `current_config()`, `apply_config()`, `render_control_panel()`, and the TOML apply/serialize pair; megacity mirrors it. This is the classic two-agents-both-conflict trap.
+- Three ad-hoc binary formats (`DXSTAR1`, `DXCLINE1`, `DXCBND01`) each reimplement the same container skeleton; `popen("curl …")` string-built network fetch in `satview_catalog_service.cpp:148-190` (and conceptually again in the cloud service); kanban reimplements grapheme-cluster segmentation (`kanban_host.cpp:60-141`) on top of `draxul/unicode.h` primitives; asset-path resolution and ImGui host plumbing duplicated between the two 3D hosts.
 
-4. **Platform callbacks leak type safety**: SDL callbacks are C-style function pointers; if SDL3 changes event layout, the lambda signatures in `sdl_window.cpp` must be updated without compiler help.
+### 2.6 Tests, CI, build, hygiene
 
----
+**Good:** Catch2 v3.7.1 pinned; **GLOB-based test discovery** (`tests/CMakeLists.txt:10`) — zero merge friction adding tests; hermetic and fast (fake renderer/window, `draxul-rpc-fake` instead of real nvim, slow fuzz gated on `DRAXUL_RUN_SLOW_TESTS`); all FetchContent deps pinned except one; CI spans Windows+macOS with ASan, opt-in TSan, coverage→Codecov, format, Sonar.
 
-## 5. Platform Code Hygiene
-
-### Excellent Separation
-- **Zero** platform-specific `#ifdef`s in shared libraries
-- Only 36 ifdefs total in entire codebase, mostly in `app/macos_menu.mm` and window backend selection
-- Platform selection handled at build time via CMake (`if(APPLE)` → Metal shaders, else Vulkan)
-
-### Minor Issues
-- macOS app bundle resource staging is verbose (metal shader copying, font paths) — could be a helper function
-- Megacity assets: `if(DRAXUL_ENABLE_MEGACITY AND EXISTS "${CMAKE_SOURCE_DIR}/assets/megacity")` silently skips if assets missing; should error when `DRAXUL_ENABLE_MEGACITY=ON`
-
----
-
-## 6. Build System
-
-### Strengths
-- CMake 3.25+ with FetchContent for all dependencies
-- Automatic ccache/sccache detection
-- Sanitizer integration (address, leak, undefined)
-- Code coverage support (`-fprofile-instr-generate`)
-
-### Issues
-
-1. **Render test discovery is manual**: `basic-view`, `cmdline-view`, etc. hardcoded in `CMakeLists.txt`; adding a new render test requires editing the build file.
-
-2. **Font staging has no error guard**: If font `.ttf` files don't exist, silently skipped. Should error or provide a fallback.
-
-3. **No package targets**: No `.dmg`, `.msi`, or `AppImage` packaging configured.
-
-4. **Shader dependency tracking is implicit**: Editing a `.metal`/`.glsl` may not always retrigger recompile.
+**Issues:**
+- **CI never runs automatically.** All six workflows are `workflow_dispatch`-only (documented as intentional in features.md) — main can break silently between manual runs. `format.yml` doesn't lint `modules/` or `scripts/`.
+- **Repo hygiene:** a **30 MB tracked BMP** at the root (`megacity-linux-drivers-mesh.bmp`); tracked `key.txt` (actually a debug log, but the name is security-scanner bait); tracked `.!75583!.DS_Store`; ~8 MB of untracked log clutter and a `NUL.obj` from a Windows redirection bug; duplicate feature docs (`FEATURES.md` vs `docs/features.md`).
+- `session_attach_tests.cpp` (631 lines) is **silently excluded on macOS** (`tests/CMakeLists.txt:57-63`, a Catch2/AppleClang `__int128` workaround likely fixed upstream). `tests/do_py_tests.py` (334 lines) is wired into nothing and never runs. `run_tests.bat` lacks the ctest `--timeout 120` that `run_tests.sh` has; build-cache detection is implemented three times (do.py, .sh, .bat). NanoVG is the only dep pinned to `master`. `megacity_scene_tests.cpp` is a 3,424-line god test file (satview, by contrast, has 20+ per-topic files). `do.py` is 1,535 lines mixing build, deploy, blessing, smoke, and multi-model AI review orchestration.
 
 ---
 
-## 7. Thread Safety
+## 3. Top 10 Good Things
 
-### Correct Patterns
-- RPC reader thread isolated; communicates via atomic + mutex + condition_variable
-- `MainThreadChecker` (debug-only) ensures Grid/Host/Window aren't accidentally accessed from background threads
-- Notification and response queues protected by separate mutexes
+1. **The RendererState extraction** — all grid/cursor/overlay CPU logic in one platform-free, unit-tested 400-line file shared by both GPU backends via thin handles. The single best piece of architecture in the repo.
+2. **NvimRpc/NvimProcess threading discipline** — bounded queues with drop thresholds, documented happens-before ordering, main-thread-blocking guards active in Release, non-blocking SIGTERM→SIGKILL shutdown, partial-write loops. Production-grade IPC.
+3. **The recurring "pure state machine + thin shell" pattern** (`UiRequestWorkerState`, `RenderTestDriverEnv`, `CursorBlinker`, draxul-gui's pure renderers, satview's math units) — everything built this way is tested and safe for concurrent agents to modify.
+4. **Hermetic, fast, friction-free test suite** — ~146 files/~41k lines, GLOB auto-discovery (no list to merge-conflict on), fake renderer/window/RPC-server fixtures, real fuzz tests for MPack and the VT parser, no test needing a real nvim or GPU.
+5. **The render snapshot infrastructure** — TOML scenarios, settle/quiet-frame detection, per-platform references, per-scenario pixel tolerances, first-class timeout diagnostics, CI artifact upload, JSON diff reports.
+6. **Module isolation via `HostProviderRegistry`** — modules self-register behind CMake options, never include each other, never reach into libs internals; zero `dynamic_cast` in the host/app layer.
+7. **Cross-language drift defenses where they exist** — `GpuCell` size/offsetof static_asserts referencing the shader structs; `quad_offsets_shared.h`/`decoration_constants_shared.h` included by both GLSL and MSL; compile-time-verified sorted RPC dispatch tables.
+8. **Defensive parsing everywhere data enters** — UI event clamps against malicious grid packets, binary catalog readers with magic/version/bounds/NaN validation plus attribution docs and SHA-pinned generator scripts, 256 MB RPC accumulation caps.
+9. **Careful GPU resource lifecycle on the Vulkan side** — transactional swapchain rebuild committed only on success, fence-disciplined retirement of grid slot resources, validation messages routed into the app log.
+10. **Build/dependency hygiene** — all FetchContent deps pinned (one exception), SHA256-pinned data zips, SYSTEM-include warning isolation, layered CMake targets, sensible presets, and dogfooded work-item tracking in the app's own kanban host.
 
-### Potential Races
+## 4. Top 10 Bad Things
 
-1. **Grid dirty marks under concurrent access**: Grid is accessed from RPC thread (set_cell, scroll) and main thread (get_dirty_cells, clear_dirty). No explicit mutex on Grid; safety relies on `MainThreadChecker` discipline which is debug-only.
-
-2. **Callback lifetime in hosts**: `GridHostBase` stores `IHostCallbacks*` as borrowed pointer. If App destroys callback while host runs, `callbacks()` dereference crashes. WI 64 suggests this was a real bug.
-
-3. **Font service under DPI changes**: `on_display_scale_changed()` reinitializes `TextService`; if a host is mid-render and dereferences `text_service_`, partially-initialized state could be seen.
-
-4. **wait_for race**: Between checking `impl_->running_` and calling `wait_for`, `running_` could become false. Benign in practice but not formally safe.
-
----
-
-## 8. Error Handling
-
-### Where Errors Are Silently Swallowed
-
-1. **Clipboard operations**: `copy_to_clipboard()`, `paste_from_clipboard()` log WARN but don't notify user.
-
-2. **Font fallback failures**: If fallback font can't load, warning logged but grid continues. User sees missing glyphs without knowing why.
-
-3. **RPC request timeouts**: kRpcRequestTimeout = 5 seconds; logged as WARN but no toast notification.
-
-4. **Config reloads**: `reload_config()` failure logs but doesn't surface to user.
-
-5. **Atlas overflow**: Glyphs disappear, logged as ERROR but no user notification and no fallback.
-
-### Good Error Recovery
-- Startup failures display toasts with reason
-- Host crashes trigger error handling
-- Config load warnings are displayed as toasts
-- Render test failures collect error message in `last_render_test_error_`
+1. **CLAUDE.md and plans/README.md describe a codebase that no longer exists** — phantom `I3DHost`/`IGridHost`/`I3DRenderer` types, "app/ is just wiring", dead `plans/work-items*` paths (real system: `kanban/`). In a multi-agent repo, stale steering docs are compounding damage.
+2. **`app/app.cpp` (2,869 lines) is a god class and the #1 merge hotspot** — 60+ methods, ~45 fields, a 290-line `wire_gui_actions()`, ~10 copies of the viewport-recompute ritual, plus a 450-line `draxul_main()` in `main.cpp` full of untested session-owner logic.
+3. **Module host god files:** `codeviz_render_vk.cpp` (4,994 lines, 785-line function), `satview_host.cpp` (3,198), `megacity_host.cpp` (2,992, 505-line `pump()` with inline picking math). Every feature in these modules funnels through one file.
+4. **Vulkan/Metal backends are duplicated and already diverging** — ~350 lines of identical orchestration maintained twice, with real consequences: Metal draws stale undersized buffers on upload failure where Vulkan cancels the frame; Metal's scissor clamp is missing a `std::max` Vulkan has.
+5. **CI never runs automatically** — six good workflows, all `workflow_dispatch`-only. Combined with per-platform-manual snapshot blessing, cross-platform breakage is structurally invisible.
+6. **NanoVG Vulkan backend has spec-level UB** — no image layout transitions for sampled textures, a dummy texture legally discarded every flush, unflushed mapped memory, and a frames-in-flight constant (3) that contradicts the renderer's (2).
+7. **The config-option ritual:** a new setting requires 3-5 coordinated edits in `app_config_io.cpp`/`config_document.cpp` (with already-drifted key lists and double-parsed keys), and 4-5 more in each module host. Pure merge-conflict machinery.
+8. **`draxul-types` has become a grab-bag** with global state, and app concepts (`HostKind` with every module enumerated) leak into the foundation — the bottom of the dependency graph is the highest-churn place to collide.
+9. **Repo hygiene:** a 30 MB BMP tracked at the root, a tracked `key.txt`, a tracked partial `.DS_Store`, megabytes of loose logs, `NUL.obj`, and two competing feature docs.
+10. **Manual GLSL↔MSL shader mirroring at scale** — 1,300-line monolithic `.metal` scene files tracking ~25 GLSL files by hand, a third embedded-string copy of the NanoVG shader, and a missing CMake dependency that leaves `grid.metallib` stale when shared quad offsets change.
 
 ---
 
-## Module Quality Summary
+## 5. Best 10 Quality-of-Life Features to Add
 
-| Module | Test Coverage | Concerns | Grade |
-|--------|---------------|----------|-------|
-| draxul-types | Low (types-only, no logic) | POD only | A |
-| draxul-window | Medium | SDL3 glue, DPI handling | B+ |
-| draxul-renderer | Medium | GPU backends complex; parity untested | B |
-| draxul-font | Low | Fallback chain linear; atlas overflow silent | B |
-| draxul-grid | High | VT parser well-tested | A |
-| draxul-host | High | Terminal emulation; good coverage | A- |
-| draxul-nvim | High | Neovim RPC, UI events | A |
-| draxul-ui | Low | ImGui glue; no unit tests | B |
-| draxul-config | High | TOML parsing, roundtrip tested | A |
-| app | Medium | Complex initialization path | B |
+(Checked against `docs/features.md` and the 76 `kanban/ice-box/` items to avoid duplication.)
 
----
+1. **Push/PR-triggered lightweight CI** — a single build+ctest job on push (keeping the heavy matrix manual). The whole test investment is inert if nothing runs it automatically.
+2. **Cross-platform bless promotion** — `py do.py bless-from-ci <run-id>` that downloads the other platform's render-test artifacts and promotes them to `tests/render/reference/`. Today a Windows dev changing glyph rendering simply cannot update macOS references.
+3. **Drag-and-drop file open** — drop a file onto a pane to open it in the focused Neovim host (or a new split); drop a `.md` onto the markdown host. Standard GUI-editor affordance, absent from features.md.
+4. **"Duplicate pane here" / open-split-in-same-cwd** — `IHost::current_working_directory()` already exists; a keybinding + palette action to open a new terminal/nvim split inheriting the focused pane's cwd is cheap and used constantly in terminal apps.
+5. **Terminal title reporting (OSC 0/2) → tab/pane names** — let shells and TUIs set the pane title automatically instead of relying on manual `set_pane_name`.
+6. **Config declarative-table refactor with generated docs** — one row per option (key, type, range, field) generating parse + serialize + known-keys + a markdown table for features.md. This is QoL for every future contributor and structurally kills findings §2.1.
+7. **Toast interaction** — click-to-dismiss and an optional action button (e.g. "Open log", "Retry attach"). The toast system exists; it's currently fire-and-forget only.
+8. **`do.py new-host` / `new-module` scaffolding** — generate the CMake target, host skeleton, registry registration, config section, and test file in one command. Directly reduces the "edit five central files" tax the review documents.
+9. **SatView view bookmarks** — save/restore named camera + time + selection states (the ground-view work multiplies the number of interesting viewpoints worth returning to).
+10. **Async native HTTP helper in `draxul-runtime-support`** (WinHTTP/NSURLSession or libcurl) replacing the three `popen("curl")` sites — user-visible QoL as faster, cancellable weather/TLE fetches and a clean shutdown, plus it deletes the shell-quoting hazard.
 
-# Top 10 GOOD Things
+## 6. Best 10 Tests to Add for Stability
 
-1. **Immaculate platform code separation** — Zero platform-specific `#ifdef`s in shared libraries; Vulkan/Metal backends completely isolated. Build-time selection via CMake.
+(Avoiding iced test items like sdl-event-translator, atlas-exhaustion, large-paste-stress, etc.)
 
-2. **Interface-first architecture** — Every component exports a pure virtual base class; enables testing, dependency injection, and loose coupling.
+1. **Non-ASCII text through `render_palette` / `render_toasts` / `rasterize_tooltip`** — pins the confirmed byte-per-cluster UTF-8 bug before it ships garbled toasts; trivially cheap with existing pure-function seams.
+2. **`App::load_session` / `save_session_as` rollback paths** — the most intricate error-recovery code in App (hand-rolled rollback lambdas capturing 6-7 fields each) has zero coverage; simulate attach-server restart failure mid-rollback.
+3. **`compare_frames` / `finalize_render_test_result`** — the diff math gating *every* snapshot test is itself untested (size mismatch, tolerance-boundary pixel, zero threshold).
+4. **Extracted frame/chunk state machine test** — pull the `frame_active_`/`chunk_has_work_`/prime-clear-pass flag logic out of both backends into a plain class and pin its transitions; this is where Vulkan/Metal have already drifted.
+5. **A `SatViewHost` construction + `draw()` dirty-tracking smoke test** — 3,198 lines with zero direct tests; even a fake-renderer construct/pump/draw/config-roundtrip test would catch wiring regressions in the fastest-moving module.
+6. **`weather_service` parsing and URL encoding** — hand-rolled JSON extraction and an incomplete URL-encoder, both pure, both untested, both fed by network data.
+7. **Windows `NvimProcess::shutdown()` vs `is_running()` race regression test** — a threaded unit test hammering the pair; the handle-close-before-flag-clear ordering is a real crash window and TSan coverage is macOS-only.
+8. **`host_kind` round-trip + `is_terminal_shell_host` exhaustiveness** — a static-assert-style test that every `HostKind` enumerator parses, serializes, and is classified; protects the three central registries every new host must edit.
+9. **Render-scenario list consistency** — a test (or do.py self-check, wiring `tests/do_py_tests.py` into ctest/CI while at it) asserting every `tests/render/*.toml` appears in the run/bless lists, ending the silent triplicate-list drift.
+10. **Re-enable `session_attach_tests.cpp` on macOS** — upgrade Catch2 past the `__int128` bug; 631 lines of IPC coverage currently missing on one of two supported platforms is a coverage hole, not a test to write.
 
-3. **Dependency injection everywhere** — `AppDeps`, `HostManager::Deps`, `InputDispatcher::Deps` use struct-based injection; zero singletons; trivial to swap implementations.
+## 7. Worst 10 Features
 
-4. **Exceptional test coverage** — 87 test files, 27K+ LOC of tests covering VT parser, terminal emulation, grid rendering, RPC, keybindings, DPI handling, config roundtrips.
+(Existing capabilities that are net-negative or badly executed as built.)
 
-5. **Clean build system** — CMake 3.25+, FetchContent for dependencies, automatic ccache/sccache, sanitizer integration, code coverage support.
-
-6. **Transparent diagnostics overlay** — F12 toggle shows real-time frame timing, dirty cell count, glyph atlas stats, startup phases.
-
-7. **Meticulous logging infrastructure** — `DRAXUL_LOG_*` with category filtering, dual output (stderr + file), configurable levels via CLI flags.
-
-8. **Acyclic dependency graph** — types < window < renderer < font < grid < host < app; zero circular dependencies.
-
-9. **Excellent naming consistency** — Consistent throughout (snake_case functions, kPrefixConstants, IInterfaceNames) despite rapid development pace.
-
-10. **Comprehensive feature parity** — Terminal emulation matches xterm (VT100+, SGR colors, DECSTBM, mouse modes, bracketed paste, OSC 7/52); Neovim integration is deep; MegaCity visualization is sophisticated.
-
----
-
-# Top 10 BAD Things
-
-1. **Notification queue backpressure is undefined** — Queue can reach 4096 depth before warning; unclear what happens when full (silent drop? block?). Risk: lost RPC notifications under high load.
-
-2. **Host callback lifetime is fragile** — `IHostCallbacks*` stored as raw borrowed pointer; if App destroys callback before host shutdown, dangling pointer crash. WI 64 confirms this was a real bug.
-
-3. **Inconsistent error handling patterns** — No unified `Result<T, Error>` type; `bool + error()`, `std::optional`, and silent-fail patterns all coexist.
-
-4. **RPC request timeout has no user feedback** — If Neovim hangs > 5 seconds, logged as WARN only. Users won't know why GUI is unresponsive.
-
-5. **Atlas exhaustion has no fallback** — If glyph cache exhausts 2048×2048, glyphs disappear silently. No dynamic reallocation, no user notification.
-
-6. **No thread safety formalism** — Grid and other structures rely on `MainThreadChecker` (debug-only asserts); in release mode, concurrent access from RPC thread is unchecked.
-
-7. **InputDispatcher dependency injection is bloated** — `Deps` struct has 20+ function pointers; one missing callback and mouse input silently fails with no diagnostic.
-
-8. **Test fixtures are scattered** — No centralized `FakeWindow`/`FakeRenderer`/`FakeHost` library; each test reinvents mocks independently.
-
-9. **Render test discovery is manual** — render scenarios hardcoded in `CMakeLists.txt`; adding a new test requires editing the build file.
-
-10. **Long initialization path** — `App::initialize()` is 200+ lines; startup failures could originate from any of 10+ subsystems without clear root-cause UI.
+1. **The weather service** — a `popen("curl")` HTTP client with partial shell escaping and a join-on-shutdown that can stall exit ~15 s, living inside a terminal emulator's app layer. Charming feature, worst implementation in the repo.
+2. **Manual-only CI as a documented "feature"** — features.md presents dispatch-only workflows as intentional; it converts the excellent test suite into opt-in insurance.
+3. **`popen("curl")` network fetch in SatView catalog/cloud services** — the same anti-pattern a second and third time, with string-built shell commands and temp-file stderr plumbing.
+4. **The dead dirty-cell upload machinery in `RendererState`** — built, unit-tested, documented in UML… and called by no production code; both backends full-copy every frame. Pure maintenance load masquerading as an optimization.
+5. **Dual feature documentation** (`FEATURES.md` at root vs canonical `docs/features.md`) — two overlapping inventories guaranteed to diverge, in a repo whose own rules say features.md is the single source of truth.
+6. **The `draxul-gui` / `draxul-ui` naming split** — a sound architectural boundary rendered useless by synonymous names, no charters, and a duplicated `PanelLayout` type; every newcomer pays the toll.
+7. **`App::active_host_manager()`'s mutable static dummy** — a process-wide singleton fallback that silently absorbs writes when no workspace matches, instead of failing loudly.
+8. **Multi-model AI review orchestration inside `do.py`** — Codex/Gemini/Claude drivers, failure-pattern string matching, and deploy packaging welded into a 1,535-line build script (plus the near-duplicate `ask_agent_*.py` quartet already acknowledged in the icebox).
+9. **The three bespoke `DX*` binary catalog formats** — well-validated individually, but three hand-rolled container implementations (plus three Python writers) where one shared reader/writer would do; the family is still growing.
+10. **`PERF_MEASURE()` sprinkled on trivial functions** — a profiling feature that grabs a global mutex inside the functions being profiled, distorts its own data, and generates merge-conflict noise at the top of half the functions in the foundation libs.
 
 ---
 
-# Best 10 Features to Add (Quality of Life)
+## 8. Recommended Fix Order (highest leverage first)
 
-1. **Unified `Result<T, Error>` type** — Replace the `bool + error()` / `std::optional` / silent-fail mix with a type-safe result enum that makes error cases impossible to ignore at call sites.
-
-2. **User feedback for RPC timeouts** — Show a dismissible toast ("Neovim is not responding") when an RPC request exceeds the timeout threshold. Add exponential backoff instead of always waiting 5 seconds.
-
-3. **Dynamic glyph atlas growth** — When the 2048×2048 atlas fills up, allocate a second atlas page rather than silently dropping glyphs. Toast the user if an emergency eviction occurs.
-
-4. **Async config reload with validation** — Validate the new `config.toml` in a background thread before hot-swapping; if invalid, show a toast with the offending line number and keep the current config.
-
-5. **Host telemetry in diagnostics** — Extend the F12 overlay with per-host RPC latency, grid dirty-cell rates, and memory usage; add a toast warning if RPC latency spikes above a threshold.
-
-6. **Split layout snapshot/restore** — Save the full split-tree layout to `~/.local/share/draxul/layout.json` (or equivalent) and restore it on next launch, including pane sizes and working directories.
-
-7. **Keybinding conflict detector at startup** — Warn via toast if two configured keybindings map to the same chord; suggest which one wins and how to resolve.
-
-8. **Config migration framework** — Version the config schema (`config_version = 1`); auto-migrate old formats silently and log the migration steps. Prevents silent breakage when fields are renamed.
-
-9. **Render profiler with per-pass timing** — Add a stacked bar chart in the diagnostics overlay showing atlas-upload, grid-render, and UI-render time per frame.
-
-10. **Paste safety: multi-line confirmation threshold configurable** — Allow `paste_confirm_lines` to accept a range (e.g., warn only when paste > N lines) and let the user confirm once per session rather than per-paste.
-
----
-
-# Best 10 Tests to Add (Stability)
-
-1. **HostManager split/close stress test** — 1000 rapid split/close cycles; assert tree structure is valid and all pane descriptors are consistent after each step.
-
-2. **RPC notification queue backpressure** — Enqueue >4096 RPC notifications in rapid burst; verify the queue drains correctly and no notifications are silently lost.
-
-3. **Host lifecycle state machine** — `initialize()` → `pump()` → `shutdown()` → `pump()` must not crash; `shutdown()` twice must be idempotent; `pump()` before `initialize()` must return error, not crash.
-
-4. **Font atlas exhaustion** — Fill the glyph cache with >10K unique glyphs; verify no glyphs disappear and the renderer degrades gracefully or extends the atlas.
-
-5. **Config reload under host activity** — Trigger `reload_config()` while synthetic key events are being processed; verify no lost key events and no race conditions.
-
-6. **DPI hotplug during active frame** — Call `on_display_scale_changed()` while a render frame is in-flight; verify no GPU resource leaks or use-after-free.
-
-7. **Concurrent grid dirty marks** — Simulate high-frequency grid updates from a background thread while the main thread reads dirty cells; run under TSan to detect races.
-
-8. **InputDispatcher with null dependency callbacks** — Construct `InputDispatcher` with `Deps` fields set to `nullptr`; verify graceful no-op (not segfault) for every input event type.
-
-9. **Renderer shutdown with pending frames** — Call `shutdown()` before `end_frame()` completes; verify all GPU fences are waited and all resources are freed (run under ASan).
-
-10. **`dispatch_to_nvim_host()` with no live Neovim** — Call with no Neovim host registered; verify a meaningful error is returned and the app does not crash or deadlock.
-
----
-
-# Worst 10 Existing Features (Fragile / Poorly Implemented)
-
-1. **Silent RPC notification drop** — No monitoring, no backpressure signal to Neovim, queue just grows. Could silently drop grid-line events under heavy load.
-
-2. **Raw pointer callback lifetime** — Borrowed `IHostCallbacks*` everywhere with no formal lifetime contract; one misplaced owner transfer and GUI crashes with no diagnostic.
-
-3. **Atlas overflow handling** — Glyphs disappear without warning; no fallback rasterization strategy; no user notification.
-
-4. **RPC timeout handling** — Always 5 seconds, no backoff, no user feedback. GUI appears hung with no explanation.
-
-5. **Font fallback chain is linear and opaque** — If primary font is broken, fallbacks tried sequentially with no progress indicator; user sees blank cells with no toast.
-
-6. **Terminal color parsing is strict** — Invalid hex colors in config result in blank terminal instead of falling back to defaults; error is easy to miss.
-
-7. **Scrollback buffer is fixed-size and hardcoded** — 2000 lines; users with high-scroll workflows hit limit silently with no configurable override.
-
-8. **Paste confirmation is all-or-nothing** — If `paste_confirm_lines = 1`, every paste needs confirmation regardless of context; no per-action granularity or session-level "trust" flag.
-
-9. **Config reload is not transactional** — Reloads can partially succeed (e.g., font updates but keybindings fail), leaving inconsistent state with no rollback path.
-
-10. **InputDispatcher `Deps` bloat** — 20+ function pointers with no validation that all are set; missing one silently breaks mouse/keyboard input in that subsystem with no log entry pointing to the missing callback.
-
----
-
-*Overall assessment: **7.5/10**. Strong execution, solid architecture, excellent tests. Main weaknesses are error handling consistency, silent failure modes, and lack of user feedback for transient failures.*
+1. **Fix the docs** (CLAUDE.md hierarchy/paths, delete root `FEATURES.md` or make it a pointer) — one hour, stops every future agent being misrouted.
+2. **Repo hygiene sweep** — untrack the 30 MB BMP, `key.txt`, `.DS_Store` artifact; add a push-triggered CI job.
+3. **Fix the two live correctness bugs** — Metal stale-buffer draw on upload failure; the missing `quad_offsets_shared.h` Metal shader dependency.
+4. **Ship the WIP text-atlas consolidation fully** (migrate `tooltip.cpp` blitting, delete the `SignLabelRequest` shim) and add the shared cell-text writer to fix the UTF-8 byte-per-cluster bug once.
+5. **Extract `WorkspaceManager` and `SessionCoordinator` from App**, and a `RendererBase` skeleton from the two backends — the three refactors that most directly de-conflict parallel agent work.
+6. **Declarative config table** (app layer first, then satview/megacity) — kills the 4-5-edit ritual and its drifted key lists structurally.

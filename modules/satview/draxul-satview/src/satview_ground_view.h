@@ -19,12 +19,24 @@ struct SatViewGroundBodyProxy
     double radius_earth_radii = 0.0;
 };
 
+struct SatViewGroundBasis
+{
+    glm::dvec3 east{ 1.0, 0.0, 0.0 };
+    glm::dvec3 north{ 0.0, 1.0, 0.0 };
+    glm::dvec3 up{ 0.0, 0.0, 1.0 };
+};
+
 [[nodiscard]] SatViewGroundLocation satview_ground_location_from_map_ndc(
     glm::vec2 ndc_position,
     glm::vec2 center_radians);
 [[nodiscard]] glm::dvec3 satview_ground_render_position(
     SatViewGroundLocation location,
     double unix_seconds);
+[[nodiscard]] SatViewGroundBasis satview_ground_basis(
+    const glm::dvec3& observer_render_position);
+[[nodiscard]] glm::dvec3 satview_ground_local_direction_to_render(
+    const glm::dvec3& observer_render_position,
+    const glm::dvec3& local_east_north_up_direction);
 [[nodiscard]] SatViewGroundLocation satview_ground_location_from_render_position(
     const glm::dvec3& render_position,
     double unix_seconds);

@@ -36,5 +36,7 @@ void main()
     vec2 uv = vec2(
         fract(0.5 - right_ascension / (2.0 * PI)),
         0.5 - declination / PI);
-    out_color = vec4(texture(milky_way_tex, uv).rgb * 0.55, 1.0);
+    out_color = vec4(
+        texture(milky_way_tex, uv).rgb * clamp(push.render_params.w, 0.0, 1.0),
+        1.0);
 }

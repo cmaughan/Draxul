@@ -4,12 +4,17 @@
 
 using draxul::satview::OrbitClass;
 using draxul::satview::OrbitSolutionKind;
+using draxul::satview::CentralBody;
 using draxul::satview::SatelliteObjectKind;
 using draxul::satview::SatellitePopulation;
 using draxul::satview::merge_satellite_catalogs;
 using draxul::satview::parse_celestrak_gp_json;
 using draxul::satview::parse_celestrak_satcat_csv;
 using draxul::satview::satcat_status_is_active;
+using draxul::satview::apply_sampled_ephemeris_csv;
+using draxul::satview::load_bundled_sampled_ephemeris;
+using draxul::satview::apply_lunar_disposition_csv;
+using draxul::satview::load_bundled_lunar_dispositions;
 
 TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog]")
 {
@@ -222,11 +227,116 @@ TEST_CASE("SatView SATCAT parser separates malformed excluded and non-renderable
 
     REQUIRE(result);
     CHECK(result.catalog.malformed_records == 1);
-    CHECK(result.catalog.excluded_records == 3);
-    CHECK(result.catalog.non_renderable_records == 1);
-    REQUIRE(result.catalog.objects.size() == 2);
+    CHECK(result.catalog.excluded_records == 2);
+    CHECK(result.catalog.non_renderable_records == 2);
+    REQUIRE(result.catalog.objects.size() == 3);
+    CHECK(result.catalog.objects[0].central_body == CentralBody::Moon);
     CHECK_FALSE(result.catalog.objects[0].renderable);
-    CHECK(result.catalog.objects[1].renderable);
+    CHECK(result.catalog.objects[0].solution_kind == OrbitSolutionKind::CatalogOnly);
+    CHECK_FALSE(result.catalog.objects[1].renderable);
+    CHECK(result.catalog.objects[2].renderable);
+}
+
+TEST_CASE("SatView SATCAT parser retains only current Moon-orbit catalog rows", "[satview][catalog][moon]")
+{
+    const std::string csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "LUNAR CATALOG ONLY,81001,2026-001A,PAY,+,,,,,,MO,ORB\n"
+        "DRO-A,81002,2026-001B,PAY,+,,13000,5,70000,69000,MO,ORB\n"
+        "LUNAR R/B,81003,2026-001C,R/B,,,,,,,MO,ORB\n"
+        "LUNAR DEBRIS,81004,2026-001D,DEB,,,,,,,MO,ORB\n"
+        "IMPACTED,81005,2026-001E,PAY,+,,120,90,100,90,MO,IMP\n"
+        "DECAYED,81006,2026-001F,DEB,,2026-06-01,120,90,100,90,MO,ORB\n";
+
+    const auto result = parse_celestrak_satcat_csv(csv);
+    REQUIRE(result);
+    REQUIRE(result.catalog.objects.size() == 4);
+    CHECK(result.catalog.excluded_records == 2);
+    CHECK(result.catalog.non_renderable_records == 4);
+    CHECK(result.catalog.objects[0].central_body == CentralBody::Moon);
+    CHECK(result.catalog.objects[0].solution_kind == OrbitSolutionKind::CatalogOnly);
+    CHECK_FALSE(result.catalog.objects[0].renderable);
+    CHECK(result.catalog.objects[1].solution_kind == OrbitSolutionKind::CatalogOnly);
+    CHECK_FALSE(result.catalog.objects[1].renderable);
+    CHECK(result.catalog.objects[2].object_kind == SatelliteObjectKind::RocketBody);
+    CHECK(result.catalog.objects[3].object_kind == SatelliteObjectKind::Debris);
+}
+
+TEST_CASE("SatView sampled lunar ephemeris upgrades matching catalog-only records", "[satview][catalog][moon]")
+{
+    const std::string satcat_csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "LRO,38301,PAY,,,,,,MO,ORB\n";
+    auto parsed = parse_celestrak_satcat_csv(satcat_csv);
+    REQUIRE(parsed);
+    REQUIRE(parsed.catalog.objects.size() == 1);
+    REQUIRE_FALSE(parsed.catalog.objects[0].renderable);
+
+    const std::string ephemeris_csv =
+        "NORAD_CAT_ID,SOURCE,FRAME,UNIX_SECONDS,X_KM,Y_KM,Z_KM,VX_KM_PER_S,VY_KM_PER_S,VZ_KM_PER_S\n"
+        "38301,JPL Horizons,MOON_EQUATORIAL_J2000,1000,1800,0,0,0,1.6,0\n"
+        "38301,JPL Horizons,MOON_EQUATORIAL_J2000,1060,1797,96,0,-0.085,1.598,0\n";
+    std::string error;
+    CHECK(apply_sampled_ephemeris_csv(parsed.catalog, ephemeris_csv, &error) == 1);
+    CHECK(error.empty());
+    const auto& lro = parsed.catalog.objects[0];
+    CHECK(lro.renderable);
+    CHECK(lro.solution_kind == OrbitSolutionKind::SampledEphemeris);
+    CHECK(lro.ephemeris_source == "JPL Horizons");
+    CHECK(lro.ephemeris_samples.size() == 2);
+}
+
+TEST_CASE("SatView bundled ephemeris catalog upgrades the curated lunar missions", "[satview][catalog][moon]")
+{
+    const std::string satcat_csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "ARTEMIS P1 (THEMIS B),30581,PAY,,,,,,MO,ORB\n"
+        "ARTEMIS P2 (THEMIS C),30582,PAY,,,,,,MO,ORB\n"
+        "LRO,35315,PAY,,,,,,MO,ORB\n"
+        "CHANDRAYAAN-2,44441,PAY,,,,,,MO,ORB\n"
+        "CAPSTONE,52914,PAY,,,,,,MO,ORB\n"
+        "DANURI,53365,PAY,,,,,,MO,ORB\n";
+    auto parsed = parse_celestrak_satcat_csv(satcat_csv);
+    REQUIRE(parsed);
+    REQUIRE(parsed.catalog.objects.size() == 6);
+
+    std::string error;
+    CHECK(load_bundled_sampled_ephemeris(parsed.catalog, &error) == 6);
+    CHECK(error.empty());
+    for (const auto& record : parsed.catalog.objects)
+    {
+        CHECK(record.solution_kind == OrbitSolutionKind::SampledEphemeris);
+        CHECK(record.renderable);
+        CHECK(record.ephemeris_frame == "MOON_ICRF");
+        CHECK((record.ephemeris_source.starts_with("NASA/JPL Horizons")
+            || record.ephemeris_source.starts_with("NASA SSC prediction")));
+        CHECK(record.ephemeris_track_horizon_minutes > 0.0);
+        CHECK(record.ephemeris_samples.size() >= 300);
+    }
+}
+
+TEST_CASE("SatView lunar dispositions exclude confirmed surface and impacted rows", "[satview][catalog][moon]")
+{
+    const std::string satcat_csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "CHANG'E-4,43845,PAY,,MO,ORB\n"
+        "HAKUTO-R M2,62717,PAY,,MO,ORB\n"
+        "LRO,35315,PAY,,MO,ORB\n";
+    auto parsed = parse_celestrak_satcat_csv(satcat_csv);
+    REQUIRE(parsed);
+    REQUIRE(parsed.catalog.objects.size() == 3);
+
+    std::string error;
+    CHECK(load_bundled_lunar_dispositions(parsed.catalog, &error) == 2);
+    CHECK(error.empty());
+    REQUIRE(parsed.catalog.objects.size() == 1);
+    CHECK(parsed.catalog.objects.front().norad_catalog_id == 35315);
+    CHECK(parsed.catalog.excluded_records == 2);
+
+    const std::string invalid = "NORAD_CAT_ID,STATUS\n43845,SURFACE\n";
+    CHECK(apply_lunar_disposition_csv(parsed.catalog, invalid, &error) == 0);
+    CHECK_FALSE(error.empty());
 }
 
 TEST_CASE("SatView catalog merge enriches GP rows and appends SATCAT estimates", "[satview][catalog]")

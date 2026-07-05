@@ -100,6 +100,29 @@ glm::dvec3 satview_ground_render_position(
     return render_from_ecef_earth_radii(ecef_surface_from_geodetic(location), unix_seconds);
 }
 
+SatViewGroundBasis satview_ground_basis(const glm::dvec3& observer_render_position)
+{
+    SatViewGroundBasis basis;
+    basis.up = glm::normalize(observer_render_position);
+    glm::dvec3 east = glm::cross(glm::dvec3(0.0, 1.0, 0.0), basis.up);
+    if (glm::dot(east, east) < kVectorEpsilon)
+        east = glm::dvec3(1.0, 0.0, 0.0);
+    basis.east = glm::normalize(east);
+    basis.north = glm::normalize(glm::cross(basis.up, basis.east));
+    return basis;
+}
+
+glm::dvec3 satview_ground_local_direction_to_render(
+    const glm::dvec3& observer_render_position,
+    const glm::dvec3& local_east_north_up_direction)
+{
+    const SatViewGroundBasis basis = satview_ground_basis(observer_render_position);
+    return glm::normalize(
+        basis.east * local_east_north_up_direction.x
+        + basis.north * local_east_north_up_direction.y
+        + basis.up * local_east_north_up_direction.z);
+}
+
 SatViewGroundLocation satview_ground_location_from_render_position(
     const glm::dvec3& render_position,
     double unix_seconds)
@@ -134,14 +157,11 @@ glm::quat satview_ground_camera_world_orientation(
     const glm::dvec3& observer_render_position,
     glm::quat local_camera_orientation)
 {
-    const glm::vec3 eye = glm::vec3(observer_render_position);
-    const glm::vec3 up = glm::normalize(eye);
-    const glm::vec3 reference = std::abs(glm::dot(up, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.96f
-        ? glm::vec3(0.0f, 0.0f, 1.0f)
-        : glm::vec3(0.0f, 1.0f, 0.0f);
-    const glm::vec3 east = glm::normalize(glm::cross(reference, up));
-    const glm::vec3 north = glm::normalize(glm::cross(up, east));
-    const glm::quat local_to_world = glm::quat_cast(glm::mat3(east, north, up));
+    const SatViewGroundBasis basis = satview_ground_basis(observer_render_position);
+    const glm::quat local_to_world = glm::quat_cast(glm::mat3(
+        glm::vec3(basis.east),
+        glm::vec3(basis.north),
+        glm::vec3(basis.up)));
     return glm::normalize(local_to_world * glm::normalize(local_camera_orientation));
 }
 

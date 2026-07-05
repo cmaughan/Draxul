@@ -26,6 +26,9 @@ struct SatViewFilterState
     bool show_debris = true;
     bool show_unknown_population = true;
     bool show_summary_estimates = true;
+    bool show_catalog_only = true;
+    bool show_earth = true;
+    bool show_moon = false;
 
     // Zero or negative disables the age filter.
     double max_epoch_age_days = 0.0;
@@ -44,6 +47,7 @@ struct SatViewFilterCandidate
     std::string_view source_label;
     SatellitePopulation population = SatellitePopulation::Unknown;
     OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
+    CentralBody central_body = CentralBody::Earth;
     OrbitClass orbit_class = OrbitClass::Other;
     bool sun_synchronous_candidate = false;
     double minutes_since_epoch = 0.0;
@@ -57,9 +61,21 @@ struct SatViewFilterCandidate
     const SatViewFilterState& filter,
     SatellitePopulation population);
 
+[[nodiscard]] bool satview_central_body_visible(
+    const SatViewFilterState& filter,
+    CentralBody central_body);
+
+void satview_select_central_body(
+    SatViewFilterState& filter,
+    CentralBody central_body);
+
 [[nodiscard]] bool satview_filter_matches(
     const SatViewFilterState& filter,
     const SatViewFilterCandidate& candidate);
+
+[[nodiscard]] SatViewFilterCandidate make_satview_filter_candidate(
+    const SatelliteRecord& record,
+    std::string_view source_label = {});
 
 [[nodiscard]] SatViewFilterCandidate make_satview_filter_candidate(
     const SatellitePropagationEntry& entry,

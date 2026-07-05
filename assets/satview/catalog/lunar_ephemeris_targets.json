@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "targets": [
+    {
+      "name": "ARTEMIS P1 (THEMIS B)",
+      "norad_catalog_id": 30581,
+      "provider": "nasa_ssc",
+      "ssc_id": "artemisp1pred",
+      "step_minutes": 10,
+      "track_horizon_minutes": 2880
+    },
+    {
+      "name": "ARTEMIS P2 (THEMIS C)",
+      "norad_catalog_id": 30582,
+      "provider": "nasa_ssc",
+      "ssc_id": "artemisp2pred",
+      "step_minutes": 10,
+      "track_horizon_minutes": 2880
+    },
+    {
+      "name": "LRO",
+      "norad_catalog_id": 35315,
+      "horizons_id": "-85",
+      "step_minutes": 10,
+      "track_horizon_minutes": 120
+    },
+    {
+      "name": "CAPSTONE",
+      "norad_catalog_id": 52914,
+      "horizons_id": "-1176",
+      "step_minutes": 60,
+      "track_horizon_minutes": 10080,
+      "coverage_end": "2026-07-24"
+    },
+    {
+      "name": "Danuri (KPLO)",
+      "norad_catalog_id": 53365,
+      "horizons_id": "-155",
+      "step_minutes": 10,
+      "track_horizon_minutes": 120
+    },
+    {
+      "name": "Chandrayaan-2 Orbiter",
+      "norad_catalog_id": 44441,
+      "horizons_id": "-152",
+      "step_minutes": 10,
+      "track_horizon_minutes": 120
+    }
+  ]
+}

@@ -7,7 +7,6 @@
 namespace draxul::satview
 {
 
-inline constexpr double kSatViewMoonMeanRadiusKm = 1737.4;
 inline constexpr double kSatViewMoonSiderealPeriodSeconds = 27.321661 * 86400.0;
 
 struct SatViewMoonPosition

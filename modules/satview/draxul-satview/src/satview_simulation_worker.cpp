@@ -226,14 +226,16 @@ void SatViewSimulationWorker::set_render_settings(
     std::size_t track_satellite_limit,
     std::size_t track_sample_count,
     bool refresh_tracks_each_step,
-    std::optional<std::int64_t> selected_track_norad_catalog_id)
+    std::optional<std::int64_t> selected_track_norad_catalog_id,
+    std::optional<CentralBody> track_central_body)
 {
     {
         std::lock_guard lock(mutex_);
         if (controls_.track_satellite_limit == track_satellite_limit
             && controls_.track_sample_count == track_sample_count
             && controls_.refresh_tracks_each_step == refresh_tracks_each_step
-            && controls_.selected_track_norad_catalog_id == selected_track_norad_catalog_id)
+            && controls_.selected_track_norad_catalog_id == selected_track_norad_catalog_id
+            && controls_.track_central_body == track_central_body)
         {
             return;
         }
@@ -241,6 +243,7 @@ void SatViewSimulationWorker::set_render_settings(
         controls_.track_sample_count = track_sample_count;
         controls_.refresh_tracks_each_step = refresh_tracks_each_step;
         controls_.selected_track_norad_catalog_id = selected_track_norad_catalog_id;
+        controls_.track_central_body = track_central_body;
         settings_dirty_ = true;
     }
     cv_.notify_all();
@@ -369,6 +372,7 @@ void SatViewSimulationWorker::run_loop()
         propagation_settings.track_sample_count = rebuild_tracks ? controls.track_sample_count : 0;
         propagation_settings.track_satellite_limit = controls.track_satellite_limit;
         propagation_settings.selected_track_norad_catalog_id = controls.selected_track_norad_catalog_id;
+        propagation_settings.track_central_body = controls.track_central_body;
 
         SatellitePropagationResult result = propagate_satellites(
             model,

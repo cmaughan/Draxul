@@ -43,6 +43,9 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> skybox_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> star_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> constellation_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> label_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> landscape_fill_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> landscape_rim_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> orbit_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> marker_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> tone_map_pipeline;
@@ -58,35 +61,56 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLTexture>> sun_texture;
     ObjCRef<id<MTLTexture>> milky_way_texture;
     ObjCRef<id<MTLTexture>> live_cloud_texture;
+    ObjCRef<id<MTLTexture>> label_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
+    ObjCRef<id<MTLSamplerState>> label_sampler;
     ObjCRef<id<MTLSamplerState>> hdr_sampler;
     ObjCRef<id<MTLBuffer>> track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> earth_track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> marker_buffer;
     ObjCRef<id<MTLBuffer>> star_buffer;
     ObjCRef<id<MTLBuffer>> constellation_buffer;
+    ObjCRef<id<MTLBuffer>> constellation_boundary_buffer;
+    ObjCRef<id<MTLBuffer>> constellation_label_buffer;
+    ObjCRef<id<MTLBuffer>> cardinal_label_buffer;
+    ObjCRef<id<MTLBuffer>> observatory_fill_buffer;
+    ObjCRef<id<MTLBuffer>> observatory_rim_buffer;
     NSUInteger track_vertex_count = 0;
     NSUInteger earth_track_vertex_count = 0;
     NSUInteger marker_count = 0;
     NSUInteger star_count = 0;
-    NSUInteger constellation_vertex_count = 0;
+    NSUInteger constellation_line_count = 0;
+    NSUInteger constellation_boundary_line_count = 0;
+    NSUInteger constellation_label_count = 0;
+    NSUInteger cardinal_label_count = 0;
+    NSUInteger observatory_fill_triangle_count = 0;
+    NSUInteger observatory_rim_line_count = 0;
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_earth_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
     uint64_t uploaded_star_revision = 0;
     uint64_t uploaded_constellation_revision = 0;
+    uint64_t uploaded_constellation_boundary_revision = 0;
+    uint64_t uploaded_constellation_label_revision = 0;
+    uint64_t uploaded_cardinal_label_revision = 0;
+    uint64_t uploaded_observatory_revision = 0;
+    uint64_t uploaded_observatory_rim_revision = 0;
+    uint64_t uploaded_label_atlas_revision = 0;
     uint64_t uploaded_cloud_revision = 0;
     NSUInteger scene_sample_count = 1;
     std::vector<HdrTargets> hdr_targets;
     uint32_t last_prepass_frame = 0;
 
-    id<MTLTexture> create_texture(id<MTLDevice> metal_device, const LoadedTextureImage& image)
+    id<MTLTexture> create_texture(
+        id<MTLDevice> metal_device,
+        const LoadedTextureImage& image,
+        MTLPixelFormat pixel_format = MTLPixelFormatRGBA8Unorm_sRGB)
     {
         if (!image.valid())
             return nil;
 
         MTLTextureDescriptor* desc = [MTLTextureDescriptor
-            texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB
+            texture2DDescriptorWithPixelFormat:pixel_format
                                          width:static_cast<NSUInteger>(image.width)
                                         height:static_cast<NSUInteger>(image.height)
                                      mipmapped:NO];
@@ -110,7 +134,8 @@ struct SatViewScenePass::State
         if (earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && sun_texture.get()
             && milky_way_texture.get()
-            && earth_sampler.get())
+            && label_texture.get()
+            && earth_sampler.get() && label_sampler.get())
             return true;
 
         EarthTextureImages images = load_earth_texture_images();
@@ -120,9 +145,12 @@ struct SatViewScenePass::State
         moon_texture.reset(create_texture(metal_device, load_moon_texture_image()));
         sun_texture.reset(create_texture(metal_device, load_sun_texture_image()));
         milky_way_texture.reset(create_texture(metal_device, load_milky_way_texture_image()));
+        LoadedTextureImage transparent_label{ 1, 1, { 0, 0, 0, 0 } };
+        label_texture.reset(create_texture(
+            metal_device, transparent_label, MTLPixelFormatRGBA8Unorm));
         if (!earth_day_texture.get() || !earth_night_texture.get()
             || !earth_cloud_texture.get() || !moon_texture.get() || !sun_texture.get()
-            || !milky_way_texture.get())
+            || !milky_way_texture.get() || !label_texture.get())
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal scene textures");
             earth_day_texture.reset();
@@ -131,6 +159,7 @@ struct SatViewScenePass::State
             moon_texture.reset();
             sun_texture.reset();
             milky_way_texture.reset();
+            label_texture.reset();
             return false;
         }
 
@@ -152,6 +181,27 @@ struct SatViewScenePass::State
             milky_way_texture.reset();
             return false;
         }
+
+        sampler_desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        label_sampler.reset([metal_device newSamplerStateWithDescriptor:sampler_desc]);
+        if (!label_sampler.get())
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal label sampler");
+            return false;
+        }
+        return true;
+    }
+
+    bool ensure_label_texture(const TextAtlasImage& image, uint64_t revision)
+    {
+        if (!image.valid() || revision == uploaded_label_atlas_revision)
+            return image.valid();
+        LoadedTextureImage upload_image{ image.width, image.height, image.rgba };
+        label_texture.reset(create_texture(
+            device.get(), upload_image, MTLPixelFormatRGBA8Unorm));
+        if (!label_texture.get())
+            return false;
+        uploaded_label_atlas_revision = revision;
         return true;
     }
 
@@ -185,14 +235,15 @@ struct SatViewScenePass::State
         if (earth_pipeline.get() && moon_pipeline.get() && sun_pipeline.get() && cloud_pipeline.get()
             && atmosphere_pipeline.get() && ground_atmosphere_pipeline.get() && orbit_pipeline.get()
             && ground_surface_pipeline.get() && star_pipeline.get() && constellation_pipeline.get()
+            && label_pipeline.get() && landscape_fill_pipeline.get() && landscape_rim_pipeline.get()
             && skybox_pipeline.get()
             && tone_map_pipeline.get() && present_pipeline.get()
             && (scene_sample_count == 1 || msaa_debug_pipeline.get())
             && depth_write_state.get() && depth_read_state.get() && depth_disabled_state.get()
             && earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && sun_texture.get()
-            && milky_way_texture.get()
-            && earth_sampler.get() && hdr_sampler.get()
+            && milky_way_texture.get() && label_texture.get()
+            && earth_sampler.get() && label_sampler.get() && hdr_sampler.get()
             && device.get() == new_device)
             return true;
 
@@ -207,6 +258,9 @@ struct SatViewScenePass::State
         skybox_pipeline.reset();
         star_pipeline.reset();
         constellation_pipeline.reset();
+        label_pipeline.reset();
+        landscape_fill_pipeline.reset();
+        landscape_rim_pipeline.reset();
         orbit_pipeline.reset();
         marker_pipeline.reset();
         tone_map_pipeline.reset();
@@ -222,7 +276,9 @@ struct SatViewScenePass::State
         sun_texture.reset();
         milky_way_texture.reset();
         live_cloud_texture.reset();
+        label_texture.reset();
         earth_sampler.reset();
+        label_sampler.reset();
         hdr_sampler.reset();
         hdr_targets.clear();
         track_vertex_buffer.reset();
@@ -230,16 +286,32 @@ struct SatViewScenePass::State
         marker_buffer.reset();
         star_buffer.reset();
         constellation_buffer.reset();
+        constellation_boundary_buffer.reset();
+        constellation_label_buffer.reset();
+        cardinal_label_buffer.reset();
+        observatory_fill_buffer.reset();
+        observatory_rim_buffer.reset();
         track_vertex_count = 0;
         earth_track_vertex_count = 0;
         marker_count = 0;
         star_count = 0;
-        constellation_vertex_count = 0;
+        constellation_line_count = 0;
+        constellation_boundary_line_count = 0;
+        constellation_label_count = 0;
+        cardinal_label_count = 0;
+        observatory_fill_triangle_count = 0;
+        observatory_rim_line_count = 0;
         uploaded_track_revision = 0;
         uploaded_earth_track_revision = 0;
         uploaded_marker_revision = 0;
         uploaded_star_revision = 0;
         uploaded_constellation_revision = 0;
+        uploaded_constellation_boundary_revision = 0;
+        uploaded_constellation_label_revision = 0;
+        uploaded_cardinal_label_revision = 0;
+        uploaded_observatory_revision = 0;
+        uploaded_observatory_rim_revision = 0;
+        uploaded_label_atlas_revision = 0;
         uploaded_cloud_revision = 0;
         if (!new_device)
             return false;
@@ -280,8 +352,15 @@ struct SatViewScenePass::State
         id<MTLFunction> skybox_fragment = [library newFunctionWithName:@"satview_skybox_fragment"];
         id<MTLFunction> star_vertex = [library newFunctionWithName:@"satview_star_vertex"];
         id<MTLFunction> star_fragment = [library newFunctionWithName:@"satview_star_fragment"];
-        id<MTLFunction> constellation_vertex =
-            [library newFunctionWithName:@"satview_constellation_vertex"];
+        id<MTLFunction> celestial_line_vertex =
+            [library newFunctionWithName:@"satview_celestial_line_vertex"];
+        id<MTLFunction> celestial_line_fragment =
+            [library newFunctionWithName:@"satview_celestial_line_fragment"];
+        id<MTLFunction> label_vertex = [library newFunctionWithName:@"satview_label_vertex"];
+        id<MTLFunction> label_fragment = [library newFunctionWithName:@"satview_label_fragment"];
+        id<MTLFunction> landscape_vertex = [library newFunctionWithName:@"satview_landscape_vertex"];
+        id<MTLFunction> landscape_rim_vertex =
+            [library newFunctionWithName:@"satview_landscape_rim_vertex"];
         id<MTLFunction> orbit_vertex = [library newFunctionWithName:@"satview_orbit_vertex"];
         id<MTLFunction> marker_vertex = [library newFunctionWithName:@"satview_marker_vertex"];
         id<MTLFunction> orbit_fragment = [library newFunctionWithName:@"satview_orbit_fragment"];
@@ -296,7 +375,8 @@ struct SatViewScenePass::State
             || !ground_atmosphere_vertex || !ground_atmosphere_fragment
             || !ground_surface_fragment || !skybox_fragment
             || !star_vertex || !star_fragment
-            || !constellation_vertex
+            || !celestial_line_vertex || !celestial_line_fragment
+            || !label_vertex || !label_fragment || !landscape_vertex || !landscape_rim_vertex
             || !orbit_vertex || !orbit_fragment
             || !fullscreen_vertex || !post_fragment || !present_fragment
             || (scene_sample_count > 1 && !msaa_debug_fragment))
@@ -453,8 +533,8 @@ struct SatViewScenePass::State
         }
         star_pipeline.reset(created);
 
-        desc.vertexFunction = constellation_vertex;
-        desc.fragmentFunction = orbit_fragment;
+        desc.vertexFunction = celestial_line_vertex;
+        desc.fragmentFunction = celestial_line_fragment;
         desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
         desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
         desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
@@ -477,6 +557,49 @@ struct SatViewScenePass::State
             return false;
         }
         constellation_pipeline.reset(created);
+
+        desc.vertexFunction = label_vertex;
+        desc.fragmentFunction = label_fragment;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                "SatView: failed to create Metal label pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        label_pipeline.reset(created);
+
+        desc.vertexFunction = landscape_vertex;
+        desc.fragmentFunction = orbit_fragment;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                "SatView: failed to create Metal landscape pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        landscape_fill_pipeline.reset(created);
+
+        desc.vertexFunction = landscape_rim_vertex;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer,
+                "SatView: failed to create Metal landscape rim pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            return false;
+        }
+        landscape_rim_pipeline.reset(created);
 
         desc.vertexFunction = orbit_vertex;
         desc.fragmentFunction = orbit_fragment;
@@ -789,6 +912,8 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     {
         pending_cloud_image_.reset();
     }
+    if (label_atlas_)
+        state_->ensure_label_texture(*label_atlas_, label_atlas_revision_);
     state_->ensure_buffer(
         metal_ctx->device(),
         track_vertices_,
@@ -819,11 +944,46 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         state_->uploaded_star_revision);
     state_->ensure_buffer(
         metal_ctx->device(),
-        constellation_vertices_,
+        constellation_lines_,
         constellation_revision_,
         state_->constellation_buffer,
-        state_->constellation_vertex_count,
+        state_->constellation_line_count,
         state_->uploaded_constellation_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        constellation_boundary_lines_,
+        constellation_boundary_revision_,
+        state_->constellation_boundary_buffer,
+        state_->constellation_boundary_line_count,
+        state_->uploaded_constellation_boundary_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        constellation_labels_,
+        constellation_label_revision_,
+        state_->constellation_label_buffer,
+        state_->constellation_label_count,
+        state_->uploaded_constellation_label_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        cardinal_labels_,
+        cardinal_label_revision_,
+        state_->cardinal_label_buffer,
+        state_->cardinal_label_count,
+        state_->uploaded_cardinal_label_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        observatory_fill_triangles_,
+        observatory_revision_,
+        state_->observatory_fill_buffer,
+        state_->observatory_fill_triangle_count,
+        state_->uploaded_observatory_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
+        observatory_rim_lines_,
+        observatory_revision_,
+        state_->observatory_rim_buffer,
+        state_->observatory_rim_line_count,
+        state_->uploaded_observatory_rim_revision);
 
     const uint32_t frame_index = ctx.frame_index() % static_cast<uint32_t>(state_->hdr_targets.size());
     auto& targets = state_->hdr_targets[frame_index];
@@ -868,7 +1028,9 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     [encoder setFragmentTexture:state_->moon_texture.get() atIndex:4];
     [encoder setFragmentTexture:state_->sun_texture.get() atIndex:5];
     [encoder setFragmentTexture:state_->milky_way_texture.get() atIndex:6];
+    [encoder setFragmentTexture:state_->label_texture.get() atIndex:7];
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
+    [encoder setFragmentSamplerState:state_->label_sampler.get() atIndex:1];
 
     auto draw_stars = [&]() {
         const NSUInteger draw_count = state_->star_count;
@@ -891,26 +1053,66 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     };
     auto draw_constellations = [&]() {
         if (!constellation_lines_enabled_
-            || state_->constellation_vertex_count == 0
+            || state_->constellation_line_count == 0
             || !state_->constellation_buffer.get()
             || !state_->constellation_pipeline.get())
             return;
 
         [encoder setRenderPipelineState:state_->constellation_pipeline.get()];
         [encoder setDepthStencilState:state_->depth_disabled_state.get()];
-        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        SatViewFrameUniforms line_frame = frame_;
+        line_frame.render_params = glm::vec4(
+            static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+        [encoder setVertexBytes:&line_frame length:sizeof(line_frame) atIndex:0];
         [encoder setVertexBuffer:state_->constellation_buffer.get() offset:0 atIndex:1];
-        [encoder drawPrimitives:MTLPrimitiveTypeLine
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
-                    vertexCount:state_->constellation_vertex_count];
+                    vertexCount:6
+                  instanceCount:state_->constellation_line_count];
+    };
+    auto draw_boundaries = [&]() {
+        if (!constellation_boundaries_enabled_
+            || state_->constellation_boundary_line_count == 0
+            || !state_->constellation_boundary_buffer.get()
+            || !state_->constellation_pipeline.get())
+            return;
+
+        [encoder setRenderPipelineState:state_->constellation_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        SatViewFrameUniforms line_frame = frame_;
+        line_frame.render_params = glm::vec4(
+            static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+        [encoder setVertexBytes:&line_frame length:sizeof(line_frame) atIndex:0];
+        [encoder setVertexBuffer:state_->constellation_boundary_buffer.get() offset:0 atIndex:1];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:6
+                  instanceCount:state_->constellation_boundary_line_count];
+    };
+    auto draw_labels = [&](id<MTLBuffer> buffer, NSUInteger count) {
+        if (count == 0 || !buffer || !state_->label_pipeline.get())
+            return;
+        SatViewFrameUniforms label_frame = frame_;
+        label_frame.render_params = glm::vec4(
+            static_cast<float>(width), static_cast<float>(height), 0.0f, 0.0f);
+        [encoder setRenderPipelineState:state_->label_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        [encoder setVertexBytes:&label_frame length:sizeof(label_frame) atIndex:0];
+        [encoder setVertexBuffer:buffer offset:0 atIndex:1];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0
+                    vertexCount:6
+                  instanceCount:count];
     };
 
     if (milky_way_enabled_ && !map_projection_)
     {
+        SatViewFrameUniforms skybox_frame = frame_;
+        skybox_frame.render_params.w = milky_way_brightness_;
         [encoder setRenderPipelineState:state_->skybox_pipeline.get()];
         [encoder setDepthStencilState:state_->depth_disabled_state.get()];
-        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setVertexBytes:&skybox_frame length:sizeof(skybox_frame) atIndex:0];
+        [encoder setFragmentBytes:&skybox_frame length:sizeof(skybox_frame) atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
                     vertexCount:3];
@@ -941,8 +1143,10 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         vertexCount:3];
         }
 
+        draw_boundaries();
         draw_constellations();
         draw_stars();
+        draw_labels(state_->constellation_label_buffer.get(), state_->constellation_label_count);
 
         if (sun_enabled_ && sun_position_radius_.w > 0.0f)
         {
@@ -980,8 +1184,10 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     }
     else
     {
+        draw_boundaries();
         draw_constellations();
         draw_stars();
+        draw_labels(state_->constellation_label_buffer.get(), state_->constellation_label_count);
         [encoder setDepthStencilState:state_->depth_write_state.get()];
 
         if (sun_enabled_ && sun_position_radius_.w > 0.0f)
@@ -1120,6 +1326,34 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                     vertexStart:0
                     vertexCount:3];
     }
+
+    if (ground_projection_ && observatory_horizon_enabled_)
+    {
+        [encoder setDepthStencilState:state_->depth_disabled_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        if (state_->observatory_fill_triangle_count != 0
+            && state_->observatory_fill_buffer.get())
+        {
+            [encoder setRenderPipelineState:state_->landscape_fill_pipeline.get()];
+            [encoder setVertexBuffer:state_->observatory_fill_buffer.get() offset:0 atIndex:1];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:3
+                      instanceCount:state_->observatory_fill_triangle_count];
+        }
+        if (state_->observatory_rim_line_count != 0
+            && state_->observatory_rim_buffer.get())
+        {
+            [encoder setRenderPipelineState:state_->landscape_rim_pipeline.get()];
+            [encoder setVertexBuffer:state_->observatory_rim_buffer.get() offset:0 atIndex:1];
+            [encoder drawPrimitives:MTLPrimitiveTypeLine
+                        vertexStart:0
+                        vertexCount:2
+                      instanceCount:state_->observatory_rim_line_count];
+        }
+    }
+    if (ground_projection_)
+        draw_labels(state_->cardinal_label_buffer.get(), state_->cardinal_label_count);
 
     [encoder endEncoding];
 
