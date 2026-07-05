@@ -7,6 +7,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime
@@ -22,8 +23,8 @@ REVIEW_MODES = {
     "claude": "Claude",
 }
 
-CODEX_REVIEW_MODEL = "gpt-5.5"
-CLAUDE_REVIEW_MODEL = "opus"
+CODEX_REVIEW_MODEL = "gpt-5.6-sol"
+CLAUDE_REVIEW_MODEL = "fable"
 
 REVIEW_FAILURE_PATTERNS = (
     "CreateProcessAsUserW failed: 1312",
@@ -34,6 +35,13 @@ REVIEW_FAILURE_PATTERNS = (
     "Failed to get OAuth token",
     "permission denied",
     "not recognized as",
+)
+
+WINDOWS_CRT_RUNTIME_LIBRARIES = (
+    "msvcp140.dll",
+    "msvcp140_atomic_wait.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
 )
 
 
@@ -528,12 +536,15 @@ def _deploy_output_paths(
 
 
 def _deploy_payload_source(bd: pathlib.Path, config: str, platform: str = sys.platform) -> pathlib.Path:
+    if platform.startswith("win"):
+        config_exe = bd / config / "draxul.exe"
+        return config_exe if config_exe.exists() else bd / "draxul.exe"
     if platform == "darwin":
         bundle = bd / "draxul.app"
         if bundle.exists():
             return bundle
-    exe = draxul_exe(bd, config)
-    return exe.parent if platform.startswith("win") else exe
+        return bd / "draxul"
+    raise RuntimeError("deploy is currently supported only on macOS and Windows")
 
 
 def _parse_deploy_args(args: list[str]) -> tuple[bool, str]:
@@ -546,13 +557,43 @@ def _parse_deploy_args(args: list[str]) -> tuple[bool, str]:
     return force_reconfigure, build_system
 
 
-def _stage_deploy_payload(source: pathlib.Path, platform_dir: pathlib.Path, archive_path: pathlib.Path) -> None:
+def _stage_deploy_payload(
+    source: pathlib.Path,
+    platform_dir: pathlib.Path,
+    archive_path: pathlib.Path,
+    windows_runtime_directory: pathlib.Path | None = None,
+) -> None:
     if platform_dir.exists():
-        shutil.rmtree(platform_dir)
+        def remove_readonly(function, path, _error_info):
+            os.chmod(path, stat.S_IWRITE)
+            function(path)
+
+        shutil.rmtree(platform_dir, onerror=remove_readonly)
     platform_dir.mkdir(parents=True, exist_ok=True)
 
     if source.is_dir() and source.suffix == ".app":
         shutil.copytree(source, platform_dir / source.name)
+    elif source.suffix.lower() == ".exe":
+        shutil.copy2(source, platform_dir / source.name)
+        for directory_name in ("assets", "fonts", "shaders"):
+            runtime_directory = source.parent / directory_name
+            if runtime_directory.is_dir():
+                shutil.copytree(runtime_directory, platform_dir / directory_name)
+        for runtime_library in sorted(source.parent.glob("*.dll")):
+            shutil.copy2(runtime_library, platform_dir / runtime_library.name)
+        if windows_runtime_directory is None and sys.platform.startswith("win"):
+            system_root = os.environ.get("SystemRoot")
+            if system_root:
+                windows_runtime_directory = pathlib.Path(system_root) / "System32"
+        if windows_runtime_directory is not None:
+            for library_name in WINDOWS_CRT_RUNTIME_LIBRARIES:
+                destination = platform_dir / library_name
+                if destination.exists():
+                    continue
+                runtime_library = windows_runtime_directory / library_name
+                if not runtime_library.is_file():
+                    raise FileNotFoundError(f"Missing Windows runtime library: {runtime_library}")
+                shutil.copy2(runtime_library, destination)
     elif source.is_dir():
         for child in source.iterdir():
             destination = platform_dir / child.name
@@ -593,7 +634,11 @@ def cmd_deploy(root: pathlib.Path, args: list[str]) -> int:
 
     date_label = _deploy_date_label()
     platform_dir, archive_path = _deploy_output_paths(root, date_label)
-    _stage_deploy_payload(source, platform_dir, archive_path)
+    try:
+        _stage_deploy_payload(source, platform_dir, archive_path)
+    except OSError as error:
+        print(f"Failed to stage deploy payload: {error}", file=sys.stderr)
+        return 1
     print(f"\nDeploy folder:  {platform_dir}")
     print(f"Deploy archive: {archive_path}")
     return 0
@@ -869,22 +914,24 @@ def run_native_command(
     if dry_run:
         return SimpleNamespace(returncode=0, stdout="", stderr="", output="", output_lines=[])
 
+    input_bytes = input_text.encode("utf-8") if input_text is not None else None
     result = subprocess.run(
         command,
         cwd=cwd,
-        input=input_text,
+        input=input_bytes,
         capture_output=True,
-        text=True,
         check=False,
     )
-    stdout = result.stdout or ""
-    stderr = result.stderr or ""
+    stdout = (result.stdout or b"").decode("utf-8", errors="replace")
+    stderr = (result.stderr or b"").decode("utf-8", errors="replace")
     output = stdout + stderr
 
     if log_path is not None:
         log_path.write_text(output, encoding="utf-8")
     if output:
-        print(output, end="" if output.endswith("\n") else "\n")
+        console_text = output if output.endswith("\n") else output + "\n"
+        sys.stdout.buffer.write(console_text.encode(sys.stdout.encoding or "utf-8", errors="replace"))
+        sys.stdout.flush()
 
     return SimpleNamespace(
         returncode=result.returncode,

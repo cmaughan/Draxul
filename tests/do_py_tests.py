@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import stat
 import sys
 import tempfile
 import unittest
@@ -131,6 +132,25 @@ class DeployPackagingTests(unittest.TestCase):
             self.assertEqual(root / "deploy" / "2026_07_03" / "mac", platform_dir)
             self.assertEqual(root / "deploy" / "2026_07_03" / "draxul-2026_07_03-mac.zip", archive_path)
 
+    def test_windows_deploy_payload_source_is_executable_not_build_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = pathlib.Path(tmp)
+            executable = build_dir / "draxul.exe"
+            executable.write_text("exe")
+
+            self.assertEqual(
+                executable,
+                draxul_do._deploy_payload_source(build_dir, "Release", "win32"),
+            )
+
+            visual_studio_executable = build_dir / "Release" / "draxul.exe"
+            visual_studio_executable.parent.mkdir()
+            visual_studio_executable.write_text("vs exe")
+            self.assertEqual(
+                visual_studio_executable,
+                draxul_do._deploy_payload_source(build_dir, "Release", "win32"),
+            )
+
     def test_stage_deploy_payload_replaces_existing_folder_and_zips_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -150,6 +170,85 @@ class DeployPackagingTests(unittest.TestCase):
             self.assertTrue(archive_path.exists())
             with zipfile.ZipFile(archive_path) as archive:
                 self.assertIn("mac/draxul.app/Contents/MacOS/draxul", archive.namelist())
+
+    def test_stage_windows_deploy_payload_excludes_build_outputs_and_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            build_dir = root / "build"
+            executable = build_dir / "draxul.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("exe")
+            (build_dir / "runtime.dll").write_text("dll")
+            (build_dir / "assets" / "satview").mkdir(parents=True)
+            (build_dir / "assets" / "satview" / "earth.jpg").write_text("asset")
+            (build_dir / "fonts").mkdir()
+            (build_dir / "fonts" / "font.ttf").write_text("font")
+            (build_dir / "shaders").mkdir()
+            (build_dir / "shaders" / "grid.vert.spv").write_text("shader")
+            runtime_dir = root / "windows-runtime"
+            runtime_dir.mkdir()
+            for library_name in draxul_do.WINDOWS_CRT_RUNTIME_LIBRARIES:
+                (runtime_dir / library_name).write_text("runtime")
+
+            (build_dir / "CMakeFiles" / "draxul.dir" / "app").mkdir(parents=True)
+            (build_dir / "CMakeFiles" / "draxul.dir" / "app" / "main.cpp.obj").write_text("object")
+            (build_dir / "modules" / "satview").mkdir(parents=True)
+            (build_dir / "modules" / "satview" / "satview.lib").write_text("library")
+            (build_dir / "CMakeCache.txt").write_text("cache")
+            (build_dir / "draxul.lib").write_text("library")
+            (build_dir / "draxul.pdb").write_text("symbols")
+
+            platform_dir = root / "deploy" / "2026_07_03" / "win"
+            archive_path = root / "deploy" / "2026_07_03" / "draxul-2026_07_03-win.zip"
+            stale_file = platform_dir / "_deps" / "dependency-src" / ".git" / "objects" / "stale.idx"
+            stale_file.parent.mkdir(parents=True)
+            stale_file.write_text("stale")
+            stale_file.chmod(stat.S_IREAD)
+            draxul_do._stage_deploy_payload(
+                executable,
+                platform_dir,
+                archive_path,
+                windows_runtime_directory=runtime_dir,
+            )
+
+            self.assertEqual(
+                {
+                    "assets/satview/earth.jpg",
+                    "draxul.exe",
+                    "fonts/font.ttf",
+                    "msvcp140.dll",
+                    "msvcp140_atomic_wait.dll",
+                    "runtime.dll",
+                    "shaders/grid.vert.spv",
+                    "vcruntime140.dll",
+                    "vcruntime140_1.dll",
+                },
+                {
+                    path.relative_to(platform_dir).as_posix()
+                    for path in platform_dir.rglob("*")
+                    if path.is_file()
+                },
+            )
+            with zipfile.ZipFile(archive_path) as archive:
+                archived_files = {
+                    name
+                    for name in archive.namelist()
+                    if not name.endswith("/")
+                }
+                self.assertEqual(
+                    {
+                        "win/assets/satview/earth.jpg",
+                        "win/draxul.exe",
+                        "win/fonts/font.ttf",
+                        "win/msvcp140.dll",
+                        "win/msvcp140_atomic_wait.dll",
+                        "win/runtime.dll",
+                        "win/shaders/grid.vert.spv",
+                        "win/vcruntime140.dll",
+                        "win/vcruntime140_1.dll",
+                    },
+                    archived_files,
+                )
 
 
 class ReviewArgumentParsingTests(unittest.TestCase):
@@ -173,6 +272,10 @@ class ReviewArgumentParsingTests(unittest.TestCase):
 
 
 class ReviewPlanTests(unittest.TestCase):
+    def test_review_models_use_current_defaults(self) -> None:
+        self.assertEqual("gpt-5.6-sol", draxul_do.CODEX_REVIEW_MODEL)
+        self.assertEqual("fable", draxul_do.CLAUDE_REVIEW_MODEL)
+
     def test_default_review_plan_preserves_draxul_review_filenames(self) -> None:
         plan = draxul_do.create_review_plan(ROOT)
 
@@ -199,6 +302,32 @@ class ReviewPlanTests(unittest.TestCase):
 
         self.assertEqual("Consensus", plan.mode)
         self.assertEqual(ROOT / "plans" / "prompts" / "consensus_review_bugs.md", plan.consensus_prompt_path)
+
+
+class NativeCommandTests(unittest.TestCase):
+    def test_native_command_sends_stdin_as_utf8(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; data=sys.stdin.buffer.read(); sys.stdout.buffer.write(data)",
+        ]
+
+        result = draxul_do.run_native_command(command, ROOT, input_text="snowman: \u2603")
+
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("snowman: \u2603", result.stdout)
+
+    def test_native_command_decodes_non_utf8_output_with_replacement(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(b'bad: \\xff')",
+        ]
+
+        result = draxul_do.run_native_command(command, ROOT)
+
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("bad: \ufffd", result.stdout)
 
 
 if __name__ == "__main__":
