@@ -97,6 +97,7 @@ private:
     void rebuild_visible_stars();
     void update_constellation_line_styles();
     void render_dockspace(bool keep_alive_only);
+    void render_scene_panel();
     void render_view_display_controls(bool& changed);
     void render_visual_controls();
     void refresh_scene_text_service();
@@ -132,6 +133,7 @@ private:
     draxul::IHostCallbacks* callbacks_ = nullptr;
     draxul::ConfigDocument* config_document_ = nullptr;
     draxul::HostViewport viewport_;
+    draxul::HostViewport scene_viewport_;
     std::shared_ptr<SatViewScenePass> scene_pass_;
     SatViewCatalogService catalog_service_;
     std::unique_ptr<SatViewCloudService> cloud_service_;

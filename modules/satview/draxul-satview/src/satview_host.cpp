@@ -63,6 +63,7 @@ constexpr float kControlPanelMinWidth = 380.0f;
 constexpr float kControlPanelMinHeight = 360.0f;
 constexpr float kControlMinWidgetWidth = 96.0f;
 constexpr const char* kSatViewDockspaceName = "SatViewDockspace";
+constexpr const char* kSatViewSceneWindowName = "Scene";
 constexpr const char* kSatViewViewWindowName = "View";
 constexpr const char* kSatViewRenderingWindowName = "Rendering";
 constexpr const char* kSatViewFilterWindowName = "Filter";
@@ -204,6 +205,26 @@ glm::vec2 screen_ndc(glm::ivec2 screen_pos, const HostViewport& viewport)
     return glm::vec2(
         local.x / size.x * 2.0f - 1.0f,
         1.0f - local.y / size.y * 2.0f);
+}
+
+bool viewport_contains(const HostViewport& viewport, glm::ivec2 position)
+{
+    const glm::ivec2 end = viewport.pixel_pos + viewport.pixel_size;
+    return position.x >= viewport.pixel_pos.x
+        && position.y >= viewport.pixel_pos.y
+        && position.x < end.x
+        && position.y < end.y;
+}
+
+bool imgui_mouse_targets_scene(const HostViewport& scene_viewport, glm::ivec2 position)
+{
+    if (!viewport_contains(scene_viewport, position))
+        return false;
+    ImGuiContext* context = ImGui::GetCurrentContext();
+    return !context
+        || !context->IO.WantCaptureMouse
+        || (context->HoveredWindow
+            && std::strcmp(context->HoveredWindow->Name, kSatViewSceneWindowName) == 0);
 }
 
 std::optional<glm::dvec3> ray_sphere_hit(
@@ -917,6 +938,7 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     display_ppi_ = context.display_ppi;
     scene_font_path_ = app_text_service_ ? app_text_service_->primary_font_path() : std::string{};
     viewport_ = context.initial_viewport;
+    scene_viewport_ = viewport_;
     show_ui_panel_ = context.launch_options.show_host_ui_panels;
     continuous_refresh_enabled_ = context.launch_options.request_continuous_refresh;
     apply_config(config_document_ ? load_satview_config(*config_document_) : SatViewConfig{});
@@ -929,6 +951,7 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
         io.ConfigWindowsResizeFromEdges = true;
+        io.ConfigWindowsMoveFromTitleBarOnly = true;
         io.IniFilename = nullptr;
         io.LogFilename = nullptr;
         ImGui::StyleColorsDark();
@@ -1050,6 +1073,8 @@ std::string SatViewHost::init_error() const
 void SatViewHost::set_viewport(const HostViewport& viewport)
 {
     viewport_ = viewport;
+    if (!show_ui_panel_ || !imgui_context_ || !imgui_backend_)
+        scene_viewport_ = viewport_;
     request_redraw();
 }
 
@@ -1151,6 +1176,9 @@ void SatViewHost::draw(IFrameContext& frame)
     const SatViewSimulationSnapshot* snapshot = snapshot_guard.get();
     const double simulation_seconds = snapshot ? render_simulation_seconds(*snapshot) : last_draw_simulation_seconds_;
     last_draw_simulation_seconds_ = simulation_seconds;
+    if (!show_ui_panel_ || !imgui_context_ || !imgui_backend_)
+        scene_viewport_ = viewport_;
+    render_host_imgui(last_imgui_delta_seconds_, snapshot);
     const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
     const bool ground_projection = projection_mode_ == SatViewProjectionMode::Ground;
     const bool earth_track_visible = earth_orbit_track_visible(
@@ -1193,8 +1221,8 @@ void SatViewHost::draw(IFrameContext& frame)
         camera_min_distance(camera_pov_),
         camera_max_distance_for_radius(scene_radius));
 
-    const int pixel_w = std::max(1, viewport_.pixel_size.x);
-    const int pixel_h = std::max(1, viewport_.pixel_size.y);
+    const int pixel_w = std::max(1, scene_viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, scene_viewport_.pixel_size.y);
     camera_->SetFilmSize(static_cast<float>(pixel_w), static_cast<float>(pixel_h));
     if (!map_projection && !ground_projection && camera_->PreRender())
         request_redraw();
@@ -1473,12 +1501,11 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_surface_markers(surface_markers);
 
     RenderViewport viewport;
-    viewport.x = viewport_.pixel_pos.x;
-    viewport.y = viewport_.pixel_pos.y;
+    viewport.x = scene_viewport_.pixel_pos.x;
+    viewport.y = scene_viewport_.pixel_pos.y;
     viewport.width = pixel_w;
     viewport.height = pixel_h;
     frame.record_render_pass(*scene_pass_, viewport);
-    render_host_imgui(last_imgui_delta_seconds_, snapshot);
     if (imgui_context_ && imgui_backend_)
         frame.render_imgui(ImGui::GetDrawData(), imgui_context_);
     frame.flush_submit_chunk();
@@ -1516,7 +1543,9 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
         if (button >= 0)
             ImGui::GetIO().AddMouseButtonEvent(button, event.pressed);
 
-        if (ImGui::GetIO().WantCaptureMouse)
+        const bool scene_input = dragging_
+            || imgui_mouse_targets_scene(scene_viewport_, event.pos);
+        if (!scene_input)
         {
             if (event.button == SDL_BUTTON_LEFT && !event.pressed)
             {
@@ -1577,7 +1606,9 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
     {
         ImGui::SetCurrentContext(imgui_context_);
         ImGui::GetIO().AddMousePosEvent(static_cast<float>(event.pos.x), static_cast<float>(event.pos.y));
-        if (ImGui::GetIO().WantCaptureMouse)
+        const bool scene_input = dragging_
+            || imgui_mouse_targets_scene(scene_viewport_, event.pos);
+        if (!scene_input)
         {
             request_redraw();
             return;
@@ -1604,7 +1635,7 @@ void SatViewHost::on_mouse_move(const MouseMoveEvent& event)
 
         pan_map(satview_map_pan_delta(
             pixel_delta,
-            glm::vec2(viewport_.pixel_size)));
+            glm::vec2(scene_viewport_.pixel_size)));
         return;
     }
 
@@ -1642,7 +1673,7 @@ void SatViewHost::on_mouse_wheel(const MouseWheelEvent& event)
     {
         ImGui::SetCurrentContext(imgui_context_);
         ImGui::GetIO().AddMouseWheelEvent(event.delta.x, event.delta.y);
-        if (ImGui::GetIO().WantCaptureMouse)
+        if (!imgui_mouse_targets_scene(scene_viewport_, event.pos))
         {
             request_redraw();
             return;
@@ -2439,8 +2470,8 @@ void SatViewHost::rebuild_scene_labels(
     }
 
     const bool ground = projection_mode_ == SatViewProjectionMode::Ground;
-    const float aspect = static_cast<float>(std::max(viewport_.pixel_size.x, 1))
-        / static_cast<float>(std::max(viewport_.pixel_size.y, 1));
+    const float aspect = static_cast<float>(std::max(scene_viewport_.pixel_size.x, 1))
+        / static_cast<float>(std::max(scene_viewport_.pixel_size.y, 1));
     const glm::vec3 observer_up = glm::normalize(glm::vec3(ground_observer));
     const glm::vec3 eye = ground ? glm::vec3(ground_observer) : camera_->GetPosition();
     auto project_world_position = [&](glm::vec3 world_position) -> std::optional<glm::vec2> {
@@ -2532,7 +2563,7 @@ void SatViewHost::rebuild_scene_labels(
         if (!center || !edge)
             return;
         const glm::vec2 pixel_delta = (*edge - *center)
-            * glm::vec2(viewport_.pixel_size) * 0.5f;
+            * glm::vec2(scene_viewport_.pixel_size) * 0.5f;
         const float diameter = std::max(glm::length(pixel_delta) * 2.0f + 16.0f, 32.0f);
         exclusions.push_back({ *center, glm::vec2(diameter) });
     };
@@ -2540,7 +2571,7 @@ void SatViewHost::rebuild_scene_labels(
     reserve_body(sun_position_radius, sun_enabled_);
 
     for (const SatViewLabelInstance& label : layout_satview_labels(
-             std::move(candidates), viewport_.pixel_size, exclusions))
+             std::move(candidates), scene_viewport_.pixel_size, exclusions))
     {
         if (label.direction_priority.w <= 0.0f)
             cardinal_label_instances_.push_back(label);
@@ -2716,7 +2747,7 @@ bool SatViewHost::enter_ground_view_from_screen(glm::ivec2 screen_pos, double si
         if (camera_pov_ != SatViewCameraPov::Earth)
             return false;
         const SatViewGroundLocation location = satview_ground_location_from_map_ndc(
-            screen_ndc(screen_pos, viewport_),
+            screen_ndc(screen_pos, scene_viewport_),
             map_center_radians_);
         enter_ground_view_at(glm::dvec2(location.longitude_radians, location.latitude_radians));
         return true;
@@ -2725,9 +2756,9 @@ bool SatViewHost::enter_ground_view_from_screen(glm::ivec2 screen_pos, double si
     if (projection_mode_ != SatViewProjectionMode::Globe || camera_pov_ != SatViewCameraPov::Earth)
         return false;
 
-    const int pixel_w = std::max(1, viewport_.pixel_size.x);
-    const int pixel_h = std::max(1, viewport_.pixel_size.y);
-    const glm::vec2 ndc = screen_ndc(screen_pos, viewport_);
+    const int pixel_w = std::max(1, scene_viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, scene_viewport_.pixel_size.y);
+    const glm::vec2 ndc = screen_ndc(screen_pos, scene_viewport_);
     const float earth_scene_radius = visible_scene_radius(
         nullptr,
         filter_,
@@ -3196,12 +3227,14 @@ void SatViewHost::render_dockspace(bool keep_alive_only)
             0.20f,
             0.48f);
         ImGuiID dock_left = 0;
+        ImGuiID dock_scene = 0;
         ImGui::DockBuilderSplitNode(
             dockspace_id,
             ImGuiDir_Left,
             left_ratio,
             &dock_left,
-            nullptr);
+            &dock_scene);
+        ImGui::DockBuilderDockWindow(kSatViewSceneWindowName, dock_scene);
         ImGui::DockBuilderDockWindow(kSatViewViewWindowName, dock_left);
         ImGui::DockBuilderDockWindow(kSatViewRenderingWindowName, dock_left);
         ImGui::DockBuilderDockWindow(kSatViewFilterWindowName, dock_left);
@@ -3212,8 +3245,46 @@ void SatViewHost::render_dockspace(bool keep_alive_only)
     }
     const ImGuiDockNodeFlags dockspace_flags = keep_alive_only
         ? ImGuiDockNodeFlags_KeepAliveOnly
-        : ImGuiDockNodeFlags_PassthruCentralNode;
+        : ImGuiDockNodeFlags_None;
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+    ImGui::End();
+}
+
+void SatViewHost::render_scene_panel()
+{
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoScrollbar
+        | ImGuiWindowFlags_NoScrollWithMouse
+        | ImGuiWindowFlags_NoBackground;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    const bool visible = ImGui::Begin(kSatViewSceneWindowName, nullptr, flags);
+    ImGui::PopStyleVar();
+    if (visible)
+    {
+        const ImVec2 content_position = ImGui::GetCursorScreenPos();
+        const ImVec2 content_size = ImGui::GetContentRegionAvail();
+        const int pane_left = viewport_.pixel_pos.x;
+        const int pane_top = viewport_.pixel_pos.y;
+        const int pane_right = pane_left + std::max(viewport_.pixel_size.x, 1);
+        const int pane_bottom = pane_top + std::max(viewport_.pixel_size.y, 1);
+        const int left = std::clamp(static_cast<int>(std::floor(content_position.x)), pane_left, pane_right);
+        const int top = std::clamp(static_cast<int>(std::floor(content_position.y)), pane_top, pane_bottom);
+        const int right = std::clamp(
+            static_cast<int>(std::ceil(content_position.x + content_size.x)),
+            left,
+            pane_right);
+        const int bottom = std::clamp(
+            static_cast<int>(std::ceil(content_position.y + content_size.y)),
+            top,
+            pane_bottom);
+        scene_viewport_.pixel_pos = glm::ivec2(left, top);
+        scene_viewport_.pixel_size = glm::ivec2(
+            std::max(right - left, 1),
+            std::max(bottom - top, 1));
+        ImGui::Dummy(ImVec2(
+            std::max(content_size.x, 1.0f),
+            std::max(content_size.y, 1.0f)));
+    }
     ImGui::End();
 }
 
@@ -3235,7 +3306,10 @@ void SatViewHost::render_host_imgui(float dt, const SatViewSimulationSnapshot* s
 
     render_dockspace(!show_ui_panel_);
     if (show_ui_panel_)
+    {
+        render_scene_panel();
         render_control_panel(snapshot);
+    }
     if (show_hdr_debug_panel_ && scene_pass_)
         scene_pass_->render_hdr_debug_ui();
 
@@ -4273,8 +4347,8 @@ void SatViewHost::select_nearest_object(const glm::ivec2& screen_pos)
     if (!snapshot || snapshot->states.empty())
         return;
 
-    const int pixel_w = std::max(1, viewport_.pixel_size.x);
-    const int pixel_h = std::max(1, viewport_.pixel_size.y);
+    const int pixel_w = std::max(1, scene_viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, scene_viewport_.pixel_size.y);
     const double render_seconds = render_simulation_seconds(*snapshot);
     const SatViewMoonPosition moon = satview_moon_position(render_seconds);
     const SatViewSunPosition sun = satview_sun_position(render_seconds);
@@ -4391,9 +4465,9 @@ void SatViewHost::select_nearest_object(const glm::ivec2& screen_pos)
             }
         }
 
-        const float sx = static_cast<float>(viewport_.pixel_pos.x)
+        const float sx = static_cast<float>(scene_viewport_.pixel_pos.x)
             + (ndc.x * 0.5f + 0.5f) * static_cast<float>(pixel_w);
-        const float sy = static_cast<float>(viewport_.pixel_pos.y)
+        const float sy = static_cast<float>(scene_viewport_.pixel_pos.y)
             + (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<float>(pixel_h);
         const glm::vec2 delta = glm::vec2(sx, sy) - glm::vec2(screen_pos);
         const float distance_sq = glm::dot(delta, delta);
@@ -4426,8 +4500,8 @@ bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_p
         return false;
     }
 
-    const int pixel_width = std::max(1, viewport_.pixel_size.x);
-    const int pixel_height = std::max(1, viewport_.pixel_size.y);
+    const int pixel_width = std::max(1, scene_viewport_.pixel_size.x);
+    const int pixel_height = std::max(1, scene_viewport_.pixel_size.y);
     const double simulation_seconds = last_draw_simulation_seconds_;
     const glm::dvec3 moon_position = satview_moon_position(
         simulation_seconds)
@@ -4504,9 +4578,9 @@ bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_p
         const auto consider_position = [&](float ndc_x) {
             if (ndc_x < -1.1f || ndc_x > 1.1f || ndc.y < -1.1f || ndc.y > 1.1f)
                 return;
-            const float screen_x = static_cast<float>(viewport_.pixel_pos.x)
+            const float screen_x = static_cast<float>(scene_viewport_.pixel_pos.x)
                 + (ndc_x * 0.5f + 0.5f) * static_cast<float>(pixel_width);
-            const float screen_y = static_cast<float>(viewport_.pixel_pos.y)
+            const float screen_y = static_cast<float>(scene_viewport_.pixel_pos.y)
                 + (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<float>(pixel_height);
             const glm::vec2 delta = glm::vec2(screen_x, screen_y) - glm::vec2(screen_pos);
             const float distance_squared = glm::dot(delta, delta);
