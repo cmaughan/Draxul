@@ -10,6 +10,8 @@
 #include "satview_ground_view.h"
 #include "satview_label_layout.h"
 #include "satview_landscape.h"
+#include "satview_lunar_frame.h"
+#include "satview_lunar_surface_catalog.h"
 #include "satview_map_projection.h"
 #include "satview_moon_ephemeris.h"
 #include "satview_object_style.h"
@@ -96,6 +98,9 @@ constexpr float kSunRadiusEarthRadii = static_cast<float>(kSatViewSunMeanRadiusK
 constexpr float kEarthOrbitMaximumRadiusEarthRadii = static_cast<float>(
     1.02 * kSatViewAstronomicalUnitKm / kSatViewEarthEquatorialRadiusKm);
 constexpr float kCelestialOverlayDistanceEarthRadii = 48.0f;
+constexpr float kLunarSurfaceMarkerRadiusScale = 1.003f;
+constexpr float kLunarSurfaceMarkerSizeScale = 0.04f;
+constexpr float kLunarSurfaceChildExpansionDistanceScale = 3.0f;
 
 std::string constellation_label_key(std::uint32_t area_index)
 {
@@ -854,6 +859,43 @@ float control_widget_width(const char* label)
 
 } // namespace
 
+namespace
+{
+
+bool lunar_surface_kind_visible(
+    const SatViewLunarSurfaceObject& object,
+    bool show_landers,
+    bool show_rovers,
+    bool show_instruments,
+    bool show_impacts,
+    bool show_crewed_artifacts,
+    bool show_approximate_locations);
+bool lunar_surface_site_marker_visible(
+    const SatViewLunarSurfaceCatalog& catalog,
+    std::size_t object_index,
+    bool show_landers,
+    bool show_rovers,
+    bool show_instruments,
+    bool show_impacts,
+    bool show_crewed_artifacts,
+    bool show_approximate_locations);
+void append_lunar_surface_marker_instances(
+    std::vector<SatViewMarkerInstance>& markers,
+    const SatViewLunarSurfaceCatalog& catalog,
+    const glm::dvec3& moon_render_position,
+    glm::vec2 map_center_radians,
+    bool map_projection,
+    bool show_children,
+    std::optional<std::size_t> selected_index,
+    bool show_landers,
+    bool show_rovers,
+    bool show_instruments,
+    bool show_impacts,
+    bool show_crewed_artifacts,
+    bool show_approximate_locations);
+
+} // namespace
+
 SatViewHost::SatViewHost()
     : cloud_service_(std::make_unique<SatViewCloudService>())
     , camera_(std::make_shared<Camera>())
@@ -912,6 +954,12 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
     last_activity_time_ = last_pump_time_;
     next_frame_time_ = last_pump_time_ + kFrameTick;
     scene_pass_ = std::make_shared<SatViewScenePass>();
+    lunar_surface_catalog_ = std::make_unique<SatViewLunarSurfaceCatalog>(
+        load_satview_lunar_surface_catalog());
+    if (!lunar_surface_catalog_->error.empty())
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "SatView: %s", lunar_surface_catalog_->error.c_str());
+    }
     stars_ = load_satview_star_catalog(kMaximumStarCatalogCount);
     constellation_lines_ = load_satview_constellation_catalog();
     constellation_boundary_catalog_ = std::make_unique<SatViewConstellationBoundaryCatalog>(
@@ -976,6 +1024,7 @@ void SatViewHost::shutdown()
         scene_text_service_->shutdown();
     scene_text_service_.reset();
     constellation_boundary_catalog_.reset();
+    lunar_surface_catalog_.reset();
     app_text_service_ = nullptr;
     if (imgui_context_)
     {
@@ -1395,6 +1444,34 @@ void SatViewHost::draw(IFrameContext& frame)
         marker_buffer_dirty_ = false;
     }
 
+    std::vector<SatViewMarkerInstance> surface_markers;
+    if (lunar_surface_objects_enabled_
+        && lunar_surface_catalog_
+        && lunar_surface_catalog_->error.empty()
+        && camera_pov_ == SatViewCameraPov::Moon
+        && projection_mode_ != SatViewProjectionMode::Ground)
+    {
+        surface_markers.reserve(lunar_surface_catalog_->objects.size() * 2);
+        const bool show_children = projection_mode_ == SatViewProjectionMode::Globe
+            && camera_->GetDistance()
+                <= kMoonRadiusEarthRadii * kLunarSurfaceChildExpansionDistanceScale;
+        append_lunar_surface_marker_instances(
+            surface_markers,
+            *lunar_surface_catalog_,
+            moon.render_position_earth_radii,
+            map_center_radians_,
+            map_projection,
+            show_children,
+            selected_lunar_surface_index_,
+            show_lunar_landers_,
+            show_lunar_rovers_,
+            show_lunar_instruments_,
+            show_lunar_impacts_,
+            show_lunar_crewed_artifacts_,
+            show_lunar_approximate_locations_);
+    }
+    scene_pass_->set_surface_markers(surface_markers);
+
     RenderViewport viewport;
     viewport.x = viewport_.pixel_pos.x;
     viewport.y = viewport_.pixel_pos.y;
@@ -1487,7 +1564,7 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
             const glm::ivec2 delta = event.pos - click_start_pos_;
             const int distance_sq = delta.x * delta.x + delta.y * delta.y;
             if (distance_sq <= kClickDragSlopPixels * kClickDragSlopPixels)
-                select_nearest_satellite(event.pos);
+                select_nearest_object(event.pos);
         }
         pending_click_ = false;
     }
@@ -1626,9 +1703,11 @@ void SatViewHost::on_key(const KeyEvent& event)
         request_redraw();
         return;
     }
-    if (event.keycode == SDLK_ESCAPE && selected_norad_catalog_id_.has_value())
+    if (event.keycode == SDLK_ESCAPE
+        && (selected_norad_catalog_id_.has_value() || selected_lunar_surface_index_.has_value()))
     {
         selected_norad_catalog_id_.reset();
+        selected_lunar_surface_index_.reset();
         simulation_settings_dirty_ = true;
         invalidate_visual_buffers();
         request_redraw();
@@ -1735,6 +1814,7 @@ bool SatViewHost::dispatch_action(std::string_view action)
     if (action == "satview_clear_selection")
     {
         selected_norad_catalog_id_.reset();
+        selected_lunar_surface_index_.reset();
         simulation_settings_dirty_ = true;
         invalidate_visual_buffers();
         request_redraw();
@@ -1894,6 +1974,13 @@ SatViewConfig SatViewHost::current_config() const
     config.atmosphere_enabled = atmosphere_enabled_;
     config.moon_enabled = moon_enabled_;
     config.moon_track_enabled = moon_track_enabled_;
+    config.lunar_surface_objects_enabled = lunar_surface_objects_enabled_;
+    config.show_lunar_landers = show_lunar_landers_;
+    config.show_lunar_rovers = show_lunar_rovers_;
+    config.show_lunar_instruments = show_lunar_instruments_;
+    config.show_lunar_impacts = show_lunar_impacts_;
+    config.show_lunar_crewed_artifacts = show_lunar_crewed_artifacts_;
+    config.show_lunar_approximate_locations = show_lunar_approximate_locations_;
     config.earth_track_enabled = earth_track_enabled_;
     config.sun_enabled = sun_enabled_;
     config.ground_projection = ground_projection_;
@@ -1969,6 +2056,13 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     atmosphere_enabled_ = config.atmosphere_enabled;
     moon_enabled_ = config.moon_enabled || camera_pov_ == SatViewCameraPov::Moon;
     moon_track_enabled_ = config.moon_track_enabled;
+    lunar_surface_objects_enabled_ = config.lunar_surface_objects_enabled;
+    show_lunar_landers_ = config.show_lunar_landers;
+    show_lunar_rovers_ = config.show_lunar_rovers;
+    show_lunar_instruments_ = config.show_lunar_instruments;
+    show_lunar_impacts_ = config.show_lunar_impacts;
+    show_lunar_crewed_artifacts_ = config.show_lunar_crewed_artifacts;
+    show_lunar_approximate_locations_ = config.show_lunar_approximate_locations;
     earth_track_enabled_ = config.earth_track_enabled;
     sun_enabled_ = config.sun_enabled || camera_pov_ == SatViewCameraPov::Sun;
     ground_projection_ = config.ground_projection;
@@ -2018,6 +2112,209 @@ void SatViewHost::sync_simulation_render_settings()
             track_central_body);
     }
 }
+
+namespace
+{
+
+bool lunar_surface_kind_visible(
+    const SatViewLunarSurfaceObject& object,
+    bool show_landers,
+    bool show_rovers,
+    bool show_instruments,
+    bool show_impacts,
+    bool show_crewed_artifacts,
+    bool show_approximate_locations)
+{
+    if (object.crewed_mission && !show_crewed_artifacts)
+        return false;
+    if (object.location_quality == SatViewLunarLocationQuality::Approximate
+        && !show_approximate_locations)
+    {
+        return false;
+    }
+    switch (object.kind)
+    {
+    case SatViewLunarSurfaceKind::Lander:
+        return show_landers;
+    case SatViewLunarSurfaceKind::Rover:
+        return show_rovers;
+    case SatViewLunarSurfaceKind::DeployedInstrument:
+    case SatViewLunarSurfaceKind::Retroreflector:
+        return show_instruments;
+    case SatViewLunarSurfaceKind::ImpactSite:
+    case SatViewLunarSurfaceKind::RocketStage:
+        return show_impacts;
+    case SatViewLunarSurfaceKind::CrewedArtifact:
+        return show_crewed_artifacts;
+    case SatViewLunarSurfaceKind::Unknown:
+        return show_landers;
+    }
+    return false;
+}
+
+float lunar_surface_marker_style(SatViewLunarSurfaceKind kind)
+{
+    switch (kind)
+    {
+    case SatViewLunarSurfaceKind::Lander:
+        return 1.0f;
+    case SatViewLunarSurfaceKind::Rover:
+        return 2.0f;
+    case SatViewLunarSurfaceKind::DeployedInstrument:
+    case SatViewLunarSurfaceKind::Retroreflector:
+        return 3.0f;
+    case SatViewLunarSurfaceKind::ImpactSite:
+    case SatViewLunarSurfaceKind::RocketStage:
+        return 4.0f;
+    case SatViewLunarSurfaceKind::CrewedArtifact:
+        return 5.0f;
+    case SatViewLunarSurfaceKind::Unknown:
+        return 1.0f;
+    }
+    return 1.0f;
+}
+
+bool lunar_surface_site_marker_visible(
+    const SatViewLunarSurfaceCatalog& catalog,
+    std::size_t object_index,
+    bool show_landers,
+    bool show_rovers,
+    bool show_instruments,
+    bool show_impacts,
+    bool show_crewed_artifacts,
+    bool show_approximate_locations)
+{
+    if (object_index >= catalog.objects.size())
+        return false;
+    const SatViewLunarSurfaceObject& object = catalog.objects[object_index];
+    if (!object.renderable()
+        || !lunar_surface_kind_visible(
+            object,
+            show_landers,
+            show_rovers,
+            show_instruments,
+            show_impacts,
+            show_crewed_artifacts,
+            show_approximate_locations))
+    {
+        return false;
+    }
+
+    std::optional<std::size_t> best_visible;
+    for (std::size_t index = 0; index < catalog.objects.size(); ++index)
+    {
+        const SatViewLunarSurfaceObject& candidate = catalog.objects[index];
+        if (candidate.parent_site_id != object.parent_site_id
+            || !candidate.renderable()
+            || !lunar_surface_kind_visible(
+                candidate,
+                show_landers,
+                show_rovers,
+                show_instruments,
+                show_impacts,
+                show_crewed_artifacts,
+                show_approximate_locations))
+        {
+            continue;
+        }
+        if (candidate.site_representative)
+            return index == object_index;
+        if (!best_visible.has_value()
+            || candidate.display_rank < catalog.objects[*best_visible].display_rank
+            || (candidate.display_rank == catalog.objects[*best_visible].display_rank
+                && candidate.id < catalog.objects[*best_visible].id))
+        {
+            best_visible = index;
+        }
+    }
+    return best_visible.has_value() && *best_visible == object_index;
+}
+
+void append_lunar_surface_marker_instances(
+    std::vector<SatViewMarkerInstance>& markers,
+    const SatViewLunarSurfaceCatalog& catalog,
+    const glm::dvec3& moon_render_position,
+    glm::vec2 map_center_radians,
+    bool map_projection,
+    bool show_children,
+    std::optional<std::size_t> selected_index,
+    bool show_landers,
+    bool show_rovers,
+    bool show_instruments,
+    bool show_impacts,
+    bool show_crewed_artifacts,
+    bool show_approximate_locations)
+{
+    for (std::size_t index = 0; index < catalog.objects.size(); ++index)
+    {
+        const SatViewLunarSurfaceObject& object = catalog.objects[index];
+        const bool selected = selected_index.has_value() && *selected_index == index;
+        const bool filtered_visible = lunar_surface_kind_visible(
+            object,
+            show_landers,
+            show_rovers,
+            show_instruments,
+            show_impacts,
+            show_crewed_artifacts,
+            show_approximate_locations);
+        const bool site_marker_visible = lunar_surface_site_marker_visible(
+            catalog,
+            index,
+            show_landers,
+            show_rovers,
+            show_instruments,
+            show_impacts,
+            show_crewed_artifacts,
+            show_approximate_locations);
+        if ((!filtered_visible || (!show_children && !site_marker_visible)) && !selected)
+            continue;
+        if (!object.renderable())
+            continue;
+
+        const glm::dvec3 body_direction = satview_lunar_body_direction(
+            object.latitude_degrees,
+            object.longitude_east_degrees);
+        const glm::vec3 position = to_vec3(satview_lunar_surface_render_position(
+            object.latitude_degrees,
+            object.longitude_east_degrees,
+            static_cast<double>(kMoonRadiusEarthRadii * kLunarSurfaceMarkerRadiusScale),
+            moon_render_position));
+        const float size = kMoonRadiusEarthRadii * kLunarSurfaceMarkerSizeScale
+            * (selected ? 1.8f : 1.0f);
+        const float quality_alpha = object.location_quality == SatViewLunarLocationQuality::Approximate
+            ? 0.58f
+            : 0.98f;
+        const glm::vec4 color = selected
+            ? glm::vec4(1.0f, 0.96f, 0.62f, 1.0f)
+            : glm::mix(
+                  satellite_prefix_color(stable_color_hash(object.mission_id), quality_alpha),
+                  glm::vec4(1.0f, 1.0f, 1.0f, quality_alpha),
+                  0.18f);
+        const float style = lunar_surface_marker_style(object.kind);
+        const auto add_marker = [&](float map_shift) {
+            markers.push_back({
+                glm::vec4(position, size),
+                glm::vec4(position, selected ? 1.0f : 0.0f),
+                color,
+                glm::vec4(style, map_shift, 0.0f, 0.0f),
+            });
+        };
+        add_marker(0.0f);
+        if (map_projection)
+        {
+            const float map_x = satview_map_position_from_lunar_body(
+                body_direction,
+                map_center_radians)
+                                    .x;
+            if (map_x > 0.9f)
+                add_marker(-2.0f);
+            else if (map_x < -0.9f)
+                add_marker(2.0f);
+        }
+    }
+}
+
+} // namespace
 
 void SatViewHost::rebuild_visible_stars()
 {
@@ -2353,6 +2650,7 @@ void SatViewHost::reset_to_default_settings()
 {
     apply_config(SatViewConfig{});
     selected_norad_catalog_id_.reset();
+    selected_lunar_surface_index_.reset();
     map_center_radians_ = glm::vec2(0.0f);
     ground_camera_orientation_ = satview_default_ground_camera_orientation();
     moon_track_center_seconds_.reset();
@@ -2681,6 +2979,7 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
                                     if (ImGui::Selectable(entry.label.c_str(), selected))
                                     {
                                         selected_norad_catalog_id_ = entry.norad_catalog_id;
+                                        selected_lunar_surface_index_.reset();
                                         simulation_settings_dirty_ = true;
                                         changed = true;
                                     }
@@ -2703,6 +3002,159 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
         }
         ImGui::PopID();
         population_begin = population_end;
+    }
+
+    ImGui::EndChild();
+}
+
+void SatViewHost::render_lunar_surface_tree(bool& changed)
+{
+    if (!lunar_surface_catalog_)
+    {
+        ImGui::TextDisabled("Lunar surface catalogue pending.");
+        return;
+    }
+    if (!lunar_surface_catalog_->error.empty())
+    {
+        ImGui::TextWrapped("%s", lunar_surface_catalog_->error.c_str());
+        return;
+    }
+
+    std::vector<std::size_t> visible_indices;
+    visible_indices.reserve(lunar_surface_catalog_->objects.size());
+    for (std::size_t index = 0; index < lunar_surface_catalog_->objects.size(); ++index)
+    {
+        const SatViewLunarSurfaceObject& object = lunar_surface_catalog_->objects[index];
+        const bool selected = selected_lunar_surface_index_.has_value()
+            && *selected_lunar_surface_index_ == index;
+        if (selected || lunar_surface_kind_visible(
+                            object,
+                            show_lunar_landers_,
+                            show_lunar_rovers_,
+                            show_lunar_instruments_,
+                            show_lunar_impacts_,
+                            show_lunar_crewed_artifacts_,
+                            show_lunar_approximate_locations_))
+        {
+            visible_indices.push_back(index);
+        }
+    }
+    std::sort(visible_indices.begin(), visible_indices.end(), [&](std::size_t left, std::size_t right) {
+        const SatViewLunarSurfaceObject& a = lunar_surface_catalog_->objects[left];
+        const SatViewLunarSurfaceObject& b = lunar_surface_catalog_->objects[right];
+        if (a.mission_name != b.mission_name)
+            return a.mission_name < b.mission_name;
+        if (a.parent_site_id != b.parent_site_id)
+            return a.parent_site_id < b.parent_site_id;
+        if (a.display_rank != b.display_rank)
+            return a.display_rank < b.display_rank;
+        return a.display_name < b.display_name;
+    });
+
+    ImGui::Text("Surface objects: %zu filtered / %zu total (%zu sites)",
+        visible_indices.size(),
+        lunar_surface_catalog_->objects.size(),
+        lunar_surface_catalog_->site_count);
+    if (visible_indices.empty())
+    {
+        ImGui::TextDisabled("No lunar surface objects match the filters.");
+        return;
+    }
+
+    const ImGuiTreeNodeFlags group_flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+    const float tree_height = std::max(180.0f, ImGui::GetTextLineHeightWithSpacing() * 14.0f);
+    if (!ImGui::BeginChild(
+            "##satview_lunar_surface_tree",
+            ImVec2(0.0f, tree_height),
+            ImGuiChildFlags_Border,
+            ImGuiWindowFlags_AlwaysVerticalScrollbar))
+    {
+        ImGui::EndChild();
+        return;
+    }
+
+    const auto object_at = [&](std::size_t visible_index) -> const SatViewLunarSurfaceObject& {
+        return lunar_surface_catalog_->objects[visible_indices[visible_index]];
+    };
+    std::size_t mission_begin = 0;
+    while (mission_begin < visible_indices.size())
+    {
+        const std::string& mission_id = object_at(mission_begin).mission_id;
+        std::size_t mission_end = mission_begin + 1;
+        while (mission_end < visible_indices.size()
+            && object_at(mission_end).mission_id == mission_id)
+        {
+            ++mission_end;
+        }
+
+        ImGui::PushID(mission_id.c_str());
+        const SatViewLunarSurfaceObject& first = object_at(mission_begin);
+        const bool mission_open = ImGui::TreeNodeEx(
+            "##mission",
+            group_flags,
+            "%s (%zu)",
+            first.mission_name.c_str(),
+            mission_end - mission_begin);
+        if (mission_open)
+        {
+            std::size_t site_begin = mission_begin;
+            while (site_begin < mission_end)
+            {
+                const std::string& site_id = object_at(site_begin).parent_site_id;
+                std::size_t site_end = site_begin + 1;
+                while (site_end < mission_end
+                    && object_at(site_end).parent_site_id == site_id)
+                {
+                    ++site_end;
+                }
+
+                const SatViewLunarSurfaceObject* representative = &object_at(site_begin);
+                for (std::size_t index = site_begin; index < site_end; ++index)
+                {
+                    if (object_at(index).site_representative)
+                    {
+                        representative = &object_at(index);
+                        break;
+                    }
+                }
+                ImGui::PushID(site_id.c_str());
+                const bool site_open = ImGui::TreeNodeEx(
+                    "##site",
+                    group_flags,
+                    "%s (%zu)",
+                    representative->display_name.c_str(),
+                    site_end - site_begin);
+                if (site_open)
+                {
+                    for (std::size_t index = site_begin; index < site_end; ++index)
+                    {
+                        const std::size_t object_index = visible_indices[index];
+                        const SatViewLunarSurfaceObject& object = object_at(index);
+                        const bool selected = selected_lunar_surface_index_.has_value()
+                            && *selected_lunar_surface_index_ == object_index;
+                        const std::string label = object.display_name + " ("
+                            + std::string(satview_lunar_surface_kind_name(object.kind)) + ")";
+                        ImGui::PushID(object.id.c_str());
+                        if (ImGui::Selectable(label.c_str(), selected))
+                        {
+                            selected_lunar_surface_index_ = object_index;
+                            selected_norad_catalog_id_.reset();
+                            sync_simulation_render_settings();
+                            changed = true;
+                        }
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                        ImGui::PopID();
+                    }
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+                site_begin = site_end;
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+        mission_begin = mission_end;
     }
 
     ImGui::EndChild();
@@ -2815,6 +3267,8 @@ void SatViewHost::render_view_display_controls(bool& changed)
         request_redraw();
     if (camera_pov_ == SatViewCameraPov::Sun)
         ImGui::EndDisabled();
+    if (ImGui::Checkbox("Lunar surface objects", &lunar_surface_objects_enabled_))
+        changed = true;
     const bool moon_track_available = camera_pov_ == SatViewCameraPov::Earth;
     if (!moon_track_available)
         ImGui::BeginDisabled();
@@ -3266,6 +3720,14 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     ImGui::TextDisabled("Earth SATCAT-only positions are estimates; Moon rows need ephemerides.");
 
     render_object_tree(snapshot, changed);
+    ImGui::SeparatorText("Lunar Surface");
+    changed |= ImGui::Checkbox("Landing sites and landers", &show_lunar_landers_);
+    changed |= ImGui::Checkbox("Rovers", &show_lunar_rovers_);
+    changed |= ImGui::Checkbox("Instruments and reflectors", &show_lunar_instruments_);
+    changed |= ImGui::Checkbox("Impacts and rocket stages", &show_lunar_impacts_);
+    changed |= ImGui::Checkbox("Crewed artifacts", &show_lunar_crewed_artifacts_);
+    changed |= ImGui::Checkbox("Approximate locations", &show_lunar_approximate_locations_);
+    render_lunar_surface_tree(changed);
     }
     ImGui::End();
 
@@ -3446,12 +3908,85 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     ImGui::Text("Stars: %zu / %zu",
         visible_stars_.size(),
         stars_.size());
+    if (lunar_surface_catalog_ && lunar_surface_catalog_->error.empty())
+    {
+        ImGui::Text("Lunar surface: %zu objects, %zu sites",
+            lunar_surface_catalog_->objects.size(),
+            lunar_surface_catalog_->site_count);
+        ImGui::TextDisabled("Coordinates: LROC; identity enrichment: GCAT CC BY 4.0");
+    }
+    else if (lunar_surface_catalog_)
+    {
+        ImGui::TextWrapped("Lunar surface: %s", lunar_surface_catalog_->error.c_str());
+    }
     }
     ImGui::End();
 
     if (ImGui::Begin(kSatViewSelectionWindowName, nullptr, flags))
     {
-    if (const SatellitePropagatedState* selected = selected_satellite(snapshot))
+    if (const SatViewLunarSurfaceObject* selected = selected_lunar_surface_object())
+    {
+        ImGui::TextWrapped("%s", selected->display_name.c_str());
+        ImGui::Text("Mission: %s", selected->mission_name.c_str());
+        if (!selected->vehicle_name.empty() && selected->vehicle_name != selected->display_name)
+            ImGui::TextWrapped("Vehicle: %s", selected->vehicle_name.c_str());
+        const std::string_view kind = satview_lunar_surface_kind_name(selected->kind);
+        ImGui::Text("Kind: %.*s", static_cast<int>(kind.size()), kind.data());
+        if (!selected->status.empty())
+            ImGui::Text("Status: %s", selected->status.c_str());
+        if (selected->renderable())
+        {
+            ImGui::Text("Latitude: %.5f %c",
+                std::abs(selected->latitude_degrees),
+                selected->latitude_degrees >= 0.0 ? 'N' : 'S');
+            ImGui::Text("Longitude: %.5f %c",
+                std::abs(selected->longitude_east_degrees),
+                selected->longitude_east_degrees >= 0.0 ? 'E' : 'W');
+        }
+        else
+        {
+            ImGui::TextDisabled("No independently located coordinate.");
+        }
+        if (!selected->arrival_date.empty())
+            ImGui::Text("Arrival: %s", selected->arrival_date.c_str());
+        const std::string_view quality = satview_lunar_location_quality_name(
+            selected->location_quality);
+        ImGui::Text("Location: %.*s", static_cast<int>(quality.size()), quality.data());
+        if (selected->coordinate_uncertainty_m.has_value())
+            ImGui::Text("Uncertainty: %.1f m", *selected->coordinate_uncertainty_m);
+        if (!selected->coordinate_source.empty())
+            ImGui::TextWrapped("Coordinate source: %s", selected->coordinate_source.c_str());
+        if (!selected->owner.empty() || !selected->country.empty())
+            ImGui::Text("Owner: %s%s%s",
+                selected->owner.c_str(),
+                !selected->owner.empty() && !selected->country.empty() ? " / " : "",
+                selected->country.c_str());
+        if (!selected->cospar_id.empty())
+            ImGui::Text("COSPAR: %s", selected->cospar_id.c_str());
+        if (!selected->gcat_id.empty())
+            ImGui::Text("GCAT: %s", selected->gcat_id.c_str());
+        if (!selected->references.empty())
+        {
+            ImGui::SeparatorText("References");
+            for (const std::string& reference : selected->references)
+                ImGui::TextWrapped("%s", reference.c_str());
+        }
+        if (!selected->renderable())
+            ImGui::BeginDisabled();
+        if (ImGui::Button("Center on site"))
+        {
+            center_selected_lunar_surface_object(displayed_simulation_seconds);
+            changed = true;
+        }
+        if (!selected->renderable())
+            ImGui::EndDisabled();
+        if (ImGui::Button("Clear Selection"))
+        {
+            selected_lunar_surface_index_.reset();
+            changed = true;
+        }
+    }
+    else if (const SatellitePropagatedState* selected = selected_satellite(snapshot))
     {
         const SatelliteStaticMetadata* metadata = selected->metadata.get();
         ImGui::TextWrapped("%s",
@@ -3567,7 +4102,7 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
     }
     else
     {
-        ImGui::TextDisabled("No satellite selected.");
+        ImGui::TextDisabled("No object selected.");
     }
     }
     ImGui::End();
@@ -3663,6 +4198,52 @@ const SatelliteRecord* SatViewHost::selected_catalog_record() const
     return found == catalog_snapshot_.objects.end() ? nullptr : &*found;
 }
 
+const SatViewLunarSurfaceObject* SatViewHost::selected_lunar_surface_object() const
+{
+    if (!lunar_surface_catalog_
+        || !selected_lunar_surface_index_.has_value()
+        || *selected_lunar_surface_index_ >= lunar_surface_catalog_->objects.size())
+    {
+        return nullptr;
+    }
+    return &lunar_surface_catalog_->objects[*selected_lunar_surface_index_];
+}
+
+void SatViewHost::center_selected_lunar_surface_object(double simulation_seconds)
+{
+    const SatViewLunarSurfaceObject* selected = selected_lunar_surface_object();
+    if (!selected || !selected->renderable())
+        return;
+
+    set_camera_pov(SatViewCameraPov::Moon, simulation_seconds);
+    if (projection_mode_ == SatViewProjectionMode::Ground)
+        projection_mode_ = SatViewProjectionMode::Globe;
+    if (projection_mode_ == SatViewProjectionMode::Map)
+    {
+        map_center_radians_ = normalized_satview_map_center(glm::vec2(
+            glm::radians(static_cast<float>(selected->longitude_east_degrees)),
+            glm::radians(static_cast<float>(selected->latitude_degrees))));
+    }
+    else
+    {
+        const glm::dvec3 moon_position = satview_moon_position(
+            simulation_seconds)
+                                              .render_position_earth_radii;
+        const glm::dvec3 direction = satview_lunar_body_to_render_direction(
+            satview_lunar_body_direction(
+                selected->latitude_degrees,
+                selected->longitude_east_degrees),
+            moon_position);
+        const float distance = std::max(
+            camera_->GetDistance(),
+            kMoonRadiusEarthRadii * kLunarSurfaceChildExpansionDistanceScale);
+        camera_->SetPositionAndFocalPoint(
+            glm::vec3(moon_position + direction * static_cast<double>(distance)),
+            glm::vec3(moon_position));
+    }
+    request_redraw();
+}
+
 void SatViewHost::clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot)
 {
     if (selected_norad_catalog_id_.has_value() && !selected_catalog_record())
@@ -3671,10 +4252,19 @@ void SatViewHost::clear_selection_if_missing(const SatViewSimulationSnapshot* sn
         simulation_settings_dirty_ = true;
         invalidate_visual_buffers();
     }
+    if (selected_lunar_surface_index_.has_value()
+        && (!lunar_surface_catalog_
+            || *selected_lunar_surface_index_ >= lunar_surface_catalog_->objects.size()))
+    {
+        selected_lunar_surface_index_.reset();
+        invalidate_visual_buffers();
+    }
 }
 
-void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
+void SatViewHost::select_nearest_object(const glm::ivec2& screen_pos)
 {
+    if (select_nearest_lunar_surface_object(screen_pos))
+        return;
     if (!satellite_display_shows_markers(satellite_display_mode_))
         return;
 
@@ -3817,10 +4407,130 @@ void SatViewHost::select_nearest_satellite(const glm::ivec2& screen_pos)
     if (nearest_id != selected_norad_catalog_id_)
     {
         selected_norad_catalog_id_ = nearest_id;
+        if (nearest_id.has_value())
+            selected_lunar_surface_index_.reset();
         sync_simulation_render_settings();
         invalidate_visual_buffers();
     }
     request_redraw();
+}
+
+bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_pos)
+{
+    if (!lunar_surface_objects_enabled_
+        || !lunar_surface_catalog_
+        || !lunar_surface_catalog_->error.empty()
+        || camera_pov_ != SatViewCameraPov::Moon
+        || projection_mode_ == SatViewProjectionMode::Ground)
+    {
+        return false;
+    }
+
+    const int pixel_width = std::max(1, viewport_.pixel_size.x);
+    const int pixel_height = std::max(1, viewport_.pixel_size.y);
+    const double simulation_seconds = last_draw_simulation_seconds_;
+    const glm::dvec3 moon_position = satview_moon_position(
+        simulation_seconds)
+                                          .render_position_earth_radii;
+    const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
+    const bool show_children = !map_projection
+        && camera_->GetDistance()
+            <= kMoonRadiusEarthRadii * kLunarSurfaceChildExpansionDistanceScale;
+    const float viewport_aspect = static_cast<float>(pixel_width)
+        / static_cast<float>(pixel_height);
+    const glm::mat4 view_projection = glm::perspectiveRH_ZO(
+        glm::radians(camera_->GetFieldOfView()),
+        viewport_aspect,
+        kCameraMinNearPlane,
+        kCameraMaxDistanceCap)
+        * camera_view_matrix(*camera_);
+
+    std::optional<std::size_t> nearest_index;
+    float nearest_distance_squared = static_cast<float>(
+        kClickSelectionMaxDistancePixels * kClickSelectionMaxDistancePixels);
+    for (std::size_t index = 0; index < lunar_surface_catalog_->objects.size(); ++index)
+    {
+        const SatViewLunarSurfaceObject& object = lunar_surface_catalog_->objects[index];
+        const bool selected = selected_lunar_surface_index_.has_value()
+            && *selected_lunar_surface_index_ == index;
+        const bool visible = lunar_surface_kind_visible(
+            object,
+            show_lunar_landers_,
+            show_lunar_rovers_,
+            show_lunar_instruments_,
+            show_lunar_impacts_,
+            show_lunar_crewed_artifacts_,
+            show_lunar_approximate_locations_);
+        const bool site_marker_visible = lunar_surface_site_marker_visible(
+            *lunar_surface_catalog_,
+            index,
+            show_lunar_landers_,
+            show_lunar_rovers_,
+            show_lunar_instruments_,
+            show_lunar_impacts_,
+            show_lunar_crewed_artifacts_,
+            show_lunar_approximate_locations_);
+        if ((!visible || (!show_children && !site_marker_visible)) && !selected)
+            continue;
+
+        glm::vec2 ndc;
+        if (map_projection)
+        {
+            ndc = satview_map_position_from_lunar_body(
+                satview_lunar_body_direction(
+                    object.latitude_degrees,
+                    object.longitude_east_degrees),
+                map_center_radians_);
+        }
+        else
+        {
+            const glm::dvec3 world = satview_lunar_surface_render_position(
+                object.latitude_degrees,
+                object.longitude_east_degrees,
+                static_cast<double>(kMoonRadiusEarthRadii * kLunarSurfaceMarkerRadiusScale),
+                moon_position);
+            const glm::dvec3 outward = glm::normalize(world - moon_position);
+            if (glm::dot(outward, glm::dvec3(camera_->GetPosition()) - world) <= 0.0)
+                continue;
+            const glm::vec4 clip = view_projection * glm::vec4(to_vec3(world), 1.0f);
+            if (clip.w <= 0.0f)
+                continue;
+            const glm::vec3 projected = glm::vec3(clip) / clip.w;
+            if (projected.z < 0.0f || projected.z > 1.0f)
+                continue;
+            ndc = glm::vec2(projected);
+        }
+
+        const auto consider_position = [&](float ndc_x) {
+            if (ndc_x < -1.1f || ndc_x > 1.1f || ndc.y < -1.1f || ndc.y > 1.1f)
+                return;
+            const float screen_x = static_cast<float>(viewport_.pixel_pos.x)
+                + (ndc_x * 0.5f + 0.5f) * static_cast<float>(pixel_width);
+            const float screen_y = static_cast<float>(viewport_.pixel_pos.y)
+                + (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<float>(pixel_height);
+            const glm::vec2 delta = glm::vec2(screen_x, screen_y) - glm::vec2(screen_pos);
+            const float distance_squared = glm::dot(delta, delta);
+            if (distance_squared < nearest_distance_squared)
+            {
+                nearest_distance_squared = distance_squared;
+                nearest_index = index;
+            }
+        };
+        consider_position(ndc.x);
+        if (map_projection && ndc.x > 0.9f)
+            consider_position(ndc.x - 2.0f);
+        else if (map_projection && ndc.x < -0.9f)
+            consider_position(ndc.x + 2.0f);
+    }
+
+    if (!nearest_index.has_value())
+        return false;
+    selected_lunar_surface_index_ = nearest_index;
+    selected_norad_catalog_id_.reset();
+    sync_simulation_render_settings();
+    invalidate_visual_buffers();
+    request_redraw();
+    return true;
 }
 
 std::unique_ptr<IHost> create_satview_host()

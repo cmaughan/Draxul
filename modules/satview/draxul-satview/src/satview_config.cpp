@@ -271,6 +271,13 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("atmosphere", config.atmosphere_enabled);
     assign_bool("moon", config.moon_enabled);
     assign_bool("moon_track", config.moon_track_enabled);
+    assign_bool("lunar_surface_objects", config.lunar_surface_objects_enabled);
+    assign_bool("show_lunar_landers", config.show_lunar_landers);
+    assign_bool("show_lunar_rovers", config.show_lunar_rovers);
+    assign_bool("show_lunar_instruments", config.show_lunar_instruments);
+    assign_bool("show_lunar_impacts", config.show_lunar_impacts);
+    assign_bool("show_lunar_crewed_artifacts", config.show_lunar_crewed_artifacts);
+    assign_bool("show_lunar_approximate_locations", config.show_lunar_approximate_locations);
     assign_bool("earth_track", config.earth_track_enabled);
     assign_bool("sun", config.sun_enabled);
     assign_bool("ground_visible", config.ground_visible);
@@ -351,6 +358,13 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("atmosphere", config.atmosphere_enabled);
     table.insert_or_assign("moon", config.moon_enabled);
     table.insert_or_assign("moon_track", config.moon_track_enabled);
+    table.insert_or_assign("lunar_surface_objects", config.lunar_surface_objects_enabled);
+    table.insert_or_assign("show_lunar_landers", config.show_lunar_landers);
+    table.insert_or_assign("show_lunar_rovers", config.show_lunar_rovers);
+    table.insert_or_assign("show_lunar_instruments", config.show_lunar_instruments);
+    table.insert_or_assign("show_lunar_impacts", config.show_lunar_impacts);
+    table.insert_or_assign("show_lunar_crewed_artifacts", config.show_lunar_crewed_artifacts);
+    table.insert_or_assign("show_lunar_approximate_locations", config.show_lunar_approximate_locations);
     table.insert_or_assign("earth_track", config.earth_track_enabled);
     table.insert_or_assign("sun", config.sun_enabled);
     table.insert_or_assign("ground_visible", config.ground_visible);

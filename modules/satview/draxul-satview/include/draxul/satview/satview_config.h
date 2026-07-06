@@ -108,6 +108,13 @@ struct SatViewConfig
     bool atmosphere_enabled = true;
     bool moon_enabled = true;
     bool moon_track_enabled = true;
+    bool lunar_surface_objects_enabled = true;
+    bool show_lunar_landers = true;
+    bool show_lunar_rovers = true;
+    bool show_lunar_instruments = true;
+    bool show_lunar_impacts = false;
+    bool show_lunar_crewed_artifacts = true;
+    bool show_lunar_approximate_locations = false;
     bool earth_track_enabled = true;
     bool sun_enabled = true;
     SatViewGroundProjection ground_projection = SatViewGroundProjection::Stereographic;

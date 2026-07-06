@@ -52,7 +52,10 @@ struct SatViewMarkerInstance
     glm::vec4 position0_size{ 0.0f, 0.0f, 0.0f, 0.01f };
     glm::vec4 position1_selected{ 0.0f, 0.0f, 0.0f, 0.0f };
     glm::vec4 color{ 1.0f };
+    // x selects procedural shape; y offsets wrapped map copies by map widths.
+    glm::vec4 style{ 0.0f };
 };
+static_assert(sizeof(SatViewMarkerInstance) == 64);
 
 struct SatViewStarInstance
 {
@@ -134,6 +137,14 @@ public:
             return;
         markers_.assign(markers.begin(), markers.end());
         ++marker_revision_;
+    }
+
+    void set_surface_markers(std::span<const SatViewMarkerInstance> markers)
+    {
+        if (markers.empty() && surface_markers_.empty())
+            return;
+        surface_markers_.assign(markers.begin(), markers.end());
+        ++surface_marker_revision_;
     }
 
     void set_sun(glm::vec4 position_radius, glm::quat body_to_render, bool enabled)
@@ -265,6 +276,7 @@ private:
     std::vector<SatViewSceneVertex> track_vertices_;
     std::vector<SatViewSceneVertex> earth_track_vertices_;
     std::vector<SatViewMarkerInstance> markers_;
+    std::vector<SatViewMarkerInstance> surface_markers_;
     std::vector<SatViewStarInstance> stars_;
     std::vector<SatViewCelestialLineInstance> constellation_lines_;
     std::vector<SatViewCelestialLineInstance> constellation_boundary_lines_;
@@ -276,6 +288,7 @@ private:
     uint64_t track_revision_ = 0;
     uint64_t earth_track_revision_ = 0;
     uint64_t marker_revision_ = 0;
+    uint64_t surface_marker_revision_ = 0;
     uint64_t star_revision_ = 0;
     uint64_t constellation_revision_ = 0;
     uint64_t constellation_boundary_revision_ = 0;

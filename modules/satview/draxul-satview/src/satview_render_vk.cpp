@@ -618,6 +618,7 @@ struct SatViewScenePass::State
     BufferResource track_vertex_buffer;
     BufferResource earth_track_vertex_buffer;
     BufferResource marker_buffer;
+    BufferResource surface_marker_buffer;
     BufferResource star_buffer;
     BufferResource constellation_buffer;
     BufferResource constellation_boundary_buffer;
@@ -628,6 +629,7 @@ struct SatViewScenePass::State
     uint32_t track_vertex_count = 0;
     uint32_t earth_track_vertex_count = 0;
     uint32_t marker_count = 0;
+    uint32_t surface_marker_count = 0;
     uint32_t star_count = 0;
     uint32_t constellation_line_count = 0;
     uint32_t constellation_boundary_line_count = 0;
@@ -638,6 +640,7 @@ struct SatViewScenePass::State
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_earth_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
+    uint64_t uploaded_surface_marker_revision = 0;
     uint64_t uploaded_star_revision = 0;
     uint64_t uploaded_constellation_revision = 0;
     uint64_t uploaded_constellation_boundary_revision = 0;
@@ -812,6 +815,7 @@ struct SatViewScenePass::State
                 destroy_buffer(allocator, track_vertex_buffer);
                 destroy_buffer(allocator, earth_track_vertex_buffer);
                 destroy_buffer(allocator, marker_buffer);
+                destroy_buffer(allocator, surface_marker_buffer);
                 destroy_buffer(allocator, star_buffer);
                 destroy_buffer(allocator, constellation_buffer);
                 destroy_buffer(allocator, constellation_boundary_buffer);
@@ -832,6 +836,7 @@ struct SatViewScenePass::State
         track_vertex_count = 0;
         earth_track_vertex_count = 0;
         marker_count = 0;
+        surface_marker_count = 0;
         star_count = 0;
         constellation_line_count = 0;
         constellation_boundary_line_count = 0;
@@ -842,6 +847,7 @@ struct SatViewScenePass::State
         uploaded_track_revision = 0;
         uploaded_earth_track_revision = 0;
         uploaded_marker_revision = 0;
+        uploaded_surface_marker_revision = 0;
         uploaded_star_revision = 0;
         uploaded_constellation_revision = 0;
         uploaded_constellation_boundary_revision = 0;
@@ -2026,7 +2032,7 @@ struct SatViewScenePass::State
             marker_binding.stride = sizeof(SatViewMarkerInstance);
             marker_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-            VkVertexInputAttributeDescription marker_attributes[3]{};
+            VkVertexInputAttributeDescription marker_attributes[4]{};
             marker_attributes[0].binding = 0;
             marker_attributes[0].location = 0;
             marker_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -2039,6 +2045,10 @@ struct SatViewScenePass::State
             marker_attributes[2].location = 2;
             marker_attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
             marker_attributes[2].offset = offsetof(SatViewMarkerInstance, color);
+            marker_attributes[3].binding = 0;
+            marker_attributes[3].location = 3;
+            marker_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            marker_attributes[3].offset = offsetof(SatViewMarkerInstance, style);
 
             vertex_input.vertexBindingDescriptionCount = 1;
             vertex_input.pVertexBindingDescriptions = &marker_binding;
@@ -2141,6 +2151,13 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         state_->marker_buffer,
         state_->marker_count,
         state_->uploaded_marker_revision);
+    state_->ensure_vertex_buffer(
+        *vk_ctx,
+        surface_markers_,
+        surface_marker_revision_,
+        state_->surface_marker_buffer,
+        state_->surface_marker_count,
+        state_->uploaded_surface_marker_revision);
     state_->ensure_vertex_buffer(
         *vk_ctx,
         stars_,
@@ -2478,6 +2495,16 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->marker_pipeline);
         vkCmdBindVertexBuffers(cmd, 0, 1, &state_->marker_buffer.buffer, &offset);
         vkCmdDraw(cmd, kSatViewMarkerVerticesPerInstance, state_->marker_count, 0, 0);
+    }
+
+    if (state_->surface_marker_count != 0
+        && state_->surface_marker_buffer.buffer != VK_NULL_HANDLE
+        && state_->marker_pipeline != VK_NULL_HANDLE)
+    {
+        VkDeviceSize offset = 0;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->marker_pipeline);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &state_->surface_marker_buffer.buffer, &offset);
+        vkCmdDraw(cmd, kSatViewMarkerVerticesPerInstance, state_->surface_marker_count, 0, 0);
     }
 
     if (ground_projection_ && ground_visible_)

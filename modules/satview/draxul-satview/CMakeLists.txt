@@ -14,6 +14,8 @@ if(APPLE)
         src/satview_host.cpp
         src/satview_label_layout.cpp
         src/satview_landscape.cpp
+        src/satview_lunar_frame.cpp
+        src/satview_lunar_surface_catalog.cpp
         src/satview_map_projection.cpp
         src/satview_moon_ephemeris.cpp
         src/satview_propagation.cpp
@@ -38,6 +40,8 @@ else()
         src/satview_host.cpp
         src/satview_label_layout.cpp
         src/satview_landscape.cpp
+        src/satview_lunar_frame.cpp
+        src/satview_lunar_surface_catalog.cpp
         src/satview_map_projection.cpp
         src/satview_moon_ephemeris.cpp
         src/satview_propagation.cpp

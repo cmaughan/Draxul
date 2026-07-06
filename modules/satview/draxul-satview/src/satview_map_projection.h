@@ -21,6 +21,9 @@ enum class SatViewMapBody
     const glm::dvec3& moon_render_position_earth_radii = glm::dvec3(0.0),
     const glm::dvec3& sun_render_position_earth_radii = glm::dvec3(0.0),
     const glm::dquat& sun_body_to_render_orientation = glm::dquat(1.0, 0.0, 0.0, 0.0));
+[[nodiscard]] glm::vec2 satview_map_position_from_lunar_body(
+    const glm::dvec3& lunar_body_position,
+    glm::vec2 center_radians = glm::vec2(0.0f));
 [[nodiscard]] glm::vec2 normalized_satview_map_center(glm::vec2 center_radians);
 [[nodiscard]] glm::vec2 satview_map_pan_delta(
     glm::vec2 pixel_delta,

@@ -33,6 +33,8 @@ struct SatViewStarInstance;
 struct SatViewCelestialLineInstance;
 struct SatViewLabelInstance;
 struct SatViewConstellationBoundaryCatalog;
+struct SatViewLunarSurfaceCatalog;
+struct SatViewLunarSurfaceObject;
 struct SatViewSimulationSnapshot;
 
 class SatViewHost final : public draxul::IHost
@@ -115,13 +117,17 @@ private:
     [[nodiscard]] glm::dvec3 ground_observer_render_position(double simulation_seconds) const;
     void rebuild_object_tree(const SatViewSimulationSnapshot* snapshot);
     void render_object_tree(const SatViewSimulationSnapshot* snapshot, bool& changed);
+    void render_lunar_surface_tree(bool& changed);
     void render_host_imgui(float dt, const SatViewSimulationSnapshot* snapshot);
     void render_control_panel(const SatViewSimulationSnapshot* snapshot);
     std::size_t visible_track_count(const SatViewSimulationSnapshot* snapshot) const;
     const SatellitePropagatedState* selected_satellite(const SatViewSimulationSnapshot* snapshot) const;
     const SatelliteRecord* selected_catalog_record() const;
+    const SatViewLunarSurfaceObject* selected_lunar_surface_object() const;
     void clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot);
-    void select_nearest_satellite(const glm::ivec2& screen_pos);
+    void select_nearest_object(const glm::ivec2& screen_pos);
+    bool select_nearest_lunar_surface_object(const glm::ivec2& screen_pos);
+    void center_selected_lunar_surface_object(double simulation_seconds);
 
     draxul::IHostCallbacks* callbacks_ = nullptr;
     draxul::ConfigDocument* config_document_ = nullptr;
@@ -135,6 +141,7 @@ private:
     std::string init_error_;
     SatViewFilterState filter_;
     std::optional<std::int64_t> selected_norad_catalog_id_;
+    std::optional<std::size_t> selected_lunar_surface_index_;
     ImGuiContext* imgui_context_ = nullptr;
     draxul::IImGuiHost* imgui_backend_ = nullptr;
     std::string imgui_font_path_;
@@ -180,6 +187,13 @@ private:
     bool atmosphere_enabled_ = true;
     bool moon_enabled_ = true;
     bool moon_track_enabled_ = true;
+    bool lunar_surface_objects_enabled_ = true;
+    bool show_lunar_landers_ = true;
+    bool show_lunar_rovers_ = true;
+    bool show_lunar_instruments_ = true;
+    bool show_lunar_impacts_ = false;
+    bool show_lunar_crewed_artifacts_ = true;
+    bool show_lunar_approximate_locations_ = false;
     bool earth_track_enabled_ = true;
     bool sun_enabled_ = true;
     bool ground_visible_ = true;
@@ -202,6 +216,7 @@ private:
     std::vector<SatViewLabelInstance> constellation_label_instances_;
     std::vector<SatViewLabelInstance> cardinal_label_instances_;
     std::unique_ptr<SatViewConstellationBoundaryCatalog> constellation_boundary_catalog_;
+    std::unique_ptr<SatViewLunarSurfaceCatalog> lunar_surface_catalog_;
     draxul::TextService* app_text_service_ = nullptr;
     std::unique_ptr<draxul::TextService> scene_text_service_;
     std::shared_ptr<draxul::TextAtlas> scene_text_atlas_;

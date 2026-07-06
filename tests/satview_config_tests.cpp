@@ -31,6 +31,13 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK_FALSE(config.show_hdr_debug_panel);
     CHECK(config.sun_enabled);
     CHECK(config.earth_track_enabled);
+    CHECK(config.lunar_surface_objects_enabled);
+    CHECK(config.show_lunar_landers);
+    CHECK(config.show_lunar_rovers);
+    CHECK(config.show_lunar_instruments);
+    CHECK_FALSE(config.show_lunar_impacts);
+    CHECK(config.show_lunar_crewed_artifacts);
+    CHECK_FALSE(config.show_lunar_approximate_locations);
     CHECK(config.ground_projection == SatViewGroundProjection::Stereographic);
     CHECK(config.ground_fov_degrees == 60.0f);
     CHECK(config.ground_marker_scale == 0.1f);
@@ -94,6 +101,13 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.atmosphere_enabled = false;
     expected.moon_enabled = false;
     expected.moon_track_enabled = false;
+    expected.lunar_surface_objects_enabled = false;
+    expected.show_lunar_landers = false;
+    expected.show_lunar_rovers = false;
+    expected.show_lunar_instruments = false;
+    expected.show_lunar_impacts = true;
+    expected.show_lunar_crewed_artifacts = false;
+    expected.show_lunar_approximate_locations = true;
     expected.earth_track_enabled = false;
     expected.sun_enabled = true;
     expected.ground_projection = SatViewGroundProjection::Perspective;

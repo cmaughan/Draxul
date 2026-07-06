@@ -68,6 +68,7 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLBuffer>> track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> earth_track_vertex_buffer;
     ObjCRef<id<MTLBuffer>> marker_buffer;
+    ObjCRef<id<MTLBuffer>> surface_marker_buffer;
     ObjCRef<id<MTLBuffer>> star_buffer;
     ObjCRef<id<MTLBuffer>> constellation_buffer;
     ObjCRef<id<MTLBuffer>> constellation_boundary_buffer;
@@ -78,6 +79,7 @@ struct SatViewScenePass::State
     NSUInteger track_vertex_count = 0;
     NSUInteger earth_track_vertex_count = 0;
     NSUInteger marker_count = 0;
+    NSUInteger surface_marker_count = 0;
     NSUInteger star_count = 0;
     NSUInteger constellation_line_count = 0;
     NSUInteger constellation_boundary_line_count = 0;
@@ -88,6 +90,7 @@ struct SatViewScenePass::State
     uint64_t uploaded_track_revision = 0;
     uint64_t uploaded_earth_track_revision = 0;
     uint64_t uploaded_marker_revision = 0;
+    uint64_t uploaded_surface_marker_revision = 0;
     uint64_t uploaded_star_revision = 0;
     uint64_t uploaded_constellation_revision = 0;
     uint64_t uploaded_constellation_boundary_revision = 0;
@@ -284,6 +287,7 @@ struct SatViewScenePass::State
         track_vertex_buffer.reset();
         earth_track_vertex_buffer.reset();
         marker_buffer.reset();
+        surface_marker_buffer.reset();
         star_buffer.reset();
         constellation_buffer.reset();
         constellation_boundary_buffer.reset();
@@ -294,6 +298,7 @@ struct SatViewScenePass::State
         track_vertex_count = 0;
         earth_track_vertex_count = 0;
         marker_count = 0;
+        surface_marker_count = 0;
         star_count = 0;
         constellation_line_count = 0;
         constellation_boundary_line_count = 0;
@@ -304,6 +309,7 @@ struct SatViewScenePass::State
         uploaded_track_revision = 0;
         uploaded_earth_track_revision = 0;
         uploaded_marker_revision = 0;
+        uploaded_surface_marker_revision = 0;
         uploaded_star_revision = 0;
         uploaded_constellation_revision = 0;
         uploaded_constellation_boundary_revision = 0;
@@ -937,6 +943,13 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
         state_->uploaded_marker_revision);
     state_->ensure_buffer(
         metal_ctx->device(),
+        surface_markers_,
+        surface_marker_revision_,
+        state_->surface_marker_buffer,
+        state_->surface_marker_count,
+        state_->uploaded_surface_marker_revision);
+    state_->ensure_buffer(
+        metal_ctx->device(),
         stars_,
         star_revision_,
         state_->star_buffer,
@@ -1314,6 +1327,20 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                     vertexStart:0
                     vertexCount:kSatViewMarkerVerticesPerInstance
                   instanceCount:state_->marker_count];
+    }
+
+    if (state_->surface_marker_count != 0
+        && state_->surface_marker_buffer.get()
+        && state_->marker_pipeline.get())
+    {
+        [encoder setRenderPipelineState:state_->marker_pipeline.get()];
+        [encoder setDepthStencilState:state_->depth_read_state.get()];
+        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setVertexBuffer:state_->surface_marker_buffer.get() offset:0 atIndex:1];
+        [encoder drawPrimitives:MTLPrimitiveTypeLine
+                    vertexStart:0
+                    vertexCount:kSatViewMarkerVerticesPerInstance
+                  instanceCount:state_->surface_marker_count];
     }
 
     if (ground_projection_ && ground_visible_)

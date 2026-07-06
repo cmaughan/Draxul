@@ -36,6 +36,7 @@ struct SatViewMarkerInstance
     float4 position0_size;
     float4 position1_selected;
     float4 color;
+    float4 style;
 };
 
 struct SatViewStarInstance
@@ -1414,6 +1415,46 @@ static float3 rotate_by_quaternion(float3 value, float4 quaternion)
     return value + quaternion.w * twice_cross + cross(quaternion.xyz, twice_cross);
 }
 
+static float2 marker_endpoint(int style, uint segment, uint endpoint)
+{
+    float sign_value = endpoint == 0u ? -1.0f : 1.0f;
+    if (style == 1)
+    {
+        if (segment == 0u)
+            return endpoint == 0u ? float2(-0.9f, 0.65f) : float2(0.9f, 0.65f);
+        if (segment == 1u)
+            return endpoint == 0u ? float2(0.9f, 0.65f) : float2(0.0f, -0.75f);
+        if (segment == 2u)
+            return endpoint == 0u ? float2(0.0f, -0.75f) : float2(-0.9f, 0.65f);
+        return endpoint == 0u ? float2(0.0f, -0.75f) : float2(0.0f, -1.2f);
+    }
+    if (style == 2)
+    {
+        if (segment == 0u)
+            return endpoint == 0u ? float2(-0.9f, -0.7f) : float2(0.9f, -0.7f);
+        if (segment == 1u)
+            return endpoint == 0u ? float2(0.9f, -0.7f) : float2(0.9f, 0.7f);
+        if (segment == 2u)
+            return endpoint == 0u ? float2(0.9f, 0.7f) : float2(-0.9f, 0.7f);
+        return endpoint == 0u ? float2(-0.9f, 0.7f) : float2(-0.9f, -0.7f);
+    }
+    if (style == 3)
+    {
+        if (segment == 0u)
+            return endpoint == 0u ? float2(0.0f, -1.0f) : float2(1.0f, 0.0f);
+        if (segment == 1u)
+            return endpoint == 0u ? float2(1.0f, 0.0f) : float2(0.0f, 1.0f);
+        if (segment == 2u)
+            return endpoint == 0u ? float2(0.0f, 1.0f) : float2(-1.0f, 0.0f);
+        return endpoint == 0u ? float2(-1.0f, 0.0f) : float2(0.0f, -1.0f);
+    }
+    float2 axis = segment == 0u ? float2(1.0f, 0.0f)
+        : segment == 1u ? float2(0.0f, 1.0f)
+        : segment == 2u ? float2(1.0f, 1.0f) * 0.70710678f
+        : float2(1.0f, -1.0f) * 0.70710678f;
+    return axis * sign_value;
+}
+
 vertex SatViewOrbitOut satview_marker_vertex(
     uint vertex_id [[vertex_id]],
     uint instance_id [[instance_id]],
@@ -1423,25 +1464,23 @@ vertex SatViewOrbitOut satview_marker_vertex(
     SatViewMarkerInstance marker = markers[instance_id];
     uint segment = vertex_id / 2u;
     uint endpoint = vertex_id & 1u;
-    float endpoint_sign = endpoint == 0u ? -1.0f : 1.0f;
     float selected = marker.position1_selected.w;
+    int style = int(round(marker.style.x));
+    float2 marker_offset = marker_endpoint(style, segment, endpoint);
     float alpha = clamp(frame.render_params.w, 0.0f, 1.0f);
 
     float3 center = mix(marker.position0_size.xyz, marker.position1_selected.xyz, alpha);
     SatViewOrbitOut out;
     out.color = marker.color;
-    if (segment >= 2u && selected < 0.5f)
+    if (style == 0 && segment >= 2u && selected < 0.5f)
         out.color.a = 0.0f;
     if (frame.camera_pos.w < 0.0f)
     {
         float2 map_center = map_position_from_render_teme(center, frame, false);
         float x_scale = abs(frame.camera_pos.w);
-        float2 map_axis = segment == 0u ? float2(x_scale, 0.0f)
-            : segment == 1u ? float2(0.0f, 1.0f)
-            : segment == 2u ? float2(x_scale, 1.0f) * 0.70710678f
-            : float2(x_scale, -1.0f) * 0.70710678f;
+        map_center.x += marker.style.y;
         float2 map_position = map_center
-            + map_axis * marker.position0_size.w * 0.75f * endpoint_sign;
+            + marker_offset * float2(x_scale, 1.0f) * marker.position0_size.w * 0.75f;
         out.position = frame.view_proj * float4(map_position, 0.2f, 1.0f);
     }
     else if (is_ground_projection(frame))
@@ -1458,22 +1497,16 @@ vertex SatViewOrbitOut satview_marker_vertex(
             return out;
         }
         float x_scale = ground_projection_aspect_scale(frame);
-        float2 screen_axis = segment == 0u ? float2(x_scale, 0.0f)
-            : segment == 1u ? float2(0.0f, 1.0f)
-            : segment == 2u ? float2(x_scale, 1.0f) * 0.70710678f
-            : float2(x_scale, -1.0f) * 0.70710678f;
-        center_clip.xy += screen_axis * marker.position0_size.w * 0.75f * endpoint_sign * center_clip.w;
+        center_clip.xy += marker_offset * float2(x_scale, 1.0f)
+            * marker.position0_size.w * 0.75f * center_clip.w;
         out.position = center_clip;
     }
     else
     {
         float3 right = normalize(rotate_by_quaternion(float3(1.0f, 0.0f, 0.0f), frame.camera_orientation));
         float3 up = normalize(rotate_by_quaternion(float3(0.0f, 1.0f, 0.0f), frame.camera_orientation));
-        float3 axis = segment == 0u ? right
-            : segment == 1u ? up
-            : segment == 2u ? normalize(right + up)
-            : normalize(right - up);
-        float3 world = center + axis * marker.position0_size.w * endpoint_sign;
+        float3 world = center
+            + (right * marker_offset.x + up * marker_offset.y) * marker.position0_size.w;
         out.position = frame.view_proj * float4(world, 1.0f);
     }
     return out;

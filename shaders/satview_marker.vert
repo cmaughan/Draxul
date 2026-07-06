@@ -14,6 +14,7 @@ layout(push_constant) uniform SatViewFrame
 layout(location = 0) in vec4 in_position0_size;
 layout(location = 1) in vec4 in_position1_selected;
 layout(location = 2) in vec4 in_color;
+layout(location = 3) in vec4 in_style;
 
 layout(location = 0) out vec4 out_color;
 
@@ -83,17 +84,58 @@ vec3 render_to_solar_body(vec3 render_position)
         render_to_body);
 }
 
+vec2 marker_endpoint(int style, int segment, int endpoint)
+{
+    float sign_value = endpoint == 0 ? -1.0 : 1.0;
+    if (style == 1)
+    {
+        if (segment == 0)
+            return endpoint == 0 ? vec2(-0.9, 0.65) : vec2(0.9, 0.65);
+        if (segment == 1)
+            return endpoint == 0 ? vec2(0.9, 0.65) : vec2(0.0, -0.75);
+        if (segment == 2)
+            return endpoint == 0 ? vec2(0.0, -0.75) : vec2(-0.9, 0.65);
+        return endpoint == 0 ? vec2(0.0, -0.75) : vec2(0.0, -1.2);
+    }
+    if (style == 2)
+    {
+        if (segment == 0)
+            return endpoint == 0 ? vec2(-0.9, -0.7) : vec2(0.9, -0.7);
+        if (segment == 1)
+            return endpoint == 0 ? vec2(0.9, -0.7) : vec2(0.9, 0.7);
+        if (segment == 2)
+            return endpoint == 0 ? vec2(0.9, 0.7) : vec2(-0.9, 0.7);
+        return endpoint == 0 ? vec2(-0.9, 0.7) : vec2(-0.9, -0.7);
+    }
+    if (style == 3)
+    {
+        if (segment == 0)
+            return endpoint == 0 ? vec2(0.0, -1.0) : vec2(1.0, 0.0);
+        if (segment == 1)
+            return endpoint == 0 ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+        if (segment == 2)
+            return endpoint == 0 ? vec2(0.0, 1.0) : vec2(-1.0, 0.0);
+        return endpoint == 0 ? vec2(-1.0, 0.0) : vec2(0.0, -1.0);
+    }
+    vec2 axis = segment == 0 ? vec2(1.0, 0.0)
+        : segment == 1 ? vec2(0.0, 1.0)
+        : segment == 2 ? vec2(1.0, 1.0) * 0.70710678
+        : vec2(1.0, -1.0) * 0.70710678;
+    return axis * sign_value;
+}
+
 void main()
 {
     int segment = gl_VertexIndex / 2;
     int endpoint = gl_VertexIndex & 1;
-    float endpoint_sign = endpoint == 0 ? -1.0 : 1.0;
     float selected = in_position1_selected.w;
+    int style = int(round(in_style.x));
+    vec2 marker_offset = marker_endpoint(style, segment, endpoint);
     float alpha = clamp(push.render_params.w, 0.0, 1.0);
 
     vec3 center = mix(in_position0_size.xyz, in_position1_selected.xyz, alpha);
     out_color = in_color;
-    if (segment >= 2 && selected < 0.5)
+    if (style == 0 && segment >= 2 && selected < 0.5)
         out_color.a = 0.0;
 
     if (push.camera_pos.w < 0.0)
@@ -109,12 +151,9 @@ void main()
         float latitude = asin(clamp(local.z / radius, -1.0, 1.0));
         vec2 map_center = vec2(longitude / PI, 2.0 * latitude / PI);
         float x_scale = abs(push.camera_pos.w);
-        vec2 map_axis = segment == 0 ? vec2(x_scale, 0.0)
-            : segment == 1 ? vec2(0.0, 1.0)
-            : segment == 2 ? vec2(x_scale, 1.0) * 0.70710678
-            : vec2(x_scale, -1.0) * 0.70710678;
+        map_center.x += in_style.y;
         vec2 map_position = map_center
-            + map_axis * in_position0_size.w * 0.75 * endpoint_sign;
+            + marker_offset * vec2(x_scale, 1.0) * in_position0_size.w * 0.75;
         gl_Position = push.view_proj * vec4(map_position, 0.2, 1.0);
     }
     else if (satview_is_ground_projection())
@@ -131,22 +170,16 @@ void main()
             return;
         }
         float x_scale = satview_ground_projection_aspect_scale();
-        vec2 screen_axis = segment == 0 ? vec2(x_scale, 0.0)
-            : segment == 1 ? vec2(0.0, 1.0)
-            : segment == 2 ? vec2(x_scale, 1.0) * 0.70710678
-            : vec2(x_scale, -1.0) * 0.70710678;
-        center_clip.xy += screen_axis * in_position0_size.w * 0.75 * endpoint_sign * center_clip.w;
+        center_clip.xy += marker_offset * vec2(x_scale, 1.0)
+            * in_position0_size.w * 0.75 * center_clip.w;
         gl_Position = center_clip;
     }
     else
     {
         vec3 right = normalize(rotate_by_quaternion(vec3(1.0, 0.0, 0.0), push.camera_orientation));
         vec3 up = normalize(rotate_by_quaternion(vec3(0.0, 1.0, 0.0), push.camera_orientation));
-        vec3 axis = segment == 0 ? right
-            : segment == 1 ? up
-            : segment == 2 ? normalize(right + up)
-            : normalize(right - up);
-        vec3 world = center + axis * in_position0_size.w * endpoint_sign;
+        vec3 world = center
+            + (right * marker_offset.x + up * marker_offset.y) * in_position0_size.w;
         gl_Position = push.view_proj * vec4(world, 1.0);
     }
 }

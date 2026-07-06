@@ -1,0 +1,134 @@
+{
+  "coordinate_conflicts": [
+    {
+      "gcat": {
+        "latitude": 2.4745,
+        "longitude_east": -43.3398
+      },
+      "id": "surveyor-1-surveyor-1",
+      "lroc": {
+        "latitude": -2.4745,
+        "longitude_east": -43.3398
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": 2.1,
+        "longitude_east": -22.1
+      },
+      "id": "apollo-16-a16-sivb",
+      "lroc": {
+        "latitude": 1.9213,
+        "longitude_east": -24.6231
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": 75.62,
+        "longitude_east": -26.63
+      },
+      "id": "grail-grail-b",
+      "lroc": {
+        "latitude": 75.6508,
+        "longitude_east": -26.8341
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": 12.0,
+        "longitude_east": -93.2
+      },
+      "id": "ladee-ladee",
+      "lroc": {
+        "latitude": 11.8493,
+        "longitude_east": -93.2493
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": 15.5,
+        "longitude_east": 157.5
+      },
+      "id": "longjiang-2-longjiang-2",
+      "lroc": {
+        "latitude": 16.6956,
+        "longitude_east": 159.517
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": 5.316,
+        "longitude_east": -125.281
+      },
+      "id": "chang-e-5-t1-chang-e-5-t1-booster",
+      "lroc": {
+        "latitude": 5.2269,
+        "longitude_east": -125.5152
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": -57.865,
+        "longitude_east": 60.36
+      },
+      "id": "luna-25-luna-25",
+      "lroc": {
+        "latitude": -57.8651,
+        "longitude_east": 61.3588
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": -84.7906,
+        "longitude_east": -29.1957
+      },
+      "id": "im-2-im-2",
+      "lroc": {
+        "latitude": -84.7906,
+        "longitude_east": 29.19567
+      },
+      "resolution": "LROC coordinate retained"
+    },
+    {
+      "gcat": {
+        "latitude": 60.5,
+        "longitude_east": -4.6
+      },
+      "id": "hakuto-r-mission-2-hakuto-r-2",
+      "lroc": {
+        "latitude": 60.4445,
+        "longitude_east": -4.588
+      },
+      "resolution": "LROC coordinate retained"
+    }
+  ],
+  "mission_count": 41,
+  "record_count": 70,
+  "schema_version": 1,
+  "site_count": 46,
+  "source_snapshot_date": "2026-07-03",
+  "sources": [
+    {
+      "name": "LROC Anthropogenic Features on the Moon",
+      "role": "coordinate authority",
+      "sha256": "5f2c9ca336aff3738d7da5ed881fe1eefaeee2c55e78f706fa49d59223138ad5",
+      "url": "https://pds.lroc.im-ldi.com/data/LRO-L-LROC-5-RDR-V1.0/LROLRC_2001/EXTRAS/SHAPEFILE/ANTHROPOGENIC_OBJECTS/ANTHROPOGENIC_OBJECTS_180.ZIP",
+      "version": "2025-09-04"
+    },
+    {
+      "license": "CC-BY-4.0",
+      "name": "GCAT Lander Catalogue",
+      "role": "identity and ownership enrichment",
+      "sha256": "a75cb4f5b7ae3b2968692d7f5f1f0d4162a656430eca4d1f01cb170f24de516d",
+      "url": "https://planet4589.org/space/gcat/tsv/cat/landercat.tsv",
+      "version": "2026-07-03"
+    }
+  ]
+}
