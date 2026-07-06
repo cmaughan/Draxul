@@ -2032,7 +2032,7 @@ struct SatViewScenePass::State
             marker_binding.stride = sizeof(SatViewMarkerInstance);
             marker_binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-            VkVertexInputAttributeDescription marker_attributes[4]{};
+            VkVertexInputAttributeDescription marker_attributes[5]{};
             marker_attributes[0].binding = 0;
             marker_attributes[0].location = 0;
             marker_attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -2049,6 +2049,10 @@ struct SatViewScenePass::State
             marker_attributes[3].location = 3;
             marker_attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
             marker_attributes[3].offset = offsetof(SatViewMarkerInstance, style);
+            marker_attributes[4].binding = 0;
+            marker_attributes[4].location = 4;
+            marker_attributes[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+            marker_attributes[4].offset = offsetof(SatViewMarkerInstance, surface_normal);
 
             vertex_input.vertexBindingDescriptionCount = 1;
             vertex_input.pVertexBindingDescriptions = &marker_binding;

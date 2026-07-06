@@ -37,6 +37,7 @@ struct SatViewMarkerInstance
     float4 position1_selected;
     float4 color;
     float4 style;
+    float4 surface_normal;
 };
 
 struct SatViewStarInstance
@@ -1503,11 +1504,42 @@ vertex SatViewOrbitOut satview_marker_vertex(
     }
     else
     {
-        float3 right = normalize(rotate_by_quaternion(float3(1.0f, 0.0f, 0.0f), frame.camera_orientation));
-        float3 up = normalize(rotate_by_quaternion(float3(0.0f, 1.0f, 0.0f), frame.camera_orientation));
-        float3 world = center
-            + (right * marker_offset.x + up * marker_offset.y) * marker.position0_size.w;
+        float3 camera_right = normalize(
+            rotate_by_quaternion(float3(1.0f, 0.0f, 0.0f), frame.camera_orientation));
+        float3 camera_up = normalize(
+            rotate_by_quaternion(float3(0.0f, 1.0f, 0.0f), frame.camera_orientation));
+        float3 right = camera_right;
+        float3 up = camera_up;
+        bool surface_aligned = marker.surface_normal.w > 0.5f;
+        if (surface_aligned)
+        {
+            float3 normal = normalize(marker.surface_normal.xyz);
+            float3 to_camera = frame.camera_pos.xyz - center;
+            if (dot(normal, to_camera) <= 0.0f)
+            {
+                out.color.a = 0.0f;
+                out.position = float4(2.0f, 2.0f, 0.0f, 1.0f);
+                return out;
+            }
+
+            float3 projected_up = camera_up - normal * dot(camera_up, normal);
+            if (dot(projected_up, projected_up) > 0.000001f)
+            {
+                up = normalize(projected_up);
+                right = normalize(cross(up, normal));
+            }
+            else
+            {
+                right = normalize(camera_right - normal * dot(camera_right, normal));
+                up = normalize(cross(normal, right));
+            }
+        }
+
+        float3 world = center + (right * marker_offset.x + up * marker_offset.y)
+            * marker.position0_size.w;
         out.position = frame.view_proj * float4(world, 1.0f);
+        if (surface_aligned)
+            out.position.z = max(0.0f, out.position.z - 0.00002f * out.position.w);
     }
     return out;
 }

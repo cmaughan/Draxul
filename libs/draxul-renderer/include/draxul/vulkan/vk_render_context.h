@@ -10,7 +10,9 @@ namespace draxul
 {
 
 // Platform-specific IRenderContext for the Vulkan backend.
-// Passed to IRenderPass::record() during live frame encoding.
+// Passed to IRenderPass::record_prepass() and record() during live frame encoding.
+// render_pass() identifies the compatible main render pass even when no render
+// pass is active during record_prepass().
 //
 // Render passes static_cast<VkRenderContext*>(&ctx) to access command_buffer(),
 // device(), allocator(), and render_pass() with full type safety.

@@ -369,6 +369,44 @@ TEST_CASE("SatView sampled lunar ephemerides interpolate only within their valid
     CHECK(stale.failed_propagations == 1);
 }
 
+TEST_CASE("SatView sampled lunar tracks default to one osculating orbit", "[satview][propagation][moon]")
+{
+    constexpr double kRadiusKm = 1800.0;
+    constexpr double kMoonMuKm3PerS2 = 4902.800118;
+    const double orbital_speed = std::sqrt(kMoonMuKm3PerS2 / kRadiusKm);
+
+    draxul::satview::SatelliteCatalog catalog;
+    draxul::satview::SatelliteRecord record;
+    record.norad_catalog_id = 38301;
+    record.object_name = "LUNAR TEST";
+    record.central_body = CentralBody::Moon;
+    record.solution_kind = draxul::satview::OrbitSolutionKind::SampledEphemeris;
+    record.renderable = true;
+    record.ephemeris_track_horizon_minutes = 240.0;
+    record.ephemeris_samples = {
+        { 0.0, kRadiusKm, 0.0, 0.0, 0.0, orbital_speed, 0.0 },
+        { 7200.0, 0.0, kRadiusKm, 0.0, -orbital_speed, 0.0, 0.0 },
+        { 14400.0, -kRadiusKm, 0.0, 0.0, 0.0, -orbital_speed, 0.0 },
+    };
+    catalog.objects.push_back(record);
+    auto build = build_satellite_propagation_model(catalog);
+    REQUIRE(build);
+
+    SatellitePropagationSettings settings;
+    settings.track_sample_count = 3;
+    settings.track_satellite_limit = 1;
+    const auto result = propagate_satellites(build.model, 7200.0, settings);
+    REQUIRE(result);
+    REQUIRE(result.tracks.size() == 1);
+    CHECK(result.tracks[0].sample_horizon_minutes == Approx(114.213).margin(0.001));
+
+    settings.track_horizon_minutes = 240.0;
+    const auto overridden = propagate_satellites(build.model, 7200.0, settings);
+    REQUIRE(overridden);
+    REQUIRE(overridden.tracks.size() == 1);
+    CHECK(overridden.tracks[0].sample_horizon_minutes == Approx(240.0));
+}
+
 TEST_CASE("SatView propagates the bundled curated Horizons missions near the Moon", "[satview][propagation][moon]")
 {
     const std::string satcat_csv =
@@ -416,6 +454,8 @@ TEST_CASE("SatView propagates the bundled curated Horizons missions near the Moo
         CHECK(track.central_body == CentralBody::Moon);
         CHECK(track.teme_points_km.size() == 16);
         CHECK(track.sample_horizon_minutes >= 120.0);
+        if (track.norad_catalog_id == 30581 || track.norad_catalog_id == 30582)
+            CHECK(track.sample_horizon_minutes < 1700.0);
     }
 }
 

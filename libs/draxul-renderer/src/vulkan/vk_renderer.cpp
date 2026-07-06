@@ -1113,7 +1113,9 @@ bool VkRenderer::record_render_pass_now(IRenderPass& pass, const RenderViewport&
     const int vw = viewport.width > 0 ? viewport.width : pixel_w_;
     const int vh = viewport.height > 0 ? viewport.height : pixel_h_;
 
-    VkRenderContext prepass_ctx(active_cmd_buffer_, ctx_.physical_device(), ctx_.device(), ctx_.allocator(), VK_NULL_HANDLE,
+    // No render pass is active during record_prepass(), but passes may still
+    // need the compatible main render pass to create pipelines used by record().
+    VkRenderContext prepass_ctx(active_cmd_buffer_, ctx_.physical_device(), ctx_.device(), ctx_.allocator(), ctx_.render_pass(),
         current_frame_, MAX_FRAMES_IN_FLIGHT,
         static_cast<int>(ctx_.swapchain().extent.width), static_cast<int>(ctx_.swapchain().extent.height),
         vx, vy, vw, vh,

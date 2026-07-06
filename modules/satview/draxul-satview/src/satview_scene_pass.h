@@ -54,8 +54,10 @@ struct SatViewMarkerInstance
     glm::vec4 color{ 1.0f };
     // x selects procedural shape; y offsets wrapped map copies by map widths.
     glm::vec4 style{ 0.0f };
+    // xyz is the outward surface normal; w enables tangent-plane rendering.
+    glm::vec4 surface_normal{ 0.0f };
 };
-static_assert(sizeof(SatViewMarkerInstance) == 64);
+static_assert(sizeof(SatViewMarkerInstance) == 80);
 
 struct SatViewStarInstance
 {

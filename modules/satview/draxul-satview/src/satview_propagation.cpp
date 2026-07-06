@@ -32,6 +32,7 @@ constexpr double kSgp4EpochJulianDate = 2433281.5;
 constexpr double kReferenceMeanMotionScale = kMinutesPerDay / kTwoPi;
 constexpr double kEarthMuKm3PerS2 = 398600.4418;
 constexpr double kMoonMuKm3PerS2 = 4902.800118;
+constexpr double kMultiRevolutionTrackThreshold = 1.25;
 constexpr double kSummaryReferenceUnixSeconds = 946728000.0; // J2000 noon UTC.
 
 struct ParsedUtc
@@ -490,6 +491,46 @@ bool propagate_sampled_ephemeris(
     return true;
 }
 
+std::optional<double> sampled_moon_orbit_period_minutes(
+    const CompiledOrbit& orbit,
+    double simulation_unix_seconds)
+{
+    if (orbit.solution_kind != OrbitSolutionKind::SampledEphemeris
+        || orbit.central_body != CentralBody::Moon)
+    {
+        return std::nullopt;
+    }
+
+    glm::dvec3 position_km;
+    glm::dvec3 velocity_km_per_s;
+    if (!propagate_sampled_ephemeris(
+            orbit,
+            simulation_unix_seconds,
+            position_km,
+            velocity_km_per_s))
+    {
+        return std::nullopt;
+    }
+
+    const double radius_km = glm::length(position_km);
+    const double speed_squared = glm::dot(velocity_km_per_s, velocity_km_per_s);
+    if (!std::isfinite(radius_km) || radius_km <= 0.0 || !std::isfinite(speed_squared))
+        return std::nullopt;
+
+    const double specific_energy = speed_squared * 0.5 - kMoonMuKm3PerS2 / radius_km;
+    if (!std::isfinite(specific_energy) || specific_energy >= 0.0)
+        return std::nullopt;
+
+    const double semi_major_axis_km = -kMoonMuKm3PerS2 / (2.0 * specific_energy);
+    const double period_minutes = kTwoPi
+        * std::sqrt(semi_major_axis_km * semi_major_axis_km * semi_major_axis_km
+            / kMoonMuKm3PerS2)
+        / 60.0;
+    return std::isfinite(period_minutes) && period_minutes > 0.0
+        ? std::optional<double>(period_minutes)
+        : std::nullopt;
+}
+
 bool propagate_one(
     const CompiledOrbit& orbit,
     const SatellitePropagationEntry& entry,
@@ -586,12 +627,23 @@ void append_track_samples(
     if (settings.track_sample_count == 0)
         return;
 
-    const double horizon_minutes = settings.track_horizon_minutes > 0.0
+    double horizon_minutes = settings.track_horizon_minutes > 0.0
         ? settings.track_horizon_minutes
         : std::max(1.0,
               entry.track_horizon_minutes > 0.0
                   ? entry.track_horizon_minutes
                   : entry.period_minutes);
+    if (settings.track_horizon_minutes <= 0.0)
+    {
+        const std::optional<double> sampled_period =
+            sampled_moon_orbit_period_minutes(orbit, simulation_unix_seconds);
+        // Preserve catalog windows close to one revolution, but trim clear multi-loop defaults.
+        if (sampled_period.has_value()
+            && horizon_minutes > *sampled_period * kMultiRevolutionTrackThreshold)
+        {
+            horizon_minutes = *sampled_period;
+        }
+    }
     track.sample_horizon_minutes = horizon_minutes;
     const double center_minutes = horizon_minutes * 0.5;
     const double divisor = settings.track_sample_count > 1

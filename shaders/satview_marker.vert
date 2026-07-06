@@ -15,6 +15,7 @@ layout(location = 0) in vec4 in_position0_size;
 layout(location = 1) in vec4 in_position1_selected;
 layout(location = 2) in vec4 in_color;
 layout(location = 3) in vec4 in_style;
+layout(location = 4) in vec4 in_surface_normal;
 
 layout(location = 0) out vec4 out_color;
 
@@ -176,10 +177,41 @@ void main()
     }
     else
     {
-        vec3 right = normalize(rotate_by_quaternion(vec3(1.0, 0.0, 0.0), push.camera_orientation));
-        vec3 up = normalize(rotate_by_quaternion(vec3(0.0, 1.0, 0.0), push.camera_orientation));
-        vec3 world = center
-            + (right * marker_offset.x + up * marker_offset.y) * in_position0_size.w;
+        vec3 camera_right = normalize(
+            rotate_by_quaternion(vec3(1.0, 0.0, 0.0), push.camera_orientation));
+        vec3 camera_up = normalize(
+            rotate_by_quaternion(vec3(0.0, 1.0, 0.0), push.camera_orientation));
+        vec3 right = camera_right;
+        vec3 up = camera_up;
+        bool surface_aligned = in_surface_normal.w > 0.5;
+        if (surface_aligned)
+        {
+            vec3 normal = normalize(in_surface_normal.xyz);
+            vec3 to_camera = push.camera_pos.xyz - center;
+            if (dot(normal, to_camera) <= 0.0)
+            {
+                out_color.a = 0.0;
+                gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+                return;
+            }
+
+            vec3 projected_up = camera_up - normal * dot(camera_up, normal);
+            if (dot(projected_up, projected_up) > 0.000001)
+            {
+                up = normalize(projected_up);
+                right = normalize(cross(up, normal));
+            }
+            else
+            {
+                right = normalize(camera_right - normal * dot(camera_right, normal));
+                up = normalize(cross(normal, right));
+            }
+        }
+
+        vec3 world = center + (right * marker_offset.x + up * marker_offset.y)
+            * in_position0_size.w;
         gl_Position = push.view_proj * vec4(world, 1.0);
+        if (surface_aligned)
+            gl_Position.z = max(0.0, gl_Position.z - 0.00002 * gl_Position.w);
     }
 }

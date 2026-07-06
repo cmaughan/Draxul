@@ -98,7 +98,7 @@ constexpr float kSunRadiusEarthRadii = static_cast<float>(kSatViewSunMeanRadiusK
 constexpr float kEarthOrbitMaximumRadiusEarthRadii = static_cast<float>(
     1.02 * kSatViewAstronomicalUnitKm / kSatViewEarthEquatorialRadiusKm);
 constexpr float kCelestialOverlayDistanceEarthRadii = 48.0f;
-constexpr float kLunarSurfaceMarkerRadiusScale = 1.003f;
+constexpr float kLunarSurfaceMarkerRadiusScale = 1.001f;
 constexpr float kLunarSurfaceMarkerSizeScale = 0.04f;
 constexpr float kLunarSurfaceChildExpansionDistanceScale = 3.0f;
 
@@ -2274,6 +2274,8 @@ void append_lunar_surface_marker_instances(
         const glm::dvec3 body_direction = satview_lunar_body_direction(
             object.latitude_degrees,
             object.longitude_east_degrees);
+        const glm::vec3 surface_normal = glm::normalize(to_vec3(
+            satview_lunar_body_to_render_direction(body_direction, moon_render_position)));
         const glm::vec3 position = to_vec3(satview_lunar_surface_render_position(
             object.latitude_degrees,
             object.longitude_east_degrees,
@@ -2285,11 +2287,8 @@ void append_lunar_surface_marker_instances(
             ? 0.58f
             : 0.98f;
         const glm::vec4 color = selected
-            ? glm::vec4(1.0f, 0.96f, 0.62f, 1.0f)
-            : glm::mix(
-                  satellite_prefix_color(stable_color_hash(object.mission_id), quality_alpha),
-                  glm::vec4(1.0f, 1.0f, 1.0f, quality_alpha),
-                  0.18f);
+            ? glm::vec4(0.96f, 0.10f, 0.06f, 1.0f)
+            : population_color(SatellitePopulation::ActivePayload, quality_alpha);
         const float style = lunar_surface_marker_style(object.kind);
         const auto add_marker = [&](float map_shift) {
             markers.push_back({
@@ -2297,6 +2296,7 @@ void append_lunar_surface_marker_instances(
                 glm::vec4(position, selected ? 1.0f : 0.0f),
                 color,
                 glm::vec4(style, map_shift, 0.0f, 0.0f),
+                glm::vec4(surface_normal, 1.0f),
             });
         };
         add_marker(0.0f);
