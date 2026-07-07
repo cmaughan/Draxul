@@ -56,7 +56,7 @@ void main()
     out_world = world;
     out_uv = vec2(u, v);
     if (map_projection)
-        gl_Position = push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.8, 1.0);
+        gl_Position = push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.2, 1.0);
     else
         gl_Position = push.view_proj * vec4(world, 1.0);
 }

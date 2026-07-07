@@ -155,7 +155,7 @@ void main()
         map_center.x += in_style.y;
         vec2 map_position = map_center
             + marker_offset * vec2(x_scale, 1.0) * in_position0_size.w * 0.75;
-        gl_Position = push.view_proj * vec4(map_position, 0.2, 1.0);
+        gl_Position = push.view_proj * vec4(map_position, 0.8, 1.0);
     }
     else if (satview_is_ground_projection())
     {

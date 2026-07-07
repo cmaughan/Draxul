@@ -123,7 +123,7 @@ void main()
                 projected.x += 2.0;
         }
         projected.x += push.camera_orientation.w;
-        gl_Position = push.view_proj * vec4(projected, 0.4, 1.0);
+        gl_Position = push.view_proj * vec4(projected, 0.6, 1.0);
     }
     else
         gl_Position = satview_project_world_position(position);

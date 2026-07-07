@@ -76,6 +76,6 @@ void main()
     out_world = world;
     out_uv = vec2(u, v);
     gl_Position = map_projection
-        ? push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.8, 1.0)
+        ? push.view_proj * vec4(u * 2.0 - 1.0, v * 2.0 - 1.0, 0.2, 1.0)
         : satview_project_world_position(world);
 }

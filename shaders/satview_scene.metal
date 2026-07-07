@@ -331,7 +331,7 @@ vertex SatViewVertexOut satview_earth_vertex(
 
     SatViewVertexOut out;
     out.position = map_projection
-        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.2f, 1.0f)
         : project_world_position(world, frame);
     out.normal = world;
     out.world = world;
@@ -445,7 +445,7 @@ vertex SatViewVertexOut satview_moon_vertex(
 
     SatViewVertexOut out;
     out.position = map_projection
-        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.2f, 1.0f)
         : project_world_position(world, frame);
     out.normal = normal;
     out.world = world;
@@ -534,7 +534,7 @@ vertex SatViewVertexOut satview_sun_vertex(
 
     SatViewVertexOut out;
     out.position = map_projection
-        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.2f, 1.0f)
         : project_world_position(world, frame);
     out.normal = normal;
     out.world = world;
@@ -605,7 +605,7 @@ vertex SatViewVertexOut satview_body_vertex(
 
     SatViewVertexOut out;
     out.position = map_projection
-        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.2f, 1.0f)
         : project_world_position(world, frame);
     out.normal = normal;
     out.world = world;
@@ -799,7 +799,7 @@ vertex SatViewVertexOut satview_cloud_vertex(
 
     SatViewVertexOut out;
     out.position = map_projection
-        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.2f, 1.0f)
         : frame.view_proj * float4(world, 1.0f);
     out.normal = normal;
     out.world = world;
@@ -1592,7 +1592,7 @@ vertex SatViewOrbitOut satview_orbit_vertex(
                 projected.x += 2.0f;
         }
         projected.x += frame.camera_orientation.w;
-        out.position = frame.view_proj * float4(projected, 0.4f, 1.0f);
+        out.position = frame.view_proj * float4(projected, 0.6f, 1.0f);
     }
     else
     {
@@ -1674,7 +1674,7 @@ vertex SatViewOrbitOut satview_marker_vertex(
         map_center.x += marker.style.y;
         float2 map_position = map_center
             + marker_offset * float2(x_scale, 1.0f) * marker.position0_size.w * 0.75f;
-        out.position = frame.view_proj * float4(map_position, 0.2f, 1.0f);
+        out.position = frame.view_proj * float4(map_position, 0.8f, 1.0f);
     }
     else if (is_ground_projection(frame))
     {
