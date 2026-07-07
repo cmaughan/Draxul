@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <draxul/satview/satview_config.h>
 #include <filesystem>
 #include <vector>
 
@@ -37,6 +38,7 @@ struct EarthTextureImages
 [[nodiscard]] EarthTextureImages load_earth_texture_images();
 [[nodiscard]] LoadedTextureImage load_moon_texture_image();
 [[nodiscard]] LoadedTextureImage load_sun_texture_image();
+[[nodiscard]] LoadedTextureImage load_solar_system_body_texture_image(SatViewCameraPov body);
 [[nodiscard]] LoadedTextureImage load_milky_way_texture_image();
 
 } // namespace draxul::satview

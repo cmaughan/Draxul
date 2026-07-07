@@ -5,6 +5,7 @@
 #include "satview_texture_assets.h"
 
 #include <draxul/base_renderer.h>
+#include <draxul/satview/satview_config.h>
 #include <draxul/text_atlas.h>
 #include <algorithm>
 #include <cstdint>
@@ -154,6 +155,34 @@ public:
         sun_position_radius_ = position_radius;
         sun_body_to_render_ = body_to_render;
         sun_enabled_ = enabled;
+    }
+
+    void set_focus_body(
+        SatViewCameraPov body,
+        float rotation_radians,
+        float polar_radius_ratio,
+        bool emissive,
+        bool enabled)
+    {
+        focus_body_ = body;
+        focus_body_rotation_radians_ = rotation_radians;
+        focus_body_polar_radius_ratio_ = polar_radius_ratio;
+        focus_body_emissive_ = emissive;
+        focus_body_enabled_ = enabled;
+    }
+
+    void set_context_body(
+        SatViewCameraPov body,
+        glm::vec4 position_radius,
+        float rotation_radians,
+        float polar_radius_ratio,
+        bool enabled)
+    {
+        context_body_ = body;
+        context_body_position_radius_ = position_radius;
+        context_body_rotation_radians_ = rotation_radians;
+        context_body_polar_radius_ratio_ = polar_radius_ratio;
+        context_body_enabled_ = enabled;
     }
 
     void set_stars(std::span<const SatViewStarInstance> stars)
@@ -309,6 +338,16 @@ private:
     glm::vec4 moon_position_radius_{ 0.0f };
     glm::vec4 sun_position_radius_{ 0.0f };
     glm::quat sun_body_to_render_{ 1.0f, 0.0f, 0.0f, 0.0f };
+    SatViewCameraPov focus_body_ = SatViewCameraPov::Sun;
+    SatViewCameraPov context_body_ = SatViewCameraPov::Earth;
+    glm::vec4 context_body_position_radius_{ 0.0f };
+    float focus_body_rotation_radians_ = 0.0f;
+    float focus_body_polar_radius_ratio_ = 1.0f;
+    float context_body_rotation_radians_ = 0.0f;
+    float context_body_polar_radius_ratio_ = 1.0f;
+    bool focus_body_emissive_ = false;
+    bool focus_body_enabled_ = false;
+    bool context_body_enabled_ = false;
     bool atmosphere_enabled_ = true;
     bool moon_enabled_ = true;
     bool sun_enabled_ = true;

@@ -1,6 +1,7 @@
 #include <draxul/satview/satview_config.h>
 
 #include "satview_sky_projection.h"
+#include "satview_solar_system.h"
 
 #include <algorithm>
 #include <array>
@@ -118,16 +119,7 @@ std::string_view format_ground_projection(SatViewGroundProjection projection)
 
 std::string_view format_camera_pov(SatViewCameraPov pov)
 {
-    switch (pov)
-    {
-    case SatViewCameraPov::Earth:
-        return "earth";
-    case SatViewCameraPov::Moon:
-        return "moon";
-    case SatViewCameraPov::Sun:
-        return "sun";
-    }
-    return "earth";
+    return satview_solar_system_body(pov).config_name;
 }
 
 void apply_satview_table(SatViewConfig& config, const toml::table& table)
@@ -170,12 +162,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     }
     if (auto value = toml_support::get_string(table, "camera_pov"))
     {
-        if (*value == "earth")
-            config.camera_pov = SatViewCameraPov::Earth;
-        else if (*value == "moon")
-            config.camera_pov = SatViewCameraPov::Moon;
-        else if (*value == "sun")
-            config.camera_pov = SatViewCameraPov::Sun;
+        if (const auto parsed = satview_camera_pov_from_config_name(*value))
+            config.camera_pov = *parsed;
     }
     if (auto value = toml_support::get_string(table, "ground_projection"))
     {

@@ -21,6 +21,7 @@ if(APPLE)
         src/satview_propagation.cpp
         src/satview_simulation_worker.cpp
         src/satview_sky_projection.cpp
+        src/satview_solar_system.cpp
         src/satview_star_catalog.cpp
         src/satview_sun_ephemeris.cpp
         src/satview_texture_assets.cpp
@@ -47,6 +48,7 @@ else()
         src/satview_propagation.cpp
         src/satview_simulation_worker.cpp
         src/satview_sky_projection.cpp
+        src/satview_solar_system.cpp
         src/satview_star_catalog.cpp
         src/satview_sun_ephemeris.cpp
         src/satview_texture_assets.cpp

@@ -36,6 +36,8 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> earth_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> moon_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> sun_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> body_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> context_body_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> cloud_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> atmosphere_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ground_atmosphere_pipeline;
@@ -62,6 +64,8 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLTexture>> milky_way_texture;
     ObjCRef<id<MTLTexture>> live_cloud_texture;
     ObjCRef<id<MTLTexture>> label_texture;
+    ObjCRef<id<MTLTexture>> focus_body_texture;
+    ObjCRef<id<MTLTexture>> context_body_texture;
     ObjCRef<id<MTLSamplerState>> earth_sampler;
     ObjCRef<id<MTLSamplerState>> label_sampler;
     ObjCRef<id<MTLSamplerState>> hdr_sampler;
@@ -100,6 +104,8 @@ struct SatViewScenePass::State
     uint64_t uploaded_observatory_rim_revision = 0;
     uint64_t uploaded_label_atlas_revision = 0;
     uint64_t uploaded_cloud_revision = 0;
+    int uploaded_focus_body = -1;
+    int uploaded_context_body = -1;
     NSUInteger scene_sample_count = 1;
     std::vector<HdrTargets> hdr_targets;
     uint32_t last_prepass_frame = 0;
@@ -137,7 +143,7 @@ struct SatViewScenePass::State
         if (earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && sun_texture.get()
             && milky_way_texture.get()
-            && label_texture.get()
+            && label_texture.get() && focus_body_texture.get() && context_body_texture.get()
             && earth_sampler.get() && label_sampler.get())
             return true;
 
@@ -151,9 +157,13 @@ struct SatViewScenePass::State
         LoadedTextureImage transparent_label{ 1, 1, { 0, 0, 0, 0 } };
         label_texture.reset(create_texture(
             metal_device, transparent_label, MTLPixelFormatRGBA8Unorm));
+        LoadedTextureImage fallback_body{ 1, 1, { 128, 128, 128, 255 } };
+        focus_body_texture.reset(create_texture(metal_device, fallback_body));
+        context_body_texture.reset(create_texture(metal_device, fallback_body));
         if (!earth_day_texture.get() || !earth_night_texture.get()
             || !earth_cloud_texture.get() || !moon_texture.get() || !sun_texture.get()
-            || !milky_way_texture.get() || !label_texture.get())
+            || !milky_way_texture.get() || !label_texture.get() || !focus_body_texture.get()
+            || !context_body_texture.get())
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal scene textures");
             earth_day_texture.reset();
@@ -163,6 +173,8 @@ struct SatViewScenePass::State
             sun_texture.reset();
             milky_way_texture.reset();
             label_texture.reset();
+            focus_body_texture.reset();
+            context_body_texture.reset();
             return false;
         }
 
@@ -233,9 +245,36 @@ struct SatViewScenePass::State
         return true;
     }
 
+    bool ensure_focus_body_texture(SatViewCameraPov body)
+    {
+        const int body_value = static_cast<int>(body);
+        if (uploaded_focus_body == body_value)
+            return true;
+        focus_body_texture.reset(create_texture(
+            device.get(), load_solar_system_body_texture_image(body)));
+        if (!focus_body_texture.get())
+            return false;
+        uploaded_focus_body = body_value;
+        return true;
+    }
+
+    bool ensure_context_body_texture(SatViewCameraPov body)
+    {
+        const int body_value = static_cast<int>(body);
+        if (uploaded_context_body == body_value)
+            return true;
+        context_body_texture.reset(create_texture(
+            device.get(), load_solar_system_body_texture_image(body)));
+        if (!context_body_texture.get())
+            return false;
+        uploaded_context_body = body_value;
+        return true;
+    }
+
     bool ensure(id<MTLDevice> new_device)
     {
-        if (earth_pipeline.get() && moon_pipeline.get() && sun_pipeline.get() && cloud_pipeline.get()
+        if (earth_pipeline.get() && moon_pipeline.get() && sun_pipeline.get()
+            && body_pipeline.get() && context_body_pipeline.get() && cloud_pipeline.get()
             && atmosphere_pipeline.get() && ground_atmosphere_pipeline.get() && orbit_pipeline.get()
             && ground_surface_pipeline.get() && star_pipeline.get() && constellation_pipeline.get()
             && label_pipeline.get() && landscape_fill_pipeline.get() && landscape_rim_pipeline.get()
@@ -246,6 +285,7 @@ struct SatViewScenePass::State
             && earth_day_texture.get() && earth_night_texture.get()
             && earth_cloud_texture.get() && moon_texture.get() && sun_texture.get()
             && milky_way_texture.get() && label_texture.get()
+            && focus_body_texture.get() && context_body_texture.get()
             && earth_sampler.get() && label_sampler.get() && hdr_sampler.get()
             && device.get() == new_device)
             return true;
@@ -254,6 +294,8 @@ struct SatViewScenePass::State
         earth_pipeline.reset();
         moon_pipeline.reset();
         sun_pipeline.reset();
+        body_pipeline.reset();
+        context_body_pipeline.reset();
         cloud_pipeline.reset();
         atmosphere_pipeline.reset();
         ground_atmosphere_pipeline.reset();
@@ -280,6 +322,8 @@ struct SatViewScenePass::State
         milky_way_texture.reset();
         live_cloud_texture.reset();
         label_texture.reset();
+        focus_body_texture.reset();
+        context_body_texture.reset();
         earth_sampler.reset();
         label_sampler.reset();
         hdr_sampler.reset();
@@ -319,6 +363,8 @@ struct SatViewScenePass::State
         uploaded_observatory_rim_revision = 0;
         uploaded_label_atlas_revision = 0;
         uploaded_cloud_revision = 0;
+        uploaded_focus_body = -1;
+        uploaded_context_body = -1;
         if (!new_device)
             return false;
         scene_sample_count = [new_device supportsTextureSampleCount:4] ? 4
@@ -348,6 +394,12 @@ struct SatViewScenePass::State
         id<MTLFunction> moon_fragment = [library newFunctionWithName:@"satview_moon_fragment"];
         id<MTLFunction> sun_vertex = [library newFunctionWithName:@"satview_sun_vertex"];
         id<MTLFunction> sun_fragment = [library newFunctionWithName:@"satview_sun_fragment"];
+        id<MTLFunction> body_vertex = [library newFunctionWithName:@"satview_body_vertex"];
+        id<MTLFunction> body_fragment = [library newFunctionWithName:@"satview_body_fragment"];
+        id<MTLFunction> context_body_vertex =
+            [library newFunctionWithName:@"satview_context_body_vertex"];
+        id<MTLFunction> context_body_fragment =
+            [library newFunctionWithName:@"satview_context_body_fragment"];
         id<MTLFunction> cloud_vertex = [library newFunctionWithName:@"satview_cloud_vertex"];
         id<MTLFunction> cloud_fragment = [library newFunctionWithName:@"satview_cloud_fragment"];
         id<MTLFunction> atmosphere_vertex = [library newFunctionWithName:@"satview_atmosphere_vertex"];
@@ -376,6 +428,8 @@ struct SatViewScenePass::State
         id<MTLFunction> msaa_debug_fragment = [library newFunctionWithName:@"satview_msaa_debug_fragment"];
         if (!vertex || !fragment || !moon_vertex || !moon_fragment
             || !sun_vertex || !sun_fragment
+            || !body_vertex || !body_fragment
+            || !context_body_vertex || !context_body_fragment
             || !cloud_vertex || !cloud_fragment
             || !atmosphere_vertex || !atmosphere_fragment
             || !ground_atmosphere_vertex || !ground_atmosphere_fragment
@@ -437,6 +491,35 @@ struct SatViewScenePass::State
             return false;
         }
         sun_pipeline.reset(created);
+
+        desc.vertexFunction = body_vertex;
+        desc.fragmentFunction = body_fragment;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal body pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            sun_pipeline.reset();
+            return false;
+        }
+        body_pipeline.reset(created);
+
+        desc.vertexFunction = context_body_vertex;
+        desc.fragmentFunction = context_body_fragment;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal context body pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            sun_pipeline.reset();
+            body_pipeline.reset();
+            return false;
+        }
+        context_body_pipeline.reset(created);
 
         desc.vertexFunction = cloud_vertex;
         desc.fragmentFunction = cloud_fragment;
@@ -918,6 +1001,10 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     {
         pending_cloud_image_.reset();
     }
+    if (focus_body_enabled_)
+        state_->ensure_focus_body_texture(focus_body_);
+    if (context_body_enabled_)
+        state_->ensure_context_body_texture(context_body_);
     if (label_atlas_)
         state_->ensure_label_texture(*label_atlas_, label_atlas_revision_);
     state_->ensure_buffer(
@@ -1042,6 +1129,8 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     [encoder setFragmentTexture:state_->sun_texture.get() atIndex:5];
     [encoder setFragmentTexture:state_->milky_way_texture.get() atIndex:6];
     [encoder setFragmentTexture:state_->label_texture.get() atIndex:7];
+    [encoder setFragmentTexture:state_->focus_body_texture.get() atIndex:8];
+    [encoder setFragmentTexture:state_->context_body_texture.get() atIndex:9];
     [encoder setFragmentSamplerState:state_->earth_sampler.get() atIndex:0];
     [encoder setFragmentSamplerState:state_->label_sampler.get() atIndex:1];
 
@@ -1131,14 +1220,22 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                     vertexCount:3];
     }
 
+    SatViewFrameUniforms focus_frame = frame_;
+    focus_frame.render_params.z = focus_body_rotation_radians_;
+    focus_frame.render_params.w = focus_body_polar_radius_ratio_;
+    focus_frame.sun_dir_time.w = focus_body_emissive_ ? -1.0f : 0.0f;
+
     if (map_projection_)
     {
-        [encoder setRenderPipelineState:sun_map_projection_
+        [encoder setRenderPipelineState:focus_body_enabled_
+                ? state_->body_pipeline.get()
+                : sun_map_projection_
                 ? state_->sun_pipeline.get()
                 : moon_map_projection_ ? state_->moon_pipeline.get()
                                        : state_->earth_pipeline.get()];
-        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        const SatViewFrameUniforms& body_frame = focus_body_enabled_ ? focus_frame : frame_;
+        [encoder setVertexBytes:&body_frame length:sizeof(body_frame) atIndex:0];
+        [encoder setFragmentBytes:&body_frame length:sizeof(body_frame) atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
                     vertexCount:6];
@@ -1220,6 +1317,20 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         vertexCount:kSatViewSphereVertexCount];
         }
 
+        if (context_body_enabled_ && context_body_position_radius_.w > 0.0f)
+        {
+            SatViewFrameUniforms context_frame = frame_;
+            context_frame.camera_orientation = context_body_position_radius_;
+            context_frame.render_params.z = context_body_rotation_radians_;
+            context_frame.render_params.w = context_body_polar_radius_ratio_;
+            [encoder setRenderPipelineState:state_->context_body_pipeline.get()];
+            [encoder setVertexBytes:&context_frame length:sizeof(context_frame) atIndex:0];
+            [encoder setFragmentBytes:&context_frame length:sizeof(context_frame) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:kSatViewSphereVertexCount];
+        }
+
         if (moon_enabled_ && moon_position_radius_.w > 0.0f)
         {
             SatViewFrameUniforms moon_frame = frame_;
@@ -1232,14 +1343,17 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         vertexCount:kSatViewSphereVertexCount];
         }
 
-        [encoder setRenderPipelineState:state_->earth_pipeline.get()];
-        [encoder setVertexBytes:&frame_ length:sizeof(frame_) atIndex:0];
-        [encoder setFragmentBytes:&frame_ length:sizeof(frame_) atIndex:0];
+        [encoder setRenderPipelineState:focus_body_enabled_
+                ? state_->body_pipeline.get()
+                : state_->earth_pipeline.get()];
+        const SatViewFrameUniforms& body_frame = focus_body_enabled_ ? focus_frame : frame_;
+        [encoder setVertexBytes:&body_frame length:sizeof(body_frame) atIndex:0];
+        [encoder setFragmentBytes:&body_frame length:sizeof(body_frame) atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                     vertexStart:0
                     vertexCount:kSatViewSphereVertexCount];
 
-        if (frame_.sun_dir_time.w > 0.5f)
+        if (!focus_body_enabled_ && frame_.sun_dir_time.w > 0.5f)
         {
             [encoder setRenderPipelineState:state_->cloud_pipeline.get()];
             [encoder setDepthStencilState:state_->depth_read_state.get()];
@@ -1250,7 +1364,7 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                         vertexCount:kSatViewSphereVertexCount];
         }
 
-        if (atmosphere_enabled_)
+        if (!focus_body_enabled_ && atmosphere_enabled_)
         {
             [encoder setRenderPipelineState:state_->atmosphere_pipeline.get()];
             [encoder setDepthStencilState:state_->depth_read_state.get()];

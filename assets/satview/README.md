@@ -1,4 +1,6 @@
-# SatView Earth Textures
+# SatView Assets
+
+## Earth Textures
 
 The Earth texture set in `textures/` comes from Solar System Scope:
 
@@ -19,6 +21,28 @@ Attribution:
 
 Earth texture maps by Solar System Scope, based on NASA elevation and imagery
 data, used under CC BY 4.0.
+
+## Solar-System Body Textures
+
+SatView's planet and major-moon body views use a mixture of Solar System Scope
+planet maps, public USGS/PDS global mosaics, and clearly named deterministic
+procedural stand-ins where suitable global color coverage is unavailable.
+Complete source, license, fidelity, and regeneration details are in
+`textures/SOLAR_SYSTEM_TEXTURES_ATTRIBUTION.md`.
+
+Regenerate or verify the sourced files with:
+
+```powershell
+python scripts\build_satview_solar_system_textures.py
+```
+
+Regenerate the procedural stand-ins with:
+
+```powershell
+python scripts\build_satview_procedural_moon_textures.py
+```
+
+The procedural generator requires Pillow; it does not require NumPy.
 
 ## Moon Texture
 

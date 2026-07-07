@@ -104,6 +104,40 @@ ephemeris.
 The broader source audit and unresolved lunar inventory are recorded in
 [`plans/satview-lunar-data-source-audit.md`](../../plans/satview-lunar-data-source-audit.md).
 
+## Solar-System Body Catalogue
+
+The initial planet/major-moon view is an offline presentation catalogue in
+[`satview_solar_system.cpp`](../../modules/satview/draxul-satview/src/satview_solar_system.cpp).
+It contains the Sun, eight planets, and 20 major moons, including parent-body
+hierarchy, equatorial/polar radii, rotation periods, and compact mean orbital
+elements.
+
+The physical and orbit values are based on JPL's
+[planetary satellite mean elements](https://ssd.jpl.nasa.gov/sats/elem/sep.html),
+[satellite physical parameters](https://ssd.jpl.nasa.gov/sats/phys_par/), and
+[planetary orbit guidance](https://ssd.jpl.nasa.gov/planets/orbits.html), with
+body-shape conventions matching NAIF
+[Planetary Constants Kernels](https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/C/req/pck.html).
+
+These elements drive a small, deterministic Kepler presentation model. They
+are suitable for recognizable local-system layout and closed orbit guides,
+but they are not a sampled JPL ephemeris and do not include n-body
+perturbations. SatView continues to use the existing sampled catalogue for
+artificial lunar spacecraft. It does not invent artificial-object tracks at
+other planets when no imported trajectory exists.
+
+The same hierarchy supplies body-relative directions and apparent angular
+sizes for contextual sky bodies. Planet and moon globe views render the Sun,
+and major-moon views render their parent planet, on bounded proxy spheres. The
+proxy distance is a depth-buffer implementation detail: its radius is derived
+from the real target radius and observer distance, so the visible angular size
+is preserved while interplanetary scene coordinates remain numerically stable.
+
+The catalogue changes only with source edits and rebuilds; there is no runtime
+download or scheduled cadence. A future Horizons/SPICE upgrade should replace
+the approximate position provider without changing the renderer-facing body
+records.
+
 ## Generated Sky Catalogues
 
 These assets are committed to the repository, staged beside the executable,
@@ -127,6 +161,9 @@ separate boundary asset represents the official IAU-defined sky regions.
 | Bundled fallback clouds | Solar System Scope | `assets/satview/textures/earth_clouds_8k.jpg` | Manual replacement only. This is distinct from the three-hour live-cloud cache. |
 | Moon surface | [NASA SVS CGI Moon Kit](https://svs.gsfc.nasa.gov/4720/), derived from the LROC WAC mosaic | `assets/satview/textures/moon_lroc_8k.jpg` | Manual conversion/replacement only. |
 | Sun surface | Solar System Scope, based on NASA imagery | `assets/satview/textures/sun_solar_system_scope_4k.jpg` | Manual replacement only. |
+| Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune | [Solar System Scope](https://www.solarsystemscope.com/textures/), based on NASA elevation and imagery | `assets/satview/textures/*_solar_system_scope_2k.jpg` | Manual: `py scripts/build_satview_solar_system_textures.py`. URLs and SHA-256 digests are pinned. |
+| Phobos, Galilean moons, Enceladus, Titan, Iapetus | [USGS Astrogeology/PDS global mosaics](https://astrogeology.usgs.gov/) | `assets/satview/textures/*_usgs_1k.jpg` | Manual: the same pinned downloader verifies the upstream browse products. |
+| Incompletely mapped selected moons | Deterministic procedural presentation maps; not scientific geography | `assets/satview/textures/*_procedural_2k.jpg` | Manual: `py scripts/build_satview_procedural_moon_textures.py`. Stable seeds make output reproducible. |
 | Milky Way background | [NASA SVS Deep Star Maps 2020](https://svs.gsfc.nasa.gov/4851/), including Gaia DR2 data | [`milky_way_nasa_4k.jpg`](../../assets/satview/textures/milky_way_nasa_4k.jpg) | Manual: `py scripts/build_satview_milky_way_texture.py`. The upstream OpenEXR checksum is pinned. |
 
 Detailed licensing and transformations are in
@@ -151,6 +188,7 @@ periodically downloaded datasets.
 | Earth satellite propagation | Vallado/CelesTrak AIAA-2006-6753 SGP4 reference implementation | CMake downloads the upstream archive when the dependency is absent. The URL content is pinned by SHA-256 in `cmake/FetchDependencies.cmake`, so it cannot silently change. It is not a runtime feed. |
 | Moon position around Earth | Internal analytical lunar ephemeris in [`satview_moon_ephemeris.cpp`](../../modules/satview/draxul-satview/src/satview_moon_ephemeris.cpp) | Computed from simulation time; no network or daily data file. |
 | Sun position, orientation, and Earth orbit | Internal analytical solar model in [`satview_sun_ephemeris.cpp`](../../modules/satview/draxul-satview/src/satview_sun_ephemeris.cpp) | Computed from simulation time. |
+| Planet and major-moon local-system layout | Mean-element Kepler model in [`satview_solar_system.cpp`](../../modules/satview/draxul-satview/src/satview_solar_system.cpp), sourced from JPL/NAIF reference data | Computed from simulation time. Approximate presentation fidelity is explicit; no runtime update. |
 | Atmosphere, ground grid, and observatory landscape | Procedural code and constants | No external source or update cadence. |
 
 ## Build-Time Staging
@@ -170,6 +208,9 @@ cache directory and are not written into the build tree.
 ## Operational Gaps And Follow-Ups
 
 - Generated assets have no automatic regeneration job.
+- Planet and major-moon tracks currently use mean-element Kepler approximations;
+  a future Horizons/SPICE provider would add perturbation-aware positions and
+  strict source validity metadata.
 - The lunar ephemeris has strict start/end coverage, but SatView does not yet
   present a prominent asset-age or coverage-ending warning before it expires.
 - The lunar disposition overlay covers only confirmed cases. Many legacy

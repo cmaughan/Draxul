@@ -1,4 +1,5 @@
 #include "satview_texture_assets.h"
+#include "satview_solar_system.h"
 
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
@@ -104,6 +105,23 @@ LoadedTextureImage load_sun_texture_image()
         resolve_satview_asset_path("textures/sun_solar_system_scope_4k.jpg"));
     if (!image.valid())
         image = make_solid_rgba8(255, 132, 18, 255);
+    return image;
+}
+
+LoadedTextureImage load_solar_system_body_texture_image(SatViewCameraPov body)
+{
+    PERF_MEASURE();
+    const SatViewSolarSystemBody& definition = satview_solar_system_body(body);
+    LoadedTextureImage image = load_rgba8_image_impl(
+        resolve_satview_asset_path(definition.texture_path));
+    if (!image.valid())
+    {
+        const glm::u8vec3 color = glm::u8vec3(glm::clamp(
+            definition.display_color * 255.0f,
+            glm::vec3(0.0f),
+            glm::vec3(255.0f)));
+        image = make_solid_rgba8(color.r, color.g, color.b, 255);
+    }
     return image;
 }
 

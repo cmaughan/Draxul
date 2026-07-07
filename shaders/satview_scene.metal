@@ -579,6 +579,121 @@ fragment float4 satview_sun_fragment(
     return float4(emission, 1.0f);
 }
 
+vertex SatViewVertexOut satview_body_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    bool map_projection = frame.camera_pos.w < 0.0f;
+    uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
+    uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
+    uint tri_vertex = vertex_id % 6u;
+    uint quad = vertex_id / 6u;
+    uint lon = quad % lon_bands;
+    uint lat = quad / lon_bands;
+
+    float2 corner = quad_corner(tri_vertex);
+    float u = map_projection ? corner.x : (float(lon) + corner.x) / float(lon_bands);
+    float v = map_projection ? corner.y : (float(lat) + corner.y) / float(lat_bands);
+    float theta = u * 2.0f * kPi + (map_projection ? 0.0f : frame.render_params.z);
+    float phi = mix(-0.5f * kPi, 0.5f * kPi, v);
+    float cp = cos(phi);
+    float polar_ratio = max(frame.render_params.w, 0.05f);
+    float3 sphere = float3(cp * sin(theta), sin(phi), cp * cos(theta));
+    float3 world = float3(sphere.x, sphere.y * polar_ratio, sphere.z);
+    float3 normal = normalize(float3(sphere.x, sphere.y / polar_ratio, sphere.z));
+
+    SatViewVertexOut out;
+    out.position = map_projection
+        ? frame.view_proj * float4(u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.8f, 1.0f)
+        : project_world_position(world, frame);
+    out.normal = normal;
+    out.world = world;
+    out.uv = float2(u, v);
+    return out;
+}
+
+fragment float4 satview_body_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> body_tex [[texture(8)]],
+    sampler body_sampler [[sampler(0)]])
+{
+    bool map_projection = frame.camera_pos.w < 0.0f;
+    float2 uv = float2(fract(in.uv.x), 1.0f - clamp(in.uv.y, 0.0f, 1.0f));
+    float3 normal = normalize(in.normal);
+    if (map_projection)
+    {
+        float longitude = (in.uv.x - 0.5f) * 2.0f * kPi;
+        float latitude = mix(-0.5f * kPi, 0.5f * kPi, in.uv.y);
+        float cp = cos(latitude);
+        float3 body = map_local_to_ecef(
+            float3(cp * cos(longitude), cp * sin(longitude), sin(latitude)),
+            frame.camera_orientation.xy);
+        normal = normalize(float3(body.y, body.z, body.x));
+        uv = float2(
+            fract(atan2(body.y, body.x) / (2.0f * kPi) + 0.5f),
+            0.5f - asin(clamp(body.z, -1.0f, 1.0f)) / kPi);
+    }
+
+    float3 surface = body_tex.sample(body_sampler, uv).rgb;
+    if (frame.sun_dir_time.w < 0.0f)
+        return float4(surface * (map_projection ? 0.72f : 2.05f), 1.0f);
+
+    float3 light = normalize(frame.sun_dir_time.xyz);
+    float3 view = map_projection ? normal : normalize(frame.camera_pos.xyz - in.world);
+    float diffuse = max(dot(normal, light), 0.0f);
+    float rim = pow(1.0f - max(dot(normal, view), 0.0f), 3.0f);
+    return float4(surface * (0.025f + 1.12f * diffuse) + surface * rim * 0.025f, 1.0f);
+}
+
+vertex SatViewVertexOut satview_context_body_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    uint lat_bands = max(1u, uint(frame.render_params.x + 0.5f));
+    uint lon_bands = max(1u, uint(frame.render_params.y + 0.5f));
+    uint tri_vertex = vertex_id % 6u;
+    uint quad = vertex_id / 6u;
+    uint lon = quad % lon_bands;
+    uint lat = quad / lon_bands;
+
+    float2 corner = quad_corner(tri_vertex);
+    float u = (float(lon) + corner.x) / float(lon_bands);
+    float v = (float(lat) + corner.y) / float(lat_bands);
+    float theta = u * 2.0f * kPi + frame.render_params.z;
+    float phi = mix(-0.5f * kPi, 0.5f * kPi, v);
+    float cp = cos(phi);
+    float polar_ratio = max(frame.render_params.w, 0.05f);
+    float3 sphere = float3(cp * sin(theta), sin(phi), cp * cos(theta));
+    float3 scaled = float3(sphere.x, sphere.y * polar_ratio, sphere.z);
+    float3 normal = normalize(float3(sphere.x, sphere.y / polar_ratio, sphere.z));
+    float3 world = frame.camera_orientation.xyz
+        + scaled * frame.camera_orientation.w;
+
+    SatViewVertexOut out;
+    out.position = project_world_position(world, frame);
+    out.normal = normal;
+    out.world = world;
+    out.uv = float2(u, v);
+    return out;
+}
+
+fragment float4 satview_context_body_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]],
+    texture2d<float> body_tex [[texture(9)]],
+    sampler body_sampler [[sampler(0)]])
+{
+    float2 uv = float2(fract(in.uv.x), 1.0f - clamp(in.uv.y, 0.0f, 1.0f));
+    float3 surface = body_tex.sample(body_sampler, uv).rgb;
+    float3 normal = normalize(in.normal);
+    float3 light = normalize(frame.sun_dir_time.xyz);
+    float3 view = normalize(frame.camera_pos.xyz - in.world);
+    float diffuse = max(dot(normal, light), 0.0f);
+    float rim = pow(1.0f - max(dot(normal, view), 0.0f), 3.0f);
+    return float4(surface * (0.025f + 1.12f * diffuse) + surface * rim * 0.025f, 1.0f);
+}
+
 constant float kCloudRadius = 1.0015f;
 
 vertex SatViewVertexOut satview_cloud_vertex(

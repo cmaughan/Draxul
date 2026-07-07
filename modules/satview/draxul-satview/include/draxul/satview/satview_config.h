@@ -74,7 +74,33 @@ enum class SatViewCameraPov
 {
     Earth,
     Moon,
-    Sun
+    Sun,
+    Mercury,
+    Venus,
+    Mars,
+    Phobos,
+    Deimos,
+    Jupiter,
+    Io,
+    Europa,
+    Ganymede,
+    Callisto,
+    Saturn,
+    Mimas,
+    Enceladus,
+    Tethys,
+    Dione,
+    Rhea,
+    Titan,
+    Iapetus,
+    Uranus,
+    Miranda,
+    Ariel,
+    Umbriel,
+    Titania,
+    Oberon,
+    Neptune,
+    Triton
 };
 
 struct SatViewConfig

@@ -171,6 +171,17 @@ TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")
     CHECK(config.filter.max_epoch_age_days == 30.0);
 }
 
+TEST_CASE("SatView config persists a Solar System body POV", "[satview][config]")
+{
+    ConfigDocument document;
+    SatViewConfig expected;
+    expected.camera_pov = SatViewCameraPov::Triton;
+
+    store_satview_config(document, expected);
+
+    CHECK(load_satview_config(document).camera_pov == SatViewCameraPov::Triton);
+}
+
 TEST_CASE("SatView perspective ground projection keeps its narrower field of view limit", "[satview][config]")
 {
     ConfigDocument document;
