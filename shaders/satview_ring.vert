@@ -25,9 +25,9 @@ vec2 quad_corner(int vertex)
 
 void main()
 {
-    const float outer_radius = max(push.camera_orientation.y, 0.001);
+    const float outer_radius = max(push.camera_orientation.w, 0.001);
     const vec2 local = quad_corner(gl_VertexIndex) * outer_radius;
-    const vec3 world = vec3(local.x, 0.0, local.y);
+    const vec3 world = push.camera_orientation.xyz + vec3(local.x, 0.0, local.y);
     out_local = local;
     gl_Position = satview_project_world_position(world);
 }

@@ -94,15 +94,11 @@ constexpr float kGroundMinimumMarkerScale = 0.05f;
 constexpr float kGroundMaximumMarkerScale = 2.0f;
 constexpr float kGroundObserverAltitudeEarthRadii = 0.0003f;
 constexpr glm::vec4 kConstellationBoundaryColor(1.0f, 0.08f, 0.06f, 0.82f);
-// Keep distant-body geometry inside the local depth range while preserving its angular size.
-constexpr double kGroundCelestialProxyDistanceEarthRadii = 96.0;
 constexpr float kMoonRadiusEarthRadii = static_cast<float>(kSatViewMoonMeanRadiusKm / kSatViewEarthEquatorialRadiusKm);
 constexpr float kSunRadiusEarthRadii = static_cast<float>(kSatViewSunMeanRadiusKm / kSatViewEarthEquatorialRadiusKm);
 constexpr float kEarthOrbitMaximumRadiusEarthRadii = static_cast<float>(
     1.02 * kSatViewAstronomicalUnitKm / kSatViewEarthEquatorialRadiusKm);
 constexpr float kCelestialOverlayDistanceEarthRadii = 48.0f;
-constexpr double kContextSunProxyDistanceBodyRadii = 32.0;
-constexpr double kContextParentProxyDistanceBodyRadii = 31.0;
 constexpr float kLunarSurfaceMarkerRadiusScale = 1.001f;
 constexpr float kLunarSurfaceMarkerSizeScale = 0.04f;
 constexpr float kLunarSurfaceChildExpansionDistanceScale = 3.0f;
@@ -153,6 +149,15 @@ float camera_max_distance_for_radius(float scene_radius)
 float camera_far_plane(float distance, float scene_radius)
 {
     return std::max(64.0f, distance + scene_radius * 2.5f + 8.0f);
+}
+
+// Reversed-Z projection: swapping near/far maps the near plane to depth 1 and
+// the far plane to depth 0, so float32 depth precision stays near-logarithmic
+// over the huge near/far ratios a solar-system scene needs. Both renderer
+// backends clear depth to 0 and compare GreaterEqual to match.
+glm::mat4 reversed_z_perspective(float fovy_radians, float aspect, float near_plane, float far_plane)
+{
+    return glm::perspectiveRH_ZO(fovy_radians, aspect, far_plane, near_plane);
 }
 
 float camera_target_radius(SatViewCameraPov pov)
@@ -1268,14 +1273,7 @@ void SatViewHost::draw(IFrameContext& frame)
     const glm::dvec3 ground_observer = ground_observer_render_position(simulation_seconds);
     const glm::vec3 ground_eye = glm::vec3(
         ground_observer * (1.0 + static_cast<double>(kGroundObserverAltitudeEarthRadii)));
-    const SatViewGroundBodyProxy ground_sun_proxy = ground_projection && sun_enabled_
-        ? satview_ground_body_proxy(
-              sun_position.render_position_earth_radii,
-              static_cast<double>(kSunRadiusEarthRadii),
-              glm::dvec3(ground_eye),
-              kGroundCelestialProxyDistanceEarthRadii)
-        : SatViewGroundBodyProxy{};
-    float scene_radius = generic_body_view
+    const float scene_radius = generic_body_view
         ? solar_system_scene_radius(camera_pov_)
         : camera_scene_radius(
               earth_scene_radius,
@@ -1283,15 +1281,8 @@ void SatViewHost::draw(IFrameContext& frame)
               sun_position,
               camera_pov_,
               moon_enabled_,
-              sun_enabled_ && !ground_projection,
+              sun_enabled_,
               earth_track_visible);
-    if (ground_sun_proxy.radius_earth_radii > 0.0)
-    {
-        scene_radius = std::max(
-            scene_radius,
-            static_cast<float>(glm::length(ground_sun_proxy.render_position_earth_radii)
-                + ground_sun_proxy.radius_earth_radii));
-    }
     camera_->SetFocalPoint(camera_target_position(camera_pov_, moon, sun_position));
     camera_->SetDistanceLimits(
         camera_min_distance(camera_pov_),
@@ -1307,38 +1298,54 @@ void SatViewHost::draw(IFrameContext& frame)
         : camera_view_matrix(*camera_);
     const glm::vec3 eye = ground_projection ? ground_eye : camera_->GetPosition();
     const SatViewSolarSystemBody& focus_body = satview_solar_system_body(camera_pov_);
-    std::optional<SatViewContextBodyProxy> context_sun_proxy;
-    std::optional<SatViewContextBodyProxy> context_parent_proxy;
+    std::optional<SatViewContextBodyState> context_sun_state;
+    std::optional<SatViewContextBodyState> context_parent_state;
     const SatViewSolarSystemBody* context_parent_body = nullptr;
     if (generic_body_view && !map_projection)
     {
         if (camera_pov_ != SatViewCameraPov::Sun && sun_enabled_)
         {
-            context_sun_proxy = satview_context_body_proxy(
+            context_sun_state = satview_context_body_state(
                 camera_pov_,
                 SatViewCameraPov::Sun,
                 glm::dvec3(eye),
-                simulation_seconds,
-                kContextSunProxyDistanceBodyRadii);
+                simulation_seconds);
         }
         if (focus_body.parent.has_value()
             && *focus_body.parent != SatViewCameraPov::Sun)
         {
             context_parent_body = &satview_solar_system_body(*focus_body.parent);
-            context_parent_proxy = satview_context_body_proxy(
+            context_parent_state = satview_context_body_state(
                 camera_pov_,
                 context_parent_body->id,
                 glm::dvec3(eye),
-                simulation_seconds,
-                kContextParentProxyDistanceBodyRadii);
+                simulation_seconds);
         }
     }
+    // Contextual bodies sit at true interplanetary distances, so the far plane
+    // must reach them; camera distance limits keep using scene_radius so the
+    // view still frames the focus body's local system.
+    float far_radius = scene_radius;
+    if (context_sun_state)
+    {
+        far_radius = std::max(
+            far_radius,
+            static_cast<float>(glm::length(context_sun_state->position_focus_radii)
+                + context_sun_state->radius_focus_radii));
+    }
+    if (context_parent_state)
+    {
+        far_radius = std::max(
+            far_radius,
+            static_cast<float>(glm::length(context_parent_state->position_focus_radii)
+                + context_parent_state->radius_focus_radii));
+    }
     const float viewport_aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
-    const glm::mat4 proj = glm::perspectiveRH_ZO(
+    const glm::mat4 proj = reversed_z_perspective(
         glm::radians(ground_projection ? ground_fov_degrees_ : camera_->GetFieldOfView()),
         viewport_aspect,
         ground_projection ? kCameraMinNearPlane : camera_near_plane(camera_pov_, camera_->GetDistance()),
-        ground_projection ? camera_far_plane(1.0f, scene_radius) : camera_far_plane(camera_->GetDistance(), scene_radius));
+        ground_projection ? camera_far_plane(1.0f, far_radius) : camera_far_plane(camera_->GetDistance(), far_radius));
 
     SatViewFrameUniforms uniforms;
     uniforms.view_proj = map_projection
@@ -1424,16 +1431,13 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_moon(
         moon_render_position_radius,
         !generic_body_view && moon_enabled_ && moon_above_ground_horizon);
-    glm::vec4 sun_render_position_radius = ground_sun_proxy.radius_earth_radii > 0.0
-        ? glm::vec4(
-              glm::vec3(ground_sun_proxy.render_position_earth_radii),
-              static_cast<float>(ground_sun_proxy.radius_earth_radii))
-        : glm::vec4(glm::vec3(sun_position.render_position_earth_radii), kSunRadiusEarthRadii);
-    if (context_sun_proxy)
+    glm::vec4 sun_render_position_radius(
+        glm::vec3(sun_position.render_position_earth_radii), kSunRadiusEarthRadii);
+    if (context_sun_state)
     {
         sun_render_position_radius = glm::vec4(
-            glm::vec3(context_sun_proxy->position_focus_radii),
-            static_cast<float>(context_sun_proxy->radius_focus_radii));
+            glm::vec3(context_sun_state->position_focus_radii),
+            static_cast<float>(context_sun_state->radius_focus_radii));
     }
     const bool sun_above_ground_horizon = !ground_projection
         || !ground_horizon_occlusion_
@@ -1444,14 +1448,14 @@ void SatViewHost::draw(IFrameContext& frame)
     scene_pass_->set_sun(
         sun_render_position_radius,
         sun_orientation,
-        context_sun_proxy.has_value()
+        context_sun_state.has_value()
             || (!generic_body_view && sun_enabled_ && sun_above_ground_horizon));
     scene_pass_->set_context_body(
         context_parent_body ? context_parent_body->id : SatViewCameraPov::Earth,
-        context_parent_proxy
+        context_parent_state
             ? glm::vec4(
-                  glm::vec3(context_parent_proxy->position_focus_radii),
-                  static_cast<float>(context_parent_proxy->radius_focus_radii))
+                  glm::vec3(context_parent_state->position_focus_radii),
+                  static_cast<float>(context_parent_state->radius_focus_radii))
             : glm::vec4(0.0f),
         context_parent_body
             ? static_cast<float>(satview_body_rotation_radians(
@@ -1461,7 +1465,7 @@ void SatViewHost::draw(IFrameContext& frame)
             ? static_cast<float>(context_parent_body->polar_radius_km
                   / context_parent_body->equatorial_radius_km)
             : 1.0f,
-        context_parent_proxy.has_value());
+        context_parent_state.has_value());
     scene_pass_->set_focus_body(
         camera_pov_,
         static_cast<float>(satview_body_rotation_radians(focus_body, simulation_seconds)),
@@ -1472,10 +1476,28 @@ void SatViewHost::draw(IFrameContext& frame)
     if (generic_body_view && !map_projection && projection_mode_ == SatViewProjectionMode::Globe)
         child_body_instances = satview_child_body_instances(camera_pov_, simulation_seconds);
     scene_pass_->set_child_bodies(child_body_instances);
-    scene_pass_->set_ring_bands(
-        generic_body_view && !map_projection && projection_mode_ == SatViewProjectionMode::Globe
-            ? satview_planetary_ring_bands(camera_pov_)
-            : std::span<const SatViewRingBand>{});
+    std::vector<SatViewRingBand> ring_bands;
+    if (generic_body_view && !map_projection && projection_mode_ == SatViewProjectionMode::Globe)
+    {
+        const auto source_ring_bands = satview_planetary_ring_bands(camera_pov_);
+        ring_bands.assign(source_ring_bands.begin(), source_ring_bands.end());
+        if (camera_pov_ != SatViewCameraPov::Saturn)
+        {
+            if (context_parent_body && context_parent_state)
+            {
+                for (SatViewRingBand& band : ring_bands)
+                {
+                    band.center_focus_radii = context_parent_state->position_focus_radii;
+                    band.radius_scale_focus_radii = context_parent_state->radius_focus_radii;
+                }
+            }
+            else
+            {
+                ring_bands.clear();
+            }
+        }
+    }
+    scene_pass_->set_ring_bands(ring_bands);
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
@@ -2962,14 +2984,15 @@ bool SatViewHost::enter_ground_view_from_screen(glm::ivec2 screen_pos, double si
         track_display_mode_,
         satellite_display_mode_);
     const glm::mat4 view = camera_view_matrix(*camera_);
-    const glm::mat4 proj = glm::perspectiveRH_ZO(
+    const glm::mat4 proj = reversed_z_perspective(
         glm::radians(camera_->GetFieldOfView()),
         static_cast<float>(pixel_w) / static_cast<float>(pixel_h),
         camera_near_plane(camera_pov_, camera_->GetDistance()),
         camera_far_plane(camera_->GetDistance(), earth_scene_radius));
     const glm::mat4 inv_view_proj = glm::inverse(proj * view);
-    glm::vec4 near_clip(ndc, 0.0f, 1.0f);
-    glm::vec4 far_clip(ndc, 1.0f, 1.0f);
+    // Reversed-Z: NDC depth 1 is the near plane, 0 is the far plane.
+    glm::vec4 near_clip(ndc, 1.0f, 1.0f);
+    glm::vec4 far_clip(ndc, 0.0f, 1.0f);
     near_clip = inv_view_proj * near_clip;
     far_clip = inv_view_proj * far_clip;
     const glm::dvec3 origin = glm::dvec3(near_clip) / static_cast<double>(near_clip.w);
@@ -4669,34 +4692,22 @@ void SatViewHost::select_nearest_object(const glm::ivec2& screen_pos)
         selected_norad_catalog_id_,
         track_display_mode_,
         satellite_display_mode_);
-    float scene_radius = camera_scene_radius(
+    const float scene_radius = camera_scene_radius(
         earth_scene_radius,
         moon,
         sun,
         camera_pov_,
         moon_enabled_,
-        sun_enabled_ && !ground_projection,
+        sun_enabled_,
         earth_track_visible);
     const glm::dvec3 ground_observer = ground_observer_render_position(render_seconds);
     const glm::vec3 ground_eye = glm::vec3(
         ground_observer * (1.0 + static_cast<double>(kGroundObserverAltitudeEarthRadii)));
-    if (ground_projection && sun_enabled_)
-    {
-        const SatViewGroundBodyProxy ground_sun_proxy = satview_ground_body_proxy(
-            sun.render_position_earth_radii,
-            static_cast<double>(kSunRadiusEarthRadii),
-            glm::dvec3(ground_eye),
-            kGroundCelestialProxyDistanceEarthRadii);
-        scene_radius = std::max(
-            scene_radius,
-            static_cast<float>(glm::length(ground_sun_proxy.render_position_earth_radii)
-                + ground_sun_proxy.radius_earth_radii));
-    }
     const glm::mat4 view = ground_projection
         ? satview_ground_view_matrix(ground_eye, ground_camera_orientation_)
         : camera_view_matrix(*camera_);
     const float viewport_aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
-    const glm::mat4 proj = glm::perspectiveRH_ZO(
+    const glm::mat4 proj = reversed_z_perspective(
         glm::radians(ground_projection ? ground_fov_degrees_ : camera_->GetFieldOfView()),
         viewport_aspect,
         ground_projection ? kCameraMinNearPlane : camera_near_plane(camera_pov_, camera_->GetDistance()),
@@ -4819,7 +4830,7 @@ bool SatViewHost::select_nearest_natural_body(const glm::ivec2& screen_pos, bool
     const float viewport_aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
     const float scene_radius = solar_system_scene_radius(camera_pov_);
     const glm::mat4 view = camera_view_matrix(*camera_);
-    const glm::mat4 proj = glm::perspectiveRH_ZO(
+    const glm::mat4 proj = reversed_z_perspective(
         glm::radians(camera_->GetFieldOfView()),
         viewport_aspect,
         camera_near_plane(camera_pov_, camera_->GetDistance()),
@@ -4890,7 +4901,7 @@ bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_p
             <= kMoonRadiusEarthRadii * kLunarSurfaceChildExpansionDistanceScale;
     const float viewport_aspect = static_cast<float>(pixel_width)
         / static_cast<float>(pixel_height);
-    const glm::mat4 view_projection = glm::perspectiveRH_ZO(
+    const glm::mat4 view_projection = reversed_z_perspective(
                                           glm::radians(camera_->GetFieldOfView()),
                                           viewport_aspect,
                                           kCameraMinNearPlane,

@@ -1870,7 +1870,7 @@ struct SatViewScenePass::State
         VkPipelineDepthStencilStateCreateInfo depth{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
         depth.depthTestEnable = VK_TRUE;
         depth.depthWriteEnable = VK_TRUE;
-        depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        depth.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 
         VkPipelineColorBlendAttachmentState blend_attachment{};
         blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
@@ -1952,16 +1952,9 @@ struct SatViewScenePass::State
         {
             stages[0].module = ring_vert;
             stages[1].module = ring_frag;
-            blend_attachment.blendEnable = VK_TRUE;
-            blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
-            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+            blend_attachment.blendEnable = VK_FALSE;
             result = vkCreateGraphicsPipelines(
                 device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &ring_pipeline);
-            blend_attachment.blendEnable = VK_FALSE;
         }
         if (result == VK_SUCCESS)
         {
@@ -2395,7 +2388,7 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
 
     std::array<VkClearValue, 2> scene_clear{};
     scene_clear[0].color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
-    scene_clear[1].depthStencil = { 1.0f, 0 };
+    scene_clear[1].depthStencil = { 0.0f, 0 };
     VkRenderPassBeginInfo scene_begin{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
     scene_begin.renderPass = hdr_debug_enabled_ && state_->scene_debug_render_pass != VK_NULL_HANDLE
         ? state_->scene_debug_render_pass
@@ -2615,11 +2608,16 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
             for (const SatViewRingBand& band : ring_bands_)
             {
                 SatViewFrameUniforms ring_frame = frame;
+                const float radius_scale = static_cast<float>(
+                    std::max(band.radius_scale_focus_radii, 0.0));
+                const float inner_radius = static_cast<float>(
+                    band.inner_radius_body_radii * radius_scale);
+                const float outer_radius = static_cast<float>(
+                    band.outer_radius_body_radii * radius_scale);
                 ring_frame.camera_orientation = glm::vec4(
-                    static_cast<float>(band.inner_radius_body_radii),
-                    static_cast<float>(band.outer_radius_body_radii),
-                    0.0f,
-                    0.0f);
+                    glm::vec3(band.center_focus_radii),
+                    outer_radius);
+                ring_frame.render_params.x = inner_radius;
                 ring_frame.sun_dir_time = band.color;
                 vkCmdPushConstants(cmd, state_->layout,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

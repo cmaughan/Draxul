@@ -212,6 +212,6 @@ void main()
             * in_position0_size.w;
         gl_Position = push.view_proj * vec4(world, 1.0);
         if (surface_aligned)
-            gl_Position.z = max(0.0, gl_Position.z - 0.00002 * gl_Position.w);
+            gl_Position.z = min(gl_Position.w, gl_Position.z + 0.00002 * gl_Position.w);
     }
 }

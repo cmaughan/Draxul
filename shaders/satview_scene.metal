@@ -175,7 +175,8 @@ static float4 project_world_position(
     float aspect_scale = ground_projection_aspect_scale(frame);
     float2 plane = camera_direction.xy / denominator;
     float2 ndc = plane * float2(aspect_scale, 1.0f) / scale;
-    float depth = distance_to_camera / (distance_to_camera + 1.0f);
+    // Reversed-Z: depth decreases with distance (1 at the camera, 0 at infinity).
+    float depth = 1.0f / (distance_to_camera + 1.0f);
     return float4(ndc, depth, 1.0f);
 }
 
@@ -744,9 +745,9 @@ vertex SatViewVertexOut satview_ring_vertex(
         float2(-1.0f, 1.0f),
         float2(1.0f, 1.0f),
     };
-    float outer_radius = max(frame.camera_orientation.y, 0.001f);
+    float outer_radius = max(frame.camera_orientation.w, 0.001f);
     float2 local = corners[vertex_id] * outer_radius;
-    float3 world = float3(local.x, 0.0f, local.y);
+    float3 world = frame.camera_orientation.xyz + float3(local.x, 0.0f, local.y);
 
     SatViewVertexOut out;
     out.position = project_world_position(world, frame);
@@ -760,18 +761,13 @@ fragment float4 satview_ring_fragment(
     SatViewVertexOut in [[stage_in]],
     constant SatViewFrameUniforms& frame [[buffer(0)]])
 {
-    float inner_radius = frame.camera_orientation.x;
-    float outer_radius = frame.camera_orientation.y;
+    float inner_radius = frame.render_params.x;
+    float outer_radius = frame.camera_orientation.w;
     float radius = length(in.uv);
     if (radius < inner_radius || radius > outer_radius)
         discard_fragment();
 
-    float band_width = max(outer_radius - inner_radius, 0.001f);
-    float feather = min(0.035f, band_width * 0.45f);
-    float inner_alpha = smoothstep(inner_radius, inner_radius + feather, radius);
-    float outer_alpha = 1.0f - smoothstep(outer_radius - feather, outer_radius, radius);
-    float alpha = frame.sun_dir_time.a * inner_alpha * outer_alpha;
-    return float4(frame.sun_dir_time.rgb, alpha);
+    return float4(frame.sun_dir_time.rgb, 1.0f);
 }
 
 constant float kCloudRadius = 1.0015f;
@@ -1735,7 +1731,7 @@ vertex SatViewOrbitOut satview_marker_vertex(
             * marker.position0_size.w;
         out.position = frame.view_proj * float4(world, 1.0f);
         if (surface_aligned)
-            out.position.z = max(0.0f, out.position.z - 0.00002f * out.position.w);
+            out.position.z = min(out.position.w, out.position.z + 0.00002f * out.position.w);
     }
     return out;
 }

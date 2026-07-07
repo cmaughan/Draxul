@@ -9,22 +9,21 @@ namespace
 {
 
 using Catch::Matchers::WithinAbs;
-using draxul::satview::satview_ground_body_proxy;
-using draxul::satview::satview_ground_basis;
-using draxul::satview::satview_ground_local_direction_to_render;
 using draxul::satview::satview_default_ground_camera_orientation;
+using draxul::satview::satview_ground_basis;
 using draxul::satview::satview_ground_camera_world_orientation;
+using draxul::satview::satview_ground_local_direction_to_render;
 using draxul::satview::satview_ground_location_from_map_ndc;
 using draxul::satview::satview_ground_location_from_render_position;
 using draxul::satview::satview_ground_marker_base_size;
-using draxul::satview::satview_ground_track_subdivision_count;
 using draxul::satview::satview_ground_render_position;
+using draxul::satview::satview_ground_track_subdivision_count;
 using draxul::satview::satview_ground_view_matrix;
 using draxul::satview::satview_ground_visibility_dot;
-using draxul::satview::satview_rotate_ground_camera;
 using draxul::satview::satview_interpolate_track_arc;
-using draxul::satview::SatViewGroundLocation;
+using draxul::satview::satview_rotate_ground_camera;
 using draxul::satview::SatViewGroundBasis;
+using draxul::satview::SatViewGroundLocation;
 
 constexpr double kHalfPi = 0.5 * std::numbers::pi_v<double>;
 
@@ -149,26 +148,6 @@ TEST_CASE("SatView ground track interpolation follows the Earth-centered arc", "
     CHECK_THAT(midpoint.x, WithinAbs(radius / std::sqrt(2.0), 1.0e-12));
     CHECK_THAT(midpoint.y, WithinAbs(radius / std::sqrt(2.0), 1.0e-12));
     CHECK_THAT(midpoint.z, WithinAbs(0.0, 1.0e-12));
-}
-
-TEST_CASE("SatView ground view proxy preserves distant body direction and angular size", "[satview][ground]")
-{
-    const glm::dvec3 observer(1.0, 0.0, 0.0);
-    const glm::dvec3 body(15000.0, 18000.0, -7000.0);
-    constexpr double kBodyRadius = 109.0;
-    constexpr double kProxyDistance = 96.0;
-
-    const auto proxy = satview_ground_body_proxy(body, kBodyRadius, observer, kProxyDistance);
-    const glm::dvec3 actual_offset = body - observer;
-    const glm::dvec3 proxy_offset = proxy.render_position_earth_radii - observer;
-
-    CHECK_THAT(glm::length(proxy_offset), WithinAbs(kProxyDistance, 1.0e-9));
-    CHECK_THAT(
-        glm::dot(glm::normalize(actual_offset), glm::normalize(proxy_offset)),
-        WithinAbs(1.0, 1.0e-12));
-    CHECK_THAT(
-        proxy.radius_earth_radii / glm::length(proxy_offset),
-        WithinAbs(kBodyRadius / glm::length(actual_offset), 1.0e-12));
 }
 
 TEST_CASE("SatView ground basis maps local east north and up consistently", "[satview][ground]")

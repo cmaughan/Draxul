@@ -109,13 +109,13 @@ constexpr std::array kBodies = {
 };
 
 constexpr std::array<SatViewRingBand, 7> kSaturnRingBands = {
-    SatViewRingBand{ 1.22, 1.43, { 0.76f, 0.67f, 0.50f, 0.36f } },
-    SatViewRingBand{ 1.46, 1.66, { 0.92f, 0.84f, 0.65f, 0.52f } },
-    SatViewRingBand{ 1.68, 1.92, { 0.72f, 0.60f, 0.45f, 0.16f } },
+    SatViewRingBand{ 1.22, 1.43, { 0.76f, 0.67f, 0.50f, 0.48f } },
+    SatViewRingBand{ 1.46, 1.66, { 0.92f, 0.84f, 0.65f, 0.75f } },
+    SatViewRingBand{ 1.68, 1.92, { 0.72f, 0.60f, 0.45f, 0.28f } },
     SatViewRingBand{ 1.95, 2.02, { 0.12f, 0.09f, 0.07f, 0.10f } },
-    SatViewRingBand{ 2.05, 2.25, { 0.95f, 0.88f, 0.70f, 0.58f } },
-    SatViewRingBand{ 2.28, 2.38, { 0.70f, 0.58f, 0.42f, 0.22f } },
-    SatViewRingBand{ 2.42, 2.55, { 0.96f, 0.90f, 0.75f, 0.32f } },
+    SatViewRingBand{ 2.05, 2.25, { 0.95f, 0.88f, 0.70f, 0.75f } },
+    SatViewRingBand{ 2.28, 2.38, { 0.70f, 0.58f, 0.42f, 0.32f } },
+    SatViewRingBand{ 2.42, 2.55, { 0.96f, 0.90f, 0.75f, 0.42f } },
 };
 
 double solve_eccentric_anomaly(double mean_anomaly, double eccentricity)
@@ -211,14 +211,13 @@ glm::dvec3 satview_body_position_in_solar_frame(
         + satview_body_position_in_parent_frame(body, unix_seconds);
 }
 
-std::optional<SatViewContextBodyProxy> satview_context_body_proxy(
+std::optional<SatViewContextBodyState> satview_context_body_state(
     SatViewCameraPov focus,
     SatViewCameraPov target,
     const glm::dvec3& observer_position_focus_radii,
-    double unix_seconds,
-    double proxy_distance_focus_radii)
+    double unix_seconds)
 {
-    if (focus == target || proxy_distance_focus_radii <= 0.0)
+    if (focus == target)
         return std::nullopt;
 
     const SatViewSolarSystemBody& focus_body = satview_solar_system_body(focus);
@@ -236,12 +235,11 @@ std::optional<SatViewContextBodyProxy> satview_context_body_proxy(
         target_radius_focus_radii / observer_distance,
         0.0,
         1.0);
-    SatViewContextBodyProxy proxy;
-    proxy.position_focus_radii = observer_position_focus_radii
-        + observer_to_target / observer_distance * proxy_distance_focus_radii;
-    proxy.radius_focus_radii = proxy_distance_focus_radii * sine_angular_radius;
-    proxy.angular_radius_radians = std::asin(sine_angular_radius);
-    return proxy;
+    SatViewContextBodyState state;
+    state.position_focus_radii = target_position_focus_radii;
+    state.radius_focus_radii = target_radius_focus_radii;
+    state.angular_radius_radians = std::asin(sine_angular_radius);
+    return state;
 }
 
 std::vector<glm::dvec3> satview_body_orbit_in_parent_frame(
@@ -318,6 +316,9 @@ std::vector<SatViewBodyRenderInstance> satview_child_body_instances(
 std::span<const SatViewRingBand> satview_planetary_ring_bands(SatViewCameraPov body)
 {
     if (body == SatViewCameraPov::Saturn)
+        return kSaturnRingBands;
+    const SatViewSolarSystemBody& focus = satview_solar_system_body(body);
+    if (focus.parent.has_value() && *focus.parent == SatViewCameraPov::Saturn)
         return kSaturnRingBands;
     return {};
 }

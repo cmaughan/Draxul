@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <cstddef>
 
 namespace draxul::satview
 {
@@ -11,12 +11,6 @@ struct SatViewGroundLocation
 {
     double longitude_radians = 0.0;
     double latitude_radians = 0.0;
-};
-
-struct SatViewGroundBodyProxy
-{
-    glm::dvec3 render_position_earth_radii{ 0.0 };
-    double radius_earth_radii = 0.0;
 };
 
 struct SatViewGroundBasis
@@ -64,10 +58,5 @@ struct SatViewGroundBasis
     const glm::dvec3& segment_start,
     const glm::dvec3& segment_end,
     double interpolation);
-[[nodiscard]] SatViewGroundBodyProxy satview_ground_body_proxy(
-    const glm::dvec3& body_render_position,
-    double body_radius_earth_radii,
-    const glm::dvec3& observer_render_position,
-    double proxy_distance_earth_radii);
 
 } // namespace draxul::satview

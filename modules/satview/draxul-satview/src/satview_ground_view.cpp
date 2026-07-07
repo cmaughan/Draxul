@@ -262,35 +262,11 @@ glm::dvec3 satview_interpolate_track_arc(
         if (std::abs(sine) <= kVectorEpsilon)
             direction = glm::normalize(glm::mix(start_direction, end_direction, t));
         else
-            direction = (
-                start_direction * std::sin((1.0 - t) * angle)
-                + end_direction * std::sin(t * angle))
+            direction = (start_direction * std::sin((1.0 - t) * angle)
+                            + end_direction * std::sin(t * angle))
                 / sine;
     }
     return direction * std::lerp(start_radius, end_radius, t);
-}
-
-SatViewGroundBodyProxy satview_ground_body_proxy(
-    const glm::dvec3& body_render_position,
-    double body_radius_earth_radii,
-    const glm::dvec3& observer_render_position,
-    double proxy_distance_earth_radii)
-{
-    const glm::dvec3 observer_to_body = body_render_position - observer_render_position;
-    const double body_distance = glm::length(observer_to_body);
-    if (!(body_radius_earth_radii > 0.0)
-        || !(proxy_distance_earth_radii > 0.0)
-        || !(body_distance > body_radius_earth_radii))
-    {
-        return {};
-    }
-
-    const double radius_scale = proxy_distance_earth_radii / body_distance;
-    return {
-        observer_render_position
-            + observer_to_body * radius_scale,
-        body_radius_earth_radii * radius_scale,
-    };
 }
 
 } // namespace draxul::satview

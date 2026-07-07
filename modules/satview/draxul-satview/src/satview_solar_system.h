@@ -31,7 +31,10 @@ struct SatViewSolarSystemBody
     bool emissive = false;
 };
 
-struct SatViewContextBodyProxy
+// True position and radius of a contextual body (sun or parent planet) in the
+// focus body's frame. Bodies render at their real distances; the reversed-Z
+// depth buffer keeps enough precision that no bounded proxy is needed.
+struct SatViewContextBodyState
 {
     glm::dvec3 position_focus_radii{ 0.0 };
     double radius_focus_radii = 0.0;
@@ -61,6 +64,8 @@ struct SatViewRingBand
     double inner_radius_body_radii = 0.0;
     double outer_radius_body_radii = 0.0;
     glm::vec4 color{ 1.0f };
+    glm::dvec3 center_focus_radii{ 0.0 };
+    double radius_scale_focus_radii = 1.0;
 };
 
 [[nodiscard]] std::span<const SatViewSolarSystemBody> satview_solar_system_bodies();
@@ -76,12 +81,11 @@ struct SatViewRingBand
 [[nodiscard]] glm::dvec3 satview_body_position_in_solar_frame(
     SatViewCameraPov id,
     double unix_seconds);
-[[nodiscard]] std::optional<SatViewContextBodyProxy> satview_context_body_proxy(
+[[nodiscard]] std::optional<SatViewContextBodyState> satview_context_body_state(
     SatViewCameraPov focus,
     SatViewCameraPov target,
     const glm::dvec3& observer_position_focus_radii,
-    double unix_seconds,
-    double proxy_distance_focus_radii);
+    double unix_seconds);
 [[nodiscard]] std::vector<glm::dvec3> satview_body_orbit_in_parent_frame(
     const SatViewSolarSystemBody& body,
     std::size_t segment_count);

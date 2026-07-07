@@ -66,29 +66,28 @@ TEST_CASE("SatView major-moon hierarchy exposes local systems", "[satview][solar
     CHECK(satview_child_bodies(SatViewCameraPov::Venus).empty());
 }
 
-TEST_CASE("SatView contextual bodies preserve apparent angular size", "[satview][solar-system]")
+TEST_CASE("SatView contextual bodies preserve real position and apparent angular size", "[satview][solar-system]")
 {
     constexpr double kJ2000UnixSeconds = 946728000.0;
-    const auto mercury_sun = satview_context_body_proxy(
+    const auto mercury_sun = satview_context_body_state(
         SatViewCameraPov::Mercury,
         SatViewCameraPov::Sun,
         glm::dvec3(0.0, 0.0, 4.0),
-        kJ2000UnixSeconds,
-        32.0);
+        kJ2000UnixSeconds);
     REQUIRE(mercury_sun.has_value());
     const double mercury_sun_diameter_degrees = glm::degrees(2.0 * mercury_sun->angular_radius_radians);
     CHECK(mercury_sun_diameter_degrees > 1.0);
     CHECK(mercury_sun_diameter_degrees < 2.0);
-    CHECK_THAT(
-        glm::length(mercury_sun->position_focus_radii - glm::dvec3(0.0, 0.0, 4.0)),
-        Catch::Matchers::WithinAbs(32.0, 1.0e-9));
+    const double mercury_sun_distance = glm::length(
+        mercury_sun->position_focus_radii - glm::dvec3(0.0, 0.0, 4.0));
+    CHECK(mercury_sun_distance > 20000.0);
+    CHECK(mercury_sun_distance < 30000.0);
 
-    const auto phobos_mars = satview_context_body_proxy(
+    const auto phobos_mars = satview_context_body_state(
         SatViewCameraPov::Phobos,
         SatViewCameraPov::Mars,
         glm::dvec3(0.0),
-        kJ2000UnixSeconds,
-        31.0);
+        kJ2000UnixSeconds);
     REQUIRE(phobos_mars.has_value());
     const double phobos_mars_diameter_degrees = glm::degrees(2.0 * phobos_mars->angular_radius_radians);
     CHECK(phobos_mars_diameter_degrees > 40.0);
@@ -159,4 +158,13 @@ TEST_CASE("SatView Saturn ring bands form a layered disk", "[satview][solar-syst
         previous_outer = band.outer_radius_body_radii;
     }
     CHECK(found_dark_gap);
+}
+
+TEST_CASE("SatView Saturn moon views expose Saturn parent ring bands", "[satview][solar-system]")
+{
+    const auto titan_bands = satview_planetary_ring_bands(SatViewCameraPov::Titan);
+
+    REQUIRE(titan_bands.size() >= 4);
+    CHECK(titan_bands.front().inner_radius_body_radii > 1.0);
+    CHECK(titan_bands.back().outer_radius_body_radii > titan_bands.front().outer_radius_body_radii);
 }

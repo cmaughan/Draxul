@@ -48,7 +48,8 @@ vec4 satview_project_world_position(vec3 world_position)
     float aspect_scale = satview_ground_projection_aspect_scale();
     vec2 plane = camera_direction.xy / denominator;
     vec2 ndc = plane * vec2(aspect_scale, 1.0) / scale;
-    float depth = distance_to_camera / (distance_to_camera + 1.0);
+    // Reversed-Z: depth decreases with distance (1 at the camera, 0 at infinity).
+    float depth = 1.0 / (distance_to_camera + 1.0);
     return vec4(ndc, depth, 1.0);
 }
 

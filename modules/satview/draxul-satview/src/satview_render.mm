@@ -549,13 +549,7 @@ struct SatViewScenePass::State
 
         desc.vertexFunction = ring_vertex;
         desc.fragmentFunction = ring_fragment;
-        desc.colorAttachments[0].blendingEnabled = YES;
-        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-        desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-        desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        desc.colorAttachments[0].blendingEnabled = NO;
         created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
         if (!created)
         {
@@ -587,6 +581,11 @@ struct SatViewScenePass::State
                 error ? [[error localizedDescription] UTF8String] : "unknown");
             earth_pipeline.reset();
             moon_pipeline.reset();
+            sun_pipeline.reset();
+            body_pipeline.reset();
+            context_body_pipeline.reset();
+            solid_body_pipeline.reset();
+            ring_pipeline.reset();
             return false;
         }
         cloud_pipeline.reset(created);
@@ -834,7 +833,7 @@ struct SatViewScenePass::State
             static_cast<unsigned long>(scene_sample_count));
 
         MTLDepthStencilDescriptor* depth_desc = [[MTLDepthStencilDescriptor alloc] init];
-        depth_desc.depthCompareFunction = MTLCompareFunctionLessEqual;
+        depth_desc.depthCompareFunction = MTLCompareFunctionGreaterEqual;
         depth_desc.depthWriteEnabled = YES;
         id<MTLDepthStencilState> depth = [new_device newDepthStencilStateWithDescriptor:depth_desc];
         if (!depth)
@@ -1157,7 +1156,7 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     scene_desc.depthAttachment.texture = targets.scene_depth.get();
     scene_desc.depthAttachment.loadAction = MTLLoadActionClear;
     scene_desc.depthAttachment.storeAction = MTLStoreActionDontCare;
-    scene_desc.depthAttachment.clearDepth = 1.0;
+    scene_desc.depthAttachment.clearDepth = 0.0;
 
     id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:scene_desc];
     if (!encoder)
@@ -1400,11 +1399,16 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
             for (const SatViewRingBand& band : ring_bands_)
             {
                 SatViewFrameUniforms ring_frame = frame_;
+                const float radius_scale = static_cast<float>(
+                    std::max(band.radius_scale_focus_radii, 0.0));
+                const float inner_radius = static_cast<float>(
+                    band.inner_radius_body_radii * radius_scale);
+                const float outer_radius = static_cast<float>(
+                    band.outer_radius_body_radii * radius_scale);
                 ring_frame.camera_orientation = glm::vec4(
-                    static_cast<float>(band.inner_radius_body_radii),
-                    static_cast<float>(band.outer_radius_body_radii),
-                    0.0f,
-                    0.0f);
+                    glm::vec3(band.center_focus_radii),
+                    outer_radius);
+                ring_frame.render_params.x = inner_radius;
                 ring_frame.sun_dir_time = band.color;
                 [encoder setVertexBytes:&ring_frame length:sizeof(ring_frame) atIndex:0];
                 [encoder setFragmentBytes:&ring_frame length:sizeof(ring_frame) atIndex:0];
