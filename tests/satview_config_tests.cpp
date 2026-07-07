@@ -31,6 +31,14 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK_FALSE(config.show_hdr_debug_panel);
     CHECK(config.sun_enabled);
     CHECK(config.earth_track_enabled);
+    CHECK(config.planet_tracks.mercury);
+    CHECK(config.planet_tracks.venus);
+    CHECK(config.planet_tracks.earth);
+    CHECK(config.planet_tracks.mars);
+    CHECK(config.planet_tracks.jupiter);
+    CHECK(config.planet_tracks.saturn);
+    CHECK(config.planet_tracks.uranus);
+    CHECK(config.planet_tracks.neptune);
     CHECK(config.lunar_surface_objects_enabled);
     CHECK(config.show_lunar_landers);
     CHECK(config.show_lunar_rovers);
@@ -109,6 +117,9 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.show_lunar_crewed_artifacts = false;
     expected.show_lunar_approximate_locations = true;
     expected.earth_track_enabled = false;
+    expected.planet_tracks.mercury = false;
+    expected.planet_tracks.mars = false;
+    expected.planet_tracks.saturn = false;
     expected.sun_enabled = true;
     expected.ground_projection = SatViewGroundProjection::Perspective;
     expected.ground_fov_degrees = 75.0f;
@@ -123,6 +134,25 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     store_satview_config(document, expected);
 
     CHECK(load_satview_config(document) == expected);
+}
+
+TEST_CASE("SatView config persists individual Sun-view planet tracks", "[satview][config]")
+{
+    ConfigDocument document;
+    SatViewConfig expected;
+    expected.planet_tracks.mercury = false;
+    expected.planet_tracks.earth = true;
+    expected.planet_tracks.jupiter = false;
+    expected.planet_tracks.neptune = false;
+
+    store_satview_config(document, expected);
+
+    const SatViewConfig actual = load_satview_config(document);
+    CHECK_FALSE(actual.planet_tracks.mercury);
+    CHECK(actual.planet_tracks.earth);
+    CHECK_FALSE(actual.planet_tracks.jupiter);
+    CHECK_FALSE(actual.planet_tracks.neptune);
+    CHECK(actual == expected);
 }
 
 TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")

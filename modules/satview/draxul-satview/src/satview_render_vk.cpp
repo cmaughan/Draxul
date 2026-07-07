@@ -1,16 +1,16 @@
-#include "satview_scene_pass.h"
 #include "satview_render_vk_math.h"
+#include "satview_scene_pass.h"
 #include "satview_texture_assets.h"
 
-#include <draxul/log.h>
-#include <draxul/perf_timing.h>
-#include <draxul/runtime_path.h>
-#include <draxul/vulkan/vk_render_context.h>
 #include <algorithm>
 #include <array>
 #include <backends/imgui_impl_vulkan.h>
 #include <cstddef>
 #include <cstring>
+#include <draxul/log.h>
+#include <draxul/perf_timing.h>
+#include <draxul/runtime_path.h>
+#include <draxul/vulkan/vk_render_context.h>
 #include <fstream>
 #include <imgui.h>
 #include <limits>
@@ -87,7 +87,8 @@ bool create_attachment(VkDevice device, VmaAllocator allocator, int width, int h
     VmaAllocationCreateInfo alloc_ci{};
     alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     if (vmaCreateImage(allocator, &image_ci, &alloc_ci,
-            &attachment.image, &attachment.allocation, nullptr) != VK_SUCCESS)
+            &attachment.image, &attachment.allocation, nullptr)
+        != VK_SUCCESS)
         return false;
 
     VkImageViewCreateInfo view_ci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -123,7 +124,8 @@ bool format_supports_samples(VkPhysicalDevice physical_device, VkFormat format,
 {
     VkImageFormatProperties properties{};
     if (vkGetPhysicalDeviceImageFormatProperties(physical_device, format,
-            VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, &properties) != VK_SUCCESS)
+            VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, &properties)
+        != VK_SUCCESS)
         return false;
     return (properties.sampleCounts & samples) != 0;
 }
@@ -594,6 +596,8 @@ struct SatViewScenePass::State
     VkPipeline sun_pipeline = VK_NULL_HANDLE;
     VkPipeline body_pipeline = VK_NULL_HANDLE;
     VkPipeline context_body_pipeline = VK_NULL_HANDLE;
+    VkPipeline solid_body_pipeline = VK_NULL_HANDLE;
+    VkPipeline ring_pipeline = VK_NULL_HANDLE;
     VkPipeline cloud_pipeline = VK_NULL_HANDLE;
     VkPipeline atmosphere_pipeline = VK_NULL_HANDLE;
     VkPipeline ground_atmosphere_pipeline = VK_NULL_HANDLE;
@@ -678,6 +682,10 @@ struct SatViewScenePass::State
                 vkDestroyPipeline(device, body_pipeline, nullptr);
             if (context_body_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, context_body_pipeline, nullptr);
+            if (solid_body_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, solid_body_pipeline, nullptr);
+            if (ring_pipeline != VK_NULL_HANDLE)
+                vkDestroyPipeline(device, ring_pipeline, nullptr);
             if (cloud_pipeline != VK_NULL_HANDLE)
                 vkDestroyPipeline(device, cloud_pipeline, nullptr);
             if (atmosphere_pipeline != VK_NULL_HANDLE)
@@ -708,6 +716,8 @@ struct SatViewScenePass::State
         sun_pipeline = VK_NULL_HANDLE;
         body_pipeline = VK_NULL_HANDLE;
         context_body_pipeline = VK_NULL_HANDLE;
+        solid_body_pipeline = VK_NULL_HANDLE;
+        ring_pipeline = VK_NULL_HANDLE;
         cloud_pipeline = VK_NULL_HANDLE;
         atmosphere_pipeline = VK_NULL_HANDLE;
         ground_atmosphere_pipeline = VK_NULL_HANDLE;
@@ -1191,7 +1201,8 @@ struct SatViewScenePass::State
 
             VmaAllocationInfo alloc_info{};
             if (vmaCreateBuffer(ctx.allocator(), &buf_ci, &alloc_ci,
-                    &buffer.buffer, &buffer.allocation, &alloc_info) != VK_SUCCESS)
+                    &buffer.buffer, &buffer.allocation, &alloc_info)
+                != VK_SUCCESS)
             {
                 buffer = {};
                 item_count = 0;
@@ -1689,6 +1700,8 @@ struct SatViewScenePass::State
             && sun_pipeline != VK_NULL_HANDLE
             && body_pipeline != VK_NULL_HANDLE
             && context_body_pipeline != VK_NULL_HANDLE
+            && solid_body_pipeline != VK_NULL_HANDLE
+            && ring_pipeline != VK_NULL_HANDLE
             && cloud_pipeline != VK_NULL_HANDLE
             && atmosphere_pipeline != VK_NULL_HANDLE
             && ground_atmosphere_pipeline != VK_NULL_HANDLE
@@ -1718,38 +1731,27 @@ struct SatViewScenePass::State
         VkShaderModule sun_frag = load_shader(device, (shader_dir / "satview_sun.frag.spv").string());
         VkShaderModule body_vert = load_shader(device, (shader_dir / "satview_body.vert.spv").string());
         VkShaderModule body_frag = load_shader(device, (shader_dir / "satview_body.frag.spv").string());
-        VkShaderModule context_body_vert =
-            load_shader(device, (shader_dir / "satview_context_body.vert.spv").string());
-        VkShaderModule context_body_frag =
-            load_shader(device, (shader_dir / "satview_context_body.frag.spv").string());
+        VkShaderModule context_body_vert = load_shader(device, (shader_dir / "satview_context_body.vert.spv").string());
+        VkShaderModule context_body_frag = load_shader(device, (shader_dir / "satview_context_body.frag.spv").string());
+        VkShaderModule solid_body_frag = load_shader(device, (shader_dir / "satview_solid_body.frag.spv").string());
+        VkShaderModule ring_vert = load_shader(device, (shader_dir / "satview_ring.vert.spv").string());
+        VkShaderModule ring_frag = load_shader(device, (shader_dir / "satview_ring.frag.spv").string());
         VkShaderModule cloud_vert = load_shader(device, (shader_dir / "satview_cloud.vert.spv").string());
         VkShaderModule cloud_frag = load_shader(device, (shader_dir / "satview_cloud.frag.spv").string());
-        VkShaderModule atmosphere_vert =
-            load_shader(device, (shader_dir / "satview_atmosphere.vert.spv").string());
-        VkShaderModule atmosphere_frag =
-            load_shader(device, (shader_dir / "satview_atmosphere.frag.spv").string());
-        VkShaderModule ground_atmosphere_vert =
-            load_shader(device, (shader_dir / "satview_ground_atmosphere.vert.spv").string());
-        VkShaderModule ground_atmosphere_frag =
-            load_shader(device, (shader_dir / "satview_ground_atmosphere.frag.spv").string());
-        VkShaderModule ground_surface_frag =
-            load_shader(device, (shader_dir / "satview_ground_surface.frag.spv").string());
-        VkShaderModule skybox_frag =
-            load_shader(device, (shader_dir / "satview_skybox.frag.spv").string());
+        VkShaderModule atmosphere_vert = load_shader(device, (shader_dir / "satview_atmosphere.vert.spv").string());
+        VkShaderModule atmosphere_frag = load_shader(device, (shader_dir / "satview_atmosphere.frag.spv").string());
+        VkShaderModule ground_atmosphere_vert = load_shader(device, (shader_dir / "satview_ground_atmosphere.vert.spv").string());
+        VkShaderModule ground_atmosphere_frag = load_shader(device, (shader_dir / "satview_ground_atmosphere.frag.spv").string());
+        VkShaderModule ground_surface_frag = load_shader(device, (shader_dir / "satview_ground_surface.frag.spv").string());
+        VkShaderModule skybox_frag = load_shader(device, (shader_dir / "satview_skybox.frag.spv").string());
         VkShaderModule star_vert = load_shader(device, (shader_dir / "satview_star.vert.spv").string());
         VkShaderModule star_frag = load_shader(device, (shader_dir / "satview_star.frag.spv").string());
-        VkShaderModule celestial_line_vert =
-            load_shader(device, (shader_dir / "satview_celestial_line.vert.spv").string());
-        VkShaderModule celestial_line_frag =
-            load_shader(device, (shader_dir / "satview_celestial_line.frag.spv").string());
-        VkShaderModule label_vert =
-            load_shader(device, (shader_dir / "satview_label.vert.spv").string());
-        VkShaderModule label_frag =
-            load_shader(device, (shader_dir / "satview_label.frag.spv").string());
-        VkShaderModule landscape_vert =
-            load_shader(device, (shader_dir / "satview_landscape.vert.spv").string());
-        VkShaderModule landscape_rim_vert =
-            load_shader(device, (shader_dir / "satview_landscape_rim.vert.spv").string());
+        VkShaderModule celestial_line_vert = load_shader(device, (shader_dir / "satview_celestial_line.vert.spv").string());
+        VkShaderModule celestial_line_frag = load_shader(device, (shader_dir / "satview_celestial_line.frag.spv").string());
+        VkShaderModule label_vert = load_shader(device, (shader_dir / "satview_label.vert.spv").string());
+        VkShaderModule label_frag = load_shader(device, (shader_dir / "satview_label.frag.spv").string());
+        VkShaderModule landscape_vert = load_shader(device, (shader_dir / "satview_landscape.vert.spv").string());
+        VkShaderModule landscape_rim_vert = load_shader(device, (shader_dir / "satview_landscape_rim.vert.spv").string());
         VkShaderModule orbit_vert = load_shader(device, (shader_dir / "satview_orbit.vert.spv").string());
         VkShaderModule marker_vert = load_shader(device, (shader_dir / "satview_marker.vert.spv").string(), false);
         VkShaderModule orbit_frag = load_shader(device, (shader_dir / "satview_orbit.frag.spv").string());
@@ -1758,6 +1760,8 @@ struct SatViewScenePass::State
             || sun_vert == VK_NULL_HANDLE || sun_frag == VK_NULL_HANDLE
             || body_vert == VK_NULL_HANDLE || body_frag == VK_NULL_HANDLE
             || context_body_vert == VK_NULL_HANDLE || context_body_frag == VK_NULL_HANDLE
+            || solid_body_frag == VK_NULL_HANDLE
+            || ring_vert == VK_NULL_HANDLE || ring_frag == VK_NULL_HANDLE
             || cloud_vert == VK_NULL_HANDLE || cloud_frag == VK_NULL_HANDLE
             || atmosphere_vert == VK_NULL_HANDLE || atmosphere_frag == VK_NULL_HANDLE
             || ground_atmosphere_vert == VK_NULL_HANDLE || ground_atmosphere_frag == VK_NULL_HANDLE
@@ -1788,6 +1792,12 @@ struct SatViewScenePass::State
                 vkDestroyShaderModule(device, context_body_vert, nullptr);
             if (context_body_frag != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, context_body_frag, nullptr);
+            if (solid_body_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, solid_body_frag, nullptr);
+            if (ring_vert != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, ring_vert, nullptr);
+            if (ring_frag != VK_NULL_HANDLE)
+                vkDestroyShaderModule(device, ring_frag, nullptr);
             if (cloud_vert != VK_NULL_HANDLE)
                 vkDestroyShaderModule(device, cloud_vert, nullptr);
             if (cloud_frag != VK_NULL_HANDLE)
@@ -1930,6 +1940,28 @@ struct SatViewScenePass::State
             stages[1].module = context_body_frag;
             result = vkCreateGraphicsPipelines(
                 device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &context_body_pipeline);
+        }
+        if (result == VK_SUCCESS)
+        {
+            stages[0].module = context_body_vert;
+            stages[1].module = solid_body_frag;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &solid_body_pipeline);
+        }
+        if (result == VK_SUCCESS)
+        {
+            stages[0].module = ring_vert;
+            stages[1].module = ring_frag;
+            blend_attachment.blendEnable = VK_TRUE;
+            blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+            blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+            result = vkCreateGraphicsPipelines(
+                device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &ring_pipeline);
+            blend_attachment.blendEnable = VK_FALSE;
         }
         if (result == VK_SUCCESS)
         {
@@ -2201,8 +2233,7 @@ struct SatViewScenePass::State
             depth.depthWriteEnable = VK_FALSE;
             blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
             blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            const VkResult marker_result =
-                vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &marker_pipeline);
+            const VkResult marker_result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &marker_pipeline);
             if (marker_result != VK_SUCCESS)
             {
                 marker_pipeline = VK_NULL_HANDLE;
@@ -2220,6 +2251,9 @@ struct SatViewScenePass::State
         vkDestroyShaderModule(device, body_frag, nullptr);
         vkDestroyShaderModule(device, context_body_vert, nullptr);
         vkDestroyShaderModule(device, context_body_frag, nullptr);
+        vkDestroyShaderModule(device, solid_body_frag, nullptr);
+        vkDestroyShaderModule(device, ring_vert, nullptr);
+        vkDestroyShaderModule(device, ring_frag, nullptr);
         vkDestroyShaderModule(device, cloud_vert, nullptr);
         vkDestroyShaderModule(device, cloud_frag, nullptr);
         vkDestroyShaderModule(device, atmosphere_vert, nullptr);
@@ -2472,10 +2506,10 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
     if (map_projection_)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            focus_body_enabled_ ? state_->body_pipeline
-                                : sun_map_projection_ ? state_->sun_pipeline
-                                : moon_map_projection_ ? state_->moon_pipeline
-                                                       : state_->earth_pipeline);
+            focus_body_enabled_        ? state_->body_pipeline
+                : sun_map_projection_  ? state_->sun_pipeline
+                : moon_map_projection_ ? state_->moon_pipeline
+                                       : state_->earth_pipeline);
         vkCmdPushConstants(cmd, state_->layout,
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             0, sizeof(SatViewFrameUniforms), focus_body_enabled_ ? &focus_frame : &frame);
@@ -2573,6 +2607,44 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                 0, sizeof(SatViewFrameUniforms), &moon_frame);
             vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+        }
+
+        if (!ring_bands_.empty())
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->ring_pipeline);
+            for (const SatViewRingBand& band : ring_bands_)
+            {
+                SatViewFrameUniforms ring_frame = frame;
+                ring_frame.camera_orientation = glm::vec4(
+                    static_cast<float>(band.inner_radius_body_radii),
+                    static_cast<float>(band.outer_radius_body_radii),
+                    0.0f,
+                    0.0f);
+                ring_frame.sun_dir_time = band.color;
+                vkCmdPushConstants(cmd, state_->layout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(SatViewFrameUniforms), &ring_frame);
+                vkCmdDraw(cmd, 6, 1, 0, 0);
+            }
+        }
+
+        if (!child_bodies_.empty())
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, state_->solid_body_pipeline);
+            for (const SatViewBodyRenderInstance& body : child_bodies_)
+            {
+                SatViewFrameUniforms body_instance_frame = frame;
+                body_instance_frame.camera_orientation = glm::vec4(
+                    glm::vec3(body.position_focus_radii),
+                    static_cast<float>(body.radius_focus_radii));
+                body_instance_frame.render_params.z = static_cast<float>(body.rotation_radians);
+                body_instance_frame.render_params.w = static_cast<float>(body.polar_radius_ratio);
+                body_instance_frame.sun_dir_time.w = static_cast<float>(body.body);
+                vkCmdPushConstants(cmd, state_->layout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0, sizeof(SatViewFrameUniforms), &body_instance_frame);
+                vkCmdDraw(cmd, kSatViewSphereVertexCount, 1, 0, 0);
+            }
         }
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -2795,8 +2867,7 @@ void SatViewScenePass::render_hdr_debug_ui()
 {
     if (state_->hdr_targets.empty() || state_->hdr_sampler == VK_NULL_HANDLE)
         return;
-    auto& targets = state_->hdr_targets[
-        state_->last_prepass_frame % static_cast<uint32_t>(state_->hdr_targets.size())];
+    auto& targets = state_->hdr_targets[state_->last_prepass_frame % static_cast<uint32_t>(state_->hdr_targets.size())];
 
     if (targets.imgui_hdr_descriptor_set == VK_NULL_HANDLE)
     {

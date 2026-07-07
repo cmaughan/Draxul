@@ -2,13 +2,14 @@
 
 #include "satview_label_layout.h"
 #include "satview_landscape.h"
+#include "satview_solar_system.h"
 #include "satview_texture_assets.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <draxul/base_renderer.h>
 #include <draxul/satview/satview_config.h>
 #include <draxul/text_atlas.h>
-#include <algorithm>
-#include <cstdint>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <memory>
@@ -20,8 +21,7 @@ namespace draxul::satview
 
 inline constexpr uint32_t kSatViewSphereLatitudeBands = 64;
 inline constexpr uint32_t kSatViewSphereLongitudeBands = 128;
-inline constexpr uint32_t kSatViewSphereVertexCount =
-    kSatViewSphereLatitudeBands * kSatViewSphereLongitudeBands * 6;
+inline constexpr uint32_t kSatViewSphereVertexCount = kSatViewSphereLatitudeBands * kSatViewSphereLongitudeBands * 6;
 struct alignas(16) SatViewFrameUniforms
 {
     // Stereographic Ground mode stores world-to-camera rotation in the upper 3x3,
@@ -185,6 +185,16 @@ public:
         context_body_enabled_ = enabled;
     }
 
+    void set_child_bodies(std::span<const SatViewBodyRenderInstance> bodies)
+    {
+        child_bodies_.assign(bodies.begin(), bodies.end());
+    }
+
+    void set_ring_bands(std::span<const SatViewRingBand> bands)
+    {
+        ring_bands_.assign(bands.begin(), bands.end());
+    }
+
     void set_stars(std::span<const SatViewStarInstance> stars)
     {
         if (stars.empty() && stars_.empty())
@@ -315,6 +325,8 @@ private:
     std::vector<SatViewLabelInstance> cardinal_labels_;
     std::vector<SatViewLandscapeTriangleInstance> observatory_fill_triangles_;
     std::vector<SatViewLandscapeLineInstance> observatory_rim_lines_;
+    std::vector<SatViewBodyRenderInstance> child_bodies_;
+    std::vector<SatViewRingBand> ring_bands_;
     std::shared_ptr<const TextAtlasImage> label_atlas_;
     uint64_t track_revision_ = 0;
     uint64_t earth_track_revision_ = 0;

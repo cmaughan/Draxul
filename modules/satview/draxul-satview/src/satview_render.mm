@@ -38,6 +38,8 @@ struct SatViewScenePass::State
     ObjCRef<id<MTLRenderPipelineState>> sun_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> body_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> context_body_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> solid_body_pipeline;
+    ObjCRef<id<MTLRenderPipelineState>> ring_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> cloud_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> atmosphere_pipeline;
     ObjCRef<id<MTLRenderPipelineState>> ground_atmosphere_pipeline;
@@ -275,6 +277,7 @@ struct SatViewScenePass::State
     {
         if (earth_pipeline.get() && moon_pipeline.get() && sun_pipeline.get()
             && body_pipeline.get() && context_body_pipeline.get() && cloud_pipeline.get()
+            && solid_body_pipeline.get() && ring_pipeline.get()
             && atmosphere_pipeline.get() && ground_atmosphere_pipeline.get() && orbit_pipeline.get()
             && ground_surface_pipeline.get() && star_pipeline.get() && constellation_pipeline.get()
             && label_pipeline.get() && landscape_fill_pipeline.get() && landscape_rim_pipeline.get()
@@ -296,6 +299,8 @@ struct SatViewScenePass::State
         sun_pipeline.reset();
         body_pipeline.reset();
         context_body_pipeline.reset();
+        solid_body_pipeline.reset();
+        ring_pipeline.reset();
         cloud_pipeline.reset();
         atmosphere_pipeline.reset();
         ground_atmosphere_pipeline.reset();
@@ -400,6 +405,10 @@ struct SatViewScenePass::State
             [library newFunctionWithName:@"satview_context_body_vertex"];
         id<MTLFunction> context_body_fragment =
             [library newFunctionWithName:@"satview_context_body_fragment"];
+        id<MTLFunction> solid_body_fragment =
+            [library newFunctionWithName:@"satview_solid_body_fragment"];
+        id<MTLFunction> ring_vertex = [library newFunctionWithName:@"satview_ring_vertex"];
+        id<MTLFunction> ring_fragment = [library newFunctionWithName:@"satview_ring_fragment"];
         id<MTLFunction> cloud_vertex = [library newFunctionWithName:@"satview_cloud_vertex"];
         id<MTLFunction> cloud_fragment = [library newFunctionWithName:@"satview_cloud_fragment"];
         id<MTLFunction> atmosphere_vertex = [library newFunctionWithName:@"satview_atmosphere_vertex"];
@@ -430,6 +439,7 @@ struct SatViewScenePass::State
             || !sun_vertex || !sun_fragment
             || !body_vertex || !body_fragment
             || !context_body_vertex || !context_body_fragment
+            || !solid_body_fragment || !ring_vertex || !ring_fragment
             || !cloud_vertex || !cloud_fragment
             || !atmosphere_vertex || !atmosphere_fragment
             || !ground_atmosphere_vertex || !ground_atmosphere_fragment
@@ -520,6 +530,46 @@ struct SatViewScenePass::State
             return false;
         }
         context_body_pipeline.reset(created);
+
+        desc.vertexFunction = context_body_vertex;
+        desc.fragmentFunction = solid_body_fragment;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal solid body pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            sun_pipeline.reset();
+            body_pipeline.reset();
+            context_body_pipeline.reset();
+            return false;
+        }
+        solid_body_pipeline.reset(created);
+
+        desc.vertexFunction = ring_vertex;
+        desc.fragmentFunction = ring_fragment;
+        desc.colorAttachments[0].blendingEnabled = YES;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        created = [new_device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (!created)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "SatView: failed to create Metal ring pipeline: %s",
+                error ? [[error localizedDescription] UTF8String] : "unknown");
+            earth_pipeline.reset();
+            moon_pipeline.reset();
+            sun_pipeline.reset();
+            body_pipeline.reset();
+            context_body_pipeline.reset();
+            solid_body_pipeline.reset();
+            return false;
+        }
+        ring_pipeline.reset(created);
 
         desc.vertexFunction = cloud_vertex;
         desc.fragmentFunction = cloud_fragment;
@@ -1341,6 +1391,48 @@ void SatViewScenePass::record_prepass(IRenderContext& ctx)
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle
                         vertexStart:0
                         vertexCount:kSatViewSphereVertexCount];
+        }
+
+        if (!ring_bands_.empty())
+        {
+            [encoder setRenderPipelineState:state_->ring_pipeline.get()];
+            [encoder setDepthStencilState:state_->depth_write_state.get()];
+            for (const SatViewRingBand& band : ring_bands_)
+            {
+                SatViewFrameUniforms ring_frame = frame_;
+                ring_frame.camera_orientation = glm::vec4(
+                    static_cast<float>(band.inner_radius_body_radii),
+                    static_cast<float>(band.outer_radius_body_radii),
+                    0.0f,
+                    0.0f);
+                ring_frame.sun_dir_time = band.color;
+                [encoder setVertexBytes:&ring_frame length:sizeof(ring_frame) atIndex:0];
+                [encoder setFragmentBytes:&ring_frame length:sizeof(ring_frame) atIndex:0];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:0
+                            vertexCount:6];
+            }
+        }
+
+        if (!child_bodies_.empty())
+        {
+            [encoder setRenderPipelineState:state_->solid_body_pipeline.get()];
+            [encoder setDepthStencilState:state_->depth_write_state.get()];
+            for (const SatViewBodyRenderInstance& body : child_bodies_)
+            {
+                SatViewFrameUniforms body_instance_frame = frame_;
+                body_instance_frame.camera_orientation = glm::vec4(
+                    glm::vec3(body.position_focus_radii),
+                    static_cast<float>(body.radius_focus_radii));
+                body_instance_frame.render_params.z = static_cast<float>(body.rotation_radians);
+                body_instance_frame.render_params.w = static_cast<float>(body.polar_radius_ratio);
+                body_instance_frame.sun_dir_time.w = static_cast<float>(body.body);
+                [encoder setVertexBytes:&body_instance_frame length:sizeof(body_instance_frame) atIndex:0];
+                [encoder setFragmentBytes:&body_instance_frame length:sizeof(body_instance_frame) atIndex:0];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:0
+                            vertexCount:kSatViewSphereVertexCount];
+            }
         }
 
         [encoder setRenderPipelineState:focus_body_enabled_

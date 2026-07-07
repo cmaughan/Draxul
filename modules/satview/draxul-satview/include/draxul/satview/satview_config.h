@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <draxul/satview/satview_filter.h>
 
@@ -103,6 +104,39 @@ enum class SatViewCameraPov
     Triton
 };
 
+struct SatViewPlanetTrackConfig
+{
+    bool mercury = true;
+    bool venus = true;
+    bool earth = true;
+    bool mars = true;
+    bool jupiter = true;
+    bool saturn = true;
+    bool uranus = true;
+    bool neptune = true;
+
+    bool operator==(const SatViewPlanetTrackConfig&) const = default;
+};
+
+inline constexpr std::array<SatViewCameraPov, 8> kSatViewPlanetTrackBodies = {
+    SatViewCameraPov::Mercury,
+    SatViewCameraPov::Venus,
+    SatViewCameraPov::Earth,
+    SatViewCameraPov::Mars,
+    SatViewCameraPov::Jupiter,
+    SatViewCameraPov::Saturn,
+    SatViewCameraPov::Uranus,
+    SatViewCameraPov::Neptune,
+};
+
+[[nodiscard]] bool satview_planet_track_enabled(
+    const SatViewPlanetTrackConfig& tracks,
+    SatViewCameraPov body);
+void satview_set_planet_track_enabled(
+    SatViewPlanetTrackConfig& tracks,
+    SatViewCameraPov body,
+    bool enabled);
+
 struct SatViewConfig
 {
     SatViewFilterState filter;
@@ -142,6 +176,7 @@ struct SatViewConfig
     bool show_lunar_crewed_artifacts = true;
     bool show_lunar_approximate_locations = false;
     bool earth_track_enabled = true;
+    SatViewPlanetTrackConfig planet_tracks;
     bool sun_enabled = true;
     SatViewGroundProjection ground_projection = SatViewGroundProjection::Stereographic;
     float ground_fov_degrees = 60.0f;

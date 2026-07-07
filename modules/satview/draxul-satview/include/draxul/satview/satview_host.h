@@ -6,11 +6,11 @@
 #include <draxul/satview/satview_config.h>
 #include <draxul/satview/satview_filter.h>
 #include <draxul/satview/satview_propagation.h>
+#include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-#include <glm/gtc/quaternion.hpp>
 
 struct ImGuiContext;
 
@@ -18,7 +18,7 @@ namespace draxul
 {
 class HostProviderRegistry;
 struct TextAtlas;
-}
+} // namespace draxul
 
 namespace draxul::satview
 {
@@ -35,6 +35,7 @@ struct SatViewLabelInstance;
 struct SatViewConstellationBoundaryCatalog;
 struct SatViewLunarSurfaceCatalog;
 struct SatViewLunarSurfaceObject;
+struct SatViewSolarSystemBody;
 struct SatViewSimulationSnapshot;
 
 class SatViewHost final : public draxul::IHost
@@ -125,8 +126,10 @@ private:
     const SatellitePropagatedState* selected_satellite(const SatViewSimulationSnapshot* snapshot) const;
     const SatelliteRecord* selected_catalog_record() const;
     const SatViewLunarSurfaceObject* selected_lunar_surface_object() const;
+    const SatViewSolarSystemBody* selected_natural_body() const;
     void clear_selection_if_missing(const SatViewSimulationSnapshot* snapshot);
     void select_nearest_object(const glm::ivec2& screen_pos);
+    bool select_nearest_natural_body(const glm::ivec2& screen_pos, bool enter_body);
     bool select_nearest_lunar_surface_object(const glm::ivec2& screen_pos);
     void center_selected_lunar_surface_object(double simulation_seconds);
 
@@ -144,6 +147,7 @@ private:
     SatViewFilterState filter_;
     std::optional<std::int64_t> selected_norad_catalog_id_;
     std::optional<std::size_t> selected_lunar_surface_index_;
+    std::optional<SatViewCameraPov> selected_natural_body_;
     ImGuiContext* imgui_context_ = nullptr;
     draxul::IImGuiHost* imgui_backend_ = nullptr;
     std::string imgui_font_path_;
@@ -197,6 +201,7 @@ private:
     bool show_lunar_crewed_artifacts_ = true;
     bool show_lunar_approximate_locations_ = false;
     bool earth_track_enabled_ = true;
+    SatViewPlanetTrackConfig planet_tracks_;
     bool sun_enabled_ = true;
     bool ground_visible_ = true;
     bool ground_horizon_occlusion_ = true;

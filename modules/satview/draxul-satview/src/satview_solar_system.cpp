@@ -108,6 +108,16 @@ constexpr std::array kBodies = {
         { 0.70f, 0.64f, 0.60f }, "textures/triton_procedural_2k.jpg" },
 };
 
+constexpr std::array<SatViewRingBand, 7> kSaturnRingBands = {
+    SatViewRingBand{ 1.22, 1.43, { 0.76f, 0.67f, 0.50f, 0.36f } },
+    SatViewRingBand{ 1.46, 1.66, { 0.92f, 0.84f, 0.65f, 0.52f } },
+    SatViewRingBand{ 1.68, 1.92, { 0.72f, 0.60f, 0.45f, 0.16f } },
+    SatViewRingBand{ 1.95, 2.02, { 0.12f, 0.09f, 0.07f, 0.10f } },
+    SatViewRingBand{ 2.05, 2.25, { 0.95f, 0.88f, 0.70f, 0.58f } },
+    SatViewRingBand{ 2.28, 2.38, { 0.70f, 0.58f, 0.42f, 0.22f } },
+    SatViewRingBand{ 2.42, 2.55, { 0.96f, 0.90f, 0.75f, 0.32f } },
+};
+
 double solve_eccentric_anomaly(double mean_anomaly, double eccentricity)
 {
     double eccentric_anomaly = mean_anomaly;
@@ -213,15 +223,12 @@ std::optional<SatViewContextBodyProxy> satview_context_body_proxy(
 
     const SatViewSolarSystemBody& focus_body = satview_solar_system_body(focus);
     const SatViewSolarSystemBody& target_body = satview_solar_system_body(target);
-    const glm::dvec3 target_position_focus_radii =
-        (satview_body_position_in_solar_frame(target, unix_seconds)
-            - satview_body_position_in_solar_frame(focus, unix_seconds))
+    const glm::dvec3 target_position_focus_radii = (satview_body_position_in_solar_frame(target, unix_seconds)
+                                                       - satview_body_position_in_solar_frame(focus, unix_seconds))
         / focus_body.equatorial_radius_km;
-    const glm::dvec3 observer_to_target =
-        target_position_focus_radii - observer_position_focus_radii;
+    const glm::dvec3 observer_to_target = target_position_focus_radii - observer_position_focus_radii;
     const double observer_distance = glm::length(observer_to_target);
-    const double target_radius_focus_radii =
-        target_body.equatorial_radius_km / focus_body.equatorial_radius_km;
+    const double target_radius_focus_radii = target_body.equatorial_radius_km / focus_body.equatorial_radius_km;
     if (observer_distance <= target_radius_focus_radii)
         return std::nullopt;
 
@@ -252,6 +259,67 @@ std::vector<glm::dvec3> satview_body_orbit_in_parent_frame(
         points.push_back(orbital_position(body, anomaly));
     }
     return points;
+}
+
+std::vector<SatViewBodyOrbitTrack> satview_child_orbit_tracks(
+    SatViewCameraPov parent_id,
+    const SatViewPlanetTrackConfig& planet_tracks,
+    std::size_t segment_count)
+{
+    std::vector<SatViewBodyOrbitTrack> tracks;
+    const SatViewSolarSystemBody& parent = satview_solar_system_body(parent_id);
+    for (const SatViewSolarSystemBody* child : satview_child_bodies(parent_id))
+    {
+        if (parent_id == SatViewCameraPov::Sun
+            && !satview_planet_track_enabled(planet_tracks, child->id))
+        {
+            continue;
+        }
+        auto points = satview_body_orbit_in_parent_frame(
+            *child,
+            std::max<std::size_t>(segment_count, 3));
+        if (points.size() < 3)
+            continue;
+        for (glm::dvec3& point : points)
+            point /= parent.equatorial_radius_km;
+        const double apoapsis = child->semi_major_axis_km * (1.0 + child->eccentricity)
+            / parent.equatorial_radius_km;
+        tracks.push_back({
+            child->id,
+            std::move(points),
+            apoapsis,
+            glm::vec4(child->display_color, 0.72f),
+        });
+    }
+    return tracks;
+}
+
+std::vector<SatViewBodyRenderInstance> satview_child_body_instances(
+    SatViewCameraPov parent_id,
+    double unix_seconds)
+{
+    std::vector<SatViewBodyRenderInstance> instances;
+    const SatViewSolarSystemBody& parent = satview_solar_system_body(parent_id);
+    for (const SatViewSolarSystemBody* child : satview_child_bodies(parent_id))
+    {
+        instances.push_back({
+            child->id,
+            satview_body_position_in_parent_frame(*child, unix_seconds)
+                / parent.equatorial_radius_km,
+            child->equatorial_radius_km / parent.equatorial_radius_km,
+            satview_body_rotation_radians(*child, unix_seconds),
+            child->polar_radius_km / child->equatorial_radius_km,
+            child->emissive,
+        });
+    }
+    return instances;
+}
+
+std::span<const SatViewRingBand> satview_planetary_ring_bands(SatViewCameraPov body)
+{
+    if (body == SatViewCameraPov::Saturn)
+        return kSaturnRingBands;
+    return {};
 }
 
 glm::dvec3 satview_body_sun_direction(SatViewCameraPov id, double unix_seconds)

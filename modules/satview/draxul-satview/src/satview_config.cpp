@@ -17,6 +17,110 @@
 namespace draxul::satview
 {
 
+bool satview_planet_track_enabled(
+    const SatViewPlanetTrackConfig& tracks,
+    SatViewCameraPov body)
+{
+    switch (body)
+    {
+    case SatViewCameraPov::Mercury:
+        return tracks.mercury;
+    case SatViewCameraPov::Venus:
+        return tracks.venus;
+    case SatViewCameraPov::Earth:
+        return tracks.earth;
+    case SatViewCameraPov::Mars:
+        return tracks.mars;
+    case SatViewCameraPov::Jupiter:
+        return tracks.jupiter;
+    case SatViewCameraPov::Saturn:
+        return tracks.saturn;
+    case SatViewCameraPov::Uranus:
+        return tracks.uranus;
+    case SatViewCameraPov::Neptune:
+        return tracks.neptune;
+    case SatViewCameraPov::Moon:
+    case SatViewCameraPov::Sun:
+    case SatViewCameraPov::Phobos:
+    case SatViewCameraPov::Deimos:
+    case SatViewCameraPov::Io:
+    case SatViewCameraPov::Europa:
+    case SatViewCameraPov::Ganymede:
+    case SatViewCameraPov::Callisto:
+    case SatViewCameraPov::Mimas:
+    case SatViewCameraPov::Enceladus:
+    case SatViewCameraPov::Tethys:
+    case SatViewCameraPov::Dione:
+    case SatViewCameraPov::Rhea:
+    case SatViewCameraPov::Titan:
+    case SatViewCameraPov::Iapetus:
+    case SatViewCameraPov::Miranda:
+    case SatViewCameraPov::Ariel:
+    case SatViewCameraPov::Umbriel:
+    case SatViewCameraPov::Titania:
+    case SatViewCameraPov::Oberon:
+    case SatViewCameraPov::Triton:
+        return false;
+    }
+    return false;
+}
+
+void satview_set_planet_track_enabled(
+    SatViewPlanetTrackConfig& tracks,
+    SatViewCameraPov body,
+    bool enabled)
+{
+    switch (body)
+    {
+    case SatViewCameraPov::Mercury:
+        tracks.mercury = enabled;
+        return;
+    case SatViewCameraPov::Venus:
+        tracks.venus = enabled;
+        return;
+    case SatViewCameraPov::Earth:
+        tracks.earth = enabled;
+        return;
+    case SatViewCameraPov::Mars:
+        tracks.mars = enabled;
+        return;
+    case SatViewCameraPov::Jupiter:
+        tracks.jupiter = enabled;
+        return;
+    case SatViewCameraPov::Saturn:
+        tracks.saturn = enabled;
+        return;
+    case SatViewCameraPov::Uranus:
+        tracks.uranus = enabled;
+        return;
+    case SatViewCameraPov::Neptune:
+        tracks.neptune = enabled;
+        return;
+    case SatViewCameraPov::Moon:
+    case SatViewCameraPov::Sun:
+    case SatViewCameraPov::Phobos:
+    case SatViewCameraPov::Deimos:
+    case SatViewCameraPov::Io:
+    case SatViewCameraPov::Europa:
+    case SatViewCameraPov::Ganymede:
+    case SatViewCameraPov::Callisto:
+    case SatViewCameraPov::Mimas:
+    case SatViewCameraPov::Enceladus:
+    case SatViewCameraPov::Tethys:
+    case SatViewCameraPov::Dione:
+    case SatViewCameraPov::Rhea:
+    case SatViewCameraPov::Titan:
+    case SatViewCameraPov::Iapetus:
+    case SatViewCameraPov::Miranda:
+    case SatViewCameraPov::Ariel:
+    case SatViewCameraPov::Umbriel:
+    case SatViewCameraPov::Titania:
+    case SatViewCameraPov::Oberon:
+    case SatViewCameraPov::Triton:
+        return;
+    }
+}
+
 namespace
 {
 
@@ -120,6 +224,13 @@ std::string_view format_ground_projection(SatViewGroundProjection projection)
 std::string_view format_camera_pov(SatViewCameraPov pov)
 {
     return satview_solar_system_body(pov).config_name;
+}
+
+std::string planet_track_key(SatViewCameraPov body)
+{
+    std::string key = "planet_track_";
+    key += satview_solar_system_body(body).config_name;
+    return key;
 }
 
 void apply_satview_table(SatViewConfig& config, const toml::table& table)
@@ -267,6 +378,12 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("show_lunar_crewed_artifacts", config.show_lunar_crewed_artifacts);
     assign_bool("show_lunar_approximate_locations", config.show_lunar_approximate_locations);
     assign_bool("earth_track", config.earth_track_enabled);
+    for (const SatViewCameraPov body : kSatViewPlanetTrackBodies)
+    {
+        bool enabled = satview_planet_track_enabled(config.planet_tracks, body);
+        assign_bool(planet_track_key(body), enabled);
+        satview_set_planet_track_enabled(config.planet_tracks, body, enabled);
+    }
     assign_bool("sun", config.sun_enabled);
     assign_bool("ground_visible", config.ground_visible);
     assign_bool("ground_horizon_occlusion", config.ground_horizon_occlusion);
@@ -354,6 +471,12 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("show_lunar_crewed_artifacts", config.show_lunar_crewed_artifacts);
     table.insert_or_assign("show_lunar_approximate_locations", config.show_lunar_approximate_locations);
     table.insert_or_assign("earth_track", config.earth_track_enabled);
+    for (const SatViewCameraPov body : kSatViewPlanetTrackBodies)
+    {
+        table.insert_or_assign(
+            planet_track_key(body),
+            satview_planet_track_enabled(config.planet_tracks, body));
+    }
     table.insert_or_assign("sun", config.sun_enabled);
     table.insert_or_assign("ground_visible", config.ground_visible);
     table.insert_or_assign("ground_horizon_occlusion", config.ground_horizon_occlusion);

@@ -48,8 +48,8 @@
 #include <limits>
 #include <numbers>
 #include <string_view>
-#include <utility>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace draxul::satview
@@ -684,8 +684,7 @@ void append_earth_track_vertices(
     std::size_t segment_count)
 {
     const glm::vec4 color(0.30f, 0.68f, 1.00f, 0.88f);
-    const std::vector<glm::dvec3> points =
-        satview_earth_orbit_track(center_seconds, segment_count);
+    const std::vector<glm::dvec3> points = satview_earth_orbit_track(center_seconds, segment_count);
     if (points.size() < 2)
         return;
     for (std::size_t i = 1; i < points.size(); ++i)
@@ -711,29 +710,25 @@ float solar_system_scene_radius(SatViewCameraPov pov)
 void append_natural_satellite_tracks(
     std::vector<SatViewSceneVertex>& vertices,
     SatViewCameraPov parent_id,
+    const SatViewPlanetTrackConfig& planet_tracks,
     std::size_t segment_count)
 {
-    const SatViewSolarSystemBody& parent = satview_solar_system_body(parent_id);
-    for (const SatViewSolarSystemBody* child : satview_child_bodies(parent_id))
+    for (const SatViewBodyOrbitTrack& track :
+        satview_child_orbit_tracks(parent_id, planet_tracks, segment_count))
     {
-        const std::vector<glm::dvec3> points = satview_body_orbit_in_parent_frame(
-            *child, std::max<std::size_t>(segment_count, 24));
-        if (points.size() < 3)
-            continue;
-        const glm::vec4 color(child->display_color, 0.72f);
-        for (std::size_t index = 1; index < points.size(); ++index)
+        for (std::size_t index = 1; index < track.points_focus_radii.size(); ++index)
         {
             append_line(
                 vertices,
-                to_vec3(points[index - 1] / parent.equatorial_radius_km),
-                to_vec3(points[index] / parent.equatorial_radius_km),
-                color);
+                to_vec3(track.points_focus_radii[index - 1]),
+                to_vec3(track.points_focus_radii[index]),
+                track.color);
         }
         append_line(
             vertices,
-            to_vec3(points.back() / parent.equatorial_radius_km),
-            to_vec3(points.front() / parent.equatorial_radius_km),
-            color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
+            to_vec3(track.points_focus_radii.back()),
+            to_vec3(track.points_focus_radii.front()),
+            track.color * glm::vec4(1.0f, 1.0f, 1.0f, 0.82f));
     }
 }
 
@@ -741,14 +736,12 @@ void append_planetary_ring_tracks(
     std::vector<SatViewSceneVertex>& vertices,
     SatViewCameraPov body_id)
 {
-    const bool saturn = body_id == SatViewCameraPov::Saturn;
-    const bool uranus = body_id == SatViewCameraPov::Uranus;
-    if (!saturn && !uranus)
+    if (body_id != SatViewCameraPov::Uranus)
         return;
 
-    const std::size_t ring_count = saturn ? 22 : 9;
-    const double inner_radius = saturn ? 1.24 : 1.57;
-    const double outer_radius = saturn ? 2.27 : 2.00;
+    constexpr std::size_t ring_count = 9;
+    constexpr double inner_radius = 1.57;
+    constexpr double outer_radius = 2.00;
     constexpr std::size_t kSegments = 128;
     for (std::size_t ring = 0; ring < ring_count; ++ring)
     {
@@ -756,12 +749,8 @@ void append_planetary_ring_tracks(
             ? 0.0
             : static_cast<double>(ring) / static_cast<double>(ring_count - 1);
         const double radius = glm::mix(inner_radius, outer_radius, t);
-        const float band = saturn
-            ? static_cast<float>(0.60 + 0.24 * std::sin(t * 10.0))
-            : 0.34f;
-        const glm::vec4 color = saturn
-            ? glm::vec4(0.90f, 0.82f, 0.65f, band)
-            : glm::vec4(0.52f, 0.72f, 0.75f, band);
+        constexpr float band = 0.34f;
+        const glm::vec4 color(0.52f, 0.72f, 0.75f, band);
         glm::vec3 previous(static_cast<float>(radius), 0.0f, 0.0f);
         for (std::size_t segment = 1; segment <= kSegments; ++segment)
         {
@@ -1266,7 +1255,7 @@ void SatViewHost::draw(IFrameContext& frame)
     const bool ground_projection = projection_mode_ == SatViewProjectionMode::Ground;
     const bool generic_body_view = satview_uses_generic_body_view(camera_pov_);
     const bool earth_track_visible = earth_orbit_track_visible(
-        earth_track_enabled_, satellite_display_mode_, projection_mode_, camera_pov_)
+                                         earth_track_enabled_, satellite_display_mode_, projection_mode_, camera_pov_)
         && !generic_body_view;
     const SatViewMoonPosition moon = satview_moon_position(simulation_seconds);
     const SatViewSunPosition sun_position = satview_sun_position(simulation_seconds);
@@ -1355,18 +1344,18 @@ void SatViewHost::draw(IFrameContext& frame)
     uniforms.view_proj = map_projection
         ? glm::mat4(1.0f)
         : ground_projection && ground_projection_ == SatViewGroundProjection::Stereographic
-            ? satview_stereographic_frame_transform(
-                  view,
-                  ground_fov_degrees_,
-                  viewport_aspect)
-            : proj * view;
+        ? satview_stereographic_frame_transform(
+              view,
+              ground_fov_degrees_,
+              viewport_aspect)
+        : proj * view;
     const float projection_aspect_scale = static_cast<float>(pixel_h) / static_cast<float>(pixel_w);
     const float projection_code = map_projection
         ? -projection_aspect_scale
         : ground_projection
-            ? (ground_projection_ == SatViewGroundProjection::Stereographic ? 3.0f : 1.0f)
-                + (ground_horizon_occlusion_ ? 1.0f : 0.0f)
-            : 0.0f;
+        ? (ground_projection_ == SatViewGroundProjection::Stereographic ? 3.0f : 1.0f)
+            + (ground_horizon_occlusion_ ? 1.0f : 0.0f)
+        : 0.0f;
     uniforms.camera_pos = map_projection
         ? glm::vec4(
               camera_target_position(camera_pov_, moon, sun_position),
@@ -1470,7 +1459,7 @@ void SatViewHost::draw(IFrameContext& frame)
             : 0.0f,
         context_parent_body
             ? static_cast<float>(context_parent_body->polar_radius_km
-                / context_parent_body->equatorial_radius_km)
+                  / context_parent_body->equatorial_radius_km)
             : 1.0f,
         context_parent_proxy.has_value());
     scene_pass_->set_focus_body(
@@ -1479,6 +1468,14 @@ void SatViewHost::draw(IFrameContext& frame)
         static_cast<float>(focus_body.polar_radius_km / focus_body.equatorial_radius_km),
         focus_body.emissive,
         generic_body_view);
+    std::vector<SatViewBodyRenderInstance> child_body_instances;
+    if (generic_body_view && !map_projection && projection_mode_ == SatViewProjectionMode::Globe)
+        child_body_instances = satview_child_body_instances(camera_pov_, simulation_seconds);
+    scene_pass_->set_child_bodies(child_body_instances);
+    scene_pass_->set_ring_bands(
+        generic_body_view && !map_projection && projection_mode_ == SatViewProjectionMode::Globe
+            ? satview_planetary_ring_bands(camera_pov_)
+            : std::span<const SatViewRingBand>{});
     scene_pass_->set_star_magnitude_range(star_min_magnitude_, star_max_magnitude_);
     scene_pass_->set_star_brightness_scale(star_brightness_scale_);
     scene_pass_->set_star_projection_aspect_scale(projection_aspect_scale);
@@ -1563,6 +1560,7 @@ void SatViewHost::draw(IFrameContext& frame)
                 append_natural_satellite_tracks(
                     track_vertices,
                     camera_pov_,
+                    planet_tracks_,
                     track_sample_count_);
                 append_planetary_ring_tracks(track_vertices, camera_pov_);
             }
@@ -1733,6 +1731,13 @@ void SatViewHost::on_mouse_button(const MouseButtonEvent& event)
             const double simulation_seconds = simulation_worker_
                 ? simulation_worker_->current_simulation_seconds()
                 : last_draw_simulation_seconds_;
+            if (select_nearest_natural_body(event.pos, true))
+            {
+                dragging_ = false;
+                pending_click_ = false;
+                last_activity_time_ = std::chrono::steady_clock::now();
+                return;
+            }
             if (enter_ground_view_from_screen(event.pos, simulation_seconds))
             {
                 dragging_ = false;
@@ -1899,10 +1904,13 @@ void SatViewHost::on_key(const KeyEvent& event)
         return;
     }
     if (event.keycode == SDLK_ESCAPE
-        && (selected_norad_catalog_id_.has_value() || selected_lunar_surface_index_.has_value()))
+        && (selected_norad_catalog_id_.has_value()
+            || selected_lunar_surface_index_.has_value()
+            || selected_natural_body_.has_value()))
     {
         selected_norad_catalog_id_.reset();
         selected_lunar_surface_index_.reset();
+        selected_natural_body_.reset();
         simulation_settings_dirty_ = true;
         invalidate_visual_buffers();
         request_redraw();
@@ -2010,6 +2018,7 @@ bool SatViewHost::dispatch_action(std::string_view action)
     {
         selected_norad_catalog_id_.reset();
         selected_lunar_surface_index_.reset();
+        selected_natural_body_.reset();
         simulation_settings_dirty_ = true;
         invalidate_visual_buffers();
         request_redraw();
@@ -2177,6 +2186,7 @@ SatViewConfig SatViewHost::current_config() const
     config.show_lunar_crewed_artifacts = show_lunar_crewed_artifacts_;
     config.show_lunar_approximate_locations = show_lunar_approximate_locations_;
     config.earth_track_enabled = earth_track_enabled_;
+    config.planet_tracks = planet_tracks_;
     config.sun_enabled = sun_enabled_;
     config.ground_projection = ground_projection_;
     config.ground_fov_degrees = ground_fov_degrees_;
@@ -2266,6 +2276,7 @@ void SatViewHost::apply_config(const SatViewConfig& config)
     show_lunar_crewed_artifacts_ = config.show_lunar_crewed_artifacts;
     show_lunar_approximate_locations_ = config.show_lunar_approximate_locations;
     earth_track_enabled_ = config.earth_track_enabled;
+    planet_tracks_ = config.planet_tracks;
     sun_enabled_ = config.sun_enabled || camera_pov_ == SatViewCameraPov::Sun;
     ground_projection_ = config.ground_projection;
     ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
@@ -2868,6 +2879,7 @@ void SatViewHost::reset_to_default_settings()
     apply_config(SatViewConfig{});
     selected_norad_catalog_id_.reset();
     selected_lunar_surface_index_.reset();
+    selected_natural_body_.reset();
     map_center_radians_ = glm::vec2(0.0f);
     ground_camera_orientation_ = satview_default_ground_camera_orientation();
     moon_track_center_seconds_.reset();
@@ -2891,10 +2903,7 @@ void SatViewHost::reset_to_default_settings()
         camera_min_distance(camera_pov_),
         std::max(kCameraDefaultMaxDistance, kCameraDefaultMaxDistance * target_radius));
     camera_->SetPositionAndFocalPoint(
-        target + camera_position_from_yaw_pitch(
-                     std::atan2(sun.x, sun.z) + 0.65f,
-                     0.25f,
-                     kCameraDefaultDistance * target_radius),
+        target + camera_position_from_yaw_pitch(std::atan2(sun.x, sun.z) + 0.65f, 0.25f, kCameraDefaultDistance * target_radius),
         target);
 
     if (simulation_worker_)
@@ -3198,6 +3207,7 @@ void SatViewHost::render_object_tree(const SatViewSimulationSnapshot* snapshot, 
                                     {
                                         selected_norad_catalog_id_ = entry.norad_catalog_id;
                                         selected_lunar_surface_index_.reset();
+                                        selected_natural_body_.reset();
                                         simulation_settings_dirty_ = true;
                                         changed = true;
                                     }
@@ -3245,14 +3255,7 @@ void SatViewHost::render_lunar_surface_tree(bool& changed)
         const SatViewLunarSurfaceObject& object = lunar_surface_catalog_->objects[index];
         const bool selected = selected_lunar_surface_index_.has_value()
             && *selected_lunar_surface_index_ == index;
-        if (selected || lunar_surface_kind_visible(
-                            object,
-                            show_lunar_landers_,
-                            show_lunar_rovers_,
-                            show_lunar_instruments_,
-                            show_lunar_impacts_,
-                            show_lunar_crewed_artifacts_,
-                            show_lunar_approximate_locations_))
+        if (selected || lunar_surface_kind_visible(object, show_lunar_landers_, show_lunar_rovers_, show_lunar_instruments_, show_lunar_impacts_, show_lunar_crewed_artifacts_, show_lunar_approximate_locations_))
         {
             visible_indices.push_back(index);
         }
@@ -3357,6 +3360,7 @@ void SatViewHost::render_lunar_surface_tree(bool& changed)
                         {
                             selected_lunar_surface_index_ = object_index;
                             selected_norad_catalog_id_.reset();
+                            selected_natural_body_.reset();
                             sync_simulation_render_settings();
                             changed = true;
                         }
@@ -3551,6 +3555,40 @@ void SatViewHost::render_view_display_controls(bool& changed)
     }
     if (!earth_track_available)
         ImGui::EndDisabled();
+    if (camera_pov_ == SatViewCameraPov::Sun)
+    {
+        ImGui::SeparatorText("Planet tracks");
+        const auto planet_track_checkbox = [&](SatViewCameraPov body) {
+            bool enabled = satview_planet_track_enabled(planet_tracks_, body);
+            if (ImGui::Checkbox(camera_pov_name(body), &enabled))
+            {
+                satview_set_planet_track_enabled(planet_tracks_, body, enabled);
+                track_buffer_dirty_ = true;
+                request_redraw();
+            }
+        };
+        for (std::size_t index = 0; index < kSatViewPlanetTrackBodies.size(); ++index)
+        {
+            if (index % 2 == 1)
+                ImGui::SameLine();
+            planet_track_checkbox(kSatViewPlanetTrackBodies[index]);
+        }
+        if (ImGui::Button("All planet tracks"))
+        {
+            for (const SatViewCameraPov body : kSatViewPlanetTrackBodies)
+                satview_set_planet_track_enabled(planet_tracks_, body, true);
+            track_buffer_dirty_ = true;
+            request_redraw();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No planet tracks"))
+        {
+            for (const SatViewCameraPov body : kSatViewPlanetTrackBodies)
+                satview_set_planet_track_enabled(planet_tracks_, body, false);
+            track_buffer_dirty_ = true;
+            request_redraw();
+        }
+    }
 
     float star_min_magnitude = star_min_magnitude_;
     set_control_width("Star min mag");
@@ -3729,688 +3767,712 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
 
     if (ImGui::Begin(kSatViewViewWindowName, nullptr, flags))
     {
-    if (ImGui::Button(paused_ ? "Resume" : "Pause"))
-    {
-        paused_ = !paused_;
-        sync_simulation_controls();
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Real Time"))
-        set_real_time();
-    ImGui::SameLine();
-    if (ImGui::Button("Reset Camera"))
-    {
-        reset_camera();
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Refresh"))
-    {
-        catalog_service_.request_refresh();
-        if (cloud_service_)
-            cloud_service_->request_refresh();
-        changed = true;
-    }
-    if (ImGui::Button("Reset Defaults"))
-    {
-        reset_to_default_settings();
-        changed = true;
-    }
-
-    ImGui::TextUnformatted("View");
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Globe", projection_mode_ == SatViewProjectionMode::Globe))
-    {
-        projection_mode_ = SatViewProjectionMode::Globe;
-        simulation_settings_dirty_ = true;
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Map", projection_mode_ == SatViewProjectionMode::Map))
-    {
-        projection_mode_ = SatViewProjectionMode::Map;
-        simulation_settings_dirty_ = true;
-        camera_->ClearMotion();
-        camera_manipulator_->Cancel();
-        camera_keys_->reset();
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Ground", projection_mode_ == SatViewProjectionMode::Ground))
-    {
-        enter_ground_view_at(ground_location_radians_);
-        changed = true;
-    }
-
-    ImGui::TextUnformatted("POV");
-    ImGui::SameLine();
-    ImGui::PushID("camera_pov");
-    if (projection_mode_ == SatViewProjectionMode::Ground)
-        ImGui::BeginDisabled();
-    ImGui::SetNextItemWidth(std::max(190.0f, ImGui::GetContentRegionAvail().x));
-    if (ImGui::BeginCombo("##body", satview_solar_system_body(camera_pov_).name.data()))
-    {
-        std::string_view previous_system;
-        for (const SatViewSolarSystemBody& body : satview_solar_system_bodies())
+        if (ImGui::Button(paused_ ? "Resume" : "Pause"))
         {
-            if (body.system_name != previous_system)
-            {
-                if (!previous_system.empty())
-                    ImGui::Separator();
-                ImGui::TextDisabled("%.*s",
-                    static_cast<int>(body.system_name.size()), body.system_name.data());
-                previous_system = body.system_name;
-            }
-            const bool selected = camera_pov_ == body.id;
-            const std::string label = body.parent.has_value()
-                && *body.parent != SatViewCameraPov::Sun
-                ? std::string("   ") + std::string(body.name)
-                : std::string(body.name);
-            if (ImGui::Selectable(label.c_str(), selected))
-            {
-                set_camera_pov(body.id, displayed_simulation_seconds);
-                changed = true;
-            }
-            if (selected)
-                ImGui::SetItemDefaultFocus();
-        }
-        ImGui::EndCombo();
-    }
-    if (projection_mode_ == SatViewProjectionMode::Ground)
-        ImGui::EndDisabled();
-    ImGui::PopID();
-    const SatViewSolarSystemBody& selected_body = satview_solar_system_body(camera_pov_);
-    if (satview_uses_generic_body_view(camera_pov_))
-    {
-        ImGui::TextDisabled(
-            "Equatorial radius: %.0f km%s",
-            selected_body.equatorial_radius_km,
-            selected_body.polar_radius_km < selected_body.equatorial_radius_km * 0.995
-                ? " (ellipsoid)"
-                : "");
-    }
-
-    if (!satview_uses_generic_body_view(camera_pov_))
-    {
-        int central_body_index = filter_.show_earth && filter_.show_moon
-            ? 2
-            : (filter_.show_moon ? 1 : 0);
-        const char* central_body_options[] = { "Earth", "Moon", "All" };
-        set_control_width("Central body");
-        if (ImGui::Combo("Central body", &central_body_index, central_body_options, 3))
-        {
-            filter_.show_earth = central_body_index != 1;
-            filter_.show_moon = central_body_index != 0;
-            simulation_settings_dirty_ = true;
-            changed = true;
-        }
-    }
-    else
-    {
-        ImGui::TextDisabled("Approximate local tracks: major natural satellites");
-        if (camera_pov_ != SatViewCameraPov::Sun)
-        {
-            if (selected_body.parent.has_value()
-                && *selected_body.parent != SatViewCameraPov::Sun)
-            {
-                const SatViewSolarSystemBody& parent =
-                    satview_solar_system_body(*selected_body.parent);
-                ImGui::TextDisabled(
-                    "Sky context: Sun and %.*s",
-                    static_cast<int>(parent.name.size()),
-                    parent.name.data());
-            }
-            else
-            {
-                ImGui::TextDisabled("Sky context: Sun");
-            }
-        }
-    }
-
-    render_view_display_controls(changed);
-
-    float speed = time_speed_;
-    set_control_width("Speed");
-    if (ImGui::SliderFloat("Speed", &speed, 1.0f, 3600.0f, "%.0fx", ImGuiSliderFlags_Logarithmic))
-    {
-        time_speed_ = std::clamp(speed, 1.0f, 3600.0f);
-        sync_simulation_controls();
-        changed = true;
-    }
-
-    const std::string local_time = format_local_simulation_time(displayed_simulation_seconds);
-    ImGui::Text("Local time: %s", local_time.c_str());
-    if (projection_mode_ == SatViewProjectionMode::Ground)
-    {
-        ImGui::Text("Ground lat: %.3f", glm::degrees(ground_location_radians_.y));
-        ImGui::Text("Ground lon: %.3f", glm::degrees(ground_location_radians_.x));
-        ImGui::TextUnformatted("Projection");
-        if (ImGui::RadioButton(
-                "Stereographic",
-                ground_projection_ == SatViewGroundProjection::Stereographic))
-        {
-            ground_projection_ = SatViewGroundProjection::Stereographic;
-            ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
-                ground_projection_,
-                ground_fov_degrees_);
-            changed = true;
-        }
-        if (ImGui::RadioButton(
-                "Perspective",
-                ground_projection_ == SatViewGroundProjection::Perspective))
-        {
-            ground_projection_ = SatViewGroundProjection::Perspective;
-            ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
-                ground_projection_,
-                ground_fov_degrees_);
-            changed = true;
-        }
-        float ground_fov = ground_fov_degrees_;
-        set_control_width("Angle of view");
-        if (ImGui::SliderFloat(
-                "Angle of view",
-                &ground_fov,
-                kGroundMinimumFovDegrees,
-                satview_maximum_ground_fov_degrees(ground_projection_),
-                "%.0f deg"))
-        {
-            ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
-                ground_projection_,
-                ground_fov);
-            changed = true;
-        }
-        if (ImGui::Checkbox("Show ground", &ground_visible_))
-            changed = true;
-        if (ImGui::Checkbox("Horizon occlusion", &ground_horizon_occlusion_))
-        {
-            invalidate_visual_buffers();
-            changed = true;
-        }
-        if (ImGui::Checkbox("Observatory horizon", &observatory_horizon_enabled_))
-            changed = true;
-        if (ImGui::Checkbox("Cardinal labels", &cardinal_labels_enabled_))
-            changed = true;
-        if (ImGui::Button("Back to Globe"))
-        {
-            projection_mode_ = SatViewProjectionMode::Globe;
+            paused_ = !paused_;
+            sync_simulation_controls();
             changed = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("Back to Map"))
+        if (ImGui::Button("Real Time"))
+            set_real_time();
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Camera"))
         {
-            projection_mode_ = SatViewProjectionMode::Map;
+            reset_camera();
             changed = true;
         }
-    }
-    else if (projection_mode_ == SatViewProjectionMode::Map)
-    {
-        ImGui::Text("Center lat: %.1f", glm::degrees(map_center_radians_.y));
-        ImGui::Text("Center lon: %.1f", glm::degrees(map_center_radians_.x));
-        ImGui::TextDisabled("Double-click the map to enter ground view.");
-    }
-    else
-    {
-        ImGui::TextDisabled("Double-click Earth to enter ground view.");
-    }
+        ImGui::SameLine();
+        if (ImGui::Button("Refresh"))
+        {
+            catalog_service_.request_refresh();
+            if (cloud_service_)
+                cloud_service_->request_refresh();
+            changed = true;
+        }
+        if (ImGui::Button("Reset Defaults"))
+        {
+            reset_to_default_settings();
+            changed = true;
+        }
+
+        ImGui::TextUnformatted("View");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Globe", projection_mode_ == SatViewProjectionMode::Globe))
+        {
+            projection_mode_ = SatViewProjectionMode::Globe;
+            simulation_settings_dirty_ = true;
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Map", projection_mode_ == SatViewProjectionMode::Map))
+        {
+            projection_mode_ = SatViewProjectionMode::Map;
+            simulation_settings_dirty_ = true;
+            camera_->ClearMotion();
+            camera_manipulator_->Cancel();
+            camera_keys_->reset();
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Ground", projection_mode_ == SatViewProjectionMode::Ground))
+        {
+            enter_ground_view_at(ground_location_radians_);
+            changed = true;
+        }
+
+        ImGui::TextUnformatted("POV");
+        ImGui::SameLine();
+        ImGui::PushID("camera_pov");
+        if (projection_mode_ == SatViewProjectionMode::Ground)
+            ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(std::max(190.0f, ImGui::GetContentRegionAvail().x));
+        if (ImGui::BeginCombo("##body", satview_solar_system_body(camera_pov_).name.data()))
+        {
+            std::string_view previous_system;
+            for (const SatViewSolarSystemBody& body : satview_solar_system_bodies())
+            {
+                if (body.system_name != previous_system)
+                {
+                    if (!previous_system.empty())
+                        ImGui::Separator();
+                    ImGui::TextDisabled("%.*s",
+                        static_cast<int>(body.system_name.size()), body.system_name.data());
+                    previous_system = body.system_name;
+                }
+                const bool selected = camera_pov_ == body.id;
+                const std::string label = body.parent.has_value()
+                        && *body.parent != SatViewCameraPov::Sun
+                    ? std::string("   ") + std::string(body.name)
+                    : std::string(body.name);
+                if (ImGui::Selectable(label.c_str(), selected))
+                {
+                    set_camera_pov(body.id, displayed_simulation_seconds);
+                    changed = true;
+                }
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (projection_mode_ == SatViewProjectionMode::Ground)
+            ImGui::EndDisabled();
+        ImGui::PopID();
+        const SatViewSolarSystemBody& selected_body = satview_solar_system_body(camera_pov_);
+        if (satview_uses_generic_body_view(camera_pov_))
+        {
+            ImGui::TextDisabled(
+                "Equatorial radius: %.0f km%s",
+                selected_body.equatorial_radius_km,
+                selected_body.polar_radius_km < selected_body.equatorial_radius_km * 0.995
+                    ? " (ellipsoid)"
+                    : "");
+        }
+
+        if (!satview_uses_generic_body_view(camera_pov_))
+        {
+            int central_body_index = filter_.show_earth && filter_.show_moon
+                ? 2
+                : (filter_.show_moon ? 1 : 0);
+            const char* central_body_options[] = { "Earth", "Moon", "All" };
+            set_control_width("Central body");
+            if (ImGui::Combo("Central body", &central_body_index, central_body_options, 3))
+            {
+                filter_.show_earth = central_body_index != 1;
+                filter_.show_moon = central_body_index != 0;
+                simulation_settings_dirty_ = true;
+                changed = true;
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("Approximate local tracks: major natural satellites");
+            if (camera_pov_ != SatViewCameraPov::Sun)
+            {
+                if (selected_body.parent.has_value()
+                    && *selected_body.parent != SatViewCameraPov::Sun)
+                {
+                    const SatViewSolarSystemBody& parent = satview_solar_system_body(*selected_body.parent);
+                    ImGui::TextDisabled(
+                        "Sky context: Sun and %.*s",
+                        static_cast<int>(parent.name.size()),
+                        parent.name.data());
+                }
+                else
+                {
+                    ImGui::TextDisabled("Sky context: Sun");
+                }
+            }
+        }
+
+        render_view_display_controls(changed);
+
+        float speed = time_speed_;
+        set_control_width("Speed");
+        if (ImGui::SliderFloat("Speed", &speed, 1.0f, 3600.0f, "%.0fx", ImGuiSliderFlags_Logarithmic))
+        {
+            time_speed_ = std::clamp(speed, 1.0f, 3600.0f);
+            sync_simulation_controls();
+            changed = true;
+        }
+
+        const std::string local_time = format_local_simulation_time(displayed_simulation_seconds);
+        ImGui::Text("Local time: %s", local_time.c_str());
+        if (projection_mode_ == SatViewProjectionMode::Ground)
+        {
+            ImGui::Text("Ground lat: %.3f", glm::degrees(ground_location_radians_.y));
+            ImGui::Text("Ground lon: %.3f", glm::degrees(ground_location_radians_.x));
+            ImGui::TextUnformatted("Projection");
+            if (ImGui::RadioButton(
+                    "Stereographic",
+                    ground_projection_ == SatViewGroundProjection::Stereographic))
+            {
+                ground_projection_ = SatViewGroundProjection::Stereographic;
+                ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
+                    ground_projection_,
+                    ground_fov_degrees_);
+                changed = true;
+            }
+            if (ImGui::RadioButton(
+                    "Perspective",
+                    ground_projection_ == SatViewGroundProjection::Perspective))
+            {
+                ground_projection_ = SatViewGroundProjection::Perspective;
+                ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
+                    ground_projection_,
+                    ground_fov_degrees_);
+                changed = true;
+            }
+            float ground_fov = ground_fov_degrees_;
+            set_control_width("Angle of view");
+            if (ImGui::SliderFloat(
+                    "Angle of view",
+                    &ground_fov,
+                    kGroundMinimumFovDegrees,
+                    satview_maximum_ground_fov_degrees(ground_projection_),
+                    "%.0f deg"))
+            {
+                ground_fov_degrees_ = satview_clamp_ground_fov_degrees(
+                    ground_projection_,
+                    ground_fov);
+                changed = true;
+            }
+            if (ImGui::Checkbox("Show ground", &ground_visible_))
+                changed = true;
+            if (ImGui::Checkbox("Horizon occlusion", &ground_horizon_occlusion_))
+            {
+                invalidate_visual_buffers();
+                changed = true;
+            }
+            if (ImGui::Checkbox("Observatory horizon", &observatory_horizon_enabled_))
+                changed = true;
+            if (ImGui::Checkbox("Cardinal labels", &cardinal_labels_enabled_))
+                changed = true;
+            if (ImGui::Button("Back to Globe"))
+            {
+                projection_mode_ = SatViewProjectionMode::Globe;
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Back to Map"))
+            {
+                projection_mode_ = SatViewProjectionMode::Map;
+                changed = true;
+            }
+        }
+        else if (projection_mode_ == SatViewProjectionMode::Map)
+        {
+            ImGui::Text("Center lat: %.1f", glm::degrees(map_center_radians_.y));
+            ImGui::Text("Center lon: %.1f", glm::degrees(map_center_radians_.x));
+            ImGui::TextDisabled("Double-click the map to enter ground view.");
+        }
+        else
+        {
+            ImGui::TextDisabled("Double-click Earth to enter ground view.");
+        }
     }
     ImGui::End();
 
     if (ImGui::Begin(kSatViewFilterWindowName, nullptr, flags))
     {
-    ImGui::SeparatorText("Objects");
-    set_control_width("Search");
-    if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
-    {
-        filter_.search_text = search_buffer_;
-        changed = true;
-    }
-    set_control_width("Type");
-    if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
-    {
-        filter_.object_type_text = object_type_buffer_;
-        changed = true;
-    }
-    set_control_width("Source");
-    if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
-    {
-        filter_.source_text = source_buffer_;
-        changed = true;
-    }
+        ImGui::SeparatorText("Objects");
+        set_control_width("Search");
+        if (ImGui::InputText("Search", search_buffer_, sizeof(search_buffer_)))
+        {
+            filter_.search_text = search_buffer_;
+            changed = true;
+        }
+        set_control_width("Type");
+        if (ImGui::InputText("Type", object_type_buffer_, sizeof(object_type_buffer_)))
+        {
+            filter_.object_type_text = object_type_buffer_;
+            changed = true;
+        }
+        set_control_width("Source");
+        if (ImGui::InputText("Source", source_buffer_, sizeof(source_buffer_)))
+        {
+            filter_.source_text = source_buffer_;
+            changed = true;
+        }
 
-    float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
-    set_control_width("Age days");
-    if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
-    {
-        filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
-        changed = true;
-    }
+        float max_age_days = static_cast<float>(filter_.max_epoch_age_days);
+        set_control_width("Age days");
+        if (ImGui::DragFloat("Age days", &max_age_days, 0.1f, 0.0f, 30.0f, "%.1f"))
+        {
+            filter_.max_epoch_age_days = static_cast<double>(std::max(0.0f, max_age_days));
+            changed = true;
+        }
 
-    changed |= ImGui::Checkbox("LEO", &filter_.show_low_earth);
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("MEO", &filter_.show_medium_earth);
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("GEO", &filter_.show_geosynchronous);
-    changed |= ImGui::Checkbox("HEO", &filter_.show_highly_elliptical);
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("Other", &filter_.show_other);
-    changed |= ImGui::Checkbox("SSO candidates only", &filter_.sun_synchronous_only);
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip(
-            "Derived from the current orbit's J2 nodal precession; "
-            "this is independent of the LEO/MEO/GEO/HEO class.");
-    }
-
-    ImGui::SeparatorText("Population");
-    const auto population_checkbox = [&](const char* label,
-                                         bool& visible,
-                                         SatellitePopulation population,
-                                         std::size_t count) {
-        const glm::vec4 color = population_color(population, 1.0f);
-        ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%zu", count);
+        changed |= ImGui::Checkbox("LEO", &filter_.show_low_earth);
         ImGui::SameLine();
-        changed |= ImGui::Checkbox(label, &visible);
-    };
-    population_checkbox("Active payloads", filter_.show_active_payloads,
-        SatellitePopulation::ActivePayload, catalog_snapshot.populations.active_payloads);
-    population_checkbox("Inactive payloads", filter_.show_inactive_payloads,
-        SatellitePopulation::InactivePayload, catalog_snapshot.populations.inactive_payloads);
-    population_checkbox("Rocket bodies", filter_.show_rocket_bodies,
-        SatellitePopulation::RocketBody, catalog_snapshot.populations.rocket_bodies);
-    population_checkbox("Debris", filter_.show_debris,
-        SatellitePopulation::Debris, catalog_snapshot.populations.debris);
-    population_checkbox("Unknown", filter_.show_unknown_population,
-        SatellitePopulation::Unknown, catalog_snapshot.populations.unknown);
-    changed |= ImGui::Checkbox("Show SATCAT summary estimates", &filter_.show_summary_estimates);
-    changed |= ImGui::Checkbox("Show catalog-only objects", &filter_.show_catalog_only);
-    ImGui::TextDisabled("Earth SATCAT-only positions are estimates; Moon rows need ephemerides.");
+        changed |= ImGui::Checkbox("MEO", &filter_.show_medium_earth);
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox("GEO", &filter_.show_geosynchronous);
+        changed |= ImGui::Checkbox("HEO", &filter_.show_highly_elliptical);
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox("Other", &filter_.show_other);
+        changed |= ImGui::Checkbox("SSO candidates only", &filter_.sun_synchronous_only);
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Derived from the current orbit's J2 nodal precession; "
+                "this is independent of the LEO/MEO/GEO/HEO class.");
+        }
 
-    render_object_tree(snapshot, changed);
-    ImGui::SeparatorText("Lunar Surface");
-    changed |= ImGui::Checkbox("Landing sites and landers", &show_lunar_landers_);
-    changed |= ImGui::Checkbox("Rovers", &show_lunar_rovers_);
-    changed |= ImGui::Checkbox("Instruments and reflectors", &show_lunar_instruments_);
-    changed |= ImGui::Checkbox("Impacts and rocket stages", &show_lunar_impacts_);
-    changed |= ImGui::Checkbox("Crewed artifacts", &show_lunar_crewed_artifacts_);
-    changed |= ImGui::Checkbox("Approximate locations", &show_lunar_approximate_locations_);
-    render_lunar_surface_tree(changed);
+        ImGui::SeparatorText("Population");
+        const auto population_checkbox = [&](const char* label,
+                                             bool& visible,
+                                             SatellitePopulation population,
+                                             std::size_t count) {
+            const glm::vec4 color = population_color(population, 1.0f);
+            ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%zu", count);
+            ImGui::SameLine();
+            changed |= ImGui::Checkbox(label, &visible);
+        };
+        population_checkbox("Active payloads", filter_.show_active_payloads,
+            SatellitePopulation::ActivePayload, catalog_snapshot.populations.active_payloads);
+        population_checkbox("Inactive payloads", filter_.show_inactive_payloads,
+            SatellitePopulation::InactivePayload, catalog_snapshot.populations.inactive_payloads);
+        population_checkbox("Rocket bodies", filter_.show_rocket_bodies,
+            SatellitePopulation::RocketBody, catalog_snapshot.populations.rocket_bodies);
+        population_checkbox("Debris", filter_.show_debris,
+            SatellitePopulation::Debris, catalog_snapshot.populations.debris);
+        population_checkbox("Unknown", filter_.show_unknown_population,
+            SatellitePopulation::Unknown, catalog_snapshot.populations.unknown);
+        changed |= ImGui::Checkbox("Show SATCAT summary estimates", &filter_.show_summary_estimates);
+        changed |= ImGui::Checkbox("Show catalog-only objects", &filter_.show_catalog_only);
+        ImGui::TextDisabled("Earth SATCAT-only positions are estimates; Moon rows need ephemerides.");
+
+        render_object_tree(snapshot, changed);
+        ImGui::SeparatorText("Lunar Surface");
+        changed |= ImGui::Checkbox("Landing sites and landers", &show_lunar_landers_);
+        changed |= ImGui::Checkbox("Rovers", &show_lunar_rovers_);
+        changed |= ImGui::Checkbox("Instruments and reflectors", &show_lunar_instruments_);
+        changed |= ImGui::Checkbox("Impacts and rocket stages", &show_lunar_impacts_);
+        changed |= ImGui::Checkbox("Crewed artifacts", &show_lunar_crewed_artifacts_);
+        changed |= ImGui::Checkbox("Approximate locations", &show_lunar_approximate_locations_);
+        render_lunar_surface_tree(changed);
     }
     ImGui::End();
 
     if (ImGui::Begin(kSatViewRenderingWindowName, nullptr, flags))
     {
-    render_visual_controls();
-    ImGui::SeparatorText("Tone Mapping");
-    float exposure = tone_map_exposure_;
-    set_control_width("Exposure");
-    if (ImGui::SliderFloat(
-            "Exposure",
-            &exposure,
-            kMinimumToneMapExposure,
-            kMaximumToneMapExposure,
-            "%.2f"))
-    {
-        tone_map_exposure_ = std::clamp(
-            exposure,
-            kMinimumToneMapExposure,
-            kMaximumToneMapExposure);
-        request_redraw();
-    }
-    float white_point = tone_map_white_point_;
-    set_control_width("White point");
-    if (ImGui::SliderFloat(
-            "White point",
-            &white_point,
-            kMinimumToneMapWhitePoint,
-            kMaximumToneMapWhitePoint,
-            "%.2f",
-            ImGuiSliderFlags_Logarithmic))
-    {
-        tone_map_white_point_ = std::clamp(
-            white_point,
-            kMinimumToneMapWhitePoint,
-            kMaximumToneMapWhitePoint);
-        request_redraw();
-    }
-    if (ImGui::Checkbox("HDR buffer debug", &show_hdr_debug_panel_))
-        request_redraw();
-
-    int color_mode_index = static_cast<int>(color_mode_);
-    const char* color_modes[] = { "Population", "Name Prefix", "Orbit Class", "Object Type" };
-    set_control_width("Color");
-    if (ImGui::Combo("Color", &color_mode_index, color_modes, 4))
-    {
-        color_mode_ = static_cast<SatViewColorMode>(color_mode_index);
-        changed = true;
-    }
-
-    if (!show_tracks)
-        ImGui::BeginDisabled();
-
-    const std::size_t available_track_count = snapshot ? snapshot->states.size() : 0;
-    const std::size_t track_limit_ceiling = available_track_count > 0
-        ? available_track_count
-        : std::max(track_satellite_limit_, kDefaultTrackSatelliteLimit);
-    const int maximum_track_limit = static_cast<int>(std::min(
-        track_limit_ceiling,
-        static_cast<std::size_t>(std::numeric_limits<int>::max())));
-    const int minimum_track_limit = 1;
-    int track_limit = std::clamp(
-        static_cast<int>(std::min(
-            track_satellite_limit_,
-            static_cast<std::size_t>(std::numeric_limits<int>::max()))),
-        minimum_track_limit,
-        maximum_track_limit);
-    set_control_width("Track count");
-    if (ImGui::SliderInt("Track count", &track_limit, minimum_track_limit, maximum_track_limit))
-    {
-        track_satellite_limit_ = static_cast<std::size_t>(track_limit);
-        simulation_settings_dirty_ = true;
-        changed = true;
-    }
-
-    int track_samples = static_cast<int>(track_sample_count_);
-    set_control_width("Track samples");
-    if (ImGui::SliderInt("Track samples", &track_samples, 12,
-            static_cast<int>(kMaximumTrackSampleCount)))
-    {
-        track_sample_count_ = static_cast<std::size_t>(std::max(12, track_samples));
-        simulation_settings_dirty_ = true;
-        changed = true;
-    }
-
-    if (ImGui::Checkbox("Refresh paths every step", &refresh_tracks_each_step_))
-    {
-        simulation_settings_dirty_ = true;
-        changed = true;
-    }
-    if (!show_tracks)
-        ImGui::EndDisabled();
-
-    static constexpr std::size_t kMarkerLimitValues[] = { 0, 8192, 4096, 2048, 1024, 512 };
-    static constexpr const char* kMarkerLimitLabels[] = { "All", "8192", "4096", "2048", "1024", "512" };
-    int marker_limit_index = 0;
-    for (int i = 0; i < 6; ++i)
-    {
-        if (marker_satellite_limit_ == kMarkerLimitValues[i])
+        render_visual_controls();
+        ImGui::SeparatorText("Tone Mapping");
+        float exposure = tone_map_exposure_;
+        set_control_width("Exposure");
+        if (ImGui::SliderFloat(
+                "Exposure",
+                &exposure,
+                kMinimumToneMapExposure,
+                kMaximumToneMapExposure,
+                "%.2f"))
         {
-            marker_limit_index = i;
-            break;
+            tone_map_exposure_ = std::clamp(
+                exposure,
+                kMinimumToneMapExposure,
+                kMaximumToneMapExposure);
+            request_redraw();
         }
-    }
-    if (!show_markers)
-        ImGui::BeginDisabled();
-    set_control_width("Marker cap");
-    if (ImGui::Combo("Marker cap", &marker_limit_index, kMarkerLimitLabels, 6))
-    {
-        marker_satellite_limit_ = kMarkerLimitValues[marker_limit_index];
-        changed = true;
-    }
-    if (!show_markers)
-        ImGui::EndDisabled();
+        float white_point = tone_map_white_point_;
+        set_control_width("White point");
+        if (ImGui::SliderFloat(
+                "White point",
+                &white_point,
+                kMinimumToneMapWhitePoint,
+                kMaximumToneMapWhitePoint,
+                "%.2f",
+                ImGuiSliderFlags_Logarithmic))
+        {
+            tone_map_white_point_ = std::clamp(
+                white_point,
+                kMinimumToneMapWhitePoint,
+                kMaximumToneMapWhitePoint);
+            request_redraw();
+        }
+        if (ImGui::Checkbox("HDR buffer debug", &show_hdr_debug_panel_))
+            request_redraw();
 
+        int color_mode_index = static_cast<int>(color_mode_);
+        const char* color_modes[] = { "Population", "Name Prefix", "Orbit Class", "Object Type" };
+        set_control_width("Color");
+        if (ImGui::Combo("Color", &color_mode_index, color_modes, 4))
+        {
+            color_mode_ = static_cast<SatViewColorMode>(color_mode_index);
+            changed = true;
+        }
+
+        if (!show_tracks)
+            ImGui::BeginDisabled();
+
+        const std::size_t available_track_count = snapshot ? snapshot->states.size() : 0;
+        const std::size_t track_limit_ceiling = available_track_count > 0
+            ? available_track_count
+            : std::max(track_satellite_limit_, kDefaultTrackSatelliteLimit);
+        const int maximum_track_limit = static_cast<int>(std::min(
+            track_limit_ceiling,
+            static_cast<std::size_t>(std::numeric_limits<int>::max())));
+        const int minimum_track_limit = 1;
+        int track_limit = std::clamp(
+            static_cast<int>(std::min(
+                track_satellite_limit_,
+                static_cast<std::size_t>(std::numeric_limits<int>::max()))),
+            minimum_track_limit,
+            maximum_track_limit);
+        set_control_width("Track count");
+        if (ImGui::SliderInt("Track count", &track_limit, minimum_track_limit, maximum_track_limit))
+        {
+            track_satellite_limit_ = static_cast<std::size_t>(track_limit);
+            simulation_settings_dirty_ = true;
+            changed = true;
+        }
+
+        int track_samples = static_cast<int>(track_sample_count_);
+        set_control_width("Track samples");
+        if (ImGui::SliderInt("Track samples", &track_samples, 12,
+                static_cast<int>(kMaximumTrackSampleCount)))
+        {
+            track_sample_count_ = static_cast<std::size_t>(std::max(12, track_samples));
+            simulation_settings_dirty_ = true;
+            changed = true;
+        }
+
+        if (ImGui::Checkbox("Refresh paths every step", &refresh_tracks_each_step_))
+        {
+            simulation_settings_dirty_ = true;
+            changed = true;
+        }
+        if (!show_tracks)
+            ImGui::EndDisabled();
+
+        static constexpr std::size_t kMarkerLimitValues[] = { 0, 8192, 4096, 2048, 1024, 512 };
+        static constexpr const char* kMarkerLimitLabels[] = { "All", "8192", "4096", "2048", "1024", "512" };
+        int marker_limit_index = 0;
+        for (int i = 0; i < 6; ++i)
+        {
+            if (marker_satellite_limit_ == kMarkerLimitValues[i])
+            {
+                marker_limit_index = i;
+                break;
+            }
+        }
+        if (!show_markers)
+            ImGui::BeginDisabled();
+        set_control_width("Marker cap");
+        if (ImGui::Combo("Marker cap", &marker_limit_index, kMarkerLimitLabels, 6))
+        {
+            marker_satellite_limit_ = kMarkerLimitValues[marker_limit_index];
+            changed = true;
+        }
+        if (!show_markers)
+            ImGui::EndDisabled();
     }
     ImGui::End();
 
     if (ImGui::Begin(kSatViewAboutWindowName, nullptr, flags))
     {
-    ImGui::SeparatorText("Sources");
-    const std::string catalog_status = catalog_service_.status_text();
-    ImGui::TextWrapped("%s", catalog_status.empty() ? "catalog pending" : catalog_status.c_str());
-    const auto data_source_name = [](SatViewCatalogService::DataSource source) {
-        switch (source)
-        {
-        case SatViewCatalogService::DataSource::Live:
-            return "live";
-        case SatViewCatalogService::DataSource::Cache:
-            return "cache";
-        case SatViewCatalogService::DataSource::Sample:
-            return "sample";
-        case SatViewCatalogService::DataSource::None:
+        ImGui::SeparatorText("Sources");
+        const std::string catalog_status = catalog_service_.status_text();
+        ImGui::TextWrapped("%s", catalog_status.empty() ? "catalog pending" : catalog_status.c_str());
+        const auto data_source_name = [](SatViewCatalogService::DataSource source) {
+            switch (source)
+            {
+            case SatViewCatalogService::DataSource::Live:
+                return "live";
+            case SatViewCatalogService::DataSource::Cache:
+                return "cache";
+            case SatViewCatalogService::DataSource::Sample:
+                return "sample";
+            case SatViewCatalogService::DataSource::None:
+                return "pending";
+            }
             return "pending";
+        };
+        ImGui::Text("GP: %s, %zu records",
+            data_source_name(catalog_snapshot.gp.data_source),
+            catalog_snapshot.gp.object_count);
+        ImGui::Text("SATCAT: %s, %zu retained, %zu excluded",
+            data_source_name(catalog_snapshot.satcat.data_source),
+            catalog_snapshot.satcat.object_count,
+            catalog_snapshot.satcat.excluded_records);
+        ImGui::Text("Merged: %zu total, %zu renderable",
+            catalog_snapshot.object_count,
+            catalog_snapshot.renderable_count);
+        ImGui::Text("Skipped from scene: %zu (%zu retained without an orbit)",
+            catalog_snapshot.skipped_records,
+            catalog_snapshot.non_renderable_count);
+        if (cloud_service_)
+        {
+            const std::string cloud_status = cloud_service_->status_text();
+            ImGui::TextWrapped("Clouds: %s", cloud_status.c_str());
+            ImGui::TextDisabled("Contains modified EUMETSAT data");
         }
-        return "pending";
-    };
-    ImGui::Text("GP: %s, %zu records",
-        data_source_name(catalog_snapshot.gp.data_source),
-        catalog_snapshot.gp.object_count);
-    ImGui::Text("SATCAT: %s, %zu retained, %zu excluded",
-        data_source_name(catalog_snapshot.satcat.data_source),
-        catalog_snapshot.satcat.object_count,
-        catalog_snapshot.satcat.excluded_records);
-    ImGui::Text("Merged: %zu total, %zu renderable",
-        catalog_snapshot.object_count,
-        catalog_snapshot.renderable_count);
-    ImGui::Text("Skipped from scene: %zu (%zu retained without an orbit)",
-        catalog_snapshot.skipped_records,
-        catalog_snapshot.non_renderable_count);
-    if (cloud_service_)
-    {
-        const std::string cloud_status = cloud_service_->status_text();
-        ImGui::TextWrapped("Clouds: %s", cloud_status.c_str());
-        ImGui::TextDisabled("Contains modified EUMETSAT data");
-    }
-    const std::string_view source_label = snapshot ? std::string_view(snapshot->source_label) : std::string_view{};
-    if (source_label.empty())
-        ImGui::TextDisabled("Source: pending");
-    else
-        ImGui::Text("Source: %.*s", static_cast<int>(source_label.size()), source_label.data());
-    const std::size_t filtered_markers = snapshot
-        ? static_cast<std::size_t>(std::ranges::count_if(
-              snapshot->states,
-              [this, source_label](const SatellitePropagatedState& state) {
-                  return satellite_visible(filter_, state, source_label);
-              }))
-        : 0;
-    const std::size_t rendered_markers = !show_markers
-        ? 0
-        : (marker_satellite_limit_ == 0
-                  ? filtered_markers
-                  : std::min(filtered_markers, marker_satellite_limit_));
-    const std::size_t total_markers = snapshot ? snapshot->states.size() : 0;
-    const std::size_t total_tracks = (snapshot && snapshot->tracks) ? snapshot->tracks->size() : 0;
-    ImGui::Text("Markers: %zu / %zu", rendered_markers, total_markers);
-    ImGui::Text("Paths: %zu / %zu", visible_track_count(snapshot), total_tracks);
-    ImGui::Text("Stars: %zu / %zu",
-        visible_stars_.size(),
-        stars_.size());
-    if (lunar_surface_catalog_ && lunar_surface_catalog_->error.empty())
-    {
-        ImGui::Text("Lunar surface: %zu objects, %zu sites",
-            lunar_surface_catalog_->objects.size(),
-            lunar_surface_catalog_->site_count);
-        ImGui::TextDisabled("Coordinates: LROC; identity enrichment: GCAT CC BY 4.0");
-    }
-    else if (lunar_surface_catalog_)
-    {
-        ImGui::TextWrapped("Lunar surface: %s", lunar_surface_catalog_->error.c_str());
-    }
+        const std::string_view source_label = snapshot ? std::string_view(snapshot->source_label) : std::string_view{};
+        if (source_label.empty())
+            ImGui::TextDisabled("Source: pending");
+        else
+            ImGui::Text("Source: %.*s", static_cast<int>(source_label.size()), source_label.data());
+        const std::size_t filtered_markers = snapshot
+            ? static_cast<std::size_t>(std::ranges::count_if(
+                  snapshot->states,
+                  [this, source_label](const SatellitePropagatedState& state) {
+                      return satellite_visible(filter_, state, source_label);
+                  }))
+            : 0;
+        const std::size_t rendered_markers = !show_markers
+            ? 0
+            : (marker_satellite_limit_ == 0
+                      ? filtered_markers
+                      : std::min(filtered_markers, marker_satellite_limit_));
+        const std::size_t total_markers = snapshot ? snapshot->states.size() : 0;
+        const std::size_t total_tracks = (snapshot && snapshot->tracks) ? snapshot->tracks->size() : 0;
+        ImGui::Text("Markers: %zu / %zu", rendered_markers, total_markers);
+        ImGui::Text("Paths: %zu / %zu", visible_track_count(snapshot), total_tracks);
+        ImGui::Text("Stars: %zu / %zu",
+            visible_stars_.size(),
+            stars_.size());
+        if (lunar_surface_catalog_ && lunar_surface_catalog_->error.empty())
+        {
+            ImGui::Text("Lunar surface: %zu objects, %zu sites",
+                lunar_surface_catalog_->objects.size(),
+                lunar_surface_catalog_->site_count);
+            ImGui::TextDisabled("Coordinates: LROC; identity enrichment: GCAT CC BY 4.0");
+        }
+        else if (lunar_surface_catalog_)
+        {
+            ImGui::TextWrapped("Lunar surface: %s", lunar_surface_catalog_->error.c_str());
+        }
     }
     ImGui::End();
 
     if (ImGui::Begin(kSatViewSelectionWindowName, nullptr, flags))
     {
-    if (const SatViewLunarSurfaceObject* selected = selected_lunar_surface_object())
-    {
-        ImGui::TextWrapped("%s", selected->display_name.c_str());
-        ImGui::Text("Mission: %s", selected->mission_name.c_str());
-        if (!selected->vehicle_name.empty() && selected->vehicle_name != selected->display_name)
-            ImGui::TextWrapped("Vehicle: %s", selected->vehicle_name.c_str());
-        const std::string_view kind = satview_lunar_surface_kind_name(selected->kind);
-        ImGui::Text("Kind: %.*s", static_cast<int>(kind.size()), kind.data());
-        if (!selected->status.empty())
-            ImGui::Text("Status: %s", selected->status.c_str());
-        if (selected->renderable())
+        if (const SatViewLunarSurfaceObject* selected = selected_lunar_surface_object())
         {
-            ImGui::Text("Latitude: %.5f %c",
-                std::abs(selected->latitude_degrees),
-                selected->latitude_degrees >= 0.0 ? 'N' : 'S');
-            ImGui::Text("Longitude: %.5f %c",
-                std::abs(selected->longitude_east_degrees),
-                selected->longitude_east_degrees >= 0.0 ? 'E' : 'W');
+            ImGui::TextWrapped("%s", selected->display_name.c_str());
+            ImGui::Text("Mission: %s", selected->mission_name.c_str());
+            if (!selected->vehicle_name.empty() && selected->vehicle_name != selected->display_name)
+                ImGui::TextWrapped("Vehicle: %s", selected->vehicle_name.c_str());
+            const std::string_view kind = satview_lunar_surface_kind_name(selected->kind);
+            ImGui::Text("Kind: %.*s", static_cast<int>(kind.size()), kind.data());
+            if (!selected->status.empty())
+                ImGui::Text("Status: %s", selected->status.c_str());
+            if (selected->renderable())
+            {
+                ImGui::Text("Latitude: %.5f %c",
+                    std::abs(selected->latitude_degrees),
+                    selected->latitude_degrees >= 0.0 ? 'N' : 'S');
+                ImGui::Text("Longitude: %.5f %c",
+                    std::abs(selected->longitude_east_degrees),
+                    selected->longitude_east_degrees >= 0.0 ? 'E' : 'W');
+            }
+            else
+            {
+                ImGui::TextDisabled("No independently located coordinate.");
+            }
+            if (!selected->arrival_date.empty())
+                ImGui::Text("Arrival: %s", selected->arrival_date.c_str());
+            const std::string_view quality = satview_lunar_location_quality_name(
+                selected->location_quality);
+            ImGui::Text("Location: %.*s", static_cast<int>(quality.size()), quality.data());
+            if (selected->coordinate_uncertainty_m.has_value())
+                ImGui::Text("Uncertainty: %.1f m", *selected->coordinate_uncertainty_m);
+            if (!selected->coordinate_source.empty())
+                ImGui::TextWrapped("Coordinate source: %s", selected->coordinate_source.c_str());
+            if (!selected->owner.empty() || !selected->country.empty())
+                ImGui::Text("Owner: %s%s%s",
+                    selected->owner.c_str(),
+                    !selected->owner.empty() && !selected->country.empty() ? " / " : "",
+                    selected->country.c_str());
+            if (!selected->cospar_id.empty())
+                ImGui::Text("COSPAR: %s", selected->cospar_id.c_str());
+            if (!selected->gcat_id.empty())
+                ImGui::Text("GCAT: %s", selected->gcat_id.c_str());
+            if (!selected->references.empty())
+            {
+                ImGui::SeparatorText("References");
+                for (const std::string& reference : selected->references)
+                    ImGui::TextWrapped("%s", reference.c_str());
+            }
+            if (!selected->renderable())
+                ImGui::BeginDisabled();
+            if (ImGui::Button("Center on site"))
+            {
+                center_selected_lunar_surface_object(displayed_simulation_seconds);
+                changed = true;
+            }
+            if (!selected->renderable())
+                ImGui::EndDisabled();
+            if (ImGui::Button("Clear Selection"))
+            {
+                selected_lunar_surface_index_.reset();
+                selected_natural_body_.reset();
+                changed = true;
+            }
+        }
+        else if (const SatViewSolarSystemBody* selected = selected_natural_body())
+        {
+            ImGui::TextWrapped("%s", selected->name.data());
+            ImGui::Text("System: %s", selected->system_name.data());
+            if (selected->parent.has_value())
+                ImGui::Text("Orbits: %s", camera_pov_name(*selected->parent));
+            ImGui::Text("Equatorial radius: %.1f km", selected->equatorial_radius_km);
+            ImGui::Text("Polar radius: %.1f km", selected->polar_radius_km);
+            if (selected->semi_major_axis_km > 0.0)
+                ImGui::Text("Semi-major axis: %.0f km", selected->semi_major_axis_km);
+            if (selected->orbital_period_days > 0.0)
+                ImGui::Text("Orbital period: %.3f days", selected->orbital_period_days);
+            if (ImGui::Button("Go to body"))
+            {
+                set_camera_pov(selected->id, displayed_simulation_seconds);
+                changed = true;
+            }
+            if (ImGui::Button("Clear Selection"))
+            {
+                selected_natural_body_.reset();
+                changed = true;
+            }
+        }
+        else if (const SatellitePropagatedState* selected = selected_satellite(snapshot))
+        {
+            const SatelliteStaticMetadata* metadata = selected->metadata.get();
+            ImGui::TextWrapped("%s",
+                metadata && !metadata->object_name.empty() ? metadata->object_name.c_str() : "Unnamed object");
+            ImGui::Text("NORAD: %lld", static_cast<long long>(selected->norad_catalog_id));
+            if (metadata && !metadata->object_id.empty())
+                ImGui::Text("Object ID: %s", metadata->object_id.c_str());
+            ImGui::Text("Orbit: %.*s",
+                static_cast<int>(orbit_class_name(selected->orbit_class).size()),
+                orbit_class_name(selected->orbit_class).data());
+            ImGui::Text("Central body: %.*s",
+                static_cast<int>(central_body_name(selected->central_body).size()),
+                central_body_name(selected->central_body).data());
+            ImGui::Text("Sun-synchronous: %s",
+                selected->sun_synchronous_candidate ? "Candidate (derived)" : "No");
+            if (metadata && !metadata->object_type.empty())
+                ImGui::Text("Type: %s", metadata->object_type.c_str());
+            ImGui::Text("Kind: %.*s",
+                static_cast<int>(satellite_object_kind_name(selected->object_kind).size()),
+                satellite_object_kind_name(selected->object_kind).data());
+            ImGui::Text("Population: %.*s",
+                static_cast<int>(satellite_population_name(selected->population).size()),
+                satellite_population_name(selected->population).data());
+            ImGui::Text("Solution: %.*s",
+                static_cast<int>(orbit_solution_kind_name(selected->solution_kind).size()),
+                orbit_solution_kind_name(selected->solution_kind).data());
+            if (metadata && !metadata->owner.empty())
+                ImGui::Text("Owner: %s", metadata->owner.c_str());
+            if (metadata && !metadata->operational_status_code.empty())
+                ImGui::Text("Status: %s", metadata->operational_status_code.c_str());
+            if (metadata && !metadata->data_status_code.empty())
+                ImGui::Text("Data status: %s", metadata->data_status_code.c_str());
+            if (metadata && !metadata->ephemeris_source.empty())
+                ImGui::TextWrapped("Ephemeris: %s", metadata->ephemeris_source.c_str());
+            if (metadata && !metadata->ephemeris_frame.empty())
+                ImGui::Text("Frame: %s", metadata->ephemeris_frame.c_str());
+            if (metadata && metadata->ephemeris_start_unix_seconds.has_value()
+                && metadata->ephemeris_end_unix_seconds.has_value())
+            {
+                const std::string valid_from = format_local_simulation_time(
+                    *metadata->ephemeris_start_unix_seconds);
+                const std::string valid_until = format_local_simulation_time(
+                    *metadata->ephemeris_end_unix_seconds);
+                ImGui::TextWrapped("Valid: %s to %s", valid_from.c_str(), valid_until.c_str());
+            }
+            if (metadata && metadata->radar_cross_section_m2.has_value())
+                ImGui::Text("Radar cross section: %.3g m^2", *metadata->radar_cross_section_m2);
+            if (metadata && !metadata->classification_type.empty())
+                ImGui::Text("Class: %s", metadata->classification_type.c_str());
+            ImGui::Text("Period: %.1f min", selected->period_minutes);
+            if (std::isfinite(selected->minutes_since_epoch))
+                ImGui::Text("Epoch age: %.1f h", selected->minutes_since_epoch / 60.0);
+            else
+                ImGui::TextDisabled("Epoch age: unavailable for SATCAT summary");
+            if (selected->central_body == CentralBody::Earth)
+            {
+                const SatViewGeodeticPosition geodetic = satview_geodetic_from_ecef(selected->ecef_position_km);
+                ImGui::Text("Latitude: %.3f %c",
+                    std::abs(geodetic.latitude_degrees),
+                    geodetic.latitude_degrees >= 0.0 ? 'N' : 'S');
+                ImGui::Text("Longitude: %.3f %c",
+                    std::abs(geodetic.longitude_degrees),
+                    geodetic.longitude_degrees >= 0.0 ? 'E' : 'W');
+            }
+            const glm::dvec3 central_position = selected->central_body == CentralBody::Moon
+                ? satview_moon_position(displayed_simulation_seconds).equatorial_position_km
+                : glm::dvec3(0.0);
+            const double central_radius_km = selected->central_body == CentralBody::Moon
+                ? kSatViewMoonMeanRadiusKm
+                : kSatViewEarthEquatorialRadiusKm;
+            const double altitude_km = glm::length(selected->teme_position_km - central_position)
+                - central_radius_km;
+            ImGui::Text("Altitude: %.0f km", altitude_km);
+            const double speed_km_s = glm::length(selected->teme_velocity_km_per_s);
+            ImGui::Text("Speed: %.2f km/s", speed_km_s);
+            if (ImGui::Button("Clear Selection"))
+            {
+                selected_norad_catalog_id_.reset();
+                selected_natural_body_.reset();
+                simulation_settings_dirty_ = true;
+                changed = true;
+            }
+        }
+        else if (const SatelliteRecord* selected = selected_catalog_record())
+        {
+            ImGui::TextWrapped("%s",
+                selected->object_name.empty() ? "Unnamed object" : selected->object_name.c_str());
+            ImGui::Text("NORAD: %lld", static_cast<long long>(selected->norad_catalog_id));
+            if (!selected->object_id.empty())
+                ImGui::Text("Object ID: %s", selected->object_id.c_str());
+            ImGui::Text("Central body: %.*s",
+                static_cast<int>(central_body_name(selected->central_body).size()),
+                central_body_name(selected->central_body).data());
+            ImGui::Text("Kind: %.*s",
+                static_cast<int>(satellite_object_kind_name(selected->object_kind).size()),
+                satellite_object_kind_name(selected->object_kind).data());
+            ImGui::Text("Population: %.*s",
+                static_cast<int>(satellite_population_name(selected->population).size()),
+                satellite_population_name(selected->population).data());
+            ImGui::Text("Fidelity: %.*s",
+                static_cast<int>(orbit_solution_kind_name(selected->solution_kind).size()),
+                orbit_solution_kind_name(selected->solution_kind).data());
+            if (!selected->owner.empty())
+                ImGui::Text("Owner: %s", selected->owner.c_str());
+            if (!selected->operational_status_code.empty())
+                ImGui::Text("Status: %s", selected->operational_status_code.c_str());
+            ImGui::TextDisabled("No usable public orbital state; this object is not rendered.");
+            if (ImGui::Button("Clear Selection"))
+            {
+                selected_norad_catalog_id_.reset();
+                selected_natural_body_.reset();
+                simulation_settings_dirty_ = true;
+                changed = true;
+            }
         }
         else
         {
-            ImGui::TextDisabled("No independently located coordinate.");
+            ImGui::TextDisabled("No object selected.");
         }
-        if (!selected->arrival_date.empty())
-            ImGui::Text("Arrival: %s", selected->arrival_date.c_str());
-        const std::string_view quality = satview_lunar_location_quality_name(
-            selected->location_quality);
-        ImGui::Text("Location: %.*s", static_cast<int>(quality.size()), quality.data());
-        if (selected->coordinate_uncertainty_m.has_value())
-            ImGui::Text("Uncertainty: %.1f m", *selected->coordinate_uncertainty_m);
-        if (!selected->coordinate_source.empty())
-            ImGui::TextWrapped("Coordinate source: %s", selected->coordinate_source.c_str());
-        if (!selected->owner.empty() || !selected->country.empty())
-            ImGui::Text("Owner: %s%s%s",
-                selected->owner.c_str(),
-                !selected->owner.empty() && !selected->country.empty() ? " / " : "",
-                selected->country.c_str());
-        if (!selected->cospar_id.empty())
-            ImGui::Text("COSPAR: %s", selected->cospar_id.c_str());
-        if (!selected->gcat_id.empty())
-            ImGui::Text("GCAT: %s", selected->gcat_id.c_str());
-        if (!selected->references.empty())
-        {
-            ImGui::SeparatorText("References");
-            for (const std::string& reference : selected->references)
-                ImGui::TextWrapped("%s", reference.c_str());
-        }
-        if (!selected->renderable())
-            ImGui::BeginDisabled();
-        if (ImGui::Button("Center on site"))
-        {
-            center_selected_lunar_surface_object(displayed_simulation_seconds);
-            changed = true;
-        }
-        if (!selected->renderable())
-            ImGui::EndDisabled();
-        if (ImGui::Button("Clear Selection"))
-        {
-            selected_lunar_surface_index_.reset();
-            changed = true;
-        }
-    }
-    else if (const SatellitePropagatedState* selected = selected_satellite(snapshot))
-    {
-        const SatelliteStaticMetadata* metadata = selected->metadata.get();
-        ImGui::TextWrapped("%s",
-            metadata && !metadata->object_name.empty() ? metadata->object_name.c_str() : "Unnamed object");
-        ImGui::Text("NORAD: %lld", static_cast<long long>(selected->norad_catalog_id));
-        if (metadata && !metadata->object_id.empty())
-            ImGui::Text("Object ID: %s", metadata->object_id.c_str());
-        ImGui::Text("Orbit: %.*s",
-            static_cast<int>(orbit_class_name(selected->orbit_class).size()),
-            orbit_class_name(selected->orbit_class).data());
-        ImGui::Text("Central body: %.*s",
-            static_cast<int>(central_body_name(selected->central_body).size()),
-            central_body_name(selected->central_body).data());
-        ImGui::Text("Sun-synchronous: %s",
-            selected->sun_synchronous_candidate ? "Candidate (derived)" : "No");
-        if (metadata && !metadata->object_type.empty())
-            ImGui::Text("Type: %s", metadata->object_type.c_str());
-        ImGui::Text("Kind: %.*s",
-            static_cast<int>(satellite_object_kind_name(selected->object_kind).size()),
-            satellite_object_kind_name(selected->object_kind).data());
-        ImGui::Text("Population: %.*s",
-            static_cast<int>(satellite_population_name(selected->population).size()),
-            satellite_population_name(selected->population).data());
-        ImGui::Text("Solution: %.*s",
-            static_cast<int>(orbit_solution_kind_name(selected->solution_kind).size()),
-            orbit_solution_kind_name(selected->solution_kind).data());
-        if (metadata && !metadata->owner.empty())
-            ImGui::Text("Owner: %s", metadata->owner.c_str());
-        if (metadata && !metadata->operational_status_code.empty())
-            ImGui::Text("Status: %s", metadata->operational_status_code.c_str());
-        if (metadata && !metadata->data_status_code.empty())
-            ImGui::Text("Data status: %s", metadata->data_status_code.c_str());
-        if (metadata && !metadata->ephemeris_source.empty())
-            ImGui::TextWrapped("Ephemeris: %s", metadata->ephemeris_source.c_str());
-        if (metadata && !metadata->ephemeris_frame.empty())
-            ImGui::Text("Frame: %s", metadata->ephemeris_frame.c_str());
-        if (metadata && metadata->ephemeris_start_unix_seconds.has_value()
-            && metadata->ephemeris_end_unix_seconds.has_value())
-        {
-            const std::string valid_from = format_local_simulation_time(
-                *metadata->ephemeris_start_unix_seconds);
-            const std::string valid_until = format_local_simulation_time(
-                *metadata->ephemeris_end_unix_seconds);
-            ImGui::TextWrapped("Valid: %s to %s", valid_from.c_str(), valid_until.c_str());
-        }
-        if (metadata && metadata->radar_cross_section_m2.has_value())
-            ImGui::Text("Radar cross section: %.3g m^2", *metadata->radar_cross_section_m2);
-        if (metadata && !metadata->classification_type.empty())
-            ImGui::Text("Class: %s", metadata->classification_type.c_str());
-        ImGui::Text("Period: %.1f min", selected->period_minutes);
-        if (std::isfinite(selected->minutes_since_epoch))
-            ImGui::Text("Epoch age: %.1f h", selected->minutes_since_epoch / 60.0);
-        else
-            ImGui::TextDisabled("Epoch age: unavailable for SATCAT summary");
-        if (selected->central_body == CentralBody::Earth)
-        {
-            const SatViewGeodeticPosition geodetic = satview_geodetic_from_ecef(selected->ecef_position_km);
-            ImGui::Text("Latitude: %.3f %c",
-                std::abs(geodetic.latitude_degrees),
-                geodetic.latitude_degrees >= 0.0 ? 'N' : 'S');
-            ImGui::Text("Longitude: %.3f %c",
-                std::abs(geodetic.longitude_degrees),
-                geodetic.longitude_degrees >= 0.0 ? 'E' : 'W');
-        }
-        const glm::dvec3 central_position = selected->central_body == CentralBody::Moon
-            ? satview_moon_position(displayed_simulation_seconds).equatorial_position_km
-            : glm::dvec3(0.0);
-        const double central_radius_km = selected->central_body == CentralBody::Moon
-            ? kSatViewMoonMeanRadiusKm
-            : kSatViewEarthEquatorialRadiusKm;
-        const double altitude_km = glm::length(selected->teme_position_km - central_position)
-            - central_radius_km;
-        ImGui::Text("Altitude: %.0f km", altitude_km);
-        const double speed_km_s = glm::length(selected->teme_velocity_km_per_s);
-        ImGui::Text("Speed: %.2f km/s", speed_km_s);
-        if (ImGui::Button("Clear Selection"))
-        {
-            selected_norad_catalog_id_.reset();
-            simulation_settings_dirty_ = true;
-            changed = true;
-        }
-    }
-    else if (const SatelliteRecord* selected = selected_catalog_record())
-    {
-        ImGui::TextWrapped("%s",
-            selected->object_name.empty() ? "Unnamed object" : selected->object_name.c_str());
-        ImGui::Text("NORAD: %lld", static_cast<long long>(selected->norad_catalog_id));
-        if (!selected->object_id.empty())
-            ImGui::Text("Object ID: %s", selected->object_id.c_str());
-        ImGui::Text("Central body: %.*s",
-            static_cast<int>(central_body_name(selected->central_body).size()),
-            central_body_name(selected->central_body).data());
-        ImGui::Text("Kind: %.*s",
-            static_cast<int>(satellite_object_kind_name(selected->object_kind).size()),
-            satellite_object_kind_name(selected->object_kind).data());
-        ImGui::Text("Population: %.*s",
-            static_cast<int>(satellite_population_name(selected->population).size()),
-            satellite_population_name(selected->population).data());
-        ImGui::Text("Fidelity: %.*s",
-            static_cast<int>(orbit_solution_kind_name(selected->solution_kind).size()),
-            orbit_solution_kind_name(selected->solution_kind).data());
-        if (!selected->owner.empty())
-            ImGui::Text("Owner: %s", selected->owner.c_str());
-        if (!selected->operational_status_code.empty())
-            ImGui::Text("Status: %s", selected->operational_status_code.c_str());
-        ImGui::TextDisabled("No usable public orbital state; this object is not rendered.");
-        if (ImGui::Button("Clear Selection"))
-        {
-            selected_norad_catalog_id_.reset();
-            simulation_settings_dirty_ = true;
-            changed = true;
-        }
-    }
-    else
-    {
-        ImGui::TextDisabled("No object selected.");
-    }
     }
     ImGui::End();
 
@@ -4516,6 +4578,13 @@ const SatViewLunarSurfaceObject* SatViewHost::selected_lunar_surface_object() co
     return &lunar_surface_catalog_->objects[*selected_lunar_surface_index_];
 }
 
+const SatViewSolarSystemBody* SatViewHost::selected_natural_body() const
+{
+    if (!selected_natural_body_.has_value())
+        return nullptr;
+    return &satview_solar_system_body(*selected_natural_body_);
+}
+
 void SatViewHost::center_selected_lunar_surface_object(double simulation_seconds)
 {
     const SatViewLunarSurfaceObject* selected = selected_lunar_surface_object();
@@ -4535,7 +4604,7 @@ void SatViewHost::center_selected_lunar_surface_object(double simulation_seconds
     {
         const glm::dvec3 moon_position = satview_moon_position(
             simulation_seconds)
-                                              .render_position_earth_radii;
+                                             .render_position_earth_radii;
         const glm::dvec3 direction = satview_lunar_body_to_render_direction(
             satview_lunar_body_direction(
                 selected->latitude_degrees,
@@ -4573,7 +4642,10 @@ void SatViewHost::select_nearest_object(const glm::ivec2& screen_pos)
     if (select_nearest_lunar_surface_object(screen_pos))
         return;
     if (satview_uses_generic_body_view(camera_pov_))
+    {
+        select_nearest_natural_body(screen_pos, false);
         return;
+    }
     if (!satellite_display_shows_markers(satellite_display_mode_))
         return;
 
@@ -4717,11 +4789,82 @@ void SatViewHost::select_nearest_object(const glm::ivec2& screen_pos)
     {
         selected_norad_catalog_id_ = nearest_id;
         if (nearest_id.has_value())
+        {
             selected_lunar_surface_index_.reset();
+            selected_natural_body_.reset();
+        }
         sync_simulation_render_settings();
         invalidate_visual_buffers();
     }
     request_redraw();
+}
+
+bool SatViewHost::select_nearest_natural_body(const glm::ivec2& screen_pos, bool enter_body)
+{
+    if (!satview_uses_generic_body_view(camera_pov_)
+        || projection_mode_ != SatViewProjectionMode::Globe)
+    {
+        return false;
+    }
+
+    const double simulation_seconds = simulation_worker_
+        ? simulation_worker_->current_simulation_seconds()
+        : last_draw_simulation_seconds_;
+    const std::vector<SatViewBodyRenderInstance> instances = satview_child_body_instances(camera_pov_, simulation_seconds);
+    if (instances.empty())
+        return false;
+
+    const int pixel_w = std::max(1, scene_viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, scene_viewport_.pixel_size.y);
+    const float viewport_aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
+    const float scene_radius = solar_system_scene_radius(camera_pov_);
+    const glm::mat4 view = camera_view_matrix(*camera_);
+    const glm::mat4 proj = glm::perspectiveRH_ZO(
+        glm::radians(camera_->GetFieldOfView()),
+        viewport_aspect,
+        camera_near_plane(camera_pov_, camera_->GetDistance()),
+        camera_far_plane(camera_->GetDistance(), scene_radius));
+    const glm::mat4 view_proj = proj * view;
+
+    std::optional<SatViewCameraPov> nearest_body;
+    float nearest_distance_sq = static_cast<float>(
+        kClickSelectionMaxDistancePixels * kClickSelectionMaxDistancePixels);
+    for (const SatViewBodyRenderInstance& instance : instances)
+    {
+        const glm::vec3 world = to_vec3(instance.position_focus_radii);
+        const glm::vec4 clip = view_proj * glm::vec4(world, 1.0f);
+        if (clip.w <= 0.0f)
+            continue;
+        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.x < -1.1f || ndc.x > 1.1f || ndc.y < -1.1f || ndc.y > 1.1f
+            || ndc.z < 0.0f || ndc.z > 1.0f)
+        {
+            continue;
+        }
+        const float sx = static_cast<float>(scene_viewport_.pixel_pos.x)
+            + (ndc.x * 0.5f + 0.5f) * static_cast<float>(pixel_w);
+        const float sy = static_cast<float>(scene_viewport_.pixel_pos.y)
+            + (1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<float>(pixel_h);
+        const glm::vec2 delta = glm::vec2(sx, sy) - glm::vec2(screen_pos);
+        const float distance_sq = glm::dot(delta, delta);
+        if (distance_sq < nearest_distance_sq)
+        {
+            nearest_distance_sq = distance_sq;
+            nearest_body = instance.body;
+        }
+    }
+
+    if (!nearest_body.has_value())
+        return false;
+
+    selected_natural_body_ = nearest_body;
+    selected_norad_catalog_id_.reset();
+    selected_lunar_surface_index_.reset();
+    invalidate_visual_buffers();
+    if (enter_body)
+        set_camera_pov(*nearest_body, simulation_seconds);
+    request_redraw();
+    return true;
 }
 
 bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_pos)
@@ -4740,7 +4883,7 @@ bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_p
     const double simulation_seconds = last_draw_simulation_seconds_;
     const glm::dvec3 moon_position = satview_moon_position(
         simulation_seconds)
-                                          .render_position_earth_radii;
+                                         .render_position_earth_radii;
     const bool map_projection = projection_mode_ == SatViewProjectionMode::Map;
     const bool show_children = !map_projection
         && camera_->GetDistance()
@@ -4748,10 +4891,10 @@ bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_p
     const float viewport_aspect = static_cast<float>(pixel_width)
         / static_cast<float>(pixel_height);
     const glm::mat4 view_projection = glm::perspectiveRH_ZO(
-        glm::radians(camera_->GetFieldOfView()),
-        viewport_aspect,
-        kCameraMinNearPlane,
-        kCameraMaxDistanceCap)
+                                          glm::radians(camera_->GetFieldOfView()),
+                                          viewport_aspect,
+                                          kCameraMinNearPlane,
+                                          kCameraMaxDistanceCap)
         * camera_view_matrix(*camera_);
 
     std::optional<std::size_t> nearest_index;
@@ -4836,6 +4979,7 @@ bool SatViewHost::select_nearest_lunar_surface_object(const glm::ivec2& screen_p
         return false;
     selected_lunar_surface_index_ = nearest_index;
     selected_norad_catalog_id_.reset();
+    selected_natural_body_.reset();
     sync_simulation_render_settings();
     invalidate_visual_buffers();
     request_redraw();

@@ -38,6 +38,31 @@ struct SatViewContextBodyProxy
     double angular_radius_radians = 0.0;
 };
 
+struct SatViewBodyOrbitTrack
+{
+    SatViewCameraPov body = SatViewCameraPov::Earth;
+    std::vector<glm::dvec3> points_focus_radii;
+    double radius_focus_radii = 0.0;
+    glm::vec4 color{ 1.0f };
+};
+
+struct SatViewBodyRenderInstance
+{
+    SatViewCameraPov body = SatViewCameraPov::Earth;
+    glm::dvec3 position_focus_radii{ 0.0 };
+    double radius_focus_radii = 0.0;
+    double rotation_radians = 0.0;
+    double polar_radius_ratio = 1.0;
+    bool emissive = false;
+};
+
+struct SatViewRingBand
+{
+    double inner_radius_body_radii = 0.0;
+    double outer_radius_body_radii = 0.0;
+    glm::vec4 color{ 1.0f };
+};
+
 [[nodiscard]] std::span<const SatViewSolarSystemBody> satview_solar_system_bodies();
 [[nodiscard]] const SatViewSolarSystemBody& satview_solar_system_body(SatViewCameraPov id);
 [[nodiscard]] std::optional<SatViewCameraPov> satview_camera_pov_from_config_name(
@@ -60,6 +85,15 @@ struct SatViewContextBodyProxy
 [[nodiscard]] std::vector<glm::dvec3> satview_body_orbit_in_parent_frame(
     const SatViewSolarSystemBody& body,
     std::size_t segment_count);
+[[nodiscard]] std::vector<SatViewBodyOrbitTrack> satview_child_orbit_tracks(
+    SatViewCameraPov parent,
+    const SatViewPlanetTrackConfig& planet_tracks,
+    std::size_t segment_count);
+[[nodiscard]] std::vector<SatViewBodyRenderInstance> satview_child_body_instances(
+    SatViewCameraPov parent,
+    double unix_seconds);
+[[nodiscard]] std::span<const SatViewRingBand> satview_planetary_ring_bands(
+    SatViewCameraPov body);
 [[nodiscard]] glm::dvec3 satview_body_sun_direction(
     SatViewCameraPov id,
     double unix_seconds);

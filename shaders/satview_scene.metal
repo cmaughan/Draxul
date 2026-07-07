@@ -694,6 +694,86 @@ fragment float4 satview_context_body_fragment(
     return float4(surface * (0.025f + 1.12f * diffuse) + surface * rim * 0.025f, 1.0f);
 }
 
+float3 satview_solid_body_color(int body_id)
+{
+    if (body_id == 6) return float3(0.48f, 0.43f, 0.38f);
+    if (body_id == 7) return float3(0.58f, 0.54f, 0.49f);
+    if (body_id == 9) return float3(0.91f, 0.76f, 0.30f);
+    if (body_id == 10) return float3(0.76f, 0.69f, 0.57f);
+    if (body_id == 11) return float3(0.56f, 0.51f, 0.44f);
+    if (body_id == 12) return float3(0.39f, 0.36f, 0.32f);
+    if (body_id == 14) return float3(0.70f, 0.70f, 0.68f);
+    if (body_id == 15) return float3(0.85f, 0.88f, 0.90f);
+    if (body_id == 16) return float3(0.75f, 0.76f, 0.76f);
+    if (body_id == 17) return float3(0.72f, 0.73f, 0.74f);
+    if (body_id == 18) return float3(0.67f, 0.67f, 0.66f);
+    if (body_id == 19) return float3(0.80f, 0.55f, 0.20f);
+    if (body_id == 20) return float3(0.52f, 0.48f, 0.43f);
+    if (body_id == 22) return float3(0.69f, 0.70f, 0.70f);
+    if (body_id == 23) return float3(0.72f, 0.74f, 0.75f);
+    if (body_id == 24) return float3(0.37f, 0.37f, 0.38f);
+    if (body_id == 25) return float3(0.62f, 0.62f, 0.62f);
+    if (body_id == 26) return float3(0.50f, 0.47f, 0.45f);
+    if (body_id == 28) return float3(0.70f, 0.64f, 0.60f);
+    return float3(0.72f, 0.74f, 0.78f);
+}
+
+fragment float4 satview_solid_body_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    float3 normal = normalize(in.normal);
+    float3 light = normalize(frame.sun_dir_time.xyz);
+    float3 view = normalize(frame.camera_pos.xyz - in.world);
+    float diffuse = max(dot(normal, light), 0.0f);
+    float rim = pow(1.0f - max(dot(normal, view), 0.0f), 3.0f);
+    int body_id = int(frame.sun_dir_time.w + 0.5f);
+    float3 surface = satview_solid_body_color(body_id);
+    return float4(surface * (0.035f + 1.10f * diffuse) + surface * rim * 0.08f, 1.0f);
+}
+
+vertex SatViewVertexOut satview_ring_vertex(
+    uint vertex_id [[vertex_id]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    float2 corners[6] = {
+        float2(-1.0f, -1.0f),
+        float2(1.0f, 1.0f),
+        float2(1.0f, -1.0f),
+        float2(-1.0f, -1.0f),
+        float2(-1.0f, 1.0f),
+        float2(1.0f, 1.0f),
+    };
+    float outer_radius = max(frame.camera_orientation.y, 0.001f);
+    float2 local = corners[vertex_id] * outer_radius;
+    float3 world = float3(local.x, 0.0f, local.y);
+
+    SatViewVertexOut out;
+    out.position = project_world_position(world, frame);
+    out.normal = float3(0.0f, 1.0f, 0.0f);
+    out.world = world;
+    out.uv = local;
+    return out;
+}
+
+fragment float4 satview_ring_fragment(
+    SatViewVertexOut in [[stage_in]],
+    constant SatViewFrameUniforms& frame [[buffer(0)]])
+{
+    float inner_radius = frame.camera_orientation.x;
+    float outer_radius = frame.camera_orientation.y;
+    float radius = length(in.uv);
+    if (radius < inner_radius || radius > outer_radius)
+        discard_fragment();
+
+    float band_width = max(outer_radius - inner_radius, 0.001f);
+    float feather = min(0.035f, band_width * 0.45f);
+    float inner_alpha = smoothstep(inner_radius, inner_radius + feather, radius);
+    float outer_alpha = 1.0f - smoothstep(outer_radius - feather, outer_radius, radius);
+    float alpha = frame.sun_dir_time.a * inner_alpha * outer_alpha;
+    return float4(frame.sun_dir_time.rgb, alpha);
+}
+
 constant float kCloudRadius = 1.0015f;
 
 vertex SatViewVertexOut satview_cloud_vertex(
@@ -1352,7 +1432,8 @@ vertex SatViewLabelOut satview_label_vertex(
     float2 viewport = max(frame.render_params.xy, float2(1.0f));
     float2 pixel_offset = corner * label.pixel_size_offset.xy * 0.5f
         + label.pixel_size_offset.zw;
-    projected.xy += pixel_offset * (2.0f / viewport) * projected.w;
+    float2 clip_pixel_offset = float2(pixel_offset.x, -pixel_offset.y);
+    projected.xy += clip_pixel_offset * (2.0f / viewport) * projected.w;
 
     SatViewLabelOut out;
     out.position = visible ? projected : float4(2.0f, 2.0f, 0.0f, 1.0f);
