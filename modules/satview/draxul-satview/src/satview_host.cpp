@@ -1283,32 +1283,21 @@ void SatViewHost::draw(IFrameContext& frame)
               moon_enabled_,
               sun_enabled_,
               earth_track_visible);
-    camera_->SetFocalPoint(camera_target_position(camera_pov_, moon, sun_position));
-    camera_->SetDistanceLimits(
-        camera_min_distance(camera_pov_),
-        camera_max_distance_for_radius(scene_radius));
-
-    const int pixel_w = std::max(1, scene_viewport_.pixel_size.x);
-    const int pixel_h = std::max(1, scene_viewport_.pixel_size.y);
-    camera_->SetFilmSize(static_cast<float>(pixel_w), static_cast<float>(pixel_h));
-    if (!map_projection && !ground_projection && camera_->PreRender())
-        request_redraw();
-    const glm::mat4 view = ground_projection
-        ? satview_ground_view_matrix(ground_eye, ground_camera_orientation_)
-        : camera_view_matrix(*camera_);
-    const glm::vec3 eye = ground_projection ? ground_eye : camera_->GetPosition();
     const SatViewSolarSystemBody& focus_body = satview_solar_system_body(camera_pov_);
     std::optional<SatViewContextBodyState> context_sun_state;
     std::optional<SatViewContextBodyState> context_parent_state;
     const SatViewSolarSystemBody* context_parent_body = nullptr;
     if (generic_body_view && !map_projection)
     {
+        // Positions and radii are observer-independent, so last frame's camera
+        // position is a fine observer for the inside-the-body guard.
+        const glm::dvec3 context_observer(camera_->GetPosition());
         if (camera_pov_ != SatViewCameraPov::Sun && sun_enabled_)
         {
             context_sun_state = satview_context_body_state(
                 camera_pov_,
                 SatViewCameraPov::Sun,
-                glm::dvec3(eye),
+                context_observer,
                 simulation_seconds);
         }
         if (focus_body.parent.has_value()
@@ -1318,13 +1307,13 @@ void SatViewHost::draw(IFrameContext& frame)
             context_parent_state = satview_context_body_state(
                 camera_pov_,
                 context_parent_body->id,
-                glm::dvec3(eye),
+                context_observer,
                 simulation_seconds);
         }
     }
-    // Contextual bodies sit at true interplanetary distances, so the far plane
-    // must reach them; camera distance limits keep using scene_radius so the
-    // view still frames the focus body's local system.
+    // Contextual bodies sit at true interplanetary distances; extend both the
+    // far plane and the camera zoom ceiling to cover them, matching the Earth
+    // view where the visible sun already grows the scene radius.
     float far_radius = scene_radius;
     if (context_sun_state)
     {
@@ -1340,6 +1329,20 @@ void SatViewHost::draw(IFrameContext& frame)
             static_cast<float>(glm::length(context_parent_state->position_focus_radii)
                 + context_parent_state->radius_focus_radii));
     }
+    camera_->SetFocalPoint(camera_target_position(camera_pov_, moon, sun_position));
+    camera_->SetDistanceLimits(
+        camera_min_distance(camera_pov_),
+        camera_max_distance_for_radius(far_radius));
+
+    const int pixel_w = std::max(1, scene_viewport_.pixel_size.x);
+    const int pixel_h = std::max(1, scene_viewport_.pixel_size.y);
+    camera_->SetFilmSize(static_cast<float>(pixel_w), static_cast<float>(pixel_h));
+    if (!map_projection && !ground_projection && camera_->PreRender())
+        request_redraw();
+    const glm::mat4 view = ground_projection
+        ? satview_ground_view_matrix(ground_eye, ground_camera_orientation_)
+        : camera_view_matrix(*camera_);
+    const glm::vec3 eye = ground_projection ? ground_eye : camera_->GetPosition();
     const float viewport_aspect = static_cast<float>(pixel_w) / static_cast<float>(pixel_h);
     const glm::mat4 proj = reversed_z_perspective(
         glm::radians(ground_projection ? ground_fov_degrees_ : camera_->GetFieldOfView()),
