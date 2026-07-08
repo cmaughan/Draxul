@@ -272,6 +272,9 @@ static float2 map_position_from_render_teme(
     constant SatViewFrameUniforms& frame,
     bool earth_fixed)
 {
+    if (frame.camera_orientation.z > 2.5f)
+        return render_position.xy;
+
     float3 body_position = frame.camera_orientation.z > 1.5f
         ? render_to_solar_body(render_position, frame)
         : frame.camera_orientation.z > 0.5f

@@ -6,9 +6,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <cmath>
-#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -60,7 +60,7 @@ bool is_sun_synchronous_candidate(
     const double nodal_rate_deg_per_day = nodal_rate_rad_s * kSecondsPerDay * 360.0 / kTwoPi;
     return std::isfinite(nodal_rate_deg_per_day)
         && std::abs(nodal_rate_deg_per_day - kMeanSolarNodalRateDegPerDay)
-            <= kSunSynchronousRateToleranceDegPerDay;
+        <= kSunSynchronousRateToleranceDegPerDay;
 }
 
 SatellitePopulation population_for_kind(SatelliteObjectKind kind, bool active_payload)
@@ -654,8 +654,7 @@ std::optional<SatelliteRecord> make_record(const JsonObject& object)
 
     record.norad_catalog_id = *catalog_id;
     record.epoch_utc = *epoch;
-    record.object_name = string_field(object, "OBJECT_NAME").value_or(
-        "CATNR " + std::to_string(record.norad_catalog_id));
+    record.object_name = string_field(object, "OBJECT_NAME").value_or("CATNR " + std::to_string(record.norad_catalog_id));
     record.object_id = string_field(object, "OBJECT_ID").value_or("");
     record.object_type = string_field(object, "OBJECT_TYPE").value_or("");
     record.object_kind = derive_object_kind(record.object_type, record.object_name);
@@ -888,8 +887,7 @@ void derive_satcat_orbit_shape(SatelliteRecord& record)
         if (record.satcat_period_minutes.has_value())
             record.period_minutes = *record.satcat_period_minutes;
         else if (semi_major_axis > 0.0)
-            record.period_minutes = kTwoPi * std::sqrt(
-                semi_major_axis * semi_major_axis * semi_major_axis / body_mu_km3_per_s2) / 60.0;
+            record.period_minutes = kTwoPi * std::sqrt(semi_major_axis * semi_major_axis * semi_major_axis / body_mu_km3_per_s2) / 60.0;
     }
     else if (record.satcat_period_minutes.has_value())
     {
@@ -1004,6 +1002,8 @@ std::string_view central_body_name(CentralBody central_body)
         return "Earth";
     case CentralBody::Moon:
         return "Moon";
+    case CentralBody::Mars:
+        return "Mars";
     case CentralBody::Other:
         return "Other";
     }
@@ -1228,7 +1228,8 @@ CatalogParseResult parse_celestrak_satcat_csv(
         const std::string orbit_center = uppercase_ascii(field(row, "ORBIT_CENTER"));
         const std::string orbit_type = uppercase_ascii(field(row, "ORBIT_TYPE"));
         if (!decay_date.empty()
-            || (!orbit_center.empty() && orbit_center != "EA" && orbit_center != "MO")
+            || (!orbit_center.empty() && orbit_center != "EA" && orbit_center != "MO"
+                && orbit_center != "MA")
             || orbit_type != "ORB")
         {
             ++result.catalog.excluded_records;
@@ -1252,6 +1253,8 @@ CatalogParseResult parse_celestrak_satcat_csv(
         record.orbit_type = orbit_type;
         record.central_body = record.orbit_center == "MO"
             ? CentralBody::Moon
+            : record.orbit_center == "MA"
+            ? CentralBody::Mars
             : CentralBody::Earth;
 
         bool invalid_orbit_numeric = false;
@@ -1264,8 +1267,9 @@ CatalogParseResult parse_celestrak_satcat_csv(
         if (invalid_rcs)
             ++result.catalog.malformed_records;
         // SATCAT's summary altitudes are Earth-oriented and are not a
-        // Moon-relative state even when ORBIT_CENTER is MO. Lunar rows need
-        // a sourced ephemeris before they can be rendered truthfully.
+        // Moon- or Mars-relative state even when ORBIT_CENTER names another
+        // body. Non-Earth rows need a sourced ephemeris before they can be
+        // rendered truthfully.
         record.renderable = record.central_body == CentralBody::Earth
             && !invalid_orbit_numeric
             && satellite_record_has_summary_orbit(record);

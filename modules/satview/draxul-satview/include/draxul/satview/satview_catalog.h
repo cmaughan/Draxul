@@ -40,6 +40,7 @@ enum class CentralBody
 {
     Earth,
     Moon,
+    Mars,
     Other
 };
 

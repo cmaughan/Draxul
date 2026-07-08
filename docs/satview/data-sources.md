@@ -1,6 +1,6 @@
 # SatView Data Sources
 
-Last reviewed: 2026-07-06
+Last reviewed: 2026-07-08
 
 SatView uses three categories of data:
 
@@ -103,6 +103,23 @@ ephemeris.
 
 The broader source audit and unresolved lunar inventory are recorded in
 [`plans/satview-lunar-data-source-audit.md`](../../plans/satview-lunar-data-source-audit.md).
+
+## Mars Surface Catalogue
+
+Mars surface markers are a curated offline catalogue, not a runtime feed:
+
+- data:
+  [`mars_surface_objects.csv`](../../assets/satview/catalog/mars_surface_objects.csv);
+- provenance:
+  [`MARS_SURFACE_OBJECTS_ATTRIBUTION.md`](../../assets/satview/catalog/MARS_SURFACE_OBJECTS_ATTRIBUTION.md).
+
+The initial file contains nine historical landing sites: Viking 1, Viking 2,
+Mars Pathfinder, Spirit, Opportunity, Phoenix, Curiosity, InSight, and
+Perseverance. Coordinates are normalized to the same east-positive surface
+catalogue schema used by the lunar surface loader, so the UI and renderer can
+apply generic per-body surface filters. This catalogue is updated manually when
+a primary mission or archive source supplies a new landed position; it does not
+track current rover traverse positions.
 
 ## Solar-System Body Catalogue
 
@@ -215,6 +232,8 @@ cache directory and are not written into the build tree.
   present a prominent asset-age or coverage-ending warning before it expires.
 - The lunar disposition overlay covers only confirmed cases. Many legacy
   SATCAT Moon records still require impact/escape/orbit verification.
+- Mars SATCAT `ORB` rows are retained as catalogue-only entries until a real
+  Mars-relative ephemeris or trajectory source is imported.
 - CelesTrak GP and SATCAT are freshness-checked at startup or user refresh;
   unlike clouds, they are not automatically polled again merely because a
   SatView pane remains open past the freshness threshold.

@@ -361,6 +361,7 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("show_catalog_only", config.filter.show_catalog_only);
     assign_bool("show_earth_objects", config.filter.show_earth);
     assign_bool("show_moon_objects", config.filter.show_moon);
+    assign_bool("show_mars_objects", config.filter.show_mars);
     assign_bool("constellation_lines", config.constellation_lines_enabled);
     assign_bool("constellation_boundaries", config.constellation_boundaries_enabled);
     assign_bool("constellation_labels", config.constellation_labels_enabled);
@@ -370,13 +371,58 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("atmosphere", config.atmosphere_enabled);
     assign_bool("moon", config.moon_enabled);
     assign_bool("moon_track", config.moon_track_enabled);
-    assign_bool("lunar_surface_objects", config.lunar_surface_objects_enabled);
-    assign_bool("show_lunar_landers", config.show_lunar_landers);
-    assign_bool("show_lunar_rovers", config.show_lunar_rovers);
-    assign_bool("show_lunar_instruments", config.show_lunar_instruments);
-    assign_bool("show_lunar_impacts", config.show_lunar_impacts);
-    assign_bool("show_lunar_crewed_artifacts", config.show_lunar_crewed_artifacts);
-    assign_bool("show_lunar_approximate_locations", config.show_lunar_approximate_locations);
+    const auto assign_surface_bool = [&](std::string_view key,
+                                         std::string_view legacy_lunar_key,
+                                         std::string_view legacy_mars_key,
+                                         bool& target) {
+        if (auto value = toml_support::get_bool(table, key))
+        {
+            target = *value;
+            return;
+        }
+        if (auto value = toml_support::get_bool(table, legacy_lunar_key))
+        {
+            target = *value;
+            return;
+        }
+        if (auto value = toml_support::get_bool(table, legacy_mars_key))
+            target = *value;
+    };
+    assign_surface_bool(
+        "surface_objects",
+        "lunar_surface_objects",
+        "mars_surface_objects",
+        config.surface_objects_enabled);
+    assign_surface_bool(
+        "show_surface_landers",
+        "show_lunar_landers",
+        "show_mars_landers",
+        config.show_surface_landers);
+    assign_surface_bool(
+        "show_surface_rovers",
+        "show_lunar_rovers",
+        "show_mars_rovers",
+        config.show_surface_rovers);
+    assign_surface_bool(
+        "show_surface_instruments",
+        "show_lunar_instruments",
+        "show_mars_instruments",
+        config.show_surface_instruments);
+    assign_surface_bool(
+        "show_surface_impacts",
+        "show_lunar_impacts",
+        "show_mars_impacts",
+        config.show_surface_impacts);
+    assign_surface_bool(
+        "show_surface_crewed_artifacts",
+        "show_lunar_crewed_artifacts",
+        "show_mars_crewed_artifacts",
+        config.show_surface_crewed_artifacts);
+    assign_surface_bool(
+        "show_surface_approximate_locations",
+        "show_lunar_approximate_locations",
+        "show_mars_approximate_locations",
+        config.show_surface_approximate_locations);
     assign_bool("earth_track", config.earth_track_enabled);
     for (const SatViewCameraPov body : kSatViewPlanetTrackBodies)
     {
@@ -454,6 +500,7 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("show_catalog_only", config.filter.show_catalog_only);
     table.insert_or_assign("show_earth_objects", config.filter.show_earth);
     table.insert_or_assign("show_moon_objects", config.filter.show_moon);
+    table.insert_or_assign("show_mars_objects", config.filter.show_mars);
     table.insert_or_assign("constellation_lines", config.constellation_lines_enabled);
     table.insert_or_assign("constellation_boundaries", config.constellation_boundaries_enabled);
     table.insert_or_assign("constellation_labels", config.constellation_labels_enabled);
@@ -463,13 +510,13 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("atmosphere", config.atmosphere_enabled);
     table.insert_or_assign("moon", config.moon_enabled);
     table.insert_or_assign("moon_track", config.moon_track_enabled);
-    table.insert_or_assign("lunar_surface_objects", config.lunar_surface_objects_enabled);
-    table.insert_or_assign("show_lunar_landers", config.show_lunar_landers);
-    table.insert_or_assign("show_lunar_rovers", config.show_lunar_rovers);
-    table.insert_or_assign("show_lunar_instruments", config.show_lunar_instruments);
-    table.insert_or_assign("show_lunar_impacts", config.show_lunar_impacts);
-    table.insert_or_assign("show_lunar_crewed_artifacts", config.show_lunar_crewed_artifacts);
-    table.insert_or_assign("show_lunar_approximate_locations", config.show_lunar_approximate_locations);
+    table.insert_or_assign("surface_objects", config.surface_objects_enabled);
+    table.insert_or_assign("show_surface_landers", config.show_surface_landers);
+    table.insert_or_assign("show_surface_rovers", config.show_surface_rovers);
+    table.insert_or_assign("show_surface_instruments", config.show_surface_instruments);
+    table.insert_or_assign("show_surface_impacts", config.show_surface_impacts);
+    table.insert_or_assign("show_surface_crewed_artifacts", config.show_surface_crewed_artifacts);
+    table.insert_or_assign("show_surface_approximate_locations", config.show_surface_approximate_locations);
     table.insert_or_assign("earth_track", config.earth_track_enabled);
     for (const SatViewCameraPov body : kSatViewPlanetTrackBodies)
     {
