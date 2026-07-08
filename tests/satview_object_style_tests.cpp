@@ -9,6 +9,7 @@ using draxul::satview::kSatelliteAccentPalette;
 using draxul::satview::normalized_satellite_prefix;
 using draxul::satview::satellite_prefix_color;
 using draxul::satview::satellite_prefix_hash;
+using draxul::satview::selected_marker_color;
 
 TEST_CASE("SatView normalizes satellite names into stable tree prefixes", "[satview][style]")
 {
@@ -50,4 +51,19 @@ TEST_CASE("Shared pastel accents stay bright enough for dark scenes", "[satview]
         CHECK(std::min({ color.r, color.g, color.b }) >= 0.45f);
         CHECK(color.a == 1.0f);
     }
+}
+
+TEST_CASE("SatView selected markers share the orbit highlight yellow", "[satview][style]")
+{
+    const glm::vec4 opaque = selected_marker_color();
+    CHECK(opaque.r == 1.0f);
+    CHECK(opaque.g == 0.96f);
+    CHECK(opaque.b == 0.68f);
+    CHECK(opaque.a == 1.0f);
+
+    const glm::vec4 faded = selected_marker_color(0.55f);
+    CHECK(faded.r == opaque.r);
+    CHECK(faded.g == opaque.g);
+    CHECK(faded.b == opaque.b);
+    CHECK(faded.a == 0.55f);
 }

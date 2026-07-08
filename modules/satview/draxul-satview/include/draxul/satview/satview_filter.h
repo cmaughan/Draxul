@@ -33,6 +33,7 @@ struct SatViewFilterState
     bool show_catalog_only = true;
     bool show_earth = true;
     bool show_moon = false;
+    bool show_mars = false;
 
     // Zero or negative disables the age filter.
     double max_epoch_age_days = 0.0;

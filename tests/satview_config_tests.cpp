@@ -39,13 +39,13 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK(config.planet_tracks.saturn);
     CHECK(config.planet_tracks.uranus);
     CHECK(config.planet_tracks.neptune);
-    CHECK(config.lunar_surface_objects_enabled);
-    CHECK(config.show_lunar_landers);
-    CHECK(config.show_lunar_rovers);
-    CHECK(config.show_lunar_instruments);
-    CHECK_FALSE(config.show_lunar_impacts);
-    CHECK(config.show_lunar_crewed_artifacts);
-    CHECK_FALSE(config.show_lunar_approximate_locations);
+    CHECK(config.surface_objects_enabled);
+    CHECK(config.show_surface_landers);
+    CHECK(config.show_surface_rovers);
+    CHECK(config.show_surface_instruments);
+    CHECK_FALSE(config.show_surface_impacts);
+    CHECK(config.show_surface_crewed_artifacts);
+    CHECK_FALSE(config.show_surface_approximate_locations);
     CHECK(config.ground_projection == SatViewGroundProjection::Stereographic);
     CHECK(config.ground_fov_degrees == 60.0f);
     CHECK(config.ground_marker_scale == 0.1f);
@@ -62,6 +62,7 @@ TEST_CASE("SatView config uses the shared default track count", "[satview][confi
     CHECK(config.filter.show_catalog_only);
     CHECK(config.filter.show_earth);
     CHECK_FALSE(config.filter.show_moon);
+    CHECK_FALSE(config.filter.show_mars);
     CHECK_FALSE(config.filter.sun_synchronous_only);
 }
 
@@ -79,6 +80,7 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.filter.show_catalog_only = false;
     expected.filter.show_earth = false;
     expected.filter.show_moon = true;
+    expected.filter.show_mars = true;
     expected.filter.sun_synchronous_only = true;
     expected.filter.max_epoch_age_days = 2.5;
     expected.color_mode = SatViewColorMode::OrbitClass;
@@ -109,13 +111,13 @@ TEST_CASE("SatView config round trips durable panel controls", "[satview][config
     expected.atmosphere_enabled = false;
     expected.moon_enabled = false;
     expected.moon_track_enabled = false;
-    expected.lunar_surface_objects_enabled = false;
-    expected.show_lunar_landers = false;
-    expected.show_lunar_rovers = false;
-    expected.show_lunar_instruments = false;
-    expected.show_lunar_impacts = true;
-    expected.show_lunar_crewed_artifacts = false;
-    expected.show_lunar_approximate_locations = true;
+    expected.surface_objects_enabled = false;
+    expected.show_surface_landers = false;
+    expected.show_surface_rovers = false;
+    expected.show_surface_instruments = false;
+    expected.show_surface_impacts = true;
+    expected.show_surface_crewed_artifacts = false;
+    expected.show_surface_approximate_locations = true;
     expected.earth_track_enabled = false;
     expected.planet_tracks.mercury = false;
     expected.planet_tracks.mars = false;
@@ -153,6 +155,29 @@ TEST_CASE("SatView config persists individual Sun-view planet tracks", "[satview
     CHECK_FALSE(actual.planet_tracks.jupiter);
     CHECK_FALSE(actual.planet_tracks.neptune);
     CHECK(actual == expected);
+}
+
+TEST_CASE("SatView config accepts legacy per-body surface filter keys", "[satview][config]")
+{
+    ConfigDocument document;
+    toml::table& table = document.ensure_table("satview");
+    table.insert_or_assign("lunar_surface_objects", false);
+    table.insert_or_assign("show_lunar_landers", false);
+    table.insert_or_assign("show_lunar_rovers", false);
+    table.insert_or_assign("show_lunar_instruments", false);
+    table.insert_or_assign("show_lunar_impacts", true);
+    table.insert_or_assign("show_lunar_crewed_artifacts", false);
+    table.insert_or_assign("show_lunar_approximate_locations", true);
+
+    const SatViewConfig config = load_satview_config(document);
+
+    CHECK_FALSE(config.surface_objects_enabled);
+    CHECK_FALSE(config.show_surface_landers);
+    CHECK_FALSE(config.show_surface_rovers);
+    CHECK_FALSE(config.show_surface_instruments);
+    CHECK(config.show_surface_impacts);
+    CHECK_FALSE(config.show_surface_crewed_artifacts);
+    CHECK(config.show_surface_approximate_locations);
 }
 
 TEST_CASE("SatView config clamps unsafe persisted values", "[satview][config]")

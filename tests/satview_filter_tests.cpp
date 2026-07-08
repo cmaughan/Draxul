@@ -2,16 +2,16 @@
 #include <draxul/satview/satview_filter.h>
 #include <memory>
 
+using draxul::satview::CentralBody;
+using draxul::satview::make_satview_filter_candidate;
 using draxul::satview::OrbitClass;
 using draxul::satview::OrbitSolutionKind;
-using draxul::satview::CentralBody;
-using draxul::satview::SatellitePropagatedState;
 using draxul::satview::SatelliteObjectKind;
 using draxul::satview::SatellitePopulation;
-using draxul::satview::SatViewFilterState;
-using draxul::satview::make_satview_filter_candidate;
+using draxul::satview::SatellitePropagatedState;
 using draxul::satview::satview_filter_matches;
 using draxul::satview::satview_select_central_body;
+using draxul::satview::SatViewFilterState;
 
 namespace
 {
@@ -196,8 +196,33 @@ TEST_CASE("SatView POV body selection replaces the object body filter", "[satvie
     satview_select_central_body(filter, CentralBody::Moon);
     CHECK_FALSE(filter.show_earth);
     CHECK(filter.show_moon);
+    CHECK_FALSE(filter.show_mars);
 
     satview_select_central_body(filter, CentralBody::Earth);
     CHECK(filter.show_earth);
     CHECK_FALSE(filter.show_moon);
+    CHECK_FALSE(filter.show_mars);
+
+    satview_select_central_body(filter, CentralBody::Mars);
+    CHECK_FALSE(filter.show_earth);
+    CHECK_FALSE(filter.show_moon);
+    CHECK(filter.show_mars);
+}
+
+TEST_CASE("SatView filter composes Mars central body and catalog-only fidelity", "[satview][filter][mars]")
+{
+    draxul::satview::SatelliteRecord record;
+    record.norad_catalog_id = 82001;
+    record.object_name = "MARS CATALOG ONLY";
+    record.central_body = CentralBody::Mars;
+    record.solution_kind = OrbitSolutionKind::CatalogOnly;
+
+    SatViewFilterState filter;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(record)));
+
+    satview_select_central_body(filter, CentralBody::Mars);
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(record)));
+
+    filter.show_catalog_only = false;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(record)));
 }

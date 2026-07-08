@@ -2,19 +2,19 @@
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/satview/satview_catalog.h>
 
+using draxul::satview::apply_lunar_disposition_csv;
+using draxul::satview::apply_sampled_ephemeris_csv;
+using draxul::satview::CentralBody;
+using draxul::satview::load_bundled_lunar_dispositions;
+using draxul::satview::load_bundled_sampled_ephemeris;
+using draxul::satview::merge_satellite_catalogs;
 using draxul::satview::OrbitClass;
 using draxul::satview::OrbitSolutionKind;
-using draxul::satview::CentralBody;
-using draxul::satview::SatelliteObjectKind;
-using draxul::satview::SatellitePopulation;
-using draxul::satview::merge_satellite_catalogs;
 using draxul::satview::parse_celestrak_gp_json;
 using draxul::satview::parse_celestrak_satcat_csv;
 using draxul::satview::satcat_status_is_active;
-using draxul::satview::apply_sampled_ephemeris_csv;
-using draxul::satview::load_bundled_sampled_ephemeris;
-using draxul::satview::apply_lunar_disposition_csv;
-using draxul::satview::load_bundled_lunar_dispositions;
+using draxul::satview::SatelliteObjectKind;
+using draxul::satview::SatellitePopulation;
 
 TEST_CASE("SatView catalog parses CelesTrak GP JSON records", "[satview][catalog]")
 {
@@ -158,10 +158,9 @@ TEST_CASE("SatView catalog derives sun-synchronous candidates from GP and SATCAT
     CHECK(gp.catalog.objects[0].sun_synchronous_candidate);
     CHECK_FALSE(gp.catalog.objects[1].sun_synchronous_candidate);
 
-    const std::string satcat_csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,INCLINATION,"
-        "APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "SUMMARY SSO,900001,PAY,+,,98.8,98.2,710,690,EA,ORB\n";
+    const std::string satcat_csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,INCLINATION,"
+                                   "APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                   "SUMMARY SSO,900001,PAY,+,,98.8,98.2,710,690,EA,ORB\n";
     const auto satcat = parse_celestrak_satcat_csv(satcat_csv);
     REQUIRE(satcat);
     REQUIRE(satcat.catalog.objects.size() == 1);
@@ -170,14 +169,13 @@ TEST_CASE("SatView catalog derives sun-synchronous candidates from GP and SATCAT
 
 TEST_CASE("SatView SATCAT parser handles RFC 4180 fields and population metadata", "[satview][catalog]")
 {
-    const std::string csv =
-        "OWNER,OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,"
-        "PERIOD,INCLINATION,APOGEE,PERIGEE,RCS,DATA_STATUS_CODE,ORBIT_CENTER,ORBIT_TYPE\r\n"
-        "US,\"PAYLOAD, \"\"ALPHA\"\"\",123456789,2026-001A,PAY,+,,100,51.6,700,680,12.5,,EA,ORB\r\n"
-        "CIS,OLD PAYLOAD,200,1990-001A,PAY,-,,120,65,1200,1000,,,EA,ORB\r\n"
-        "US,ROCKET BODY,201,1990-001B,R/B,,,130,28,1500,900,,,EA,ORB\r\n"
-        "US,DEBRIS,202,1990-001C,DEB,,,140,28,1800,800,,,EA,ORB\r\n"
-        "US,UNKNOWN,203,1990-001D,UNK,,,,,,,,,EA,ORB\r\n";
+    const std::string csv = "OWNER,OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,"
+                            "PERIOD,INCLINATION,APOGEE,PERIGEE,RCS,DATA_STATUS_CODE,ORBIT_CENTER,ORBIT_TYPE\r\n"
+                            "US,\"PAYLOAD, \"\"ALPHA\"\"\",123456789,2026-001A,PAY,+,,100,51.6,700,680,12.5,,EA,ORB\r\n"
+                            "CIS,OLD PAYLOAD,200,1990-001A,PAY,-,,120,65,1200,1000,,,EA,ORB\r\n"
+                            "US,ROCKET BODY,201,1990-001B,R/B,,,130,28,1500,900,,,EA,ORB\r\n"
+                            "US,DEBRIS,202,1990-001C,DEB,,,140,28,1800,800,,,EA,ORB\r\n"
+                            "US,UNKNOWN,203,1990-001D,UNK,,,,,,,,,EA,ORB\r\n";
 
     const auto result = parse_celestrak_satcat_csv(csv, "SATCAT", "https://example/satcat.csv");
 
@@ -213,15 +211,14 @@ TEST_CASE("SatView SATCAT operational status mapping matches active population r
 
 TEST_CASE("SatView SATCAT parser separates malformed excluded and non-renderable rows", "[satview][catalog]")
 {
-    const std::string csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,INCLINATION,"
-        "APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "BAD ID,nope,PAY,+,,90,51,500,480,EA,ORB\n"
-        "DECAYED,10,DEB,,2020-01-01,90,51,500,480,EA,ORB\n"
-        "MOON,11,PAY,+,,90,51,500,480,MO,ORB\n"
-        "LANDED,12,PAY,+,,90,51,500,480,EA,LAN\n"
-        "BAD SUMMARY,13,PAY,+,,oops,51,,,EA,ORB\n"
-        "VALID PERIOD,14,PAY,+,,1436,0.1,,,EA,ORB\n";
+    const std::string csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,INCLINATION,"
+                            "APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                            "BAD ID,nope,PAY,+,,90,51,500,480,EA,ORB\n"
+                            "DECAYED,10,DEB,,2020-01-01,90,51,500,480,EA,ORB\n"
+                            "MOON,11,PAY,+,,90,51,500,480,MO,ORB\n"
+                            "LANDED,12,PAY,+,,90,51,500,480,EA,LAN\n"
+                            "BAD SUMMARY,13,PAY,+,,oops,51,,,EA,ORB\n"
+                            "VALID PERIOD,14,PAY,+,,1436,0.1,,,EA,ORB\n";
 
     const auto result = parse_celestrak_satcat_csv(csv);
 
@@ -239,15 +236,14 @@ TEST_CASE("SatView SATCAT parser separates malformed excluded and non-renderable
 
 TEST_CASE("SatView SATCAT parser retains only current Moon-orbit catalog rows", "[satview][catalog][moon]")
 {
-    const std::string csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
-        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "LUNAR CATALOG ONLY,81001,2026-001A,PAY,+,,,,,,MO,ORB\n"
-        "DRO-A,81002,2026-001B,PAY,+,,13000,5,70000,69000,MO,ORB\n"
-        "LUNAR R/B,81003,2026-001C,R/B,,,,,,,MO,ORB\n"
-        "LUNAR DEBRIS,81004,2026-001D,DEB,,,,,,,MO,ORB\n"
-        "IMPACTED,81005,2026-001E,PAY,+,,120,90,100,90,MO,IMP\n"
-        "DECAYED,81006,2026-001F,DEB,,2026-06-01,120,90,100,90,MO,ORB\n";
+    const std::string csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+                            "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                            "LUNAR CATALOG ONLY,81001,2026-001A,PAY,+,,,,,,MO,ORB\n"
+                            "DRO-A,81002,2026-001B,PAY,+,,13000,5,70000,69000,MO,ORB\n"
+                            "LUNAR R/B,81003,2026-001C,R/B,,,,,,,MO,ORB\n"
+                            "LUNAR DEBRIS,81004,2026-001D,DEB,,,,,,,MO,ORB\n"
+                            "IMPACTED,81005,2026-001E,PAY,+,,120,90,100,90,MO,IMP\n"
+                            "DECAYED,81006,2026-001F,DEB,,2026-06-01,120,90,100,90,MO,ORB\n";
 
     const auto result = parse_celestrak_satcat_csv(csv);
     REQUIRE(result);
@@ -263,20 +259,41 @@ TEST_CASE("SatView SATCAT parser retains only current Moon-orbit catalog rows", 
     CHECK(result.catalog.objects[3].object_kind == SatelliteObjectKind::Debris);
 }
 
+TEST_CASE("SatView SATCAT parser retains Mars orbit catalog rows without inventing positions", "[satview][catalog][mars]")
+{
+    const std::string csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+                            "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                            "MARS ORBITER,82001,2026-010A,PAY,+,,7200,74,4000,300,MA,ORB\n"
+                            "MARS CATALOG ONLY,82002,2026-010B,PAY,+,,,,,,MA,ORB\n"
+                            "MARS LANDED,82003,2026-010C,PAY,+,,120,90,100,90,MA,LAN\n"
+                            "DECAYED MARS,82004,2026-010D,DEB,,2026-06-01,120,90,100,90,MA,ORB\n";
+
+    const auto result = parse_celestrak_satcat_csv(csv);
+
+    REQUIRE(result);
+    REQUIRE(result.catalog.objects.size() == 2);
+    CHECK(result.catalog.excluded_records == 2);
+    CHECK(result.catalog.non_renderable_records == 2);
+    CHECK(result.catalog.objects[0].central_body == CentralBody::Mars);
+    CHECK(result.catalog.objects[0].solution_kind == OrbitSolutionKind::CatalogOnly);
+    CHECK_FALSE(result.catalog.objects[0].renderable);
+    CHECK(result.catalog.objects[1].central_body == CentralBody::Mars);
+    CHECK(result.catalog.objects[1].solution_kind == OrbitSolutionKind::CatalogOnly);
+    CHECK_FALSE(result.catalog.objects[1].renderable);
+}
+
 TEST_CASE("SatView sampled lunar ephemeris upgrades matching catalog-only records", "[satview][catalog][moon]")
 {
-    const std::string satcat_csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "LRO,38301,PAY,,,,,,MO,ORB\n";
+    const std::string satcat_csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                   "LRO,38301,PAY,,,,,,MO,ORB\n";
     auto parsed = parse_celestrak_satcat_csv(satcat_csv);
     REQUIRE(parsed);
     REQUIRE(parsed.catalog.objects.size() == 1);
     REQUIRE_FALSE(parsed.catalog.objects[0].renderable);
 
-    const std::string ephemeris_csv =
-        "NORAD_CAT_ID,SOURCE,FRAME,UNIX_SECONDS,X_KM,Y_KM,Z_KM,VX_KM_PER_S,VY_KM_PER_S,VZ_KM_PER_S\n"
-        "38301,JPL Horizons,MOON_EQUATORIAL_J2000,1000,1800,0,0,0,1.6,0\n"
-        "38301,JPL Horizons,MOON_EQUATORIAL_J2000,1060,1797,96,0,-0.085,1.598,0\n";
+    const std::string ephemeris_csv = "NORAD_CAT_ID,SOURCE,FRAME,UNIX_SECONDS,X_KM,Y_KM,Z_KM,VX_KM_PER_S,VY_KM_PER_S,VZ_KM_PER_S\n"
+                                      "38301,JPL Horizons,MOON_EQUATORIAL_J2000,1000,1800,0,0,0,1.6,0\n"
+                                      "38301,JPL Horizons,MOON_EQUATORIAL_J2000,1060,1797,96,0,-0.085,1.598,0\n";
     std::string error;
     CHECK(apply_sampled_ephemeris_csv(parsed.catalog, ephemeris_csv, &error) == 1);
     CHECK(error.empty());
@@ -289,14 +306,13 @@ TEST_CASE("SatView sampled lunar ephemeris upgrades matching catalog-only record
 
 TEST_CASE("SatView bundled ephemeris catalog upgrades the curated lunar missions", "[satview][catalog][moon]")
 {
-    const std::string satcat_csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "ARTEMIS P1 (THEMIS B),30581,PAY,,,,,,MO,ORB\n"
-        "ARTEMIS P2 (THEMIS C),30582,PAY,,,,,,MO,ORB\n"
-        "LRO,35315,PAY,,,,,,MO,ORB\n"
-        "CHANDRAYAAN-2,44441,PAY,,,,,,MO,ORB\n"
-        "CAPSTONE,52914,PAY,,,,,,MO,ORB\n"
-        "DANURI,53365,PAY,,,,,,MO,ORB\n";
+    const std::string satcat_csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                   "ARTEMIS P1 (THEMIS B),30581,PAY,,,,,,MO,ORB\n"
+                                   "ARTEMIS P2 (THEMIS C),30582,PAY,,,,,,MO,ORB\n"
+                                   "LRO,35315,PAY,,,,,,MO,ORB\n"
+                                   "CHANDRAYAAN-2,44441,PAY,,,,,,MO,ORB\n"
+                                   "CAPSTONE,52914,PAY,,,,,,MO,ORB\n"
+                                   "DANURI,53365,PAY,,,,,,MO,ORB\n";
     auto parsed = parse_celestrak_satcat_csv(satcat_csv);
     REQUIRE(parsed);
     REQUIRE(parsed.catalog.objects.size() == 6);
@@ -318,11 +334,10 @@ TEST_CASE("SatView bundled ephemeris catalog upgrades the curated lunar missions
 
 TEST_CASE("SatView lunar dispositions exclude confirmed surface and impacted rows", "[satview][catalog][moon]")
 {
-    const std::string satcat_csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "CHANG'E-4,43845,PAY,,MO,ORB\n"
-        "HAKUTO-R M2,62717,PAY,,MO,ORB\n"
-        "LRO,35315,PAY,,MO,ORB\n";
+    const std::string satcat_csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                   "CHANG'E-4,43845,PAY,,MO,ORB\n"
+                                   "HAKUTO-R M2,62717,PAY,,MO,ORB\n"
+                                   "LRO,35315,PAY,,MO,ORB\n";
     auto parsed = parse_celestrak_satcat_csv(satcat_csv);
     REQUIRE(parsed);
     REQUIRE(parsed.catalog.objects.size() == 3);
@@ -349,11 +364,10 @@ TEST_CASE("SatView catalog merge enriches GP rows and appends SATCAT estimates",
        "MEAN_MOTION":15.4,"ECCENTRICITY":0.0004,"INCLINATION":52,"RA_OF_ASC_NODE":121,
        "ARG_OF_PERICENTER":88,"MEAN_ANOMALY":272,"NORAD_CAT_ID":101}
     ])json";
-    const std::string satcat_csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,OWNER,DECAY_DATE,PERIOD,"
-        "INCLINATION,APOGEE,PERIGEE,RCS,DATA_STATUS_CODE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "MATCHED,100,2026-001A,PAY,-,US,,92.9,51.6,430,410,100,,EA,ORB\n"
-        "SATCAT ONLY,102,2026-003B,R/B,,CIS,,120,65,1200,900,25,,EA,ORB\n";
+    const std::string satcat_csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,OWNER,DECAY_DATE,PERIOD,"
+                                   "INCLINATION,APOGEE,PERIGEE,RCS,DATA_STATUS_CODE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                   "MATCHED,100,2026-001A,PAY,-,US,,92.9,51.6,430,410,100,,EA,ORB\n"
+                                   "SATCAT ONLY,102,2026-003B,R/B,,CIS,,120,65,1200,900,25,,EA,ORB\n";
 
     const auto gp = parse_celestrak_gp_json(gp_json, "active", "gp-url");
     const auto satcat = parse_celestrak_satcat_csv(satcat_csv, "SATCAT", "satcat-url");

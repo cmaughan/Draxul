@@ -141,16 +141,24 @@ void main()
 
     if (push.camera_pos.w < 0.0)
     {
-        vec3 body_position = push.camera_orientation.z > 1.5
-            ? render_to_solar_body(center)
-            : push.camera_orientation.z > 0.5
-            ? render_to_lunar_body(center)
-            : render_teme_to_ecef(center, push.render_params.z);
-        vec3 local = ecef_to_map_local(body_position, push.camera_orientation.xy);
-        float radius = max(length(local), 0.000001);
-        float longitude = atan(local.y, local.x);
-        float latitude = asin(clamp(local.z / radius, -1.0, 1.0));
-        vec2 map_center = vec2(longitude / PI, 2.0 * latitude / PI);
+        vec2 map_center;
+        if (push.camera_orientation.z > 2.5)
+        {
+            map_center = center.xy;
+        }
+        else
+        {
+            vec3 body_position = push.camera_orientation.z > 1.5
+                ? render_to_solar_body(center)
+                : push.camera_orientation.z > 0.5
+                ? render_to_lunar_body(center)
+                : render_teme_to_ecef(center, push.render_params.z);
+            vec3 local = ecef_to_map_local(body_position, push.camera_orientation.xy);
+            float radius = max(length(local), 0.000001);
+            float longitude = atan(local.y, local.x);
+            float latitude = asin(clamp(local.z / radius, -1.0, 1.0));
+            map_center = vec2(longitude / PI, 2.0 * latitude / PI);
+        }
         float x_scale = abs(push.camera_pos.w);
         map_center.x += in_style.y;
         vec2 map_position = map_center

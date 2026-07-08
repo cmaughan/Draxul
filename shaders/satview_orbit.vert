@@ -85,6 +85,9 @@ vec3 render_to_solar_body(vec3 render_position)
 
 vec2 map_position(vec3 render_position, bool earth_fixed)
 {
+    if (push.camera_orientation.z > 2.5)
+        return render_position.xy;
+
     vec3 body_position = push.camera_orientation.z > 1.5
         ? render_to_solar_body(render_position)
         : push.camera_orientation.z > 0.5

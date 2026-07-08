@@ -1,8 +1,8 @@
 #include <draxul/satview/satview_filter.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <limits>
 #include <string>
 
@@ -104,6 +104,8 @@ bool satview_central_body_visible(
         return filter.show_earth;
     case CentralBody::Moon:
         return filter.show_moon;
+    case CentralBody::Mars:
+        return filter.show_mars;
     case CentralBody::Other:
         return false;
     }
@@ -116,6 +118,7 @@ void satview_select_central_body(
 {
     filter.show_earth = central_body == CentralBody::Earth;
     filter.show_moon = central_body == CentralBody::Moon;
+    filter.show_mars = central_body == CentralBody::Mars;
 }
 
 bool satview_filter_matches(
@@ -161,10 +164,10 @@ bool satview_filter_matches(
     }
 
     if (!text_filter_matches(
-        filter.object_type_text,
-        candidate.object_type,
-        satellite_object_kind_name(candidate.object_kind),
-        candidate.classification_type))
+            filter.object_type_text,
+            candidate.object_type,
+            satellite_object_kind_name(candidate.object_kind),
+            candidate.classification_type))
     {
         return false;
     }
