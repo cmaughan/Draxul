@@ -63,6 +63,7 @@ struct SatellitePropagationEntry
     std::shared_ptr<const SatelliteStaticMetadata> metadata;
     OrbitClass orbit_class = OrbitClass::Other;
     bool sun_synchronous_candidate = false;
+    bool sun_synchronous_terminator = false;
     double epoch_unix_seconds = 0.0;
     double period_minutes = 0.0;
     double track_horizon_minutes = 0.0;
@@ -123,6 +124,7 @@ struct SatellitePropagatedState
     CentralBody central_body = CentralBody::Earth;
     OrbitClass orbit_class = OrbitClass::Other;
     bool sun_synchronous_candidate = false;
+    bool sun_synchronous_terminator = false;
     double period_minutes = 0.0;
     double minutes_since_epoch = 0.0;
     glm::dvec3 teme_position_km{ 0.0 };
@@ -150,6 +152,7 @@ struct SatelliteOrbitTrack
     std::optional<double> radar_cross_section_m2;
     OrbitClass orbit_class = OrbitClass::Other;
     bool sun_synchronous_candidate = false;
+    bool sun_synchronous_terminator = false;
     double minutes_since_epoch = 0.0;
     double sample_center_unix_seconds = 0.0;
     double sample_horizon_minutes = 0.0;
@@ -219,6 +222,11 @@ private:
 };
 
 [[nodiscard]] std::optional<double> parse_celestrak_epoch_utc(std::string_view epoch_utc);
+// True when a sun-synchronous candidate rides the terminator (dawn/dusk local
+// time of the ascending node, ~06:00/18:00), as opposed to a morning/afternoon
+// or noon/midnight orbit that passes through Earth's shadow. False for any
+// record that is not a sun-synchronous candidate.
+[[nodiscard]] bool satview_sun_synchronous_is_terminator(const SatelliteRecord& record);
 [[nodiscard]] SatViewJulianDate julian_date_from_unix_seconds(double unix_seconds);
 [[nodiscard]] double greenwich_sidereal_angle_radians(double unix_seconds);
 [[nodiscard]] glm::dvec3 solar_direction_teme(double unix_seconds);

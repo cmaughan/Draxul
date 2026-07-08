@@ -115,6 +115,41 @@ TEST_CASE("SatView filter gates derived sun-synchronous candidates independently
     CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
 }
 
+TEST_CASE("SatView filter splits sun-synchronous orbits into terminator and other", "[satview][filter]")
+{
+    SatellitePropagatedState state = make_state();
+    state.sun_synchronous_candidate = true;
+
+    SatViewFilterState filter;
+    filter.sun_synchronous_only = true;
+
+    // Both sub-toggles default on: every sun-synchronous orbit passes.
+    state.sun_synchronous_terminator = true;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+    state.sun_synchronous_terminator = false;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    // Terminator only: dawn/dusk pass, others are hidden.
+    filter.show_sun_synchronous_other = false;
+    state.sun_synchronous_terminator = true;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+    state.sun_synchronous_terminator = false;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    // Other only: dawn/dusk hidden, the rest pass.
+    filter.show_sun_synchronous_other = true;
+    filter.show_sun_synchronous_terminator = false;
+    state.sun_synchronous_terminator = true;
+    CHECK_FALSE(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+    state.sun_synchronous_terminator = false;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+
+    // The split only applies when the SSO restriction is active.
+    filter.sun_synchronous_only = false;
+    state.sun_synchronous_terminator = true;
+    CHECK(satview_filter_matches(filter, make_satview_filter_candidate(state)));
+}
+
 TEST_CASE("SatView filter gates populations and summary estimates independently", "[satview][filter]")
 {
     SatellitePropagatedState state = make_state();

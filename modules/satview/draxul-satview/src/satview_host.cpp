@@ -4064,6 +4064,26 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
                 "Derived from the current orbit's J2 nodal precession; "
                 "this is independent of the LEO/MEO/GEO/HEO class.");
         }
+        ImGui::BeginDisabled(!filter_.sun_synchronous_only);
+        ImGui::Indent();
+        changed |= ImGui::Checkbox(
+            "Dawn/dusk (terminator)", &filter_.show_sun_synchronous_terminator);
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Local time of the ascending node near 06:00/18:00; the plane rides "
+                "the terminator and stays sunlit.");
+        }
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox("Other SSO", &filter_.show_sun_synchronous_other);
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Morning/afternoon or noon/midnight sun-synchronous orbits; these pass "
+                "through Earth's shadow each orbit.");
+        }
+        ImGui::Unindent();
+        ImGui::EndDisabled();
 
         ImGui::SeparatorText("Population");
         const auto population_checkbox = [&](const char* label,
@@ -4394,7 +4414,11 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
                 static_cast<int>(central_body_name(selected->central_body).size()),
                 central_body_name(selected->central_body).data());
             ImGui::Text("Sun-synchronous: %s",
-                selected->sun_synchronous_candidate ? "Candidate (derived)" : "No");
+                !selected->sun_synchronous_candidate
+                    ? "No"
+                    : selected->sun_synchronous_terminator
+                        ? "Dawn/dusk terminator (derived)"
+                        : "Other (derived)");
             if (metadata && !metadata->object_type.empty())
                 ImGui::Text("Type: %s", metadata->object_type.c_str());
             ImGui::Text("Kind: %.*s",

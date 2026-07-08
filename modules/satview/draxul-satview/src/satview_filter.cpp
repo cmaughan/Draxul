@@ -126,8 +126,16 @@ bool satview_filter_matches(
         return false;
     if (!satview_orbit_class_visible(filter, candidate.orbit_class))
         return false;
-    if (filter.sun_synchronous_only && !candidate.sun_synchronous_candidate)
-        return false;
+    if (filter.sun_synchronous_only)
+    {
+        if (!candidate.sun_synchronous_candidate)
+            return false;
+        const bool class_visible = candidate.sun_synchronous_terminator
+            ? filter.show_sun_synchronous_terminator
+            : filter.show_sun_synchronous_other;
+        if (!class_visible)
+            return false;
+    }
     if (!satview_population_visible(filter, candidate.population))
         return false;
     if (!filter.show_summary_estimates
@@ -194,6 +202,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .central_body = record.central_body,
         .orbit_class = record.orbit_class,
         .sun_synchronous_candidate = record.sun_synchronous_candidate,
+        .sun_synchronous_terminator = satview_sun_synchronous_is_terminator(record),
         .minutes_since_epoch = std::numeric_limits<double>::quiet_NaN(),
     };
 }
@@ -215,6 +224,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .central_body = entry.central_body,
         .orbit_class = entry.orbit_class,
         .sun_synchronous_candidate = entry.sun_synchronous_candidate,
+        .sun_synchronous_terminator = entry.sun_synchronous_terminator,
         .minutes_since_epoch = 0.0,
     };
 }
@@ -237,6 +247,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .central_body = state.central_body,
         .orbit_class = state.orbit_class,
         .sun_synchronous_candidate = state.sun_synchronous_candidate,
+        .sun_synchronous_terminator = state.sun_synchronous_terminator,
         .minutes_since_epoch = state.minutes_since_epoch,
     };
 }
@@ -258,6 +269,7 @@ SatViewFilterCandidate make_satview_filter_candidate(
         .central_body = track.central_body,
         .orbit_class = track.orbit_class,
         .sun_synchronous_candidate = track.sun_synchronous_candidate,
+        .sun_synchronous_terminator = track.sun_synchronous_terminator,
         .minutes_since_epoch = track.minutes_since_epoch,
     };
 }

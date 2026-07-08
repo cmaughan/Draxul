@@ -56,6 +56,13 @@ struct CompiledOrbit
         double argument_perigee_radians = 0.0;
         double reference_mean_anomaly_radians = 0.0;
         double period_seconds = 0.0;
+
+        // Sun-synchronous summary orbits lock their ascending node to the Sun
+        // instead of to a fixed inertial RAAN. When set, right_ascension_radians
+        // is ignored and the node is recomputed each step from the Sun's right
+        // ascension plus this fixed offset (= (LTAN - 12h) * 15 deg/h).
+        bool sun_synchronous = false;
+        double sun_relative_node_offset_radians = 0.0;
     };
 
     OrbitSolutionKind solution_kind = OrbitSolutionKind::GeneralPerturbations;
@@ -78,6 +85,30 @@ double stable_angle(std::int64_t catalog_id, std::uint64_t salt)
     constexpr double kInverse53Bits = 1.0 / 9007199254740992.0;
     const std::uint64_t value = mix_catalog_id(catalog_id, salt) >> 11u;
     return static_cast<double>(value) * kInverse53Bits * kTwoPi;
+}
+
+double sun_synchronous_node_offset_radians(std::int64_t catalog_id)
+{
+    // Real sun-synchronous missions cluster around a handful of mean local
+    // times of the ascending node (LTAN): the dawn/dusk pair (06:00 / 18:00)
+    // that rides the terminator, plus common mid-morning / early-afternoon
+    // imaging slots. A summary object's true LTAN is unknown, so pick one
+    // deterministically per catalog id and express it as the fixed angle
+    // between the ascending node and the Sun: offset = (LTAN - 12h) * 15 deg/h.
+    static constexpr std::array<double, 6> kCanonicalLtanHours = {
+        6.0, 9.5, 10.0, 10.5, 13.5, 18.0
+    };
+    const std::size_t index = static_cast<std::size_t>(
+        mix_catalog_id(catalog_id, 0x2545f4914f6cdd1dull) % kCanonicalLtanHours.size());
+    return (kCanonicalLtanHours[index] - 12.0) * (kPi / 12.0);
+}
+
+double solar_right_ascension_radians(double unix_seconds)
+{
+    // Right ascension of the Sun in the same equatorial/TEME frame the summary
+    // orbit is built in, so the ascending node can be pinned relative to it.
+    const glm::dvec3 sun = solar_direction_teme(unix_seconds);
+    return std::atan2(sun.y, sun.x);
 }
 
 bool parse_fixed_uint(std::string_view text, std::size_t offset, std::size_t count, int& out)
@@ -334,6 +365,17 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
     summary.argument_perigee_radians = stable_angle(record.norad_catalog_id, 0xa54ff53a5f1d36f1ull);
     summary.reference_mean_anomaly_radians = stable_angle(record.norad_catalog_id, 0x510e527fade682d1ull);
 
+    if (record.sun_synchronous_candidate)
+    {
+        // Without full elements a summary orbit has no known ascending node.
+        // A hashed inertial RAAN leaves a sun-synchronous plane fixed in space
+        // while the Sun moves ~1 deg/day, so it drifts through every beta angle
+        // and dips randomly into shadow. Instead lock the node to the Sun.
+        summary.sun_synchronous = true;
+        summary.sun_relative_node_offset_radians =
+            sun_synchronous_node_offset_radians(record.norad_catalog_id);
+    }
+
     if (!std::isfinite(summary.semi_major_axis_km)
         || summary.semi_major_axis_km <= body_radius_km * 0.1
         || !std::isfinite(summary.eccentricity)
@@ -377,6 +419,7 @@ void populate_state_metadata(
     out.central_body = entry.central_body;
     out.orbit_class = entry.orbit_class;
     out.sun_synchronous_candidate = entry.sun_synchronous_candidate;
+    out.sun_synchronous_terminator = entry.sun_synchronous_terminator;
     out.period_minutes = entry.period_minutes;
     out.minutes_since_epoch = std::isfinite(entry.epoch_unix_seconds)
         ? (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0
@@ -413,6 +456,15 @@ bool propagate_summary(
         summary.reference_mean_anomaly_radians + elapsed * mean_motion_rad_s,
         kTwoPi);
 
+    // A sun-synchronous plane precesses with the Sun (~0.9856 deg/day), holding a
+    // constant local time of the ascending node. Rebuilding the node from the
+    // Sun's current right ascension reproduces that precession exactly, so the
+    // orbit stays sun-locked instead of using a fixed inertial node.
+    const double right_ascension = summary.sun_synchronous
+        ? solar_right_ascension_radians(simulation_unix_seconds)
+            + summary.sun_relative_node_offset_radians
+        : summary.right_ascension_radians;
+
     double eccentric_anomaly = mean_anomaly;
     for (int i = 0; i < 12; ++i)
     {
@@ -438,12 +490,12 @@ bool propagate_summary(
         0.0);
     position_km = rotate_perifocal(
         perifocal_position,
-        summary.right_ascension_radians,
+        right_ascension,
         summary.inclination_radians,
         summary.argument_perigee_radians);
     velocity_km_per_s = rotate_perifocal(
         perifocal_velocity,
-        summary.right_ascension_radians,
+        right_ascension,
         summary.inclination_radians,
         summary.argument_perigee_radians);
     return std::isfinite(position_km.x) && std::isfinite(position_km.y) && std::isfinite(position_km.z)
@@ -615,6 +667,7 @@ void append_track_samples(
     track.radar_cross_section_m2 = entry.radar_cross_section_m2;
     track.orbit_class = entry.orbit_class;
     track.sun_synchronous_candidate = entry.sun_synchronous_candidate;
+    track.sun_synchronous_terminator = entry.sun_synchronous_terminator;
     track.minutes_since_epoch = std::isfinite(entry.epoch_unix_seconds)
         ? (simulation_unix_seconds - entry.epoch_unix_seconds) / 60.0
         : std::numeric_limits<double>::quiet_NaN();
@@ -915,6 +968,35 @@ std::optional<double> parse_celestrak_epoch_utc(std::string_view epoch_utc)
     return unix_seconds_from_utc(parsed);
 }
 
+bool satview_sun_synchronous_is_terminator(const SatelliteRecord& record)
+{
+    if (!record.sun_synchronous_candidate)
+        return false;
+
+    // Terminator (dawn/dusk) orbits keep their ascending node ~90 deg from the
+    // Sun in right ascension (local time of the ascending node near 06:00 or
+    // 18:00). Everything else -- morning/afternoon imaging slots, noon/midnight
+    // -- sits closer to the Sun line and crosses Earth's shadow. Classify by how
+    // near the node-to-Sun angle is to a right angle.
+    constexpr double kTerminatorHalfWindowRadians = 22.5 * kPi / 180.0; // ~1.5 h of LTAN.
+    double node_minus_sun_radians = 0.0;
+    if (record.solution_kind == OrbitSolutionKind::SatcatSummaryEstimate)
+    {
+        // Summary orbits carry a fabricated, Sun-relative node offset by design.
+        node_minus_sun_radians = sun_synchronous_node_offset_radians(record.norad_catalog_id);
+    }
+    else
+    {
+        const std::optional<double> epoch = parse_celestrak_epoch_utc(record.epoch_utc);
+        if (!epoch.has_value())
+            return false;
+        const double right_ascension = record.right_ascension_ascending_node_deg * (kPi / 180.0);
+        node_minus_sun_radians = right_ascension - solar_right_ascension_radians(*epoch);
+    }
+    return std::abs(std::cos(node_minus_sun_radians))
+        <= std::cos(kPi / 2.0 - kTerminatorHalfWindowRadians);
+}
+
 SatViewJulianDate julian_date_from_unix_seconds(double unix_seconds)
 {
     SatViewJulianDate result;
@@ -1046,6 +1128,7 @@ SatellitePropagationBuildResult build_satellite_propagation_model(const Satellit
         entry.metadata = std::move(metadata);
         entry.orbit_class = record.orbit_class;
         entry.sun_synchronous_candidate = record.sun_synchronous_candidate;
+        entry.sun_synchronous_terminator = satview_sun_synchronous_is_terminator(record);
         entry.epoch_unix_seconds = *epoch_unix_seconds;
         entry.period_minutes = record.period_minutes;
         entry.track_horizon_minutes = record.ephemeris_track_horizon_minutes;

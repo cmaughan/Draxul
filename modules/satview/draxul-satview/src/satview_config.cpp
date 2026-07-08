@@ -352,6 +352,8 @@ void apply_satview_table(SatViewConfig& config, const toml::table& table)
     assign_bool("show_highly_elliptical", config.filter.show_highly_elliptical);
     assign_bool("show_other", config.filter.show_other);
     assign_bool("sun_synchronous_only", config.filter.sun_synchronous_only);
+    assign_bool("show_sun_synchronous_terminator", config.filter.show_sun_synchronous_terminator);
+    assign_bool("show_sun_synchronous_other", config.filter.show_sun_synchronous_other);
     assign_bool("show_active_payloads", config.filter.show_active_payloads);
     assign_bool("show_inactive_payloads", config.filter.show_inactive_payloads);
     assign_bool("show_rocket_bodies", config.filter.show_rocket_bodies);
@@ -445,6 +447,9 @@ toml::table serialize_satview_table(const SatViewConfig& config)
     table.insert_or_assign("show_highly_elliptical", config.filter.show_highly_elliptical);
     table.insert_or_assign("show_other", config.filter.show_other);
     table.insert_or_assign("sun_synchronous_only", config.filter.sun_synchronous_only);
+    table.insert_or_assign(
+        "show_sun_synchronous_terminator", config.filter.show_sun_synchronous_terminator);
+    table.insert_or_assign("show_sun_synchronous_other", config.filter.show_sun_synchronous_other);
     table.insert_or_assign("show_active_payloads", config.filter.show_active_payloads);
     table.insert_or_assign("show_inactive_payloads", config.filter.show_inactive_payloads);
     table.insert_or_assign("show_rocket_bodies", config.filter.show_rocket_bodies);

@@ -20,6 +20,10 @@ struct SatViewFilterState
     bool show_highly_elliptical = true;
     bool show_other = true;
     bool sun_synchronous_only = false;
+    // Sub-filters applied only when sun_synchronous_only is set: split the
+    // sun-synchronous set into dawn/dusk terminator orbits and the rest.
+    bool show_sun_synchronous_terminator = true;
+    bool show_sun_synchronous_other = true;
     bool show_active_payloads = true;
     bool show_inactive_payloads = true;
     bool show_rocket_bodies = true;
@@ -50,6 +54,7 @@ struct SatViewFilterCandidate
     CentralBody central_body = CentralBody::Earth;
     OrbitClass orbit_class = OrbitClass::Other;
     bool sun_synchronous_candidate = false;
+    bool sun_synchronous_terminator = false;
     double minutes_since_epoch = 0.0;
 };
 

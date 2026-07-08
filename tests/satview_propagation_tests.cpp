@@ -301,6 +301,101 @@ TEST_CASE("SatView SATCAT summary propagation is deterministic periodic and boun
     CHECK(glm::length(points.front() - points.back()) == Approx(0.0).margin(1.0e-6));
 }
 
+TEST_CASE("SatView sun-synchronous summary orbits keep their node locked to the Sun",
+    "[satview][propagation][sun-synchronous]")
+{
+    // ~700 km at 98.2 deg inclination: the canonical sun-synchronous LEO geometry.
+    const std::string csv =
+        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+        "SSO SAMPLE,987654321,2026-050A,PAY,+,,98.77,98.2,705,695,EA,ORB\n";
+    const auto catalog = parse_celestrak_satcat_csv(csv);
+    REQUIRE(catalog);
+    REQUIRE(catalog.catalog.objects.size() == 1);
+    REQUIRE(catalog.catalog.objects[0].sun_synchronous_candidate);
+
+    auto build = build_satellite_propagation_model(catalog.catalog);
+    REQUIRE(build);
+    REQUIRE(build.compiled_records == 1);
+
+    // RAAN recovered from the plane normal (h = r x v): normal is
+    // (sin O sin i, -cos O sin i, cos i), so atan2(n.x, -n.y) == RAAN.
+    const auto orbit_raan = [](const glm::dvec3& r, const glm::dvec3& v) {
+        const glm::dvec3 normal = glm::normalize(glm::cross(r, v));
+        return std::atan2(normal.x, -normal.y);
+    };
+    const auto sun_right_ascension = [](double t) {
+        const glm::dvec3 sun = solar_direction_teme(t);
+        return std::atan2(sun.y, sun.x);
+    };
+
+    constexpr double kTwoPi = 2.0 * std::numbers::pi;
+    const double t0 = *parse_celestrak_epoch_utc("2026-01-01T00:00:00.000000");
+    const double t1 = t0 + 60.0 * 86400.0;
+
+    const auto states0 = propagate_satellites(build.model, t0);
+    const auto states1 = propagate_satellites(build.model, t1);
+    REQUIRE(states0);
+    REQUIRE(states1);
+    REQUIRE(states0.states.size() == 1);
+    REQUIRE(states1.states.size() == 1);
+
+    const double raan0 =
+        orbit_raan(states0.states[0].teme_position_km, states0.states[0].teme_velocity_km_per_s);
+    const double raan1 =
+        orbit_raan(states1.states[0].teme_position_km, states1.states[0].teme_velocity_km_per_s);
+
+    // Over 60 days the Sun's right ascension advances ~59 deg; a sun-synchronous
+    // node must precess with it, not stay inertially fixed (the hashed-RAAN bug).
+    CHECK(std::abs(std::remainder(raan1 - raan0, kTwoPi)) > 0.5);
+
+    // The local time of the ascending node (node minus Sun) stays constant --
+    // the defining property the fix restores.
+    const double ltan0 = std::remainder(raan0 - sun_right_ascension(t0), kTwoPi);
+    const double ltan1 = std::remainder(raan1 - sun_right_ascension(t1), kTwoPi);
+    CHECK(std::abs(std::remainder(ltan1 - ltan0, kTwoPi)) < 1.0e-3);
+}
+
+TEST_CASE("SatView classifies dawn/dusk sun-synchronous orbits as terminator",
+    "[satview][propagation][sun-synchronous]")
+{
+    using draxul::satview::satview_sun_synchronous_is_terminator;
+
+    // Independently derive the Sun's right ascension at epoch so we can place the
+    // node at a known local time and check the terminator classification.
+    const std::string epoch_text = "2026-03-20T00:00:00.000000";
+    const double epoch = *parse_celestrak_epoch_utc(epoch_text);
+    const glm::dvec3 sun = solar_direction_teme(epoch);
+    const double sun_ra_deg = std::atan2(sun.y, sun.x) * 180.0 / std::numbers::pi;
+    const auto wrap360 = [](double degrees) { return degrees - 360.0 * std::floor(degrees / 360.0); };
+
+    draxul::satview::SatelliteRecord base;
+    base.sun_synchronous_candidate = true;
+    base.solution_kind = draxul::satview::OrbitSolutionKind::GeneralPerturbations;
+    base.epoch_utc = epoch_text;
+    base.inclination_deg = 98.2;
+
+    // Node ~90 deg from the Sun -> local time near 06:00/18:00 -> terminator.
+    draxul::satview::SatelliteRecord dawn_dusk = base;
+    dawn_dusk.right_ascension_ascending_node_deg = wrap360(sun_ra_deg + 90.0);
+    CHECK(satview_sun_synchronous_is_terminator(dawn_dusk));
+
+    // Node ~aligned with the Sun -> noon/midnight -> not a terminator orbit.
+    draxul::satview::SatelliteRecord noon = base;
+    noon.right_ascension_ascending_node_deg = wrap360(sun_ra_deg);
+    CHECK_FALSE(satview_sun_synchronous_is_terminator(noon));
+
+    // A morning imaging slot (~10:30 LTAN, node ~22.5 deg from the Sun) is "other".
+    draxul::satview::SatelliteRecord morning = base;
+    morning.right_ascension_ascending_node_deg = wrap360(sun_ra_deg - 22.5);
+    CHECK_FALSE(satview_sun_synchronous_is_terminator(morning));
+
+    // Non-candidates are never terminator, whatever their node.
+    draxul::satview::SatelliteRecord not_sso = dawn_dusk;
+    not_sso.sun_synchronous_candidate = false;
+    CHECK_FALSE(satview_sun_synchronous_is_terminator(not_sso));
+}
+
 TEST_CASE("SatView does not invent Moon-relative states from SATCAT summaries", "[satview][propagation][moon]")
 {
     const std::string csv =
