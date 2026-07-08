@@ -885,7 +885,7 @@ void append_marker_instances(
             ? 0.55f
             : 1.0f;
         const glm::vec4 color = selected
-            ? glm::vec4(1.0f, 0.96f, 0.68f, fidelity_alpha)
+            ? selected_marker_color(fidelity_alpha)
             : glm::mix(
                   satellite_color(state.orbit_class, state.object_kind, state.population,
                       state.object_prefix_hash, color_mode, 0.95f * fidelity_alpha),
@@ -2637,7 +2637,7 @@ void append_surface_marker_instances(
             ? 0.58f
             : 0.98f;
         const glm::vec4 color = selected
-            ? glm::vec4(0.96f, 0.10f, 0.06f, 1.0f)
+            ? selected_marker_color()
             : surface_marker_color(quality_alpha);
         const float style = surface_marker_style(object.kind);
         const auto add_marker = [&](float map_shift) {

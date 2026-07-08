@@ -123,4 +123,9 @@ inline glm::vec4 satellite_prefix_color(std::uint32_t prefix_hash, float alpha =
     return color;
 }
 
+inline glm::vec4 selected_marker_color(float alpha = 1.0f)
+{
+    return glm::vec4(1.0f, 0.96f, 0.68f, alpha);
+}
+
 } // namespace draxul::satview
