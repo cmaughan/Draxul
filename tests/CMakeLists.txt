@@ -15,6 +15,10 @@ if(NOT DRAXUL_ENABLE_SATVIEW)
     list(FILTER DRAXUL_TEST_SOURCES EXCLUDE REGEX "satview_.*_tests\\.cpp$")
 endif()
 
+if(NOT DRAXUL_ENABLE_SCOREVIEW)
+    list(FILTER DRAXUL_TEST_SOURCES EXCLUDE REGEX "notation_.*_tests\\.cpp$")
+endif()
+
 add_executable(draxul-tests ${DRAXUL_TEST_SOURCES})
 
 target_include_directories(draxul-tests PRIVATE
@@ -42,6 +46,9 @@ if(DRAXUL_ENABLE_SATVIEW)
     )
     target_link_libraries(draxul-tests PRIVATE draxul-satview)
     target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_SATVIEW)
+endif()
+if(DRAXUL_ENABLE_SCOREVIEW)
+    target_link_libraries(draxul-tests PRIVATE draxul-notation)
 endif()
 target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"

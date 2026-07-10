@@ -163,15 +163,15 @@ is the future hook for hit-testing and playback highlighting.
 - [x] Proof-of-life draw: A4 page with drop shadow + grand staff (two staves at SMuFL proportions: 0.13sp lines, thin/thick final barline pair), 4 placeholder measures, hand-tuned Bézier brace — all pixel_scale-aware
 - [x] Acceptance: `py do.py smoke` passes; `draxul --host score --source tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl --smoke-test` exits 0 (Metal init + frames + clean shutdown); full `ctest` suite green. On-screen eyeball check: pending user's next launch
 
-### Phase 1 — Semantic model + MusicXML importer (`draxul-notation`)
+### Phase 1 — Semantic model + MusicXML importer (`draxul-notation`) ✅ (2026-07-10)
 
-- [ ] Add tinyxml2 to `cmake/FetchDependencies.cmake` (pinned tag, static)
-- [ ] Model types per sketch above (+ `Fraction` arithmetic: add/compare/reduce)
-- [ ] Importer: MusicXML **partwise** documents; score-header (title/composer, part-list); per-measure: `divisions`, `attributes` (key/time/clefs/staves), `note` (pitch/rest/chord/duration/type/dots/staff/voice/tie/accidental/time-modification), `backup`/`forward`
-- [ ] Onset computation per voice with backup/forward handling; store on note; validate measure fill vs time signature (log WARN, don't reject — real files are sloppy)
-- [ ] Reject `timewise` documents with a clear error (rare; convert later if ever needed)
-- [ ] Unit tests (`tests/notation_importer_tests.cpp`, Catch2, fixtures as inline strings or `tests/fixtures/musicxml/`): pitch/alter/octave mapping, divisions normalization incl. mid-file change, chords, two-staff piano with voices + backup, ties, tuplets, dotted rhythms, malformed-input errors
-- [ ] Acceptance: importer round-trips the user's sample piece into a model whose note count / measure count / part-staff structure matches the source (spot-checked)
+- [x] Add tinyxml2 to `cmake/FetchDependencies.cmake` (pinned 10.0.0, static)
+- [x] Model types per sketch (+ `Fraction` arithmetic: add/subtract/compare, normalized, long-long intermediates) — [score_document.h](../modules/score/draxul-notation/include/draxul/notation/score_document.h)
+- [x] Importer: partwise documents; header (title/composer/part-list); `divisions`, `attributes` (key/time/clefs/staves), `note` (pitch/rest/unpitched/grace/chord/duration/dots/staff/voice/tie/accidental/time-modification), `backup`/`forward` — [musicxml_importer.cpp](../modules/score/draxul-notation/src/musicxml_importer.cpp)
+- [x] Onset computation with backup/forward + chord/grace handling; stored on note; measure-fill validation warns (implicit pickups exempt), never rejects
+- [x] Reject `timewise` and compressed `.mxl` input with clear errors
+- [x] Unit tests: 12 cases / 146 assertions in [notation_importer_tests.cpp](../tests/notation_importer_tests.cpp) — Fraction math, single note + header, mid-file divisions change, chords, two-staff backup voices, dotted/tuplet durations, grace notes, ties/accidentals, fill warnings, error paths
+- [x] Acceptance: Grieg fixture imports with **zero warnings**; every independently-counted ground-truth stat matches (79 measures, 694 notes, 49 rests, 14 grace, 202 chord members, 36 tuplet notes, 36 tie elements, 49 accidentals, 65 dots, 4 clef changes, 4 key changes, voices {1,2,5}, unique ids, all onsets within 3/4). Extracted `grieg-waltz-op-12-no-2.musicxml` checked in alongside the `.mxl`
 
 ### Phase 2 — Verovio layout engine (`draxul-scoreview`)
 

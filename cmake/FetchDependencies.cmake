@@ -118,6 +118,17 @@ FetchContent_Declare(
 set(BUILD_MD2HTML_EXECUTABLE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(md4c)
 
+# tinyxml2 (MusicXML import in draxul-notation; deliberately not pugixml —
+# Verovio vendors its own pugixml copy and a second one would be an ODR hazard)
+FetchContent_Declare(
+    tinyxml2
+    GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+    GIT_TAG 10.0.0
+    GIT_SHALLOW TRUE
+)
+set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(tinyxml2)
+
 # toml++
 FetchContent_Declare(
     tomlplusplus
