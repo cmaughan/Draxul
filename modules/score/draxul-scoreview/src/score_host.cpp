@@ -2,12 +2,22 @@
 
 #include <draxul/base_renderer.h>
 #include <draxul/host_registry.h>
+#include <draxul/log.h>
+#include <draxul/notation/musicxml_importer.h>
+#include <draxul/runtime_path.h>
+#include <draxul/scoreview/score_render_nvg.h>
+#include <draxul/scoreview/svg_score_interpreter.h>
+#include <draxul/scoreview/verovio_layout_engine.h>
 
 #include "nanovg.h"
+
+#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace draxul
 {
@@ -17,11 +27,13 @@ namespace scoreview
 namespace
 {
 
-// Page and engraving proportions for the placeholder scene. Staff-relative
-// thicknesses follow SMuFL engravingDefaults so the placeholder already reads
-// like engraved music; absolute sizes are generous for a single system.
-constexpr float PAGE_ASPECT = 0.7071f; // A4 portrait width/height
-constexpr float STAFF_HEIGHT_FRAC = 0.045f; // staff height / page height
+constexpr float SQRT2 = 1.41421356f;
+constexpr float MIN_ZOOM = 0.4f;
+constexpr float MAX_ZOOM = 4.0f;
+
+// Placeholder engraving proportions (no-source mode), see plans/scoreview.md
+// phase 0. Staff-relative thicknesses follow SMuFL engravingDefaults.
+constexpr float STAFF_HEIGHT_FRAC = 0.045f;
 constexpr float STAFF_LINE_THICKNESS_SP = 0.13f;
 constexpr float BARLINE_THIN_SP = 0.16f;
 constexpr float BARLINE_THICK_SP = 0.5f;
@@ -29,7 +41,6 @@ constexpr float BARLINE_SEPARATION_SP = 0.4f;
 constexpr int PLACEHOLDER_MEASURES = 4;
 
 const NVGcolor INK = { { { 0.12f, 0.11f, 0.10f, 1.0f } } };
-const NVGcolor PAGE_WHITE = { { { 0.988f, 0.984f, 0.972f, 1.0f } } };
 
 void fill_vertical_bar(NVGcontext* vg, float x_center, float top, float bottom, float width)
 {
@@ -40,14 +51,13 @@ void fill_vertical_bar(NVGcontext* vg, float x_center, float top, float bottom, 
 }
 
 // Curly brace joining the two staves, built from four cubics pinched at the
-// tips and waist. Hand-tuned placeholder — Phase 3 replaces it with the
-// Bravura brace glyph.
+// tips and waist. Placeholder only — real pages use the Bravura brace glyph.
 void fill_brace(NVGcontext* vg, float right_x, float top, float bottom, float sp)
 {
     const float mid = (top + bottom) * 0.5f;
     const float half = mid - top;
-    const float lobe = right_x - 2.4f * sp; // leftmost extent of the lobes
-    const float inner = right_x - 1.5f * sp; // return-edge extent (sets stroke weight)
+    const float lobe = right_x - 2.4f * sp;
+    const float inner = right_x - 1.5f * sp;
     const float waist_x = right_x - 0.5f * sp;
 
     nvgBeginPath(vg);
@@ -71,35 +81,17 @@ void draw_placeholder(NVGcontext* vg, int width, int height, float pixel_scale)
     if (avail_w < 64.0f || avail_h < 64.0f)
         return;
 
-    // Fit an A4 portrait page into the viewport.
     float page_h = avail_h;
-    float page_w = page_h * PAGE_ASPECT;
+    float page_w = page_h / SQRT2;
     if (page_w > avail_w)
     {
         page_w = avail_w;
-        page_h = page_w / PAGE_ASPECT;
+        page_h = page_w * SQRT2;
     }
     const float px = (fw - page_w) * 0.5f;
     const float py = (fh - page_h) * 0.5f;
+    draw_page_sheet(vg, px, py, page_w, page_h, pixel_scale);
 
-    // Drop shadow, then the page itself.
-    const float corner = 2.0f * pixel_scale;
-    NVGpaint shadow = nvgBoxGradient(vg, px, py + 3.0f * pixel_scale, page_w, page_h,
-        corner * 2.0f, 14.0f * pixel_scale, nvgRGBA(0, 0, 0, 80), nvgRGBA(0, 0, 0, 0));
-    nvgBeginPath(vg);
-    nvgRect(vg, px - 24.0f * pixel_scale, py - 24.0f * pixel_scale,
-        page_w + 48.0f * pixel_scale, page_h + 48.0f * pixel_scale);
-    nvgRoundedRect(vg, px, py, page_w, page_h, corner);
-    nvgPathWinding(vg, NVG_HOLE);
-    nvgFillPaint(vg, shadow);
-    nvgFill(vg);
-
-    nvgBeginPath(vg);
-    nvgRoundedRect(vg, px, py, page_w, page_h, corner);
-    nvgFillColor(vg, PAGE_WHITE);
-    nvgFill(vg);
-
-    // Grand staff: two five-line staves at engraving proportions.
     const float staff_h = page_h * STAFF_HEIGHT_FRAC;
     const float sp = staff_h / 4.0f;
     const float line_w = std::max(1.0f, STAFF_LINE_THICKNESS_SP * sp);
@@ -124,7 +116,6 @@ void draw_placeholder(NVGcontext* vg, int width, int height, float pixel_scale)
         }
     }
 
-    // Barlines: system barline + measure divisions + final thin/thick pair.
     const float thin_w = std::max(1.0f, BARLINE_THIN_SP * sp);
     const float thick_w = BARLINE_THICK_SP * sp;
     for (int i = 0; i < PLACEHOLDER_MEASURES; ++i)
@@ -146,13 +137,68 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
     viewport_ = context.initial_viewport;
     callbacks_ = &callbacks;
     source_path_ = context.launch_options.source_path;
+
     nanovg_pass_ = create_nanovg_pass();
-    running_ = nanovg_pass_ != nullptr;
-    return running_;
+    if (!nanovg_pass_)
+    {
+        init_error_ = "failed to create NanoVG render pass";
+        return false;
+    }
+
+    if (!source_path_.empty())
+    {
+        std::ifstream stream(source_path_, std::ios::binary);
+        if (!stream)
+        {
+            init_error_ = "could not open score file '" + source_path_ + "'";
+            return false;
+        }
+        std::ostringstream buffer;
+        buffer << stream.rdbuf();
+        const std::string bytes = buffer.str();
+
+        // Semantic model import is best-effort here: it powers status metadata
+        // now and editing later. Compressed .mxl bytes are engine-only until
+        // the model importer grows zip support.
+        std::string import_error;
+        if (auto imported = notation::import_musicxml(bytes, import_error))
+        {
+            for (const std::string& warning : imported->warnings)
+                DRAXUL_LOG_DEBUG(LogCategory::App, "score model import: %s", warning.c_str());
+            model_ = std::move(imported->document);
+            has_model_ = true;
+        }
+        else
+        {
+            DRAXUL_LOG_DEBUG(
+                LogCategory::App, "score model import skipped: %s", import_error.c_str());
+        }
+
+        const std::string resources = (executable_directory() / "verovio-data").string();
+        std::string engine_error;
+        auto engine = VerovioLayoutEngine::create(resources, engine_error);
+        if (!engine)
+        {
+            init_error_ = engine_error;
+            return false;
+        }
+        if (!engine->load(bytes, engine_error))
+        {
+            init_error_ = engine_error + " ('" + source_path_ + "')";
+            return false;
+        }
+        engine_ = std::move(engine);
+        layout_dirty_ = true;
+    }
+
+    running_ = true;
+    return true;
 }
 
 void ScoreHost::shutdown()
 {
+    pages_.reset();
+    engine_.reset();
     nanovg_pass_.reset();
     running_ = false;
 }
@@ -164,7 +210,129 @@ bool ScoreHost::is_running() const
 
 void ScoreHost::set_viewport(const HostViewport& viewport)
 {
+    const bool size_changed = viewport.pixel_size != viewport_.pixel_size || viewport.pixel_scale != viewport_.pixel_scale;
     viewport_ = viewport;
+    if (size_changed)
+        layout_dirty_ = true;
+}
+
+float ScoreHost::ui_scale() const
+{
+    return viewport_.pixel_scale > 0.0f ? viewport_.pixel_scale : 1.0f;
+}
+
+float ScoreHost::page_margin() const
+{
+    return 24.0f * ui_scale();
+}
+
+float ScoreHost::page_gap() const
+{
+    return 24.0f * ui_scale();
+}
+
+float ScoreHost::content_height() const
+{
+    if (!pages_ || pages_->empty())
+        return 0.0f;
+    const float count = static_cast<float>(pages_->size());
+    return 2.0f * page_margin() + count * page_height_px_ + (count - 1.0f) * page_gap();
+}
+
+float ScoreHost::max_scroll() const
+{
+    return std::max(0.0f, content_height() - static_cast<float>(viewport_.pixel_size.y));
+}
+
+void ScoreHost::scroll_by(float delta_px)
+{
+    scroll_to(scroll_y_ + delta_px);
+}
+
+void ScoreHost::scroll_to(float scroll_px)
+{
+    const float clamped = std::clamp(scroll_px, 0.0f, max_scroll());
+    if (clamped == scroll_y_)
+        return;
+    scroll_y_ = clamped;
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::set_zoom(float zoom)
+{
+    const float clamped = std::clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+    if (clamped == zoom_)
+        return;
+    zoom_ = clamped;
+    layout_dirty_ = true;
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+int ScoreHost::current_page() const
+{
+    if (!pages_ || pages_->empty() || page_height_px_ <= 0.0f)
+        return 1;
+    const float focus = scroll_y_ + static_cast<float>(viewport_.pixel_size.y) * 0.5f - page_margin();
+    const int page = static_cast<int>(std::floor(focus / (page_height_px_ + page_gap())));
+    return std::clamp(page, 0, static_cast<int>(pages_->size()) - 1) + 1;
+}
+
+void ScoreHost::relayout()
+{
+    if (!engine_ || !engine_->is_loaded() || viewport_.pixel_size.x <= 0 || viewport_.pixel_size.y <= 0)
+        return;
+
+    const float margin = page_margin();
+    const int avail_w = std::max(64, static_cast<int>(static_cast<float>(viewport_.pixel_size.x) - 2.0f * margin));
+
+    LayoutOptions options;
+    options.page_size_px = { avail_w, static_cast<int>(std::lround(avail_w * SQRT2)) };
+    options.pixel_scale = ui_scale() * zoom_;
+    engine_->set_options(options);
+
+    auto pages = std::make_shared<std::vector<ScoreDrawList>>();
+    const int count = engine_->page_count();
+    for (int page = 1; page <= count; ++page)
+    {
+        std::string error;
+        auto list = interpret_score_svg(engine_->render_page_svg(page), error);
+        if (!list)
+        {
+            DRAXUL_LOG_DEBUG(LogCategory::App, "score page %d interpret failed: %s", page,
+                error.c_str());
+            continue;
+        }
+        for (const std::string& warning : list->warnings)
+            DRAXUL_LOG_DEBUG(
+                LogCategory::App, "score page %d interpreter: %s", page, warning.c_str());
+        pages->push_back(std::move(*list));
+    }
+
+    pages_ = pages;
+    size_t total_ops = 0;
+    for (const ScoreDrawList& page : *pages_)
+        total_ops += page.glyphs.size() + page.paths.size() + page.texts.size();
+    DRAXUL_LOG_INFO(LogCategory::App, "score: engraved %zu page(s), %zu draw ops (%dpx wide, zoom %.0f%%)",
+        pages_->size(), total_ops, avail_w, static_cast<double>(zoom_) * 100.0);
+    if (!pages_->empty() && pages_->front().canvas_size.x > 0.0f)
+    {
+        const ScoreDrawList& first = pages_->front();
+        page_width_px_ = static_cast<float>(avail_w);
+        page_scale_ = page_width_px_ / first.canvas_size.x;
+        page_height_px_ = first.canvas_size.y * page_scale_;
+    }
+    layout_dirty_ = false;
+    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll());
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::pump()
+{
+    if (layout_dirty_)
+        relayout();
 }
 
 void ScoreHost::draw(IFrameContext& frame)
@@ -172,16 +340,103 @@ void ScoreHost::draw(IFrameContext& frame)
     if (!nanovg_pass_)
         return;
 
-    const float pixel_scale = viewport_.pixel_scale > 0.0f ? viewport_.pixel_scale : 1.0f;
-    nanovg_pass_->set_draw_callback([pixel_scale](NVGcontext* vg, int w, int h) {
-        draw_placeholder(vg, w, h, pixel_scale);
-    });
+    const float pixel_scale = ui_scale();
+    if (!pages_ || pages_->empty())
+    {
+        nanovg_pass_->set_draw_callback([pixel_scale](NVGcontext* vg, int w, int h) {
+            draw_placeholder(vg, w, h, pixel_scale);
+        });
+    }
+    else
+    {
+        auto pages = pages_;
+        const float margin = page_margin();
+        const float gap = page_gap();
+        const float scroll = scroll_y_;
+        const float page_w = page_width_px_;
+        const float page_h = page_height_px_;
+        const float scale = page_scale_;
+        nanovg_pass_->set_draw_callback(
+            [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale](
+                NVGcontext* vg, int /*w*/, int h) {
+                const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
+                float y = margin - scroll;
+                for (const ScoreDrawList& page : *pages)
+                {
+                    if (y + page_h >= 0.0f && y <= static_cast<float>(h))
+                    {
+                        draw_page_sheet(vg, margin, y, page_w, page_h, pixel_scale);
+                        render_draw_list(vg, page, { margin, y }, scale, fonts);
+                    }
+                    y += page_h + gap;
+                }
+            });
+    }
 
     RenderViewport vp;
     vp.width = viewport_.pixel_size.x;
     vp.height = viewport_.pixel_size.y;
     frame.record_render_pass(*nanovg_pass_, vp);
     frame.flush_submit_chunk();
+}
+
+void ScoreHost::on_key(const KeyEvent& event)
+{
+    if (!event.pressed)
+        return;
+    const float line_step = 60.0f * ui_scale();
+    const float page_step = static_cast<float>(viewport_.pixel_size.y) * 0.9f;
+    switch (event.keycode)
+    {
+    case SDLK_DOWN:
+    case SDLK_J:
+        scroll_by(line_step);
+        break;
+    case SDLK_UP:
+    case SDLK_K:
+        scroll_by(-line_step);
+        break;
+    case SDLK_PAGEDOWN:
+    case SDLK_SPACE:
+        scroll_by(page_step);
+        break;
+    case SDLK_PAGEUP:
+        scroll_by(-page_step);
+        break;
+    case SDLK_HOME:
+        scroll_to(0.0f);
+        break;
+    case SDLK_END:
+        scroll_to(max_scroll());
+        break;
+    default:
+        break;
+    }
+}
+
+void ScoreHost::on_mouse_wheel(const MouseWheelEvent& event)
+{
+    scroll_by(-event.delta.y * 40.0f * ui_scale());
+}
+
+bool ScoreHost::dispatch_action(std::string_view action)
+{
+    if (action == "font_increase")
+    {
+        set_zoom(zoom_ * 1.15f);
+        return true;
+    }
+    if (action == "font_decrease")
+    {
+        set_zoom(zoom_ / 1.15f);
+        return true;
+    }
+    if (action == "font_reset")
+    {
+        set_zoom(1.0f);
+        return true;
+    }
+    return false;
 }
 
 void ScoreHost::request_close()
@@ -192,8 +447,28 @@ void ScoreHost::request_close()
 std::string ScoreHost::status_text() const
 {
     if (source_path_.empty())
-        return "score: no --source (phase 0 placeholder)";
-    return "score: " + std::filesystem::path(source_path_).filename().string() + " (phase 0 placeholder — import pending)";
+        return "score: no --source (placeholder)";
+
+    std::string title;
+    if (has_model_ && !model_.title.empty())
+    {
+        title = model_.title;
+        if (!model_.composer.empty())
+            title += " — " + model_.composer;
+    }
+    else
+    {
+        title = std::filesystem::path(source_path_).filename().string();
+    }
+
+    std::string status = "score: " + title;
+    if (pages_ && !pages_->empty())
+    {
+        status += "  p. " + std::to_string(current_page()) + "/" + std::to_string(pages_->size());
+    }
+    if (zoom_ != 1.0f)
+        status += "  " + std::to_string(static_cast<int>(std::lround(zoom_ * 100.0f))) + "%";
+    return status;
 }
 
 Color ScoreHost::default_background() const
@@ -204,7 +479,7 @@ Color ScoreHost::default_background() const
 HostRuntimeState ScoreHost::runtime_state() const
 {
     HostRuntimeState state;
-    state.content_ready = running_;
+    state.content_ready = running_ && (!engine_ || pages_ != nullptr);
     return state;
 }
 

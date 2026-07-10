@@ -2,9 +2,13 @@
 
 #include <draxul/host.h>
 #include <draxul/nanovg_pass.h>
+#include <draxul/notation/score_document.h>
+#include <draxul/scoreview/layout_engine.h>
+#include <draxul/scoreview/score_draw_list.h>
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace draxul
 {
@@ -16,10 +20,12 @@ namespace scoreview
 
 // ScoreHost — music score viewer (plans/scoreview.md).
 //
-// Phase 0: proof-of-life NanoVG scene — an empty page with a grand-staff
-// placeholder drawn at SMuFL-ish engraving proportions. Later phases replace
-// the placeholder with a Verovio-laid-out ScoreDrawList; the host shell
-// (viewport, pass recording, source plumbing) stays as built here.
+// With a --source file: Verovio lays the score out to fit the viewport width
+// (phase 2), the SVG interpreter turns each page into a ScoreDrawList
+// (phase 3), and draw() replays the visible pages through the shared NanoVG
+// pass with vertical scrolling and zoom (phase 4). The semantic model is
+// imported alongside for status metadata and future editing phases.
+// Without a source, a placeholder grand-staff page is drawn.
 class ScoreHost final : public draxul::IHost
 {
 public:
@@ -30,23 +36,21 @@ public:
     bool is_running() const override;
     std::string init_error() const override
     {
-        return {};
+        return init_error_;
     }
 
     void set_viewport(const draxul::HostViewport& viewport) override;
-    void pump() override
-    {
-    }
+    void pump() override;
     void draw(draxul::IFrameContext& frame) override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override
     {
         return std::nullopt;
     }
 
-    bool dispatch_action(std::string_view /*action*/) override
-    {
-        return false;
-    }
+    void on_key(const draxul::KeyEvent& event) override;
+    void on_mouse_wheel(const draxul::MouseWheelEvent& event) override;
+
+    bool dispatch_action(std::string_view action) override;
     void request_close() override;
     std::string status_text() const override;
     draxul::Color default_background() const override;
@@ -54,10 +58,34 @@ public:
     draxul::HostDebugState debug_state() const override;
 
 private:
+    float ui_scale() const;
+    float page_margin() const;
+    float page_gap() const;
+    float content_height() const;
+    float max_scroll() const;
+    void scroll_by(float delta_px);
+    void scroll_to(float scroll_px);
+    void set_zoom(float zoom);
+    int current_page() const;
+    void relayout();
+
     std::unique_ptr<draxul::INanoVGPass> nanovg_pass_;
     draxul::HostViewport viewport_;
     draxul::IHostCallbacks* callbacks_ = nullptr;
+
     std::string source_path_;
+    std::string init_error_;
+    std::unique_ptr<ILayoutEngine> engine_;
+    std::shared_ptr<const std::vector<ScoreDrawList>> pages_;
+    draxul::notation::ScoreDocument model_;
+    bool has_model_ = false;
+
+    float zoom_ = 1.0f;
+    float scroll_y_ = 0.0f;
+    float page_width_px_ = 0.0f;
+    float page_height_px_ = 0.0f;
+    float page_scale_ = 0.0f;
+    bool layout_dirty_ = true;
     bool running_ = false;
 };
 

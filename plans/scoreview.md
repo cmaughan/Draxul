@@ -181,23 +181,34 @@ is the future hook for hit-testing and playback highlighting.
 - [x] Unit tests: 4 cases / 31 assertions in [scoreview_layout_tests.cpp](../tests/scoreview_layout_tests.cpp) — missing resources, minimal score (page count, `<svg`/`viewBox`/`<use`/staff, page-range guards), garbage input, Grieg `.mxl` end-to-end + shrink reflow (page count grows)
 - [x] Acceptance + baseline: full Grieg `.mxl` load + layout + SVG render of all pages + full reflow = **0.16 s wall clock including process startup** (M4 Pro, debug build); per-operation timings logged at DEBUG. Verovio notes the fixture has 1 unterminated tie (source-file quirk, harmless)
 
-### Phase 3 — SVG interpreter → ScoreDrawList
+### Phase 3 — SVG interpreter → ScoreDrawList ✅ (2026-07-10)
 
-- [ ] Path-data parser: `M L H V C Q Z` + relative variants (quadratics promoted to cubics); tolerant of whitespace/comma separators
-- [ ] Interpreter over Verovio's SVG dialect: `<defs>/<symbol>/<path>` → `SymbolOutline`; `<use xlink:href>` → `GlyphInstance`; `<path>`/`<polygon>` fills → `FilledPath`; `<line>`/`<rect>`/`<polyline>` strokes → `StrokedLine`; nested `<g transform="translate/scale">` stack; capture `id`/`data-id` per op; viewBox → page coordinate normalization
-- [ ] Check in a canned Verovio SVG fixture (generated once from a fixture piece) + tests asserting symbol/glyph/line counts and a few known coordinates — this doubles as the tripwire for SVG-dialect drift when bumping the Verovio pin
-- [ ] Acceptance: interpreter consumes every element type Verovio emits for the sample piece with zero "unhandled element" warnings
+The real dialect (studied from live 6.2.1 output before writing code) differs
+usefully from the plan sketch: defs are plain `<g>` (not `<symbol>`) holding
+font-unit outlines pre-flipped by `scale(1,-1)` (baked into the stored
+outline), `<use>` placement is transform-based (`translate(…) scale(…)`), so
+glyph instances carry a full 2x3 affine; dots are `<ellipse>`, beams
+`<polygon>`, hairpins `fill="none"` `<polyline>`, text is class-styled tspans
+(dynam/dir/mNum → italic, tempo/fing/reh/ending → bold per Verovio's own
+emitted CSS). Draw list generalized accordingly: `GlyphInstance` (affine),
+`DrawPath` (fill and/or stroke), `DrawText` — see
+[score_draw_list.h](../modules/score/draxul-scoreview/include/draxul/scoreview/score_draw_list.h).
 
-### Phase 4 — ScoreHost renders the piece
+- [x] Path-data parser: `M L H V C S Z` + relative forms, implicit repetition, smooth-cubic reflection; fails loudly on `Q/A/T` (Verovio never emits them) — exposed for unit tests
+- [x] Interpreter over the dialect: g-transform/id/style context stack; `<use>` → affine glyph instances; path/rect/polygon/polyline/ellipse/line → pre-transformed `DrawPath`s (fill heuristic: only closed-or-curved shapes fill, keeping open bracket runs from becoming solid triangles); styled text runs; viewBox → canvas/pixel sizes; unknown constructs recorded once per kind — [svg_score_interpreter.cpp](../modules/score/draxul-scoreview/src/svg_score_interpreter.cpp)
+- [x] Checked-in fixture [tests/fixtures/svg/verovio-minimal-c4.svg](../tests/fixtures/svg/verovio-minimal-c4.svg) with exact-coordinate assertions (symbol y-flip baking, page-margin translate, element-id attribution, stroke widths) — the version-drift tripwire
+- [x] Acceptance: **zero unhandled constructs across all live Grieg pages**; 8 scoreview test cases / 129 assertions green (includes phase-2 suite)
 
-- [ ] Load file from `HostLaunchOptions::source_path` (existing CLI plumbing); parse into model (Phase 1) *and* feed bytes to layout engine (Phase 2)
-- [ ] Layout on `set_viewport` (fit page width to viewport, `pixel_scale`-aware); dirty-flag rebuild (layout_dirty / draw_list_dirty, markdown-host pattern)
-- [ ] `score_render_nvg`: replay ScoreDrawList through the NanoVG callback — symbols instanced by transform replay, fills, strokes; page background + subtle page edge; only draw pages intersecting the viewport
-- [ ] Vertical scroll: wheel/trackpad + PageUp/PageDown/Home/End (crib `markdown_scroll` behavior); zoom via existing `font_increase`/`font_decrease` action names → re-layout at new scale
-- [ ] `status_text()`: `"<title> — p. <n>/<m>"`; `default_background()` neutral gray so pages read as pages
-- [ ] Update [docs/features.md](../docs/features.md) (new host + CLI) per repo rule
-- [ ] Acceptance: **the v1 target** — the user's sample piece renders cleanly (correct clefs/key/time, beams, accidentals, slurs/ties, dynamics as Verovio engraves them), crisp on retina, smooth scroll; `py do.py smoke` + `ctest` green
-- [ ] Stretch: `draxul-render-score` snapshot scenario + bless entry, if the render-test harness extends naturally
+### Phase 4 — ScoreHost renders the piece ✅ (2026-07-10)
+
+- [x] Loads `--source` bytes once: semantic model import (best-effort — `.mxl` is engine-only until the model importer grows zip support) + Verovio engine load; resources resolved via `executable_directory()/verovio-data`; init failures surface through `init_error()`
+- [x] Fit-width layout on viewport/zoom changes (`layout_dirty_` + relayout in `pump()`), pages re-interpreted into a shared_ptr snapshot the draw callback captures safely
+- [x] [score_render_nvg.cpp](../modules/score/draxul-scoreview/src/score_render_nvg.cpp): draw-list replay (paths fill/stroke, glyph affine transform replay, serif text via system Times/Georgia with italic/bold faces), shared white-sheet + shadow helper; only pages intersecting the viewport render
+- [x] Vertical scroll (wheel/trackpad, `j`/`k`, arrows, PageUp/PageDown/Space, Home/End) with clamping; zoom via `font_increase`/`font_decrease`/`font_reset` actions (0.4–4.0x, re-engraves)
+- [x] `status_text()`: title — composer (model metadata when available, filename otherwise) + `p. n/m` + zoom; INFO log per relayout (`score: engraved N page(s), M draw ops`); no-source placeholder retained
+- [x] [docs/features.md](../docs/features.md) updated to the real feature description
+- [x] Acceptance: Grieg engraves and renders in-app — verified via `--smoke-test` (`score: engraved 1 page(s), 3083 draw ops (2268px wide, zoom 100%)`, clean exit); full `ctest` + `py do.py smoke` green. On-screen eyeball pass: user's next launch
+- [ ] Stretch (open): `draxul-render-score` snapshot scenario + bless entry
 
 ## Testing summary
 
@@ -245,3 +256,24 @@ sample suite is a good source).
   Windows CI, then flip the default.
 - **Route Verovio's stderr logging** into draxul's log system (it prints
   `[Warning]`/`[Error]` lines directly; fine for tests, noisy for the app).
+
+## Build-system incident notes (2026-07-10)
+
+A machine-destabilizing build storm traced to three compounding defects, all
+fixed the same day:
+
+1. `do.py` passed a bare `--parallel` to `cmake --build`, which the Makefiles
+   generator maps to an **unbounded** `make -j`. Interrupting that build
+   orphaned hundreds of in-flight clang jobs. Fixed: bounded to CPU count
+   (`_parallel_jobs()`).
+2. Verovio's CMake defaults itself to Release when `CMAKE_BUILD_TYPE` is
+   empty, so configures reaching it with/without a concrete type flip its
+   ~300 objects between `-O3` and `-g` wholesale. Fixed: top-level guard sets
+   a concrete build type before any dependency configures.
+3. Verovio's `get_git_commit.sh` rewrites `include/vrv/git_commit.h` with a
+   fresh timestamp on **every configure**, dirtying `vrv.cpp` + the library
+   link each time. Fixed: the fetched script is replaced post-population with
+   a create-once guard (the tag is pinned; the commit can't change).
+
+Verified: two consecutive `cmake --preset mac-debug` configures now leave
+zero stale objects.
