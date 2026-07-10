@@ -22,6 +22,7 @@ enum class HostKind
     NanoVGDemo,
     Markdown,
     Kanban,
+    Score,
 };
 
 inline std::optional<HostKind> parse_host_kind(std::string_view value)
@@ -53,6 +54,8 @@ inline std::optional<HostKind> parse_host_kind(std::string_view value)
         return HostKind::Markdown;
     if (normalized == "kanban" || normalized == "kb")
         return HostKind::Kanban;
+    if (normalized == "score" || normalized == "scoreview")
+        return HostKind::Score;
     return std::nullopt;
 }
 
@@ -82,6 +85,8 @@ inline const char* to_string(HostKind kind)
         return "markdown";
     case HostKind::Kanban:
         return "kanban";
+    case HostKind::Score:
+        return "score";
     }
     return "nvim";
 }
