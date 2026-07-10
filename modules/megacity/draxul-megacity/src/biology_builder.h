@@ -12,16 +12,21 @@ class CodeVizSceneWorld;
 
 struct BiologyBuildStats
 {
-    size_t tissue_count = 0;
-    size_t file_cell_count = 0;
-    size_t symbol_body_count = 0;
-    size_t organelle_count = 0;
-    size_t fibre_count = 0;
+    size_t module_tissue_count = 0; // modules rendered as tissue territories
+    size_t cell_count = 0; // types rendered as cells
+    size_t full_cell_count = 0; // cells with full organelle detail
+    size_t vessel_count = 0; // inter-module dependency blood vessels
+    size_t mitochondria_count = 0; // methods (across full cells)
+    size_t ribosome_count = 0; // fields (across full cells)
 };
 
 struct BiologyBuildResult
 {
     BiologyBuildStats stats;
+    // Human-readable label for the dominant cell/tissue (the most significant
+    // class), or empty when no semantic subject was found.
+    std::string subject_label;
+    bool mapped_from_semantics = false;
     bool bounds_valid = false;
     float min_x = 0.0f;
     float max_x = 0.0f;

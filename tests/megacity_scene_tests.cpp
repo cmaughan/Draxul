@@ -8,12 +8,9 @@
 #include "city_materials.h"
 #include "city_meshes.h"
 #include "city_picking.h"
-#include <draxul/isometric_camera.h>
-#include <draxul/codeviz_scene_pass.h>
 #include "live_city_metrics.h"
 #include "mesh_library.h"
 #include "scene_snapshot_builder.h"
-#include <draxul/codeviz_scene_world.h>
 #include "semantic_city_layout.h"
 #include "support/fake_renderer.h"
 #include "support/fake_window.h"
@@ -25,8 +22,11 @@
 #include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/building_generator.h>
+#include <draxul/codeviz_scene_pass.h>
+#include <draxul/codeviz_scene_world.h>
 #include <draxul/config_document.h>
 #include <draxul/imgui_host.h>
+#include <draxul/isometric_camera.h>
 #define private public
 #include <draxul/megacity_host.h>
 #undef private
@@ -398,7 +398,7 @@ TEST_CASE("BioView analysis panel does not expose city-only controls", "[megacit
     CHECK_FALSE(biology.show_perf_debug);
 }
 
-TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fibres", "[megacity][bioview]")
+TEST_CASE("BioView maps the most significant class onto cell organelles", "[megacity][bioview]")
 {
     CodeVizSceneWorld world;
     CodebaseSnapshot snapshot;
@@ -406,117 +406,191 @@ TEST_CASE("BioView build_biology_view projects semantic nodes into cells and fib
 
     ParsedFile widget_file;
     widget_file.path = "app/widget.cpp";
+
+    // The hero class: 4 methods (one oversized -> lysosome) and 2 fields.
     SymbolRecord widget;
     widget.kind = SymbolKind::Class;
     widget.name = "Widget";
     widget.line = 3;
-    widget.end_line = 28;
-    widget.field_count = 1;
-    widget.fields.push_back(SymbolRecord::FieldRecord{
-        "config_",
-        "WidgetConfig",
-        { "WidgetConfig" },
-    });
-    SymbolRecord draw;
-    draw.kind = SymbolKind::Function;
-    draw.name = "draw";
-    draw.parent = "Widget";
-    draw.line = 10;
-    draw.end_line = 16;
-    SymbolRecord resize;
-    resize.kind = SymbolKind::Function;
-    resize.name = "resize";
-    resize.parent = "Widget";
-    resize.line = 18;
-    resize.end_line = 22;
-    widget_file.symbols = { widget, draw, resize };
-    snapshot.files.push_back(std::move(widget_file));
+    widget.end_line = 140;
+    widget.field_count = 2;
+    widget.fields.push_back(SymbolRecord::FieldRecord{ "config_", "WidgetConfig", { "WidgetConfig" } });
+    widget.fields.push_back(SymbolRecord::FieldRecord{ "buffer_", "Buffer", {} });
 
-    ParsedFile config_file;
-    config_file.path = "app/widget_config.h";
-    SymbolRecord widget_config;
-    widget_config.kind = SymbolKind::Struct;
-    widget_config.name = "WidgetConfig";
-    widget_config.line = 1;
-    widget_config.end_line = 6;
-    widget_config.field_count = 2;
-    config_file.symbols = { widget_config };
-    snapshot.files.push_back(std::move(config_file));
+    auto make_method = [](const char* name, uint32_t line, uint32_t end_line) {
+        SymbolRecord method;
+        method.kind = SymbolKind::Function;
+        method.name = name;
+        method.parent = "Widget";
+        method.line = line;
+        method.end_line = end_line;
+        return method;
+    };
+    const SymbolRecord draw = make_method("draw", 10, 96); // oversized -> lysosome
+    const SymbolRecord resize = make_method("resize", 98, 108);
+    const SymbolRecord update = make_method("update", 110, 122);
+    const SymbolRecord paint = make_method("paint", 124, 138);
+
+    // A smaller struct that should NOT be selected as the hero cell.
+    SymbolRecord config;
+    config.kind = SymbolKind::Struct;
+    config.name = "WidgetConfig";
+    config.line = 1;
+    config.end_line = 4;
+    config.field_count = 1;
+    config.fields.push_back(SymbolRecord::FieldRecord{ "value", "int", {} });
+
+    widget_file.symbols = { widget, draw, resize, update, paint, config };
+    snapshot.files.push_back(std::move(widget_file));
 
     const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
 
-    MegaCityCodeConfig config;
-    config.hide_struct_entities = true;
-    config.hide_function_entities = true;
-    config.enable_struct_stacking = true;
-    config.functions_per_building_max = 1;
-    const BiologyBuildResult result = build_biology_view(
-        world,
-        semantics,
-        config);
+    MegaCityCodeConfig cfg;
+    const BiologyBuildResult result = build_biology_view(world, semantics, cfg);
 
-    CHECK(result.stats.tissue_count == 1);
-    CHECK(result.stats.file_cell_count == 2);
-    CHECK(result.stats.symbol_body_count == 2);
-    CHECK(result.stats.organelle_count == 3);
-    CHECK(result.stats.fibre_count == 1);
+    // Both types become cells (one module tissue); Widget is the hero.
+    CHECK(result.mapped_from_semantics);
+    CHECK(result.subject_label == "Widget");
     CHECK(result.bounds_valid);
+    CHECK(result.computed_default_light);
+    CHECK(result.stats.module_tissue_count == 1);
+    CHECK(result.stats.cell_count == 2); // Widget + WidgetConfig
+    CHECK(result.stats.full_cell_count == 2); // both fit within the full-detail budget
 
-    size_t file_cells = 0;
-    size_t nuclei = 0;
-    size_t organelles = 0;
-    auto city_building_view = world.registry().view<const BuildingMetrics>();
-    CHECK(city_building_view.begin() == city_building_view.end());
+    // Members of the full cells map onto organelles.
+    CHECK(result.stats.mitochondria_count == 4); // Widget's 4 methods (WidgetConfig has none)
+    CHECK(result.stats.ribosome_count == 3); // Widget's 2 fields + WidgetConfig's 1
 
-    auto ellipsoid_view = world.registry().view<const EllipsoidMetrics, const CodeVizSemanticRef>();
+    // Double-sided translucent shells (cell membranes + nuclear envelopes).
+    size_t double_sided_shells = 0;
+    auto ellipsoid_view = world.registry().view<const EllipsoidMetrics, const Appearance>();
     for (const entt::entity entity : ellipsoid_view)
     {
-        const auto& source_symbol = ellipsoid_view.get<const CodeVizSemanticRef>(entity);
-        if (source_symbol.name == source_symbol.file && !source_symbol.file.empty())
-            ++file_cells;
-        if (source_symbol.name == "Widget" || source_symbol.name == "WidgetConfig")
-            ++nuclei;
-        if (source_symbol.name == "Widget::draw"
-            || source_symbol.name == "Widget::resize"
-            || source_symbol.name == "Widget::config_")
-        {
-            ++organelles;
-        }
+        const auto& appearance = ellipsoid_view.get<const Appearance>(entity);
+        if (appearance.double_sided && appearance.color.a < 1.0f)
+            ++double_sided_shells;
     }
+    CHECK(double_sided_shells >= 2);
 
-    CHECK(file_cells == 2);
-    CHECK(nuclei == 2);
-    CHECK(organelles == 3);
-
-    size_t fibres = 0;
-    auto fibre_view = world.registry().view<const RouteSegmentMetrics, const RouteLink>();
-    for (const entt::entity entity : fibre_view)
+    // Organelles carry semantic refs back to the class's real members.
+    bool found_method_ref = false;
+    bool found_field_ref = false;
+    auto ref_view = world.registry().view<const CodeVizSemanticRef>();
+    for (const entt::entity entity : ref_view)
     {
-        const auto& link = fibre_view.get<const RouteLink>(entity);
-        if (link.source_qualified_name == "Widget::config_"
-            && link.target_qualified_name == "WidgetConfig")
-        {
-            ++fibres;
-        }
+        const auto& ref = ref_view.get<const CodeVizSemanticRef>(entity);
+        if (ref.name == "Widget::draw" || ref.name == "Widget::paint")
+            found_method_ref = true;
+        if (ref.name == "Widget::config_" || ref.name == "Widget::buffer_")
+            found_field_ref = true;
     }
-    CHECK(fibres == 1);
+    CHECK(found_method_ref);
+    CHECK(found_field_ref);
+
+    // Deterministic for a fixed snapshot.
+    CodeVizSceneWorld world_again;
+    const BiologyBuildResult repeat = build_biology_view(world_again, semantics, cfg);
+    CHECK(repeat.subject_label == result.subject_label);
+    CHECK(repeat.stats.cell_count == result.stats.cell_count);
+    CHECK(repeat.stats.mitochondria_count == result.stats.mitochondria_count);
 
     IsometricCamera camera;
     camera.set_viewport(800, 600);
     const CodeVizSceneSnapshotResult scene = build_scene_snapshot(
-        camera,
-        world,
-        config,
-        nullptr,
-        {},
-        nullptr,
-        nullptr);
-    CHECK(scene.snapshot.custom_meshes.size() == 1);
-    CHECK(std::count_if(
-              scene.snapshot.objects.begin(),
-              scene.snapshot.objects.end(),
-              [](const CodeVizRenderable& object) { return object.mesh == CodeVizMeshId::Custom; })
-        == static_cast<int>(file_cells + nuclei + organelles));
+        camera, world, cfg, nullptr, {}, nullptr, nullptr);
+    CHECK(scene.snapshot.objects.size() >= 18);
+    // Translucent membranes/vesicles produce a transparent tail after the opaque set.
+    CHECK(scene.snapshot.opaque_count < scene.snapshot.objects.size());
+}
+
+TEST_CASE("BioView grows module tissues joined by dependency blood vessels", "[megacity][bioview]")
+{
+    CodeVizSceneWorld world;
+    CodebaseSnapshot snapshot;
+    snapshot.complete = true;
+
+    // Module "app": a class whose fields reach into "libs/core" three times.
+    ParsedFile widget_file;
+    widget_file.path = "app/widget.cpp";
+    SymbolRecord widget;
+    widget.kind = SymbolKind::Class;
+    widget.name = "Widget";
+    widget.line = 1;
+    widget.end_line = 40;
+    widget.field_count = 3;
+    widget.fields.push_back(SymbolRecord::FieldRecord{ "a", "Alpha", { "Alpha" } });
+    widget.fields.push_back(SymbolRecord::FieldRecord{ "b", "Beta", { "Beta" } });
+    widget.fields.push_back(SymbolRecord::FieldRecord{ "c", "Gamma", { "Gamma" } });
+    SymbolRecord run;
+    run.kind = SymbolKind::Function;
+    run.name = "run";
+    run.parent = "Widget";
+    run.line = 10;
+    run.end_line = 30;
+    widget_file.symbols = { widget, run };
+    snapshot.files.push_back(std::move(widget_file));
+
+    // Module "libs/core": the referenced types.
+    ParsedFile core_file;
+    core_file.path = "libs/core/types.h";
+    for (const char* name : { "Alpha", "Beta", "Gamma" })
+    {
+        SymbolRecord type;
+        type.kind = SymbolKind::Struct;
+        type.name = name;
+        type.line = 1;
+        type.end_line = 3;
+        core_file.symbols.push_back(type);
+    }
+    snapshot.files.push_back(std::move(core_file));
+
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+    MegaCityCodeConfig cfg;
+    const BiologyBuildResult result = build_biology_view(world, semantics, cfg);
+
+    CHECK(result.stats.module_tissue_count == 2); // app + libs/core
+    CHECK(result.stats.cell_count == 4); // Widget + Alpha/Beta/Gamma
+    CHECK(result.stats.vessel_count >= 1); // 3 cross-module references
+
+    // The vessel is a baked custom mesh; tissue patches are ellipsoids.
+    auto tissue_view = world.registry().view<const EllipsoidMetrics, const CodeVizSemanticRef>();
+    size_t tissue_patches = 0;
+    for (const entt::entity entity : tissue_view)
+    {
+        const auto& ref = tissue_view.get<const CodeVizSemanticRef>(entity);
+        if (ref.semantic_node_id == 0 && !ref.module_path.empty() && ref.name == ref.module_path)
+            ++tissue_patches;
+    }
+    CHECK(tissue_patches == 2);
+}
+
+TEST_CASE("BioView falls back to a generic cell when there are no types", "[megacity][bioview]")
+{
+    CodeVizSceneWorld world;
+    CodebaseSnapshot snapshot;
+    snapshot.complete = true;
+    ParsedFile file;
+    file.path = "app/main.cpp";
+    SymbolRecord free_function;
+    free_function.kind = SymbolKind::Function;
+    free_function.name = "main";
+    free_function.line = 1;
+    free_function.end_line = 20;
+    file.symbols = { free_function };
+    snapshot.files.push_back(std::move(file));
+
+    const CodeSemanticSnapshot semantics = build_code_semantic_snapshot(snapshot);
+    MegaCityCodeConfig cfg;
+    const BiologyBuildResult result = build_biology_view(world, semantics, cfg);
+
+    CHECK_FALSE(result.mapped_from_semantics);
+    CHECK(result.subject_label.empty());
+    CHECK(result.bounds_valid);
+    CHECK(result.stats.cell_count == 1);
+    CHECK(result.stats.mitochondria_count > 0);
+
+    auto ellipsoid_view = world.registry().view<const EllipsoidMetrics>();
+    CHECK(ellipsoid_view.begin() != ellipsoid_view.end());
 }
 
 TEST_CASE("megacity world creates module surface entities", "[megacity]")

@@ -3,11 +3,13 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 
 #include <draxul/building_generator.h>
+#include <draxul/cell_generator.h>
 #include <draxul/primitive_meshes.h>
 #include <draxul/roof_sign_generator.h>
 #include <draxul/tree_generator.h>
 
 #include <glm/geometric.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
@@ -401,6 +403,94 @@ TEST_CASE("roof sign generator supports polygonal sides", "[geometry]")
 
     REQUIRE(mesh.vertices.size() == static_cast<size_t>(params.sides * 16));
     REQUIRE(mesh.indices.size() == static_cast<size_t>(params.sides * 24));
+}
+
+namespace
+{
+
+void check_mesh_valid(const GeometryMesh& mesh)
+{
+    REQUIRE_FALSE(mesh.vertices.empty());
+    REQUIRE_FALSE(mesh.indices.empty());
+    REQUIRE(mesh.indices.size() % 3 == 0);
+    REQUIRE(mesh.vertices.size() <= static_cast<size_t>(std::numeric_limits<uint16_t>::max()) + 1);
+    for (const uint16_t index : mesh.indices)
+        CHECK(static_cast<size_t>(index) < mesh.vertices.size());
+    for (const GeometryVertex& vertex : mesh.vertices)
+    {
+        CHECK(glm::length(vertex.normal) == Catch::Approx(1.0f).margin(0.01f));
+        CHECK(std::isfinite(vertex.position.x));
+        CHECK(std::isfinite(vertex.position.y));
+        CHECK(std::isfinite(vertex.position.z));
+    }
+}
+
+} // namespace
+
+TEST_CASE("blob mesh is a valid, watertight organic surface", "[geometry][cell]")
+{
+    BlobParams params;
+    params.seed = 7;
+    params.radius = glm::vec3(0.5f);
+    const GeometryMesh mesh = build_blob_mesh(params);
+    check_mesh_valid(mesh);
+
+    // Noise displacement keeps vertices near the base radius, not exploded.
+    for (const GeometryVertex& vertex : mesh.vertices)
+        CHECK(glm::length(vertex.position) <= Catch::Approx(0.5f * (1.0f + params.noise_amplitude) + 0.02f));
+}
+
+TEST_CASE("value noise is deterministic and bounded", "[geometry][cell]")
+{
+    const glm::vec3 p(1.3f, -2.1f, 0.7f);
+    const float a = value_noise_3d(p, 42u);
+    const float b = value_noise_3d(p, 42u);
+    CHECK(a == Catch::Approx(b));
+    CHECK(a >= -1.0f);
+    CHECK(a <= 1.0f);
+    CHECK(value_noise_3d(p, 42u) != Catch::Approx(value_noise_3d(p, 43u)));
+}
+
+TEST_CASE("DNA double helix builds two backbones plus rungs", "[geometry][cell]")
+{
+    DnaHelixParams params;
+    params.seed = 3;
+    params.rungs = 20;
+    const GeometryMesh mesh = build_dna_double_helix(params);
+    check_mesh_valid(mesh);
+
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+    for (const GeometryVertex& vertex : mesh.vertices)
+    {
+        min_y = std::min(min_y, vertex.position.y);
+        max_y = std::max(max_y, vertex.position.y);
+    }
+    CHECK((max_y - min_y) == Catch::Approx(params.length).margin(0.4f));
+}
+
+TEST_CASE("mitochondrion, golgi and ER produce valid meshes", "[geometry][cell]")
+{
+    check_mesh_valid(build_mitochondrion(MitochondrionParams{}));
+    check_mesh_valid(build_golgi(GolgiParams{}));
+
+    const ErResult er = build_endoplasmic_reticulum(ErParams{});
+    check_mesh_valid(er.mesh);
+    CHECK_FALSE(er.ribosome_sites.empty());
+}
+
+TEST_CASE("transform_mesh rotates positions and normals", "[geometry][cell]")
+{
+    GeometryMesh sphere = build_unit_uv_sphere_geometry(8, 12);
+    glm::mat4 xform = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+    const GeometryMesh moved = transform_mesh(sphere, xform);
+    REQUIRE(moved.vertices.size() == sphere.vertices.size());
+    for (size_t i = 0; i < moved.vertices.size(); ++i)
+    {
+        CHECK(moved.vertices[i].position.x == Catch::Approx(sphere.vertices[i].position.x + 3.0f));
+        // Pure translation leaves normals unchanged.
+        CHECK(moved.vertices[i].normal.y == Catch::Approx(sphere.vertices[i].normal.y).margin(0.001f));
+    }
 }
 
 #endif
