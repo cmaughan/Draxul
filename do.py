@@ -399,6 +399,13 @@ def _apply_megacity_parser_config(parser: str) -> pathlib.Path:
     return config_path
 
 
+def _parallel_jobs() -> str:
+    """Bounded build parallelism. A bare `cmake --build --parallel` maps to an
+    unlimited `make -j` with the Makefiles generator; a job storm across large
+    third-party deps (e.g. Verovio's ~400 files) can swamp the machine."""
+    return str(os.cpu_count() or 8)
+
+
 def _configure_and_build(
     root: pathlib.Path, mode: str, force_reconfigure: bool, build_system: str,
 ) -> tuple[int, pathlib.Path, str, dict[str, str] | None]:
@@ -467,7 +474,7 @@ def _configure_and_build(
     else:
         print(f"\n> using existing CMake cache: {cache_file}")
 
-    build_cmd = ["cmake", "--build", str(bd), "--config", config, "--target", "draxul", "--parallel"]
+    build_cmd = ["cmake", "--build", str(bd), "--config", config, "--target", "draxul", "--parallel", _parallel_jobs()]
     rc = run(build_cmd, root, env=env)
     return rc, bd, config, env
 
@@ -1247,8 +1254,8 @@ def ensure_built(root: pathlib.Path) -> int:
         return 0
 
     if sys.platform.startswith("win"):
-        return run(["cmake", "--build", str(build_dir(root)), "--config", "Release", "--parallel"], root)
-    return run(["cmake", "--build", str(build_dir(root)), "--parallel"], root)
+        return run(["cmake", "--build", str(build_dir(root)), "--config", "Release", "--parallel", _parallel_jobs()], root)
+    return run(["cmake", "--build", str(build_dir(root)), "--parallel", _parallel_jobs()], root)
 
 
 def help_text() -> str:

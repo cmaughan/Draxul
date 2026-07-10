@@ -141,6 +141,21 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     else()
         target_compile_options(verovio PRIVATE -w)
     endif()
+    # Verovio's configure step regenerates include/vrv/git_commit.h with a
+    # fresh timestamp on every CMake run, dirtying vrv.cpp and relinking the
+    # library each configure. The tag is pinned, so keep the header generated
+    # by the first configure and make the script a no-op afterwards. (This
+    # replacement takes effect from the next configure onwards.)
+    file(WRITE ${verovio_SOURCE_DIR}/tools/get_git_commit.sh
+"#!/usr/bin/env sh
+# Draxul: neutralized copy (see cmake/FetchDependencies.cmake). The upstream
+# script rewrites include/vrv/git_commit.h with a timestamp every configure.
+cd ..
+output=\"./include/vrv/git_commit.h\"
+if [ ! -f \"$output\" ]; then
+    echo \"#define GIT_COMMIT \\\"-draxul-pinned\\\"\" > $output
+fi
+")
 endif()
 
 # tinyxml2 (MusicXML import in draxul-notation; deliberately not pugixml —

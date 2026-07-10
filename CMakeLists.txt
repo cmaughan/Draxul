@@ -126,6 +126,14 @@ if(NOT APPLE)
 endif()
 
 # Fetch all dependencies
+# Single-config generators must have a concrete build type before third-party
+# subprojects configure: several (e.g. Verovio) default themselves to Release
+# when CMAKE_BUILD_TYPE is empty, silently flipping their object flavor
+# between configure paths and forcing full dependency rebuilds.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
 include(cmake/FetchDependencies.cmake)
 
 # Compile shaders
