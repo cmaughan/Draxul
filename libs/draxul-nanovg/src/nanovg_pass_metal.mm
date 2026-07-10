@@ -48,15 +48,20 @@ public:
         // Set per-frame Metal state
         nvgMtlSetFrameState(vg_, mtl_ctx.command_buffer(), drawable, mtl_ctx.frame_index());
 
-        int w = mtl_ctx.viewport_w();
-        int h = mtl_ctx.viewport_h();
-        float pixel_ratio = 1.0f;
+        // NanoVG's coordinate space spans the full surface so offset pane
+        // viewports land where they belong (the backend's viewport/projection
+        // is anchored at the surface origin). Content is scissored to the
+        // pane; the callback keeps drawing in pane-local coordinates.
+        const int w = mtl_ctx.viewport_w();
+        const int h = mtl_ctx.viewport_h();
+        const int vx = mtl_ctx.viewport_x();
+        const int vy = mtl_ctx.viewport_y();
+        const float pixel_ratio = 1.0f;
 
-        nvgBeginFrame(vg_, static_cast<float>(w), static_cast<float>(h), pixel_ratio);
-
-        // Offset NanoVG coordinates to the viewport origin
-        int vx = mtl_ctx.viewport_x();
-        int vy = mtl_ctx.viewport_y();
+        nvgBeginFrame(vg_, static_cast<float>(mtl_ctx.width()),
+            static_cast<float>(mtl_ctx.height()), pixel_ratio);
+        nvgScissor(vg_, static_cast<float>(vx), static_cast<float>(vy), static_cast<float>(w),
+            static_cast<float>(h));
         if (vx != 0 || vy != 0)
             nvgTranslate(vg_, static_cast<float>(vx), static_cast<float>(vy));
 

@@ -374,6 +374,8 @@ void ScoreHost::draw(IFrameContext& frame)
     }
 
     RenderViewport vp;
+    vp.x = viewport_.pixel_pos.x;
+    vp.y = viewport_.pixel_pos.y;
     vp.width = viewport_.pixel_size.x;
     vp.height = viewport_.pixel_size.y;
     frame.record_render_pass(*nanovg_pass_, vp);
