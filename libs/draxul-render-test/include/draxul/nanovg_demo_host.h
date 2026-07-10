@@ -38,7 +38,8 @@ public:
     }
     Color default_background() const override
     {
-        return Color{ 40, 44, 52, 255 };
+        // draxul::Color is normalized floats; byte values clamp to white.
+        return Color{ 0.157f, 0.173f, 0.204f, 1.0f };
     }
     HostRuntimeState runtime_state() const override;
     HostDebugState debug_state() const override;

@@ -475,7 +475,9 @@ std::string ScoreHost::status_text() const
 
 Color ScoreHost::default_background() const
 {
-    return Color{ 56, 58, 62, 255 };
+    // draxul::Color is normalized floats; byte-style values here clamp to
+    // pure white and become the window clear color when this host is primary.
+    return Color{ 0.22f, 0.23f, 0.24f, 1.0f };
 }
 
 HostRuntimeState ScoreHost::runtime_state() const
