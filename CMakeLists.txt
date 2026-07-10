@@ -32,7 +32,15 @@ option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/App
 # when megacity is disabled, yielding a cleaner renderer interface.
 option(DRAXUL_ENABLE_MEGACITY "Build and include the Megacity 3D demo host" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and include the SatView 3D satellite overview host" ON)
-option(DRAXUL_ENABLE_SCOREVIEW "Build and include the ScoreView music score host" ON)
+# ScoreView pulls in Verovio as a shared library; the Windows DLL export
+# wiring is not validated yet (plans/scoreview.md follow-ups), so the module
+# currently defaults ON only for Apple builds.
+if(APPLE)
+    set(DRAXUL_SCOREVIEW_DEFAULT ON)
+else()
+    set(DRAXUL_SCOREVIEW_DEFAULT OFF)
+endif()
+option(DRAXUL_ENABLE_SCOREVIEW "Build and include the ScoreView music score host" ${DRAXUL_SCOREVIEW_DEFAULT})
 option(DRAXUL_ENABLE_RENDER_TESTS "Enable render-test capture/compare infrastructure" OFF)
 
 # Sanitizer helper — applied to draxul targets after FetchContent deps are fetched
@@ -196,6 +204,9 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     draxul_apply_sanitizers(draxul-notation)
     draxul_apply_coverage(draxul-notation)
     draxul_apply_msvc_parallel_pdb_fix(draxul-notation)
+    draxul_apply_sanitizers(draxul-scoreview)
+    draxul_apply_coverage(draxul-scoreview)
+    draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview)
     draxul_apply_sanitizers(draxul-scoreview-host)
     draxul_apply_coverage(draxul-scoreview-host)
     draxul_apply_msvc_parallel_pdb_fix(draxul-scoreview-host)
@@ -394,6 +405,17 @@ if(DRAXUL_ENABLE_SATVIEW AND EXISTS "${CMAKE_SOURCE_DIR}/assets/satview")
             $<TARGET_FILE_DIR:draxul>/assets/satview
     )
     add_dependencies(draxul stage_satview_assets)
+endif()
+
+if(DRAXUL_ENABLE_SCOREVIEW)
+    # Verovio's runtime resources (SMuFL fonts + glyph metadata) must sit next
+    # to the executable; VerovioLayoutEngine::create() receives this path.
+    add_custom_target(stage_verovio_data
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${verovio_SOURCE_DIR}/data
+            $<TARGET_FILE_DIR:draxul>/verovio-data
+    )
+    add_dependencies(draxul stage_verovio_data)
 endif()
 
 # Copy fonts to build directory

@@ -16,7 +16,7 @@ if(NOT DRAXUL_ENABLE_SATVIEW)
 endif()
 
 if(NOT DRAXUL_ENABLE_SCOREVIEW)
-    list(FILTER DRAXUL_TEST_SOURCES EXCLUDE REGEX "notation_.*_tests\\.cpp$")
+    list(FILTER DRAXUL_TEST_SOURCES EXCLUDE REGEX "(notation|scoreview)_.*_tests\\.cpp$")
 endif()
 
 add_executable(draxul-tests ${DRAXUL_TEST_SOURCES})
@@ -48,7 +48,12 @@ if(DRAXUL_ENABLE_SATVIEW)
     target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_SATVIEW)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
-    target_link_libraries(draxul-tests PRIVATE draxul-notation)
+    target_link_libraries(draxul-tests PRIVATE draxul-notation draxul-scoreview)
+    # Layout-engine tests read Verovio's resources straight from the fetched
+    # source tree; the app uses the staged <exe-dir>/verovio-data copy instead.
+    target_compile_definitions(draxul-tests PRIVATE
+        DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
+    )
 endif()
 target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"

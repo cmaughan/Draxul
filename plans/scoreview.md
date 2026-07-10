@@ -173,13 +173,13 @@ is the future hook for hit-testing and playback highlighting.
 - [x] Unit tests: 12 cases / 146 assertions in [notation_importer_tests.cpp](../tests/notation_importer_tests.cpp) — Fraction math, single note + header, mid-file divisions change, chords, two-staff backup voices, dotted/tuplet durations, grace notes, ties/accidentals, fill warnings, error paths
 - [x] Acceptance: Grieg fixture imports with **zero warnings**; every independently-counted ground-truth stat matches (79 measures, 694 notes, 49 rests, 14 grace, 202 chord members, 36 tuplet notes, 36 tie elements, 49 accidentals, 65 dots, 4 clef changes, 4 key changes, voices {1,2,5}, unique ids, all onsets within 3/4). Extracted `grieg-waltz-op-12-no-2.musicxml` checked in alongside the `.mxl`
 
-### Phase 2 — Verovio layout engine (`draxul-scoreview`)
+### Phase 2 — Verovio layout engine (`draxul-scoreview`) ✅ (2026-07-10)
 
-- [ ] FetchContent verovio, pinned release tag, `SOURCE_SUBDIR cmake`, built as static lib; disable Humdrum/ABC/PAE importers via its CMake options (verify names); mark headers SYSTEM
-- [ ] Bundle Verovio's runtime resource dir (`data/` — SMuFL fonts + metadata): macOS → app bundle `Resources/verovio` (MACOSX_PACKAGE_LOCATION pattern, top CMakeLists ~line 210); Windows → `$<TARGET_FILE_DIR:draxul>/verovio-data` (fonts-copy pattern, ~lines 383-398); resolve at runtime via the existing runtime-path helper
-- [ ] `VerovioLayoutEngine : ILayoutEngine` (pimpl; verovio headers only in the .cpp): map `LayoutOptions.page_size_px`/`pixel_scale` → Verovio page width/height/scale units; load MusicXML or `.mxl` bytes; `render_page_svg(n)`
-- [ ] Unit test: load a small fixture, assert page_count ≥ 1 and SVG output is non-empty, contains `<use` glyph refs and a staff path
-- [ ] Acceptance: engine lays out the sample piece; log INFO timing for load + first layout (baseline number for later)
+- [x] FetchContent verovio pinned to `version-6.2.1`, `SOURCE_SUBDIR cmake`, built via upstream `BUILD_AS_LIBRARY` (**shared** lib — upstream's supported embedding path and the LGPL-friendly mode; the plan's "static" idea was amended). Humdrum/ABC/PAE/GABC importers compiled out; MusicXML + `.mxl` kept; headers SYSTEM; consumer TU carries matching `NO_*_SUPPORT` defines (vrv headers branch on them); `include/tuning-library` needed since 6.1 ASCL support
+- [x] Runtime resources staged by `stage_verovio_data` to `<exe-dir>/verovio-data` on all platforms (mirrors megacity/satview asset staging); tests read `${verovio_SOURCE_DIR}/data` via `DRAXUL_VEROVIO_DATA_DIR`
+- [x] `VerovioLayoutEngine : ILayoutEngine` (pimpl, verovio types only in the .cpp) — [verovio_layout_engine.cpp](../modules/score/draxul-scoreview/src/verovio_layout_engine.cpp): `page_size_px`/`pixel_scale` → pageWidth/pageHeight + scale (base 40%, hidpi folds into scale), `footer: none`, `svgViewBox: true`; `.mxl` via zip-magic → `LoadZipDataBuffer`, XML via `LoadData`; `set_options` re-layouts via `RedoLayout`
+- [x] Unit tests: 4 cases / 31 assertions in [scoreview_layout_tests.cpp](../tests/scoreview_layout_tests.cpp) — missing resources, minimal score (page count, `<svg`/`viewBox`/`<use`/staff, page-range guards), garbage input, Grieg `.mxl` end-to-end + shrink reflow (page count grows)
+- [x] Acceptance + baseline: full Grieg `.mxl` load + layout + SVG render of all pages + full reflow = **0.16 s wall clock including process startup** (M4 Pro, debug build); per-operation timings logged at DEBUG. Verovio notes the fixture has 1 unterminated tie (source-file quirk, harmless)
 
 ### Phase 3 — SVG interpreter → ScoreDrawList
 
@@ -238,3 +238,10 @@ sample suite is a good source).
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG
   replay ever measures too slow.
+- **Windows enablement** — `DRAXUL_ENABLE_SCOREVIEW` currently defaults ON
+  only on Apple: Verovio builds as a shared lib and its MSVC DLL symbol
+  export (`WINDOWS_EXPORT_ALL_SYMBOLS` or a static-lib build of its sources)
+  plus DLL staging next to draxul.exe are unvalidated. Wire and verify in
+  Windows CI, then flip the default.
+- **Route Verovio's stderr logging** into draxul's log system (it prints
+  `[Warning]`/`[Error]` lines directly; fine for tests, noisy for the app).

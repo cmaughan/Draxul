@@ -118,6 +118,31 @@ FetchContent_Declare(
 set(BUILD_MD2HTML_EXECUTABLE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(md4c)
 
+# Verovio (music notation engraving — ScoreView module only, see
+# plans/scoreview.md). Built via upstream's BUILD_AS_LIBRARY path (a shared
+# library — also the LGPL-friendly linking mode). Importers we don't use are
+# compiled out; MusicXML + compressed .mxl stay enabled.
+if(DRAXUL_ENABLE_SCOREVIEW)
+    FetchContent_Declare(
+        verovio
+        GIT_REPOSITORY https://github.com/rism-digital/verovio.git
+        GIT_TAG version-6.2.1
+        GIT_SHALLOW TRUE
+        SOURCE_SUBDIR cmake
+    )
+    set(BUILD_AS_LIBRARY ON CACHE BOOL "" FORCE)
+    set(NO_HUMDRUM_SUPPORT ON CACHE BOOL "" FORCE)
+    set(NO_ABC_SUPPORT ON CACHE BOOL "" FORCE)
+    set(NO_PAE_SUPPORT ON CACHE BOOL "" FORCE)
+    set(NO_GABC_SUPPORT ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(verovio)
+    if(MSVC)
+        target_compile_options(verovio PRIVATE /w)
+    else()
+        target_compile_options(verovio PRIVATE -w)
+    endif()
+endif()
+
 # tinyxml2 (MusicXML import in draxul-notation; deliberately not pugixml —
 # Verovio vendors its own pugixml copy and a second one would be an ODR hazard)
 FetchContent_Declare(
