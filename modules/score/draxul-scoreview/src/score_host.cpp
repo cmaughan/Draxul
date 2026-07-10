@@ -41,6 +41,18 @@ constexpr float BARLINE_SEPARATION_SP = 0.4f;
 constexpr int PLACEHOLDER_MEASURES = 4;
 
 const NVGcolor INK = { { { 0.12f, 0.11f, 0.10f, 1.0f } } };
+// Reading-room backdrop behind the pages; drawn inside the pane only. The
+// host's default_background stays the app-standard terminal color so window
+// clear, pane borders, and grid remainder strips match every other pane.
+const NVGcolor BACKDROP = { { { 0.22f, 0.23f, 0.24f, 1.0f } } };
+
+void fill_backdrop(NVGcontext* vg, int w, int h)
+{
+    nvgBeginPath(vg);
+    nvgRect(vg, 0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h));
+    nvgFillColor(vg, BACKDROP);
+    nvgFill(vg);
+}
 
 void fill_vertical_bar(NVGcontext* vg, float x_center, float top, float bottom, float width)
 {
@@ -75,6 +87,8 @@ void draw_placeholder(NVGcontext* vg, int width, int height, float pixel_scale)
 {
     const float fw = static_cast<float>(width);
     const float fh = static_cast<float>(height);
+    fill_backdrop(vg, width, height);
+
     const float outer_margin = 24.0f * pixel_scale;
     const float avail_w = fw - 2.0f * outer_margin;
     const float avail_h = fh - 2.0f * outer_margin;
@@ -137,6 +151,7 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
     viewport_ = context.initial_viewport;
     callbacks_ = &callbacks;
     source_path_ = context.launch_options.source_path;
+    background_ = context.launch_options.terminal_bg.value_or(background_);
 
     nanovg_pass_ = create_nanovg_pass();
     if (!nanovg_pass_)
@@ -214,6 +229,12 @@ void ScoreHost::set_viewport(const HostViewport& viewport)
     viewport_ = viewport;
     if (size_changed)
         layout_dirty_ = true;
+}
+
+void ScoreHost::on_config_reloaded(const HostReloadConfig& config)
+{
+    if (config.terminal_bg)
+        background_ = *config.terminal_bg;
 }
 
 float ScoreHost::ui_scale() const
@@ -358,7 +379,8 @@ void ScoreHost::draw(IFrameContext& frame)
         const float scale = page_scale_;
         nanovg_pass_->set_draw_callback(
             [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale](
-                NVGcontext* vg, int /*w*/, int h) {
+                NVGcontext* vg, int w, int h) {
+                fill_backdrop(vg, w, h);
                 const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
                 float y = margin - scroll;
                 for (const ScoreDrawList& page : *pages)
@@ -475,9 +497,11 @@ std::string ScoreHost::status_text() const
 
 Color ScoreHost::default_background() const
 {
-    // draxul::Color is normalized floats; byte-style values here clamp to
-    // pure white and become the window clear color when this host is primary.
-    return Color{ 0.22f, 0.23f, 0.24f, 1.0f };
+    // The primary host's background becomes the window clear color, which
+    // shows through pane borders and grid remainder strips — it must match
+    // the terminal scheme exactly or every pane's chrome shifts hue. The
+    // score's own mid-gray backdrop is drawn inside the pane instead.
+    return background_;
 }
 
 HostRuntimeState ScoreHost::runtime_state() const

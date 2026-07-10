@@ -40,6 +40,7 @@ public:
     }
 
     void set_viewport(const draxul::HostViewport& viewport) override;
+    void on_config_reloaded(const draxul::HostReloadConfig& config) override;
     void pump() override;
     void draw(draxul::IFrameContext& frame) override;
     std::optional<std::chrono::steady_clock::time_point> next_deadline() const override
@@ -80,6 +81,10 @@ private:
     draxul::notation::ScoreDocument model_;
     bool has_model_ = false;
 
+    // Window-clear / chrome-facing background; kept identical to the terminal
+    // scheme (see default_background()). The score's own backdrop is a NanoVG
+    // fill inside the pane.
+    draxul::Color background_{ 0.08f, 0.09f, 0.10f, 1.0f };
     float zoom_ = 1.0f;
     float scroll_y_ = 0.0f;
     float page_width_px_ = 0.0f;
