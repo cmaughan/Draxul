@@ -114,6 +114,79 @@ std::string collapse_whitespace(std::string_view text)
     return out;
 }
 
+// Marks hole subpaths for nonzero-rule rendering: a contour winding opposite
+// to the dominant (largest-area) contour is a counter — the gap in a treble
+// clef, the bowl of a 'p'. NanoVG fills every subpath as solid unless told
+// otherwise, so the classification is baked into MoveTo commands once here.
+// The shoelace sum runs over control polygons, whose orientation matches the
+// curves they bound.
+void classify_hole_subpaths(std::vector<PathCmd>& cmds)
+{
+    struct Subpath
+    {
+        size_t move_index = 0;
+        std::vector<glm::vec2> points;
+    };
+    std::vector<Subpath> subpaths;
+    for (size_t i = 0; i < cmds.size(); ++i)
+    {
+        const PathCmd& cmd = cmds[i];
+        if (cmd.op == PathCmd::Op::MoveTo)
+        {
+            subpaths.push_back({ i, { cmd.p } });
+            continue;
+        }
+        if (subpaths.empty())
+            continue;
+        if (cmd.op == PathCmd::Op::LineTo)
+            subpaths.back().points.push_back(cmd.p);
+        else if (cmd.op == PathCmd::Op::CubicTo)
+        {
+            subpaths.back().points.push_back(cmd.c1);
+            subpaths.back().points.push_back(cmd.c2);
+            subpaths.back().points.push_back(cmd.p);
+        }
+    }
+    if (subpaths.size() < 2)
+        return;
+
+    std::vector<float> areas(subpaths.size(), 0.0f);
+    float dominant = 0.0f;
+    for (size_t s = 0; s < subpaths.size(); ++s)
+    {
+        const std::vector<glm::vec2>& pts = subpaths[s].points;
+        float doubled = 0.0f;
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            const glm::vec2& a = pts[i];
+            const glm::vec2& b = pts[(i + 1) % pts.size()];
+            doubled += a.x * b.y - b.x * a.y;
+        }
+        areas[s] = doubled;
+        if (std::abs(doubled) > std::abs(dominant))
+            dominant = doubled;
+    }
+    if (dominant == 0.0f)
+        return;
+    for (size_t s = 0; s < subpaths.size(); ++s)
+        cmds[subpaths[s].move_index].hole = areas[s] * dominant < 0.0f;
+}
+
+// SMuFL music text fonts Verovio may name on tspans (metronome-note glyphs in
+// tempo marks etc.). Their codepoints live in the Private Use Area — pushing
+// them through a serif face renders .notdef boxes.
+bool is_music_font(const char* family)
+{
+    static constexpr const char* MUSIC_FONTS[] = { "Leipzig", "VerovioText", "Bravura",
+        "Petaluma", "Gootville", "Leland" };
+    for (const char* name : MUSIC_FONTS)
+    {
+        if (std::strstr(family, name) != nullptr)
+            return true;
+    }
+    return false;
+}
+
 // Ellipse as four cubic arcs (standard circle-approximation constant).
 void append_ellipse(std::vector<PathCmd>& cmds, glm::vec2 center, glm::vec2 radii)
 {
@@ -389,6 +462,7 @@ private:
                 }
                 symbol.cmds.insert(symbol.cmds.end(), cmds.begin(), cmds.end());
             }
+            classify_hole_subpaths(symbol.cmds);
             symbol_index_.emplace(symbol.id, static_cast<int>(list_.symbols.size()));
             list_.symbols.push_back(std::move(symbol));
         }
@@ -527,6 +601,9 @@ private:
             path.fill = has_area;
         }
 
+        if (path.fill)
+            classify_hole_subpaths(path.cmds);
+
         const float stroke_width = element->FloatAttribute("stroke-width", 0.0f);
         path.stroke_width = stroke_width > 0.0f ? stroke_width * ctx.xform.uniform_scale() : 0.0f;
         if (!path.fill && path.stroke_width <= 0.0f)
@@ -632,6 +709,10 @@ private:
         DrawText::Anchor anchor = DrawText::Anchor::Start;
         bool italic = false;
         bool bold = false;
+        bool music_font = false;
+        // Something was already emitted for this <text> element without an
+        // intervening reposition; the next emitted run flows inline after it.
+        bool continues = false;
         std::string content;
     };
 
@@ -647,9 +728,12 @@ private:
         text.anchor = run.anchor;
         text.italic = run.italic;
         text.bold = run.bold;
-        text.content = content;
+        text.music_font = run.music_font;
+        text.continues_previous = run.continues;
         text.element_id = ctx.element_id;
+        text.content = content;
         list_.texts.push_back(std::move(text));
+        run.continues = true;
     }
 
     // Text runs: tspans without their own x/y continue the current run;
@@ -675,7 +759,7 @@ private:
             }
             const TextRun saved = run;
             const bool repositioned = child->Attribute("x") != nullptr || child->Attribute("y") != nullptr;
-            const bool restyled = child->Attribute("font-size") != nullptr || child->Attribute("font-style") != nullptr || child->Attribute("font-weight") != nullptr || child->Attribute("text-anchor") != nullptr;
+            const bool restyled = child->Attribute("font-size") != nullptr || child->Attribute("font-style") != nullptr || child->Attribute("font-weight") != nullptr || child->Attribute("font-family") != nullptr || child->Attribute("text-anchor") != nullptr;
 
             // A tspan that changes position or style is its own run: emit any
             // pending content in the old style first, and emit this tspan's
@@ -683,14 +767,19 @@ private:
             if (repositioned || restyled)
                 flush_text_run(run, ctx);
             if (repositioned)
+            {
                 run.pos = { child->FloatAttribute("x", saved.pos.x),
                     child->FloatAttribute("y", saved.pos.y) };
+                run.continues = false; // explicit anchor breaks the inline flow
+            }
             if (const char* size = child->Attribute("font-size"))
                 run.font_size = std::strtof(size, nullptr);
             if (const char* style = child->Attribute("font-style"))
                 run.italic = std::strcmp(style, "italic") == 0;
             if (const char* weight = child->Attribute("font-weight"))
                 run.bold = std::strcmp(weight, "bold") == 0;
+            if (const char* family = child->Attribute("font-family"))
+                run.music_font = is_music_font(family);
             if (child->Attribute("text-anchor") != nullptr)
                 run.anchor = parse_anchor(child->Attribute("text-anchor"));
 
@@ -702,6 +791,7 @@ private:
             run.font_size = saved.font_size;
             run.italic = saved.italic;
             run.bold = saved.bold;
+            run.music_font = saved.music_font;
             run.anchor = saved.anchor;
         }
     }

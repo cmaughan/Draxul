@@ -208,6 +208,14 @@ emitted CSS). Draw list generalized accordingly: `GlyphInstance` (affine),
 - [x] `status_text()`: title — composer (model metadata when available, filename otherwise) + `p. n/m` + zoom; INFO log per relayout (`score: engraved N page(s), M draw ops`); no-source placeholder retained
 - [x] [docs/features.md](../docs/features.md) updated to the real feature description
 - [x] Acceptance: Grieg engraves and renders in-app — verified via `--smoke-test` (`score: engraved 1 page(s), 3083 draw ops (2268px wide, zoom 100%)`, clean exit); full `ctest` + `py do.py smoke` green. On-screen eyeball pass: user's next launch
+- [x] Post-eyeball fixes (first on-screen review): glyph counters rendered
+  solid (NanoVG fills every subpath unless marked — subpath orientation is now
+  classified against the dominant contour at interpretation time and replayed
+  as `NVG_HOLE`); the metronome-note tspan (`font-family="Leipzig"`, PUA
+  codepoint) rendered as a .notdef box through Times (Leipzig.ttf is now
+  staged with the Verovio resources and loaded as the music text face); and
+  sibling tspans of one `<text>` all drew at the same anchor (continuation
+  runs now chain by measured advance)
 - [ ] Stretch (open): `draxul-render-score` snapshot scenario + bless entry
 
 ## Testing summary

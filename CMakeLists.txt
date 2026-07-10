@@ -422,6 +422,9 @@ if(DRAXUL_ENABLE_SCOREVIEW)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${verovio_SOURCE_DIR}/data
             $<TARGET_FILE_DIR:draxul>/verovio-data
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${verovio_SOURCE_DIR}/fonts/Leipzig/Leipzig.ttf
+            $<TARGET_FILE_DIR:draxul>/verovio-data/Leipzig.ttf
     )
     add_dependencies(draxul stage_verovio_data)
 endif()

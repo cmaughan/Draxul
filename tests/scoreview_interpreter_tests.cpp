@@ -121,6 +121,26 @@ TEST_CASE("interpreter converts the checked-in Verovio fixture exactly", "[score
     CHECK(list.symbols[2].cmds[0].op == PathCmd::Op::MoveTo);
     CHECK(list.symbols[2].cmds[0].p == glm::vec2{ 198.0f, -133.0f });
 
+    // Winding classification: the whole-note head is an outer ring plus an
+    // inner counter whose MoveTo must be flagged as a hole; the treble clef
+    // carries several counters.
+    {
+        std::vector<size_t> moves;
+        for (size_t i = 0; i < list.symbols[2].cmds.size(); ++i)
+        {
+            if (list.symbols[2].cmds[i].op == PathCmd::Op::MoveTo)
+                moves.push_back(i);
+        }
+        REQUIRE(moves.size() == 2);
+        CHECK_FALSE(list.symbols[2].cmds[moves[0]].hole);
+        CHECK(list.symbols[2].cmds[moves[1]].hole);
+
+        size_t clef_holes = 0;
+        for (const PathCmd& cmd : list.symbols[0].cmds)
+            clef_holes += (cmd.op == PathCmd::Op::MoveTo && cmd.hole) ? 1 : 0;
+        CHECK(clef_holes >= 1);
+    }
+
     // Glyphs: clef + two meter digits + notehead, page-margin translate applied.
     REQUIRE(list.glyphs.size() == 4);
     const GlyphInstance& notehead = list.glyphs[3];
@@ -185,6 +205,62 @@ TEST_CASE("interpreter covers every construct in live Grieg output", "[scoreview
     CHECK(total_glyphs > 500);
     CHECK(total_paths > 800);
     CHECK(total_texts > 50);
+}
+
+TEST_CASE("interpreter marks opposite-winding subpaths as holes", "[scoreview]")
+{
+    // Outer square, one inner square wound opposite (a counter → hole), one
+    // wound the same way (stays solid under the nonzero rule).
+    const ScoreDrawList list = interpret_ok(R"(<svg viewBox="0 0 840 1188">
+   <svg class="definition-scale" viewBox="0 0 21000 29700">
+      <g id="donut">
+         <path d="M0 0 L100 0 L100 100 L0 100 Z M20 20 L20 40 L40 40 L40 20 Z M60 60 L80 60 L80 80 L60 80 Z" stroke-width="1" />
+      </g>
+   </svg>
+</svg>)");
+    CHECK(list.warnings.empty());
+    REQUIRE(list.paths.size() == 1);
+    CHECK(list.paths[0].fill);
+    std::vector<bool> holes;
+    for (const PathCmd& cmd : list.paths[0].cmds)
+    {
+        if (cmd.op == PathCmd::Op::MoveTo)
+            holes.push_back(cmd.hole);
+    }
+    REQUIRE(holes.size() == 3);
+    CHECK_FALSE(holes[0]);
+    CHECK(holes[1]);
+    CHECK_FALSE(holes[2]);
+}
+
+TEST_CASE("interpreter flags music-font and continuation text runs", "[scoreview]")
+{
+    // Shape of a Verovio tempo mark: serif text, a metronome-note glyph in
+    // the Leipzig music font, then more serif text — all one <text> anchor.
+    const ScoreDrawList list = interpret_ok(R"(<svg viewBox="0 0 840 1188">
+   <svg class="definition-scale" viewBox="0 0 21000 29700">
+      <g id="t1" class="tempo">
+         <text x="100" y="200" font-size="0px">
+            <tspan font-size="405px">Allegro moderato </tspan>
+            <tspan font-family="Leipzig" font-size="720px">Q</tspan>
+            <tspan font-size="405px"> = 132</tspan>
+         </text>
+      </g>
+   </svg>
+</svg>)");
+    CHECK(list.warnings.empty());
+    REQUIRE(list.texts.size() == 3);
+    CHECK(list.texts[0].content == "Allegro moderato");
+    CHECK(list.texts[0].bold); // g.tempo class style
+    CHECK_FALSE(list.texts[0].music_font);
+    CHECK_FALSE(list.texts[0].continues_previous);
+    CHECK(list.texts[1].content == "Q");
+    CHECK(list.texts[1].music_font);
+    CHECK(list.texts[1].continues_previous);
+    CHECK(list.texts[1].font_size == 720.0f);
+    CHECK(list.texts[2].content == "= 132");
+    CHECK_FALSE(list.texts[2].music_font);
+    CHECK(list.texts[2].continues_previous);
 }
 
 TEST_CASE("interpreter rejects structurally broken svg", "[scoreview]")

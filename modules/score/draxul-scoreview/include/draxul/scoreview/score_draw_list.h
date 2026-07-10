@@ -76,6 +76,10 @@ struct PathCmd
     glm::vec2 p{ 0.0f };
     glm::vec2 c1{ 0.0f };
     glm::vec2 c2{ 0.0f };
+    // Meaningful on MoveTo: this subpath winds opposite to the shape's outer
+    // contour and must render as a hole (glyph counters — the gap in a treble
+    // clef, the bowl of a 'p'). Classified once at interpretation time.
+    bool hole = false;
 };
 
 // A glyph outline from the SVG <defs>, in font units with Verovio's
@@ -116,6 +120,14 @@ struct DrawText
     Anchor anchor = Anchor::Start;
     bool italic = false;
     bool bold = false;
+    // Run uses a SMuFL music text font (Verovio's "Leipzig", e.g. the
+    // metronome note in a tempo mark). Rendered with the staged Leipzig face;
+    // skipped entirely when that face is unavailable (never tofu).
+    bool music_font = false;
+    // This run flows inline after the previous DrawText of the same <text>
+    // element (tspan without its own x/y): the renderer places it at the
+    // previous run's measured end instead of `pos`.
+    bool continues_previous = false;
     std::string content;
     std::string element_id;
 };

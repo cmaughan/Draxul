@@ -14,6 +14,7 @@ struct ScoreTextFonts
     int regular = -1;
     int italic = -1;
     int bold = -1;
+    int music = -1; // SMuFL text face (Leipzig) for metronome-note runs
 };
 
 // Loads (once per NVGcontext) the serif faces used for score text — Verovio

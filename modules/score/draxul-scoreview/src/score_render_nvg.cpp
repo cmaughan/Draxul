@@ -1,9 +1,12 @@
 #include <draxul/scoreview/score_render_nvg.h>
 
+#include <draxul/runtime_path.h>
+
 #include "nanovg.h"
 
 #include <array>
 #include <filesystem>
+#include <string>
 
 namespace draxul
 {
@@ -41,6 +44,10 @@ void replay_commands(NVGcontext* vg, const std::vector<PathCmd>& cmds)
         {
         case PathCmd::Op::MoveTo:
             nvgMoveTo(vg, cmd.p.x, cmd.p.y);
+            // Glyph counters (classified at interpretation time) must be
+            // marked explicitly — NanoVG renders every subpath solid otherwise.
+            if (cmd.hole)
+                nvgPathWinding(vg, NVG_HOLE);
             break;
         case PathCmd::Op::LineTo:
             nvgLineTo(vg, cmd.p.x, cmd.p.y);
@@ -94,6 +101,17 @@ ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg)
         fonts.italic = fonts.regular;
     if (fonts.bold < 0)
         fonts.bold = fonts.regular;
+
+    // SMuFL music text face (metronome notes in tempo marks). Staged next to
+    // the executable with the Verovio resources; no serif fallback — its
+    // codepoints are Private Use Area and would render as .notdef boxes.
+    fonts.music = nvgFindFont(vg, "score-music");
+    if (fonts.music < 0)
+    {
+        const std::string leipzig = (executable_directory() / "verovio-data" / "Leipzig.ttf").string();
+        fonts.music = create_font_from_candidates(
+            vg, "score-music", { leipzig.c_str(), nullptr, nullptr, nullptr });
+    }
     return fonts;
 }
 
@@ -142,31 +160,54 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
 
     if (fonts.regular >= 0)
     {
+        // Inline chaining: runs flagged continues_previous flow after the
+        // measured end of the run before them (tspans of one <text> share an
+        // anchor in the SVG; drawing them all there would overdraw). The pad
+        // stands in for the boundary spaces collapse_whitespace strips.
+        float chain_x = 0.0f;
+        bool chain_valid = false;
         for (const DrawText& text : list.texts)
         {
             int face = fonts.regular;
-            if (text.bold)
+            if (text.music_font)
+                face = fonts.music;
+            else if (text.bold)
                 face = fonts.bold;
             else if (text.italic)
                 face = fonts.italic;
+            if (face < 0)
+            {
+                chain_valid = false; // unmeasurable — followers fall back to pos
+                continue;
+            }
             nvgFontFaceId(vg, face);
             nvgFontSize(vg, text.font_size);
+            float x = text.pos.x;
             int align = NVG_ALIGN_BASELINE;
-            switch (text.anchor)
+            if (text.continues_previous && chain_valid)
             {
-            case DrawText::Anchor::Start:
+                x = chain_x + text.font_size * 0.27f;
                 align |= NVG_ALIGN_LEFT;
-                break;
-            case DrawText::Anchor::Middle:
-                align |= NVG_ALIGN_CENTER;
-                break;
-            case DrawText::Anchor::End:
-                align |= NVG_ALIGN_RIGHT;
-                break;
+            }
+            else
+            {
+                switch (text.anchor)
+                {
+                case DrawText::Anchor::Start:
+                    align |= NVG_ALIGN_LEFT;
+                    break;
+                case DrawText::Anchor::Middle:
+                    align |= NVG_ALIGN_CENTER;
+                    break;
+                case DrawText::Anchor::End:
+                    align |= NVG_ALIGN_RIGHT;
+                    break;
+                }
             }
             nvgTextAlign(vg, align);
             nvgFillColor(vg, INK);
-            nvgText(vg, text.pos.x, text.pos.y, text.content.c_str(), nullptr);
+            chain_x = nvgText(vg, x, text.pos.y, text.content.c_str(), nullptr);
+            chain_valid = true;
         }
     }
 
