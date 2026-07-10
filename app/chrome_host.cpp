@@ -290,6 +290,37 @@ void append_resource_metric(std::vector<ChromeHost::LabelCluster>& out, const ch
 }
 } // namespace
 
+PaneStatusPillLayout pane_status_pill_layout(
+    int pane_w_px, int cell_w_px, int number_cols, int status_text_cols, bool editing)
+{
+    PaneStatusPillLayout layout;
+    if (cell_w_px <= 0 || number_cols <= 0)
+        return layout;
+    const int avail_cols = pane_w_px / cell_w_px - kPaneStatusRightMarginCols;
+    const int pad_cols = kTabPadCols * 2;
+    const int prefix_cols = number_cols + 2; // "N:" plus the space before the text
+    if (editing)
+    {
+        // Keep the rename field comfortably wide even when the buffer is
+        // empty (still subject to the pane clamp below).
+        status_text_cols = std::max(status_text_cols, kEditMinNameCols);
+    }
+
+    if (avail_cols >= pad_cols + prefix_cols + 1)
+    {
+        layout.visible = true;
+        layout.text_cols = std::min(status_text_cols, avail_cols - pad_cols - prefix_cols);
+        layout.pill_cols = pad_cols + prefix_cols + layout.text_cols;
+    }
+    else if (avail_cols >= pad_cols + number_cols + 1)
+    {
+        layout.visible = true;
+        layout.number_only = true;
+        layout.pill_cols = pad_cols + number_cols + 1; // "N:"
+    }
+    return layout;
+}
+
 int ChromeHost::hit_test_tab(int px, int py) const
 {
     if (!deps_.workspaces || deps_.workspaces->empty() || !deps_.grid_renderer)
@@ -664,18 +695,16 @@ void ChromeHost::draw(IFrameContext& frame)
                     && edit_.leaf_id == e.leaf);
                 const std::string display_text = editing ? edit_.buffer : e.text;
                 // Label = "<index>: <text>" — same prefix scheme as tabs.
+                // Shared layout with update_pane_status_grids(): clamps to the
+                // pane and degrades in narrow panes (truncated text →
+                // number-only → hidden) so pill and text always agree.
                 const std::string num_str = std::to_string(e.index);
-                int text_cols = static_cast<int>(display_text.size());
-                if (editing)
-                {
-                    // Keep the field comfortably wide so an empty rename
-                    // session is still clearly editable.
-                    text_cols = std::max(text_cols, kEditMinNameCols);
-                }
-                const int label_cols = static_cast<int>(num_str.size()) + 2 // "N:"
-                    + 1 // space after colon
-                    + text_cols;
-                const int total_cols = label_cols + kTabPadCols * 2;
+                const PaneStatusPillLayout pill_layout = pane_status_pill_layout(e.pane_w, cw,
+                    static_cast<int>(num_str.size()), label_display_columns(display_text),
+                    editing);
+                if (!pill_layout.visible)
+                    continue;
+                const int total_cols = pill_layout.pill_cols;
 
                 // Right-align: pill ends one cell from the pane's right edge.
                 // Mirror the workspace tab pill math: pill is inset by half_gap
@@ -692,8 +721,11 @@ void ChromeHost::draw(IFrameContext& frame)
 
                 // Match the workspace-tab accent width: left padding + digits + ":".
                 // The trailing space after the colon sits outside the accent.
+                // A number-only pill is all accent.
                 const int accent_cols = kTabPadCols + static_cast<int>(num_str.size()) + 1;
-                const float accent_w = static_cast<float>(accent_cols * cw);
+                const float accent_w = pill_layout.number_only
+                    ? pill_w
+                    : static_cast<float>(accent_cols * cw);
 
                 StatusPillRect r;
                 r.x = pill_x;
@@ -713,11 +745,12 @@ void ChromeHost::draw(IFrameContext& frame)
                 hit.h = pill_h;
                 pane_pill_hits_.push_back(hit);
 
-                if (editing)
+                if (editing && !pill_layout.number_only)
                 {
                     // Caret position: prefix is "<num>: ", text starts after
                     // it. Convert byte cursor → display cols, advance from
-                    // the text origin inside the pill.
+                    // the text origin inside the pill. Clamp inside the pill
+                    // for buffers longer than the granted text width.
                     const int prefix_cols = static_cast<int>(num_str.size()) + 2; // "N:" + space
                     const int caret_cols = columns_to_offset(edit_.buffer, edit_.cursor);
                     // Pill text origin (column 0 of the pill grid) sits at
@@ -725,7 +758,8 @@ void ChromeHost::draw(IFrameContext& frame)
                     const float text_origin_x = pill_x + half_gap
                         + static_cast<float>((kTabPadCols + prefix_cols) * cw);
                     CaretRect cr;
-                    cr.x = text_origin_x + static_cast<float>(caret_cols * cw);
+                    cr.x = std::min(text_origin_x + static_cast<float>(caret_cols * cw),
+                        pill_x + pill_w - 3.0f);
                     cr.y = pill_y + 2.0f;
                     cr.h = pill_h - 4.0f;
                     pane_caret_rect = cr;
@@ -1005,39 +1039,36 @@ void ChromeHost::update_pane_status_grids(IFrameContext& frame, std::span<const 
         const std::string display_text = editing ? edit_.buffer : e.text;
         const Color body_fg = editing ? body_fg_editing : body_fg_normal;
 
-        // Build the same "N: <text>" label the pill geometry was sized for.
+        // Shared layout with the draw() pass — the NanoVG pill rect and this
+        // grid text can never disagree, and both degrade identically in
+        // narrow panes.
         const std::string num_str = std::to_string(e.index);
-        std::string label = num_str + ": " + display_text;
-
-        int min_label_cols = label_display_columns(label);
-        if (editing)
+        const int text_display_cols = label_display_columns(display_text);
+        const PaneStatusPillLayout pill_layout = pane_status_pill_layout(e.pane_w, cw,
+            static_cast<int>(num_str.size()), text_display_cols, editing);
+        if (!pill_layout.visible)
         {
-            // Match the pill width grown by the draw() pass for an empty/short edit.
-            const int prefix_cols = static_cast<int>(num_str.size()) + 2; // "N:" + space
-            min_label_cols = std::max(min_label_cols, prefix_cols + kEditMinNameCols);
+            // Too narrow for even the number pill: hide it entirely.
+            pane_status_handles_.erase(e.leaf);
+            continue;
         }
-        const int label_cols = min_label_cols;
-        const int total_cols = label_cols + kTabPadCols * 2;
-        // Cap pill width to the pane width so a long label cannot escape.
-        const int max_cols = std::max(1, e.pane_w / cw - kPaneStatusRightMarginCols);
-        const int pill_cols = std::min(total_cols, max_cols);
+        const int pill_cols = pill_layout.pill_cols;
 
-        // If the label was clamped, truncate the visible text portion (keep the
-        // "N: " prefix intact) and append an ellipsis. Truncation is done on
-        // UTF-8 cluster boundaries via truncate_to_columns so we never cut a
-        // multi-byte sequence mid-byte (which would produce an invalid trailing
-        // stub byte that the renderer would try to treat as its own cluster).
-        const int prefix_cols = static_cast<int>(num_str.size()) + 2; // "N: "
-        const int usable_label_cols = std::max(0, pill_cols - kTabPadCols * 2);
-        if (label_cols > usable_label_cols)
+        std::string label;
+        if (pill_layout.number_only)
         {
-            const int text_room = std::max(0, usable_label_cols - prefix_cols);
-            std::string truncated = num_str + ": ";
-            if (text_room >= 1 && !display_text.empty())
-            {
-                truncated += truncate_to_columns(display_text, text_room, /*add_ellipsis=*/true);
-            }
-            label = std::move(truncated);
+            label = num_str + ":";
+        }
+        else if (pill_layout.text_cols < text_display_cols)
+        {
+            // Truncate the text portion on UTF-8 cluster boundaries (never
+            // mid-sequence) with an ellipsis inside the granted width.
+            label = num_str + ": "
+                + truncate_to_columns(display_text, pill_layout.text_cols, /*add_ellipsis=*/true);
+        }
+        else
+        {
+            label = num_str + ": " + display_text;
         }
 
         // Pill placement (must mirror the StatusPillRect math in draw()):

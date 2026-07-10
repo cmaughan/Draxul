@@ -21,6 +21,23 @@ struct NVGcontext;
 namespace draxul
 {
 
+// Layout for one pane's bottom status pill. Both the NanoVG pill/accent pass
+// and the grid text pass derive their geometry from pane_status_pill_layout()
+// so they can never disagree. Narrow panes degrade in tiers:
+// full text → truncated text → number-only pill → hidden.
+struct PaneStatusPillLayout
+{
+    bool visible = false;
+    bool number_only = false; // label is just "N:" and the accent spans the pill
+    int pill_cols = 0; // total column span including padding cells
+    int text_cols = 0; // columns granted to the status-text portion
+};
+
+// number_cols = digits in the pane index; status_text_cols = display columns
+// of the status text (measured in cells, not bytes).
+PaneStatusPillLayout pane_status_pill_layout(
+    int pane_w_px, int cell_w_px, int number_cols, int status_text_cols, bool editing);
+
 // ChromeHost is the central layout manager. It owns one or more Workspaces
 // (each with its own SplitTree + hosts) and draws window chrome (pane dividers,
 // focus indicator, future tab bar) using NanoVG.
