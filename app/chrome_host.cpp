@@ -753,9 +753,10 @@ void ChromeHost::draw(IFrameContext& frame)
                     // for buffers longer than the granted text width.
                     const int prefix_cols = static_cast<int>(num_str.size()) + 2; // "N:" + space
                     const int caret_cols = columns_to_offset(edit_.buffer, edit_.cursor);
-                    // Pill text origin (column 0 of the pill grid) sits at
-                    // pill_x + half_gap; tab padding is handled by the grid.
-                    const float text_origin_x = pill_x + half_gap
+                    // Grid column 0 renders at pill_x - half_gap (the text
+                    // viewport is shifted left by half_gap); the editable text
+                    // begins after the pad column and the "N: " prefix.
+                    const float text_origin_x = pill_x - half_gap
                         + static_cast<float>((kTabPadCols + prefix_cols) * cw);
                     CaretRect cr;
                     cr.x = std::min(text_origin_x + static_cast<float>(caret_cols * cw),
@@ -1127,20 +1128,20 @@ void ChromeHost::update_pane_status_grids(IFrameContext& frame, std::span<const 
             cells.push_back(cell);
         }
 
-        // Pane-status text sits one cell tighter than workspace tabs so the
-        // number aligns with the accent block instead of leaving a blank
-        // leading cell inside the pill. Walk by UTF-8 cluster (not byte!) and
-        // advance `col` by each cluster's display width so non-ASCII labels
-        // land in the correct column.
+        // The label starts at the pad column so the digit lands ~0.75 cells
+        // inside the pill (pill_cols = pads + label per the shared layout;
+        // the viewport's -half_gap shift supplies the fractional part). Walk
+        // by UTF-8 cluster (not byte!) and advance `col` by each cluster's
+        // display width so non-ASCII labels land in the correct column.
         const int num_prefix_len = static_cast<int>(num_str.size()) + 1; // digits + ":"
-        int col = 0;
+        int col = kTabPadCols;
         for (const auto& cluster_text : label_clusters)
         {
             if (col >= pill_cols)
                 break;
             const int cluster_w = std::max(1, cluster_cell_width(cluster_text));
             const Color& accent_fg = e.focused ? focused_accent_fg : inactive_accent_fg;
-            const Color& fg = (col < num_prefix_len) ? accent_fg : body_fg;
+            const Color& fg = (col < kTabPadCols + num_prefix_len) ? accent_fg : body_fg;
             AtlasRegion glyph = deps_.text_service->resolve_cluster(cluster_text);
             auto& cell = cells[static_cast<size_t>(col)];
             cell.fg = fg;
