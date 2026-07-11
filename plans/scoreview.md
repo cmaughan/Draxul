@@ -264,9 +264,13 @@ and the adaptive selection engine come next.)*
 - **Model↔layout ID bridge** — serialize our model to MusicXML/MEI with
   stable IDs so Verovio's element IDs map back to model notes. Prerequisite
   for highlighting and editing. This is the hard seam; design when we get here.
-- **Timemap + playback highlight / Flowing mode** — planned together as
-  manifesto milestone 1: [scoreview-conveyor.md](scoreview-conveyor.md)
-  (flowing single-row view, transport clock, timemap-driven light-up).
+- **Timemap + playback highlight / Flowing mode** — ✅ shipped as manifesto
+  milestone 1: [scoreview-conveyor.md](scoreview-conveyor.md) (flowing
+  single-row view, transport clock, timemap-driven light-up).
+- **Wait-mode + judgment + adaptive tempo + score** — manifesto milestone 2:
+  [scoreview-gate.md](scoreview-gate.md) (the game loop behind an
+  `IPlayerInput` seam; acoustic-first — the microphone listener is milestone
+  3, MIDI hardware at most a future option).
 - **Editing** — command-based model mutations, hit-testing via element_id,
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG
