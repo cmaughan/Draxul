@@ -2,8 +2,9 @@
 
 // Print-a-pane support (the `print_pane` GUI action): crop a captured frame
 // to the focused pane, compose a single-page A4 PDF with the image
-// aspect-fit inside margins (auto landscape for wide panes), and hand the
-// file to the system print spooler (`lpr`).
+// aspect-fit inside margins (auto landscape for wide panes), and present
+// the system print dialog for it (preview, printer choice, and
+// auto-rotation of landscape pages onto portrait paper).
 
 #include <cstdint>
 #include <filesystem>
@@ -31,8 +32,18 @@ CroppedImage crop_rgba(const std::vector<uint8_t>& rgba, int width, int height,
 bool write_rgba_pdf_a4(const uint8_t* rgba, int width, int height,
     const std::filesystem::path& pdf_path, std::string& error);
 
-// Submits a file to the default system printer via `lpr`. Returns false
-// with lpr's complaint (e.g. no default printer) in `error`.
-bool submit_pdf_to_printer(const std::filesystem::path& pdf_path, std::string& error);
+enum class PrintDialogResult
+{
+    Printed, // the user confirmed the dialog and the job was spooled
+    Canceled, // the user dismissed the dialog — not an error
+    Failed,
+};
+
+// Presents the native print dialog (with preview) for a PDF, modal on the
+// main thread — the same pattern as other native dialogs over the SDL
+// loop. Landscape pages auto-rotate onto the selected paper. macOS-only;
+// other platforms return Failed with an explanatory error.
+PrintDialogResult present_print_dialog_for_pdf(
+    const std::filesystem::path& pdf_path, std::string& error);
 
 } // namespace draxul

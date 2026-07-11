@@ -1398,18 +1398,24 @@ void App::finish_print_capture(const CapturedFrame& frame)
     DRAXUL_LOG_INFO(LogCategory::App, "print_pane: %dx%d pane -> %s", pane.width, pane.height,
         pdf_path.string().c_str());
 
-    // Test/verification hook: compose the PDF but keep it out of the spooler.
+    // Test/verification hook: compose the PDF but skip the print dialog.
     if (std::getenv("DRAXUL_PRINT_DRY_RUN") != nullptr)
     {
         push_toast(0, "Print dry run: " + pdf_path.string());
         return;
     }
-    if (!submit_pdf_to_printer(pdf_path, error))
+    switch (present_print_dialog_for_pdf(pdf_path, error))
     {
-        push_toast(2, "Printer: " + error);
-        return;
+    case PrintDialogResult::Printed:
+        push_toast(0, "Pane sent to printer");
+        break;
+    case PrintDialogResult::Canceled:
+        push_toast(0, "Print canceled");
+        break;
+    case PrintDialogResult::Failed:
+        push_toast(2, "Print failed: " + error);
+        break;
     }
-    push_toast(0, "Pane sent to printer, A4 (" + pdf_path.filename().string() + ")");
 }
 
 std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)

@@ -125,35 +125,15 @@ bool write_rgba_pdf_a4(const uint8_t*, int, int, const std::filesystem::path&, s
 
 #endif
 
-bool submit_pdf_to_printer(const std::filesystem::path& pdf_path, std::string& error)
+#ifndef __APPLE__
+
+PrintDialogResult present_print_dialog_for_pdf(
+    const std::filesystem::path& /*pdf_path*/, std::string& error)
 {
-#ifdef _WIN32
-    (void)pdf_path;
     error = "pane printing is not supported on this platform yet";
-    return false;
-#else
-    // The path is our own temp file (no user input), quoted for safety.
-    const std::string command = "lpr '" + pdf_path.string() + "' 2>&1";
-    FILE* pipe = popen(command.c_str(), "r");
-    if (pipe == nullptr)
-    {
-        error = "could not run lpr";
-        return false;
-    }
-    std::string output;
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-        output += buffer;
-    const int status = pclose(pipe);
-    if (status != 0)
-    {
-        while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
-            output.pop_back();
-        error = output.empty() ? "lpr failed (is a printer configured?)" : output;
-        return false;
-    }
-    return true;
-#endif
+    return PrintDialogResult::Failed;
 }
+
+#endif
 
 } // namespace draxul
