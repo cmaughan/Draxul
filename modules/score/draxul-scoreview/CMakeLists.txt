@@ -4,6 +4,7 @@
 add_library(draxul-scoreview STATIC
     src/bot_player_input.cpp
     src/flow_controller.cpp
+    src/note_listener.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp
     src/svg_score_interpreter.cpp
@@ -38,7 +39,7 @@ target_compile_definitions(draxul-scoreview PRIVATE
 
 target_link_libraries(draxul-scoreview
     PUBLIC draxul-types
-    PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json
+    PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json kissfft::kissfft
 )
 
 add_library(draxul-scoreview-host STATIC

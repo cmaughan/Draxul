@@ -47,6 +47,38 @@ and future config can adjust without archaeology.
   suppressing swept candidates that sit at 12/19/24 semitones above an
   accepted note with no independent partial support.
 
+### Lessons the synthetic suite taught (E1, empirically earned)
+
+- **Ringing notes beat.** Close partials of *different* notes (C4's 9th ≈
+  D4's 8th, ~5 Hz apart) swell in and out; every swell is genuine
+  narrow-band spectral rise that defeats any flux threshold. A real attack
+  is broadband — gate onsets on rise *spread* (count of rising bins,
+  `onset_min_rise_bins`), not just flux magnitude.
+- **Normalize flux by total spectral energy.** Mic gain and loudness cancel;
+  a ringing tone's heavy-tailed jitter stays small relative to its own
+  energy while an attack is large by construction.
+- **A window-edge peak with the slope rising outward is not our partial** —
+  it's the mainlobe skirt of a stronger neighbor outside the window (A4's
+  onset reaching into B4's n1 window; parabolic interpolation on a convex
+  skirt then *extrapolates into* the kernel). Real partials peak interior.
+- **Cents tolerance must be floored in bins.** At A1 one FFT bin spans
+  ~580 cents; a pure cents window can't even see low bass partials. Floor
+  the half-width at `tolerance_min_bins` (0.6) bins; mid/treble keep the
+  cents window or the semitone-neighbor leak reopens.
+- **Missing-fundamental phantoms generalize beyond octaves**: an expected
+  pitch can score entirely off the dominant note's grid (C4 "heard" under a
+  played C5; C5 under F4's coinciding 3rd/6th partials). Acceptance runs an
+  anti-phantom gauntlet vs every anchor (accepted notes + sweep's best):
+  show **independent partial energy** the anchor can't supply, or — when
+  grids fully coincide (octave, twelfth: real chords!) — **excess evidence**
+  over the anchor's predicted overtone at the lowest shared partial.
+- **Predict anchor overtones from a median, not the fundamental.** A ringing
+  neighbor in the before-frames can eat the anchor's measured fundamental
+  rise (E4 at 330 Hz suppressed F4's 349 Hz), and a simultaneous chord note
+  can inflate single partials. Estimate anchor strength per-partial through
+  the amplitude model (`partial_amp_model`), skip windows contested by q's
+  own grid, take the median.
+
 ### Tuning error model (three distinct phenomena, three answers)
 
 1. **Global offset** (whole piano at A≠440): online calibration — every
@@ -135,24 +167,30 @@ both run forever.
 
 ### E0 — Synthetic truth + offline harness
 
-- [ ] `SyntheticPiano` test generator: inharmonic partials (tunable B curve),
-  exponential decay, attack transient, global/per-note detuning — the
-  controllable lie that lets CI exercise every acoustic fact above
-- [ ] Minimal WAV reader (PCM16/float, mono-mix) for future real fixtures
-- [ ] Harness: sample buffer → listener → events vs truth schedule →
-  precision / recall / median latency report
+- [x] `SyntheticPiano` test generator: inharmonic partials (tunable B curve),
+  exponential decay, attack transient + 30 ms release ramp (hard cutoffs
+  create phantom onsets real pianos never make), global/per-note detuning —
+  the controllable lie that lets CI exercise every acoustic fact above
+- [x] Minimal WAV reader (PCM16/float32, mono-mix, chunk-skipping) for
+  future real fixtures (`tests/support/wav_reader.h` + round-trip test)
+- [x] Harness: sample buffer streamed in 10 ms chunks → listener → events vs
+  truth schedule, max event latency measured (`run_listener` +
+  `DUMP_EVENTS` diagnostics that print only on failure)
 
 ### E1 — The classical listener
 
-- [ ] `ListenerTuning` (all constants named + documented) and `NoteListener`:
-  STFT (KissFFT), spectral-flux onset detection with adaptive threshold and
-  refractory gap, onset-gated inharmonic template scoring at expected
-  pitches, 88-key sweep with octave suppression for wrong notes,
+- [x] `ListenerTuning` (all constants named + documented) and `NoteListener`:
+  STFT (KissFFT), energy-normalized spectral-flux onsets (strict local peak,
+  adaptive median threshold, rise-spread beat gate, refractory gap),
+  onset-gated inharmonic template scoring (bin-floored tolerance windows,
+  parabolic peak kernel, skirt rejection, background compensation),
+  anti-phantom acceptance gauntlet (independence + excess-evidence vs
+  anchors), 88-key sweep with octave suppression for wrong notes,
   global-offset EMA calibration + per-note profile
-- [ ] Unit suites: single notes, scales, chords (incl. shared-partial
+- [x] Unit suites: single notes, scales, chords (incl. shared-partial
   octaves), detuned piano (recognized immediately, calibration converges),
   inharmonic bass, wrong-note reporting, sustain/pedal overlap, silence and
-  noise floors, latency bounds
+  noise floors, latency bounds — 11 cases green
 
 ### E2 — Live capture in the host
 

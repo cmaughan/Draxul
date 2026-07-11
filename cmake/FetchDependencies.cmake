@@ -141,6 +141,21 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     else()
         target_compile_options(verovio PRIVATE -w)
     endif()
+    # KissFFT (spectral analysis for the acoustic listener,
+    # plans/scoreview-ear.md). BSD-3, tiny, real-FFT API.
+    FetchContent_Declare(
+        kissfft
+        GIT_REPOSITORY https://github.com/mborgerding/kissfft.git
+        GIT_TAG 131.1.0
+        GIT_SHALLOW TRUE
+    )
+    set(KISSFFT_DATATYPE float CACHE STRING "" FORCE)
+    set(KISSFFT_STATIC ON CACHE BOOL "" FORCE)
+    set(KISSFFT_TEST OFF CACHE BOOL "" FORCE)
+    set(KISSFFT_TOOLS OFF CACHE BOOL "" FORCE)
+    set(KISSFFT_PKGCONFIG OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(kissfft)
+
     # nlohmann/json (timemap parsing in draxul-scoreview). Deliberately not
     # Verovio's vendored jsonxx — same reasoning as tinyxml2-not-pugixml:
     # never link a second copy of a dependency's vendored library.
