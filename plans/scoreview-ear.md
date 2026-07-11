@@ -79,6 +79,44 @@ and future config can adjust without archaeology.
   the amplitude model (`partial_amp_model`), skip windows contested by q's
   own grid, take the median.
 
+### Tuning playbook (E3 — how to tune against a real piano)
+
+Every knob lives in `ListenerTuning`
+(`modules/score/draxul-scoreview/include/draxul/scoreview/note_listener.h`);
+tests construct variants freely, so tune by adding a fixture case first,
+then adjusting defaults. Failure signature → mechanism:
+
+| Symptom | Reach for |
+| --- | --- |
+| Spurious repeats while a note rings (events every ~refractory gap) | `onset_min_rise_bins` (beats are narrow-band), `onset_threshold_ratio`, `onset_flux_floor` |
+| Soft/treble onsets missed | lower `onset_min_rise_bins` (pure tones raise fewer bins), `onset_flux_floor`; check `onset_energy_floor` isn't gating quiet rooms |
+| Neighbor semitone/whole-tone accepted at another note's onset | skirt rejection should already kill it — if not, inspect per-partial `hz=` dumps; kernel width = `tolerance_cents`/`tolerance_min_bins` |
+| Octave/twelfth phantom accepted | `independent_partial_fraction`, `octave_evidence_ratio`, and especially `partial_amp_model` |
+| Real chord note REJECTED at harmonic intervals (C-major!) | excess-evidence too strict: `octave_evidence_ratio` down, or `partial_amp_model` is wrong for that register |
+| Bass notes missed | `tolerance_min_bins`, `inharmonicity_bass` (fit B from the recording), `partial_count`/`partial_weights` |
+| Detuned piano not recognized / calibration lags | `tolerance_cents`, `calibration_ema_*`, `calibration_clamp_cents` |
+| Wrong notes not reported | `wrong_relative`, `suppression_expected_floor` |
+| Feels laggy | `confirm_frames_after` (each ≈ 11.6 ms), `hop_size`; measure with the harness's `max_latency_seconds` |
+
+- **`partial_amp_model` (0.6) is the crudest lie in the model.** The synth
+  uses exactly `0.6^(n-1)`; real pianos decay differently per register and
+  dynamic. If the excess-evidence test misbehaves on real recordings, fit
+  the per-register amplitude ratio from the chromatic-scale fixture before
+  touching the ratios.
+- **Diagnostic recipe** (used for every E1 fix): `DUMP_EVENTS(result)` in a
+  failing test prints the event list. For per-onset detail, temporarily
+  re-add the env-gated dump in `evaluate_onset` (after the sweep computes
+  `best`): under `getenv("DRAXUL_LISTENER_DEBUG")`, print `onset t / best_pitch / best`,
+  then for each expected pitch ≥ 0.15×best call `score_pitch` with the
+  peaks/rises out-params and print `[n r=<weighted rise> hz=<parabolic peak>]`
+  per partial. Run one test (`./build/tests/draxul-tests "listener tracks a scale*"`)
+  with `DRAXUL_LISTENER_DEBUG=1`, hand-compare measured vs predicted
+  (remember rises are weighted by `partial_weights` — divide before
+  comparing to the amp model). Remove the block before committing.
+- **Real-recording tests**: `tests/support/wav_reader.h` loads PCM16/float32
+  WAVs (mono-mixed); drop fixtures in `tests/fixtures/audio/` and reuse
+  `run_listener` with a truth schedule exactly like the synthetic cases.
+
 ### Tuning error model (three distinct phenomena, three answers)
 
 1. **Global offset** (whole piano at A≠440): online calibration — every
