@@ -4,9 +4,13 @@
 
 #include <vrv/toolkit.h>
 
+#include <nlohmann/json.hpp>
+#include <tinyxml2.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <string>
 
 namespace draxul
@@ -179,6 +183,55 @@ std::string VerovioLayoutEngine::render_timemap()
     if (!impl_->loaded)
         return {};
     return impl_->toolkit.RenderToTimemap();
+}
+
+int VerovioLayoutEngine::midi_pitch_for_element(const std::string& element_id)
+{
+    if (!impl_->loaded)
+        return -1;
+    const std::string json = impl_->toolkit.GetMIDIValuesForElement(element_id);
+    const nlohmann::json doc = nlohmann::json::parse(json, /*cb=*/nullptr, /*allow_exceptions=*/false);
+    if (doc.is_discarded() || !doc.is_object())
+        return -1;
+    const auto pitch = doc.find("pitch");
+    if (pitch == doc.end() || !pitch->is_number())
+        return -1;
+    const int value = pitch->get<int>();
+    return (value > 0 && value < 128) ? value : -1;
+}
+
+namespace
+{
+void collect_tie_end_ids(const tinyxml2::XMLElement* element, std::vector<std::string>& out)
+{
+    for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
+        child = child->NextSiblingElement())
+    {
+        if (std::strcmp(child->Name(), "tie") == 0)
+        {
+            const char* endid = child->Attribute("endid");
+            if (endid != nullptr && endid[0] == '#')
+                out.emplace_back(endid + 1);
+        }
+        collect_tie_end_ids(child, out);
+    }
+}
+} // namespace
+
+std::vector<std::string> VerovioLayoutEngine::tie_end_ids()
+{
+    std::vector<std::string> ids;
+    if (!impl_->loaded)
+        return ids;
+    const std::string mei = impl_->toolkit.GetMEI("");
+    tinyxml2::XMLDocument doc;
+    if (doc.Parse(mei.data(), mei.size()) != tinyxml2::XML_SUCCESS || doc.RootElement() == nullptr)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::App, "verovio: MEI export unparseable; ties unavailable");
+        return ids;
+    }
+    collect_tie_end_ids(doc.RootElement(), ids);
+    return ids;
 }
 
 } // namespace scoreview

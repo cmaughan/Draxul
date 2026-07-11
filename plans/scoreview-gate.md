@@ -49,11 +49,11 @@ conveyor, then **`g`**:
   timemap on-ids return a valid MIDI pitch** (range 33–76), including all 14
   grace notes. Zero misses — expected pitches need **no model bridge**; they
   live in the same id space as the timemap and highlight overlay.
-- `GetMEI()` exports the loaded document with **18 explicit
-  `<tie startid="#…" endid="#…"/>` elements** — exactly matching the
-  importer's independently-counted 36 tie start/stop marks (18 pairs), again
-  in the same id space. The set of tie `endid`s = the notes whose gates
-  auto-open.
+- `GetMEI()` exports the loaded document with **18 `<tie>` elements, 17 of
+  which carry an `endid`** (the fixture famously has one unterminated tie —
+  Verovio warns "1 ties left open" at import), matching the importer's
+  independently-counted 36 tie start/stop marks, in the same id space. The
+  set of tie `endid`s = the notes whose gates auto-open.
 - Grace-note onsets sit at distinct fractional qstamps (~0.0635 before the
   beat), so they form their own gates ahead of their principal.
 
@@ -115,58 +115,59 @@ the status pill; judging note *durations*/releases (onsets only in M2).
 
 ## Phases
 
-### G0 — Expected notes + ties in the engine
+### G0 — Expected notes + ties in the engine ✅ (2026-07-11)
 
-- [ ] `ILayoutEngine::midi_pitch_for_element(id)` → int (−1 unknown);
+- [x] `ILayoutEngine::midi_pitch_for_element(id)` → int (−1 unknown);
   Verovio `GetMIDIValuesForElement` parsed privately (nlohmann)
-- [ ] `ILayoutEngine::tie_end_ids()` → set of element ids; `GetMEI()` parsed
+- [x] `ILayoutEngine::tie_end_ids()` → set of element ids; `GetMEI()` parsed
   privately (tinyxml2) for `<tie endid>` refs
-- [ ] Tests (live Grieg): all 645 on-ids yield pitches in [21, 108]; tie-end
-  set has exactly 18 ids, every one present in the timemap ons
+- [x] Tests (live Grieg): all 645 on-ids yield pitches in [21, 108]; tie-end
+  set has exactly 17 ids (18 tie elements minus the fixture's unterminated
+  one), every one present in the timemap ons
 
-### G1 — Gate transport, judgment, adaptive tempo, score (pure logic)
+### G1 — Gate transport, judgment, adaptive tempo, score (pure logic) ✅ (2026-07-11)
 
-- [ ] Gate table built from onsets: expected pitch multiset per gate,
+- [x] Gate table built from onsets: expected pitch multiset per gate,
   required vs auto-satisfied (tie-end) ids
-- [ ] `TransportMode::Gate`: `advance(dt)` glides and clamps at the armed
+- [x] `TransportMode::Gate`: `advance(dt)` glides and clamps at the armed
   gate; `judge(events)` → per-id verdicts; gate opens on complete or
   attempted; verdict stream consumed like lit diffs today (reset on
   rewind/seek)
-- [ ] Pace EMA + tempo easing + stall decay, all clamped to the band;
+- [x] Pace EMA + tempo easing + stall decay, all clamped to the band;
   constants named and documented
-- [ ] Score/streak state with the v1 rules
-- [ ] Unit tests: chord multiset matching (incl. duplicate pitches), wrong
+- [x] Score/streak state with the v1 rules
+- [x] Unit tests: chord multiset matching (incl. duplicate pitches), wrong
   then right, attempted-but-wrong opens with reds, tie-end auto-open,
   early input during glide, rewind resets, **bot simulations**: a perfect
   bot at 50 qpm converges tempo to ~50; an 80%-accuracy bot accumulates
   misses and streak resets; a stalling bot decays tempo
 
-### G2 — Verdict rendering
+### G2 — Verdict rendering ✅ (2026-07-11)
 
-- [ ] `ScoreHighlightState` flags → state enum; renderer color map
+- [x] `ScoreHighlightState` flags → state enum; renderer color map
   (amber/green/red); clock mode behavior unchanged
-- [ ] Waiting cue at the playhead (subtle pulse or color shift while gated)
-- [ ] Unit test: state transitions map to expected colors per op
+- [x] Waiting cue at the playhead (subtle pulse or color shift while gated)
+- [x] Unit test: state transitions map to expected colors per op
 
-### G3 — Host integration and inputs
+### G3 — Host integration and inputs ✅ (2026-07-11)
 
-- [ ] `IPlayerInput` seam polled in `pump()`; events timestamped on arrival
-- [ ] `KeyboardPlayerInput` (dev): a qwerty row mapped chromatically around
+- [x] `IPlayerInput` seam polled in `pump()`; events timestamped on arrival
+- [x] `KeyboardPlayerInput` (dev): a qwerty row mapped chromatically around
   the armed gate's register + an oracle key (plays the gate correctly) and a
   wrong-note key — enough to drive and feel the loop by hand
-- [ ] `BotPlayerInput`: configured pace/accuracy/jitter, deterministic seed;
+- [x] `BotPlayerInput`: configured pace/accuracy/jitter, deterministic seed;
   `--command gate` / `gate-bot` startup hooks
-- [ ] `g` toggles gate mode within the conveyor; status pill: waiting/score/
+- [x] `g` toggles gate mode within the conveyor; status pill: waiting/score/
   streak/tempo; smoke stays green
-- [ ] docs/features.md
+- [x] docs/features.md
 
-### G4 — Objective verification
+### G4 — Objective verification ✅ (2026-07-11)
 
-- [ ] Bot screenshot run: green accent pixels grow over time; red pixels
+- [x] Bot screenshot run: green accent pixels grow over time; red pixels
   appear under an error-injecting bot
-- [ ] Tempo convergence end-to-end: bot at fixed pace → final tempo within
+- [x] Tempo convergence end-to-end: bot at fixed pace → final tempo within
   tolerance, asserted from the INFO log line
-- [ ] Plan ticks + follow-ups recorded (duration judging, grace-note policy
+- [x] Plan ticks + follow-ups recorded (duration judging, grace-note policy
   review, score persistence)
 
 ## Acceptance

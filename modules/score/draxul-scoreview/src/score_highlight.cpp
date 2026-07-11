@@ -33,23 +33,24 @@ void ScoreHighlightState::clear_lit()
     std::fill(text_lit.begin(), text_lit.end(), 0);
 }
 
-bool ScoreHighlightState::set_lit(const std::string& element_id)
+bool ScoreHighlightState::set_state(const std::string& element_id, State state)
 {
     const auto found = buckets_.find(element_id);
     if (found == buckets_.end())
         return false;
+    const uint8_t value = static_cast<uint8_t>(state);
     for (const auto& [kind, index] : found->second)
     {
         switch (kind)
         {
         case OpKind::Glyph:
-            glyph_lit[static_cast<size_t>(index)] = 1;
+            glyph_lit[static_cast<size_t>(index)] = value;
             break;
         case OpKind::Path:
-            path_lit[static_cast<size_t>(index)] = 1;
+            path_lit[static_cast<size_t>(index)] = value;
             break;
         case OpKind::Text:
-            text_lit[static_cast<size_t>(index)] = 1;
+            text_lit[static_cast<size_t>(index)] = value;
             break;
         }
     }

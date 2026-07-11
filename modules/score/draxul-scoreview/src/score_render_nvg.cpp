@@ -18,8 +18,13 @@ namespace
 
 const NVGcolor INK = { { { 0.10f, 0.09f, 0.08f, 1.0f } } };
 const NVGcolor PAGE_WHITE = { { { 0.988f, 0.984f, 0.972f, 1.0f } } };
-// Lit-note accent: burnt amber, high contrast against both page white and ink.
+// Highlight palette indexed by ScoreHighlightState::State:
+// None=ink, Passed=burnt amber, Correct=green, Missed=red — all chosen for
+// contrast against both the page white and each other.
 const NVGcolor ACCENT = { { { 0.85f, 0.45f, 0.08f, 1.0f } } };
+const NVGcolor CORRECT_GREEN = { { { 0.13f, 0.55f, 0.22f, 1.0f } } };
+const NVGcolor MISS_RED = { { { 0.80f, 0.13f, 0.10f, 1.0f } } };
+const NVGcolor STATE_COLORS[4] = { INK, ACCENT, CORRECT_GREEN, MISS_RED };
 
 int create_font_from_candidates(NVGcontext* vg, const char* name,
     const std::array<const char*, 4>& candidates)
@@ -124,17 +129,16 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
     nvgTranslate(vg, origin.x, origin.y);
     nvgScale(vg, scale, scale);
 
-    const auto path_lit = [highlight](size_t i) {
-        return highlight != nullptr && i < highlight->path_lit.size() && highlight->path_lit[i] != 0;
-    };
-    const auto glyph_lit = [highlight](size_t i) {
-        return highlight != nullptr && i < highlight->glyph_lit.size() && highlight->glyph_lit[i] != 0;
+    const auto state_color = [highlight](const std::vector<uint8_t>& states,
+                                 size_t i) -> const NVGcolor& {
+        const uint8_t state = (highlight != nullptr && i < states.size()) ? states[i] : 0;
+        return STATE_COLORS[state < 4 ? state : 0];
     };
 
     for (size_t i = 0; i < list.paths.size(); ++i)
     {
         const DrawPath& path = list.paths[i];
-        const NVGcolor& color = path_lit(i) ? ACCENT : INK;
+        const NVGcolor& color = highlight != nullptr ? state_color(highlight->path_lit, i) : INK;
         nvgBeginPath(vg);
         replay_commands(vg, path.cmds);
         if (path.fill)
@@ -165,7 +169,7 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
         nvgBeginPath(vg);
         replay_commands(vg, symbol.cmds);
-        nvgFillColor(vg, glyph_lit(i) ? ACCENT : INK);
+        nvgFillColor(vg, highlight != nullptr ? state_color(highlight->glyph_lit, i) : INK);
         nvgFill(vg);
         nvgRestore(vg);
     }

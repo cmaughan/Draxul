@@ -4,6 +4,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace draxul
 {
@@ -60,6 +61,16 @@ public:
     // {qstamp, tstamp, on[], off[], tempo?} entries in playback order).
     // Returns an empty string when nothing is loaded.
     virtual std::string render_timemap() = 0;
+
+    // MIDI pitch (1-127) for a note element id, or -1 when unknown. Same id
+    // space as the timemap and draw list — the gate's expected notes need no
+    // model bridge (plans/scoreview-gate.md).
+    virtual int midi_pitch_for_element(const std::string& element_id) = 0;
+
+    // Element ids that END a tie (the continuation notes). Their gates
+    // auto-open in the runner: demanding a re-strike would be musically
+    // wrong. Empty when nothing is loaded.
+    virtual std::vector<std::string> tie_end_ids() = 0;
 };
 
 } // namespace scoreview

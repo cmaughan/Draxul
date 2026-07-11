@@ -4,7 +4,9 @@
 #include <draxul/nanovg_pass.h>
 #include <draxul/notation/score_document.h>
 #include <draxul/scoreview/flow_controller.h>
+#include <draxul/scoreview/keyboard_player_input.h>
 #include <draxul/scoreview/layout_engine.h>
+#include <draxul/scoreview/player_input.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
 
@@ -78,7 +80,12 @@ private:
     void relayout_flow();
     void toggle_flow_mode();
     void apply_lit_update();
+    void apply_verdict_update();
     int approx_measure() const;
+    double now_seconds() const;
+    void enter_gate_mode(bool with_bot, double bot_pace_qpm, double bot_accuracy);
+    void exit_gate_mode();
+    bool handle_gate_key(int keycode);
 
     std::unique_ptr<draxul::INanoVGPass> nanovg_pass_;
     draxul::HostViewport viewport_;
@@ -113,6 +120,18 @@ private:
     FlowController flow_;
     ScoreHighlightState highlight_;
     std::chrono::steady_clock::time_point last_pump_{};
+
+    // Gate state (plans/scoreview-gate.md). The input seam's production
+    // implementation is the milestone-3 microphone listener; keyboard and
+    // bot are scaffolding.
+    std::unique_ptr<IPlayerInput> player_input_;
+    KeyboardPlayerInput* keyboard_input_ = nullptr; // borrowed from player_input_
+    bool start_in_gate_ = false;
+    bool gate_bot_requested_ = false;
+    double gate_bot_accuracy_ = 1.0;
+    std::chrono::steady_clock::time_point epoch_{};
+    size_t last_logged_gate_ = 0;
+    bool logged_gate_end_ = false;
 };
 
 std::unique_ptr<draxul::IHost> create_score_host();

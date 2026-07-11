@@ -5,6 +5,7 @@
 #include <draxul/log.h>
 #include <draxul/notation/musicxml_importer.h>
 #include <draxul/runtime_path.h>
+#include <draxul/scoreview/bot_player_input.h>
 #include <draxul/scoreview/score_render_nvg.h>
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
@@ -30,6 +31,9 @@ namespace
 constexpr float SQRT2 = 1.41421356f;
 constexpr float MIN_ZOOM = 0.4f;
 constexpr float MAX_ZOOM = 4.0f;
+// Verification bot (G4): slow enough that adaptation must pull the start
+// tempo (60% of marking) downward measurably within a short capture window.
+constexpr double kBotPaceQpm = 50.0;
 
 // Placeholder engraving proportions (no-source mode), see plans/scoreview.md
 // phase 0. Staff-relative thicknesses follow SMuFL engravingDefaults.
@@ -205,11 +209,20 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         engine_ = std::move(engine);
         layout_dirty_ = true;
 
-        // Dev/test hook (conveyor C4 screenshot verification): launching with
-        // `--command flow` starts in the conveyor view; `--command
-        // flow-autoplay` also starts the transport immediately.
+        // Dev/test hooks: `--command flow` starts in the conveyor view,
+        // `flow-autoplay` also starts the transport; `--command gate` starts
+        // in gate mode with the keyboard input, `gate-bot` runs the scripted
+        // verification bot (`gate-bot-err` with 70% accuracy).
         const std::string& command = context.launch_options.command;
-        if (command.find("flow") != std::string::npos)
+        if (command.find("gate") != std::string::npos)
+        {
+            view_mode_ = ViewMode::Flow;
+            flow_dirty_ = true;
+            start_in_gate_ = true;
+            gate_bot_requested_ = command.find("bot") != std::string::npos;
+            gate_bot_accuracy_ = command.find("err") != std::string::npos ? 0.7 : 1.0;
+        }
+        else if (command.find("flow") != std::string::npos)
         {
             view_mode_ = ViewMode::Flow;
             flow_dirty_ = true;
@@ -217,9 +230,15 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         }
     }
 
-    last_pump_ = std::chrono::steady_clock::now();
+    epoch_ = std::chrono::steady_clock::now();
+    last_pump_ = epoch_;
     running_ = true;
     return true;
+}
+
+double ScoreHost::now_seconds() const
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - epoch_).count();
 }
 
 void ScoreHost::shutdown()
@@ -404,6 +423,20 @@ void ScoreHost::relayout_flow()
         strip_->glyphs.size() + strip_->paths.size() + strip_->texts.size(),
         flow_.onsets().size(), static_cast<int>(std::lround(flow_.marking_qpm())));
 
+    if (transport_ok)
+    {
+        // Expected notes + tie continuations for the gate (same id space —
+        // no model bridge needed, plans/scoreview-gate.md).
+        flow_.prepare_gates(
+            [this](const std::string& id) { return engine_->midi_pitch_for_element(id); },
+            engine_->tie_end_ids());
+        if (start_in_gate_)
+        {
+            start_in_gate_ = false;
+            enter_gate_mode(gate_bot_requested_, kBotPaceQpm, gate_bot_accuracy_);
+        }
+    }
+
     if (flow_autoplay_ && transport_ok)
     {
         flow_.play();
@@ -425,6 +458,8 @@ void ScoreHost::toggle_flow_mode()
     }
     else
     {
+        if (flow_.mode() == FlowController::TransportMode::Gate)
+            exit_gate_mode();
         view_mode_ = ViewMode::Paged;
         flow_.pause();
         layout_dirty_ = true; // re-engrave pages; scroll_y_ carries over
@@ -440,6 +475,140 @@ void ScoreHost::apply_lit_update()
         highlight_.clear_lit();
     for (const std::string& id : update.newly_lit)
         highlight_.set_lit(id);
+}
+
+void ScoreHost::apply_verdict_update()
+{
+    const FlowController::VerdictUpdate update = flow_.take_verdict_update();
+    if (update.reset)
+        highlight_.clear_lit();
+    for (const auto& [id, verdict] : update.changes)
+    {
+        highlight_.set_state(id,
+            verdict == FlowController::NoteVerdict::Missed ? ScoreHighlightState::State::Missed
+                                                           : ScoreHighlightState::State::Correct);
+    }
+}
+
+void ScoreHost::enter_gate_mode(bool with_bot, double bot_pace_qpm, double bot_accuracy)
+{
+    if (!flow_.gates_ready())
+        return;
+    flow_.set_mode(FlowController::TransportMode::Gate);
+    highlight_.clear_lit();
+    apply_verdict_update(); // consume the reset
+    keyboard_input_ = nullptr;
+    if (with_bot)
+    {
+        player_input_ = std::make_unique<BotPlayerInput>(flow_, bot_pace_qpm, bot_accuracy, 20260711u);
+        flow_.play(); // bots start themselves; humans press Space
+    }
+    else
+    {
+        auto keyboard = std::make_unique<KeyboardPlayerInput>();
+        keyboard_input_ = keyboard.get();
+        player_input_ = std::move(keyboard);
+    }
+    last_logged_gate_ = 0;
+    logged_gate_end_ = false;
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::exit_gate_mode()
+{
+    player_input_.reset();
+    keyboard_input_ = nullptr;
+    flow_.set_mode(FlowController::TransportMode::Clock);
+    highlight_.clear_lit();
+    apply_lit_update(); // consume the reset; re-light anything at q <= 0
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+bool ScoreHost::handle_gate_key(int keycode)
+{
+    if (flow_.mode() != FlowController::TransportMode::Gate)
+        return false;
+    if (keycode == SDLK_ESCAPE)
+    {
+        exit_gate_mode();
+        return true;
+    }
+    if (keyboard_input_ == nullptr)
+        return false; // bot session: only transport keys apply
+
+    // Dev piano row (scaffolding only): z s x d c v g b h n j m , = one
+    // chromatic octave anchored at the armed gate's register; Return plays
+    // the gate correctly (oracle); Backspace plays a guaranteed-wrong note.
+    const std::vector<int> expected = flow_.armed_required_pitches();
+    const int reference = expected.empty() ? 60 : expected.front();
+    const int anchor = reference - (reference % 12);
+    int semitone = -1;
+    switch (keycode)
+    {
+    case SDLK_Z:
+        semitone = 0;
+        break;
+    case SDLK_S:
+        semitone = 1;
+        break;
+    case SDLK_X:
+        semitone = 2;
+        break;
+    case SDLK_D:
+        semitone = 3;
+        break;
+    case SDLK_C:
+        semitone = 4;
+        break;
+    case SDLK_V:
+        semitone = 5;
+        break;
+    case SDLK_G:
+        semitone = 6;
+        break;
+    case SDLK_B:
+        semitone = 7;
+        break;
+    case SDLK_H:
+        semitone = 8;
+        break;
+    case SDLK_N:
+        semitone = 9;
+        break;
+    case SDLK_J:
+        semitone = 10;
+        break;
+    case SDLK_M:
+        semitone = 11;
+        break;
+    case SDLK_COMMA:
+        semitone = 12;
+        break;
+    default:
+        break;
+    }
+    if (semitone >= 0)
+    {
+        keyboard_input_->push(anchor + semitone, now_seconds());
+        return true;
+    }
+    if (keycode == SDLK_RETURN)
+    {
+        for (const int pitch : expected)
+            keyboard_input_->push(pitch, now_seconds());
+        return true;
+    }
+    if (keycode == SDLK_BACKSPACE)
+    {
+        int wrong = anchor + 1;
+        while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
+            ++wrong;
+        keyboard_input_->push(wrong, now_seconds());
+        return true;
+    }
+    return false;
 }
 
 int ScoreHost::approx_measure() const
@@ -478,7 +647,40 @@ void ScoreHost::pump()
     if (view_mode_ == ViewMode::Flow && flow_.playing())
     {
         flow_.advance(dt);
-        apply_lit_update();
+        if (flow_.mode() == FlowController::TransportMode::Gate)
+        {
+            if (player_input_ != nullptr)
+            {
+                std::vector<PlayerNoteEvent> events;
+                player_input_->poll(now_seconds(), events);
+                if (!events.empty())
+                    flow_.judge(events);
+            }
+            apply_verdict_update();
+
+            // Periodic + final INFO lines feed the G4 log-based verification.
+            const size_t gate_index = flow_.armed_gate_index();
+            if (gate_index / 8 != last_logged_gate_ / 8)
+            {
+                DRAXUL_LOG_INFO(LogCategory::App,
+                    "score: gate progress — gate %zu, tempo %d qpm, score %d, streak %d, misses %d",
+                    gate_index, static_cast<int>(std::lround(flow_.tempo_qpm())), flow_.score(),
+                    flow_.streak(), flow_.miss_count());
+            }
+            last_logged_gate_ = gate_index;
+            if (flow_.at_end() && !logged_gate_end_)
+            {
+                logged_gate_end_ = true;
+                DRAXUL_LOG_INFO(LogCategory::App,
+                    "score: gate finished — tempo %d qpm, score %d, misses %d",
+                    static_cast<int>(std::lround(flow_.tempo_qpm())), flow_.score(),
+                    flow_.miss_count());
+            }
+        }
+        else
+        {
+            apply_lit_update();
+        }
         if (callbacks_ != nullptr)
             callbacks_->request_frame();
     }
@@ -512,20 +714,23 @@ void ScoreHost::draw(IFrameContext& frame)
         const float origin_x = static_cast<float>(-scroll_canvas * scale);
         const float strip_y = (vh - target_h) * 0.5f;
         const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
+        const bool waiting = flow_.waiting();
 
         nanovg_pass_->set_draw_callback(
-            [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y,
-                playhead_x](NVGcontext* vg, int w, int h) {
+            [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
+                waiting](NVGcontext* vg, int w, int h) {
                 fill_backdrop(vg, w, h);
                 const float band_pad = 18.0f * pixel_scale;
                 draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
                     vw + 96.0f * pixel_scale, target_h + 2.0f * band_pad, pixel_scale);
                 const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
                 render_draw_list(vg, *strip, { origin_x, strip_y }, scale, fonts, highlight);
+                // Playhead: amber while rolling, teal while awaiting the player.
                 nvgBeginPath(vg);
                 nvgRect(vg, playhead_x - 1.0f * pixel_scale, strip_y - band_pad,
                     2.0f * pixel_scale, target_h + 2.0f * band_pad);
-                nvgFillColor(vg, nvgRGBA(217, 115, 20, 170));
+                nvgFillColor(vg,
+                    waiting ? nvgRGBA(24, 140, 165, 200) : nvgRGBA(217, 115, 20, 170));
                 nvgFill(vg);
             });
     }
@@ -582,6 +787,17 @@ void ScoreHost::on_key(const KeyEvent& event)
     }
     if (view_mode_ == ViewMode::Flow)
     {
+        if (handle_gate_key(event.keycode))
+        {
+            if (callbacks_ != nullptr)
+                callbacks_->request_frame();
+            return;
+        }
+        if (event.keycode == SDLK_G && flow_.mode() == FlowController::TransportMode::Clock && flow_.gates_ready())
+        {
+            enter_gate_mode(/*with_bot=*/false, 0.0, 1.0);
+            return;
+        }
         switch (event.keycode)
         {
         case SDLK_SPACE:
@@ -689,6 +905,18 @@ std::string ScoreHost::status_text() const
     {
         const int qpm = static_cast<int>(std::lround(flow_.tempo_qpm()));
         const int pct = static_cast<int>(std::lround(flow_.tempo_qpm() / flow_.marking_qpm() * 100.0));
+        if (flow_.mode() == FlowController::TransportMode::Gate)
+        {
+            status += flow_.waiting()
+                ? "  WAIT"
+                : (flow_.at_end() ? "  end" : (flow_.playing() ? "  >" : "  ||"));
+            status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
+            status += "  score " + std::to_string(flow_.score());
+            status += "  x" + std::to_string(flow_.streak());
+            if (flow_.miss_count() > 0)
+                status += "  miss " + std::to_string(flow_.miss_count());
+            return status;
+        }
         status += flow_.playing() ? "  >" : (flow_.at_end() ? "  end" : "  ||");
         status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
         const int measure = approx_measure();
