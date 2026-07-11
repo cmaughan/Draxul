@@ -204,6 +204,7 @@ private:
     bool frame_requested_ = false;
     bool print_capture_pending_ = false;
     PaneDescriptor print_pane_rect_{};
+    HostPrintHint print_hint_{};
     int last_pixel_w_ = 0;
     int last_pixel_h_ = 0;
     FrameTimer frame_timer_;

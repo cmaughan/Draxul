@@ -34,6 +34,19 @@ CroppedImage crop_rgba(const std::vector<uint8_t>& rgba, int width, int height,
     return out;
 }
 
+void snap_paper_white(CroppedImage& image, uint8_t threshold)
+{
+    for (size_t at = 0; at + 3 < image.rgba.size(); at += 4)
+    {
+        if (image.rgba[at] >= threshold && image.rgba[at + 1] >= threshold && image.rgba[at + 2] >= threshold)
+        {
+            image.rgba[at] = 255;
+            image.rgba[at + 1] = 255;
+            image.rgba[at + 2] = 255;
+        }
+    }
+}
+
 #ifdef __APPLE__
 
 bool write_rgba_pdf_a4(const uint8_t* rgba, int width, int height,

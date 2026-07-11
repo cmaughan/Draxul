@@ -60,6 +60,7 @@ public:
     draxul::Color default_background() const override;
     draxul::HostRuntimeState runtime_state() const override;
     draxul::HostDebugState debug_state() const override;
+    draxul::HostPrintHint print_hint() const override;
 
 private:
     enum class ViewMode : uint8_t
@@ -74,6 +75,14 @@ private:
         Bot, // deterministic verification player
         Mic, // the acoustic listener (the product)
     };
+
+    struct FlowBand
+    {
+        float target_h = 0.0f;
+        float strip_y = 0.0f;
+        float band_pad = 0.0f;
+    };
+    FlowBand flow_band() const; // shared by draw() and print_hint()
 
     float ui_scale() const;
     float page_margin() const;

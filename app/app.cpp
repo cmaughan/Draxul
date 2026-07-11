@@ -1368,6 +1368,8 @@ void App::start_print_focused_pane()
         push_toast(1, "The focused pane has no visible area");
         return;
     }
+    IHost* focused_host = active_host_manager().focused_host();
+    print_hint_ = focused_host != nullptr ? focused_host->print_hint() : HostPrintHint{};
     print_capture_pending_ = true;
     renderer_.capture()->request_frame_capture();
     request_frame();
@@ -1375,14 +1377,25 @@ void App::start_print_focused_pane()
 
 void App::finish_print_capture(const CapturedFrame& frame)
 {
-    const CroppedImage pane = crop_rgba(frame.rgba, frame.width, frame.height,
-        print_pane_rect_.pixel_pos.x, print_pane_rect_.pixel_pos.y,
-        print_pane_rect_.pixel_size.x, print_pane_rect_.pixel_size.y);
+    // The host's print hint narrows the crop to actual content (ScoreView:
+    // the page/band, not the backdrop) — pane-relative, so offset it.
+    glm::ivec2 crop_pos = print_pane_rect_.pixel_pos;
+    glm::ivec2 crop_size = print_pane_rect_.pixel_size;
+    if (print_hint_.content_size.x > 0 && print_hint_.content_size.y > 0)
+    {
+        crop_pos += print_hint_.content_pos;
+        crop_size = glm::min(print_hint_.content_size,
+            print_pane_rect_.pixel_size - print_hint_.content_pos);
+    }
+    CroppedImage pane = crop_rgba(frame.rgba, frame.width, frame.height, crop_pos.x,
+        crop_pos.y, crop_size.x, crop_size.y);
     if (pane.rgba.empty())
     {
         push_toast(2, "Print capture missed the pane");
         return;
     }
+    if (print_hint_.paper_white)
+        snap_paper_white(pane);
 
     const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch())

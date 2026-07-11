@@ -279,6 +279,16 @@ float ScoreHost::ui_scale() const
     return viewport_.pixel_scale > 0.0f ? viewport_.pixel_scale : 1.0f;
 }
 
+ScoreHost::FlowBand ScoreHost::flow_band() const
+{
+    const float vh = static_cast<float>(viewport_.pixel_size.y);
+    FlowBand band;
+    band.target_h = std::clamp(vh * 0.35f * zoom_, 96.0f * ui_scale(), vh * 0.9f);
+    band.strip_y = (vh - band.target_h) * 0.5f;
+    band.band_pad = 18.0f * ui_scale();
+    return band;
+}
+
 float ScoreHost::page_margin() const
 {
     return 24.0f * ui_scale();
@@ -756,12 +766,13 @@ void ScoreHost::draw(IFrameContext& frame)
         const ScoreHighlightState* highlight = &highlight_;
         const float vw = static_cast<float>(viewport_.pixel_size.x);
         const float vh = static_cast<float>(viewport_.pixel_size.y);
-        const float target_h = std::clamp(vh * 0.35f * zoom_, 96.0f * pixel_scale, vh * 0.9f);
+        const FlowBand band = flow_band();
+        const float target_h = band.target_h;
         const float scale = target_h / strip->canvas_size.y;
         constexpr double kAnchorFrac = 0.3;
         const double scroll_canvas = flow_.scroll_x(static_cast<double>(vw) / scale, kAnchorFrac);
         const float origin_x = static_cast<float>(-scroll_canvas * scale);
-        const float strip_y = (vh - target_h) * 0.5f;
+        const float strip_y = band.strip_y;
         const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
         const bool waiting = flow_.waiting();
 
@@ -1017,6 +1028,38 @@ HostDebugState ScoreHost::debug_state() const
     HostDebugState state;
     state.name = "ScoreView";
     return state;
+}
+
+HostPrintHint ScoreHost::print_hint() const
+{
+    // Print the music, not the pane furniture: crop away the mid-gray
+    // backdrop around the page/band, and snap the screen-tuned warm sheet
+    // tint to paper white (it prints as visible stipple otherwise).
+    HostPrintHint hint;
+    hint.paper_white = true;
+    const float vw = static_cast<float>(viewport_.pixel_size.x);
+    const float vh = static_cast<float>(viewport_.pixel_size.y);
+    if (view_mode_ == ViewMode::Flow && strip_ && strip_->canvas_size.y > 0.0f)
+    {
+        const FlowBand band = flow_band();
+        const float y0 = std::clamp(band.strip_y - band.band_pad, 0.0f, vh);
+        const float y1 = std::clamp(band.strip_y + band.target_h + band.band_pad, y0, vh);
+        hint.content_pos = { 0, static_cast<int>(y0) };
+        hint.content_size = { static_cast<int>(vw), static_cast<int>(y1 - y0) };
+    }
+    else if (pages_ && !pages_->empty() && page_width_px_ > 0.0f)
+    {
+        // Inset past the sheet's rounded corners (backdrop shows through
+        // them); the page's own engraving margins keep music clear of it.
+        const float inset = 4.0f * ui_scale();
+        const float margin = page_margin();
+        const float y0 = std::clamp(margin - scroll_y_ + inset, 0.0f, vh);
+        const float y1 = std::clamp(content_height() - margin - scroll_y_ - inset, y0, vh);
+        hint.content_pos = { static_cast<int>(margin + inset), static_cast<int>(y0) };
+        hint.content_size = { static_cast<int>(page_width_px_ - 2.0f * inset),
+            static_cast<int>(y1 - y0) };
+    }
+    return hint;
 }
 
 std::unique_ptr<IHost> create_score_host()

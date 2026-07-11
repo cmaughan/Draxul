@@ -104,6 +104,17 @@ struct HostRuntimeState
     std::chrono::steady_clock::time_point last_activity_time = std::chrono::steady_clock::now();
 };
 
+// A host's advice to the `print_pane` action: which pane-relative pixel
+// rect is the actual content (zero size = the whole pane), and whether
+// near-white background pixels should snap to paper white — screen-tuned
+// off-white tints print as visible stipple.
+struct HostPrintHint
+{
+    glm::ivec2 content_pos{ 0 };
+    glm::ivec2 content_size{ 0 };
+    bool paper_white = false;
+};
+
 class IHostCallbacks
 {
 public:
@@ -249,6 +260,12 @@ public:
     virtual Color default_background() const = 0;
     virtual HostRuntimeState runtime_state() const = 0;
     virtual HostDebugState debug_state() const = 0;
+    // Advice for the print_pane action (see HostPrintHint). Default: print
+    // the whole pane as-is.
+    virtual HostPrintHint print_hint() const
+    {
+        return {};
+    }
     virtual void attach_imgui_host(IImGuiHost& /*host*/)
     {
     }

@@ -26,6 +26,11 @@ struct CroppedImage
 CroppedImage crop_rgba(const std::vector<uint8_t>& rgba, int width, int height,
     int crop_x, int crop_y, int crop_w, int crop_h);
 
+// Snaps near-white pixels (every channel >= threshold) to pure white.
+// Screen-tuned paper tints (ScoreView's warm off-white sheet) print as a
+// faint stipple on real paper; ink and antialiased edges stay untouched.
+void snap_paper_white(CroppedImage& image, uint8_t threshold = 240);
+
 // Writes a one-page A4 PDF with the image centered and aspect-fit inside a
 // small margin. Landscape when the image is wider than tall. macOS-only
 // (CoreGraphics); other platforms return false with an explanatory error.

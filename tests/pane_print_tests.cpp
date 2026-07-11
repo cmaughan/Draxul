@@ -75,6 +75,39 @@ TEST_CASE("crop_rgba clamps to the frame and rejects degenerate rects", "[pane-p
     CHECK(crop_rgba({}, 0, 0, 0, 0, 10, 10).rgba.empty());
 }
 
+TEST_CASE("snap_paper_white whitens the sheet tint but not ink or edges", "[pane-print]")
+{
+    CroppedImage image;
+    image.width = 4;
+    image.height = 1;
+    image.rgba = {
+        252,
+        251,
+        248,
+        255, // ScoreView's warm sheet tint -> pure white
+        20,
+        20,
+        20,
+        255, // ink -> untouched
+        135,
+        138,
+        140,
+        255, // antialiased glyph edge -> untouched
+        239,
+        245,
+        250,
+        255, // one channel below threshold -> untouched
+    };
+    draxul::snap_paper_white(image);
+    CHECK(image.rgba[0] == 255);
+    CHECK(image.rgba[1] == 255);
+    CHECK(image.rgba[2] == 255);
+    CHECK(image.rgba[4] == 20);
+    CHECK(image.rgba[8] == 135);
+    CHECK(image.rgba[12] == 239);
+    CHECK(image.rgba[13] == 245);
+}
+
 #ifdef __APPLE__
 
 TEST_CASE("write_rgba_pdf_a4 produces a one-page A4 PDF, auto-oriented", "[pane-print]")
