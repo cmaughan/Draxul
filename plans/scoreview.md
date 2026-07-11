@@ -267,10 +267,13 @@ and the adaptive selection engine come next.)*
 - **Timemap + playback highlight / Flowing mode** — ✅ shipped as manifesto
   milestone 1: [scoreview-conveyor.md](scoreview-conveyor.md) (flowing
   single-row view, transport clock, timemap-driven light-up).
-- **Wait-mode + judgment + adaptive tempo + score** — manifesto milestone 2:
-  [scoreview-gate.md](scoreview-gate.md) (the game loop behind an
-  `IPlayerInput` seam; acoustic-first — the microphone listener is milestone
-  3, MIDI hardware at most a future option).
+- **Wait-mode + judgment + adaptive tempo + score** — ✅ shipped as manifesto
+  milestone 2: [scoreview-gate.md](scoreview-gate.md) (the game loop behind
+  an `IPlayerInput` seam).
+- **The acoustic listener** — manifesto milestone 3:
+  [scoreview-ear.md](scoreview-ear.md) (microphone → note events;
+  verification-not-transcription, inharmonic templates, tuning calibration;
+  includes the recognition notebook of acoustic facts and tuning knowledge).
 - **Editing** — command-based model mutations, hit-testing via element_id,
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG
