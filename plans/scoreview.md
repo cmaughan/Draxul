@@ -264,8 +264,9 @@ and the adaptive selection engine come next.)*
 - **Model↔layout ID bridge** — serialize our model to MusicXML/MEI with
   stable IDs so Verovio's element IDs map back to model notes. Prerequisite
   for highlighting and editing. This is the hard seam; design when we get here.
-- **Timemap + playback highlight** — Verovio timemap → per-element recolor.
-- **Flowing mode** — `breaks: none` single system, horizontal scroll.
+- **Timemap + playback highlight / Flowing mode** — planned together as
+  manifesto milestone 1: [scoreview-conveyor.md](scoreview-conveyor.md)
+  (flowing single-row view, transport clock, timemap-driven light-up).
 - **Editing** — command-based model mutations, hit-testing via element_id,
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG
