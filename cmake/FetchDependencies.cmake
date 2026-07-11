@@ -141,6 +141,18 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     else()
         target_compile_options(verovio PRIVATE -w)
     endif()
+    # nlohmann/json (timemap parsing in draxul-scoreview). Deliberately not
+    # Verovio's vendored jsonxx — same reasoning as tinyxml2-not-pugixml:
+    # never link a second copy of a dependency's vendored library.
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+        GIT_SHALLOW TRUE
+    )
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(nlohmann_json)
+
     # Verovio's configure step regenerates include/vrv/git_commit.h with a
     # fresh timestamp on every CMake run, dirtying vrv.cpp and relinking the
     # library each configure. The tag is pinned, so keep the header generated

@@ -2,6 +2,9 @@
 # pipeline (Verovio engine wrapper; phase-3 SVG interpreter joins it);
 # draxul-scoreview-host is the IHost + NanoVG presentation layer.
 add_library(draxul-scoreview STATIC
+    src/flow_controller.cpp
+    src/score_highlight.cpp
+    src/score_timemap.cpp
     src/svg_score_interpreter.cpp
     src/verovio_layout_engine.cpp
 )
@@ -34,7 +37,7 @@ target_compile_definitions(draxul-scoreview PRIVATE
 
 target_link_libraries(draxul-scoreview
     PUBLIC draxul-types
-    PRIVATE verovio tinyxml2::tinyxml2
+    PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json
 )
 
 add_library(draxul-scoreview-host STATIC

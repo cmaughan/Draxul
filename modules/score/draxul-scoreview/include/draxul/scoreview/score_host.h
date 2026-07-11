@@ -3,9 +3,12 @@
 #include <draxul/host.h>
 #include <draxul/nanovg_pass.h>
 #include <draxul/notation/score_document.h>
+#include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/layout_engine.h>
 #include <draxul/scoreview/score_draw_list.h>
+#include <draxul/scoreview/score_highlight.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,10 +46,7 @@ public:
     void on_config_reloaded(const draxul::HostReloadConfig& config) override;
     void pump() override;
     void draw(draxul::IFrameContext& frame) override;
-    std::optional<std::chrono::steady_clock::time_point> next_deadline() const override
-    {
-        return std::nullopt;
-    }
+    std::optional<std::chrono::steady_clock::time_point> next_deadline() const override;
 
     void on_key(const draxul::KeyEvent& event) override;
     void on_mouse_wheel(const draxul::MouseWheelEvent& event) override;
@@ -59,6 +59,12 @@ public:
     draxul::HostDebugState debug_state() const override;
 
 private:
+    enum class ViewMode : uint8_t
+    {
+        Paged, // the reading view: pages + vertical scroll
+        Flow, // the conveyor: one strip, transport, note light-up
+    };
+
     float ui_scale() const;
     float page_margin() const;
     float page_gap() const;
@@ -69,6 +75,10 @@ private:
     void set_zoom(float zoom);
     int current_page() const;
     void relayout();
+    void relayout_flow();
+    void toggle_flow_mode();
+    void apply_lit_update();
+    int approx_measure() const;
 
     std::unique_ptr<draxul::INanoVGPass> nanovg_pass_;
     draxul::HostViewport viewport_;
@@ -92,6 +102,17 @@ private:
     float page_scale_ = 0.0f;
     bool layout_dirty_ = true;
     bool running_ = false;
+
+    // Conveyor state (plans/scoreview-conveyor.md). The strip is the whole
+    // piece as one system; the controller owns transport/tempo/lit diffs and
+    // the highlight overlay carries per-op flags for the renderer.
+    ViewMode view_mode_ = ViewMode::Paged;
+    bool flow_dirty_ = false;
+    bool flow_autoplay_ = false;
+    std::shared_ptr<const ScoreDrawList> strip_;
+    FlowController flow_;
+    ScoreHighlightState highlight_;
+    std::chrono::steady_clock::time_point last_pump_{};
 };
 
 std::unique_ptr<draxul::IHost> create_score_host();

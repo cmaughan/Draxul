@@ -10,11 +10,24 @@ namespace draxul
 namespace scoreview
 {
 
-// Layout parameters for paged engraving. page_size_px is the target page size
-// in device pixels; pixel_scale is the display's device-pixel ratio. Staff and
-// glyph sizes scale with pixel_scale so a retina page isn't half-size music.
+enum class LayoutMode : uint8_t
+{
+    // Fit pages to page_size_px (the reading view).
+    Paged,
+    // One endless system (Verovio breaks:none) — the conveyor strip for the
+    // flowing runner view (plans/scoreview-conveyor.md). Page size is
+    // ignored; the strip's canvas is resolution-independent and the host
+    // chooses its on-screen height at draw time.
+    Flow,
+};
+
+// Layout parameters for engraving. page_size_px is the target page size in
+// device pixels (Paged mode); pixel_scale is the display's device-pixel
+// ratio. Staff and glyph sizes scale with pixel_scale so a retina page isn't
+// half-size music.
 struct LayoutOptions
 {
+    LayoutMode mode = LayoutMode::Paged;
     glm::ivec2 page_size_px{ 840, 1188 }; // A4 aspect at ~96 dpi
     float pixel_scale = 1.0f;
 };
@@ -42,6 +55,11 @@ public:
     // Renders one page (1-based) to SVG. Returns an empty string for an
     // invalid page or when nothing is loaded.
     virtual std::string render_page_svg(int page_number) = 0;
+
+    // Renders the loaded piece's timemap as JSON (an array of
+    // {qstamp, tstamp, on[], off[], tempo?} entries in playback order).
+    // Returns an empty string when nothing is loaded.
+    virtual std::string render_timemap() = 0;
 };
 
 } // namespace scoreview

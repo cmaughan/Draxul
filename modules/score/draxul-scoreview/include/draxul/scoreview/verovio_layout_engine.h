@@ -28,6 +28,7 @@ public:
     bool is_loaded() const override;
     int page_count() override;
     std::string render_page_svg(int page_number) override;
+    std::string render_timemap() override;
 
 private:
     VerovioLayoutEngine();

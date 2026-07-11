@@ -38,11 +38,34 @@ int to_verovio_dimension(int px, int scale_percent)
 
 std::string options_json(const LayoutOptions& options)
 {
-    const int scale = effective_scale_percent(options.pixel_scale);
+    // Verovio's SetOptions merges keys into the current option set, so both
+    // branches emit the full symmetric set — toggling Flow → Paged must undo
+    // breaks/adjust/header explicitly.
     std::string json = "{";
-    json += "\"pageWidth\": " + std::to_string(to_verovio_dimension(options.page_size_px.x, scale));
-    json += ", \"pageHeight\": " + std::to_string(to_verovio_dimension(options.page_size_px.y, scale));
-    json += ", \"scale\": " + std::to_string(scale);
+    if (options.mode == LayoutMode::Flow)
+    {
+        // One endless system. Page dimensions are irrelevant (adjustPage*
+        // resizes the single page to its content); the emitted canvas is
+        // resolution-independent and the host picks the on-screen strip
+        // height, so a fixed engraving scale is fine.
+        json += "\"breaks\": \"none\"";
+        json += ", \"adjustPageWidth\": true";
+        json += ", \"adjustPageHeight\": true";
+        json += ", \"header\": \"none\"";
+        json += ", \"scale\": " + std::to_string(BASE_ENGRAVE_SCALE_PERCENT);
+        json += ", \"pageWidth\": 2100, \"pageHeight\": 2970";
+    }
+    else
+    {
+        const int scale = effective_scale_percent(options.pixel_scale);
+        json += "\"breaks\": \"auto\"";
+        json += ", \"adjustPageWidth\": false";
+        json += ", \"adjustPageHeight\": false";
+        json += ", \"header\": \"auto\"";
+        json += ", \"pageWidth\": " + std::to_string(to_verovio_dimension(options.page_size_px.x, scale));
+        json += ", \"pageHeight\": " + std::to_string(to_verovio_dimension(options.page_size_px.y, scale));
+        json += ", \"scale\": " + std::to_string(scale);
+    }
     json += ", \"footer\": \"none\"";
     json += ", \"svgViewBox\": true";
     json += "}";
@@ -149,6 +172,13 @@ std::string VerovioLayoutEngine::render_page_svg(int page_number)
     if (!impl_->loaded || page_number < 1 || page_number > page_count())
         return {};
     return impl_->toolkit.RenderToSVG(page_number, /*xmlDeclaration=*/false);
+}
+
+std::string VerovioLayoutEngine::render_timemap()
+{
+    if (!impl_->loaded)
+        return {};
+    return impl_->toolkit.RenderToTimemap();
 }
 
 } // namespace scoreview

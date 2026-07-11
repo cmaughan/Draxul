@@ -18,6 +18,8 @@ namespace
 
 const NVGcolor INK = { { { 0.10f, 0.09f, 0.08f, 1.0f } } };
 const NVGcolor PAGE_WHITE = { { { 0.988f, 0.984f, 0.972f, 1.0f } } };
+// Lit-note accent: burnt amber, high contrast against both page white and ink.
+const NVGcolor ACCENT = { { { 0.85f, 0.45f, 0.08f, 1.0f } } };
 
 int create_font_from_candidates(NVGcontext* vg, const char* name,
     const std::array<const char*, 4>& candidates)
@@ -116,24 +118,33 @@ ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg)
 }
 
 void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origin, float scale,
-    const ScoreTextFonts& fonts)
+    const ScoreTextFonts& fonts, const ScoreHighlightState* highlight)
 {
     nvgSave(vg);
     nvgTranslate(vg, origin.x, origin.y);
     nvgScale(vg, scale, scale);
 
-    for (const DrawPath& path : list.paths)
+    const auto path_lit = [highlight](size_t i) {
+        return highlight != nullptr && i < highlight->path_lit.size() && highlight->path_lit[i] != 0;
+    };
+    const auto glyph_lit = [highlight](size_t i) {
+        return highlight != nullptr && i < highlight->glyph_lit.size() && highlight->glyph_lit[i] != 0;
+    };
+
+    for (size_t i = 0; i < list.paths.size(); ++i)
     {
+        const DrawPath& path = list.paths[i];
+        const NVGcolor& color = path_lit(i) ? ACCENT : INK;
         nvgBeginPath(vg);
         replay_commands(vg, path.cmds);
         if (path.fill)
         {
-            nvgFillColor(vg, INK);
+            nvgFillColor(vg, color);
             nvgFill(vg);
         }
         if (path.stroke_width > 0.0f)
         {
-            nvgStrokeColor(vg, INK);
+            nvgStrokeColor(vg, color);
             nvgStrokeWidth(vg, path.stroke_width);
             nvgLineCap(vg, NVG_BUTT);
             nvgLineJoin(vg, NVG_MITER);
@@ -141,8 +152,9 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         }
     }
 
-    for (const GlyphInstance& glyph : list.glyphs)
+    for (size_t i = 0; i < list.glyphs.size(); ++i)
     {
+        const GlyphInstance& glyph = list.glyphs[i];
         if (glyph.symbol_index < 0 || glyph.symbol_index >= static_cast<int>(list.symbols.size()))
             continue;
         const SymbolOutline& symbol = list.symbols[glyph.symbol_index];
@@ -153,7 +165,7 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
         nvgBeginPath(vg);
         replay_commands(vg, symbol.cmds);
-        nvgFillColor(vg, INK);
+        nvgFillColor(vg, glyph_lit(i) ? ACCENT : INK);
         nvgFill(vg);
         nvgRestore(vg);
     }

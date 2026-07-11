@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/scoreview/score_draw_list.h>
+#include <draxul/scoreview/score_highlight.h>
 
 struct NVGcontext;
 
@@ -24,9 +25,10 @@ ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg);
 
 // Replays one interpreted page into NanoVG. origin is the page's top-left in
 // pixels; scale maps canvas units to pixels (stroke widths and font sizes are
-// in canvas units and scale with the transform).
+// in canvas units and scale with the transform). When `highlight` is given,
+// ops flagged lit draw in the accent color (the conveyor's note light-up).
 void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origin, float scale,
-    const ScoreTextFonts& fonts);
+    const ScoreTextFonts& fonts, const ScoreHighlightState* highlight = nullptr);
 
 // White page sheet with a soft drop shadow; shared by the score renderer and
 // the no-source placeholder scene.

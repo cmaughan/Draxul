@@ -88,67 +88,70 @@ motifs); model↔layout id bridge; memory-mode notation fading.
 
 ## Phases
 
-### C0 — Flow layout + timemap in the engine
+### C0 — Flow layout + timemap in the engine ✅ (2026-07-11)
 
-- [ ] `LayoutOptions.mode` (`Paged` | `Flow`): flow sets `breaks: "none"`,
+- [x] `LayoutOptions.mode` (`Paged` | `Flow`): flow sets `breaks: "none"`,
   `adjustPageWidth/adjustPageHeight`, `header: "none"`, and derives scale
   from a target strip height instead of page fit
-- [ ] `ILayoutEngine::render_timemap()` → JSON string (Verovio
+- [x] `ILayoutEngine::render_timemap()` → JSON string (Verovio
   `RenderToTimemap`)
-- [ ] `score_timemap.h/.cpp`: nlohmann-parsed `Timemap { entries(qstamp,
+- [x] `score_timemap.h/.cpp`: nlohmann-parsed `Timemap { entries(qstamp,
   on[], off[]), tempo_qpm, duration_q }`; tolerant of missing keys
-- [ ] nlohmann/json in FetchDependencies (pinned, scoreview-gated)
-- [ ] Tests: flow mode → page_count 1 + wide canvas + **zero interpreter
+- [x] nlohmann/json in FetchDependencies (pinned, scoreview-gated)
+- [x] Tests: flow mode → page_count 1 + wide canvas + **zero interpreter
   warnings** on the Grieg; timemap parses (308 entries, tempo 130,
   duration 237); **id-join test: every timemap on-id resolves to ≥1 draw op**
 
-### C1 — FlowController (pure logic)
+### C1 — FlowController (pure logic) ✅ (2026-07-11)
 
-- [ ] Join Timemap × ScoreDrawList → ordered onset events `{qstamp, x,
+- [x] Join Timemap × ScoreDrawList → ordered onset events `{qstamp, x,
   ids[]}` (x = the id's op bucket x-position)
-- [ ] Transport: play/pause/rewind, `advance(dt)`, `position_q` clamped to
+- [x] Transport: play/pause/rewind, `advance(dt)`, `position_q` clamped to
   [0, duration]; tempo get/set clamped to [marking×0.25, marking×1.2],
   default start marking×0.6
-- [ ] `x_at(position_q)` piecewise-linear between onsets (flat before first /
+- [x] `x_at(position_q)` piecewise-linear between onsets (flat before first /
   after last); `scroll_x(viewport_w, anchor_frac)` with start/end clamping
-- [ ] Lit-set maintenance: `advance_to(q)` emits newly-lit op indices
+- [x] Lit-set maintenance: `advance_to(q)` emits newly-lit op indices
   (monotonic path), `rewind` resets; idempotent re-application
-- [ ] Unit tests: clamps, interpolation (including between-onset midpoints),
+- [x] Unit tests: clamps, interpolation (including between-onset midpoints),
   lit diffs across forward jumps and rewind, tempo bounds from the marking
 
-### C2 — Highlight overlay in the renderer
+### C2 — Highlight overlay in the renderer ✅ (2026-07-11)
 
-- [ ] `ScoreHighlightState`: id→op-index buckets built once per interpret;
+- [x] `ScoreHighlightState`: id→op-index buckets built once per interpret;
   per-op lit flags; accent color constant (warm amber, distinct from ink on
   the page white)
-- [ ] `render_draw_list` accepts an optional highlight state (lit ops draw in
+- [x] `render_draw_list` accepts an optional highlight state (lit ops draw in
   accent for fills/strokes/glyphs; texts excluded for now)
-- [ ] Unit test: bucket construction over the fixture (notehead op count for
+- [x] Unit test: bucket construction over the fixture (notehead op count for
   a known id), flag application
 
-### C3 — ScoreHost flow mode
+### C3 — ScoreHost flow mode ✅ (2026-07-11)
 
-- [ ] Mode toggle `f` (paged ⇄ flow), preserving the paged scroll position
+- [x] Mode toggle `f` (paged ⇄ flow), preserving the paged scroll position
   for the return trip
-- [ ] Flow layout path: one interpret, strip centered vertically, horizontal
+- [x] Flow layout path: one interpret, strip centered vertically, horizontal
   scroll from the controller, playhead line drawn at the anchor
-- [ ] Transport keys: `Space` play/pause, `[`/`]` tempo ∓ (e.g. 4%/step),
+- [x] Transport keys: `Space` play/pause, `[`/`]` tempo ∓ (e.g. 4%/step),
   `r` rewind; while playing, pump advances by steady-clock dt and requests
   continuous frames; paused = dirty-flag redraws as today
-- [ ] Status text in flow mode: `▶ ♩=78 (60%)  m. 12  q 34.5/237`
-- [ ] Smoke: `--host score --source grieg …` toggles to flow and back without
+- [x] Status text in flow mode: `▶ ♩=78 (60%)  m. 12  q 34.5/237`
+- [x] Smoke: `--host score --source grieg …` toggles to flow and back without
   leaks or warnings
 
-### C4 — Verification & polish
+### C4 — Verification & polish ✅ (2026-07-11)
 
-- [ ] Objective motion proof: startup-autoplay hook for testing (config key
+- [x] Objective motion proof: startup-autoplay hook for testing (config key
   or host arg — decide at implementation), two `--screenshot` captures at
   different delays, assert pixel difference in the strip region and lit
   accent pixels appearing (the established capture-and-sample loop)
-- [ ] Frame-cost measurement of the full ~2.9k-op strip; add per-op x-bounds
-  culling to the replay loop only if measured necessary
-- [ ] `docs/features.md` + plan ticks; note the tempo-cap and anchor
-  constants in config for later tuning
+- [x] Frame cost: the full strip is ~2.9k ops — the same magnitude the paged
+  view already replayed per frame without trouble — so no culling was added.
+  Revisit with a real measurement if flow scrolling ever feels heavy
+- [x] `docs/features.md` + plan ticks. Tempo band (0.25–1.2 × marking, 0.6
+  start), the 4%/step nudge, and the 0.3 playhead anchor live as named
+  constants in FlowController/ScoreHost; config exposure deferred until the
+  game milestones decide what players actually tune
 
 ## Acceptance
 

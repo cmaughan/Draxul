@@ -204,14 +204,27 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         }
         engine_ = std::move(engine);
         layout_dirty_ = true;
+
+        // Dev/test hook (conveyor C4 screenshot verification): launching with
+        // `--command flow` starts in the conveyor view; `--command
+        // flow-autoplay` also starts the transport immediately.
+        const std::string& command = context.launch_options.command;
+        if (command.find("flow") != std::string::npos)
+        {
+            view_mode_ = ViewMode::Flow;
+            flow_dirty_ = true;
+            flow_autoplay_ = command.find("autoplay") != std::string::npos;
+        }
     }
 
+    last_pump_ = std::chrono::steady_clock::now();
     running_ = true;
     return true;
 }
 
 void ScoreHost::shutdown()
 {
+    strip_.reset();
     pages_.reset();
     engine_.reset();
     nanovg_pass_.reset();
@@ -286,7 +299,10 @@ void ScoreHost::set_zoom(float zoom)
     if (clamped == zoom_)
         return;
     zoom_ = clamped;
-    layout_dirty_ = true;
+    // Paged zoom re-engraves at the new scale; the flow strip is
+    // resolution-independent and just draws at a different height.
+    if (view_mode_ == ViewMode::Paged)
+        layout_dirty_ = true;
     if (callbacks_ != nullptr)
         callbacks_->request_frame();
 }
@@ -350,10 +366,129 @@ void ScoreHost::relayout()
         callbacks_->request_frame();
 }
 
+void ScoreHost::relayout_flow()
+{
+    flow_dirty_ = false;
+    if (!engine_ || !engine_->is_loaded())
+        return;
+
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    options.pixel_scale = ui_scale();
+    engine_->set_options(options);
+
+    std::string error;
+    auto strip = interpret_score_svg(engine_->render_page_svg(1), error);
+    if (!strip)
+    {
+        DRAXUL_LOG_ERROR(
+            LogCategory::App, "score: flow interpret failed, staying paged: %s", error.c_str());
+        view_mode_ = ViewMode::Paged;
+        layout_dirty_ = true;
+        return;
+    }
+    for (const std::string& warning : strip->warnings)
+        DRAXUL_LOG_DEBUG(LogCategory::App, "score flow interpreter: %s", warning.c_str());
+
+    auto shared_strip = std::make_shared<const ScoreDrawList>(std::move(*strip));
+    auto timemap = parse_timemap(engine_->render_timemap(), error);
+    const bool transport_ok = timemap.has_value() && flow_.build(*timemap, *shared_strip, error);
+    if (!transport_ok)
+        DRAXUL_LOG_ERROR(
+            LogCategory::App, "score: conveyor transport unavailable: %s", error.c_str());
+
+    strip_ = std::move(shared_strip);
+    highlight_.build(*strip_);
+    apply_lit_update(); // anything at q <= 0 sits under the playhead pre-lit
+    DRAXUL_LOG_INFO(LogCategory::App, "score: conveyor strip %zu ops, %zu onsets, marking %d qpm",
+        strip_->glyphs.size() + strip_->paths.size() + strip_->texts.size(),
+        flow_.onsets().size(), static_cast<int>(std::lround(flow_.marking_qpm())));
+
+    if (flow_autoplay_ && transport_ok)
+    {
+        flow_.play();
+        flow_autoplay_ = false;
+    }
+    scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll());
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::toggle_flow_mode()
+{
+    if (!engine_ || !engine_->is_loaded())
+        return;
+    if (view_mode_ == ViewMode::Paged)
+    {
+        view_mode_ = ViewMode::Flow;
+        flow_dirty_ = true; // re-engrave as the strip on the next pump
+    }
+    else
+    {
+        view_mode_ = ViewMode::Paged;
+        flow_.pause();
+        layout_dirty_ = true; // re-engrave pages; scroll_y_ carries over
+    }
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::apply_lit_update()
+{
+    const FlowController::LitUpdate update = flow_.take_lit_update();
+    if (update.reset)
+        highlight_.clear_lit();
+    for (const std::string& id : update.newly_lit)
+        highlight_.set_lit(id);
+}
+
+int ScoreHost::approx_measure() const
+{
+    if (!flow_.ready() || !has_model_)
+        return 0;
+    double quarters_per_measure = 0.0;
+    if (!model_.parts.empty())
+    {
+        for (const auto& measure : model_.parts[0].measures)
+        {
+            if (measure.time)
+            {
+                quarters_per_measure = measure.time->measure_duration().to_double() * 4.0;
+                break;
+            }
+        }
+    }
+    if (quarters_per_measure <= 0.0)
+        return 0;
+    return static_cast<int>(flow_.position_q() / quarters_per_measure) + 1;
+}
+
 void ScoreHost::pump()
 {
-    if (layout_dirty_)
+    const auto now = std::chrono::steady_clock::now();
+    // Clamp long stalls (first frame, app pauses) to one frame's worth.
+    const double dt = std::clamp(std::chrono::duration<double>(now - last_pump_).count(), 0.0, 0.1);
+    last_pump_ = now;
+
+    if (view_mode_ == ViewMode::Flow && flow_dirty_)
+        relayout_flow();
+    if (view_mode_ == ViewMode::Paged && layout_dirty_)
         relayout();
+
+    if (view_mode_ == ViewMode::Flow && flow_.playing())
+    {
+        flow_.advance(dt);
+        apply_lit_update();
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
+    }
+}
+
+std::optional<std::chrono::steady_clock::time_point> ScoreHost::next_deadline() const
+{
+    if (view_mode_ == ViewMode::Flow && flow_.playing())
+        return std::chrono::steady_clock::now() + std::chrono::milliseconds(16);
+    return std::nullopt;
 }
 
 void ScoreHost::draw(IFrameContext& frame)
@@ -362,7 +497,39 @@ void ScoreHost::draw(IFrameContext& frame)
         return;
 
     const float pixel_scale = ui_scale();
-    if (!pages_ || pages_->empty())
+    if (view_mode_ == ViewMode::Flow && strip_ && strip_->canvas_size.y > 0.0f)
+    {
+        // The conveyor: the whole piece as one strip on a full-width band,
+        // scrolled so the playhead anchor tracks the transport position.
+        auto strip = strip_;
+        const ScoreHighlightState* highlight = &highlight_;
+        const float vw = static_cast<float>(viewport_.pixel_size.x);
+        const float vh = static_cast<float>(viewport_.pixel_size.y);
+        const float target_h = std::clamp(vh * 0.35f * zoom_, 96.0f * pixel_scale, vh * 0.9f);
+        const float scale = target_h / strip->canvas_size.y;
+        constexpr double kAnchorFrac = 0.3;
+        const double scroll_canvas = flow_.scroll_x(static_cast<double>(vw) / scale, kAnchorFrac);
+        const float origin_x = static_cast<float>(-scroll_canvas * scale);
+        const float strip_y = (vh - target_h) * 0.5f;
+        const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
+
+        nanovg_pass_->set_draw_callback(
+            [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y,
+                playhead_x](NVGcontext* vg, int w, int h) {
+                fill_backdrop(vg, w, h);
+                const float band_pad = 18.0f * pixel_scale;
+                draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
+                    vw + 96.0f * pixel_scale, target_h + 2.0f * band_pad, pixel_scale);
+                const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
+                render_draw_list(vg, *strip, { origin_x, strip_y }, scale, fonts, highlight);
+                nvgBeginPath(vg);
+                nvgRect(vg, playhead_x - 1.0f * pixel_scale, strip_y - band_pad,
+                    2.0f * pixel_scale, target_h + 2.0f * band_pad);
+                nvgFillColor(vg, nvgRGBA(217, 115, 20, 170));
+                nvgFill(vg);
+            });
+    }
+    else if (!pages_ || pages_->empty())
     {
         nanovg_pass_->set_draw_callback([pixel_scale](NVGcontext* vg, int w, int h) {
             draw_placeholder(vg, w, h, pixel_scale);
@@ -408,6 +575,38 @@ void ScoreHost::on_key(const KeyEvent& event)
 {
     if (!event.pressed)
         return;
+    if (event.keycode == SDLK_F)
+    {
+        toggle_flow_mode();
+        return;
+    }
+    if (view_mode_ == ViewMode::Flow)
+    {
+        switch (event.keycode)
+        {
+        case SDLK_SPACE:
+            if (flow_.playing())
+                flow_.pause();
+            else
+                flow_.play();
+            break;
+        case SDLK_LEFTBRACKET:
+            flow_.set_tempo_qpm(flow_.tempo_qpm() / 1.04);
+            break;
+        case SDLK_RIGHTBRACKET:
+            flow_.set_tempo_qpm(flow_.tempo_qpm() * 1.04);
+            break;
+        case SDLK_R:
+            flow_.rewind();
+            apply_lit_update();
+            break;
+        default:
+            return;
+        }
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
+        return;
+    }
     const float line_step = 60.0f * ui_scale();
     const float page_step = static_cast<float>(viewport_.pixel_size.y) * 0.9f;
     switch (event.keycode)
@@ -486,6 +685,17 @@ std::string ScoreHost::status_text() const
     }
 
     std::string status = "score: " + title;
+    if (view_mode_ == ViewMode::Flow && flow_.ready())
+    {
+        const int qpm = static_cast<int>(std::lround(flow_.tempo_qpm()));
+        const int pct = static_cast<int>(std::lround(flow_.tempo_qpm() / flow_.marking_qpm() * 100.0));
+        status += flow_.playing() ? "  >" : (flow_.at_end() ? "  end" : "  ||");
+        status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
+        const int measure = approx_measure();
+        if (measure > 0)
+            status += "  m." + std::to_string(measure);
+        return status;
+    }
     if (pages_ && !pages_->empty())
     {
         status += "  p. " + std::to_string(current_page()) + "/" + std::to_string(pages_->size());
