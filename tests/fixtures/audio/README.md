@@ -27,6 +27,18 @@ covers CI until these arrive — after that, both run forever.
 
 ## The takes
 
+All six are engraved in [recording-script.musicxml](recording-script.musicxml)
+— put it on the stand via ScoreView itself:
+
+```bash
+./build/draxul.app/Contents/MacOS/draxul --host score \
+  --source tests/fixtures/audio/recording-script.musicxml
+```
+
+(Sections 4–5 embed the Grieg fixture's opening 8 measures verbatim; the
+bold red-ish "play a WRONG note near here" marks in section 5 are
+suggestions, not obligations.)
+
 | File | What to play |
 | --- | --- |
 | `chromatic-a1-c6.wav` | Slow chromatic scale, one note at a time, A1 up to C6 (or whatever range is comfortable — rename to match, e.g. `chromatic-c2-c5.wav`) |
