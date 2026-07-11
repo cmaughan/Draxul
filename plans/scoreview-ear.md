@@ -194,14 +194,26 @@ both run forever.
 
 ### E2 — Live capture in the host
 
-- [ ] SDL3 recording stream (request f32 mono 44.1k; SDL converts), drained
+- [x] SDL3 recording stream (request f32 mono 44.1k; SDL converts), drained
   in `pump()`; `MicPlayerInput : IPlayerInput` wiring listener + expected
-  set from the armed gate
-- [ ] macOS `NSMicrophoneUsageDescription` in the bundle plist (TCC prompt)
-- [ ] `--command gate-mic` + a key to switch input source in gate mode;
-  status shows MIC + input level; graceful fallback to keyboard when the
-  device is unavailable
-- [ ] docs/features.md
+  set from the armed gate; stale-backlog drop + clock re-anchor after pauses
+- [x] macOS `NSMicrophoneUsageDescription` + stable bundle identifier in the
+  bundle plist (custom `cmake/MacOSXBundleInfo.plist.in`; TCC keys the
+  permission on the id)
+- [x] **Async open, permission pre-flight** (the E2 hard lesson, verified by
+  stack sample): `SDL_OpenAudioDeviceStream` blocks on the TCC consent
+  dialog — synchronously it freezes launch, and even off-thread it holds a
+  device lock that deadlocks `SDL_Quit`'s audio teardown. So the opener
+  thread first polls AVFoundation (`mic_permission.mm`, async request, no
+  SDL locks) and only touches SDL once macOS says yes; shutdown never joins
+  (abandoned-exchange handshake owns the stream cleanup either side).
+- [x] `--command gate-mic` + `i` toggles mic <-> keyboard mid-session
+  (verdicts/score survive); status shows `MIC<level 0-9>` when live,
+  `MIC?` while consent is pending; WARN + graceful keyboard fallback when
+  the device is denied/unavailable (checked in pump, async-aware).
+  Verified live: launch, screenshot (`WAIT MIC? 78qpm (60%)` pill, teal
+  playhead), clean exit with the dialog unanswered.
+- [x] docs/features.md
 
 ### E3 — Tuning against reality
 

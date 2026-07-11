@@ -310,6 +310,10 @@ if(APPLE AND EXISTS "${CMAKE_SOURCE_DIR}/assets/draxul.icns")
         MACOSX_BUNDLE_ICON_FILE "draxul"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        # Stable identifier + usage descriptions: TCC keys the microphone
+        # permission (ScoreView's acoustic listener) on the bundle id.
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.draxul.draxul"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/MacOSXBundleInfo.plist.in"
     )
 endif()
 

@@ -6,6 +6,7 @@
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/keyboard_player_input.h>
 #include <draxul/scoreview/layout_engine.h>
+#include <draxul/scoreview/mic_player_input.h>
 #include <draxul/scoreview/player_input.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
@@ -67,6 +68,13 @@ private:
         Flow, // the conveyor: one strip, transport, note light-up
     };
 
+    enum class GateInput : uint8_t
+    {
+        Keyboard, // dev piano row (scaffolding)
+        Bot, // deterministic verification player
+        Mic, // the acoustic listener (the product)
+    };
+
     float ui_scale() const;
     float page_margin() const;
     float page_gap() const;
@@ -83,8 +91,12 @@ private:
     void apply_verdict_update();
     int approx_measure() const;
     double now_seconds() const;
-    void enter_gate_mode(bool with_bot, double bot_pace_qpm, double bot_accuracy);
+    void enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy);
     void exit_gate_mode();
+    // Swaps the player-input implementation without touching the session
+    // (verdicts, score, transport survive). Falls back to the keyboard when
+    // the microphone can't open; returns whether the requested input engaged.
+    bool set_gate_input(GateInput input, double bot_pace_qpm, double bot_accuracy);
     bool handle_gate_key(int keycode);
 
     std::unique_ptr<draxul::INanoVGPass> nanovg_pass_;
@@ -126,8 +138,9 @@ private:
     // bot are scaffolding.
     std::unique_ptr<IPlayerInput> player_input_;
     KeyboardPlayerInput* keyboard_input_ = nullptr; // borrowed from player_input_
+    MicPlayerInput* mic_input_ = nullptr; // borrowed from player_input_
     bool start_in_gate_ = false;
-    bool gate_bot_requested_ = false;
+    GateInput gate_input_requested_ = GateInput::Keyboard;
     double gate_bot_accuracy_ = 1.0;
     std::chrono::steady_clock::time_point epoch_{};
     size_t last_logged_gate_ = 0;

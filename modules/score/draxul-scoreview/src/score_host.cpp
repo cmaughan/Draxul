@@ -211,15 +211,20 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
 
         // Dev/test hooks: `--command flow` starts in the conveyor view,
         // `flow-autoplay` also starts the transport; `--command gate` starts
-        // in gate mode with the keyboard input, `gate-bot` runs the scripted
-        // verification bot (`gate-bot-err` with 70% accuracy).
+        // in gate mode with the keyboard input, `gate-mic` with the acoustic
+        // listener, `gate-bot` runs the scripted verification bot
+        // (`gate-bot-err` with 70% accuracy).
         const std::string& command = context.launch_options.command;
         if (command.find("gate") != std::string::npos)
         {
             view_mode_ = ViewMode::Flow;
             flow_dirty_ = true;
             start_in_gate_ = true;
-            gate_bot_requested_ = command.find("bot") != std::string::npos;
+            gate_input_requested_ = GateInput::Keyboard;
+            if (command.find("bot") != std::string::npos)
+                gate_input_requested_ = GateInput::Bot;
+            else if (command.find("mic") != std::string::npos)
+                gate_input_requested_ = GateInput::Mic;
             gate_bot_accuracy_ = command.find("err") != std::string::npos ? 0.7 : 1.0;
         }
         else if (command.find("flow") != std::string::npos)
@@ -433,7 +438,7 @@ void ScoreHost::relayout_flow()
         if (start_in_gate_)
         {
             start_in_gate_ = false;
-            enter_gate_mode(gate_bot_requested_, kBotPaceQpm, gate_bot_accuracy_);
+            enter_gate_mode(gate_input_requested_, kBotPaceQpm, gate_bot_accuracy_);
         }
     }
 
@@ -490,25 +495,50 @@ void ScoreHost::apply_verdict_update()
     }
 }
 
-void ScoreHost::enter_gate_mode(bool with_bot, double bot_pace_qpm, double bot_accuracy)
+bool ScoreHost::set_gate_input(GateInput input, double bot_pace_qpm, double bot_accuracy)
+{
+    keyboard_input_ = nullptr;
+    mic_input_ = nullptr;
+    player_input_.reset();
+    if (input == GateInput::Bot)
+    {
+        player_input_ = std::make_unique<BotPlayerInput>(flow_, bot_pace_qpm, bot_accuracy, 20260711u);
+        return true;
+    }
+    if (input == GateInput::Mic)
+    {
+        // Opening is asynchronous (the TCC consent dialog can block for
+        // minutes); Opening counts as engaged, and pump() falls back to the
+        // keyboard if the open ultimately fails.
+        auto mic = std::make_unique<MicPlayerInput>(flow_);
+        if (mic->state() != MicPlayerInput::State::Failed)
+        {
+            mic_input_ = mic.get();
+            player_input_ = std::move(mic);
+            return true;
+        }
+        DRAXUL_LOG_WARN(LogCategory::App, "score: %s — falling back to keyboard input",
+            mic->error().c_str());
+        // fall through to the keyboard
+    }
+    auto keyboard = std::make_unique<KeyboardPlayerInput>();
+    keyboard_input_ = keyboard.get();
+    player_input_ = std::move(keyboard);
+    return input == GateInput::Keyboard;
+}
+
+void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy)
 {
     if (!flow_.gates_ready())
         return;
     flow_.set_mode(FlowController::TransportMode::Gate);
     highlight_.clear_lit();
     apply_verdict_update(); // consume the reset
-    keyboard_input_ = nullptr;
-    if (with_bot)
-    {
-        player_input_ = std::make_unique<BotPlayerInput>(flow_, bot_pace_qpm, bot_accuracy, 20260711u);
-        flow_.play(); // bots start themselves; humans press Space
-    }
-    else
-    {
-        auto keyboard = std::make_unique<KeyboardPlayerInput>();
-        keyboard_input_ = keyboard.get();
-        player_input_ = std::move(keyboard);
-    }
+    const bool engaged = set_gate_input(input, bot_pace_qpm, bot_accuracy);
+    // Bots start themselves, and the piano IS the mic session's interface —
+    // no Space press needed. The keyboard player starts with Space.
+    if (input != GateInput::Keyboard && engaged)
+        flow_.play();
     last_logged_gate_ = 0;
     logged_gate_end_ = false;
     if (callbacks_ != nullptr)
@@ -519,6 +549,7 @@ void ScoreHost::exit_gate_mode()
 {
     player_input_.reset();
     keyboard_input_ = nullptr;
+    mic_input_ = nullptr;
     flow_.set_mode(FlowController::TransportMode::Clock);
     highlight_.clear_lit();
     apply_lit_update(); // consume the reset; re-light anything at q <= 0
@@ -535,8 +566,20 @@ bool ScoreHost::handle_gate_key(int keycode)
         exit_gate_mode();
         return true;
     }
+    // `i` switches the human input source mid-session (mic <-> keyboard)
+    // without touching verdicts, score, or the transport.
+    if (keycode == SDLK_I && (keyboard_input_ != nullptr || mic_input_ != nullptr))
+    {
+        const GateInput next = mic_input_ != nullptr ? GateInput::Keyboard : GateInput::Mic;
+        const bool engaged = set_gate_input(next, 0.0, 1.0);
+        DRAXUL_LOG_INFO(LogCategory::App, "score: gate input -> %s",
+            mic_input_ != nullptr ? "microphone" : "keyboard");
+        if (next == GateInput::Mic && engaged && !flow_.playing())
+            flow_.play(); // the piano is the interface; don't demand Space
+        return true;
+    }
     if (keyboard_input_ == nullptr)
-        return false; // bot session: only transport keys apply
+        return false; // bot/mic session: the piano row doesn't inject notes
 
     // Dev piano row (scaffolding only): z s x d c v g b h n j m , = one
     // chromatic octave anchored at the armed gate's register; Return plays
@@ -649,6 +692,12 @@ void ScoreHost::pump()
         flow_.advance(dt);
         if (flow_.mode() == FlowController::TransportMode::Gate)
         {
+            if (mic_input_ != nullptr && mic_input_->state() == MicPlayerInput::State::Failed)
+            {
+                DRAXUL_LOG_WARN(LogCategory::App, "score: %s — falling back to keyboard input",
+                    mic_input_->error().c_str());
+                set_gate_input(GateInput::Keyboard, 0.0, 1.0);
+            }
             if (player_input_ != nullptr)
             {
                 std::vector<PlayerNoteEvent> events;
@@ -795,7 +844,7 @@ void ScoreHost::on_key(const KeyEvent& event)
         }
         if (event.keycode == SDLK_G && flow_.mode() == FlowController::TransportMode::Clock && flow_.gates_ready())
         {
-            enter_gate_mode(/*with_bot=*/false, 0.0, 1.0);
+            enter_gate_mode(GateInput::Keyboard, 0.0, 1.0);
             return;
         }
         switch (event.keycode)
@@ -910,6 +959,20 @@ std::string ScoreHost::status_text() const
             status += flow_.waiting()
                 ? "  WAIT"
                 : (flow_.at_end() ? "  end" : (flow_.playing() ? "  >" : "  ||"));
+            if (mic_input_ != nullptr)
+            {
+                if (mic_input_->state() == MicPlayerInput::State::Ready)
+                {
+                    // Input level 0-9: the at-a-glance "it hears me" meter.
+                    const int level = std::clamp(
+                        static_cast<int>(mic_input_->level() * 9.99f), 0, 9);
+                    status += "  MIC" + std::to_string(level);
+                }
+                else
+                {
+                    status += "  MIC?"; // waiting on device / permission
+                }
+            }
             status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
             status += "  score " + std::to_string(flow_.score());
             status += "  x" + std::to_string(flow_.streak());

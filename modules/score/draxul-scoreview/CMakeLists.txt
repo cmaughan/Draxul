@@ -43,6 +43,7 @@ target_link_libraries(draxul-scoreview
 )
 
 add_library(draxul-scoreview-host STATIC
+    src/mic_player_input.cpp
     src/score_host.cpp
     src/score_render_nvg.cpp
 )
@@ -51,10 +52,24 @@ target_include_directories(draxul-scoreview-host PUBLIC
     include
 )
 
+# SDL stays at the host layer: the core listener above is pure DSP and
+# offline-testable; only the microphone front-end touches a device.
 target_link_libraries(draxul-scoreview-host PUBLIC
     draxul-scoreview
     draxul-notation
     draxul-host
     draxul-renderer
     draxul-nanovg
+    PRIVATE SDL3::SDL3
 )
+
+# Microphone permission pre-flight: TCC via AVFoundation on macOS (SDL must
+# never be the one to trigger the consent dialog — see mic_permission.h).
+if(APPLE)
+    target_sources(draxul-scoreview-host PRIVATE src/mic_permission.mm)
+    set_source_files_properties(src/mic_permission.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
+    target_link_libraries(draxul-scoreview-host PRIVATE ${AVFOUNDATION_FRAMEWORK})
+else()
+    target_sources(draxul-scoreview-host PRIVATE src/mic_permission_stub.cpp)
+endif()
