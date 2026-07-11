@@ -2,6 +2,14 @@
 
 *Created 2026-07-10. Research background: [music-notation-research.md](music-notation-research.md).*
 
+> **North star:** this module's end goal is the adaptive piano-learning
+> endless runner described in the
+> **[ScoreView Manifesto](scoreview-manifesto.md)** — a game that teaches you
+> a chosen piece through a never-stopping, tempo-adaptive stream of real
+> notation, heard through the microphone. The phases below built the
+> rendering foundation; future phases (flowing single-row view, timemap
+> highlighting, the selection engine, audio matching) serve the manifesto.
+
 ## Goal
 
 A new Draxul host that renders a reasonably complex piece of piano music,
@@ -247,6 +255,11 @@ small hand-authored snippets for importer unit tests (the W3C MusicXML
 sample suite is a good source).
 
 ## Follow-on phases (recorded, deliberately not designed yet)
+
+*(Priority ordering now follows the [manifesto](scoreview-manifesto.md): the
+flowing single-system view, the model↔layout bridge, and timemap
+highlighting form the spine of the endless runner; microphone note-matching
+and the adaptive selection engine come next.)*
 
 - **Model↔layout ID bridge** — serialize our model to MusicXML/MEI with
   stable IDs so Verovio's element IDs map back to model notes. Prerequisite
