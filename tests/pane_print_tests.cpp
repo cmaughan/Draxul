@@ -1,6 +1,6 @@
 // The print_pane action's composable pieces (libs/draxul-runtime-support):
-// RGBA cropping and the A4 PDF composer. The lpr submission is a one-line
-// spooler call, deliberately untested (no printers in CI).
+// RGBA cropping, paper-white snapping, and the A4 PDF composer. The native
+// print dialog is modal UI, deliberately untested (nothing to click in CI).
 
 #include <catch2/catch_all.hpp>
 
