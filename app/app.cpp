@@ -14,14 +14,17 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <draxul/atlas_upload.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/log.h>
+#include <draxul/pane_print.h>
 #include <draxul/perf_timing.h>
 #include <draxul/pixel_scale.h>
 #include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
+#include <filesystem>
 #include <imgui.h>
 #include <utility>
 
@@ -1095,6 +1098,7 @@ void App::wire_gui_actions()
         active_host_manager().equalize_splits(*this);
         request_frame();
     };
+    gui_deps.on_print_pane = [this]() { start_print_focused_pane(); };
     gui_deps.on_rename_pane = [this]() {
         if (!chrome_host_)
             return;
@@ -1306,6 +1310,11 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
     return false;
 }
 
+bool App::dispatch_gui_action(std::string_view action)
+{
+    return gui_action_handler_.execute(action);
+}
+
 std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay)
 {
     PERF_MEASURE();
@@ -1337,6 +1346,70 @@ std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay
         }
     }
     return std::nullopt;
+}
+
+void App::start_print_focused_pane()
+{
+    if (renderer_.capture() == nullptr)
+    {
+        push_toast(2, "Printing is not supported by this renderer");
+        return;
+    }
+    const SplitTree& tree = active_tree();
+    const LeafId focused = tree.focused();
+    if (focused == kInvalidLeaf)
+    {
+        push_toast(1, "No focused pane to print");
+        return;
+    }
+    print_pane_rect_ = tree.descriptor_for(focused);
+    if (print_pane_rect_.pixel_size.x <= 0 || print_pane_rect_.pixel_size.y <= 0)
+    {
+        push_toast(1, "The focused pane has no visible area");
+        return;
+    }
+    print_capture_pending_ = true;
+    renderer_.capture()->request_frame_capture();
+    request_frame();
+}
+
+void App::finish_print_capture(const CapturedFrame& frame)
+{
+    const CroppedImage pane = crop_rgba(frame.rgba, frame.width, frame.height,
+        print_pane_rect_.pixel_pos.x, print_pane_rect_.pixel_pos.y,
+        print_pane_rect_.pixel_size.x, print_pane_rect_.pixel_size.y);
+    if (pane.rgba.empty())
+    {
+        push_toast(2, "Print capture missed the pane");
+        return;
+    }
+
+    const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+    const std::filesystem::path pdf_path = std::filesystem::temp_directory_path() / ("draxul-pane-" + std::to_string(stamp) + ".pdf");
+
+    std::string error;
+    if (!write_rgba_pdf_a4(pane.rgba.data(), pane.width, pane.height, pdf_path, error))
+    {
+        push_toast(2, "Print failed: " + error);
+        return;
+    }
+    DRAXUL_LOG_INFO(LogCategory::App, "print_pane: %dx%d pane -> %s", pane.width, pane.height,
+        pdf_path.string().c_str());
+
+    // Test/verification hook: compose the PDF but keep it out of the spooler.
+    if (std::getenv("DRAXUL_PRINT_DRY_RUN") != nullptr)
+    {
+        push_toast(0, "Print dry run: " + pdf_path.string());
+        return;
+    }
+    if (!submit_pdf_to_printer(pdf_path, error))
+    {
+        push_toast(2, "Printer: " + error);
+        return;
+    }
+    push_toast(0, "Pane sent to printer, A4 (" + pdf_path.filename().string() + ")");
 }
 
 std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds timeout, std::chrono::milliseconds settle)
@@ -1520,6 +1593,20 @@ bool App::render_frame()
 
     saw_frame_ = true;
     renderer_.grid()->end_frame();
+
+    // A pending print_pane capture is fulfilled by end_frame(); consume it
+    // here, BEFORE any other take_captured_frame() poller (run_screenshot's
+    // loop) can mistake it for its own. Keep frames flowing until it lands.
+    if (print_capture_pending_ && renderer_.capture() != nullptr)
+    {
+        if (auto captured = renderer_.capture()->take_captured_frame())
+        {
+            print_capture_pending_ = false;
+            finish_print_capture(*captured);
+        }
+        request_frame();
+    }
+
     runtime_perf_collector().end_frame();
     frame_timer_.record(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count());

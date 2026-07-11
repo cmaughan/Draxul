@@ -75,6 +75,8 @@ public:
     bool initialize();
     void run();
     bool run_smoke_test(std::chrono::milliseconds timeout);
+    // Test hook (`--gui-action`): dispatch a canonical GUI action by name.
+    bool dispatch_gui_action(std::string_view action);
     std::optional<CapturedFrame> run_screenshot(std::chrono::milliseconds delay);
     std::optional<CapturedFrame> run_render_test(std::chrono::milliseconds timeout,
         std::chrono::milliseconds settle);
@@ -130,6 +132,10 @@ private:
     bool close_dead_panes();
     void rebuild_render_tree();
     bool render_frame();
+    // The `print_pane` action: request a frame capture, then crop the focused
+    // pane, compose an A4 PDF, and hand it to the system print spooler.
+    void start_print_focused_pane();
+    void finish_print_capture(const CapturedFrame& frame);
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
     void refresh_system_resource_snapshot(std::chrono::steady_clock::time_point now);
     // Update workspace tab names from each workspace's focused-pane cwd
@@ -196,6 +202,8 @@ private:
     bool pending_window_activation_ = true;
     bool saw_frame_ = false;
     bool frame_requested_ = false;
+    bool print_capture_pending_ = false;
+    PaneDescriptor print_pane_rect_{};
     int last_pixel_w_ = 0;
     int last_pixel_h_ = 0;
     FrameTimer frame_timer_;

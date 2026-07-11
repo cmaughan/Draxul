@@ -907,6 +907,15 @@ static int draxul_main(std::vector<std::string> args)
     }
     else if (!parsed.screenshot_path.empty())
     {
+        if (!parsed.gui_action.empty())
+        {
+            // Test hook: pump until content is ready, fire the action, then
+            // let the screenshot capture whatever it caused (e.g. a toast).
+            app.run_smoke_test(std::chrono::seconds(10));
+            if (!app.dispatch_gui_action(parsed.gui_action))
+                DRAXUL_LOG_ERROR(draxul::LogCategory::App, "--gui-action '%s' was not recognized",
+                    parsed.gui_action.c_str());
+        }
         auto frame = app.run_screenshot(std::chrono::milliseconds(parsed.screenshot_delay_ms));
         if (frame)
         {

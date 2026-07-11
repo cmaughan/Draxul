@@ -70,6 +70,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"move_tab_right",     [](auto& h, auto) { if (h.deps_.on_move_tab_right) h.deps_.on_move_tab_right(); }},
         {"duplicate_pane",     [](auto& h, auto) { if (h.deps_.on_duplicate_pane) h.deps_.on_duplicate_pane(); }},
         {"equalize_panes",    [](auto& h, auto) { if (h.deps_.on_equalize_panes) h.deps_.on_equalize_panes(); }},
+        {"print_pane",         [](auto& h, auto) { if (h.deps_.on_print_pane) h.deps_.on_print_pane(); }},
         {"test_toast",         [](auto& h, auto) { h.test_toast(); }},
     };
     // clang-format on

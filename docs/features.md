@@ -126,6 +126,8 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Kanban navigation**: Kanban panes support Vim-style card selection with `h/j/k/l`, shifted `H/J/K/L`/arrow movement for reordering cards and moving files between columns, `r` reload, and Enter to open the selected Markdown card.
 - **GUI keybindings**: Chord-style prefix bindings (e.g. `ctrl+s, |`)
 - **Command palette**: `Ctrl+Shift+P` opens a centered fuzzy-search overlay for all GUI actions with fzf-style scoring, `Ctrl+J/K` navigation, keybinding hints, and palette-rendered text prompts for actions needing short values
+- **Print pane** (`print_pane` action, palette or `[keybindings]`): captures the focused pane's pixels, composes a single-page A4 PDF (aspect-fit inside margins, auto landscape for wide panes, CoreGraphics) and submits it to the default system printer via `lpr`; toasts report success, a missing printer, or composition failures. macOS-only for now. `DRAXUL_PRINT_DRY_RUN=1` keeps the PDF out of the spooler and toasts its temp path (test hook)
+- **`--gui-action <name>` CLI test hook**: with `--screenshot`, pumps until content is ready, dispatches any canonical GUI action by name, then captures — lets headless runs exercise palette actions and verify their toasts/effects
 - **Config reload**: `reload_config` rereads `config.toml` on demand so palette alpha, keybindings, scroll settings, ligatures, terminal font changes, and Markdown font/margin changes can be applied without a restart
 
 ---

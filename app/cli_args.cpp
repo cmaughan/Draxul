@@ -118,6 +118,11 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             ++i;
             parsed.screenshot_path = args[i];
         }
+        else if (args[i] == "--gui-action" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.gui_action = args[i];
+        }
         else if (args[i] == "--screenshot-delay" && i + 1 < args.size())
         {
             ++i;

@@ -44,6 +44,9 @@ struct ParsedArgs
     int screenshot_delay_ms = 6000;
     int screenshot_width = 0;
     int screenshot_height = 0;
+    // Test hook: dispatch a GUI action (see <draxul/gui_actions.h>) once
+    // content is ready, before the screenshot capture.
+    std::string gui_action;
 };
 
 struct ParseArgsResult
