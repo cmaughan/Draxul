@@ -7,6 +7,7 @@
 #include <draxul/notation/musicxml_importer.h>
 #include <draxul/runtime_path.h>
 #include <draxul/scoreview/bot_player_input.h>
+#include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/progress_store.h>
 #include <draxul/scoreview/score_render_nvg.h>
 #include <draxul/scoreview/svg_score_interpreter.h>
@@ -515,6 +516,53 @@ void ScoreHost::relayout_flow()
         flow_.prepare_gates(
             [this](const std::string& id) { return engine_->midi_pitch_for_element(id); },
             engine_->tie_end_ids());
+
+        // Piece analysis (stream plan S1): key, chords + nearings, motifs,
+        // rhythm figures — from the judgment axis itself, dumped beside the
+        // progress file for inspection and cached for the composer.
+        std::vector<AnalysisOnset> analysis_onsets;
+        analysis_onsets.reserve(flow_.onsets().size());
+        for (const FlowController::Onset& onset : flow_.onsets())
+        {
+            AnalysisOnset entry;
+            entry.qstamp = onset.qstamp;
+            for (const std::string& id : onset.ids)
+            {
+                const int pitch = engine_->midi_pitch_for_element(id);
+                if (pitch >= 0)
+                    entry.pitches.push_back(pitch);
+            }
+            if (!entry.pitches.empty())
+                analysis_onsets.push_back(std::move(entry));
+        }
+        std::optional<int> notated_fifths;
+        if (has_model_ && !model_.parts.empty())
+        {
+            for (const auto& measure : model_.parts[0].measures)
+            {
+                if (measure.key)
+                {
+                    notated_fifths = measure.key->fifths;
+                    break;
+                }
+            }
+        }
+        piece_profile_ = analyze_piece(analysis_onsets, quarters_per_bar_, notated_fifths);
+        DRAXUL_LOG_INFO(LogCategory::App,
+            "score: analysis — key %s (%.2f), %zu chord(s), %zu motif(s), %zu figure(s)",
+            key_name(piece_profile_.global_key.tonic_pc, piece_profile_.global_key.minor)
+                .c_str(),
+            piece_profile_.global_key.confidence, piece_profile_.chords.size(),
+            piece_profile_.motifs.size(), piece_profile_.figures.size());
+        if (!progress_path_.empty())
+        {
+            std::filesystem::path analysis_path = progress_path_;
+            analysis_path.replace_extension(".analysis.json");
+            std::string save_error;
+            if (!save_progress_atomic(analysis_path, piece_profile_.serialize(), save_error))
+                DRAXUL_LOG_WARN(
+                    LogCategory::App, "score: analysis dump failed: %s", save_error.c_str());
+        }
         if (start_in_gate_)
         {
             start_in_gate_ = false;

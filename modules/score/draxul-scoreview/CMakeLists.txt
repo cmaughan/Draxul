@@ -6,6 +6,7 @@ add_library(draxul-scoreview STATIC
     src/flow_controller.cpp
     src/metronome_synth.cpp
     src/note_listener.cpp
+    src/piece_analysis.cpp
     src/player_model.cpp
     src/progress_store.cpp
     src/score_highlight.cpp

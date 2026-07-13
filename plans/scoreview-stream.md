@@ -95,7 +95,16 @@ the file. Figure-level drift lands with S1's rhythm figures.
   }
   ```
 
-## S1 — Piece analysis (`PieceProfile`, computed at load)
+## S1 — Piece analysis (`PieceProfile`, computed at load) ✅ (2026-07-13)
+
+Shipped: `analyze_piece()` (pure, from the judgment axis — onset qstamps +
+pitches), profile cached on the host and dumped beside the progress file
+as `<hash>.analysis.json`. On the Grieg it finds A minor globally with
+the A major episode and the A major (picardy) ending in the section list,
+a 15-chord vocabulary whose top transitions read like functional analysis
+(B halfdim7 → E maj → A; E aug → A min), the waltz's 12 triplet beats and
+its grace-note figures ("0,1"), and the main theme's contour among 8
+recurring motifs. Six unit cases incl. the real piece.
 
 All from the semantic model + timemap; pure, unit-tested against the
 Grieg (known answers) and synthetic fixtures.

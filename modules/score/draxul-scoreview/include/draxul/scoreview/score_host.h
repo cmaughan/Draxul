@@ -8,6 +8,7 @@
 #include <draxul/scoreview/layout_engine.h>
 #include <draxul/scoreview/metronome_synth.h>
 #include <draxul/scoreview/mic_player_input.h>
+#include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/player_input.h>
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
@@ -179,6 +180,9 @@ private:
     std::chrono::steady_clock::time_point epoch_{};
     size_t last_logged_gate_ = 0;
     bool logged_gate_end_ = false;
+
+    // Piece analysis (S1): computed at flow build, cached for the composer.
+    PieceProfile piece_profile_;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;
