@@ -8,6 +8,7 @@
 // window head so a window starting at bar 20 still knows what bar 1
 // declared. Fabricated bars join in S3 through the same window path.
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,6 +60,12 @@ public:
     int part_count() const;
     // Fabrication context: MusicXML divisions in force at a bar.
     int divisions_at(int bar) const;
+
+    // The bar's sounding pitches per staff (S4: picks the weak hand).
+    std::map<int, std::vector<int>> staff_pitches(int bar) const;
+    // The bar with every note OUTSIDE `keep_staff` removed — the
+    // hands-separate simplification. Empty on failure.
+    std::string hands_separate_xml(int bar, int keep_staff) const;
 
 private:
     struct Impl;

@@ -222,6 +222,43 @@ emit the next bar as model measures with per-note provenance.
   right statistic — the loop that makes the lesson adaptive.
 
 ## S4 — Convergence and slicing (mastery-gated, never time-gated)
+### ✅ core shipped (2026-07-13): the simplification ladder + the arc
+
+Shipped, per the user's direction that the composer must SIMPLIFY, not
+just repeat:
+
+- **Hands separate**: the worst deeply-struggling bar (recent mastery <
+  0.3) returns with its weak hand alone — the real measure with the
+  other staff surgically removed (`SourceSlicer::hands_separate_xml`,
+  cursor-move cleanup proven by engraving), weak hand chosen by summed
+  per-pitch miss rates per staff. Once per bar per program.
+- **Chord ladder**: drills now start BROKEN (arpeggiated eighths landing
+  on the block grab) and climb to the block form on later encounters;
+  trouble is net of clean grabs (miss + split − clean), so drills retire
+  themselves as the player fixes the chord.
+- **Scale fragments**: an octave register accumulating misses (≥5,
+  misses > hits) earns a one-bar scale run through that register in the
+  piece's key (S1's estimate; natural minor v1).
+- **Rotation**: the special chain (hands → drill → scale → review)
+  rotates its starting point per special so twenty weak bars cannot
+  starve the chord drills — verified live: hands / broken drill / scale
+  / review cycling every third bar against seeded trouble.
+- **The convergence arc**: when the frontier finishes the piece the
+  stream does NOT end — it loops through the weakest kSliceBars-long
+  slice (unencountered bars count as zero) until EVERY bar is
+  encountered and promoted (recent mastery ≥ 0.7), then schedules the
+  full performance run ("performance run — every bar mastered") and
+  only then finishes. Unit-proven with a virtual session against the
+  real Grieg geometry.
+
+Remaining S4 increments: rhythm-figure drills keyed to per-figure timing
+drift (the "triplets consistently slow" mechanic — S0 records the deltas,
+S1 knows the figure locations; the fabricator + drift detector are the
+missing joints), LH-reduced (not removed) accompaniment variants,
+harmonic/melodic-minor scale choice, weakness-profiled roll bots for
+long-session verification, and the R2 feel pass with the user.
+
+
 
 - The **frontier roams**: practice segments picked from the beginning,
   middle, and end of the piece (weighted by mastery), so the piece is

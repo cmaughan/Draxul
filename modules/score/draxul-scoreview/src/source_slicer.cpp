@@ -302,7 +302,15 @@ std::string SourceSlicer::window_xml_for(
                 // block BEFORE the measure's own content. A separate block
                 // keeps MusicXML's child-order rules trivially satisfied;
                 // anything the measure re-declares simply wins afterwards.
-                const AttributeState& state = part.state_before[static_cast<size_t>(context_bar)];
+                // Source-bar heads take the state BEFORE the bar (the bar
+                // declares its own on top); fabricated heads declare nothing
+                // themselves, so they take the state IN FORCE AT the context
+                // bar (its post-state).
+                const size_t state_index = item.source_bar >= 0
+                    ? static_cast<size_t>(item.source_bar)
+                    : std::min(static_cast<size_t>(context_bar) + 1,
+                          part.state_before.size() - 1);
+                const AttributeState& state = part.state_before[state_index];
                 if (state.has_any())
                 {
                     std::string inject = "<attributes>";
@@ -330,6 +338,104 @@ std::string SourceSlicer::window_xml_for(
     }
     out += "</score-partwise>\n";
     return out;
+}
+
+std::map<int, std::vector<int>> SourceSlicer::staff_pitches(int bar) const
+{
+    std::map<int, std::vector<int>> out;
+    if (!ready() || bar < 0 || bar >= bar_count())
+        return out;
+    static const std::map<std::string, int> kStepPc = { { "C", 0 }, { "D", 2 }, { "E", 4 },
+        { "F", 5 }, { "G", 7 }, { "A", 9 }, { "B", 11 } };
+    const XMLElement* measure = impl_->parts.front().measures[static_cast<size_t>(bar)];
+    for (const XMLElement* note = measure->FirstChildElement("note"); note != nullptr;
+        note = note->NextSiblingElement("note"))
+    {
+        const XMLElement* pitch = note->FirstChildElement("pitch");
+        if (pitch == nullptr)
+            continue; // rests
+        const XMLElement* step = pitch->FirstChildElement("step");
+        const XMLElement* octave = pitch->FirstChildElement("octave");
+        if (step == nullptr || octave == nullptr || step->GetText() == nullptr)
+            continue;
+        const auto found = kStepPc.find(step->GetText());
+        if (found == kStepPc.end())
+            continue;
+        int alter = 0;
+        if (const XMLElement* alter_el = pitch->FirstChildElement("alter"))
+            alter = alter_el->IntText(0);
+        const int midi = (octave->IntText(4) + 1) * 12 + found->second + alter;
+        int staff = 1;
+        if (const XMLElement* staff_el = note->FirstChildElement("staff"))
+            staff = staff_el->IntText(1);
+        out[staff].push_back(midi);
+    }
+    return out;
+}
+
+std::string SourceSlicer::hands_separate_xml(int bar, int keep_staff) const
+{
+    if (!ready() || bar < 0 || bar >= bar_count())
+        return {};
+    const XMLElement* measure = impl_->parts.front().measures[static_cast<size_t>(bar)];
+    XMLDocument doc;
+    XMLNode* clone = measure->DeepClone(&doc);
+    doc.InsertEndChild(clone);
+    XMLElement* cloned = clone->ToElement();
+
+    // Remove notes (and staff-bound directions) outside the kept staff.
+    std::vector<XMLElement*> to_delete;
+    for (XMLElement* child = cloned->FirstChildElement(); child != nullptr;
+        child = child->NextSiblingElement())
+    {
+        const std::string name = child->Name();
+        if (name == "note" || name == "direction")
+        {
+            int staff = 1;
+            if (const XMLElement* staff_el = child->FirstChildElement("staff"))
+                staff = staff_el->IntText(1);
+            if (staff != keep_staff)
+                to_delete.push_back(child);
+        }
+    }
+    for (XMLElement* child : to_delete)
+        cloned->DeleteChild(child);
+
+    // A <backup>/<forward> cursor move only means something with notes on
+    // BOTH sides; after stripping a staff, dangling ones would rewind the
+    // measure into nothing (or from position zero into negatives).
+    to_delete.clear();
+    bool note_seen = false;
+    for (XMLElement* child = cloned->FirstChildElement(); child != nullptr;
+        child = child->NextSiblingElement())
+    {
+        const std::string name = child->Name();
+        if (name == "note")
+        {
+            note_seen = true;
+            continue;
+        }
+        if (name != "backup" && name != "forward")
+            continue;
+        bool note_follows = false;
+        for (const XMLElement* after = child->NextSiblingElement(); after != nullptr;
+            after = after->NextSiblingElement())
+        {
+            if (std::string(after->Name()) == "note")
+            {
+                note_follows = true;
+                break;
+            }
+        }
+        if (!note_seen || !note_follows)
+            to_delete.push_back(child);
+    }
+    for (XMLElement* child : to_delete)
+        cloned->DeleteChild(child);
+
+    XMLPrinter printer;
+    cloned->Accept(&printer);
+    return printer.CStr();
 }
 
 } // namespace scoreview

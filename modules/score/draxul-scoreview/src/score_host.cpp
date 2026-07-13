@@ -652,7 +652,7 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
         for (int slot = first_bar; slot < first_bar + count; ++slot)
         {
             const StreamBarPlan& plan = composer_.plan(slot);
-            if (plan.kind != StreamBarPlan::Kind::Piece && slot > last_logged_plan_slot_)
+            if (!plan.reason.empty() && slot > last_logged_plan_slot_)
                 DRAXUL_LOG_INFO(
                     LogCategory::App, "stream: slot %d = %s", slot, plan.reason.c_str());
             last_logged_plan_slot_ = std::max(last_logged_plan_slot_, slot);

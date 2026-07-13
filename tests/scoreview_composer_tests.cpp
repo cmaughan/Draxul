@@ -100,7 +100,7 @@ TEST_CASE("a fabricated drill bar engraves inside a composed window", "[scorevie
     StreamComposer composer;
     composer.configure(&slicer, &model, nullptr);
 
-    const std::string drill = composer.fabricate_chord_drill("52+60", 0);
+    const std::string drill = composer.fabricate_chord_drill("52+60", 0, /*broken=*/false);
     REQUIRE_FALSE(drill.empty());
 
     std::vector<SourceSlicer::StreamBar> items;
@@ -222,4 +222,154 @@ TEST_CASE("drill outcomes train pitch and chord stats but never bar mastery",
     CHECK(model.onset_stats().empty());
     for (int bar = 0; bar < 4; ++bar)
         CHECK(model.bar_encounters(bar) == 0);
+}
+
+TEST_CASE("the broken drill arpeggiates before the block grab", "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+
+    // Broken form in 3/4: four eighths cycling the uppers, block on beat 3.
+    const std::string broken = composer.fabricate_chord_drill("52+60+64", 0, true);
+    REQUIRE_FALSE(broken.empty());
+    std::vector<SourceSlicer::StreamBar> items;
+    items.push_back({ -1, broken });
+    const auto onsets = engrave_onsets(slicer.window_xml_for(items, 0));
+    REQUIRE(onsets.size() >= 5);
+    const auto beat1 = onsets.find(0.0);
+    REQUIRE(beat1 != onsets.end());
+    CHECK(beat1->second == std::vector<int>{ 52, 60 }); // bass under the first eighth
+    const auto half = onsets.find(0.5);
+    REQUIRE(half != onsets.end());
+    CHECK(half->second == std::vector<int>{ 64 }); // arpeggio continues
+    const auto block = onsets.find(2.0);
+    REQUIRE(block != onsets.end());
+    CHECK(block->second == std::vector<int>{ 60, 64 }); // the grab lands whole
+}
+
+TEST_CASE("hands separate strips one staff and still engraves", "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    // Bar 2 of the Grieg has both hands. Keep staff 2 (LH alone).
+    const auto staves = slicer.staff_pitches(2);
+    REQUIRE(staves.count(1) == 1);
+    REQUIRE(staves.count(2) == 1);
+
+    const std::string lh_only = slicer.hands_separate_xml(2, 2);
+    REQUIRE_FALSE(lh_only.empty());
+    std::vector<SourceSlicer::StreamBar> items;
+    items.push_back({ -1, lh_only });
+    const auto onsets = engrave_onsets(slicer.window_xml_for(items, 2));
+    REQUIRE_FALSE(onsets.empty());
+    // Every sounding pitch belongs to the kept staff's pitch set.
+    std::vector<int> allowed = staves.at(2);
+    std::sort(allowed.begin(), allowed.end());
+    for (const auto& [q, pitches] : onsets)
+    {
+        for (const int pitch : pitches)
+            CHECK(std::binary_search(allowed.begin(), allowed.end(), pitch));
+    }
+}
+
+TEST_CASE("a scale fragment runs through the troubled register in key",
+    "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    PieceProfile profile;
+    profile.global_key.tonic_pc = 9; // A
+    profile.global_key.minor = true;
+    StreamComposer composer;
+    composer.configure(&slicer, &model, &profile);
+
+    const std::string scale = composer.fabricate_scale_bar(0, 66); // around F#4
+    REQUIRE_FALSE(scale.empty());
+    std::vector<SourceSlicer::StreamBar> items;
+    items.push_back({ -1, scale });
+    const auto onsets = engrave_onsets(slicer.window_xml_for(items, 0));
+    REQUIRE(onsets.size() == 6); // eighths in 3/4
+    // Ascending A natural-minor degrees starting on the tonic below F#4.
+    const std::vector<int> expected = { 57, 59, 60, 62, 64, 65 };
+    size_t at = 0;
+    for (const auto& [q, pitches] : onsets)
+    {
+        REQUIRE(pitches.size() == 1);
+        CHECK(pitches[0] == expected[at]);
+        ++at;
+    }
+}
+
+TEST_CASE("the arc loops weakest slices until mastery earns the performance run",
+    "[scoreview][composer]")
+{
+    // A tiny virtual session against the real Grieg geometry: every bar of
+    // the piece is encountered; bars 8..15 stay weak, the rest promote.
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    const int total = slicer.bar_count();
+    for (int bar = 0; bar < total; ++bar)
+    {
+        const bool weak = bar >= 8 && bar < 16;
+        for (int beat = 0; beat < 3; ++beat)
+        {
+            FlowController::NoteOutcome outcome;
+            outcome.onset_q = bar * 3.0 + beat;
+            outcome.pitch = 60;
+            outcome.verdict = weak ? FlowController::NoteVerdict::Missed
+                                   : FlowController::NoteVerdict::Correct;
+            outcome.quality = weak ? 0.0 : 1.0;
+            for (int enc = 0; enc < 3; ++enc)
+                model.apply(outcome);
+        }
+    }
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    // Plan far past the piece: the frontier finishes, then arcs begin.
+    composer.ensure(total + 40);
+    REQUIRE_FALSE(composer.finished());
+    bool arc_hits_weak_region = false;
+    for (int slot = total; slot < composer.planned(); ++slot)
+    {
+        const StreamBarPlan& plan = composer.plan(slot);
+        if (plan.kind == StreamBarPlan::Kind::Piece && plan.source_bar >= 8
+            && plan.source_bar < 16)
+            arc_hits_weak_region = true;
+    }
+    CHECK(arc_hits_weak_region);
+
+    // Promote everything: the next arc is the performance run, then done.
+    PlayerModel mastered;
+    mastered.set_piece("Walz", 130.0, 3.0);
+    for (int bar = 0; bar < total; ++bar)
+    {
+        for (int beat = 0; beat < 3; ++beat)
+        {
+            FlowController::NoteOutcome outcome;
+            outcome.onset_q = bar * 3.0 + beat;
+            outcome.pitch = 60;
+            outcome.verdict = FlowController::NoteVerdict::Correct;
+            outcome.quality = 1.0;
+            for (int enc = 0; enc < 3; ++enc)
+                mastered.apply(outcome);
+        }
+    }
+    StreamComposer earned;
+    earned.configure(&slicer, &mastered, nullptr);
+    earned.ensure(2 * total + 10);
+    REQUIRE(earned.finished());
+    // The program: one full pass, then the performance run, then the end.
+    CHECK(earned.planned() == 2 * total);
+    bool performance_marked = false;
+    for (int slot = total; slot < earned.planned(); ++slot)
+    {
+        CHECK(earned.plan(slot).kind == StreamBarPlan::Kind::Piece);
+        CHECK(earned.plan(slot).source_bar == slot - total);
+        performance_marked |= earned.plan(slot).reason.find("performance run")
+            != std::string::npos;
+    }
+    CHECK(performance_marked);
 }

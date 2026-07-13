@@ -42,12 +42,23 @@ public:
     // Mastery below this schedules a review; encounters required first.
     static constexpr double kReviewMasteryThreshold = 0.5;
     static constexpr int kMaxReviewsPerBar = 3;
-    // Chord trouble (miss + split) at or above this earns a drill.
+    // Chord trouble (miss + split - clean) at or above this earns a drill.
     static constexpr int kDrillTroubleThreshold = 3;
     // Never boring: at least this many piece bars between specials, and a
     // per-chord cooldown between repeats of the same drill.
     static constexpr int kMinPieceBarsBetweenSpecials = 2;
     static constexpr int kDrillCooldownSlots = 10;
+    // The simplification ladder (S4): below this mastery a struggling bar
+    // gets its WEAK HAND ALONE before the full bar returns.
+    static constexpr double kHandsSeparateMastery = 0.3;
+    // Register trouble (missed pitches inside an octave window) at or above
+    // this earns a scale fragment in the piece's key.
+    static constexpr int kScaleTroubleThreshold = 5;
+    // Promotion: a bar counts mastered at this recent-encounter quality;
+    // when EVERY encountered bar promotes, the arc schedules the full
+    // performance run and only then finishes.
+    static constexpr double kPromotionMastery = 0.7;
+    static constexpr int kSliceBars = 8; // weakest-slice revisit length
 
     void configure(
         const SourceSlicer* slicer, const PlayerModel* model, const PieceProfile* profile);
@@ -79,11 +90,21 @@ public:
     int slot_at(double stream_q) const;
 
     // The fabricated chord-drill measure for a "60+64+67"-style key, in the
-    // attribute context of `reference_bar` (public for tests).
-    std::string fabricate_chord_drill(const std::string& chord_key, int reference_bar) const;
+    // attribute context of `reference_bar` (public for tests). Broken form
+    // arpeggiates the grab (the easier rung); block form strikes it whole.
+    std::string fabricate_chord_drill(
+        const std::string& chord_key, int reference_bar, bool broken) const;
+    // A one-bar scale fragment in the piece's key, running through the
+    // troubled register (public for tests).
+    std::string fabricate_scale_bar(int reference_bar, int center_pitch) const;
 
 private:
     void compose_next();
+    bool try_hands(int slot);
+    bool try_drill(int slot);
+    bool try_scale(int slot);
+    bool try_review(int slot);
+    void begin_next_arc();
 
     const SourceSlicer* slicer_ = nullptr;
     const PlayerModel* model_ = nullptr;
@@ -94,9 +115,19 @@ private:
     int frontier_ = 0;
     bool finished_ = false;
     int piece_bars_since_special_ = 0;
+    int specials_count_ = 0; // rotates the special chain for variety
     std::map<std::string, int> last_drill_slot_; // chord key -> slot
+    std::map<std::string, int> drill_stage_; // chord key -> rungs climbed
     std::map<int, int> reviews_used_; // source bar -> count
     std::map<int, int> last_review_slot_; // source bar -> slot
+    std::map<int, bool> hands_done_; // source bar -> weak hand played alone
+    std::map<int, int> last_scale_slot_; // register window -> slot
+    // Convergence arc (S4): after the frontier finishes the piece, the
+    // stream loops through the weakest slices until every encountered bar
+    // promotes, then schedules the full performance run.
+    int arc_ = 0;
+    int arc_end_bar_ = -1; // exclusive end of the current arc's bar range
+    bool performance_run_ = false;
 };
 
 } // namespace scoreview
