@@ -659,13 +659,29 @@ bool ScoreHost::handle_gate_key(int keycode)
     }
     if (keycode == SDLK_BACKSPACE)
     {
-        // ONE wrong note — per-note verdicts are the point (the error-driven
-        // practice generator feeds on them). A chord gate accounts one note
-        // per press: mix correct keys and Backspaces and it resolves with
-        // mixed green/red once every required note is accounted for.
-        int wrong = anchor + 1;
+        // Fluff exactly ONE note of the gate: a randomly chosen required
+        // pitch is replaced by an adjacent wrong note and the rest play
+        // correctly, so the gate resolves in one press with per-note
+        // green/red verdicts — the error data the practice generator wants.
+        static uint32_t rng = 0x9E3779B9u;
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        if (expected.empty())
+        {
+            keyboard_input_->push(anchor + 1, now_seconds());
+            return true;
+        }
+        const size_t fluffed = rng % expected.size();
+        for (size_t i = 0; i < expected.size(); ++i)
+        {
+            if (i != fluffed)
+                keyboard_input_->push(expected[i], now_seconds());
+        }
+        const int direction = (rng & 0x10000u) != 0 ? 1 : -1;
+        int wrong = expected[fluffed] + direction;
         while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
-            ++wrong;
+            wrong += direction;
         keyboard_input_->push(wrong, now_seconds());
         return true;
     }
