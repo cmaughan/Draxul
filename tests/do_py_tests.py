@@ -155,6 +155,27 @@ class CleanCommandTests(unittest.TestCase):
 
             self.assertIn("Build directory already absent", output.getvalue())
 
+    def test_clean_rejects_arguments_without_removing_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            build_file = root / "build" / "CMakeFiles" / "cache.txt"
+            build_file.parent.mkdir(parents=True)
+            build_file.write_text("generated")
+            error = io.StringIO()
+
+            with (
+                contextlib.redirect_stderr(error),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "clean", "--help"]),
+            ):
+                self.assertEqual(2, draxul_do.main())
+
+            self.assertEqual("generated", build_file.read_text())
+            self.assertEqual(
+                "ERROR: clean does not accept arguments: --help\n",
+                error.getvalue(),
+            )
+
 
 class TestCommandTests(unittest.TestCase):
     def test_help_describes_fast_unit_scope(self) -> None:

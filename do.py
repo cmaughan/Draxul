@@ -1351,6 +1351,12 @@ def main() -> int:
     skip_build = "--skip-build" in args[1:]
 
     if command == "clean":
+        if args[1:]:
+            print(
+                f"ERROR: clean does not accept arguments: {shlex.join(args[1:])}",
+                file=sys.stderr,
+            )
+            return 2
         return cmd_clean(root)
 
     if command == "test":
