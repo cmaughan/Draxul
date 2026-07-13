@@ -1,10 +1,6 @@
 # Draxul
 
 [![Build](https://github.com/cmaughan/Draxul/actions/workflows/build.yml/badge.svg)](https://github.com/cmaughan/Draxul/actions/workflows/build.yml)
-[![ASan](https://github.com/cmaughan/Draxul/actions/workflows/asan.yml/badge.svg)](https://github.com/cmaughan/Draxul/actions/workflows/asan.yml)
-[![Coverage](https://github.com/cmaughan/Draxul/actions/workflows/coverage.yml/badge.svg)](https://github.com/cmaughan/Draxul/actions/workflows/coverage.yml)
-[![codecov](https://codecov.io/gh/cmaughan/Draxul/branch/main/graph/badge.svg)](https://codecov.io/gh/cmaughan/Draxul)
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=cmaughan_Draxul&metric=alert_status)](https://sonarcloud.io/dashboard?id=cmaughan_Draxul)
 
 API docs: **[chrismaughan.com/Draxul](http://chrismaughan.com/Draxul/)** — or generate locally with `python scripts/gen_api_docs.py`.
 
@@ -194,7 +190,7 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py run          # build (if needed) and launch Draxul
 ./do.py smoke        # build and run the startup smoke test
 ./do.py test         # fast unit suite (four C++ shards + do.py tests)
-./do.py clean        # remove only the repository build/ directory
+./do.py clean        # remove repository-root build/ and build-* directories
 
 ./do.py basic        # run basic-view render snapshot compare
 ./do.py cmdline      # run cmdline-view render snapshot compare
@@ -227,10 +223,10 @@ do run release --host megacity --parser graphify
                          # Configure MegaCity to use graphify-out/graph.json, then launch
 do smoke                 # Smoke test
 do test                  # Fast unit suite
-do clean                 # Remove only build/
+do clean                 # Remove build/ and build-*/
 ```
 
-`do.py clean` removes only the repository-local `build/` directory. It leaves deploy packages, render outputs, render references, databases, and source files untouched; running it when `build/` is already absent succeeds.
+`do.py clean` removes repository-root build trees named `build/` or `build-*` (including the Visual Studio, Ninja, and tooling build directories). It leaves deploy packages, render outputs, render references, databases, source files, and similarly named regular files untouched; running it when no matching build directory exists succeeds.
 
 ## Testing
 
@@ -387,6 +383,8 @@ GitHub Actions builds and tests the project on:
 - Windows
 - macOS
 
+The workflow runs automatically for pushes and pull requests to `main`, and can also be started manually.
+
 The workflow uses the same repo-local test scripts as local development, including the startup smoke test.
 
 ## Notes
@@ -416,7 +414,7 @@ Regenerate with `python scripts/build_docs.py`.
 
 ### API Docs
 
-The live API reference is published automatically to **[chrismaughan.com/draxul](http://chrismaughan.com/draxul/)** on every push to `main`.
+The published API reference is available at **[chrismaughan.com/draxul](http://chrismaughan.com/draxul/)**. Generate an up-to-date local copy with `python scripts/gen_api_docs.py --output docs/api`.
 
 To generate locally:
 

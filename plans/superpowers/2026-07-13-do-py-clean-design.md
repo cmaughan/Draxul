@@ -4,14 +4,15 @@
 
 ## Goal
 
-Add a cross-platform `do.py clean` command that completely removes Draxul's repository-local CMake build directory without touching any other generated or source artifacts.
+Add a cross-platform `do.py clean` command that completely removes Draxul's repository-local CMake build directories without touching any other generated or source artifacts.
 
 ## Command Contract
 
-- `do.py clean` removes `<repo>/build/` recursively.
-- The path is derived from `repo_root()` and `build_dir(root)` rather than the caller's working directory.
+- `do.py clean` removes repository-root directories named exactly `build/` or beginning with `build-` recursively. This covers Visual Studio, per-configuration Ninja, tooling, legacy, and custom CMake trees.
+- The paths are derived from `repo_root()` rather than the caller's working directory.
 - The command does not remove `deploy/`, render outputs, render references, databases, plans, or source files.
-- If `build/` does not exist, the command succeeds and reports that the build directory is already absent.
+- Similarly named regular files and names such as `builder/` are preserved.
+- If no matching build directory exists, the command succeeds and reports that the build directories are already absent.
 - Successful deletion returns status 0. A filesystem deletion error is reported by Python and returns a non-zero status.
 
 ## Implementation
@@ -37,12 +38,12 @@ Add Python unit coverage for:
 - successful, idempotent behavior when the build directory is absent;
 - preservation of neighboring directories and files.
 
-Update the README convenience-command section and `docs/features.md` to document that `clean` removes only `build/`.
+Update the README convenience-command section and `docs/features.md` to document the bounded `build/` and `build-*` removal rule.
 
 ## Success Criteria
 
 - `python do.py clean` and `py do.py clean` behave identically on supported platforms.
-- A populated repository-local `build/` directory is completely removed.
+- Populated repository-local `build/` and `build-*` directories are completely removed.
 - Repeating the command succeeds without error.
 - Neighboring generated artifacts remain untouched.
 - The `do.py` unit suite passes on macOS and Windows-compatible code paths.

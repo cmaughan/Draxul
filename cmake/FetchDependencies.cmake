@@ -138,6 +138,11 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     FetchContent_MakeAvailable(verovio)
     if(MSVC)
         target_compile_options(verovio PRIVATE /w)
+        # Upstream adds CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS as a preprocessor
+        # definition, but it is a CMake target property. Without the real
+        # property MSVC produces verovio.dll with no import library, so
+        # consumers cannot link against the shared-library build.
+        set_target_properties(verovio PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
     else()
         target_compile_options(verovio PRIVATE -w)
     endif()

@@ -58,6 +58,13 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     target_compile_definitions(draxul-tests PRIVATE
         DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
     )
+    if(WIN32)
+        add_custom_command(TARGET draxul-tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:verovio>
+                $<TARGET_FILE_DIR:draxul-tests>
+        )
+    endif()
 endif()
 target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_RPC_FAKE_PATH="$<TARGET_FILE:draxul-rpc-fake>"

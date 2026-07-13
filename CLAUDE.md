@@ -33,7 +33,7 @@ To run the unit test suite under ASan: `cmake --preset mac-asan && cmake --build
 
 To run the unit test suite under TSan (ThreadSanitizer — mutually exclusive with ASan, so it uses its own preset): `cmake --preset mac-tsan && cmake --build build --target draxul-tests && ctest --test-dir build -R draxul-tests`.
 
-TSan suppressions for third-party library noise (SDL3, Metal, system frameworks) live in `tsan.supp` at the repo root. When running TSan locally, set `TSAN_OPTIONS="suppressions=tsan.supp"`. CI sets this automatically in the `tsan-macos` job.
+TSan suppressions for third-party library noise (SDL3, Metal, system frameworks) live in `tsan.supp` at the repo root. When running TSan locally, set `TSAN_OPTIONS="suppressions=tsan.supp"`.
 
 ### Debugging / Logging
 

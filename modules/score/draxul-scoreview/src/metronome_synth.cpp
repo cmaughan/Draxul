@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace draxul
 {
@@ -54,7 +55,8 @@ void MetronomeSynth::render(float* out, size_t count)
             const double t = static_cast<double>(at - voice.start_sample) / rate;
             const double envelope = (t < attack ? t / attack : std::exp(-(t - attack) / tau));
             out[at - cursor_] += static_cast<float>(
-                voice.gain * envelope * std::sin(2.0 * M_PI * voice.hz * t));
+                voice.gain * envelope
+                * std::sin(2.0 * std::numbers::pi_v<double> * voice.hz * t));
         }
     }
     cursor_ += static_cast<int64_t>(count);

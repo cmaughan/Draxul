@@ -117,17 +117,32 @@ class BuildCacheTests(unittest.TestCase):
 
 class CleanCommandTests(unittest.TestCase):
     def test_help_lists_clean_command(self) -> None:
-        self.assertIn("clean        Remove the repository build directory", draxul_do.help_text())
+        self.assertIn("clean        Remove repository build directories", draxul_do.help_text())
 
-    def test_clean_removes_build_and_preserves_neighboring_artifacts(self) -> None:
+    def test_clean_removes_all_build_trees_and_preserves_neighboring_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            build_file = root / "build" / "CMakeFiles" / "cache.txt"
-            build_file.parent.mkdir(parents=True)
-            build_file.write_text("generated")
+            build_names = (
+                "build",
+                "build-ninja",
+                "build-ninja-debug",
+                "build-ninja-release",
+                "build-ninja-relwithdebinfo",
+                "build-ninja-satview-off",
+                "build-tools",
+            )
+            for build_name in build_names:
+                build_file = root / build_name / "CMakeFiles" / "cache.txt"
+                build_file.parent.mkdir(parents=True)
+                build_file.write_text("generated")
             deploy_file = root / "deploy" / "package.zip"
             deploy_file.parent.mkdir()
             deploy_file.write_text("keep")
+            source_file = root / "builder" / "README.md"
+            source_file.parent.mkdir()
+            source_file.write_text("keep")
+            similarly_named_file = root / "build-not-a-directory"
+            similarly_named_file.write_text("keep")
             output = io.StringIO()
 
             with (
@@ -137,8 +152,11 @@ class CleanCommandTests(unittest.TestCase):
             ):
                 self.assertEqual(0, draxul_do.main())
 
-            self.assertFalse((root / "build").exists())
+            for build_name in build_names:
+                self.assertFalse((root / build_name).exists())
             self.assertEqual("keep", deploy_file.read_text())
+            self.assertEqual("keep", source_file.read_text())
+            self.assertEqual("keep", similarly_named_file.read_text())
             self.assertIn("Removing build directory", output.getvalue())
 
     def test_clean_succeeds_when_build_is_already_absent(self) -> None:
@@ -153,7 +171,7 @@ class CleanCommandTests(unittest.TestCase):
             ):
                 self.assertEqual(0, draxul_do.main())
 
-            self.assertIn("Build directory already absent", output.getvalue())
+            self.assertIn("Build directories already absent", output.getvalue())
 
     def test_clean_rejects_arguments_without_removing_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

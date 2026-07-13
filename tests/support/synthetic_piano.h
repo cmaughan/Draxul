@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <numbers>
 #include <vector>
 
 namespace draxul::tests
@@ -82,7 +83,8 @@ inline void synth_add_note(std::vector<float>& buffer, const SyntheticPianoConfi
             const double partial_amp = std::pow(0.6, n - 1);
             // Deterministic per-partial phase offset (golden-angle spread).
             const double phase = 2.399963 * n * (midi % 12 + 1);
-            sample += partial_amp * std::sin(2.0 * M_PI * fn * t + phase);
+            sample += partial_amp
+                * std::sin(2.0 * std::numbers::pi_v<double> * fn * t + phase);
         }
         // Percussive attack transient: a few ms of decaying noise.
         if (t < 0.008)

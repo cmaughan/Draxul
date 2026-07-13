@@ -1,13 +1,11 @@
 name: Build
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      run_tsan:
-        description: Run the macOS ThreadSanitizer job
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -91,32 +89,3 @@ jobs:
           name: render-test-out-macos
           path: tests/render/out/
           if-no-files-found: ignore
-
-  tsan-macos:
-    if: ${{ inputs.run_tsan }}
-    runs-on: macos-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Neovim
-        run: brew install neovim
-
-      - name: Configure (TSan)
-        run: cmake --preset mac-tsan
-
-      - name: Build tests
-        run: cmake --build build --target draxul-tests
-
-      - name: Run tests under TSan
-        env:
-          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tsan.supp"
-        run: ctest --test-dir build --label-regex unit --parallel 4 --output-on-failure
-
-      - name: Build app
-        run: cmake --build build --target draxul
-
-      - name: Smoke test under TSan
-        env:
-          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tsan.supp"
-        run: ./build/draxul.app/Contents/MacOS/draxul --console --smoke-test

@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -12,7 +13,9 @@ std::string read_text_file(const std::filesystem::path& path)
     std::ifstream in(path, std::ios::binary);
     if (!in)
         return {};
-    return std::string(std::istreambuf_iterator<char>(in), {});
+    std::string text(std::istreambuf_iterator<char>(in), {});
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    return text;
 }
 
 std::string source_block(

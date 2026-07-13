@@ -32,10 +32,7 @@ option(DRAXUL_ENABLE_COVERAGE "Enable LLVM source-based code coverage (Clang/App
 # when megacity is disabled, yielding a cleaner renderer interface.
 option(DRAXUL_ENABLE_MEGACITY "Build and include the Megacity 3D demo host" ON)
 option(DRAXUL_ENABLE_SATVIEW "Build and include the SatView 3D satellite overview host" ON)
-# ScoreView pulls in Verovio as a shared library; the Windows DLL export
-# wiring is not validated yet (plans/scoreview.md follow-ups), so the module
-# currently defaults ON only for Apple builds.
-if(APPLE)
+if(APPLE OR WIN32)
     set(DRAXUL_SCOREVIEW_DEFAULT ON)
 else()
     set(DRAXUL_SCOREVIEW_DEFAULT OFF)
@@ -431,6 +428,17 @@ if(DRAXUL_ENABLE_SCOREVIEW)
             $<TARGET_FILE_DIR:draxul>/verovio-data/Leipzig.ttf
     )
     add_dependencies(draxul stage_verovio_data)
+    if(WIN32)
+        # Verovio is an upstream shared-library target. MSVC links its import
+        # library but does not copy the runtime DLL beside draxul.exe.
+        add_custom_target(stage_verovio_runtime
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:verovio>
+                $<TARGET_FILE_DIR:draxul>
+            DEPENDS verovio
+        )
+        add_dependencies(draxul stage_verovio_runtime)
+    endif()
 endif()
 
 # Copy fonts to build directory

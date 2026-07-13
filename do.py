@@ -53,6 +53,12 @@ def build_dir(root: pathlib.Path) -> pathlib.Path:
     return root / "build"
 
 
+def build_dirs(root: pathlib.Path) -> list[pathlib.Path]:
+    """Return repository-root build trees owned by Draxul's build workflows."""
+    candidates = [build_dir(root), *sorted(root.glob("build-*"))]
+    return [path for path in candidates if path.is_dir() and not path.is_symlink()]
+
+
 def _remove_tree(path: pathlib.Path) -> None:
     def remove_readonly(function, failed_path, _error_info):
         os.chmod(failed_path, stat.S_IWRITE)
@@ -1263,13 +1269,14 @@ def ensure_built(root: pathlib.Path) -> int:
 
 
 def cmd_clean(root: pathlib.Path) -> int:
-    bd = build_dir(root)
-    if not bd.exists():
-        print(f"Build directory already absent: {bd}")
+    directories = build_dirs(root)
+    if not directories:
+        print(f"Build directories already absent under: {root}")
         return 0
 
-    print(f"Removing build directory: {bd}")
-    _remove_tree(bd)
+    for directory in directories:
+        print(f"Removing build directory: {directory}")
+        _remove_tree(directory)
     return 0
 
 
@@ -1285,7 +1292,7 @@ Single-word shortcuts:
                Configure, build, and run Draxul
   deploy [release] [--reconfigure] [--vs|--ninja]
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
-  clean        Remove the repository build directory
+  clean        Remove repository build directories
   smoke        Run the app smoke test
   test         Run unit tests (four C++ shards plus do.py tests)
   shot         Regenerate the README hero screenshot

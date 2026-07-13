@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace draxul
 {
@@ -67,7 +68,9 @@ NoteListener::NoteListener(ListenerTuning tuning)
     for (int i = 0; i < tuning_.fft_size; ++i)
     {
         window_[static_cast<size_t>(i)] = static_cast<float>(
-            0.5 * (1.0 - std::cos(2.0 * M_PI * i / (tuning_.fft_size - 1))));
+            0.5 * (1.0
+                      - std::cos(2.0 * std::numbers::pi_v<double> * i
+                          / (tuning_.fft_size - 1))));
     }
     pending_.reserve(static_cast<size_t>(tuning_.fft_size) * 2);
 }

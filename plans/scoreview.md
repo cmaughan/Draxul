@@ -289,11 +289,11 @@ and the adaptive selection engine come next.)*
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG
   replay ever measures too slow.
-- **Windows enablement** — `DRAXUL_ENABLE_SCOREVIEW` currently defaults ON
-  only on Apple: Verovio builds as a shared lib and its MSVC DLL symbol
-  export (`WINDOWS_EXPORT_ALL_SYMBOLS` or a static-lib build of its sources)
-  plus DLL staging next to draxul.exe are unvalidated. Wire and verify in
-  Windows CI, then flip the default.
+- **Windows enablement** — ✅ completed 2026-07-13: ScoreView now defaults ON
+  on Windows as well as macOS. Verovio's shared-library target exports and
+  links successfully with MSVC; its DLL is staged beside `draxul.exe`, DSP
+  code uses portable C++20 pi constants, and live input uses SDL's default
+  WASAPI capture device.
 - **Route Verovio's stderr logging** into draxul's log system (it prints
   `[Warning]`/`[Error]` lines directly; fine for tests, noisy for the app).
 
