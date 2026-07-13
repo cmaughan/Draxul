@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import stat
 import sys
@@ -111,6 +113,47 @@ class BuildCacheTests(unittest.TestCase):
             (bd / "build-Release.ninja").write_text("")
 
             self.assertIsNone(draxul_do._missing_generated_build_file(cache_file, bd, "Release"))
+
+
+class CleanCommandTests(unittest.TestCase):
+    def test_help_lists_clean_command(self) -> None:
+        self.assertIn("clean        Remove the repository build directory", draxul_do.help_text())
+
+    def test_clean_removes_build_and_preserves_neighboring_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            build_file = root / "build" / "CMakeFiles" / "cache.txt"
+            build_file.parent.mkdir(parents=True)
+            build_file.write_text("generated")
+            deploy_file = root / "deploy" / "package.zip"
+            deploy_file.parent.mkdir()
+            deploy_file.write_text("keep")
+            output = io.StringIO()
+
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "clean"]),
+            ):
+                self.assertEqual(0, draxul_do.main())
+
+            self.assertFalse((root / "build").exists())
+            self.assertEqual("keep", deploy_file.read_text())
+            self.assertIn("Removing build directory", output.getvalue())
+
+    def test_clean_succeeds_when_build_is_already_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            output = io.StringIO()
+
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "clean"]),
+            ):
+                self.assertEqual(0, draxul_do.main())
+
+            self.assertIn("Build directory already absent", output.getvalue())
 
 
 class TestCommandTests(unittest.TestCase):

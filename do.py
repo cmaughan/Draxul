@@ -53,6 +53,14 @@ def build_dir(root: pathlib.Path) -> pathlib.Path:
     return root / "build"
 
 
+def _remove_tree(path: pathlib.Path) -> None:
+    def remove_readonly(function, failed_path, _error_info):
+        os.chmod(failed_path, stat.S_IWRITE)
+        function(failed_path)
+
+    shutil.rmtree(path, onerror=remove_readonly)
+
+
 def draxul_exe(bd: pathlib.Path, config: str) -> pathlib.Path:
     """Return the expected executable path for a given build dir and config."""
     if sys.platform.startswith("win"):
@@ -571,11 +579,7 @@ def _stage_deploy_payload(
     windows_runtime_directory: pathlib.Path | None = None,
 ) -> None:
     if platform_dir.exists():
-        def remove_readonly(function, path, _error_info):
-            os.chmod(path, stat.S_IWRITE)
-            function(path)
-
-        shutil.rmtree(platform_dir, onerror=remove_readonly)
+        _remove_tree(platform_dir)
     platform_dir.mkdir(parents=True, exist_ok=True)
 
     if source.is_dir() and source.suffix == ".app":
@@ -1258,6 +1262,17 @@ def ensure_built(root: pathlib.Path) -> int:
     return run(["cmake", "--build", str(build_dir(root)), "--parallel", _parallel_jobs()], root)
 
 
+def cmd_clean(root: pathlib.Path) -> int:
+    bd = build_dir(root)
+    if not bd.exists():
+        print(f"Build directory already absent: {bd}")
+        return 0
+
+    print(f"Removing build directory: {bd}")
+    _remove_tree(bd)
+    return 0
+
+
 def help_text() -> str:
     return """Usage:
   do <command> [options]
@@ -1270,6 +1285,7 @@ Single-word shortcuts:
                Configure, build, and run Draxul
   deploy [release] [--reconfigure] [--vs|--ninja]
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
+  clean        Remove the repository build directory
   smoke        Run the app smoke test
   test         Run unit tests (four C++ shards plus do.py tests)
   shot         Regenerate the README hero screenshot
@@ -1316,6 +1332,7 @@ Examples:
                              # MegaCity with Tree-sitter semantic source config
   do deploy                 # Release build + deploy/YYYY_MM_DD/mac|win zip package
   do run --reconfigure     # Force CMake reconfigure
+  do clean
   do smoke
   do basic
   do blessall
@@ -1332,6 +1349,9 @@ def main() -> int:
 
     command = args[0].lower()
     skip_build = "--skip-build" in args[1:]
+
+    if command == "clean":
+        return cmd_clean(root)
 
     if command == "test":
         if sys.platform.startswith("win"):
