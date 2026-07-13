@@ -466,7 +466,12 @@ if(BUILD_TESTING)
         else()
             add_test(NAME draxul-app-smoke COMMAND $<TARGET_FILE:draxul> --smoke-test)
         endif()
-        set_tests_properties(draxul-app-smoke PROPERTIES TIMEOUT 20)
+        set_tests_properties(draxul-app-smoke
+            PROPERTIES
+                LABELS smoke
+                RESOURCE_LOCK draxul_gpu
+                TIMEOUT 20
+        )
 
         if(WIN32)
             set(DRAXUL_RENDER_PLATFORM "windows")
@@ -492,7 +497,12 @@ if(BUILD_TESTING)
                 else()
                     add_test(NAME draxul-render-${DRAXUL_RENDER_NAME} COMMAND $<TARGET_FILE:draxul> --render-test ${DRAXUL_RENDER_SCENARIO})
                 endif()
-                set_tests_properties(draxul-render-${DRAXUL_RENDER_NAME} PROPERTIES TIMEOUT 30)
+                set_tests_properties(draxul-render-${DRAXUL_RENDER_NAME}
+                    PROPERTIES
+                        LABELS render
+                        RESOURCE_LOCK draxul_gpu
+                        TIMEOUT 30
+                )
             else()
                 message(STATUS "Skipping draxul-render-${DRAXUL_RENDER_NAME} because ${DRAXUL_RENDER_REFERENCE} is not available")
             endif()

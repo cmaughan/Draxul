@@ -21,6 +21,10 @@ endif()
 
 add_executable(draxul-tests ${DRAXUL_TEST_SOURCES})
 
+target_precompile_headers(draxul-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/support/test_pch.h
+)
+
 target_include_directories(draxul-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/support
 )
@@ -81,7 +85,31 @@ endif()
 # directory" until someone manually builds draxul-rpc-fake.
 add_dependencies(draxul-tests draxul-rpc-fake)
 
-add_test(NAME draxul-tests COMMAND $<TARGET_FILE:draxul-tests>)
+foreach(DRAXUL_TEST_SHARD_INDEX RANGE 0 3)
+    add_test(
+        NAME draxul-tests-shard-${DRAXUL_TEST_SHARD_INDEX}
+        COMMAND $<TARGET_FILE:draxul-tests>
+            --shard-count 4
+            --shard-index ${DRAXUL_TEST_SHARD_INDEX}
+    )
+    set_tests_properties(draxul-tests-shard-${DRAXUL_TEST_SHARD_INDEX}
+        PROPERTIES
+            LABELS unit
+            TIMEOUT 120
+    )
+endforeach()
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(
+    NAME draxul-do-py-tests
+    COMMAND ${Python3_EXECUTABLE} -m unittest tests.do_py_tests
+)
+set_tests_properties(draxul-do-py-tests
+    PROPERTIES
+        LABELS unit
+        TIMEOUT 120
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
 
 draxul_apply_sanitizers(draxul-tests)
 draxul_apply_sanitizers(draxul-rpc-fake)

@@ -1411,9 +1411,12 @@ def main() -> int:
         import os
         env = os.environ.copy()
         env["LLVM_PROFILE_FILE"] = str(bd / "coverage-%p.profraw")
-        print(f"> ctest --test-dir {bd} -R draxul-tests --output-on-failure")
+        print(f"> ctest --test-dir {bd} --label-regex unit --parallel 4 --output-on-failure")
         rc = subprocess.run(
-            ["ctest", "--test-dir", str(bd), "-R", "draxul-tests", "--output-on-failure"],
+            [
+                "ctest", "--test-dir", str(bd),
+                "--label-regex", "unit", "--parallel", "4", "--output-on-failure",
+            ],
             env=env, cwd=root, check=False,
         ).returncode
         if rc != 0:
