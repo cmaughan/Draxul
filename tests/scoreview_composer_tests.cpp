@@ -5,6 +5,7 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <draxul/scoreview/keyboard_render_nvg.h>
 #include <draxul/scoreview/score_timemap.h>
 #include <draxul/scoreview/source_slicer.h>
 #include <draxul/scoreview/stream_composer.h>
@@ -372,4 +373,48 @@ TEST_CASE("the arc loops weakest slices until mastery earns the performance run"
             != std::string::npos;
     }
     CHECK(performance_marked);
+}
+
+TEST_CASE("keyboard geometry maps 88 keys", "[scoreview][keyboard]")
+{
+    CHECK(keyboard_white_index(21) == 0); // A0
+    CHECK(keyboard_white_index(108) == 51); // C8
+    CHECK(keyboard_white_index(22) == -1); // A#0 is black
+    CHECK(keyboard_is_black(61));
+    CHECK_FALSE(keyboard_is_black(60));
+    int whites = 0;
+    for (int midi = kKeyboardLowMidi; midi <= kKeyboardHighMidi; ++midi)
+        whites += keyboard_is_black(midi) ? 0 : 1;
+    CHECK(whites == kKeyboardWhiteKeys);
+    // Middle C sits left of C#4, which sits on the C/D boundary.
+    const float c4 = keyboard_key_center_x(60, 0.0f, 520.0f);
+    const float cs4 = keyboard_key_center_x(61, 0.0f, 520.0f);
+    const float d4 = keyboard_key_center_x(62, 0.0f, 520.0f);
+    CHECK(c4 < cs4);
+    CHECK(cs4 < d4);
+    CHECK(cs4 == Catch::Approx((c4 + d4) * 0.5f).margin(0.01));
+}
+
+TEST_CASE("trailing clean plays gate the guidance keyboard", "[scoreview][keyboard]")
+{
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    CHECK(model.onset_trailing_correct(3.0) == 0); // never played: show
+
+    const auto play = [&model](double q, bool clean) {
+        FlowController::NoteOutcome outcome;
+        outcome.onset_q = q;
+        outcome.pitch = 60;
+        outcome.verdict = clean ? FlowController::NoteVerdict::Correct
+                                : FlowController::NoteVerdict::Missed;
+        outcome.quality = clean ? 1.0 : 0.0;
+        model.apply(outcome);
+    };
+    play(3.0, true);
+    play(3.0, true);
+    CHECK(model.onset_trailing_correct(3.0) == 2); // still shows, faded
+    play(3.0, true);
+    CHECK(model.onset_trailing_correct(3.0) == 3); // invisible now
+    play(3.0, false);
+    CHECK(model.onset_trailing_correct(3.0) == 0); // a miss brings it back
 }

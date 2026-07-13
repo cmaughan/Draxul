@@ -232,6 +232,15 @@ private:
     bool composing_ = false;
     int last_logged_plan_slot_ = -1;
 
+    // The guidance keyboard + fixed sheet scale (stream follow-up): the
+    // scale locks per viewport/zoom so bars don't breathe as the window
+    // moves; the keyboard eases in when the material under the playhead
+    // still needs help and out once it's proven.
+    float stream_scale_ = 0.0f;
+    int stream_scale_vw_ = 0;
+    float stream_scale_zoom_ = 0.0f;
+    float keyboard_alpha_ = 0.0f;
+
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;
     std::filesystem::path progress_path_;

@@ -4,6 +4,7 @@
 add_library(draxul-scoreview STATIC
     src/bot_player_input.cpp
     src/flow_controller.cpp
+    src/keyboard_layout.cpp
     src/metronome_synth.cpp
     src/note_listener.cpp
     src/piece_analysis.cpp
@@ -49,6 +50,7 @@ target_link_libraries(draxul-scoreview
 )
 
 add_library(draxul-scoreview-host STATIC
+    src/keyboard_render_nvg.cpp
     src/mic_player_input.cpp
     src/score_host.cpp
     src/score_render_nvg.cpp

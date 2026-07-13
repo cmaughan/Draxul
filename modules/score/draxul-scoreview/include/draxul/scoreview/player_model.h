@@ -108,6 +108,9 @@ public:
     // Number of the bar's onsets with at least one encounter (0 mastery is
     // ambiguous between "all missed" and "never played"; this disambiguates).
     int bar_encounters(int bar_index) const;
+    // Trailing consecutive CLEAN encounters of one onset (0 when never
+    // played) — the guidance keyboard's confidence measure.
+    int onset_trailing_correct(double onset_q) const;
     // Outcomes from fabricated drill bars carry this onset_q sentinel: they
     // feed pitch and chord statistics but never bar/onset mastery.
     static constexpr double kDrillOnsetSentinel = -1e6;

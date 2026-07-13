@@ -165,6 +165,21 @@ void PlayerModel::apply(const FlowController::ChordOutcome& outcome)
     }
 }
 
+int PlayerModel::onset_trailing_correct(double onset_q) const
+{
+    const auto found = onset_.find(onset_q);
+    if (found == onset_.end())
+        return 0;
+    int trailing = 0;
+    for (auto it = found->second.recent.rbegin(); it != found->second.recent.rend(); ++it)
+    {
+        if (*it <= 0.0)
+            break;
+        ++trailing;
+    }
+    return trailing;
+}
+
 double PlayerModel::bar_mastery(int bar_index) const
 {
     const double bar_start = bar_index * quarters_per_bar_;

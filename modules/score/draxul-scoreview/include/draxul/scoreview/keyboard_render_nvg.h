@@ -1,0 +1,40 @@
+#pragma once
+
+// The guidance keyboard (stream plan follow-up): a full-width 88-key piano
+// drawn under the score. Keys the player still needs help with light up;
+// the whole keyboard fades away as the material is proven. Pure NanoVG
+// drawing plus small pure geometry helpers (unit-tested).
+
+#include <vector>
+
+struct NVGcontext;
+
+namespace draxul
+{
+namespace scoreview
+{
+
+// 88 keys, A0 (midi 21) .. C8 (midi 108): 52 white keys.
+constexpr int kKeyboardLowMidi = 21;
+constexpr int kKeyboardHighMidi = 108;
+constexpr int kKeyboardWhiteKeys = 52;
+
+bool keyboard_is_black(int midi);
+// White-key index 0..51 for white midis; -1 for black keys.
+int keyboard_white_index(int midi);
+// Horizontal center of a key within a keyboard spanning [x, x+w).
+float keyboard_key_center_x(int midi, float x, float w);
+
+struct KeyboardLit
+{
+    int midi = -1;
+    float alpha = 1.0f; // per-key guidance strength, 0..1
+};
+
+// Draws the keyboard into [x, y, w, h] at `overall_alpha` (0 = invisible,
+// callers can skip the call entirely at 0), lighting `lit` keys.
+void draw_piano_keyboard(NVGcontext* vg, float x, float y, float w, float h,
+    const std::vector<KeyboardLit>& lit, float overall_alpha, float pixel_scale);
+
+} // namespace scoreview
+} // namespace draxul

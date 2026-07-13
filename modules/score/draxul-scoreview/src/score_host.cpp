@@ -7,6 +7,7 @@
 #include <draxul/notation/musicxml_importer.h>
 #include <draxul/runtime_path.h>
 #include <draxul/scoreview/bot_player_input.h>
+#include <draxul/scoreview/keyboard_render_nvg.h>
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/progress_store.h>
 #include <draxul/scoreview/score_render_nvg.h>
@@ -1277,20 +1278,35 @@ void ScoreHost::draw(IFrameContext& frame)
         const float vw = static_cast<float>(viewport_.pixel_size.x);
         const float vh = static_cast<float>(viewport_.pixel_size.y);
         FlowBand band = flow_band();
-        if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
+        const bool streaming = stream_active()
+            && flow_.mode() == FlowController::TransportMode::Roll;
+        // The guidance keyboard claims the bottom of the pane while
+        // streaming (52 white keys across the width, capped by height).
+        const float keyboard_h = streaming
+            ? std::min(vw / 52.0f * 5.8f, vh * 0.34f)
+            : 0.0f;
+        if (streaming)
         {
-            // The rolling window sizes by WIDTH: about kStreamVisibleBars
-            // bars around the playhead fill the pane (zoom shows fewer or
-            // more), clamped so the band never overflows vertically.
-            const double visible_q = std::max(1.0, kStreamVisibleBars * quarters_per_bar_ / std::max(0.25f, zoom_));
-            const double span_canvas = flow_.x_at(flow_.position_q() + visible_q) - flow_.x_at(flow_.position_q());
-            if (span_canvas > 1.0)
+            // FIXED sheet scale: locked per viewport/zoom (about
+            // kStreamVisibleBars average bars fill the width) so the score
+            // does not breathe as bar spacing changes under the playhead.
+            if (stream_scale_ <= 0.0f || stream_scale_vw_ != viewport_.pixel_size.x
+                || stream_scale_zoom_ != zoom_)
             {
-                const float width_scale = static_cast<float>(vw / span_canvas);
-                band.target_h = std::clamp(strip->canvas_size.y * width_scale,
-                    96.0f * pixel_scale, vh * 0.9f);
-                band.strip_y = (vh - band.target_h) * 0.5f;
+                const double avg_bar_canvas = strip->canvas_size.x
+                    / std::max(1, window_bar_count_);
+                const double span_canvas = std::max(1.0,
+                    avg_bar_canvas * kStreamVisibleBars / std::max(0.25f, zoom_));
+                float scale_w = static_cast<float>(vw / span_canvas);
+                const float score_area = std::max(96.0f * pixel_scale, vh - keyboard_h);
+                scale_w = std::min(scale_w,
+                    score_area * 0.9f / std::max(1.0f, strip->canvas_size.y));
+                stream_scale_ = std::max(scale_w, 96.0f * pixel_scale / strip->canvas_size.y);
+                stream_scale_vw_ = viewport_.pixel_size.x;
+                stream_scale_zoom_ = zoom_;
             }
+            band.target_h = strip->canvas_size.y * stream_scale_;
+            band.strip_y = std::max(0.0f, (vh - keyboard_h - band.target_h) * 0.5f);
         }
         const float target_h = band.target_h;
         const float scale = target_h / strip->canvas_size.y;
@@ -1301,9 +1317,66 @@ void ScoreHost::draw(IFrameContext& frame)
         const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
         const bool waiting = flow_.waiting();
 
+        // Guidance: the pitches of onsets whose hit windows contain the
+        // playhead, each faded by trailing clean plays of its SOURCE onset
+        // (3 clean = invisible). Drill bars always guide.
+        std::vector<KeyboardLit> lit;
+        float keyboard_target = 0.0f;
+        if (streaming)
+        {
+            const double position = flow_.position_q();
+            const auto& onsets = flow_.onsets();
+            const auto& gates = flow_.gates();
+            for (size_t i = 0; i < onsets.size() && i < gates.size(); ++i)
+            {
+                const double q = onsets[i].qstamp;
+                if (q > position + FlowController::kRollEarlyWindowQ)
+                    break;
+                if (q < position - FlowController::kRollLateWindowQ)
+                    continue;
+                const double stream_q = q + stream_offset_q_;
+                int trailing = 0;
+                bool drill = false;
+                if (composing_)
+                {
+                    const int slot = composer_.slot_at(stream_q);
+                    const StreamBarPlan& plan = composer_.plan(slot);
+                    if (plan.kind == StreamBarPlan::Kind::Drill)
+                        drill = true;
+                    else
+                        trailing = player_model_.onset_trailing_correct(
+                            slicer_.bar_start_q(plan.source_bar)
+                            + (stream_q - composer_.slot_start_q(slot)));
+                }
+                else
+                {
+                    trailing = player_model_.onset_trailing_correct(stream_q);
+                }
+                const float need = drill
+                    ? 1.0f
+                    : std::clamp(1.0f - static_cast<float>(trailing) / 3.0f, 0.0f, 1.0f);
+                if (need <= 0.0f)
+                    continue;
+                for (const FlowController::GateNote& note : gates[i].notes)
+                {
+                    if (note.verdict == FlowController::NoteVerdict::Pending
+                        && !note.auto_satisfied)
+                        lit.push_back({ note.pitch, need });
+                }
+                keyboard_target = std::max(keyboard_target, need);
+            }
+        }
+        // Ease the keyboard in and out rather than popping.
+        keyboard_alpha_ += (keyboard_target - keyboard_alpha_) * 0.15f;
+        if (std::abs(keyboard_target - keyboard_alpha_) > 0.01f && callbacks_ != nullptr)
+            callbacks_->request_frame();
+        const float keyboard_alpha = keyboard_alpha_;
+        const float keyboard_y = vh - keyboard_h;
+
         nanovg_pass_->set_draw_callback(
             [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
-                waiting](NVGcontext* vg, int w, int h) {
+                waiting, lit, keyboard_alpha, keyboard_y, keyboard_h,
+                streaming](NVGcontext* vg, int w, int h) {
                 fill_backdrop(vg, w, h);
                 const float band_pad = 18.0f * pixel_scale;
                 draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
@@ -1317,6 +1390,9 @@ void ScoreHost::draw(IFrameContext& frame)
                 nvgFillColor(vg,
                     waiting ? nvgRGBA(24, 140, 165, 200) : nvgRGBA(217, 115, 20, 170));
                 nvgFill(vg);
+                if (streaming)
+                    draw_piano_keyboard(vg, 0.0f, keyboard_y, vw, keyboard_h, lit,
+                        keyboard_alpha, pixel_scale);
             });
     }
     else if (!pages_ || pages_->empty())
