@@ -4,6 +4,7 @@
 add_library(draxul-scoreview STATIC
     src/bot_player_input.cpp
     src/flow_controller.cpp
+    src/metronome_synth.cpp
     src/note_listener.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp

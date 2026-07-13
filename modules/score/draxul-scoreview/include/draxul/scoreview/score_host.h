@@ -6,6 +6,7 @@
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/keyboard_player_input.h>
 #include <draxul/scoreview/layout_engine.h>
+#include <draxul/scoreview/metronome_synth.h>
 #include <draxul/scoreview/mic_player_input.h>
 #include <draxul/scoreview/player_input.h>
 #include <draxul/scoreview/score_draw_list.h>
@@ -76,6 +77,13 @@ private:
         Mic, // the acoustic listener (the product)
     };
 
+    enum class TickLevel : uint8_t
+    {
+        Off,
+        Beats, // quarters, bar downbeat accented
+        Eighths, // beats + quieter subdivision ticks
+    };
+
     struct FlowBand
     {
         float target_h = 0.0f;
@@ -99,7 +107,13 @@ private:
     void apply_lit_update();
     void apply_verdict_update();
     int approx_measure() const;
+    double quarters_per_measure_from_model() const;
     double now_seconds() const;
+    // The click track: position-locked to the transport — ticks fire as the
+    // playhead crosses beat lines, so gate mode falls silent while waiting.
+    void cycle_tick_level();
+    bool ensure_tick_stream();
+    void pump_metronome(double p0_q, double p1_q, double dt);
     void enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy);
     void exit_gate_mode();
     // Swaps the player-input implementation without touching the session
@@ -154,6 +168,13 @@ private:
     std::chrono::steady_clock::time_point epoch_{};
     size_t last_logged_gate_ = 0;
     bool logged_gate_end_ = false;
+
+    // Metronome (audible tick) state; the SDL playback stream opens lazily.
+    TickLevel tick_level_ = TickLevel::Off;
+    MetronomeSynth metronome_;
+    struct SDL_AudioStream* tick_stream_ = nullptr;
+    std::vector<float> tick_buffer_;
+    double quarters_per_bar_ = 4.0;
 };
 
 std::unique_ptr<draxul::IHost> create_score_host();

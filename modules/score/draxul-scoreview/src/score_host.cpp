@@ -238,6 +238,11 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             start_in_gate_ = false;
             flow_autoplay_ = command.find("autoplay") != std::string::npos;
         }
+        // `tick`/`tick8` tokens enable the metronome from launch (dev/test).
+        if (command.find("tick8") != std::string::npos)
+            tick_level_ = TickLevel::Eighths;
+        else if (command.find("tick") != std::string::npos)
+            tick_level_ = TickLevel::Beats;
     }
 
     epoch_ = std::chrono::steady_clock::now();
@@ -253,6 +258,11 @@ double ScoreHost::now_seconds() const
 
 void ScoreHost::shutdown()
 {
+    if (tick_stream_ != nullptr)
+    {
+        SDL_DestroyAudioStream(tick_stream_);
+        tick_stream_ = nullptr;
+    }
     strip_.reset();
     pages_.reset();
     engine_.reset();
@@ -438,6 +448,8 @@ void ScoreHost::relayout_flow()
 
     strip_ = std::move(shared_strip);
     highlight_.build(*strip_);
+    const double bar_quarters = quarters_per_measure_from_model();
+    quarters_per_bar_ = bar_quarters > 0.0 ? bar_quarters : 4.0;
     apply_lit_update(); // anything at q <= 0 sits under the playhead pre-lit
     DRAXUL_LOG_INFO(LogCategory::App, "score: conveyor strip %zu ops, %zu onsets, marking %d qpm",
         strip_->glyphs.size() + strip_->paths.size() + strip_->texts.size(),
@@ -688,22 +700,109 @@ bool ScoreHost::handle_gate_key(int keycode)
     return false;
 }
 
+double ScoreHost::quarters_per_measure_from_model() const
+{
+    if (!has_model_ || model_.parts.empty())
+        return 0.0;
+    for (const auto& measure : model_.parts[0].measures)
+    {
+        if (measure.time)
+            return measure.time->measure_duration().to_double() * 4.0;
+    }
+    return 0.0;
+}
+
+bool ScoreHost::ensure_tick_stream()
+{
+    if (tick_stream_ != nullptr)
+        return true;
+    if (!SDL_WasInit(SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: metronome audio init failed: %s", SDL_GetError());
+        return false;
+    }
+    SDL_AudioSpec spec{};
+    spec.format = SDL_AUDIO_F32;
+    spec.channels = 1;
+    spec.freq = metronome_.tuning().sample_rate;
+    tick_stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+    if (tick_stream_ == nullptr)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: metronome output unavailable: %s", SDL_GetError());
+        return false;
+    }
+    SDL_ResumeAudioStreamDevice(tick_stream_); // device streams open paused
+    DRAXUL_LOG_INFO(LogCategory::App, "score: metronome output open (%d Hz)",
+        metronome_.tuning().sample_rate);
+    return true;
+}
+
+void ScoreHost::cycle_tick_level()
+{
+    tick_level_ = tick_level_ == TickLevel::Off
+        ? TickLevel::Beats
+        : (tick_level_ == TickLevel::Beats ? TickLevel::Eighths : TickLevel::Off);
+    if (tick_level_ != TickLevel::Off && !ensure_tick_stream())
+        tick_level_ = TickLevel::Off;
+    if (tick_level_ == TickLevel::Off && tick_stream_ != nullptr)
+    {
+        SDL_ClearAudioStream(tick_stream_);
+        metronome_.clear();
+    }
+    DRAXUL_LOG_INFO(LogCategory::App, "score: metronome %s",
+        tick_level_ == TickLevel::Off ? "off"
+                                      : (tick_level_ == TickLevel::Beats ? "beats" : "eighths"));
+}
+
+void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
+{
+    if (!ensure_tick_stream())
+    {
+        tick_level_ = TickLevel::Off;
+        return;
+    }
+    const int rate = metronome_.tuning().sample_rate;
+
+    // Schedule ticks for every grid crossing in (p0, p1], placed at their
+    // fractional offset inside this pump's time slice so beat spacing
+    // tracks the transport rather than the frame rate.
+    if (p1_q > p0_q && dt > 0.0)
+    {
+        const double step = tick_level_ == TickLevel::Eighths ? 0.5 : 1.0;
+        double grid = (std::floor(p0_q / step + 1e-9) + 1.0) * step;
+        for (; grid <= p1_q + 1e-9; grid += step)
+        {
+            const double fraction = std::clamp((grid - p0_q) / (p1_q - p0_q), 0.0, 1.0);
+            const int64_t at = metronome_.cursor() + static_cast<int64_t>(fraction * dt * static_cast<double>(rate));
+            TickKind kind = TickKind::Subdivision;
+            if (std::abs(grid - std::round(grid)) < 1e-6)
+            {
+                const double in_bar = std::fmod(std::round(grid), quarters_per_bar_);
+                kind = std::abs(in_bar) < 1e-6 ? TickKind::Accent : TickKind::Beat;
+            }
+            metronome_.schedule_tick(at, kind);
+        }
+    }
+
+    // Keep ~70 ms queued so the device never starves between pumps.
+    constexpr int kTargetSamples = 3072;
+    const int queued_bytes = SDL_GetAudioStreamQueued(tick_stream_);
+    const int queued = queued_bytes > 0 ? queued_bytes / static_cast<int>(sizeof(float)) : 0;
+    if (queued < kTargetSamples)
+    {
+        const size_t need = static_cast<size_t>(kTargetSamples - queued);
+        tick_buffer_.resize(need);
+        metronome_.render(tick_buffer_.data(), need);
+        SDL_PutAudioStreamData(
+            tick_stream_, tick_buffer_.data(), static_cast<int>(need * sizeof(float)));
+    }
+}
+
 int ScoreHost::approx_measure() const
 {
     if (!flow_.ready() || !has_model_)
         return 0;
-    double quarters_per_measure = 0.0;
-    if (!model_.parts.empty())
-    {
-        for (const auto& measure : model_.parts[0].measures)
-        {
-            if (measure.time)
-            {
-                quarters_per_measure = measure.time->measure_duration().to_double() * 4.0;
-                break;
-            }
-        }
-    }
+    const double quarters_per_measure = quarters_per_measure_from_model();
     if (quarters_per_measure <= 0.0)
         return 0;
     return static_cast<int>(flow_.position_q() / quarters_per_measure) + 1;
@@ -723,7 +822,10 @@ void ScoreHost::pump()
 
     if (view_mode_ == ViewMode::Flow && flow_.playing())
     {
+        const double position_before_q = flow_.position_q();
         flow_.advance(dt);
+        if (tick_level_ != TickLevel::Off)
+            pump_metronome(position_before_q, flow_.position_q(), dt);
         if (flow_.mode() == FlowController::TransportMode::Gate)
         {
             if (mic_input_ != nullptr && mic_input_->state() == MicPlayerInput::State::Failed)
@@ -900,6 +1002,9 @@ void ScoreHost::on_key(const KeyEvent& event)
             flow_.rewind();
             apply_lit_update();
             break;
+        case SDLK_T:
+            cycle_tick_level();
+            break;
         default:
             return;
         }
@@ -1009,6 +1114,8 @@ std::string ScoreHost::status_text() const
                 }
             }
             status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
+            if (tick_level_ != TickLevel::Off)
+                status += tick_level_ == TickLevel::Beats ? "  tick" : "  tick8";
             status += "  score " + std::to_string(flow_.score());
             status += "  x" + std::to_string(flow_.streak());
             if (flow_.miss_count() > 0)
@@ -1017,6 +1124,8 @@ std::string ScoreHost::status_text() const
         }
         status += flow_.playing() ? "  >" : (flow_.at_end() ? "  end" : "  ||");
         status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
+        if (tick_level_ != TickLevel::Off)
+            status += tick_level_ == TickLevel::Beats ? "  tick" : "  tick8";
         const int measure = approx_measure();
         if (measure > 0)
             status += "  m." + std::to_string(measure);
