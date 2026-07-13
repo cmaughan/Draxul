@@ -279,6 +279,12 @@ and the adaptive selection engine come next.)*
   [scoreview-runner.md](scoreview-runner.md) (Guitar Hero for piano: the
   transport never waits, timing-window judgment, accuracy-driven tempo;
   the default game). R2 feel pass with the user pending.
+- **The stream — dynamic music + player memory** — manifesto milestone 5,
+  planned: [scoreview-stream.md](scoreview-stream.md) (rolling N-bar
+  window with dynamic append, piece analysis — key/chords/motifs/rhythm
+  figures, persistent JSON player model with timing statistics, and the
+  composer that drills what the player struggles with, converging on the
+  whole piece over a long session).
 - **Editing** — command-based model mutations, hit-testing via element_id,
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG
