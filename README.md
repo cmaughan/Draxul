@@ -194,6 +194,7 @@ The root `do.py` script is the recommended entry point for common tasks:
 ./do.py run          # build (if needed) and launch Draxul
 ./do.py smoke        # build and run the startup smoke test
 ./do.py test         # fast unit suite (four C++ shards + do.py tests)
+./do.py clean        # remove only the repository build/ directory
 
 ./do.py basic        # run basic-view render snapshot compare
 ./do.py cmdline      # run cmdline-view render snapshot compare
@@ -226,7 +227,10 @@ do run release --host megacity --parser graphify
                          # Configure MegaCity to use graphify-out/graph.json, then launch
 do smoke                 # Smoke test
 do test                  # Fast unit suite
+do clean                 # Remove only build/
 ```
+
+`do.py clean` removes only the repository-local `build/` directory. It leaves deploy packages, render outputs, render references, databases, and source files untouched; running it when `build/` is already absent succeeds.
 
 ## Testing
 

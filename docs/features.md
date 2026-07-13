@@ -392,6 +392,7 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
 - `do test` configures Debug as needed, builds only `draxul-tests` and its helper/dependency targets, and runs the unit suite as four parallel Catch2 shards plus the Python `tests/do_py_tests.py` suite. It does not build or launch the app and does not run smoke or render snapshots
+- `do clean` recursively removes only the repository-local `build/` directory and succeeds when it is already absent. Deploy packages, render outputs and references, databases, and source files are preserved
 - Normal Debug/Release presets explicitly disable coverage and sanitizers, and the test scripts reject an instrumented shared cache before running. This prevents a prior coverage/ASan/TSan configure from silently slowing or changing the ordinary unit workflow
 - `do smoke` remains the explicit startup check; the individual render shortcuts and `renderall` remain the explicit visual checks. `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the full unit + smoke + available render-snapshot workflow for pre-commit, release, and CI validation
 - `do run release --host megacity --parser treesitter` strips the helper flag before launching, writes `[mega_city_code].code_source = "treesitter_db"`, and removes stale `graphify_graph_path` entries from that section. `--parser treesitter_db` is accepted as the same helper alias
