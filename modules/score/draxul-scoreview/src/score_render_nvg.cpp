@@ -1,3 +1,4 @@
+#include <draxul/scoreview/keyboard_render_nvg.h>
 #include <draxul/scoreview/score_render_nvg.h>
 
 #include <draxul/runtime_path.h>
@@ -130,15 +131,23 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
     nvgScale(vg, scale, scale);
 
     const auto state_color = [highlight](const std::vector<uint8_t>& states,
-                                 size_t i) -> const NVGcolor& {
+                                 const std::vector<uint8_t>& guides, size_t i) -> NVGcolor {
         const uint8_t state = (highlight != nullptr && i < states.size()) ? states[i] : 0;
+        if (state == 0 && highlight != nullptr && i < guides.size() && guides[i] > 0)
+        {
+            // The keyboard pairing: an upcoming note wears its key's color.
+            const unsigned char* tint = kGuidancePalette[(guides[i] - 1) % kGuidancePaletteSize];
+            return nvgRGBA(tint[0], tint[1], tint[2], 255);
+        }
         return STATE_COLORS[state < 4 ? state : 0];
     };
 
     for (size_t i = 0; i < list.paths.size(); ++i)
     {
         const DrawPath& path = list.paths[i];
-        const NVGcolor& color = highlight != nullptr ? state_color(highlight->path_lit, i) : INK;
+        const NVGcolor color = highlight != nullptr
+            ? state_color(highlight->path_lit, highlight->path_guide, i)
+            : INK;
         nvgBeginPath(vg);
         replay_commands(vg, path.cmds);
         if (path.fill)
@@ -169,7 +178,7 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
         nvgBeginPath(vg);
         replay_commands(vg, symbol.cmds);
-        nvgFillColor(vg, highlight != nullptr ? state_color(highlight->glyph_lit, i) : INK);
+        nvgFillColor(vg, highlight != nullptr ? state_color(highlight->glyph_lit, highlight->glyph_guide, i) : INK);
         nvgFill(vg);
         nvgRestore(vg);
     }

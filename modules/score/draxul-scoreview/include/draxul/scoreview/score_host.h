@@ -239,7 +239,6 @@ private:
     float stream_scale_ = 0.0f;
     int stream_scale_vw_ = 0;
     float stream_scale_zoom_ = 0.0f;
-    float keyboard_alpha_ = 0.0f;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;

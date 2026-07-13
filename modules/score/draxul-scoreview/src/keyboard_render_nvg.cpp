@@ -10,28 +10,22 @@ namespace draxul
 namespace scoreview
 {
 
-namespace
-{
-
-// Guidance tint: the transport's "waiting" teal — these are the keys the
-// score is asking for.
-constexpr unsigned char kLitR = 24;
-constexpr unsigned char kLitG = 140;
-constexpr unsigned char kLitB = 165;
-
-} // namespace
-
 void draw_piano_keyboard(NVGcontext* vg, float x, float y, float w, float h,
     const std::vector<KeyboardLit>& lit, float overall_alpha, float pixel_scale)
 {
     if (overall_alpha <= 0.01f || w <= 0.0f || h <= 0.0f)
         return;
-    const auto lit_alpha = [&lit](int midi) {
-        float best = 0.0f;
+    struct Glow
+    {
+        float alpha = 0.0f;
+        int palette = 0;
+    };
+    const auto lit_glow = [&lit](int midi) {
+        Glow best;
         for (const KeyboardLit& key : lit)
         {
-            if (key.midi == midi)
-                best = std::max(best, key.alpha);
+            if (key.midi == midi && key.alpha > best.alpha)
+                best = { key.alpha, key.palette };
         }
         return best;
     };
@@ -58,13 +52,14 @@ void draw_piano_keyboard(NVGcontext* vg, float x, float y, float w, float h,
         nvgBeginPath(vg);
         nvgRoundedRect(
             vg, key_x, y, white_w - line, h, 2.0f * pixel_scale);
-        const float glow = lit_alpha(midi);
-        if (glow > 0.0f)
+        const Glow glow = lit_glow(midi);
+        if (glow.alpha > 0.0f)
         {
+            const unsigned char* tint = kGuidancePalette[glow.palette % kGuidancePaletteSize];
             nvgFillColor(vg,
-                nvgRGBA(static_cast<unsigned char>(248 + (kLitR - 248) * glow),
-                    static_cast<unsigned char>(247 + (kLitG - 247) * glow),
-                    static_cast<unsigned char>(243 + (kLitB - 243) * glow), 255));
+                nvgRGBA(static_cast<unsigned char>(248 + (tint[0] - 248) * glow.alpha),
+                    static_cast<unsigned char>(247 + (tint[1] - 247) * glow.alpha),
+                    static_cast<unsigned char>(243 + (tint[2] - 243) * glow.alpha), 255));
         }
         else
         {
@@ -87,13 +82,14 @@ void draw_piano_keyboard(NVGcontext* vg, float x, float y, float w, float h,
         nvgBeginPath(vg);
         nvgRoundedRect(vg, center - black_w * 0.5f, y, black_w, black_h,
             1.5f * pixel_scale);
-        const float glow = lit_alpha(midi);
-        if (glow > 0.0f)
+        const Glow glow = lit_glow(midi);
+        if (glow.alpha > 0.0f)
         {
+            const unsigned char* tint = kGuidancePalette[glow.palette % kGuidancePaletteSize];
             nvgFillColor(vg,
-                nvgRGBA(static_cast<unsigned char>(26 + (kLitR - 26) * glow),
-                    static_cast<unsigned char>(26 + (kLitG - 26) * glow),
-                    static_cast<unsigned char>(28 + (kLitB - 28) * glow), 255));
+                nvgRGBA(static_cast<unsigned char>(26 + (tint[0] - 26) * glow.alpha),
+                    static_cast<unsigned char>(26 + (tint[1] - 26) * glow.alpha),
+                    static_cast<unsigned char>(28 + (tint[2] - 28) * glow.alpha), 255));
         }
         else
         {

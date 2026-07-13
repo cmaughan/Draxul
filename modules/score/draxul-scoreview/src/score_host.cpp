@@ -1319,9 +1319,11 @@ void ScoreHost::draw(IFrameContext& frame)
 
         // Guidance: the pitches of onsets whose hit windows contain the
         // playhead, each faded by trailing clean plays of its SOURCE onset
-        // (3 clean = invisible). Drill bars always guide.
+        // (3 clean = invisible). Drill bars always guide. The keyboard
+        // itself stays on screen; only the key lights come and go, and
+        // upcoming NOTES on the sheet wear their keys' palette colors.
         std::vector<KeyboardLit> lit;
-        float keyboard_target = 0.0f;
+        highlight_.clear_guidance();
         if (streaming)
         {
             const double position = flow_.position_q();
@@ -1361,16 +1363,15 @@ void ScoreHost::draw(IFrameContext& frame)
                 {
                     if (note.verdict == FlowController::NoteVerdict::Pending
                         && !note.auto_satisfied)
-                        lit.push_back({ note.pitch, need });
+                    {
+                        const int palette = guidance_palette_index(note.pitch);
+                        lit.push_back({ note.pitch, need, palette });
+                        highlight_.set_guidance(note.id, palette);
+                    }
                 }
-                keyboard_target = std::max(keyboard_target, need);
             }
         }
-        // Ease the keyboard in and out rather than popping.
-        keyboard_alpha_ += (keyboard_target - keyboard_alpha_) * 0.15f;
-        if (std::abs(keyboard_target - keyboard_alpha_) > 0.01f && callbacks_ != nullptr)
-            callbacks_->request_frame();
-        const float keyboard_alpha = keyboard_alpha_;
+        const float keyboard_alpha = streaming ? 1.0f : 0.0f;
         const float keyboard_y = vh - keyboard_h;
 
         nanovg_pass_->set_draw_callback(

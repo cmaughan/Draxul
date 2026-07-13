@@ -11,6 +11,9 @@ void ScoreHighlightState::build(const ScoreDrawList& list)
 {
     buckets_.clear();
     glyph_lit.assign(list.glyphs.size(), 0);
+    glyph_guide.assign(list.glyphs.size(), 0);
+    path_guide.assign(list.paths.size(), 0);
+    text_guide.assign(list.texts.size(), 0);
     path_lit.assign(list.paths.size(), 0);
     text_lit.assign(list.texts.size(), 0);
 
@@ -62,6 +65,40 @@ const std::vector<std::pair<ScoreHighlightState::OpKind, int>>* ScoreHighlightSt
 {
     const auto found = buckets_.find(element_id);
     return found == buckets_.end() ? nullptr : &found->second;
+}
+
+void ScoreHighlightState::clear_guidance()
+{
+    std::fill(glyph_guide.begin(), glyph_guide.end(), 0);
+    std::fill(path_guide.begin(), path_guide.end(), 0);
+    std::fill(text_guide.begin(), text_guide.end(), 0);
+}
+
+bool ScoreHighlightState::set_guidance(const std::string& element_id, int palette_index)
+{
+    const auto* ops = ops_for(element_id);
+    if (ops == nullptr)
+        return false;
+    const uint8_t value = static_cast<uint8_t>(palette_index + 1);
+    for (const auto& [kind, index] : *ops)
+    {
+        switch (kind)
+        {
+        case OpKind::Glyph:
+            if (static_cast<size_t>(index) < glyph_guide.size())
+                glyph_guide[static_cast<size_t>(index)] = value;
+            break;
+        case OpKind::Path:
+            if (static_cast<size_t>(index) < path_guide.size())
+                path_guide[static_cast<size_t>(index)] = value;
+            break;
+        case OpKind::Text:
+            if (static_cast<size_t>(index) < text_guide.size())
+                text_guide[static_cast<size_t>(index)] = value;
+            break;
+        }
+    }
+    return true;
 }
 
 } // namespace scoreview

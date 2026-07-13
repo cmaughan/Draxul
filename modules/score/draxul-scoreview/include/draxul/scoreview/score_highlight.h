@@ -62,6 +62,14 @@ struct ScoreHighlightState
     std::vector<uint8_t> path_lit;
     std::vector<uint8_t> text_lit;
 
+    // Guidance overlay (the keyboard pairing): palette index + 1 per op,
+    // 0 = none. Renders only over State::None — verdict colors always win.
+    std::vector<uint8_t> glyph_guide;
+    std::vector<uint8_t> path_guide;
+    std::vector<uint8_t> text_guide;
+    void clear_guidance();
+    bool set_guidance(const std::string& element_id, int palette_index);
+
 private:
     std::unordered_map<std::string, std::vector<std::pair<OpKind, int>>> buckets_;
 };
