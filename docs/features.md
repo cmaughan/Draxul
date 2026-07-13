@@ -391,6 +391,8 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 - `do run relwithdebinfo` / `do build relwithdebinfo` use `RelWithDebInfo` on Windows for optimized builds with PDB symbols
 - `do run --vs` falls back to the Visual Studio generator if you want the existing `build/` workflow
 - `do run --ninja` forces the Ninja local-iteration path explicitly
+- `do test` configures Debug as needed, builds only `draxul-tests` and its helper/dependency targets, and runs the unit suite as four parallel Catch2 shards plus the Python `tests/do_py_tests.py` suite. It does not build or launch the app and does not run smoke or render snapshots
+- `do smoke` remains the explicit startup check; the individual render shortcuts and `renderall` remain the explicit visual checks. `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the full unit + smoke + available render-snapshot workflow for pre-commit, release, and CI validation
 - `do run release --host megacity --parser treesitter` strips the helper flag before launching, writes `[mega_city_code].code_source = "treesitter_db"`, and removes stale `graphify_graph_path` entries from that section. `--parser treesitter_db` is accepted as the same helper alias
 - `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder. Windows packages contain only `draxul.exe`, its Microsoft C++ and adjacent runtime DLLs, compiled shaders, bundled fonts, and runtime assets; CMake metadata, object files, static libraries, tests, and source/build directories are excluded
 - `do review` / `do review-bugs` run Codex + Claude review passes by default, add Gemini on macOS, and use Codex for the final consensus pass
@@ -413,8 +415,10 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 
 ### Build Targets
 - `draxul` -- Main executable (.app bundle on macOS)
-- `draxul-tests` -- Unit test suite (Catch2)
+- `draxul-tests` -- Unit test suite (Catch2), compiled with a test-only precompiled header and registered as four disjoint CTest shards labeled `unit`
 - `draxul-rpc-fake` -- Fake RPC server for integration tests
+
+CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
 
 ### Dependencies (FetchContent, automatic)
 SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA (Windows)

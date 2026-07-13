@@ -193,7 +193,7 @@ The root `do.py` script is the recommended entry point for common tasks:
 ```bash
 ./do.py run          # build (if needed) and launch Draxul
 ./do.py smoke        # build and run the startup smoke test
-./do.py test         # full test suite (unit tests + smoke + render snapshots)
+./do.py test         # fast unit suite (four C++ shards + do.py tests)
 
 ./do.py basic        # run basic-view render snapshot compare
 ./do.py cmdline      # run cmdline-view render snapshot compare
@@ -225,12 +225,16 @@ do run --console         # Attach a debug console (Windows)
 do run release --host megacity --parser graphify
                          # Configure MegaCity to use graphify-out/graph.json, then launch
 do smoke                 # Smoke test
-do test                  # Full test suite
+do test                  # Fast unit suite
 ```
 
 ## Testing
 
 The repository includes lightweight native tests for grid logic, redraw parsing, input translation, RPC behavior, renderer state, and Unicode width conformance against headless Neovim.
+
+For the normal edit-test loop, `do.py test` (or `do test` on Windows) configures Debug as needed, builds only `draxul-tests` and its dependencies, then runs four disjoint Catch2 shards in parallel plus the Python `do.py` unit suite. It does not build or launch the Draxul application and does not run smoke or render comparisons.
+
+Use `do.py smoke` and the render shortcuts when an application-facing change needs them. Before committing or releasing, use `./t.sh` on macOS or `t.bat` on Windows; those full-validation wrappers retain the unit, app-smoke, and available render-snapshot checks.
 
 ### Windows
 
@@ -247,6 +251,7 @@ scripts\run_tests.bat release
 scripts\run_tests.bat both
 scripts\run_tests.bat --reconfigure
 scripts\run_tests.bat --verbose
+scripts\run_tests.bat --unit
 ```
 
 ### macOS
@@ -264,9 +269,10 @@ Other modes:
 ./scripts/run_tests.sh both
 ./scripts/run_tests.sh --reconfigure
 ./scripts/run_tests.sh --verbose
+./scripts/run_tests.sh --unit
 ```
 
-The test scripts reuse the existing CMake cache when possible and only reconfigure when needed. By default they use failure-only CTest output so CI logs stay readable; pass `--verbose` when you want full per-test output locally.
+The test scripts reuse the existing CMake cache when possible and only reconfigure when needed. Their default is full validation; `--unit` selects the same fast unit-only path used by `do.py test`. By default they use failure-only CTest output so CI logs stay readable; pass `--verbose` when you want full per-test output locally.
 
 The CTest suite also includes:
 
