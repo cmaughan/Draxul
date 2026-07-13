@@ -68,6 +68,7 @@ public:
         // the gate; playing them anyway counts correct (re-voiced tie).
         bool auto_satisfied = false;
         NoteVerdict verdict = NoteVerdict::Pending;
+        double hit_delta_q = 0.0; // Roll: timing offset of the hit, beats
     };
 
     struct Gate
@@ -211,6 +212,36 @@ public:
         return wrong_count_;
     }
 
+    // Per-note learning outcomes (Roll mode, plans/scoreview-stream.md S0):
+    // everything the player model aggregates. Hits carry the signed timing
+    // delta in beats (negative = early) and a center-weighted quality;
+    // misses and strays carry zeros. Auto-satisfied notes (ties) emit
+    // nothing — they are not learning signals.
+    struct NoteOutcome
+    {
+        std::string id; // element id; empty for stray notes
+        double onset_q = 0.0; // source qstamp (strays: transport position)
+        int pitch = -1;
+        NoteVerdict verdict = NoteVerdict::Missed;
+        bool stray = false; // matched no onset (wrong pitch / bad timing)
+        double delta_q = 0.0; // hit: position - onset, in beats
+        double quality = 0.0; // hit: 1 at center, kRollEdgeQuality at edge
+    };
+    // Chord-level outcome, emitted when a multi-note onset's window closes.
+    struct ChordOutcome
+    {
+        double onset_q = 0.0;
+        std::vector<int> pitches; // required pitches, sorted
+        enum class Result : uint8_t
+        {
+            Clean, // all correct, struck together
+            Split, // all correct, but spread beyond kChordSplitQ
+            Miss, // at least one note missed
+        } result = Result::Miss;
+    };
+    std::vector<NoteOutcome> take_note_outcomes();
+    std::vector<ChordOutcome> take_chord_outcomes();
+
     VerdictUpdate take_verdict_update();
 
     int score() const
@@ -250,6 +281,12 @@ public:
     static constexpr double kRollSlowDownThreshold = 0.55;
     static constexpr double kRollTempoUpPerOnset = 0.010;
     static constexpr double kRollTempoDownPerOnset = 0.030;
+    // Timing-weighted hits: quality tapers from 1 at the window center to
+    // this floor at the edge — a sloppy hit still turns green but drags
+    // the accuracy EMA (and so the tempo) down.
+    static constexpr double kRollEdgeQuality = 0.25;
+    // Chord notes struck further apart than this (beats) count as Split.
+    static constexpr double kChordSplitQ = 0.2;
 
 private:
     std::vector<Onset> onsets_;
@@ -293,6 +330,8 @@ private:
     size_t roll_resolved_ = 0; // onsets whose windows have closed
     double accuracy_ema_ = kRollStartAccuracy;
     int wrong_count_ = 0;
+    std::vector<NoteOutcome> note_outcomes_;
+    std::vector<ChordOutcome> chord_outcomes_;
 };
 
 } // namespace scoreview

@@ -175,6 +175,8 @@ void FlowController::reset_gates()
     roll_resolved_ = 0;
     accuracy_ema_ = kRollStartAccuracy;
     wrong_count_ = 0;
+    note_outcomes_.clear();
+    chord_outcomes_.clear();
 }
 
 void FlowController::advance_armed()
@@ -304,6 +306,7 @@ void FlowController::judge_roll(const std::vector<PlayerNoteEvent>& events)
     {
         // The nearest in-window onset still needing this pitch wins.
         GateNote* best_note = nullptr;
+        double best_onset_q = 0.0;
         double best_distance = std::numeric_limits<double>::max();
         GateNote* revoiced = nullptr;
         for (size_t i = roll_resolved_; i < gates_.size(); ++i)
@@ -328,18 +331,33 @@ void FlowController::judge_roll(const std::vector<PlayerNoteEvent>& events)
                 {
                     best_distance = distance;
                     best_note = &note;
+                    best_onset_q = q;
                 }
             }
         }
         if (best_note != nullptr)
         {
             best_note->verdict = NoteVerdict::Correct;
+            best_note->hit_delta_q = position_q_ - best_onset_q;
             verdict_changes_.emplace_back(best_note->id, NoteVerdict::Correct);
             ++streak_;
             const double bonus = 1.0 + 0.1 * std::min(streak_, kStreakBonusCap);
             score_ += static_cast<int>(
                 std::llround(kBaseGatePoints * bonus * (tempo_qpm_ / marking_qpm_)));
-            accuracy_sample(1.0);
+            // Center-weighted timing quality: green either way, but a
+            // sloppy hit drags the accuracy EMA (and the tempo) down.
+            const double window = best_note->hit_delta_q < 0.0 ? kRollEarlyWindowQ : kRollLateWindowQ;
+            const double edge = std::abs(best_note->hit_delta_q) / window;
+            const double quality = kRollEdgeQuality + (1.0 - kRollEdgeQuality) * std::max(0.0, 1.0 - edge * edge);
+            accuracy_sample(quality);
+            NoteOutcome outcome;
+            outcome.id = best_note->id;
+            outcome.onset_q = best_onset_q;
+            outcome.pitch = best_note->pitch;
+            outcome.verdict = NoteVerdict::Correct;
+            outcome.delta_q = best_note->hit_delta_q;
+            outcome.quality = quality;
+            note_outcomes_.push_back(std::move(outcome));
             continue;
         }
         if (revoiced != nullptr)
@@ -354,6 +372,11 @@ void FlowController::judge_roll(const std::vector<PlayerNoteEvent>& events)
         ++wrong_count_;
         streak_ = 0;
         accuracy_sample(0.0);
+        NoteOutcome stray;
+        stray.onset_q = position_q_;
+        stray.pitch = event.midi_pitch;
+        stray.stray = true;
+        note_outcomes_.push_back(std::move(stray));
     }
 }
 
@@ -364,6 +387,7 @@ void FlowController::resolve_roll_passed()
         if (position_q_ <= onsets_[roll_resolved_].qstamp + kRollLateWindowQ)
             break; // window still open
         Gate& gate = gates_[roll_resolved_];
+        const double onset_q = onsets_[roll_resolved_].qstamp;
         bool any_missed = false;
         for (GateNote& note : gate.notes)
         {
@@ -380,13 +404,63 @@ void FlowController::resolve_roll_passed()
             ++miss_count_;
             any_missed = true;
             accuracy_sample(0.0);
+            NoteOutcome outcome;
+            outcome.id = note.id;
+            outcome.onset_q = onset_q;
+            outcome.pitch = note.pitch;
+            outcome.verdict = NoteVerdict::Missed;
+            note_outcomes_.push_back(std::move(outcome));
         }
         gate.open = true;
         if (any_missed)
             streak_ = 0;
+
+        // Chord-level outcome: struck-together, split, or missed.
+        if (gate.required >= 2)
+        {
+            ChordOutcome chord;
+            chord.onset_q = onset_q;
+            double min_delta = std::numeric_limits<double>::max();
+            double max_delta = std::numeric_limits<double>::lowest();
+            bool all_correct = true;
+            for (const GateNote& note : gate.notes)
+            {
+                if (note.auto_satisfied)
+                    continue;
+                chord.pitches.push_back(note.pitch);
+                if (note.verdict == NoteVerdict::Correct)
+                {
+                    min_delta = std::min(min_delta, note.hit_delta_q);
+                    max_delta = std::max(max_delta, note.hit_delta_q);
+                }
+                else
+                {
+                    all_correct = false;
+                }
+            }
+            std::sort(chord.pitches.begin(), chord.pitches.end());
+            chord.result = !all_correct ? ChordOutcome::Result::Miss
+                                        : (max_delta - min_delta > kChordSplitQ ? ChordOutcome::Result::Split
+                                                                                : ChordOutcome::Result::Clean);
+            chord_outcomes_.push_back(std::move(chord));
+        }
         adjust_roll_tempo();
         ++roll_resolved_;
     }
+}
+
+std::vector<FlowController::NoteOutcome> FlowController::take_note_outcomes()
+{
+    std::vector<NoteOutcome> out = std::move(note_outcomes_);
+    note_outcomes_.clear();
+    return out;
+}
+
+std::vector<FlowController::ChordOutcome> FlowController::take_chord_outcomes()
+{
+    std::vector<ChordOutcome> out = std::move(chord_outcomes_);
+    chord_outcomes_.clear();
+    return out;
 }
 
 void FlowController::accuracy_sample(double value)

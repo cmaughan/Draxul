@@ -41,7 +41,7 @@ right, and *getting* to the whole piece is the goal, not the schedule.
                      existing conveyor/roll pipeline (unchanged seams)
 ```
 
-## S0 — Player memory: timing capture + the progress store
+## S0 — Player memory: timing capture + the progress store ✅ (2026-07-13)
 
 The foundation; valuable before any generation exists (today's full-piece
 roll already produces the data).
@@ -67,6 +67,17 @@ roll already produces the data).
   Flushed at bar boundaries and on shutdown; loaded at startup — the
   session resumes at a tempo informed by history, and the generator
   knows day-one what needed work yesterday.
+Shipped: `NoteOutcome`/`ChordOutcome` streams from the FlowController
+(hit delta + center-weighted quality feeding the accuracy EMA;
+edge-quality floor `kRollEdgeQuality`; chord clean/split/miss at window
+close with `kChordSplitQ`), `PlayerModel` aggregates (Welford timing,
+per-onset recent-encounter rings, near-miss stray attribution, bar
+mastery = recent-mean), `progress_store` (FNV-1a piece hash, tmp+rename
+atomic writes), host wiring (load at open, resume tempo from last
+session, flush per bar + session end). Verified live: two consecutive
+runs — save then load then extend — with the Grieg's real LH chords in
+the file. Figure-level drift lands with S1's rhythm figures.
+
 - **Schema sketch** (all fields versioned, unknown fields preserved):
 
   ```json

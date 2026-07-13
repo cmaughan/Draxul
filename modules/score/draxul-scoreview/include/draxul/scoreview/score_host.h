@@ -9,10 +9,12 @@
 #include <draxul/scoreview/metronome_synth.h>
 #include <draxul/scoreview/mic_player_input.h>
 #include <draxul/scoreview/player_input.h>
+#include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -114,6 +116,12 @@ private:
     void cycle_tick_level();
     bool ensure_tick_stream();
     void pump_metronome(double p0_q, double p1_q, double dt);
+    // Player memory (plans/scoreview-stream.md S0): outcomes drain into the
+    // model each pump; the JSON progress file flushes at bar boundaries and
+    // when the session ends.
+    void begin_progress_session();
+    void end_progress_session();
+    void save_progress(bool final_flush);
     void enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy);
     void exit_gate_mode();
     // Swaps the player-input implementation without touching the session
@@ -171,6 +179,13 @@ private:
     std::chrono::steady_clock::time_point epoch_{};
     size_t last_logged_gate_ = 0;
     bool logged_gate_end_ = false;
+
+    // Player memory (S0): per-piece aggregates + the progress file.
+    PlayerModel player_model_;
+    std::filesystem::path progress_path_;
+    std::chrono::steady_clock::time_point session_start_{};
+    int last_flush_bar_ = -1;
+    bool progress_dirty_ = false;
 
     // Metronome (audible tick) state; the SDL playback stream opens lazily.
     // Default ON with subdivisions — the click is the runner's pace signal.

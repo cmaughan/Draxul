@@ -1,14 +1,18 @@
 #include <draxul/scoreview/score_host.h>
 
 #include <draxul/base_renderer.h>
+#include <draxul/config_document.h>
 #include <draxul/host_registry.h>
 #include <draxul/log.h>
 #include <draxul/notation/musicxml_importer.h>
 #include <draxul/runtime_path.h>
 #include <draxul/scoreview/bot_player_input.h>
+#include <draxul/scoreview/progress_store.h>
 #include <draxul/scoreview/score_render_nvg.h>
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
+
+#include <ctime>
 
 #include "nanovg.h"
 
@@ -148,6 +152,20 @@ void draw_placeholder(NVGcontext* vg, int width, int height, float pixel_scale)
     fill_brace(vg, left - 0.6f * sp, upper_top, system_bottom, sp);
 }
 
+std::string now_iso8601()
+{
+    const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm_utc{};
+#ifdef _WIN32
+    gmtime_s(&tm_utc, &t);
+#else
+    gmtime_r(&t, &tm_utc);
+#endif
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
+    return buffer;
+}
+
 } // namespace
 
 bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
@@ -209,6 +227,25 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         engine_ = std::move(engine);
         layout_dirty_ = true;
 
+        // Player memory: the per-piece progress file, keyed by the source
+        // bytes so renames don't lose history (stream plan S0).
+        const std::filesystem::path progress_dir = ConfigDocument::default_path().parent_path() / "scoreview" / "progress";
+        progress_path_ = progress_path(progress_dir, bytes);
+        const std::string stored = load_progress(progress_path_);
+        if (!stored.empty() && player_model_.deserialize(stored))
+        {
+            DRAXUL_LOG_INFO(LogCategory::App,
+                "score: progress loaded — %zu session(s), %d notes, best tempo %d%%",
+                player_model_.sessions().size(), player_model_.total_notes_judged(),
+                static_cast<int>(std::lround(player_model_.best_tempo_frac() * 100.0)));
+        }
+        else if (!stored.empty())
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "score: progress file unreadable, starting fresh (%s)",
+                progress_path_.string().c_str());
+        }
+
         // Default: the runner (plans/scoreview-runner.md) — the conveyor in
         // Roll mode with the dev keyboard, transport rolling from the first
         // note (mic via `roll-mic` or `i`). Commands override: `paged` =
@@ -269,6 +306,7 @@ double ScoreHost::now_seconds() const
 
 void ScoreHost::shutdown()
 {
+    end_progress_session();
     if (tick_stream_ != nullptr)
     {
         SDL_DestroyAudioStream(tick_stream_);
@@ -461,6 +499,10 @@ void ScoreHost::relayout_flow()
     highlight_.build(*strip_);
     const double bar_quarters = quarters_per_measure_from_model();
     quarters_per_bar_ = bar_quarters > 0.0 ? bar_quarters : 4.0;
+    player_model_.set_piece(has_model_ && !model_.title.empty()
+            ? model_.title
+            : std::filesystem::path(source_path_).filename().string(),
+        flow_.marking_qpm(), quarters_per_bar_);
     apply_lit_update(); // anything at q <= 0 sits under the playhead pre-lit
     DRAXUL_LOG_INFO(LogCategory::App, "score: conveyor strip %zu ops, %zu onsets, marking %d qpm",
         strip_->glyphs.size() + strip_->paths.size() + strip_->texts.size(),
@@ -576,6 +618,8 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
     // The gate transport starts immediately for every input: it just glides
     // to the first onset and WAITS there. Space pauses/resumes.
     flow_.play();
+    if (game_mode_ == FlowController::TransportMode::Roll)
+        begin_progress_session();
     last_logged_gate_ = 0;
     logged_gate_end_ = false;
     if (callbacks_ != nullptr)
@@ -584,6 +628,7 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
 
 void ScoreHost::exit_gate_mode()
 {
+    end_progress_session();
     player_input_.reset();
     keyboard_input_ = nullptr;
     mic_input_ = nullptr;
@@ -723,6 +768,48 @@ double ScoreHost::quarters_per_measure_from_model() const
     return 0.0;
 }
 
+void ScoreHost::begin_progress_session()
+{
+    if (progress_path_.empty() || player_model_.session_active())
+        return;
+    player_model_.begin_session(now_iso8601());
+    session_start_ = std::chrono::steady_clock::now();
+    // Resume at yesterday's pace: the stored tempo informs the start, still
+    // clamped to the marking band. Fresh pieces keep the 60% default.
+    if (player_model_.last_tempo_frac() > 0.0 && flow_.ready())
+        flow_.set_tempo_qpm(flow_.marking_qpm() * player_model_.last_tempo_frac());
+}
+
+void ScoreHost::end_progress_session()
+{
+    if (!player_model_.session_active())
+        return;
+    const int seconds = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::steady_clock::now() - session_start_)
+            .count());
+    player_model_.end_session(
+        seconds, flow_.marking_qpm() > 0.0 ? flow_.tempo_qpm() / flow_.marking_qpm() : 0.0);
+    save_progress(/*final_flush=*/true);
+}
+
+void ScoreHost::save_progress(bool final_flush)
+{
+    if (progress_path_.empty())
+        return;
+    std::string error;
+    if (!save_progress_atomic(progress_path_, player_model_.serialize(), error))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: progress save failed: %s", error.c_str());
+        return;
+    }
+    progress_dirty_ = false;
+    if (final_flush)
+    {
+        DRAXUL_LOG_INFO(LogCategory::App, "score: progress saved — %d notes total, %s",
+            player_model_.total_notes_judged(), progress_path_.string().c_str());
+    }
+}
+
 bool ScoreHost::ensure_tick_stream()
 {
     if (tick_stream_ != nullptr)
@@ -853,6 +940,26 @@ void ScoreHost::pump()
                     flow_.judge(events);
             }
             apply_verdict_update();
+
+            // Player memory: drain outcomes into the model; flush the
+            // progress file at bar boundaries (cheap, atomic).
+            for (const FlowController::NoteOutcome& outcome : flow_.take_note_outcomes())
+            {
+                player_model_.apply(outcome);
+                progress_dirty_ = true;
+            }
+            for (const FlowController::ChordOutcome& outcome : flow_.take_chord_outcomes())
+            {
+                player_model_.apply(outcome);
+                progress_dirty_ = true;
+            }
+            const int bar = static_cast<int>(flow_.position_q() / quarters_per_bar_);
+            if (bar != last_flush_bar_)
+            {
+                last_flush_bar_ = bar;
+                if (progress_dirty_)
+                    save_progress(/*final_flush=*/false);
+            }
 
             // Periodic + final INFO lines feed the G4 log-based verification.
             const size_t gate_index = flow_.armed_gate_index();

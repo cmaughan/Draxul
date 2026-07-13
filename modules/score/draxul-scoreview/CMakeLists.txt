@@ -6,6 +6,8 @@ add_library(draxul-scoreview STATIC
     src/flow_controller.cpp
     src/metronome_synth.cpp
     src/note_listener.cpp
+    src/player_model.cpp
+    src/progress_store.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp
     src/svg_score_interpreter.cpp
@@ -61,7 +63,7 @@ target_link_libraries(draxul-scoreview-host PUBLIC
     draxul-host
     draxul-renderer
     draxul-nanovg
-    PRIVATE SDL3::SDL3
+    PRIVATE SDL3::SDL3 draxul-config
 )
 
 # Microphone permission pre-flight: TCC via AVFoundation on macOS (SDL must
