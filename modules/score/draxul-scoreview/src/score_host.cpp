@@ -655,10 +655,19 @@ bool ScoreHost::handle_gate_key(int keycode)
     }
     if (keycode == SDLK_BACKSPACE)
     {
-        int wrong = anchor + 1;
-        while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
+        // A full wrong ATTEMPT, symmetric with Return's full correct one: a
+        // chord gate only resolves once it has heard as many notes as it
+        // requires (mid-chord, the player might still land the rest), so
+        // push one distinct wrong note per required pitch.
+        int wrong = anchor;
+        const size_t count = std::max<size_t>(1, expected.size());
+        for (size_t i = 0; i < count; ++i)
+        {
             ++wrong;
-        keyboard_input_->push(wrong, now_seconds());
+            while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
+                ++wrong;
+            keyboard_input_->push(wrong, now_seconds());
+        }
         return true;
     }
     return false;
