@@ -9,9 +9,13 @@ repeats the phrases, components, notes, and *timings* the player is
 demonstrably struggling with. Persist everything between sessions (JSON):
 notes succeeded, notes missed, chords in trouble, and — very important —
 timing tendencies (e.g. triplets consistently played slow must be
-detected, drilled, and fixed). Over a long session the stream converges
-on the actual piece — beginning, middle, end, sliced and rearranged —
-until the player is suddenly playing the whole thing.
+detected, drilled, and fixed). The stream converges on the actual piece
+— beginning, middle, end, sliced and rearranged — **only as the player
+improves**: convergence is gated on demonstrated mastery, never on
+elapsed time. How long that takes varies per player and per piece; a
+session (or many) may never reach the full performance, and that's
+correct behavior — the problems get drilled until they're consistently
+right, and *getting* to the whole piece is the goal, not the schedule.
 
 ## Architecture at a glance
 
@@ -159,17 +163,23 @@ emit the next bar as model measures with per-note provenance.
 - **Every generated note carries provenance** so its verdict feeds the
   right statistic — the loop that makes the lesson adaptive.
 
-## S4 — Convergence, slicing, the long-session arc
+## S4 — Convergence and slicing (mastery-gated, never time-gated)
 
 - The **frontier roams**: practice segments picked from the beginning,
   middle, and end of the piece (weighted by mastery), so the piece is
   learned as slices that grow and merge — the user's "from the end, from
   the beginning, from the middle, sliced up".
-- As mastery rises: drill share decays, consecutive real-piece runs
-  lengthen, tempo target climbs — until the stream is simply the piece,
-  start to finish. That run IS the acceptance test of the milestone.
+- **Promotion is earned, not scheduled**: drill share decays, real-piece
+  runs lengthen, and the tempo target climbs only when the mastery map
+  crosses explicit thresholds (accuracy AND timing consistency per
+  bar/figure, sustained over repeated encounters — not a lucky pass).
+  Nothing promotes because time passed; a struggling player gets more
+  drilling, not the piece anyway. The full start-to-finish performance
+  happens only when every slice has earned it — that run IS the
+  milestone's acceptance test, whenever it comes.
 - Session pacing: fatigue guard (drill density eases late in a long
-  session), and the JSON's session records let tomorrow start smart.
+  session), and the JSON's session records let tomorrow start exactly
+  where mastery says, not where the clock left off.
 
 ## Verification instruments
 
