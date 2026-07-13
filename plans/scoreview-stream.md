@@ -128,7 +128,24 @@ Grieg (known answers) and synthetic fixtures.
   canonical grid — the *timing drill targets* that S0's drift statistics
   key on.
 
-## S2 — The rolling window (display + append machinery)
+## S2 — The rolling window (display + append machinery) ✅ (2026-07-13)
+
+Shipped: `SourceSlicer` re-emits any bar range as a self-contained
+document (original measures verbatim, accumulated attribute state
+injected at the window head) — proven ENGRAVE-EQUIVALENT to the monolith
+on the real Grieg (every onset in bars 10–17 matches qstamp-shifted with
+identical pitches). Roll mode plays on a 10-bar window (1 history + 8
+ahead) rebuilt one bar at a time as the playhead crosses the history
+margin: `FlowController` carry APIs (`carry_state`/`restore_carry`,
+`preset_verdict`, `fast_forward_resolved`) move tempo/score/accuracy and
+repaint earned verdicts onto each fresh engraving from the host's verdict
+archive; outcomes land in the player model on the stream axis. The view
+now sizes by WIDTH — ~2 bars around the playhead fill the pane (zoom
+divides the bar count) — and `r` restarts the stream. Verified live:
+seven window swaps in 25 s (~80 ms each, logged; async double-buffer is
+the recorded optimization follow-up), red verdicts surviving every swap,
+misses accumulating across windows. Clock flow and Gate mode keep the
+monolithic strip (the bots' world); `.mxl` sources fall back likewise.
 
 Replaces "engrave the whole piece once" with a window that can change
 while playing — the enabling mechanics for everything else.

@@ -39,6 +39,9 @@ constexpr float MAX_ZOOM = 4.0f;
 // Verification bot (G4): slow enough that adaptation must pull the start
 // tempo (60% of marking) downward measurably within a short capture window.
 constexpr double kBotPaceQpm = 50.0;
+// Rolling window (stream S2): bars around the playhead that fill the pane
+// width — the user's "show just 2 bars"; zoom divides it.
+constexpr double kStreamVisibleBars = 2.0;
 
 // Placeholder engraving proportions (no-source mode), see plans/scoreview.md
 // phase 0. Staff-relative thicknesses follow SMuFL engravingDefaults.
@@ -194,6 +197,7 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         std::ostringstream buffer;
         buffer << stream.rdbuf();
         const std::string bytes = buffer.str();
+        source_bytes_ = bytes; // the rolling window re-slices the source
 
         // Semantic model import is best-effort here: it powers status metadata
         // now and editing later. Compressed .mxl bytes are engine-only until
@@ -284,6 +288,10 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             start_in_gate_ = false;
             flow_autoplay_ = command.find("autoplay") != std::string::npos;
         }
+        // `mono` disables the rolling window (the monolithic-strip
+        // verification instrument for window-equivalence checks).
+        if (command.find("mono") != std::string::npos)
+            stream_windowed_ = false;
         // The metronome defaults ON with subdivisions; `notick`/`tick`/
         // `tick8` tokens override from launch (dev/test).
         if (command.find("notick") != std::string::npos)
@@ -470,15 +478,24 @@ void ScoreHost::relayout_flow()
     flow_dirty_ = false;
     if (!engine_ || !engine_->is_loaded())
         return;
-
-    LayoutOptions options;
-    options.mode = LayoutMode::Flow;
-    options.pixel_scale = ui_scale();
-    engine_->set_options(options);
+    if (engine_holds_window_)
+    {
+        // Leaving the windowed roll: the clock conveyor and paged view work
+        // on the whole piece again.
+        std::string reload_error;
+        if (!engine_->load(source_bytes_, reload_error))
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App, "score: source reload failed: %s",
+                reload_error.c_str());
+            return;
+        }
+        engine_holds_window_ = false;
+        stream_offset_q_ = 0.0;
+    }
 
     std::string error;
-    auto strip = interpret_score_svg(engine_->render_page_svg(1), error);
-    if (!strip)
+    const FlowBuildResult result = build_flow_from_engine(error);
+    if (result == FlowBuildResult::InterpretFailed)
     {
         DRAXUL_LOG_ERROR(
             LogCategory::App, "score: flow interpret failed, staying paged: %s", error.c_str());
@@ -486,20 +503,14 @@ void ScoreHost::relayout_flow()
         layout_dirty_ = true;
         return;
     }
-    for (const std::string& warning : strip->warnings)
-        DRAXUL_LOG_DEBUG(LogCategory::App, "score flow interpreter: %s", warning.c_str());
-
-    auto shared_strip = std::make_shared<const ScoreDrawList>(std::move(*strip));
-    auto timemap = parse_timemap(engine_->render_timemap(), error);
-    const bool transport_ok = timemap.has_value() && flow_.build(*timemap, *shared_strip, error);
+    const bool transport_ok = result == FlowBuildResult::Ok;
     if (!transport_ok)
         DRAXUL_LOG_ERROR(
             LogCategory::App, "score: conveyor transport unavailable: %s", error.c_str());
 
-    strip_ = std::move(shared_strip);
-    highlight_.build(*strip_);
     const double bar_quarters = quarters_per_measure_from_model();
     quarters_per_bar_ = bar_quarters > 0.0 ? bar_quarters : 4.0;
+    piece_marking_qpm_ = flow_.marking_qpm();
     player_model_.set_piece(has_model_ && !model_.title.empty()
             ? model_.title
             : std::filesystem::path(source_path_).filename().string(),
@@ -511,11 +522,19 @@ void ScoreHost::relayout_flow()
 
     if (transport_ok)
     {
-        // Expected notes + tie continuations for the gate (same id space —
-        // no model bridge needed, plans/scoreview-gate.md).
-        flow_.prepare_gates(
-            [this](const std::string& id) { return engine_->midi_pitch_for_element(id); },
-            engine_->tie_end_ids());
+        // The rolling window needs the sliceable source; .mxl (zip) sources
+        // fall back to the monolithic strip (recorded follow-up).
+        if (stream_windowed_ && !slicer_.ready())
+        {
+            std::string slicer_error;
+            if (!slicer_.load(source_bytes_, slicer_error) || slicer_.bar_count() < 2)
+            {
+                stream_windowed_ = false;
+                DRAXUL_LOG_WARN(LogCategory::App,
+                    "score: rolling window unavailable, monolithic strip (%s)",
+                    slicer_error.c_str());
+            }
+        }
 
         // Piece analysis (stream plan S1): key, chords + nearings, motifs,
         // rhythm figures — from the judgment axis itself, dumped beside the
@@ -578,6 +597,106 @@ void ScoreHost::relayout_flow()
     scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll());
     if (callbacks_ != nullptr)
         callbacks_->request_frame();
+}
+
+ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
+{
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    options.pixel_scale = ui_scale();
+    engine_->set_options(options);
+
+    auto strip = interpret_score_svg(engine_->render_page_svg(1), error);
+    if (!strip)
+        return FlowBuildResult::InterpretFailed;
+    for (const std::string& warning : strip->warnings)
+        DRAXUL_LOG_DEBUG(LogCategory::App, "score flow interpreter: %s", warning.c_str());
+
+    auto shared_strip = std::make_shared<const ScoreDrawList>(std::move(*strip));
+    auto timemap = parse_timemap(engine_->render_timemap(), error);
+    const bool transport_ok = timemap.has_value() && flow_.build(*timemap, *shared_strip, error);
+    strip_ = std::move(shared_strip);
+    highlight_.build(*strip_);
+    if (!transport_ok)
+        return FlowBuildResult::TransportFailed;
+
+    // Expected notes + tie continuations for the gate (same id space —
+    // no model bridge needed, plans/scoreview-gate.md).
+    flow_.prepare_gates(
+        [this](const std::string& id) { return engine_->midi_pitch_for_element(id); },
+        engine_->tie_end_ids());
+    return FlowBuildResult::Ok;
+}
+
+bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool carry)
+{
+    const auto swap_start = std::chrono::steady_clock::now();
+    const int total = slicer_.bar_count();
+    first_bar = std::clamp(first_bar, 0, std::max(0, total - 1));
+    const int count = std::min(1 + kWindowHistoryBars + kWindowAheadBars, total - first_bar);
+    const std::string window = slicer_.window_xml(first_bar, count);
+    const FlowController::CarryState carried = flow_.carry_state();
+
+    std::string error;
+    if (window.empty() || !engine_->load(window, error))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: window build failed (%s), monolithic strip",
+            error.c_str());
+        stream_windowed_ = false;
+        return false;
+    }
+    engine_holds_window_ = true;
+    if (build_flow_from_engine(error) != FlowBuildResult::Ok)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: window flow failed (%s), monolithic strip",
+            error.c_str());
+        stream_windowed_ = false;
+        flow_dirty_ = true; // reload the full piece on the next pump
+        return false;
+    }
+    window_first_bar_ = first_bar;
+    window_bar_count_ = count;
+    stream_offset_q_ = slicer_.bar_start_q(first_bar);
+    flow_.set_marking_qpm(piece_marking_qpm_);
+    flow_.set_mode(FlowController::TransportMode::Roll);
+    if (carry)
+    {
+        flow_.restore_carry(carried);
+        const double local_position = stream_position_q - stream_offset_q_;
+        const double window_end_local = slicer_.bar_start_q(first_bar + count) - stream_offset_q_;
+        for (const auto& [key, verdict] : verdict_archive_)
+        {
+            const double local_q = key.first / 1000.0 - stream_offset_q_;
+            if (local_q >= -1e-6 && local_q <= window_end_local)
+                flow_.preset_verdict(local_q, key.second, verdict);
+        }
+        flow_.fast_forward_resolved(local_position);
+        flow_.seek(local_position);
+    }
+    flow_.play();
+    apply_verdict_update(); // repaint carried verdicts on the fresh strip
+    const double swap_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - swap_start)
+                               .count();
+    DRAXUL_LOG_DEBUG(LogCategory::App, "score: window -> bars %d..%d (%.1f ms)", first_bar,
+        first_bar + count - 1, swap_ms);
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+    return true;
+}
+
+void ScoreHost::maybe_advance_stream()
+{
+    if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
+        return;
+    const int total = slicer_.bar_count();
+    if (window_first_bar_ + window_bar_count_ >= total)
+        return; // the window tail already reaches the final bar
+    const double stream_q = stream_position_q();
+    const int playhead_bar = slicer_.bar_at(stream_q);
+    if (playhead_bar <= window_first_bar_ + kWindowHistoryBars)
+        return; // still inside the history margin
+    rebuild_window(playhead_bar - kWindowHistoryBars, stream_q, /*carry=*/true);
 }
 
 void ScoreHost::toggle_flow_mode()
@@ -659,7 +778,17 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
 {
     if (!flow_.gates_ready())
         return;
-    flow_.set_mode(game_mode_);
+    if (game_mode_ == FlowController::TransportMode::Roll && stream_windowed_ && slicer_.ready())
+    {
+        // The runner plays on the rolling window from stream bar 0.
+        verdict_archive_.clear();
+        if (!rebuild_window(0, 0.0, /*carry=*/false))
+            flow_.set_mode(game_mode_); // fell back to the monolithic strip
+    }
+    else
+    {
+        flow_.set_mode(game_mode_);
+    }
     highlight_.clear_lit();
     apply_verdict_update(); // consume the reset
     set_gate_input(input, bot_pace_qpm, bot_accuracy);
@@ -681,6 +810,13 @@ void ScoreHost::exit_gate_mode()
     keyboard_input_ = nullptr;
     mic_input_ = nullptr;
     flow_.set_mode(FlowController::TransportMode::Clock);
+    if (stream_active())
+    {
+        // The engine holds a window document; the clock conveyor wants the
+        // whole piece back (relayout_flow reloads the source).
+        verdict_archive_.clear();
+        flow_dirty_ = true;
+    }
     highlight_.clear_lit();
     apply_lit_update(); // consume the reset; re-light anything at q <= 0
     if (callbacks_ != nullptr)
@@ -951,7 +1087,7 @@ int ScoreHost::approx_measure() const
     const double quarters_per_measure = quarters_per_measure_from_model();
     if (quarters_per_measure <= 0.0)
         return 0;
-    return static_cast<int>(flow_.position_q() / quarters_per_measure) + 1;
+    return static_cast<int>(stream_position_q() / quarters_per_measure) + 1;
 }
 
 void ScoreHost::pump()
@@ -989,25 +1125,36 @@ void ScoreHost::pump()
             }
             apply_verdict_update();
 
-            // Player memory: drain outcomes into the model; flush the
-            // progress file at bar boundaries (cheap, atomic).
-            for (const FlowController::NoteOutcome& outcome : flow_.take_note_outcomes())
+            // Player memory: drain outcomes into the model on the STREAM
+            // axis (window-local qstamps + the window's offset), archive
+            // verdicts for window rebuilds, and flush the progress file at
+            // bar boundaries (cheap, atomic).
+            for (FlowController::NoteOutcome outcome : flow_.take_note_outcomes())
             {
+                outcome.onset_q += stream_offset_q_;
+                if (!outcome.stray)
+                {
+                    verdict_archive_[{ static_cast<long long>(
+                                           std::llround(outcome.onset_q * 1000.0)),
+                        outcome.pitch }] = outcome.verdict;
+                }
                 player_model_.apply(outcome);
                 progress_dirty_ = true;
             }
-            for (const FlowController::ChordOutcome& outcome : flow_.take_chord_outcomes())
+            for (FlowController::ChordOutcome outcome : flow_.take_chord_outcomes())
             {
+                outcome.onset_q += stream_offset_q_;
                 player_model_.apply(outcome);
                 progress_dirty_ = true;
             }
-            const int bar = static_cast<int>(flow_.position_q() / quarters_per_bar_);
+            const int bar = static_cast<int>(stream_position_q() / quarters_per_bar_);
             if (bar != last_flush_bar_)
             {
                 last_flush_bar_ = bar;
                 if (progress_dirty_)
                     save_progress(/*final_flush=*/false);
             }
+            maybe_advance_stream();
 
             // Periodic + final INFO lines feed the G4 log-based verification.
             const size_t gate_index = flow_.armed_gate_index();
@@ -1058,7 +1205,22 @@ void ScoreHost::draw(IFrameContext& frame)
         const ScoreHighlightState* highlight = &highlight_;
         const float vw = static_cast<float>(viewport_.pixel_size.x);
         const float vh = static_cast<float>(viewport_.pixel_size.y);
-        const FlowBand band = flow_band();
+        FlowBand band = flow_band();
+        if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
+        {
+            // The rolling window sizes by WIDTH: about kStreamVisibleBars
+            // bars around the playhead fill the pane (zoom shows fewer or
+            // more), clamped so the band never overflows vertically.
+            const double visible_q = std::max(1.0, kStreamVisibleBars * quarters_per_bar_ / std::max(0.25f, zoom_));
+            const double span_canvas = flow_.x_at(flow_.position_q() + visible_q) - flow_.x_at(flow_.position_q());
+            if (span_canvas > 1.0)
+            {
+                const float width_scale = static_cast<float>(vw / span_canvas);
+                band.target_h = std::clamp(strip->canvas_size.y * width_scale,
+                    96.0f * pixel_scale, vh * 0.9f);
+                band.strip_y = (vh - band.target_h) * 0.5f;
+            }
+        }
         const float target_h = band.target_h;
         const float scale = target_h / strip->canvas_size.y;
         constexpr double kAnchorFrac = 0.3;
@@ -1166,8 +1328,17 @@ void ScoreHost::on_key(const KeyEvent& event)
             flow_.set_tempo_qpm(flow_.tempo_qpm() * 1.04);
             break;
         case SDLK_R:
-            flow_.rewind();
-            apply_lit_update();
+            if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
+            {
+                // Restart the stream from bar 0 with a fresh session.
+                verdict_archive_.clear();
+                rebuild_window(0, 0.0, /*carry=*/false);
+            }
+            else
+            {
+                flow_.rewind();
+                apply_lit_update();
+            }
             break;
         case SDLK_T:
             cycle_tick_level();

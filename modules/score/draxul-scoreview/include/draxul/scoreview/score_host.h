@@ -13,11 +13,14 @@
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
+#include <draxul/scoreview/source_slicer.h>
 
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace draxul
@@ -112,6 +115,21 @@ private:
     int approx_measure() const;
     double quarters_per_measure_from_model() const;
     double now_seconds() const;
+    // The rolling window (plans/scoreview-stream.md S2): the roll game runs
+    // on a short re-engraved window of the stream; the transport's local
+    // axis maps to the stream via stream_offset_q_.
+    enum class FlowBuildResult : uint8_t
+    {
+        InterpretFailed,
+        TransportFailed,
+        Ok,
+    };
+    FlowBuildResult build_flow_from_engine(std::string& error);
+    bool rebuild_window(int first_bar, double stream_position_q, bool carry);
+    double stream_position_q() const
+    {
+        return flow_.position_q() + stream_offset_q_;
+    }
     // The click track: position-locked to the transport — ticks fire as the
     // playhead crosses beat lines, so gate mode falls silent while waiting.
     void cycle_tick_level();
@@ -123,6 +141,13 @@ private:
     void begin_progress_session();
     void end_progress_session();
     void save_progress(bool final_flush);
+    // Advances the rolling window when the playhead moves past its history
+    // margin; records judged outcomes into the verdict archive first.
+    void maybe_advance_stream();
+    bool stream_active() const
+    {
+        return engine_holds_window_;
+    }
     void enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy);
     void exit_gate_mode();
     // Swaps the player-input implementation without touching the session
@@ -180,6 +205,22 @@ private:
     std::chrono::steady_clock::time_point epoch_{};
     size_t last_logged_gate_ = 0;
     bool logged_gate_end_ = false;
+
+    // Rolling window state (S2). `mono` command falls back to the
+    // monolithic strip (the equivalence-verification instrument).
+    SourceSlicer slicer_;
+    std::string source_bytes_;
+    bool stream_windowed_ = true;
+    bool engine_holds_window_ = false;
+    int window_first_bar_ = 0;
+    int window_bar_count_ = 0;
+    double stream_offset_q_ = 0.0;
+    double piece_marking_qpm_ = 0.0;
+    // Verdicts already earned, keyed by (stream q in thousandths, pitch) —
+    // re-applied to the fresh engraving after every window swap.
+    std::map<std::pair<long long, int>, FlowController::NoteVerdict> verdict_archive_;
+    static constexpr int kWindowHistoryBars = 1;
+    static constexpr int kWindowAheadBars = 8;
 
     // Piece analysis (S1): computed at flow build, cached for the composer.
     PieceProfile piece_profile_;

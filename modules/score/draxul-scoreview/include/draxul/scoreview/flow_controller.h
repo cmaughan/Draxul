@@ -144,6 +144,9 @@ public:
         return tempo_qpm_;
     }
     void set_tempo_qpm(double qpm);
+    // Window documents lose the piece's bar-1 tempo text; the host restores
+    // the true marking after each rebuild (re-clamps the current tempo).
+    void set_marking_qpm(double qpm);
     double min_tempo_qpm() const;
     double max_tempo_qpm() const;
 
@@ -241,6 +244,29 @@ public:
     };
     std::vector<NoteOutcome> take_note_outcomes();
     std::vector<ChordOutcome> take_chord_outcomes();
+
+    // Window carry-over (plans/scoreview-stream.md S2): the rolling window
+    // rebuilds this controller from a fresh engraving at bar boundaries;
+    // these APIs move the game state across the rebuild.
+    struct CarryState
+    {
+        double tempo_qpm = 0.0;
+        double accuracy_ema = kRollStartAccuracy;
+        int score = 0;
+        int streak = 0;
+        int miss_count = 0;
+        int wrong_count = 0;
+    };
+    CarryState carry_state() const;
+    void restore_carry(const CarryState& state);
+    // Marks a still-pending note at the onset nearest `qstamp_local` with an
+    // already-earned verdict (repaints via the verdict diff; emits no
+    // outcome, no score, no accuracy — those were counted the first time).
+    void preset_verdict(double qstamp_local, int pitch, NoteVerdict verdict);
+    // Closes every window fully left of the position without judging:
+    // remaining pending notes turn Missed silently (verdict repaint only) —
+    // safety net for archive gaps, normally a no-op after presets.
+    void fast_forward_resolved(double local_position_q);
 
     VerdictUpdate take_verdict_update();
 

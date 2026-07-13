@@ -463,6 +463,66 @@ std::vector<FlowController::ChordOutcome> FlowController::take_chord_outcomes()
     return out;
 }
 
+FlowController::CarryState FlowController::carry_state() const
+{
+    CarryState state;
+    state.tempo_qpm = tempo_qpm_;
+    state.accuracy_ema = accuracy_ema_;
+    state.score = score_;
+    state.streak = streak_;
+    state.miss_count = miss_count_;
+    state.wrong_count = wrong_count_;
+    return state;
+}
+
+void FlowController::restore_carry(const CarryState& state)
+{
+    set_tempo_qpm(state.tempo_qpm);
+    accuracy_ema_ = state.accuracy_ema;
+    score_ = state.score;
+    streak_ = state.streak;
+    miss_count_ = state.miss_count;
+    wrong_count_ = state.wrong_count;
+}
+
+void FlowController::preset_verdict(double qstamp_local, int pitch, NoteVerdict verdict)
+{
+    if (verdict == NoteVerdict::Pending)
+        return;
+    for (size_t i = 0; i < gates_.size(); ++i)
+    {
+        if (std::abs(onsets_[i].qstamp - qstamp_local) > 1e-3)
+            continue;
+        for (GateNote& note : gates_[i].notes)
+        {
+            if (note.verdict == NoteVerdict::Pending && note.pitch == pitch)
+            {
+                note.verdict = verdict;
+                verdict_changes_.emplace_back(note.id, verdict);
+                return;
+            }
+        }
+    }
+}
+
+void FlowController::fast_forward_resolved(double local_position_q)
+{
+    while (roll_resolved_ < gates_.size()
+        && onsets_[roll_resolved_].qstamp + kRollLateWindowQ < local_position_q)
+    {
+        Gate& gate = gates_[roll_resolved_];
+        for (GateNote& note : gate.notes)
+        {
+            if (note.verdict != NoteVerdict::Pending)
+                continue;
+            note.verdict = note.auto_satisfied ? NoteVerdict::Correct : NoteVerdict::Missed;
+            verdict_changes_.emplace_back(note.id, note.verdict);
+        }
+        gate.open = true;
+        ++roll_resolved_;
+    }
+}
+
 void FlowController::accuracy_sample(double value)
 {
     accuracy_ema_ = kRollAccuracyAlpha * value + (1.0 - kRollAccuracyAlpha) * accuracy_ema_;
@@ -630,6 +690,14 @@ bool FlowController::at_end() const
 void FlowController::set_tempo_qpm(double qpm)
 {
     tempo_qpm_ = std::clamp(qpm, min_tempo_qpm(), max_tempo_qpm());
+}
+
+void FlowController::set_marking_qpm(double qpm)
+{
+    if (qpm <= 0.0)
+        return;
+    marking_qpm_ = qpm;
+    set_tempo_qpm(tempo_qpm_);
 }
 
 double FlowController::min_tempo_qpm() const

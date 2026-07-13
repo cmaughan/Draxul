@@ -11,6 +11,7 @@ add_library(draxul-scoreview STATIC
     src/progress_store.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp
+    src/source_slicer.cpp
     src/svg_score_interpreter.cpp
     src/verovio_layout_engine.cpp
 )
