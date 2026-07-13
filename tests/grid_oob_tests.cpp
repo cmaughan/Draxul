@@ -159,11 +159,17 @@ TEST_CASE("resize with pathological dimensions clamps", "[grid][oob]")
         REQUIRE(grid.cols() == 0);
         REQUIRE(grid.rows() == 0);
     }
-    SECTION("excessive dimensions clamp to kMaxGridDim")
+    SECTION("excessive columns clamp independently")
     {
-        grid.resize(100000, 100000);
-        REQUIRE(grid.cols() <= 10000);
-        REQUIRE(grid.rows() <= 10000);
+        grid.resize(100000, 1);
+        REQUIRE(grid.cols() == 10000);
+        REQUIRE(grid.rows() == 1);
+    }
+    SECTION("excessive rows clamp independently")
+    {
+        grid.resize(1, 100000);
+        REQUIRE(grid.cols() == 1);
+        REQUIRE(grid.rows() == 10000);
     }
     SECTION("zero dimensions are valid")
     {

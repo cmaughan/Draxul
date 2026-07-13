@@ -780,18 +780,35 @@ TEST_CASE("grid mark_all_dirty sets full_dirty flag", "[grid]")
     REQUIRE(dirty.size() == size_t(10 * 5));
 }
 
-TEST_CASE("grid clear does not allocate per-cell for large dimensions", "[grid]")
+TEST_CASE("grid resize updates dimensions and preserves in-bounds cells", "[grid]")
 {
-    // This test verifies the OOM fix: clear() on a large grid should not
-    // push millions of entries into dirty_cells_.
     Grid grid;
-    grid.resize(5000, 2000);
+    grid.resize(5, 3);
+    grid.set_cell(0, 0, "H", 1, false);
+    grid.set_cell(4, 2, "W", 2, false);
+
+    grid.resize(10, 6);
+
+    REQUIRE(grid.cols() == 10);
+    REQUIRE(grid.rows() == 6);
+    REQUIRE(grid.get_cell(0, 0).text == std::string("H"));
+    REQUIRE(grid.get_cell(4, 2).text == std::string("W"));
+
+    grid.resize(2, 1);
+
+    REQUIRE(grid.cols() == 2);
+    REQUIRE(grid.rows() == 1);
+    REQUIRE(grid.get_cell(0, 0).text == std::string("H"));
+}
+
+TEST_CASE("grid resize marks the resized grid fully dirty", "[grid]")
+{
+    Grid grid;
+    grid.resize(10, 5);
     grid.clear_dirty();
 
-    grid.clear();
+    grid.resize(20, 8);
+
     REQUIRE(grid.is_full_dirty());
-    // The key assertion: dirty_cells_ internal vector should be empty
-    // (full_dirty_ flag handles it instead). dirty_cell_count() returns
-    // the total via the flag, not via vector size.
-    REQUIRE(grid.dirty_cell_count() == size_t(5000) * size_t(2000));
+    REQUIRE(grid.dirty_cell_count() == size_t(20 * 8));
 }

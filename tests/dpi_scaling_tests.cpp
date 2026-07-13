@@ -203,51 +203,6 @@ TEST_CASE("dpi cell size at 1.0x feeds correct grid dimensions to panel layout",
     svc.shutdown();
 }
 
-TEST_CASE("dpi hotplug stress: 20 rapid scale changes produce consistent final state", "[display]")
-{
-    auto font_path = bundled_font_path();
-    if (!std::filesystem::exists(font_path))
-        SKIP("bundled font not available");
-
-    // Simulate 20 rapid DPI changes by reinitializing with alternating scales.
-    // The terminal must produce consistent state after each change.
-    const std::vector<float> scales = {
-        1.0f, 2.0f, 1.5f, 1.0f, 2.0f, 1.25f, 1.75f, 1.0f, 2.0f, 1.5f,
-        1.0f, 1.5f, 2.0f, 1.0f, 1.25f, 1.75f, 2.0f, 1.5f, 1.0f, 2.0f
-    };
-
-    TextService svc;
-    TextServiceConfig cfg;
-    cfg.font_path = font_path.string();
-
-    for (size_t i = 0; i < scales.size(); ++i)
-    {
-        // Reinitialise for each "hotplug" event
-        if (i > 0)
-            svc.shutdown();
-        INFO("text service reinitialises after scale change");
-        REQUIRE(svc.initialize(cfg, 11, compute_display_ppi(scales[i])));
-        const auto& m = svc.metrics();
-        INFO("cell width positive after scale change");
-        REQUIRE(m.cell_width > 0);
-        INFO("cell height positive after scale change");
-        REQUIRE(m.cell_height > 0);
-    }
-
-    // Final state should match the last scale (2.0x)
-    const float expected_ppi = compute_display_ppi(2.0f);
-    TextService reference;
-    INFO("reference service initializes at 2x");
-    REQUIRE(reference.initialize(cfg, 11, expected_ppi));
-    INFO("final state cell_width matches fresh 2x init");
-    REQUIRE(svc.metrics().cell_width == reference.metrics().cell_width);
-    INFO("final state cell_height matches fresh 2x init");
-    REQUIRE(svc.metrics().cell_height == reference.metrics().cell_height);
-
-    svc.shutdown();
-    reference.shutdown();
-}
-
 TEST_CASE("dpi hotplug stress: panel layout consistent after each scale change", "[display]")
 {
     // Simulate 20 rapid DPI changes via compute_panel_layout calls

@@ -1,6 +1,9 @@
 
 #include <draxul/renderer_state.h>
 
+#include "support/fake_renderer.h"
+#include "support/fake_window.h"
+
 #include <vector>
 
 #include <catch2/catch_all.hpp>
@@ -37,6 +40,17 @@ std::vector<GpuCell> snapshot(const RendererState& state)
     state.copy_to(reinterpret_cast<std::byte*>(gpu.data()));
     return gpu;
 }
+
+class TestRenderPass final : public IRenderPass
+{
+public:
+    void record(IRenderContext&) override
+    {
+        ++record_calls;
+    }
+
+    int record_calls = 0;
+};
 
 } // namespace
 
@@ -316,4 +330,22 @@ TEST_CASE("renderer state tracks dirty ranges for incremental uploads", "[render
 
     INFO("overlay cursor dirties the overlay region");
     REQUIRE(state.overlay_region_dirty());
+}
+
+TEST_CASE("renderer frame context accepts recorded render passes", "[renderer]")
+{
+    tests::FakeTermRenderer renderer;
+    tests::FakeWindow window;
+    REQUIRE(renderer.initialize(window));
+
+    IFrameContext* frame = renderer.begin_frame();
+    REQUIRE(frame != nullptr);
+
+    TestRenderPass pass;
+    RenderViewport viewport;
+    REQUIRE_NOTHROW(frame->record_render_pass(pass, viewport));
+    CHECK(renderer.record_render_pass_calls == 1);
+    CHECK(renderer.last_recorded_render_pass == &pass);
+
+    renderer.end_frame();
 }
