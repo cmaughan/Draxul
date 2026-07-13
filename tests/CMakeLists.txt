@@ -95,7 +95,7 @@ foreach(DRAXUL_TEST_SHARD_INDEX RANGE 0 3)
     set_tests_properties(draxul-tests-shard-${DRAXUL_TEST_SHARD_INDEX}
         PROPERTIES
             LABELS unit
-            TIMEOUT 120
+            TIMEOUT 300
     )
 endforeach()
 

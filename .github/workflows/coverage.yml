@@ -25,8 +25,8 @@ jobs:
         env:
           DRAXUL_RUN_SLOW_TESTS: "1"
         run: |
-          LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/build/coverage-%m.profraw" \
-            ctest --test-dir build -R draxul-tests --output-on-failure
+          LLVM_PROFILE_FILE="$GITHUB_WORKSPACE/build/coverage-%p.profraw" \
+            ctest --test-dir build --label-regex unit --parallel 4 --output-on-failure
 
       - name: Merge profiles
         run: |

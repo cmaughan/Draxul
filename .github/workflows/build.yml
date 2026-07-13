@@ -111,7 +111,7 @@ jobs:
       - name: Run tests under TSan
         env:
           TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tsan.supp"
-        run: ctest --test-dir build -R draxul-tests --output-on-failure
+        run: ctest --test-dir build --label-regex unit --parallel 4 --output-on-failure
 
       - name: Build app
         run: cmake --build build --target draxul
