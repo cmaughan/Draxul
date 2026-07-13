@@ -246,8 +246,11 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             start_in_gate_ = false;
             flow_autoplay_ = command.find("autoplay") != std::string::npos;
         }
-        // `tick`/`tick8` tokens enable the metronome from launch (dev/test).
-        if (command.find("tick8") != std::string::npos)
+        // The metronome defaults ON with subdivisions; `notick`/`tick`/
+        // `tick8` tokens override from launch (dev/test).
+        if (command.find("notick") != std::string::npos)
+            tick_level_ = TickLevel::Off;
+        else if (command.find("tick8") != std::string::npos)
             tick_level_ = TickLevel::Eighths;
         else if (command.find("tick") != std::string::npos)
             tick_level_ = TickLevel::Beats;

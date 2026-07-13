@@ -173,7 +173,8 @@ private:
     bool logged_gate_end_ = false;
 
     // Metronome (audible tick) state; the SDL playback stream opens lazily.
-    TickLevel tick_level_ = TickLevel::Off;
+    // Default ON with subdivisions — the click is the runner's pace signal.
+    TickLevel tick_level_ = TickLevel::Eighths;
     MetronomeSynth metronome_;
     struct SDL_AudioStream* tick_stream_ = nullptr;
     std::vector<float> tick_buffer_;
