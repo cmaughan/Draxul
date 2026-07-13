@@ -4,6 +4,7 @@ set -eu
 MODE="debug"
 FORCE_RECONFIGURE=0
 VERBOSE=0
+UNIT_ONLY=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -16,13 +17,21 @@ while [ "$#" -gt 0 ]; do
     --verbose)
       VERBOSE=1
       ;;
+    --unit)
+      UNIT_ONLY=1
+      ;;
     *)
-      echo "Usage: $(basename "$0") [debug|release|both] [--reconfigure] [--verbose]" >&2
+      echo "Usage: $(basename "$0") [debug|release|both] [--reconfigure] [--verbose] [--unit]" >&2
       exit 2
       ;;
   esac
   shift
 done
+
+if [ "$UNIT_ONLY" -eq 1 ] && [ "$MODE" = "both" ]; then
+  echo "--unit supports one configuration at a time; choose debug or release" >&2
+  exit 2
+fi
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
@@ -82,6 +91,16 @@ run_config() {
     echo
     echo "> using existing CMake cache: build/CMakeCache.txt"
   fi
+  if [ "$UNIT_ONLY" -eq 1 ]; then
+    run cmake --build build --target draxul-tests --parallel
+    if [ "$VERBOSE" -eq 1 ]; then
+      run ctest --test-dir build --label-regex unit --parallel 4 --verbose --timeout 120
+    else
+      run ctest --test-dir build --label-regex unit --parallel 4 --output-on-failure --timeout 120
+    fi
+    return
+  fi
+
   run cmake --build build --parallel
   if [ "$VERBOSE" -eq 1 ]; then
     run ctest --test-dir build --verbose --timeout 120

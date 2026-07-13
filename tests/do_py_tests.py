@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -110,6 +111,38 @@ class BuildCacheTests(unittest.TestCase):
             (bd / "build-Release.ninja").write_text("")
 
             self.assertIsNone(draxul_do._missing_generated_build_file(cache_file, bd, "Release"))
+
+
+class TestCommandTests(unittest.TestCase):
+    def test_help_describes_fast_unit_scope(self) -> None:
+        help_output = draxul_do.help_text()
+
+        self.assertIn("Run unit tests", help_output)
+        self.assertNotIn("test         Run the full local test suite", help_output)
+
+    def test_test_command_routes_posix_to_unit_script_mode(self) -> None:
+        with (
+            mock.patch.object(draxul_do.sys, "argv", ["do.py", "test"]),
+            mock.patch.object(draxul_do.sys, "platform", "darwin"),
+            mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+        ):
+            self.assertEqual(0, draxul_do.main())
+
+        run_mock.assert_called_once_with(
+            ["sh", "./scripts/run_tests.sh", "--unit"], ROOT
+        )
+
+    def test_test_command_routes_windows_to_unit_script_mode(self) -> None:
+        with (
+            mock.patch.object(draxul_do.sys, "argv", ["do.py", "test"]),
+            mock.patch.object(draxul_do.sys, "platform", "win32"),
+            mock.patch.object(draxul_do, "run", return_value=0) as run_mock,
+        ):
+            self.assertEqual(0, draxul_do.main())
+
+        run_mock.assert_called_once_with(
+            ["cmd", "/c", "t.bat", "--unit"], ROOT
+        )
 
 
 class DeployPackagingTests(unittest.TestCase):

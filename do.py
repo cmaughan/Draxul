@@ -1271,7 +1271,7 @@ Single-word shortcuts:
   deploy [release] [--reconfigure] [--vs|--ninja]
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   smoke        Run the app smoke test
-  test         Run the full local test suite (t.bat / run_tests.sh)
+  test         Run unit tests (four C++ shards plus do.py tests)
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
   docs         Build all docs artifacts
@@ -1335,8 +1335,8 @@ def main() -> int:
 
     if command == "test":
         if sys.platform.startswith("win"):
-            return run(["cmd", "/c", "t.bat"], root)
-        return run(["sh", "./scripts/run_tests.sh"], root)
+            return run(["cmd", "/c", "t.bat", "--unit"], root)
+        return run(["sh", "./scripts/run_tests.sh", "--unit"], root)
 
     if command == "shot":
         cmd = [sys.executable, str(root / "scripts" / "update_screenshot.py")]

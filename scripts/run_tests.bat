@@ -4,6 +4,7 @@ setlocal EnableDelayedExpansion
 set "MODE=debug"
 set "FORCE_RECONFIGURE=0"
 set "VERBOSE=0"
+set "UNIT_ONLY=0"
 
 :parse_args
 if "%~1"=="" goto :args_done
@@ -32,10 +33,20 @@ if /i "%~1"=="--verbose" (
     shift
     goto :parse_args
 )
-echo Usage: %~nx0 [debug^|release^|both] [--reconfigure] [--verbose]
+if /i "%~1"=="--unit" (
+    set "UNIT_ONLY=1"
+    shift
+    goto :parse_args
+)
+echo Usage: %~nx0 [debug^|release^|both] [--reconfigure] [--verbose] [--unit]
 exit /b 2
 
 :args_done
+
+if "%UNIT_ONLY%"=="1" if /i "%MODE%"=="both" (
+    echo --unit supports one configuration at a time; choose debug or release
+    exit /b 2
+)
 
 for %%I in ("%~dp0.") do set "SCRIPT_DIR=%%~fI"
 if exist "%SCRIPT_DIR%\CMakePresets.json" (
@@ -78,6 +89,17 @@ if "%FORCE_RECONFIGURE%"=="1" (
 ) else (
     echo.
     echo ^> using existing CMake cache: %CACHE_FILE%
+)
+if "%UNIT_ONLY%"=="1" (
+    call :run cmake --build build --config %CONFIG% --target draxul-tests --parallel -- %BUILD_LOG_ARGS%
+    if errorlevel 1 exit /b !errorlevel!
+    if "%VERBOSE%"=="1" (
+        call :run ctest --test-dir build --build-config %CONFIG% --label-regex unit --parallel 4 --verbose --timeout 120
+    ) else (
+        call :run ctest --test-dir build --build-config %CONFIG% --label-regex unit --parallel 4 --output-on-failure --timeout 120
+    )
+    if errorlevel 1 exit /b !errorlevel!
+    exit /b 0
 )
 call :run cmake --build build --config %CONFIG% --parallel -- %BUILD_LOG_ARGS%
 if errorlevel 1 exit /b !errorlevel!
