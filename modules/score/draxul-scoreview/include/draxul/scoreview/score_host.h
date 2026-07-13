@@ -164,6 +164,9 @@ private:
     MicPlayerInput* mic_input_ = nullptr; // borrowed from player_input_
     bool start_in_gate_ = false;
     GateInput gate_input_requested_ = GateInput::Keyboard;
+    // Which game the transport plays: Roll (the runner — default) or Gate
+    // (wait mode, kept as a dev/verification instrument).
+    FlowController::TransportMode game_mode_ = FlowController::TransportMode::Roll;
     double gate_bot_accuracy_ = 1.0;
     std::chrono::steady_clock::time_point epoch_{};
     size_t last_logged_gate_ = 0;

@@ -172,6 +172,9 @@ void FlowController::reset_gates()
     score_ = 0;
     streak_ = 0;
     miss_count_ = 0;
+    roll_resolved_ = 0;
+    accuracy_ema_ = kRollStartAccuracy;
+    wrong_count_ = 0;
 }
 
 void FlowController::advance_armed()
@@ -198,7 +201,27 @@ bool FlowController::waiting() const
 std::vector<int> FlowController::armed_required_pitches() const
 {
     std::vector<int> pitches;
-    if (!gates_ready() || armed_ >= gates_.size())
+    if (!gates_ready())
+        return pitches;
+    if (mode_ == TransportMode::Roll)
+    {
+        // Every onset whose hit window contains the playhead.
+        for (size_t i = roll_resolved_; i < gates_.size(); ++i)
+        {
+            const double q = onsets_[i].qstamp;
+            if (q > position_q_ + kRollEarlyWindowQ)
+                break;
+            if (q < position_q_ - kRollLateWindowQ)
+                continue;
+            for (const GateNote& note : gates_[i].notes)
+            {
+                if (note.verdict == NoteVerdict::Pending && !note.auto_satisfied)
+                    pitches.push_back(note.pitch);
+            }
+        }
+        return pitches;
+    }
+    if (armed_ >= gates_.size())
         return pitches;
     for (const GateNote& note : gates_[armed_].notes)
     {
@@ -210,7 +233,14 @@ std::vector<int> FlowController::armed_required_pitches() const
 
 void FlowController::judge(const std::vector<PlayerNoteEvent>& events)
 {
-    if (mode_ != TransportMode::Gate || !gates_ready())
+    if (!gates_ready())
+        return;
+    if (mode_ == TransportMode::Roll)
+    {
+        judge_roll(events);
+        return;
+    }
+    if (mode_ != TransportMode::Gate)
         return;
     for (const PlayerNoteEvent& event : events)
     {
@@ -266,6 +296,110 @@ void FlowController::judge(const std::vector<PlayerNoteEvent>& events)
         if (correct_required == gate.required || gate.events >= gate.required)
             open_gate(armed_, correct_required == gate.required, event.t_seconds);
     }
+}
+
+void FlowController::judge_roll(const std::vector<PlayerNoteEvent>& events)
+{
+    for (const PlayerNoteEvent& event : events)
+    {
+        // The nearest in-window onset still needing this pitch wins.
+        GateNote* best_note = nullptr;
+        double best_distance = std::numeric_limits<double>::max();
+        GateNote* revoiced = nullptr;
+        for (size_t i = roll_resolved_; i < gates_.size(); ++i)
+        {
+            const double q = onsets_[i].qstamp;
+            if (q > position_q_ + kRollEarlyWindowQ)
+                break;
+            if (q < position_q_ - kRollLateWindowQ)
+                continue;
+            for (GateNote& note : gates_[i].notes)
+            {
+                if (note.verdict != NoteVerdict::Pending || note.pitch != event.midi_pitch)
+                    continue;
+                if (note.auto_satisfied)
+                {
+                    if (revoiced == nullptr)
+                        revoiced = &note;
+                    continue;
+                }
+                const double distance = std::abs(q - position_q_);
+                if (distance < best_distance)
+                {
+                    best_distance = distance;
+                    best_note = &note;
+                }
+            }
+        }
+        if (best_note != nullptr)
+        {
+            best_note->verdict = NoteVerdict::Correct;
+            verdict_changes_.emplace_back(best_note->id, NoteVerdict::Correct);
+            ++streak_;
+            const double bonus = 1.0 + 0.1 * std::min(streak_, kStreakBonusCap);
+            score_ += static_cast<int>(
+                std::llround(kBaseGatePoints * bonus * (tempo_qpm_ / marking_qpm_)));
+            accuracy_sample(1.0);
+            continue;
+        }
+        if (revoiced != nullptr)
+        {
+            // Re-voicing a tie continuation is correct and free.
+            revoiced->verdict = NoteVerdict::Correct;
+            verdict_changes_.emplace_back(revoiced->id, NoteVerdict::Correct);
+            continue;
+        }
+        // Matched nothing: a stray pitch or badly-timed note — the raw
+        // material the practice generator will feed on.
+        ++wrong_count_;
+        streak_ = 0;
+        accuracy_sample(0.0);
+    }
+}
+
+void FlowController::resolve_roll_passed()
+{
+    while (roll_resolved_ < gates_.size())
+    {
+        if (position_q_ <= onsets_[roll_resolved_].qstamp + kRollLateWindowQ)
+            break; // window still open
+        Gate& gate = gates_[roll_resolved_];
+        bool any_missed = false;
+        for (GateNote& note : gate.notes)
+        {
+            if (note.verdict != NoteVerdict::Pending)
+                continue;
+            if (note.auto_satisfied)
+            {
+                note.verdict = NoteVerdict::Correct;
+                verdict_changes_.emplace_back(note.id, NoteVerdict::Correct);
+                continue;
+            }
+            note.verdict = NoteVerdict::Missed;
+            verdict_changes_.emplace_back(note.id, NoteVerdict::Missed);
+            ++miss_count_;
+            any_missed = true;
+            accuracy_sample(0.0);
+        }
+        gate.open = true;
+        if (any_missed)
+            streak_ = 0;
+        adjust_roll_tempo();
+        ++roll_resolved_;
+    }
+}
+
+void FlowController::accuracy_sample(double value)
+{
+    accuracy_ema_ = kRollAccuracyAlpha * value + (1.0 - kRollAccuracyAlpha) * accuracy_ema_;
+}
+
+void FlowController::adjust_roll_tempo()
+{
+    if (accuracy_ema_ >= kRollSpeedUpThreshold)
+        set_tempo_qpm(tempo_qpm_ * (1.0 + kRollTempoUpPerOnset));
+    else if (accuracy_ema_ <= kRollSlowDownThreshold)
+        set_tempo_qpm(tempo_qpm_ * (1.0 - kRollTempoDownPerOnset));
 }
 
 void FlowController::open_gate(size_t index, bool clean, double t_seconds)
@@ -360,6 +494,21 @@ void FlowController::advance(double wall_dt_seconds)
     {
         position_q_ += wall_dt_seconds * tempo_qpm_ / 60.0;
         if (position_q_ >= duration_q_)
+        {
+            position_q_ = duration_q_;
+            playing_ = false;
+        }
+        return;
+    }
+    if (mode_ == TransportMode::Roll)
+    {
+        // The runner never waits: roll like the clock, then close any hit
+        // windows the playhead has passed (pending notes turn Missed). The
+        // piece only finishes once the LAST window has closed — the final
+        // notes get their full late window like every other.
+        position_q_ += wall_dt_seconds * tempo_qpm_ / 60.0;
+        resolve_roll_passed();
+        if (position_q_ >= duration_q_ + kRollLateWindowQ)
         {
             position_q_ = duration_q_;
             playing_ = false;

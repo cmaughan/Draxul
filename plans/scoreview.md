@@ -269,11 +269,16 @@ and the adaptive selection engine come next.)*
   single-row view, transport clock, timemap-driven light-up).
 - **Wait-mode + judgment + adaptive tempo + score** — ✅ shipped as manifesto
   milestone 2: [scoreview-gate.md](scoreview-gate.md) (the game loop behind
-  an `IPlayerInput` seam).
+  an `IPlayerInput` seam; wait-mode is now a dev/verification instrument).
 - **The acoustic listener** — manifesto milestone 3:
   [scoreview-ear.md](scoreview-ear.md) (microphone → note events;
   verification-not-transcription, inharmonic templates, tuning calibration;
   includes the recognition notebook of acoustic facts and tuning knowledge).
+  E0–E2 ✅; E3 (tuning against the real piano) pending.
+- **Roll mode — the runner** — ✅ R0/R1 shipped as manifesto milestone 4:
+  [scoreview-runner.md](scoreview-runner.md) (Guitar Hero for piano: the
+  transport never waits, timing-window judgment, accuracy-driven tempo;
+  the default game). R2 feel pass with the user pending.
 - **Editing** — command-based model mutations, hit-testing via element_id,
   re-layout loop; MIDI step input.
 - **Glyph atlas optimization** — Bravura through TextService if NanoVG

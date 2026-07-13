@@ -41,12 +41,16 @@ public:
         std::vector<std::string> newly_lit;
     };
 
-    // Gate mode (plans/scoreview-gate.md): the transport waits at each onset
-    // until the player plays it. Clock mode is the milestone-1 conveyor.
+    // Clock is the milestone-1 conveyor. Gate (plans/scoreview-gate.md)
+    // waits at each onset — kept as a dev/verification instrument. Roll
+    // (plans/scoreview-runner.md) is the game: the transport never waits,
+    // notes judge in a timing window around their crossing, and tempo
+    // eases from demonstrated accuracy.
     enum class TransportMode : uint8_t
     {
         Clock,
         Gate,
+        Roll,
     };
 
     enum class NoteVerdict : uint8_t
@@ -178,20 +182,34 @@ public:
         return mode_;
     }
 
-    // True when the playhead sits at the armed gate awaiting the player.
+    // True when the playhead sits at the armed gate awaiting the player
+    // (Gate mode only; Roll never waits).
     bool waiting() const;
     size_t armed_gate_index() const
     {
-        return armed_;
+        return mode_ == TransportMode::Roll ? roll_resolved_ : armed_;
     }
-    // Still-pending required pitches of the armed gate (empty when none).
+    // Still-pending required pitches the player should produce now: the
+    // armed gate's in Gate mode; every onset whose hit window contains the
+    // playhead in Roll mode (this is what primes the mic listener).
     std::vector<int> armed_required_pitches() const;
 
-    // Applies player events to the armed gate: matching pitches turn
-    // Correct; any event counts as an attempt; the gate opens when every
-    // required pitch matched or attempts reach the requirement (remaining
-    // required notes turn Missed — the music moves on).
+    // Applies player events. Gate mode: matching pitches turn Correct, any
+    // event counts as an attempt, and the gate opens on full match or
+    // enough attempts (remaining notes Missed — the music moves on). Roll
+    // mode: an event hits the nearest onset within the timing window that
+    // still needs its pitch; matching nothing counts as a wrong note.
     void judge(const std::vector<PlayerNoteEvent>& events);
+
+    // Roll diagnostics: rolling per-note accuracy EMA and stray-note count.
+    double accuracy_ema() const
+    {
+        return accuracy_ema_;
+    }
+    int wrong_count() const
+    {
+        return wrong_count_;
+    }
 
     VerdictUpdate take_verdict_update();
 
@@ -221,6 +239,17 @@ public:
     static constexpr double kStallDecayPerSecond = 0.02;
     static constexpr int kBaseGatePoints = 10;
     static constexpr int kStreakBonusCap = 20; // +10% per streak step, capped
+    // Roll mode (plans/scoreview-runner.md): hit windows in beats around
+    // each onset's crossing, a per-note accuracy EMA, and per-onset tempo
+    // easing — up slowly while accurate, down faster while struggling.
+    static constexpr double kRollEarlyWindowQ = 0.45;
+    static constexpr double kRollLateWindowQ = 0.45;
+    static constexpr double kRollAccuracyAlpha = 0.12;
+    static constexpr double kRollStartAccuracy = 0.7; // neutral: holds tempo
+    static constexpr double kRollSpeedUpThreshold = 0.85;
+    static constexpr double kRollSlowDownThreshold = 0.55;
+    static constexpr double kRollTempoUpPerOnset = 0.010;
+    static constexpr double kRollTempoDownPerOnset = 0.030;
 
 private:
     std::vector<Onset> onsets_;
@@ -241,6 +270,11 @@ private:
     void open_gate(size_t index, bool clean, double t_seconds);
     void advance_armed();
     double next_required_qstamp() const;
+    // Roll internals --------------------------------------------------------
+    void judge_roll(const std::vector<PlayerNoteEvent>& events);
+    void resolve_roll_passed();
+    void accuracy_sample(double value);
+    void adjust_roll_tempo();
 
     TransportMode mode_ = TransportMode::Clock;
     std::vector<Gate> gates_; // parallel to onsets_
@@ -254,6 +288,11 @@ private:
     int score_ = 0;
     int streak_ = 0;
     int miss_count_ = 0;
+
+    // Roll state ------------------------------------------------------------
+    size_t roll_resolved_ = 0; // onsets whose windows have closed
+    double accuracy_ema_ = kRollStartAccuracy;
+    int wrong_count_ = 0;
 };
 
 } // namespace scoreview

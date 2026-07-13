@@ -18,11 +18,16 @@ anything. The software shows a **single flowing row** of notation — the
 current place in the music, at least two bars visible ahead (configurable
 later). Not pages. A stream.
 
-The stream begins, and then it **waits for you**. You play the next notes on
-your real piano; it hears you through the microphone, matches what you played
-against what the music asks for, and flows onward. Correct notes and timings
-light up as you land them. A running score ticks along — tempo and accuracy,
-the feel of a game, not a grade.
+The stream begins, and it **keeps rolling — it never stops to wait**
+(vision sharpened 2026-07-13: this is Guitar Hero for piano). You play
+along on your real piano; it hears you through the microphone and judges
+each note — right pitch, near-enough timing — as the playhead crosses it.
+Correct notes light up as you land them; the tempo you are at is
+maintained, easing *down* when you're missing enough (pitch or timing)
+and creeping back *up* toward the target as you land them. You may be
+fluffing everything and the music still carries you forward — and the
+stream will manufacture material that lets you catch up. A running score
+ticks along — tempo and accuracy, the feel of a game, not a grade.
 
 The stream **never stops and never ends**. Wrong notes are shown — you see
 exactly what happened — but the music moves on. No scolding, no rewinding, no

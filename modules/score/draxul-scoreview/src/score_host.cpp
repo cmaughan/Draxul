@@ -209,15 +209,17 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         engine_ = std::move(engine);
         layout_dirty_ = true;
 
-        // Default: the manifesto's practice loop — the conveyor waiting at
-        // the first gate with the dev keyboard (mic via `gate-mic` or `i`).
-        // Commands override: `paged` = the reading view, `flow` /
-        // `flow-autoplay` = clock-driven conveyor, `gate-bot` /
-        // `gate-bot-err` = scripted verification bots.
+        // Default: the runner (plans/scoreview-runner.md) — the conveyor in
+        // Roll mode with the dev keyboard, transport rolling from the first
+        // note (mic via `roll-mic` or `i`). Commands override: `paged` =
+        // the reading view, `flow`/`flow-autoplay` = clock conveyor,
+        // `gate*` = the wait-mode dev instrument (incl. the verification
+        // bots), `roll-mic` = the runner listening to the piano.
         view_mode_ = ViewMode::Flow;
         flow_dirty_ = true;
         start_in_gate_ = true;
         gate_input_requested_ = GateInput::Keyboard;
+        game_mode_ = FlowController::TransportMode::Roll;
         const std::string& command = context.launch_options.command;
         if (command.find("paged") != std::string::npos)
         {
@@ -227,11 +229,17 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         }
         else if (command.find("gate") != std::string::npos)
         {
+            game_mode_ = FlowController::TransportMode::Gate;
             if (command.find("bot") != std::string::npos)
                 gate_input_requested_ = GateInput::Bot;
             else if (command.find("mic") != std::string::npos)
                 gate_input_requested_ = GateInput::Mic;
             gate_bot_accuracy_ = command.find("err") != std::string::npos ? 0.7 : 1.0;
+        }
+        else if (command.find("roll") != std::string::npos)
+        {
+            if (command.find("mic") != std::string::npos)
+                gate_input_requested_ = GateInput::Mic;
         }
         else if (command.find("flow") != std::string::npos)
         {
@@ -558,7 +566,7 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
 {
     if (!flow_.gates_ready())
         return;
-    flow_.set_mode(FlowController::TransportMode::Gate);
+    flow_.set_mode(game_mode_);
     highlight_.clear_lit();
     apply_verdict_update(); // consume the reset
     set_gate_input(input, bot_pace_qpm, bot_accuracy);
@@ -585,7 +593,7 @@ void ScoreHost::exit_gate_mode()
 
 bool ScoreHost::handle_gate_key(int keycode)
 {
-    if (flow_.mode() != FlowController::TransportMode::Gate)
+    if (flow_.mode() == FlowController::TransportMode::Clock)
         return false;
     if (keycode == SDLK_ESCAPE)
     {
@@ -826,7 +834,7 @@ void ScoreHost::pump()
         flow_.advance(dt);
         if (tick_level_ != TickLevel::Off)
             pump_metronome(position_before_q, flow_.position_q(), dt);
-        if (flow_.mode() == FlowController::TransportMode::Gate)
+        if (flow_.mode() != FlowController::TransportMode::Clock)
         {
             if (mic_input_ != nullptr && mic_input_->state() == MicPlayerInput::State::Failed)
             {
@@ -981,6 +989,7 @@ void ScoreHost::on_key(const KeyEvent& event)
         }
         if (event.keycode == SDLK_G && flow_.mode() == FlowController::TransportMode::Clock && flow_.gates_ready())
         {
+            game_mode_ = FlowController::TransportMode::Roll; // `g` = the game
             enter_gate_mode(GateInput::Keyboard, 0.0, 1.0);
             return;
         }
@@ -1094,9 +1103,10 @@ std::string ScoreHost::status_text() const
     {
         const int qpm = static_cast<int>(std::lround(flow_.tempo_qpm()));
         const int pct = static_cast<int>(std::lround(flow_.tempo_qpm() / flow_.marking_qpm() * 100.0));
-        if (flow_.mode() == FlowController::TransportMode::Gate)
+        if (flow_.mode() != FlowController::TransportMode::Clock)
         {
-            status += flow_.waiting()
+            const bool roll = flow_.mode() == FlowController::TransportMode::Roll;
+            status += !roll && flow_.waiting()
                 ? "  WAIT"
                 : (flow_.at_end() ? "  end" : (flow_.playing() ? "  >" : "  ||"));
             if (mic_input_ != nullptr)
@@ -1116,10 +1126,17 @@ std::string ScoreHost::status_text() const
             status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
             if (tick_level_ != TickLevel::Off)
                 status += tick_level_ == TickLevel::Beats ? "  tick" : "  tick8";
+            if (roll)
+            {
+                const int acc = static_cast<int>(std::lround(flow_.accuracy_ema() * 100.0));
+                status += "  acc " + std::to_string(acc) + "%";
+            }
             status += "  score " + std::to_string(flow_.score());
             status += "  x" + std::to_string(flow_.streak());
             if (flow_.miss_count() > 0)
                 status += "  miss " + std::to_string(flow_.miss_count());
+            if (roll && flow_.wrong_count() > 0)
+                status += "  wr " + std::to_string(flow_.wrong_count());
             return status;
         }
         status += flow_.playing() ? "  >" : (flow_.at_end() ? "  end" : "  ||");
