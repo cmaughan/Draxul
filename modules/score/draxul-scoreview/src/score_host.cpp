@@ -297,6 +297,8 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         // `tick8` tokens override from launch (dev/test).
         if (command.find("notick") != std::string::npos)
             tick_level_ = TickLevel::Off;
+        if (command.find("notes") != std::string::npos)
+            audition_ = true;
         else if (command.find("tick8") != std::string::npos)
             tick_level_ = TickLevel::Eighths;
         else if (command.find("tick") != std::string::npos)
@@ -1101,7 +1103,7 @@ void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
     // Schedule ticks for every grid crossing in (p0, p1], placed at their
     // fractional offset inside this pump's time slice so beat spacing
     // tracks the transport rather than the frame rate.
-    if (p1_q > p0_q && dt > 0.0)
+    if (p1_q > p0_q && dt > 0.0 && tick_level_ != TickLevel::Off)
     {
         const double step = tick_level_ == TickLevel::Eighths ? 0.5 : 1.0;
         double grid = (std::floor(p0_q / step + 1e-9) + 1.0) * step;
@@ -1119,6 +1121,30 @@ void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
         }
     }
 
+    // Audition: sound every note whose onset the playhead crossed this
+    // pump (all sounding pitches, ties included — the score as heard).
+    if (audition_ && p1_q > p0_q && dt > 0.0 && flow_.gates_ready())
+    {
+        const auto& onsets = flow_.onsets();
+        const auto& gates = flow_.gates();
+        for (size_t i = 0; i < onsets.size() && i < gates.size(); ++i)
+        {
+            const double q = onsets[i].qstamp;
+            if (q <= p0_q)
+                continue;
+            if (q > p1_q)
+                break;
+            const double fraction = std::clamp((q - p0_q) / (p1_q - p0_q), 0.0, 1.0);
+            const int64_t at = tones_.cursor()
+                + static_cast<int64_t>(fraction * dt * static_cast<double>(rate));
+            for (const FlowController::GateNote& note : gates[i].notes)
+            {
+                if (note.pitch >= 0)
+                    tones_.schedule_note(at, note.pitch, 0.16f);
+            }
+        }
+    }
+
     // Keep ~70 ms queued so the device never starves between pumps.
     constexpr int kTargetSamples = 3072;
     const int queued_bytes = SDL_GetAudioStreamQueued(tick_stream_);
@@ -1128,6 +1154,10 @@ void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
         const size_t need = static_cast<size_t>(kTargetSamples - queued);
         tick_buffer_.resize(need);
         metronome_.render(tick_buffer_.data(), need);
+        tone_buffer_.resize(need);
+        tones_.render(tone_buffer_.data(), need);
+        for (size_t at = 0; at < need; ++at)
+            tick_buffer_[at] += tone_buffer_[at];
         SDL_PutAudioStreamData(
             tick_stream_, tick_buffer_.data(), static_cast<int>(need * sizeof(float)));
     }
@@ -1165,7 +1195,7 @@ void ScoreHost::pump()
     {
         const double position_before_q = flow_.position_q();
         flow_.advance(dt);
-        if (tick_level_ != TickLevel::Off)
+        if (tick_level_ != TickLevel::Off || audition_)
             pump_metronome(position_before_q, flow_.position_q(), dt);
         if (flow_.mode() != FlowController::TransportMode::Clock)
         {
@@ -1493,6 +1523,15 @@ void ScoreHost::on_key(const KeyEvent& event)
         case SDLK_T:
             cycle_tick_level();
             break;
+        case SDLK_P:
+            audition_ = !audition_;
+            if (audition_ && !ensure_tick_stream())
+                audition_ = false;
+            if (!audition_)
+                tones_.clear();
+            DRAXUL_LOG_INFO(
+                LogCategory::App, "score: audition %s", audition_ ? "on" : "off");
+            break;
         default:
             return;
         }
@@ -1605,6 +1644,8 @@ std::string ScoreHost::status_text() const
             status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
             if (tick_level_ != TickLevel::Off)
                 status += tick_level_ == TickLevel::Beats ? "  tick" : "  tick8";
+            if (audition_)
+                status += "  notes";
             if (roll)
             {
                 const int acc = static_cast<int>(std::lround(flow_.accuracy_ema() * 100.0));

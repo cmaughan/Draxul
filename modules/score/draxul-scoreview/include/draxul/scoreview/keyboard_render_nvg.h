@@ -25,22 +25,29 @@ int keyboard_white_index(int midi);
 // Horizontal center of a key within a keyboard spanning [x, x+w).
 float keyboard_key_center_x(int midi, float x, float w);
 
-// The pairing palette: upcoming notes on the sheet and their keys share a
-// color (stable per key: index = midi mod size, so octaves match). Chosen
-// to read on the white sheet, white keys, and black keys, and to avoid the
-// verdict green/red.
-constexpr int kGuidancePaletteSize = 6;
+// The pairing palette: one color per PITCH CLASS — C is always the same
+// color on every staff, key, and octave; C# always its own; and so on
+// around the chromatic circle. Hues are spread and toned to read on the
+// white sheet, white keys, and black keys, deliberately skipping the
+// verdict pure-red and pure-green.
+constexpr int kGuidancePaletteSize = 12;
 constexpr unsigned char kGuidancePalette[kGuidancePaletteSize][3] = {
-    { 31, 119, 180 }, // blue
-    { 217, 95, 2 }, // orange
-    { 117, 112, 179 }, // violet
-    { 231, 41, 138 }, // magenta
-    { 27, 158, 119 }, // sea green
-    { 166, 118, 29 }, // ochre
+    { 43, 111, 221 }, // C   blue
+    { 95, 91, 219 }, // C#  indigo
+    { 142, 79, 209 }, // D   violet
+    { 187, 63, 180 }, // D#  purple-magenta
+    { 214, 51, 132 }, // E   pink
+    { 217, 107, 42 }, // F   orange
+    { 201, 138, 26 }, // F#  amber
+    { 143, 143, 22 }, // G   olive
+    { 91, 166, 42 }, // G#  yellow-green
+    { 23, 160, 119 }, // A   teal
+    { 15, 149, 168 }, // A#  cyan
+    { 26, 130, 196 }, // B   azure
 };
 inline int guidance_palette_index(int midi)
 {
-    return ((midi % kGuidancePaletteSize) + kGuidancePaletteSize) % kGuidancePaletteSize;
+    return ((midi % 12) + 12) % 12; // pitch class
 }
 
 struct KeyboardLit

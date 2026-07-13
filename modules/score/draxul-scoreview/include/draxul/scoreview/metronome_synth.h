@@ -73,5 +73,36 @@ private:
     int64_t cursor_ = 0;
 };
 
+// The audition voice ('p' in the runner): a simple three-partial piano-ish
+// tone per note so the score can be HEARD and played along with. Same
+// sample-scheduled render contract as the metronome; the host mixes both
+// into one output stream.
+class ToneSynth
+{
+public:
+    explicit ToneSynth(int sample_rate = 44100);
+
+    int64_t cursor() const
+    {
+        return cursor_;
+    }
+    void schedule_note(int64_t at_sample, int midi, float gain);
+    // Renders `count` mono samples (overwrites `out`), advancing the cursor.
+    void render(float* out, size_t count);
+    void clear();
+
+private:
+    struct Voice
+    {
+        int64_t start_sample = 0;
+        double hz = 0.0;
+        float gain = 0.0f;
+        double tau = 0.4;
+    };
+    int sample_rate_ = 44100;
+    std::vector<Voice> voices_;
+    int64_t cursor_ = 0;
+};
+
 } // namespace scoreview
 } // namespace draxul

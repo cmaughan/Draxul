@@ -251,6 +251,11 @@ private:
     // Default ON with subdivisions — the click is the runner's pace signal.
     TickLevel tick_level_ = TickLevel::Eighths;
     MetronomeSynth metronome_;
+    // Audition ('p'): synthesized playback of the notes as the playhead
+    // crosses them — hear the score, play along. Shares the output stream.
+    bool audition_ = false;
+    ToneSynth tones_;
+    std::vector<float> tone_buffer_;
     struct SDL_AudioStream* tick_stream_ = nullptr;
     std::vector<float> tick_buffer_;
     double quarters_per_bar_ = 4.0;

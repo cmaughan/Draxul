@@ -66,3 +66,24 @@ TEST_CASE("metronome clamps late ticks instead of dropping them", "[scoreview][m
     synth.render(second.data(), second.size());
     CHECK(peak_in(second, 0, 400) > 0.1f);
 }
+
+TEST_CASE("tone synth sounds scheduled notes with piano-ish decay", "[scoreview][metronome]")
+{
+    ToneSynth tones;
+    tones.schedule_note(1000, 60, 0.2f);
+    tones.schedule_note(1000, 64, 0.2f); // a chord mixes additively
+    tones.schedule_note(30000, 84, 0.2f);
+
+    std::vector<float> samples(40000, 0.0f);
+    tones.render(samples.data(), 20000);
+    tones.render(samples.data() + 20000, 20000);
+    CHECK(tones.cursor() == 40000);
+
+    CHECK(peak_in(samples, 0, 990) == 0.0f);
+    const float chord_peak = peak_in(samples, 1000, 3000);
+    CHECK(chord_peak > 0.2f); // two voices sum louder than one
+    // The bass-register chord rings well past a treble note's decay...
+    CHECK(peak_in(samples, 15000, 18000) > 0.01f);
+    // ...and the C6 note sounds where scheduled, decaying faster.
+    CHECK(peak_in(samples, 30000, 32000) > 0.1f);
+}
