@@ -209,18 +209,24 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         engine_ = std::move(engine);
         layout_dirty_ = true;
 
-        // Dev/test hooks: `--command flow` starts in the conveyor view,
-        // `flow-autoplay` also starts the transport; `--command gate` starts
-        // in gate mode with the keyboard input, `gate-mic` with the acoustic
-        // listener, `gate-bot` runs the scripted verification bot
-        // (`gate-bot-err` with 70% accuracy).
+        // Default: the manifesto's practice loop — the conveyor waiting at
+        // the first gate with the dev keyboard (mic via `gate-mic` or `i`).
+        // Commands override: `paged` = the reading view, `flow` /
+        // `flow-autoplay` = clock-driven conveyor, `gate-bot` /
+        // `gate-bot-err` = scripted verification bots.
+        view_mode_ = ViewMode::Flow;
+        flow_dirty_ = true;
+        start_in_gate_ = true;
+        gate_input_requested_ = GateInput::Keyboard;
         const std::string& command = context.launch_options.command;
-        if (command.find("gate") != std::string::npos)
+        if (command.find("paged") != std::string::npos)
         {
-            view_mode_ = ViewMode::Flow;
-            flow_dirty_ = true;
-            start_in_gate_ = true;
-            gate_input_requested_ = GateInput::Keyboard;
+            view_mode_ = ViewMode::Paged;
+            flow_dirty_ = false;
+            start_in_gate_ = false;
+        }
+        else if (command.find("gate") != std::string::npos)
+        {
             if (command.find("bot") != std::string::npos)
                 gate_input_requested_ = GateInput::Bot;
             else if (command.find("mic") != std::string::npos)
@@ -229,8 +235,7 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         }
         else if (command.find("flow") != std::string::npos)
         {
-            view_mode_ = ViewMode::Flow;
-            flow_dirty_ = true;
+            start_in_gate_ = false;
             flow_autoplay_ = command.find("autoplay") != std::string::npos;
         }
     }
@@ -544,11 +549,10 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
     flow_.set_mode(FlowController::TransportMode::Gate);
     highlight_.clear_lit();
     apply_verdict_update(); // consume the reset
-    const bool engaged = set_gate_input(input, bot_pace_qpm, bot_accuracy);
-    // Bots start themselves, and the piano IS the mic session's interface —
-    // no Space press needed. The keyboard player starts with Space.
-    if (input != GateInput::Keyboard && engaged)
-        flow_.play();
+    set_gate_input(input, bot_pace_qpm, bot_accuracy);
+    // The gate transport starts immediately for every input: it just glides
+    // to the first onset and WAITS there. Space pauses/resumes.
+    flow_.play();
     last_logged_gate_ = 0;
     logged_gate_end_ = false;
     if (callbacks_ != nullptr)
@@ -655,19 +659,14 @@ bool ScoreHost::handle_gate_key(int keycode)
     }
     if (keycode == SDLK_BACKSPACE)
     {
-        // A full wrong ATTEMPT, symmetric with Return's full correct one: a
-        // chord gate only resolves once it has heard as many notes as it
-        // requires (mid-chord, the player might still land the rest), so
-        // push one distinct wrong note per required pitch.
-        int wrong = anchor;
-        const size_t count = std::max<size_t>(1, expected.size());
-        for (size_t i = 0; i < count; ++i)
-        {
+        // ONE wrong note — per-note verdicts are the point (the error-driven
+        // practice generator feeds on them). A chord gate accounts one note
+        // per press: mix correct keys and Backspaces and it resolves with
+        // mixed green/red once every required note is accounted for.
+        int wrong = anchor + 1;
+        while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
             ++wrong;
-            while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
-                ++wrong;
-            keyboard_input_->push(wrong, now_seconds());
-        }
+        keyboard_input_->push(wrong, now_seconds());
         return true;
     }
     return false;
