@@ -49,6 +49,14 @@ cache_build_type() {
   sed -n 's/^CMAKE_BUILD_TYPE:STRING=//p' build/CMakeCache.txt | head -n 1
 }
 
+cache_value() {
+  key="$1"
+  if [ ! -f build/CMakeCache.txt ]; then
+    return 1
+  fi
+  sed -n "s/^${key}:[^=]*=//p" build/CMakeCache.txt | head -n 1
+}
+
 should_configure() {
   config="$1"
 
@@ -60,12 +68,26 @@ should_configure() {
     return 0
   fi
 
+  if [ ! -f build/Makefile ]; then
+    return 0
+  fi
+
   cached_type=$(cache_build_type || true)
   if [ -z "$cached_type" ]; then
     return 0
   fi
 
-  [ "$cached_type" != "$config" ]
+  if [ "$cached_type" != "$config" ]; then
+    return 0
+  fi
+
+  for option in DRAXUL_ENABLE_SANITIZERS DRAXUL_ENABLE_TSAN DRAXUL_ENABLE_COVERAGE; do
+    if [ "$(cache_value "$option" || true)" = "ON" ]; then
+      return 0
+    fi
+  done
+
+  [ "$(cache_value DRAXUL_ENABLE_RENDER_TESTS || true)" != "ON" ]
 }
 
 run_config() {

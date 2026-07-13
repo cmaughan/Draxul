@@ -78,12 +78,16 @@ if /i "%CONFIG%"=="Release" set "PRESET=release"
 set "CACHE_FILE=build\CMakeCache.txt"
 set "BUILD_LOG_ARGS=/v:minimal /nologo"
 if "%VERBOSE%"=="1" set "BUILD_LOG_ARGS=/v:normal /nologo"
+set "NEED_CONFIGURE=0"
+if "%FORCE_RECONFIGURE%"=="1" set "NEED_CONFIGURE=1"
+if not exist "%CACHE_FILE%" set "NEED_CONFIGURE=1"
+if exist "%CACHE_FILE%" (
+    call :cache_is_standard
+    if errorlevel 1 set "NEED_CONFIGURE=1"
+)
 echo.
 echo === %CONFIG% ===
-if "%FORCE_RECONFIGURE%"=="1" (
-    call :run cmake --preset %PRESET%
-    if errorlevel 1 exit /b !errorlevel!
-) else if not exist "%CACHE_FILE%" (
+if "!NEED_CONFIGURE!"=="1" (
     call :run cmake --preset %PRESET%
     if errorlevel 1 exit /b !errorlevel!
 ) else (
@@ -110,6 +114,13 @@ if "%VERBOSE%"=="1" (
     call :run ctest --test-dir build --build-config %CONFIG% --progress --output-on-failure
 )
 if errorlevel 1 exit /b !errorlevel!
+exit /b 0
+
+:cache_is_standard
+findstr /b /c:"DRAXUL_ENABLE_SANITIZERS:BOOL=ON" "%CACHE_FILE%" >nul && exit /b 1
+findstr /b /c:"DRAXUL_ENABLE_TSAN:BOOL=ON" "%CACHE_FILE%" >nul && exit /b 1
+findstr /b /c:"DRAXUL_ENABLE_COVERAGE:BOOL=ON" "%CACHE_FILE%" >nul && exit /b 1
+findstr /b /c:"DRAXUL_ENABLE_RENDER_TESTS:BOOL=ON" "%CACHE_FILE%" >nul || exit /b 1
 exit /b 0
 
 :run
