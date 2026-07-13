@@ -14,6 +14,7 @@
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
 #include <draxul/scoreview/source_slicer.h>
+#include <draxul/scoreview/stream_composer.h>
 
 #include <chrono>
 #include <filesystem>
@@ -224,6 +225,12 @@ private:
 
     // Piece analysis (S1): computed at flow build, cached for the composer.
     PieceProfile piece_profile_;
+
+    // The composer (S3): plans the stream program (piece bars, review
+    // slices, fabricated drills) when the source supports it.
+    StreamComposer composer_;
+    bool composing_ = false;
+    int last_logged_plan_slot_ = -1;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;

@@ -208,6 +208,63 @@ std::string SourceSlicer::window_xml(int first_bar, int count) const
 {
     if (!ready() || first_bar < 0 || count <= 0 || first_bar + count > bar_count())
         return {};
+    std::vector<StreamBar> bars;
+    bars.reserve(static_cast<size_t>(count));
+    for (int bar = first_bar; bar < first_bar + count; ++bar)
+        bars.push_back(StreamBar{ bar, {} });
+    return window_xml_for(bars, first_bar);
+}
+
+int SourceSlicer::part_count() const
+{
+    return static_cast<int>(impl_->parts.size());
+}
+
+int SourceSlicer::divisions_at(int bar) const
+{
+    if (!ready())
+        return 1;
+    const Impl::Part& part = impl_->parts.front();
+    const int last = static_cast<int>(part.state_before.size()) - 1;
+    // state_before[b] is the state BEFORE bar b; the state in force AT
+    // `bar` includes its own declarations, i.e. state_before[bar + 1].
+    for (int at = std::min(bar + 1, last); at >= 0; --at)
+    {
+        const std::string& xml = part.state_before[static_cast<size_t>(at)].divisions;
+        if (xml.empty())
+            continue;
+        XMLDocument doc;
+        if (doc.Parse(xml.c_str()) == XML_SUCCESS)
+        {
+            if (const XMLElement* divisions = doc.FirstChildElement("divisions"))
+                return std::max(1, divisions->IntText(1));
+        }
+    }
+    return 1;
+}
+
+std::string SourceSlicer::window_xml_for(
+    const std::vector<StreamBar>& bars, int context_bar) const
+{
+    if (!ready() || bars.empty())
+        return {};
+    bool has_fabricated = false;
+    for (const StreamBar& bar : bars)
+    {
+        if (bar.source_bar >= bar_count())
+            return {};
+        if (bar.source_bar < 0)
+        {
+            if (bar.measure_xml.empty())
+                return {};
+            has_fabricated = true;
+        }
+    }
+    // Fabricated measures are written for a single part (the grand staff);
+    // multi-part sources stay verbatim-only.
+    if (has_fabricated && impl_->parts.size() != 1)
+        return {};
+    context_bar = std::clamp(context_bar, 0, bar_count() - 1);
 
     std::string out;
     out += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<score-partwise version=\"4.0\">\n";
@@ -217,24 +274,35 @@ std::string SourceSlicer::window_xml(int first_bar, int count) const
     for (const Impl::Part& part : impl_->parts)
     {
         out += "<part id=\"" + part.id + "\">\n";
-        for (int bar = first_bar; bar < first_bar + count; ++bar)
+        for (size_t index = 0; index < bars.size(); ++index)
         {
-            const XMLElement* measure = part.measures[static_cast<size_t>(bar)];
-            // Clone the measure verbatim, renumbered from 1.
+            const StreamBar& item = bars[index];
             XMLDocument clone_doc;
-            XMLNode* clone = measure->DeepClone(&clone_doc);
-            clone_doc.InsertEndChild(clone);
-            XMLElement* cloned = clone->ToElement();
-            cloned->SetAttribute(
-                "number", std::to_string(bar - first_bar + 1).c_str());
+            XMLElement* cloned = nullptr;
+            if (item.source_bar >= 0)
+            {
+                const XMLElement* measure = part.measures[static_cast<size_t>(item.source_bar)];
+                XMLNode* clone = measure->DeepClone(&clone_doc);
+                clone_doc.InsertEndChild(clone);
+                cloned = clone->ToElement();
+            }
+            else
+            {
+                if (clone_doc.Parse(item.measure_xml.c_str()) != XML_SUCCESS)
+                    return {};
+                cloned = clone_doc.FirstChildElement("measure");
+                if (cloned == nullptr)
+                    return {};
+            }
+            cloned->SetAttribute("number", std::to_string(index + 1).c_str());
 
-            if (bar == first_bar)
+            if (index == 0)
             {
                 // Inject the accumulated state as a complete <attributes>
                 // block BEFORE the measure's own content. A separate block
                 // keeps MusicXML's child-order rules trivially satisfied;
                 // anything the measure re-declares simply wins afterwards.
-                const AttributeState& state = part.state_before[static_cast<size_t>(bar)];
+                const AttributeState& state = part.state_before[static_cast<size_t>(context_bar)];
                 if (state.has_any())
                 {
                     std::string inject = "<attributes>";

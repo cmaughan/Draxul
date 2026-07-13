@@ -109,21 +109,43 @@ void PlayerModel::apply(const FlowController::NoteOutcome& outcome)
         return;
     }
     PitchStats& pitch = pitch_[outcome.pitch];
-    OnsetStats& onset = onset_[outcome.onset_q];
+    // Drill-bar outcomes (onset_q sentinel) train pitch/chord statistics
+    // but must not write mastery for a bar location they don't have.
+    const bool drill = outcome.onset_q <= kDrillOnsetSentinel + 1.0;
+    OnsetStats* onset = drill ? nullptr : &onset_[outcome.onset_q];
     if (outcome.verdict == FlowController::NoteVerdict::Correct)
     {
         ++pitch.hit;
-        ++onset.hit;
         pitch.timing.add(outcome.delta_q);
-        onset.timing.add(outcome.delta_q);
-        onset.push_recent(outcome.quality);
+        if (onset != nullptr)
+        {
+            ++onset->hit;
+            onset->timing.add(outcome.delta_q);
+            onset->push_recent(outcome.quality);
+        }
     }
     else
     {
         ++pitch.miss;
-        ++onset.miss;
-        onset.push_recent(0.0);
+        if (onset != nullptr)
+        {
+            ++onset->miss;
+            onset->push_recent(0.0);
+        }
     }
+}
+
+int PlayerModel::bar_encounters(int bar_index) const
+{
+    const double bar_start = bar_index * quarters_per_bar_;
+    const double bar_end = bar_start + quarters_per_bar_;
+    int count = 0;
+    for (auto it = onset_.lower_bound(bar_start); it != onset_.end() && it->first < bar_end; ++it)
+    {
+        if (!it->second.recent.empty())
+            ++count;
+    }
+    return count;
 }
 
 void PlayerModel::apply(const FlowController::ChordOutcome& outcome)

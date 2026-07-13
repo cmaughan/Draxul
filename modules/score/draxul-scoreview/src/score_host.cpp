@@ -535,6 +535,12 @@ void ScoreHost::relayout_flow()
                     slicer_error.c_str());
             }
         }
+        // The composer needs a single-part source (fabricated drill bars
+        // are written for the grand staff); multi-part pieces stream the
+        // source verbatim.
+        composing_ = stream_windowed_ && slicer_.ready() && slicer_.part_count() == 1;
+        if (composing_)
+            composer_.configure(&slicer_, &player_model_, &piece_profile_);
 
         // Piece analysis (stream plan S1): key, chords + nearings, motifs,
         // rhythm figures — from the judgment axis itself, dumped beside the
@@ -630,11 +636,42 @@ ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
 
 bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool carry)
 {
+    // `first_bar` indexes STREAM SLOTS when the composer drives the program
+    // (S3); with the composer inactive it is a plain source-bar index.
     const auto swap_start = std::chrono::steady_clock::now();
-    const int total = slicer_.bar_count();
-    first_bar = std::clamp(first_bar, 0, std::max(0, total - 1));
-    const int count = std::min(1 + kWindowHistoryBars + kWindowAheadBars, total - first_bar);
-    const std::string window = slicer_.window_xml(first_bar, count);
+    const int window_span = 1 + kWindowHistoryBars + kWindowAheadBars;
+    std::string window;
+    int count = 0;
+    if (composing_)
+    {
+        const int available = composer_.ensure(first_bar + window_span);
+        first_bar = std::clamp(first_bar, 0, std::max(0, available - 1));
+        count = std::min(window_span, available - first_bar);
+        std::vector<SourceSlicer::StreamBar> items;
+        items.reserve(static_cast<size_t>(count));
+        for (int slot = first_bar; slot < first_bar + count; ++slot)
+        {
+            const StreamBarPlan& plan = composer_.plan(slot);
+            if (plan.kind != StreamBarPlan::Kind::Piece && slot > last_logged_plan_slot_)
+                DRAXUL_LOG_INFO(
+                    LogCategory::App, "stream: slot %d = %s", slot, plan.reason.c_str());
+            last_logged_plan_slot_ = std::max(last_logged_plan_slot_, slot);
+            SourceSlicer::StreamBar item;
+            if (plan.kind == StreamBarPlan::Kind::Drill)
+                item.measure_xml = plan.drill_xml;
+            else
+                item.source_bar = plan.source_bar;
+            items.push_back(std::move(item));
+        }
+        window = slicer_.window_xml_for(items, composer_.plan(first_bar).source_bar);
+    }
+    else
+    {
+        const int total = slicer_.bar_count();
+        first_bar = std::clamp(first_bar, 0, std::max(0, total - 1));
+        count = std::min(window_span, total - first_bar);
+        window = slicer_.window_xml(first_bar, count);
+    }
     const FlowController::CarryState carried = flow_.carry_state();
 
     std::string error;
@@ -656,14 +693,16 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
     }
     window_first_bar_ = first_bar;
     window_bar_count_ = count;
-    stream_offset_q_ = slicer_.bar_start_q(first_bar);
+    stream_offset_q_ = composing_ ? composer_.slot_start_q(first_bar) : slicer_.bar_start_q(first_bar);
     flow_.set_marking_qpm(piece_marking_qpm_);
     flow_.set_mode(FlowController::TransportMode::Roll);
     if (carry)
     {
         flow_.restore_carry(carried);
         const double local_position = stream_position_q - stream_offset_q_;
-        const double window_end_local = slicer_.bar_start_q(first_bar + count) - stream_offset_q_;
+        const double window_end_local = (composing_ ? composer_.slot_start_q(first_bar + count)
+                                                    : slicer_.bar_start_q(first_bar + count))
+            - stream_offset_q_;
         for (const auto& [key, verdict] : verdict_archive_)
         {
             const double local_q = key.first / 1000.0 - stream_offset_q_;
@@ -689,11 +728,21 @@ void ScoreHost::maybe_advance_stream()
 {
     if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
         return;
-    const int total = slicer_.bar_count();
-    if (window_first_bar_ + window_bar_count_ >= total)
-        return; // the window tail already reaches the final bar
     const double stream_q = stream_position_q();
-    const int playhead_bar = slicer_.bar_at(stream_q);
+    int playhead_bar = 0;
+    if (composing_)
+    {
+        if (composer_.finished()
+            && window_first_bar_ + window_bar_count_ >= composer_.planned())
+            return; // the program is complete and the window reaches its end
+        playhead_bar = composer_.slot_at(stream_q);
+    }
+    else
+    {
+        if (window_first_bar_ + window_bar_count_ >= slicer_.bar_count())
+            return; // the window tail already reaches the final bar
+        playhead_bar = slicer_.bar_at(stream_q);
+    }
     if (playhead_bar <= window_first_bar_ + kWindowHistoryBars)
         return; // still inside the history margin
     rebuild_window(playhead_bar - kWindowHistoryBars, stream_q, /*carry=*/true);
@@ -780,8 +829,11 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
         return;
     if (game_mode_ == FlowController::TransportMode::Roll && stream_windowed_ && slicer_.ready())
     {
-        // The runner plays on the rolling window from stream bar 0.
+        // The runner plays on the rolling window from stream bar 0, with
+        // a fresh program (mastery persists in the player model, not here).
         verdict_archive_.clear();
+        composer_.reset();
+        last_logged_plan_slot_ = -1;
         if (!rebuild_window(0, 0.0, /*carry=*/false))
             flow_.set_mode(game_mode_); // fell back to the monolithic strip
     }
@@ -1087,6 +1139,12 @@ int ScoreHost::approx_measure() const
     const double quarters_per_measure = quarters_per_measure_from_model();
     if (quarters_per_measure <= 0.0)
         return 0;
+    if (composing_ && stream_active())
+    {
+        const int slot = composer_.slot_at(stream_position_q());
+        if (slot < composer_.planned())
+            return composer_.plan(slot).source_bar + 1;
+    }
     return static_cast<int>(stream_position_q() / quarters_per_measure) + 1;
 }
 
@@ -1125,18 +1183,31 @@ void ScoreHost::pump()
             }
             apply_verdict_update();
 
-            // Player memory: drain outcomes into the model on the STREAM
-            // axis (window-local qstamps + the window's offset), archive
-            // verdicts for window rebuilds, and flush the progress file at
-            // bar boundaries (cheap, atomic).
+            // Player memory: verdicts archive on the STREAM axis (for
+            // window repaints), then translate through the program's
+            // provenance — a review of bar 3 trains bar 3's statistics,
+            // and drill outcomes train pitch/chord stats only.
             for (FlowController::NoteOutcome outcome : flow_.take_note_outcomes())
             {
-                outcome.onset_q += stream_offset_q_;
+                const double stream_q = outcome.onset_q + stream_offset_q_;
                 if (!outcome.stray)
                 {
                     verdict_archive_[{ static_cast<long long>(
-                                           std::llround(outcome.onset_q * 1000.0)),
+                                           std::llround(stream_q * 1000.0)),
                         outcome.pitch }] = outcome.verdict;
+                }
+                if (composing_ && !outcome.stray)
+                {
+                    const int slot = composer_.slot_at(stream_q);
+                    const StreamBarPlan& plan = composer_.plan(slot);
+                    outcome.onset_q = plan.kind == StreamBarPlan::Kind::Drill
+                        ? PlayerModel::kDrillOnsetSentinel
+                        : slicer_.bar_start_q(plan.source_bar)
+                            + (stream_q - composer_.slot_start_q(slot));
+                }
+                else
+                {
+                    outcome.onset_q = stream_q;
                 }
                 player_model_.apply(outcome);
                 progress_dirty_ = true;
@@ -1332,6 +1403,8 @@ void ScoreHost::on_key(const KeyEvent& event)
             {
                 // Restart the stream from bar 0 with a fresh session.
                 verdict_archive_.clear();
+                composer_.reset();
+                last_logged_plan_slot_ = -1;
                 rebuild_window(0, 0.0, /*carry=*/false);
             }
             else
@@ -1459,6 +1532,18 @@ std::string ScoreHost::status_text() const
             {
                 const int acc = static_cast<int>(std::lround(flow_.accuracy_ema() * 100.0));
                 status += "  acc " + std::to_string(acc) + "%";
+                if (composing_ && stream_active())
+                {
+                    const int slot = composer_.slot_at(stream_position_q());
+                    if (slot < composer_.planned())
+                    {
+                        const StreamBarPlan::Kind kind = composer_.plan(slot).kind;
+                        if (kind == StreamBarPlan::Kind::Drill)
+                            status += "  DRILL";
+                        else if (kind == StreamBarPlan::Kind::Review)
+                            status += "  REVIEW";
+                    }
+                }
             }
             status += "  score " + std::to_string(flow_.score());
             status += "  x" + std::to_string(flow_.streak());

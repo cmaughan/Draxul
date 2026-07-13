@@ -172,7 +172,28 @@ while playing — the enabling mechanics for everything else.
   verification), with screenshots across several swaps showing no visual
   discontinuity at the playhead.
 
-## S3 — The composer (generation v1)
+## S3 — The composer (generation v1) ✅ core shipped (2026-07-13)
+
+Shipped: `StreamComposer` plans the stream program slot by slot from the
+LIVE player model — piece bars at a walking frontier, spaced REVIEW
+slices of weak encountered bars (mastery < 0.5, per-bar caps), and
+fabricated chord-DRILL bars built from the exact voiced pitches in
+trouble (miss+split ≥ 3 outweighing clean, per-chord cooldown, ≥2 piece
+bars between specials — never boring). Drills are written as MusicXML
+measures (repeated upper grab over a held bass, in the reference bar's
+divisions/meter) and flow through `SourceSlicer::window_xml_for()` —
+arbitrary sequences of verbatim source bars and fabricated measures,
+proven to engrave (unit test asserts the drill's onsets pixel-true
+through Verovio). Provenance: review outcomes train the SOURCE bar's
+statistics; drill outcomes carry an onset sentinel and train pitch/chord
+stats only — never bar mastery. Verified live: an all-miss seed session
+followed by a fresh run produced `stream: slot 2 = drill chord 52+60 (12
+trouble)` (+3 more, spaced), the drill bar visibly engraved mid-stream,
+and the pill shows DRILL/REVIEW while inside one. Single-part sources
+only (grand staff = one part); multi-part streams stay verbatim.
+Remaining for S3 polish (fold into S4): melodic/motif drills, rhythm
+figure drills keyed to timing drift, key-aware transposition variation,
+and drills earning their retirement (trouble decays as clean grabs land).
 
 `StreamComposer`: given PieceProfile + PlayerModel + transport state,
 emit the next bar as model measures with per-note provenance.

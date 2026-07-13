@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace draxul
 {
@@ -42,6 +43,22 @@ public:
     // measures renumbered from 1, attribute state injected at the head.
     // Empty string when out of range.
     std::string window_xml(int first_bar, int count) const;
+
+    // One item of a composed window (S3): a source bar cloned verbatim, or
+    // a fabricated <measure> (drills). Fabricated bars require a
+    // single-part source (the grand staff is one part).
+    struct StreamBar
+    {
+        int source_bar = -1; // >= 0: clone this source bar
+        std::string measure_xml; // fabricated <measure>...</measure>
+    };
+    // A window over an arbitrary bar sequence; head attributes come from
+    // `context_bar`'s accumulated state. Empty on invalid input.
+    std::string window_xml_for(const std::vector<StreamBar>& bars, int context_bar) const;
+
+    int part_count() const;
+    // Fabrication context: MusicXML divisions in force at a bar.
+    int divisions_at(int bar) const;
 
 private:
     struct Impl;

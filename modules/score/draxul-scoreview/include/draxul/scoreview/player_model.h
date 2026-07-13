@@ -105,6 +105,12 @@ public:
     // Mean recent-encounter quality of the bar's onsets, 0..1 (0 when the
     // bar has never been encountered).
     double bar_mastery(int bar_index) const;
+    // Number of the bar's onsets with at least one encounter (0 mastery is
+    // ambiguous between "all missed" and "never played"; this disambiguates).
+    int bar_encounters(int bar_index) const;
+    // Outcomes from fabricated drill bars carry this onset_q sentinel: they
+    // feed pitch and chord statistics but never bar/onset mastery.
+    static constexpr double kDrillOnsetSentinel = -1e6;
     double best_tempo_frac() const
     {
         return best_tempo_frac_;
