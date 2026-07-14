@@ -27,39 +27,39 @@ float keyboard_key_center_x(int midi, float x, float w);
 
 // The pairing palette: one color per NOTE SPELLING, indexed
 // letter*3 + (sign+1) (letter C=0..B=6, accidental flat 0 / natural 1 /
-// sharp 2). The seven NATURALS (the white keys) are spread evenly around
-// the wheel in CIELAB so every white key is its own hue — C red, D gold,
-// E green, F teal, G cyan, A blue, B magenta — with C and F on opposite
-// sides (they no longer look alike). Each black key takes the hue between
-// its neighbours; its SHARP spelling is a brighter, warmer variant leaning
-// toward the lower natural, its FLAT a darker, cooler variant leaning
-// toward the upper — so C# and Db read apart, and every accidental sits a
-// clear lightness step below the naturals. Tuned to read on the white
-// sheet, white keys, and black keys (min perceptual gap ~15 dE across the
-// common spellings, ~34 among the white keys).
+// sharp 2). The seven NATURALS (the white keys) use the BOOMWHACKERS
+// colors learners already know — C red, D orange, E yellow, F green,
+// G teal, A blue, B magenta — a full rainbow, so every white key is its
+// own hue (C and F on opposite sides, no longer alike). Each black key
+// takes the hue between its neighbours; its SHARP spelling is a brighter,
+// warmer variant leaning toward the lower natural, its FLAT a darker,
+// cooler variant leaning toward the upper — so C# and Db read apart, and
+// every accidental sits a clear lightness step below the naturals. Tuned
+// to read on the white sheet, white keys, and black keys (min perceptual
+// gap ~18 dE across the common spellings, ~36 among the white keys).
 constexpr int kGuidancePaletteSize = 21;
 constexpr unsigned char kGuidancePalette[kGuidancePaletteSize][3] = {
-    { 140, 52, 125 }, //  0 Cb
-    { 250, 99, 105 }, //  1 C   red
-    { 201, 85, 54 }, //  2 C#  warm orange
-    { 138, 68, 7 }, //  3 Db  deep amber
-    { 200, 138, 26 }, //  4 D   gold
-    { 140, 121, 0 }, //  5 D#  warm olive
-    { 80, 93, 0 }, //  6 Eb  deep olive
-    { 104, 166, 52 }, //  7 E   green
-    { 11, 137, 120 }, //  8 E#
-    { 50, 99, 7 }, //  9 Fb
-    { 11, 169, 148 }, // 10 F   teal
-    { 6, 135, 136 }, // 11 F#  warm teal
-    { 9, 96, 107 }, // 12 Gb  deep teal
-    { 3, 163, 198 }, // 13 G   cyan
-    { 0, 131, 176 }, // 14 G#  warm blue
-    { 8, 91, 141 }, // 15 Ab  deep blue
-    { 84, 148, 254 }, // 16 A   blue
-    { 117, 108, 211 }, // 17 A#  warm violet
-    { 117, 64, 145 }, // 18 Bb  deep violet
-    { 223, 107, 201 }, // 19 B   magenta
-    { 211, 74, 81 }, // 20 B#
+    { 147, 53, 119 }, //  0 Cb
+    { 222, 49, 43 }, //  1 C   red        (Boomwhacker)
+    { 202, 90, 58 }, //  2 C#  warm orange
+    { 146, 66, 25 }, //  3 Db  deep amber
+    { 240, 126, 32 }, //  4 D   orange     (Boomwhacker)
+    { 176, 109, 22 }, //  5 D#  warm ochre
+    { 120, 82, 0 }, //  6 Eb  deep ochre
+    { 233, 190, 25 }, //  7 E   yellow     (Boomwhacker)
+    { 81, 138, 39 }, //  8 E#
+    { 109, 87, 0 }, //  9 Fb
+    { 106, 178, 54 }, // 10 F   green      (Boomwhacker)
+    { 5, 143, 69 }, // 11 F#  warm green
+    { 0, 102, 78 }, // 12 Gb  deep green
+    { 26, 175, 165 }, // 13 G   teal       (Boomwhacker)
+    { 13, 136, 158 }, // 14 G#  warm cyan
+    { 0, 96, 138 }, // 15 Ab  deep cyan
+    { 52, 96, 200 }, // 16 A   blue       (Boomwhacker)
+    { 139, 106, 205 }, // 17 A#  warm violet
+    { 128, 64, 139 }, // 18 Bb  deep violet
+    { 198, 66, 160 }, // 19 B   magenta    (Boomwhacker)
+    { 207, 85, 69 }, // 20 B#
 };
 
 // Fallback spelling when the notated letter is unknown (stray notes, or a
