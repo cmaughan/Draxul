@@ -20,13 +20,11 @@ namespace
 
 const NVGcolor INK = { { { 0.10f, 0.09f, 0.08f, 1.0f } } };
 const NVGcolor PAGE_WHITE = { { { 0.988f, 0.984f, 0.972f, 1.0f } } };
-// Highlight palette indexed by ScoreHighlightState::State:
-// None=ink, Passed=burnt amber, Correct=green, Missed=red — all chosen for
-// contrast against both the page white and each other.
+// The clock-conveyor "passed" tint (burnt amber) and the wrong-note cross
+// (red). A right/wrong verdict no longer recolors the note — the spelling
+// color stays and a wrong note gets a red cross drawn over its head instead.
 const NVGcolor ACCENT = { { { 0.85f, 0.45f, 0.08f, 1.0f } } };
-const NVGcolor CORRECT_GREEN = { { { 0.13f, 0.55f, 0.22f, 1.0f } } };
-const NVGcolor MISS_RED = { { { 0.80f, 0.13f, 0.10f, 1.0f } } };
-const NVGcolor STATE_COLORS[4] = { INK, ACCENT, CORRECT_GREEN, MISS_RED };
+const NVGcolor CROSS_RED = { { { 0.82f, 0.11f, 0.09f, 1.0f } } };
 
 // A glyph is a notehead when its SMuFL codepoint (the hex before the '-' in
 // the symbol id) is in the Noteheads block U+E0A0-E0FF — accidentals, stems,
@@ -134,7 +132,7 @@ ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg)
 }
 
 void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origin, float scale,
-    const ScoreTextFonts& fonts, const ScoreHighlightState* highlight)
+    const ScoreTextFonts& fonts, const ScoreHighlightState* highlight, bool split_accidentals)
 {
     nvgSave(vg);
     nvgTranslate(vg, origin.x, origin.y);
@@ -143,13 +141,17 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
     const auto state_color = [highlight](const std::vector<uint8_t>& states,
                                  const std::vector<uint8_t>& guides, size_t i) -> NVGcolor {
         const uint8_t state = (highlight != nullptr && i < states.size()) ? states[i] : 0;
-        if (state == 0 && highlight != nullptr && i < guides.size() && guides[i] > 0)
+        // Only the clock-mode conveyor tints (amber). A right/wrong verdict no
+        // longer recolors — the note keeps its spelling color and a wrong note
+        // gets a cross drawn over it (below).
+        if (state == static_cast<uint8_t>(ScoreHighlightState::State::Passed))
+            return ACCENT;
+        if (highlight != nullptr && i < guides.size() && guides[i] > 0)
         {
-            // The keyboard pairing: an upcoming note wears its key's color.
             const unsigned char* tint = kGuidancePalette[(guides[i] - 1) % kGuidancePaletteSize];
             return nvgRGBA(tint[0], tint[1], tint[2], 255);
         }
-        return STATE_COLORS[state < 4 ? state : 0];
+        return INK;
     };
 
     for (size_t i = 0; i < list.paths.size(); ++i)
@@ -187,38 +189,37 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         const NVGcolor color = highlight != nullptr
             ? state_color(highlight->glyph_lit, highlight->glyph_guide, i)
             : INK;
-
-        // An accidental's notehead gets a HALF-color overlay as a spelling cue:
-        // the standard black notehead is drawn first (so the note and its
-        // timing — filled quarter vs hollow minim — stay legible), then the
-        // spelling color fills one half — a sharp the TOP half, a flat the
-        // BOTTOM. The spelling comes from the guide palette index
-        // (letter*3 + sign+1): sign 0 = flat, 2 = sharp.
         const int guide = (highlight != nullptr && i < highlight->glyph_guide.size())
             ? highlight->glyph_guide[i]
             : 0;
-        const int sign = guide > 0 ? (guide - 1) % 3 : 1;
-        if ((sign == 0 || sign == 2) && is_notehead(symbol.id))
+        const int sign = guide > 0 ? (guide - 1) % 3 : 1; // 0 flat, 1 nat, 2 sharp
+        const uint8_t state = (highlight != nullptr && i < highlight->glyph_lit.size())
+            ? highlight->glyph_lit[i]
+            : 0;
+        const bool notehead = is_notehead(symbol.id);
+        const bool split = notehead && split_accidentals && (sign == 0 || sign == 2);
+        const bool wrong
+            = notehead && state == static_cast<uint8_t>(ScoreHighlightState::State::Missed);
+
+        // The head's canvas-space bounding box (its font-unit extent mapped
+        // through the glyph affine) — the accidental split and the cross both
+        // need it, so compute it once when either applies.
+        glm::vec2 cmin{ 1e30f, 1e30f };
+        glm::vec2 cmax{ -1e30f, -1e30f };
+        if (split || wrong)
         {
-            // Canvas-space vertical extent of the head (its font-unit bounds
-            // mapped through the glyph's affine) gives the split line.
             glm::vec2 lo{ 1e30f, 1e30f };
             glm::vec2 hi{ -1e30f, -1e30f };
-            const auto grow = [&](glm::vec2 p) {
-                lo = glm::min(lo, p);
-                hi = glm::max(hi, p);
-            };
             for (const PathCmd& cmd : symbol.cmds)
             {
-                grow(cmd.p);
+                lo = glm::min(lo, cmd.p);
+                hi = glm::max(hi, cmd.p);
                 if (cmd.op == PathCmd::Op::CubicTo)
                 {
-                    grow(cmd.c1);
-                    grow(cmd.c2);
+                    lo = glm::min(glm::min(lo, cmd.c1), cmd.c2);
+                    hi = glm::max(glm::max(hi, cmd.c1), cmd.c2);
                 }
             }
-            glm::vec2 cmin{ 1e30f, 1e30f };
-            glm::vec2 cmax{ -1e30f, -1e30f };
             for (const glm::vec2 corner :
                 { glm::vec2{ lo.x, lo.y }, glm::vec2{ hi.x, lo.y }, glm::vec2{ lo.x, hi.y },
                     glm::vec2{ hi.x, hi.y } })
@@ -227,9 +228,18 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
                 cmin = glm::min(cmin, q);
                 cmax = glm::max(cmax, q);
             }
+        }
+
+        if (split)
+        {
+            // An accidental's notehead is a spelling cue: the standard black
+            // notehead first (hole preserved for minims — the note and its
+            // timing stay legible), then the spelling color over one VERTICAL
+            // half — a sharp the right, a flat the left. Left/right (not
+            // top/bottom) keeps the note's full height, so its level on the
+            // stave stays clear.
             const float mid = (cmin.x + cmax.x) * 0.5f;
             const bool sharp = sign == 2;
-            // The standard black notehead, full (its hole preserved for minims).
             nvgSave(vg);
             nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
             nvgBeginPath(vg);
@@ -237,9 +247,6 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
             nvgFillColor(vg, INK);
             nvgFill(vg);
             nvgRestore(vg);
-            // The spelling color over one VERTICAL half — a sharp the right,
-            // a flat the left. Splitting left/right (not top/bottom) keeps the
-            // notehead's full height, so its level on the stave stays clear.
             nvgSave(vg);
             nvgIntersectScissor(
                 vg, sharp ? mid : cmin.x, cmin.y, mid - cmin.x, cmax.y - cmin.y);
@@ -249,16 +256,42 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
             nvgFillColor(vg, color);
             nvgFill(vg);
             nvgRestore(vg);
-            continue;
+        }
+        else
+        {
+            nvgSave(vg);
+            nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
+            nvgBeginPath(vg);
+            replay_commands(vg, symbol.cmds);
+            nvgFillColor(vg, color);
+            nvgFill(vg);
+            nvgRestore(vg);
         }
 
-        nvgSave(vg);
-        nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
-        nvgBeginPath(vg);
-        replay_commands(vg, symbol.cmds);
-        nvgFillColor(vg, color);
-        nvgFill(vg);
-        nvgRestore(vg);
+        // A wrong note is flagged with a small red cross over its head — the
+        // note keeps its own color, only the cross marks the mistake. A white
+        // halo keeps it visible over any note color.
+        if (wrong)
+        {
+            const float cx = (cmin.x + cmax.x) * 0.5f;
+            const float cy = (cmin.y + cmax.y) * 0.5f;
+            const float span = glm::max(cmax.x - cmin.x, cmax.y - cmin.y);
+            const float r = 0.55f * span;
+            const float sw = 0.15f * span;
+            const auto stroke_cross = [&](NVGcolor c, float w) {
+                nvgStrokeColor(vg, c);
+                nvgStrokeWidth(vg, w);
+                nvgLineCap(vg, NVG_ROUND);
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, cx - r, cy - r);
+                nvgLineTo(vg, cx + r, cy + r);
+                nvgMoveTo(vg, cx - r, cy + r);
+                nvgLineTo(vg, cx + r, cy - r);
+                nvgStroke(vg);
+            };
+            stroke_cross(nvgRGBA(255, 255, 255, 235), sw * 1.9f);
+            stroke_cross(CROSS_RED, sw);
+        }
     }
 
     if (fonts.regular >= 0)

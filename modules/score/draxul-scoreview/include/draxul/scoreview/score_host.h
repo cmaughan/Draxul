@@ -277,10 +277,15 @@ private:
     // gentle legato; low values read as staccato.
     double note_gate_ = 0.95;
 
-    // Score verdict coloring: when false, hit/miss green/red never paint on
-    // the sheet (the spelling colors stay) — for reading the notation, or
-    // studying color-position mapping, without the error feedback.
-    bool verdict_colors_ = true;
+    // Wrong-note marking: a wrong note gets a small cross over its head (the
+    // note keeps its spelling color); false leaves the sheet unmarked.
+    bool mark_mistakes_ = true;
+    // Sharp/flat notehead cue: true = the half-color-over-black split, false =
+    // accidentals wear their full spelling color like the naturals.
+    bool split_accidentals_ = true;
+    // Composer: true = the adaptive stream (reviews, drills, simplification),
+    // false = just scroll the original piece bar-by-bar, unchanged.
+    bool composer_enabled_ = true;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;

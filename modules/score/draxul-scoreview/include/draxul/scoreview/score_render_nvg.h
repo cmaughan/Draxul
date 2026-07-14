@@ -26,9 +26,13 @@ ScoreTextFonts ensure_score_text_fonts(NVGcontext* vg);
 // Replays one interpreted page into NanoVG. origin is the page's top-left in
 // pixels; scale maps canvas units to pixels (stroke widths and font sizes are
 // in canvas units and scale with the transform). When `highlight` is given,
-// ops flagged lit draw in the accent color (the conveyor's note light-up).
+// spelling colors and the wrong-note cross draw from its per-op state.
+// `split_accidentals` toggles the half-color-over-black notehead cue for
+// sharps/flats (off = accidentals wear their full spelling color, like the
+// naturals).
 void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origin, float scale,
-    const ScoreTextFonts& fonts, const ScoreHighlightState* highlight = nullptr);
+    const ScoreTextFonts& fonts, const ScoreHighlightState* highlight = nullptr,
+    bool split_accidentals = true);
 
 // White page sheet with a soft drop shadow; shared by the score renderer and
 // the no-source placeholder scene.

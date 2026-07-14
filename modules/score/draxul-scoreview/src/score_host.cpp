@@ -304,8 +304,13 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             audition_ = true;
         if (command.find("nowaterfall") != std::string::npos)
             show_waterfall_ = false;
-        if (command.find("noverdict") != std::string::npos)
-            verdict_colors_ = false;
+        if (command.find("noverdict") != std::string::npos
+            || command.find("nomistake") != std::string::npos)
+            mark_mistakes_ = false;
+        if (command.find("fullcolor") != std::string::npos)
+            split_accidentals_ = false;
+        if (command.find("nocomposer") != std::string::npos)
+            composer_enabled_ = false;
         else if (command.find("tick8") != std::string::npos)
             tick_level_ = TickLevel::Eighths;
         else if (command.find("tick") != std::string::npos)
@@ -574,7 +579,8 @@ void ScoreHost::relayout_flow()
         // The composer needs a single-part source (fabricated drill bars
         // are written for the grand staff); multi-part pieces stream the
         // source verbatim.
-        composing_ = stream_windowed_ && slicer_.ready() && slicer_.part_count() == 1;
+        composing_ = composer_enabled_ && stream_windowed_ && slicer_.ready()
+            && slicer_.part_count() == 1;
         if (composing_)
             composer_.configure(&slicer_, &player_model_, &piece_profile_);
 
@@ -881,10 +887,11 @@ void ScoreHost::apply_verdict_update()
     const FlowController::VerdictUpdate update = flow_.take_verdict_update();
     if (update.reset)
         highlight_.clear_lit();
-    // Verdict coloring can be turned off to read the pure notation (the flow
-    // controller still tracks hits/misses for scoring — only the paint is
-    // suppressed, and the notes keep their spelling colors).
-    if (!verdict_colors_)
+    // Wrong-note marking can be turned off to read the pure notation (the flow
+    // controller still tracks hits/misses for scoring — only the on-sheet
+    // cross is suppressed). Verdicts never recolor the note; a wrong one is
+    // flagged by a cross the renderer draws over the Missed state.
+    if (!mark_mistakes_)
         return;
     for (const auto& [id, verdict] : update.changes)
     {
@@ -1568,17 +1575,19 @@ void ScoreHost::draw(IFrameContext& frame)
             }
         }
         const float keyboard_alpha = streaming ? 1.0f : 0.0f;
+        const bool split_acc = split_accidentals_;
 
         nanovg_pass_->set_draw_callback(
             [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
                 waiting, lit, keyboard_alpha, keyboard_y, keyboard_h, streaming, show_wf, blocks,
-                waterfall_top](NVGcontext* vg, int w, int h) {
+                waterfall_top, split_acc](NVGcontext* vg, int w, int h) {
                 fill_backdrop(vg, w, h);
                 const float band_pad = 18.0f * pixel_scale;
                 draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
                     vw + 96.0f * pixel_scale, target_h + 2.0f * band_pad, pixel_scale);
                 const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
-                render_draw_list(vg, *strip, { origin_x, strip_y }, scale, fonts, highlight);
+                render_draw_list(
+                    vg, *strip, { origin_x, strip_y }, scale, fonts, highlight, split_acc);
                 // Playhead: amber while rolling, teal while awaiting the player.
                 nvgBeginPath(vg);
                 nvgRect(vg, playhead_x - 1.0f * pixel_scale, strip_y - band_pad,
@@ -1968,9 +1977,26 @@ void ScoreHost::render_debug_ui(float dt)
                     note_gate_ = gate;
                 ImGui::SameLine();
                 ImGui::TextDisabled("(staccato..legato)");
-                if (ImGui::Checkbox("Verdict colors (hit/miss)", &verdict_colors_)
-                    && !verdict_colors_)
-                    highlight_.clear_lit(); // drop the current red/green at once
+                if (ImGui::Checkbox("Mark wrong notes (x)", &mark_mistakes_) && !mark_mistakes_)
+                    highlight_.clear_lit(); // drop the current crosses at once
+                ImGui::Checkbox("Split sharps/flats (half color)", &split_accidentals_);
+                ImGui::SameLine();
+                ImGui::TextDisabled("off = full color");
+                if (ImGui::Checkbox("Composer (adaptive)", &composer_enabled_))
+                {
+                    // Re-evaluate and rebuild the stream from the top: on = the
+                    // adaptive program, off = the piece scrolling unchanged.
+                    composing_ = composer_enabled_ && stream_windowed_ && slicer_.ready()
+                        && slicer_.part_count() == 1;
+                    if (composing_)
+                        composer_.configure(&slicer_, &player_model_, &piece_profile_);
+                    verdict_archive_.clear();
+                    composer_.reset();
+                    last_logged_plan_slot_ = -1;
+                    rebuild_window(0, 0.0, /*carry=*/false);
+                    if (callbacks_ != nullptr)
+                        callbacks_->request_frame();
+                }
             }
 
             if (ImGui::CollapsingHeader("Audio"))
