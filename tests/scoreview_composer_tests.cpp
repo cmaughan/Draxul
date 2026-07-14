@@ -479,16 +479,18 @@ TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scor
     const auto differ = [](const unsigned char* a, const unsigned char* b) {
         return std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) + std::abs(a[2] - b[2]);
     };
+    const auto lum = [](const unsigned char* c) {
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
 
     // C# and Db are the same key and MIDI pitch (61) but opposite spellings:
-    // different letters resolve to different palette entries and colors.
+    // different palette entries, clearly different colors, and the sharp is
+    // the brighter/warmer variant of the shared black-key hue.
     const int c_sharp = guidance_palette_index(61, /*letter C=*/0);
     const int d_flat = guidance_palette_index(61, /*letter D=*/1);
     CHECK(c_sharp != d_flat);
-    CHECK(differ(kGuidancePalette[c_sharp], kGuidancePalette[d_flat]) > 150);
-    // Sharps read warm (red over green); their enharmonic flats read cool.
-    CHECK(kGuidancePalette[c_sharp][0] > kGuidancePalette[c_sharp][1]);
-    CHECK(kGuidancePalette[d_flat][1] > kGuidancePalette[d_flat][0]);
+    CHECK(differ(kGuidancePalette[c_sharp], kGuidancePalette[d_flat]) > 80);
+    CHECK(lum(kGuidancePalette[c_sharp]) > lum(kGuidancePalette[d_flat]));
 
     // A spelling is stable across octaves (C#4 and C#6 share a color) and a
     // natural is its own entry, distinct from both accidental readings.
@@ -501,8 +503,27 @@ TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scor
     CHECK(guidance_palette_index(61) == c_sharp);
     CHECK(guidance_palette_index(60) == c_natural);
 
-    // Every pitch maps in range, and chromatic neighbours never look alike —
-    // the whole point of the fifths-based hue walk.
+    // The seven WHITE KEYS (naturals) must all be clearly distinct — the
+    // point of the redesign: C and F used to look alike, now they don't.
+    const int naturals[7] = {
+        guidance_palette_index(60, 0), // C
+        guidance_palette_index(62, 1), // D
+        guidance_palette_index(64, 2), // E
+        guidance_palette_index(65, 3), // F
+        guidance_palette_index(67, 4), // G
+        guidance_palette_index(69, 5), // A
+        guidance_palette_index(71, 6), // B
+    };
+    int min_natural = 1000;
+    for (int i = 0; i < 7; ++i)
+        for (int j = i + 1; j < 7; ++j)
+            min_natural = std::min(min_natural,
+                differ(kGuidancePalette[naturals[i]], kGuidancePalette[naturals[j]]));
+    CHECK(min_natural > 55);
+    CHECK(differ(kGuidancePalette[naturals[0]], kGuidancePalette[naturals[3]]) > 200); // C vs F
+
+    // Every pitch maps in range, and no two adjacent semitones are identical
+    // (a natural and its sharp share a hue family but still differ).
     for (int midi = kKeyboardLowMidi; midi <= kKeyboardHighMidi; ++midi)
     {
         const int idx = guidance_palette_index(midi);
@@ -510,6 +531,6 @@ TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scor
         REQUIRE(idx < kGuidancePaletteSize);
         if (midi < kKeyboardHighMidi)
             CHECK(differ(kGuidancePalette[idx], kGuidancePalette[guidance_palette_index(midi + 1)])
-                > 100);
+                > 30);
     }
 }

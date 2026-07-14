@@ -25,38 +25,41 @@ int keyboard_white_index(int midi);
 // Horizontal center of a key within a keyboard spanning [x, x+w).
 float keyboard_key_center_x(int midi, float x, float w);
 
-// The pairing palette: one color per NOTE SPELLING, not merely per pitch
-// class — a sharp and its enharmonic flat share a key but wear different
-// colors (C# is warm, Db is cool). The index is letter*3 + (sign+1): the
-// diatonic letter (C=0 .. B=6) times three, offset by the accidental
-// (flat 0 / natural 1 / sharp 2). Hues walk the LINE OF FIFTHS in CIELAB,
-// so a semitone step lands on the far side of the wheel — chromatic
-// neighbours contrast hard — while sharps stay warm, flats stay cool, and
-// naturals hold the blue-to-magenta arc. Tuned to read on the white sheet,
-// white keys, and black keys; the verdict pure-red/green never appear here.
+// The pairing palette: one color per NOTE SPELLING, indexed
+// letter*3 + (sign+1) (letter C=0..B=6, accidental flat 0 / natural 1 /
+// sharp 2). The seven NATURALS (the white keys) are spread evenly around
+// the wheel in CIELAB so every white key is its own hue — C red, D gold,
+// E green, F teal, G cyan, A blue, B magenta — with C and F on opposite
+// sides (they no longer look alike). Each black key takes the hue between
+// its neighbours; its SHARP spelling is a brighter, warmer variant leaning
+// toward the lower natural, its FLAT a darker, cooler variant leaning
+// toward the upper — so C# and Db read apart, and every accidental sits a
+// clear lightness step below the naturals. Tuned to read on the white
+// sheet, white keys, and black keys (min perceptual gap ~15 dE across the
+// common spellings, ~34 among the white keys).
 constexpr int kGuidancePaletteSize = 21;
 constexpr unsigned char kGuidancePalette[kGuidancePaletteSize][3] = {
-    { 139, 135, 0 }, //  0 Cb
-    { 3, 141, 190 }, //  1 C   blue
-    { 221, 89, 73 }, //  2 C#  warm red
-    { 40, 151, 63 }, //  3 Db  cool green
-    { 94, 125, 233 }, //  4 D   indigo
-    { 177, 121, 5 }, //  5 D#  amber
-    { 0, 148, 136 }, //  6 Eb  teal
-    { 199, 91, 183 }, //  7 E   magenta
-    { 106, 144, 21 }, //  8 E#
-    { 173, 123, 0 }, //  9 Fb
-    { 9, 144, 171 }, // 10 F   cyan-blue
-    { 228, 78, 109 }, // 11 F#  warm pink-red
-    { 100, 145, 27 }, // 12 Gb  cool olive-green
-    { 0, 137, 218 }, // 13 G   blue
-    { 203, 105, 40 }, // 14 G#  orange
-    { 0, 150, 108 }, // 15 Ab  green
-    { 159, 108, 213 }, // 16 A   violet
-    { 144, 134, 1 }, // 17 A#  warm gold
-    { 1, 146, 155 }, // 18 Bb  cool cyan
-    { 221, 78, 147 }, // 19 B   pink
-    { 53, 150, 57 }, // 20 B#
+    { 140, 52, 125 }, //  0 Cb
+    { 250, 99, 105 }, //  1 C   red
+    { 201, 85, 54 }, //  2 C#  warm orange
+    { 138, 68, 7 }, //  3 Db  deep amber
+    { 200, 138, 26 }, //  4 D   gold
+    { 140, 121, 0 }, //  5 D#  warm olive
+    { 80, 93, 0 }, //  6 Eb  deep olive
+    { 104, 166, 52 }, //  7 E   green
+    { 11, 137, 120 }, //  8 E#
+    { 50, 99, 7 }, //  9 Fb
+    { 11, 169, 148 }, // 10 F   teal
+    { 6, 135, 136 }, // 11 F#  warm teal
+    { 9, 96, 107 }, // 12 Gb  deep teal
+    { 3, 163, 198 }, // 13 G   cyan
+    { 0, 131, 176 }, // 14 G#  warm blue
+    { 8, 91, 141 }, // 15 Ab  deep blue
+    { 84, 148, 254 }, // 16 A   blue
+    { 117, 108, 211 }, // 17 A#  warm violet
+    { 117, 64, 145 }, // 18 Bb  deep violet
+    { 223, 107, 201 }, // 19 B   magenta
+    { 211, 74, 81 }, // 20 B#
 };
 
 // Fallback spelling when the notated letter is unknown (stray notes, or a

@@ -271,6 +271,11 @@ private:
     std::vector<WaterfallNote> waterfall_notes_;
     bool show_waterfall_ = true;
     double waterfall_beats_ = 7.0; // beats of look-ahead the zone shows
+    // Articulation: a played note holds for this fraction of its notated
+    // length, so blocks and key-lights end early and successive notes get
+    // daylight between them (there is always a subjective pause). ~0.95 is a
+    // gentle legato; low values read as staccato.
+    double note_gate_ = 0.95;
 
     // Score verdict coloring: when false, hit/miss green/red never paint on
     // the sheet (the spelling colors stay) — for reading the notation, or

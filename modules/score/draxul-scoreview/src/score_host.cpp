@@ -1462,13 +1462,14 @@ void ScoreHost::draw(IFrameContext& frame)
 
         // The sheet is already colored (build_flow_from_engine paints every
         // note its spelling's color, once per engraving). Here we only pick
-        // the KEYS to light: the pitches of onsets whose hit windows contain
-        // the playhead, each faded by trailing clean plays of its SOURCE
-        // onset (3 clean = invisible). Drill bars always guide. The keyboard
-        // itself stays on screen; only the key lights come and go, wearing
-        // the same palette index the matching notehead already shows.
+        // the KEYS to light. Without the waterfall the keyboard is the
+        // anticipatory guide: onsets whose hit window holds the playhead,
+        // faded by trailing clean plays (3 clean = invisible), drills always
+        // on. With the waterfall present the falling blocks do the
+        // anticipating, so the keys instead light on the beat (below) — this
+        // is what keeps a key from lighting before its block lands.
         std::vector<KeyboardLit> lit;
-        if (streaming)
+        if (streaming && !show_wf)
         {
             const double position = flow_.position_q();
             const auto& onsets = flow_.onsets();
@@ -1518,10 +1519,12 @@ void ScoreHost::draw(IFrameContext& frame)
             }
         }
         // Waterfall blocks + the keyboard's playback lighting. A block falls
-        // so its bottom edge reaches the keys exactly as the transport
-        // crosses the note's onset; the matching key lights full-bright while
-        // the note sounds (position within [onset, onset+duration]) — landing
-        // on, dimming off. Block height = duration in beats (the timing hint).
+        // so its bottom edge reaches the keys exactly as the transport crosses
+        // the note's onset; the matching key lights full-bright while the note
+        // sounds and dims when it ends. A note holds for note_gate_ of its
+        // notated length (articulation) with a floor of a couple pixels of
+        // daylight, so successive notes on one key are visibly separate and
+        // never light two-at-once in a run.
         struct WaterfallBlock
         {
             float x = 0.0f, w = 0.0f, y0 = 0.0f, y1 = 0.0f;
@@ -1536,12 +1539,17 @@ void ScoreHost::draw(IFrameContext& frame)
             const float ppb
                 = waterfall_h / static_cast<float>(std::max(1.0, waterfall_beats_));
             const float white_w = vw / 52.0f;
+            const float gap = 2.0f * pixel_scale; // guaranteed daylight
             blocks.reserve(waterfall_notes_.size());
             for (const WaterfallNote& n : waterfall_notes_)
             {
+                const float span = static_cast<float>(n.duration_q) * ppb;
+                const float sounding
+                    = static_cast<float>(n.duration_q * note_gate_) * ppb;
+                const float height = std::max(1.0f, std::min(sounding, span - gap));
                 const float bottom
                     = keyboard_y - static_cast<float>(n.onset_q - position) * ppb;
-                const float top = bottom - static_cast<float>(n.duration_q) * ppb;
+                const float top = bottom - height;
                 if (bottom <= waterfall_top || top >= keyboard_y)
                     continue; // fully above the zone (future) or already played
                 const float y0 = std::max(top, waterfall_top);
@@ -1552,7 +1560,10 @@ void ScoreHost::draw(IFrameContext& frame)
                 const float bw
                     = keyboard_is_black(n.midi) ? white_w * 0.52f : white_w * 0.74f;
                 blocks.push_back({ cx - bw * 0.5f, bw, y0, y1, n.palette });
-                if (position + 1e-6 >= n.onset_q && position < n.onset_q + n.duration_q)
+                // Light the key only while the note is sounding (the gated
+                // length), so it dims before the next onset in a run.
+                if (position + 1e-6 >= n.onset_q
+                    && position < n.onset_q + n.duration_q * note_gate_)
                     lit.push_back({ n.midi, 1.0f, n.palette });
             }
         }
@@ -1952,6 +1963,11 @@ void ScoreHost::render_debug_ui(float dt)
                 float beats = static_cast<float>(waterfall_beats_);
                 if (ImGui::SliderFloat("look-ahead beats", &beats, 3.0f, 16.0f, "%.1f"))
                     waterfall_beats_ = beats;
+                float gate = static_cast<float>(note_gate_);
+                if (ImGui::SliderFloat("articulation", &gate, 0.10f, 1.0f, "%.2f"))
+                    note_gate_ = gate;
+                ImGui::SameLine();
+                ImGui::TextDisabled("(staccato..legato)");
                 if (ImGui::Checkbox("Verdict colors (hit/miss)", &verdict_colors_)
                     && !verdict_colors_)
                     highlight_.clear_lit(); // drop the current red/green at once
