@@ -479,25 +479,25 @@ TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scor
     const auto differ = [](const unsigned char* a, const unsigned char* b) {
         return std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) + std::abs(a[2] - b[2]);
     };
-    const auto lum = [](const unsigned char* c) {
-        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    const auto same = [](const unsigned char* a, const unsigned char* b) {
+        return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
     };
 
-    // C# and Db are the same key and MIDI pitch (61) but opposite spellings:
-    // different palette entries, clearly different colors, and the sharp is
-    // the brighter/warmer variant of the shared black-key hue.
+    // An accidental wears its PARENT letter's exact color: C# = C, Db = D. C#
+    // and Db are the same key/pitch (61) but different letters, so they still
+    // read apart (C's red vs D's orange) even though neither is recolored —
+    // the half-moon notehead, not a hue shift, marks them as accidentals.
     const int c_sharp = guidance_palette_index(61, /*letter C=*/0);
     const int d_flat = guidance_palette_index(61, /*letter D=*/1);
-    CHECK(c_sharp != d_flat);
-    CHECK(differ(kGuidancePalette[c_sharp], kGuidancePalette[d_flat]) > 80);
-    CHECK(lum(kGuidancePalette[c_sharp]) > lum(kGuidancePalette[d_flat]));
-
-    // A spelling is stable across octaves (C#4 and C#6 share a color) and a
-    // natural is its own entry, distinct from both accidental readings.
-    CHECK(guidance_palette_index(61, 0) == guidance_palette_index(85, 0));
     const int c_natural = guidance_palette_index(60, 0);
-    CHECK(c_natural != c_sharp);
-    CHECK(c_natural != d_flat);
+    const int d_natural = guidance_palette_index(62, 1);
+    CHECK(c_sharp != d_flat);
+    CHECK(same(kGuidancePalette[c_sharp], kGuidancePalette[c_natural])); // C# = C
+    CHECK(same(kGuidancePalette[d_flat], kGuidancePalette[d_natural])); // Db = D
+    CHECK(differ(kGuidancePalette[c_sharp], kGuidancePalette[d_flat]) > 80); // C red vs D orange
+
+    // A spelling index is stable across octaves (C#4 and C#6 share it).
+    CHECK(guidance_palette_index(61, 0) == guidance_palette_index(85, 0));
 
     // With no notated letter, the pitch class falls back to its sharp reading.
     CHECK(guidance_palette_index(61) == c_sharp);
@@ -522,15 +522,13 @@ TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scor
     CHECK(min_natural > 55);
     CHECK(differ(kGuidancePalette[naturals[0]], kGuidancePalette[naturals[3]]) > 200); // C vs F
 
-    // Every pitch maps in range, and no two adjacent semitones are identical
-    // (a natural and its sharp share a hue family but still differ).
+    // Every pitch maps in range. (Adjacent semitones may share a color now —
+    // a natural and its sharp are the same hue, told apart by the half-moon
+    // notehead, not the color — so there is no chromatic-contrast check.)
     for (int midi = kKeyboardLowMidi; midi <= kKeyboardHighMidi; ++midi)
     {
         const int idx = guidance_palette_index(midi);
         REQUIRE(idx >= 0);
         REQUIRE(idx < kGuidancePaletteSize);
-        if (midi < kKeyboardHighMidi)
-            CHECK(differ(kGuidancePalette[idx], kGuidancePalette[guidance_palette_index(midi + 1)])
-                > 30);
     }
 }

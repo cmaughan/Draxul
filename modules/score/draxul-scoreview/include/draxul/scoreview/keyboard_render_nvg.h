@@ -25,41 +25,38 @@ int keyboard_white_index(int midi);
 // Horizontal center of a key within a keyboard spanning [x, x+w).
 float keyboard_key_center_x(int midi, float x, float w);
 
-// The pairing palette: one color per NOTE SPELLING, indexed
-// letter*3 + (sign+1) (letter C=0..B=6, accidental flat 0 / natural 1 /
-// sharp 2). The seven NATURALS (the white keys) use the BOOMWHACKERS
-// colors learners already know — C red, D orange, E yellow, F green,
-// G teal, A blue, B magenta — a full rainbow, so every white key is its
-// own hue (C and F on opposite sides, no longer alike). Each black key
-// takes the hue between its neighbours; its SHARP spelling is a brighter,
-// warmer variant leaning toward the lower natural, its FLAT a darker,
-// cooler variant leaning toward the upper — so C# and Db read apart, and
-// every accidental sits a clear lightness step below the naturals. Tuned
-// to read on the white sheet, white keys, and black keys (min perceptual
-// gap ~18 dE across the common spellings, ~36 among the white keys).
+// The pairing palette: indexed letter*3 + (sign+1) (letter C=0..B=6,
+// accidental flat 0 / natural 1 / sharp 2). The seven NATURALS (the white
+// keys) use the BOOMWHACKERS colors learners already know — C red, D orange,
+// E yellow, F green, G teal, A blue, B magenta. An ACCIDENTAL wears its
+// parent letter's exact color (F# = F green, Gb = G teal); the half-moon
+// notehead shape — not a hue shift — is what marks it as sharp/flat, so
+// C# (a C, red) and Db (a D, orange) still read apart by letter. The index
+// still encodes the sign (for the half-moon's side), so all three entries
+// of a letter simply share that letter's color.
 constexpr int kGuidancePaletteSize = 21;
 constexpr unsigned char kGuidancePalette[kGuidancePaletteSize][3] = {
-    { 147, 53, 119 }, //  0 Cb
+    { 222, 49, 43 }, //  0 Cb  = C
     { 222, 49, 43 }, //  1 C   red        (Boomwhacker)
-    { 202, 90, 58 }, //  2 C#  warm orange
-    { 146, 66, 25 }, //  3 Db  deep amber
+    { 222, 49, 43 }, //  2 C#  = C
+    { 240, 126, 32 }, //  3 Db  = D
     { 240, 126, 32 }, //  4 D   orange     (Boomwhacker)
-    { 176, 109, 22 }, //  5 D#  warm ochre
-    { 120, 82, 0 }, //  6 Eb  deep ochre
+    { 240, 126, 32 }, //  5 D#  = D
+    { 233, 190, 25 }, //  6 Eb  = E
     { 233, 190, 25 }, //  7 E   yellow     (Boomwhacker)
-    { 81, 138, 39 }, //  8 E#
-    { 109, 87, 0 }, //  9 Fb
+    { 233, 190, 25 }, //  8 E#  = E
+    { 106, 178, 54 }, //  9 Fb  = F
     { 106, 178, 54 }, // 10 F   green      (Boomwhacker)
-    { 5, 143, 69 }, // 11 F#  warm green
-    { 0, 102, 78 }, // 12 Gb  deep green
+    { 106, 178, 54 }, // 11 F#  = F
+    { 26, 175, 165 }, // 12 Gb  = G
     { 26, 175, 165 }, // 13 G   teal       (Boomwhacker)
-    { 13, 136, 158 }, // 14 G#  warm cyan
-    { 0, 96, 138 }, // 15 Ab  deep cyan
+    { 26, 175, 165 }, // 14 G#  = G
+    { 52, 96, 200 }, // 15 Ab  = A
     { 52, 96, 200 }, // 16 A   blue       (Boomwhacker)
-    { 139, 106, 205 }, // 17 A#  warm violet
-    { 128, 64, 139 }, // 18 Bb  deep violet
+    { 52, 96, 200 }, // 17 A#  = A
+    { 198, 66, 160 }, // 18 Bb  = B
     { 198, 66, 160 }, // 19 B   magenta    (Boomwhacker)
-    { 207, 85, 69 }, // 20 B#
+    { 198, 66, 160 }, // 20 B#  = B
 };
 
 // Fallback spelling when the notated letter is unknown (stray notes, or a

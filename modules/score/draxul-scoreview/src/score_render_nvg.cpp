@@ -234,12 +234,15 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         {
             // An accidental's notehead is a spelling cue: the standard black
             // notehead first (hole preserved for minims — the note and its
-            // timing stay legible), then the spelling color over one VERTICAL
-            // half — a sharp the right, a flat the left. Left/right (not
-            // top/bottom) keeps the note's full height, so its level on the
-            // stave stays clear.
-            const float mid = (cmin.x + cmax.x) * 0.5f;
+            // timing stay legible), then the letter's color over 2/3 of it
+            // VERTICALLY, leaving a 1/3 black strip — on the LEFT for a sharp
+            // (color on the right), on the RIGHT for a flat. Splitting
+            // left/right (not top/bottom) keeps the note's full height so its
+            // level on the stave stays clear.
             const bool sharp = sign == 2;
+            const float head_w = cmax.x - cmin.x;
+            const float color_w = head_w * 2.0f / 3.0f;
+            const float color_x = sharp ? (cmax.x - color_w) : cmin.x;
             nvgSave(vg);
             nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
             nvgBeginPath(vg);
@@ -248,8 +251,7 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
             nvgFill(vg);
             nvgRestore(vg);
             nvgSave(vg);
-            nvgIntersectScissor(
-                vg, sharp ? mid : cmin.x, cmin.y, mid - cmin.x, cmax.y - cmin.y);
+            nvgIntersectScissor(vg, color_x, cmin.y, color_w, cmax.y - cmin.y);
             nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
             nvgBeginPath(vg);
             replay_commands(vg, symbol.cmds);
