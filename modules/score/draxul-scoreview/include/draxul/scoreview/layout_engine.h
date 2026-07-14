@@ -67,6 +67,12 @@ public:
     // model bridge (plans/scoreview-gate.md).
     virtual int midi_pitch_for_element(const std::string& element_id) = 0;
 
+    // Notated diatonic letter (0=C .. 6=B) for a note element id, or -1 when
+    // unknown. With midi_pitch_for_element this recovers the written spelling
+    // — C# and Db share a MIDI pitch but differ by letter — which the pairing
+    // palette colors distinctly.
+    virtual int note_letter_for_element(const std::string& element_id) = 0;
+
     // Element ids that END a tie (the continuation notes). Their gates
     // auto-open in the runner: demanding a re-strike would be musically
     // wrong. Empty when nothing is loaded.

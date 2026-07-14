@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 
 namespace draxul
 {
@@ -88,6 +89,11 @@ struct VerovioLayoutEngine::Impl
     vrv::Toolkit toolkit{ /*initFont=*/false };
     LayoutOptions options;
     bool loaded = false;
+    // Lazily-parsed note id -> diatonic letter (0=C..6=B) from the MEI, so
+    // the palette can color enharmonics apart. Cleared whenever the loaded
+    // music or its layout changes; rebuilt on the next query.
+    std::unordered_map<std::string, int> note_letters;
+    bool note_letters_built = false;
 };
 
 VerovioLayoutEngine::VerovioLayoutEngine()
@@ -138,6 +144,7 @@ bool VerovioLayoutEngine::load(std::string_view bytes, std::string& error)
         return false;
     }
     impl_->loaded = true;
+    impl_->note_letters_built = false;
 
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
@@ -150,6 +157,7 @@ void VerovioLayoutEngine::set_options(const LayoutOptions& options)
 {
     impl_->options = options;
     impl_->toolkit.SetOptions(options_json(options));
+    impl_->note_letters_built = false;
     if (impl_->loaded)
     {
         const auto start = std::chrono::steady_clock::now();
@@ -198,6 +206,79 @@ int VerovioLayoutEngine::midi_pitch_for_element(const std::string& element_id)
         return -1;
     const int value = pitch->get<int>();
     return (value > 0 && value < 128) ? value : -1;
+}
+
+namespace
+{
+int letter_from_pname(const char* pname)
+{
+    if (pname == nullptr || pname[0] == '\0')
+        return -1;
+    switch (pname[0])
+    {
+    case 'c':
+    case 'C':
+        return 0;
+    case 'd':
+    case 'D':
+        return 1;
+    case 'e':
+    case 'E':
+        return 2;
+    case 'f':
+    case 'F':
+        return 3;
+    case 'g':
+    case 'G':
+        return 4;
+    case 'a':
+    case 'A':
+        return 5;
+    case 'b':
+    case 'B':
+        return 6;
+    default:
+        return -1;
+    }
+}
+
+void collect_note_letters(
+    const tinyxml2::XMLElement* element, std::unordered_map<std::string, int>& out)
+{
+    for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
+        child = child->NextSiblingElement())
+    {
+        if (std::strcmp(child->Name(), "note") == 0)
+        {
+            const char* id = child->Attribute("xml:id");
+            const int letter = letter_from_pname(child->Attribute("pname"));
+            if (id != nullptr && letter >= 0)
+                out.emplace(id, letter);
+        }
+        collect_note_letters(child, out);
+    }
+}
+} // namespace
+
+int VerovioLayoutEngine::note_letter_for_element(const std::string& element_id)
+{
+    if (!impl_->loaded)
+        return -1;
+    if (!impl_->note_letters_built)
+    {
+        impl_->note_letters.clear();
+        const std::string mei = impl_->toolkit.GetMEI("");
+        tinyxml2::XMLDocument doc;
+        if (doc.Parse(mei.data(), mei.size()) == tinyxml2::XML_SUCCESS
+            && doc.RootElement() != nullptr)
+            collect_note_letters(doc.RootElement(), impl_->note_letters);
+        else
+            DRAXUL_LOG_ERROR(
+                LogCategory::App, "verovio: MEI export unparseable; note spellings unavailable");
+        impl_->note_letters_built = true;
+    }
+    const auto found = impl_->note_letters.find(element_id);
+    return found == impl_->note_letters.end() ? -1 : found->second;
 }
 
 namespace

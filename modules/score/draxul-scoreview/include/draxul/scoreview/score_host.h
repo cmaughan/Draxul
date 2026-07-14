@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -239,6 +240,11 @@ private:
     float stream_scale_ = 0.0f;
     int stream_scale_vw_ = 0;
     float stream_scale_zoom_ = 0.0f;
+    // Whole-piece note coloring: element id -> pairing-palette index for
+    // every note in the current engraving, resolved once per window build
+    // (spelling comes from the engine there). Every note wears its color on
+    // the sheet always; the keyboard reuses these indices for its lit keys.
+    std::unordered_map<std::string, int> note_palette_;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;

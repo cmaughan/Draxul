@@ -634,6 +634,25 @@ ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
     flow_.prepare_gates(
         [this](const std::string& id) { return engine_->midi_pitch_for_element(id); },
         engine_->tie_end_ids());
+
+    // Whole-piece coloring: resolve each note's spelling once (the engine
+    // knows its notated letter here) and paint the sheet with the pairing
+    // palette. Every note wears its color always — guidance renders only
+    // over un-judged notes, so verdict green/red still wins as you play.
+    // The keyboard reuses these indices for the keys it lights per frame.
+    note_palette_.clear();
+    for (const FlowController::Gate& gate : flow_.gates())
+    {
+        for (const FlowController::GateNote& note : gate.notes)
+        {
+            if (note.pitch < 0)
+                continue;
+            const int letter = engine_->note_letter_for_element(note.id);
+            const int palette = guidance_palette_index(note.pitch, letter);
+            note_palette_[note.id] = palette;
+            highlight_.set_guidance(note.id, palette);
+        }
+    }
     return FlowBuildResult::Ok;
 }
 
@@ -1347,13 +1366,14 @@ void ScoreHost::draw(IFrameContext& frame)
         const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
         const bool waiting = flow_.waiting();
 
-        // Guidance: the pitches of onsets whose hit windows contain the
-        // playhead, each faded by trailing clean plays of its SOURCE onset
-        // (3 clean = invisible). Drill bars always guide. The keyboard
-        // itself stays on screen; only the key lights come and go, and
-        // upcoming NOTES on the sheet wear their keys' palette colors.
+        // The sheet is already colored (build_flow_from_engine paints every
+        // note its spelling's color, once per engraving). Here we only pick
+        // the KEYS to light: the pitches of onsets whose hit windows contain
+        // the playhead, each faded by trailing clean plays of its SOURCE
+        // onset (3 clean = invisible). Drill bars always guide. The keyboard
+        // itself stays on screen; only the key lights come and go, wearing
+        // the same palette index the matching notehead already shows.
         std::vector<KeyboardLit> lit;
-        highlight_.clear_guidance();
         if (streaming)
         {
             const double position = flow_.position_q();
@@ -1394,9 +1414,11 @@ void ScoreHost::draw(IFrameContext& frame)
                     if (note.verdict == FlowController::NoteVerdict::Pending
                         && !note.auto_satisfied)
                     {
-                        const int palette = guidance_palette_index(note.pitch);
+                        const auto found = note_palette_.find(note.id);
+                        const int palette = found != note_palette_.end()
+                            ? found->second
+                            : guidance_palette_index(note.pitch);
                         lit.push_back({ note.pitch, need, palette });
-                        highlight_.set_guidance(note.id, palette);
                     }
                 }
             }

@@ -11,6 +11,7 @@
 #include <draxul/scoreview/stream_composer.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
 
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -417,4 +418,98 @@ TEST_CASE("trailing clean plays gate the guidance keyboard", "[scoreview][keyboa
     CHECK(model.onset_trailing_correct(3.0) == 3); // invisible now
     play(3.0, false);
     CHECK(model.onset_trailing_correct(3.0) == 0); // a miss brings it back
+}
+
+TEST_CASE("the engine recovers enharmonic spelling from the score", "[scoreview][composer]")
+{
+    // A C#4 and a Db4: the same key and MIDI pitch, opposite spellings. The
+    // engine must report their notated letters apart so the palette can color
+    // them differently. (Verovio needs the <accidental> element, not just
+    // <alter>, to sound the alteration.)
+    const std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key>
+        <time><beats>2</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
+        <duration>1</duration><type>quarter</type><accidental>sharp</accidental></note>
+      <note><pitch><step>D</step><alter>-1</alter><octave>4</octave></pitch>
+        <duration>1</duration><type>quarter</type><accidental>flat</accidental></note>
+    </measure>
+  </part>
+</score-partwise>)";
+    std::string error;
+    auto engine = VerovioLayoutEngine::create(std::string(DRAXUL_VEROVIO_DATA_DIR), error);
+    REQUIRE(engine != nullptr);
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    engine->set_options(options);
+    REQUIRE(engine->load(xml, error));
+    auto timemap = parse_timemap(engine->render_timemap(), error);
+    REQUIRE(timemap.has_value());
+
+    std::vector<int> midis;
+    std::vector<int> letters;
+    std::vector<int> palette;
+    for (const TimemapEntry& entry : timemap->entries)
+    {
+        for (const std::string& id : entry.note_on)
+        {
+            const int midi = engine->midi_pitch_for_element(id);
+            const int letter = engine->note_letter_for_element(id);
+            midis.push_back(midi);
+            letters.push_back(letter);
+            palette.push_back(guidance_palette_index(midi, letter));
+        }
+    }
+    REQUIRE(midis.size() == 2);
+    CHECK(midis[0] == midis[1]); // enharmonic: the same sounding pitch
+    std::sort(letters.begin(), letters.end());
+    CHECK(letters[0] == 0); // C# is a C
+    CHECK(letters[1] == 1); // Db is a D
+    // ...and that difference reaches the palette: two colors, not one.
+    CHECK(palette[0] != palette[1]);
+}
+
+TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scoreview][keyboard]")
+{
+    const auto differ = [](const unsigned char* a, const unsigned char* b) {
+        return std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) + std::abs(a[2] - b[2]);
+    };
+
+    // C# and Db are the same key and MIDI pitch (61) but opposite spellings:
+    // different letters resolve to different palette entries and colors.
+    const int c_sharp = guidance_palette_index(61, /*letter C=*/0);
+    const int d_flat = guidance_palette_index(61, /*letter D=*/1);
+    CHECK(c_sharp != d_flat);
+    CHECK(differ(kGuidancePalette[c_sharp], kGuidancePalette[d_flat]) > 150);
+    // Sharps read warm (red over green); their enharmonic flats read cool.
+    CHECK(kGuidancePalette[c_sharp][0] > kGuidancePalette[c_sharp][1]);
+    CHECK(kGuidancePalette[d_flat][1] > kGuidancePalette[d_flat][0]);
+
+    // A spelling is stable across octaves (C#4 and C#6 share a color) and a
+    // natural is its own entry, distinct from both accidental readings.
+    CHECK(guidance_palette_index(61, 0) == guidance_palette_index(85, 0));
+    const int c_natural = guidance_palette_index(60, 0);
+    CHECK(c_natural != c_sharp);
+    CHECK(c_natural != d_flat);
+
+    // With no notated letter, the pitch class falls back to its sharp reading.
+    CHECK(guidance_palette_index(61) == c_sharp);
+    CHECK(guidance_palette_index(60) == c_natural);
+
+    // Every pitch maps in range, and chromatic neighbours never look alike —
+    // the whole point of the fifths-based hue walk.
+    for (int midi = kKeyboardLowMidi; midi <= kKeyboardHighMidi; ++midi)
+    {
+        const int idx = guidance_palette_index(midi);
+        REQUIRE(idx >= 0);
+        REQUIRE(idx < kGuidancePaletteSize);
+        if (midi < kKeyboardHighMidi)
+            CHECK(differ(kGuidancePalette[idx], kGuidancePalette[guidance_palette_index(midi + 1)])
+                > 100);
+    }
 }
