@@ -3,6 +3,7 @@
 #include <draxul/base_renderer.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
+#include <draxul/imgui_host.h>
 #include <draxul/log.h>
 #include <draxul/notation/musicxml_importer.h>
 #include <draxul/runtime_path.h>
@@ -13,12 +14,14 @@
 #include <draxul/scoreview/score_render_nvg.h>
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
+#include <draxul/sdl_imgui_input.h>
 
 #include <ctime>
 
 #include "nanovg.h"
 
 #include <SDL3/SDL.h>
+#include <imgui.h>
 
 #include <algorithm>
 #include <cmath>
@@ -309,6 +312,20 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             tick_level_ = TickLevel::Beats;
     }
 
+    // The debug/learning inspector gets its own ImGui context (the pattern
+    // the 3D hosts use). attach_imgui_host wires the backend once it exists.
+    IMGUI_CHECKVERSION();
+    imgui_context_ = ImGui::CreateContext();
+    if (imgui_context_ != nullptr)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr;
+        io.LogFilename = nullptr;
+        ImGui::StyleColorsDark();
+    }
+    last_imgui_time_ = std::chrono::steady_clock::now();
+
     epoch_ = std::chrono::steady_clock::now();
     last_pump_ = epoch_;
     running_ = true;
@@ -332,6 +349,18 @@ void ScoreHost::shutdown()
     pages_.reset();
     engine_.reset();
     nanovg_pass_.reset();
+    if (imgui_backend_ != nullptr)
+    {
+        if (imgui_context_ != nullptr)
+            ImGui::SetCurrentContext(imgui_context_);
+        imgui_backend_->shutdown_imgui_backend();
+        imgui_backend_ = nullptr;
+    }
+    if (imgui_context_ != nullptr)
+    {
+        ImGui::DestroyContext(imgui_context_);
+        imgui_context_ = nullptr;
+    }
     running_ = false;
 }
 
@@ -1615,11 +1644,44 @@ void ScoreHost::draw(IFrameContext& frame)
     vp.width = viewport_.pixel_size.x;
     vp.height = viewport_.pixel_size.y;
     frame.record_render_pass(*nanovg_pass_, vp);
+    // The debug inspector draws last, over the score.
+    const auto imgui_now = std::chrono::steady_clock::now();
+    const float imgui_dt = std::chrono::duration<float>(imgui_now - last_imgui_time_).count();
+    last_imgui_time_ = imgui_now;
+    render_debug_ui(imgui_dt);
+    if (imgui_context_ != nullptr && imgui_backend_ != nullptr)
+        frame.render_imgui(ImGui::GetDrawData(), imgui_context_);
     frame.flush_submit_chunk();
 }
 
 void ScoreHost::on_key(const KeyEvent& event)
 {
+    if (imgui_context_ != nullptr)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddKeyEvent(ImGuiMod_Ctrl, (event.mod & kModCtrl) != 0);
+        io.AddKeyEvent(ImGuiMod_Shift, (event.mod & kModShift) != 0);
+        io.AddKeyEvent(ImGuiMod_Alt, (event.mod & kModAlt) != 0);
+        io.AddKeyEvent(ImGuiMod_Super, (event.mod & kModSuper) != 0);
+        const ImGuiKey imkey = sdl_scancode_to_imgui_key(event.scancode);
+        if (imkey != ImGuiKey_None)
+            io.AddKeyEvent(imkey, event.pressed);
+        // The backtick always toggles the inspector, even with ImGui focused.
+        if (event.pressed && event.keycode == SDLK_GRAVE)
+        {
+            show_debug_ui_ = !show_debug_ui_;
+            if (callbacks_ != nullptr)
+                callbacks_->request_frame();
+            return;
+        }
+        if (io.WantCaptureKeyboard)
+        {
+            if (callbacks_ != nullptr)
+                callbacks_->request_frame();
+            return;
+        }
+    }
     if (!event.pressed)
         return;
     if (event.keycode == SDLK_F)
@@ -1721,7 +1783,312 @@ void ScoreHost::on_key(const KeyEvent& event)
 
 void ScoreHost::on_mouse_wheel(const MouseWheelEvent& event)
 {
+    if (imgui_context_ != nullptr)
+    {
+        ImGui::SetCurrentContext(imgui_context_);
+        ImGui::GetIO().AddMouseWheelEvent(event.delta.x, event.delta.y);
+        if (ImGui::GetIO().WantCaptureMouse)
+        {
+            if (callbacks_ != nullptr)
+                callbacks_->request_frame();
+            return;
+        }
+    }
     scroll_by(-event.delta.y * 40.0f * ui_scale());
+}
+
+void ScoreHost::on_mouse_button(const MouseButtonEvent& event)
+{
+    if (imgui_context_ == nullptr)
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    int button = -1;
+    switch (event.button)
+    {
+    case 1:
+        button = 0; // left
+        break;
+    case 2:
+        button = 2; // middle
+        break;
+    case 3:
+        button = 1; // right
+        break;
+    default:
+        break;
+    }
+    if (button >= 0)
+        ImGui::GetIO().AddMouseButtonEvent(button, event.pressed);
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::on_mouse_move(const MouseMoveEvent& event)
+{
+    if (imgui_context_ == nullptr)
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGui::GetIO().AddMousePosEvent(
+        static_cast<float>(event.pos.x), static_cast<float>(event.pos.y));
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void ScoreHost::on_text_input(const TextInputEvent& event)
+{
+    if (imgui_context_ == nullptr || event.text.empty())
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGui::GetIO().AddInputCharactersUTF8(event.text.c_str());
+}
+
+void ScoreHost::attach_imgui_host(IImGuiHost& host)
+{
+    imgui_backend_ = &host;
+    if (imgui_context_ == nullptr)
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    host.initialize_imgui_backend();
+    host.rebuild_imgui_font_texture();
+}
+
+void ScoreHost::set_imgui_font(const std::string& path, float size_pixels)
+{
+    imgui_font_path_ = path;
+    imgui_font_size_pixels_ = size_pixels;
+    if (imgui_context_ == nullptr)
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    if (!imgui_font_path_.empty() && imgui_font_size_pixels_ > 0.0f)
+        io.Fonts->AddFontFromFileTTF(imgui_font_path_.c_str(), imgui_font_size_pixels_);
+    if (io.Fonts->Fonts.empty())
+        io.Fonts->AddFontDefault();
+    if (imgui_backend_ != nullptr)
+        imgui_backend_->rebuild_imgui_font_texture();
+}
+
+namespace
+{
+std::string note_name(int midi)
+{
+    static const char* kNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A",
+        "A#", "B" };
+    if (midi < 0)
+        return "?";
+    return std::string(kNames[((midi % 12) + 12) % 12]) + std::to_string(midi / 12 - 1);
+}
+} // namespace
+
+void ScoreHost::render_debug_ui(float dt)
+{
+    if (imgui_context_ == nullptr || imgui_backend_ == nullptr)
+        return;
+    ImGui::SetCurrentContext(imgui_context_);
+    imgui_backend_->begin_imgui_frame();
+    ImGuiIO& io = ImGui::GetIO();
+    const int pw = std::max(1, viewport_.pixel_size.x);
+    const int ph = std::max(1, viewport_.pixel_size.y);
+    io.DisplaySize = ImVec2(static_cast<float>(viewport_.pixel_pos.x + pw),
+        static_cast<float>(viewport_.pixel_pos.y + ph));
+    io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
+    ImGui::NewFrame();
+
+    if (show_debug_ui_)
+    {
+        ImGui::SetNextWindowPos(
+            ImVec2(static_cast<float>(viewport_.pixel_pos.x) + 16.0f,
+                static_cast<float>(viewport_.pixel_pos.y) + 44.0f),
+            ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(440.0f, 620.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowBgAlpha(0.92f);
+        if (ImGui::Begin("ScoreView learning inspector", &show_debug_ui_))
+        {
+            if (ImGui::CollapsingHeader("Transport", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                const bool playing = flow_.playing();
+                if (ImGui::Button(playing ? "Pause" : "Play"))
+                {
+                    if (playing)
+                        flow_.pause();
+                    else
+                        flow_.play();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Rewind / restart"))
+                {
+                    if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
+                    {
+                        verdict_archive_.clear();
+                        composer_.reset();
+                        last_logged_plan_slot_ = -1;
+                        rebuild_window(0, 0.0, /*carry=*/false);
+                    }
+                    else
+                    {
+                        flow_.rewind();
+                        apply_lit_update();
+                    }
+                }
+                float tempo = static_cast<float>(flow_.tempo_qpm());
+                if (ImGui::SliderFloat("tempo qpm", &tempo,
+                        static_cast<float>(flow_.min_tempo_qpm()),
+                        static_cast<float>(flow_.max_tempo_qpm()), "%.0f"))
+                    flow_.set_tempo_qpm(tempo);
+                const double marking = flow_.marking_qpm();
+                ImGui::Text("%.0f%% of marking (%.0f qpm)",
+                    marking > 0.0 ? flow_.tempo_qpm() / marking * 100.0 : 0.0, marking);
+                const char* mode = flow_.mode() == FlowController::TransportMode::Roll ? "Roll"
+                    : flow_.mode() == FlowController::TransportMode::Gate              ? "Gate"
+                                                                                       : "Clock";
+                ImGui::Text("mode %s   position %.2f q", mode, flow_.position_q());
+            }
+
+            if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (ImGui::Checkbox("Waterfall", &show_waterfall_))
+                    stream_scale_ = 0.0f; // re-fit the score band to the new layout
+                float beats = static_cast<float>(waterfall_beats_);
+                if (ImGui::SliderFloat("look-ahead beats", &beats, 3.0f, 16.0f, "%.1f"))
+                    waterfall_beats_ = beats;
+                if (ImGui::Checkbox("Verdict colors (hit/miss)", &verdict_colors_)
+                    && !verdict_colors_)
+                    highlight_.clear_lit(); // drop the current red/green at once
+            }
+
+            if (ImGui::CollapsingHeader("Audio"))
+            {
+                int level = static_cast<int>(tick_level_);
+                const char* levels[] = { "Off", "Beats", "Eighths" };
+                if (ImGui::Combo("metronome", &level, levels, 3))
+                {
+                    tick_level_ = static_cast<TickLevel>(level);
+                    if (tick_level_ != TickLevel::Off)
+                        ensure_tick_stream();
+                }
+                if (ImGui::Checkbox("Audition (hear notes)", &audition_))
+                {
+                    if (audition_ && !ensure_tick_stream())
+                        audition_ = false;
+                    if (!audition_)
+                        tones_.clear();
+                }
+            }
+
+            if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::Text("accuracy EMA  %.0f%%", flow_.accuracy_ema() * 100.0);
+                ImGui::Text("score %d   streak %d", flow_.score(), flow_.streak());
+                ImGui::Text(
+                    "misses %d   wrong notes %d", flow_.miss_count(), flow_.wrong_count());
+                ImGui::Text("notes judged (lifetime) %d", player_model_.total_notes_judged());
+                ImGui::Text("key %s (conf %.2f)   %zu chords, %zu figures",
+                    key_name(piece_profile_.global_key.tonic_pc, piece_profile_.global_key.minor)
+                        .c_str(),
+                    piece_profile_.global_key.confidence, piece_profile_.chords.size(),
+                    piece_profile_.figures.size());
+            }
+
+            if (ImGui::CollapsingHeader("Timing drift", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                double sum = 0.0;
+                int n = 0;
+                for (const auto& [q, s] : player_model_.onset_stats())
+                {
+                    sum += s.timing.mean_q * s.timing.samples;
+                    n += s.timing.samples;
+                }
+                const double mean = n > 0 ? sum / n : 0.0;
+                ImGui::Text("overall %+.3f beats  (%s)", mean,
+                    mean > 0.02 ? "dragging" : mean < -0.02 ? "rushing"
+                                                            : "on time");
+                struct Drift
+                {
+                    double absmean, q, mean;
+                };
+                std::vector<Drift> drift;
+                for (const auto& [q, s] : player_model_.onset_stats())
+                    if (s.timing.samples >= 2)
+                        drift.push_back({ std::abs(s.timing.mean_q), q, s.timing.mean_q });
+                std::sort(drift.begin(), drift.end(),
+                    [](const Drift& a, const Drift& b) { return a.absmean > b.absmean; });
+                if (drift.empty())
+                    ImGui::TextDisabled("(no timed onsets yet)");
+                for (size_t i = 0; i < drift.size() && i < 5; ++i)
+                    ImGui::BulletText("q %.1f  %+.3f beats", drift[i].q, drift[i].mean);
+            }
+
+            if (ImGui::CollapsingHeader("Trouble spots", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                ImGui::SeparatorText("Chords (net trouble)");
+                std::vector<std::pair<int, std::string>> chords;
+                for (const auto& [key, s] : player_model_.chord_stats())
+                {
+                    const int trouble = s.miss + s.split - s.clean;
+                    if (trouble > 0)
+                        chords.emplace_back(trouble, key);
+                }
+                std::sort(chords.rbegin(), chords.rend());
+                if (chords.empty())
+                    ImGui::TextDisabled("(none yet)");
+                for (size_t i = 0; i < chords.size() && i < 6; ++i)
+                    ImGui::BulletText("%s  (%d)", chords[i].second.c_str(), chords[i].first);
+
+                ImGui::SeparatorText("Pitches (missed)");
+                std::vector<std::pair<int, int>> pitches; // miss, midi
+                for (const auto& [midi, s] : player_model_.pitch_stats())
+                    if (s.miss > 0)
+                        pitches.emplace_back(s.miss, midi);
+                std::sort(pitches.rbegin(), pitches.rend());
+                if (pitches.empty())
+                    ImGui::TextDisabled("(none yet)");
+                for (size_t i = 0; i < pitches.size() && i < 6; ++i)
+                    ImGui::BulletText(
+                        "%s  (missed %d)", note_name(pitches[i].second).c_str(), pitches[i].first);
+            }
+
+            if (composing_ && ImGui::CollapsingHeader("Composer program", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                const int slot_now = composer_.slot_at(stream_position_q());
+                const int planned = composer_.planned();
+                for (int s = slot_now; s < planned && s < slot_now + 10; ++s)
+                {
+                    const StreamBarPlan& p = composer_.plan(s);
+                    const char* kind = p.kind == StreamBarPlan::Kind::Piece ? "piece"
+                        : p.kind == StreamBarPlan::Kind::Review             ? "review"
+                                                                            : "drill";
+                    if (!p.reason.empty())
+                        ImGui::Text("%s %2d  %s", s == slot_now ? ">" : " ", s, p.reason.c_str());
+                    else
+                        ImGui::Text("%s %2d  %-6s bar %d", s == slot_now ? ">" : " ", s, kind,
+                            p.source_bar + 1);
+                }
+            }
+
+            if (ImGui::CollapsingHeader("Bar mastery"))
+            {
+                const int total = slicer_.bar_count();
+                int encountered = 0;
+                int mastered = 0;
+                for (int b = 0; b < total; ++b)
+                    if (player_model_.bar_encounters(b) > 0)
+                    {
+                        ++encountered;
+                        if (player_model_.bar_mastery(b) >= 0.7)
+                            ++mastered;
+                    }
+                ImGui::Text("%d/%d bars encountered, %d mastered (>=70%%)", encountered, total,
+                    mastered);
+            }
+
+            ImGui::Separator();
+            ImGui::TextDisabled("` toggles this panel");
+        }
+        ImGui::End();
+    }
+
+    ImGui::Render();
 }
 
 bool ScoreHost::dispatch_action(std::string_view action)

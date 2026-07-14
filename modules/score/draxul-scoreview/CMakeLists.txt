@@ -68,7 +68,7 @@ target_link_libraries(draxul-scoreview-host PUBLIC
     draxul-host
     draxul-renderer
     draxul-nanovg
-    PRIVATE SDL3::SDL3 draxul-config
+    PRIVATE SDL3::SDL3 draxul-config imgui draxul-ui
 )
 
 # Microphone permission pre-flight: TCC via AVFoundation on macOS (SDL must

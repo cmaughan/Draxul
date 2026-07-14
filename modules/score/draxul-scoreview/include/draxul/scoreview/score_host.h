@@ -25,6 +25,8 @@
 #include <utility>
 #include <vector>
 
+struct ImGuiContext;
+
 namespace draxul
 {
 
@@ -62,6 +64,11 @@ public:
 
     void on_key(const draxul::KeyEvent& event) override;
     void on_mouse_wheel(const draxul::MouseWheelEvent& event) override;
+    void on_mouse_button(const draxul::MouseButtonEvent& event) override;
+    void on_mouse_move(const draxul::MouseMoveEvent& event) override;
+    void on_text_input(const draxul::TextInputEvent& event) override;
+    void attach_imgui_host(draxul::IImGuiHost& host) override;
+    void set_imgui_font(const std::string& path, float size_pixels) override;
 
     bool dispatch_action(std::string_view action) override;
     void request_close() override;
@@ -157,6 +164,9 @@ private:
     // the microphone can't open; returns whether the requested input engaged.
     bool set_gate_input(GateInput input, double bot_pace_qpm, double bot_accuracy);
     bool handle_gate_key(int keycode);
+    // The ImGui debug/learning inspector: transport + view controls and live
+    // readouts of the player model, composer program, and piece analysis.
+    void render_debug_ui(float dt);
 
     std::unique_ptr<draxul::INanoVGPass> nanovg_pass_;
     draxul::HostViewport viewport_;
@@ -286,6 +296,15 @@ private:
     struct SDL_AudioStream* tick_stream_ = nullptr;
     std::vector<float> tick_buffer_;
     double quarters_per_bar_ = 4.0;
+
+    // ImGui debug/learning inspector. Its own context (like the other 3D
+    // hosts); a floating window drawn over the score, toggled with `\``.
+    ImGuiContext* imgui_context_ = nullptr;
+    draxul::IImGuiHost* imgui_backend_ = nullptr;
+    std::string imgui_font_path_;
+    float imgui_font_size_pixels_ = 13.0f;
+    bool show_debug_ui_ = true;
+    std::chrono::steady_clock::time_point last_imgui_time_{};
 };
 
 std::unique_ptr<draxul::IHost> create_score_host();
