@@ -6,6 +6,7 @@
 #include "nanovg.h"
 
 #include <array>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 
@@ -26,6 +27,15 @@ const NVGcolor ACCENT = { { { 0.85f, 0.45f, 0.08f, 1.0f } } };
 const NVGcolor CORRECT_GREEN = { { { 0.13f, 0.55f, 0.22f, 1.0f } } };
 const NVGcolor MISS_RED = { { { 0.80f, 0.13f, 0.10f, 1.0f } } };
 const NVGcolor STATE_COLORS[4] = { INK, ACCENT, CORRECT_GREEN, MISS_RED };
+
+// A glyph is a notehead when its SMuFL codepoint (the hex before the '-' in
+// the symbol id) is in the Noteheads block U+E0A0-E0FF — accidentals, stems,
+// and flags fall outside it, so only the note's head splits.
+bool is_notehead(const std::string& symbol_id)
+{
+    const long cp = std::strtol(symbol_id.c_str(), nullptr, 16);
+    return cp >= 0xE0A0 && cp <= 0xE0FF;
+}
 
 int create_font_from_candidates(NVGcontext* vg, const char* name,
     const std::array<const char*, 4>& candidates)
@@ -173,12 +183,71 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
         const SymbolOutline& symbol = list.symbols[glyph.symbol_index];
         if (symbol.cmds.empty())
             continue;
-        nvgSave(vg);
         const Affine& m = glyph.xform;
+        const NVGcolor color = highlight != nullptr
+            ? state_color(highlight->glyph_lit, highlight->glyph_guide, i)
+            : INK;
+
+        // An accidental's notehead renders as a HALF-filled circle — a spelling
+        // cue on the note itself: a sharp fills the TOP half (bottom white), a
+        // flat the BOTTOM half (top white). The spelling comes from the guide
+        // palette index (letter*3 + sign+1): sign 0 = flat, 2 = sharp.
+        const int guide = (highlight != nullptr && i < highlight->glyph_guide.size())
+            ? highlight->glyph_guide[i]
+            : 0;
+        const int sign = guide > 0 ? (guide - 1) % 3 : 1;
+        if ((sign == 0 || sign == 2) && is_notehead(symbol.id))
+        {
+            // Canvas-space vertical extent of the head (its font-unit bounds
+            // mapped through the glyph's affine) gives the split line.
+            glm::vec2 lo{ 1e30f, 1e30f };
+            glm::vec2 hi{ -1e30f, -1e30f };
+            const auto grow = [&](glm::vec2 p) {
+                lo = glm::min(lo, p);
+                hi = glm::max(hi, p);
+            };
+            for (const PathCmd& cmd : symbol.cmds)
+            {
+                grow(cmd.p);
+                if (cmd.op == PathCmd::Op::CubicTo)
+                {
+                    grow(cmd.c1);
+                    grow(cmd.c2);
+                }
+            }
+            glm::vec2 cmin{ 1e30f, 1e30f };
+            glm::vec2 cmax{ -1e30f, -1e30f };
+            for (const glm::vec2 corner :
+                { glm::vec2{ lo.x, lo.y }, glm::vec2{ hi.x, lo.y }, glm::vec2{ lo.x, hi.y },
+                    glm::vec2{ hi.x, hi.y } })
+            {
+                const glm::vec2 q = m.apply(corner);
+                cmin = glm::min(cmin, q);
+                cmax = glm::max(cmax, q);
+            }
+            const float mid = (cmin.y + cmax.y) * 0.5f;
+            const NVGcolor white = nvgRGBA(255, 255, 255, 255);
+            const bool sharp = sign == 2;
+            const auto draw_half = [&](float y0, float y1, NVGcolor fill) {
+                nvgSave(vg);
+                nvgIntersectScissor(vg, cmin.x, y0, cmax.x - cmin.x, y1 - y0);
+                nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
+                nvgBeginPath(vg);
+                replay_commands(vg, symbol.cmds);
+                nvgFillColor(vg, fill);
+                nvgFill(vg);
+                nvgRestore(vg);
+            };
+            draw_half(cmin.y, mid, sharp ? color : white); // top
+            draw_half(mid, cmax.y, sharp ? white : color); // bottom
+            continue;
+        }
+
+        nvgSave(vg);
         nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
         nvgBeginPath(vg);
         replay_commands(vg, symbol.cmds);
-        nvgFillColor(vg, highlight != nullptr ? state_color(highlight->glyph_lit, highlight->glyph_guide, i) : INK);
+        nvgFillColor(vg, color);
         nvgFill(vg);
         nvgRestore(vg);
     }
