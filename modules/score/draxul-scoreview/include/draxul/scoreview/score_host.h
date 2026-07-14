@@ -259,6 +259,11 @@ private:
     // as the window scrolls. Adjustable in the debug UI.
     float score_height_frac_ = 0.40f;
     float stream_scale_frac_ = 0.0f; // score-height part of the scale cache key
+    // Reference canvas height the fixed scale fits into: the tallest window
+    // engraving seen (a header-free grand staff). It only grows and grows in
+    // the same frame a taller window appears, so the sheet fills the band,
+    // never clips off the bottom, and doesn't jitter.
+    float stream_scale_ref_ = 0.0f;
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on

@@ -556,6 +556,10 @@ void ScoreHost::relayout_flow()
 
     std::string error;
     const FlowBuildResult result = build_flow_from_engine(error);
+    // A fresh engraving: re-fit the fixed score band's scale to the new
+    // content (the window high-water-mark restarts from the first window).
+    stream_scale_ref_ = 0.0f;
+    stream_scale_ = 0.0f;
     if (result == FlowBuildResult::InterpretFailed)
     {
         DRAXUL_LOG_ERROR(
@@ -1476,16 +1480,20 @@ void ScoreHost::draw(IFrameContext& frame)
         const float waterfall_top = keyboard_y - waterfall_h;
         if (streaming)
         {
-            // Lock the scale to FILL the fixed band's height; re-fit only when
-            // the viewport, zoom, waterfall presence, or band fraction change.
+            // Fit the scale to the TALLEST engraving (the full-piece extent
+            // seeds it; a taller fabricated bar grows it once). The reference
+            // only grows, so the sheet fills the band without ever clipping
+            // off the bottom or jittering. Re-fit on viewport/zoom/waterfall/
+            // band-fraction change, or when the reference grows.
+            const float want_ref = std::max(stream_scale_ref_, strip->canvas_size.y);
             const int wf_key = show_wf ? 1 : 0;
             if (stream_scale_ <= 0.0f || stream_scale_vw_ != viewport_.pixel_size.x
                 || stream_scale_zoom_ != zoom_ || stream_scale_wf_ != wf_key
-                || stream_scale_frac_ != score_height_frac_)
+                || stream_scale_frac_ != score_height_frac_ || stream_scale_ref_ != want_ref)
             {
+                stream_scale_ref_ = want_ref;
                 const float usable = score_region_h * 0.9f;
-                stream_scale_ = (usable / std::max(1.0f, strip->canvas_size.y))
-                    * std::max(0.25f, zoom_);
+                stream_scale_ = (usable / std::max(1.0f, want_ref)) * std::max(0.25f, zoom_);
                 stream_scale_vw_ = viewport_.pixel_size.x;
                 stream_scale_zoom_ = zoom_;
                 stream_scale_wf_ = wf_key;
@@ -1785,11 +1793,17 @@ void ScoreHost::on_key(const KeyEvent& event)
         case SDLK_R:
             if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
             {
-                // Restart the stream from bar 0 with a fresh session.
+                // Restart the stream from bar 0, but KEEP the tempo the player
+                // has settled at — their learned pace. A restart isn't a reason
+                // to jump back to the 60% start; only the tempo lock (marking)
+                // overrides it.
+                const double keep_tempo = flow_.tempo_qpm();
                 verdict_archive_.clear();
                 composer_.reset();
                 last_logged_plan_slot_ = -1;
                 rebuild_window(0, 0.0, /*carry=*/false);
+                if (!lock_tempo_)
+                    flow_.set_tempo_qpm(keep_tempo);
             }
             else
             {
