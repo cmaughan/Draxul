@@ -240,11 +240,32 @@ private:
     float stream_scale_ = 0.0f;
     int stream_scale_vw_ = 0;
     float stream_scale_zoom_ = 0.0f;
+    int stream_scale_wf_ = -1; // waterfall-present part of the scale cache key
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on
     // the sheet always; the keyboard reuses these indices for its lit keys.
     std::unordered_map<std::string, int> note_palette_;
+
+    // Waterfall (piano-roll) between the score and the keyboard: each note
+    // falls as a colored block toward its key, block height = its duration in
+    // beats, landing exactly as the transport crosses its onset (a visual
+    // timing hint). Built from the timemap's on/off pairs per engraving.
+    struct WaterfallNote
+    {
+        double onset_q = 0.0;
+        double duration_q = 0.0;
+        int midi = -1;
+        int palette = 0;
+    };
+    std::vector<WaterfallNote> waterfall_notes_;
+    bool show_waterfall_ = true;
+    double waterfall_beats_ = 7.0; // beats of look-ahead the zone shows
+
+    // Score verdict coloring: when false, hit/miss green/red never paint on
+    // the sheet (the spelling colors stay) — for reading the notation, or
+    // studying color-position mapping, without the error feedback.
+    bool verdict_colors_ = true;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;

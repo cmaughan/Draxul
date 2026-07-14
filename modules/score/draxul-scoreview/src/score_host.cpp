@@ -299,6 +299,10 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             tick_level_ = TickLevel::Off;
         if (command.find("notes") != std::string::npos)
             audition_ = true;
+        if (command.find("nowaterfall") != std::string::npos)
+            show_waterfall_ = false;
+        if (command.find("noverdict") != std::string::npos)
+            verdict_colors_ = false;
         else if (command.find("tick8") != std::string::npos)
             tick_level_ = TickLevel::Eighths;
         else if (command.find("tick") != std::string::npos)
@@ -653,6 +657,49 @@ ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
             highlight_.set_guidance(note.id, palette);
         }
     }
+
+    // Waterfall blocks: pair each timemap note_on with its note_off for a
+    // duration, colored by the same spelling palette as the sheet. Built
+    // once per engraving; the draw loop maps (onset - position) to a falling
+    // y and duration to a block height.
+    waterfall_notes_.clear();
+    if (timemap.has_value())
+    {
+        const auto note_for = [this](const std::string& id, double onset, double off) {
+            const int midi = engine_->midi_pitch_for_element(id);
+            WaterfallNote note;
+            note.onset_q = onset;
+            note.duration_q = std::max(0.05, off - onset);
+            note.midi = midi;
+            const auto pal = note_palette_.find(id);
+            note.palette
+                = pal != note_palette_.end() ? pal->second : guidance_palette_index(midi);
+            return std::make_pair(note, midi >= 0);
+        };
+        std::unordered_map<std::string, double> open; // id -> onset q
+        for (const TimemapEntry& entry : timemap->entries)
+        {
+            for (const std::string& id : entry.note_off)
+            {
+                const auto it = open.find(id);
+                if (it == open.end())
+                    continue;
+                auto [note, ok] = note_for(id, it->second, entry.qstamp);
+                if (ok)
+                    waterfall_notes_.push_back(note);
+                open.erase(it);
+            }
+            for (const std::string& id : entry.note_on)
+                open[id] = entry.qstamp;
+        }
+        // Notes without an explicit off (final ties) run to the piece end.
+        for (const auto& [id, onset] : open)
+        {
+            auto [note, ok] = note_for(id, onset, timemap->duration_q);
+            if (ok)
+                waterfall_notes_.push_back(note);
+        }
+    }
     return FlowBuildResult::Ok;
 }
 
@@ -805,6 +852,11 @@ void ScoreHost::apply_verdict_update()
     const FlowController::VerdictUpdate update = flow_.take_verdict_update();
     if (update.reset)
         highlight_.clear_lit();
+    // Verdict coloring can be turned off to read the pure notation (the flow
+    // controller still tracks hits/misses for scoring — only the paint is
+    // suppressed, and the notes keep their spelling colors).
+    if (!verdict_colors_)
+        return;
     for (const auto& [id, verdict] : update.changes)
     {
         highlight_.set_state(id,
@@ -1329,33 +1381,46 @@ void ScoreHost::draw(IFrameContext& frame)
         FlowBand band = flow_band();
         const bool streaming = stream_active()
             && flow_.mode() == FlowController::TransportMode::Roll;
-        // The guidance keyboard claims the bottom of the pane while
-        // streaming (52 white keys across the width, capped by height).
+        // Layout (top to bottom): score band, waterfall, keyboard. The
+        // waterfall is a piano-roll between the score and the keys; with it
+        // present the keyboard goes stumpy — the falling blocks carry the
+        // timing, so the keys only need to stay legible.
+        const bool show_wf = streaming && show_waterfall_ && !waterfall_notes_.empty();
         const float keyboard_h = streaming
-            ? std::min(vw / 52.0f * 5.8f, vh * 0.34f)
+            ? (show_wf ? std::min(vw / 52.0f * 3.4f, vh * 0.16f)
+                       : std::min(vw / 52.0f * 5.8f, vh * 0.34f))
             : 0.0f;
+        const float waterfall_h = show_wf
+            ? std::clamp(vh * 0.30f, 120.0f * pixel_scale,
+                  std::max(0.0f, vh - keyboard_h - 96.0f * pixel_scale))
+            : 0.0f;
+        const float score_area_h
+            = std::max(96.0f * pixel_scale, vh - keyboard_h - waterfall_h);
         if (streaming)
         {
             // FIXED sheet scale: locked per viewport/zoom (about
             // kStreamVisibleBars average bars fill the width) so the score
-            // does not breathe as bar spacing changes under the playhead.
+            // does not breathe as bar spacing changes under the playhead. The
+            // waterfall's presence is part of the key: toggling it re-fits.
+            const int wf_key = show_wf ? 1 : 0;
             if (stream_scale_ <= 0.0f || stream_scale_vw_ != viewport_.pixel_size.x
-                || stream_scale_zoom_ != zoom_)
+                || stream_scale_zoom_ != zoom_ || stream_scale_wf_ != wf_key)
             {
                 const double avg_bar_canvas = strip->canvas_size.x
                     / std::max(1, window_bar_count_);
                 const double span_canvas = std::max(1.0,
                     avg_bar_canvas * kStreamVisibleBars / std::max(0.25f, zoom_));
                 float scale_w = static_cast<float>(vw / span_canvas);
-                const float score_area = std::max(96.0f * pixel_scale, vh - keyboard_h);
+                const float score_area = score_area_h;
                 scale_w = std::min(scale_w,
                     score_area * 0.9f / std::max(1.0f, strip->canvas_size.y));
                 stream_scale_ = std::max(scale_w, 96.0f * pixel_scale / strip->canvas_size.y);
                 stream_scale_vw_ = viewport_.pixel_size.x;
                 stream_scale_zoom_ = zoom_;
+                stream_scale_wf_ = wf_key;
             }
             band.target_h = strip->canvas_size.y * stream_scale_;
-            band.strip_y = std::max(0.0f, (vh - keyboard_h - band.target_h) * 0.5f);
+            band.strip_y = std::max(0.0f, (score_area_h - band.target_h) * 0.5f);
         }
         const float target_h = band.target_h;
         const float scale = target_h / strip->canvas_size.y;
@@ -1423,13 +1488,51 @@ void ScoreHost::draw(IFrameContext& frame)
                 }
             }
         }
-        const float keyboard_alpha = streaming ? 1.0f : 0.0f;
+        // Waterfall blocks + the keyboard's playback lighting. A block falls
+        // so its bottom edge reaches the keys exactly as the transport
+        // crosses the note's onset; the matching key lights full-bright while
+        // the note sounds (position within [onset, onset+duration]) — landing
+        // on, dimming off. Block height = duration in beats (the timing hint).
+        struct WaterfallBlock
+        {
+            float x = 0.0f, w = 0.0f, y0 = 0.0f, y1 = 0.0f;
+            int palette = 0;
+        };
+        std::vector<WaterfallBlock> blocks;
         const float keyboard_y = vh - keyboard_h;
+        const float waterfall_top = keyboard_y - waterfall_h;
+        if (show_wf)
+        {
+            const double position = flow_.position_q();
+            const float ppb
+                = waterfall_h / static_cast<float>(std::max(1.0, waterfall_beats_));
+            const float white_w = vw / 52.0f;
+            blocks.reserve(waterfall_notes_.size());
+            for (const WaterfallNote& n : waterfall_notes_)
+            {
+                const float bottom
+                    = keyboard_y - static_cast<float>(n.onset_q - position) * ppb;
+                const float top = bottom - static_cast<float>(n.duration_q) * ppb;
+                if (bottom <= waterfall_top || top >= keyboard_y)
+                    continue; // fully above the zone (future) or already played
+                const float y0 = std::max(top, waterfall_top);
+                const float y1 = std::min(bottom, keyboard_y);
+                if (y1 - y0 < 1.0f)
+                    continue;
+                const float cx = keyboard_key_center_x(n.midi, 0.0f, vw);
+                const float bw
+                    = keyboard_is_black(n.midi) ? white_w * 0.52f : white_w * 0.74f;
+                blocks.push_back({ cx - bw * 0.5f, bw, y0, y1, n.palette });
+                if (position + 1e-6 >= n.onset_q && position < n.onset_q + n.duration_q)
+                    lit.push_back({ n.midi, 1.0f, n.palette });
+            }
+        }
+        const float keyboard_alpha = streaming ? 1.0f : 0.0f;
 
         nanovg_pass_->set_draw_callback(
             [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
-                waiting, lit, keyboard_alpha, keyboard_y, keyboard_h,
-                streaming](NVGcontext* vg, int w, int h) {
+                waiting, lit, keyboard_alpha, keyboard_y, keyboard_h, streaming, show_wf, blocks,
+                waterfall_top](NVGcontext* vg, int w, int h) {
                 fill_backdrop(vg, w, h);
                 const float band_pad = 18.0f * pixel_scale;
                 draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
@@ -1443,6 +1546,31 @@ void ScoreHost::draw(IFrameContext& frame)
                 nvgFillColor(vg,
                     waiting ? nvgRGBA(24, 140, 165, 200) : nvgRGBA(217, 115, 20, 170));
                 nvgFill(vg);
+                // Waterfall: colored blocks falling to their keys, clipped to
+                // the band between the score and the keyboard.
+                if (show_wf)
+                {
+                    nvgSave(vg);
+                    nvgScissor(vg, 0.0f, waterfall_top, static_cast<float>(vw),
+                        keyboard_y - waterfall_top);
+                    for (const auto& b : blocks)
+                    {
+                        const unsigned char* c
+                            = kGuidancePalette[b.palette % kGuidancePaletteSize];
+                        nvgBeginPath(vg);
+                        nvgRoundedRect(
+                            vg, b.x, b.y0, b.w, b.y1 - b.y0, 3.0f * pixel_scale);
+                        nvgFillColor(vg, nvgRGBA(c[0], c[1], c[2], 235));
+                        nvgFill(vg);
+                    }
+                    nvgRestore(vg);
+                    // The hit line where blocks meet the keys.
+                    nvgBeginPath(vg);
+                    nvgRect(vg, 0.0f, keyboard_y - 1.5f * pixel_scale,
+                        static_cast<float>(vw), 1.5f * pixel_scale);
+                    nvgFillColor(vg, nvgRGBA(255, 255, 255, 46));
+                    nvgFill(vg);
+                }
                 if (streaming)
                     draw_piano_keyboard(vg, 0.0f, keyboard_y, vw, keyboard_h, lit,
                         keyboard_alpha, pixel_scale);
