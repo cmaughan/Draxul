@@ -64,6 +64,23 @@ public:
         int miss = 0;
     };
 
+    // Per-bar right/wrong, split into the two hands. The hand boundary is a
+    // heuristic — notes below middle C count as the left hand, at or above as
+    // the right — since the true split is fuzzy (as the player noted).
+    static constexpr int kHandSplitMidi = 60;
+    struct HandTally
+    {
+        int hit = 0;
+        int miss = 0;
+    };
+    struct BarTally
+    {
+        int hit = 0;
+        int miss = 0;
+        HandTally left; // pitches below kHandSplitMidi
+        HandTally right; // pitches at or above kHandSplitMidi
+    };
+
     struct Session
     {
         std::string start_iso;
@@ -102,6 +119,14 @@ public:
     {
         return sessions_;
     }
+    // Per-bar (source-bar keyed) right/wrong tallies with the two hands.
+    const std::map<int, BarTally>& bar_tally() const
+    {
+        return bar_tally_;
+    }
+    // Wipe the learning record for this piece (keeps its identity — title,
+    // marking, meter — so the same piece just starts fresh).
+    void clear_progress();
     // Mean recent-encounter quality of the bar's onsets, 0..1 (0 when the
     // bar has never been encountered).
     double bar_mastery(int bar_index) const;
@@ -143,6 +168,7 @@ private:
     std::map<int, PitchStats> pitch_;
     std::map<double, OnsetStats> onset_;
     std::map<std::string, ChordStats> chord_;
+    std::map<int, BarTally> bar_tally_;
     std::vector<Session> sessions_;
     double best_tempo_frac_ = 0.0;
     double last_tempo_frac_ = 0.0;

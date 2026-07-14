@@ -133,6 +133,32 @@ void PlayerModel::apply(const FlowController::NoteOutcome& outcome)
             onset->push_recent(0.0);
         }
     }
+
+    // Per-bar right/wrong, split by hand (drills carry no bar location).
+    if (!drill && quarters_per_bar_ > 0.0)
+    {
+        const int bar = static_cast<int>(std::floor(outcome.onset_q / quarters_per_bar_));
+        BarTally& tally = bar_tally_[bar];
+        HandTally& hand = outcome.pitch < kHandSplitMidi ? tally.left : tally.right;
+        const bool correct = outcome.verdict == FlowController::NoteVerdict::Correct;
+        ++(correct ? tally.hit : tally.miss);
+        ++(correct ? hand.hit : hand.miss);
+    }
+}
+
+void PlayerModel::clear_progress()
+{
+    pitch_.clear();
+    onset_.clear();
+    chord_.clear();
+    bar_tally_.clear();
+    sessions_.clear();
+    best_tempo_frac_ = 0.0;
+    last_tempo_frac_ = 0.0;
+    total_notes_ = 0;
+    session_active_ = false;
+    session_notes_ = 0;
+    extra_json_.clear();
 }
 
 int PlayerModel::bar_encounters(int bar_index) const
@@ -253,6 +279,15 @@ std::string PlayerModel::serialize() const
     }
     doc["chord"] = chord;
 
+    json bars = json::object();
+    for (const auto& [bar, t] : bar_tally_)
+    {
+        bars[std::to_string(bar)]
+            = { { "hit", t.hit }, { "miss", t.miss }, { "lh_hit", t.left.hit },
+                  { "lh_miss", t.left.miss }, { "rh_hit", t.right.hit }, { "rh_miss", t.right.miss } };
+    }
+    doc["bars"] = bars;
+
     return doc.dump(2);
 }
 
@@ -265,6 +300,7 @@ bool PlayerModel::deserialize(const std::string& json_text)
     pitch_.clear();
     onset_.clear();
     chord_.clear();
+    bar_tally_.clear();
     sessions_.clear();
 
     if (const auto piece = doc.find("piece"); piece != doc.end() && piece->is_object())
@@ -336,11 +372,25 @@ bool PlayerModel::deserialize(const std::string& json_text)
             chord_[key] = stats;
         }
     }
+    if (const auto bars = doc.find("bars"); bars != doc.end() && bars->is_object())
+    {
+        for (const auto& [key, value] : bars->items())
+        {
+            BarTally tally;
+            tally.hit = value.value("hit", 0);
+            tally.miss = value.value("miss", 0);
+            tally.left.hit = value.value("lh_hit", 0);
+            tally.left.miss = value.value("lh_miss", 0);
+            tally.right.hit = value.value("rh_hit", 0);
+            tally.right.miss = value.value("rh_miss", 0);
+            bar_tally_[std::stoi(key)] = tally;
+        }
+    }
 
     // Preserve fields this build doesn't understand (newer schema data).
     json extra = doc;
     for (const char* known : { "version", "piece", "tempo", "total_notes", "sessions",
-             "pitch", "onset", "chord" })
+             "pitch", "onset", "chord", "bars" })
         extra.erase(known);
     extra_json_ = extra.empty() ? std::string() : extra.dump();
 

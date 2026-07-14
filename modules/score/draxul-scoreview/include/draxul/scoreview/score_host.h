@@ -150,6 +150,9 @@ private:
     void begin_progress_session();
     void end_progress_session();
     void save_progress(bool final_flush);
+    // Wipes this piece's learning record (player model + progress file) and
+    // restarts the stream from the top — the "clear progress" button.
+    void clear_piece_progress();
     // Advances the rolling window when the playhead moves past its history
     // margin; records judged outcomes into the verdict archive first.
     void maybe_advance_stream();
@@ -251,6 +254,11 @@ private:
     int stream_scale_vw_ = 0;
     float stream_scale_zoom_ = 0.0f;
     int stream_scale_wf_ = -1; // waterfall-present part of the scale cache key
+    // The score occupies a FIXED band — this fraction of the pane height —
+    // and the sheet scales (locked) to fill it, so it never jumps or resizes
+    // as the window scrolls. Adjustable in the debug UI.
+    float score_height_frac_ = 0.40f;
+    float stream_scale_frac_ = 0.0f; // score-height part of the scale cache key
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on

@@ -1186,6 +1186,22 @@ void ScoreHost::save_progress(bool final_flush)
     }
 }
 
+void ScoreHost::clear_piece_progress()
+{
+    player_model_.clear_progress();
+    begin_progress_session(); // session_active_ is false after clear — starts fresh
+    save_progress(/*final_flush=*/false); // overwrite the file with the cleared model
+    // Restart the stream from the top so the composer re-plans against a blank
+    // slate (no reviews/drills earned yet).
+    verdict_archive_.clear();
+    composer_.reset();
+    last_logged_plan_slot_ = -1;
+    rebuild_window(0, 0.0, /*carry=*/false);
+    DRAXUL_LOG_INFO(LogCategory::App, "score: cleared progress for this piece");
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
 bool ScoreHost::ensure_tick_stream()
 {
     if (tick_stream_ != nullptr)
@@ -1447,49 +1463,42 @@ void ScoreHost::draw(IFrameContext& frame)
         FlowBand band = flow_band();
         const bool streaming = stream_active()
             && flow_.mode() == FlowController::TransportMode::Roll;
-        // Layout (top to bottom): score band, waterfall, keyboard. The
-        // waterfall is a piano-roll between the score and the keys; with it
-        // present the keyboard goes stumpy — the falling blocks carry the
-        // timing, so the keys only need to stay legible.
+        // Layout (top to bottom): a FIXED score band (score_height_frac_ of the
+        // pane height), then the waterfall, then the stumpy keyboard. The sheet
+        // scales (locked) to fill the score band and is clipped to it, so it
+        // never resizes or jumps as the window scrolls under the playhead.
         const bool show_wf = streaming && show_waterfall_ && !waterfall_notes_.empty();
-        const float keyboard_h = streaming
-            ? (show_wf ? std::min(vw / 52.0f * 3.4f, vh * 0.16f)
-                       : std::min(vw / 52.0f * 5.8f, vh * 0.34f))
-            : 0.0f;
-        const float waterfall_h = show_wf
-            ? std::clamp(vh * 0.30f, 120.0f * pixel_scale,
-                  std::max(0.0f, vh - keyboard_h - 96.0f * pixel_scale))
-            : 0.0f;
-        const float score_area_h
-            = std::max(96.0f * pixel_scale, vh - keyboard_h - waterfall_h);
+        const float score_region_h
+            = std::clamp(vh * score_height_frac_, 96.0f * pixel_scale, vh * 0.9f);
+        const float keyboard_h = streaming ? std::min(vw / 52.0f * 3.4f, vh * 0.16f) : 0.0f;
+        const float keyboard_y = vh - keyboard_h;
+        const float waterfall_h = show_wf ? std::max(0.0f, keyboard_y - score_region_h) : 0.0f;
+        const float waterfall_top = keyboard_y - waterfall_h;
         if (streaming)
         {
-            // FIXED sheet scale: locked per viewport/zoom (about
-            // kStreamVisibleBars average bars fill the width) so the score
-            // does not breathe as bar spacing changes under the playhead. The
-            // waterfall's presence is part of the key: toggling it re-fits.
+            // Lock the scale to FILL the fixed band's height; re-fit only when
+            // the viewport, zoom, waterfall presence, or band fraction change.
             const int wf_key = show_wf ? 1 : 0;
             if (stream_scale_ <= 0.0f || stream_scale_vw_ != viewport_.pixel_size.x
-                || stream_scale_zoom_ != zoom_ || stream_scale_wf_ != wf_key)
+                || stream_scale_zoom_ != zoom_ || stream_scale_wf_ != wf_key
+                || stream_scale_frac_ != score_height_frac_)
             {
-                const double avg_bar_canvas = strip->canvas_size.x
-                    / std::max(1, window_bar_count_);
-                const double span_canvas = std::max(1.0,
-                    avg_bar_canvas * kStreamVisibleBars / std::max(0.25f, zoom_));
-                float scale_w = static_cast<float>(vw / span_canvas);
-                const float score_area = score_area_h;
-                scale_w = std::min(scale_w,
-                    score_area * 0.9f / std::max(1.0f, strip->canvas_size.y));
-                stream_scale_ = std::max(scale_w, 96.0f * pixel_scale / strip->canvas_size.y);
+                const float usable = score_region_h * 0.9f;
+                stream_scale_ = (usable / std::max(1.0f, strip->canvas_size.y))
+                    * std::max(0.25f, zoom_);
                 stream_scale_vw_ = viewport_.pixel_size.x;
                 stream_scale_zoom_ = zoom_;
                 stream_scale_wf_ = wf_key;
+                stream_scale_frac_ = score_height_frac_;
             }
-            band.target_h = strip->canvas_size.y * stream_scale_;
-            band.strip_y = std::max(0.0f, (score_area_h - band.target_h) * 0.5f);
+            // Fixed visual band, independent of the current window's canvas
+            // extent — so the sheet backdrop and playhead never move.
+            band.target_h = score_region_h * 0.9f;
+            band.strip_y = (score_region_h - band.target_h) * 0.5f;
         }
         const float target_h = band.target_h;
-        const float scale = target_h / strip->canvas_size.y;
+        const float scale
+            = streaming ? stream_scale_ : (target_h / std::max(1.0f, strip->canvas_size.y));
         constexpr double kAnchorFrac = 0.3;
         const double scroll_canvas = flow_.scroll_x(static_cast<double>(vw) / scale, kAnchorFrac);
         const float origin_x = static_cast<float>(-scroll_canvas * scale);
@@ -1568,8 +1577,6 @@ void ScoreHost::draw(IFrameContext& frame)
             int palette = 0;
         };
         std::vector<WaterfallBlock> blocks;
-        const float keyboard_y = vh - keyboard_h;
-        const float waterfall_top = keyboard_y - waterfall_h;
         if (show_wf)
         {
             const double position = flow_.position_q();
@@ -1607,12 +1614,19 @@ void ScoreHost::draw(IFrameContext& frame)
         const float keyboard_alpha = streaming ? 1.0f : 0.0f;
         const bool split_acc = split_accidentals_;
 
+        const float score_clip_h = streaming ? score_region_h : vh;
+
         nanovg_pass_->set_draw_callback(
             [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
                 waiting, lit, keyboard_alpha, keyboard_y, keyboard_h, streaming, show_wf, blocks,
-                waterfall_top, split_acc](NVGcontext* vg, int w, int h) {
+                waterfall_top, split_acc, score_clip_h](NVGcontext* vg, int w, int h) {
                 fill_backdrop(vg, w, h);
                 const float band_pad = 18.0f * pixel_scale;
+                // The sheet, notes, and playhead are clipped to the fixed score
+                // band so a tall window (ledger lines) can't spill into the
+                // waterfall below.
+                nvgSave(vg);
+                nvgScissor(vg, 0.0f, 0.0f, static_cast<float>(vw), score_clip_h);
                 draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
                     vw + 96.0f * pixel_scale, target_h + 2.0f * band_pad, pixel_scale);
                 const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
@@ -1625,6 +1639,7 @@ void ScoreHost::draw(IFrameContext& frame)
                 nvgFillColor(vg,
                     waiting ? nvgRGBA(24, 140, 165, 200) : nvgRGBA(217, 115, 20, 170));
                 nvgFill(vg);
+                nvgRestore(vg);
                 // Waterfall: colored blocks falling to their keys, clipped to
                 // the band between the score and the keyboard.
                 if (show_wf)
@@ -2003,6 +2018,9 @@ void ScoreHost::render_debug_ui(float dt)
 
             if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen))
             {
+                float score_pct = score_height_frac_ * 100.0f;
+                if (ImGui::SliderFloat("score height %", &score_pct, 20.0f, 60.0f, "%.0f"))
+                    score_height_frac_ = std::clamp(score_pct / 100.0f, 0.2f, 0.6f);
                 if (ImGui::Checkbox("Waterfall", &show_waterfall_))
                     stream_scale_ = 0.0f; // re-fit the score band to the new layout
                 float beats = static_cast<float>(waterfall_beats_);
@@ -2066,6 +2084,10 @@ void ScoreHost::render_debug_ui(float dt)
                         .c_str(),
                     piece_profile_.global_key.confidence, piece_profile_.chords.size(),
                     piece_profile_.figures.size());
+                if (ImGui::Button("Clear progress + restart"))
+                    clear_piece_progress();
+                ImGui::SameLine();
+                ImGui::TextDisabled("wipes this piece's record");
             }
 
             if (ImGui::CollapsingHeader("Timing drift", ImGuiTreeNodeFlags_DefaultOpen))
@@ -2099,31 +2121,66 @@ void ScoreHost::render_debug_ui(float dt)
 
             if (ImGui::CollapsingHeader("Trouble spots", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                ImGui::SeparatorText("Chords (net trouble)");
-                std::vector<std::pair<int, std::string>> chords;
-                for (const auto& [key, s] : player_model_.chord_stats())
+                // Bars: worst by wrong count, each expandable to the two hands
+                // (ok = right notes, x = wrong; the hand split is a heuristic
+                // around middle C).
+                if (ImGui::TreeNodeEx("Bars", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    const int trouble = s.miss + s.split - s.clean;
-                    if (trouble > 0)
-                        chords.emplace_back(trouble, key);
+                    std::vector<std::pair<int, int>> bars; // wrong, bar
+                    for (const auto& [bar, t] : player_model_.bar_tally())
+                        if (t.miss > 0 || t.hit > 0)
+                            bars.emplace_back(t.miss, bar);
+                    std::sort(bars.rbegin(), bars.rend());
+                    if (bars.empty())
+                        ImGui::TextDisabled("(none yet)");
+                    for (size_t i = 0; i < bars.size() && i < 16; ++i)
+                    {
+                        const int bar = bars[i].second;
+                        const PlayerModel::BarTally& t = player_model_.bar_tally().at(bar);
+                        if (ImGui::TreeNode(reinterpret_cast<void*>(static_cast<intptr_t>(bar)),
+                                "bar %d    %d ok / %d wrong", bar + 1, t.hit, t.miss))
+                        {
+                            ImGui::BulletText(
+                                "left hand    %d ok / %d wrong", t.left.hit, t.left.miss);
+                            ImGui::BulletText(
+                                "right hand   %d ok / %d wrong", t.right.hit, t.right.miss);
+                            ImGui::TreePop();
+                        }
+                    }
+                    ImGui::TreePop();
                 }
-                std::sort(chords.rbegin(), chords.rend());
-                if (chords.empty())
-                    ImGui::TextDisabled("(none yet)");
-                for (size_t i = 0; i < chords.size() && i < 6; ++i)
-                    ImGui::BulletText("%s  (%d)", chords[i].second.c_str(), chords[i].first);
 
-                ImGui::SeparatorText("Pitches (missed)");
-                std::vector<std::pair<int, int>> pitches; // miss, midi
-                for (const auto& [midi, s] : player_model_.pitch_stats())
-                    if (s.miss > 0)
-                        pitches.emplace_back(s.miss, midi);
-                std::sort(pitches.rbegin(), pitches.rend());
-                if (pitches.empty())
-                    ImGui::TextDisabled("(none yet)");
-                for (size_t i = 0; i < pitches.size() && i < 6; ++i)
-                    ImGui::BulletText(
-                        "%s  (missed %d)", note_name(pitches[i].second).c_str(), pitches[i].first);
+                if (ImGui::TreeNode("Chords (net trouble)"))
+                {
+                    std::vector<std::pair<int, std::string>> chords;
+                    for (const auto& [key, s] : player_model_.chord_stats())
+                    {
+                        const int trouble = s.miss + s.split - s.clean;
+                        if (trouble > 0)
+                            chords.emplace_back(trouble, key);
+                    }
+                    std::sort(chords.rbegin(), chords.rend());
+                    if (chords.empty())
+                        ImGui::TextDisabled("(none yet)");
+                    for (size_t i = 0; i < chords.size() && i < 8; ++i)
+                        ImGui::BulletText("%s   (%d)", chords[i].second.c_str(), chords[i].first);
+                    ImGui::TreePop();
+                }
+
+                if (ImGui::TreeNode("Pitches (missed)"))
+                {
+                    std::vector<std::pair<int, int>> pitches; // miss, midi
+                    for (const auto& [midi, s] : player_model_.pitch_stats())
+                        if (s.miss > 0)
+                            pitches.emplace_back(s.miss, midi);
+                    std::sort(pitches.rbegin(), pitches.rend());
+                    if (pitches.empty())
+                        ImGui::TextDisabled("(none yet)");
+                    for (size_t i = 0; i < pitches.size() && i < 8; ++i)
+                        ImGui::BulletText("%s   (missed %d)", note_name(pitches[i].second).c_str(),
+                            pitches[i].first);
+                    ImGui::TreePop();
+                }
             }
 
             if (composing_ && ImGui::CollapsingHeader("Composer program", ImGuiTreeNodeFlags_DefaultOpen))

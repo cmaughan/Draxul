@@ -227,3 +227,37 @@ TEST_CASE("roll hits report timing deltas and quality to the model", "[scoreview
     CHECK(late->quality < 0.7);
     CHECK(late->quality >= FlowController::kRollEdgeQuality);
 }
+
+TEST_CASE("bar tally tracks per-bar and per-hand right/wrong", "[scoreview][player-model]")
+{
+    PlayerModel model;
+    model.set_piece("Walz", 120.0, 3.0); // 3 quarters per bar
+    model.apply(hit(0.0, 64, 0.0, 1.0)); // bar 0, right hand (>= middle C), ok
+    model.apply(miss(1.0, 48)); // bar 0, left hand (< middle C), wrong
+    model.apply(hit(2.0, 72, 0.0, 1.0)); // bar 0, right hand, ok
+    model.apply(miss(3.0, 50)); // bar 1 (onset 3 / 3), left hand, wrong
+    model.apply(miss(PlayerModel::kDrillOnsetSentinel, 60)); // drill: no bar location
+
+    const auto& bars = model.bar_tally();
+    REQUIRE(bars.size() == 2); // bars 0 and 1; the drill contributes no bar
+    CHECK(bars.at(0).hit == 2);
+    CHECK(bars.at(0).miss == 1);
+    CHECK(bars.at(0).right.hit == 2);
+    CHECK(bars.at(0).right.miss == 0);
+    CHECK(bars.at(0).left.hit == 0);
+    CHECK(bars.at(0).left.miss == 1);
+    CHECK(bars.at(1).miss == 1);
+    CHECK(bars.at(1).left.miss == 1);
+
+    // Survives the versioned JSON round-trip.
+    PlayerModel loaded;
+    REQUIRE(loaded.deserialize(model.serialize()));
+    CHECK(loaded.bar_tally().at(0).right.hit == 2);
+    CHECK(loaded.bar_tally().at(1).left.miss == 1);
+
+    // clear_progress wipes the record but keeps piece identity.
+    model.clear_progress();
+    CHECK(model.bar_tally().empty());
+    CHECK(model.pitch_stats().empty());
+    CHECK(model.total_notes_judged() == 0);
+}
