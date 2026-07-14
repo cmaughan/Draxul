@@ -234,7 +234,12 @@ private:
     // Verdicts already earned, keyed by (stream q in thousandths, pitch) —
     // re-applied to the fresh engraving after every window swap.
     std::map<std::pair<long long, int>, FlowController::NoteVerdict> verdict_archive_;
-    static constexpr int kWindowHistoryBars = 1;
+    // History bars kept behind the playhead. This must be enough to fill the
+    // scroll anchor (~30% of the viewport) so the playhead can sit at the
+    // anchor with music scrolling under it — too little and the scroll clamps
+    // to the strip's left edge, snapping the playhead back on every window
+    // advance.
+    static constexpr int kWindowHistoryBars = 4;
     static constexpr int kWindowAheadBars = 8;
 
     // Piece analysis (S1): computed at flow build, cached for the composer.
@@ -264,6 +269,10 @@ private:
     // the same frame a taller window appears, so the sheet fills the band,
     // never clips off the bottom, and doesn't jitter.
     float stream_scale_ref_ = 0.0f;
+    // The scroll anchor (playhead's fraction across the viewport), capped at
+    // the history the window actually provides so the scroll never clamps and
+    // snaps the playhead on a window advance.
+    float stream_anchor_ = 0.30f;
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on

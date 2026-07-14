@@ -1498,6 +1498,17 @@ void ScoreHost::draw(IFrameContext& frame)
                 stream_scale_zoom_ = zoom_;
                 stream_scale_wf_ = wf_key;
                 stream_scale_frac_ = score_height_frac_;
+                // Anchor the playhead at ~30% across, but never past the
+                // history the window supplies (history_bars / visible_bars) —
+                // otherwise the scroll clamps left and the playhead snaps back
+                // when the window advances.
+                const double avg_bar_canvas
+                    = strip->canvas_size.x / std::max(1, window_bar_count_);
+                const double visible_bars
+                    = (static_cast<double>(vw) / std::max(0.001f, stream_scale_))
+                    / std::max(1.0, avg_bar_canvas);
+                stream_anchor_ = static_cast<float>(std::min(0.30,
+                    static_cast<double>(kWindowHistoryBars) / std::max(1.0, visible_bars)));
             }
             // Fixed visual band, independent of the current window's canvas
             // extent — so the sheet backdrop and playhead never move.
@@ -1507,8 +1518,8 @@ void ScoreHost::draw(IFrameContext& frame)
         const float target_h = band.target_h;
         const float scale
             = streaming ? stream_scale_ : (target_h / std::max(1.0f, strip->canvas_size.y));
-        constexpr double kAnchorFrac = 0.3;
-        const double scroll_canvas = flow_.scroll_x(static_cast<double>(vw) / scale, kAnchorFrac);
+        const double anchor_frac = streaming ? stream_anchor_ : 0.30;
+        const double scroll_canvas = flow_.scroll_x(static_cast<double>(vw) / scale, anchor_frac);
         const float origin_x = static_cast<float>(-scroll_canvas * scale);
         const float strip_y = band.strip_y;
         const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
