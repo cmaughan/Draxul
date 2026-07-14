@@ -188,10 +188,12 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
             ? state_color(highlight->glyph_lit, highlight->glyph_guide, i)
             : INK;
 
-        // An accidental's notehead renders as a HALF-filled circle — a spelling
-        // cue on the note itself: a sharp fills the TOP half (bottom white), a
-        // flat the BOTTOM half (top white). The spelling comes from the guide
-        // palette index (letter*3 + sign+1): sign 0 = flat, 2 = sharp.
+        // An accidental's notehead gets a HALF-color overlay as a spelling cue:
+        // the standard black notehead is drawn first (so the note and its
+        // timing — filled quarter vs hollow minim — stay legible), then the
+        // spelling color fills one half — a sharp the TOP half, a flat the
+        // BOTTOM. The spelling comes from the guide palette index
+        // (letter*3 + sign+1): sign 0 = flat, 2 = sharp.
         const int guide = (highlight != nullptr && i < highlight->glyph_guide.size())
             ? highlight->glyph_guide[i]
             : 0;
@@ -226,20 +228,25 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
                 cmax = glm::max(cmax, q);
             }
             const float mid = (cmin.y + cmax.y) * 0.5f;
-            const NVGcolor white = nvgRGBA(255, 255, 255, 255);
             const bool sharp = sign == 2;
-            const auto draw_half = [&](float y0, float y1, NVGcolor fill) {
-                nvgSave(vg);
-                nvgIntersectScissor(vg, cmin.x, y0, cmax.x - cmin.x, y1 - y0);
-                nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
-                nvgBeginPath(vg);
-                replay_commands(vg, symbol.cmds);
-                nvgFillColor(vg, fill);
-                nvgFill(vg);
-                nvgRestore(vg);
-            };
-            draw_half(cmin.y, mid, sharp ? color : white); // top
-            draw_half(mid, cmax.y, sharp ? white : color); // bottom
+            // The standard black notehead, full (its hole preserved for minims).
+            nvgSave(vg);
+            nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
+            nvgBeginPath(vg);
+            replay_commands(vg, symbol.cmds);
+            nvgFillColor(vg, INK);
+            nvgFill(vg);
+            nvgRestore(vg);
+            // The spelling color over the sharp (top) or flat (bottom) half.
+            nvgSave(vg);
+            nvgIntersectScissor(
+                vg, cmin.x, sharp ? cmin.y : mid, cmax.x - cmin.x, mid - cmin.y);
+            nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
+            nvgBeginPath(vg);
+            replay_commands(vg, symbol.cmds);
+            nvgFillColor(vg, color);
+            nvgFill(vg);
+            nvgRestore(vg);
             continue;
         }
 
