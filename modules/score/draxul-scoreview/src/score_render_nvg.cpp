@@ -276,8 +276,8 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
             const float cx = (cmin.x + cmax.x) * 0.5f;
             const float cy = (cmin.y + cmax.y) * 0.5f;
             const float span = glm::max(cmax.x - cmin.x, cmax.y - cmin.y);
-            const float r = 0.55f * span;
-            const float sw = 0.15f * span;
+            const float r = 0.28f * span; // about half the head — a compact mark
+            const float sw = 0.12f * span;
             const auto stroke_cross = [&](NVGcolor c, float w) {
                 nvgStrokeColor(vg, c);
                 nvgStrokeWidth(vg, w);

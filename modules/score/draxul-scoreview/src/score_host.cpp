@@ -311,6 +311,8 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             split_accidentals_ = false;
         if (command.find("nocomposer") != std::string::npos)
             composer_enabled_ = false;
+        if (command.find("locktempo") != std::string::npos)
+            lock_tempo_ = true;
         else if (command.find("tick8") != std::string::npos)
             tick_level_ = TickLevel::Eighths;
         else if (command.find("tick") != std::string::npos)
@@ -468,6 +470,24 @@ void ScoreHost::relayout()
 {
     if (!engine_ || !engine_->is_loaded() || viewport_.pixel_size.x <= 0 || viewport_.pixel_size.y <= 0)
         return;
+
+    // The paged (reading) view is always the WHOLE piece: if the engine is
+    // currently holding a rolling-window slice (the Roll runner), reload the
+    // full source first — otherwise pagination would show only the window.
+    if (engine_holds_window_)
+    {
+        std::string reload_error;
+        if (engine_->load(source_bytes_, reload_error))
+        {
+            engine_holds_window_ = false;
+            stream_offset_q_ = 0.0;
+        }
+        else
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "score: source reload for paged view failed: %s", reload_error.c_str());
+        }
+    }
 
     const float margin = page_margin();
     const int avail_w = std::max(64, static_cast<int>(static_cast<float>(viewport_.pixel_size.x) - 2.0f * margin));
@@ -800,6 +820,10 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
     stream_offset_q_ = composing_ ? composer_.slot_start_q(first_bar) : slicer_.bar_start_q(first_bar);
     flow_.set_marking_qpm(piece_marking_qpm_);
     flow_.set_mode(FlowController::TransportMode::Roll);
+    // Keep the tempo lock across window swaps: hold the marking, no adaptation.
+    flow_.set_adapt_tempo(!lock_tempo_);
+    if (lock_tempo_ && piece_marking_qpm_ > 0.0)
+        flow_.set_tempo_qpm(piece_marking_qpm_);
     if (carry)
     {
         flow_.restore_carry(carried);
@@ -860,6 +884,12 @@ void ScoreHost::toggle_flow_mode()
     {
         view_mode_ = ViewMode::Flow;
         flow_dirty_ = true; // re-engrave as the strip on the next pump
+        // Returning to the runner: if the piece supports the rolling Roll
+        // window, re-arm it (the flow build re-enters it via start_in_gate_);
+        // otherwise this falls through to the whole-piece conveyor.
+        if (game_mode_ == FlowController::TransportMode::Roll && stream_windowed_
+            && slicer_.ready())
+            start_in_gate_ = true;
     }
     else
     {
@@ -1956,6 +1986,12 @@ void ScoreHost::render_debug_ui(float dt)
                         static_cast<float>(flow_.min_tempo_qpm()),
                         static_cast<float>(flow_.max_tempo_qpm()), "%.0f"))
                     flow_.set_tempo_qpm(tempo);
+                if (ImGui::Checkbox("Lock tempo (play at marking, no adapt)", &lock_tempo_))
+                {
+                    flow_.set_adapt_tempo(!lock_tempo_);
+                    if (lock_tempo_ && flow_.marking_qpm() > 0.0)
+                        flow_.set_tempo_qpm(flow_.marking_qpm());
+                }
                 const double marking = flow_.marking_qpm();
                 ImGui::Text("%.0f%% of marking (%.0f qpm)",
                     marking > 0.0 ? flow_.tempo_qpm() / marking * 100.0 : 0.0, marking);

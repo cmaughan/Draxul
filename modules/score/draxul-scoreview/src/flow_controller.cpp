@@ -530,6 +530,8 @@ void FlowController::accuracy_sample(double value)
 
 void FlowController::adjust_roll_tempo()
 {
+    if (!adapt_tempo_)
+        return; // fixed tempo — the runner does not ease from accuracy
     if (accuracy_ema_ >= kRollSpeedUpThreshold)
         set_tempo_qpm(tempo_qpm_ * (1.0 + kRollTempoUpPerOnset));
     else if (accuracy_ema_ <= kRollSlowDownThreshold)

@@ -147,6 +147,17 @@ public:
     // Window documents lose the piece's bar-1 tempo text; the host restores
     // the true marking after each rebuild (re-clamps the current tempo).
     void set_marking_qpm(double qpm);
+    // Roll-mode tempo adaptation: on by default (the runner eases the tempo
+    // from demonstrated accuracy); off holds the tempo wherever it is set, so
+    // the piece plays at its proper, non-adapted tempo.
+    void set_adapt_tempo(bool on)
+    {
+        adapt_tempo_ = on;
+    }
+    bool adapt_tempo() const
+    {
+        return adapt_tempo_;
+    }
     double min_tempo_qpm() const;
     double max_tempo_qpm() const;
 
@@ -325,6 +336,7 @@ private:
     bool playing_ = false;
     double position_q_ = 0.0;
     double tempo_qpm_ = kFallbackMarkingQpm * kStartTempoFrac;
+    bool adapt_tempo_ = true; // Roll: ease tempo from accuracy (off = fixed)
     size_t lit_cursor_ = 0;
     bool lit_reset_pending_ = false;
 

@@ -286,6 +286,9 @@ private:
     // Composer: true = the adaptive stream (reviews, drills, simplification),
     // false = just scroll the original piece bar-by-bar, unchanged.
     bool composer_enabled_ = true;
+    // Tempo lock: true = play at the piece's proper marking with no Roll-mode
+    // adaptation (the runner won't ease the tempo from accuracy).
+    bool lock_tempo_ = false;
 
     // Player memory (S0): per-piece aggregates + the progress file.
     PlayerModel player_model_;
