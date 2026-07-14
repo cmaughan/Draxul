@@ -227,7 +227,7 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
                 cmin = glm::min(cmin, q);
                 cmax = glm::max(cmax, q);
             }
-            const float mid = (cmin.y + cmax.y) * 0.5f;
+            const float mid = (cmin.x + cmax.x) * 0.5f;
             const bool sharp = sign == 2;
             // The standard black notehead, full (its hole preserved for minims).
             nvgSave(vg);
@@ -237,10 +237,12 @@ void render_draw_list(NVGcontext* vg, const ScoreDrawList& list, glm::vec2 origi
             nvgFillColor(vg, INK);
             nvgFill(vg);
             nvgRestore(vg);
-            // The spelling color over the sharp (top) or flat (bottom) half.
+            // The spelling color over one VERTICAL half — a sharp the right,
+            // a flat the left. Splitting left/right (not top/bottom) keeps the
+            // notehead's full height, so its level on the stave stays clear.
             nvgSave(vg);
             nvgIntersectScissor(
-                vg, cmin.x, sharp ? cmin.y : mid, cmax.x - cmin.x, mid - cmin.y);
+                vg, sharp ? mid : cmin.x, cmin.y, mid - cmin.x, cmax.y - cmin.y);
             nvgTransform(vg, m.a, m.b, m.c, m.d, m.e, m.f);
             nvgBeginPath(vg);
             replay_commands(vg, symbol.cmds);
