@@ -354,10 +354,17 @@ TEST_CASE("grace clusters fold into their beat so the playhead never leaps", "[s
 namespace
 {
 
-// max/median scroll speed (canvas px per beat) of the Grieg strip engraved
-// with the given spacing — the flatness measure for the proportional-spacing
-// experiment.
-double grieg_speed_ratio(bool proportional)
+// Scroll-speed statistics (canvas px per beat) of the Grieg strip engraved
+// with the given spacing — flatness (max/median) and density (median) for
+// the proportional-spacing experiment.
+struct SpeedStats
+{
+    double median = 0.0;
+    double ratio = 0.0; // max / median
+    double spread = 0.0; // p90 / p10 — the typical breathing the eye tracks
+};
+
+SpeedStats grieg_speed_stats(bool proportional, float spacing_linear = -1.0f)
 {
     std::string error;
     auto engine = VerovioLayoutEngine::create(DRAXUL_VEROVIO_DATA_DIR, error);
@@ -365,6 +372,7 @@ double grieg_speed_ratio(bool proportional)
     LayoutOptions options;
     options.mode = LayoutMode::Flow;
     options.proportional_spacing = proportional;
+    options.spacing_linear = spacing_linear;
     engine->set_options(options);
 
     std::ifstream stream(
@@ -388,20 +396,46 @@ double grieg_speed_ratio(bool proportional)
         speeds.push_back((flow.onsets()[i].x - flow.onsets()[i - 1].x) / dq);
     }
     std::sort(speeds.begin(), speeds.end());
-    return speeds.back() / speeds[speeds.size() / 2];
+    SpeedStats stats;
+    stats.median = speeds[speeds.size() / 2];
+    stats.ratio = speeds.back() / stats.median;
+    stats.spread = speeds[speeds.size() * 9 / 10] / speeds[speeds.size() / 10];
+    return stats;
 }
 
 } // namespace
 
-TEST_CASE("proportional spacing flattens the conveyor scroll speed", "[scoreview][flow]")
+TEST_CASE("proportional spacing flattens the scroll at sane density", "[scoreview][flow]")
 {
-    const double authentic = grieg_speed_ratio(false);
-    const double proportional = grieg_speed_ratio(true);
-    INFO("max/median speed — authentic: " << authentic << ", proportional: " << proportional);
-    // The engraver's 0.6 curve leaves real spread; proportional spacing must
-    // be materially flatter (content minimums keep it from perfect 1.0).
-    CHECK(proportional < authentic * 0.75);
-    CHECK(proportional < 2.0);
+    const SpeedStats authentic = grieg_speed_stats(false);
+    const SpeedStats proportional = grieg_speed_stats(true);
+    INFO("authentic median " << authentic.median << " ratio " << authentic.ratio << " spread "
+                             << authentic.spread << " | proportional median "
+                             << proportional.median << " ratio " << proportional.ratio
+                             << " spread " << proportional.spread);
+    // The tuned operating point (kProportionalSpacingLinear): typical
+    // breathing (p90/p10) materially tighter, worst segment no worse than
+    // authentic — compressing further would invert both (glyph minimums
+    // don't shrink; see the density probe below).
+    CHECK(proportional.spread < authentic.spread * 0.85);
+    CHECK(proportional.ratio < authentic.ratio);
+    // ...at sane on-screen density: bars wider than authentic (proportional
+    // long notes need room) but nowhere near one-bar-fills-the-screen.
+    CHECK(proportional.median > authentic.median * 1.2);
+    CHECK(proportional.median < authentic.median * 2.5);
+}
+
+TEST_CASE("proportional spacing density probe", "[.][probe]")
+{
+    const SpeedStats authentic = grieg_speed_stats(false);
+    WARN("authentic: median " << authentic.median << " ratio " << authentic.ratio << " spread "
+                              << authentic.spread);
+    for (const float linear : { 0.25f, 0.15f, 0.10f, 0.075f, 0.06f, 0.05f, 0.04f, 0.03f })
+    {
+        const SpeedStats stats = grieg_speed_stats(true, linear);
+        WARN("proportional linear " << linear << ": median " << stats.median << " ratio "
+                                    << stats.ratio << " spread " << stats.spread);
+    }
 }
 
 TEST_CASE("flow layout and timemap join the live Grieg end-to-end", "[scoreview][flow]")

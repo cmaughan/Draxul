@@ -37,6 +37,12 @@ struct LayoutOptions
     // with the time-proportional waterfall. Ignored in Paged mode — the
     // reading view always keeps authentic engraving spacing.
     bool proportional_spacing = false;
+    // Density override for Verovio's spacingLinear (the per-duration width
+    // multiplier). Negative = the mode's default: 0.25 (Verovio's) normally,
+    // a compressed constant in proportional mode — strict space-per-duration
+    // stretches long notes so far that a bar fills the screen, so
+    // proportional mode trades a little flatness for authentic-like density.
+    float spacing_linear = -1.0f;
 };
 
 // Boundary between the score pipeline and the engraving engine (Verovio

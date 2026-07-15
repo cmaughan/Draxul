@@ -30,6 +30,12 @@ namespace
 // hidpi displays.
 constexpr int BASE_ENGRAVE_SCALE_PERCENT = 40;
 
+// spacingLinear used by proportional flow spacing (spacingNonLinear 1.0) when
+// the caller doesn't override — tuned on the Grieg so the proportional strip
+// matches the authentic strip's overall width (see the density probe in the
+// flow tests). Verovio's own default is 0.25.
+constexpr float kProportionalSpacingLinear = 0.06f;
+
 int effective_scale_percent(float pixel_scale)
 {
     const float scale = BASE_ENGRAVE_SCALE_PERCENT * std::max(pixel_scale, 0.25f);
@@ -62,9 +68,18 @@ std::string options_json(const LayoutOptions& options)
         json += ", \"pageWidth\": 2100, \"pageHeight\": 2970";
         // The proportional-spacing experiment: 1.0 spaces notes linearly in
         // duration (Verovio's default 0.6 gives short notes proportionally
-        // more room — authentic engraving, uneven scroll speed).
+        // more room — authentic engraving, uneven scroll speed). Strictly
+        // proportional widths stretch long notes so far that a bar fills the
+        // screen, so proportional mode also compresses the per-duration
+        // multiplier back to authentic-like density (glyph minimums put a
+        // floor under the compression; kProportionalSpacingLinear is tuned
+        // on the Grieg to match the authentic strip's width).
         json += ", \"spacingNonLinear\": ";
         json += options.proportional_spacing ? "1.0" : "0.6";
+        const float linear = options.spacing_linear >= 0.0f ? options.spacing_linear
+            : options.proportional_spacing                  ? kProportionalSpacingLinear
+                                                            : 0.25f;
+        json += ", \"spacingLinear\": " + std::to_string(linear);
     }
     else
     {
@@ -77,7 +92,7 @@ std::string options_json(const LayoutOptions& options)
         json += ", \"pageHeight\": " + std::to_string(to_verovio_dimension(options.page_size_px.y, scale));
         json += ", \"scale\": " + std::to_string(scale);
         // The reading view always keeps authentic engraving spacing.
-        json += ", \"spacingNonLinear\": 0.6";
+        json += ", \"spacingNonLinear\": 0.6, \"spacingLinear\": 0.25";
     }
     json += ", \"footer\": \"none\"";
     json += ", \"svgViewBox\": true";
