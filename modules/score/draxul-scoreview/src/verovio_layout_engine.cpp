@@ -13,6 +13,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace draxul
 {
@@ -89,11 +90,18 @@ struct VerovioLayoutEngine::Impl
     vrv::Toolkit toolkit{ /*initFont=*/false };
     LayoutOptions options;
     bool loaded = false;
-    // Lazily-parsed note id -> diatonic letter (0=C..6=B) from the MEI, so
-    // the palette can color enharmonics apart. Cleared whenever the loaded
-    // music or its layout changes; rebuilt on the next query.
+    // Lazily-parsed MEI index harvested from a single GetMEI/parse: note id ->
+    // diatonic letter (0=C..6=B) so the palette can color enharmonics apart,
+    // plus the set of tie end-ids so tied continuations auto-satisfy their
+    // gate. Cleared whenever the loaded music or its layout changes; both are
+    // rebuilt together on the next query.
     std::unordered_map<std::string, int> note_letters;
-    bool note_letters_built = false;
+    std::vector<std::string> tie_ends;
+    bool mei_index_built = false;
+    // Lazy note id -> sounding MIDI pitch cache (-1 = none). GetMIDIValuesForElement
+    // is a per-element JSON round-trip and the analysis, gate and waterfall
+    // passes each query the same ids, so the first lookup per id is memoized.
+    std::unordered_map<std::string, int> note_midi;
 };
 
 VerovioLayoutEngine::VerovioLayoutEngine()
@@ -144,7 +152,8 @@ bool VerovioLayoutEngine::load(std::string_view bytes, std::string& error)
         return false;
     }
     impl_->loaded = true;
-    impl_->note_letters_built = false;
+    impl_->mei_index_built = false;
+    impl_->note_midi.clear();
 
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
@@ -157,7 +166,8 @@ void VerovioLayoutEngine::set_options(const LayoutOptions& options)
 {
     impl_->options = options;
     impl_->toolkit.SetOptions(options_json(options));
-    impl_->note_letters_built = false;
+    impl_->mei_index_built = false;
+    impl_->note_midi.clear();
     if (impl_->loaded)
     {
         const auto start = std::chrono::steady_clock::now();
@@ -197,15 +207,27 @@ int VerovioLayoutEngine::midi_pitch_for_element(const std::string& element_id)
 {
     if (!impl_->loaded)
         return -1;
+    const auto cached = impl_->note_midi.find(element_id);
+    if (cached != impl_->note_midi.end())
+        return cached->second;
+
+    int value = -1;
     const std::string json = impl_->toolkit.GetMIDIValuesForElement(element_id);
     const nlohmann::json doc = nlohmann::json::parse(json, /*cb=*/nullptr, /*allow_exceptions=*/false);
-    if (doc.is_discarded() || !doc.is_object())
-        return -1;
-    const auto pitch = doc.find("pitch");
-    if (pitch == doc.end() || !pitch->is_number())
-        return -1;
-    const int value = pitch->get<int>();
-    return (value > 0 && value < 128) ? value : -1;
+    if (!doc.is_discarded() && doc.is_object())
+    {
+        const auto pitch = doc.find("pitch");
+        if (pitch != doc.end() && pitch->is_number())
+        {
+            const int p = pitch->get<int>();
+            if (p > 0 && p < 128)
+                value = p;
+        }
+    }
+    // Cache misses (value == -1) too: an unresolvable id never resolves under
+    // the same engraving, so there is no point re-querying it each pass.
+    impl_->note_midi.emplace(element_id, value);
+    return value;
 }
 
 namespace
@@ -242,77 +264,69 @@ int letter_from_pname(const char* pname)
     }
 }
 
-void collect_note_letters(
-    const tinyxml2::XMLElement* element, std::unordered_map<std::string, int>& out)
+// One recursive walk collects both facets we need from the MEI: note id ->
+// diatonic letter, and the tie end-ids. A <note> is never a <tie>, so the
+// element type selects at most one branch; the recursion always descends.
+void collect_mei_index(const tinyxml2::XMLElement* element,
+    std::unordered_map<std::string, int>& letters, std::vector<std::string>& tie_ends)
 {
     for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
         child = child->NextSiblingElement())
     {
-        if (std::strcmp(child->Name(), "note") == 0)
+        const char* name = child->Name();
+        if (std::strcmp(name, "note") == 0)
         {
             const char* id = child->Attribute("xml:id");
             const int letter = letter_from_pname(child->Attribute("pname"));
             if (id != nullptr && letter >= 0)
-                out.emplace(id, letter);
+                letters.emplace(id, letter);
         }
-        collect_note_letters(child, out);
+        else if (std::strcmp(name, "tie") == 0)
+        {
+            const char* endid = child->Attribute("endid");
+            if (endid != nullptr && endid[0] == '#')
+                tie_ends.emplace_back(endid + 1);
+        }
+        collect_mei_index(child, letters, tie_ends);
     }
 }
+
 } // namespace
+
+// Populates the note-letter map and tie-end list from a single MEI export.
+// Verovio's GetMEI serializes the whole document and tinyxml2 re-parses it, so
+// the two consumers (spelling + ties) share one round-trip per engraving.
+void VerovioLayoutEngine::ensure_mei_index()
+{
+    if (impl_->mei_index_built)
+        return;
+    impl_->note_letters.clear();
+    impl_->tie_ends.clear();
+    const std::string mei = impl_->toolkit.GetMEI("");
+    tinyxml2::XMLDocument doc;
+    if (doc.Parse(mei.data(), mei.size()) == tinyxml2::XML_SUCCESS && doc.RootElement() != nullptr)
+        collect_mei_index(doc.RootElement(), impl_->note_letters, impl_->tie_ends);
+    else
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            "verovio: MEI export unparseable; note spellings and ties unavailable");
+    impl_->mei_index_built = true;
+}
 
 int VerovioLayoutEngine::note_letter_for_element(const std::string& element_id)
 {
     if (!impl_->loaded)
         return -1;
-    if (!impl_->note_letters_built)
-    {
-        impl_->note_letters.clear();
-        const std::string mei = impl_->toolkit.GetMEI("");
-        tinyxml2::XMLDocument doc;
-        if (doc.Parse(mei.data(), mei.size()) == tinyxml2::XML_SUCCESS
-            && doc.RootElement() != nullptr)
-            collect_note_letters(doc.RootElement(), impl_->note_letters);
-        else
-            DRAXUL_LOG_ERROR(
-                LogCategory::App, "verovio: MEI export unparseable; note spellings unavailable");
-        impl_->note_letters_built = true;
-    }
+    ensure_mei_index();
     const auto found = impl_->note_letters.find(element_id);
     return found == impl_->note_letters.end() ? -1 : found->second;
 }
 
-namespace
-{
-void collect_tie_end_ids(const tinyxml2::XMLElement* element, std::vector<std::string>& out)
-{
-    for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
-        child = child->NextSiblingElement())
-    {
-        if (std::strcmp(child->Name(), "tie") == 0)
-        {
-            const char* endid = child->Attribute("endid");
-            if (endid != nullptr && endid[0] == '#')
-                out.emplace_back(endid + 1);
-        }
-        collect_tie_end_ids(child, out);
-    }
-}
-} // namespace
-
 std::vector<std::string> VerovioLayoutEngine::tie_end_ids()
 {
-    std::vector<std::string> ids;
     if (!impl_->loaded)
-        return ids;
-    const std::string mei = impl_->toolkit.GetMEI("");
-    tinyxml2::XMLDocument doc;
-    if (doc.Parse(mei.data(), mei.size()) != tinyxml2::XML_SUCCESS || doc.RootElement() == nullptr)
-    {
-        DRAXUL_LOG_ERROR(LogCategory::App, "verovio: MEI export unparseable; ties unavailable");
-        return ids;
-    }
-    collect_tie_end_ids(doc.RootElement(), ids);
-    return ids;
+        return {};
+    ensure_mei_index();
+    return impl_->tie_ends;
 }
 
 } // namespace scoreview

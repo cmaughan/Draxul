@@ -36,6 +36,10 @@ public:
 private:
     VerovioLayoutEngine();
 
+    // Populates the note-letter map and tie-end list from a single MEI export,
+    // once per engraving (no-op once built).
+    void ensure_mei_index();
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
