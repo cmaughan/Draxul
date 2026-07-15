@@ -157,6 +157,10 @@ private:
     void rebuild_highlight_from_palette();
     // Installs a finished background engrave if one is ready (called each pump).
     void poll_async_engrave();
+    // Re-engraves the current flow material after a spacing change, keeping
+    // position and verdicts (streaming rebuilds the current window with
+    // carry; the monolith goes through flow_dirty_). Resets the band scale.
+    void reengrave_flow_in_place();
     double stream_position_q() const
     {
         return flow_.position_q() + stream_offset_q_;
@@ -347,6 +351,11 @@ private:
     // speed and score columns align with the waterfall. The paged reading
     // view always keeps authentic engraving spacing.
     bool proportional_spacing_ = false;
+    // Spacing-debug slider overrides (inspector). Negative = follow the
+    // preset above; set, they win over it. Applied on slider release (a
+    // re-engrave costs ~100ms — never per drag frame).
+    float spacing_linear_override_ = -1.0f;
+    float spacing_non_linear_override_ = -1.0f;
     // Tempo lock: true = play at the piece's proper marking with no Roll-mode
     // adaptation (the runner won't ease the tempo from accuracy).
     bool lock_tempo_ = false;

@@ -22,6 +22,18 @@ enum class LayoutMode : uint8_t
     Flow,
 };
 
+// Verovio spacing presets: width ~ spacingLinear * duration^spacingNonLinear.
+// Authentic = Verovio's engraving defaults. Proportional = space linear in
+// duration for a near-constant conveyor scroll, with the width multiplier
+// compressed so bars stay a sane size (tuned on the Grieg — strictly
+// proportional at 0.25 made one bar fill the screen; glyph minimums floor
+// the compression). Shared by the engine's option emission and the
+// inspector's spacing-debug sliders.
+constexpr float kSpacingLinearDefault = 0.25f;
+constexpr float kSpacingNonLinearDefault = 0.6f;
+constexpr float kSpacingLinearProportional = 0.06f;
+constexpr float kSpacingNonLinearProportional = 1.0f;
+
 // Layout parameters for engraving. page_size_px is the target page size in
 // device pixels (Paged mode); pixel_scale is the display's device-pixel
 // ratio. Staff and glyph sizes scale with pixel_scale so a retina page isn't
@@ -43,6 +55,11 @@ struct LayoutOptions
     // stretches long notes so far that a bar fills the screen, so
     // proportional mode trades a little flatness for authentic-like density.
     float spacing_linear = -1.0f;
+    // Curve override for Verovio's spacingNonLinear (space ~ duration^value,
+    // engraver's default 0.6, proportional 1.0). Negative = the preset picked
+    // by proportional_spacing. Both overrides exist for the inspector's
+    // spacing-debug sliders and the tuning probe.
+    float spacing_non_linear = -1.0f;
 };
 
 // Boundary between the score pipeline and the engraving engine (Verovio

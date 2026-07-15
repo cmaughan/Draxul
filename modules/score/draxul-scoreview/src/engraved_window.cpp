@@ -21,6 +21,8 @@ EngraveResult engrave_loaded(
     options.mode = LayoutMode::Flow;
     options.pixel_scale = params.pixel_scale;
     options.proportional_spacing = params.proportional_spacing;
+    options.spacing_linear = params.spacing_linear;
+    options.spacing_non_linear = params.spacing_non_linear;
     engine.set_options(options);
 
     auto strip = interpret_score_svg(engine.render_page_svg(1), error);

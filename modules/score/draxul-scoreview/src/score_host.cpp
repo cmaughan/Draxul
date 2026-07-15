@@ -694,6 +694,8 @@ ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
     EngraveParams params;
     params.pixel_scale = ui_scale();
     params.proportional_spacing = proportional_spacing_;
+    params.spacing_linear = spacing_linear_override_;
+    params.spacing_non_linear = spacing_non_linear_override_;
     EngravedWindow engraved;
     const EngraveResult result = engrave_loaded(*engine_, params, engraved, error);
     if (result == EngraveResult::InterpretFailed)
@@ -784,6 +786,8 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
     params.marking_qpm = piece_marking_qpm_;
     params.lock_tempo = lock_tempo_;
     params.proportional_spacing = proportional_spacing_;
+    params.spacing_linear = spacing_linear_override_;
+    params.spacing_non_linear = spacing_non_linear_override_;
     EngravedWindow engraved;
     std::string error;
     if (engrave_window(*engine_, slice->xml, params, engraved, error) != EngraveResult::Ok)
@@ -855,6 +859,18 @@ void ScoreHost::rebuild_highlight_from_palette()
         highlight_.set_guidance(id, palette);
 }
 
+void ScoreHost::reengrave_flow_in_place()
+{
+    stream_scale_ref_ = 0.0f;
+    stream_scale_ = 0.0f;
+    if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
+        rebuild_window(window_first_bar_, stream_position_q(), /*carry=*/true);
+    else
+        flow_dirty_ = true;
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
 void ScoreHost::maybe_advance_stream()
 {
     if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
@@ -902,6 +918,8 @@ void ScoreHost::maybe_advance_stream()
         job.params.marking_qpm = piece_marking_qpm_;
         job.params.lock_tempo = lock_tempo_;
         job.params.proportional_spacing = proportional_spacing_;
+        job.params.spacing_linear = spacing_linear_override_;
+        job.params.spacing_non_linear = spacing_non_linear_override_;
         job.first_bar = slice->first_bar;
         job.count = slice->count;
         job.stream_offset_q = slice->stream_offset_q;
@@ -2157,24 +2175,67 @@ void ScoreHost::render_debug_ui(float dt)
                     if (callbacks_ != nullptr)
                         callbacks_->request_frame();
                 }
+                // Switching the preset drops any debug overrides — the point
+                // of the checkbox is the two tuned presets. The 'f' paged
+                // reading view is untouched — always authentic spacing.
                 if (ImGui::Checkbox("Proportional spacing", &proportional_spacing_))
                 {
-                    // Re-engrave the current material with the new spacing
-                    // curve, keeping position and verdicts. The 'f' paged
-                    // reading view is untouched — always authentic spacing.
-                    stream_scale_ref_ = 0.0f;
-                    stream_scale_ = 0.0f;
-                    if (stream_active()
-                        && flow_.mode() == FlowController::TransportMode::Roll)
-                        rebuild_window(
-                            window_first_bar_, stream_position_q(), /*carry=*/true);
-                    else
-                        flow_dirty_ = true;
-                    if (callbacks_ != nullptr)
-                        callbacks_->request_frame();
+                    spacing_linear_override_ = -1.0f;
+                    spacing_non_linear_override_ = -1.0f;
+                    reengrave_flow_in_place();
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("(constant scroll)");
+            }
+
+            if (ImGui::CollapsingHeader("Spacing debug"))
+            {
+                // Live Verovio spacing knobs (flow view only). Sliders edit a
+                // copy and apply ON RELEASE — every apply is a full ~100ms
+                // re-engrave, so never per drag frame.
+                const float preset_linear = proportional_spacing_
+                    ? kSpacingLinearProportional
+                    : kSpacingLinearDefault;
+                const float preset_non_linear = proportional_spacing_
+                    ? kSpacingNonLinearProportional
+                    : kSpacingNonLinearDefault;
+                float linear = spacing_linear_override_ >= 0.0f ? spacing_linear_override_
+                                                                : preset_linear;
+                float non_linear = spacing_non_linear_override_ >= 0.0f
+                    ? spacing_non_linear_override_
+                    : preset_non_linear;
+                ImGui::SliderFloat("spacingLinear", &linear, 0.01f, 0.5f, "%.3f",
+                    ImGuiSliderFlags_Logarithmic);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    spacing_linear_override_ = linear;
+                    reengrave_flow_in_place();
+                }
+                ImGui::SliderFloat("spacingNonLinear", &non_linear, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    spacing_non_linear_override_ = non_linear;
+                    reengrave_flow_in_place();
+                }
+                ImGui::TextDisabled("width ~ spacingLinear * duration^spacingNonLinear");
+                const bool overriding = spacing_linear_override_ >= 0.0f
+                    || spacing_non_linear_override_ >= 0.0f;
+                if (overriding)
+                {
+                    ImGui::Text("overriding the preset");
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Reset to preset"))
+                    {
+                        spacing_linear_override_ = -1.0f;
+                        spacing_non_linear_override_ = -1.0f;
+                        reengrave_flow_in_place();
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("at preset (%s)",
+                        proportional_spacing_ ? "proportional" : "authentic");
+                }
             }
 
             if (ImGui::CollapsingHeader("Audio"))

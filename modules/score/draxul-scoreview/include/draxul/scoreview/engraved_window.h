@@ -50,6 +50,9 @@ struct EngraveParams
     double marking_qpm = 0.0;
     bool lock_tempo = false;
     bool proportional_spacing = false;
+    // Inspector spacing-debug overrides; negative = the preset's values.
+    float spacing_linear = -1.0f;
+    float spacing_non_linear = -1.0f;
 };
 
 enum class EngraveResult : uint8_t

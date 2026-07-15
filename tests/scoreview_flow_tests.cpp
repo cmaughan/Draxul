@@ -364,7 +364,8 @@ struct SpeedStats
     double spread = 0.0; // p90 / p10 — the typical breathing the eye tracks
 };
 
-SpeedStats grieg_speed_stats(bool proportional, float spacing_linear = -1.0f)
+SpeedStats grieg_speed_stats(
+    bool proportional, float spacing_linear = -1.0f, float spacing_non_linear = -1.0f)
 {
     std::string error;
     auto engine = VerovioLayoutEngine::create(DRAXUL_VEROVIO_DATA_DIR, error);
@@ -373,6 +374,7 @@ SpeedStats grieg_speed_stats(bool proportional, float spacing_linear = -1.0f)
     options.mode = LayoutMode::Flow;
     options.proportional_spacing = proportional;
     options.spacing_linear = spacing_linear;
+    options.spacing_non_linear = spacing_non_linear;
     engine->set_options(options);
 
     std::ifstream stream(
@@ -423,6 +425,18 @@ TEST_CASE("proportional spacing flattens the scroll at sane density", "[scorevie
     // long notes need room) but nowhere near one-bar-fills-the-screen.
     CHECK(proportional.median > authentic.median * 1.2);
     CHECK(proportional.median < authentic.median * 2.5);
+}
+
+TEST_CASE("spacing overrides win over the preset", "[scoreview][flow]")
+{
+    // The inspector's spacing-debug sliders set explicit values that must
+    // beat the proportional/authentic preset: the proportional preset driven
+    // back to the authentic numbers engraves the authentic strip.
+    const SpeedStats authentic = grieg_speed_stats(false);
+    const SpeedStats overridden
+        = grieg_speed_stats(true, kSpacingLinearDefault, kSpacingNonLinearDefault);
+    CHECK(overridden.median == Catch::Approx(authentic.median).epsilon(0.01));
+    CHECK(overridden.ratio == Catch::Approx(authentic.ratio).epsilon(0.01));
 }
 
 TEST_CASE("proportional spacing density probe", "[.][probe]")
