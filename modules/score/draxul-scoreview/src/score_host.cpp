@@ -875,9 +875,22 @@ void ScoreHost::maybe_advance_stream()
             return; // the window tail already reaches the final bar
         playhead_bar = slicer_.bar_at(stream_q);
     }
-    if (playhead_bar <= window_first_bar_ + kWindowHistoryBars)
-        return; // still inside the history margin
+    // Advance only when the playhead comes within the viewport's look-ahead
+    // of the window's tail — NOT every bar. Re-engraving every bar briefly
+    // freezes the frame, and at a fast tempo the catch-up reads as a jump at
+    // each bar boundary. This batches the re-engrave into a rare event while
+    // still keeping enough notes ahead. It also keeps kWindowHistoryBars
+    // behind the playhead so the scroll anchor never clamps.
+    const int window_end = window_first_bar_ + window_bar_count_;
+    if (playhead_bar <= window_first_bar_ + kWindowHistoryBars
+        || playhead_bar < window_end - stream_ahead_needed_)
+        return;
+    // Re-engraving is a synchronous freeze. Don't charge its wall-time to the
+    // transport — otherwise the next frame's dt includes it and the playhead
+    // jumps forward to catch up (the "jump at the bar" at fast tempo).
+    const auto rebuild_start = std::chrono::steady_clock::now();
     rebuild_window(playhead_bar - kWindowHistoryBars, stream_q, /*carry=*/true);
+    last_pump_ += std::chrono::steady_clock::now() - rebuild_start;
 }
 
 void ScoreHost::toggle_flow_mode()
@@ -1155,8 +1168,9 @@ void ScoreHost::begin_progress_session()
     player_model_.begin_session(now_iso8601());
     session_start_ = std::chrono::steady_clock::now();
     // Resume at yesterday's pace: the stored tempo informs the start, still
-    // clamped to the marking band. Fresh pieces keep the 60% default.
-    if (player_model_.last_tempo_frac() > 0.0 && flow_.ready())
+    // clamped to the marking band. Fresh pieces keep the 60% default. The
+    // tempo lock overrides this — it holds the marking regardless.
+    if (!lock_tempo_ && player_model_.last_tempo_frac() > 0.0 && flow_.ready())
         flow_.set_tempo_qpm(flow_.marking_qpm() * player_model_.last_tempo_frac());
 }
 
@@ -1509,6 +1523,12 @@ void ScoreHost::draw(IFrameContext& frame)
                     / std::max(1.0, avg_bar_canvas);
                 stream_anchor_ = static_cast<float>(std::min(0.30,
                     static_cast<double>(kWindowHistoryBars) / std::max(1.0, visible_bars)));
+                // The look-ahead the viewport shows to the right of the
+                // playhead (+1 buffer) — the window advances when it drops to
+                // this, so the sheet never runs out of notes ahead.
+                stream_ahead_needed_ = std::clamp(
+                    static_cast<int>(std::ceil((1.0 - stream_anchor_) * visible_bars)) + 1, 1,
+                    kWindowAheadBars);
             }
             // Fixed visual band, independent of the current window's canvas
             // extent — so the sheet backdrop and playhead never move.

@@ -240,7 +240,12 @@ private:
     // to the strip's left edge, snapping the playhead back on every window
     // advance.
     static constexpr int kWindowHistoryBars = 4;
-    static constexpr int kWindowAheadBars = 8;
+    // Look-ahead bars in the window. Generous, because the window advances
+    // only when the playhead nears its tail (not every bar) — re-engraving
+    // every bar freezes the frame briefly and, at a fast/locked tempo, the
+    // catch-up reads as a jump at each bar. The extra ahead bars are the
+    // drift room between those (now rare) rebuilds.
+    static constexpr int kWindowAheadBars = 14;
 
     // Piece analysis (S1): computed at flow build, cached for the composer.
     PieceProfile piece_profile_;
@@ -273,6 +278,10 @@ private:
     // the history the window actually provides so the scroll never clamps and
     // snaps the playhead on a window advance.
     float stream_anchor_ = 0.30f;
+    // Bars of look-ahead the viewport needs to its right (computed from the
+    // anchor and how many bars are visible); the window advances once the
+    // playhead comes within this of the window's tail, so rebuilds are rare.
+    int stream_ahead_needed_ = kWindowAheadBars;
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on
