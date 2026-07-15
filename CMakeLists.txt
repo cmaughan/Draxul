@@ -436,13 +436,6 @@ if(DRAXUL_ENABLE_SCOREVIEW)
             ${ydp_grand_piano_SOURCE_DIR}
             $<TARGET_FILE_DIR:draxul>/soundfonts
     )
-    if(DRAXUL_FETCH_SALAMANDER)
-        add_custom_command(TARGET stage_soundfonts POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                ${salamander_grand_piano_SOURCE_DIR}
-                $<TARGET_FILE_DIR:draxul>/soundfonts
-        )
-    endif()
     add_dependencies(draxul stage_soundfonts)
     if(WIN32)
         # Verovio is an upstream shared-library target. MSVC links its import

@@ -233,22 +233,6 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     )
     FetchContent_MakeAvailable(ydp_grand_piano)
 
-    # The Salamander Grand (Alexander Holm's Yamaha C5, CC-BY 3.0) — the
-    # reference free grand, a 296 MiB download, so it is OPT-IN: turn this on
-    # locally to have it staged and offered in the instrument picker; CI and
-    # default builds never pay for it.
-    option(DRAXUL_FETCH_SALAMANDER
-        "Fetch the Salamander Grand SF2 soundfont (296 MiB) for the instrument picker" OFF)
-    if(DRAXUL_FETCH_SALAMANDER)
-        FetchContent_Declare(
-            salamander_grand_piano
-            URL https://freepats.zenvoid.org/Piano/SalamanderGrandPiano/SalamanderGrandPiano-SF2-V3+20200602.tar.xz
-            URL_HASH SHA256=15edb061d7ba60d58332f72dba8f8ce40988048cc703f935e6320f37d650e213
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        )
-        FetchContent_MakeAvailable(salamander_grand_piano)
-    endif()
-
     # Verovio's configure step regenerates include/vrv/git_commit.h with a
     # fresh timestamp on every CMake run, dirtying vrv.cpp and relinking the
     # library each configure. The tag is pinned, so keep the header generated
