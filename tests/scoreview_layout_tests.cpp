@@ -1,10 +1,14 @@
 #include <catch2/catch_all.hpp>
 
 #include <draxul/scoreview/verovio_layout_engine.h>
+#include <draxul/scoreview/window_engraver.h>
 
+#include <chrono>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 
 using namespace draxul::scoreview;
 
@@ -118,4 +122,73 @@ TEST_CASE("verovio engine lays out the Grieg .mxl and reflows", "[scoreview]")
     engine->set_options(options);
     CHECK(engine->page_count() > pages);
     CHECK(engine->render_page_svg(1).find("<svg") != std::string::npos);
+}
+
+TEST_CASE("window engraver engraves off-thread and echoes placement", "[scoreview]")
+{
+    std::string error;
+    auto engraver = WindowEngraver::create(DRAXUL_VEROVIO_DATA_DIR, error);
+    INFO(error);
+    REQUIRE(engraver != nullptr);
+    CHECK_FALSE(engraver->busy());
+
+    WindowEngraver::Job job;
+    job.window_xml = MINIMAL_SCORE;
+    job.params.pixel_scale = 1.0f;
+    job.params.marking_qpm = 120.0;
+    job.first_bar = 3; // placement metadata is opaque to the engrave; echoed back
+    job.count = 7;
+    job.stream_offset_q = 12.0;
+    engraver->submit(std::move(job));
+
+    // Poll until the worker finishes (bounded so a hang fails rather than spins).
+    std::optional<WindowEngraver::Done> done;
+    for (int i = 0; i < 400 && !done.has_value(); ++i)
+    {
+        done = engraver->poll();
+        if (!done.has_value())
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(done.has_value());
+    CHECK(done->ok);
+    CHECK(done->first_bar == 3);
+    CHECK(done->count == 7);
+    CHECK(done->stream_offset_q == Catch::Approx(12.0));
+    REQUIRE(done->window.strip != nullptr);
+    CHECK(done->window.flow.ready()); // the timemap joined at least one onset
+    CHECK(done->window.flow.mode() == FlowController::TransportMode::Roll);
+    CHECK(engraver->poll() == std::nullopt); // result already taken
+    CHECK_FALSE(engraver->busy()); // back to idle, ready to reuse
+
+    // Reusing the worker and cancelling an in-flight engrave must not deadlock
+    // or crash (cancel drains the worker and drops any pending result).
+    WindowEngraver::Job again;
+    again.window_xml = MINIMAL_SCORE;
+    again.params.marking_qpm = 120.0;
+    engraver->submit(std::move(again));
+    engraver->cancel();
+    CHECK_FALSE(engraver->busy());
+}
+
+TEST_CASE("window engraver reports a bad window without wedging", "[scoreview]")
+{
+    std::string error;
+    auto engraver = WindowEngraver::create(DRAXUL_VEROVIO_DATA_DIR, error);
+    REQUIRE(engraver != nullptr);
+
+    WindowEngraver::Job job;
+    job.window_xml = "this is not a score";
+    job.params.marking_qpm = 120.0;
+    engraver->submit(std::move(job));
+
+    std::optional<WindowEngraver::Done> done;
+    for (int i = 0; i < 400 && !done.has_value(); ++i)
+    {
+        done = engraver->poll();
+        if (!done.has_value())
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(done.has_value());
+    CHECK_FALSE(done->ok); // garbage failed to engrave
+    CHECK_FALSE(engraver->busy()); // and the worker is idle again
 }

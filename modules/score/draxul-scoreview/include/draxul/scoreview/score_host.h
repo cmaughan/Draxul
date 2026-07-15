@@ -3,6 +3,7 @@
 #include <draxul/host.h>
 #include <draxul/nanovg_pass.h>
 #include <draxul/notation/score_document.h>
+#include <draxul/scoreview/engraved_window.h>
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/keyboard_player_input.h>
 #include <draxul/scoreview/layout_engine.h>
@@ -15,11 +16,13 @@
 #include <draxul/scoreview/score_highlight.h>
 #include <draxul/scoreview/source_slicer.h>
 #include <draxul/scoreview/stream_composer.h>
+#include <draxul/scoreview/window_engraver.h>
 
 #include <chrono>
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -134,7 +137,26 @@ private:
         Ok,
     };
     FlowBuildResult build_flow_from_engine(std::string& error);
+    // A window's MusicXML slice plus where it sits in the stream. Produced on
+    // the main thread (slicing + composer planning are cheap); the heavy
+    // Verovio engrave then runs here (sync) or on the worker (async).
+    struct WindowSlice
+    {
+        std::string xml;
+        int first_bar = 0;
+        int count = 0;
+        double stream_offset_q = 0.0;
+    };
+    std::optional<WindowSlice> build_window_slice(int first_bar);
     bool rebuild_window(int first_bar, double stream_position_q, bool carry);
+    // Swaps a freshly-engraved window into the live host state and replays the
+    // carried transport/verdicts — the cheap half of a window advance, shared
+    // by the synchronous rebuild and the async install.
+    void install_window(EngravedWindow&& engraved, int first_bar, int count,
+        double stream_offset_q, double stream_position_q, bool carry);
+    void rebuild_highlight_from_palette();
+    // Installs a finished background engrave if one is ready (called each pump).
+    void poll_async_engrave();
     double stream_position_q() const
     {
         return flow_.position_q() + stream_offset_q_;
@@ -227,6 +249,14 @@ private:
     std::string source_bytes_;
     bool stream_windowed_ = true;
     bool engine_holds_window_ = false;
+    // Background window engraver (async double-buffer): a second Verovio
+    // toolkit on a worker thread engraves the next rolling window while the
+    // current one keeps playing, so a window advance no longer freezes the
+    // frame. Null when the worker could not start (the stream then falls back
+    // to synchronous rebuilds). `async_engrave_in_flight_` keeps one engrave in
+    // flight at a time.
+    std::unique_ptr<WindowEngraver> engraver_;
+    bool async_engrave_in_flight_ = false;
     int window_first_bar_ = 0;
     int window_bar_count_ = 0;
     double stream_offset_q_ = 0.0;
@@ -292,13 +322,8 @@ private:
     // falls as a colored block toward its key, block height = its duration in
     // beats, landing exactly as the transport crosses its onset (a visual
     // timing hint). Built from the timemap's on/off pairs per engraving.
-    struct WaterfallNote
-    {
-        double onset_q = 0.0;
-        double duration_q = 0.0;
-        int midi = -1;
-        int palette = 0;
-    };
+    // WaterfallNote is defined in engraved_window.h so the background engraver
+    // can produce the blocks off the main thread.
     std::vector<WaterfallNote> waterfall_notes_;
     bool show_waterfall_ = true;
     double waterfall_beats_ = 7.0; // beats of look-ahead the zone shows

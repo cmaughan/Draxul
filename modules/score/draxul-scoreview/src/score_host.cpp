@@ -236,6 +236,17 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         engine_ = std::move(engine);
         layout_dirty_ = true;
 
+        // The background window engraver gets its OWN Verovio toolkit so it can
+        // engrave the next rolling window off the main thread (async
+        // double-buffer). If it cannot start, the stream falls back to
+        // synchronous window rebuilds.
+        std::string engraver_error;
+        engraver_ = WindowEngraver::create(resources, engraver_error);
+        if (!engraver_)
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "score: background engraver unavailable (%s); window swaps stay synchronous",
+                engraver_error.c_str());
+
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
         const std::filesystem::path progress_dir = ConfigDocument::default_path().parent_path() / "scoreview" / "progress";
@@ -347,6 +358,9 @@ double ScoreHost::now_seconds() const
 void ScoreHost::shutdown()
 {
     end_progress_session();
+    // Stop the background engraver first: its destructor signals the worker and
+    // joins it (bounded by one in-flight engrave), so nothing races teardown.
+    engraver_.reset();
     if (tick_stream_ != nullptr)
     {
         SDL_DestroyAudioStream(tick_stream_);
@@ -673,111 +687,48 @@ void ScoreHost::relayout_flow()
 
 ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
 {
-    LayoutOptions options;
-    options.mode = LayoutMode::Flow;
-    options.pixel_scale = ui_scale();
-    engine_->set_options(options);
-
-    auto strip = interpret_score_svg(engine_->render_page_svg(1), error);
-    if (!strip)
+    // The whole-piece flow build (Clock conveyor, the `mono` strip, and the
+    // initial engraving) shares its extraction with a rolling window; only the
+    // transport policy differs. This path leaves the mode/marking to the pump
+    // and enter_gate_mode, so it does not use engrave_window's Roll config.
+    EngraveParams params;
+    params.pixel_scale = ui_scale();
+    EngravedWindow engraved;
+    const EngraveResult result = engrave_loaded(*engine_, params, engraved, error);
+    if (result == EngraveResult::InterpretFailed)
         return FlowBuildResult::InterpretFailed;
-    for (const std::string& warning : strip->warnings)
-        DRAXUL_LOG_DEBUG(LogCategory::App, "score flow interpreter: %s", warning.c_str());
-
-    auto shared_strip = std::make_shared<const ScoreDrawList>(std::move(*strip));
-    auto timemap = parse_timemap(engine_->render_timemap(), error);
-    const bool transport_ok = timemap.has_value() && flow_.build(*timemap, *shared_strip, error);
-    strip_ = std::move(shared_strip);
-    highlight_.build(*strip_);
-    if (!transport_ok)
+    // Show the strip even when the transport join fails (paged fallback).
+    if (engraved.strip)
+    {
+        strip_ = std::move(engraved.strip);
+        highlight_.build(*strip_);
+    }
+    if (result != EngraveResult::Ok)
         return FlowBuildResult::TransportFailed;
-
-    // Expected notes + tie continuations for the gate (same id space —
-    // no model bridge needed, plans/scoreview-gate.md).
-    flow_.prepare_gates(
-        [this](const std::string& id) { return engine_->midi_pitch_for_element(id); },
-        engine_->tie_end_ids());
-
-    // Whole-piece coloring: resolve each note's spelling once (the engine
-    // knows its notated letter here) and paint the sheet with the pairing
-    // palette. Every note wears its color always — guidance renders only
-    // over un-judged notes, so verdict green/red still wins as you play.
-    // The keyboard reuses these indices for the keys it lights per frame.
-    note_palette_.clear();
-    for (const FlowController::Gate& gate : flow_.gates())
-    {
-        for (const FlowController::GateNote& note : gate.notes)
-        {
-            if (note.pitch < 0)
-                continue;
-            const int letter = engine_->note_letter_for_element(note.id);
-            const int palette = guidance_palette_index(note.pitch, letter);
-            note_palette_[note.id] = palette;
-            highlight_.set_guidance(note.id, palette);
-        }
-    }
-
-    // Waterfall blocks: pair each timemap note_on with its note_off for a
-    // duration, colored by the same spelling palette as the sheet. Built
-    // once per engraving; the draw loop maps (onset - position) to a falling
-    // y and duration to a block height.
-    waterfall_notes_.clear();
-    if (timemap.has_value())
-    {
-        const auto note_for = [this](const std::string& id, double onset, double off) {
-            const int midi = engine_->midi_pitch_for_element(id);
-            WaterfallNote note;
-            note.onset_q = onset;
-            note.duration_q = std::max(0.05, off - onset);
-            note.midi = midi;
-            const auto pal = note_palette_.find(id);
-            note.palette
-                = pal != note_palette_.end() ? pal->second : guidance_palette_index(midi);
-            return std::make_pair(note, midi >= 0);
-        };
-        std::unordered_map<std::string, double> open; // id -> onset q
-        for (const TimemapEntry& entry : timemap->entries)
-        {
-            for (const std::string& id : entry.note_off)
-            {
-                const auto it = open.find(id);
-                if (it == open.end())
-                    continue;
-                auto [note, ok] = note_for(id, it->second, entry.qstamp);
-                if (ok)
-                    waterfall_notes_.push_back(note);
-                open.erase(it);
-            }
-            for (const std::string& id : entry.note_on)
-                open[id] = entry.qstamp;
-        }
-        // Notes without an explicit off (final ties) run to the piece end.
-        for (const auto& [id, onset] : open)
-        {
-            auto [note, ok] = note_for(id, onset, timemap->duration_q);
-            if (ok)
-                waterfall_notes_.push_back(note);
-        }
-    }
+    flow_ = std::move(engraved.flow);
+    note_palette_ = std::move(engraved.palette);
+    waterfall_notes_ = std::move(engraved.waterfall);
+    for (const auto& [id, palette] : note_palette_)
+        highlight_.set_guidance(id, palette);
     return FlowBuildResult::Ok;
 }
 
-bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool carry)
+std::optional<ScoreHost::WindowSlice> ScoreHost::build_window_slice(int first_bar)
 {
     // `first_bar` indexes STREAM SLOTS when the composer drives the program
-    // (S3); with the composer inactive it is a plain source-bar index.
-    const auto swap_start = std::chrono::steady_clock::now();
+    // (S3); with the composer inactive it is a plain source-bar index. This is
+    // the cheap main-thread half of a window advance (slicing + composer
+    // planning); the heavy Verovio engrave then runs sync or on the worker.
     const int window_span = 1 + kWindowHistoryBars + kWindowAheadBars;
-    std::string window;
-    int count = 0;
+    WindowSlice slice;
     if (composing_)
     {
         const int available = composer_.ensure(first_bar + window_span);
         first_bar = std::clamp(first_bar, 0, std::max(0, available - 1));
-        count = std::min(window_span, available - first_bar);
+        slice.count = std::min(window_span, available - first_bar);
         std::vector<SourceSlicer::StreamBar> items;
-        items.reserve(static_cast<size_t>(count));
-        for (int slot = first_bar; slot < first_bar + count; ++slot)
+        items.reserve(static_cast<size_t>(slice.count));
+        for (int slot = first_bar; slot < first_bar + slice.count; ++slot)
         {
             const StreamBarPlan& plan = composer_.plan(slot);
             if (!plan.reason.empty() && slot > last_logged_plan_slot_)
@@ -791,43 +742,86 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
                 item.source_bar = plan.source_bar;
             items.push_back(std::move(item));
         }
-        window = slicer_.window_xml_for(items, composer_.plan(first_bar).source_bar);
+        slice.xml = slicer_.window_xml_for(items, composer_.plan(first_bar).source_bar);
+        slice.stream_offset_q = composer_.slot_start_q(first_bar);
     }
     else
     {
         const int total = slicer_.bar_count();
         first_bar = std::clamp(first_bar, 0, std::max(0, total - 1));
-        count = std::min(window_span, total - first_bar);
-        window = slicer_.window_xml(first_bar, count);
+        slice.count = std::min(window_span, total - first_bar);
+        slice.xml = slicer_.window_xml(first_bar, slice.count);
+        slice.stream_offset_q = slicer_.bar_start_q(first_bar);
     }
-    const FlowController::CarryState carried = flow_.carry_state();
+    slice.first_bar = first_bar;
+    if (slice.xml.empty())
+        return std::nullopt;
+    return slice;
+}
 
-    std::string error;
-    if (window.empty() || !engine_->load(window, error))
+bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool carry)
+{
+    const auto swap_start = std::chrono::steady_clock::now();
+    // A background engrave uses the OTHER toolkit; wait it out and drop its
+    // result before engraving synchronously here, so the two toolkits never lay
+    // out at once.
+    if (engraver_)
+        engraver_->cancel();
+    async_engrave_in_flight_ = false;
+
+    auto slice = build_window_slice(first_bar);
+    if (!slice)
     {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: window build failed (%s), monolithic strip",
-            error.c_str());
+        DRAXUL_LOG_WARN(LogCategory::App, "score: window slice empty, monolithic strip");
         stream_windowed_ = false;
+        flow_dirty_ = true;
         return false;
     }
-    engine_holds_window_ = true;
-    if (build_flow_from_engine(error) != FlowBuildResult::Ok)
+
+    EngraveParams params;
+    params.pixel_scale = ui_scale();
+    params.marking_qpm = piece_marking_qpm_;
+    params.lock_tempo = lock_tempo_;
+    EngravedWindow engraved;
+    std::string error;
+    if (engrave_window(*engine_, slice->xml, params, engraved, error) != EngraveResult::Ok)
     {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: window flow failed (%s), monolithic strip",
+        DRAXUL_LOG_WARN(LogCategory::App, "score: window build failed (%s), monolithic strip",
             error.c_str());
         stream_windowed_ = false;
         flow_dirty_ = true; // reload the full piece on the next pump
         return false;
     }
+    install_window(std::move(engraved), slice->first_bar, slice->count, slice->stream_offset_q,
+        stream_position_q, carry);
+    const double swap_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - swap_start)
+                               .count();
+    DRAXUL_LOG_DEBUG(LogCategory::App, "score: window -> bars %d..%d (%.1f ms, sync)",
+        slice->first_bar, slice->first_bar + slice->count - 1, swap_ms);
+    return true;
+}
+
+void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int count,
+    double stream_offset_q, double stream_position_q, bool carry)
+{
+    // engrave_window already set the Roll transport, marking and tempo lock on
+    // the incoming flow; carry-over comes from the OUTGOING transport, captured
+    // before the move replaces it. Everything here is cheap — no Verovio — so
+    // the swap costs a frame at most, not a ~100ms freeze.
+    const FlowController::CarryState carried = flow_.carry_state();
+
+    strip_ = std::move(engraved.strip);
+    flow_ = std::move(engraved.flow);
+    note_palette_ = std::move(engraved.palette);
+    waterfall_notes_ = std::move(engraved.waterfall);
+    rebuild_highlight_from_palette();
+
     window_first_bar_ = first_bar;
     window_bar_count_ = count;
-    stream_offset_q_ = composing_ ? composer_.slot_start_q(first_bar) : slicer_.bar_start_q(first_bar);
-    flow_.set_marking_qpm(piece_marking_qpm_);
-    flow_.set_mode(FlowController::TransportMode::Roll);
-    // Keep the tempo lock across window swaps: hold the marking, no adaptation.
-    flow_.set_adapt_tempo(!lock_tempo_);
-    if (lock_tempo_ && piece_marking_qpm_ > 0.0)
-        flow_.set_tempo_qpm(piece_marking_qpm_);
+    stream_offset_q_ = stream_offset_q;
+    engine_holds_window_ = true;
+
     if (carry)
     {
         flow_.restore_carry(carried);
@@ -846,19 +840,26 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
     }
     flow_.play();
     apply_verdict_update(); // repaint carried verdicts on the fresh strip
-    const double swap_ms = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - swap_start)
-                               .count();
-    DRAXUL_LOG_DEBUG(LogCategory::App, "score: window -> bars %d..%d (%.1f ms)", first_bar,
-        first_bar + count - 1, swap_ms);
     if (callbacks_ != nullptr)
         callbacks_->request_frame();
-    return true;
+}
+
+void ScoreHost::rebuild_highlight_from_palette()
+{
+    if (!strip_)
+        return;
+    highlight_.build(*strip_);
+    for (const auto& [id, palette] : note_palette_)
+        highlight_.set_guidance(id, palette);
 }
 
 void ScoreHost::maybe_advance_stream()
 {
     if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
+        return;
+    // A swap is already being engraved in the background; it installs in pump()
+    // (poll_async_engrave). Don't queue a second one.
+    if (async_engrave_in_flight_)
         return;
     const double stream_q = stream_position_q();
     int playhead_bar = 0;
@@ -876,21 +877,74 @@ void ScoreHost::maybe_advance_stream()
         playhead_bar = slicer_.bar_at(stream_q);
     }
     // Advance only when the playhead comes within the viewport's look-ahead
-    // of the window's tail — NOT every bar. Re-engraving every bar briefly
-    // freezes the frame, and at a fast tempo the catch-up reads as a jump at
-    // each bar boundary. This batches the re-engrave into a rare event while
-    // still keeping enough notes ahead. It also keeps kWindowHistoryBars
-    // behind the playhead so the scroll anchor never clamps.
+    // of the window's tail — NOT every bar. The background engrave is only ~100
+    // ms while the window still has ~kWindowAheadBars of runway ahead, so the
+    // old window keeps playing smoothly until the fresh one installs. It also
+    // keeps kWindowHistoryBars behind the playhead so the scroll never clamps.
     const int window_end = window_first_bar_ + window_bar_count_;
     if (playhead_bar <= window_first_bar_ + kWindowHistoryBars
         || playhead_bar < window_end - stream_ahead_needed_)
         return;
-    // Re-engraving is a synchronous freeze. Don't charge its wall-time to the
-    // transport — otherwise the next frame's dt includes it and the playhead
-    // jumps forward to catch up (the "jump at the bar" at fast tempo).
+
+    // Slice + plan on the main thread (cheap), then hand the heavy Verovio
+    // engrave to the worker. The current window goes on playing until poll()
+    // installs the result — no freeze, no wall-time catch-up.
+    auto slice = build_window_slice(playhead_bar - kWindowHistoryBars);
+    if (!slice)
+        return;
+    if (engraver_)
+    {
+        WindowEngraver::Job job;
+        job.window_xml = std::move(slice->xml);
+        job.params.pixel_scale = ui_scale();
+        job.params.marking_qpm = piece_marking_qpm_;
+        job.params.lock_tempo = lock_tempo_;
+        job.first_bar = slice->first_bar;
+        job.count = slice->count;
+        job.stream_offset_q = slice->stream_offset_q;
+        engraver_->submit(std::move(job));
+        async_engrave_in_flight_ = true;
+        return;
+    }
+    // No worker (creation failed): fall back to the synchronous swap, and don't
+    // charge its wall-time to the transport (else the playhead jumps to catch
+    // up across the freeze).
     const auto rebuild_start = std::chrono::steady_clock::now();
     rebuild_window(playhead_bar - kWindowHistoryBars, stream_q, /*carry=*/true);
     last_pump_ += std::chrono::steady_clock::now() - rebuild_start;
+}
+
+void ScoreHost::poll_async_engrave()
+{
+    if (!engraver_)
+        return;
+    auto done = engraver_->poll();
+    if (!done)
+        return;
+    async_engrave_in_flight_ = false;
+    if (!done->ok)
+    {
+        // The worker's engrave failed: drop back to the monolithic strip.
+        stream_windowed_ = false;
+        flow_dirty_ = true;
+        return;
+    }
+    // If the player left the rolling window while the engrave ran (paged view,
+    // exited the game), drop the now-stale result rather than forcing Roll back.
+    if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
+        return;
+    // Install at the CURRENT playhead (the old window kept advancing while the
+    // engrave ran); carry replays the transport/verdicts onto the fresh strip.
+    const int first_bar = done->first_bar;
+    const int count = done->count;
+    const auto install_start = std::chrono::steady_clock::now();
+    install_window(std::move(done->window), first_bar, count, done->stream_offset_q,
+        stream_position_q(), /*carry=*/true);
+    const double install_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - install_start)
+                                  .count();
+    DRAXUL_LOG_DEBUG(LogCategory::App, "score: window -> bars %d..%d (%.1f ms install, async)",
+        first_bar, first_bar + count - 1, install_ms);
 }
 
 void ScoreHost::toggle_flow_mode()
@@ -1427,6 +1481,10 @@ void ScoreHost::pump()
                 if (progress_dirty_)
                     save_progress(/*final_flush=*/false);
             }
+            // Install a finished background engrave (if ready) before deciding
+            // whether to queue the next one — the archive above is now current,
+            // so the install's carry replay repaints the latest verdicts.
+            poll_async_engrave();
             maybe_advance_stream();
 
             // Periodic + final INFO lines feed the G4 log-based verification.

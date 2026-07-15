@@ -3,6 +3,7 @@
 # draxul-scoreview-host is the IHost + NanoVG presentation layer.
 add_library(draxul-scoreview STATIC
     src/bot_player_input.cpp
+    src/engraved_window.cpp
     src/flow_controller.cpp
     src/keyboard_layout.cpp
     src/metronome_synth.cpp
@@ -16,6 +17,7 @@ add_library(draxul-scoreview STATIC
     src/stream_composer.cpp
     src/svg_score_interpreter.cpp
     src/verovio_layout_engine.cpp
+    src/window_engraver.cpp
 )
 
 target_include_directories(draxul-scoreview PUBLIC
