@@ -342,6 +342,11 @@ private:
     // Composer: true = the adaptive stream (reviews, drills, simplification),
     // false = just scroll the original piece bar-by-bar, unchanged.
     bool composer_enabled_ = true;
+    // Spacing experiment (inspector-only): engrave the flow strip with note
+    // space proportional to duration so the conveyor scrolls at near-constant
+    // speed and score columns align with the waterfall. The paged reading
+    // view always keeps authentic engraving spacing.
+    bool proportional_spacing_ = false;
     // Tempo lock: true = play at the piece's proper marking with no Roll-mode
     // adaptation (the runner won't ease the tempo from accuracy).
     bool lock_tempo_ = false;

@@ -41,12 +41,15 @@ struct EngravedWindow
 
 // Inputs an engrave needs beyond the window's MusicXML. `marking_qpm` is the
 // piece's true tempo marking (a windowed slice loses the bar-1 tempo text, so
-// the host supplies it); `lock_tempo` holds that marking with no Roll easing.
+// the host supplies it); `lock_tempo` holds that marking with no Roll easing;
+// `proportional_spacing` is the constant-scroll spacing experiment (see
+// LayoutOptions).
 struct EngraveParams
 {
     float pixel_scale = 1.0f;
     double marking_qpm = 0.0;
     bool lock_tempo = false;
+    bool proportional_spacing = false;
 };
 
 enum class EngraveResult : uint8_t

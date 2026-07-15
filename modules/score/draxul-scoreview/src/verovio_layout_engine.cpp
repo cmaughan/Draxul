@@ -60,6 +60,11 @@ std::string options_json(const LayoutOptions& options)
         json += ", \"header\": \"none\"";
         json += ", \"scale\": " + std::to_string(BASE_ENGRAVE_SCALE_PERCENT);
         json += ", \"pageWidth\": 2100, \"pageHeight\": 2970";
+        // The proportional-spacing experiment: 1.0 spaces notes linearly in
+        // duration (Verovio's default 0.6 gives short notes proportionally
+        // more room — authentic engraving, uneven scroll speed).
+        json += ", \"spacingNonLinear\": ";
+        json += options.proportional_spacing ? "1.0" : "0.6";
     }
     else
     {
@@ -71,6 +76,8 @@ std::string options_json(const LayoutOptions& options)
         json += ", \"pageWidth\": " + std::to_string(to_verovio_dimension(options.page_size_px.x, scale));
         json += ", \"pageHeight\": " + std::to_string(to_verovio_dimension(options.page_size_px.y, scale));
         json += ", \"scale\": " + std::to_string(scale);
+        // The reading view always keeps authentic engraving spacing.
+        json += ", \"spacingNonLinear\": 0.6";
     }
     json += ", \"footer\": \"none\"";
     json += ", \"svgViewBox\": true";

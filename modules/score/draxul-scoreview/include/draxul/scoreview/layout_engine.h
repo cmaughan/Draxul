@@ -31,6 +31,12 @@ struct LayoutOptions
     LayoutMode mode = LayoutMode::Paged;
     glm::ivec2 page_size_px{ 840, 1188 }; // A4 aspect at ~96 dpi
     float pixel_scale = 1.0f;
+    // Flow-mode experiment: space notes proportionally to their duration
+    // (Verovio spacingNonLinear 1.0 instead of the engraver's 0.6 curve) so
+    // the conveyor scrolls at near-constant speed and score columns line up
+    // with the time-proportional waterfall. Ignored in Paged mode — the
+    // reading view always keeps authentic engraving spacing.
+    bool proportional_spacing = false;
 };
 
 // Boundary between the score pipeline and the engraving engine (Verovio

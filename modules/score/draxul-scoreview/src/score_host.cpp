@@ -693,6 +693,7 @@ ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
     // and enter_gate_mode, so it does not use engrave_window's Roll config.
     EngraveParams params;
     params.pixel_scale = ui_scale();
+    params.proportional_spacing = proportional_spacing_;
     EngravedWindow engraved;
     const EngraveResult result = engrave_loaded(*engine_, params, engraved, error);
     if (result == EngraveResult::InterpretFailed)
@@ -782,6 +783,7 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
     params.pixel_scale = ui_scale();
     params.marking_qpm = piece_marking_qpm_;
     params.lock_tempo = lock_tempo_;
+    params.proportional_spacing = proportional_spacing_;
     EngravedWindow engraved;
     std::string error;
     if (engrave_window(*engine_, slice->xml, params, engraved, error) != EngraveResult::Ok)
@@ -899,6 +901,7 @@ void ScoreHost::maybe_advance_stream()
         job.params.pixel_scale = ui_scale();
         job.params.marking_qpm = piece_marking_qpm_;
         job.params.lock_tempo = lock_tempo_;
+        job.params.proportional_spacing = proportional_spacing_;
         job.first_bar = slice->first_bar;
         job.count = slice->count;
         job.stream_offset_q = slice->stream_offset_q;
@@ -2154,6 +2157,24 @@ void ScoreHost::render_debug_ui(float dt)
                     if (callbacks_ != nullptr)
                         callbacks_->request_frame();
                 }
+                if (ImGui::Checkbox("Proportional spacing", &proportional_spacing_))
+                {
+                    // Re-engrave the current material with the new spacing
+                    // curve, keeping position and verdicts. The 'f' paged
+                    // reading view is untouched — always authentic spacing.
+                    stream_scale_ref_ = 0.0f;
+                    stream_scale_ = 0.0f;
+                    if (stream_active()
+                        && flow_.mode() == FlowController::TransportMode::Roll)
+                        rebuild_window(
+                            window_first_bar_, stream_position_q(), /*carry=*/true);
+                    else
+                        flow_dirty_ = true;
+                    if (callbacks_ != nullptr)
+                        callbacks_->request_frame();
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(constant scroll)");
             }
 
             if (ImGui::CollapsingHeader("Audio"))

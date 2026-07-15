@@ -351,6 +351,59 @@ TEST_CASE("grace clusters fold into their beat so the playhead never leaps", "[s
     }
 }
 
+namespace
+{
+
+// max/median scroll speed (canvas px per beat) of the Grieg strip engraved
+// with the given spacing — the flatness measure for the proportional-spacing
+// experiment.
+double grieg_speed_ratio(bool proportional)
+{
+    std::string error;
+    auto engine = VerovioLayoutEngine::create(DRAXUL_VEROVIO_DATA_DIR, error);
+    REQUIRE(engine != nullptr);
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    options.proportional_spacing = proportional;
+    engine->set_options(options);
+
+    std::ifstream stream(
+        std::string(DRAXUL_PROJECT_ROOT) + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
+        std::ios::binary);
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    REQUIRE(engine->load(buffer.str(), error));
+
+    auto strip = interpret_score_svg(engine->render_page_svg(1), error);
+    REQUIRE(strip.has_value());
+    auto timemap = parse_timemap(engine->render_timemap(), error);
+    REQUIRE(timemap.has_value());
+    FlowController flow;
+    REQUIRE(flow.build(*timemap, *strip, error));
+
+    std::vector<double> speeds;
+    for (size_t i = 1; i < flow.onsets().size(); ++i)
+    {
+        const double dq = flow.onsets()[i].qstamp - flow.onsets()[i - 1].qstamp;
+        speeds.push_back((flow.onsets()[i].x - flow.onsets()[i - 1].x) / dq);
+    }
+    std::sort(speeds.begin(), speeds.end());
+    return speeds.back() / speeds[speeds.size() / 2];
+}
+
+} // namespace
+
+TEST_CASE("proportional spacing flattens the conveyor scroll speed", "[scoreview][flow]")
+{
+    const double authentic = grieg_speed_ratio(false);
+    const double proportional = grieg_speed_ratio(true);
+    INFO("max/median speed — authentic: " << authentic << ", proportional: " << proportional);
+    // The engraver's 0.6 curve leaves real spread; proportional spacing must
+    // be materially flatter (content minimums keep it from perfect 1.0).
+    CHECK(proportional < authentic * 0.75);
+    CHECK(proportional < 2.0);
+}
+
 TEST_CASE("flow layout and timemap join the live Grieg end-to-end", "[scoreview][flow]")
 {
     std::string error;
