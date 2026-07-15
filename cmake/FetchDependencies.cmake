@@ -173,6 +173,51 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(nlohmann_json)
 
+    # RtMidi (MIDI keyboard input for the runner — plans/scoreview.md). Small,
+    # cross-platform (CoreMIDI on macOS, WinMM on Windows), MIT-style license.
+    FetchContent_Declare(
+        rtmidi
+        GIT_REPOSITORY https://github.com/thestk/rtmidi.git
+        GIT_TAG 6.0.0
+        GIT_SHALLOW TRUE
+    )
+    set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+    set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(rtmidi)
+    if(MSVC)
+        target_compile_options(rtmidi PRIVATE /w)
+    else()
+        target_compile_options(rtmidi PRIVATE -w)
+    endif()
+
+    # TinySoundFont (SF2 rendering for the piano voice). Single MIT header,
+    # no build system — populate and wrap in an interface target.
+    FetchContent_Declare(
+        tinysoundfont
+        GIT_REPOSITORY https://github.com/schellingb/TinySoundFont.git
+        GIT_TAG fbc913531b85f5707f49115110bb86b1cd583885
+    )
+    FetchContent_MakeAvailable(tinysoundfont)
+    if(NOT TARGET tinysoundfont)
+        add_library(tinysoundfont INTERFACE)
+        target_include_directories(tinysoundfont SYSTEM INTERFACE ${tinysoundfont_SOURCE_DIR})
+    endif()
+
+    # The piano soundfont: FreePats' YDP Grand Piano (a Yamaha Disklavier Pro
+    # recorded by Zenph Studios for OLPC), CC-BY 3.0 — 36 MiB download,
+    # 118 MiB .sf2. Staged beside the app as soundfonts/ with its license
+    # text (the attribution requirement travels with the asset). A better
+    # (much larger) drop-in is FreePats' Salamander Grand SF2; any .sf2
+    # placed in the staged folder appears in the instrument picker.
+    FetchContent_Declare(
+        ydp_grand_piano
+        URL https://freepats.zenvoid.org/Piano/YDP-GrandPiano/YDP-GrandPiano-SF2-20160804.tar.bz2
+        URL_HASH SHA256=d243dc3e182a60df2a16e92828c1821cf3eb5748b45e2e2bdcfa9cf7af056026
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(ydp_grand_piano)
+
     # Verovio's configure step regenerates include/vrv/git_commit.h with a
     # fresh timestamp on every CMake run, dirtying vrv.cpp and relinking the
     # library each configure. The tag is pinned, so keep the header generated

@@ -18,6 +18,9 @@ struct PlayerNoteEvent
 {
     int midi_pitch = -1;
     double t_seconds = 0.0;
+    // Strike velocity 0..1 when the input source knows it (MIDI); 0 =
+    // unknown. Judging ignores it — it only shades the play-thru voice.
+    float velocity = 0.0f;
 };
 
 class IPlayerInput

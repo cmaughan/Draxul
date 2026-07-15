@@ -9,11 +9,13 @@
 #include <draxul/scoreview/layout_engine.h>
 #include <draxul/scoreview/metronome_synth.h>
 #include <draxul/scoreview/mic_player_input.h>
+#include <draxul/scoreview/midi_player_input.h>
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/player_input.h>
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
+#include <draxul/scoreview/soundfont_synth.h>
 #include <draxul/scoreview/source_slicer.h>
 #include <draxul/scoreview/stream_composer.h>
 #include <draxul/scoreview/window_engraver.h>
@@ -92,7 +94,15 @@ private:
     {
         Keyboard, // dev piano row (scaffolding)
         Bot, // deterministic verification player
-        Mic, // the acoustic listener (the product)
+        Mic, // the acoustic listener (the eventual product input)
+        Midi, // a hardware MIDI keyboard — lossless ground truth for tuning
+    };
+
+    // Which instrument voices the audition and MIDI play-thru.
+    enum class InstrumentVoice : uint8_t
+    {
+        Synth, // the built-in three-partial tone
+        Piano, // the staged .sf2 soundfont
     };
 
     enum class TickLevel : uint8_t
@@ -191,8 +201,12 @@ private:
     // Swaps the player-input implementation without touching the session
     // (verdicts, score, transport survive). Falls back to the keyboard when
     // the microphone can't open; returns whether the requested input engaged.
-    bool set_gate_input(GateInput input, double bot_pace_qpm, double bot_accuracy);
+    bool set_gate_input(
+        GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port = -1);
     bool handle_gate_key(int keycode);
+    // Lazily loads the selected .sf2 into piano_; false (with a WARN) when
+    // it can't load, so callers fall back to the synth voice.
+    bool ensure_piano_voice();
     // The ImGui debug/learning inspector: transport + view controls and live
     // readouts of the player model, composer program, and piece analysis.
     void render_debug_ui(float dt);
@@ -237,8 +251,12 @@ private:
     std::unique_ptr<IPlayerInput> player_input_;
     KeyboardPlayerInput* keyboard_input_ = nullptr; // borrowed from player_input_
     MicPlayerInput* mic_input_ = nullptr; // borrowed from player_input_
+    MidiPlayerInput* midi_input_ = nullptr; // borrowed from player_input_
     bool start_in_gate_ = false;
     GateInput gate_input_requested_ = GateInput::Keyboard;
+    // The MIDI port the inspector selected (index into MidiPlayerInput::
+    // list_ports at selection time); -1 = none chosen yet.
+    int midi_port_requested_ = -1;
     // Which game the transport plays: Roll (the runner — default) or Gate
     // (wait mode, kept as a dev/verification instrument).
     FlowController::TransportMode game_mode_ = FlowController::TransportMode::Roll;
@@ -376,6 +394,14 @@ private:
     bool audition_ = false;
     ToneSynth tones_;
     std::vector<float> tone_buffer_;
+    // The instrument voicing audition + MIDI play-thru: the built-in synth
+    // or the staged piano soundfont (loaded lazily on first selection).
+    InstrumentVoice instrument_ = InstrumentVoice::Synth;
+    SoundFontSynth piano_;
+    std::vector<float> piano_buffer_;
+    std::vector<std::filesystem::path> soundfont_paths_; // <exe>/soundfonts/*.sf2
+    int piano_selected_index_ = 0; // which staged font the combo picked
+    int piano_loaded_index_ = -1; // which soundfont piano_ holds; -1 = none
     struct SDL_AudioStream* tick_stream_ = nullptr;
     std::vector<float> tick_buffer_;
     double quarters_per_bar_ = 4.0;

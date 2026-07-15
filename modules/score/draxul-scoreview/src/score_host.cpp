@@ -247,6 +247,19 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
                 "score: background engraver unavailable (%s); window swaps stay synchronous",
                 engraver_error.c_str());
 
+        // Instrument voices: every .sf2 staged beside the app is offered in
+        // the inspector (the bundled YDP grand by default; a better font
+        // dropped into the folder just appears). Loading is lazy — the
+        // ~118 MB parse happens on first selection, not startup.
+        const std::filesystem::path soundfont_dir = executable_directory() / "soundfonts";
+        std::error_code list_error;
+        for (const auto& entry : std::filesystem::directory_iterator(soundfont_dir, list_error))
+        {
+            if (entry.path().extension() == ".sf2")
+                soundfont_paths_.push_back(entry.path());
+        }
+        std::sort(soundfont_paths_.begin(), soundfont_paths_.end());
+
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
         const std::filesystem::path progress_dir = ConfigDocument::default_path().parent_path() / "scoreview" / "progress";
@@ -859,6 +872,28 @@ void ScoreHost::rebuild_highlight_from_palette()
         highlight_.set_guidance(id, palette);
 }
 
+bool ScoreHost::ensure_piano_voice()
+{
+    if (soundfont_paths_.empty())
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: no .sf2 soundfonts staged beside the app");
+        return false;
+    }
+    const int want = std::clamp(
+        piano_selected_index_, 0, static_cast<int>(soundfont_paths_.size()) - 1);
+    if (piano_loaded_index_ == want && piano_.loaded())
+        return true;
+    std::string error;
+    if (!piano_.load(soundfont_paths_[static_cast<size_t>(want)].string(),
+            metronome_.tuning().sample_rate, error))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "score: %s — staying on the synth voice", error.c_str());
+        return false;
+    }
+    piano_loaded_index_ = want;
+    return true;
+}
+
 void ScoreHost::reengrave_flow_in_place()
 {
     stream_scale_ref_ = 0.0f;
@@ -1023,15 +1058,33 @@ void ScoreHost::apply_verdict_update()
     }
 }
 
-bool ScoreHost::set_gate_input(GateInput input, double bot_pace_qpm, double bot_accuracy)
+bool ScoreHost::set_gate_input(
+    GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port)
 {
     keyboard_input_ = nullptr;
     mic_input_ = nullptr;
+    midi_input_ = nullptr;
     player_input_.reset();
     if (input == GateInput::Bot)
     {
         player_input_ = std::make_unique<BotPlayerInput>(flow_, bot_pace_qpm, bot_accuracy, 20260711u);
         return true;
+    }
+    if (input == GateInput::Midi)
+    {
+        auto midi = std::make_unique<MidiPlayerInput>(midi_port);
+        if (midi->ok())
+        {
+            midi_input_ = midi.get();
+            player_input_ = std::move(midi);
+            // The keyboard is the instrument: make it heard (play-thru needs
+            // the output stream open even when the metronome is off).
+            ensure_tick_stream();
+            return true;
+        }
+        DRAXUL_LOG_WARN(LogCategory::App, "score: MIDI input failed (%s) — using dev keyboard",
+            midi->error().c_str());
+        // fall through to the keyboard
     }
     if (input == GateInput::Mic)
     {
@@ -1093,6 +1146,7 @@ void ScoreHost::exit_gate_mode()
     player_input_.reset();
     keyboard_input_ = nullptr;
     mic_input_ = nullptr;
+    midi_input_ = nullptr;
     flow_.set_mode(FlowController::TransportMode::Clock);
     if (stream_active())
     {
@@ -1381,11 +1435,16 @@ void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
             if (q > p1_q)
                 break;
             const double fraction = std::clamp((q - p0_q) / (p1_q - p0_q), 0.0, 1.0);
-            const int64_t at = tones_.cursor()
+            const bool piano = instrument_ == InstrumentVoice::Piano && piano_.loaded();
+            const int64_t at = (piano ? piano_.cursor() : tones_.cursor())
                 + static_cast<int64_t>(fraction * dt * static_cast<double>(rate));
             for (const FlowController::GateNote& note : gates[i].notes)
             {
-                if (note.pitch >= 0)
+                if (note.pitch < 0)
+                    continue;
+                if (piano)
+                    piano_.schedule_note(at, note.pitch, 0.55f);
+                else
                     tones_.schedule_note(at, note.pitch, 0.16f);
             }
         }
@@ -1404,6 +1463,15 @@ void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
         tones_.render(tone_buffer_.data(), need);
         for (size_t at = 0; at < need; ++at)
             tick_buffer_[at] += tone_buffer_[at];
+        // Both voices render every block (a silent synth is near-free), so
+        // switching instruments never clicks or drops scheduled tails.
+        if (piano_.loaded())
+        {
+            piano_buffer_.resize(need);
+            piano_.render(piano_buffer_.data(), need);
+            for (size_t at = 0; at < need; ++at)
+                tick_buffer_[at] += piano_buffer_[at];
+        }
         SDL_PutAudioStreamData(
             tick_stream_, tick_buffer_.data(), static_cast<int>(need * sizeof(float)));
     }
@@ -1457,6 +1525,34 @@ void ScoreHost::pump()
                 player_input_->poll(now_seconds(), events);
                 if (!events.empty())
                     flow_.judge(events);
+            }
+            // MIDI play-thru: most controllers are silent — voice the keys
+            // through the selected instrument so playing is audible. Offs
+            // matter for the piano (the damper stops the string).
+            if (midi_input_ != nullptr)
+            {
+                std::vector<MidiVoiceEvent> voiced;
+                midi_input_->take_voice_events(voiced);
+                if (!voiced.empty() && ensure_tick_stream())
+                {
+                    const bool piano = instrument_ == InstrumentVoice::Piano && piano_.loaded();
+                    for (const MidiVoiceEvent& event : voiced)
+                    {
+                        if (piano)
+                        {
+                            if (event.on)
+                                piano_.schedule_note(
+                                    piano_.cursor(), event.midi_pitch, event.velocity);
+                            else
+                                piano_.schedule_off(piano_.cursor(), event.midi_pitch);
+                        }
+                        else if (event.on)
+                        {
+                            tones_.schedule_note(
+                                tones_.cursor(), event.midi_pitch, 0.10f + 0.25f * event.velocity);
+                        }
+                    }
+                }
             }
             apply_verdict_update();
 
@@ -1929,7 +2025,10 @@ void ScoreHost::on_key(const KeyEvent& event)
             if (audition_ && !ensure_tick_stream())
                 audition_ = false;
             if (!audition_)
+            {
                 tones_.clear();
+                piano_.clear();
+            }
             DRAXUL_LOG_INFO(
                 LogCategory::App, "score: audition %s", audition_ ? "on" : "off");
             break;
@@ -2138,6 +2237,47 @@ void ScoreHost::render_debug_ui(float dt)
                     : flow_.mode() == FlowController::TransportMode::Gate              ? "Gate"
                                                                                        : "Clock";
                 ImGui::Text("mode %s   position %.2f q", mode, flow_.position_q());
+
+                // Player input source: dev keyboard / microphone / any MIDI
+                // input port (enumerated fresh each frame the combo is open,
+                // so hot-plugged keyboards appear). Switching swaps the
+                // input seam live — verdicts, score and transport survive.
+                const std::vector<std::string> midi_ports = MidiPlayerInput::list_ports();
+                std::string current = "Dev keyboard";
+                if (mic_input_ != nullptr)
+                    current = "Microphone";
+                else if (midi_input_ != nullptr)
+                    current = "MIDI: " + midi_input_->port_name();
+                if (ImGui::BeginCombo("input", current.c_str()))
+                {
+                    if (ImGui::Selectable("Dev keyboard", keyboard_input_ != nullptr))
+                    {
+                        gate_input_requested_ = GateInput::Keyboard;
+                        set_gate_input(GateInput::Keyboard, 0.0, 1.0);
+                    }
+                    if (ImGui::Selectable("Microphone", mic_input_ != nullptr))
+                    {
+                        gate_input_requested_ = GateInput::Mic;
+                        set_gate_input(GateInput::Mic, 0.0, 1.0);
+                    }
+                    for (int port = 0; port < static_cast<int>(midi_ports.size()); ++port)
+                    {
+                        const std::string label = "MIDI: " + midi_ports[static_cast<size_t>(port)];
+                        const bool active = midi_input_ != nullptr
+                            && midi_input_->port_name() == midi_ports[static_cast<size_t>(port)];
+                        if (ImGui::Selectable(label.c_str(), active))
+                        {
+                            gate_input_requested_ = GateInput::Midi;
+                            midi_port_requested_ = port;
+                            if (set_gate_input(GateInput::Midi, 0.0, 1.0, port)
+                                && !flow_.playing())
+                                flow_.play(); // the piano is the interface
+                        }
+                    }
+                    if (midi_ports.empty())
+                        ImGui::TextDisabled("(no MIDI inputs found)");
+                    ImGui::EndCombo();
+                }
             }
 
             if (ImGui::CollapsingHeader("View", ImGuiTreeNodeFlags_DefaultOpen))
@@ -2248,12 +2388,51 @@ void ScoreHost::render_debug_ui(float dt)
                     if (tick_level_ != TickLevel::Off)
                         ensure_tick_stream();
                 }
+                // The instrument voicing audition + MIDI play-thru: the
+                // built-in synth or any staged .sf2 (loaded on selection).
+                std::string instrument_label = "Synth (3-partial)";
+                if (instrument_ == InstrumentVoice::Piano && piano_loaded_index_ >= 0)
+                    instrument_label = soundfont_paths_[static_cast<size_t>(piano_loaded_index_)]
+                                           .stem()
+                                           .string();
+                if (ImGui::BeginCombo("instrument", instrument_label.c_str()))
+                {
+                    if (ImGui::Selectable(
+                            "Synth (3-partial)", instrument_ == InstrumentVoice::Synth))
+                    {
+                        instrument_ = InstrumentVoice::Synth;
+                        piano_.clear(); // release held piano voices
+                    }
+                    for (int i = 0; i < static_cast<int>(soundfont_paths_.size()); ++i)
+                    {
+                        const std::string name
+                            = soundfont_paths_[static_cast<size_t>(i)].stem().string();
+                        const bool active = instrument_ == InstrumentVoice::Piano
+                            && piano_loaded_index_ == i;
+                        if (ImGui::Selectable(name.c_str(), active))
+                        {
+                            piano_selected_index_ = i;
+                            if (ensure_piano_voice())
+                            {
+                                instrument_ = InstrumentVoice::Piano;
+                                tones_.clear();
+                                ensure_tick_stream();
+                            }
+                        }
+                    }
+                    if (soundfont_paths_.empty())
+                        ImGui::TextDisabled("(no .sf2 in soundfonts/)");
+                    ImGui::EndCombo();
+                }
                 if (ImGui::Checkbox("Audition (hear notes)", &audition_))
                 {
                     if (audition_ && !ensure_tick_stream())
                         audition_ = false;
                     if (!audition_)
+                    {
                         tones_.clear();
+                        piano_.clear();
+                    }
                 }
             }
 

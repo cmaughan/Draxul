@@ -57,6 +57,7 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     # source tree; the app uses the staged <exe-dir>/verovio-data copy instead.
     target_compile_definitions(draxul-tests PRIVATE
         DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
+        DRAXUL_SOUNDFONT_DIR="${ydp_grand_piano_SOURCE_DIR}"
     )
     if(WIN32)
         add_custom_command(TARGET draxul-tests POST_BUILD

@@ -428,6 +428,15 @@ if(DRAXUL_ENABLE_SCOREVIEW)
             $<TARGET_FILE_DIR:draxul>/verovio-data/Leipzig.ttf
     )
     add_dependencies(draxul stage_verovio_data)
+    # The piano soundfont (+ its CC-BY attribution text) ships beside the app;
+    # the instrument picker lists every .sf2 in this folder, so a better
+    # soundfont (e.g. the Salamander Grand) is a drop-in.
+    add_custom_target(stage_soundfonts
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${ydp_grand_piano_SOURCE_DIR}
+            $<TARGET_FILE_DIR:draxul>/soundfonts
+    )
+    add_dependencies(draxul stage_soundfonts)
     if(WIN32)
         # Verovio is an upstream shared-library target. MSVC links its import
         # library but does not copy the runtime DLL beside draxul.exe.

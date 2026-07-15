@@ -7,12 +7,14 @@ add_library(draxul-scoreview STATIC
     src/flow_controller.cpp
     src/keyboard_layout.cpp
     src/metronome_synth.cpp
+    src/midi_player_input.cpp
     src/note_listener.cpp
     src/piece_analysis.cpp
     src/player_model.cpp
     src/progress_store.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp
+    src/soundfont_synth.cpp
     src/source_slicer.cpp
     src/stream_composer.cpp
     src/svg_score_interpreter.cpp
@@ -49,7 +51,10 @@ target_compile_definitions(draxul-scoreview PRIVATE
 target_link_libraries(draxul-scoreview
     PUBLIC draxul-types
     PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json kissfft::kissfft
+            rtmidi tinysoundfont
 )
+# RtMidi's in-build target does not export its header directory.
+target_include_directories(draxul-scoreview SYSTEM PRIVATE ${rtmidi_SOURCE_DIR})
 
 add_library(draxul-scoreview-host STATIC
     src/keyboard_render_nvg.cpp
