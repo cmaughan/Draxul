@@ -167,6 +167,12 @@ private:
     void rebuild_highlight_from_palette();
     // Installs a finished background engrave if one is ready (called each pump).
     void poll_async_engrave();
+    // Restarts the stream from bar 0 with a fresh program (verdicts and
+    // composer plan dropped). keep_tempo preserves the tempo the player has
+    // settled at — their learned pace is a property of the LEARNER, not of
+    // the restart; only clearing the piece's record resets it (and the tempo
+    // lock always wins either way).
+    void restart_stream(bool keep_tempo);
     // Re-engraves the current flow material after a spacing change, keeping
     // position and verdicts (streaming rebuilds the current window with
     // carry; the monolith goes through flow_dirty_). Resets the band scale.
@@ -362,8 +368,10 @@ private:
     // accidentals wear their full spelling color like the naturals.
     bool split_accidentals_ = true;
     // Composer: true = the adaptive stream (reviews, drills, simplification),
-    // false = just scroll the original piece bar-by-bar, unchanged.
-    bool composer_enabled_ = true;
+    // false = just scroll the original piece bar-by-bar, unchanged. OFF by
+    // default while the adaptive program is tuned (over MIDI input); the
+    // inspector checkbox or the `composer` launch token opts in.
+    bool composer_enabled_ = false;
     // Spacing experiment (inspector-only): engrave the flow strip with note
     // space proportional to duration so the conveyor scrolls at near-constant
     // speed and score columns align with the waterfall. The paged reading

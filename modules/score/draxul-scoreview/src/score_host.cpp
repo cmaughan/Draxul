@@ -333,8 +333,13 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             mark_mistakes_ = false;
         if (command.find("fullcolor") != std::string::npos)
             split_accidentals_ = false;
+        // The composer defaults OFF while its program is tuned; `composer`
+        // opts in at launch, `nocomposer` still forces it off (checked first
+        // — "composer" is a substring of "nocomposer").
         if (command.find("nocomposer") != std::string::npos)
             composer_enabled_ = false;
+        else if (command.find("composer") != std::string::npos)
+            composer_enabled_ = true;
         if (command.find("locktempo") != std::string::npos)
             lock_tempo_ = true;
         else if (command.find("tick8") != std::string::npos)
@@ -894,6 +899,19 @@ bool ScoreHost::ensure_piano_voice()
     return true;
 }
 
+void ScoreHost::restart_stream(bool keep_tempo)
+{
+    const double tempo = flow_.tempo_qpm();
+    verdict_archive_.clear();
+    composer_.reset();
+    last_logged_plan_slot_ = -1;
+    rebuild_window(0, 0.0, /*carry=*/false);
+    if (keep_tempo && !lock_tempo_)
+        flow_.set_tempo_qpm(tempo);
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
 void ScoreHost::reengrave_flow_in_place()
 {
     stream_scale_ref_ = 0.0f;
@@ -1339,14 +1357,10 @@ void ScoreHost::clear_piece_progress()
     begin_progress_session(); // session_active_ is false after clear — starts fresh
     save_progress(/*final_flush=*/false); // overwrite the file with the cleared model
     // Restart the stream from the top so the composer re-plans against a blank
-    // slate (no reviews/drills earned yet).
-    verdict_archive_.clear();
-    composer_.reset();
-    last_logged_plan_slot_ = -1;
-    rebuild_window(0, 0.0, /*carry=*/false);
+    // slate. A cleared record is the one restart that RESETS the tempo — a
+    // fresh learner starts at the 60% ramp again.
+    restart_stream(/*keep_tempo=*/false);
     DRAXUL_LOG_INFO(LogCategory::App, "score: cleared progress for this piece");
-    if (callbacks_ != nullptr)
-        callbacks_->request_frame();
 }
 
 bool ScoreHost::ensure_tick_stream()
@@ -1999,17 +2013,7 @@ void ScoreHost::on_key(const KeyEvent& event)
         case SDLK_R:
             if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
             {
-                // Restart the stream from bar 0, but KEEP the tempo the player
-                // has settled at — their learned pace. A restart isn't a reason
-                // to jump back to the 60% start; only the tempo lock (marking)
-                // overrides it.
-                const double keep_tempo = flow_.tempo_qpm();
-                verdict_archive_.clear();
-                composer_.reset();
-                last_logged_plan_slot_ = -1;
-                rebuild_window(0, 0.0, /*carry=*/false);
-                if (!lock_tempo_)
-                    flow_.set_tempo_qpm(keep_tempo);
+                restart_stream(/*keep_tempo=*/true);
             }
             else
             {
@@ -2304,16 +2308,13 @@ void ScoreHost::render_debug_ui(float dt)
                 {
                     // Re-evaluate and rebuild the stream from the top: on = the
                     // adaptive program, off = the piece scrolling unchanged.
+                    // The restart keeps the player's decided tempo — switching
+                    // the program is not a reason to change their pace.
                     composing_ = composer_enabled_ && stream_windowed_ && slicer_.ready()
                         && slicer_.part_count() == 1;
                     if (composing_)
                         composer_.configure(&slicer_, &player_model_, &piece_profile_);
-                    verdict_archive_.clear();
-                    composer_.reset();
-                    last_logged_plan_slot_ = -1;
-                    rebuild_window(0, 0.0, /*carry=*/false);
-                    if (callbacks_ != nullptr)
-                        callbacks_->request_frame();
+                    restart_stream(/*keep_tempo=*/true);
                 }
                 // Switching the preset drops any debug overrides — the point
                 // of the checkbox is the two tuned presets. The 'f' paged
