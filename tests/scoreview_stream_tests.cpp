@@ -11,6 +11,7 @@
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -118,6 +119,98 @@ TEST_CASE("a mid-piece window engraves identically to the monolith", "[scoreview
     CHECK(compared > 20); // 8 waltz bars carry ~28 distinct onsets
     // And nothing extra: the window holds exactly the piece's onsets.
     CHECK(window.size() == static_cast<size_t>(compared));
+}
+
+namespace
+{
+
+// Clef glyphs drawn by an engraving of `xml`, in document order (SMuFL:
+// E050 = G clef, E062 = F clef, E07A/E07C = small change clefs).
+std::vector<std::string> engraved_clef_glyphs(const std::string& xml)
+{
+    std::string error;
+    auto engine = VerovioLayoutEngine::create(std::string(DRAXUL_VEROVIO_DATA_DIR), error);
+    REQUIRE(engine != nullptr);
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    engine->set_options(options);
+    REQUIRE(engine->load(xml, error));
+    const std::string svg = engine->render_page_svg(1);
+
+    std::vector<std::string> glyphs;
+    size_t pos = 0;
+    while ((pos = svg.find("class=\"clef\"", pos)) != std::string::npos)
+    {
+        const size_t href = svg.find("href=\"#", pos);
+        if (href == std::string::npos)
+            break;
+        glyphs.push_back(svg.substr(href + 7, 4));
+        pos = href;
+    }
+    return glyphs;
+}
+
+} // namespace
+
+TEST_CASE("window head on an attribute-re-declaring bar keeps the bar's own clef and key",
+    "[scoreview][stream]")
+{
+    // The Grieg's staff 2 goes treble at measure 37 and returns to bass at
+    // measure 53 (which also drops the key back to no sharps). A window whose
+    // HEAD is that re-declaring measure must not have the injected pre-bar
+    // state (treble, 3 sharps) shadow the measure's own declarations —
+    // Verovio resolves same-position duplicates first-wins, which rendered
+    // the left hand on ledger lines below a treble staff.
+    const std::string xml = read_grieg_xml();
+    SourceSlicer slicer;
+    std::string error;
+    REQUIRE(slicer.load(xml, error));
+
+    const std::string window = slicer.window_xml(52, 19); // head = measure 53
+    REQUIRE_FALSE(window.empty());
+
+    // XML level: exactly one clef per staff and one key before the head
+    // measure's first note (the injected block only fills the gaps).
+    const size_t head_end = window.find("<note");
+    REQUIRE(head_end != std::string::npos);
+    const std::string head = window.substr(0, head_end);
+    const auto count_of = [&head](const std::string& needle) {
+        size_t n = 0;
+        for (size_t pos = head.find(needle); pos != std::string::npos;
+            pos = head.find(needle, pos + needle.size()))
+            ++n;
+        return n;
+    };
+    CHECK(count_of("<clef number=\"2\"") == 1);
+    CHECK(count_of("<key") == 1);
+    CHECK(head.find("<fifths>0</fifths>") != std::string::npos); // the bar's own key
+
+    // Engraved level: staff 2's head clef is the bass clef.
+    const auto clefs = engraved_clef_glyphs(window);
+    REQUIRE(clefs.size() >= 2);
+    CHECK(clefs[0] == "E050"); // staff 1 treble
+    CHECK(clefs[1] == "E062"); // staff 2 bass — the bar's own return wins
+}
+
+TEST_CASE("window head inside the treble passage still injects the changed clef",
+    "[scoreview][stream]")
+{
+    // Heads at bars whose measures declare nothing must keep getting the full
+    // injected state — here staff 2 = treble (the mid-piece change is in
+    // force) with the bass-clef return engraved mid-window at measure 53.
+    const std::string xml = read_grieg_xml();
+    SourceSlicer slicer;
+    std::string error;
+    REQUIRE(slicer.load(xml, error));
+
+    const std::string window = slicer.window_xml(40, 19); // measures 41..59
+    REQUIRE_FALSE(window.empty());
+    const auto clefs = engraved_clef_glyphs(window);
+    REQUIRE(clefs.size() >= 3);
+    CHECK(clefs[0] == "E050"); // staff 1 treble
+    CHECK(clefs[1] == "E050"); // staff 2 treble (injected mid-piece state)
+    // The return to bass at measure 53 engraves as a small change clef.
+    CHECK(std::find(clefs.begin(), clefs.end(), "E07C") != clefs.end());
 }
 
 TEST_CASE("window 0 preserves the piece opening exactly", "[scoreview][stream]")

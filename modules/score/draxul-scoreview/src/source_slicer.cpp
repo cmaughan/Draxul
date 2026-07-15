@@ -3,7 +3,9 @@
 #include <tinyxml2.h>
 
 #include <algorithm>
+#include <cstring>
 #include <map>
+#include <set>
 #include <vector>
 
 namespace draxul
@@ -300,8 +302,7 @@ std::string SourceSlicer::window_xml_for(
             {
                 // Inject the accumulated state as a complete <attributes>
                 // block BEFORE the measure's own content. A separate block
-                // keeps MusicXML's child-order rules trivially satisfied;
-                // anything the measure re-declares simply wins afterwards.
+                // keeps MusicXML's child-order rules trivially satisfied.
                 // Source-bar heads take the state BEFORE the bar (the bar
                 // declares its own on top); fabricated heads declare nothing
                 // themselves, so they take the state IN FORCE AT the context
@@ -311,16 +312,56 @@ std::string SourceSlicer::window_xml_for(
                     : std::min(static_cast<size_t>(context_bar) + 1,
                           part.state_before.size() - 1);
                 const AttributeState& state = part.state_before[state_index];
-                if (state.has_any())
+
+                // Gap-fill only: when the head measure ITSELF re-declares an
+                // attribute before its first note (a clef return, a key
+                // change at a section boundary), that declaration must win —
+                // but Verovio resolves two same-position declarations
+                // first-wins, so injecting the pre-bar state on top silently
+                // discards the measure's own (staff 2 lost its bass-clef
+                // return at the Grieg's measure 53 and rendered the left
+                // hand on ledger lines below a treble staff). Skip injecting
+                // anything the measure already declares itself.
+                bool has_divisions = false;
+                bool has_key = false;
+                bool has_time = false;
+                bool has_staves = false;
+                std::set<int> declared_clefs;
+                for (const XMLElement* child = cloned->FirstChildElement(); child != nullptr;
+                    child = child->NextSiblingElement())
                 {
-                    std::string inject = "<attributes>";
+                    const char* name = child->Name();
+                    if (std::strcmp(name, "note") == 0 || std::strcmp(name, "backup") == 0
+                        || std::strcmp(name, "forward") == 0)
+                        break; // musical content starts; later blocks are mid-bar changes
+                    if (std::strcmp(name, "attributes") != 0)
+                        continue;
+                    has_divisions |= child->FirstChildElement("divisions") != nullptr;
+                    has_key |= child->FirstChildElement("key") != nullptr;
+                    has_time |= child->FirstChildElement("time") != nullptr;
+                    has_staves |= child->FirstChildElement("staves") != nullptr;
+                    for (const XMLElement* clef = child->FirstChildElement("clef");
+                        clef != nullptr; clef = clef->NextSiblingElement("clef"))
+                        declared_clefs.insert(clef->IntAttribute("number", 0));
+                }
+
+                std::string inject;
+                if (!has_divisions)
                     inject += state.divisions;
+                if (!has_key)
                     inject += state.key;
+                if (!has_time)
                     inject += state.time;
+                if (!has_staves)
                     inject += state.staves;
-                    for (const auto& [number, clef] : state.clefs)
+                for (const auto& [number, clef] : state.clefs)
+                {
+                    if (declared_clefs.count(number) == 0)
                         inject += clef;
-                    inject += "</attributes>";
+                }
+                if (!inject.empty())
+                {
+                    inject = "<attributes>" + inject + "</attributes>";
                     XMLDocument inject_doc;
                     if (inject_doc.Parse(inject.c_str()) == XML_SUCCESS)
                     {

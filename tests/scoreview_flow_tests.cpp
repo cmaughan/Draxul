@@ -10,10 +10,12 @@
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
 
+#include <algorithm>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace draxul::scoreview;
 
@@ -208,6 +210,147 @@ TEST_CASE("highlight state buckets ops by element id", "[scoreview][flow]")
     CHECK(highlight.path_lit[1] == 0);
 }
 
+namespace
+{
+
+// A treble bar of four quarters where the third carries a flat: C4 D4 Db4 E4.
+// The flat sign engraves LEFT of the Db notehead — the probe for the playhead
+// anchor (the accidental must not drag the onset x off the notehead).
+constexpr const char* ACCIDENTAL_SCORE = R"(<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><alter>-1</alter><octave>4</octave></pitch><duration>1</duration><type>quarter</type><accidental>flat</accidental></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>)";
+
+// Leading hex of a SymbolOutline id ("E0A2-...") is the SMuFL codepoint; the
+// Noteheads block is U+E0A0..E0FF (same predicate the renderer uses).
+bool symbol_is_notehead(const std::string& symbol_id)
+{
+    const long cp = std::strtol(symbol_id.c_str(), nullptr, 16);
+    return cp >= 0xE0A0 && cp <= 0xE0FF;
+}
+
+} // namespace
+
+TEST_CASE("playhead onset anchor sits on the notehead, not the accidental", "[scoreview][flow]")
+{
+    std::string error;
+    auto engine = VerovioLayoutEngine::create(DRAXUL_VEROVIO_DATA_DIR, error);
+    INFO(error);
+    REQUIRE(engine != nullptr);
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    engine->set_options(options);
+    REQUIRE(engine->load(ACCIDENTAL_SCORE, error));
+
+    auto strip = interpret_score_svg(engine->render_page_svg(1), error);
+    REQUIRE(strip.has_value());
+    auto timemap = parse_timemap(engine->render_timemap(), error);
+    REQUIRE(timemap.has_value());
+    FlowController flow;
+    REQUIRE(flow.build(*timemap, *strip, error));
+    REQUIRE(flow.onsets().size() == 4);
+
+    // For each onset, the anchor must match the leftmost NOTEHEAD glyph of its
+    // ids — any sign/stem/flag op sharing the id must not drag it left.
+    for (const FlowController::Onset& onset : flow.onsets())
+    {
+        float head_x = std::numeric_limits<float>::max();
+        for (const std::string& id : onset.ids)
+        {
+            for (const GlyphInstance& glyph : strip->glyphs)
+            {
+                if (glyph.element_id != id)
+                    continue;
+                UNSCOPED_INFO("q=" << onset.qstamp << " id=" << id << " glyph symbol="
+                                   << strip->symbols[static_cast<size_t>(glyph.symbol_index)].id
+                                   << " x=" << glyph.xform.e);
+                if (symbol_is_notehead(strip->symbols[static_cast<size_t>(glyph.symbol_index)].id))
+                    head_x = std::min(head_x, glyph.xform.e);
+            }
+        }
+        REQUIRE(head_x < std::numeric_limits<float>::max());
+        INFO("q=" << onset.qstamp << " anchor=" << onset.x << " notehead=" << head_x);
+        CHECK(onset.x == Catch::Approx(head_x).margin(1.0));
+    }
+}
+
+namespace
+{
+
+// The Grieg's ornament figure in miniature: a slashed acciaccatura into an
+// accidental note. Verovio timestamps the grace ON the beat and the principal
+// a sliver (~1/16 quarter) later, engraved a wide gap apart.
+constexpr const char* GRACE_SCORE = R"(<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><grace slash="yes"/><pitch><step>A</step><octave>4</octave></pitch><type>eighth</type></note>
+      <note><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration><type>quarter</type><accidental>sharp</accidental></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>)";
+
+} // namespace
+
+TEST_CASE("grace clusters fold into their beat so the playhead never leaps", "[scoreview][flow]")
+{
+    std::string error;
+    auto engine = VerovioLayoutEngine::create(DRAXUL_VEROVIO_DATA_DIR, error);
+    INFO(error);
+    REQUIRE(engine != nullptr);
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    engine->set_options(options);
+    REQUIRE(engine->load(GRACE_SCORE, error));
+
+    auto strip = interpret_score_svg(engine->render_page_svg(1), error);
+    REQUIRE(strip.has_value());
+    auto timemap = parse_timemap(engine->render_timemap(), error);
+    REQUIRE(timemap.has_value());
+    FlowController flow;
+    REQUIRE(flow.build(*timemap, *strip, error));
+
+    // C4 | grace+F#4 folded | E4 — three anchors, not four. (Verovio's grace
+    // placement varies — it steals from the previous note here, but sits ON
+    // the beat at a bar start — so the cluster head lands near the beat, not
+    // exactly on it; the fold keeps the FIRST onset of the cluster.)
+    REQUIRE(flow.onsets().size() == 3);
+    CHECK(flow.onsets()[1].qstamp > 0.85);
+    CHECK(flow.onsets()[1].qstamp < 1.0 + 1e-9);
+    CHECK(flow.onsets()[1].ids.size() == 2); // grace and principal judge together
+
+    // No anchor pair closer than the fold threshold; x strictly forward.
+    for (size_t i = 1; i < flow.onsets().size(); ++i)
+    {
+        CHECK(flow.onsets()[i].qstamp - flow.onsets()[i - 1].qstamp
+            >= FlowController::kGraceFoldQ);
+        CHECK(flow.onsets()[i].x > flow.onsets()[i - 1].x);
+    }
+}
+
 TEST_CASE("flow layout and timemap join the live Grieg end-to-end", "[scoreview][flow]")
 {
     std::string error;
@@ -257,6 +400,21 @@ TEST_CASE("flow layout and timemap join the live Grieg end-to-end", "[scoreview]
     CHECK(flow.non_monotonic_count() == 0);
     CHECK(flow.marking_qpm() == 130.0);
     CHECK(flow.max_tempo_qpm() == Catch::Approx(130.0 * FlowController::kMaxTempoFrac));
+
+    // Playhead smoothness: grace clusters folded (no anchor pair inside the
+    // fold window), and no segment sweeps x at a teleport rate — the piece's
+    // ornaments used to produce ~10x-median spurts (~half a bar in ~30ms).
+    {
+        std::vector<double> speeds;
+        for (size_t i = 1; i < flow.onsets().size(); ++i)
+        {
+            const double dq = flow.onsets()[i].qstamp - flow.onsets()[i - 1].qstamp;
+            CHECK(dq >= FlowController::kGraceFoldQ);
+            speeds.push_back((flow.onsets()[i].x - flow.onsets()[i - 1].x) / dq);
+        }
+        std::sort(speeds.begin(), speeds.end());
+        CHECK(speeds.back() < 4.0 * speeds[speeds.size() / 2]);
+    }
 
     ScoreHighlightState highlight;
     highlight.build(*strip);

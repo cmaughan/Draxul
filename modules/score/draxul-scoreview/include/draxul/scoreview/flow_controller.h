@@ -324,6 +324,14 @@ public:
     static constexpr double kRollEdgeQuality = 0.25;
     // Chord notes struck further apart than this (beats) count as Split.
     static constexpr double kChordSplitQ = 0.2;
+    // Onsets closer than this (beats) fold into their predecessor. Verovio's
+    // timemap puts an acciaccatura ON the beat and shifts its principal a
+    // sliver later (~1/16 quarter), while the engraving spaces them a large
+    // gap apart — interpolating x across that sliver made the playhead leap
+    // ~half a bar in ~30ms at each ornament. Folding anchors the cluster at
+    // the beat column and judges its notes together (the gap is far inside
+    // the ±0.45-beat hit window). Real 32nd runs (0.125q) stay unfolded.
+    static constexpr double kGraceFoldQ = 0.1;
 
 private:
     std::vector<Onset> onsets_;

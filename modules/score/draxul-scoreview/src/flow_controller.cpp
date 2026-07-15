@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <unordered_map>
@@ -97,6 +98,16 @@ bool FlowController::build(const Timemap& timemap, const ScoreDrawList& strip, s
     float prev_x = 0.0f;
     for (auto& [q, onset] : merged)
     {
+        // Grace clusters fold into their beat (see kGraceFoldQ): the cluster
+        // head keeps its qstamp and beat-column x, the folded notes join its
+        // id list — one anchor, one gate, no playhead leap across the sliver.
+        if (!onsets_.empty() && onset.qstamp - onsets_.back().qstamp < kGraceFoldQ)
+        {
+            Onset& head = onsets_.back();
+            head.ids.insert(head.ids.end(), std::make_move_iterator(onset.ids.begin()),
+                std::make_move_iterator(onset.ids.end()));
+            continue;
+        }
         // Repeats can revisit earlier measures (x jumps backward); clamp to
         // forward motion for this milestone (plans/scoreview-conveyor.md).
         if (!onsets_.empty() && onset.x < prev_x)
