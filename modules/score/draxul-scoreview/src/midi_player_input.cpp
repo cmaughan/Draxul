@@ -4,8 +4,6 @@
 
 #include <RtMidi.h>
 
-#include <utility>
-
 namespace draxul
 {
 namespace scoreview
@@ -32,10 +30,16 @@ std::vector<std::string> MidiPlayerInput::list_ports()
         for (unsigned port = 0; port < count; ++port)
             names.push_back(probe.getPortName(port));
     }
-    catch (const RtMidiError& error)
+    catch (const std::exception& error)
     {
-        DRAXUL_LOG_WARN(
-            LogCategory::App, "midi: port enumeration failed: %s", error.getMessage().c_str());
+        // Includes RtMidiError — e.g. a transient CoreMIDI client-create
+        // failure (-304) right after a relaunch. No devices this call; the
+        // next combo open retries.
+        DRAXUL_LOG_WARN(LogCategory::App, "midi: port enumeration failed: %s", error.what());
+    }
+    catch (...)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "midi: port enumeration failed (unknown error)");
     }
     return names;
 }
@@ -61,9 +65,14 @@ MidiPlayerInput::MidiPlayerInput(int port)
         ok_ = true;
         DRAXUL_LOG_INFO(LogCategory::App, "midi: listening on '%s'", port_name_.c_str());
     }
-    catch (const RtMidiError& error)
+    catch (const std::exception& error)
     {
-        error_ = error.getMessage();
+        error_ = error.what();
+        in_.reset();
+    }
+    catch (...)
+    {
+        error_ = "unknown MIDI error";
         in_.reset();
     }
 }
@@ -71,11 +80,19 @@ MidiPlayerInput::MidiPlayerInput(int port)
 MidiPlayerInput::~MidiPlayerInput()
 {
     // Cancel the callback BEFORE members die: the backend thread must not
-    // enter feed() during destruction.
-    if (in_)
+    // enter feed() during destruction. RtMidi calls can throw (its error()
+    // raises RtMidiError) and a throwing destructor is std::terminate —
+    // swallow everything.
+    try
     {
-        in_->cancelCallback();
-        in_->closePort();
+        if (in_)
+        {
+            in_->cancelCallback();
+            in_->closePort();
+        }
+    }
+    catch (...)
+    {
     }
 }
 

@@ -185,6 +185,21 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(RTMIDI_API_JACK OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(rtmidi)
+    # Upstream bug: getCoreMidiClientSingleton is declared `throw()` but its
+    # failure path (MIDIClientCreate erroring, e.g. a transient -304 after a
+    # relaunch) calls error(), which THROWS RtMidiError — an exception
+    # escaping a throw() function is an immediate std::terminate, so a MIDI
+    # server hiccup crashed the app before any catch could run. Drop the
+    # spec so the error propagates as a normal exception into our handlers.
+    # (Idempotent string surgery on the populated source, like the Verovio
+    # git_commit fixup above.)
+    file(READ ${rtmidi_SOURCE_DIR}/RtMidi.cpp _draxul_rtmidi_src)
+    string(REPLACE
+        "getCoreMidiClientSingleton(const std::string& clientName) throw()"
+        "getCoreMidiClientSingleton(const std::string& clientName)"
+        _draxul_rtmidi_src "${_draxul_rtmidi_src}")
+    file(WRITE ${rtmidi_SOURCE_DIR}/RtMidi.cpp "${_draxul_rtmidi_src}")
+    unset(_draxul_rtmidi_src)
     if(MSVC)
         target_compile_options(rtmidi PRIVATE /w)
     else()

@@ -2243,10 +2243,12 @@ void ScoreHost::render_debug_ui(float dt)
                 ImGui::Text("mode %s   position %.2f q", mode, flow_.position_q());
 
                 // Player input source: dev keyboard / microphone / any MIDI
-                // input port (enumerated fresh each frame the combo is open,
-                // so hot-plugged keyboards appear). Switching swaps the
-                // input seam live — verdicts, score and transport survive.
-                const std::vector<std::string> midi_ports = MidiPlayerInput::list_ports();
+                // input port. Ports enumerate ONLY while the combo is open —
+                // never per frame: each probe touches the CoreMIDI client,
+                // and a 60Hz probe both hammers the MIDI server and turns a
+                // transient server failure into a per-frame retry storm.
+                // Switching swaps the input seam live — verdicts, score and
+                // transport survive.
                 std::string current = "Dev keyboard";
                 if (mic_input_ != nullptr)
                     current = "Microphone";
@@ -2254,6 +2256,7 @@ void ScoreHost::render_debug_ui(float dt)
                     current = "MIDI: " + midi_input_->port_name();
                 if (ImGui::BeginCombo("input", current.c_str()))
                 {
+                    const std::vector<std::string> midi_ports = MidiPlayerInput::list_ports();
                     if (ImGui::Selectable("Dev keyboard", keyboard_input_ != nullptr))
                     {
                         gate_input_requested_ = GateInput::Keyboard;
