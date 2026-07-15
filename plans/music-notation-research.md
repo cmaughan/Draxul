@@ -1,6 +1,8 @@
 # Music Notation Rendering — Research Notes
 
-*Researched 2026-07-10. Companion implementation plan: [scoreview.md](scoreview.md).*
+*Researched 2026-07-10. Companion implementation plan: [scoreview.md](scoreview.md).
+Upstream authoring/production side (editors, text formats, converters, MusicXML/MNX
+status): [music-editors-musicxml-research.md](music-editors-musicxml-research.md).*
 
 Goal: display a clean, interactive, editable view of piano music from a score
 file, in a C++ app rendering via Metal/Vulkan (Draxul). End vision: a score
