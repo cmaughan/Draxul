@@ -1,24 +1,19 @@
-# ScoreView (plans/scoreview.md): draxul-scoreview is the GPU-free layout
-# pipeline (Verovio engine wrapper; phase-3 SVG interpreter joins it);
-# draxul-scoreview-host is the IHost + NanoVG presentation layer.
+# ScoreView (plans/scoreview.md): draxul-score-learn is the GPU-free learning
+# core (player model, analysis, slicer, composer); draxul-scoreview is the
+# layout/transport pipeline (Verovio engine wrapper, SVG interpreter, flow
+# judge, audio synths, device inputs); draxul-scoreview-host is the IHost +
+# NanoVG presentation layer.
 add_library(draxul-scoreview STATIC
     src/bot_player_input.cpp
     src/engraved_window.cpp
     src/flow_controller.cpp
     src/keyboard_layout.cpp
-    src/measure_xml.cpp
     src/metronome_synth.cpp
     src/midi_player_input.cpp
     src/note_listener.cpp
-    src/piece_analysis.cpp
-    src/player_model.cpp
-    src/progress_store.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp
     src/soundfont_synth.cpp
-    src/source_slicer.cpp
-    src/stream_composer.cpp
-    src/stream_program.cpp
     src/svg_score_interpreter.cpp
     src/verovio_layout_engine.cpp
     src/window_engraver.cpp
@@ -50,8 +45,10 @@ target_compile_definitions(draxul-scoreview PRIVATE
     NO_DARMS_SUPPORT
 )
 
+# draxul-score-learn is PUBLIC: flow_controller.h includes note_outcomes.h,
+# and the host layer reaches the composer/program/model headers through us.
 target_link_libraries(draxul-scoreview
-    PUBLIC draxul-types
+    PUBLIC draxul-types draxul-score-learn
     PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json kissfft::kissfft
             rtmidi tinysoundfont
 )

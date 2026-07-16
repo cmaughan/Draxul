@@ -195,6 +195,16 @@ Remaining for S3 polish (fold into S4): melodic/motif drills, rhythm
 figure drills keyed to timing drift, key-aware transposition variation,
 and drills earning their retirement (trouble decays as clean grabs land).
 
+Decoupled (2026-07-16, kanban 20 scoreview-composer-decoupling): the
+composer now extends a host-owned `StreamProgram` (slot geometry + the
+`source_at` provenance query both hand-rolled host mappings collapsed
+into), emits measures through the shared `measure_xml` writer, and sits
+behind the `IComposer` seam (`supports()` owns the single-part gate) —
+all in the `draxul-score-learn` leaf library, so alternative composers
+(rewriters, modifiers) plug in without touching the host. The program
+is append-only behind the engrave frontier; a rewriting composer may
+re-plan only the open future.
+
 `StreamComposer`: given PieceProfile + PlayerModel + transport state,
 emit the next bar as model measures with per-note provenance.
 

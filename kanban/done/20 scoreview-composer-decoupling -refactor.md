@@ -106,37 +106,38 @@ Verovio/SDL/transport at link time.
 
 ## Phase 5 — library cut (`draxul-score-learn`)
 
-- [ ] New `modules/score/draxul-score-learn/` static library:
+- [x] New `modules/score/draxul-score-learn/` static library:
       `note_outcomes.h`, `player_model`, `piece_analysis`, `source_slicer`,
       `stream_program`, `measure_xml`, `composer.h`, `stream_composer`,
       `progress_store`.
-- [ ] Links `PRIVATE tinyxml2::tinyxml2 nlohmann_json::nlohmann_json` only
+- [x] Links `PRIVATE tinyxml2::tinyxml2 nlohmann_json::nlohmann_json` only
       (verified 2026-07-16: after Phase 1 these files reach no draxul header,
       no logging, no draxul-types) — a leaf library.
-- [ ] `draxul-scoreview` links `PUBLIC draxul-score-learn` (its
+- [x] `draxul-scoreview` links `PUBLIC draxul-score-learn` (its
       `flow_controller.h` includes `note_outcomes.h`); the new subdirectory
-      sits inside the existing `DRAXUL_ENABLE_SCOREVIEW` gate; keep the Windows
-      CI path valid.
-- [ ] Tests keep linking `draxul-scoreview` (transitive); coordinate explicit
-      linkage with pending `35 modular-test-targets`.
-- [ ] Update `docs/features.md` (module layout) and the S3 notes in
-      `plans/scoreview-stream.md`.
+      sits inside the existing `DRAXUL_ENABLE_SCOREVIEW` gate; Windows path
+      unchanged (same FetchContent targets, no platform branches).
+- [x] Tests keep linking `draxul-scoreview` (transitive); explicit linkage
+      left for `35 modular-test-targets`.
+- [x] Updated `docs/features.md` (ScoreView library layout under Build
+      Targets) and the S3 notes in `plans/scoreview-stream.md`.
 
 ## Tests and acceptance
 
-- [ ] One commit per phase; `draxul` + `draxul-tests` build, scoreview `ctest`
+- [x] One commit per phase; `draxul` + `draxul-tests` build, scoreview `ctest`
       suites, and `py do.py smoke` green at every phase.
-- [ ] Phases 1–4 are behavior-preserving: existing composer/stream/roll/gate/
+- [x] Phases 1–4 are behavior-preserving: existing composer/stream/roll/gate/
       player-model tests pass with only mechanical API respelling in
       `scoreview_composer_tests.cpp` (program-owned reads).
-- [ ] New unit tests: `StreamProgram` geometry + `source_at` (piece, review,
+- [x] New unit tests: `StreamProgram` geometry + `source_at` (piece, review,
       and drill slots; clamping at both ends; empty program); measure-writer
       golden XML (broken/block drill, dotted-half bass in 3/4, scale bar,
       odd-divisions fallback); `StreamComposer::supports()` (single-part true,
-      multi-part false).
-- [ ] Provenance equivalence holds: drill outcomes still land on
-      `kDrillOnsetSentinel`; a review of bar N still trains bar N's statistics.
-- [ ] After Phase 5: `draxul-score-learn` compiles standalone and includes no
+      unloaded false, multi-part false).
+- [x] Provenance equivalence holds: drill outcomes still land on
+      `kDrillOnsetSentinel`; a review of bar N still trains bar N's statistics
+      (asserted via `source_at` in the review test).
+- [x] After Phase 5: `draxul-score-learn` compiles standalone and includes no
       transport, layout, audio, or input header — composer purity is enforced
       by the linker, not by convention.
 

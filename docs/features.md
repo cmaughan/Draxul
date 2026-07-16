@@ -424,6 +424,8 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 - `draxul-tests` -- Unit test suite (Catch2), compiled with a test-only precompiled header and registered as four disjoint CTest shards labeled `unit`
 - `draxul-rpc-fake` -- Fake RPC server for integration tests
 
+ScoreView builds as three libraries (all inside the `DRAXUL_ENABLE_SCOREVIEW` gate): `draxul-score-learn` — the GPU-free learning core (player model, piece analysis, source slicer, the `IComposer` seam with the adaptive `StreamComposer`, `StreamProgram` provenance, the MusicXML measure writer, progress-file IO; links only tinyxml2 + nlohmann_json, so composers provably cannot reach transport/layout/audio/device code); `draxul-scoreview` — layout/transport (Verovio wrapper, SVG interpreter, flow judge, synths, device inputs); `draxul-scoreview-host` — the IHost + NanoVG presentation layer.
+
 CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
 
 ### Dependencies (FetchContent, automatic)
