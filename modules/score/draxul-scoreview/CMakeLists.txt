@@ -63,6 +63,7 @@ add_library(draxul-scoreview-host STATIC
     src/score_session_controller.cpp
     src/player_input_rig.cpp
     src/score_host.cpp
+    src/score_host_inspector.cpp
     src/score_render_nvg.cpp
 )
 
