@@ -77,14 +77,15 @@ Verovio/SDL/transport at link time.
 
 ## Phase 3 — measure writer (`measure_xml.{h,cpp}`)
 
-- [ ] Move the file-local `pitch_xml`, `note_xml`, `parse_chord_key` helpers
-      out of `stream_composer.cpp` into a shared writer.
-- [ ] Pure fabricators taking primitives: chord drill (broken/block forms) and
-      scale bar (tonic/minor/center/divisions/beats).
+- [x] Move the file-local `pitch_xml`, `note_xml`, `parse_chord_key` helpers
+      out of `stream_composer.cpp` into a shared writer (`measure_xml.{h,cpp}`).
+- [x] Pure fabricators taking primitives: `chord_drill_measure_xml(ChordDrillSpec)`
+      and `scale_measure_xml(ScaleBarSpec)`.
       `StreamComposer::fabricate_*` become thin resolvers (divisions/beats from
       the slicer, key from the profile) that delegate.
-- [ ] This is the "minimal MusicXML writer" named in plans/scoreview-stream.md —
-      future tuplet-fidelity work lands here, not in composers.
+- [x] This is the "minimal MusicXML writer" named in plans/scoreview-stream.md —
+      future tuplet-fidelity work lands here, not in composers. Golden-XML
+      tests in tests/scoreview_measure_xml_tests.cpp.
 
 ## Phase 4 — `IComposer` seam
 

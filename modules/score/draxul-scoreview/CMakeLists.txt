@@ -6,6 +6,7 @@ add_library(draxul-scoreview STATIC
     src/engraved_window.cpp
     src/flow_controller.cpp
     src/keyboard_layout.cpp
+    src/measure_xml.cpp
     src/metronome_synth.cpp
     src/midi_player_input.cpp
     src/note_listener.cpp

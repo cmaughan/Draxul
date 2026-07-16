@@ -1,5 +1,7 @@
 #include <draxul/scoreview/stream_composer.h>
 
+#include <draxul/scoreview/measure_xml.h>
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -8,60 +10,6 @@ namespace draxul
 {
 namespace scoreview
 {
-
-namespace
-{
-
-constexpr const char* kStepNames[12] = { "C", "C", "D", "D", "E", "F", "F", "G", "G", "A",
-    "A", "B" };
-constexpr int kStepAlters[12] = { 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0 };
-
-std::string pitch_xml(int midi)
-{
-    const int pc = ((midi % 12) + 12) % 12;
-    std::string out = "<pitch><step>";
-    out += kStepNames[pc];
-    out += "</step>";
-    if (kStepAlters[pc] != 0)
-        out += "<alter>1</alter>";
-    out += "<octave>" + std::to_string(midi / 12 - 1) + "</octave></pitch>";
-    return out;
-}
-
-std::string note_xml(int midi, int duration, const char* type, int voice, int staff,
-    bool chord = false)
-{
-    std::string out = "<note>";
-    if (chord)
-        out += "<chord/>";
-    out += pitch_xml(midi);
-    out += "<duration>" + std::to_string(duration) + "</duration>";
-    out += "<voice>" + std::to_string(voice) + "</voice>";
-    out += "<type>";
-    out += type;
-    out += "</type><staff>" + std::to_string(staff) + "</staff></note>";
-    return out;
-}
-
-std::vector<int> parse_chord_key(const std::string& key)
-{
-    std::vector<int> pitches;
-    size_t at = 0;
-    while (at < key.size())
-    {
-        const size_t plus = key.find('+', at);
-        const std::string token = key.substr(at, plus == std::string::npos ? plus : plus - at);
-        if (!token.empty())
-            pitches.push_back(std::stoi(token));
-        if (plus == std::string::npos)
-            break;
-        at = plus + 1;
-    }
-    std::sort(pitches.begin(), pitches.end());
-    return pitches;
-}
-
-} // namespace
 
 void StreamComposer::configure(
     const SourceSlicer* slicer, const PlayerModel* model, const PieceProfile* profile)
@@ -364,94 +312,35 @@ void StreamComposer::compose_next(StreamProgram& program)
 std::string StreamComposer::fabricate_chord_drill(
     const std::string& chord_key, int reference_bar, bool broken) const
 {
-    const std::vector<int> pitches = parse_chord_key(chord_key);
-    if (pitches.empty() || slicer_ == nullptr)
+    // The composer resolves the drill's musical context (which pitches, the
+    // reference bar's divisions and meter); the shared measure writer emits.
+    if (slicer_ == nullptr)
         return {};
-    const int divisions = slicer_->divisions_at(reference_bar);
-    const int beats = std::max(1, static_cast<int>(std::lround(slicer_->bar_quarters(reference_bar))));
-    const int bar_duration = divisions * beats;
-
-    const int bass = pitches.front();
-    std::vector<int> uppers(pitches.begin() + 1, pitches.end());
-    if (uppers.empty())
-        uppers.push_back(bass); // single-note drill: repeat it in both hands
-
-    std::string out = "<measure number=\"1\">";
-    if (broken && divisions % 2 == 0 && beats >= 2)
-    {
-        // Broken form: arpeggiate the grab as eighths, land the block chord
-        // on the final beat — the easier rung of the ladder.
-        const int eighth = divisions / 2;
-        const int broken_beats = beats - 1;
-        for (int at = 0; at < broken_beats * 2; ++at)
-            out += note_xml(uppers[static_cast<size_t>(at) % uppers.size()], eighth,
-                "eighth", 1, 1);
-        for (size_t at = 0; at < uppers.size(); ++at)
-            out += note_xml(uppers[at], divisions, "quarter", 1, 1, at > 0);
-    }
-    else
-    {
-        // Block form: the grab repeated on every beat.
-        for (int beat = 0; beat < beats; ++beat)
-        {
-            for (size_t at = 0; at < uppers.size(); ++at)
-                out += note_xml(uppers[at], divisions, "quarter", 1, 1, at > 0);
-        }
-    }
-    out += "<backup><duration>" + std::to_string(bar_duration) + "</duration></backup>";
-    out += "<note>";
-    out += pitch_xml(bass);
-    out += "<duration>" + std::to_string(bar_duration) + "</duration><voice>5</voice>";
-    if (beats == 3)
-        out += "<type>half</type><dot/>";
-    else if (beats == 4)
-        out += "<type>whole</type>";
-    else if (beats == 2)
-        out += "<type>half</type>";
-    else
-        out += "<type>quarter</type>";
-    out += "<staff>2</staff></note></measure>";
-    return out;
+    ChordDrillSpec spec;
+    spec.pitches = parse_chord_key(chord_key);
+    spec.divisions = slicer_->divisions_at(reference_bar);
+    spec.beats
+        = std::max(1, static_cast<int>(std::lround(slicer_->bar_quarters(reference_bar))));
+    spec.broken = broken;
+    return chord_drill_measure_xml(spec);
 }
 
 std::string StreamComposer::fabricate_scale_bar(int reference_bar, int center_pitch) const
 {
     if (slicer_ == nullptr)
         return {};
-    const int divisions = slicer_->divisions_at(reference_bar);
-    const int beats = std::max(1, static_cast<int>(std::lround(slicer_->bar_quarters(reference_bar))));
-
+    ScaleBarSpec spec;
+    spec.center_pitch = center_pitch;
+    spec.divisions = slicer_->divisions_at(reference_bar);
+    spec.beats
+        = std::max(1, static_cast<int>(std::lround(slicer_->bar_quarters(reference_bar))));
     // The piece's key (C major fallback when unanalyzed).
-    int tonic_pc = 0;
-    bool minor = false;
     if (profile_ != nullptr)
     {
-        tonic_pc = profile_->global_key.tonic_pc;
-        minor = profile_->global_key.minor;
+        spec.tonic_pc = profile_->global_key.tonic_pc;
+        spec.minor = profile_->global_key.minor;
     }
-    static const int kMajor[7] = { 0, 2, 4, 5, 7, 9, 11 };
-    static const int kMinor[7] = { 0, 2, 3, 5, 7, 8, 10 };
-    const int* degrees = minor ? kMinor : kMajor;
-
-    // Start on the tonic nearest below the troubled register's center.
-    int start = tonic_pc;
-    while (start + 12 <= center_pitch - 6)
-        start += 12;
-
-    const bool eighths = divisions % 2 == 0 && beats >= 2;
-    const int count = eighths ? beats * 2 : beats;
-    const int duration = eighths ? divisions / 2 : divisions;
-    const char* type = eighths ? "eighth" : "quarter";
-
-    std::string out = "<measure number=\"1\">";
-    for (int at = 0; at < count; ++at)
-    {
-        const int degree = at % 7;
-        const int octave_up = (at / 7) * 12;
-        out += note_xml(start + degrees[degree] + octave_up, duration, type, 1, 1);
-    }
-    out += "</measure>";
-    return out;
+    return scale_measure_xml(spec);
 }
 
 } // namespace scoreview
