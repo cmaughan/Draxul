@@ -59,6 +59,7 @@ target_include_directories(draxul-scoreview SYSTEM PRIVATE ${rtmidi_SOURCE_DIR})
 add_library(draxul-scoreview-host STATIC
     src/keyboard_render_nvg.cpp
     src/mic_player_input.cpp
+    src/score_audio_controller.cpp
     src/player_input_rig.cpp
     src/score_host.cpp
     src/score_render_nvg.cpp

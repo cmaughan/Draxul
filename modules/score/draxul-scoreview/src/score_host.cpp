@@ -18,6 +18,7 @@
 #include <ctime>
 
 #include "nanovg.h"
+#include "score_audio_controller.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -175,6 +176,15 @@ std::string now_iso8601()
 
 } // namespace
 
+// Out of line so the unique_ptr members over internal component types
+// (ScoreAudioController) destroy where the complete type is visible.
+ScoreHost::ScoreHost()
+    : audio_(std::make_unique<ScoreAudioController>())
+{
+}
+
+ScoreHost::~ScoreHost() = default;
+
 bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
 {
     viewport_ = context.initial_viewport;
@@ -250,14 +260,7 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         // the inspector (the bundled YDP grand by default; a better font
         // dropped into the folder just appears). Loading is lazy — the
         // ~118 MB parse happens on first selection, not startup.
-        const std::filesystem::path soundfont_dir = executable_directory() / "soundfonts";
-        std::error_code list_error;
-        for (const auto& entry : std::filesystem::directory_iterator(soundfont_dir, list_error))
-        {
-            if (entry.path().extension() == ".sf2")
-                soundfont_paths_.push_back(entry.path());
-        }
-        std::sort(soundfont_paths_.begin(), soundfont_paths_.end());
+        audio_->stage_soundfonts(executable_directory() / "soundfonts");
 
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
@@ -322,9 +325,9 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         // The metronome defaults ON with subdivisions; `notick`/`tick`/
         // `tick8` tokens override from launch (dev/test).
         if (command.find("notick") != std::string::npos)
-            tick_level_ = TickLevel::Off;
+            audio_->set_tick_level(ScoreAudioController::TickLevel::Off);
         if (command.find("notes") != std::string::npos)
-            audition_ = true;
+            audio_->set_audition(true);
         if (command.find("nowaterfall") != std::string::npos)
             show_waterfall_ = false;
         if (command.find("noverdict") != std::string::npos
@@ -342,9 +345,9 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         if (command.find("locktempo") != std::string::npos)
             lock_tempo_ = true;
         else if (command.find("tick8") != std::string::npos)
-            tick_level_ = TickLevel::Eighths;
+            audio_->set_tick_level(ScoreAudioController::TickLevel::Eighths);
         else if (command.find("tick") != std::string::npos)
-            tick_level_ = TickLevel::Beats;
+            audio_->set_tick_level(ScoreAudioController::TickLevel::Beats);
     }
 
     // The debug/learning inspector gets its own ImGui context (the pattern
@@ -378,11 +381,7 @@ void ScoreHost::shutdown()
     // Stop the background engraver first: its destructor signals the worker and
     // joins it (bounded by one in-flight engrave), so nothing races teardown.
     engraver_.reset();
-    if (tick_stream_ != nullptr)
-    {
-        SDL_DestroyAudioStream(tick_stream_);
-        tick_stream_ = nullptr;
-    }
+    audio_->shutdown();
     strip_.reset();
     pages_.reset();
     engine_.reset();
@@ -912,28 +911,6 @@ void ScoreHost::rebuild_highlight_from_palette()
         highlight_.set_guidance(id, palette);
 }
 
-bool ScoreHost::ensure_piano_voice()
-{
-    if (soundfont_paths_.empty())
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: no .sf2 soundfonts staged beside the app");
-        return false;
-    }
-    const int want = std::clamp(
-        piano_selected_index_, 0, static_cast<int>(soundfont_paths_.size()) - 1);
-    if (piano_loaded_index_ == want && piano_.loaded())
-        return true;
-    std::string error;
-    if (!piano_.load(soundfont_paths_[static_cast<size_t>(want)].string(),
-            metronome_.tuning().sample_rate, error))
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: %s — staying on the synth voice", error.c_str());
-        return false;
-    }
-    piano_loaded_index_ = want;
-    return true;
-}
-
 void ScoreHost::restart_stream(bool keep_tempo)
 {
     const double tempo = flow_.tempo_qpm();
@@ -1175,7 +1152,7 @@ bool ScoreHost::set_gate_input(
     // The keyboard is the instrument: make it heard (play-thru needs the
     // output stream open even when the metronome is off).
     if (engaged && input_rig_.kind() == PlayerInputRig::Kind::Midi)
-        ensure_tick_stream();
+        audio_->ensure_output_stream();
     return engaged;
 }
 
@@ -1420,134 +1397,6 @@ void ScoreHost::clear_piece_progress()
     DRAXUL_LOG_INFO(LogCategory::App, "score: cleared progress for this piece");
 }
 
-bool ScoreHost::ensure_tick_stream()
-{
-    if (tick_stream_ != nullptr)
-        return true;
-    if (!SDL_WasInit(SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO))
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: metronome audio init failed: %s", SDL_GetError());
-        return false;
-    }
-    SDL_AudioSpec spec{};
-    spec.format = SDL_AUDIO_F32;
-    spec.channels = 1;
-    spec.freq = metronome_.tuning().sample_rate;
-    tick_stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
-    if (tick_stream_ == nullptr)
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: metronome output unavailable: %s", SDL_GetError());
-        return false;
-    }
-    SDL_ResumeAudioStreamDevice(tick_stream_); // device streams open paused
-    DRAXUL_LOG_INFO(LogCategory::App, "score: metronome output open (%d Hz)",
-        metronome_.tuning().sample_rate);
-    return true;
-}
-
-void ScoreHost::cycle_tick_level()
-{
-    tick_level_ = tick_level_ == TickLevel::Off
-        ? TickLevel::Beats
-        : (tick_level_ == TickLevel::Beats ? TickLevel::Eighths : TickLevel::Off);
-    if (tick_level_ != TickLevel::Off && !ensure_tick_stream())
-        tick_level_ = TickLevel::Off;
-    if (tick_level_ == TickLevel::Off && tick_stream_ != nullptr)
-    {
-        SDL_ClearAudioStream(tick_stream_);
-        metronome_.clear();
-    }
-    DRAXUL_LOG_INFO(LogCategory::App, "score: metronome %s",
-        tick_level_ == TickLevel::Off ? "off"
-                                      : (tick_level_ == TickLevel::Beats ? "beats" : "eighths"));
-}
-
-void ScoreHost::pump_metronome(double p0_q, double p1_q, double dt)
-{
-    if (!ensure_tick_stream())
-    {
-        tick_level_ = TickLevel::Off;
-        return;
-    }
-    const int rate = metronome_.tuning().sample_rate;
-
-    // Schedule ticks for every grid crossing in (p0, p1], placed at their
-    // fractional offset inside this pump's time slice so beat spacing
-    // tracks the transport rather than the frame rate.
-    if (p1_q > p0_q && dt > 0.0 && tick_level_ != TickLevel::Off)
-    {
-        const double step = tick_level_ == TickLevel::Eighths ? 0.5 : 1.0;
-        double grid = (std::floor(p0_q / step + 1e-9) + 1.0) * step;
-        for (; grid <= p1_q + 1e-9; grid += step)
-        {
-            const double fraction = std::clamp((grid - p0_q) / (p1_q - p0_q), 0.0, 1.0);
-            const int64_t at = metronome_.cursor() + static_cast<int64_t>(fraction * dt * static_cast<double>(rate));
-            TickKind kind = TickKind::Subdivision;
-            if (std::abs(grid - std::round(grid)) < 1e-6)
-            {
-                const double in_bar = std::fmod(std::round(grid), quarters_per_bar_);
-                kind = std::abs(in_bar) < 1e-6 ? TickKind::Accent : TickKind::Beat;
-            }
-            metronome_.schedule_tick(at, kind);
-        }
-    }
-
-    // Audition: sound every note whose onset the playhead crossed this
-    // pump (all sounding pitches, ties included — the score as heard).
-    if (audition_ && p1_q > p0_q && dt > 0.0 && flow_.gates_ready())
-    {
-        const auto& onsets = flow_.onsets();
-        const auto& gates = flow_.gates();
-        for (size_t i = 0; i < onsets.size() && i < gates.size(); ++i)
-        {
-            const double q = onsets[i].qstamp;
-            if (q <= p0_q)
-                continue;
-            if (q > p1_q)
-                break;
-            const double fraction = std::clamp((q - p0_q) / (p1_q - p0_q), 0.0, 1.0);
-            const bool piano = instrument_ == InstrumentVoice::Piano && piano_.loaded();
-            const int64_t at = (piano ? piano_.cursor() : tones_.cursor())
-                + static_cast<int64_t>(fraction * dt * static_cast<double>(rate));
-            for (const FlowController::GateNote& note : gates[i].notes)
-            {
-                if (note.pitch < 0)
-                    continue;
-                if (piano)
-                    piano_.schedule_note(at, note.pitch, 0.55f);
-                else
-                    tones_.schedule_note(at, note.pitch, 0.16f);
-            }
-        }
-    }
-
-    // Keep ~70 ms queued so the device never starves between pumps.
-    constexpr int kTargetSamples = 3072;
-    const int queued_bytes = SDL_GetAudioStreamQueued(tick_stream_);
-    const int queued = queued_bytes > 0 ? queued_bytes / static_cast<int>(sizeof(float)) : 0;
-    if (queued < kTargetSamples)
-    {
-        const size_t need = static_cast<size_t>(kTargetSamples - queued);
-        tick_buffer_.resize(need);
-        metronome_.render(tick_buffer_.data(), need);
-        tone_buffer_.resize(need);
-        tones_.render(tone_buffer_.data(), need);
-        for (size_t at = 0; at < need; ++at)
-            tick_buffer_[at] += tone_buffer_[at];
-        // Both voices render every block (a silent synth is near-free), so
-        // switching instruments never clicks or drops scheduled tails.
-        if (piano_.loaded())
-        {
-            piano_buffer_.resize(need);
-            piano_.render(piano_buffer_.data(), need);
-            for (size_t at = 0; at < need; ++at)
-                tick_buffer_[at] += piano_buffer_[at];
-        }
-        SDL_PutAudioStreamData(
-            tick_stream_, tick_buffer_.data(), static_cast<int>(need * sizeof(float)));
-    }
-}
-
 int ScoreHost::approx_measure() const
 {
     if (!flow_.ready() || !has_model_)
@@ -1586,8 +1435,8 @@ void ScoreHost::pump()
     {
         const double position_before_q = flow_.position_q();
         flow_.advance(dt);
-        if (tick_level_ != TickLevel::Off || audition_)
-            pump_metronome(position_before_q, flow_.position_q(), dt);
+        if (audio_->wants_pump())
+            audio_->pump(position_before_q, flow_.position_q(), dt, quarters_per_bar_, flow_);
         if (flow_.mode() != FlowController::TransportMode::Clock)
         {
             if (input_rig_.mic_failed())
@@ -1610,26 +1459,7 @@ void ScoreHost::pump()
             {
                 std::vector<MidiVoiceEvent> voiced;
                 input_rig_.take_midi_voice_events(voiced);
-                if (!voiced.empty() && ensure_tick_stream())
-                {
-                    const bool piano = instrument_ == InstrumentVoice::Piano && piano_.loaded();
-                    for (const MidiVoiceEvent& event : voiced)
-                    {
-                        if (piano)
-                        {
-                            if (event.on)
-                                piano_.schedule_note(
-                                    piano_.cursor(), event.midi_pitch, event.velocity);
-                            else
-                                piano_.schedule_off(piano_.cursor(), event.midi_pitch);
-                        }
-                        else if (event.on)
-                        {
-                            tones_.schedule_note(
-                                tones_.cursor(), event.midi_pitch, 0.10f + 0.25f * event.velocity);
-                        }
-                    }
-                }
+                audio_->voice_midi_events(voiced);
             }
             apply_verdict_update();
 
@@ -2075,19 +1905,10 @@ void ScoreHost::on_key(const KeyEvent& event)
             }
             break;
         case SDLK_T:
-            cycle_tick_level();
+            audio_->cycle_tick_level();
             break;
         case SDLK_P:
-            audition_ = !audition_;
-            if (audition_ && !ensure_tick_stream())
-                audition_ = false;
-            if (!audition_)
-            {
-                tones_.clear();
-                piano_.clear();
-            }
-            DRAXUL_LOG_INFO(
-                LogCategory::App, "score: audition %s", audition_ ? "on" : "off");
+            audio_->toggle_audition();
             break;
         default:
             return;
@@ -2439,60 +2260,44 @@ void ScoreHost::render_debug_ui(float dt)
 
             if (ImGui::CollapsingHeader("Audio"))
             {
-                int level = static_cast<int>(tick_level_);
+                int level = static_cast<int>(audio_->tick_level());
                 const char* levels[] = { "Off", "Beats", "Eighths" };
                 if (ImGui::Combo("metronome", &level, levels, 3))
                 {
-                    tick_level_ = static_cast<TickLevel>(level);
-                    if (tick_level_ != TickLevel::Off)
-                        ensure_tick_stream();
+                    audio_->set_tick_level(static_cast<ScoreAudioController::TickLevel>(level));
+                    if (audio_->tick_level() != ScoreAudioController::TickLevel::Off)
+                        audio_->ensure_output_stream();
                 }
                 // The instrument voicing audition + MIDI play-thru: the
                 // built-in synth or any staged .sf2 (loaded on selection).
+                const auto& soundfonts = audio_->soundfonts();
                 std::string instrument_label = "Synth (3-partial)";
-                if (instrument_ == InstrumentVoice::Piano && piano_loaded_index_ >= 0)
-                    instrument_label = soundfont_paths_[static_cast<size_t>(piano_loaded_index_)]
-                                           .stem()
-                                           .string();
+                if (audio_->voice() == ScoreAudioController::Voice::Piano
+                    && audio_->loaded_soundfont_index() >= 0)
+                    instrument_label
+                        = soundfonts[static_cast<size_t>(audio_->loaded_soundfont_index())]
+                              .stem()
+                              .string();
                 if (ImGui::BeginCombo("instrument", instrument_label.c_str()))
                 {
-                    if (ImGui::Selectable(
-                            "Synth (3-partial)", instrument_ == InstrumentVoice::Synth))
+                    if (ImGui::Selectable("Synth (3-partial)",
+                            audio_->voice() == ScoreAudioController::Voice::Synth))
+                        audio_->use_synth();
+                    for (int i = 0; i < static_cast<int>(soundfonts.size()); ++i)
                     {
-                        instrument_ = InstrumentVoice::Synth;
-                        piano_.clear(); // release held piano voices
-                    }
-                    for (int i = 0; i < static_cast<int>(soundfont_paths_.size()); ++i)
-                    {
-                        const std::string name
-                            = soundfont_paths_[static_cast<size_t>(i)].stem().string();
-                        const bool active = instrument_ == InstrumentVoice::Piano
-                            && piano_loaded_index_ == i;
+                        const std::string name = soundfonts[static_cast<size_t>(i)].stem().string();
+                        const bool active = audio_->voice() == ScoreAudioController::Voice::Piano
+                            && audio_->loaded_soundfont_index() == i;
                         if (ImGui::Selectable(name.c_str(), active))
-                        {
-                            piano_selected_index_ = i;
-                            if (ensure_piano_voice())
-                            {
-                                instrument_ = InstrumentVoice::Piano;
-                                tones_.clear();
-                                ensure_tick_stream();
-                            }
-                        }
+                            audio_->use_piano(i);
                     }
-                    if (soundfont_paths_.empty())
+                    if (soundfonts.empty())
                         ImGui::TextDisabled("(no .sf2 in soundfonts/)");
                     ImGui::EndCombo();
                 }
-                if (ImGui::Checkbox("Audition (hear notes)", &audition_))
-                {
-                    if (audition_ && !ensure_tick_stream())
-                        audition_ = false;
-                    if (!audition_)
-                    {
-                        tones_.clear();
-                        piano_.clear();
-                    }
-                }
+                bool audition = audio_->audition();
+                if (ImGui::Checkbox("Audition (hear notes)", &audition))
+                    audio_->set_audition(audition);
             }
 
             if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen))
@@ -2717,9 +2522,11 @@ std::string ScoreHost::status_text() const
                 }
             }
             status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
-            if (tick_level_ != TickLevel::Off)
-                status += tick_level_ == TickLevel::Beats ? "  tick" : "  tick8";
-            if (audition_)
+            if (audio_->tick_level() != ScoreAudioController::TickLevel::Off)
+                status += audio_->tick_level() == ScoreAudioController::TickLevel::Beats
+                    ? "  tick"
+                    : "  tick8";
+            if (audio_->audition())
                 status += "  notes";
             if (roll)
             {
@@ -2748,8 +2555,10 @@ std::string ScoreHost::status_text() const
         }
         status += flow_.playing() ? "  >" : (flow_.at_end() ? "  end" : "  ||");
         status += "  " + std::to_string(qpm) + "qpm (" + std::to_string(pct) + "%)";
-        if (tick_level_ != TickLevel::Off)
-            status += tick_level_ == TickLevel::Beats ? "  tick" : "  tick8";
+        if (audio_->tick_level() != ScoreAudioController::TickLevel::Off)
+            status += audio_->tick_level() == ScoreAudioController::TickLevel::Beats
+                ? "  tick"
+                : "  tick8";
         const int measure = approx_measure();
         if (measure > 0)
             status += "  m." + std::to_string(measure);
