@@ -19,6 +19,7 @@
 #include <draxul/scoreview/source_slicer.h>
 #include <draxul/scoreview/stream_composer.h>
 #include <draxul/scoreview/stream_program.h>
+#include <draxul/scoreview/verdict_archive.h>
 #include <draxul/scoreview/window_engraver.h>
 
 #include <chrono>
@@ -309,9 +310,10 @@ private:
     int window_bar_count_ = 0;
     double stream_offset_q_ = 0.0;
     double piece_marking_qpm_ = 0.0;
-    // Verdicts already earned, keyed by (stream q in thousandths, pitch) —
-    // re-applied to the fresh engraving after every window swap.
-    std::map<std::pair<long long, int>, FlowController::NoteVerdict> verdict_archive_;
+    // Verdicts already earned on the stream axis — re-applied to the fresh
+    // engraving after every window swap (quantization lives in the archive,
+    // and only there).
+    VerdictArchive verdict_archive_;
     // History bars kept behind the playhead. This must be enough to fill the
     // scroll anchor (~30% of the viewport) so the playhead can sit at the
     // anchor with music scrolling under it — too little and the scroll clamps

@@ -881,16 +881,13 @@ void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int cou
     {
         flow_.restore_carry(carried);
         const double local_position = stream_position_q - stream_offset_q_;
-        const double window_end_local = (composing_
-                                                ? stream_program_.slot_start_q(first_bar + count)
-                                                : slicer_.bar_start_q(first_bar + count))
-            - stream_offset_q_;
-        for (const auto& [key, verdict] : verdict_archive_)
-        {
-            const double local_q = key.first / 1000.0 - stream_offset_q_;
-            if (local_q >= -1e-6 && local_q <= window_end_local)
-                flow_.preset_verdict(local_q, key.second, verdict);
-        }
+        const double window_end_q = composing_
+            ? stream_program_.slot_start_q(first_bar + count)
+            : slicer_.bar_start_q(first_bar + count);
+        verdict_archive_.replay(stream_offset_q_, window_end_q,
+            [this](double local_q, int pitch, NoteVerdict verdict) {
+                flow_.preset_verdict(local_q, pitch, verdict);
+            });
         flow_.fast_forward_resolved(local_position);
         flow_.seek(local_position);
     }
@@ -1677,11 +1674,7 @@ void ScoreHost::pump()
             {
                 const double stream_q = outcome.onset_q + stream_offset_q_;
                 if (!outcome.stray)
-                {
-                    verdict_archive_[{ static_cast<long long>(
-                                           std::llround(stream_q * 1000.0)),
-                        outcome.pitch }] = outcome.verdict;
-                }
+                    verdict_archive_.record(stream_q, outcome.pitch, outcome.verdict);
                 if (composing_ && !outcome.stray)
                 {
                     const StreamProgram::SourceRef ref = stream_program_.source_at(stream_q);

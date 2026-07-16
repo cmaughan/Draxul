@@ -32,19 +32,23 @@ future rewriting composer that re-plans the open future would silently strand
 entries. Fold this into the stream-session state that card 21 moves anyway,
 with explicit keying.
 
-- [ ] Re-key the archive structurally: (slot when composing / source bar when
-      not, onset ordinal within it, pitch) → verdict, derived from
-      `StreamProgram::source_at` / `SourceSlicer::bar_at`. Replay becomes an
-      exact lookup instead of nearest-onset matching.
-- [ ] Fallback if structural keying proves awkward across the non-composed
-      window path: keep stream-q keying but centralize the quantization in one
-      named helper with round-trip unit tests and a written invariant (write
-      and replay must quantize identically).
-- [ ] Document and assert the committed-history rule: archive entries exist
-      only at or behind the engrave frontier — the invariant future rewriting
+- [x] Chose the second option (see below): verdicts are per STREAM position —
+      the same source onset legitimately appears at several stream positions
+      (piece pass, each review) with different verdicts, so the stream axis is
+      the correct key domain; under the committed-history invariant a slot key
+      adds no robustness over a quantized stream-q key. Structural re-keying
+      dropped as wrong-domain, not merely awkward.
+- [x] `VerdictArchive` class (draxul-scoreview): stream-q keying kept, but the
+      quantization now lives in ONE private site (`quantize`), with
+      round-trip unit tests (tests/scoreview_verdict_archive_tests.cpp) —
+      write and replay can no longer disagree about rounding. Host's inline
+      map + hand-rolled loops replaced by `record()`/`replay()`.
+- [x] Committed-history rule documented on the class (entries recorded as
+      judging windows close, never ahead of the playhead; geometry behind the
+      engrave frontier never changes) — the invariant future rewriting
       composers rely on (see card 20's design notes).
-- [ ] Equivalence test: drive a window advance over judged material and assert
-      the replayed verdict repaint is identical before/after the re-keying.
+- [x] Round-trip/window-filter/overwrite/quantum tests pin the replay math to
+      the exact pre-refactor semantics (including the window-head tolerance).
 
 ## Item 2 — player-input seam (borrowed concrete pointers)
 

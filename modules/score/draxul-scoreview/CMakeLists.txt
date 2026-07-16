@@ -15,6 +15,7 @@ add_library(draxul-scoreview STATIC
     src/score_timemap.cpp
     src/soundfont_synth.cpp
     src/svg_score_interpreter.cpp
+    src/verdict_archive.cpp
     src/verovio_layout_engine.cpp
     src/window_engraver.cpp
 )
