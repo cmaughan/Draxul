@@ -1,5 +1,6 @@
 #pragma once
 
+#include <draxul/scoreview/note_outcomes.h>
 #include <draxul/scoreview/player_input.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_timemap.h>
@@ -53,12 +54,10 @@ public:
         Roll,
     };
 
-    enum class NoteVerdict : uint8_t
-    {
-        Pending,
-        Correct,
-        Missed,
-    };
+    // The verdict/outcome vocabulary lives in note_outcomes.h (shared with
+    // the player model, which must not see the transport layer); aliased here
+    // so FlowController::NoteVerdict spellings keep working.
+    using NoteVerdict = ::draxul::scoreview::NoteVerdict;
 
     struct GateNote
     {
@@ -226,33 +225,10 @@ public:
         return wrong_count_;
     }
 
-    // Per-note learning outcomes (Roll mode, plans/scoreview-stream.md S0):
-    // everything the player model aggregates. Hits carry the signed timing
-    // delta in beats (negative = early) and a center-weighted quality;
-    // misses and strays carry zeros. Auto-satisfied notes (ties) emit
-    // nothing — they are not learning signals.
-    struct NoteOutcome
-    {
-        std::string id; // element id; empty for stray notes
-        double onset_q = 0.0; // source qstamp (strays: transport position)
-        int pitch = -1;
-        NoteVerdict verdict = NoteVerdict::Missed;
-        bool stray = false; // matched no onset (wrong pitch / bad timing)
-        double delta_q = 0.0; // hit: position - onset, in beats
-        double quality = 0.0; // hit: 1 at center, kRollEdgeQuality at edge
-    };
-    // Chord-level outcome, emitted when a multi-note onset's window closes.
-    struct ChordOutcome
-    {
-        double onset_q = 0.0;
-        std::vector<int> pitches; // required pitches, sorted
-        enum class Result : uint8_t
-        {
-            Clean, // all correct, struck together
-            Split, // all correct, but spread beyond kChordSplitQ
-            Miss, // at least one note missed
-        } result = Result::Miss;
-    };
+    // Per-note and chord-level learning outcomes (Roll mode,
+    // plans/scoreview-stream.md S0) — definitions in note_outcomes.h.
+    using NoteOutcome = ::draxul::scoreview::NoteOutcome;
+    using ChordOutcome = ::draxul::scoreview::ChordOutcome;
     std::vector<NoteOutcome> take_note_outcomes();
     std::vector<ChordOutcome> take_chord_outcomes();
 

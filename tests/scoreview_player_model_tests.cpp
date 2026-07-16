@@ -5,6 +5,7 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/progress_store.h>
 #include <draxul/scoreview/score_timemap.h>
@@ -20,31 +21,31 @@ using namespace draxul::scoreview;
 namespace
 {
 
-FlowController::NoteOutcome hit(double onset_q, int pitch, double delta_q, double quality)
+NoteOutcome hit(double onset_q, int pitch, double delta_q, double quality)
 {
-    FlowController::NoteOutcome outcome;
+    NoteOutcome outcome;
     outcome.id = "n";
     outcome.onset_q = onset_q;
     outcome.pitch = pitch;
-    outcome.verdict = FlowController::NoteVerdict::Correct;
+    outcome.verdict = NoteVerdict::Correct;
     outcome.delta_q = delta_q;
     outcome.quality = quality;
     return outcome;
 }
 
-FlowController::NoteOutcome miss(double onset_q, int pitch)
+NoteOutcome miss(double onset_q, int pitch)
 {
-    FlowController::NoteOutcome outcome;
+    NoteOutcome outcome;
     outcome.id = "n";
     outcome.onset_q = onset_q;
     outcome.pitch = pitch;
-    outcome.verdict = FlowController::NoteVerdict::Missed;
+    outcome.verdict = NoteVerdict::Missed;
     return outcome;
 }
 
-FlowController::NoteOutcome stray(int pitch)
+NoteOutcome stray(int pitch)
 {
-    FlowController::NoteOutcome outcome;
+    NoteOutcome outcome;
     outcome.pitch = pitch;
     outcome.stray = true;
     return outcome;
@@ -77,10 +78,10 @@ TEST_CASE("player model aggregates outcomes into stats", "[scoreview][player-mod
     CHECK(model.onset_stats().at(1.0).recent_mean() == 0.0);
     CHECK(model.bar_mastery(0) == Catch::Approx((0.85 + 0.0) / 2.0));
 
-    FlowController::ChordOutcome chord;
+    ChordOutcome chord;
     chord.onset_q = 2.0;
     chord.pitches = { 48, 64 };
-    chord.result = FlowController::ChordOutcome::Result::Split;
+    chord.result = ChordOutcome::Result::Split;
     model.apply(chord);
     CHECK(model.chord_stats().at("48+64").split == 1);
 
@@ -208,11 +209,11 @@ TEST_CASE("roll hits report timing deltas and quality to the model", "[scoreview
 
     const auto outcomes = flow.take_note_outcomes();
     REQUIRE(outcomes.size() >= 3); // hit, hit, plus onset 0's miss
-    const FlowController::NoteOutcome* centered = nullptr;
-    const FlowController::NoteOutcome* late = nullptr;
+    const NoteOutcome* centered = nullptr;
+    const NoteOutcome* late = nullptr;
     for (const auto& outcome : outcomes)
     {
-        if (outcome.verdict != FlowController::NoteVerdict::Correct)
+        if (outcome.verdict != NoteVerdict::Correct)
             continue;
         if (outcome.onset_q == 1.0)
             centered = &outcome;

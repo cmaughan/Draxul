@@ -8,9 +8,8 @@
 // Serializes to versioned JSON (unknown fields preserved) for the
 // per-piece progress file.
 
-#include <draxul/scoreview/flow_controller.h>
+#include <draxul/scoreview/note_outcomes.h>
 
-#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -99,8 +98,8 @@ public:
         return session_active_;
     }
 
-    void apply(const FlowController::NoteOutcome& outcome);
-    void apply(const FlowController::ChordOutcome& outcome);
+    void apply(const NoteOutcome& outcome);
+    void apply(const ChordOutcome& outcome);
 
     // Aggregate views ------------------------------------------------------
     const std::map<int, PitchStats>& pitch_stats() const

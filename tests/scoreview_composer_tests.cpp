@@ -74,9 +74,9 @@ std::map<double, std::vector<int>> engrave_onsets(const std::string& xml)
 
 void add_chord_trouble(PlayerModel& model, std::vector<int> pitches, int misses)
 {
-    FlowController::ChordOutcome chord;
+    ChordOutcome chord;
     chord.pitches = std::move(pitches);
-    chord.result = FlowController::ChordOutcome::Result::Miss;
+    chord.result = ChordOutcome::Result::Miss;
     for (int i = 0; i < misses; ++i)
         model.apply(chord);
 }
@@ -85,10 +85,10 @@ void add_weak_bar(PlayerModel& model, int bar, double quarters_per_bar)
 {
     for (int beat = 0; beat < 3; ++beat)
     {
-        FlowController::NoteOutcome outcome;
+        NoteOutcome outcome;
         outcome.onset_q = bar * quarters_per_bar + beat;
         outcome.pitch = 60;
-        outcome.verdict = FlowController::NoteVerdict::Missed;
+        outcome.verdict = NoteVerdict::Missed;
         model.apply(outcome);
     }
 }
@@ -213,10 +213,10 @@ TEST_CASE("drill outcomes train pitch and chord stats but never bar mastery",
 {
     PlayerModel model;
     model.set_piece("Walz", 130.0, 3.0);
-    FlowController::NoteOutcome outcome;
+    NoteOutcome outcome;
     outcome.onset_q = PlayerModel::kDrillOnsetSentinel;
     outcome.pitch = 60;
-    outcome.verdict = FlowController::NoteVerdict::Correct;
+    outcome.verdict = NoteVerdict::Correct;
     outcome.quality = 1.0;
     model.apply(outcome);
 
@@ -317,11 +317,11 @@ TEST_CASE("the arc loops weakest slices until mastery earns the performance run"
         const bool weak = bar >= 8 && bar < 16;
         for (int beat = 0; beat < 3; ++beat)
         {
-            FlowController::NoteOutcome outcome;
+            NoteOutcome outcome;
             outcome.onset_q = bar * 3.0 + beat;
             outcome.pitch = 60;
-            outcome.verdict = weak ? FlowController::NoteVerdict::Missed
-                                   : FlowController::NoteVerdict::Correct;
+            outcome.verdict = weak ? NoteVerdict::Missed
+                                   : NoteVerdict::Correct;
             outcome.quality = weak ? 0.0 : 1.0;
             for (int enc = 0; enc < 3; ++enc)
                 model.apply(outcome);
@@ -350,10 +350,10 @@ TEST_CASE("the arc loops weakest slices until mastery earns the performance run"
     {
         for (int beat = 0; beat < 3; ++beat)
         {
-            FlowController::NoteOutcome outcome;
+            NoteOutcome outcome;
             outcome.onset_q = bar * 3.0 + beat;
             outcome.pitch = 60;
-            outcome.verdict = FlowController::NoteVerdict::Correct;
+            outcome.verdict = NoteVerdict::Correct;
             outcome.quality = 1.0;
             for (int enc = 0; enc < 3; ++enc)
                 mastered.apply(outcome);
@@ -403,11 +403,11 @@ TEST_CASE("trailing clean plays gate the guidance keyboard", "[scoreview][keyboa
     CHECK(model.onset_trailing_correct(3.0) == 0); // never played: show
 
     const auto play = [&model](double q, bool clean) {
-        FlowController::NoteOutcome outcome;
+        NoteOutcome outcome;
         outcome.onset_q = q;
         outcome.pitch = 60;
-        outcome.verdict = clean ? FlowController::NoteVerdict::Correct
-                                : FlowController::NoteVerdict::Missed;
+        outcome.verdict = clean ? NoteVerdict::Correct
+                                : NoteVerdict::Missed;
         outcome.quality = clean ? 1.0 : 0.0;
         model.apply(outcome);
     };

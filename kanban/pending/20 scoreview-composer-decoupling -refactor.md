@@ -37,14 +37,16 @@ Verovio/SDL/transport at link time.
 
 ## Phase 1 — outcome vocabulary (`note_outcomes.h`)
 
-- [ ] Move `NoteVerdict`, `NoteOutcome`, `ChordOutcome` from `flow_controller.h`
+- [x] Move `NoteVerdict`, `NoteOutcome`, `ChordOutcome` from `flow_controller.h`
       into new `include/draxul/scoreview/note_outcomes.h` as namespace-level
       types.
-- [ ] Keep compatibility aliases inside `FlowController`
+- [x] Keep compatibility aliases inside `FlowController`
       (`using NoteVerdict = scoreview::NoteVerdict;` etc.) so existing
       `FlowController::NoteVerdict` spellings in the host and tests compile
-      unchanged.
-- [ ] `player_model.h`: include `note_outcomes.h` instead of
+      unchanged. (Model-layer tests that only touched outcomes switched to the
+      namespace spellings; the one test that drives a real FlowController now
+      includes it directly.)
+- [x] `player_model.h`: include `note_outcomes.h` instead of
       `flow_controller.h`; `apply()` takes the namespace-level types. This cuts
       the model→transport include edge (today it drags `player_input.h`,
       `score_draw_list.h`, `score_timemap.h` into the composer's include graph).

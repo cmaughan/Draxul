@@ -93,7 +93,7 @@ void PlayerModel::end_session(int seconds, double tempo_frac)
     session_active_ = false;
 }
 
-void PlayerModel::apply(const FlowController::NoteOutcome& outcome)
+void PlayerModel::apply(const NoteOutcome& outcome)
 {
     ++total_notes_;
     ++session_notes_;
@@ -113,7 +113,7 @@ void PlayerModel::apply(const FlowController::NoteOutcome& outcome)
     // but must not write mastery for a bar location they don't have.
     const bool drill = outcome.onset_q <= kDrillOnsetSentinel + 1.0;
     OnsetStats* onset = drill ? nullptr : &onset_[outcome.onset_q];
-    if (outcome.verdict == FlowController::NoteVerdict::Correct)
+    if (outcome.verdict == NoteVerdict::Correct)
     {
         ++pitch.hit;
         pitch.timing.add(outcome.delta_q);
@@ -140,7 +140,7 @@ void PlayerModel::apply(const FlowController::NoteOutcome& outcome)
         const int bar = static_cast<int>(std::floor(outcome.onset_q / quarters_per_bar_));
         BarTally& tally = bar_tally_[bar];
         HandTally& hand = outcome.pitch < kHandSplitMidi ? tally.left : tally.right;
-        const bool correct = outcome.verdict == FlowController::NoteVerdict::Correct;
+        const bool correct = outcome.verdict == NoteVerdict::Correct;
         ++(correct ? tally.hit : tally.miss);
         ++(correct ? hand.hit : hand.miss);
     }
@@ -174,18 +174,18 @@ int PlayerModel::bar_encounters(int bar_index) const
     return count;
 }
 
-void PlayerModel::apply(const FlowController::ChordOutcome& outcome)
+void PlayerModel::apply(const ChordOutcome& outcome)
 {
     ChordStats& stats = chord_[chord_key(outcome.pitches)];
     switch (outcome.result)
     {
-    case FlowController::ChordOutcome::Result::Clean:
+    case ChordOutcome::Result::Clean:
         ++stats.clean;
         break;
-    case FlowController::ChordOutcome::Result::Split:
+    case ChordOutcome::Result::Split:
         ++stats.split;
         break;
-    case FlowController::ChordOutcome::Result::Miss:
+    case ChordOutcome::Result::Miss:
         ++stats.miss;
         break;
     }
