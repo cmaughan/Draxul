@@ -18,17 +18,13 @@
 #include <draxul/scoreview/window_engraver.h>
 
 #include <chrono>
-#include <filesystem>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 struct ImGuiContext;
-struct SDL_AudioStream;
 
 namespace draxul
 {
@@ -47,6 +43,7 @@ namespace scoreview
 // imported alongside for status metadata and future editing phases.
 // Without a source, a placeholder grand-staff page is drawn.
 class ScoreAudioController; // internal audio rig (src/score_audio_controller.h)
+class ScoreSessionController; // internal player-memory session (src/score_session_controller.h)
 
 class ScoreHost final : public draxul::IHost
 {
@@ -184,7 +181,6 @@ private:
     // when the session ends.
     void begin_progress_session();
     void end_progress_session();
-    void save_progress(bool final_flush);
     // Wipes this piece's learning record (player model + progress file) and
     // restarts the stream from the top — the "clear progress" button.
     void clear_piece_progress();
@@ -303,9 +299,6 @@ private:
     // drift room between those (now rare) rebuilds.
     static constexpr int kWindowAheadBars = 14;
 
-    // Piece analysis (S1): computed at flow build, cached for the composer.
-    PieceProfile piece_profile_;
-
     // The composer (S3): plans the stream program (piece bars, review
     // slices, fabricated drills) when the composer supports the source. The
     // host owns the program; the composer (an IComposer — the seam future
@@ -389,12 +382,10 @@ private:
     // adaptation (the runner won't ease the tempo from accuracy).
     bool lock_tempo_ = false;
 
-    // Player memory (S0): per-piece aggregates + the progress file.
-    PlayerModel player_model_;
-    std::filesystem::path progress_path_;
-    std::chrono::steady_clock::time_point session_start_{};
-    int last_flush_bar_ = -1;
-    bool progress_dirty_ = false;
+    // Player memory + persistence (kanban 21 ScoreSessionController): the
+    // per-piece model, progress file, session clock, flush policy, and the
+    // cached piece analysis. Internal component; never null.
+    std::unique_ptr<ScoreSessionController> session_;
 
     // The audio rig (kanban 21 ScoreAudioController): output stream,
     // metronome, audition, instrument voices, MIDI play-thru, soundfont

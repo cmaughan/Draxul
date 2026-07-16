@@ -19,6 +19,7 @@
 
 #include "nanovg.h"
 #include "score_audio_controller.h"
+#include "score_session_controller.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -160,26 +161,13 @@ void draw_placeholder(NVGcontext* vg, int width, int height, float pixel_scale)
     fill_brace(vg, left - 0.6f * sp, upper_top, system_bottom, sp);
 }
 
-std::string now_iso8601()
-{
-    const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    std::tm tm_utc{};
-#ifdef _WIN32
-    gmtime_s(&tm_utc, &t);
-#else
-    gmtime_r(&t, &tm_utc);
-#endif
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
-    return buffer;
-}
-
 } // namespace
 
 // Out of line so the unique_ptr members over internal component types
 // (ScoreAudioController) destroy where the complete type is visible.
 ScoreHost::ScoreHost()
     : audio_(std::make_unique<ScoreAudioController>())
+    , session_(std::make_unique<ScoreSessionController>())
 {
 }
 
@@ -264,22 +252,8 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
 
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
-        const std::filesystem::path progress_dir = ConfigDocument::default_path().parent_path() / "scoreview" / "progress";
-        progress_path_ = progress_path(progress_dir, bytes);
-        const std::string stored = load_progress(progress_path_);
-        if (!stored.empty() && player_model_.deserialize(stored))
-        {
-            DRAXUL_LOG_INFO(LogCategory::App,
-                "score: progress loaded — %zu session(s), %d notes, best tempo %d%%",
-                player_model_.sessions().size(), player_model_.total_notes_judged(),
-                static_cast<int>(std::lround(player_model_.best_tempo_frac() * 100.0)));
-        }
-        else if (!stored.empty())
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "score: progress file unreadable, starting fresh (%s)",
-                progress_path_.string().c_str());
-        }
+        session_->attach_source(
+            ConfigDocument::default_path().parent_path() / "scoreview" / "progress", bytes);
 
         // Default: the runner (plans/scoreview-runner.md) — the conveyor in
         // Roll mode with the dev keyboard, transport rolling from the first
@@ -606,7 +580,7 @@ void ScoreHost::relayout_flow()
     const double bar_quarters = quarters_per_measure_from_model();
     quarters_per_bar_ = bar_quarters > 0.0 ? bar_quarters : 4.0;
     piece_marking_qpm_ = flow_.marking_qpm();
-    player_model_.set_piece(has_model_ && !model_.title.empty()
+    session_->model().set_piece(has_model_ && !model_.title.empty()
             ? model_.title
             : std::filesystem::path(source_path_).filename().string(),
         flow_.marking_qpm(), quarters_per_bar_);
@@ -636,7 +610,7 @@ void ScoreHost::relayout_flow()
         composing_ = composer_enabled_ && stream_windowed_ && composer_->supports(slicer_);
         if (composing_)
         {
-            composer_->configure(&slicer_, &player_model_, &piece_profile_);
+            composer_->configure(&slicer_, &session_->model(), &session_->piece_profile());
             reset_stream_plan();
         }
 
@@ -670,22 +644,8 @@ void ScoreHost::relayout_flow()
                 }
             }
         }
-        piece_profile_ = analyze_piece(analysis_onsets, quarters_per_bar_, notated_fifths);
-        DRAXUL_LOG_INFO(LogCategory::App,
-            "score: analysis — key %s (%.2f), %zu chord(s), %zu motif(s), %zu figure(s)",
-            key_name(piece_profile_.global_key.tonic_pc, piece_profile_.global_key.minor)
-                .c_str(),
-            piece_profile_.global_key.confidence, piece_profile_.chords.size(),
-            piece_profile_.motifs.size(), piece_profile_.figures.size());
-        if (!progress_path_.empty())
-        {
-            std::filesystem::path analysis_path = progress_path_;
-            analysis_path.replace_extension(".analysis.json");
-            std::string save_error;
-            if (!save_progress_atomic(analysis_path, piece_profile_.serialize(), save_error))
-                DRAXUL_LOG_WARN(
-                    LogCategory::App, "score: analysis dump failed: %s", save_error.c_str());
-        }
+        session_->set_piece_profile(
+            analyze_piece(analysis_onsets, quarters_per_bar_, notated_fifths));
         if (start_in_gate_)
         {
             start_in_gate_ = false;
@@ -1344,52 +1304,26 @@ double ScoreHost::quarters_per_measure_from_model() const
 
 void ScoreHost::begin_progress_session()
 {
-    if (progress_path_.empty() || player_model_.session_active())
+    if (!session_->begin_session())
         return;
-    player_model_.begin_session(now_iso8601());
-    session_start_ = std::chrono::steady_clock::now();
     // Resume at yesterday's pace: the stored tempo informs the start, still
     // clamped to the marking band. Fresh pieces keep the 60% default. The
     // tempo lock overrides this — it holds the marking regardless.
-    if (!lock_tempo_ && player_model_.last_tempo_frac() > 0.0 && flow_.ready())
-        flow_.set_tempo_qpm(flow_.marking_qpm() * player_model_.last_tempo_frac());
+    if (!lock_tempo_ && session_->model().last_tempo_frac() > 0.0 && flow_.ready())
+        flow_.set_tempo_qpm(flow_.marking_qpm() * session_->model().last_tempo_frac());
 }
 
 void ScoreHost::end_progress_session()
 {
-    if (!player_model_.session_active())
-        return;
-    const int seconds = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::steady_clock::now() - session_start_)
-            .count());
-    player_model_.end_session(
-        seconds, flow_.marking_qpm() > 0.0 ? flow_.tempo_qpm() / flow_.marking_qpm() : 0.0);
-    save_progress(/*final_flush=*/true);
-}
-
-void ScoreHost::save_progress(bool final_flush)
-{
-    if (progress_path_.empty())
-        return;
-    std::string error;
-    if (!save_progress_atomic(progress_path_, player_model_.serialize(), error))
-    {
-        DRAXUL_LOG_WARN(LogCategory::App, "score: progress save failed: %s", error.c_str());
-        return;
-    }
-    progress_dirty_ = false;
-    if (final_flush)
-    {
-        DRAXUL_LOG_INFO(LogCategory::App, "score: progress saved — %d notes total, %s",
-            player_model_.total_notes_judged(), progress_path_.string().c_str());
-    }
+    session_->end_session(
+        flow_.marking_qpm() > 0.0 ? flow_.tempo_qpm() / flow_.marking_qpm() : 0.0);
 }
 
 void ScoreHost::clear_piece_progress()
 {
-    player_model_.clear_progress();
+    session_->clear_progress();
     begin_progress_session(); // session_active_ is false after clear — starts fresh
-    save_progress(/*final_flush=*/false); // overwrite the file with the cleared model
+    session_->save(/*final_flush=*/false); // overwrite the file with the cleared model
     // Restart the stream from the top so the composer re-plans against a blank
     // slate. A cleared record is the one restart that RESETS the tempo — a
     // fresh learner starts at the 60% ramp again.
@@ -1482,22 +1416,17 @@ void ScoreHost::pump()
                 {
                     outcome.onset_q = stream_q;
                 }
-                player_model_.apply(outcome);
-                progress_dirty_ = true;
+                session_->model().apply(outcome);
+                session_->mark_dirty();
             }
             for (FlowController::ChordOutcome outcome : flow_.take_chord_outcomes())
             {
                 outcome.onset_q += stream_offset_q_;
-                player_model_.apply(outcome);
-                progress_dirty_ = true;
+                session_->model().apply(outcome);
+                session_->mark_dirty();
             }
-            const int bar = static_cast<int>(stream_position_q() / quarters_per_bar_);
-            if (bar != last_flush_bar_)
-            {
-                last_flush_bar_ = bar;
-                if (progress_dirty_)
-                    save_progress(/*final_flush=*/false);
-            }
+            session_->flush_at_bar(
+                static_cast<int>(stream_position_q() / quarters_per_bar_));
             maybe_advance_stream();
 
             // Periodic + final INFO lines feed the G4 log-based verification.
@@ -1650,11 +1579,11 @@ void ScoreHost::draw(IFrameContext& frame)
                     const StreamProgram::SourceRef ref = stream_program_.source_at(stream_q);
                     drill = ref.drill;
                     if (!ref.drill)
-                        trailing = player_model_.onset_trailing_correct(ref.source_q);
+                        trailing = session_->model().onset_trailing_correct(ref.source_q);
                 }
                 else
                 {
-                    trailing = player_model_.onset_trailing_correct(stream_q);
+                    trailing = session_->model().onset_trailing_correct(stream_q);
                 }
                 const float need = drill
                     ? 1.0f
@@ -2192,7 +2121,7 @@ void ScoreHost::render_debug_ui(float dt)
                     composing_ = composer_enabled_ && stream_windowed_
                         && composer_->supports(slicer_);
                     if (composing_)
-                        composer_->configure(&slicer_, &player_model_, &piece_profile_);
+                        composer_->configure(&slicer_, &session_->model(), &session_->piece_profile());
                     restart_stream(/*keep_tempo=*/true);
                 }
                 // Switching the preset drops any debug overrides — the point
@@ -2306,12 +2235,12 @@ void ScoreHost::render_debug_ui(float dt)
                 ImGui::Text("score %d   streak %d", flow_.score(), flow_.streak());
                 ImGui::Text(
                     "misses %d   wrong notes %d", flow_.miss_count(), flow_.wrong_count());
-                ImGui::Text("notes judged (lifetime) %d", player_model_.total_notes_judged());
+                ImGui::Text("notes judged (lifetime) %d", session_->model().total_notes_judged());
                 ImGui::Text("key %s (conf %.2f)   %zu chords, %zu figures",
-                    key_name(piece_profile_.global_key.tonic_pc, piece_profile_.global_key.minor)
+                    key_name(session_->piece_profile().global_key.tonic_pc, session_->piece_profile().global_key.minor)
                         .c_str(),
-                    piece_profile_.global_key.confidence, piece_profile_.chords.size(),
-                    piece_profile_.figures.size());
+                    session_->piece_profile().global_key.confidence, session_->piece_profile().chords.size(),
+                    session_->piece_profile().figures.size());
                 if (ImGui::Button("Clear progress + restart"))
                     clear_piece_progress();
                 ImGui::SameLine();
@@ -2322,7 +2251,7 @@ void ScoreHost::render_debug_ui(float dt)
             {
                 double sum = 0.0;
                 int n = 0;
-                for (const auto& [q, s] : player_model_.onset_stats())
+                for (const auto& [q, s] : session_->model().onset_stats())
                 {
                     sum += s.timing.mean_q * s.timing.samples;
                     n += s.timing.samples;
@@ -2336,7 +2265,7 @@ void ScoreHost::render_debug_ui(float dt)
                     double absmean, q, mean;
                 };
                 std::vector<Drift> drift;
-                for (const auto& [q, s] : player_model_.onset_stats())
+                for (const auto& [q, s] : session_->model().onset_stats())
                     if (s.timing.samples >= 2)
                         drift.push_back({ std::abs(s.timing.mean_q), q, s.timing.mean_q });
                 std::sort(drift.begin(), drift.end(),
@@ -2355,7 +2284,7 @@ void ScoreHost::render_debug_ui(float dt)
                 if (ImGui::TreeNodeEx("Bars", ImGuiTreeNodeFlags_DefaultOpen))
                 {
                     std::vector<std::pair<int, int>> bars; // wrong, bar
-                    for (const auto& [bar, t] : player_model_.bar_tally())
+                    for (const auto& [bar, t] : session_->model().bar_tally())
                         if (t.miss > 0 || t.hit > 0)
                             bars.emplace_back(t.miss, bar);
                     std::sort(bars.rbegin(), bars.rend());
@@ -2364,7 +2293,7 @@ void ScoreHost::render_debug_ui(float dt)
                     for (size_t i = 0; i < bars.size() && i < 16; ++i)
                     {
                         const int bar = bars[i].second;
-                        const PlayerModel::BarTally& t = player_model_.bar_tally().at(bar);
+                        const PlayerModel::BarTally& t = session_->model().bar_tally().at(bar);
                         if (ImGui::TreeNode(reinterpret_cast<void*>(static_cast<intptr_t>(bar)),
                                 "bar %d    %d ok / %d wrong", bar + 1, t.hit, t.miss))
                         {
@@ -2381,7 +2310,7 @@ void ScoreHost::render_debug_ui(float dt)
                 if (ImGui::TreeNode("Chords (net trouble)"))
                 {
                     std::vector<std::pair<int, std::string>> chords;
-                    for (const auto& [key, s] : player_model_.chord_stats())
+                    for (const auto& [key, s] : session_->model().chord_stats())
                     {
                         const int trouble = s.miss + s.split - s.clean;
                         if (trouble > 0)
@@ -2398,7 +2327,7 @@ void ScoreHost::render_debug_ui(float dt)
                 if (ImGui::TreeNode("Pitches (missed)"))
                 {
                     std::vector<std::pair<int, int>> pitches; // miss, midi
-                    for (const auto& [midi, s] : player_model_.pitch_stats())
+                    for (const auto& [midi, s] : session_->model().pitch_stats())
                         if (s.miss > 0)
                             pitches.emplace_back(s.miss, midi);
                     std::sort(pitches.rbegin(), pitches.rend());
@@ -2435,10 +2364,10 @@ void ScoreHost::render_debug_ui(float dt)
                 int encountered = 0;
                 int mastered = 0;
                 for (int b = 0; b < total; ++b)
-                    if (player_model_.bar_encounters(b) > 0)
+                    if (session_->model().bar_encounters(b) > 0)
                     {
                         ++encountered;
-                        if (player_model_.bar_mastery(b) >= 0.7)
+                        if (session_->model().bar_mastery(b) >= 0.7)
                             ++mastered;
                     }
                 ImGui::Text("%d/%d bars encountered, %d mastered (>=70%%)", encountered, total,
