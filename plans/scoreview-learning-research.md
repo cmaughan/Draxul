@@ -200,10 +200,55 @@ This is the most nuanced area; the evidence genuinely splits.
   regions — the two approaches are neurally distinct, not interchangeable.
   ([PMC4141721](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4141721/)) **[P/?]**
 
-### Gaps in the evidence pulled here
-- **Hands-separate vs. hands-together** and **backward chaining** are staples of piano pedagogy but did
-  *not* surface with strong empirical backing in this source set. They remain reasonable conventions,
-  not verified findings — flagged for a dedicated follow-up search.
+### Hands-separate vs. hands-together (pass-2 dedicated search)
+The honest answer: **there is almost no direct experimental test in *piano*** — the standard
+hands-separate-first ("part-whole") method is the acknowledged incumbent but rests on qualitative
+pedagogy, not data ([Frontiers 2023, 14:1124508](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2023.1124508/full), which itself says "empirical evidence is needed"). **[P]**
+What the motor-learning literature *does* establish:
+- **Motor-sequence learning is effector-specific.** Piano finger-speed gains transferred within the
+  trained hand but **not** to the untrained hand (inter-manual F(1,10)=0.3, p=0.60; intra > inter,
+  F(1,10)=6.5, p=0.03). Training one hand does not raise the other. ([BMC Neurosci 2013, 14:133](https://link.springer.com/article/10.1186/1471-2202-14-133)) **[V]**
+- **Two-hand sequences are stored as an integrated whole, not two glued-together parts.** With no
+  cues there was *no* significant transfer between unimanual and bimanual finger sequences either
+  direction (uni→bi F(2,14)=0.27, P=0.77); even with explicit cues, transfer stayed ~10% (vs >50% for
+  force-field learning). First-day gains were larger unimanual (54%) than bimanual (27%), and bimanual
+  baselines were 2× slower. ([PMC10224868](https://pmc.ncbi.nlm.nih.gov/articles/PMC10224868/)) **[P]**
+- **Learned key/chord skill is bound to the hand posture used** — practised chords slowed 566→658 ms
+  when the hand configuration changed (F(1,30)=36.91, p<.001, ηp²=0.55); skill is stored as hand
+  postures, and bimanual practice builds *separate per-hand postures executed simultaneously*.
+  Splitting keys across two hands also *reduces* inter-finger interference (505 vs 621 ms).
+  ([PMC5338615](https://pmc.ncbi.nlm.nih.gov/articles/PMC5338615/)) **[P]**
+- **Counter-current — the *coordination pattern* can transfer.** For a learned 90° bimanual rhythmic
+  coordination, training transferred between one- and two-hand configurations (equal once scaled by
+  intrinsic stability), because learning a coordination is "primarily perceptual." ([PMID 25929551](https://www.ncbi.nlm.nih.gov/pubmed/25929551)) **[P]**
+- **Reconciled reading:** hands-separate is useful for *building each hand's execution and posture*
+  and for *lowering load* on hard passages — but the *sequence-specific memory and the between-hand
+  integration/timing do not come for free from separate practice* and must be trained hands-together.
+  This matches the whole/part rule (Part 2, above): the two hands of an interdependent passage are
+  "high-organization" → practise the integration whole.
+
+### Backward chaining & segment ordering (pass-2 dedicated search)
+Backward chaining (learn the last segment first, add earlier ones) is popular piano-teaching folklore
+("you're always playing *into* familiar territory"). The evidence does **not** support it as a
+proficiency win:
+- **Origin is behavior-analytic (ABA)**, for teaching multi-step *functional* tasks (dressing,
+  tooth-brushing) to people with developmental disabilities — **no music/keyboard application**, and
+  the canonical comparison (Slocum & Tiger 2011, *JABA* 44(4):793–805) plus the ABA consensus find
+  **no conclusive advantage** over forward chaining; both are "effective." ([ABA overview](https://en.wikipedia.org/wiki/Backward_chaining_(applied_behavior_analysis))) **[P]**
+- **The one direct keyboard experiment** (N=36, 9-key discrete-sequence task, immediate + 1-week
+  retention) found **no** significant speed difference between backward / forward / whole-task
+  (F(2,33)=1.85, p=.17; means numerically *favoured* whole-task 300 ms & forward 330 ms over backward
+  350 ms) — and backward chaining was **significantly more error-prone after a week** at two key
+  locations (F(2,33)=5.05, p=.012, ηp²=.23; and p=.009, ηp²=.25). The authors: backward chaining
+  *distorts the natural serial order*, adding a reassembly cost. ([Utwente thesis 2022](https://essay.utwente.nl/87692/1/Schneider_BA_BMS.pdf); corroborated by Watters 1990/1992 keying-sequence work) **[P]**
+- **Where backward *did* win**, it was only *acquisition speed* on a novel assembly task with **no
+  retention benefit** (Am J Occup Ther 1978); and on the *hardest* assembly chains, **forward** was
+  more efficient (~20-trial gap) — difficulty/novelty drove the difference, not a general backward
+  advantage. ([PMID 676946](https://pubmed.ncbi.nlm.nih.gov/676946/); Lego/chess ABA study, [Northeastern](https://repository.library.northeastern.edu/files/neu:513/fulltext.pdf)) **[P]**
+- **Reading:** don't default the runner to end-first sequencing. Forward or whole-phrase practice with
+  *difficulty-first isolation* of hard spots is at least as good and less error-prone. Backward
+  chaining's only defensible niche is motivational/confidence ("always finishing on solid ground"),
+  which is not an accuracy or speed win in the data.
 
 ---
 
@@ -226,21 +271,25 @@ This is the most nuanced area; the evidence genuinely splits.
 
 ## Part 4 — Feedback & adaptive software (direct evidence for ScoreView)
 
-- **Augmented feedback works, with a large effect.** An AI practice app giving real-time error
-  detection + automated scoring beat traditional practice by **d = 1.01** (+3.1 points), and raised
-  self-efficacy (time×group η²p = 0.349). It scaffolded a full self-regulated-learning loop:
-  forethought/goal-setting → real-time monitoring → self-reflection.
-  ([Frontiers in Psychology 2025](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2025.1675762/full)) **[P]**
-- **Visual > audio feedback for technique.** Trial-by-trial *visual* feedback of movement discrepancy
-  vs. an expert significantly improved key-movement similarity (Δ 0.141, CI above zero); **audio-only
-  feedback did not** (Δ 0.038, CI includes zero). Visual feedback also drove more motor *exploration*
-  (the proposed mechanism for breaking plateaus), and blind listeners heard the difference (53.2% vs.
-  44.0% judged closer to target). Caveat: frequent/simple feedback can be *useless or harmful* for
-  experts — feedback must add information the player can't already perceive.
-  ([bioRxiv 2025](https://www.biorxiv.org/content/10.1101/2025.10.23.683818.full.pdf)) **[P]**
-- **Give the target model up front.** Hearing a correct model of the melody *before* practising
-  produced larger gains both during training and across the overnight retention interval — a cheap,
-  high-leverage move (10 reps at fixed tempo before hands-on, n = 32). **[P]**
+- **Augmented feedback works, with a large effect — but the headline study is on violinists.** A
+  4-month quasi-experiment on the commercial AI app *Violy* (real-time error detection + automated
+  scoring) beat traditional practice by **d = 1.01** (+3.1 pts, 95% CI [1.62, 4.58], F(1,72.2)=17.35,
+  p<.001) and raised self-efficacy (Group×Time η²p = 0.349, F(1,38)=20.38, p<.001), scaffolding a full
+  self-regulated-learning loop (forethought → real-time monitoring → self-reflection). **Caveats:**
+  N = 40 **violinists** (not pianists), non-randomised; *Violy* does also support piano, so the
+  platform type transfers even if the sample doesn't. ([Frontiers in Psychology 2025](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2025.1675762/full)) **[P]**
+- **Visual > audio feedback for technique** (verified in direction by pass 2). Trial-by-trial *visual*
+  feedback of movement discrepancy vs. a prize-winning expert let trained pianists refine performance
+  where **conventional auditory learning did not**; it induced richer *movement exploration* (the
+  proposed plateau-breaking mechanism) and produced perceptible sound-quality gains judged by expert
+  pianists. (Pass-1 extraction gave the magnitudes: visual Δ≈0.141 with CI above zero vs. audio
+  Δ≈0.038 with CI spanning zero; blind listeners 53.2% vs 44.0% judged closer to target.) **Caveat:**
+  frequent/simple feedback can be *useless or harmful* for experts — feedback must add information the
+  player can't already perceive. ([bioRxiv 2025, 683818](https://www.biorxiv.org/content/10.1101/2025.10.23.683818v1.full)) **[P]**
+- **Give the target model up front** (corroborated by pass 2). Musicians who heard a correct auditory
+  model of the melody *before* practising made significantly larger gains **both** during training and
+  across the overnight interval than a no-model control — a cheap, high-leverage move (10 reps at fixed
+  tempo before hands-on, n ≈ 32). ([JRME, doi 0022429413520409](https://journals.sagepub.com/doi/abs/10.1177/0022429413520409)) **[P]**
 - **Adaptive task selection is being done with RL.** A Deep Q-Network agent that ingests
   multi-dimensional performance metrics (technical proficiency, expressiveness, sight-reading,
   interpretation) to pick next tasks + personalize feedback is a concrete design pattern.
@@ -280,6 +329,15 @@ This is the most nuanced area; the evidence genuinely splits.
    locations) — an RL/bandit selector fits the "endless runner" framing.
 10. **Beware the fluency trap.** Users will *prefer* easy blocked repetition that feels fluent but
     retains poorly. The runner should sometimes make them do the harder-but-better thing.
+11. **Hands-separate is a load-reducer, not a substitute for integration.** Offer hands-alone practice
+    to build each hand's posture/speed and to de-load hard passages — but because learning is
+    effector-specific and two-hand skill is stored as an integrated whole, *require* hands-together
+    reps to train the coordination/timing. Don't mark a passage mastered on hands-separate evidence
+    alone. Track per-hand *and* combined accuracy separately.
+12. **Sequence chunks forward / whole-phrase, not backward.** The evidence contradicts backward
+    chaining for keyboard (more error-prone after consolidation). Default to forward or whole-phrase
+    practice with **difficulty-first isolation** of the hard spots; reserve any end-first ordering for
+    optional motivational "finish strong" framing, not as the core learning path.
 
 ---
 
