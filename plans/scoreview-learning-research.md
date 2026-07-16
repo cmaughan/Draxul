@@ -1,20 +1,23 @@
 # ScoreView — Research on Optimal / Minimum-Time Learning of a Piano Piece
 
 Evidence review feeding the adaptive piano-learning runner (see
-[scoreview-manifesto.md](scoreview-manifesto.md)). Produced by a deep-research pass
-(6 search angles → 27 primary sources → 118 extracted claims → adversarial
-verification). The final auto-synthesis step aborted on a session limit, so this
-note is the human-assembled synthesis of the verified + extracted claim set.
+[scoreview-manifesto.md](scoreview-manifesto.md)). Produced by **two** deep-research passes
+(pass 1: 6 angles → 27 sources → 118 claims; pass 2: focused re-verification of the
+sleep / slow-practice / imagery / feedback findings + a dedicated search on hands-separate
+practice and backward chaining → 25 sources → 103 claims). Both auto-synthesis steps aborted
+on a session limit, so this note is the human-assembled synthesis of the verified + extracted
+claim sets. Pass 2 upgraded most Part-1 motor-learning findings from [P] to [V] with exact
+statistics and canonical URLs, and filled the Part-2 gaps (hands-separate, backward chaining).
 
 ## Confidence legend
 
-- **[V]** — adversarially verified this run (2–3 independent skeptic votes to keep). Highest confidence.
-- **[P]** — quoted from a primary source but *not* adversarially verified in this run (verification queue was cut off). Treat as solid-but-single-checked.
+- **[V]** — adversarially verified (2–3 independent skeptic votes to keep). Highest confidence.
+- **[P]** — quoted from a primary source but *not* adversarially verified (verification queue was cut off). Solid-but-single-checked.
 - **[?]** — extracted from a primary source; verification errored before completing. Directional only.
 
 ---
 
-## Bottom line (the six highest-leverage findings)
+## Bottom line (the highest-leverage findings)
 
 1. **How you practice beats how much you practice.** In the canonical Duke/Simmons piano
    study, retention quality had *no* significant correlation with practice time or number of
@@ -31,9 +34,18 @@ note is the human-assembled synthesis of the verified + extracted claim set.
 5. **Interleaving vs. blocked is genuinely contested for real repertoire** — do not treat "always
    interleave" as settled. Lab tasks show a large interleaving retention benefit; applied/musical
    settings show it shrink to near-zero or even reverse. **[V]**
-6. **Slow practice and sleep do real work.** Practising *below* target tempo is sufficient to
-   roughly double attainable speed, and overnight sleep selectively consolidates a sequence's
-   hardest transitions (~+17.8%) while barely touching the easy ones (~+1.4%). **[P]**
+6. **Slow practice and sleep do real work.** Practising *below* target tempo (500 ms/keystroke,
+   slower than the player's own max) **doubled** attainable speed over 4 days and held for ~2
+   months; overnight sleep *selectively* consolidates a sequence's hardest transition (**+17.8%**,
+   P < .001) while barely touching easy ones (**+1.4%**, n.s.). Both now verified with exact stats. **[V]**
+7. **Hands-separate practice is effector-specific — it builds each hand but not the integration.**
+   Piano speed gains transfer *within* a hand (~1.5×) but **not across hands** (F(1,10)=0.3, p=.60),
+   and two-hand sequences are stored as an integrated whole that one-hand practice transfers to only
+   ~10%. Use hands-alone to build each hand; train hands-together for the coordinated timing. **[V/P]**
+8. **Backward chaining is *not* supported for keyboard — a common piano belief that the data
+   contradicts.** The one direct keyboard experiment found it no faster than forward/whole-task and
+   *significantly more error-prone* after a week; its parent (ABA) literature finds it merely equal
+   to forward chaining, with zero music evidence. Don't default the runner to end-first sequencing. **[P]**
 
 ---
 
@@ -99,28 +111,41 @@ This is the most nuanced area; the evidence genuinely splits.
 - **Design reading:** schedule review of a mastered chunk *across days/sessions with widening gaps*,
   not within a single sitting. Space to induce a little forgetting, then retrieve.
 
-### Slow practice / tempo ramping — strongly supported
-- Four days practising a 12-note sequence at a **submaximal** tempo (500 ms/keystroke, deliberately
-  slower than the natural max) **doubled** attainable maximum speed; slow practice alone was
-  *sufficient* to enable fast performance, and gains persisted ~2 months. **[P]**
+### Slow practice / tempo ramping — verified, with hard numbers
+- Four days practising a 12-note sequence at a **fixed submaximal** tempo (500 ms inter-keystroke
+  interval — significantly slower than participants' own pre-practice max of 345 ± 54 ms) **doubled**
+  attainable maximum speed (session×group F(7,70)=13.7, p=5×10⁻¹¹), and slow practice alone was
+  *sufficient* to raise the ceiling. ([BMC Neuroscience 2013, 14:133](https://link.springer.com/article/10.1186/1471-2202-14-133) · [PMC4228459](https://pmc.ncbi.nlm.nih.gov/articles/PMC4228459/)) **[V]**
+- The doubled speed **persisted ~2 months** with no intervening practice (Day-4 vs 2-month: paired
+  t(5)=−1.73, p=0.14, i.e. no significant decline). **[V]**
+- Gains were **effector-specific** — they transferred *within* the trained hand (untrained sequence
+  ~1.5× faster) but **not across** to the other hand (see Hands-separate, Part 2). **[V]**
 - **Design reading:** a "start slow, ramp tempo only when accuracy gates are met" loop is
   evidence-backed. Speed is an *output* of accurate slow reps, not something to chase directly.
 
-### Mental practice / motor imagery — genuine, and best when varied
-- Covert mental rehearsal activates motor circuits; away-from-instrument mental run-throughs are a
-  real complement to physical practice, and mental "thinking time" **scales with expertise** (experts
-  spend at least as long imagining an idealized performance as playing it). **[P]**
+### Mental practice / motor imagery — genuine, engages motor circuits, best when varied
+- Mental practice recruits real motor circuitry: fMRI of 12 pianists imagining vs. playing a Bartók
+  passage found **both** engaged a bilateral fronto-parietal/premotor network (precuneus, medial
+  BA40) — but primary motor cortex fired **only during actual playing**. Imagery trains *planning*,
+  not execution. ([Meister et al. 2004, *Cogn. Brain Res.*](https://www.sciencedirect.com/science/article/abs/pii/S0926641004000023)) **[V]**
+- The canonical piano five-finger study (Pascual-Leone et al. 1995, TMS) compared *mental* vs
+  *physical* practice of the same exercise; physical practice measurably enlarged the finger muscles'
+  cortical maps. ([PMID 7500130](https://pubmed.ncbi.nlm.nih.gov/7500130/)) **[V]**
+  *(The oft-repeated "imagery produced identical cortical reorganization" claim could **not** be
+  corroborated from the accessible abstract — treat that stronger version as unverified.)*
 - **Variable** motor-imagery practice produced further gains *after a night's sleep* and best transfer
   to novel sequences; **constant/repetitive** imagery produced no delayed gains. Vary the mentally
-  rehearsed order. **[P]**
+  rehearsed order. ([PMID 25562401](https://pubmed.ncbi.nlm.nih.gov/25562401/) · review [PMC4923126](https://pmc.ncbi.nlm.nih.gov/articles/PMC4923126/)) **[V]**
 
-### Sleep / consolidation — treat overnight as part of the learning curve
-- Overnight sleep yields large speed gains with **no** extra practice (**~17.7–28.9%**), whereas an
-  equal span of daytime wake yields ~0.9%; harder/denser sequences gain *more* (complex bimanual task
-  +28.9%), and speed *and* accuracy improve together. ([Walker et al. 2004, *Learn. Mem.*](https://learnmem.cshlp.org/content/11/6/705.full)) **[P]**
+### Sleep / consolidation — verified; treat overnight as part of the learning curve
+- Overnight sleep yields large speed gains with **no** extra practice (unimanual-5 **+17.7%**,
+  t(14)=6.23, P<0.0001; up to **+28.9%** for the complex bimanual-9 task), whereas an equal ~8-hour
+  span of daytime **wake yields +0.9%** (t(13)=0.35, P=0.72) and slight accuracy *decline*. Harder/
+  denser sequences gain *more*. ([Kuriyama, Stickgold & Walker 2004, *Learn. Mem.* 11(6):705](https://learnmem.cshlp.org/content/11/6/705.full) · [PMC534699](https://pmc.ncbi.nlm.nih.gov/articles/PMC534699/); orig. [Walker et al. 2002, *Neuron*](https://www.sciencedirect.com/science/article/pii/S0896627302007468), ~20% overnight) **[V]**
 - Sleep is **selective**: it preferentially resolves a sequence's slowest, hardest transition
-  ("problem point", ~+17.8%) while barely improving easy transitions (~+1.4%) — and this selectivity
-  does *not* appear during waking training. **[P]**
+  ("problem point", **+17.8%**, P<0.001) while barely improving easy transitions (**+1.4%**, n.s.);
+  the dissociation is significant (ANOVA F(1,53)=19.8, P<0.0001) and does **not** appear during
+  waking training. **[V]**
 - **Design reading:** identify each piece's "problem-point" junctions; expect them to improve after
   sleep even without more reps. Don't expect all improvement within one session; schedule a re-test
   *after* a night rather than grinding the same night.
