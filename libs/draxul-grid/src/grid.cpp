@@ -13,108 +13,6 @@ namespace draxul
 namespace
 {
 
-bool is_utf8_continuation_byte(uint8_t byte)
-{
-    return (byte & 0xC0) == 0x80;
-}
-
-bool utf8_next_codepoint_two_byte(const uint8_t* bytes, size_t offset, size_t remaining, size_t& next_offset)
-{
-    if (remaining < 2)
-        return false;
-    if (const uint8_t lead = bytes[offset];
-        lead < 0xC2 || lead > 0xDF || !is_utf8_continuation_byte(bytes[offset + 1]))
-        return false;
-    next_offset = offset + 2;
-    return true;
-}
-
-bool utf8_next_codepoint_three_byte(const uint8_t* bytes, size_t offset, size_t remaining, size_t& next_offset)
-{
-    if (remaining < 3)
-        return false;
-
-    const uint8_t lead = bytes[offset];
-    const uint8_t b1 = bytes[offset + 1];
-    const uint8_t b2 = bytes[offset + 2];
-    if (const bool valid = (lead == 0xE0 && b1 >= 0xA0 && b1 <= 0xBF && is_utf8_continuation_byte(b2))
-            || ((lead >= 0xE1 && lead <= 0xEC) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2))
-            || (lead == 0xED && b1 >= 0x80 && b1 <= 0x9F && is_utf8_continuation_byte(b2))
-            || ((lead >= 0xEE && lead <= 0xEF) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2));
-        !valid)
-        return false;
-
-    next_offset = offset + 3;
-    return true;
-}
-
-bool utf8_next_codepoint_four_byte(const uint8_t* bytes, size_t offset, size_t remaining, size_t& next_offset)
-{
-    if (remaining < 4)
-        return false;
-
-    const uint8_t lead = bytes[offset];
-    const uint8_t b1 = bytes[offset + 1];
-    const uint8_t b2 = bytes[offset + 2];
-    const uint8_t b3 = bytes[offset + 3];
-    if (const bool valid = (lead == 0xF0 && b1 >= 0x90 && b1 <= 0xBF && is_utf8_continuation_byte(b2)
-                               && is_utf8_continuation_byte(b3))
-            || ((lead >= 0xF1 && lead <= 0xF3) && is_utf8_continuation_byte(b1) && is_utf8_continuation_byte(b2)
-                && is_utf8_continuation_byte(b3))
-            || (lead == 0xF4 && b1 >= 0x80 && b1 <= 0x8F && is_utf8_continuation_byte(b2)
-                && is_utf8_continuation_byte(b3));
-        !valid)
-        return false;
-
-    next_offset = offset + 4;
-    return true;
-}
-
-bool utf8_next_codepoint(std::string_view text, size_t offset, size_t limit, size_t& next_offset)
-{
-    if (offset >= limit)
-        return false;
-
-    const auto* bytes = reinterpret_cast<const uint8_t*>(text.data());
-    const uint8_t lead = bytes[offset];
-    const size_t remaining = limit - offset;
-
-    if (lead < 0x80)
-    {
-        next_offset = offset + 1;
-        return true;
-    }
-
-    if (utf8_next_codepoint_two_byte(bytes, offset, remaining, next_offset))
-        return true;
-
-    if (utf8_next_codepoint_three_byte(bytes, offset, remaining, next_offset))
-        return true;
-
-    if (utf8_next_codepoint_four_byte(bytes, offset, remaining, next_offset))
-        return true;
-
-    return false;
-}
-
-size_t utf8_valid_prefix_length(std::string_view text, size_t max_len)
-{
-    const size_t limit = std::min(text.size(), max_len);
-    size_t offset = 0;
-    size_t valid = 0;
-
-    while (offset < limit)
-    {
-        size_t next = offset;
-        if (!utf8_next_codepoint(text, offset, limit, next))
-            break;
-        offset = next;
-        valid = next;
-    }
-
-    return valid;
-}
-
 Cell make_blank_cell()
 {
     Cell c;
@@ -267,7 +165,7 @@ void CellText::assign(std::string_view sv)
         DRAXUL_LOG_WARN(LogCategory::App, "CellText: cluster truncated from %zu to %d bytes",
             sv.size(), static_cast<int>(kMaxLen));
     const size_t valid_len = sv.size() > static_cast<size_t>(kMaxLen)
-        ? utf8_valid_prefix_length(sv, static_cast<size_t>(kMaxLen))
+        ? utf8_validated_prefix_length(sv, static_cast<size_t>(kMaxLen))
         : sv.size();
     len = static_cast<uint8_t>(valid_len);
     std::memcpy(data.data(), sv.data(), valid_len);

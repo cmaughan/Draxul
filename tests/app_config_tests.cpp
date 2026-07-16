@@ -12,6 +12,7 @@
 #include <draxul/text_service.h>
 
 #include <catch2/catch_all.hpp>
+#include <array>
 #include <draxul/log.h>
 #include <fstream>
 
@@ -1184,4 +1185,151 @@ TEST_CASE("app config scrollback_lines parses clamps and round-trips", "[config]
     original.scrollback_lines = 321;
     AppConfig round_tripped = AppConfig::parse(original.serialize());
     REQUIRE(round_tripped.scrollback_lines == 321);
+}
+
+TEST_CASE("checked config parsing reports source and line without substituting defaults", "[config][reload]")
+{
+    auto result = parse_app_config_checked(
+        "window_width = 1400\n[terminal]\nfg = \"#ffffff\n",
+        "test-config.toml");
+    REQUIRE_FALSE(result);
+    CHECK(result.error().kind == ErrorKind::ConfigParseFailed);
+    CHECK(result.error().message.find("test-config.toml") != std::string::npos);
+    CHECK(result.error().message.find("line 3") != std::string::npos);
+}
+
+TEST_CASE("app config complete schema round-trips every scalar and nested table", "[config][schema]")
+{
+    AppConfig original;
+    original.window_width = 1777;
+    original.window_height = 999;
+    original.font_size = 17.5f;
+    original.atlas_size = 4096;
+    original.enable_ligatures = false;
+    original.smooth_scroll = false;
+    original.scroll_speed = 2.75f;
+    original.scrollback_lines = 4321;
+    original.font_path = "/fonts/regular.ttf";
+    original.bold_font_path = "/fonts/bold.ttf";
+    original.italic_font_path = "/fonts/italic.ttf";
+    original.bold_italic_font_path = "/fonts/bold-italic.ttf";
+    original.fallback_paths = { "/fonts/emoji.ttf", "/fonts/cjk.ttf" };
+    original.palette_bg_alpha = 0.42f;
+    original.focus_border_width = 7.0f;
+    original.enable_toast_notifications = false;
+    original.toast_duration_s = 9.5f;
+    original.show_pane_status = false;
+    original.chord_timeout_ms = 1234;
+    original.chord_indicator_fade_ms = 2345;
+    original.weather_location = "York, UK";
+    original.terminal.fg = "#102030";
+    original.terminal.bg = "#405060";
+    original.terminal.selection_max_cells = 12345;
+    original.terminal.copy_on_select = false;
+    original.terminal.paste_confirm_lines = 12;
+    original.terminal.url_detection = false;
+    original.terminal.enable_osc8_hyperlinks = false;
+    original.terminal.enable_shell_integration_marks = false;
+    original.markdown.font_size = 15.5f;
+    original.markdown.margin_columns = 4.5f;
+
+    using ChromeMember = Color ChromeTheme::*;
+    const std::array<ChromeMember, 20> chrome_members = {
+        &ChromeTheme::tab_bar_bg,
+        &ChromeTheme::tab_active_fg,
+        &ChromeTheme::tab_inactive_fg,
+        &ChromeTheme::tab_active_bg,
+        &ChromeTheme::tab_inactive_bg,
+        &ChromeTheme::tab_editing_bg,
+        &ChromeTheme::divider,
+        &ChromeTheme::focus_border,
+        &ChromeTheme::status_bar_bg,
+        &ChromeTheme::status_bar_fg,
+        &ChromeTheme::status_focused_accent_bg,
+        &ChromeTheme::status_inactive_accent_bg,
+        &ChromeTheme::status_editing_bg,
+        &ChromeTheme::resource_pill_bg,
+        &ChromeTheme::resource_pill_fg,
+        &ChromeTheme::resource_pill_warn_bg,
+        &ChromeTheme::resource_pill_hot_bg,
+        &ChromeTheme::chord_pill_bg,
+        &ChromeTheme::weather_pill_bg,
+        &ChromeTheme::editing_outline,
+    };
+    for (std::size_t i = 0; i < chrome_members.size(); ++i)
+        original.chrome.*chrome_members[i] = color_from_rgb(0x101010u + static_cast<uint32_t>(i * 0x030507u));
+
+    GuiKeybinding* copy = nullptr;
+    for (auto& binding : original.keybindings)
+        if (binding.action == "copy")
+            copy = &binding;
+    REQUIRE(copy != nullptr);
+    copy->key = static_cast<int32_t>(SDLK_X);
+    copy->modifiers = kModCtrl | kModAlt;
+
+    const AppConfig actual = AppConfig::parse(original.serialize());
+    CHECK(actual.window_width == original.window_width);
+    CHECK(actual.window_height == original.window_height);
+    CHECK(actual.font_size == original.font_size);
+    CHECK(actual.atlas_size == original.atlas_size);
+    CHECK(actual.enable_ligatures == original.enable_ligatures);
+    CHECK(actual.smooth_scroll == original.smooth_scroll);
+    CHECK(actual.scroll_speed == original.scroll_speed);
+    CHECK(actual.scrollback_lines == original.scrollback_lines);
+    CHECK(actual.font_path == original.font_path);
+    CHECK(actual.bold_font_path == original.bold_font_path);
+    CHECK(actual.italic_font_path == original.italic_font_path);
+    CHECK(actual.bold_italic_font_path == original.bold_italic_font_path);
+    CHECK(actual.fallback_paths == original.fallback_paths);
+    CHECK(actual.palette_bg_alpha == original.palette_bg_alpha);
+    CHECK(actual.focus_border_width == original.focus_border_width);
+    CHECK(actual.enable_toast_notifications == original.enable_toast_notifications);
+    CHECK(actual.toast_duration_s == original.toast_duration_s);
+    CHECK(actual.show_pane_status == original.show_pane_status);
+    CHECK(actual.chord_timeout_ms == original.chord_timeout_ms);
+    CHECK(actual.chord_indicator_fade_ms == original.chord_indicator_fade_ms);
+    CHECK(actual.weather_location == original.weather_location);
+    CHECK(actual.terminal.fg == original.terminal.fg);
+    CHECK(actual.terminal.bg == original.terminal.bg);
+    CHECK(actual.terminal.selection_max_cells == original.terminal.selection_max_cells);
+    CHECK(actual.terminal.copy_on_select == original.terminal.copy_on_select);
+    CHECK(actual.terminal.paste_confirm_lines == original.terminal.paste_confirm_lines);
+    CHECK(actual.terminal.url_detection == original.terminal.url_detection);
+    CHECK(actual.terminal.enable_osc8_hyperlinks == original.terminal.enable_osc8_hyperlinks);
+    CHECK(actual.terminal.enable_shell_integration_marks == original.terminal.enable_shell_integration_marks);
+    CHECK(actual.markdown.font_size == original.markdown.font_size);
+    CHECK(actual.markdown.margin_columns == original.markdown.margin_columns);
+    for (ChromeMember member : chrome_members)
+        CHECK(actual.chrome.*member == original.chrome.*member);
+    REQUIRE(find_keybinding(actual, "copy") != nullptr);
+    CHECK(find_keybinding(actual, "copy")->key == static_cast<int32_t>(SDLK_X));
+    CHECK(find_keybinding(actual, "copy")->modifiers == (kModCtrl | kModAlt));
+}
+
+TEST_CASE("config document complete core merge updates app fields and preserves module tables", "[config][schema]")
+{
+    ConfigDocument document;
+    document.root().insert_or_assign("weather_location", "old location");
+    document.root().insert_or_assign("enable_toast_notifications", true);
+    document.ensure_table("chrome").insert_or_assign("tab_bar_bg", "#ffffff");
+    document.ensure_table("terminal").insert_or_assign("copy_on_select", true);
+    document.ensure_table("host_module").insert_or_assign("custom_value", 91);
+
+    AppConfig replacement;
+    replacement.weather_location.clear();
+    replacement.enable_toast_notifications = false;
+    replacement.toast_duration_s = 12.0f;
+    replacement.chrome.tab_bar_bg = color_from_rgb(0x010203);
+    replacement.terminal.copy_on_select = false;
+    document.merge_core_config(replacement);
+
+    CHECK_FALSE(document.root().contains("weather_location"));
+    CHECK(document.root()["enable_toast_notifications"].value_or(true) == false);
+    CHECK(document.root()["toast_duration_s"].value_or(0.0) == Catch::Approx(12.0));
+    REQUIRE(document.find_table("chrome") != nullptr);
+    CHECK((*document.find_table("chrome"))["tab_bar_bg"].value_or(std::string{}) == "#010203");
+    REQUIRE(document.find_table("terminal") != nullptr);
+    CHECK((*document.find_table("terminal"))["copy_on_select"].value_or(true) == false);
+    REQUIRE(document.find_table("host_module") != nullptr);
+    CHECK((*document.find_table("host_module"))["custom_value"].value_or(0) == 91);
 }

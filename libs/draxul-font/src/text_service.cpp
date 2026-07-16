@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <draxul/perf_timing.h>
+#include <iterator>
 
 namespace draxul
 {
@@ -183,7 +184,12 @@ size_t TextService::font_choice_cache_size() const
 
 std::vector<std::string> TextService::take_font_warnings()
 {
-    return impl_->resolver.take_warnings();
+    auto warnings = impl_->resolver.take_warnings();
+    auto runtime_warnings = impl_->atlas_manager.take_runtime_warnings();
+    warnings.insert(warnings.end(),
+        std::make_move_iterator(runtime_warnings.begin()),
+        std::make_move_iterator(runtime_warnings.end()));
+    return warnings;
 }
 
 bool TextService::consume_atlas_reset()

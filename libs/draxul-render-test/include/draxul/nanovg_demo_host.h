@@ -2,10 +2,27 @@
 
 #include <draxul/host.h>
 #include <draxul/nanovg_pass.h>
+#include <cstdint>
 #include <memory>
 
 namespace draxul
 {
+
+inline constexpr std::uint32_t kNanoVGTextureProbeFrameCount = 8;
+
+// Pure schedule used by the hidden texture-lifecycle validation probe. Delete
+// always happens before drawing so an image queued by a previous NanoVG frame
+// is never removed while the current frame still references it.
+struct NanoVGTextureProbeStep
+{
+    bool destroy = false;
+    bool create = false;
+    bool update = false;
+    bool sample = false;
+    bool request_next_frame = false;
+};
+
+NanoVGTextureProbeStep nanovg_texture_probe_step(std::uint32_t frame_index);
 
 class NanoVGDemoHost final : public IHost
 {
@@ -46,11 +63,16 @@ public:
 
 private:
     static void draw_demo(NVGcontext* vg, int w, int h);
+    void draw_texture_probe(NVGcontext* vg);
+    void draw_frame(NVGcontext* vg, int w, int h);
 
     std::unique_ptr<INanoVGPass> nanovg_pass_;
     HostViewport viewport_;
     IHostCallbacks* callbacks_ = nullptr;
     bool running_ = false;
+    NVGcontext* last_vg_ = nullptr;
+    int texture_probe_image_ = 0;
+    std::uint32_t texture_probe_frame_ = 0;
 };
 
 std::unique_ptr<IHost> create_nanovg_demo_host();

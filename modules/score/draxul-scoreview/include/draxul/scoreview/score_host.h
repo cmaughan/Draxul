@@ -31,6 +31,7 @@
 #include <vector>
 
 struct ImGuiContext;
+struct SDL_AudioStream;
 
 namespace draxul
 {
@@ -84,6 +85,10 @@ public:
     draxul::HostPrintHint print_hint() const override;
 
 private:
+    // Narrow friend seam for deterministic orchestration tests. Production
+    // construction still owns the concrete WindowEngraver normally.
+    friend class ScoreHostTestAccess;
+
     enum class ViewMode : uint8_t
     {
         Paged, // the reading view: pages + vertical scroll
@@ -158,15 +163,17 @@ private:
         double stream_offset_q = 0.0;
     };
     std::optional<WindowSlice> build_window_slice(int first_bar);
-    bool rebuild_window(int first_bar, double stream_position_q, bool carry);
+    bool rebuild_window(int first_bar, double stream_position_q, bool carry,
+        bool preserve_tempo = false);
     // Swaps a freshly-engraved window into the live host state and replays the
     // carried transport/verdicts — the cheap half of a window advance, shared
     // by the synchronous rebuild and the async install.
     void install_window(EngravedWindow&& engraved, int first_bar, int count,
-        double stream_offset_q, double stream_position_q, bool carry);
+        double stream_offset_q, double stream_position_q, bool carry, bool preserve_tempo = false);
     void rebuild_highlight_from_palette();
     // Installs a finished background engrave if one is ready (called each pump).
     void poll_async_engrave();
+    void handle_async_engrave_done(WindowEngraver::Done done);
     // Restarts the stream from bar 0 with a fresh program (verdicts and
     // composer plan dropped). keep_tempo preserves the tempo the player has
     // settled at — their learned pace is a property of the LEARNER, not of
@@ -279,12 +286,21 @@ private:
     bool engine_holds_window_ = false;
     // Background window engraver (async double-buffer): a second Verovio
     // toolkit on a worker thread engraves the next rolling window while the
-    // current one keeps playing, so a window advance no longer freezes the
-    // frame. Null when the worker could not start (the stream then falls back
-    // to synchronous rebuilds). `async_engrave_in_flight_` keeps one engrave in
-    // flight at a time.
+    // current one keeps playing, so a window advance or interactive rebuild no
+    // longer freezes the frame. Null when the worker could not start (the
+    // stream then falls back to synchronous rebuilds).
     std::unique_ptr<WindowEngraver> engraver_;
     bool async_engrave_in_flight_ = false;
+    struct PendingWindowInstall
+    {
+        WindowEngraver::RequestId request_id = 0;
+        double stream_position_q = 0.0;
+        bool carry = false;
+        bool preserve_tempo = false;
+        bool fallback_to_monolith_on_error = false;
+    };
+    std::optional<PendingWindowInstall> pending_window_install_;
+    bool initial_window_installed_ = false;
     int window_first_bar_ = 0;
     int window_bar_count_ = 0;
     double stream_offset_q_ = 0.0;
@@ -410,7 +426,7 @@ private:
     std::vector<std::filesystem::path> soundfont_paths_; // <exe>/soundfonts/*.sf2
     int piano_selected_index_ = 0; // which staged font the combo picked
     int piano_loaded_index_ = -1; // which soundfont piano_ holds; -1 = none
-    struct SDL_AudioStream* tick_stream_ = nullptr;
+    ::SDL_AudioStream* tick_stream_ = nullptr;
     std::vector<float> tick_buffer_;
     double quarters_per_bar_ = 4.0;
 

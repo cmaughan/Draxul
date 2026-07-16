@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstring>
+#include <sstream>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 
@@ -133,6 +134,23 @@ bool bitmap_to_rgba(const FT_Bitmap& bmp, std::vector<uint8_t>& out, bool& is_co
     return false;
 }
 
+std::string bounded_face_field(const char* value)
+{
+    if (value == nullptr || *value == '\0')
+        return "unknown";
+    constexpr size_t kMaxFaceFieldLength = 64;
+    return std::string(value, std::min(std::strlen(value), kMaxFaceFieldLength));
+}
+
+std::string glyph_error_context(FT_Face face, uint32_t glyph_id, FT_Error error)
+{
+    std::ostringstream message;
+    message << "face='" << bounded_face_field(face != nullptr ? face->family_name : nullptr)
+            << "' style='" << bounded_face_field(face != nullptr ? face->style_name : nullptr)
+            << "' glyph=" << glyph_id << " error=" << error;
+    return message.str();
+}
+
 void expand_dirty_rect(GlyphCache::DirtyRect& dirty_rect, bool dirty, int x, int y, int w, int h)
 {
     PERF_MEASURE();
@@ -197,8 +215,27 @@ size_t GlyphCache::ClusterKeyHash::operator()(const ClusterKey& key) const
 const AtlasRegion& GlyphCache::get_cluster(const std::string& text, FT_Face face, TextShaper& shaper)
 {
     PERF_MEASURE();
-    if (text.empty() || text == " ")
+    auto result = get_cluster_result(text, face, shaper);
+    if (result.has_value())
+    {
+        ClusterKey key = { face, text };
+        auto it = cluster_cache_.find(key);
+        if (it != cluster_cache_.end())
+            return it->second;
+        empty_region_ = result.value();
         return empty_region_;
+    }
+
+    DRAXUL_LOG_DEBUG(LogCategory::Font, "rasterize_cluster failed: %s", result.error().message.c_str());
+    return empty_region_;
+}
+
+Result<AtlasRegion, Error> GlyphCache::get_cluster_result(
+    const std::string& text, FT_Face face, TextShaper& shaper)
+{
+    PERF_MEASURE();
+    if (text.empty() || text == " ")
+        return AtlasRegion{};
 
     ClusterKey key = { face, text };
     auto it = cluster_cache_.find(key);
@@ -211,9 +248,7 @@ const AtlasRegion& GlyphCache::get_cluster(const std::string& text, FT_Face face
         auto [ins, _] = cluster_cache_.try_emplace(std::move(key), result.value());
         return ins->second;
     }
-
-    DRAXUL_LOG_DEBUG(LogCategory::Font, "rasterize_cluster failed: %s", result.error().message.c_str());
-    return empty_region_;
+    return result;
 }
 
 const AtlasRegion& GlyphCache::get_box_glyph(uint32_t cp, const std::string& text, int cell_w, int cell_h, int ascender)
@@ -274,6 +309,12 @@ bool GlyphCache::reserve_region(int w, int h, int& atlas_x, int& atlas_y, const 
     PERF_MEASURE();
     if (w <= 0 || h <= 0)
         return false;
+
+    if (raster_operations_.reserve_region != nullptr && !raster_operations_.reserve_region(w, h))
+    {
+        overflowed_ = true;
+        return false;
+    }
 
     if (shelf_x_ + w + 1 > atlas_size_)
     {
@@ -340,13 +381,23 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
             }
         }
 
-        if (FT_Load_Glyph(face, shaped_glyph.glyph_id, FT_LOAD_DEFAULT | FT_LOAD_COLOR))
+        const auto load_glyph = raster_operations_.load_glyph != nullptr
+            ? raster_operations_.load_glyph
+            : &FT_Load_Glyph;
+        const FT_Error load_error = load_glyph(face, shaped_glyph.glyph_id, FT_LOAD_DEFAULT | FT_LOAD_COLOR);
+        if (load_error != 0)
             return Result<AtlasRegion, Error>::err(
-                Error{ ErrorKind::AtlasOverflow, "FT_Load_Glyph failed for cluster: " + text });
+                Error{ ErrorKind::FontGlyphLoadFailed,
+                    "FT_Load_Glyph failed (" + glyph_error_context(face, shaped_glyph.glyph_id, load_error) + ")" });
+        const auto render_glyph = raster_operations_.render_glyph != nullptr
+            ? raster_operations_.render_glyph
+            : &FT_Render_Glyph;
+        FT_Error render_error = 0;
         if (face->glyph->format != FT_GLYPH_FORMAT_BITMAP
-            && FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL))
+            && (render_error = render_glyph(face->glyph, FT_RENDER_MODE_NORMAL)) != 0)
             return Result<AtlasRegion, Error>::err(
-                Error{ ErrorKind::AtlasOverflow, "FT_Render_Glyph failed for cluster: " + text });
+                Error{ ErrorKind::GlyphRasterizationFailed,
+                    "FT_Render_Glyph failed (" + glyph_error_context(face, shaped_glyph.glyph_id, render_error) + ")" });
 
         FT_Bitmap& bmp = face->glyph->bitmap;
         if (bmp.width > 0 && bmp.rows > 0)
@@ -356,9 +407,13 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
             glyph.height = (int)bmp.rows;
             glyph.left = pen_x + shaped_glyph.x_offset + face->glyph->bitmap_left;
             glyph.top = shaped_glyph.y_offset + face->glyph->bitmap_top;
-            if (!bitmap_to_rgba(bmp, glyph.pixels, glyph.is_color))
+            const auto convert_bitmap = raster_operations_.convert_bitmap != nullptr
+                ? raster_operations_.convert_bitmap
+                : &bitmap_to_rgba;
+            if (!convert_bitmap(bmp, glyph.pixels, glyph.is_color))
                 return Result<AtlasRegion, Error>::err(
-                    Error{ ErrorKind::AtlasOverflow, "bitmap_to_rgba failed for cluster: " + text });
+                    Error{ ErrorKind::InvalidGlyphBitmap,
+                        "Unsupported glyph bitmap (" + glyph_error_context(face, shaped_glyph.glyph_id, 0) + ")" });
 
             bbox_left = std::min(bbox_left, glyph.left);
             bbox_right = std::max(bbox_right, glyph.left + glyph.width);
@@ -408,7 +463,9 @@ Result<AtlasRegion, Error> GlyphCache::rasterize_cluster(const std::string& text
     int atlas_y = 0;
     if (!reserve_region(cluster_width, cluster_height, atlas_x, atlas_y, "cluster"))
         return Result<AtlasRegion, Error>::err(
-            Error{ ErrorKind::AtlasOverflow, "atlas full for cluster: " + text });
+            Error{ ErrorKind::AtlasOverflow,
+                "Glyph atlas capacity exhausted while reserving " + std::to_string(cluster_width) + "x"
+                    + std::to_string(cluster_height) + " pixels" });
     used_pixels_ += (size_t)cluster_width * cluster_height;
 
     std::vector<uint8_t> composite((size_t)cluster_width * cluster_height * ATLAS_PIXEL_SIZE, 0);

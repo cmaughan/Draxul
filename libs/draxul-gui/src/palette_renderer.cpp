@@ -1,4 +1,5 @@
 #include <draxul/gui/palette_renderer.h>
+#include <draxul/gui/overlay_text.h>
 
 #include <algorithm>
 #include <draxul/text_service.h>
@@ -55,16 +56,6 @@ PanelLayout compute_layout(const PaletteViewState& state)
     return layout;
 }
 
-bool is_match_position(const std::vector<size_t>& positions, size_t index)
-{
-    for (size_t pos : positions)
-    {
-        if (pos == index)
-            return true;
-    }
-    return false;
-}
-
 // A single cell in the panel grid. Written once per position, then flattened to CellUpdate.
 struct PanelCell
 {
@@ -89,8 +80,7 @@ std::vector<CellUpdate> render_palette(
     // The FG pass draws main grid cells (terminal text) before overlay cells.
     // Overlay cells without a glyph let terminal text bleed through. A full-block
     // glyph colored to match the background covers the terminal text in the FG pass.
-    const std::string block_cluster("\xe2\x96\x88"); // U+2588 FULL BLOCK
-    AtlasRegion block_glyph = text_service.resolve_cluster(block_cluster);
+    const AtlasRegion block_glyph = resolve_occlusion_glyph(text_service);
 
     // Build a 2D grid of panel cells — one cell per position, no duplicates.
     const int total = layout.cols * layout.rows;
@@ -112,16 +102,27 @@ std::vector<CellUpdate> render_palette(
     const int pad = kPanelPadding;
     const int content_cols = layout.cols - pad * 2;
 
-    auto write_text = [&](int local_col, int local_row, std::string_view text, Color fg, int max_cols) {
-        const int len = std::min(static_cast<int>(text.size()), std::max(0, max_cols));
-        for (int i = 0; i < len; ++i)
+    auto write_text = [&](int local_col, int local_row, std::string_view text, Color fg, int max_cols,
+                          const std::vector<size_t>* match_positions = nullptr) {
+        int columns = 0;
+        for (const auto& cluster : layout_overlay_text(text, max_cols))
         {
-            const std::string cluster(1, text[static_cast<size_t>(i)]);
-            auto& cell = at(local_col + i, local_row);
-            cell.glyph = text_service.resolve_cluster(cluster);
-            cell.fg = fg;
+            auto& cell = at(local_col + cluster.column, local_row);
+            cell.glyph = text_service.resolve_cluster(cluster.text);
+            const bool matched = match_positions != nullptr
+                && std::any_of(match_positions->begin(), match_positions->end(), [&](size_t byte) {
+                       return byte >= cluster.byte_start && byte < cluster.byte_end;
+                   });
+            cell.fg = matched ? kHighlightFg : fg;
+            for (int continuation = 1; continuation < cluster.cell_width; ++continuation)
+            {
+                auto& continuation_cell = at(local_col + cluster.column + continuation, local_row);
+                continuation_cell.glyph = {};
+                continuation_cell.fg = continuation_cell.bg;
+            }
+            columns = cluster.column + cluster.cell_width;
         }
-        return len;
+        return columns;
     };
 
     if (state.mode == PaletteMode::Prompt)
@@ -178,32 +179,16 @@ std::vector<CellUpdate> render_palette(
             }
 
             // Entry name with fuzzy-match highlighting.
-            const int name_len = std::min(static_cast<int>(entry.name.size()), content_cols);
-            for (int ci = 0; ci < name_len; ++ci)
-            {
-                const std::string cluster(1, entry.name[static_cast<size_t>(ci)]);
-                auto& cell = at(pad + ci, local_row);
-                cell.glyph = text_service.resolve_cluster(cluster);
-                cell.fg = is_match_position(entry.match_positions, static_cast<size_t>(ci))
-                    ? kHighlightFg
-                    : kTextFg;
-            }
+            const int name_len = write_text(
+                pad, local_row, entry.name, kTextFg, content_cols, &entry.match_positions);
 
             // Right-aligned shortcut hint.
             if (!entry.shortcut_hint.empty())
             {
-                const int hint_len = static_cast<int>(entry.shortcut_hint.size());
+                const int hint_len = overlay_text_width(entry.shortcut_hint);
                 const int hint_local_col = layout.cols - pad - hint_len;
                 if (hint_local_col > pad + name_len + 1)
-                {
-                    for (int ci = 0; ci < hint_len; ++ci)
-                    {
-                        const std::string cluster(1, entry.shortcut_hint[static_cast<size_t>(ci)]);
-                        auto& cell = at(hint_local_col + ci, local_row);
-                        cell.glyph = text_service.resolve_cluster(cluster);
-                        cell.fg = kHintFg;
-                    }
-                }
+                    write_text(hint_local_col, local_row, entry.shortcut_hint, kHintFg, hint_len);
             }
         }
 
@@ -231,14 +216,8 @@ std::vector<CellUpdate> render_palette(
             // Query text.
             const int query_col0 = pad + 2;
             const int query_max = content_cols - 3;
-            const int query_len = std::min(static_cast<int>(state.query.size()), query_max);
-            for (int i = 0; i < query_len; ++i)
-            {
-                const std::string cluster(1, state.query[static_cast<size_t>(i)]);
-                auto& cell = at(query_col0 + i, input_local_row);
-                cell.glyph = text_service.resolve_cluster(cluster);
-                cell.fg = kTextFg;
-            }
+            const int query_len = write_text(
+                query_col0, input_local_row, state.query, kTextFg, query_max);
 
             // Block cursor after query text.
             const int cursor_local_col = query_col0 + query_len;

@@ -15,6 +15,7 @@ struct GuiKeybinding;
 struct KeyEvent;
 struct TextInputEvent;
 class GuiActionHandler;
+class HostProviderRegistry;
 
 class CommandPalette
 {
@@ -22,6 +23,7 @@ public:
     struct Deps
     {
         GuiActionHandler* gui_action_handler = nullptr;
+        const HostProviderRegistry* host_registry = nullptr;
         const std::vector<GuiKeybinding>* keybindings = nullptr;
         std::function<void()> request_frame;
         std::function<void()> on_closed; // called when the palette closes itself (Escape, execute)

@@ -4,7 +4,6 @@
 #include <draxul/perf_timing.h>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdio>
 #include <fstream>
@@ -12,19 +11,13 @@
 #include <system_error>
 #include <utility>
 
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
-
 namespace draxul::satview
 {
 
 namespace
 {
 
-constexpr int kFetchMaxTimeSeconds = 60;
-constexpr int kFetchConnectTimeoutSeconds = 10;
+constexpr std::size_t kMaxCloudResponseBytes = 128 * 1024 * 1024;
 
 std::optional<std::string> read_binary_file(const std::filesystem::path& path, std::string& error)
 {
@@ -41,82 +34,6 @@ std::optional<std::string> read_binary_file(const std::filesystem::path& path, s
         return std::nullopt;
     }
     return content;
-}
-
-std::string trim_for_status(std::string text)
-{
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
-        text.pop_back();
-    std::size_t start = 0;
-    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start])))
-        ++start;
-    if (start > 0)
-        text.erase(0, start);
-    if (text.size() > 240)
-    {
-        text.resize(240);
-        text += "...";
-    }
-    return text;
-}
-
-std::filesystem::path unique_stderr_path()
-{
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    return std::filesystem::temp_directory_path()
-        / ("draxul_satview_cloud_curl_" + std::to_string(stamp) + ".stderr");
-}
-
-std::string run_curl_fetch(std::string_view url, std::string& error)
-{
-#ifdef _WIN32
-    std::string command = "curl.exe";
-#else
-    std::string command = "curl";
-#endif
-    const std::filesystem::path stderr_path = unique_stderr_path();
-    command += " -L --fail --silent --show-error --max-time ";
-    command += std::to_string(kFetchMaxTimeSeconds);
-    command += " --connect-timeout ";
-    command += std::to_string(kFetchConnectTimeoutSeconds);
-    command += " --user-agent \"Draxul SatView\" \"";
-    command += std::string(url);
-    command += "\" 2>\"";
-    command += stderr_path.string();
-    command += "\"";
-
-#ifdef _WIN32
-    FILE* pipe = popen(command.c_str(), "rb");
-#else
-    FILE* pipe = popen(command.c_str(), "r");
-#endif
-    if (!pipe)
-    {
-        error = "failed to start curl";
-        return {};
-    }
-
-    std::string result;
-    std::array<char, 64 * 1024> buffer{};
-    while (const std::size_t count = fread(buffer.data(), 1, buffer.size(), pipe))
-        result.append(buffer.data(), count);
-    const int status = pclose(pipe);
-
-    std::string stderr_error;
-    std::string read_error;
-    if (auto text = read_binary_file(stderr_path, read_error))
-        stderr_error = trim_for_status(*text);
-    std::error_code ec;
-    std::filesystem::remove(stderr_path, ec);
-
-    if (status != 0)
-    {
-        error = stderr_error.empty() ? "curl failed" : stderr_error;
-        return {};
-    }
-    if (result.empty())
-        error = "empty cloud response";
-    return result;
 }
 
 bool write_binary_atomic(const std::filesystem::path& path, std::string_view content, std::string& error)
@@ -193,8 +110,8 @@ void SatViewCloudService::start(Config config)
     stop();
     if (config.source_url.empty())
         config.source_url = default_source_url();
-    if (config.fetch == nullptr)
-        config.fetch = run_curl_fetch;
+    if (!config.fetch && !config.http_client)
+        config.http_client = http::create_platform_http_client();
     config_ = std::move(config);
     {
         std::lock_guard lock(mutex_);
@@ -209,6 +126,7 @@ void SatViewCloudService::start(Config config)
 
 void SatViewCloudService::stop()
 {
+    cancellation_.cancel();
     if (worker_.joinable())
         worker_.join();
     std::lock_guard lock(mutex_);
@@ -302,6 +220,7 @@ void SatViewCloudService::start_refresh(bool force_fetch)
         if (refresh_in_flight_)
             return;
         config = config_;
+        cancellation_ = http::CancellationSource{};
         refresh_in_flight_ = true;
         completion_ready_ = false;
         status_.refresh_state = status_.data_source == DataSource::None
@@ -310,7 +229,8 @@ void SatViewCloudService::start_refresh(bool force_fetch)
         update_status_locked(Clock::now());
     }
 
-    worker_ = std::thread([this, config = std::move(config), force_fetch]() mutable {
+    const http::CancellationToken cancellation = cancellation_.token();
+    worker_ = std::thread([this, config = std::move(config), force_fetch, cancellation]() mutable {
         WorkerResult result;
         const auto cache_path = cache_image_path(config.cache_directory);
         std::error_code ec;
@@ -340,7 +260,25 @@ void SatViewCloudService::start_refresh(bool force_fetch)
         {
             result.refresh_attempted_at = Clock::now();
             std::string fetch_error;
-            const std::string bytes = config.fetch(config.source_url, fetch_error);
+            std::string bytes;
+            if (config.fetch)
+            {
+                bytes = config.fetch(config.source_url, fetch_error);
+            }
+            else
+            {
+                http::Request request;
+                request.url = config.source_url;
+                request.user_agent = "Draxul SatView";
+                request.connect_timeout = std::chrono::seconds(10);
+                request.overall_timeout = std::chrono::seconds(60);
+                request.max_response_bytes = kMaxCloudResponseBytes;
+                auto response = config.http_client->get(request, cancellation);
+                if (response.ok())
+                    bytes = std::move(response.body);
+                else
+                    fetch_error = std::move(response.error);
+            }
             std::string cache_error;
             if (!bytes.empty() && write_binary_atomic(cache_path, bytes, cache_error))
             {

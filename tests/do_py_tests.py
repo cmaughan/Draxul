@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import pathlib
 import stat
 import sys
@@ -25,6 +26,76 @@ def load_do_module():
 
 
 draxul_do = load_do_module()
+
+
+class RenderManifestTests(unittest.TestCase):
+    def make_manifest_root(self, document: dict) -> tempfile.TemporaryDirectory:
+        tmp = tempfile.TemporaryDirectory()
+        root = pathlib.Path(tmp.name)
+        render_dir = root / "tests" / "render"
+        reference_dir = render_dir / "reference"
+        reference_dir.mkdir(parents=True)
+        (render_dir / "manifest.json").write_text(json.dumps(document), encoding="utf-8")
+        for scenario in document["scenarios"]:
+            (render_dir / f"{scenario['name']}.toml").write_text("[window]\n", encoding="utf-8")
+            if scenario.get("reference_required"):
+                for platform in scenario["platforms"]:
+                    (reference_dir / f"{scenario['name']}.{platform}.bmp").write_bytes(b"BM")
+        return tmp
+
+    def test_repository_manifest_is_complete_and_drives_matching_ctest_renderall_inventory(self) -> None:
+        scenarios = draxul_do.load_render_manifest(ROOT)
+        ctest = [scenario["name"] for scenario in scenarios if scenario["ctest"]]
+        renderall = draxul_do.render_scenario_names(ROOT, "renderall")
+
+        self.assertEqual(ctest, renderall)
+        self.assertIn("nanovg-demo", ctest)
+        self.assertNotIn("wide-char-scroll", ctest)
+        self.assertNotIn("ligatures-view", [scenario["name"] for scenario in scenarios])
+
+    def test_missing_toml_is_rejected(self) -> None:
+        document = json.loads((ROOT / "tests" / "render" / "manifest.json").read_text())
+        with self.make_manifest_root(document) as tmp:
+            root = pathlib.Path(tmp)
+            (root / "tests" / "render" / "basic-view.toml").unlink()
+            with self.assertRaisesRegex(ValueError, "missing=.*basic-view"):
+                draxul_do.load_render_manifest(root)
+
+    def test_missing_platform_reference_is_rejected(self) -> None:
+        document = json.loads((ROOT / "tests" / "render" / "manifest.json").read_text())
+        with self.make_manifest_root(document) as tmp:
+            root = pathlib.Path(tmp)
+            (root / "tests" / "render" / "reference" / "basic-view.macos.bmp").unlink()
+            with self.assertRaisesRegex(ValueError, "basic-view.macos.bmp"):
+                draxul_do.load_render_manifest(root)
+
+    def test_duplicate_name_and_unknown_field_are_rejected(self) -> None:
+        document = json.loads((ROOT / "tests" / "render" / "manifest.json").read_text())
+        duplicate = dict(document["scenarios"][0])
+        document["scenarios"].append(duplicate)
+        with self.make_manifest_root(document) as tmp:
+            with self.assertRaisesRegex(ValueError, "duplicate render scenario"):
+                draxul_do.load_render_manifest(pathlib.Path(tmp))
+
+        document = json.loads((ROOT / "tests" / "render" / "manifest.json").read_text())
+        document["scenarios"][0]["mystery"] = True
+        with self.make_manifest_root(document) as tmp:
+            with self.assertRaisesRegex(ValueError, "unknown=.*mystery"):
+                draxul_do.load_render_manifest(pathlib.Path(tmp))
+
+    def test_orphaned_toml_and_reference_are_rejected(self) -> None:
+        document = json.loads((ROOT / "tests" / "render" / "manifest.json").read_text())
+        with self.make_manifest_root(document) as tmp:
+            root = pathlib.Path(tmp)
+            (root / "tests" / "render" / "orphan.toml").write_text("[window]\n")
+            with self.assertRaisesRegex(ValueError, "orphaned=.*orphan"):
+                draxul_do.load_render_manifest(root)
+
+        with self.make_manifest_root(document) as tmp:
+            root = pathlib.Path(tmp)
+            (root / "tests" / "render" / "reference" / "orphan.windows.bmp").write_bytes(b"BM")
+            with self.assertRaisesRegex(ValueError, "orphaned=.*orphan.windows.bmp"):
+                draxul_do.load_render_manifest(root)
 
 
 class MegacityParserArgumentTests(unittest.TestCase):

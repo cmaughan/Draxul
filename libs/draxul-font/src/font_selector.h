@@ -3,6 +3,7 @@
 #include "font_engine.h"
 #include "font_resolver.h"
 
+#include <draxul/text_service.h>
 #include <draxul/unicode.h>
 
 #include <algorithm>
@@ -201,6 +202,40 @@ public:
     size_t cache_size() const
     {
         return cache_.size();
+    }
+
+    // Rasterization can fail after coverage selection succeeds (for example,
+    // a malformed bitmap in one face). Find another face without retrying a
+    // face that already failed during this resolve operation.
+    Selection select_after_raster_failure(
+        const std::string& text, FontResolver& resolver, const std::vector<FT_Face>& excluded_faces)
+    {
+        const auto excluded = [&excluded_faces](FT_Face face) {
+            return std::find(excluded_faces.begin(), excluded_faces.end(), face) != excluded_faces.end();
+        };
+
+        auto& fallbacks = resolver.fallbacks();
+        for (int i = 0; i < static_cast<int>(fallbacks.size()); ++i)
+        {
+            if (!resolver.ensure_loaded(static_cast<size_t>(i)))
+                continue;
+            auto& fallback = fallbacks[static_cast<size_t>(i)];
+            if (excluded(fallback.font.face()))
+                continue;
+            if (detail::can_render_cluster(fallback.font.face(), fallback.shaper, text))
+            {
+                store(text, i);
+                return { fallback.font.face(), &fallback.shaper };
+            }
+        }
+
+        if (!excluded(resolver.primary().face())
+            && detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
+        {
+            store(text, -1);
+            return { resolver.primary().face(), &resolver.primary_shaper() };
+        }
+        return {};
     }
 
 private:

@@ -30,6 +30,17 @@ public:
 
         auto& vk_ctx = static_cast<VkRenderContext&>(ctx);
 
+        if (vg_ && (device_ != vk_ctx.device()
+                       || allocator_ != vk_ctx.allocator()
+                       || color_format_ != vk_ctx.swapchain_format()))
+        {
+            // A device or swapchain-format change invalidates the backend's
+            // render pass and pipelines. Context deletion waits for outstanding
+            // NanoVG work before rebuilding against the new target contract.
+            nvgDeleteVk(vg_);
+            vg_ = nullptr;
+        }
+
         // Lazy init: create NanoVG context on first use
         if (!vg_)
         {
@@ -40,6 +51,9 @@ public:
                 vk_ctx.swapchain_format(), NVG_ANTIALIAS);
             if (!vg_)
                 return;
+            device_ = device;
+            allocator_ = vk_ctx.allocator();
+            color_format_ = vk_ctx.swapchain_format();
         }
 
         VkImageView imageView = vk_ctx.swapchain_image_view();
@@ -48,7 +62,8 @@ public:
 
         // Set per-frame Vulkan state
         nvgVkSetFrameState(vg_, vk_ctx.command_buffer(),
-            vk_ctx.swapchain_image(), imageView, vk_ctx.frame_index());
+            vk_ctx.swapchain_image(), imageView, vk_ctx.frame_index(),
+            vk_ctx.buffered_frame_count());
 
         // NanoVG's coordinate space spans the full surface so offset pane
         // viewports land where they belong (the backend's viewport/projection
@@ -81,6 +96,9 @@ public:
 
 private:
     NVGcontext* vg_ = nullptr;
+    VkDevice device_ = VK_NULL_HANDLE;
+    VmaAllocator allocator_ = VK_NULL_HANDLE;
+    VkFormat color_format_ = VK_FORMAT_UNDEFINED;
     NanoVGDrawFn draw_fn_;
 };
 

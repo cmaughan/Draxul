@@ -19,9 +19,13 @@
 #include <catch2/catch_all.hpp>
 #include <draxul/app_config.h>
 #include <draxul/host.h>
+#include <draxul/http/http_client.h>
 #include <draxul/session_attach.h>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <thread>
 
 #include "app.h"
 
@@ -177,6 +181,50 @@ private:
     int imgui_font_update_count_ = 0;
     HostReloadConfig last_config_;
 };
+
+class BlockingWeatherHttpClient final : public http::IHttpClient
+{
+public:
+    http::Response get(const http::Request& request, http::CancellationToken cancellation) override
+    {
+        {
+            std::lock_guard lock(mutex_);
+            urls_.push_back(request.url);
+        }
+        ++calls;
+        while (!cancellation.is_cancelled())
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        ++cancellations;
+        http::Response response;
+        response.cancelled = true;
+        response.error = "request cancelled";
+        return response;
+    }
+
+    std::vector<std::string> urls() const
+    {
+        std::lock_guard lock(mutex_);
+        return urls_;
+    }
+
+    std::atomic<int> calls = 0;
+    std::atomic<int> cancellations = 0;
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<std::string> urls_;
+};
+
+bool wait_for_value(const std::atomic<int>& value, int expected)
+{
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        if (value.load() >= expected)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return false;
+}
 
 namespace
 {
@@ -494,6 +542,184 @@ TEST_CASE("app smoke: reload_config action reloads user config from disk", "[app
     CHECK(g_last_reload_host->last_config().smooth_scroll == false);
     CHECK(g_last_reload_host->last_config().scroll_speed == Catch::Approx(2.5f));
 
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-malformed-reload");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "palette_bg_alpha = 0.8\n"
+               "[keybindings]\n"
+               "reload_config = \"Ctrl+Alt+R\"\n";
+    }
+
+    FakeWindow* created_window = nullptr;
+    g_last_reload_host = nullptr;
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.save_user_config = false;
+    opts.window_factory = [&created_window]() {
+        auto window = std::make_unique<FakeWindow>();
+        created_window = window.get();
+        return window;
+    };
+    opts.host_factory = [](HostKind) -> std::unique_ptr<IHost> {
+        auto host = std::make_unique<ReloadTrackingHost>();
+        g_last_reload_host = host.get();
+        return host;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(created_window != nullptr);
+    REQUIRE(g_last_reload_host != nullptr);
+    g_last_reload_host->reset_tracking();
+
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "palette_bg_alpha = 0.2\n[terminal]\nfg = \"#ffffff\n";
+    }
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    CHECK(g_last_reload_host->reload_count() == 0);
+
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "palette_bg_alpha = 0.3\n"
+               "[keybindings]\n"
+               "reload_config = \"Ctrl+Alt+R\"\n";
+    }
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(g_last_reload_host->reload_count() == 1);
+    CHECK(g_last_reload_host->last_config().palette_bg_alpha == Catch::Approx(0.3f));
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: failed font reload is all-or-old", "[app_smoke][config][reload]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-failed-font-reload");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "font_path = \"" << font << "\"\n"
+            << "palette_bg_alpha = 0.8\n"
+               "smooth_scroll = true\n"
+               "[keybindings]\n"
+               "reload_config = \"Ctrl+Alt+R\"\n";
+    }
+
+    FakeWindow* created_window = nullptr;
+    g_last_reload_host = nullptr;
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.save_user_config = false;
+    opts.config_overrides.font_path.reset();
+    opts.window_factory = [&created_window]() {
+        auto window = std::make_unique<FakeWindow>();
+        created_window = window.get();
+        return window;
+    };
+    opts.host_factory = [](HostKind) -> std::unique_ptr<IHost> {
+        auto host = std::make_unique<ReloadTrackingHost>();
+        g_last_reload_host = host.get();
+        return host;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(created_window != nullptr);
+    REQUIRE(g_last_reload_host != nullptr);
+    g_last_reload_host->reset_tracking();
+
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "font_path = \"Z:/definitely/missing/font.ttf\"\n"
+               "palette_bg_alpha = 0.2\n"
+               "smooth_scroll = false\n"
+               "[keybindings]\n"
+               "reload_config = \"Ctrl+Alt+R\"\n";
+    }
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    CHECK(g_last_reload_host->reload_count() == 0);
+
+    {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        out << "font_path = \"" << font << "\"\n"
+            << "palette_bg_alpha = 0.2\n"
+               "smooth_scroll = false\n"
+               "[keybindings]\n"
+               "reload_config = \"Ctrl+Alt+R\"\n";
+    }
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(g_last_reload_host->reload_count() == 1);
+    CHECK(g_last_reload_host->last_config().palette_bg_alpha == Catch::Approx(0.2f));
+    CHECK_FALSE(g_last_reload_host->last_config().smooth_scroll);
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: weather reload handles add change and clear with cancellation", "[app_smoke][config][reload][weather]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-weather-reload");
+    HomeDirRedirect redir(temp.path);
+    std::filesystem::create_directories(redir.config_path.parent_path());
+    const auto write_config = [&](std::string_view weather) {
+        std::ofstream out(redir.config_path, std::ios::trunc);
+        if (!weather.empty())
+            out << "weather_location = \"" << weather << "\"\n";
+        out << "[keybindings]\nreload_config = \"Ctrl+Alt+R\"\n";
+    };
+    write_config({});
+
+    FakeWindow* created_window = nullptr;
+    AppOptions opts = make_smoke_options();
+    opts.load_user_config = true;
+    opts.save_user_config = false;
+    opts.window_factory = [&created_window]() {
+        auto window = std::make_unique<FakeWindow>();
+        created_window = window.get();
+        return window;
+    };
+    auto client = std::make_shared<BlockingWeatherHttpClient>();
+    AppDeps deps = AppDeps::from_options(std::move(opts));
+    deps.http_client = client;
+    App app(std::move(deps));
+    REQUIRE(app.initialize());
+    REQUIRE(created_window != nullptr);
+
+    write_config("51.5000,-0.1000");
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(wait_for_value(client->calls, 1));
+    CHECK(client->cancellations == 0);
+
+    write_config("40.7000,-74.0000");
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(wait_for_value(client->calls, 2));
+    REQUIRE(wait_for_value(client->cancellations, 1));
+
+    write_config({});
+    created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
+    REQUIRE(wait_for_value(client->cancellations, 2));
+    CHECK(client->calls == 2);
+    const auto urls = client->urls();
+    REQUIRE(urls.size() == 2);
+    CHECK(urls[0].find("latitude=51.5000") != std::string::npos);
+    CHECK(urls[1].find("latitude=40.7000") != std::string::npos);
     app.shutdown();
 }
 

@@ -533,6 +533,13 @@ static int draxul_main(std::vector<std::string> args)
     draxul::scoreview::register_score_host_provider(host_registry);
 #endif
 
+    if (const auto host_error = draxul::validate_host_provider_availability(parsed, host_registry))
+    {
+        std::fprintf(stderr, "%s\n", host_error->c_str());
+        draxul::shutdown_logging();
+        return 1;
+    }
+
     // CLI overrides for logging — these always work, unlike env vars which
     // may not propagate to macOS .app bundles.
     if (!parsed.log_file.empty() || !parsed.log_level.empty())

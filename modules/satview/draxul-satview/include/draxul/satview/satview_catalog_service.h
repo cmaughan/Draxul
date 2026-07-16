@@ -2,9 +2,11 @@
 
 #include <chrono>
 #include <cstdint>
+#include <draxul/http/http_client.h>
 #include <draxul/satview/satview_catalog.h>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -43,6 +45,7 @@ public:
         std::string satcat_url;
         std::filesystem::path cache_directory;
         FetchFunction fetch;
+        std::shared_ptr<http::IHttpClient> http_client;
     };
 
     struct SourceStatus
@@ -152,6 +155,7 @@ private:
     std::optional<WorkerResult> pending_result_;
     bool refresh_in_flight_ = false;
     bool completion_ready_ = false;
+    http::CancellationSource cancellation_;
 };
 
 } // namespace draxul::satview

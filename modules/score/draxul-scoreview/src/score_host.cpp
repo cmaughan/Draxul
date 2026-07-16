@@ -780,19 +780,17 @@ std::optional<ScoreHost::WindowSlice> ScoreHost::build_window_slice(int first_ba
     return slice;
 }
 
-bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool carry)
+bool ScoreHost::rebuild_window(
+    int first_bar, double stream_position_q, bool carry, bool preserve_tempo)
 {
     const auto swap_start = std::chrono::steady_clock::now();
-    // A background engrave uses the OTHER toolkit; wait it out and drop its
-    // result before engraving synchronously here, so the two toolkits never lay
-    // out at once.
-    if (engraver_)
-        engraver_->cancel();
-    async_engrave_in_flight_ = false;
-
     auto slice = build_window_slice(first_bar);
     if (!slice)
     {
+        if (engraver_)
+            engraver_->cancel();
+        pending_window_install_.reset();
+        async_engrave_in_flight_ = false;
         DRAXUL_LOG_WARN(LogCategory::App, "score: window slice empty, monolithic strip");
         stream_windowed_ = false;
         flow_dirty_ = true;
@@ -806,6 +804,33 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
     params.proportional_spacing = proportional_spacing_;
     params.spacing_linear = spacing_linear_override_;
     params.spacing_non_linear = spacing_non_linear_override_;
+
+    // Startup performs one synchronous build before interactive frames exist.
+    // Every later rebuild uses the latest-wins worker and leaves the current
+    // engraving visible until its replacement is ready.
+    if (engraver_ && initial_window_installed_)
+    {
+        WindowEngraver::Job job;
+        job.window_xml = std::move(slice->xml);
+        job.params = params;
+        job.first_bar = slice->first_bar;
+        job.count = slice->count;
+        job.stream_offset_q = slice->stream_offset_q;
+        const WindowEngraver::RequestId request_id = engraver_->submit(std::move(job));
+        if (request_id == 0)
+            return false;
+        pending_window_install_ = PendingWindowInstall{
+            request_id, stream_position_q, carry, preserve_tempo, false };
+        async_engrave_in_flight_ = true;
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "score: queued window generation %llu for bars %d..%d",
+            static_cast<unsigned long long>(request_id), slice->first_bar,
+            slice->first_bar + slice->count - 1);
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
+        return true;
+    }
+
     EngravedWindow engraved;
     std::string error;
     if (engrave_window(*engine_, slice->xml, params, engraved, error) != EngraveResult::Ok)
@@ -817,7 +842,7 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
         return false;
     }
     install_window(std::move(engraved), slice->first_bar, slice->count, slice->stream_offset_q,
-        stream_position_q, carry);
+        stream_position_q, carry, preserve_tempo);
     const double swap_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - swap_start)
                                .count();
@@ -827,13 +852,15 @@ bool ScoreHost::rebuild_window(int first_bar, double stream_position_q, bool car
 }
 
 void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int count,
-    double stream_offset_q, double stream_position_q, bool carry)
+    double stream_offset_q, double stream_position_q, bool carry, bool preserve_tempo)
 {
     // engrave_window already set the Roll transport, marking and tempo lock on
     // the incoming flow; carry-over comes from the OUTGOING transport, captured
     // before the move replaces it. Everything here is cheap — no Verovio — so
     // the swap costs a frame at most, not a ~100ms freeze.
     const FlowController::CarryState carried = flow_.carry_state();
+    const double outgoing_tempo_qpm = flow_.tempo_qpm();
+    const bool was_playing = flow_.playing();
 
     strip_ = std::move(engraved.strip);
     flow_ = std::move(engraved.flow);
@@ -845,6 +872,7 @@ void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int cou
     window_bar_count_ = count;
     stream_offset_q_ = stream_offset_q;
     engine_holds_window_ = true;
+    initial_window_installed_ = true;
 
     if (carry)
     {
@@ -862,7 +890,14 @@ void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int cou
         flow_.fast_forward_resolved(local_position);
         flow_.seek(local_position);
     }
-    flow_.play();
+    else if (preserve_tempo)
+    {
+        flow_.set_tempo_qpm(outgoing_tempo_qpm);
+    }
+    if (was_playing)
+        flow_.play();
+    else
+        flow_.pause();
     apply_verdict_update(); // repaint carried verdicts on the fresh strip
     if (callbacks_ != nullptr)
         callbacks_->request_frame();
@@ -905,7 +940,7 @@ void ScoreHost::restart_stream(bool keep_tempo)
     verdict_archive_.clear();
     composer_.reset();
     last_logged_plan_slot_ = -1;
-    rebuild_window(0, 0.0, /*carry=*/false);
+    rebuild_window(0, 0.0, /*carry=*/false, /*preserve_tempo=*/keep_tempo);
     if (keep_tempo && !lock_tempo_)
         flow_.set_tempo_qpm(tempo);
     if (callbacks_ != nullptr)
@@ -976,7 +1011,11 @@ void ScoreHost::maybe_advance_stream()
         job.first_bar = slice->first_bar;
         job.count = slice->count;
         job.stream_offset_q = slice->stream_offset_q;
-        engraver_->submit(std::move(job));
+        const WindowEngraver::RequestId request_id = engraver_->submit(std::move(job));
+        if (request_id == 0)
+            return;
+        pending_window_install_ = PendingWindowInstall{
+            request_id, stream_q, true, false, true };
         async_engrave_in_flight_ = true;
         return;
     }
@@ -995,25 +1034,59 @@ void ScoreHost::poll_async_engrave()
     auto done = engraver_->poll();
     if (!done)
         return;
-    async_engrave_in_flight_ = false;
-    if (!done->ok)
+    handle_async_engrave_done(std::move(*done));
+}
+
+void ScoreHost::handle_async_engrave_done(WindowEngraver::Done done)
+{
+    if (!pending_window_install_)
     {
-        // The worker's engrave failed: drop back to the monolithic strip.
-        stream_windowed_ = false;
-        flow_dirty_ = true;
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "score: host discarded unexpected window generation %llu",
+            static_cast<unsigned long long>(done.request_id));
+        async_engrave_in_flight_ = false;
+        return;
+    }
+    if (done.request_id != pending_window_install_->request_id)
+    {
+        // A superseded generation must not retire the newest pending install.
+        // WindowEngraver normally filters these itself, but retaining the
+        // latest request here makes the host robust to delayed/fake workers.
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "score: host discarded stale window generation %llu; waiting for %llu",
+            static_cast<unsigned long long>(done.request_id),
+            static_cast<unsigned long long>(pending_window_install_->request_id));
+        return;
+    }
+    const PendingWindowInstall install = *pending_window_install_;
+    pending_window_install_.reset();
+    async_engrave_in_flight_ = false;
+    if (!done.ok)
+    {
+        // A failed speculative advance retains the old window until the
+        // monolithic fallback can be rebuilt. Interactive restyling failures
+        // simply keep the current valid engraving visible.
+        if (install.fallback_to_monolith_on_error)
+        {
+            stream_windowed_ = false;
+            flow_dirty_ = true;
+        }
         return;
     }
     // If the player left the rolling window while the engrave ran (paged view,
     // exited the game), drop the now-stale result rather than forcing Roll back.
-    if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
+    if (view_mode_ != ViewMode::Flow
+        || flow_.mode() != FlowController::TransportMode::Roll)
         return;
     // Install at the CURRENT playhead (the old window kept advancing while the
     // engrave ran); carry replays the transport/verdicts onto the fresh strip.
-    const int first_bar = done->first_bar;
-    const int count = done->count;
+    const int first_bar = done.first_bar;
+    const int count = done.count;
     const auto install_start = std::chrono::steady_clock::now();
-    install_window(std::move(done->window), first_bar, count, done->stream_offset_q,
-        stream_position_q(), /*carry=*/true);
+    const double install_position_q
+        = install.carry ? stream_position_q() : install.stream_position_q;
+    install_window(std::move(done.window), first_bar, count, done.stream_offset_q,
+        install_position_q, install.carry, install.preserve_tempo);
     const double install_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - install_start)
                                   .count();
@@ -1025,6 +1098,10 @@ void ScoreHost::toggle_flow_mode()
 {
     if (!engine_ || !engine_->is_loaded())
         return;
+    if (engraver_)
+        engraver_->cancel();
+    pending_window_install_.reset();
+    async_engrave_in_flight_ = false;
     if (view_mode_ == ViewMode::Paged)
     {
         view_mode_ = ViewMode::Flow;
@@ -1139,6 +1216,8 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
         last_logged_plan_slot_ = -1;
         if (!rebuild_window(0, 0.0, /*carry=*/false))
             flow_.set_mode(game_mode_); // fell back to the monolithic strip
+        else if (async_engrave_in_flight_)
+            flow_.set_mode(game_mode_); // old strip stays interactive while replacing it
     }
     else
     {
@@ -1161,6 +1240,10 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
 void ScoreHost::exit_gate_mode()
 {
     end_progress_session();
+    if (engraver_)
+        engraver_->cancel();
+    pending_window_install_.reset();
+    async_engrave_in_flight_ = false;
     player_input_.reset();
     keyboard_input_ = nullptr;
     mic_input_ = nullptr;
@@ -1514,9 +1597,15 @@ void ScoreHost::pump()
     const double dt = std::clamp(std::chrono::duration<double>(now - last_pump_).count(), 0.0, 0.1);
     last_pump_ = now;
 
-    if (view_mode_ == ViewMode::Flow && flow_dirty_)
+    // Poll regardless of transport/view state: paused spacing changes and
+    // invalidated jobs must still retire. Synchronous main-engine layouts are
+    // deferred while the worker toolkit is active, preserving the existing
+    // no-concurrent-Verovio invariant without blocking this frame.
+    poll_async_engrave();
+    const bool background_engrave_active = engraver_ && engraver_->busy();
+    if (view_mode_ == ViewMode::Flow && flow_dirty_ && !background_engrave_active)
         relayout_flow();
-    if (view_mode_ == ViewMode::Paged && layout_dirty_)
+    if (view_mode_ == ViewMode::Paged && layout_dirty_ && !background_engrave_active)
         relayout();
 
     if (view_mode_ == ViewMode::Flow && flow_.playing())
@@ -1612,10 +1701,6 @@ void ScoreHost::pump()
                 if (progress_dirty_)
                     save_progress(/*final_flush=*/false);
             }
-            // Install a finished background engrave (if ready) before deciding
-            // whether to queue the next one — the archive above is now current,
-            // so the install's carry replay repaints the latest verdicts.
-            poll_async_engrave();
             maybe_advance_stream();
 
             // Periodic + final INFO lines feed the G4 log-based verification.
@@ -1648,6 +1733,8 @@ void ScoreHost::pump()
 
 std::optional<std::chrono::steady_clock::time_point> ScoreHost::next_deadline() const
 {
+    if (engraver_ && engraver_->busy())
+        return std::chrono::steady_clock::now() + std::chrono::milliseconds(16);
     if (view_mode_ == ViewMode::Flow && flow_.playing())
         return std::chrono::steady_clock::now() + std::chrono::milliseconds(16);
     return std::nullopt;
@@ -1659,7 +1746,10 @@ void ScoreHost::draw(IFrameContext& frame)
         return;
 
     const float pixel_scale = ui_scale();
-    if (view_mode_ == ViewMode::Flow && strip_ && strip_->canvas_size.y > 0.0f)
+    const bool retain_flow_while_paged_layout_waits = view_mode_ == ViewMode::Paged
+        && layout_dirty_ && (!pages_ || pages_->empty()) && engraver_ && engraver_->busy();
+    if ((view_mode_ == ViewMode::Flow || retain_flow_while_paged_layout_waits) && strip_
+        && strip_->canvas_size.y > 0.0f)
     {
         // The conveyor: the whole piece as one strip on a full-width band,
         // scrolled so the playhead anchor tracks the transport position.
@@ -2212,10 +2302,7 @@ void ScoreHost::render_debug_ui(float dt)
                 {
                     if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
                     {
-                        verdict_archive_.clear();
-                        composer_.reset();
-                        last_logged_plan_slot_ = -1;
-                        rebuild_window(0, 0.0, /*carry=*/false);
+                        restart_stream(/*keep_tempo=*/true);
                     }
                     else
                     {
@@ -2241,6 +2328,8 @@ void ScoreHost::render_debug_ui(float dt)
                     : flow_.mode() == FlowController::TransportMode::Gate              ? "Gate"
                                                                                        : "Clock";
                 ImGui::Text("mode %s   position %.2f q", mode, flow_.position_q());
+                if (async_engrave_in_flight_ || (engraver_ && engraver_->busy()))
+                    ImGui::TextDisabled("engraving latest changes...");
 
                 // Player input source: dev keyboard / microphone / any MIDI
                 // input port. Ports enumerate ONLY while the combo is open —

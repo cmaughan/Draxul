@@ -309,12 +309,6 @@ void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
 
     if (auto cos = toml_support::get_bool(terminal, "copy_on_select"))
         config.terminal.copy_on_select = *cos;
-    if (auto enabled = toml_support::get_bool(terminal, "url_detection"))
-        config.terminal.url_detection = *enabled;
-    if (auto enabled = toml_support::get_bool(terminal, "enable_osc8_hyperlinks"))
-        config.terminal.enable_osc8_hyperlinks = *enabled;
-    if (auto enabled = toml_support::get_bool(terminal, "enable_shell_integration_marks"))
-        config.terminal.enable_shell_integration_marks = *enabled;
 
     if (auto pcl = toml_support::get_int(terminal, "paste_confirm_lines"))
     {
@@ -401,50 +395,59 @@ void apply_markdown_overrides(AppConfig& config, const toml::table& markdown)
             kMaxMarkdownMarginColumns);
 }
 
-AppConfig config_from_toml(const toml::table& document)
+AppConfig config_from_toml(const toml::table& document, std::string* validation_error = nullptr)
 {
     PERF_MEASURE();
     AppConfig config;
 
+    const auto report_type_error = [&](std::string_view key, std::string_view expected, const toml::node& node) {
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            "[config] Key '%.*s' has wrong type (expected %.*s) -- using default",
+            static_cast<int>(key.size()), key.data(),
+            static_cast<int>(expected.size()), expected.data());
+        if (validation_error && validation_error->empty())
+        {
+            *validation_error = "Key '" + std::string(key) + "' has wrong type (expected "
+                + std::string(expected) + ") at line "
+                + std::to_string(static_cast<std::size_t>(node.source().begin.line));
+        }
+    };
+
     // Warn on type mismatches for integer keys
     auto check_int_type = [&](const char* key) {
-        auto node = document[key];
-        if (node && !node.is_integer())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s' has wrong type (expected integer) -- using default", key);
+        if (const toml::node* node = document.get(key); node && !node->is_integer())
+            report_type_error(key, "integer", *node);
     };
     auto check_bool_type = [&](const char* key) {
-        auto node = document[key];
-        if (node && !node.is_boolean())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s' has wrong type (expected boolean) -- using default", key);
+        if (const toml::node* node = document.get(key); node && !node->is_boolean())
+            report_type_error(key, "boolean", *node);
     };
     auto check_string_type = [&](const char* key) {
-        auto node = document[key];
-        if (node && !node.is_string())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s' has wrong type (expected string) -- using default", key);
+        if (const toml::node* node = document.get(key); node && !node->is_string())
+            report_type_error(key, "string", *node);
     };
     auto check_array_type = [&](const char* key) {
-        auto node = document[key];
-        if (node && !node.is_array())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s' has wrong type (expected array) -- using default", key);
+        if (const toml::node* node = document.get(key); node && !node->is_array())
+            report_type_error(key, "array", *node);
     };
 
     // font_size and scroll_speed accept both integer and floating-point TOML values.
     auto check_font_size_type = [&]() {
-        auto node = document["font_size"];
-        if (node && !node.is_integer() && !node.is_floating_point())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key 'font_size' has wrong type (expected integer or float) -- using default");
+        if (const toml::node* node = document.get("font_size");
+            node && !node->is_integer() && !node->is_floating_point())
+            report_type_error("font_size", "integer or float", *node);
     };
     auto check_float_type = [&](const char* key) {
-        auto node = document[key];
-        if (node && !node.is_integer() && !node.is_floating_point())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s' has wrong type (expected integer or float) -- using default", key);
+        if (const toml::node* node = document.get(key);
+            node && !node->is_integer() && !node->is_floating_point())
+            report_type_error(key, "integer or float", *node);
     };
     auto check_nested_float_type = [&](const toml::table* table, const char* table_name, const char* key) {
         if (table == nullptr)
             return;
-        auto node = (*table)[key];
-        if (node && !node.is_integer() && !node.is_floating_point())
-            DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key '%s.%s' has wrong type (expected integer or float) -- using default", table_name, key);
+        if (const toml::node* node = table->get(key);
+            node && !node->is_integer() && !node->is_floating_point())
+            report_type_error(std::string(table_name) + "." + key, "integer or float", *node);
     };
 
     check_int_type("window_width");
@@ -454,25 +457,75 @@ AppConfig config_from_toml(const toml::table& document)
     check_int_type("scrollback_lines");
     check_bool_type("enable_ligatures");
     check_bool_type("smooth_scroll");
+    check_bool_type("enable_toast_notifications");
     check_bool_type("show_pane_status");
     check_int_type("chord_timeout_ms");
     check_int_type("chord_indicator_fade_ms");
     check_float_type("scroll_speed");
     check_float_type("palette_bg_alpha");
     check_float_type("focus_border_width");
+    check_float_type("toast_duration_s");
     check_string_type("font_path");
     check_string_type("bold_font_path");
     check_string_type("italic_font_path");
     check_string_type("bold_italic_font_path");
+    check_string_type("weather_location");
     check_array_type("fallback_paths");
     const toml::table* markdown_table = document["markdown"].as_table();
-    if (document["markdown"] && markdown_table == nullptr)
-        DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key 'markdown' has wrong type (expected table) -- using default");
+    if (const toml::node* node = document.get("markdown"); node && markdown_table == nullptr)
+        report_type_error("markdown", "table", *node);
     const toml::table* chrome_table = document["chrome"].as_table();
-    if (document["chrome"] && chrome_table == nullptr)
-        DRAXUL_LOG_ERROR(LogCategory::App, "[config] Key 'chrome' has wrong type (expected table) -- using default");
+    if (const toml::node* node = document.get("chrome"); node && chrome_table == nullptr)
+        report_type_error("chrome", "table", *node);
+    if (const toml::node* node = document.get("terminal"); node && !node->is_table())
+        report_type_error("terminal", "table", *node);
+    if (const toml::node* node = document.get("keybindings"); node && !node->is_table())
+        report_type_error("keybindings", "table", *node);
     check_nested_float_type(markdown_table, "markdown", "font_size");
     check_nested_float_type(markdown_table, "markdown", "margin_columns");
+
+    if (const toml::array* fallbacks = document["fallback_paths"].as_array())
+    {
+        for (const toml::node& entry : *fallbacks)
+        {
+            if (!entry.is_string())
+            {
+                report_type_error("fallback_paths[]", "string", entry);
+                break;
+            }
+        }
+    }
+    if (const toml::table* terminal_table = document["terminal"].as_table())
+    {
+        const auto check_terminal = [&](const char* key, auto predicate, std::string_view expected) {
+            if (const toml::node* node = terminal_table->get(key); node && !predicate(*node))
+                report_type_error(std::string("terminal.") + key, expected, *node);
+        };
+        check_terminal("fg", [](const toml::node& node) { return node.is_string(); }, "string");
+        check_terminal("bg", [](const toml::node& node) { return node.is_string(); }, "string");
+        check_terminal("selection_max_cells", [](const toml::node& node) { return node.is_integer(); }, "integer");
+        check_terminal("copy_on_select", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
+        check_terminal("paste_confirm_lines", [](const toml::node& node) { return node.is_integer(); }, "integer");
+        check_terminal("url_detection", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
+        check_terminal("enable_osc8_hyperlinks", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
+        check_terminal("enable_shell_integration_marks", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
+    }
+    if (chrome_table)
+    {
+        for (std::string_view key : kKnownChromeKeys)
+        {
+            if (const toml::node* node = chrome_table->get(key); node && !node->is_string())
+                report_type_error(std::string("chrome.") + std::string(key), "string", *node);
+        }
+    }
+    if (const toml::table* keybindings = document["keybindings"].as_table())
+    {
+        for (const auto& [key, value] : *keybindings)
+        {
+            if (!value.is_string())
+                report_type_error(std::string("keybindings.") + std::string(key.str()), "string", value);
+        }
+    }
 
     config.window_width = parse_window_dimension(document, "window_width", config.window_width, kMinWindowWidth, kMaxWindowWidth);
     config.window_height = parse_window_dimension(document, "window_height", config.window_height, kMinWindowHeight, kMaxWindowHeight);
@@ -746,6 +799,28 @@ AppConfig AppConfig::parse(std::string_view content)
     return {};
 }
 
+Result<AppConfig, Error> parse_app_config_checked(
+    std::string_view content,
+    std::string_view source_name)
+{
+    PERF_MEASURE();
+    std::string parse_error;
+    auto document = toml_support::parse_document(content, &parse_error);
+    if (!document)
+    {
+        return Result<AppConfig, Error>::err(Error::config_parse(
+            "Failed to parse config " + std::string(source_name) + ": " + parse_error));
+    }
+    std::string validation_error;
+    AppConfig config = config_from_toml(*document, &validation_error);
+    if (!validation_error.empty())
+    {
+        return Result<AppConfig, Error>::err(Error::config_parse(
+            "Failed to validate config " + std::string(source_name) + ": " + validation_error));
+    }
+    return Result<AppConfig, Error>::ok(std::move(config));
+}
+
 std::string AppConfig::serialize() const
 {
     PERF_MEASURE();
@@ -774,6 +849,8 @@ std::string AppConfig::serialize() const
         static_cast<int64_t>(std::clamp(scrollback_lines, kMinScrollbackLines, kMaxScrollbackLines)));
     document.insert_or_assign("palette_bg_alpha", static_cast<double>(std::clamp(palette_bg_alpha, 0.0f, 1.0f)));
     document.insert_or_assign("focus_border_width", static_cast<double>(std::clamp(focus_border_width, 1.0f, 10.0f)));
+    document.insert_or_assign("enable_toast_notifications", enable_toast_notifications);
+    document.insert_or_assign("toast_duration_s", static_cast<double>(std::clamp(toast_duration_s, 0.5f, 60.0f)));
     document.insert_or_assign("show_pane_status", show_pane_status);
     document.insert_or_assign("chord_timeout_ms", std::max(100, chord_timeout_ms));
     document.insert_or_assign("chord_indicator_fade_ms", std::max(100, chord_indicator_fade_ms));
@@ -901,29 +978,61 @@ AppConfig AppConfig::load_from_path(const std::filesystem::path& path)
     {
         if (!std::filesystem::exists(path))
             return {};
+        std::string parse_error;
+        auto document = toml_support::parse_file(path, &parse_error);
+        if (!document)
+        {
+            DRAXUL_LOG_WARN(LogCategory::App, "Failed to parse config from %s: %s",
+                path.string().c_str(), parse_error.c_str());
+            return {};
+        }
+        return config_from_toml(*document);
+    }
+    catch (const std::exception& ex)
+    {
+        DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config from %s: %s",
+            path.string().c_str(), ex.what());
+        return {};
+    }
+}
+
+Result<AppConfig, Error> load_app_config_from_path_checked(const std::filesystem::path& path)
+{
+    PERF_MEASURE();
+    try
+    {
+        if (!std::filesystem::exists(path))
+            return Result<AppConfig, Error>::ok(AppConfig{});
 
         std::string parse_error;
         auto document = toml_support::parse_file(path, &parse_error);
         if (!document)
         {
             if (parse_error == "Unable to open TOML file")
-                DRAXUL_LOG_WARN(LogCategory::App, "Failed to open config for reading: %s", path.string().c_str());
-            else
-                DRAXUL_LOG_WARN(LogCategory::App, "Failed to parse config from %s: %s", path.string().c_str(), parse_error.c_str());
-            return {};
+                return Result<AppConfig, Error>::err(Error::config_load(
+                    "Failed to open config for reading: " + path.string()));
+            return Result<AppConfig, Error>::err(Error::config_parse(
+                "Failed to parse config from " + path.string() + ": " + parse_error));
         }
 
-        return config_from_toml(*document);
+        std::string validation_error;
+        AppConfig config = config_from_toml(*document, &validation_error);
+        if (!validation_error.empty())
+        {
+            return Result<AppConfig, Error>::err(Error::config_parse(
+                "Failed to validate config " + path.string() + ": " + validation_error));
+        }
+        return Result<AppConfig, Error>::ok(std::move(config));
     }
     catch (const std::filesystem::filesystem_error& ex)
     {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config from %s: %s", path.string().c_str(), ex.what());
-        return {};
+        return Result<AppConfig, Error>::err(Error::config_load(
+            "Failed to load config from " + path.string() + ": " + ex.what()));
     }
     catch (const std::ios_base::failure& ex)
     {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config from %s: %s", path.string().c_str(), ex.what());
-        return {};
+        return Result<AppConfig, Error>::err(Error::config_load(
+            "Failed to load config from " + path.string() + ": " + ex.what()));
     }
 }
 

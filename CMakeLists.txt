@@ -142,6 +142,7 @@ endif()
 
 # --- Libraries ---
 add_subdirectory(libs/draxul-types)
+add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
@@ -169,7 +170,7 @@ endif()
 
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
-    draxul-types draxul-window draxul-renderer draxul-ui
+    draxul-types draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
@@ -276,6 +277,8 @@ draxul_apply_coverage(draxul-app)
 draxul_apply_msvc_parallel_pdb_fix(draxul-app)
 
 target_link_libraries(draxul-app PUBLIC
+    draxul-http
+    nlohmann_json::nlohmann_json
     draxul-config
     draxul-runtime-support
     draxul-render-test
@@ -498,30 +501,80 @@ if(BUILD_TESTING)
             set(DRAXUL_RENDER_PLATFORM "linux")
         endif()
 
-        set(DRAXUL_RENDER_SCENARIOS
-            basic-view
-            cmdline-view
-            unicode-view
-            panel-view
-            ligatures-view
-        )
-        foreach(DRAXUL_RENDER_NAME IN LISTS DRAXUL_RENDER_SCENARIOS)
+        set(DRAXUL_RENDER_MANIFEST ${CMAKE_SOURCE_DIR}/tests/render/manifest.json)
+        if(NOT EXISTS ${DRAXUL_RENDER_MANIFEST})
+            message(FATAL_ERROR "Render scenario manifest is missing: ${DRAXUL_RENDER_MANIFEST}")
+        endif()
+        file(READ ${DRAXUL_RENDER_MANIFEST} DRAXUL_RENDER_MANIFEST_JSON)
+        string(JSON DRAXUL_RENDER_SCENARIO_COUNT ERROR_VARIABLE DRAXUL_RENDER_MANIFEST_ERROR
+            LENGTH "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios)
+        if(DRAXUL_RENDER_MANIFEST_ERROR)
+            message(FATAL_ERROR "Invalid render scenario manifest: ${DRAXUL_RENDER_MANIFEST_ERROR}")
+        endif()
+
+        set(DRAXUL_RENDER_DECLARED_SCENARIOS)
+        math(EXPR DRAXUL_RENDER_SCENARIO_LAST "${DRAXUL_RENDER_SCENARIO_COUNT} - 1")
+        foreach(DRAXUL_RENDER_INDEX RANGE 0 ${DRAXUL_RENDER_SCENARIO_LAST})
+            string(JSON DRAXUL_RENDER_NAME GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} name)
+            if(DRAXUL_RENDER_NAME IN_LIST DRAXUL_RENDER_DECLARED_SCENARIOS)
+                message(FATAL_ERROR "Duplicate render scenario '${DRAXUL_RENDER_NAME}' in ${DRAXUL_RENDER_MANIFEST}")
+            endif()
+            list(APPEND DRAXUL_RENDER_DECLARED_SCENARIOS ${DRAXUL_RENDER_NAME})
+
             set(DRAXUL_RENDER_SCENARIO ${CMAKE_SOURCE_DIR}/tests/render/${DRAXUL_RENDER_NAME}.toml)
-            set(DRAXUL_RENDER_REFERENCE ${CMAKE_SOURCE_DIR}/tests/render/reference/${DRAXUL_RENDER_NAME}.${DRAXUL_RENDER_PLATFORM}.bmp)
-            if(EXISTS ${DRAXUL_RENDER_SCENARIO} AND EXISTS ${DRAXUL_RENDER_REFERENCE})
+            if(NOT EXISTS ${DRAXUL_RENDER_SCENARIO})
+                message(FATAL_ERROR "Manifest scenario '${DRAXUL_RENDER_NAME}' is missing ${DRAXUL_RENDER_SCENARIO}")
+            endif()
+
+            string(JSON DRAXUL_RENDER_REFERENCE_REQUIRED GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} reference_required)
+            string(JSON DRAXUL_RENDER_PLATFORM_COUNT LENGTH "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} platforms)
+            set(DRAXUL_RENDER_PLATFORM_SUPPORTED FALSE)
+            math(EXPR DRAXUL_RENDER_PLATFORM_LAST "${DRAXUL_RENDER_PLATFORM_COUNT} - 1")
+            foreach(DRAXUL_RENDER_PLATFORM_INDEX RANGE 0 ${DRAXUL_RENDER_PLATFORM_LAST})
+                string(JSON DRAXUL_RENDER_SUPPORTED_PLATFORM GET "${DRAXUL_RENDER_MANIFEST_JSON}"
+                    scenarios ${DRAXUL_RENDER_INDEX} platforms ${DRAXUL_RENDER_PLATFORM_INDEX})
+                if(DRAXUL_RENDER_SUPPORTED_PLATFORM STREQUAL DRAXUL_RENDER_PLATFORM)
+                    set(DRAXUL_RENDER_PLATFORM_SUPPORTED TRUE)
+                endif()
+                if(DRAXUL_RENDER_REFERENCE_REQUIRED)
+                    set(DRAXUL_RENDER_REQUIRED_REFERENCE
+                        ${CMAKE_SOURCE_DIR}/tests/render/reference/${DRAXUL_RENDER_NAME}.${DRAXUL_RENDER_SUPPORTED_PLATFORM}.bmp)
+                    if(NOT EXISTS ${DRAXUL_RENDER_REQUIRED_REFERENCE})
+                        message(FATAL_ERROR "Required render reference is missing: ${DRAXUL_RENDER_REQUIRED_REFERENCE}")
+                    endif()
+                endif()
+            endforeach()
+
+            string(JSON DRAXUL_RENDER_CTEST GET "${DRAXUL_RENDER_MANIFEST_JSON}" scenarios ${DRAXUL_RENDER_INDEX} ctest)
+            if(DRAXUL_RENDER_CTEST AND DRAXUL_RENDER_PLATFORM_SUPPORTED)
                 if(WIN32)
                     add_test(NAME draxul-render-${DRAXUL_RENDER_NAME} COMMAND $<TARGET_FILE:draxul> --console --render-test ${DRAXUL_RENDER_SCENARIO})
                 else()
                     add_test(NAME draxul-render-${DRAXUL_RENDER_NAME} COMMAND $<TARGET_FILE:draxul> --render-test ${DRAXUL_RENDER_SCENARIO})
                 endif()
                 set_tests_properties(draxul-render-${DRAXUL_RENDER_NAME}
-                    PROPERTIES
-                        LABELS render
-                        RESOURCE_LOCK draxul_gpu
-                        TIMEOUT 30
-                )
-            else()
-                message(STATUS "Skipping draxul-render-${DRAXUL_RENDER_NAME} because ${DRAXUL_RENDER_REFERENCE} is not available")
+                    PROPERTIES LABELS render RESOURCE_LOCK draxul_gpu TIMEOUT 30)
+            elseif(DRAXUL_RENDER_CTEST)
+                message(STATUS "Render scenario '${DRAXUL_RENDER_NAME}' explicitly excludes ${DRAXUL_RENDER_PLATFORM}")
+            endif()
+        endforeach()
+
+        file(GLOB DRAXUL_RENDER_TOML_FILES RELATIVE ${CMAKE_SOURCE_DIR}/tests/render
+            ${CMAKE_SOURCE_DIR}/tests/render/*.toml)
+        foreach(DRAXUL_RENDER_TOML IN LISTS DRAXUL_RENDER_TOML_FILES)
+            get_filename_component(DRAXUL_RENDER_TOML_NAME ${DRAXUL_RENDER_TOML} NAME_WE)
+            if(NOT DRAXUL_RENDER_TOML_NAME IN_LIST DRAXUL_RENDER_DECLARED_SCENARIOS)
+                message(FATAL_ERROR "Unregistered render scenario file: tests/render/${DRAXUL_RENDER_TOML}")
+            endif()
+        endforeach()
+
+        file(GLOB DRAXUL_RENDER_REFERENCE_FILES RELATIVE ${CMAKE_SOURCE_DIR}/tests/render/reference
+            ${CMAKE_SOURCE_DIR}/tests/render/reference/*.bmp)
+        foreach(DRAXUL_RENDER_REFERENCE_FILE IN LISTS DRAXUL_RENDER_REFERENCE_FILES)
+            string(REGEX REPLACE "\\.(windows|macos|linux)\\.bmp$" "" DRAXUL_RENDER_REFERENCE_NAME
+                "${DRAXUL_RENDER_REFERENCE_FILE}")
+            if(NOT DRAXUL_RENDER_REFERENCE_NAME IN_LIST DRAXUL_RENDER_DECLARED_SCENARIOS)
+                message(FATAL_ERROR "Unregistered render reference: tests/render/reference/${DRAXUL_RENDER_REFERENCE_FILE}")
             endif()
         endforeach()
     else()

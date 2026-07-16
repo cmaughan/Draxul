@@ -1,10 +1,12 @@
 #include <draxul/gui/tooltip.h>
+#include <draxul/gui/overlay_text.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <draxul/perf_timing.h>
 #include <draxul/text_service.h>
+#include <limits>
 
 namespace draxul::gui
 {
@@ -39,13 +41,13 @@ void blit_text_line(
     const FontMetrics metrics = text_service.metrics();
     const int cell_width = std::max(metrics.cell_width, 1);
 
-    for (const unsigned char ch : text)
+    for (const auto& cluster : layout_overlay_text(text, std::numeric_limits<int>::max()))
     {
-        const std::string cluster(1, static_cast<char>(ch));
-        const AtlasRegion region = text_service.resolve_cluster(cluster);
+        const AtlasRegion region = text_service.resolve_cluster(cluster.text);
+        const int advance = cell_width * cluster.cell_width;
         if (region.bitmap_size.x <= 0 || region.bitmap_size.y <= 0)
         {
-            pen_x += cell_width;
+            pen_x += advance;
             continue;
         }
 
@@ -54,7 +56,7 @@ void blit_text_line(
         const int atlas_height = text_service.atlas_height();
         if (!atlas || atlas_width <= 0 || atlas_height <= 0)
         {
-            pen_x += cell_width;
+            pen_x += advance;
             continue;
         }
 
@@ -94,7 +96,7 @@ void blit_text_line(
             }
         }
 
-        pen_x += cell_width;
+        pen_x += advance;
     }
 }
 
@@ -113,8 +115,8 @@ TooltipBitmap rasterize_tooltip(
     int value_max_chars = 0;
     for (const auto& entry : data.entries)
     {
-        label_max_chars = std::max(label_max_chars, static_cast<int>(entry.label.size()));
-        value_max_chars = std::max(value_max_chars, static_cast<int>(entry.value.size()));
+        label_max_chars = std::max(label_max_chars, overlay_text_width(entry.label));
+        value_max_chars = std::max(value_max_chars, overlay_text_width(entry.value));
     }
 
     const int label_col_width = label_max_chars * cell_width;
@@ -146,7 +148,7 @@ TooltipBitmap rasterize_tooltip(
         const int baseline_y = line_y + metrics.ascender;
 
         // Label column (right-aligned within label_col_width).
-        const int label_pixel_width = static_cast<int>(data.entries[i].label.size()) * cell_width;
+        const int label_pixel_width = overlay_text_width(data.entries[i].label) * cell_width;
         const int label_x = kTooltipPadding + (label_col_width - label_pixel_width);
         blit_text_line(
             text_service, data.entries[i].label,

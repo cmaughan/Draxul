@@ -57,6 +57,7 @@ private:
     friend class VkGridHandle;
 
     bool create_sync_objects();
+    bool resize_render_finished_semaphores(size_t count);
     bool create_command_buffers();
     bool create_descriptor_pool(VkDescriptorPool& pool);
     bool recreate_frame_resources();

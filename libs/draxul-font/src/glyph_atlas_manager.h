@@ -5,8 +5,10 @@
 #include "font_resolver.h"
 #include "font_selector.h"
 
+#include <array>
 #include <cassert>
 #include <draxul/log.h>
+#include <vector>
 
 namespace draxul
 {
@@ -19,6 +21,8 @@ public:
     {
         atlas_reset_pending_ = false;
         atlas_reset_count_ = 0;
+        warned_error_kinds_.fill(false);
+        runtime_warnings_.clear();
         expected_primary_face_ = primary_face;
         return glyph_cache_.initialize(primary_face, point_size);
     }
@@ -65,14 +69,33 @@ public:
         }
 
         auto sel = selector.select(text, resolver, is_bold, is_italic);
-        AtlasRegion region = glyph_cache_.get_cluster(text, sel.face, *sel.shaper);
+        std::vector<FT_Face> failed_faces;
+        while (sel.face != nullptr && sel.shaper != nullptr)
+        {
+            auto result = glyph_cache_.get_cluster_result(text, sel.face, *sel.shaper);
+            if (result.has_value())
+                return result.value();
 
-        if (region.bitmap_size.x > 0 || region.bitmap_size.y > 0 || !glyph_cache_.consume_overflowed())
-            return region;
+            if (result.error().kind == ErrorKind::AtlasOverflow)
+            {
+                reset_after_overflow(resolver);
+                sel = selector.select(text, resolver, is_bold, is_italic);
+                auto retry = glyph_cache_.get_cluster_result(text, sel.face, *sel.shaper);
+                if (retry.has_value())
+                    return retry.value();
+                warn_raster_failure_once(retry.error());
+                return {};
+            }
 
-        reset_after_overflow(resolver);
-        sel = selector.select(text, resolver, is_bold, is_italic);
-        return glyph_cache_.get_cluster(text, sel.face, *sel.shaper);
+            failed_faces.push_back(sel.face);
+            sel = selector.select_after_raster_failure(text, resolver, failed_faces);
+            if (sel.face == nullptr)
+            {
+                warn_raster_failure_once(result.error());
+                return {};
+            }
+        }
+        return {};
     }
 
     GlyphCache& cache()
@@ -96,7 +119,26 @@ public:
         return atlas_reset_count_;
     }
 
+    std::vector<std::string> take_runtime_warnings()
+    {
+        std::vector<std::string> warnings;
+        warnings.swap(runtime_warnings_);
+        return warnings;
+    }
+
 private:
+    void warn_raster_failure_once(const Error& error)
+    {
+        const size_t index = static_cast<size_t>(error.kind);
+        if (index >= warned_error_kinds_.size() || warned_error_kinds_[index])
+            return;
+        warned_error_kinds_[index] = true;
+        DRAXUL_LOG_WARN(LogCategory::Font, "Glyph rendering failed after fallback exhaustion: %s",
+            error.message.c_str());
+        runtime_warnings_.push_back(
+            "A glyph could not be rendered by any available font: " + error.message);
+    }
+
     // Atlas overflowed — reset so the caller can retry once.
     void reset_after_overflow(FontResolver& resolver)
     {
@@ -111,6 +153,8 @@ private:
     FT_Face expected_primary_face_ = nullptr;
     bool atlas_reset_pending_ = false;
     int atlas_reset_count_ = 0;
+    std::array<bool, static_cast<size_t>(ErrorKind::NotFound) + 1> warned_error_kinds_ = {};
+    std::vector<std::string> runtime_warnings_;
 };
 
 } // namespace draxul

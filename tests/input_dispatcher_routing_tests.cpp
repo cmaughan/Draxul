@@ -465,6 +465,118 @@ TEST_CASE("e2e: file-drop with spaces in path is forwarded correctly", "[input_d
     REQUIRE(setup.host.dispatched_actions[0] == "open_file:/home/user/my documents/file name.txt");
 }
 
+TEST_CASE("input dispatcher destruction revokes window callbacks and copied late events",
+    "[input_dispatcher][lifetime]")
+{
+    tests::FakeWindow window;
+    UiPanel panel;
+    panel.initialize();
+    StubHost host;
+    int resize_calls = 0;
+    int scale_calls = 0;
+
+    InputDispatcher::Deps deps;
+    deps.ui_panel = &panel;
+    deps.host = &host;
+    deps.on_resize = [&](int, int) { ++resize_calls; };
+    deps.on_display_scale_changed = [&](float) { ++scale_calls; };
+    auto dispatcher = std::make_unique<InputDispatcher>(std::move(deps));
+    dispatcher->connect(window);
+
+    // Model events copied/queued by a platform layer before teardown.
+    auto late_key = window.on_key;
+    auto late_text = window.on_text_input;
+    auto late_editing = window.on_text_editing;
+    auto late_button = window.on_mouse_button;
+    auto late_move = window.on_mouse_move;
+    auto late_wheel = window.on_mouse_wheel;
+    auto late_resize = window.on_resize;
+    auto late_scale = window.on_display_scale_changed;
+    auto late_drop = window.on_drop_file;
+
+    dispatcher.reset();
+
+    CHECK_FALSE(window.on_key);
+    CHECK_FALSE(window.on_text_input);
+    CHECK_FALSE(window.on_text_editing);
+    CHECK_FALSE(window.on_mouse_button);
+    CHECK_FALSE(window.on_mouse_move);
+    CHECK_FALSE(window.on_mouse_wheel);
+    CHECK_FALSE(window.on_resize);
+    CHECK_FALSE(window.on_display_scale_changed);
+    CHECK_FALSE(window.on_drop_file);
+
+    late_key(KeyEvent{ 0, SDLK_A, kModNone, true });
+    late_text(TextInputEvent{ "late" });
+    late_editing(TextEditingEvent{ "late", 0, 4 });
+    late_button(MouseButtonEvent{ 1, true, kModNone, { 10, 20 } });
+    late_move(MouseMoveEvent{ kModNone, { 10, 20 }, { 0.0f, 0.0f }, 0 });
+    late_wheel(MouseWheelEvent{ { 0.0f, 1.0f }, kModNone, { 10, 20 } });
+    late_resize(WindowResizeEvent{ { 1024, 768 } });
+    late_scale(DisplayScaleEvent{ 192.0f });
+    late_drop("late.txt");
+
+    CHECK(host.key_events.empty());
+    CHECK(host.text_input_events.empty());
+    CHECK(host.text_editing_events.empty());
+    CHECK(host.mouse_button_events.empty());
+    CHECK(host.mouse_move_events.empty());
+    CHECK(host.mouse_wheel_events.empty());
+    CHECK(host.dispatched_actions.empty());
+    CHECK(resize_calls == 0);
+    CHECK(scale_calls == 0);
+}
+
+TEST_CASE("input dispatcher reconnect transfers callbacks to the current window",
+    "[input_dispatcher][lifetime]")
+{
+    tests::FakeWindow first_window;
+    tests::FakeWindow second_window;
+    UiPanel panel;
+    panel.initialize();
+    StubHost host;
+    InputDispatcher::Deps deps;
+    deps.ui_panel = &panel;
+    deps.host = &host;
+    InputDispatcher dispatcher(std::move(deps));
+
+    dispatcher.connect(first_window);
+    auto late_first_key = first_window.on_key;
+    dispatcher.connect(second_window);
+
+    CHECK_FALSE(first_window.on_key);
+    REQUIRE(second_window.on_key);
+    late_first_key(KeyEvent{ 0, SDLK_A, kModNone, true });
+    CHECK(host.key_events.empty());
+
+    second_window.on_key(KeyEvent{ 0, SDLK_B, kModNone, true });
+    REQUIRE(host.key_events.size() == 1);
+    CHECK(host.key_events[0].keycode == SDLK_B);
+}
+
+TEST_CASE("window lifecycle connection invalidates late callbacks across window destruction",
+    "[window][lifetime]")
+{
+    IWindow::CallbackConnection connection;
+    std::function<void()> late_close;
+    int close_calls = 0;
+    {
+        auto window = std::make_unique<tests::FakeWindow>();
+        IWindow::LifecycleCallbacks callbacks;
+        callbacks.on_close_requested = [&]() { ++close_calls; };
+        connection = window->connect_lifecycle_callbacks(std::move(callbacks));
+        late_close = window->on_close_requested;
+        REQUIRE(connection.connected());
+    }
+
+    // Base window destruction invalidates the shared lifetime before the
+    // registration owner itself is destroyed.
+    late_close();
+    CHECK(close_calls == 0);
+    connection.reset();
+    CHECK_FALSE(connection.connected());
+}
+
 // ---------------------------------------------------------------------------
 // Overlay-host routing (regression guard for WI 50)
 // ---------------------------------------------------------------------------

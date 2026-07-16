@@ -79,6 +79,28 @@ InputDispatcher::InputDispatcher(Deps deps)
 {
 }
 
+void InputDispatcher::disconnect()
+{
+    window_connection_.reset();
+}
+
+void InputDispatcher::reconfigure(Deps deps)
+{
+    disconnect();
+    deps_ = std::move(deps);
+    drag_divider_id_ = -1;
+    active_mouse_cursor_ = MouseCursor::Default;
+    pending_scroll_y_ = 0.0f;
+    had_scroll_event_ = false;
+    prefix_active_ = false;
+    suppress_next_text_input_ = false;
+    pane_select_active_ = false;
+    indicator_text_.clear();
+    prefix_started_at_.reset();
+    fade_started_at_.reset();
+    fade_ends_at_.reset();
+}
+
 void InputDispatcher::set_chord_indicator_fade_ms(int fade_ms)
 {
     chord_indicator_fade_ms_ = std::max(100, fade_ms);
@@ -745,9 +767,11 @@ void InputDispatcher::connect(IWindow& window)
 {
     PERF_MEASURE();
     assert(deps_.ui_panel != nullptr && "InputDispatcher::Deps::ui_panel is required before connect()");
-    window.on_key = [this](const KeyEvent& e) { on_key_event(e); };
+    disconnect();
+    IWindow::InputCallbacks callbacks;
+    callbacks.on_key = [this](const KeyEvent& e) { on_key_event(e); };
 
-    window.on_text_input = [this](const TextInputEvent& event) {
+    callbacks.on_text_input = [this](const TextInputEvent& event) {
         if (log_would_emit(LogLevel::Trace, LogCategory::Input))
         {
             const std::string described = describe_text_for_log(event.text);
@@ -813,7 +837,7 @@ void InputDispatcher::connect(IWindow& window)
         }
     };
 
-    window.on_text_editing = [this](const TextEditingEvent& event) {
+    callbacks.on_text_editing = [this](const TextEditingEvent& event) {
         // Overlay host consumes IME composition events.
         if (deps_.router && deps_.router->overlay_host())
             return;
@@ -822,24 +846,25 @@ void InputDispatcher::connect(IWindow& window)
             deps_.host->on_text_editing(event);
     };
 
-    window.on_mouse_button = [this](const MouseButtonEvent& e) { on_mouse_button_event(e); };
-    window.on_mouse_move = [this](const MouseMoveEvent& e) { on_mouse_move_event(e); };
-    window.on_mouse_wheel = [this](const MouseWheelEvent& e) { on_mouse_wheel_event(e); };
+    callbacks.on_mouse_button = [this](const MouseButtonEvent& e) { on_mouse_button_event(e); };
+    callbacks.on_mouse_move = [this](const MouseMoveEvent& e) { on_mouse_move_event(e); };
+    callbacks.on_mouse_wheel = [this](const MouseWheelEvent& e) { on_mouse_wheel_event(e); };
 
-    window.on_resize = [this](const WindowResizeEvent& event) {
+    callbacks.on_resize = [this](const WindowResizeEvent& event) {
         if (deps_.on_resize)
             deps_.on_resize(event.size.x, event.size.y);
     };
 
-    window.on_display_scale_changed = [this](const DisplayScaleEvent& event) {
+    callbacks.on_display_scale_changed = [this](const DisplayScaleEvent& event) {
         if (deps_.on_display_scale_changed)
             deps_.on_display_scale_changed(event.display_ppi);
     };
 
-    window.on_drop_file = [this](std::string_view path) {
+    callbacks.on_drop_file = [this](std::string_view path) {
         if (deps_.host)
             deps_.host->dispatch_action(std::string("open_file:") + std::string(path));
     };
+    window_connection_ = window.connect_input_callbacks(std::move(callbacks));
 }
 
 InputDispatcher::ChordIndicatorState InputDispatcher::chord_indicator_state(

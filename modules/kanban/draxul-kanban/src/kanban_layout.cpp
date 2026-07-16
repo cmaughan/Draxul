@@ -22,87 +22,9 @@ int max_card_count(const KanbanBoard& board)
     return result;
 }
 
-bool is_indic_virama(uint32_t cp)
-{
-    switch (cp)
-    {
-    case 0x094D:
-    case 0x09CD:
-    case 0x0A4D:
-    case 0x0ACD:
-    case 0x0B4D:
-    case 0x0BCD:
-    case 0x0C4D:
-    case 0x0CCD:
-    case 0x0D4D:
-    case 0x0DCA:
-        return true;
-    default:
-        return false;
-    }
-}
-
-size_t next_cluster_end(std::string_view text, size_t offset)
-{
-    uint32_t base = 0;
-    if (!draxul::utf8_decode_next(text, offset, base))
-        return offset;
-
-    bool consumed_regional_pair = false;
-    bool previous_was_virama = false;
-    while (offset < text.size())
-    {
-        const size_t next_start = offset;
-        uint32_t cp = 0;
-        if (!draxul::utf8_decode_next(text, offset, cp))
-            return offset;
-
-        if (cp == 0x200D && offset < text.size())
-        {
-            uint32_t joined = 0;
-            draxul::utf8_decode_next(text, offset, joined);
-            previous_was_virama = false;
-            continue;
-        }
-
-        if (previous_was_virama)
-        {
-            previous_was_virama = false;
-            continue;
-        }
-
-        if (is_indic_virama(cp))
-        {
-            previous_was_virama = true;
-            continue;
-        }
-
-        if (draxul::is_width_ignorable(cp) || draxul::is_emoji_modifier(cp))
-            continue;
-
-        if (!consumed_regional_pair && draxul::is_regional_indicator(base) && draxul::is_regional_indicator(cp))
-        {
-            consumed_regional_pair = true;
-            continue;
-        }
-
-        return next_start;
-    }
-
-    return offset;
-}
-
 int text_cell_width(std::string_view text)
 {
-    int width = 0;
-    size_t offset = 0;
-    while (offset < text.size())
-    {
-        const size_t cluster_start = offset;
-        offset = next_cluster_end(text, offset);
-        width += draxul::cluster_cell_width(text.substr(cluster_start, offset - cluster_start));
-    }
-    return width;
+    return draxul::display_cell_width(text);
 }
 
 std::string dots(int count)
@@ -179,19 +101,13 @@ std::string truncate_to_cells(std::string_view text, int max_cells)
     const int payload_cells = max_cells - 3;
     std::string result;
     int used_cells = 0;
-    size_t offset = 0;
-    while (offset < text.size())
+    for (const auto& cluster : draxul::display_clusters(text))
     {
-        const size_t cluster_start = offset;
-        offset = next_cluster_end(text, offset);
-
-        const auto cluster = text.substr(cluster_start, offset - cluster_start);
-        const int cluster_width = draxul::cluster_cell_width(cluster);
-        if (used_cells + cluster_width > payload_cells)
+        if (used_cells + cluster.cell_width > payload_cells)
             break;
 
-        result.append(cluster);
-        used_cells += cluster_width;
+        result.append(cluster.text);
+        used_cells += cluster.cell_width;
     }
 
     result += "...";

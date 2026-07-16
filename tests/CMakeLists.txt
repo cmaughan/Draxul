@@ -52,7 +52,11 @@ if(DRAXUL_ENABLE_SATVIEW)
     target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_SATVIEW)
 endif()
 if(DRAXUL_ENABLE_SCOREVIEW)
-    target_link_libraries(draxul-tests PRIVATE draxul-notation draxul-scoreview)
+    target_link_libraries(draxul-tests PRIVATE
+        draxul-notation
+        draxul-scoreview
+        draxul-scoreview-host
+    )
     # Layout-engine tests read Verovio's resources straight from the fetched
     # source tree; the app uses the staged <exe-dir>/verovio-data copy instead.
     target_compile_definitions(draxul-tests PRIVATE

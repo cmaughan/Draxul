@@ -484,9 +484,8 @@ void VkRenderer::shutdown()
 bool VkRenderer::create_sync_objects()
 {
     PERF_MEASURE();
-    image_available_sem_.resize(MAX_FRAMES_IN_FLIGHT);
-    render_finished_sem_.resize(MAX_FRAMES_IN_FLIGHT);
-    in_flight_fences_.resize(MAX_FRAMES_IN_FLIGHT);
+    image_available_sem_.assign(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    in_flight_fences_.assign(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo sem_ci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo fence_ci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
@@ -499,25 +498,8 @@ bool VkRenderer::create_sync_objects()
             for (int j = 0; j < i; j++)
             {
                 vkDestroySemaphore(ctx_.device(), image_available_sem_[j], nullptr);
-                vkDestroySemaphore(ctx_.device(), render_finished_sem_[j], nullptr);
                 vkDestroyFence(ctx_.device(), in_flight_fences_[j], nullptr);
                 image_available_sem_[j] = VK_NULL_HANDLE;
-                render_finished_sem_[j] = VK_NULL_HANDLE;
-                in_flight_fences_[j] = VK_NULL_HANDLE;
-            }
-            return false;
-        }
-        if (vkCreateSemaphore(ctx_.device(), &sem_ci, nullptr, &render_finished_sem_[i]) != VK_SUCCESS)
-        {
-            vkDestroySemaphore(ctx_.device(), image_available_sem_[i], nullptr);
-            image_available_sem_[i] = VK_NULL_HANDLE;
-            for (int j = 0; j < i; j++)
-            {
-                vkDestroySemaphore(ctx_.device(), image_available_sem_[j], nullptr);
-                vkDestroySemaphore(ctx_.device(), render_finished_sem_[j], nullptr);
-                vkDestroyFence(ctx_.device(), in_flight_fences_[j], nullptr);
-                image_available_sem_[j] = VK_NULL_HANDLE;
-                render_finished_sem_[j] = VK_NULL_HANDLE;
                 in_flight_fences_[j] = VK_NULL_HANDLE;
             }
             return false;
@@ -525,21 +507,55 @@ bool VkRenderer::create_sync_objects()
         if (vkCreateFence(ctx_.device(), &fence_ci, nullptr, &in_flight_fences_[i]) != VK_SUCCESS)
         {
             vkDestroySemaphore(ctx_.device(), image_available_sem_[i], nullptr);
-            vkDestroySemaphore(ctx_.device(), render_finished_sem_[i], nullptr);
             image_available_sem_[i] = VK_NULL_HANDLE;
-            render_finished_sem_[i] = VK_NULL_HANDLE;
             for (int j = 0; j < i; j++)
             {
                 vkDestroySemaphore(ctx_.device(), image_available_sem_[j], nullptr);
-                vkDestroySemaphore(ctx_.device(), render_finished_sem_[j], nullptr);
                 vkDestroyFence(ctx_.device(), in_flight_fences_[j], nullptr);
                 image_available_sem_[j] = VK_NULL_HANDLE;
-                render_finished_sem_[j] = VK_NULL_HANDLE;
                 in_flight_fences_[j] = VK_NULL_HANDLE;
             }
             return false;
         }
     }
+
+    if (resize_render_finished_semaphores(ctx_.swapchain().images.size()))
+        return true;
+
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    {
+        vkDestroySemaphore(ctx_.device(), image_available_sem_[i], nullptr);
+        vkDestroyFence(ctx_.device(), in_flight_fences_[i], nullptr);
+        image_available_sem_[i] = VK_NULL_HANDLE;
+        in_flight_fences_[i] = VK_NULL_HANDLE;
+    }
+    return false;
+}
+
+bool VkRenderer::resize_render_finished_semaphores(size_t count)
+{
+    if (count == 0)
+        return false;
+    if (render_finished_sem_.size() == count)
+        return true;
+
+    std::vector<VkSemaphore> replacement(count, VK_NULL_HANDLE);
+    VkSemaphoreCreateInfo sem_ci = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    for (auto& semaphore : replacement)
+    {
+        if (vkCreateSemaphore(ctx_.device(), &sem_ci, nullptr, &semaphore) == VK_SUCCESS)
+            continue;
+        for (auto created : replacement)
+        {
+            if (created != VK_NULL_HANDLE)
+                vkDestroySemaphore(ctx_.device(), created, nullptr);
+        }
+        return false;
+    }
+
+    for (auto old : render_finished_sem_)
+        vkDestroySemaphore(ctx_.device(), old, nullptr);
+    render_finished_sem_ = std::move(replacement);
     return true;
 }
 
@@ -608,6 +624,14 @@ bool VkRenderer::recreate_frame_resources()
 
     ctx_.commit_swapchain_resources(std::move(pending_swapchain));
     reclaim_all_retired_grid_slot_resources();
+    if (!resize_render_finished_semaphores(ctx_.swapchain().images.size()))
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Failed to resize Vulkan presentation semaphores");
+        pending_pipeline.shutdown(ctx_.device());
+        if (pending_desc_pool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(ctx_.device(), pending_desc_pool, nullptr);
+        return false;
+    }
 
     pipeline_.swap(pending_pipeline);
     pending_pipeline.shutdown(ctx_.device());
@@ -1279,7 +1303,7 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &active_cmd_buffer_;
         submit.signalSemaphoreCount = 1;
-        submit.pSignalSemaphores = &render_finished_sem_[current_frame_];
+        submit.pSignalSemaphores = &render_finished_sem_[current_image_];
 
         vkResetFences(ctx_.device(), 1, &in_flight_fences_[current_frame_]);
         if (current_image_ < images_in_flight_.size())
@@ -1290,7 +1314,7 @@ bool VkRenderer::flush_submit_chunk(bool final_chunk)
 
         VkPresentInfoKHR present = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
         present.waitSemaphoreCount = 1;
-        present.pWaitSemaphores = &render_finished_sem_[current_frame_];
+        present.pWaitSemaphores = &render_finished_sem_[current_image_];
         present.swapchainCount = 1;
         present.pSwapchains = &ctx_.swapchain().swapchain;
         present.pImageIndices = &current_image_;

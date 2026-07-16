@@ -6,6 +6,7 @@
 #include <chrono>
 #include <draxul/pixel_scale.h>
 #include <draxul/types.h>
+#include <draxul/window.h>
 #include <functional>
 #include <optional>
 #include <string>
@@ -19,7 +20,6 @@ struct GuiKeybinding;
 class GuiActionHandler;
 class UiPanel;
 class IHost;
-class IWindow;
 class HostManager;
 class SdlWindow;
 struct KeyEvent;
@@ -92,9 +92,18 @@ public:
     };
 
     explicit InputDispatcher(Deps deps);
+    ~InputDispatcher() = default;
+    InputDispatcher(const InputDispatcher&) = delete;
+    InputDispatcher& operator=(const InputDispatcher&) = delete;
+    InputDispatcher(InputDispatcher&&) = delete;
+    InputDispatcher& operator=(InputDispatcher&&) = delete;
 
     // Installs this dispatcher's lambdas as the window's event callbacks.
     void connect(IWindow& window);
+    // Releases the installed callback token. Safe to call repeatedly and
+    // required before replacing dependencies or beginning owner teardown.
+    void disconnect();
+    void reconfigure(Deps deps);
 
     // Updates the host pointer (used when focus changes between panes).
     void set_host(IHost* host);
@@ -182,6 +191,7 @@ private:
     std::optional<std::chrono::steady_clock::time_point> fade_started_at_;
     std::optional<std::chrono::steady_clock::time_point> fade_ends_at_;
     int chord_indicator_fade_ms_ = 2500;
+    IWindow::CallbackConnection window_connection_;
 };
 
 } // namespace draxul

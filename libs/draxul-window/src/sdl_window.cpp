@@ -27,12 +27,12 @@ namespace draxul
 #ifdef __APPLE__
 extern void apply_title_bar_color_macos(SDL_Window*, Color);
 extern void disable_press_and_hold_macos();
-extern void install_dock_reopen_handler(std::function<void()>* callback);
+extern void* install_dock_reopen_handler(std::function<void()> callback);
+extern void uninstall_dock_reopen_handler(void* handler);
 #elif defined(_WIN32)
-extern void create_system_tray_icon(std::function<void()>* on_attach, std::function<void()>* on_quit);
-extern void destroy_system_tray_icon();
-extern bool has_system_tray_icon();
-extern void pump_tray_messages();
+extern void* create_system_tray_icon(std::function<void()> on_attach, std::function<void()> on_quit);
+extern void destroy_system_tray_icon(void* tray_icon);
+extern void pump_tray_messages(void* tray_icon);
 #endif
 
 namespace
@@ -88,6 +88,11 @@ const char* safe_key_name(int keycode)
 }
 
 } // namespace
+
+SdlWindow::~SdlWindow()
+{
+    shutdown();
+}
 
 #if defined(_WIN32) || defined(__APPLE__)
 static void log_display_info(SDL_Window* window)
@@ -216,7 +221,10 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
     // registerDefaults:, which replaces key repeat with macOS accent pickers.
     // Override it to NO so that holding a key generates OS repeat events.
     disable_press_and_hold_macos();
-    install_dock_reopen_handler(&on_dock_reopen);
+    dock_reopen_handler_ = install_dock_reopen_handler([this]() {
+        if (on_dock_reopen)
+            on_dock_reopen();
+    });
 #endif
 
     wake_event_type_ = SDL_RegisterEvents(2);
@@ -343,7 +351,11 @@ void SdlWindow::show()
     SDL_ShowWindow(window_);
     visible_ = true;
 #ifdef _WIN32
-    destroy_system_tray_icon();
+    if (system_tray_icon_)
+    {
+        destroy_system_tray_icon(system_tray_icon_);
+        system_tray_icon_ = nullptr;
+    }
 #endif
 }
 
@@ -355,7 +367,8 @@ void SdlWindow::hide()
     SDL_HideWindow(window_);
     visible_ = false;
 #ifdef _WIN32
-    create_system_tray_icon(&on_dock_reopen, &on_quit_requested);
+    if (!system_tray_icon_)
+        system_tray_icon_ = create_system_tray_icon(on_dock_reopen, on_quit_requested);
 #endif
 }
 
@@ -367,6 +380,20 @@ bool SdlWindow::is_visible() const
 void SdlWindow::shutdown()
 {
     PERF_MEASURE();
+#ifdef __APPLE__
+    if (dock_reopen_handler_)
+    {
+        uninstall_dock_reopen_handler(dock_reopen_handler_);
+        dock_reopen_handler_ = nullptr;
+    }
+#elif defined(_WIN32)
+    if (system_tray_icon_)
+    {
+        destroy_system_tray_icon(system_tray_icon_);
+        system_tray_icon_ = nullptr;
+    }
+#endif
+    clear_callbacks();
     if (cursor_default_)
     {
         SDL_DestroyCursor(cursor_default_);
@@ -392,10 +419,22 @@ void SdlWindow::shutdown()
         SDL_DestroyWindow(window_);
         window_ = nullptr;
     }
-#ifdef _WIN32
-    destroy_system_tray_icon();
-#endif
     SDL_Quit();
+}
+
+void SdlWindow::clear_lifecycle_callbacks()
+{
+#ifdef _WIN32
+    // The tray context owns copies of these callbacks. Destroy it before
+    // invalidating the window-level registration so no queued native message
+    // can retain an App callback during teardown.
+    if (system_tray_icon_)
+    {
+        destroy_system_tray_icon(system_tray_icon_);
+        system_tray_icon_ = nullptr;
+    }
+#endif
+    IWindow::clear_lifecycle_callbacks();
 }
 
 SDL_Cursor* SdlWindow::ensure_cursor(MouseCursor cursor)
@@ -571,7 +610,7 @@ bool SdlWindow::poll_events()
     PERF_MEASURE();
     flush_text_input_area();
 #ifdef _WIN32
-    pump_tray_messages();
+    pump_tray_messages(system_tray_icon_);
 #endif
     SDL_Event event;
     while (SDL_PollEvent(&event))

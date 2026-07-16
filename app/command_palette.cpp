@@ -8,6 +8,7 @@
 #include <draxul/app_config.h>
 #include <draxul/events.h>
 #include <draxul/host_kind.h>
+#include <draxul/host_registry.h>
 #include <draxul/keybinding_parser.h>
 #include <unordered_set>
 
@@ -55,20 +56,9 @@ void CommandPalette::open()
     // the command and the host type in a single query.
     all_actions_.clear();
 
-    // Platform-available host kinds.
-    std::vector<HostKind> host_kinds = {
-        HostKind::Nvim,
-        HostKind::Kanban,
-        HostKind::MegaCity,
-        HostKind::BioView,
-        HostKind::SatView,
-#ifdef _WIN32
-        HostKind::PowerShell,
-        HostKind::Wsl,
-#endif
-        HostKind::Bash,
-        HostKind::Zsh,
-    };
+    const HostProviderRegistry& registry = deps_.host_registry != nullptr
+        ? *deps_.host_registry
+        : HostProviderRegistry::global();
 
     static const std::unordered_set<std::string_view> kHostArgActions = {
         "split_vertical",
@@ -95,8 +85,17 @@ void CommandPalette::open()
         all_actions_.emplace_back(std::string(name));
         if (kHostArgActions.count(name))
         {
-            for (HostKind kind : host_kinds)
-                all_actions_.push_back(std::string(name) + " " + to_string(kind));
+            const HostLaunchContext context = name == "new_tab"
+                ? HostLaunchContext::NewWorkspace
+                : HostLaunchContext::Split;
+            for (const auto& provider : registry.available_providers())
+            {
+                if (provider.palette_visible && !provider.test_only
+                    && supports_launch_context(provider.launch_contexts, context))
+                {
+                    all_actions_.push_back(std::string(name) + " " + provider.canonical_cli_name);
+                }
+            }
         }
     }
     refilter();

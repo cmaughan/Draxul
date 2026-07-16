@@ -3,6 +3,24 @@
 #include <draxul/perf_timing.h>
 #include <draxul/types.h>
 #include <functional>
+#include <memory>
+
+@interface DraxulDockReopenHandler : NSObject
+@property(nonatomic, copy) void (^callback)(void);
+- (void)handleAppleEvent:(NSAppleEventDescriptor*)event
+          withReplyEvent:(NSAppleEventDescriptor*)replyEvent;
+@end
+
+@implementation DraxulDockReopenHandler
+- (void)handleAppleEvent:(NSAppleEventDescriptor*)event
+          withReplyEvent:(NSAppleEventDescriptor*)replyEvent
+{
+    (void)event;
+    (void)replyEvent;
+    if (self.callback)
+        self.callback();
+}
+@end
 
 namespace draxul
 {
@@ -34,33 +52,46 @@ void apply_title_bar_color_macos(SDL_Window* window, Color color)
 // ---------------------------------------------------------------------------
 // SDL3 installs its own NSApplicationDelegate, so we can't directly implement
 // applicationShouldHandleReopen:hasVisibleWindows: without subclassing or
-// swizzling SDL's delegate. Instead, we install a global NSAppleEventManager
-// handler for the "reopen" Apple Event (kAEReopenApplication), which the
+// swizzling SDL's delegate. Instead, an instance-owned NSAppleEventManager
+// handler receives the "reopen" Apple Event (kAEReopenApplication), which the
 // system sends when the user clicks the Dock icon while no windows are visible.
 
 namespace
 {
-std::function<void()>* g_reopen_callback = nullptr;
+struct DockReopenContext
+{
+    DraxulDockReopenHandler* handler = nil;
+};
 }
 
-static OSErr handle_reopen_apple_event(const AppleEvent*, AppleEvent*, SRefCon)
+void* install_dock_reopen_handler(std::function<void()> callback)
 {
-    if (g_reopen_callback && *g_reopen_callback)
-        (*g_reopen_callback)();
-    return noErr;
-}
-
-void install_dock_reopen_handler(std::function<void()>* callback)
-{
-    g_reopen_callback = callback;
+    auto context = std::make_unique<DockReopenContext>();
+    context->handler = [[DraxulDockReopenHandler alloc] init];
+    auto owned_callback = std::make_shared<std::function<void()>>(std::move(callback));
+    context->handler.callback = ^{
+        if (*owned_callback)
+            (*owned_callback)();
+    };
     [[NSAppleEventManager sharedAppleEventManager]
-        setEventHandler:[NSApp delegate]
+        setEventHandler:context->handler
             andSelector:@selector(handleAppleEvent:withReplyEvent:)
           forEventClass:kCoreEventClass
              andEventID:kAEReopenApplication];
-    // Use the C API for a plain function handler instead.
-    AEInstallEventHandler(kCoreEventClass, kAEReopenApplication,
-        &handle_reopen_apple_event, 0, false);
+    return context.release();
+}
+
+void uninstall_dock_reopen_handler(void* raw_context)
+{
+    if (!raw_context)
+        return;
+    auto context = std::unique_ptr<DockReopenContext>(
+        static_cast<DockReopenContext*>(raw_context));
+    [[NSAppleEventManager sharedAppleEventManager]
+        removeEventHandlerForEventClass:kCoreEventClass
+                              andEventID:kAEReopenApplication];
+    context->handler.callback = nil;
+    context->handler = nil;
 }
 
 } // namespace draxul

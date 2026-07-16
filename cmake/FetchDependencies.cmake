@@ -102,6 +102,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(mpack)
 
+# nlohmann/json is the shared strict JSON parser used by app services and
+# optional modules. Keep it outside feature gates so the base app can use it.
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # Create mpack library target
 file(GLOB MPACK_SOURCES ${mpack_SOURCE_DIR}/src/mpack/*.c)
 add_library(mpack_lib STATIC ${MPACK_SOURCES})
@@ -160,18 +171,6 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     set(KISSFFT_TOOLS OFF CACHE BOOL "" FORCE)
     set(KISSFFT_PKGCONFIG OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(kissfft)
-
-    # nlohmann/json (timemap parsing in draxul-scoreview). Deliberately not
-    # Verovio's vendored jsonxx — same reasoning as tinyxml2-not-pugixml:
-    # never link a second copy of a dependency's vendored library.
-    FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG v3.11.3
-        GIT_SHALLOW TRUE
-    )
-    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(nlohmann_json)
 
     # RtMidi (MIDI keyboard input for the runner — plans/scoreview.md). Small,
     # cross-platform (CoreMIDI on macOS, WinMM on Windows), MIT-style license.
@@ -274,11 +273,13 @@ get_target_property(_toml_inc tomlplusplus_tomlplusplus INTERFACE_INCLUDE_DIRECT
 set_target_properties(tomlplusplus_tomlplusplus PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_toml_inc}")
 
 # NanoVG (antialiased 2D vector graphics — core library only, custom backends)
+# Pinned to a reviewed immutable upstream commit. Draxul's Vulkan and Metal
+# backends live under libs/draxul-nanovg; no patch is applied to this fetched
+# core source.
 FetchContent_Declare(
     nanovg
     GIT_REPOSITORY https://github.com/memononen/nanovg.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ce3bf745eb2d2dbc14a50bf2446783f691ac4353
 )
 FetchContent_MakeAvailable(nanovg)
 

@@ -665,6 +665,121 @@ def scenario_path(root: pathlib.Path, name: str) -> pathlib.Path:
     return root / "tests" / "render" / f"{name}.toml"
 
 
+RENDER_SCENARIO_FIELDS = {
+    "name",
+    "purpose",
+    "status",
+    "platforms",
+    "ctest",
+    "reference_required",
+    "renderall",
+    "blessall",
+    "compare_command",
+    "bless_command",
+}
+
+
+def load_render_manifest(root: pathlib.Path, *, validate_files: bool = True) -> list[dict]:
+    manifest_path = root / "tests" / "render" / "manifest.json"
+    try:
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid render manifest {manifest_path}: {exc}") from exc
+
+    if set(document) != {"version", "scenarios"} or document.get("version") != 1:
+        raise ValueError("render manifest must contain only version=1 and scenarios")
+    scenarios = document.get("scenarios")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise ValueError("render manifest scenarios must be a non-empty list")
+
+    names: set[str] = set()
+    commands: set[str] = set()
+    for index, scenario in enumerate(scenarios):
+        if not isinstance(scenario, dict):
+            raise ValueError(f"render scenario #{index} must be an object")
+        unknown = set(scenario) - RENDER_SCENARIO_FIELDS
+        missing = RENDER_SCENARIO_FIELDS - set(scenario)
+        if unknown or missing:
+            raise ValueError(
+                f"render scenario #{index} fields invalid; unknown={sorted(unknown)}, missing={sorted(missing)}"
+            )
+        name = scenario["name"]
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"render scenario #{index} has an invalid name")
+        if name in names:
+            raise ValueError(f"duplicate render scenario: {name}")
+        names.add(name)
+        if scenario["status"] not in {"regression", "developer", "documentation"}:
+            raise ValueError(f"render scenario {name} has unknown status {scenario['status']!r}")
+        platforms = scenario["platforms"]
+        if not isinstance(platforms, list) or not platforms or set(platforms) - {"windows", "macos", "linux"}:
+            raise ValueError(f"render scenario {name} has invalid platforms")
+        for field in ("ctest", "reference_required", "renderall", "blessall"):
+            if not isinstance(scenario[field], bool):
+                raise ValueError(f"render scenario {name} field {field} must be boolean")
+        for field in ("purpose", "compare_command", "bless_command"):
+            if not isinstance(scenario[field], str):
+                raise ValueError(f"render scenario {name} field {field} must be a string")
+        if scenario["ctest"] and not scenario["reference_required"]:
+            raise ValueError(f"CTest render scenario {name} must require references")
+        if scenario["renderall"] != scenario["ctest"]:
+            raise ValueError(f"renderall and CTest inventory differ for {name}")
+        if scenario["blessall"] and not scenario["reference_required"]:
+            raise ValueError(f"blessall scenario {name} must require references")
+        for field in ("compare_command", "bless_command"):
+            command = scenario[field]
+            if command:
+                if command in commands:
+                    raise ValueError(f"duplicate render command: {command}")
+                commands.add(command)
+
+    if validate_files:
+        render_dir = root / "tests" / "render"
+        toml_names = {path.stem for path in render_dir.glob("*.toml")}
+        missing_toml = names - toml_names
+        orphan_toml = toml_names - names
+        if missing_toml or orphan_toml:
+            raise ValueError(
+                f"render TOML inventory mismatch; missing={sorted(missing_toml)}, orphaned={sorted(orphan_toml)}"
+            )
+
+        required_references = {
+            f"{scenario['name']}.{platform}.bmp"
+            for scenario in scenarios
+            if scenario["reference_required"]
+            for platform in scenario["platforms"]
+        }
+        reference_dir = render_dir / "reference"
+        actual_references = {path.name for path in reference_dir.glob("*.bmp")}
+        missing_references = required_references - actual_references
+        declared_reference_prefixes = {f"{name}." for name in names}
+        orphan_references = {
+            reference
+            for reference in actual_references
+            if not any(reference.startswith(prefix) for prefix in declared_reference_prefixes)
+        }
+        if missing_references or orphan_references:
+            raise ValueError(
+                "render reference inventory mismatch; "
+                f"missing={sorted(missing_references)}, orphaned={sorted(orphan_references)}"
+            )
+    return scenarios
+
+
+def render_command_map(root: pathlib.Path) -> dict[str, tuple[str, bool]]:
+    result: dict[str, tuple[str, bool]] = {}
+    for scenario in load_render_manifest(root):
+        if scenario["compare_command"]:
+            result[scenario["compare_command"]] = (scenario["name"], False)
+        if scenario["bless_command"]:
+            result[scenario["bless_command"]] = (scenario["name"], True)
+    return result
+
+
+def render_scenario_names(root: pathlib.Path, flag: str) -> list[str]:
+    return [scenario["name"] for scenario in load_render_manifest(root) if scenario[flag]]
+
+
 def platform_suffix() -> str:
     if sys.platform.startswith("win"):
         return "windows"
@@ -1281,7 +1396,18 @@ def cmd_clean(root: pathlib.Path) -> int:
 
 
 def help_text() -> str:
-    return """Usage:
+    scenarios = load_render_manifest(repo_root())
+    compare_help = "\n".join(
+        f"  {scenario['compare_command']:<12} Run {scenario['name']} compare"
+        for scenario in scenarios
+        if scenario["compare_command"]
+    )
+    bless_help = "\n".join(
+        f"  {scenario['bless_command']:<12} Bless {scenario['name']}"
+        for scenario in scenarios
+        if scenario["bless_command"]
+    )
+    return f"""Usage:
   do <command> [options]
 
 Single-word shortcuts:
@@ -1314,19 +1440,11 @@ Single-word shortcuts:
   syncboard    Sync work-items and icebox to the GitHub project board
 
 Deterministic render snapshots:
-  basic        Run basic-view compare
-  cmdline      Run cmdline-view compare
-  unicode      Run unicode-view compare
-  panel        Run panel-view compare
-  nanovg       Run nanovg-demo compare
+{compare_help}
   renderall    Run all compare snapshots
 
 Bless render references:
-  blessbasic   Bless basic-view
-  blesscmdline Bless cmdline-view
-  blessunicode Bless unicode-view
-  blesspanel   Bless panel-view
-  blessnanovg  Bless nanovg-demo
+{bless_help}
   blessall     Bless all deterministic references
 
 Examples:
@@ -1511,18 +1629,7 @@ def main() -> int:
             return 1
         return run([str(exe), "--console", "--smoke-test"], root, env=env)
 
-    render_map = {
-        "basic": ("basic-view", False),
-        "cmdline": ("cmdline-view", False),
-        "unicode": ("unicode-view", False),
-        "panel": ("panel-view", False),
-        "blessbasic": ("basic-view", True),
-        "blesscmdline": ("cmdline-view", True),
-        "blessunicode": ("unicode-view", True),
-        "blesspanel": ("panel-view", True),
-        "nanovg": ("nanovg-demo", False),
-        "blessnanovg": ("nanovg-demo", True),
-    }
+    render_map = render_command_map(root)
 
     if command in render_map:
         rc, exe, env = build_shortcut_exe(root)
@@ -1542,7 +1649,7 @@ def main() -> int:
         if rc != 0 or exe is None:
             return 1
         overall_rc = 0
-        for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "nanovg-demo"):
+        for scenario_name in render_scenario_names(root, "renderall"):
             rc = run([str(exe), "--console", "--render-test",
                       str(scenario_path(root, scenario_name)), "--show-render-test-window"], root, env=env)
             print_render_report(root, scenario_name)
@@ -1554,7 +1661,7 @@ def main() -> int:
         rc, exe, env = build_shortcut_exe(root)
         if rc != 0 or exe is None:
             return 1
-        for scenario_name in ("basic-view", "cmdline-view", "unicode-view", "panel-view", "nanovg-demo"):
+        for scenario_name in render_scenario_names(root, "blessall"):
             rc = run(
                 [str(exe), "--console", "--render-test",
                  str(scenario_path(root, scenario_name)), "--show-render-test-window", "--bless-render-test"],

@@ -160,33 +160,8 @@ std::string tab_label(size_t index, const std::string& name)
 std::vector<std::string> split_display_clusters(std::string_view text)
 {
     std::vector<std::string> clusters;
-    size_t offset = 0;
-    while (offset < text.size())
-    {
-        const size_t cluster_begin = offset;
-        uint32_t cp = 0;
-        if (!utf8_decode_next(text, offset, cp))
-            break;
-
-        bool previous_was_zwj = (cp == 0x200D);
-        while (offset < text.size())
-        {
-            size_t next = offset;
-            uint32_t next_cp = 0;
-            if (!utf8_decode_next(text, next, next_cp))
-                break;
-
-            const bool joins_cluster = previous_was_zwj || next_cp == 0x200D || is_width_ignorable(next_cp)
-                || is_emoji_modifier(next_cp);
-            if (!joins_cluster)
-                break;
-
-            previous_was_zwj = (next_cp == 0x200D);
-            offset = next;
-        }
-
-        clusters.emplace_back(text.substr(cluster_begin, offset - cluster_begin));
-    }
+    for (auto& cluster : display_clusters(text))
+        clusters.push_back(std::move(cluster.text));
     return clusters;
 }
 

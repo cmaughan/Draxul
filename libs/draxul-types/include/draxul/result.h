@@ -59,6 +59,9 @@ enum class ErrorKind
     RpcError,
     // Rendering / GPU
     InitFailed,
+    FontGlyphLoadFailed,
+    GlyphRasterizationFailed,
+    InvalidGlyphBitmap,
     AtlasOverflow,
     // Invalid arguments / preconditions
     InvalidArgument,

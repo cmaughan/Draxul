@@ -1,5 +1,6 @@
 add_library(draxul-gui STATIC
     src/tooltip.cpp
+    src/overlay_text.cpp
     src/palette_renderer.cpp
     src/toast_renderer.cpp
 )

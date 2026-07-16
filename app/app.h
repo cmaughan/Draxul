@@ -61,6 +61,10 @@ struct AppDeps
     // Return nullptr to simulate host creation failure.
     std::function<std::unique_ptr<IHost>(HostKind)> host_factory;
 
+    // Optional HTTP transport used by WeatherService. Production leaves this
+    // null and uses the platform-native client.
+    std::shared_ptr<http::IHttpClient> http_client;
+
     // Build an AppDeps from an AppOptions, falling back to production
     // defaults for any factory that is not set on the options struct.
     static AppDeps from_options(AppOptions opts);
@@ -68,6 +72,8 @@ struct AppDeps
 
 class App : private IHostCallbacks
 {
+    friend struct AppTestAccess;
+
 public:
     explicit App(AppOptions options = {});
     explicit App(AppDeps deps);
@@ -101,7 +107,7 @@ private:
     void apply_pending_resize();
     // Returns a TextServiceConfig populated from config_. Used by initialize_text_service() and
     // on_display_scale_changed() to avoid duplicating the field assignment at both call sites.
-    TextServiceConfig make_text_service_config() const;
+    TextServiceConfig make_text_service_config(const AppConfig& config) const;
     // Applies font metrics from text_service_ to the renderer, diagnostics host, and all hosts.
     // Called after every TextService reinitialisation (startup, DPI change, size change).
     void apply_font_metrics();
@@ -170,6 +176,10 @@ private:
     void activate_workspace_by_index(int one_based_index);
     void activate_pane_by_index(int one_based_index);
     void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
+    Workspace* find_active_workspace() noexcept;
+    const Workspace* find_active_workspace() const noexcept;
+    Workspace& require_active_workspace(std::string_view context);
+    const Workspace& require_active_workspace(std::string_view context) const;
     HostManager& active_host_manager();
     const HostManager& active_host_manager() const;
     const SplitTree& active_tree() const;
@@ -194,6 +204,7 @@ private:
     std::unique_ptr<ToastHost> toast_host_;
     std::unique_ptr<IInputRouter> input_router_;
     InputDispatcher input_dispatcher_{ InputDispatcher::Deps{} };
+    IWindow::CallbackConnection window_lifecycle_connection_;
 #ifdef __APPLE__
     std::unique_ptr<MacOsMenu> macos_menu_;
 #endif

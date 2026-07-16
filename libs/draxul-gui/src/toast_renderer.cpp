@@ -1,4 +1,5 @@
 #include <draxul/gui/toast_renderer.h>
+#include <draxul/gui/overlay_text.h>
 
 #include <algorithm>
 #include <cmath>
@@ -82,8 +83,7 @@ std::vector<CellUpdate> render_toasts(
     if (state.grid_cols <= 0 || state.grid_rows <= 0 || state.entries.empty())
         return {};
 
-    const std::string block_cluster("\xe2\x96\x88"); // U+2588 FULL BLOCK
-    const AtlasRegion block_glyph = text_service.resolve_cluster(block_cluster);
+    const AtlasRegion block_glyph = resolve_occlusion_glyph(text_service);
 
     std::vector<CellUpdate> cells;
 
@@ -101,7 +101,7 @@ std::vector<CellUpdate> render_toasts(
             alpha = std::clamp(entry.remaining_s / kFadeDuration, 0.0f, 1.0f);
 
         const auto prefix = prefix_for_level(entry.level);
-        const int content_len = static_cast<int>(prefix.size() + entry.message.size());
+        const int content_len = overlay_text_width(prefix) + overlay_text_width(entry.message);
         const int toast_cols = std::min(content_len + kPadH * 2, std::min(kMaxToastCols, state.grid_cols));
         const int toast_rows = 1 + kPadV * 2;
         const int col0 = state.grid_cols - kMarginRight - toast_cols;
@@ -135,36 +135,36 @@ std::vector<CellUpdate> render_toasts(
         const int text_row = row0 + kPadV;
         const int text_col0 = col0 + kPadH;
         const int max_text = toast_cols - kPadH * 2;
-        int ci = 0;
+        auto append_text = [&](std::string_view text, Color fg, int start_column) {
+            int consumed = 0;
+            for (const auto& cluster : layout_overlay_text(text, max_text - start_column))
+            {
+                CellUpdate cu;
+                cu.col = text_col0 + start_column + cluster.column;
+                cu.row = text_row;
+                cu.bg = bg;
+                cu.fg = fg;
+                cu.sp = kTransparent;
+                cu.glyph = text_service.resolve_cluster(cluster.text);
+                cu.style_flags = 0;
+                cells.push_back(cu);
 
-        // Prefix (level label).
-        for (size_t pi = 0; pi < prefix.size() && ci < max_text; ++pi, ++ci)
-        {
-            const std::string cluster(1, prefix[pi]);
-            CellUpdate cu;
-            cu.col = text_col0 + ci;
-            cu.row = text_row;
-            cu.bg = bg;
-            cu.fg = pfx_fg;
-            cu.sp = kTransparent;
-            cu.glyph = text_service.resolve_cluster(cluster);
-            cu.style_flags = 0;
-            cells.push_back(cu);
-        }
+                for (int continuation = 1; continuation < cluster.cell_width; ++continuation)
+                {
+                    cu.col += 1;
+                    cu.fg = bg;
+                    cu.glyph = {};
+                    cells.push_back(cu);
+                }
+                consumed = cluster.column + cluster.cell_width;
+            }
+            return consumed;
+        };
 
-        // Message text.
-        for (size_t mi = 0; mi < entry.message.size() && ci < max_text; ++mi, ++ci)
+        int ci = append_text(prefix, pfx_fg, 0);
+        if (ci < max_text)
         {
-            const std::string cluster(1, entry.message[mi]);
-            CellUpdate cu;
-            cu.col = text_col0 + ci;
-            cu.row = text_row;
-            cu.bg = bg;
-            cu.fg = text_fg;
-            cu.sp = kTransparent;
-            cu.glyph = text_service.resolve_cluster(cluster);
-            cu.style_flags = 0;
-            cells.push_back(cu);
+            ci += append_text(entry.message, text_fg, ci);
         }
 
         current_row = row0 - kToastGap - 1;

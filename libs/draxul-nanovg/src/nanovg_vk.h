@@ -35,6 +35,7 @@ void nvgVkSetFrameState(NVGcontext* ctx,
     VkCommandBuffer commandBuffer,
     VkImage swapchainImage,
     VkImageView swapchainImageView,
-    uint32_t frameIndex);
+    uint32_t frameIndex,
+    uint32_t bufferedFrameCount);
 
 } // namespace draxul

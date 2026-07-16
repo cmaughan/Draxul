@@ -4,7 +4,6 @@
 #include <draxul/perf_timing.h>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -15,11 +14,6 @@
 #include <system_error>
 #include <utility>
 
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
-
 namespace draxul::satview
 {
 
@@ -27,8 +21,7 @@ namespace
 {
 
 constexpr const char* kDefaultCelestrakGroup = "active";
-constexpr int kFetchMaxTimeSeconds = 60;
-constexpr int kFetchConnectTimeoutSeconds = 10;
+constexpr std::size_t kMaxCatalogResponseBytes = 64 * 1024 * 1024;
 
 std::string to_lower_ascii(std::string_view text)
 {
@@ -36,26 +29,6 @@ std::string to_lower_ascii(std::string_view text)
     out.reserve(text.size());
     for (char c : text)
         out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    return out;
-}
-
-std::string url_encode_query(std::string_view text)
-{
-    std::string out;
-    char buf[4]{};
-    for (unsigned char c : text)
-    {
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-            || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.')
-        {
-            out.push_back(static_cast<char>(c));
-        }
-        else
-        {
-            std::snprintf(buf, sizeof(buf), "%%%02X", static_cast<unsigned int>(c));
-            out += buf;
-        }
-    }
     return out;
 }
 
@@ -118,80 +91,6 @@ std::filesystem::path platform_cache_root()
 }
 
 std::optional<std::string> read_text_file(const std::filesystem::path& path, std::string& error);
-
-std::string trim_for_status(std::string text)
-{
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
-        text.pop_back();
-    size_t start = 0;
-    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start])))
-        ++start;
-    if (start > 0)
-        text.erase(0, start);
-
-    constexpr size_t kMaxStatusLength = 240;
-    if (text.size() > kMaxStatusLength)
-    {
-        text.resize(kMaxStatusLength);
-        text += "...";
-    }
-    return text;
-}
-
-std::filesystem::path unique_stderr_path()
-{
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    return std::filesystem::temp_directory_path()
-        / ("draxul_satview_curl_" + std::to_string(stamp) + ".stderr");
-}
-
-std::string run_curl_fetch(std::string_view url, std::string& error)
-{
-#ifdef _WIN32
-    std::string cmd = "curl.exe";
-#else
-    std::string cmd = "curl";
-#endif
-
-    const std::filesystem::path stderr_path = unique_stderr_path();
-    cmd += " -L --fail --silent --show-error --max-time ";
-    cmd += std::to_string(kFetchMaxTimeSeconds);
-    cmd += " --connect-timeout ";
-    cmd += std::to_string(kFetchConnectTimeoutSeconds);
-    cmd += " --user-agent \"Draxul SatView\" \"";
-    cmd += std::string(url);
-    cmd += "\" 2>\"";
-    cmd += stderr_path.string();
-    cmd += "\"";
-
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe)
-    {
-        error = "failed to start curl";
-        return {};
-    }
-
-    std::string result;
-    std::array<char, 8192> buf{};
-    while (auto n = fread(buf.data(), 1, buf.size(), pipe))
-        result.append(buf.data(), n);
-    const int status = pclose(pipe);
-    std::string stderr_error;
-    std::string stderr_read_error;
-    if (auto stderr_text = read_text_file(stderr_path, stderr_read_error))
-        stderr_error = trim_for_status(*stderr_text);
-    std::error_code ec;
-    std::filesystem::remove(stderr_path, ec);
-
-    if (status != 0)
-    {
-        error = stderr_error.empty() ? "curl failed" : stderr_error;
-        return {};
-    }
-    if (result.empty())
-        error = "empty response";
-    return result;
-}
 
 bool write_text_atomic(const std::filesystem::path& path, std::string_view content, std::string& error)
 {
@@ -460,8 +359,8 @@ void SatViewCatalogService::start(Config config)
         config.celestrak_group = kDefaultCelestrakGroup;
     if (config.satcat_url.empty())
         config.satcat_url = default_satcat_url();
-    if (!config.fetch)
-        config.fetch = run_curl_fetch;
+    if (!config.fetch && !config.http_client)
+        config.http_client = http::create_platform_http_client();
 
     config_ = std::move(config);
     const auto now = Clock::now();
@@ -564,6 +463,7 @@ void SatViewCatalogService::start(Config config)
 
 void SatViewCatalogService::stop()
 {
+    cancellation_.cancel();
     if (worker_.joinable())
         worker_.join();
     std::lock_guard lock(mutex_);
@@ -650,7 +550,7 @@ std::filesystem::path SatViewCatalogService::default_cache_directory()
 std::string SatViewCatalogService::default_celestrak_url(std::string_view group)
 {
     return "https://celestrak.org/NORAD/elements/gp.php?GROUP="
-        + url_encode_query(to_lower_ascii(group)) + "&FORMAT=json";
+        + http::encode_query_component(to_lower_ascii(group)) + "&FORMAT=json";
 }
 
 std::string SatViewCatalogService::default_satcat_url()
@@ -676,6 +576,7 @@ void SatViewCatalogService::start_refresh()
         if (!refresh_gp && !refresh_satcat)
             return;
         config = config_;
+        cancellation_ = http::CancellationSource{};
         gp_catalog = gp_catalog_;
         satcat_catalog = satcat_catalog_;
         status_.refresh_state = status_.data_source == DataSource::None ? RefreshState::Loading : RefreshState::Refreshing;
@@ -698,19 +599,36 @@ void SatViewCatalogService::start_refresh()
         publish_status_locked();
     }
 
+    const http::CancellationToken cancellation = cancellation_.token();
     worker_ = std::thread([this,
                               config = std::move(config),
                               gp_catalog = std::move(gp_catalog),
                               satcat_catalog = std::move(satcat_catalog),
                               refresh_gp,
-                              refresh_satcat]() mutable {
+                              refresh_satcat,
+                              cancellation]() mutable {
         WorkerResult result;
+        const auto fetch = [&](std::string_view url, std::string& error) {
+            if (config.fetch)
+                return config.fetch(url, error);
+            http::Request request;
+            request.url = std::string(url);
+            request.user_agent = "Draxul SatView";
+            request.connect_timeout = std::chrono::seconds(10);
+            request.overall_timeout = std::chrono::seconds(60);
+            request.max_response_bytes = kMaxCatalogResponseBytes;
+            auto response = config.http_client->get(request, cancellation);
+            const bool succeeded = response.ok();
+            if (!succeeded)
+                error = std::move(response.error);
+            return succeeded ? std::move(response.body) : std::string{};
+        };
         if (refresh_gp)
         {
             result.gp.attempted = true;
             result.gp.fetched_at = Clock::now();
             const std::string gp_url = default_celestrak_url(config.celestrak_group);
-            result.gp.raw_payload = config.fetch(gp_url, result.gp.error);
+            result.gp.raw_payload = fetch(gp_url, result.gp.error);
             if (result.gp.raw_payload.empty())
             {
                 if (result.gp.error.empty())
@@ -749,7 +667,7 @@ void SatViewCatalogService::start_refresh()
         {
             result.satcat.attempted = true;
             result.satcat.fetched_at = Clock::now();
-            result.satcat.raw_payload = config.fetch(config.satcat_url, result.satcat.error);
+            result.satcat.raw_payload = fetch(config.satcat_url, result.satcat.error);
             if (result.satcat.raw_payload.empty())
             {
                 if (result.satcat.error.empty())

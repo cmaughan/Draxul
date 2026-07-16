@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <sstream>
 #include <string_view>
 
@@ -35,14 +36,16 @@ namespace draxul
 
 struct NvimProcess::Impl
 {
-    // These fields are accessed from multiple threads (main thread via
-    // shutdown(), reader thread via read(), RPC request threads via write()
-    // and is_running()).  Using std::atomic eliminates the data races that
-    // TSan reports (WI 134).
+    // Pipe endpoints are accessed from the shutdown, reader, and RPC request
+    // threads.  Their atomic exchange/load contract is unchanged (WI 134).
 #ifdef _WIN32
     std::atomic<HANDLE> child_stdin_write_{ INVALID_HANDLE_VALUE };
     std::atomic<HANDLE> child_stdout_read_{ INVALID_HANDLE_VALUE };
-    PROCESS_INFORMATION proc_info_ = {};
+    // The process handle is published and unpublished under this mutex.  A
+    // caller may only use the handle while holding the mutex; shutdown takes
+    // ownership by clearing the published handle before closing it.
+    mutable std::mutex process_mutex_;
+    HANDLE process_handle_ = nullptr;
 #else
     std::atomic<int> child_stdin_write_{ -1 };
     std::atomic<int> child_stdout_read_{ -1 };
@@ -166,6 +169,7 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
     std::vector<char> env_block = build_windows_environment_block_with_term_dumb();
 
     const char* cwd = working_dir.empty() ? nullptr : working_dir.c_str();
+    PROCESS_INFORMATION proc_info = {};
     if (!CreateProcessA(
             nullptr,
             cmd.data(),
@@ -173,7 +177,7 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
             TRUE,
             CREATE_NO_WINDOW,
             env_block.empty() ? nullptr : env_block.data(), cwd,
-            &si, &impl_->proc_info_))
+            &si, &proc_info))
     {
         const DWORD err = GetLastError();
         DRAXUL_LOG_ERROR(LogCategory::Nvim, "Failed to spawn nvim: error %lu", err);
@@ -192,19 +196,33 @@ Result<void, Error> NvimProcess::spawn(const std::string& nvim_path, const std::
     if (nul_handle != INVALID_HANDLE_VALUE)
         CloseHandle(nul_handle);
 
-    impl_->child_stdin_write_.store(stdin_write, std::memory_order_relaxed);
-    impl_->child_stdout_read_.store(stdout_read, std::memory_order_relaxed);
-    impl_->started_.store(true, std::memory_order_release);
+    // The primary thread handle is not needed after CreateProcess returns.
+    // Keeping only the process handle makes the ownership contract explicit.
+    CloseHandle(proc_info.hThread);
 
-    DRAXUL_LOG_INFO(LogCategory::Nvim, "nvim spawned (PID %lu)", impl_->proc_info_.dwProcessId);
+    {
+        std::lock_guard<std::mutex> lock(impl_->process_mutex_);
+        impl_->child_stdin_write_.store(stdin_write, std::memory_order_relaxed);
+        impl_->child_stdout_read_.store(stdout_read, std::memory_order_relaxed);
+        impl_->process_handle_ = proc_info.hProcess;
+        impl_->started_.store(true, std::memory_order_release);
+    }
+
+    DRAXUL_LOG_INFO(LogCategory::Nvim, "nvim spawned (PID %lu)", proc_info.dwProcessId);
     return Result<void, Error>::ok();
 }
 
 void NvimProcess::shutdown()
 {
     PERF_MEASURE();
-    if (!impl_->started_.load(std::memory_order_acquire))
-        return;
+
+    HANDLE process_handle = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(impl_->process_mutex_);
+        process_handle = impl_->process_handle_;
+        impl_->process_handle_ = nullptr;
+        impl_->started_.store(false, std::memory_order_release);
+    }
 
     HANDLE stdin_h = impl_->child_stdin_write_.exchange(INVALID_HANDLE_VALUE, std::memory_order_acq_rel);
     if (stdin_h != INVALID_HANDLE_VALUE)
@@ -214,15 +232,16 @@ void NvimProcess::shutdown()
     if (stdout_h != INVALID_HANDLE_VALUE)
         CloseHandle(stdout_h);
 
-    if (impl_->proc_info_.hProcess)
+    if (process_handle)
     {
-        WaitForSingleObject(impl_->proc_info_.hProcess, 2000);
-        TerminateProcess(impl_->proc_info_.hProcess, 0);
-        CloseHandle(impl_->proc_info_.hProcess);
-        CloseHandle(impl_->proc_info_.hThread);
+        const DWORD wait_result = WaitForSingleObject(process_handle, 2000);
+        if (wait_result == WAIT_TIMEOUT)
+        {
+            TerminateProcess(process_handle, 0);
+            WaitForSingleObject(process_handle, 2000);
+        }
+        CloseHandle(process_handle);
     }
-
-    impl_->started_.store(false, std::memory_order_release);
 }
 
 bool NvimProcess::write(const uint8_t* data, size_t len) const
@@ -273,11 +292,12 @@ int NvimProcess::read(uint8_t* buffer, size_t max_len) const
 
 bool NvimProcess::is_running() const
 {
-    if (!impl_->started_.load(std::memory_order_acquire))
+    std::lock_guard<std::mutex> lock(impl_->process_mutex_);
+    if (!impl_->started_.load(std::memory_order_acquire) || !impl_->process_handle_)
         return false;
-    DWORD exit_code;
-    GetExitCodeProcess(impl_->proc_info_.hProcess, &exit_code);
-    return exit_code == STILL_ACTIVE;
+    DWORD exit_code = 0;
+    return GetExitCodeProcess(impl_->process_handle_, &exit_code)
+        && exit_code == STILL_ACTIVE;
 }
 
 #else // POSIX (macOS, Linux)

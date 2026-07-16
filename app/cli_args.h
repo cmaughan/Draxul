@@ -9,6 +9,8 @@
 namespace draxul
 {
 
+class HostProviderRegistry;
+
 struct ParsedArgs
 {
     bool want_console = false;
@@ -62,5 +64,7 @@ struct ParseArgsResult
 // without spawning a subprocess. The first element of `args` (program name)
 // is ignored, mirroring argv[0].
 ParseArgsResult parse_args(const std::vector<std::string>& args);
+std::optional<std::string> validate_host_provider_availability(
+    const ParsedArgs& args, const HostProviderRegistry& registry);
 
 } // namespace draxul

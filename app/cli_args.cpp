@@ -1,5 +1,6 @@
 #include "cli_args.h"
 
+#include <draxul/host_registry.h>
 #include <exception>
 #include <string>
 
@@ -61,6 +62,11 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         {
             ++i;
             parsed.host_kind = parse_host_kind(args[i]);
+            if (!parsed.host_kind)
+            {
+                result.error = "error: unknown --host value '" + args[i] + "'";
+                return result;
+            }
         }
         else if (args[i] == "--command" && i + 1 < args.size())
         {
@@ -198,6 +204,21 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         return result;
     }
     return result;
+}
+
+std::optional<std::string> validate_host_provider_availability(
+    const ParsedArgs& args, const HostProviderRegistry& registry)
+{
+    if (!args.host_kind)
+        return std::nullopt;
+    if (const auto* metadata = registry.metadata(*args.host_kind);
+        metadata != nullptr
+        && supports_launch_context(metadata->launch_contexts, HostLaunchContext::Cli))
+    {
+        return std::nullopt;
+    }
+    return "error: host '" + std::string(to_string(*args.host_kind))
+        + "' is not available in this build; available hosts: " + registry.available_cli_names();
 }
 
 } // namespace draxul

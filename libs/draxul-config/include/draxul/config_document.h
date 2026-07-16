@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/app_config_types.h>
+#include <draxul/result.h>
 #include <filesystem>
 #include <string_view>
 #include <toml++/toml.hpp>
@@ -33,7 +34,12 @@ public:
     void merge_core_config(const AppConfig& config);
 
 private:
+    friend Result<ConfigDocument, Error> load_config_document_from_path_checked(
+        const std::filesystem::path& path);
     toml::table document_;
 };
+
+[[nodiscard]] Result<ConfigDocument, Error> load_config_document_from_path_checked(
+    const std::filesystem::path& path);
 
 } // namespace draxul

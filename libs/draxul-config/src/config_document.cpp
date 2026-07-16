@@ -16,7 +16,10 @@ namespace draxul
 namespace
 {
 
-constexpr std::array<std::string_view, 16> kCoreTopLevelKeys = {
+// Complete AppConfig ownership inventory. Only these app-owned keys are
+// replaced during a merge; unlisted top-level tables belong to optional host
+// modules and are deliberately preserved verbatim in the TOML document tree.
+constexpr std::array<std::string_view, 25> kCoreTopLevelKeys = {
     "window_width",
     "window_height",
     "font_size",
@@ -24,7 +27,15 @@ constexpr std::array<std::string_view, 16> kCoreTopLevelKeys = {
     "enable_ligatures",
     "smooth_scroll",
     "scroll_speed",
+    "scrollback_lines",
     "palette_bg_alpha",
+    "focus_border_width",
+    "enable_toast_notifications",
+    "toast_duration_s",
+    "show_pane_status",
+    "chord_timeout_ms",
+    "chord_indicator_fade_ms",
+    "weather_location",
     "font_path",
     "bold_font_path",
     "italic_font_path",
@@ -32,6 +43,7 @@ constexpr std::array<std::string_view, 16> kCoreTopLevelKeys = {
     "fallback_paths",
     "keybindings",
     "terminal",
+    "chrome",
     "markdown",
 };
 
@@ -102,35 +114,46 @@ ConfigDocument ConfigDocument::load()
 ConfigDocument ConfigDocument::load_from_path(const std::filesystem::path& path)
 {
     PERF_MEASURE();
+    auto loaded = load_config_document_from_path_checked(path);
+    if (loaded)
+        return std::move(*loaded);
+    DRAXUL_LOG_WARN(LogCategory::App, "%s", loaded.error().message.c_str());
+    return {};
+}
+
+Result<ConfigDocument, Error> load_config_document_from_path_checked(
+    const std::filesystem::path& path)
+{
+    PERF_MEASURE();
     ConfigDocument document;
     try
     {
         if (!std::filesystem::exists(path))
-            return document;
+            return Result<ConfigDocument, Error>::ok(std::move(document));
 
         std::string parse_error;
         auto parsed = toml_support::parse_file(path, &parse_error);
         if (!parsed)
         {
             if (parse_error == "Unable to open TOML file")
-                DRAXUL_LOG_WARN(LogCategory::App, "Failed to open config document for reading: %s", path.string().c_str());
-            else
-                DRAXUL_LOG_WARN(LogCategory::App, "Failed to parse config document from %s: %s", path.string().c_str(), parse_error.c_str());
-            return document;
+                return Result<ConfigDocument, Error>::err(Error::config_load(
+                    "Failed to open config document for reading: " + path.string()));
+            return Result<ConfigDocument, Error>::err(Error::config_parse(
+                "Failed to parse config document from " + path.string() + ": " + parse_error));
         }
 
         document.document_ = std::move(*parsed);
-        return document;
+        return Result<ConfigDocument, Error>::ok(std::move(document));
     }
     catch (const std::filesystem::filesystem_error& ex)
     {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config document from %s: %s", path.string().c_str(), ex.what());
-        return document;
+        return Result<ConfigDocument, Error>::err(Error::config_load(
+            "Failed to load config document from " + path.string() + ": " + ex.what()));
     }
     catch (const std::ios_base::failure& ex)
     {
-        DRAXUL_LOG_WARN(LogCategory::App, "Failed to load config document from %s: %s", path.string().c_str(), ex.what());
-        return document;
+        return Result<ConfigDocument, Error>::err(Error::config_load(
+            "Failed to load config document from " + path.string() + ": " + ex.what()));
     }
 }
 

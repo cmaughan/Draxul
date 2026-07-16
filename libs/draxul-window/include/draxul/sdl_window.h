@@ -10,6 +10,7 @@ namespace draxul
 class SdlWindow : public IWindow
 {
 public:
+    ~SdlWindow() override;
     void set_clamp_to_display(bool clamp) override
     {
         clamp_to_display_ = clamp;
@@ -44,6 +45,7 @@ public:
     void set_text_input_area(int x, int y, int w, int h) override;
     void show_open_file_dialog() override;
     void set_mouse_cursor(MouseCursor cursor) override;
+    void clear_lifecycle_callbacks() override;
 
 private:
     bool handle_event(const SDL_Event& event);
@@ -65,6 +67,11 @@ private:
     int text_input_y_ = 0;
     int text_input_w_ = 0;
     int text_input_h_ = 0;
+#ifdef _WIN32
+    void* system_tray_icon_ = nullptr;
+#elif defined(__APPLE__)
+    void* dock_reopen_handler_ = nullptr;
+#endif
 };
 
 } // namespace draxul

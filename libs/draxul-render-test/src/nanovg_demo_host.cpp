@@ -6,10 +6,53 @@
 
 #include "nanovg.h"
 
+#include <array>
 #include <cmath>
 
 namespace draxul
 {
+
+NanoVGTextureProbeStep nanovg_texture_probe_step(std::uint32_t frame_index)
+{
+    NanoVGTextureProbeStep step;
+    if (frame_index >= kNanoVGTextureProbeFrameCount)
+        return step;
+
+    step.request_next_frame = frame_index + 1 < kNanoVGTextureProbeFrameCount;
+    switch (frame_index)
+    {
+    case 0:
+        step.create = true;
+        step.sample = true;
+        break;
+    case 1:
+        step.update = true;
+        step.sample = true;
+        break;
+    case 2:
+        step.sample = true;
+        break;
+    case 3:
+        step.destroy = true;
+        step.create = true;
+        step.sample = true;
+        break;
+    case 4:
+        step.update = true;
+        step.sample = true;
+        break;
+    case 5:
+    case 6:
+        step.sample = true;
+        break;
+    case 7:
+        step.destroy = true;
+        break;
+    default:
+        break;
+    }
+    return step;
+}
 
 bool NanoVGDemoHost::initialize(const HostContext& context, IHostCallbacks& callbacks)
 {
@@ -17,12 +60,22 @@ bool NanoVGDemoHost::initialize(const HostContext& context, IHostCallbacks& call
     callbacks_ = &callbacks;
     nanovg_pass_ = create_nanovg_pass();
     running_ = nanovg_pass_ != nullptr;
+    last_vg_ = nullptr;
+    texture_probe_image_ = 0;
+    texture_probe_frame_ = 0;
+    if (running_)
+        callbacks.request_frame();
     return running_;
 }
 
 void NanoVGDemoHost::shutdown()
 {
+    if (texture_probe_image_ != 0 && last_vg_ != nullptr)
+        nvgDeleteImage(last_vg_, texture_probe_image_);
+    texture_probe_image_ = 0;
     nanovg_pass_.reset();
+    last_vg_ = nullptr;
+    callbacks_ = nullptr;
     running_ = false;
 }
 
@@ -243,12 +296,71 @@ void NanoVGDemoHost::draw_demo(NVGcontext* vg, int w, int h)
     }
 }
 
+void NanoVGDemoHost::draw_texture_probe(NVGcontext* vg)
+{
+    const NanoVGTextureProbeStep step = nanovg_texture_probe_step(texture_probe_frame_);
+
+    if (step.destroy && texture_probe_image_ != 0)
+    {
+        nvgDeleteImage(vg, texture_probe_image_);
+        texture_probe_image_ = 0;
+    }
+
+    if (step.create)
+    {
+        constexpr std::array<unsigned char, 16> pixels = {
+            255, 32, 64, 255,
+            32, 255, 96, 255,
+            64, 96, 255, 255,
+            255, 224, 32, 255,
+        };
+        texture_probe_image_ = nvgCreateImageRGBA(
+            vg, 2, 2, NVG_IMAGE_NEAREST | NVG_IMAGE_PREMULTIPLIED, pixels.data());
+    }
+
+    if (step.update && texture_probe_image_ != 0)
+    {
+        constexpr std::array<unsigned char, 16> updated_pixels = {
+            16, 48, 255, 255,
+            255, 64, 16, 255,
+            64, 255, 192, 255,
+            224, 32, 255, 255,
+        };
+        nvgUpdateImage(vg, texture_probe_image_, updated_pixels.data());
+    }
+
+    if (step.sample && texture_probe_image_ != 0)
+    {
+        // A transparent image-pattern fill still executes the textured shader
+        // and descriptor path. It is drawn before the demo's opaque background,
+        // so even a backend with unusual zero-alpha blending cannot alter the
+        // render-test reference image.
+        nvgBeginPath(vg);
+        nvgRect(vg, 2.0f, 2.0f, 2.0f, 2.0f);
+        nvgFillPaint(vg, nvgImagePattern(
+            vg, 2.0f, 2.0f, 2.0f, 2.0f, 0.0f, texture_probe_image_, 0.0f));
+        nvgFill(vg);
+    }
+
+    ++texture_probe_frame_;
+    if (step.request_next_frame && callbacks_ != nullptr)
+        callbacks_->request_frame();
+}
+
+void NanoVGDemoHost::draw_frame(NVGcontext* vg, int w, int h)
+{
+    last_vg_ = vg;
+    draw_texture_probe(vg);
+    draw_demo(vg, w, h);
+}
+
 void NanoVGDemoHost::draw(IFrameContext& frame)
 {
     if (!nanovg_pass_)
         return;
 
-    nanovg_pass_->set_draw_callback(draw_demo);
+    nanovg_pass_->set_draw_callback(
+        [this](NVGcontext* vg, int w, int h) { draw_frame(vg, w, h); });
 
     RenderViewport vp;
     vp.width = viewport_.pixel_size.x;

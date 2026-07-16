@@ -9,6 +9,7 @@
 #include <draxul/log.h>
 #include <draxul/runtime_path.h>
 #include <fstream>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -99,6 +100,9 @@ struct VkNVGtexture
     int height = 0;
     int type = 0;
     int flags = 0;
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    std::vector<uint8_t> pixels;
+    bool uploadPending = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -161,16 +165,24 @@ struct VkNVGcontext
     VkShaderModule vertModule = VK_NULL_HANDLE;
     VkShaderModule fragModule = VK_NULL_HANDLE;
 
-    // Per-frame resource cleanup (double-buffered)
-    static constexpr int kMaxFramesInFlight = 3;
+    // Resources live until the renderer reports that their frame slot is safe
+    // to reuse. The slot count follows IRenderContext rather than assuming a
+    // particular swapchain buffering policy.
+    struct RetiredTexture
+    {
+        VkImage image = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        VkImageView imageView = VK_NULL_HANDLE;
+    };
     struct FrameResources
     {
         std::vector<VkBuffer> buffers;
         std::vector<VmaAllocation> allocations;
         std::vector<VkFramebuffer> framebuffers;
         std::vector<VkDescriptorSet> descriptorSets;
+        std::vector<RetiredTexture> retiredTextures;
     };
-    FrameResources frameResources[kMaxFramesInFlight];
+    std::vector<FrameResources> frameResources;
 };
 
 // ---------------------------------------------------------------------------
@@ -468,6 +480,58 @@ static VkShaderModule vknvg__loadShader(VkDevice device, const char* name)
 // Texture helpers
 // ---------------------------------------------------------------------------
 
+template <typename Handle>
+static void vknvg__setObjectName(VkNVGcontext* vk, VkObjectType type, Handle handle, const std::string& name)
+{
+    if (handle == VK_NULL_HANDLE || vk->device == VK_NULL_HANDLE)
+        return;
+
+    auto setName = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+        vkGetDeviceProcAddr(vk->device, "vkSetDebugUtilsObjectNameEXT"));
+    if (!setName)
+        return;
+
+    uint64_t objectHandle = 0;
+    static_assert(sizeof(handle) <= sizeof(objectHandle));
+    memcpy(&objectHandle, &handle, sizeof(handle));
+
+    VkDebugUtilsObjectNameInfoEXT info = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
+    info.objectType = type;
+    info.objectHandle = objectHandle;
+    info.pObjectName = name.c_str();
+    setName(vk->device, &info);
+}
+
+static bool vknvg__beginDebugLabel(VkNVGcontext* vk, const std::string& name)
+{
+    auto beginLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
+        vkGetDeviceProcAddr(vk->device, "vkCmdBeginDebugUtilsLabelEXT"));
+    if (!beginLabel)
+        return false;
+
+    VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+    label.pLabelName = name.c_str();
+    label.color[0] = 0.2f;
+    label.color[1] = 0.55f;
+    label.color[2] = 0.9f;
+    label.color[3] = 1.0f;
+    beginLabel(vk->commandBuffer, &label);
+    return true;
+}
+
+static void vknvg__endDebugLabel(VkNVGcontext* vk)
+{
+    auto endLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
+        vkGetDeviceProcAddr(vk->device, "vkCmdEndDebugUtilsLabelEXT"));
+    if (endLabel)
+        endLabel(vk->commandBuffer);
+}
+
+static int vknvg__textureBytesPerPixel(const VkNVGtexture& tex)
+{
+    return tex.type == NVG_TEXTURE_RGBA ? 4 : 1;
+}
+
 static void vknvg__destroyTexture(VkNVGcontext* vk, VkNVGtexture& tex)
 {
     if (tex.descriptorSet != VK_NULL_HANDLE)
@@ -476,6 +540,24 @@ static void vknvg__destroyTexture(VkNVGcontext* vk, VkNVGtexture& tex)
         vkDestroyImageView(vk->device, tex.imageView, nullptr);
     if (tex.image != VK_NULL_HANDLE)
         vmaDestroyImage(vk->allocator, tex.image, tex.allocation);
+    tex = {};
+}
+
+static void vknvg__retireTexture(VkNVGcontext* vk, VkNVGtexture& tex)
+{
+    if (tex.image == VK_NULL_HANDLE)
+        return;
+
+    if (vk->frameResources.empty())
+    {
+        // This can only occur before the first frame state is supplied. There
+        // is no submitted NanoVG work to protect in that case.
+        vknvg__destroyTexture(vk, tex);
+        return;
+    }
+
+    auto& frame = vk->frameResources[vk->frameIndex % vk->frameResources.size()];
+    frame.retiredTextures.push_back({ tex.image, tex.allocation, tex.imageView });
     tex = {};
 }
 
@@ -965,24 +1047,18 @@ static int vknvg__renderCreate(void* uptr)
         imgCI.mipLevels = 1;
         imgCI.arrayLayers = 1;
         imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
-        imgCI.tiling = VK_IMAGE_TILING_LINEAR;
+        imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
         imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         VmaAllocationCreateInfo allocCI = {};
-        allocCI.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+        allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
         if (vmaCreateImage(vk->allocator, &imgCI, &allocCI, &vk->dummyTex.image, &vk->dummyTex.allocation, nullptr) != VK_SUCCESS)
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "NanoVG Vulkan failed to create dummy texture image");
             return 0;
         }
-
-        // Write white pixel
-        void* mapped = nullptr;
-        vmaMapMemory(vk->allocator, vk->dummyTex.allocation, &mapped);
-        uint32_t white = 0xFFFFFFFF;
-        memcpy(mapped, &white, 4);
-        vmaUnmapMemory(vk->allocator, vk->dummyTex.allocation);
 
         VkImageViewCreateInfo viewCI = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
         viewCI.image = vk->dummyTex.image;
@@ -1000,7 +1076,12 @@ static int vknvg__renderCreate(void* uptr)
 
         vk->dummyTex.width = 1;
         vk->dummyTex.height = 1;
+        vk->dummyTex.type = NVG_TEXTURE_RGBA;
         vk->dummyTex.texId = -1; // internal
+        vk->dummyTex.pixels = { 0xff, 0xff, 0xff, 0xff };
+        vk->dummyTex.uploadPending = true;
+        vknvg__setObjectName(vk, VK_OBJECT_TYPE_IMAGE, vk->dummyTex.image, "Draxul NanoVG dummy texture image");
+        vknvg__setObjectName(vk, VK_OBJECT_TYPE_IMAGE_VIEW, vk->dummyTex.imageView, "Draxul NanoVG dummy texture view");
     }
 
     return 1;
@@ -1009,6 +1090,9 @@ static int vknvg__renderCreate(void* uptr)
 static int vknvg__renderCreateTexture(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data)
 {
     VkNVGcontext* vk = static_cast<VkNVGcontext*>(uptr);
+
+    if (w <= 0 || h <= 0)
+        return 0;
 
     VkFormat format = (type == NVG_TEXTURE_RGBA) ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8_UNORM;
     int bpp = (type == NVG_TEXTURE_RGBA) ? 4 : 1;
@@ -1020,27 +1104,30 @@ static int vknvg__renderCreateTexture(void* uptr, int type, int w, int h, int im
     imgCI.mipLevels = 1;
     imgCI.arrayLayers = 1;
     imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
-    imgCI.tiling = VK_IMAGE_TILING_LINEAR;
+    imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
     imgCI.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VmaAllocationCreateInfo allocCI = {};
-    allocCI.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+    allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
     VkNVGtexture tex;
+    tex.texId = ++vk->textureIdCounter;
+    tex.width = w;
+    tex.height = h;
+    tex.type = type;
+    tex.flags = imageFlags;
+    tex.pixels.resize(static_cast<size_t>(w) * static_cast<size_t>(h) * static_cast<size_t>(bpp), 0);
+    if (data)
+        memcpy(tex.pixels.data(), data, tex.pixels.size());
+    tex.uploadPending = true;
+
     if (vmaCreateImage(vk->allocator, &imgCI, &allocCI, &tex.image, &tex.allocation, nullptr) != VK_SUCCESS)
     {
         DRAXUL_LOG_ERROR(LogCategory::Renderer,
             "NanoVG Vulkan failed to create texture image (%dx%d type=%d flags=0x%x)",
             w, h, type, imageFlags);
         return 0;
-    }
-
-    if (data)
-    {
-        void* mapped = nullptr;
-        vmaMapMemory(vk->allocator, tex.allocation, &mapped);
-        memcpy(mapped, data, w * h * bpp);
-        vmaUnmapMemory(vk->allocator, tex.allocation);
     }
 
     VkImageViewCreateInfo viewCI = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -1060,11 +1147,10 @@ static int vknvg__renderCreateTexture(void* uptr, int type, int w, int h, int im
         return 0;
     }
 
-    tex.texId = ++vk->textureIdCounter;
-    tex.width = w;
-    tex.height = h;
-    tex.type = type;
-    tex.flags = imageFlags;
+    vknvg__setObjectName(vk, VK_OBJECT_TYPE_IMAGE, tex.image,
+        "Draxul NanoVG texture image " + std::to_string(tex.texId));
+    vknvg__setObjectName(vk, VK_OBJECT_TYPE_IMAGE_VIEW, tex.imageView,
+        "Draxul NanoVG texture view " + std::to_string(tex.texId));
     vk->textures.push_back(tex);
     return tex.texId;
 }
@@ -1076,7 +1162,7 @@ static int vknvg__renderDeleteTexture(void* uptr, int image)
     {
         if (it->texId == image)
         {
-            vknvg__destroyTexture(vk, *it);
+            vknvg__retireTexture(vk, *it);
             vk->textures.erase(it);
             return 1;
         }
@@ -1088,20 +1174,18 @@ static int vknvg__renderUpdateTexture(void* uptr, int image, int x, int y, int w
 {
     VkNVGcontext* vk = static_cast<VkNVGcontext*>(uptr);
     VkNVGtexture* tex = vknvg__findTexture(vk, image);
-    if (!tex)
+    if (!tex || !data || x < 0 || y < 0 || w < 0 || h < 0
+        || x + w > tex->width || y + h > tex->height)
         return 0;
 
-    int bpp = (tex->type == NVG_TEXTURE_RGBA) ? 4 : 1;
-
-    void* mapped = nullptr;
-    vmaMapMemory(vk->allocator, tex->allocation, &mapped);
-    auto* dst = static_cast<uint8_t*>(mapped);
+    const int bpp = vknvg__textureBytesPerPixel(*tex);
+    auto* dst = tex->pixels.data();
     const uint8_t* src = data + (y * tex->width + x) * bpp;
     for (int row = 0; row < h; row++)
     {
         memcpy(dst + ((y + row) * tex->width + x) * bpp, src + row * tex->width * bpp, w * bpp);
     }
-    vmaUnmapMemory(vk->allocator, tex->allocation);
+    tex->uploadPending = true;
     return 1;
 }
 
@@ -1288,8 +1372,11 @@ static void vknvg__renderTriangles(void* uptr, NVGpaint* paint, NVGcompositeOper
 // renderFlush — the main GPU work
 // ---------------------------------------------------------------------------
 
-static void vknvg__cleanupFrameResources(VkNVGcontext* vk, int slot)
+static void vknvg__cleanupFrameResources(VkNVGcontext* vk, size_t slot)
 {
+    if (slot >= vk->frameResources.size())
+        return;
+
     auto& fr = vk->frameResources[slot];
     if (!fr.descriptorSets.empty())
         vkFreeDescriptorSets(vk->device, vk->descriptorPool,
@@ -1298,10 +1385,136 @@ static void vknvg__cleanupFrameResources(VkNVGcontext* vk, int slot)
         vmaDestroyBuffer(vk->allocator, fr.buffers[i], fr.allocations[i]);
     for (auto fb : fr.framebuffers)
         vkDestroyFramebuffer(vk->device, fb, nullptr);
+    for (auto& tex : fr.retiredTextures)
+    {
+        if (tex.imageView != VK_NULL_HANDLE)
+            vkDestroyImageView(vk->device, tex.imageView, nullptr);
+        if (tex.image != VK_NULL_HANDLE)
+            vmaDestroyImage(vk->allocator, tex.image, tex.allocation);
+    }
     fr.descriptorSets.clear();
     fr.buffers.clear();
     fr.allocations.clear();
     fr.framebuffers.clear();
+    fr.retiredTextures.clear();
+}
+
+static void vknvg__ensureFrameResources(VkNVGcontext* vk, uint32_t requestedCount)
+{
+    requestedCount = std::max(1u, requestedCount);
+    if (vk->frameResources.size() == requestedCount)
+        return;
+
+    // A buffering-policy change is a rare swapchain event. Waiting here makes
+    // it safe to retire resources associated with slots that no longer exist.
+    if (vk->device != VK_NULL_HANDLE)
+        vkDeviceWaitIdle(vk->device);
+    for (size_t i = 0; i < vk->frameResources.size(); ++i)
+        vknvg__cleanupFrameResources(vk, i);
+    vk->frameResources.clear();
+    vk->frameResources.resize(requestedCount);
+}
+
+static bool vknvg__uploadTexture(
+    VkNVGcontext* vk,
+    VkNVGtexture& tex,
+    VkNVGcontext::FrameResources& frame)
+{
+    if (!tex.uploadPending)
+        return tex.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    if (tex.image == VK_NULL_HANDLE || tex.pixels.empty())
+        return false;
+
+    VkBufferCreateInfo bufferCI = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferCI.size = tex.pixels.size();
+    bufferCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocCI = {};
+    allocCI.usage = VMA_MEMORY_USAGE_AUTO;
+    allocCI.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+        | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VkBuffer staging = VK_NULL_HANDLE;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VmaAllocationInfo allocationInfo = {};
+    if (vmaCreateBuffer(vk->allocator, &bufferCI, &allocCI, &staging, &allocation, &allocationInfo) != VK_SUCCESS
+        || allocationInfo.pMappedData == nullptr)
+    {
+        if (staging != VK_NULL_HANDLE)
+            vmaDestroyBuffer(vk->allocator, staging, allocation);
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan failed to create texture %d upload buffer (%zu bytes)",
+            tex.texId, tex.pixels.size());
+        return false;
+    }
+
+    memcpy(allocationInfo.pMappedData, tex.pixels.data(), tex.pixels.size());
+    vmaFlushAllocation(vk->allocator, allocation, 0, tex.pixels.size());
+    vknvg__setObjectName(vk, VK_OBJECT_TYPE_BUFFER, staging,
+        "Draxul NanoVG texture staging " + std::to_string(tex.texId));
+    const bool hasDebugLabel = vknvg__beginDebugLabel(vk,
+        "NanoVG upload texture " + std::to_string(tex.texId));
+
+    VkPipelineStageFlags sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    VkAccessFlags sourceAccess = 0;
+    if (tex.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        sourceStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        sourceAccess = VK_ACCESS_SHADER_READ_BIT;
+    }
+    else if (tex.layout != VK_IMAGE_LAYOUT_UNDEFINED)
+    {
+        sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        sourceAccess = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    }
+
+    VkImageMemoryBarrier toTransfer = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    toTransfer.srcAccessMask = sourceAccess;
+    toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toTransfer.oldLayout = tex.layout;
+    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image = tex.image;
+    toTransfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    toTransfer.subresourceRange.levelCount = 1;
+    toTransfer.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(vk->commandBuffer,
+        sourceStage, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+
+    VkBufferImageCopy copy = {};
+    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy.imageSubresource.layerCount = 1;
+    copy.imageExtent = {
+        static_cast<uint32_t>(tex.width),
+        static_cast<uint32_t>(tex.height),
+        1,
+    };
+    vkCmdCopyBufferToImage(vk->commandBuffer, staging, tex.image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+    VkImageMemoryBarrier toSampled = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    toSampled.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toSampled.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toSampled.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toSampled.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toSampled.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSampled.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSampled.image = tex.image;
+    toSampled.subresourceRange = toTransfer.subresourceRange;
+    vkCmdPipelineBarrier(vk->commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toSampled);
+    if (hasDebugLabel)
+        vknvg__endDebugLabel(vk);
+
+    frame.buffers.push_back(staging);
+    frame.allocations.push_back(allocation);
+    tex.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    tex.uploadPending = false;
+    return true;
 }
 
 static void vknvg__renderFlush(void* uptr)
@@ -1314,10 +1527,34 @@ static void vknvg__renderFlush(void* uptr)
         return;
     }
 
-    // Clean up resources from the previous frame that used this slot.
-    // With N frames in flight, slot = frameIndex % kMaxFramesInFlight.
-    int slot = static_cast<int>(vk->frameIndex % VkNVGcontext::kMaxFramesInFlight);
-    vknvg__cleanupFrameResources(vk, slot);
+    if (vk->frameResources.empty())
+    {
+        DRAXUL_LOG_ERROR(LogCategory::Renderer,
+            "NanoVG Vulkan frame state has no buffered resource slots");
+        vknvg__renderCancel(uptr);
+        return;
+    }
+
+    const size_t slot = vk->frameIndex % vk->frameResources.size();
+    auto& fr = vk->frameResources[slot];
+
+    // Uploads are recorded before the NanoVG render pass. Every sampled image
+    // therefore has an explicit transfer-to-fragment dependency and a layout
+    // matching the descriptor advertised below.
+    if (!vknvg__uploadTexture(vk, vk->dummyTex, fr))
+    {
+        vknvg__renderCancel(uptr);
+        return;
+    }
+    for (auto& texture : vk->textures)
+    {
+        if (texture.uploadPending && !vknvg__uploadTexture(vk, texture, fr))
+        {
+            DRAXUL_LOG_WARN(LogCategory::Renderer,
+                "NanoVG Vulkan deferred texture %d upload failed; draws will use the dummy texture",
+                texture.texId);
+        }
+    }
 
     int texW = static_cast<int>(vk->viewWidth);
     int texH = static_cast<int>(vk->viewHeight);
@@ -1345,9 +1582,17 @@ static void vknvg__renderFlush(void* uptr)
         return;
     }
     void* vertMapped = nullptr;
-    vmaMapMemory(vk->allocator, vertAlloc, &vertMapped);
+    if (vmaMapMemory(vk->allocator, vertAlloc, &vertMapped) != VK_SUCCESS || vertMapped == nullptr)
+    {
+        vmaDestroyBuffer(vk->allocator, vertBuf, vertAlloc);
+        vknvg__renderCancel(uptr);
+        return;
+    }
     memcpy(vertMapped, vk->verts.data(), vk->verts.size() * sizeof(NVGvertex));
+    vmaFlushAllocation(vk->allocator, vertAlloc, 0, VK_WHOLE_SIZE);
     vmaUnmapMemory(vk->allocator, vertAlloc);
+    vknvg__setObjectName(vk, VK_OBJECT_TYPE_BUFFER, vertBuf,
+        "Draxul NanoVG vertex buffer frame " + std::to_string(vk->frameIndex));
 
     // Create uniform buffer
     if (vk->uniforms.empty())
@@ -1376,9 +1621,18 @@ static void vknvg__renderFlush(void* uptr)
         return;
     }
     void* uniformMapped = nullptr;
-    vmaMapMemory(vk->allocator, uniformAlloc, &uniformMapped);
+    if (vmaMapMemory(vk->allocator, uniformAlloc, &uniformMapped) != VK_SUCCESS || uniformMapped == nullptr)
+    {
+        vmaDestroyBuffer(vk->allocator, vertBuf, vertAlloc);
+        vmaDestroyBuffer(vk->allocator, uniformBuf, uniformAlloc);
+        vknvg__renderCancel(uptr);
+        return;
+    }
     memcpy(uniformMapped, vk->uniforms.data(), vk->uniforms.size());
+    vmaFlushAllocation(vk->allocator, uniformAlloc, 0, VK_WHOLE_SIZE);
     vmaUnmapMemory(vk->allocator, uniformAlloc);
+    vknvg__setObjectName(vk, VK_OBJECT_TYPE_BUFFER, uniformBuf,
+        "Draxul NanoVG uniform buffer frame " + std::to_string(vk->frameIndex));
 
     if (uniformBuf == VK_NULL_HANDLE)
     {
@@ -1390,14 +1644,12 @@ static void vknvg__renderFlush(void* uptr)
         return;
     }
 
-    auto& fr = vk->frameResources[slot];
-
     VkDescriptorBufferInfo bufInfo = {};
     bufInfo.buffer = uniformBuf;
     bufInfo.offset = 0;
     bufInfo.range = sizeof(VkNVGfragUniforms);
 
-    auto allocDrawDescriptorSet = [&](VkImageView imageView) -> VkDescriptorSet {
+    auto allocDrawDescriptorSet = [&](VkImageView imageView, int textureId) -> VkDescriptorSet {
         VkDescriptorSet ds = vknvg__allocDescriptorSet(vk);
         if (ds == VK_NULL_HANDLE)
             return VK_NULL_HANDLE;
@@ -1423,11 +1675,14 @@ static void vknvg__renderFlush(void* uptr)
         writes[1].pImageInfo = &imgInfo;
 
         vkUpdateDescriptorSets(vk->device, 2, writes, 0, nullptr);
+        vknvg__setObjectName(vk, VK_OBJECT_TYPE_DESCRIPTOR_SET, ds,
+            "Draxul NanoVG draw descriptor frame " + std::to_string(vk->frameIndex)
+                + " texture " + std::to_string(textureId));
         fr.descriptorSets.push_back(ds);
         return ds;
     };
 
-    VkDescriptorSet frameDS = allocDrawDescriptorSet(vk->dummyTex.imageView);
+    VkDescriptorSet frameDS = allocDrawDescriptorSet(vk->dummyTex.imageView, vk->dummyTex.texId);
     if (frameDS == VK_NULL_HANDLE)
     {
         vmaDestroyBuffer(vk->allocator, vertBuf, vertAlloc);
@@ -1454,24 +1709,8 @@ static void vknvg__renderFlush(void* uptr)
         vknvg__renderCancel(uptr);
         return;
     }
-
-    // Transition dummy texture to shader read if needed (first time)
-    // For simplicity, always transition
-    {
-        VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        barrier.image = vk->dummyTex.image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.layerCount = 1;
-
-        vkCmdPipelineBarrier(vk->commandBuffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &barrier);
-    }
+    vknvg__setObjectName(vk, VK_OBJECT_TYPE_FRAMEBUFFER, framebuffer,
+        "Draxul NanoVG framebuffer frame " + std::to_string(vk->frameIndex));
 
     // Begin render pass
     VkClearValue clearValues[2] = {};
@@ -1519,14 +1758,16 @@ static void vknvg__renderFlush(void* uptr)
         if (call.image != 0)
         {
             VkNVGtexture* t = vknvg__findTexture(vk, call.image);
-            if (t && t->imageView != VK_NULL_HANDLE)
+            if (t && t->imageView != VK_NULL_HANDLE
+                && t->layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                && !t->uploadPending)
             {
                 const auto it = vk->textureDescriptorSets.find(call.image);
                 if (it != vk->textureDescriptorSets.end())
                 {
                     drawDS = it->second;
                 }
-                else if (VkDescriptorSet textureDS = allocDrawDescriptorSet(t->imageView);
+                else if (VkDescriptorSet textureDS = allocDrawDescriptorSet(t->imageView, t->texId);
                     textureDS != VK_NULL_HANDLE)
                 {
                     vk->textureDescriptorSets.emplace(call.image, textureDS);
@@ -1672,8 +1913,9 @@ static void vknvg__renderDelete(void* uptr)
     if (vk->device != VK_NULL_HANDLE)
         vkDeviceWaitIdle(vk->device);
 
-    for (int i = 0; i < VkNVGcontext::kMaxFramesInFlight; i++)
+    for (size_t i = 0; i < vk->frameResources.size(); ++i)
         vknvg__cleanupFrameResources(vk, i);
+    vk->frameResources.clear();
 
     vknvg__destroyStencil(vk);
     vknvg__destroyTexture(vk, vk->dummyTex);
@@ -1762,14 +2004,20 @@ void nvgVkSetFrameState(NVGcontext* ctx,
     VkCommandBuffer commandBuffer,
     VkImage swapchainImage,
     VkImageView swapchainImageView,
-    uint32_t frameIndex)
+    uint32_t frameIndex,
+    uint32_t bufferedFrameCount)
 {
     NVGparams* params = nvgInternalParams(ctx);
     VkNVGcontext* vk = static_cast<VkNVGcontext*>(params->userPtr);
+    vknvg__ensureFrameResources(vk, bufferedFrameCount);
     vk->commandBuffer = commandBuffer;
     vk->swapchainImage = swapchainImage;
     vk->swapchainImageView = swapchainImageView;
     vk->frameIndex = frameIndex;
+
+    // The renderer waits the fence for this slot before recording begins, so
+    // resources retained from its previous use can now be released.
+    vknvg__cleanupFrameResources(vk, frameIndex % vk->frameResources.size());
 }
 
 } // namespace draxul

@@ -36,6 +36,7 @@ bool is_terminal_shell_host(HostKind kind)
     case NanoVGDemo:
     case Markdown:
     case Kanban:
+    case Score:
         return false;
     }
     return false;

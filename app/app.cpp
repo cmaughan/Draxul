@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <imgui.h>
 #include <utility>
+#include <stdexcept>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -72,17 +73,6 @@ bool text_service_config_changed(const AppConfig& lhs, const AppConfig& rhs)
         || lhs.italic_font_path != rhs.italic_font_path
         || lhs.bold_italic_font_path != rhs.bold_italic_font_path
         || lhs.fallback_paths != rhs.fallback_paths;
-}
-
-void restore_text_service_config(AppConfig& target, const AppConfig& source)
-{
-    target.font_size = source.font_size;
-    target.enable_ligatures = source.enable_ligatures;
-    target.font_path = source.font_path;
-    target.bold_font_path = source.bold_font_path;
-    target.italic_font_path = source.italic_font_path;
-    target.bold_italic_font_path = source.bold_italic_font_path;
-    target.fallback_paths = source.fallback_paths;
 }
 
 class CallbackInputRouter final : public IInputRouter
@@ -253,6 +243,8 @@ App::App(AppDeps deps)
     , renderer_factory_(std::move(deps.renderer_factory))
     , host_factory_(std::move(deps.host_factory))
 {
+    if (deps.http_client)
+        weather_service_.set_http_client(std::move(deps.http_client));
     // HostManager reads options_.host_factory to create hosts.  Sync our
     // canonical factory back so the two sources stay consistent.
     if (options_.enable_session_attach)
@@ -486,15 +478,15 @@ bool App::initialize()
     return true;
 }
 
-TextServiceConfig App::make_text_service_config() const
+TextServiceConfig App::make_text_service_config(const AppConfig& config) const
 {
     TextServiceConfig text_config;
-    text_config.font_path = config_.font_path;
-    text_config.bold_font_path = config_.bold_font_path;
-    text_config.italic_font_path = config_.italic_font_path;
-    text_config.bold_italic_font_path = config_.bold_italic_font_path;
-    text_config.fallback_paths = config_.fallback_paths;
-    text_config.enable_ligatures = config_.enable_ligatures;
+    text_config.font_path = config.font_path;
+    text_config.bold_font_path = config.bold_font_path;
+    text_config.italic_font_path = config.italic_font_path;
+    text_config.bold_italic_font_path = config.bold_italic_font_path;
+    text_config.fallback_paths = config.fallback_paths;
+    text_config.enable_ligatures = config.enable_ligatures;
     return text_config;
 }
 
@@ -503,7 +495,7 @@ bool App::initialize_text_service()
     PERF_MEASURE();
     display_ppi_ = options_.override_display_ppi.value_or(window_->display_ppi());
 
-    if (const TextServiceConfig text_config = make_text_service_config();
+    if (const TextServiceConfig text_config = make_text_service_config(config_);
         !text_service_.initialize(text_config, config_.font_size, display_ppi_))
     {
         const std::string& attempted = text_config.font_path.empty() ? "(auto-detected)" : text_config.font_path;
@@ -605,58 +597,68 @@ Result<void, Error> App::reload_config()
             "User config loading is disabled; reload ignored."));
     }
 
-    const AppConfig previous_config = config_;
-    AppConfig reloaded_config = AppConfig::load();
+    const std::filesystem::path path = ConfigDocument::default_path();
+    auto loaded_config = load_app_config_from_path_checked(path);
+    if (!loaded_config)
+        return Result<void, Error>::err(std::move(loaded_config).error());
+    auto loaded_document = load_config_document_from_path_checked(path);
+    if (!loaded_document)
+        return Result<void, Error>::err(std::move(loaded_document).error());
+
+    AppConfig reloaded_config = std::move(*loaded_config);
     apply_overrides(reloaded_config, options_.config_overrides);
-    config_document_ = ConfigDocument::load();
-    config_ = std::move(reloaded_config);
 
-    const bool text_config_needs_reload = text_service_config_changed(previous_config, config_);
-    const bool scroll_config_changed = previous_config.smooth_scroll != config_.smooth_scroll
-        || previous_config.scroll_speed != config_.scroll_speed;
+    const AppConfig previous_config = config_;
+    const bool text_config_needs_reload = text_service_config_changed(previous_config, reloaded_config);
+    const bool scroll_config_changed = previous_config.smooth_scroll != reloaded_config.smooth_scroll
+        || previous_config.scroll_speed != reloaded_config.scroll_speed;
+    const bool weather_config_changed = previous_config.weather_location != reloaded_config.weather_location;
 
-    // Track a structured error if font reinit fails. We still fall back to
-    // the previous font, but the caller can now see that the reload was only
-    // partially successful.
-    Result<void, Error> font_result = Result<void, Error>::ok();
-
+    // Validate the complete font replacement before publishing any field of
+    // the candidate config. Moving a successful TextService keeps the object
+    // address stable for renderer/host pointers and makes failure all-or-old.
+    std::optional<TextService> staged_text_service;
     if (text_config_needs_reload)
     {
-        if (const TextServiceConfig text_config = make_text_service_config();
-            text_service_.initialize(text_config, config_.font_size, display_ppi_))
-        {
-            if (renderer_.imgui())
-                renderer_.imgui()->rebuild_imgui_font_texture();
-            apply_font_metrics();
-        }
-        else
+        TextService candidate;
+        const TextServiceConfig text_config = make_text_service_config(reloaded_config);
+        if (!candidate.initialize(text_config, reloaded_config.font_size, display_ppi_))
         {
             DRAXUL_LOG_WARN(LogCategory::App,
-                "Failed to apply reloaded font settings from %s; keeping the current font configuration.",
-                ConfigDocument::default_path().string().c_str());
-            font_result = Result<void, Error>::err(Error::config_apply(
-                "Failed to apply reloaded font settings; reverted to previous font."));
-            restore_text_service_config(config_, previous_config);
-            const TextServiceConfig restored_text_config = make_text_service_config();
-            if (!text_service_.initialize(restored_text_config, config_.font_size, display_ppi_))
-            {
-                DRAXUL_LOG_ERROR(LogCategory::App,
-                    "Failed to restore the previous font configuration after reload_config.");
-                font_result = Result<void, Error>::err(Error::config_apply(
-                    "Failed to restore previous font configuration after reload."));
-            }
-            else
-            {
-                if (renderer_.imgui())
-                    renderer_.imgui()->rebuild_imgui_font_texture();
-                apply_font_metrics();
-            }
+                "Failed to validate reloaded font settings from %s; retaining the previous config.",
+                path.string().c_str());
+            return Result<void, Error>::err(Error::config_apply(
+                "Failed to apply reloaded font settings; previous config remains active."));
         }
+        staged_text_service.emplace(std::move(candidate));
+    }
+
+    config_ = std::move(reloaded_config);
+    config_document_ = std::move(*loaded_document);
+
+    if (staged_text_service)
+    {
+        text_service_ = std::move(*staged_text_service);
+        if (renderer_.imgui())
+            renderer_.imgui()->rebuild_imgui_font_texture();
+        apply_font_metrics();
+        for (auto& warning : text_service_.take_font_warnings())
+            push_toast(1, warning);
     }
 
     if (scroll_config_changed)
         input_dispatcher_.set_scroll_config(config_.smooth_scroll, config_.scroll_speed);
     input_dispatcher_.set_chord_indicator_fade_ms(config_.chord_indicator_fade_ms);
+
+    if (weather_config_changed)
+    {
+        weather_service_.stop();
+        if (!config_.weather_location.empty())
+            weather_service_.start(config_.weather_location);
+    }
+
+    for (const auto& warning : config_.warnings)
+        push_toast(0, warning);
 
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
     for (auto& ws : workspaces_)
@@ -669,7 +671,7 @@ Result<void, Error> App::reload_config()
     request_frame();
     DRAXUL_LOG_INFO(LogCategory::App, "Reloaded config from %s",
         ConfigDocument::default_path().string().c_str());
-    return font_result;
+    return Result<void, Error>::ok();
 }
 
 bool App::initialize_chrome_host()
@@ -947,6 +949,8 @@ void App::wire_gui_actions()
                 for (auto& ws : workspaces_)
                     ws->host_manager.shutdown();
                 workspaces_.clear();
+                active_workspace_ = -1;
+                render_root_ = RenderNode{};
                 if (options_.enable_session_attach)
                     window_->hide();
                 else
@@ -1277,17 +1281,20 @@ void App::wire_window_callbacks()
     };
     input_router_ = std::move(router);
     disp_deps.router = input_router_.get();
-    input_dispatcher_ = InputDispatcher(std::move(disp_deps));
+    input_dispatcher_.reconfigure(std::move(disp_deps));
     input_dispatcher_.set_chord_indicator_fade_ms(config_.chord_indicator_fade_ms);
     input_dispatcher_.connect(*window_);
-    window_->on_close_requested = [this]() { on_window_close_requested(); };
-    window_->on_quit_requested = [this]() { request_quit(); };
-    window_->on_dock_reopen = [this]() {
+    IWindow::LifecycleCallbacks lifecycle_callbacks;
+    lifecycle_callbacks.on_close_requested = [this]() { on_window_close_requested(); };
+    lifecycle_callbacks.on_quit_requested = [this]() { request_quit(); };
+    lifecycle_callbacks.on_dock_reopen = [this]() {
         // Fires when the user clicks the Dock icon with no visible windows in
         // the opt-in persistent-app mode.
         if (options_.enable_session_attach)
             external_attach_requested_ = true;
     };
+    window_lifecycle_connection_ = window_->connect_lifecycle_callbacks(
+        std::move(lifecycle_callbacks));
 }
 
 void App::run()
@@ -1304,7 +1311,9 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
     while (running_ && std::chrono::steady_clock::now() < deadline)
     {
         pump_once(deadline);
-        if (active_host_manager().host() && active_host_manager().host()->runtime_state().content_ready && saw_frame_)
+        const Workspace* workspace = find_active_workspace();
+        if (workspace != nullptr && workspace->host_manager.host()
+            && workspace->host_manager.host()->runtime_state().content_ready && saw_frame_)
             return true;
     }
     return false;
@@ -1350,6 +1359,11 @@ std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay
 
 void App::start_print_focused_pane()
 {
+    if (find_active_workspace() == nullptr)
+    {
+        push_toast(1, "No focused pane to print");
+        return;
+    }
     if (renderer_.capture() == nullptr)
     {
         push_toast(2, "Printing is not supported by this renderer");
@@ -1445,8 +1459,12 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
     env.saw_frame = [this]() { return saw_frame_; };
     env.frame_requested = [this]() { return frame_requested_; };
     env.active_host_state = [this]() -> std::optional<HostRuntimeState> {
-        if (auto* host = active_host_manager().host())
-            return host->runtime_state();
+        const Workspace* workspace = find_active_workspace();
+        if (workspace != nullptr)
+        {
+            if (auto* host = workspace->host_manager.host())
+                return host->runtime_state();
+        }
         return std::nullopt;
     };
     env.capture = [this]() { return renderer_.capture(); };
@@ -1476,6 +1494,8 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 bool App::close_dead_panes()
 {
     PERF_MEASURE();
+    if (find_active_workspace() == nullptr)
+        return false;
     std::vector<LeafId> dead;
     active_host_manager().for_each_host([this, &dead](LeafId id, const IHost& h) {
         const std::string pane_id = active_host_manager().pane_id(id);
@@ -1523,6 +1543,8 @@ bool App::close_dead_panes()
                 for (auto& ws : workspaces_)
                     ws->host_manager.shutdown();
                 workspaces_.clear();
+                active_workspace_ = -1;
+                render_root_ = RenderNode{};
                 if (options_.enable_session_attach)
                     window_->hide();
                 else
@@ -1693,6 +1715,36 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         runtime_perf_collector().begin_frame();
 
+        // A persistent app may intentionally have no workspace after its last
+        // pane closes. Keep servicing lifecycle/attach events without routing
+        // work into a fabricated HostManager.
+        if (find_active_workspace() == nullptr)
+        {
+            input_dispatcher_.set_host(nullptr);
+            frame_requested_ = false;
+            runtime_perf_collector().cancel_frame();
+            const auto now = std::chrono::steady_clock::now();
+            if (wait_deadline && now >= *wait_deadline)
+                return running_;
+
+            // render_root_ contains non-owning host pointers, so an empty
+            // workspace state must not derive its wait deadline from that
+            // tree. Only lifecycle/attach events can make progress here.
+            int timeout_ms = window_ && !window_->is_visible() ? 200 : -1;
+            if (wait_deadline)
+            {
+                const int deadline_ms = std::max(0, static_cast<int>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(*wait_deadline - now).count()));
+                timeout_ms = timeout_ms < 0 ? deadline_ms : std::min(timeout_ms, deadline_ms);
+            }
+            if (!window_->wait_events(timeout_ms))
+            {
+                request_quit();
+                return false;
+            }
+            continue;
+        }
+
         if (!close_dead_panes())
         {
             runtime_perf_collector().cancel_frame();
@@ -1709,6 +1761,8 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         refresh_system_resource_snapshot(now);
         if (input_dispatcher_.update(now, config_.chord_timeout_ms))
             request_frame();
+        for (auto& warning : text_service_.take_font_warnings())
+            push_toast(1, warning);
 
         // Re-check after pumping (hosts can die during pump).
         if (!close_dead_panes())
@@ -1808,7 +1862,7 @@ void App::on_display_scale_changed(float new_ppi)
 
     display_ppi_ = new_ppi;
 
-    if (const TextServiceConfig text_config = make_text_service_config();
+    if (const TextServiceConfig text_config = make_text_service_config(config_);
         !text_service_.initialize(text_config, text_service_.point_size(), display_ppi_))
         return;
 
@@ -1829,9 +1883,12 @@ void App::request_frame()
 
 void App::request_quit()
 {
-    active_host_manager().for_each_host([](LeafId, IHost& h) {
-        h.request_close();
-    });
+    if (Workspace* workspace = find_active_workspace())
+    {
+        workspace->host_manager.for_each_host([](LeafId, IHost& h) {
+            h.request_close();
+        });
+    }
     running_ = false;
 }
 
@@ -1997,21 +2054,25 @@ void App::update_diagnostics_panel()
     panel.startup_steps = diagnostics_collector_.startup_steps();
     panel.startup_total_ms = diagnostics_collector_.startup_total_ms();
 
-    if (active_host_manager().host())
+    const Workspace* workspace = find_active_workspace();
+    if (workspace != nullptr && workspace->host_manager.host())
     {
-        const HostDebugState host_state = active_host_manager().host()->debug_state();
+        const HostDebugState host_state = workspace->host_manager.host()->debug_state();
         panel.grid_size = { host_state.grid_cols, host_state.grid_rows };
         panel.dirty_cells = host_state.dirty_cells;
     }
 
     panel.host_panes.push_back({ "ChromeHost", { 0, 0 }, { last_pixel_w_, last_pixel_h_ } });
 
-    auto& hm = active_host_manager();
-    hm.for_each_host([&panel, &hm](LeafId id, IHost& h) {
-        const auto dbg = h.debug_state();
-        const auto pd = hm.tree().descriptor_for(id);
-        panel.host_panes.push_back({ dbg.name, pd.pixel_pos, pd.pixel_size });
-    });
+    if (workspace != nullptr)
+    {
+        const auto& hm = workspace->host_manager;
+        hm.for_each_host([&panel, &hm](LeafId id, IHost& h) {
+            const auto dbg = h.debug_state();
+            const auto pd = hm.tree().descriptor_for(id);
+            panel.host_panes.push_back({ dbg.name, pd.pixel_pos, pd.pixel_size });
+        });
+    }
 
     if (diagnostics_host_ && diagnostics_host_->visible())
     {
@@ -2204,31 +2265,43 @@ void App::reattach_window()
     detached_ = false;
     mark_session_attached();
     pending_window_activation_ = true;
-    input_dispatcher_.set_host(active_host_manager().focused_host());
-    if (was_detached)
-    {
-        if (IHost* focused = active_host_manager().focused_host())
-            focused->on_focus_gained();
-        const std::string session_label = session_name_.empty() ? options_.session_id : session_name_;
-        push_toast(0, "Reattached live session '" + session_label + "'.");
-    }
-    else if (window_ && !window_->is_visible())
-    {
-        window_->show();
-    }
 
-    // If the session was killed (all panes closed), create a fresh workspace
-    // so the user has something to interact with.
-    if (workspaces_.empty() || !active_host_manager().host())
+    // A persistent app may have intentionally destroyed its final workspace.
+    // Re-establish a real manager before routing focus or input through it.
+    Workspace* workspace = find_active_workspace();
+    bool created_workspace = false;
+    if (workspace == nullptr || !workspace->host_manager.host())
     {
         session_killed_ = false;
         const int pw = window_->width_pixels();
         const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
                                          : window_->height_pixels();
         const int tab_y = chrome_host_ ? chrome_host_->tab_bar_height() : 0;
-        add_workspace(pw, th - tab_y);
+        if (add_workspace(pw, th - tab_y) < 0)
+        {
+            input_dispatcher_.set_host(nullptr);
+            push_toast(2, "Could not create a workspace while reopening the window");
+            return;
+        }
         recompute_all_viewports(0, tab_y, pw, th - tab_y);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        workspace = find_active_workspace();
+        created_workspace = true;
+    }
+
+    input_dispatcher_.set_host(workspace ? workspace->host_manager.focused_host() : nullptr);
+    if (was_detached)
+    {
+        if (!created_workspace && workspace)
+        {
+            if (IHost* focused = workspace->host_manager.focused_host())
+                focused->on_focus_gained();
+        }
+        const std::string session_label = session_name_.empty() ? options_.session_id : session_name_;
+        push_toast(0, "Reattached live session '" + session_label + "'.");
+    }
+    else if (window_ && !window_->is_visible())
+    {
+        window_->show();
     }
 
     persist_session_runtime_metadata(true);
@@ -2266,9 +2339,12 @@ void App::kill_session()
             options_.session_id.c_str(), error.c_str());
     }
 
-    active_host_manager().for_each_host([](LeafId, IHost& h) {
-        h.request_close();
-    });
+    if (Workspace* workspace = find_active_workspace())
+    {
+        workspace->host_manager.for_each_host([](LeafId, IHost& h) {
+            h.request_close();
+        });
+    }
     // Note: callers decide whether to set running_ = false (quit) or
     // hide the window (Ghostty-style stay-in-Dock). kill_session() only
     // cleans up session state; it does not stop the event loop.
@@ -2687,6 +2763,7 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const AppSessionState&
         ws->host_manager.shutdown();
     workspaces_.clear();
     active_workspace_ = -1;
+    render_root_ = RenderNode{};
 
     int max_workspace_id = -1;
     for (const WorkspaceSessionState& workspace_state : state.workspaces)
@@ -2698,6 +2775,7 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const AppSessionState&
                 created_workspace->host_manager.shutdown();
             workspaces_.clear();
             active_workspace_ = -1;
+            render_root_ = RenderNode{};
             return false;
         }
 
@@ -2733,8 +2811,9 @@ bool App::create_initial_workspace(int pixel_w, int pixel_h)
         ws->name = h->debug_state().name;
     else
         ws->name = "tab";
-    active_workspace_ = ws->id;
+    const int id = ws->id;
     workspaces_.push_back(std::move(ws));
+    activate_workspace(id);
     return true;
 }
 
@@ -2767,37 +2846,45 @@ bool App::close_workspace(int workspace_id)
     if (it == workspaces_.end())
         return false;
 
-    (*it)->host_manager.shutdown();
-    bool was_active = (workspace_id == active_workspace_);
-    workspaces_.erase(it);
+    const bool was_active = (workspace_id == active_workspace_);
     if (was_active)
-        activate_workspace(workspaces_.front()->id);
+    {
+        const auto replacement = std::find_if(workspaces_.begin(), workspaces_.end(),
+            [workspace_id](const auto& ws) { return ws->id != workspace_id; });
+        if (replacement == workspaces_.end())
+            return false;
+        // Complete the focus/identity transition while both workspaces are
+        // alive. No callback can observe an active id whose manager was just
+        // destroyed.
+        activate_workspace((*replacement)->id);
+    }
+
+    (*it)->host_manager.shutdown();
+    workspaces_.erase(it);
     return true;
 }
 
 void App::activate_workspace(int workspace_id)
 {
-    if (workspace_id == active_workspace_)
+    if (workspace_id == active_workspace_ && find_active_workspace() != nullptr)
         return;
-    for (auto& ws : workspaces_)
+
+    const auto target = std::find_if(workspaces_.begin(), workspaces_.end(),
+        [workspace_id](const auto& ws) { return ws->id == workspace_id; });
+    if (target == workspaces_.end())
     {
-        if (ws->id == active_workspace_)
-        {
-            if (IHost* h = ws->host_manager.focused_host())
-                h->on_focus_lost();
-            break;
-        }
+        DRAXUL_LOG_ERROR(LogCategory::App, "Cannot activate missing workspace id=%d", workspace_id);
+        return;
+    }
+
+    if (Workspace* current = find_active_workspace())
+    {
+        if (IHost* h = current->host_manager.focused_host())
+            h->on_focus_lost();
     }
     active_workspace_ = workspace_id;
-    for (auto& ws : workspaces_)
-    {
-        if (ws->id == active_workspace_)
-        {
-            if (IHost* h = ws->host_manager.focused_host())
-                h->on_focus_gained();
-            break;
-        }
-    }
+    if (IHost* h = (*target)->host_manager.focused_host())
+        h->on_focus_gained();
 }
 
 void App::next_workspace()
@@ -2880,24 +2967,52 @@ void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int p
 
 HostManager& App::active_host_manager()
 {
-    for (auto& ws : workspaces_)
-    {
-        if (ws->id == active_workspace_)
-            return ws->host_manager;
-    }
-    static HostManager dummy(HostManager::Deps{});
-    return dummy;
+    return require_active_workspace("active_host_manager").host_manager;
 }
 
 const HostManager& App::active_host_manager() const
 {
+    return require_active_workspace("active_host_manager const").host_manager;
+}
+
+Workspace* App::find_active_workspace() noexcept
+{
+    for (auto& ws : workspaces_)
+    {
+        if (ws->id == active_workspace_)
+            return ws.get();
+    }
+    return nullptr;
+}
+
+const Workspace* App::find_active_workspace() const noexcept
+{
     for (const auto& ws : workspaces_)
     {
         if (ws->id == active_workspace_)
-            return ws->host_manager;
+            return ws.get();
     }
-    static const HostManager dummy(HostManager::Deps{});
-    return dummy;
+    return nullptr;
+}
+
+Workspace& App::require_active_workspace(std::string_view context)
+{
+    if (Workspace* workspace = find_active_workspace())
+        return *workspace;
+    DRAXUL_LOG_ERROR(LogCategory::App,
+        "Active workspace invariant failed in %.*s (active_id=%d count=%zu)",
+        static_cast<int>(context.size()), context.data(), active_workspace_, workspaces_.size());
+    throw std::logic_error("Draxul active workspace invariant failed in " + std::string(context));
+}
+
+const Workspace& App::require_active_workspace(std::string_view context) const
+{
+    if (const Workspace* workspace = find_active_workspace())
+        return *workspace;
+    DRAXUL_LOG_ERROR(LogCategory::App,
+        "Active workspace invariant failed in %.*s (active_id=%d count=%zu)",
+        static_cast<int>(context.size()), context.data(), active_workspace_, workspaces_.size());
+    throw std::logic_error("Draxul active workspace invariant failed in " + std::string(context));
 }
 
 const SplitTree& App::active_tree() const
@@ -2918,6 +3033,13 @@ int App::active_workspace_id() const
 void App::shutdown()
 {
     PERF_MEASURE();
+    // Revoke every window callback before any captured App subsystem begins
+    // teardown. The registration tokens also make already-copied late events
+    // inert, while clear_callbacks covers any direct test/custom callbacks.
+    input_dispatcher_.disconnect();
+    window_lifecycle_connection_.reset();
+    if (window_)
+        window_->clear_callbacks();
 #ifdef __APPLE__
     macos_menu_.reset(); // tear down menu before handler goes away
 #endif
@@ -2932,6 +3054,8 @@ void App::shutdown()
     for (auto& ws : workspaces_)
         ws->host_manager.shutdown();
     workspaces_.clear();
+    active_workspace_ = -1;
+    render_root_ = RenderNode{};
 
     if (chrome_host_)
         chrome_host_->shutdown();

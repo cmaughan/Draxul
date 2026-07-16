@@ -62,7 +62,11 @@ float scissorMask(vec2 p)
 
 float strokeMask()
 {
-    return min(1.0, (1.0 - abs(ftcoord.x * 2.0 - 1.0)) * frag.strokeMult) * min(1.0, ftcoord.y);
+    // Clamp both factors explicitly. On the Windows Vulkan compiler used by
+    // the render tests, multiplying the two min() expressions can fold to
+    // zero even for NanoVG's interior (0.5, 1.0) coordinates.
+    return clamp((1.0 - abs(ftcoord.x * 2.0 - 1.0)) * frag.strokeMult, 0.0, 1.0)
+        * clamp(ftcoord.y, 0.0, 1.0);
 }
 
 void main()

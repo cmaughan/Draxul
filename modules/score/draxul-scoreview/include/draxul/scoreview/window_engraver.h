@@ -4,6 +4,7 @@
 #include <draxul/scoreview/layout_engine.h>
 
 #include <condition_variable>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -19,14 +20,16 @@ namespace scoreview
 // serialize/parse round-trip no longer freezes the main (render/input) thread.
 // It owns its OWN layout engine (a second Verovio toolkit) — the main thread's
 // engine is never touched off-thread, and the two never lay out concurrently
-// (the host drains this worker before any synchronous engine use).
+// (the host defers synchronous engine work until this worker is idle).
 //
-// One engrave is in flight at a time: submit() posts a job when idle, poll()
-// takes the finished result on a later frame, cancel() waits out an in-flight
-// engrave and drops any pending result (the synchronous-rebuild barrier).
+// One engrave is in flight at a time, with at most one coalesced pending job.
+// submit() is latest-wins and never waits: an older job may finish, but its
+// result is discarded. cancel() is also non-blocking generation invalidation.
 class WindowEngraver
 {
 public:
+    using RequestId = uint64_t;
+
     struct Job
     {
         std::string window_xml;
@@ -39,6 +42,7 @@ public:
 
     struct Done
     {
+        RequestId request_id = 0;
         EngravedWindow window;
         int first_bar = 0;
         int count = 0;
@@ -49,22 +53,24 @@ public:
     // Returns nullptr and fills `error` when the background toolkit's resources
     // cannot be loaded (the host then falls back to synchronous rebuilds).
     static std::unique_ptr<WindowEngraver> create(const std::string& resource_dir, std::string& error);
+    // Dependency-injected creation for deterministic worker/lifetime tests.
+    static std::unique_ptr<WindowEngraver> create(
+        std::unique_ptr<ILayoutEngine> engine, std::string& error);
     ~WindowEngraver();
 
     WindowEngraver(const WindowEngraver&) = delete;
     WindowEngraver& operator=(const WindowEngraver&) = delete;
 
     // True while a job is queued/running or a finished result awaits poll().
-    // The host only submits when this is false.
     bool busy() const;
-    // Posts a job. Precondition: !busy().
-    void submit(Job job);
+    // Posts the newest desired job. While work is active, replaces the single
+    // pending job. Returns zero only after shutdown has stopped submissions.
+    RequestId submit(Job job);
     // Takes the finished result if one is ready; nullopt otherwise. On success
     // the worker returns to idle, ready for the next submit().
     std::optional<Done> poll();
-    // Blocks until any in-flight engrave finishes, then drops a pending result
-    // and returns to idle. Called before synchronous engine use so the two
-    // toolkits never lay out at once.
+    // Invalidates active/pending/ready generations without waiting. An active
+    // engine call is allowed to finish, but its result cannot be polled.
     void cancel();
 
 private:
@@ -82,11 +88,18 @@ private:
 
     mutable std::mutex mutex_;
     std::condition_variable job_cv_; // main -> worker: a job (or stop) posted
-    std::condition_variable done_cv_; // worker -> main: engrave finished
     State state_ = State::Idle;
     bool stop_ = false;
-    Job job_;
+    struct Queued
+    {
+        RequestId request_id = 0;
+        Job job;
+    };
+    Queued job_;
+    std::optional<Queued> pending_job_;
     Done result_;
+    RequestId next_request_id_ = 1;
+    RequestId latest_request_id_ = 0;
     std::thread thread_;
 };
 

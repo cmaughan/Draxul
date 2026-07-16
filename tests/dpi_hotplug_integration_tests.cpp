@@ -105,7 +105,7 @@ struct DpiTestFixture
         InputDispatcher::Deps deps;
         deps.pixel_scale = initial_scale;
         deps.ui_panel = &ui_panel;
-        dispatcher = InputDispatcher(std::move(deps));
+        dispatcher.reconfigure(std::move(deps));
 
         return true;
     }
@@ -256,7 +256,7 @@ TEST_CASE("dpi hotplug integration: DisplayScaleEvent fires through window callb
     deps.on_display_scale_changed = [&](float ppi) {
         simulate_display_scale_changed(ppi, f.current_ppi, f.text_service, f.renderer, f.dispatcher, f.window);
     };
-    f.dispatcher = InputDispatcher(std::move(deps));
+    f.dispatcher.reconfigure(std::move(deps));
     f.dispatcher.connect(f.window);
 
     // Simulate the window firing a DisplayScaleEvent (as SDL would).

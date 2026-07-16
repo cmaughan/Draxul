@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <draxul/chrome_theme.h>
 #include <draxul/input_types.h>
+#include <draxul/result.h>
 #include <draxul/types.h>
 #include <filesystem>
 #include <optional>
@@ -113,6 +114,15 @@ struct AppConfig
     void save() const;
     void save_to_path(const std::filesystem::path& path) const;
 };
+
+// Checked entry points used by live reload. The legacy AppConfig::parse/load
+// functions intentionally retain their tolerant defaults-on-error behavior for
+// startup and existing callers.
+[[nodiscard]] Result<AppConfig, Error> parse_app_config_checked(
+    std::string_view content,
+    std::string_view source_name = "<memory>");
+[[nodiscard]] Result<AppConfig, Error> load_app_config_from_path_checked(
+    const std::filesystem::path& path);
 
 // Overrides for AppConfig fields that can be set at runtime (e.g., from CLI or render-test
 // scenarios). Each field is optional -- only present fields are applied. Adding a new

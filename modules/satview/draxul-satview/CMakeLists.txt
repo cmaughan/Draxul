@@ -84,6 +84,7 @@ target_compile_definitions(draxul-satview PRIVATE
 
 target_link_libraries(draxul-satview PUBLIC
     draxul-types
+    draxul-http
     draxul-host
     draxul-renderer
     imgui

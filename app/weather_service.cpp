@@ -2,57 +2,28 @@
 
 #include <draxul/log.h>
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
-#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <initializer_list>
-
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
+#include <limits>
+#include <optional>
 
 namespace draxul
 {
-
 namespace
 {
 
-#ifdef _WIN32
-constexpr const char* kNullDevice = "NUL";
-
-FILE* pipe_open(const char* command, const char* mode)
-{
-    return _popen(command, mode);
-}
-
-int pipe_close(FILE* pipe)
-{
-    return _pclose(pipe);
-}
-#else
-constexpr const char* kNullDevice = "/dev/null";
-
-FILE* pipe_open(const char* command, const char* mode)
-{
-    return popen(command, mode);
-}
-
-int pipe_close(FILE* pipe)
-{
-    return pclose(pipe);
-}
-#endif
+constexpr std::size_t kMaxWeatherResponseBytes = 1024 * 1024;
 
 void append_utf8_codepoint(std::string& out, uint32_t codepoint)
 {
     if (codepoint <= 0x7F)
-    {
         out.push_back(static_cast<char>(codepoint));
-    }
     else if (codepoint <= 0x7FF)
     {
         out.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
@@ -82,7 +53,43 @@ std::string utf8_from_codepoints(std::initializer_list<uint32_t> codepoints)
     return out;
 }
 
+std::string trim_ascii(std::string value)
+{
+    const auto whitespace = [](unsigned char c) { return std::isspace(c) != 0; };
+    value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), whitespace));
+    value.erase(std::find_if_not(value.rbegin(), value.rend(), whitespace).base(), value.end());
+    return value;
+}
+
+bool contains_ascii_case_insensitive(std::string_view haystack, std::string_view needle)
+{
+    if (needle.empty())
+        return true;
+    return std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+               [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); })
+        != haystack.end();
+}
+
+bool json_finite_number(const nlohmann::json& object, const char* key, double& value)
+{
+    const auto it = object.find(key);
+    if (it == object.end() || !it->is_number())
+        return false;
+    value = it->get<double>();
+    return std::isfinite(value);
+}
+
 } // namespace
+
+WeatherService::WeatherService()
+    : WeatherService(http::create_platform_http_client())
+{
+}
+
+WeatherService::WeatherService(std::shared_ptr<http::IHttpClient> http_client)
+    : http_client_(std::move(http_client))
+{
+}
 
 WeatherService::~WeatherService()
 {
@@ -94,15 +101,25 @@ void WeatherService::start(const std::string& location)
     if (location.empty())
         return;
     if (running_.exchange(true))
-        return; // already running
+        return;
+    if (thread_.joinable())
+        thread_.join();
+    cancellation_ = http::CancellationSource{};
     thread_ = std::thread(&WeatherService::worker_func, this, location);
 }
 
 void WeatherService::stop()
 {
     running_ = false;
+    cancellation_.cancel();
     if (thread_.joinable())
         thread_.join();
+}
+
+void WeatherService::set_http_client(std::shared_ptr<http::IHttpClient> http_client)
+{
+    stop();
+    http_client_ = std::move(http_client);
 }
 
 std::string WeatherService::display_text() const
@@ -127,45 +144,43 @@ std::string WeatherService::temperature() const
 
 void WeatherService::worker_func(std::string location)
 {
-    double lat = 0.0, lon = 0.0;
-
-    // Check if location looks like "lat,lon" (two numbers separated by comma).
+    double lat = 0.0;
+    double lon = 0.0;
     bool have_coords = false;
+    if (const auto comma = location.find(','); comma != std::string::npos)
     {
-        auto comma = location.find(',');
-        if (comma != std::string::npos)
+        const std::string latitude_text = trim_ascii(location.substr(0, comma));
+        const std::string longitude_text = trim_ascii(location.substr(comma + 1));
+        char* latitude_end = nullptr;
+        char* longitude_end = nullptr;
+        const double parsed_latitude = std::strtod(latitude_text.c_str(), &latitude_end);
+        const double parsed_longitude = std::strtod(longitude_text.c_str(), &longitude_end);
+        have_coords = !latitude_text.empty() && !longitude_text.empty()
+            && latitude_end == latitude_text.c_str() + latitude_text.size()
+            && longitude_end == longitude_text.c_str() + longitude_text.size()
+            && std::isfinite(parsed_latitude) && std::isfinite(parsed_longitude)
+            && parsed_latitude >= -90.0 && parsed_latitude <= 90.0
+            && parsed_longitude >= -180.0 && parsed_longitude <= 180.0;
+        if (have_coords)
         {
-            char* end1 = nullptr;
-            char* end2 = nullptr;
-            double a = std::strtod(location.c_str(), &end1);
-            double b = std::strtod(location.c_str() + comma + 1, &end2);
-            if (end1 != location.c_str() && end2 != location.c_str() + comma + 1)
-            {
-                lat = a;
-                lon = b;
-                have_coords = true;
-            }
+            lat = parsed_latitude;
+            lon = parsed_longitude;
         }
     }
 
-    // If not numeric, geocode the location string.
-    if (!have_coords)
+    if (!have_coords && !try_geocode(location, lat, lon))
     {
-        if (!try_geocode(location, lat, lon))
-        {
-            DRAXUL_LOG_DEBUG(LogCategory::App,
-                "WeatherService: geocode failed for '%s'; disabling", location.c_str());
-            running_ = false;
-            return;
-        }
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "WeatherService: geocode failed for '%s'; disabling", location.c_str());
+        running_ = false;
+        return;
     }
 
     DRAXUL_LOG_DEBUG(LogCategory::App,
         "WeatherService: resolved location to %.4f,%.4f", lat, lon);
 
     constexpr auto kFetchInterval = std::chrono::minutes(10);
-    constexpr auto kSleepGranularity = std::chrono::seconds(1);
-
+    constexpr auto kSleepGranularity = std::chrono::milliseconds(100);
     while (running_)
     {
         double temp_c = 0.0;
@@ -182,8 +197,7 @@ void WeatherService::worker_func(std::string location)
             has_data_ = true;
         }
 
-        // Sleep in small increments so stop() is responsive.
-        auto deadline = std::chrono::steady_clock::now() + kFetchInterval;
+        const auto deadline = std::chrono::steady_clock::now() + kFetchInterval;
         while (running_ && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(kSleepGranularity);
     }
@@ -191,197 +205,116 @@ void WeatherService::worker_func(std::string location)
 
 bool WeatherService::try_geocode(const std::string& query, double& lat, double& lon)
 {
-    // Split "City, Country" into city name and optional country filter.
     std::string city_name = query;
     std::string country_filter;
-    if (auto comma = city_name.find(','); comma != std::string::npos)
+    if (const auto comma = city_name.find(','); comma != std::string::npos)
     {
-        country_filter = city_name.substr(comma + 1);
-        city_name = city_name.substr(0, comma);
+        country_filter = trim_ascii(city_name.substr(comma + 1));
+        city_name.resize(comma);
     }
-    // Trim whitespace.
-    while (!city_name.empty() && city_name.back() == ' ')
-        city_name.pop_back();
-    while (!country_filter.empty() && country_filter.front() == ' ')
-        country_filter.erase(country_filter.begin());
-    while (!country_filter.empty() && country_filter.back() == ' ')
-        country_filter.pop_back();
-
-    // URL-encode the city name for the query parameter.
-    std::string encoded;
-    for (char c : city_name)
-    {
-        if (c == ' ')
-            encoded += '+';
-        else if (c == ',' || c == '&' || c == '=' || c == '#' || c == '%')
-        {
-            char hex[4];
-            std::snprintf(hex, sizeof(hex), "%%%02X", static_cast<unsigned char>(c));
-            encoded += hex;
-        }
-        else
-            encoded += c;
-    }
-
-    // Fetch multiple results so we can match the country filter.
-    std::string url = "https://geocoding-api.open-meteo.com/v1/search?name="
-        + encoded + "&count=10&language=en&format=json";
-    std::string json = run_curl(url);
-    if (json.empty())
+    city_name = trim_ascii(std::move(city_name));
+    if (city_name.empty())
         return false;
 
-    // Case-insensitive substring match for country filtering.
-    auto icontains = [](const std::string& haystack, const std::string& needle) -> bool {
-        if (needle.empty())
-            return true;
-        auto it = std::search(haystack.begin(), haystack.end(),
-            needle.begin(), needle.end(),
-            [](char a, char b) { return std::tolower(a) == std::tolower(b); });
-        return it != haystack.end();
-    };
-
-    // Walk through "results" array entries. Each entry has "latitude",
-    // "longitude", "country", and "country_code" fields. Pick the first
-    // entry whose country or country_code matches the filter (or the
-    // first entry if no filter).
-    auto extract_double_at = [&](size_t search_from, const char* key) -> double {
-        auto pos = json.find(key, search_from);
-        if (pos == std::string::npos)
-            return 0.0;
-        pos = json.find(':', pos + std::strlen(key));
-        if (pos == std::string::npos)
-            return 0.0;
-        ++pos;
-        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
-            ++pos;
-        return std::strtod(json.c_str() + pos, nullptr);
-    };
-    auto extract_string_at = [&](size_t search_from, const char* key) -> std::string {
-        auto pos = json.find(key, search_from);
-        if (pos == std::string::npos)
-            return {};
-        pos = json.find('"', pos + std::strlen(key) + 2); // skip key":<space>"
-        if (pos == std::string::npos)
-            return {};
-        ++pos; // skip opening quote
-        auto end = json.find('"', pos);
-        if (end == std::string::npos)
-            return {};
-        return json.substr(pos, end - pos);
-    };
-
-    // Iterate over result entries by finding successive "latitude" keys.
-    size_t search_pos = json.find("\"results\"");
-    if (search_pos == std::string::npos)
+    const std::string url = "https://geocoding-api.open-meteo.com/v1/search?name="
+        + http::encode_query_component(city_name)
+        + "&count=10&language=en&format=json";
+    const std::string body = get(url);
+    if (body.empty())
         return false;
 
-    bool found_any = false;
-    double first_lat = 0.0, first_lon = 0.0;
-    while (true)
+    const nlohmann::json document = nlohmann::json::parse(body, nullptr, false);
+    if (document.is_discarded() || !document.is_object())
+        return false;
+    const auto results_it = document.find("results");
+    if (results_it == document.end() || !results_it->is_array())
+        return false;
+
+    std::optional<std::pair<double, double>> first_valid;
+    for (const auto& entry : *results_it)
     {
-        auto entry_pos = json.find("\"latitude\"", search_pos);
-        if (entry_pos == std::string::npos)
-            break;
-
-        double entry_lat = extract_double_at(entry_pos, "\"latitude\"");
-        double entry_lon = extract_double_at(entry_pos, "\"longitude\"");
-        std::string entry_country = extract_string_at(entry_pos, "\"country\"");
-        std::string entry_code = extract_string_at(entry_pos, "\"country_code\"");
-
-        if (!found_any)
+        if (!entry.is_object())
+            continue;
+        double entry_latitude = 0.0;
+        double entry_longitude = 0.0;
+        if (!json_finite_number(entry, "latitude", entry_latitude)
+            || !json_finite_number(entry, "longitude", entry_longitude)
+            || entry_latitude < -90.0 || entry_latitude > 90.0
+            || entry_longitude < -180.0 || entry_longitude > 180.0)
         {
-            first_lat = entry_lat;
-            first_lon = entry_lon;
-            found_any = true;
+            continue;
         }
+        if (!first_valid)
+            first_valid = std::pair(entry_latitude, entry_longitude);
 
+        std::string country;
+        std::string country_code;
+        if (const auto it = entry.find("country"); it != entry.end() && it->is_string())
+            country = it->get<std::string>();
+        if (const auto it = entry.find("country_code"); it != entry.end() && it->is_string())
+            country_code = it->get<std::string>();
         if (country_filter.empty()
-            || icontains(entry_country, country_filter)
-            || icontains(entry_code, country_filter))
+            || contains_ascii_case_insensitive(country, country_filter)
+            || contains_ascii_case_insensitive(country_code, country_filter))
         {
-            lat = entry_lat;
-            lon = entry_lon;
+            lat = entry_latitude;
+            lon = entry_longitude;
             return true;
         }
-
-        search_pos = entry_pos + 10;
     }
 
-    // No country match — fall back to the first result.
-    if (found_any)
-    {
-        lat = first_lat;
-        lon = first_lon;
-        return true;
-    }
-    return false;
+    if (!first_valid)
+        return false;
+    lat = first_valid->first;
+    lon = first_valid->second;
+    return true;
 }
 
 bool WeatherService::fetch_temperature(double lat, double lon, double& temp_c, int& weather_code)
 {
-    char url_buf[256];
-    std::snprintf(url_buf, sizeof(url_buf),
-        "https://api.open-meteo.com/v1/forecast?"
-        "latitude=%.4f&longitude=%.4f&current_weather=true",
+    char url[256];
+    std::snprintf(url, sizeof(url),
+        "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current_weather=true",
         lat, lon);
-    std::string json = run_curl(url_buf);
-    if (json.empty())
+    const std::string body = get(url);
+    if (body.empty())
         return false;
 
-    // Find the "current_weather" object first, then extract fields within it.
-    // This avoids hitting the "current_weather_units" section which has the
-    // same key names but string values.
-    auto cw_pos = json.find("\"current_weather\"");
-    if (cw_pos == std::string::npos)
+    const nlohmann::json document = nlohmann::json::parse(body, nullptr, false);
+    if (document.is_discarded() || !document.is_object())
         return false;
-    // Narrow search to the substring starting from current_weather.
-    std::string_view cw_json(json.data() + cw_pos, json.size() - cw_pos);
+    const auto current = document.find("current_weather");
+    if (current == document.end() || !current->is_object())
+        return false;
 
-    auto extract_number = [](std::string_view src, const char* key) -> double {
-        auto pos = src.find(key);
-        if (pos == std::string_view::npos)
-            return 0.0;
-        pos = src.find(':', pos + std::strlen(key));
-        if (pos == std::string_view::npos)
-            return 0.0;
-        ++pos;
-        while (pos < src.size() && (src[pos] == ' ' || src[pos] == '\t'))
-            ++pos;
-        // src is a string_view into json which is null-terminated, so
-        // strtod is safe as long as pos < json.size().
-        return std::strtod(src.data() + pos, nullptr);
-    };
-
-    temp_c = extract_number(cw_json, "\"temperature\"");
-    weather_code = static_cast<int>(extract_number(cw_json, "\"weathercode\""));
+    double code = 0.0;
+    if (!json_finite_number(*current, "temperature", temp_c)
+        || !json_finite_number(*current, "weathercode", code)
+        || temp_c < -100.0 || temp_c > 100.0
+        || code < 0.0 || code > 99.0 || std::floor(code) != code)
+    {
+        return false;
+    }
+    weather_code = static_cast<int>(code);
     return true;
 }
 
-std::string WeatherService::run_curl(const std::string& url)
+std::string WeatherService::get(std::string url)
 {
-    std::string cmd = "curl -s --max-time 15 --connect-timeout 10 \"";
-    cmd += url;
-    cmd += "\" 2>";
-    cmd += kNullDevice;
-
-    FILE* pipe = pipe_open(cmd.c_str(), "r");
-    if (!pipe)
+    if (!http_client_)
         return {};
-
-    std::string result;
-    std::array<char, 4096> buf{};
-    while (auto n = fread(buf.data(), 1, buf.size(), pipe))
-        result.append(buf.data(), n);
-    int status = pipe_close(pipe);
-    if (status != 0)
-        return {};
-    return result;
+    http::Request request;
+    request.url = std::move(url);
+    request.user_agent = "Draxul Weather";
+    request.connect_timeout = std::chrono::seconds(10);
+    request.overall_timeout = std::chrono::seconds(15);
+    request.max_response_bytes = kMaxWeatherResponseBytes;
+    auto response = http_client_->get(request, cancellation_.token());
+    return response.ok() ? std::move(response.body) : std::string{};
 }
 
 std::string WeatherService::weather_emoji(int code)
 {
-    // Keep these weather icons ASCII-only in source so MSVC does not warn
-    // about the active code page when compiling Windows builds.
     static const std::string kClear = utf8_from_codepoints({ 0x2600, 0xFE0F });
     static const std::string kPartlyCloudy = utf8_from_codepoints({ 0x26C5 });
     static const std::string kCloud = utf8_from_codepoints({ 0x2601, 0xFE0F });
@@ -389,28 +322,23 @@ std::string WeatherService::weather_emoji(int code)
     static const std::string kSnow = utf8_from_codepoints({ 0x2744, 0xFE0F });
     static const std::string kThunder = utf8_from_codepoints({ 0x26A1 });
     static const std::string kFallback = utf8_from_codepoints({ 0x1F321, 0xFE0F });
-
-    // WMO weather interpretation codes:
-    // https://open-meteo.com/en/docs#weathervariables
     if (code == 0)
-        return kClear; // sun / clear
+        return kClear;
     if (code <= 3)
-        return kPartlyCloudy; // partly cloudy
+        return kPartlyCloudy;
     if (code <= 48)
-        return kCloud; // cloud / fog / overcast
-    if (code <= 57)
-        return kRain; // rain cloud / drizzle
+        return kCloud;
     if (code <= 67)
-        return kRain; // rain cloud / rain
+        return kRain;
     if (code <= 77)
-        return kSnow; // snowflake / snow
+        return kSnow;
     if (code <= 82)
-        return kRain; // rain cloud / rain showers
+        return kRain;
     if (code <= 86)
-        return kSnow; // snowflake / snow showers
+        return kSnow;
     if (code <= 99)
-        return kThunder; // thunderstorm
-    return kFallback; // thermometer / fallback
+        return kThunder;
+    return kFallback;
 }
 
 } // namespace draxul

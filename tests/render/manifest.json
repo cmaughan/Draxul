@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "basic-view",
+      "purpose": "Core terminal grid, colors, and cursor rendering",
+      "status": "regression",
+      "platforms": ["windows", "macos"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "basic",
+      "bless_command": "blessbasic"
+    },
+    {
+      "name": "cmdline-view",
+      "purpose": "Neovim command-line and status rendering",
+      "status": "regression",
+      "platforms": ["windows", "macos"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "cmdline",
+      "bless_command": "blesscmdline"
+    },
+    {
+      "name": "unicode-view",
+      "purpose": "Unicode, fallback-font, and multi-cell glyph rendering",
+      "status": "regression",
+      "platforms": ["windows", "macos"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "unicode",
+      "bless_command": "blessunicode"
+    },
+    {
+      "name": "panel-view",
+      "purpose": "Native panel and overlay composition",
+      "status": "regression",
+      "platforms": ["windows", "macos"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "panel",
+      "bless_command": "blesspanel"
+    },
+    {
+      "name": "nanovg-demo",
+      "purpose": "Test-only NanoVG renderer integration",
+      "status": "regression",
+      "platforms": ["windows", "macos"],
+      "ctest": true,
+      "reference_required": true,
+      "renderall": true,
+      "blessall": true,
+      "compare_command": "nanovg",
+      "bless_command": "blessnanovg"
+    },
+    {
+      "name": "wide-char-scroll",
+      "purpose": "Developer exercise for wide-character scrolling",
+      "status": "developer",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "claude-logo",
+      "purpose": "Documentation screenshot source",
+      "status": "documentation",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "readme-hero",
+      "purpose": "README hero artwork source",
+      "status": "documentation",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "readme-overlay",
+      "purpose": "README overlay artwork source",
+      "status": "documentation",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    },
+    {
+      "name": "readme-view",
+      "purpose": "README terminal artwork source",
+      "status": "documentation",
+      "platforms": ["windows", "macos"],
+      "ctest": false,
+      "reference_required": false,
+      "renderall": false,
+      "blessall": false,
+      "compare_command": "",
+      "bless_command": ""
+    }
+  ]
+}

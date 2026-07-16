@@ -1,9 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <draxul/types.h>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -525,6 +527,146 @@ inline int cluster_cell_width(std::string_view text, const UiOptions& options = 
         return 2;
 
     return 1;
+}
+
+inline bool is_indic_virama(uint32_t cp)
+{
+    switch (cp)
+    {
+    case 0x094D:
+    case 0x09CD:
+    case 0x0A4D:
+    case 0x0ACD:
+    case 0x0B4D:
+    case 0x0BCD:
+    case 0x0C4D:
+    case 0x0CCD:
+    case 0x0D4D:
+    case 0x0DCA:
+        return true;
+    default:
+        return false;
+    }
+}
+
+inline bool utf8_codepoint_at_is_valid(std::string_view text, size_t offset, size_t& next_offset)
+{
+    if (offset >= text.size())
+        return false;
+
+    const uint8_t lead = static_cast<uint8_t>(text[offset]);
+    uint32_t cp = 0;
+    next_offset = offset;
+    if (!utf8_decode_next(text, next_offset, cp))
+        return false;
+
+    // utf8_decode_next deliberately consumes one bad byte as U+FFFD. A real
+    // encoded U+FFFD consumes three bytes, so the distinction is unambiguous.
+    return lead < 0x80 || next_offset > offset + 1;
+}
+
+inline size_t utf8_validated_prefix_length(std::string_view text, size_t max_length)
+{
+    const size_t limit = std::min(text.size(), max_length);
+    size_t offset = 0;
+    size_t valid = 0;
+    while (offset < limit)
+    {
+        size_t next = offset;
+        if (!utf8_codepoint_at_is_valid(text.substr(0, limit), offset, next))
+            break;
+        offset = next;
+        valid = next;
+    }
+    return valid;
+}
+
+inline size_t next_display_cluster_end(std::string_view text, size_t offset)
+{
+    uint32_t base = 0;
+    if (!utf8_decode_next(text, offset, base))
+        return offset;
+
+    bool consumed_regional_pair = false;
+    bool previous_was_virama = false;
+    while (offset < text.size())
+    {
+        const size_t next_start = offset;
+        uint32_t cp = 0;
+        if (!utf8_decode_next(text, offset, cp))
+            return offset;
+
+        if (cp == 0x200D && offset < text.size())
+        {
+            uint32_t joined = 0;
+            utf8_decode_next(text, offset, joined);
+            previous_was_virama = false;
+            continue;
+        }
+        if (previous_was_virama)
+        {
+            previous_was_virama = false;
+            continue;
+        }
+        if (is_indic_virama(cp))
+        {
+            previous_was_virama = true;
+            continue;
+        }
+        if (is_width_ignorable(cp) || is_emoji_modifier(cp))
+            continue;
+        if (!consumed_regional_pair && is_regional_indicator(base) && is_regional_indicator(cp))
+        {
+            consumed_regional_pair = true;
+            continue;
+        }
+        return next_start;
+    }
+    return offset;
+}
+
+struct DisplayCluster
+{
+    std::string text;
+    size_t byte_start = 0;
+    size_t byte_end = 0;
+    int cell_width = 1;
+    bool replacement = false;
+};
+
+inline std::vector<DisplayCluster> display_clusters(
+    std::string_view text, const UiOptions& options = {})
+{
+    static constexpr std::string_view kReplacement = "\xEF\xBF\xBD";
+    std::vector<DisplayCluster> result;
+    size_t offset = 0;
+    while (offset < text.size())
+    {
+        const size_t start = offset;
+        offset = next_display_cluster_end(text, offset);
+        if (offset <= start)
+            break;
+
+        const std::string_view source = text.substr(start, offset - start);
+        const bool valid = utf8_validated_prefix_length(source, source.size()) == source.size();
+        const std::string cluster = valid ? std::string(source) : std::string(kReplacement);
+        result.push_back(DisplayCluster{
+            .text = cluster,
+            .byte_start = start,
+            .byte_end = offset,
+            .cell_width = std::max(1, cluster_cell_width(cluster, options)),
+            .replacement = !valid,
+        });
+    }
+    return result;
+}
+
+inline int display_cell_width(std::string_view text, const UiOptions& options = {})
+{
+    int width = 0;
+    for (const auto& cluster : display_clusters(text, options))
+        width += cluster.cell_width;
+    return width;
 }
 
 } // namespace draxul

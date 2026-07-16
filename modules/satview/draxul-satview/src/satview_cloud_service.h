@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <draxul/http/http_client.h>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -43,6 +44,7 @@ public:
         std::chrono::seconds refresh_interval = std::chrono::hours(3);
         std::filesystem::path cache_directory;
         FetchFunction fetch;
+        std::shared_ptr<http::IHttpClient> http_client;
     };
 
     struct Status
@@ -98,6 +100,7 @@ private:
     bool refresh_in_flight_ = false;
     bool completion_ready_ = false;
     Clock::time_point last_refresh_attempt_{};
+    http::CancellationSource cancellation_;
 };
 
 } // namespace draxul::satview

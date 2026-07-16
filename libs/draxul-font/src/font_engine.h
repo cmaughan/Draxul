@@ -18,6 +18,19 @@ namespace draxul
 
 class TextShaper;
 
+struct GlyphRasterOperations
+{
+    using LoadGlyphFn = FT_Error (*)(FT_Face, FT_UInt, FT_Int32);
+    using RenderGlyphFn = FT_Error (*)(FT_GlyphSlot, FT_Render_Mode);
+    using ConvertBitmapFn = bool (*)(const FT_Bitmap&, std::vector<uint8_t>&, bool&);
+    using ReserveRegionFn = bool (*)(int, int);
+
+    LoadGlyphFn load_glyph = nullptr;
+    RenderGlyphFn render_glyph = nullptr;
+    ConvertBitmapFn convert_bitmap = nullptr;
+    ReserveRegionFn reserve_region = nullptr;
+};
+
 class FontManager
 {
 public:
@@ -111,6 +124,14 @@ public:
     }
 
     const AtlasRegion& get_cluster(const std::string& text, FT_Face face, TextShaper& shaper);
+    Result<AtlasRegion, Error> get_cluster_result(const std::string& text, FT_Face face, TextShaper& shaper);
+
+    // Internal fault-injection seam used by the font tests. Null operations
+    // retain the production FreeType/atlas implementation.
+    void set_raster_operations_for_testing(GlyphRasterOperations operations)
+    {
+        raster_operations_ = operations;
+    }
 
     // Synthesized box-drawing / block-element glyph drawn procedurally at
     // exactly cell_w x cell_h so adjacent cells tile without seams. cp must
@@ -209,6 +230,7 @@ private:
     bool overflowed_ = false;
     bool cell_aligned_clusters_ = true;
     AtlasRegion empty_region_ = {};
+    GlyphRasterOperations raster_operations_ = {};
 };
 
 } // namespace draxul
