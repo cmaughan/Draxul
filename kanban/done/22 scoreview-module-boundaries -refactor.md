@@ -84,18 +84,20 @@ serializing through a writer, where tuplet fidelity (Verovio is strict) lives
 once. Decide the trajectory BEFORE writing composer #2, because it changes what
 `StreamBarPlan` carries.
 
-- [ ] Spike: fabricate one existing drill bar as `notation::ScoreDocument`
-      measures and serialize to MusicXML that Verovio engraves identically to
-      today's string output; note the gaps (tuplets, voices, backup/forward).
-- [ ] Write a one-page decision note (plans/, linked from
-      plans/scoreview-stream.md): semantic measures vs XML strings, with the
-      per-note-provenance requirement weighed in.
-- [ ] If semantic wins: `draxul-notation` becomes a dependency of the
-      learning-core library, and card 20's measure writer grows the
-      `ScoreDocument` → MusicXML serializer (source bars still slice verbatim).
-- [ ] If strings win: record why, and lock the measure writer behind a golden
-      MusicXML corpus so tuplet/voice regressions surface in tests, not in
-      Verovio.
+- [x] Spike, resolved by model audit instead of a throwaway serializer: the
+      gap is not in the model — `notation::Note` already carries staff,
+      voice, chord_with_prev, grace, ties, accidentals, Fraction durations,
+      and TimeModification (tuplets) — the missing piece is only the
+      ScoreDocument→MusicXML serializer itself, which would be speculative
+      to build before a composer needs tuplets or per-note provenance.
+- [x] Decision note written: plans/scoreview-composition-model.md (linked
+      from plans/scoreview-stream.md S3).
+- [x] Decision: semantic composition on per-note-provenance adoption
+      (draxul-notation then joins draxul-score-learn; the serializer grows
+      from measure_xml); STRINGS until then.
+- [x] Strings-now consequences recorded: the measure writer is locked behind
+      the golden MusicXML corpus (tests/scoreview_measure_xml_tests.cpp,
+      landed with card 20 phase 3); new fabricated figures must extend it.
 
 ## Item 4 — audio and input library splits (opportunistic)
 
@@ -105,31 +107,35 @@ dependency. Splitting isolates those deps and shrinks rebuilds; it changes no
 behavior. Do this when already touching the CMake wiring — it is the lowest
 priority item here.
 
-- [ ] `draxul-score-audio`: `metronome_synth`, `soundfont_synth`,
+- [x] `draxul-score-audio`: `metronome_synth`, `soundfont_synth`,
       `note_listener` (links tinysoundfont, kissfft privately). All pure /
       offline-testable — SDL stays at the host layer, as today.
-- [ ] `draxul-score-input`: `player_input.h`, `keyboard_player_input.h`,
-      `bot_player_input`, `midi_player_input` (links rtmidi privately;
-      mirrors rtmidi's missing include-dir export). `mic_player_input` stays in
-      `draxul-scoreview-host` (SDL).
-- [ ] Both inside the `DRAXUL_ENABLE_SCOREVIEW` gate; Windows CI path stays
-      valid; coordinate test-target linkage with `35 modular-test-targets`.
-- [ ] Update `docs/features.md` module layout afterward.
+- [x] `draxul-score-input`: `player_input.h`, `keyboard_player_input.h`,
+      `midi_player_input` (links rtmidi privately; mirrors rtmidi's missing
+      include-dir export). `bot_player_input` STAYS in `draxul-scoreview` —
+      it judges against FlowController, and moving it would cycle the
+      libraries. `mic_player_input` stays in `draxul-scoreview-host` (SDL).
+- [x] Both inside the `DRAXUL_ENABLE_SCOREVIEW` gate; no platform branches;
+      test-target linkage stays transitive (for `35 modular-test-targets`).
+- [x] `docs/features.md` module layout updated.
 
 ## Tests and acceptance
 
-- [ ] Each item lands independently green: `draxul` + `draxul-tests` build,
-      scoreview `ctest` suites, `py do.py smoke`.
-- [ ] Item 1: window-swap replay equivalence test passes; the committed-history
-      assertion holds through existing stream/roll suites.
-- [ ] Item 2: mic-unavailable fallback and MIDI port swap behave identically
-      (coordinate coverage with `16 scoreview-worker-device-stress`); no
-      concrete input type named in `score_host.cpp` afterward.
-- [ ] Item 3: decision note merged and linked; the losing option's rationale is
-      recorded so it is not re-litigated per composer.
-- [ ] Item 4: no source changes beyond includes/CMake; both platforms build;
-      third-party deps (tinysoundfont, kissfft, rtmidi) each appear in exactly
-      one library's link list.
+- [x] Each item landed independently green: `draxul` + `draxul-tests` build,
+      scoreview `ctest` suites, `py do.py smoke` (one commit per item).
+- [x] Item 1: replay round-trip/window-filter/overwrite/quantum tests pin the
+      exact pre-refactor semantics; the committed-history rule is documented
+      on the class (behavioral assertion deferred to the card-15 fixture);
+      stream/roll suites green.
+- [x] Item 2: selection/fallback logic moved verbatim into the rig (mic
+      fallback + MIDI swap paths unchanged; device-level stress coverage
+      remains `16 scoreview-worker-device-stress`); grep-verified zero
+      concrete input types in `score_host.{h,cpp}`.
+- [x] Item 3: plans/scoreview-composition-model.md merged, linked from the S3
+      plan; strings-now rationale + the semantic trigger condition recorded.
+- [x] Item 4: pure moves + CMake; tinysoundfont/kissfft live only in
+      draxul-score-audio, rtmidi only in draxul-score-input (grep-verified);
+      no platform branches touched.
 
 ## Dependencies and parallelism
 

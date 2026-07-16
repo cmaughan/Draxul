@@ -1,3 +1,5 @@
 add_subdirectory(draxul-notation)
 add_subdirectory(draxul-score-learn)
+add_subdirectory(draxul-score-input)
+add_subdirectory(draxul-score-audio)
 add_subdirectory(draxul-scoreview)

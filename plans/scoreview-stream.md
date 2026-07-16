@@ -206,7 +206,10 @@ is append-only behind the engrave frontier; a rewriting composer may
 re-plan only the open future.
 
 `StreamComposer`: given PieceProfile + PlayerModel + transport state,
-emit the next bar as model measures with per-note provenance.
+emit the next bar as model measures with per-note provenance. The
+string-vs-semantic fabrication decision is recorded in
+plans/scoreview-composition-model.md (semantic on per-note-provenance
+adoption; strings until then, golden-XML guarded).
 
 - **Sources on a mastery ladder** (weakest-first, spaced-repetition
   style): (a) *piece bars* at the current frontier; (b) *hands-separate*

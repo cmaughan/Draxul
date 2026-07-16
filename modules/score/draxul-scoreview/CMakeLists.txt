@@ -8,12 +8,8 @@ add_library(draxul-scoreview STATIC
     src/engraved_window.cpp
     src/flow_controller.cpp
     src/keyboard_layout.cpp
-    src/metronome_synth.cpp
-    src/midi_player_input.cpp
-    src/note_listener.cpp
     src/score_highlight.cpp
     src/score_timemap.cpp
-    src/soundfont_synth.cpp
     src/svg_score_interpreter.cpp
     src/verdict_archive.cpp
     src/verovio_layout_engine.cpp
@@ -46,15 +42,14 @@ target_compile_definitions(draxul-scoreview PRIVATE
     NO_DARMS_SUPPORT
 )
 
-# draxul-score-learn is PUBLIC: flow_controller.h includes note_outcomes.h,
-# and the host layer reaches the composer/program/model headers through us.
+# draxul-score-learn and draxul-score-input are PUBLIC: flow_controller.h
+# includes note_outcomes.h and player_input.h; the host layer reaches the
+# composer/program/model and device-input headers through us. score-audio is
+# PUBLIC for the synth/listener headers the host's audio rig uses.
 target_link_libraries(draxul-scoreview
-    PUBLIC draxul-types draxul-score-learn
-    PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json kissfft::kissfft
-            rtmidi tinysoundfont
+    PUBLIC draxul-types draxul-score-learn draxul-score-input draxul-score-audio
+    PRIVATE verovio tinyxml2::tinyxml2 nlohmann_json::nlohmann_json
 )
-# RtMidi's in-build target does not export its header directory.
-target_include_directories(draxul-scoreview SYSTEM PRIVATE ${rtmidi_SOURCE_DIR})
 
 add_library(draxul-scoreview-host STATIC
     src/keyboard_render_nvg.cpp
