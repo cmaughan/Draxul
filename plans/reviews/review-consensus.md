@@ -1,204 +1,200 @@
 # Draxul Review Consensus
 
-**Date:** 2026-07-05
-**Reviewed snapshot:** `codex/satview-ground-projections` at `7da5dc48`, including the current uncommitted SatView/text-atlas work
+**Date:** 2026-07-15
+**Reviewed snapshot:** `8fba7b8ca03a` (`ScoreView: remove the Salamander soundfont fetch — just the Yamaha`) plus the current review-file edits
 **Inputs:** `review-latest.gpt.md`, `review-latest.claude.md`, and `review-latest.gemini.md`
+**Tracker used:** `kanban/pending`, `kanban/done`, and `kanban/ice-box`; the `plans/work-items*` paths named by the old prompt no longer exist
 
 ## Who was in the room
 
-- **[GPT/Codex]** supplied the broad repository review, the most explicit current-tree reconciliation, and the security/lifecycle-first ordering.
-- **[Claude/Sonnet 4.6]** supplied the most detailed duplication and merge-hotspot inventory and argued for cheap documentation/hygiene repairs before large refactors.
-- **[Gemini/Antigravity 3.5 Flash]** independently confirmed the two critical launch/network bugs and emphasized lifetime, persistence, and end-user failure reporting.
-- **[Consensus/GPT-5 Codex]** re-read the three reports, checked the claims against the moving working tree, `docs/features.md`, the active SatView plans, and the canonical `kanban/done` and `kanban/ice-box` inventories.
+- **[GPT/Codex, gpt-5.6-sol]** supplied the strongest current-tree reconciliation, found the ScoreView microphone race and pane-print state-machine gaps, and argued for a reliability-first sequence.
+- **[Claude, Fable 5]** supplied the deepest module-boundary, duplication, god-host, testing, and multi-agent collision analysis. Claude also contributed most of the ScoreView-specific quality-of-life proposals.
+- **[Gemini 3.5 Flash, Medium]** independently confirmed the microphone and Windows process races, emphasized callback lifetime and configuration friction, and proposed several focused workflow features.
+- **[Consensus/GPT-5 Codex]** re-read all three reports, checked disputed claims against the current tree, reconciled them with the 50 existing pending cards, 450 done cards, 76 ice-box cards, active design plans, tests, CMake, and CI, and filed only uncovered work.
 
-The three reviewers agree much more than they disagree. Draxul has strong low-level layering, unusually broad tests, disciplined Neovim/RPC code, and genuinely cross-platform renderer intent. Its current risk is concentrated in integration seams that grew after earlier cleanup waves: app/session orchestration, shell-based network access, snapshot registration, large product hosts, and manually mirrored GPU contracts.
+The room agrees on the shape of the problem. Draxul's lower layers, dependency injection, pure logic, test breadth, optional host registration, and cross-platform renderer intent are strong. Risk is concentrated where products meet the application: process and device lifetime, persistence, `App`, the three largest product hosts, manually mirrored GPU contracts, one monolithic test target, and steering documents that no longer describe the tree.
 
-## The room's shared conclusion
+## Consensus position
 
-The next wave should be a reliability wave, not a speculative rewrite:
+This should be a reliability and integration-boundary wave:
 
-1. Remove command-shell network execution and make shutdown cancellable.
-2. Fix the two new macOS app self-launch paths and the remaining Metal/NanoVG correctness defects.
-3. Make persistence and validation truthful: atomic sessions, an enforced render manifest, and restored macOS attach coverage.
-4. Repair small but real correctness gaps in config reload, Unicode overlays, process handles, platform callbacks, and provider availability.
-5. Put focused tests around those seams.
-6. Only then split the large integration classes along the responsibility boundaries already visible in the code.
+1. Fix the new ScoreView microphone ownership race and reopen the regressed non-blocking Windows shutdown work.
+2. Complete the existing network, session, renderer, callback, provider, and workspace-invariant bug cards.
+3. Make ScoreView rebuilds, pane printing, and frontend device lifecycles bounded and testable.
+4. Land safety nets before moving large classes: macOS session attach, render contracts, ScoreHost orchestration, worker/device stress, progress persistence, and hostile input.
+5. Decompose `App`, Chrome, SatView, MegaCity, and ScoreView only behind those tests.
+6. Repair the build/test/documentation sources of truth before expanding more app-wide behavior.
+7. Treat the quality-of-life list as a sequenced backlog, not as permission to land features ahead of unresolved reliability roots.
 
-Claude's preference to fix docs and hygiene first is sensible for low-risk parallel work, but GPT and Gemini are right that the network, launch, GPU, and persistence defects must lead the critical path. These are sequencing differences, not disagreements about the findings.
+Claude places modular tests and documentation especially high because they enable safe parallel work. GPT places the microphone, process, network, and persistence defects first because they can lose resources, execute unintended commands, lose state, or freeze the UI. Gemini reinforces the same lifetime/security side. The reconciled order is reliability first, then the tests that make refactoring safe, then refactors, then features.
 
-## Current findings and decisions
+## Findings the room accepts
 
-### Bugs and reliability
+### Bugs and lifecycle hazards
 
 | Priority | Finding | Agents | Current-tree decision |
 |---:|---|---|---|
-| 00 | Weather turns `weather_location` into a shell command; SatView has two more `popen("curl")` transports and all three have weak cancellation. | GPT, Claude, Gemini | **Unanimous and confirmed.** One shared, injected, cancellable transport should replace all three. Card `00 network-shell-transport -bug.md`. |
-| 01 | `app/main.cpp` and `app/session_picker_host.cpp` allocate C++ objects after `fork()` on macOS. | GPT, Gemini; Claude also identified it in the recommended reliability pass | **Confirmed.** This is a new app-level variant, not the already-completed lower-level Neovim/PTY card. Card `01 macos-app-self-launch -bug.md`. |
-| 02 | Session topology and metadata overwrite final TOML files with `std::ios::trunc`. | GPT, Gemini | **Confirmed.** Card `02 atomic-session-persistence -bug.md`. |
-| 03 | Render scenarios are split across CMake, `do.py`, files, references, and docs; missing required files are silently skipped. | GPT, Claude, Gemini | **Unanimous and confirmed.** Card `03 render-scenario-manifest -bug.md`. This repairs the system rather than duplicating the completed wide-character scenario card. |
-| 04 | NanoVG Vulkan samples textures without complete layout/visibility handling, maps memory without a proven flush policy, and hardcodes three frames in flight. | Claude, supported by GPT's wider GPU-contract concern | **Confirmed by source inspection.** Card `04 nanovg-vulkan-resource-sync -bug.md`. |
-| 05 | Metal grid upload now retries allocation correctly, but `draw_grid_handle_now()` still draws the new instance count after a failed growth upload, using the previous smaller buffer. | Claude, GPT | **Confirmed residual bug.** The completed card fixed permanent darkness, not this current-frame out-of-bounds risk. Card `05 metal-grid-upload-abort -bug.md`. |
-| 06 | `grid.metallib` does not depend on `quad_offsets_shared.h`. | Claude; GPT noted incomplete shader dependency wiring | **Confirmed.** Card `06 metal-shader-dependency-closure -bug.md`. |
-| 07 | Config parsing/merging has hand-synchronized key lists, duplicate terminal-key parsing, incomplete chrome merge behavior, and external services do not participate in reload. | GPT, Claude; Gemini asked for transactional reload | **Agreement on the defect, different scope.** Land narrow correctness fixes first in `07 config-schema-reload-correctness -bug.md`; follow with the declarative refactor in item 21. |
-| 08 | Palette, toast, and tooltip rendering treat UTF-8 bytes as clusters. | Claude; consistent with GPT's Unicode risk assessment | **Confirmed in current sources.** Card `08 gui-unicode-cell-rendering -bug.md`. |
-| 09 | Windows `NvimProcess::is_running()` can read a process handle while `shutdown()` closes it. | Claude | **Plausible and confirmed by the unsynchronized handle access.** Card `09 windows-nvim-process-handle-race -bug.md`. |
-| 10 | Windows tray and macOS Dock-reopen glue retain raw pointers to window-owned callback state. | Claude; Gemini raised the broader lifetime theme | **Confirmed.** Card `10 platform-window-callback-lifetime -bug.md`. |
-| 11 | FreeType/render failures are reported as `AtlasOverflow`, activating the wrong recovery policy. | Claude | **Confirmed.** Card `11 glyph-raster-error-taxonomy -bug.md`. |
-| 12 | The command palette hardcodes optional host kinds separately from `HostProviderRegistry`, so optional-off builds can advertise impossible actions. | GPT; Claude identified bottom-layer `HostKind` churn | **Confirmed.** Card `12 host-provider-availability -bug.md`. |
-| 13 | `App::active_host_manager()` returns a mutable process-static dummy when the active workspace invariant is broken. | Claude | **Confirmed.** Card `13 active-workspace-invariant -bug.md`. |
-| 14 | Unattended review helpers promise read-only behavior in prompts but grant write-capable/full-auto permissions. | GPT | **Confirmed and distinct from the iceboxed script-deduplication work.** Card `14 review-automation-read-only -bug.md`. |
+| 00 | `MicPlayerInput` publishes its SDL stream after its Boolean ownership handshake, allowing destruction to race the unsynchronised `stream` read/write and leak an active capture stream. | GPT, Gemini; Claude flagged the detached opener as a lifecycle risk | **Confirmed and new.** File `00 scoreview-microphone-open-lifetime-race -bug.md`. |
+| Reopen | Windows Nvim and ConPTY shutdown can synchronously wait for up to two seconds on the UI thread. | GPT; Gemini separately found the handle race | **Confirmed regression.** Reopen `done/07 shutdown-blocking-wait -bug.md`; do not create a duplicate. The handle race remains in pending item 09 and is a distinct failure mode. |
+| Existing 00 | Weather and SatView execute interpolated `curl` commands through a shell; cancellation, parsing, encoding, and bounds are weak. | GPT, Claude, Gemini | **Unanimous.** Existing `00 network-shell-transport -bug.md` already has the right shared native-transport scope. |
+| Existing 02/17 | Session topology and runtime metadata truncate their final files before a replacement is known good. | GPT; Gemini asked for rollback fault coverage | **Confirmed.** Existing atomic-session and rollback cards own it. |
+| Existing 04-06/19/28 | Vulkan/Metal resource, shader dependency, and ABI contracts are manually mirrored and have known correctness gaps. | GPT, Claude, Gemini | **Strong agreement.** Keep the existing focused bug/test/helper cards; do not attempt a cross-backend rewrite. |
+| Existing 09 | `NvimProcess::is_running()` can race handle closure on Windows. | Gemini | **Confirmed and already pending.** This is not the same as the blocking-shutdown regression. |
+| Existing 10 | Platform callback slots can outlive `SdlWindow`; `InputDispatcher::connect()` also installs raw-`this` callbacks without a symmetric disconnect. | Gemini; Claude emphasized callback ownership | **Confirmed lifetime family.** Expand pending item 10 to cover the dispatcher/window callback teardown contract rather than filing another card. |
+| 14 | Pane printing has no capture timeout, leaves temporary PDFs behind, can collide on names, exposes a generally available action despite a macOS-only backend, and lives directly in `App`. | GPT; Claude rated printing a high cost/benefit drag | **Confirmed and new.** File `14 pane-print-state-machine -bug.md`; the plan makes behavior explicit and functional on Windows as required by Draxul's cross-platform policy. |
+| 14 | `WindowEngraver::cancel()` blocks while a Verovio job is active, and `ScoreHost::rebuild_window()` then performs more synchronous work on user-driven paths. | GPT; Claude identified ScoreHost as a collision hotspot | **Confirmed and new.** File `14 scoreview-nonblocking-rebuild -bug.md`. |
 
-Related observations are grouped into the owning cards rather than multiplied into tiny plans: item 04 also pins NanoVG's floating dependency and reduces duplicated pipeline setup only where needed; item 05 includes the Metal pane-scissor underflow/parity fix; item 08 removes the remaining grid/Kanban Unicode-decoder duplication while establishing the overlay helper; items 26-28 include duplicated asset/ImGui/resource plumbing; item 34 includes a generated tracker-status/index check for ambiguous unchecked boxes under `kanban/done`.
+### Architecture and multi-agent workability
 
-### Validation gaps
+| Theme | Agents | Consensus |
+|---|---|---|
+| `App`/Chrome/session concentration | GPT, Claude, Gemini | The 2,975-line `App`, 1,543-line `ChromeHost`, and 955-line `main.cpp` remain the central merge hotspots. Pending items 22-25 are correctly scoped and should precede more app-wide features. |
+| Product god hosts | GPT, Claude; Gemini noted module edit tax | SatView (5,284 lines), MegaCity (2,992), and ScoreHost (2,778) serialize otherwise independent work. SatView and MegaCity are already pending 26/27. ScoreHost needs its own decomposition card after host-level tests. |
+| Dual-backend duplication | GPT, Claude, Gemini | Shared scene models, ABI declarations, and proven resource helpers are the right boundary. Backend implementations should remain backend-specific. Existing 19 and 28 own this. |
+| Configuration ritual | GPT, Claude, Gemini | Existing 07/21 should first restore correctness, then introduce one declarative schema. Do not mix a broad schema migration into a bug fix. |
+| Host/foundation leakage | GPT, Claude; Gemini noted `draxul-types` creep | Existing 12/31 should add provider metadata, declare the real `draxul-host -> draxul-nvim` edge, reduce `runtime-support` propagation, and revisit SDL key vocabulary through the original completed SDL-boundary cards rather than a synonym card. |
+| GUI/UI contracts | GPT, Claude | Existing 29 remains the right place to clarify `draxul-gui` versus `draxul-ui`; renaming is optional, an explicit ownership contract is not. |
+| Test structure | GPT, Claude; Gemini praised broad coverage | Sharding improved execution, but one executable still links every enabled product and reaches into private module sources. Existing 35 should include a ScoreView-host target and reopen the completed private-boundary card where necessary. |
+| Documentation and tracker drift | GPT, Claude, Gemini | Existing 34 owns canonical feature/docs hygiene; several completed steering-doc and board-navigation cards need reopening. Product detail should move out of enormous single-line feature-table cells. |
+| Performance probes | GPT, Claude, Gemini | `PERF_MEASURE()` pays timestamp and mutex costs in hot functions even when disabled. Existing 33 owns measurement and simplification. |
+
+### ScoreView test gaps accepted as new work
 
 | Priority | Gap | Agents | Decision |
 |---:|---|---|---|
-| 15 | The entire 631-line session attach suite is excluded on Apple. | GPT, Claude, Gemini | **Unanimous.** Restore it before splitting session attach. Card `15 macos-session-attach-coverage -test.md`. |
-| 16 | Snapshot diff/finalization math is itself not directly tested. | Claude | **Accepted.** Card `16 render-comparison-core -test.md`. |
-| 17 | `App` session save/load rollback paths lack focused fault coverage. | Claude | **Accepted as a safety net for App decomposition.** Card `17 app-session-rollback -test.md`. |
-| 18 | SatView's fast-changing host has no direct construct/pump/draw/config smoke fixture. | Claude; GPT noted the same product-host risk | **Accepted after the current observatory work settles.** Card `18 satview-host-smoke -test.md`. |
-| 19 | CPU/GLSL/Metal resource contracts have no mechanical ABI/binding parity check. | GPT, Claude | **Strong agreement.** Card `19 shader-abi-parity -test.md`. |
-| 20 | Overlay allocation failure behavior is only partially covered. | GPT | **Accepted without duplicating existing ToastHost/grid-null tests.** The card covers the remaining palette/chrome/diagnostics matrix: `20 overlay-allocation-failure -test.md`. |
+| 15 | The actual `draxul-scoreview-host` target is not linked into tests; host initialization, mode changes, window installation, resize, drawing, and shutdown are untested. | GPT, Claude | File `15 scoreview-host-orchestration -test.md`. |
+| 16 | Opener/engraver/MIDI/audio interleavings, RtMidi constructor/destructor throws, multi-instance devices, queue bounds, and instrument switching lack one deterministic stress suite. | GPT, Claude, Gemini | File `16 scoreview-worker-device-stress -test.md`. Mic ownership remains tested in its owning bug card. |
+| 17 | Progress persistence has only happy-path tmp+rename coverage, not injected create/write/flush/replace failures or last-good durability. | Claude | File `17 scoreview-progress-crash-safety -test.md`. |
+| 18 | Verovio `.mxl` loading has a valid archive case and generic garbage case, but no bounded hostile ZIP corpus. | Claude; Gemini asked for corrupted notation input | File `18 hostile-mxl-inputs -test.md`. |
+| 19 | `SourceSlicer` has one strong Grieg equivalence regression, but not randomized windows across a varied corpus. | Claude | File `19 source-slicer-corpus-equivalence -test.md`. |
 
-Network hostile input, bounded shutdown, atomic-write fault injection, post-fork regression, provider availability, weather reload, and Windows process-race tests live in their owning bug cards. Keeping those tests with the fix prevents a second card from drifting away from the contract it is meant to prove.
+The shared text-atlas Unicode/overflow/budget gaps remain acceptance work in `plans/satview-observatory-horizon-constellation-boundaries.md`; creating a second card would split one active plan. The new builder should return dropped keys and reasons, cap memory/counts, and add flags, ZWJ, combining, malformed UTF-8, elision, and overflow cases before that plan is called complete.
 
-### Refactors the room supports after stabilization
+### New refactor accepted after tests
 
-| Priority | Refactor | Agents | Consensus boundary |
+| Priority | Refactor | Agents | Boundary |
 |---:|---|---|---|
-| 21 | Declarative config schema | Claude, GPT; Gemini supports transactional config | One schema should drive parse, validation, serialization, known keys, and docs. Start only after item 07. |
-| 22 | Extract workspace and session controllers from `App` | GPT, Claude, Gemini | This is a **new follow-on** to the completed extraction of input, GUI actions, and host management; do not recreate those classes. |
-| 23 | Split Chrome layout, vector drawing, text, and rename editing | GPT, Gemini | First extract a pure `ChromeLayout`; preserve behavior and add no new chrome feature during the split. |
-| 24 | Extract session CLI and owner launcher from `main.cpp` | GPT, Claude | Do after the app-level spawn bug so the extracted abstraction starts safe. |
-| 25 | Split session attach into shared protocol plus Windows/POSIX implementations | GPT, Claude | Restore Apple tests first; preserve wire compatibility. |
-| 26 | Split SatView into core/services/scene/host/renderer targets | GPT, Claude | Wait for the current observatory/text-atlas work; keep Vulkan and Metal consuming one scene model. |
-| 27 | Decompose MegaCity host and renderer by responsibility/pass | GPT, Claude | Follow `modules/megacity/AGENTS.md`; keep optional-off isolation and both backends valid. |
-| 28 | Expand shared GPU resource helpers | Claude | Extract only proven repeated Vulkan/Metal resource operations; do not leak backend types into public APIs. |
-| 29 | Clarify `draxul-gui` versus `draxul-ui` contracts and simplify `UiPanel` lifecycle | Claude | Document the boundary first, rename only when migration cost is justified. |
-| 30 | Replace parallel font-style fields/caches with a `FontStyle` indexed model | Claude | Pure internal refactor with resolver parity tests. |
-| 31 | Reduce foundation-layer churn | Claude, GPT | Partition `draxul-types` responsibilities and move product availability out of the bottom layer without reintroducing cycles. |
-| 32 | Share the repeated `DX*` binary catalog container | Claude | Preserve each magic/version and generated asset determinism; share framing/validation, not semantic records. |
-| 33 | Audit `PERF_MEASURE()` placement | Claude | Keep high-value spans; remove mutex-distorting trivial probes with before/after evidence. |
-| 34 | Repository hygiene and one feature-doc source | Claude | Remove or relocate tracked artifacts only after provenance checks; make root `FEATURES.md` a pointer or delete it. |
-| 35 | Split the monolithic test executable into module-aware CTest targets | GPT | Preserve shared fakes and tags; make optional-module coverage explicit and parallelizable. |
+| 21 | Decompose ScoreHost into session, stream, audio, view-model, and presentation responsibilities. | GPT, Claude | File `21 scoreview-host-decomposition -refactor.md`. It follows items 00, 14, 15, and 16 and must preserve the public provider/host contract. |
 
-The room does **not** create new cards for the broad renderer-base/input/IHost refactors: those already exist in completed or iceboxed work. If their acceptance criteria are no longer true, reopen the original card rather than filing a synonym.
+## Where the reviews disagreed or needed correction
 
-### Accepted future features
+- **CI triggers:** Gemini says CI is manual-only. That is stale. `.github/workflows/build.yml` currently runs on pushes and pull requests to `main`, with `workflow_dispatch` as an additional trigger. GPT and Claude describe the current state correctly. No CI-trigger card is created.
+- **ScoreView architecture:** Claude praises the lower-level split and tests; GPT calls ScoreHost a god host. Both are correct. `FlowController`, `StreamComposer`, `PlayerModel`, `SourceSlicer`, and `WindowEngraver` are useful units, while the host still integrates too many policies in one file.
+- **SoundFont coverage:** Claude says `SoundfontSynth` has no tests. The current tree has a real YDP soundfont test covering scheduled strike, release damping, silence, and load failure. Click-free switching and host integration are still missing; those go into items 15/16 rather than a duplicate golden-WAV card.
+- **SatView math coverage:** Gemini proposes pole, meridian-wrap, zero-altitude, and finiteness tests. Current SatView geodetic, propagation, camera, map, solar-system, and Sun tests already cover these families. No duplicate test card is filed.
+- **InputDispatcher callback lifetime:** Gemini's concern is plausible but belongs to the same registration/unregistration contract as pending item 10. Current shutdown sequencing reduces exposure; it does not justify leaving callbacks that capture a destroyed dispatcher.
+- **“Worst features” lists:** The agents disagree in taste about Weather, persistent sessions, printing, BioView, SatView expansions, Kanban, and ScoreView. The consensus treats these as maintenance-risk signals, not a deletion mandate. Stabilize risky features; do not remove product scope from a review alone.
+- **`do.py` monolith:** Claude's observation is fair, but pending item 14 already extracts review orchestration and existing design plans cover recent cleanup. Broader decomposition should be evidence-led after those changes, so no new general script-refactor card is filed.
 
-These ideas survived the current feature check and are not in `kanban/done` or `kanban/ice-box`:
+## Completed work that must be reopened, not duplicated
+
+The user's exclusion rule means these retain their original cards:
+
+- `done/07 shutdown-blocking-wait -bug.md`: Windows Nvim/ConPTY synchronous waits are present again.
+- `done/19 render-test-extraction-refactor.md` and related render-test extraction cards: production still links `draxul-render-test` and registers the NanoVG demo provider.
+- `done/111 docs-design-stale-repair -refactor.md`, `done/12 claude-md-documentation-errors -bug.md`, and `done/01 stale-docs-navigation-paths-bug.md`: architecture and tracker paths are stale again.
+- `done/14 test-module-boundary-violations -refactor.md`: tests again include optional-module private `src/` directories.
+- `done/134 tsan-validation-and-ci-wiring -feature.md`: the preset remains, but the current workflow has no TSan job.
+- `done/15 appconfig-sdl-decoupling -refactor.md` / `done/03 appconfig-sdl3-coupling-bug.md`: the config-specific leak improved, but SDL keycodes still form the cross-layer event vocabulary. Reopen the original boundary work if platform-neutral keys are still desired.
+- `done/15 ihost-interface-width -refactor.md` / `done/40 ihost-interface-split -refactor.md`: `IHost` has grown new product/capability queries. Reopen rather than file another interface-width synonym.
+
+## Existing pending work reinforced by this review
+
+- **Bugs 00-14:** network transport, atomic sessions, render manifest/resource/shader correctness, config reload, Unicode overlays, Windows process handles, callback lifetimes, glyph errors, provider availability, workspace invariants, and safe review automation remain valid.
+- **Tests 15-20:** Apple attach, render comparison, App rollback, SatView host smoke, shader ABI, and overlay failure tests are still the right safety-net layer.
+- **Refactors 21-35:** declarative config, App/Chrome/session controllers, product boundaries, GPU helpers, GUI/UI contracts, font/foundation/catalog/perf/docs cleanup, and modular tests all survive reconciliation.
+- **Features 36-49:** the prior future-feature cards remain behind the reliability wave. Nothing in this review promotes them ahead of bugs/tests/refactors.
+
+## New feature backlog accepted from the room
+
+These ideas are not in done or ice-box and are filed after the existing feature queue:
 
 | Priority | Feature | Raised by | Card |
 |---:|---|---|---|
-| 36 | Promote render references from the other platform's CI artifact | Claude | `36 cross-platform-render-reference-promotion -feature.md` |
-| 37 | Click-to-dismiss/actionable toasts | Claude | `37 interactive-toasts -feature.md` |
-| 38 | `do.py new-host` / `new-module` scaffolding | Claude | `38 host-module-scaffolding -feature.md` |
-| 39 | Named SatView camera/time/selection bookmarks | Claude | `39 satview-view-bookmarks -feature.md` |
-| 40 | Incremental crash-recovery session journal | GPT | `40 crash-recovery-session-journal -feature.md` |
-| 41 | `--safe-mode` startup and recovery prompt | GPT | `41 safe-mode-startup -feature.md` |
-| 42 | Global session/workspace/pane switcher | GPT | `42 global-session-workspace-switcher -feature.md` |
-| 43 | Detach/rejoin a pane or workspace as an OS window | GPT | `43 detachable-pane-workspace-windows -feature.md` |
-| 44 | Busy-process close guard | GPT | `44 busy-process-close-guard -feature.md` |
-| 45 | First-run health center | GPT | `45 first-run-health-center -feature.md` |
-| 46 | Accessibility mode | GPT | `46 accessibility-mode -feature.md` |
-| 47 | One bounded terminal graphics protocol | GPT | `47 terminal-graphics-protocol -feature.md` |
-| 48 | Versioned portable profile export/import | GPT | `48 portable-profile-bundle -feature.md` |
-| 49 | Network/offline/privacy/cache controls | GPT | `49 network-privacy-controls -feature.md` |
+| 50 | Move a live pane between workspaces without restarting its host. | GPT | `50 pane-workspace-move -feature.md` |
+| 51 | Duplicate a workspace topology and launch descriptors. | GPT | `51 duplicate-workspace -feature.md` |
+| 52 | Type-aware file-drop routing for Nvim, Markdown, ScoreView, directories, and safely quoted shell paths. | GPT, Claude | `52 type-aware-file-drop -feature.md` |
+| 53 | Normal, single-line, and shell-escaped paste transformations. | GPT | `53 paste-transformations -feature.md` |
+| 54 | Explicit selected-terminal input broadcast with conspicuous safety state. | GPT | `54 selected-pane-input-broadcast -feature.md` |
+| 55 | Built-in split-layout presets plus named export/import. | GPT, Gemini | `55 layout-presets-and-templates -feature.md` |
+| 56 | Export the focused pane as PNG through the pane-capture path. | GPT | `56 export-pane-png -feature.md` |
+| 57 | Workspace/pane locks against accidental close, restart, or replacement. | GPT | `57 workspace-pane-lock -feature.md` |
+| 58 | Structured command-palette filters and typed argument completion. | GPT, Gemini | `58 command-palette-structured-query -feature.md` |
+| 59 | User-defined workspace/pane colors and short tags. | GPT | `59 workspace-pane-color-labels -feature.md` |
+| 60 | Cross-platform trackpad pinch-to-zoom. | Gemini | `60 pinch-to-zoom -feature.md` |
+| 61 | Drag-and-drop workspace-tab reordering using the existing reorder operation. | Gemini | `61 workspace-tab-drag-reorder -feature.md` |
+| 62 | `--validate-config` without graphics initialization. | Gemini | `62 validate-config-cli -feature.md` |
+| 63 | Terminal selection auto-scroll while dragging beyond the viewport. | Gemini | `63 terminal-selection-auto-scroll -feature.md` |
+| 64 | ScoreView recent-piece library with progress summaries. | Claude | `64 scoreview-piece-library -feature.md` |
+| 65 | ScoreView bar-range practice loops. | Claude | `65 scoreview-practice-loop -feature.md` |
+| 66 | Configurable ScoreView metronome count-in. | Claude | `66 scoreview-count-in -feature.md` |
+| 67 | Manual left/right-hand practice isolation. | Claude | `67 scoreview-hand-practice -feature.md` |
+| 68 | End-of-session ScoreView recap. | Claude | `68 scoreview-session-recap -feature.md` |
+| 69 | “Split with host…” palette/launcher flow driven by provider metadata. | Claude, Gemini | `69 split-with-host-launcher -feature.md` |
+| 70 | ScoreView audio-output device picker with hot-unplug fallback. | Claude | `70 scoreview-audio-output-device -feature.md` |
+| 71 | ScoreView MIDI auto-reconnect by stable port identity. | Claude | `71 scoreview-midi-auto-reconnect -feature.md` |
+| 72 | Opt-in following of macOS/Windows system appearance. | Claude | `72 follow-system-appearance -feature.md` |
 
-These are intentionally behind the reliability and refactor wave. A good idea is not automatically the next idea.
+Gemini's interactive theme customizer is a subset of the ice-boxed configuration GUI, and toast history overlaps the ice-boxed integrated log viewer. Pane drag/reorder remains ice-boxed; workspace-tab reordering is accepted because `App::move_workspace()` already provides the operation and the new work is a contained Chrome gesture. The proposed terminal scrollbar click policy is not filed because terminal panes currently have no scrollbar to configure; it needs a separate product design before it can be an implementation item.
 
-## Reconciled exclusions: do not create duplicates
-
-### Implemented already
-
-- File drag-and-drop is implemented and documented (`docs/features.md`, `InputDispatcher`, `open_file:` dispatch, and tests).
-- Duplicate pane in the same working directory is implemented (`duplicate_pane`).
-- Terminal OSC 0/2 titles and OSC 7 directory titles are implemented and tested.
-- Shared test fakes, `Result<T, Error>`, keybinding conflict detection, and malformed-msgpack fuzzing already have completed cards/code.
-
-### Deliberately iceboxed
-
-- Split/close stress, atlas exhaustion/dynamic growth, config reload under activity, null input dependencies, host lifecycle state-machine tests, renderer parity cleanup, dirty-range coalescing, RPC timeout UI, font fallback inspector, configuration GUI, and cross-cutting agent-script deduplication remain in `kanban/ice-box`.
-- Gemini's concurrent grid reader/writer test is rejected: Draxul's contract mutates and renders the grid on the main thread; the reader thread only queues decoded messages.
-
-### Active work already owns the finding
-
-- The current observatory/boundary/text-atlas plan owns atlas bounds, constellation boundaries/labels, shared rasterization, and SatView optional-off validation. No duplicate cards were filed.
-- The current lunar-orbit plan owns central-body-aware SatView catalog/ephemeris work.
-
-### Existing completed cards to reopen if the project wants the regression fixed
-
-No new card is created for these because the requested rule forbids duplicates:
-
-- `kanban/done/25 ci-pipeline-definition-feature.md`: its push/PR acceptance criteria are false; every workflow is currently manual-only.
-- `kanban/done/19 render-test-extraction-refactor.md`: production still links/calls render-test code and registers the NanoVG demo.
-- `kanban/done/111 docs-design-stale-repair -refactor.md` and `kanban/done/12 claude-md-documentation-errors -bug.md`: `AGENTS.md`, `docs/module-map.md`, and `plans/design/renderers.md` again describe removed host/renderer hierarchies.
-- `kanban/done/01 stale-docs-navigation-paths-bug.md`: `plans/README.md` and `scripts/sync_project_board.py` still point at deleted `plans/work-items*`; the synchronizer also paginates only the first 100 project items.
-- `kanban/done/14 test-module-boundary-violations -refactor.md`: current tests again include module-private `src/` headers.
-- `kanban/done/19 test-harness-unification -refactor.md`: `tests/do_py_tests.py` remains unwired and the Windows/Unix runner behavior has drifted.
-
-The CI and architecture-doc regressions should be reopened alongside items 00-03, even though their original cards retain old numbering.
-
-### Not promoted without more evidence
-
-- Gemini's generic raw-pointer warning is too broad as stated; existing host lifetime cards and owner-lifetime tokens already cover known cases. Item 10 targets two concrete surviving globals.
-- Gemini's malformed-hex fallback preference is a product-policy choice, not a demonstrated bug.
-- Claude's dead dirty-upload path is covered by the iceboxed dirty-range work; decide there whether to wire or remove it.
-- NanoVG's pipeline boilerplate can be reduced while fixing item 04, but it does not need an independent card.
-
-## Interdependencies and safe execution order
+## Interdependencies and recommended execution order
 
 ```text
-Reliability roots
-  00 network transport ───────┬──> 49 privacy controls
-                              └──> 45 health center
-  01 safe self-launch ───────────> 24 session CLI launcher
-  02 atomic sessions ────────────> 40 crash journal ──> 48 profile bundle
-  03 render manifest ────────────> 36 cross-platform reference promotion
-  04 NanoVG sync ────────────────> 28 shared GPU helpers
-  06 shader dependencies ────────> 19 shader ABI parity
-  07 config correctness ─────────> 21 declarative schema ──> 41/45/46/48/49
-  08 Unicode overlays ───────────> 23 Chrome split and 29 GUI/UI cleanup
-  10 callback lifetime ──────────> 43 multi-window detach/rejoin
-  12 provider availability ──────> 31 foundation cleanup and 38 scaffolding
+Immediate reliability
+  00 microphone race ──────────────┬──> 15 ScoreHost orchestration tests
+                                   ├──> 16 worker/device stress
+                                   └──> 21 ScoreHost decomposition
+  reopen Windows shutdown ────────────> reopen TSan CI
+  existing 00 network transport ─────> existing 49 privacy controls
+  existing 02 atomic sessions ───────> 17 progress crash safety (shared storage lessons)
+  14 nonblocking Score rebuild ──────> 15/16 ──> 21
+  14 pane print state machine ───────> 56 export pane PNG
 
-Safety nets before large moves
-  15 Apple attach tests ─────────> 25 session-attach split
-  17 App rollback tests ─────────> 22 workspace/session controllers
-  18 SatView host smoke ─────────> 26 SatView split ──> 39 bookmarks
-  19 shader ABI parity ──────────> 27 MegaCity split and renderer changes
-  20 overlay failure tests ──────> 23 Chrome split
+Safety nets before structural moves
+  existing 15 Apple attach tests ────> existing 25 session split
+  existing 17 App rollback tests ────> existing 22 workspace/session controllers
+  existing 18 SatView smoke ─────────> existing 26 SatView split
+  existing 19 shader ABI ────────────> existing 27/28 renderer refactors
+  15 + 16 ScoreView tests ───────────> 21 ScoreHost split
+  18 hostile MXL ────────────────────> 52 type-aware drop + 64 piece library
+  19 slicer corpus ──────────────────> 65 loops + 67 hand practice
 
-Session/product features
-  22 + 24 + 25 ─────────────────> 42 global switcher
-  22 + stable window ownership ─> 43 detachable windows
-  22 + provider metadata ───────> 44 busy-process close guard
+Application feature foundations
+  existing 12 provider availability ─> 52 type-aware drop + 69 split-with-host
+  existing 13 workspace invariant ───> existing 22 controller
+  existing 22 controller ────────────> 50/51/55/57/59/61
+  existing 23 Chrome split ──────────> 59/61/72
+  existing 07 then 21 config schema ─> 62 validate-config + persisted feature settings
+  existing 10 callback lifetime ─────> 60 pinch + 72 system appearance
+
+ScoreView feature foundations
+  17 durable progress ───────────────> 64 piece library + 68 recap
+  21 ScoreHost decomposition ────────> 64-71 (separate session/stream/audio/presentation owners)
+  65 practice loop ──────────────────> 66 count-in and 67 hand practice can remain independent
+  70 output-device ownership ────────> 71 MIDI reconnect only at the shared AudioController seam
 ```
 
-Additional sequencing rules:
+Additional coordination rules:
 
-- Let the current SatView/text-atlas work finish before items 08, 18, 26, 32, or 39 touch the same files.
-- Fix item 04 before extracting shared GPU helpers; otherwise the bad behavior may be generalized.
-- Keep item 21 separate from item 07 so the correctness patch remains reviewable.
-- `WorkspaceController` can be developed separately from session CLI/attach work, but `SessionController` should wait for items 24 and 25 to stabilize ownership boundaries.
-- Item 43 is an architectural feature, not a quick SDL second-window patch; it follows explicit window/callback ownership.
+- Do not assign two agents concurrently to `app/app.cpp`, `app/chrome_host.cpp`, `app/main.cpp`, `score_host.cpp`, `satview_host.cpp`, or a platform renderer. Give one agent integration ownership and delegate lower-library/test seams.
+- Fix the microphone and rebuild state machines before extracting ScoreView controllers; otherwise the refactor will fossilize bad lifetime semantics.
+- Add ScoreHost tests before the ScoreHost split. A test agent can build the fixture while the bug owner works in lower-level injected seams, but both should avoid editing `score_host.cpp` simultaneously.
+- Complete provider metadata before file-drop/host-launcher work so those features do not add another hardcoded host list.
+- Complete workspace invariants/controller extraction before workspace features. This creates a stable API that separate feature agents can consume.
+- Keep the pane-print bug card focused on correct capture/print lifecycle. PNG export is a separate user feature built on the resulting capture controller.
+- Let the active SatView text-atlas plan finish before changing the same atlas types through GPU/foundation refactors.
 
 ## Where sub-agents make sense
 
-After the overlapping SatView work lands, independent agents can safely own these lanes:
+- A **ScoreView reliability lane** can split into a lower-level mic/engraver owner and a test-fixture owner, followed by one ScoreHost integration owner.
+- A **session/process lane** can reopen Windows shutdown/TSan while another agent handles existing atomic persistence and Apple attach tests; `main.cpp` still needs one integration owner.
+- A **rendering lane** can isolate shader ABI/tests from platform resource fixes, but Vulkan and Metal changes for one feature must share a single design contract.
+- A **tooling/docs lane** can repair tracker/docs/test-target wiring independently of runtime fixes.
+- After `WorkspaceController` exists, pane move, workspace clone, layout templates, locks, and labels are good separate-agent tasks because they can target the controller API instead of colliding in `App`.
+- After `ScoreAudioController` exists, output-device and MIDI reconnect work can be separated; before then they both collide in `score_host.cpp`.
 
-- **Network lane:** 00, then 49.
-- **Session lane:** 01, 02, 15-17, then 24-25 and 40-42.
-- **Rendering lane:** 03-06, 16, 19-20, then 28 and 36.
-- **Application UI lane:** 08, 12-13, then 22-23, 29, and 37.
-- **Product-module lane:** 18/26/39 for SatView; 19/27 for MegaCity.
-- **Tooling/docs lane:** 14, 34-35, 38, plus reopening the CI/docs/tracker cards.
+## Filing decision
 
-Do not assign two agents concurrently to `app/app.cpp`, `app/main.cpp`, `app/chrome_host.cpp`, `modules/satview/draxul-satview/src/satview_host.cpp`, or either large product renderer. Parallelize around stable interfaces, not inside the same merge hotspot.
-
-## Work-item filing decision
-
-The old prompt names `plans/work-items*`, but those directories were removed. The live repository tracker is `kanban/pending`, `kanban/ice-box`, and `kanban/done`; therefore the new implementation plans are filed under `kanban/pending/`. Their numeric prefixes preserve the requested order: bugs, tests, refactors, then features.
+The prior consensus already created priorities 00-49 in `kanban/pending`; those files are preserved and referenced rather than regenerated. New files reuse the appropriate category bands so lexical priority remains bugs, tests, refactors, features. Duplicate priority numbers indicate the same urgency band and avoid renaming fifty active cards merely to insert new findings.
 
 <model>GPT-5 Codex</model>

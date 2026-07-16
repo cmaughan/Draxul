@@ -1,152 +1,116 @@
-# Draxul Codebase Technical Review
+# Draxul Codebase Quality & Maintenance Review
 
-**Review Date:** 2026-07-05  
-**Reviewer:** Antigravity (Gemini 3.5 Flash)  
-**Scope:** Static codebase analysis of source files under `app/`, `libs/`, `shaders/`, `tests/`, `scripts/`, and `plans/`.
-
----
-
-## 1. Module Separation & Architecture
-
-### Strengths
-- **Decoupled Architecture**: Code is broken down into small, single-purpose libraries under `libs/` (e.g., [draxul-types](file:///D:/dev/Draxul/libs/draxul-types), [draxul-window](file:///D:/dev/Draxul/libs/draxul-window), [draxul-renderer](file:///D:/dev/Draxul/libs/draxul-renderer), [draxul-font](file:///D:/dev/Draxul/libs/draxul-font), [draxul-grid](file:///D:/dev/Draxul/libs/draxul-grid), and [draxul-nvim](file:///D:/dev/Draxul/libs/draxul-nvim)).
-- **Clean Platform Separation**: Platform-specific rendering pipelines (Vulkan for Windows, Metal for macOS) are isolated into distinct folders (`src/vulkan/` and `src/metal/`) within [draxul-renderer](file:///D:/dev/Draxul/libs/draxul-renderer). There are no platform `#ifdef`s leaking into the shared renderer abstraction layer.
-- **Strictly Acyclic Dependencies**: The dependency flow is hierarchical and clean: logic dependencies point down from `app/` through `libs/` without circular cycles.
-- **Interface-First Contract Design**: Subsystem coupling relies on abstract interfaces (`IWindow`, `IGridRenderer`, `IHost`, `IBaseRenderer`, `IRenderPass`) rather than concrete classes. This design promotes mockability and clean implementation swapping.
-- **Dependency Injection**: Subsystems avoid global singletons. Configuration, windowing references, and renderer services are injected via explicit struct bundles (e.g., `AppDeps`, `HostManager::Deps`, `InputDispatcher::Deps`).
-
-### Issues & Refactoring Opportunities
-- **Bloated `App` God Object**: [app.cpp](file:///D:/dev/Draxul/app/app.cpp) serves as a major integration hotspot (~105 KB, 200+ line initializer). It conflates application lifecycle, workspace switching, window resizing, RPC message routing, weather synchronization, session checkpointing, and split layouts. Workspace management (tab list, tree orchestration) should be extracted into a dedicated `WorkspaceManager` class.
-- **Monolithic `IHost` Interface**: The `IHost` interface in [host.h](file:///D:/dev/Draxul/libs/draxul-host/include/draxul/host.h) has accumulated over 100 member declarations (combining event routing, layout sizing, process status queries, and ImGui overlays). It would benefit from being partitioned into narrower interfaces (`IInputHandler`, `IDrawable`, `IProcessHost`).
-- **Verbose Dependency Structs**: Dependency structures like `InputDispatcher::Deps` pack dozens of raw function callbacks. If any of these are left uninitialized (i.e. `nullptr`), keyboard or mouse interactions silently fail without clear diagnostic logging.
-- **ChromeHost Double Role**: [ChromeHost](file:///D:/dev/Draxul/app/chrome_host.h) implements `IHost` but behaves like a central layout decorator (rendering the tab strip, status pills, and dividers). This mixing of grid hosts and GUI ornaments makes spatial hit-testing fragile.
+**Reviewer:** Gemini 3.5 Flash (Medium)  
+**Date:** 2026-07-15  
+**Scope:** A comprehensive scan of all source files under `app/`, `libs/`, `modules/` (kanban, markdown, megacity, satview, score), `shaders/`, `tests/`, and `scripts/`.
 
 ---
 
-## 2. Code Smells & Reliability Issues
+## 1. Architectural Analysis, Module Separation, and Layout
 
-### Critical Issues
+Draxul's codebase is designed with a clear layering system where libraries under `libs/` compile into isolated modules and dependency flows are unidirectional (libs only link downwards, `app/` is the orchestrator). In practice, this design is mostly respected, particularly through the `HostProviderRegistry` mechanism which lets module hosts self-register at runtime, preventing the core application from having static source-level dependencies on them.
 
-#### 1. Shell Command Injection in Weather Geocoding
-In [weather_service.cpp](file:///D:/dev/Draxul/app/weather_service.cpp#L360), query parameters from `weather_location` are URL-encoded via a manual string encoder in `try_geocode`. However, this helper only encodes space, comma, ampersand, equals, hash, and percent. Other shell-significant characters—most notably double quotes (`"`)—are left unencoded. 
-The geocoding query is subsequently concatenated directly into a shell command template:
-```cpp
-std::string cmd = "curl -s --max-time 15 --connect-timeout 10 \"";
-cmd += url;
-cmd += "\" 2>";
-cmd += kNullDevice;
-```
-This command string is executed via `popen`, passing it directly to `/bin/sh` or `cmd.exe`. A local configuration setting such as:
-`weather_location = "Paris\" ; command_injection_here ; \""`
-closes the quote and executes arbitrary shell commands.
-
-#### 2. Unsafe Allocations in `fork()` Child Processes (macOS)
-In multithreaded environments, calling memory allocation routines or non-reentrant system calls in the child process after `fork()` but before `execve()` can cause deadlocks if another thread was holding the allocator/malloc lock at the moment of fork.
-Two spawn paths in the application violate this async-signal-safety contract:
-- In [main.cpp](file:///D:/dev/Draxul/app/main.cpp#L373-L379), the child process allocates a `std::vector<std::string>`, copies parent arguments, allocates a `std::vector<char*>`, and invokes `exe_path.string()`.
-- In [session_picker_host.cpp](file:///D:/dev/Draxul/app/session_picker_host.cpp#L295-L300), the child process allocates a `std::vector<char*>` and calls `executable_path_.string()`.
-These operations should be migrated to `posix_spawn()` or prepared entirely in the parent process prior to the fork.
-
-#### 3. Fragile Lifetime Bindings via Raw Borrowed Pointers
-subsystems like `GridHostBase` store raw borrowed pointers to parent services (`IHostCallbacks*`, `IWindow*`, `TextService*`). If the lifecycle of the host outlives these dependency objects (e.g. during rapid pane destructions or asynchronous shutdowns), dereferencing the raw pointers triggers use-after-free crashes.
-
-#### 4. Non-Atomic Configuration and Session State Persistency
-In [session_state.cpp](file:///D:/dev/Draxul/app/session_state.cpp#L496), session states and runtime topologies are saved by opening files directly via `std::ofstream` with `std::ios::trunc`. If a crash, out-of-disk space, or power loss occurs mid-write, the existing session file is corrupted. File writes should use a temporary-write-and-atomic-replace pattern (using `std::filesystem::rename`).
+However, several architectural erosion points are present in the latest code:
+* **The "Config-Option" Ritual:** Adding a new user setting requires modifying up to 5 files in core configuration (`libs/draxul-config/`) and another 4-5 files in each module host (`SatView`, `ScoreView`, etc.). This creates a tight coupling and high merge friction for multiple agents working concurrently.
+* **`draxul-types` Monolithic Creep:** What was originally documented as a header-only POD types library (`types.h`, `events.h`) now compiles implementation files like `log.cpp`, `bmp.cpp`, and `perf_timing.cpp`. It acts as a dependency-injection bottleneck at the bottom of the graph.
+* **Sideways and Upward Leaks:** Foundation enums like `HostKind` statically enumerate optional modules like `MegaCity`, `SatView`, and `ScoreView`. Every new optional host forces edits to bottom-layer files.
+* **`app/` Bloat:** The orchestrator layer `app/app.cpp` has grown to nearly 3,000 lines of code, holding split-tree layouts, session persistence, fuzzy matching, and weather synchronization.
 
 ---
 
-## 3. Testing Gaps
+## 2. Deeper Dives, Specific Code Smells, and Multi-Agent Challenges
 
-### Unregistered & Skipped Render Tests
-- **Unregistered Test Files**: Render test scripts like `wide-char-scroll.toml`, `claude-logo.toml`, `readme-hero.toml`, `readme-overlay.toml`, and `readme-view.toml` exist in the [tests/render](file:///D:/dev/Draxul/tests/render) directory but are not registered in the `DRAXUL_RENDER_SCENARIOS` list within the root [CMakeLists.txt](file:///D:/dev/Draxul/CMakeLists.txt#L426). They are silently ignored by `ctest`.
-- **Stale Registrations**: The `ligatures-view` scenario is listed in the root `CMakeLists.txt` but no `ligatures-view.toml` file exists on disk. CMake silently emits a status message and skips it instead of failing configuration, leading to a false sense of test coverage.
+### 2.1 Thread Safety and Race Conditions
+* **Windows `NvimProcess` Shutdown Race:** In `NvimProcess::shutdown()` (on Windows), the process handles `impl_->proc_info_.hProcess` and `hThread` are closed before `impl_->started_` is set to `false`. Concurrently, `NvimProcess::is_running()` checks `impl_->started_` first, then calls `GetExitCodeProcess` with the process handle. If `is_running()` runs in parallel with `shutdown()`, it can attempt to call `GetExitCodeProcess` with an already closed or recycled handle, leading to undefined behavior or crashes.
+* **`MicPlayerInput` Stream Allocation Race:** In `modules/score/draxul-scoreview/src/mic_player_input.cpp`, a detached thread handles permission checks and stream creation. The destructor checks `shared_->stream` to close it. If the owner is destroyed after the background thread passes `abandoned.exchange(true)` but before it assigns the newly opened stream to `s->stream`, the stream is leaked permanently.
 
-### MacOS Exclusion of Attach Tests
-In [tests/CMakeLists.txt](file:///D:/dev/Draxul/tests/CMakeLists.txt#L56), the entire [session_attach_tests.cpp](file:///D:/dev/Draxul/tests/session_attach_tests.cpp) file is excluded from Apple compilation to bypass a Catch2 compilation warning (`__int128` streaming conflict). This leaves the persistent session attach IPC mechanism completely untested on macOS, where it runs on top of UNIX domain sockets.
+### 2.2 Memory Safety and Callback Lifetimes
+* **Dangling-Pointer Window Callbacks:** Inside `sdl_window_macos.mm`, `install_dock_reopen_handler` saves a raw pointer to a `std::function` owned by an `SdlWindow` instance inside a global pointer `g_reopen_callback`. When the window is destroyed, `g_reopen_callback` is not cleared, leaving a dangling pointer. If a Dock reopen Apple Event fires post-destruction, a crash or use-after-free occurs.
+* **`InputDispatcher` Window Callback Lifetimes:** `InputDispatcher::connect()` assigns callbacks capturing `this` (a raw pointer to the dispatcher) to the `IWindow` instance. Since `InputDispatcher` lacks a destructor or explicit disconnect cleanup, if the dispatcher is destroyed before the window, late window events can invoke the callbacks on a deleted dispatcher pointer.
 
-### Missing Integration Edge Cases
-- **Concurrent Split & Close Stressing**: No unit or integration tests repeatedly stress rapid pane splitting and closing cycles, pane zooming during splits, or resizing concurrent with host crashes.
-- **Atlas Exhaustion Handling**: There are no tests verifying that the font engine behaves gracefully (or evicts items correctly) if the 2048x2048 glyph atlas is completely filled by a large Unicode text dump.
+### 2.3 Shell Command Injection Vulnerabilities
+* **`popen` with Unsanitized Shell String Interpolation:** In `WeatherService::run_curl` (`app/weather_service.cpp`) and similarly inside `SatView`'s catalog downloader, network calls are built by appending strings directly into a shell command template and executing them using `popen`. If user configuration (like `weather_location` or catalog sources) contains quotes, semicolons, or backticks, arbitrary shell command execution is possible.
+* **Blocking Thread Joins on Exit:** The `WeatherService` worker runs on a background thread executing a blocking `curl` call with a timeout of up to 15 seconds. On application stop, the main thread calls `thread_.join()`, freezing the application's UI on shutdown if network connectivity is slow.
 
----
-
-## 4. Maintainability & Clean Code
-
-- **Scattered Test Mocking**: Mocks like `FakeWindow`, `FakeRenderer`, and `FakeHost` are duplicated across multiple test files (e.g. `app_pump_tests.cpp`, `input_dispatcher_routing_tests.cpp`, `gui_action_handler_tests.cpp`) rather than being centralized in a shared testing support library.
-- **Implicit Shader Compilation Dependencies**: If a `.metal` or `.glsl` file is changed, the build system does not always reliably rebuild the shader library because dependencies are not completely tracked by CMake.
-- **Opaque Font Fallback Chain**: If a font fallback fails to load, the error is logged internally but never surfaced to the user. The application degrades to displaying blank spaces/tofu without explaining why fallback fonts failed.
+### 2.4 Code Duplication and Stale Build Dependencies
+* **Metal Shader Build Dependency Mismatch:** In `CompileShaders_Metal.cmake`, the dependency list for compiling `grid.metallib` includes `decoration_constants_shared.h` but omits `quad_offsets_shared.h`. Because `grid.metal` includes both, editing `quad_offsets_shared.h` does not trigger a shader rebuild, leading to silent layout and rendering discrepancies.
+* **Vulkan Boilerplate Hand-Rolled Across Modules:** Opaque Vulkan buffer creations, pipeline layouts, and image transitions are hand-rolled repeatedly in `codeviz_render_vk.cpp`, `satview_render_vk.cpp`, and `markdown_render_pass_vk.cpp` rather than utilizing a shared library utility.
 
 ---
 
-## Top 10 GOOD Things
+## 3. Top 10 Good Things About the Application
 
-1. **Strict Platform Separation**: Vulkan and Metal backends are completely decoupled. Zero platform `#ifdef` leaks in shared code, easing platform maintenance.
-2. **Robust Font Shaping & Ligatures**: Deep HarfBuzz and FreeType integration correctly handles up to 6-cell ligatures (e.g., `!==`) and splits them correctly during editing.
-3. **Procedural Box Drawing**: Blocks U+2500–257F and U+2580–259F are generated on the fly, avoiding anti-aliasing alignment gaps on high-DPI monitors.
-4. **Dependency Injection Discipline**: Central objects use struct-based dependency injection rather than singletons, easing testing.
-5. **No Circular Dependencies**: strictly acyclic target dependency layout (types -> window -> renderer -> font -> grid -> host -> app).
-6. **Detailed Diagnostic Panel**: The ImGui overlay (F12) provides rich real-time visual insights into framerates, dirty cell counters, and atlas texture allocations.
-7. **Redraw Replay Fixtures**: [replay_fixture.h](file:///D:/dev/Draxul/tests/support/replay_fixture.h) allows mocking msgpack redraw events, making terminal drawing issues reproducible without spawning Neovim.
-8. **Isolated Product Modules**: Kanban, Markdown, MegaCity, and SatView are clean, isolated optional modules that do not leak source dependencies into the main app core.
-9. **Rich Emulation Support**: Deep support for mouse modes, focus tracking, bracketed paste, OSC 7 (cwd tracking), and OSC 52 (remote clipboard).
-10. **Clean Onboarding Presets**: Comprehensive compile presets for Release, Debug, and Sanitizers (ASan/UBSan) make building the app easy on both Windows and macOS.
-
----
-
-## Top 10 BAD Things
-
-1. **Weather Service Shell Injection**: manual geocoder url-encoding permits shell command injection in `popen` calls when `weather_location` contains quotes.
-2. **Unsafe fork() Heap Operations**: Unix child processes allocate vectors and strings after `fork()`, risking deadlocks in multithreaded runs.
-3. **Silent Render Test Drop**: Render TOML scenarios are silently skipped if missing, and several existing files are not registered in the build system.
-4. **Attach Tests Omitted on Apple**: Chrono warning workarounds result in complete exclusion of session attach tests on macOS.
-5. **App God Class Bloat**: The `App` class handles way too many responsibilities (lifecycle, workspaces, RPC, geocoding, session files).
-6. **Fragile Raw Pointer Contracts**: raw pointers for callbacks and text services risk dangling pointer crashes.
-7. **Bloated Input Dispatcher Callbacks**: `InputDispatcher::Deps` contains over 20 raw function pointers; missing one breaks input handling silently.
-8. **Non-Atomic Session Writes**: Truncating session files directly poses a high risk of config corruption during system crashes.
-9. **Duplicate Test Mocks**: Redundant Mock window/renderer/host classes are copied across multiple test source files.
-10. **Silent Font Fallback Failures**: Fallback font errors only write to debug logs, leaving users with empty character boxes without feedback.
+1. **Platform-Free `RendererState`:** The complete extraction of cursor, grid, and overlay update logic into a platform-agnostic class shared by Vulkan and Metal backends is clean and well-covered by tests.
+2. **Defensive IPC Threading:** Bounded RPC event queues, timed-out request evictions, and strict happens-before comments make Neovim integration highly robust.
+3. **GLOB-Based Test Discovery:** Adding a new test file requires zero modification to CMake lists, eliminating merge friction in a multi-agent environment.
+4. **Strong Render Snapshot Pipeline:** The TOML-driven visual comparison system with settle-frame detection, scenario-specific tolerances, and blessing helper commands is highly professional.
+5. **Module Registry Isolation:** Optional product hosts (Kanban, Megacity, SatView, ScoreView) self-register at runtime, avoiding compile-time coupling to the core app.
+6. **Robust Parsing Limits:** Input buffers and RPC streams are protected by explicit limits (e.g. 256MB RPC caps) to prevent memory exhaustion from malicious grid inputs.
+7. **Clean Platform Separation in Windowing:** Platform-specific window setups (`sdl_window_win32.cpp` vs `sdl_window_macos.mm`) keep the main window abstraction readable.
+8. **Comprehensive Unit Testing Coverage:** Over 140 test files covering text shaping, VT parsers, session serialization, and layout algorithms without requiring a physical GPU.
+9. **ccache Integration:** Speeds up local developer compiles significantly by routing C/C++ builds through `ccache` dynamically when found on the system path.
+10. **Hermetic FetchContent Dependency Management:** Third-party libraries (SDL3, FreeType, HarfBuzz, tinyxml2, Verovio) are version-pinned and fetched automatically during CMake configuration.
 
 ---
 
-## Best 10 Features to Add (Quality of Life)
+## 4. Top 10 Bad Things About the Application
 
-1. **Unified Safe HTTP Transport Service**: Replace geocoding/cloud `popen` command strings with a safe, argv-based process spawning utility or an embedded HTTP library.
-2. **Atomic Session and Config Writes**: Save all JSON/TOML configuration and session files to temporary files, then replace them atomically via `std::filesystem::rename`.
-3. **WorkspaceManager Separation**: Refactor the tab, pane, and split tree layout orchestration out of `App` into a distinct workspace manager.
-4. **Shared Test Support Library**: Centralize all mock classes (`FakeWindow`, `FakeRenderer`, `FakeHost`) into a shared static library under `tests/support`.
-5. **Auto-Discovered Render Test Manifest**: Build a test discovery manifest (or file glob) that fails the CMake run if a test or its reference image is missing.
-6. **Transaction-based Configuration Reloads**: Verify `config.toml` changes before applying them; if invalid, roll back and push a toast notification showing the syntax error.
-7. **Dynamic Multi-Page Glyph Atlas**: Support allocating secondary pages or resizing the glyph texture when the atlas fills up, rather than silently dropping text.
-8. **Unified `Result<T, Error>` Wrapper**: Standardize error return types across libraries to prevent silent failures and unchecked boolean flags.
-9. **Toast Alerts for RPC Hanging**: Show a toast notification ("Neovim not responding") when Neovim RPC requests exceed a timeout threshold.
-10. **Keybinding Chord Conflict Warnings**: Inspect configured keybindings at startup and show a toast warning if there are overlapping chord conflicts.
-
----
-
-## Best 10 Tests to Add (Stability)
-
-1. **MacOS Session Attach Integration Tests**: Fix the Catch2 chrono formatting warning and re-enable `session_attach_tests.cpp` on Apple platforms.
-2. **Weather Geocoding Shell Injection Guard Tests**: Validate `try_geocode` against command injection payloads (semicolons, quotes, backticks).
-3. **HostManager Split/Close Stress Tests**: Repeatedly split, close, zoom, and resize panes concurrently to test for layout deadlocks or assertion failures.
-4. **Glyph Atlas Exhaustion Stress Tests**: Load thousands of unique unicode characters to verify cache eviction handles boundary overflows gracefully.
-5. **DPI Change Render Synchronization Tests**: Call `on_display_scale_changed` concurrently with active render frame submissions to test for Vulkan/Metal synchronization issues.
-6. **InputDispatcher Missing Callback Resilience Tests**: Construct the dispatcher with null callbacks and verify that input events are safely rejected without segfaulting.
-7. **Thread-Safe Grid Redraw Verification Tests**: Verify under ThreadSanitizer (TSan) that concurrent grid writes from the RPC reader thread and reads from the render thread are free of data races.
-8. **Config Reload Concurrent Stress Tests**: Trigger `reload_config()` repeatedly while simulating rapid keyboard and mouse events to check for config races.
-9. **Host Lifecycle State Machine Tests**: Verify that calling host methods (`pump`, `draw`) before `initialize` or after `shutdown` returns safe error codes rather than crashing.
-10. **Corrupt msgpack RPC Fuzzing Tests**: Fuzz the Neovim RPC reader thread with invalid arrays and partial packets to verify the parser handles transport errors gracefully.
+1. **Stale steering documentation:** `CLAUDE.md` and `plans/README.md` describe a directory layout and class hierarchy (e.g., referencing `I3DHost` and `plans/work-items/`) that were previously removed or restructured.
+2. **Shell injection vulnerabilities via `popen`:** Directly constructing shell commands with unsanitized parameters inside `WeatherService` and SatView downloader routines.
+3. **Background thread races during cleanup:** Potential stream leaks in `MicPlayerInput` and use-after-free races in Windows `NvimProcess::shutdown()`.
+4. **Platform callback dangling pointers:** Global callback slots in `sdl_window_macos.mm` retain raw pointers to transient window instance members.
+5. **No auto-run CI pipeline:** CI workflows are only triggered via manual `workflow_dispatch`, hiding build and visual snapshot regressions until manual checks are run.
+6. **Monolithic `app/app.cpp` class:** The `App` class is a god class containing too many responsibilities (session saving, layout resizing, weather, action bindings).
+7. **Highly repetitive Vulkan boilerplate:** 3D and rendering modules manually initialize graphics pipelines, swapchains, and image transitions instead of using shared utilities.
+8. **The "Config-Option" edit tax:** High merge-conflict risk due to settings spanning 8-10 edits across multiple namespaces, structs, and host files.
+9. **No automatic bless promotions across OSes:** Blessings can only be done on the host OS, making cross-platform reference image updates tedious.
+10. **`PERF_MEASURE` profiling lock contention:** The performance profiling macro locks a global mutex, which can distort timing data on high-frequency calls.
 
 ---
 
-## Worst 10 Existing Features
+## 5. Best 10 Quality-of-Life Features to Add
 
-1. **Geocoding URL String Concatenation**: raw query string formatting for weather geocoding.
-2. **Unsafe fork() Heap Allocations**: Allocating std::vectors/strings inside the Unix/macOS child process path post-fork.
-3. **Exclusion of MacOS Attach Tests**: Completely bypassing `session_attach_tests.cpp` on macOS on CMake level due to a compiler warning/formatting issue.
-4. **Raw Lifetime Contracts for Host Callbacks**: `GridHostBase` stores raw pointers to parent callbacks with no automatic lifetime management, risking dangling pointer dereferences.
-5. **Silent Glyph Dropping on Atlas Overflow**: Bailing out when the shelf packer runs out of space, leaving the screen with missing text and no user-visible error.
-6. **Linear/Blocking curl Geocoding in Weather Worker**: Weather geocoding runs in a background thread but uses blocking `popen` commands, making thread termination block on standard timeouts.
-7. **Unverified/Unstaged Font Fallbacks**: Opaque fallback loading; if a font fails to resolve, there is no notification, resulting in empty glyph grids.
-8. **Non-atomic session state truncation**: Direct `trunc` write to the configuration file, presenting a risk of data loss.
-9. **Bloated callback interface on IHost**: `IHost` acts as a monolithic surface for all host operations, combining process, VT, mouse, font, rendering, and status queries.
-10. **Strict, Non-fallback Terminal Hex Color Parser**: Hex colors that are slightly malformed cause terminal colors to fail completely, rather than falling back to standard terminal defaults.
+*(Filtered to exclude completed or iced items in `kanban/`)*
+
+1. **Interactive Pinch-to-Zoom Font Scaling:** Support trackpad pinch gestures using SDL3 multi-finger events for zooming the grid size smoothly.
+2. **Workspace Tab Drag-and-Drop Reordering:** Allow users to drag tabs on the top bar to change their display order.
+3. **Command-Palette Search Filters:** Support prefixes like `hosts:`, `panes:`, or `settings:` inside the command palette to quickly filter commands.
+4. **Interactive Theme Customizer UI:** A color-picker panel inside the diagnostics panel to configure chrome colors visually and write them directly to `config.toml`.
+5. **Config Validation CLI Command (`draxul --validate-config`):** A command-line verification option to syntax-check and lint `config.toml` without initializing the graphics subsystems.
+6. **Layout Template Exporter:** Export the current pane split layout as a named layout template to be reused with `--layout-template <name>`.
+7. **Toast History Viewer:** A diagnostics panel tab that stores a running log of all toast alerts shown during the session.
+8. **Terminal Scrollbar Click-to-Jump Option:** A configuration setting to choose whether clicking the scrollbar track scrolls by pages or jumps directly to the clicked point.
+9. **Custom Workspace Quick Launcher:** A keyboard shortcut (e.g. `Ctrl+T`) that brings up a grid launcher for one-click initialization of Neovim, SatView, BioView, or Megacity.
+10. **Terminal Selection Auto-Scroll:** Enable smooth automatic upward or downward scrolling when dragging a mouse selection outside the current viewport.
+
+---
+
+## 6. Best 10 Tests to Add for Stability
+
+*(Filtered to exclude completed or iced items in `kanban/`)*
+
+1. **Windows `NvimProcess` Shutdown Thread-Safety Test:** A multi-threaded test hammering asynchronous process spawning and shutdowns to catch handle reuse races.
+2. **`MicPlayerInput` Destruction Race Test:** Specifically simulate the owner destroying `MicPlayerInput` during the background thread's open phase to verify that no stream handles leak.
+3. **`InputDispatcher` Destructor Cleanup Test:** Assert that all window-level callback delegates are cleanly reset on `InputDispatcher` destruction, avoiding use-after-free on late inputs.
+4. **`VerovioLayoutEngine` Corrupted XML Parsing Test:** Feed empty, truncated, or malformed MusicXML datasets to verify that the engraver aborts gracefully.
+5. **SatView Ephemeris Edge Cases Test:** Validate geodetic conversion calculations at meridian wraps, poles, and zero altitudes to ensure no division-by-zero or NaNs are generated.
+6. **Multi-Instance `ScoreHost` Audio Initialization Test:** Simulate splitting the view into multiple score hosts to verify that concurrent SDL audio stream initialization does not collide or fail.
+7. **PTY Write Blocking and Interrupted Systems Tests:** Mock PTY write limits to verify that interrupted writes (EINTR) and partial writes loop and retry correctly.
+8. **Fuzzy Search Query Extreme Boundary Test:** Test `fuzzy_match` with extremely long queries, empty search keys, and corrupted UTF-8 sequences.
+9. **Metal Allocation Failure Recovery Test:** Mock GPU buffer allocation failures (`newBufferWithLength` returning `nil`) to ensure that the Metal renderer bails cleanly rather than attempting to draw.
+10. **Session Rollback File IO Failure Integration Test:** Mock write permission denials or disk full events during session saving to verify that workspace memory rolls back cleanly to its original state.
+
+---
+
+## 7. Worst 10 Features (Design and Implementation Issues)
+
+1. **Weather Service `popen` Integration:** Implementing a weather tracker inside the terminal emulator via unsafe shell execution (`popen`) of a blocking command-line `curl` program.
+2. **Double-Parsing of Key Config Settings:** Config options like `url_detection` and `enable_osc8_hyperlinks` are resolved and parsed twice at separate execution locations in `app_config_io.cpp`.
+3. **Manual Dispatch-Only GitHub Actions Workflow:** Pushing code directly to main does not trigger builds automatically, relying on developers to manually trigger CI runs.
+4. **Highly Duplicated Configuration Settings:** The multi-file configuration updates required to add a single user setting, resulting in high merge conflicts.
+5. **Source Files Compiling inside `draxul-types`:** Polluting a library chartered to only contain header-only POD types with singletons, filesystem utils, and BMP encoders.
+6. **`app/app.cpp` acting as a Monolith:** The orchestration class handles too many separate tasks, violating the single responsibility principle.
+7. **Bespoke Binary File Formats:** Hand-rolling three identical catalog binary container architectures (`DXSTAR1`, `DXCLINE1`, `DXCBND01`) for SatView instead of using a unified reader.
+8. **Manual GLSL/MSL Shader Mirroring:** Writing twin shader files manually for Vulkan and Metal, which leads to layout and math divergence bugs.
+9. **Global Platform Callback Dangling Pointers:** The Cocoa dock-reopen callbacks storing raw pointers to window members.
+10. **Mutex-blocked `PERF_MEASURE` Timing Macro:** An instrumentation feature that introduces lock contention in hot paths, altering the timing of the code it measures.

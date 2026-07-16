@@ -12,11 +12,12 @@ The single `draxul-tests` executable links App and every enabled product module,
 
 - [ ] Measure current configure/build/link/test times and classify test sources by owning library/module.
 - [ ] Create shared test-support target(s) for existing fakes/helpers without duplicating implementations.
-- [ ] Introduce focused executables/CTest labels for core, app/session, Markdown/Kanban, MegaCity, and SatView in stages.
+- [ ] Introduce focused executables/CTest labels for core, app/session, Markdown/Kanban, MegaCity, SatView, and ScoreView in stages.
+- [ ] Link a ScoreView host-focused target to `draxul-scoreview-host` so microphone/NanoVG/host lifecycle tests do not force every core test to take the full product dependency.
 - [ ] Link each test target only to the public/internal test interface it needs; remove private `src/` includes by reopening the existing boundary card where required.
 - [ ] Keep a top-level `draxul-tests` build target that depends on all enabled test executables for workflow compatibility.
 - [ ] Update sanitizer, coverage, RPC-helper dependencies, scripts, and CI discovery.
-- [ ] Ensure optional-off configurations omit only their own test targets.
+- [ ] Ensure optional-off configurations omit only their own test targets, including `DRAXUL_ENABLE_SCOREVIEW=OFF`.
 
 ## Tests and acceptance
 

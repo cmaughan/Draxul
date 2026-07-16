@@ -15,6 +15,9 @@ Remove misleading/tracked root artifacts and establish `docs/features.md` as the
 - [ ] Rename or remove `key.txt` after confirming it is a debug log and contains no credential material.
 - [ ] Add precise `.gitignore` rules for generated logs/objects without masking legitimate source assets.
 - [ ] Make root `FEATURES.md` a short pointer to canonical `docs/features.md` or remove it after fixing inbound links.
+- [ ] Keep `docs/features.md` as a short canonical inventory and move long product narratives into owned pages such as `docs/features/scoreview.md` and `docs/features/satview.md`; document `weather_location` and other real keys during the split.
+- [ ] Choose one canonical agent guide for shared architecture/build/tracker rules and reduce `CLAUDE.md`, `GEMINI.md`, and `learnings_agents.md` to clearly scoped additions or pointers so their instructions cannot silently diverge.
+- [ ] Add a plan index with `active`, `implemented`, `superseded`, and `research` status instead of leaving completed plans mixed with active designs.
 - [ ] Add a lightweight hygiene check for forbidden root artifacts and duplicate feature-doc content.
 - [ ] Generate a tracker index/status report that treats the `kanban` folder as authoritative and flags ambiguous unchecked boxes in `kanban/done` without rewriting historical cards automatically.
 - [ ] Reopen the existing stale architecture-doc card separately; do not hide architecture corrections inside this cleanup.
@@ -24,6 +27,8 @@ Remove misleading/tracked root artifacts and establish `docs/features.md` as the
 - [ ] `git ls-files` contains no accidental OS/debug/build artifacts.
 - [ ] Required assets remain discoverable with attribution and build/install wiring.
 - [ ] Only `docs/features.md` contains the maintained feature inventory.
+- [ ] Agent guides agree on the actual library/module graph and the `kanban/` tracker paths.
+- [ ] Host summary rows stay reviewable and product detail pages have stable links.
 - [ ] Fresh configure/build does not depend on removed files.
 
 ## Dependencies and parallelism
