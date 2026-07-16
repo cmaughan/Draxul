@@ -39,6 +39,6 @@ Reduce the 2,778-line `score_host.cpp` collision surface while preserving the `I
 
 ## Dependencies and parallelism
 
-Depends on new bugs 00/14 and tests 15/16; coordinate with pending 35 modular test targets. One integration owner should sequence extractions. After interfaces stabilize, separate agents can own session/stream, audio, and presentation migrations, but they must not edit `score_host.cpp` concurrently without that owner.
+Depends on new bugs 00/14 and tests 15/16; coordinate with pending 35 modular test targets. The composer/program seams land first in `20 scoreview-composer-decoupling -refactor.md` so `ScoreStreamController` is built around `StreamProgram` provenance rather than re-extracting it. One integration owner should sequence extractions. After interfaces stabilize, separate agents can own session/stream, audio, and presentation migrations, but they must not edit `score_host.cpp` concurrently without that owner.
 
 <model>GPT-5 Codex</model>
