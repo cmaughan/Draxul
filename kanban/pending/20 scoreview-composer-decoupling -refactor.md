@@ -89,16 +89,17 @@ Verovio/SDL/transport at link time.
 
 ## Phase 4 — `IComposer` seam
 
-- [ ] New `composer.h`: `IComposer` with `name()`,
+- [x] New `composer.h`: `IComposer` with `name()`,
       `configure(const SourceSlicer*, const PlayerModel*, const PieceProfile*)`,
-      `supports(const SourceSlicer&)`, `reset()`,
+      `supports(const SourceSlicer&)`, `ready()`, `reset()`,
       `ensure(StreamProgram&, int slots)`, `finished()` — the whole contract of
       what a composer may observe and produce.
-- [ ] `StreamComposer final : public IComposer`; move the single-part gate out
-      of the host (`initialize` + inspector checkbox both check
-      `slicer_.part_count() == 1` today) into `StreamComposer::supports()` —
-      source compatibility is a composer capability, not a host rule.
-- [ ] Host holds `std::unique_ptr<IComposer>`; the `composing_` gate becomes
+- [x] `StreamComposer final : public IComposer`; the single-part gate moved out
+      of the host (`initialize` + inspector checkbox) into
+      `StreamComposer::supports()` — source compatibility is a composer
+      capability, not a host rule. supports() covered by tests (single-part
+      true, unloaded false, two-part false).
+- [x] Host holds `std::unique_ptr<IComposer>`; the `composing_` gate becomes
       `composer_enabled_ && stream_windowed_ && composer_->supports(slicer_)`;
       `composer`/`nocomposer` launch tokens and the inspector checkbox behave
       identically.

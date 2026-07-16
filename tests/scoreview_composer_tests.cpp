@@ -128,6 +128,57 @@ TEST_CASE("a fabricated drill bar engraves inside a composed window", "[scorevie
     CHECK(onsets.lower_bound(6.0) != onsets.end());
 }
 
+TEST_CASE("the stream composer supports single-part sources only", "[scoreview][composer]")
+{
+    // Source compatibility is the composer's capability (IComposer::supports),
+    // not a host rule: the adaptive stream fabricates grand-staff drill bars,
+    // so a multi-part piece streams verbatim instead.
+    StreamComposer composer;
+    CHECK(composer.supports(grieg_slicer()));
+
+    SourceSlicer unloaded;
+    CHECK_FALSE(composer.supports(unloaded));
+
+    const std::string two_parts_xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>A</part-name></score-part>
+    <score-part id="P2"><part-name>B</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch>
+        <duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>D</step><octave>4</octave></pitch>
+        <duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>D</step><octave>3</octave></pitch>
+        <duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>)";
+    SourceSlicer two_parts;
+    std::string error;
+    REQUIRE(two_parts.load(two_parts_xml, error));
+    REQUIRE(two_parts.part_count() == 2);
+    CHECK_FALSE(composer.supports(two_parts));
+}
+
 TEST_CASE("a fresh player gets the piece verbatim", "[scoreview][composer]")
 {
     PlayerModel model;

@@ -329,12 +329,13 @@ private:
     PieceProfile piece_profile_;
 
     // The composer (S3): plans the stream program (piece bars, review
-    // slices, fabricated drills) when the source supports it. The host owns
-    // the program; the composer extends it. reset_stream_plan() clears both
-    // together — the composer's cooldowns are slot-indexed, so program and
-    // policy state must never diverge.
+    // slices, fabricated drills) when the composer supports the source. The
+    // host owns the program; the composer (an IComposer — the seam future
+    // rewrite-style composers plug into) extends it. reset_stream_plan()
+    // clears both together — composer cooldowns are slot-indexed, so program
+    // and policy state must never diverge.
     StreamProgram stream_program_;
-    StreamComposer composer_;
+    std::unique_ptr<IComposer> composer_ = std::make_unique<StreamComposer>();
     bool composing_ = false;
     int last_logged_plan_slot_ = -1;
 

@@ -632,14 +632,13 @@ void ScoreHost::relayout_flow()
                     slicer_error.c_str());
             }
         }
-        // The composer needs a single-part source (fabricated drill bars
-        // are written for the grand staff); multi-part pieces stream the
-        // source verbatim.
-        composing_ = composer_enabled_ && stream_windowed_ && slicer_.ready()
-            && slicer_.part_count() == 1;
+        // Source compatibility is the composer's call (IComposer::supports):
+        // the adaptive stream needs a single-part source for its grand-staff
+        // drill bars; unsupported pieces stream the source verbatim.
+        composing_ = composer_enabled_ && stream_windowed_ && composer_->supports(slicer_);
         if (composing_)
         {
-            composer_.configure(&slicer_, &player_model_, &piece_profile_);
+            composer_->configure(&slicer_, &player_model_, &piece_profile_);
             reset_stream_plan();
         }
 
@@ -747,7 +746,7 @@ std::optional<ScoreHost::WindowSlice> ScoreHost::build_window_slice(int first_ba
     WindowSlice slice;
     if (composing_)
     {
-        const int available = composer_.ensure(stream_program_, first_bar + window_span);
+        const int available = composer_->ensure(stream_program_, first_bar + window_span);
         first_bar = std::clamp(first_bar, 0, std::max(0, available - 1));
         slice.count = std::min(window_span, available - first_bar);
         std::vector<SourceSlicer::StreamBar> items;
@@ -954,7 +953,7 @@ void ScoreHost::restart_stream(bool keep_tempo)
 void ScoreHost::reset_stream_plan()
 {
     stream_program_.clear();
-    composer_.reset();
+    composer_->reset();
     last_logged_plan_slot_ = -1;
 }
 
@@ -982,7 +981,7 @@ void ScoreHost::maybe_advance_stream()
     int playhead_bar = 0;
     if (composing_)
     {
-        if (composer_.finished()
+        if (composer_->finished()
             && window_first_bar_ + window_bar_count_ >= stream_program_.size())
             return; // the program is complete and the window reaches its end
         playhead_bar = stream_program_.slot_at(stream_q);
@@ -2406,10 +2405,10 @@ void ScoreHost::render_debug_ui(float dt)
                     // adaptive program, off = the piece scrolling unchanged.
                     // The restart keeps the player's decided tempo — switching
                     // the program is not a reason to change their pace.
-                    composing_ = composer_enabled_ && stream_windowed_ && slicer_.ready()
-                        && slicer_.part_count() == 1;
+                    composing_ = composer_enabled_ && stream_windowed_
+                        && composer_->supports(slicer_);
                     if (composing_)
-                        composer_.configure(&slicer_, &player_model_, &piece_profile_);
+                        composer_->configure(&slicer_, &player_model_, &piece_profile_);
                     restart_stream(/*keep_tempo=*/true);
                 }
                 // Switching the preset drops any debug overrides — the point

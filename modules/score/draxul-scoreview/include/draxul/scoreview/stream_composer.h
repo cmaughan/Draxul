@@ -8,10 +8,7 @@
 // host-owned StreamProgram, and the host maps slots to windows and outcomes
 // back through the program's provenance.
 
-#include <draxul/scoreview/piece_analysis.h>
-#include <draxul/scoreview/player_model.h>
-#include <draxul/scoreview/source_slicer.h>
-#include <draxul/scoreview/stream_program.h>
+#include <draxul/scoreview/composer.h>
 
 #include <map>
 #include <string>
@@ -21,7 +18,7 @@ namespace draxul
 namespace scoreview
 {
 
-class StreamComposer
+class StreamComposer final : public IComposer
 {
 public:
     // Mastery below this schedules a review; encounters required first.
@@ -45,22 +42,32 @@ public:
     static constexpr double kPromotionMastery = 0.7;
     static constexpr int kSliceBars = 8; // weakest-slice revisit length
 
-    void configure(
-        const SourceSlicer* slicer, const PlayerModel* model, const PieceProfile* profile);
-    bool ready() const
+    const char* name() const override
+    {
+        return "adaptive-stream";
+    }
+    // Fabricated drill bars are written for the grand staff (one part);
+    // multi-part pieces stream the source verbatim instead.
+    bool supports(const SourceSlicer& slicer) const override
+    {
+        return slicer.ready() && slicer.part_count() == 1;
+    }
+    void configure(const SourceSlicer* slicer, const PlayerModel* model,
+        const PieceProfile* profile) override;
+    bool ready() const override
     {
         return slicer_ != nullptr && model_ != nullptr;
     }
     // Clears composer policy state only; the host clears the paired program
     // in the same breath (ScoreHost::reset_stream_plan) — cooldowns are slot
     // indexed, so composer state and program must never diverge.
-    void reset();
+    void reset() override;
 
     // Extends `program` up to `slots` entries (stops early when the
     // frontier finishes); returns the planned count. Must always be handed
     // the same program this composer has been extending since reset().
-    int ensure(StreamProgram& program, int slots);
-    bool finished() const
+    int ensure(StreamProgram& program, int slots) override;
+    bool finished() const override
     {
         return finished_;
     }
