@@ -7,7 +7,6 @@
 #include <draxul/log.h>
 #include <draxul/notation/musicxml_importer.h>
 #include <draxul/runtime_path.h>
-#include <draxul/scoreview/bot_player_input.h>
 #include <draxul/scoreview/keyboard_render_nvg.h>
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/progress_store.h>
@@ -1164,51 +1163,20 @@ void ScoreHost::apply_verdict_update()
 bool ScoreHost::set_gate_input(
     GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port)
 {
-    keyboard_input_ = nullptr;
-    mic_input_ = nullptr;
-    midi_input_ = nullptr;
-    player_input_.reset();
-    if (input == GateInput::Bot)
-    {
-        player_input_ = std::make_unique<BotPlayerInput>(flow_, bot_pace_qpm, bot_accuracy, 20260711u);
-        return true;
-    }
-    if (input == GateInput::Midi)
-    {
-        auto midi = std::make_unique<MidiPlayerInput>(midi_port);
-        if (midi->ok())
-        {
-            midi_input_ = midi.get();
-            player_input_ = std::move(midi);
-            // The keyboard is the instrument: make it heard (play-thru needs
-            // the output stream open even when the metronome is off).
-            ensure_tick_stream();
-            return true;
-        }
-        DRAXUL_LOG_WARN(LogCategory::App, "score: MIDI input failed (%s) — using dev keyboard",
-            midi->error().c_str());
-        // fall through to the keyboard
-    }
-    if (input == GateInput::Mic)
-    {
-        // Opening is asynchronous (the TCC consent dialog can block for
-        // minutes); Opening counts as engaged, and pump() falls back to the
-        // keyboard if the open ultimately fails.
-        auto mic = std::make_unique<MicPlayerInput>(flow_);
-        if (mic->state() != MicPlayerInput::State::Failed)
-        {
-            mic_input_ = mic.get();
-            player_input_ = std::move(mic);
-            return true;
-        }
-        DRAXUL_LOG_WARN(LogCategory::App, "score: %s — falling back to keyboard input",
-            mic->error().c_str());
-        // fall through to the keyboard
-    }
-    auto keyboard = std::make_unique<KeyboardPlayerInput>();
-    keyboard_input_ = keyboard.get();
-    player_input_ = std::move(keyboard);
-    return input == GateInput::Keyboard;
+    PlayerInputRig::Selection selection;
+    selection.kind = input == GateInput::Bot ? PlayerInputRig::Kind::Bot
+        : input == GateInput::Mic            ? PlayerInputRig::Kind::Mic
+        : input == GateInput::Midi           ? PlayerInputRig::Kind::Midi
+                                             : PlayerInputRig::Kind::Keyboard;
+    selection.bot_pace_qpm = bot_pace_qpm;
+    selection.bot_accuracy = bot_accuracy;
+    selection.midi_port = midi_port;
+    const bool engaged = input_rig_.select(selection, flow_);
+    // The keyboard is the instrument: make it heard (play-thru needs the
+    // output stream open even when the metronome is off).
+    if (engaged && input_rig_.kind() == PlayerInputRig::Kind::Midi)
+        ensure_tick_stream();
+    return engaged;
 }
 
 void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy)
@@ -1251,10 +1219,7 @@ void ScoreHost::exit_gate_mode()
         engraver_->cancel();
     pending_window_install_.reset();
     async_engrave_in_flight_ = false;
-    player_input_.reset();
-    keyboard_input_ = nullptr;
-    mic_input_ = nullptr;
-    midi_input_ = nullptr;
+    input_rig_.clear();
     flow_.set_mode(FlowController::TransportMode::Clock);
     if (stream_active())
     {
@@ -1280,18 +1245,20 @@ bool ScoreHost::handle_gate_key(int keycode)
     }
     // `i` switches the human input source mid-session (mic <-> keyboard)
     // without touching verdicts, score, or the transport.
-    if (keycode == SDLK_I && (keyboard_input_ != nullptr || mic_input_ != nullptr))
+    const bool mic_live = input_rig_.kind() == PlayerInputRig::Kind::Mic;
+    if (keycode == SDLK_I
+        && (input_rig_.kind() == PlayerInputRig::Kind::Keyboard || mic_live))
     {
-        const GateInput next = mic_input_ != nullptr ? GateInput::Keyboard : GateInput::Mic;
+        const GateInput next = mic_live ? GateInput::Keyboard : GateInput::Mic;
         const bool engaged = set_gate_input(next, 0.0, 1.0);
         DRAXUL_LOG_INFO(LogCategory::App, "score: gate input -> %s",
-            mic_input_ != nullptr ? "microphone" : "keyboard");
+            input_rig_.kind() == PlayerInputRig::Kind::Mic ? "microphone" : "keyboard");
         if (next == GateInput::Mic && engaged && !flow_.playing())
             flow_.play(); // the piano is the interface; don't demand Space
         return true;
     }
-    if (keyboard_input_ == nullptr)
-        return false; // bot/mic session: the piano row doesn't inject notes
+    if (input_rig_.kind() != PlayerInputRig::Kind::Keyboard)
+        return false; // bot/mic/midi session: the piano row doesn't inject notes
 
     // Dev piano row (scaffolding only): z s x d c v g b h n j m , = one
     // chromatic octave anchored at the armed gate's register; Return plays
@@ -1346,13 +1313,13 @@ bool ScoreHost::handle_gate_key(int keycode)
     }
     if (semitone >= 0)
     {
-        keyboard_input_->push(anchor + semitone, now_seconds());
+        input_rig_.feed_keyboard_note(anchor + semitone, now_seconds());
         return true;
     }
     if (keycode == SDLK_RETURN)
     {
         for (const int pitch : expected)
-            keyboard_input_->push(pitch, now_seconds());
+            input_rig_.feed_keyboard_note(pitch, now_seconds());
         return true;
     }
     if (keycode == SDLK_BACKSPACE)
@@ -1367,20 +1334,20 @@ bool ScoreHost::handle_gate_key(int keycode)
         rng ^= rng << 5;
         if (expected.empty())
         {
-            keyboard_input_->push(anchor + 1, now_seconds());
+            input_rig_.feed_keyboard_note(anchor + 1, now_seconds());
             return true;
         }
         const size_t fluffed = rng % expected.size();
         for (size_t i = 0; i < expected.size(); ++i)
         {
             if (i != fluffed)
-                keyboard_input_->push(expected[i], now_seconds());
+                input_rig_.feed_keyboard_note(expected[i], now_seconds());
         }
         const int direction = (rng & 0x10000u) != 0 ? 1 : -1;
         int wrong = expected[fluffed] + direction;
         while (std::find(expected.begin(), expected.end(), wrong) != expected.end())
             wrong += direction;
-        keyboard_input_->push(wrong, now_seconds());
+        input_rig_.feed_keyboard_note(wrong, now_seconds());
         return true;
     }
     return false;
@@ -1623,26 +1590,26 @@ void ScoreHost::pump()
             pump_metronome(position_before_q, flow_.position_q(), dt);
         if (flow_.mode() != FlowController::TransportMode::Clock)
         {
-            if (mic_input_ != nullptr && mic_input_->state() == MicPlayerInput::State::Failed)
+            if (input_rig_.mic_failed())
             {
                 DRAXUL_LOG_WARN(LogCategory::App, "score: %s — falling back to keyboard input",
-                    mic_input_->error().c_str());
+                    input_rig_.mic_error().c_str());
                 set_gate_input(GateInput::Keyboard, 0.0, 1.0);
             }
-            if (player_input_ != nullptr)
+            if (input_rig_.active())
             {
                 std::vector<PlayerNoteEvent> events;
-                player_input_->poll(now_seconds(), events);
+                input_rig_.input()->poll(now_seconds(), events);
                 if (!events.empty())
                     flow_.judge(events);
             }
             // MIDI play-thru: most controllers are silent — voice the keys
             // through the selected instrument so playing is audible. Offs
             // matter for the piano (the damper stops the string).
-            if (midi_input_ != nullptr)
+            if (input_rig_.kind() == PlayerInputRig::Kind::Midi)
             {
                 std::vector<MidiVoiceEvent> voiced;
-                midi_input_->take_voice_events(voiced);
+                input_rig_.take_midi_voice_events(voiced);
                 if (!voiced.empty() && ensure_tick_stream())
                 {
                     const bool piano = instrument_ == InstrumentVoice::Piano && piano_.loaded();
@@ -2335,19 +2302,22 @@ void ScoreHost::render_debug_ui(float dt)
                 // Switching swaps the input seam live — verdicts, score and
                 // transport survive.
                 std::string current = "Dev keyboard";
-                if (mic_input_ != nullptr)
+                if (input_rig_.kind() == PlayerInputRig::Kind::Mic)
                     current = "Microphone";
-                else if (midi_input_ != nullptr)
-                    current = "MIDI: " + midi_input_->port_name();
+                else if (input_rig_.kind() == PlayerInputRig::Kind::Midi)
+                    current = "MIDI: " + input_rig_.midi_port_name();
                 if (ImGui::BeginCombo("input", current.c_str()))
                 {
-                    const std::vector<std::string> midi_ports = MidiPlayerInput::list_ports();
-                    if (ImGui::Selectable("Dev keyboard", keyboard_input_ != nullptr))
+                    const std::vector<std::string> midi_ports
+                        = PlayerInputRig::list_midi_ports();
+                    if (ImGui::Selectable("Dev keyboard",
+                            input_rig_.kind() == PlayerInputRig::Kind::Keyboard))
                     {
                         gate_input_requested_ = GateInput::Keyboard;
                         set_gate_input(GateInput::Keyboard, 0.0, 1.0);
                     }
-                    if (ImGui::Selectable("Microphone", mic_input_ != nullptr))
+                    if (ImGui::Selectable(
+                            "Microphone", input_rig_.kind() == PlayerInputRig::Kind::Mic))
                     {
                         gate_input_requested_ = GateInput::Mic;
                         set_gate_input(GateInput::Mic, 0.0, 1.0);
@@ -2355,8 +2325,8 @@ void ScoreHost::render_debug_ui(float dt)
                     for (int port = 0; port < static_cast<int>(midi_ports.size()); ++port)
                     {
                         const std::string label = "MIDI: " + midi_ports[static_cast<size_t>(port)];
-                        const bool active = midi_input_ != nullptr
-                            && midi_input_->port_name() == midi_ports[static_cast<size_t>(port)];
+                        const bool active = input_rig_.midi_port_name()
+                            == midi_ports[static_cast<size_t>(port)];
                         if (ImGui::Selectable(label.c_str(), active))
                         {
                             gate_input_requested_ = GateInput::Midi;
@@ -2732,13 +2702,13 @@ std::string ScoreHost::status_text() const
             status += !roll && flow_.waiting()
                 ? "  WAIT"
                 : (flow_.at_end() ? "  end" : (flow_.playing() ? "  >" : "  ||"));
-            if (mic_input_ != nullptr)
+            if (input_rig_.kind() == PlayerInputRig::Kind::Mic)
             {
-                if (mic_input_->state() == MicPlayerInput::State::Ready)
+                if (input_rig_.mic_ready())
                 {
                     // Input level 0-9: the at-a-glance "it hears me" meter.
                     const int level = std::clamp(
-                        static_cast<int>(mic_input_->level() * 9.99f), 0, 9);
+                        static_cast<int>(input_rig_.mic_level() * 9.99f), 0, 9);
                     status += "  MIC" + std::to_string(level);
                 }
                 else

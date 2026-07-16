@@ -5,13 +5,10 @@
 #include <draxul/notation/score_document.h>
 #include <draxul/scoreview/engraved_window.h>
 #include <draxul/scoreview/flow_controller.h>
-#include <draxul/scoreview/keyboard_player_input.h>
 #include <draxul/scoreview/layout_engine.h>
 #include <draxul/scoreview/metronome_synth.h>
-#include <draxul/scoreview/mic_player_input.h>
-#include <draxul/scoreview/midi_player_input.h>
 #include <draxul/scoreview/piece_analysis.h>
-#include <draxul/scoreview/player_input.h>
+#include <draxul/scoreview/player_input_rig.h>
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
@@ -263,17 +260,15 @@ private:
     ScoreHighlightState highlight_;
     std::chrono::steady_clock::time_point last_pump_{};
 
-    // Gate state (plans/scoreview-gate.md). The input seam's production
-    // implementation is the milestone-3 microphone listener; keyboard and
-    // bot are scaffolding.
-    std::unique_ptr<IPlayerInput> player_input_;
-    KeyboardPlayerInput* keyboard_input_ = nullptr; // borrowed from player_input_
-    MicPlayerInput* mic_input_ = nullptr; // borrowed from player_input_
-    MidiPlayerInput* midi_input_ = nullptr; // borrowed from player_input_
+    // Gate state (plans/scoreview-gate.md). The rig owns the live input
+    // implementation and the selection/fallback policy; the host talks to
+    // the seam plus narrow device capabilities and never names a concrete
+    // input type.
+    PlayerInputRig input_rig_;
     bool start_in_gate_ = false;
     GateInput gate_input_requested_ = GateInput::Keyboard;
-    // The MIDI port the inspector selected (index into MidiPlayerInput::
-    // list_ports at selection time); -1 = none chosen yet.
+    // The MIDI port the inspector selected (index into the rig's
+    // list_midi_ports at selection time); -1 = none chosen yet.
     int midi_port_requested_ = -1;
     // Which game the transport plays: Roll (the runner — default) or Gate
     // (wait mode, kept as a dev/verification instrument).

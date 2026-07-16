@@ -59,15 +59,19 @@ concrete aliases (`keyboard_input_`, `mic_input_`, `midi_input_`, each
 21's `ScoreAudioController` owns input lifecycle, so this seam should land as
 (or just before) that extraction's first slice.
 
-- [ ] Encapsulate ownership + selection + fallback (mic that fails to open
-      falls back to keyboard; MIDI port re-selection) in one input-selector
-      component; the host holds that component, not the aliases.
-- [ ] Surface per-device needs through narrow capabilities instead of concrete
-      types: MIDI port enumeration/selection, mic permission preflight/level,
-      keyboard key feed for `handle_gate_key`. Keep `IPlayerInput` itself
-      narrow — repo precedent from `15 ihost-interface-width` applies.
-- [ ] Behavior preserved: input swaps keep the session (verdicts, score,
-      transport); the requested-vs-engaged result reporting is unchanged.
+- [x] `PlayerInputRig` (draxul-scoreview-host, since the mic front-end lives
+      there): owns the unique_ptr + selection/fallback policy (MIDI open
+      failure and immediate mic failure fall back to the keyboard; a mic
+      still Opening counts as engaged and the host polls `mic_failed()` for
+      the late fallback). The host holds the rig, not the aliases.
+- [x] Narrow capabilities instead of concrete types: `feed_keyboard_note`,
+      `mic_failed/mic_ready/mic_error/mic_level`, `midi_port_name`,
+      `take_midi_voice_events`, static `list_midi_ports`. `IPlayerInput`
+      untouched (stays poll-only). Zero concrete input types named in
+      `score_host.{h,cpp}` afterward (verified by grep).
+- [x] Behavior preserved: input swaps keep the session (verdicts, score,
+      transport); requested-vs-engaged reporting unchanged; MIDI success
+      still opens the output stream for play-thru (host-side, audio concern).
 
 ## Item 3 — composition-model decision (two readers, one trajectory)
 
