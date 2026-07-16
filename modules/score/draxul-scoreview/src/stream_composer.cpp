@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace draxul
 {
@@ -73,8 +74,6 @@ void StreamComposer::configure(
 
 void StreamComposer::reset()
 {
-    program_.clear();
-    slot_start_q_.assign(1, 0.0);
     frontier_ = 0;
     finished_ = false;
     piece_bars_since_special_ = 0;
@@ -90,35 +89,11 @@ void StreamComposer::reset()
     performance_run_ = false;
 }
 
-int StreamComposer::ensure(int slots)
+int StreamComposer::ensure(StreamProgram& program, int slots)
 {
-    while (!finished_ && planned() < slots)
-        compose_next();
-    return planned();
-}
-
-double StreamComposer::slot_start_q(int slot) const
-{
-    if (slot_start_q_.empty())
-        return 0.0;
-    const int clamped = std::clamp(slot, 0, static_cast<int>(slot_start_q_.size()) - 1);
-    return slot_start_q_[static_cast<size_t>(clamped)];
-}
-
-double StreamComposer::slot_quarters(int slot) const
-{
-    return slot_start_q(slot + 1) - slot_start_q(slot);
-}
-
-int StreamComposer::slot_at(double stream_q) const
-{
-    const int slots = planned();
-    for (int slot = 0; slot < slots; ++slot)
-    {
-        if (stream_q < slot_start_q_[static_cast<size_t>(slot) + 1])
-            return slot;
-    }
-    return slots > 0 ? slots - 1 : 0;
+    while (!finished_ && program.size() < slots)
+        compose_next(program);
+    return program.size();
 }
 
 void StreamComposer::begin_next_arc()
@@ -167,7 +142,7 @@ void StreamComposer::begin_next_arc()
     ++arc_;
 }
 
-bool StreamComposer::try_hands(int slot)
+bool StreamComposer::try_hands(StreamProgram& program, int slot)
 {
     // The deepest simplification rung: the worst deeply-struggling bar
     // returns with its WEAK HAND ALONE (once per bar per program).
@@ -208,19 +183,19 @@ bool StreamComposer::try_hands(int slot)
     StreamBarPlan plan;
     plan.kind = StreamBarPlan::Kind::Drill;
     plan.source_bar = worst_bar;
+    plan.source_start_q = slicer_->bar_start_q(worst_bar);
     plan.drill_xml = slicer_->hands_separate_xml(worst_bar, weak_staff);
     if (plan.drill_xml.empty())
         return false;
     plan.reason = "hands separate: bar " + std::to_string(worst_bar + 1) + ", staff "
         + std::to_string(weak_staff) + " alone";
     piece_bars_since_special_ = 0;
-    program_.push_back(std::move(plan));
-    slot_start_q_.push_back(slot_start_q_.back() + slicer_->bar_quarters(worst_bar));
+    program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
     (void)slot;
     return true;
 }
 
-bool StreamComposer::try_drill(int slot)
+bool StreamComposer::try_drill(StreamProgram& program, int slot)
 {
     std::string worst_key;
     int worst_trouble = kDrillTroubleThreshold - 1;
@@ -245,6 +220,7 @@ bool StreamComposer::try_drill(int slot)
     StreamBarPlan plan;
     plan.kind = StreamBarPlan::Kind::Drill;
     plan.source_bar = std::clamp(frontier_, 0, slicer_->bar_count() - 1);
+    plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
     plan.drill_xml = fabricate_chord_drill(worst_key, plan.source_bar, broken);
     if (plan.drill_xml.empty())
         return false;
@@ -252,13 +228,12 @@ bool StreamComposer::try_drill(int slot)
         + " (" + std::to_string(worst_trouble) + " trouble)";
     last_drill_slot_[worst_key] = slot;
     piece_bars_since_special_ = 0;
-    program_.push_back(std::move(plan));
-    slot_start_q_.push_back(
-        slot_start_q_.back() + slicer_->bar_quarters(program_.back().source_bar));
+    const double quarters = slicer_->bar_quarters(plan.source_bar);
+    program.append(std::move(plan), quarters);
     return true;
 }
 
-bool StreamComposer::try_scale(int slot)
+bool StreamComposer::try_scale(StreamProgram& program, int slot)
 {
     // Register trouble: missed pitches piling up inside an octave window
     // earn a scale fragment through that register, in the piece's key.
@@ -287,6 +262,7 @@ bool StreamComposer::try_scale(int slot)
     StreamBarPlan plan;
     plan.kind = StreamBarPlan::Kind::Drill;
     plan.source_bar = std::clamp(frontier_, 0, slicer_->bar_count() - 1);
+    plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
     plan.drill_xml = fabricate_scale_bar(plan.source_bar, worst_window * 12 + 6);
     if (plan.drill_xml.empty())
         return false;
@@ -295,13 +271,12 @@ bool StreamComposer::try_scale(int slot)
         + ", " + std::to_string(worst_misses) + " misses)";
     last_scale_slot_[worst_window] = slot;
     piece_bars_since_special_ = 0;
-    program_.push_back(std::move(plan));
-    slot_start_q_.push_back(
-        slot_start_q_.back() + slicer_->bar_quarters(program_.back().source_bar));
+    const double quarters = slicer_->bar_quarters(plan.source_bar);
+    program.append(std::move(plan), quarters);
     return true;
 }
 
-bool StreamComposer::try_review(int slot)
+bool StreamComposer::try_review(StreamProgram& program, int slot)
 {
     int worst_bar = -1;
     double worst_mastery = kReviewMasteryThreshold;
@@ -326,19 +301,18 @@ bool StreamComposer::try_review(int slot)
     StreamBarPlan plan;
     plan.kind = StreamBarPlan::Kind::Review;
     plan.source_bar = worst_bar;
+    plan.source_start_q = slicer_->bar_start_q(worst_bar);
     char mastery_text[32];
     std::snprintf(mastery_text, sizeof(mastery_text), "%.2f", worst_mastery);
     plan.reason = "review bar " + std::to_string(worst_bar + 1) + " (mastery " + mastery_text + ")";
     ++reviews_used_[worst_bar];
     last_review_slot_[worst_bar] = slot;
     piece_bars_since_special_ = 0;
-    program_.push_back(std::move(plan));
-    slot_start_q_.push_back(
-        slot_start_q_.back() + slicer_->bar_quarters(program_.back().source_bar));
+    program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
     return true;
 }
 
-void StreamComposer::compose_next()
+void StreamComposer::compose_next(StreamProgram& program)
 {
     if (!ready())
     {
@@ -353,19 +327,19 @@ void StreamComposer::compose_next()
             return;
     }
 
-    const int slot = planned();
+    const int slot = program.size();
     const bool specials_allowed = !performance_run_ && piece_bars_since_special_ >= kMinPieceBarsBetweenSpecials;
     if (specials_allowed)
     {
         // Rotate the chain so every trouble type gets airtime — twenty
         // weak bars must not starve the chord drills (never boring).
-        using TryFn = bool (StreamComposer::*)(int);
+        using TryFn = bool (StreamComposer::*)(StreamProgram&, int);
         static constexpr TryFn kChain[4] = { &StreamComposer::try_hands,
             &StreamComposer::try_drill, &StreamComposer::try_scale,
             &StreamComposer::try_review };
         for (int at = 0; at < 4; ++at)
         {
-            if ((this->*kChain[(specials_count_ + at) % 4])(slot))
+            if ((this->*kChain[(specials_count_ + at) % 4])(program, slot))
             {
                 ++specials_count_;
                 return;
@@ -376,15 +350,15 @@ void StreamComposer::compose_next()
     StreamBarPlan plan;
     plan.kind = StreamBarPlan::Kind::Piece;
     plan.source_bar = frontier_++;
+    plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
     if (performance_run_ && plan.source_bar == 0)
         plan.reason = "performance run — every bar mastered";
     else if (arc_ > 0 && !performance_run_ && frontier_ - 1 == arc_end_bar_ - std::min(kSliceBars, total))
         plan.reason = "arc " + std::to_string(arc_) + ": weakest slice, bars "
             + std::to_string(frontier_) + ".." + std::to_string(arc_end_bar_);
     ++piece_bars_since_special_;
-    program_.push_back(std::move(plan));
-    slot_start_q_.push_back(
-        slot_start_q_.back() + slicer_->bar_quarters(program_.back().source_bar));
+    const double quarters = slicer_->bar_quarters(plan.source_bar);
+    program.append(std::move(plan), quarters);
 }
 
 std::string StreamComposer::fabricate_chord_drill(

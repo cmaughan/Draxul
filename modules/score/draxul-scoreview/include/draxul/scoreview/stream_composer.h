@@ -4,37 +4,22 @@
 // stream feeds the player, one bar slot at a time, from the live player
 // model — piece bars at a walking frontier, spaced REVIEW slices of weak
 // bars, and fabricated DRILL bars built from the exact voiced chords the
-// player fumbles. Pure and deterministic given its inputs; the host maps
-// slots to windows and outcomes back through provenance.
+// player fumbles. Pure and deterministic given its inputs; it extends a
+// host-owned StreamProgram, and the host maps slots to windows and outcomes
+// back through the program's provenance.
 
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/source_slicer.h>
+#include <draxul/scoreview/stream_program.h>
 
 #include <map>
 #include <string>
-#include <vector>
 
 namespace draxul
 {
 namespace scoreview
 {
-
-struct StreamBarPlan
-{
-    enum class Kind : uint8_t
-    {
-        Piece, // the frontier bar, verbatim
-        Review, // a weak earlier bar, revisited (spaced repetition)
-        Drill, // a fabricated exercise bar
-    };
-    Kind kind = Kind::Piece;
-    // Piece/Review: the bar to play. Drill: the reference bar whose
-    // attribute state and provenance context the drill inherits.
-    int source_bar = -1;
-    std::string drill_xml; // Drill only: the fabricated <measure>
-    std::string reason; // human-readable, for logs and debugging
-};
 
 class StreamComposer
 {
@@ -66,28 +51,19 @@ public:
     {
         return slicer_ != nullptr && model_ != nullptr;
     }
+    // Clears composer policy state only; the host clears the paired program
+    // in the same breath (ScoreHost::reset_stream_plan) — cooldowns are slot
+    // indexed, so composer state and program must never diverge.
     void reset();
 
-    // Extends the program up to `slots` entries (stops early when the
-    // frontier finishes); returns the planned count.
-    int ensure(int slots);
-    int planned() const
-    {
-        return static_cast<int>(program_.size());
-    }
+    // Extends `program` up to `slots` entries (stops early when the
+    // frontier finishes); returns the planned count. Must always be handed
+    // the same program this composer has been extending since reset().
+    int ensure(StreamProgram& program, int slots);
     bool finished() const
     {
         return finished_;
     }
-    const StreamBarPlan& plan(int slot) const
-    {
-        return program_[static_cast<size_t>(slot)];
-    }
-
-    // Stream-axis geometry over the program (slot 0 starts at 0).
-    double slot_start_q(int slot) const;
-    double slot_quarters(int slot) const;
-    int slot_at(double stream_q) const;
 
     // The fabricated chord-drill measure for a "60+64+67"-style key, in the
     // attribute context of `reference_bar` (public for tests). Broken form
@@ -99,19 +75,17 @@ public:
     std::string fabricate_scale_bar(int reference_bar, int center_pitch) const;
 
 private:
-    void compose_next();
-    bool try_hands(int slot);
-    bool try_drill(int slot);
-    bool try_scale(int slot);
-    bool try_review(int slot);
+    void compose_next(StreamProgram& program);
+    bool try_hands(StreamProgram& program, int slot);
+    bool try_drill(StreamProgram& program, int slot);
+    bool try_scale(StreamProgram& program, int slot);
+    bool try_review(StreamProgram& program, int slot);
     void begin_next_arc();
 
     const SourceSlicer* slicer_ = nullptr;
     const PlayerModel* model_ = nullptr;
     const PieceProfile* profile_ = nullptr;
 
-    std::vector<StreamBarPlan> program_;
-    std::vector<double> slot_start_q_; // size = program_.size() + 1
     int frontier_ = 0;
     bool finished_ = false;
     int piece_bars_since_special_ = 0;

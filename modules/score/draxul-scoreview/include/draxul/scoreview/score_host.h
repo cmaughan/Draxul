@@ -18,6 +18,7 @@
 #include <draxul/scoreview/soundfont_synth.h>
 #include <draxul/scoreview/source_slicer.h>
 #include <draxul/scoreview/stream_composer.h>
+#include <draxul/scoreview/stream_program.h>
 #include <draxul/scoreview/window_engraver.h>
 
 #include <chrono>
@@ -180,6 +181,9 @@ private:
     // the restart; only clearing the piece's record resets it (and the tempo
     // lock always wins either way).
     void restart_stream(bool keep_tempo);
+    // Drops the planned program AND the composer's slot-indexed policy state
+    // together (they must never diverge), plus the plan-log cursor.
+    void reset_stream_plan();
     // Re-engraves the current flow material after a spacing change, keeping
     // position and verdicts (streaming rebuilds the current window with
     // carry; the monolith goes through flow_dirty_). Resets the band scale.
@@ -325,7 +329,11 @@ private:
     PieceProfile piece_profile_;
 
     // The composer (S3): plans the stream program (piece bars, review
-    // slices, fabricated drills) when the source supports it.
+    // slices, fabricated drills) when the source supports it. The host owns
+    // the program; the composer extends it. reset_stream_plan() clears both
+    // together — the composer's cooldowns are slot-indexed, so program and
+    // policy state must never diverge.
+    StreamProgram stream_program_;
     StreamComposer composer_;
     bool composing_ = false;
     int last_logged_plan_slot_ = -1;

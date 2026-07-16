@@ -135,14 +135,15 @@ TEST_CASE("a fresh player gets the piece verbatim", "[scoreview][composer]")
     StreamComposer composer;
     composer.configure(&grieg_slicer(), &model, nullptr);
 
-    const int planned = composer.ensure(20);
+    StreamProgram program;
+    const int planned = composer.ensure(program, 20);
     REQUIRE(planned >= 20);
     for (int slot = 0; slot < 20; ++slot)
     {
-        CHECK(composer.plan(slot).kind == StreamBarPlan::Kind::Piece);
-        CHECK(composer.plan(slot).source_bar == slot);
+        CHECK(program.plan(slot).kind == StreamBarPlan::Kind::Piece);
+        CHECK(program.plan(slot).source_bar == slot);
     }
-    CHECK(composer.slot_start_q(2) == Catch::Approx(6.0)); // 3/4 bars
+    CHECK(program.slot_start_q(2) == Catch::Approx(6.0)); // 3/4 bars
 }
 
 TEST_CASE("chord trouble earns a drill with a cooldown", "[scoreview][composer]")
@@ -153,12 +154,13 @@ TEST_CASE("chord trouble earns a drill with a cooldown", "[scoreview][composer]"
 
     StreamComposer composer;
     composer.configure(&grieg_slicer(), &model, nullptr);
-    composer.ensure(30);
+    StreamProgram program;
+    composer.ensure(program, 30);
 
     std::vector<int> drill_slots;
     for (int slot = 0; slot < 30; ++slot)
     {
-        const StreamBarPlan& plan = composer.plan(slot);
+        const StreamBarPlan& plan = program.plan(slot);
         if (plan.kind == StreamBarPlan::Kind::Drill)
         {
             drill_slots.push_back(slot);
@@ -172,7 +174,7 @@ TEST_CASE("chord trouble earns a drill with a cooldown", "[scoreview][composer]"
     // Piece bars still dominate: never boring.
     int piece_bars = 0;
     for (int slot = 0; slot < 30; ++slot)
-        piece_bars += composer.plan(slot).kind == StreamBarPlan::Kind::Piece ? 1 : 0;
+        piece_bars += program.plan(slot).kind == StreamBarPlan::Kind::Piece ? 1 : 0;
     CHECK(piece_bars >= 20);
 }
 
@@ -184,12 +186,13 @@ TEST_CASE("weak encountered bars come back as reviews", "[scoreview][composer]")
 
     StreamComposer composer;
     composer.configure(&grieg_slicer(), &model, nullptr);
-    composer.ensure(40);
+    StreamProgram program;
+    composer.ensure(program, 40);
 
     int reviews_of_bar_1 = 0;
     for (int slot = 0; slot < 40; ++slot)
     {
-        const StreamBarPlan& plan = composer.plan(slot);
+        const StreamBarPlan& plan = program.plan(slot);
         if (plan.kind == StreamBarPlan::Kind::Review)
         {
             CHECK(plan.source_bar == 1);
@@ -202,10 +205,21 @@ TEST_CASE("weak encountered bars come back as reviews", "[scoreview][composer]")
 
     // Provenance geometry: the stream axis accounts for every slot, and a
     // review slot maps back to its source bar.
-    const int last = composer.planned() - 1;
-    CHECK(composer.slot_start_q(last + 1)
-        == Catch::Approx(3.0 * static_cast<double>(composer.planned())));
-    CHECK(composer.slot_at(composer.slot_start_q(2) + 0.5) == 2);
+    const int last = program.size() - 1;
+    CHECK(program.slot_start_q(last + 1)
+        == Catch::Approx(3.0 * static_cast<double>(program.size())));
+    CHECK(program.slot_at(program.slot_start_q(2) + 0.5) == 2);
+    for (int slot = 0; slot < 40; ++slot)
+    {
+        const StreamBarPlan& plan = program.plan(slot);
+        if (plan.kind != StreamBarPlan::Kind::Review)
+            continue;
+        // A position inside the review slot trains the SOURCE bar's onsets.
+        const auto ref = program.source_at(program.slot_start_q(slot) + 0.5);
+        CHECK_FALSE(ref.drill);
+        CHECK(ref.source_bar == plan.source_bar);
+        CHECK(ref.source_q == Catch::Approx(plan.source_bar * 3.0 + 0.5));
+    }
 }
 
 TEST_CASE("drill outcomes train pitch and chord stats but never bar mastery",
@@ -331,12 +345,13 @@ TEST_CASE("the arc loops weakest slices until mastery earns the performance run"
     StreamComposer composer;
     composer.configure(&slicer, &model, nullptr);
     // Plan far past the piece: the frontier finishes, then arcs begin.
-    composer.ensure(total + 40);
+    StreamProgram program;
+    composer.ensure(program, total + 40);
     REQUIRE_FALSE(composer.finished());
     bool arc_hits_weak_region = false;
-    for (int slot = total; slot < composer.planned(); ++slot)
+    for (int slot = total; slot < program.size(); ++slot)
     {
-        const StreamBarPlan& plan = composer.plan(slot);
+        const StreamBarPlan& plan = program.plan(slot);
         if (plan.kind == StreamBarPlan::Kind::Piece && plan.source_bar >= 8
             && plan.source_bar < 16)
             arc_hits_weak_region = true;
@@ -361,16 +376,17 @@ TEST_CASE("the arc loops weakest slices until mastery earns the performance run"
     }
     StreamComposer earned;
     earned.configure(&slicer, &mastered, nullptr);
-    earned.ensure(2 * total + 10);
+    StreamProgram earned_program;
+    earned.ensure(earned_program, 2 * total + 10);
     REQUIRE(earned.finished());
     // The program: one full pass, then the performance run, then the end.
-    CHECK(earned.planned() == 2 * total);
+    CHECK(earned_program.size() == 2 * total);
     bool performance_marked = false;
-    for (int slot = total; slot < earned.planned(); ++slot)
+    for (int slot = total; slot < earned_program.size(); ++slot)
     {
-        CHECK(earned.plan(slot).kind == StreamBarPlan::Kind::Piece);
-        CHECK(earned.plan(slot).source_bar == slot - total);
-        performance_marked |= earned.plan(slot).reason.find("performance run")
+        CHECK(earned_program.plan(slot).kind == StreamBarPlan::Kind::Piece);
+        CHECK(earned_program.plan(slot).source_bar == slot - total);
+        performance_marked |= earned_program.plan(slot).reason.find("performance run")
             != std::string::npos;
     }
     CHECK(performance_marked);

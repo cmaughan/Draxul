@@ -17,6 +17,7 @@ add_library(draxul-scoreview STATIC
     src/soundfont_synth.cpp
     src/source_slicer.cpp
     src/stream_composer.cpp
+    src/stream_program.cpp
     src/svg_score_interpreter.cpp
     src/verovio_layout_engine.cpp
     src/window_engraver.cpp

@@ -638,7 +638,10 @@ void ScoreHost::relayout_flow()
         composing_ = composer_enabled_ && stream_windowed_ && slicer_.ready()
             && slicer_.part_count() == 1;
         if (composing_)
+        {
             composer_.configure(&slicer_, &player_model_, &piece_profile_);
+            reset_stream_plan();
+        }
 
         // Piece analysis (stream plan S1): key, chords + nearings, motifs,
         // rhythm figures — from the judgment axis itself, dumped beside the
@@ -744,14 +747,14 @@ std::optional<ScoreHost::WindowSlice> ScoreHost::build_window_slice(int first_ba
     WindowSlice slice;
     if (composing_)
     {
-        const int available = composer_.ensure(first_bar + window_span);
+        const int available = composer_.ensure(stream_program_, first_bar + window_span);
         first_bar = std::clamp(first_bar, 0, std::max(0, available - 1));
         slice.count = std::min(window_span, available - first_bar);
         std::vector<SourceSlicer::StreamBar> items;
         items.reserve(static_cast<size_t>(slice.count));
         for (int slot = first_bar; slot < first_bar + slice.count; ++slot)
         {
-            const StreamBarPlan& plan = composer_.plan(slot);
+            const StreamBarPlan& plan = stream_program_.plan(slot);
             if (!plan.reason.empty() && slot > last_logged_plan_slot_)
                 DRAXUL_LOG_INFO(
                     LogCategory::App, "stream: slot %d = %s", slot, plan.reason.c_str());
@@ -763,8 +766,8 @@ std::optional<ScoreHost::WindowSlice> ScoreHost::build_window_slice(int first_ba
                 item.source_bar = plan.source_bar;
             items.push_back(std::move(item));
         }
-        slice.xml = slicer_.window_xml_for(items, composer_.plan(first_bar).source_bar);
-        slice.stream_offset_q = composer_.slot_start_q(first_bar);
+        slice.xml = slicer_.window_xml_for(items, stream_program_.plan(first_bar).source_bar);
+        slice.stream_offset_q = stream_program_.slot_start_q(first_bar);
     }
     else
     {
@@ -820,7 +823,8 @@ bool ScoreHost::rebuild_window(
         if (request_id == 0)
             return false;
         pending_window_install_ = PendingWindowInstall{
-            request_id, stream_position_q, carry, preserve_tempo, false };
+            request_id, stream_position_q, carry, preserve_tempo, false
+        };
         async_engrave_in_flight_ = true;
         DRAXUL_LOG_DEBUG(LogCategory::App,
             "score: queued window generation %llu for bars %d..%d",
@@ -878,8 +882,9 @@ void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int cou
     {
         flow_.restore_carry(carried);
         const double local_position = stream_position_q - stream_offset_q_;
-        const double window_end_local = (composing_ ? composer_.slot_start_q(first_bar + count)
-                                                    : slicer_.bar_start_q(first_bar + count))
+        const double window_end_local = (composing_
+                                                ? stream_program_.slot_start_q(first_bar + count)
+                                                : slicer_.bar_start_q(first_bar + count))
             - stream_offset_q_;
         for (const auto& [key, verdict] : verdict_archive_)
         {
@@ -938,13 +943,19 @@ void ScoreHost::restart_stream(bool keep_tempo)
 {
     const double tempo = flow_.tempo_qpm();
     verdict_archive_.clear();
-    composer_.reset();
-    last_logged_plan_slot_ = -1;
+    reset_stream_plan();
     rebuild_window(0, 0.0, /*carry=*/false, /*preserve_tempo=*/keep_tempo);
     if (keep_tempo && !lock_tempo_)
         flow_.set_tempo_qpm(tempo);
     if (callbacks_ != nullptr)
         callbacks_->request_frame();
+}
+
+void ScoreHost::reset_stream_plan()
+{
+    stream_program_.clear();
+    composer_.reset();
+    last_logged_plan_slot_ = -1;
 }
 
 void ScoreHost::reengrave_flow_in_place()
@@ -972,9 +983,9 @@ void ScoreHost::maybe_advance_stream()
     if (composing_)
     {
         if (composer_.finished()
-            && window_first_bar_ + window_bar_count_ >= composer_.planned())
+            && window_first_bar_ + window_bar_count_ >= stream_program_.size())
             return; // the program is complete and the window reaches its end
-        playhead_bar = composer_.slot_at(stream_q);
+        playhead_bar = stream_program_.slot_at(stream_q);
     }
     else
     {
@@ -1015,7 +1026,8 @@ void ScoreHost::maybe_advance_stream()
         if (request_id == 0)
             return;
         pending_window_install_ = PendingWindowInstall{
-            request_id, stream_q, true, false, true };
+            request_id, stream_q, true, false, true
+        };
         async_engrave_in_flight_ = true;
         return;
     }
@@ -1212,8 +1224,7 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
         // The runner plays on the rolling window from stream bar 0, with
         // a fresh program (mastery persists in the player model, not here).
         verdict_archive_.clear();
-        composer_.reset();
-        last_logged_plan_slot_ = -1;
+        reset_stream_plan();
         if (!rebuild_window(0, 0.0, /*carry=*/false))
             flow_.set_mode(game_mode_); // fell back to the monolithic strip
         else if (async_engrave_in_flight_)
@@ -1583,9 +1594,9 @@ int ScoreHost::approx_measure() const
         return 0;
     if (composing_ && stream_active())
     {
-        const int slot = composer_.slot_at(stream_position_q());
-        if (slot < composer_.planned())
-            return composer_.plan(slot).source_bar + 1;
+        const int slot = stream_program_.slot_at(stream_position_q());
+        if (slot < stream_program_.size())
+            return stream_program_.plan(slot).source_bar + 1;
     }
     return static_cast<int>(stream_position_q() / quarters_per_measure) + 1;
 }
@@ -1674,12 +1685,9 @@ void ScoreHost::pump()
                 }
                 if (composing_ && !outcome.stray)
                 {
-                    const int slot = composer_.slot_at(stream_q);
-                    const StreamBarPlan& plan = composer_.plan(slot);
-                    outcome.onset_q = plan.kind == StreamBarPlan::Kind::Drill
-                        ? PlayerModel::kDrillOnsetSentinel
-                        : slicer_.bar_start_q(plan.source_bar)
-                            + (stream_q - composer_.slot_start_q(slot));
+                    const StreamProgram::SourceRef ref = stream_program_.source_at(stream_q);
+                    outcome.onset_q
+                        = ref.drill ? PlayerModel::kDrillOnsetSentinel : ref.source_q;
                 }
                 else
                 {
@@ -1850,14 +1858,10 @@ void ScoreHost::draw(IFrameContext& frame)
                 bool drill = false;
                 if (composing_)
                 {
-                    const int slot = composer_.slot_at(stream_q);
-                    const StreamBarPlan& plan = composer_.plan(slot);
-                    if (plan.kind == StreamBarPlan::Kind::Drill)
-                        drill = true;
-                    else
-                        trailing = player_model_.onset_trailing_correct(
-                            slicer_.bar_start_q(plan.source_bar)
-                            + (stream_q - composer_.slot_start_q(slot)));
+                    const StreamProgram::SourceRef ref = stream_program_.source_at(stream_q);
+                    drill = ref.drill;
+                    if (!ref.drill)
+                        trailing = player_model_.onset_trailing_correct(ref.source_q);
                 }
                 else
                 {
@@ -2642,11 +2646,11 @@ void ScoreHost::render_debug_ui(float dt)
 
             if (composing_ && ImGui::CollapsingHeader("Composer program", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                const int slot_now = composer_.slot_at(stream_position_q());
-                const int planned = composer_.planned();
+                const int slot_now = stream_program_.slot_at(stream_position_q());
+                const int planned = stream_program_.size();
                 for (int s = slot_now; s < planned && s < slot_now + 10; ++s)
                 {
-                    const StreamBarPlan& p = composer_.plan(s);
+                    const StreamBarPlan& p = stream_program_.plan(s);
                     const char* kind = p.kind == StreamBarPlan::Kind::Piece ? "piece"
                         : p.kind == StreamBarPlan::Kind::Review             ? "review"
                                                                             : "drill";
@@ -2761,10 +2765,10 @@ std::string ScoreHost::status_text() const
                 status += "  acc " + std::to_string(acc) + "%";
                 if (composing_ && stream_active())
                 {
-                    const int slot = composer_.slot_at(stream_position_q());
-                    if (slot < composer_.planned())
+                    const int slot = stream_program_.slot_at(stream_position_q());
+                    if (slot < stream_program_.size())
                     {
-                        const StreamBarPlan::Kind kind = composer_.plan(slot).kind;
+                        const StreamBarPlan::Kind kind = stream_program_.plan(slot).kind;
                         if (kind == StreamBarPlan::Kind::Drill)
                             status += "  DRILL";
                         else if (kind == StreamBarPlan::Kind::Review)

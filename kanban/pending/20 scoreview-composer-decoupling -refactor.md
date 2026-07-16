@@ -53,27 +53,27 @@ Verovio/SDL/transport at link time.
 
 ## Phase 2 — `StreamProgram` (program + geometry + provenance)
 
-- [ ] New `stream_program.{h,cpp}`: move `StreamBarPlan` here; add a
+- [x] New `stream_program.{h,cpp}`: move `StreamBarPlan` here; add a
       `double source_start_q` field the composer fills at plan time (from
       `SourceSlicer::bar_start_q`) so provenance answers need no slicer.
-- [ ] `StreamProgram` owns the plan vector and `slot_start_q_` (moved out of
+- [x] `StreamProgram` owns the plan vector and `slot_start_q_` (moved out of
       `StreamComposer`): `append(plan, quarters)`, `clear()`, `size()`,
       `plan(slot)`, `slot_start_q()/slot_quarters()/slot_at()`, and
       `SourceRef source_at(double stream_q)` returning
       `{drill, source_bar, source_q}`.
-- [ ] `StreamComposer::ensure(StreamProgram&, int slots)`; the `try_*` helpers
+- [x] `StreamComposer::ensure(StreamProgram&, int slots)`; the `try_*` helpers
       append to the passed program; the composer keeps only policy state.
-- [ ] Host owns `StreamProgram stream_program_`; swap every
+- [x] Host owns `StreamProgram stream_program_`; swap every
       `composer_.plan/planned/slot_*` read to program reads
       (`build_window_slice`, window-end math, playhead-bar mapping, status
       text, inspector program table, HUD kind badge).
-- [ ] Replace BOTH hand-rolled provenance mappings with
+- [x] Replace BOTH hand-rolled provenance mappings with
       `stream_program_.source_at()`: outcome routing into the player model
       (drill → `PlayerModel::kDrillOnsetSentinel`) and the guidance keyboard's
       `onset_trailing_correct` lookup.
-- [ ] Add the paired-reset helper; audit every `composer_.reset()` call site
-      (restart_stream, clear-progress, inspector toggle, configure) to clear
-      the program alongside.
+- [x] Add the paired-reset helper (`ScoreHost::reset_stream_plan`); audited
+      every `composer_.reset()` call site (restart_stream, enter_gate_mode,
+      initialize/configure) — each clears the program alongside.
 
 ## Phase 3 — measure writer (`measure_xml.{h,cpp}`)
 
