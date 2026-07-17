@@ -1,5 +1,7 @@
 #include <draxul/scoreview/score_host.h>
 
+#include <draxul/scoreview/stream_composer.h>
+
 #include <draxul/base_renderer.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
@@ -833,13 +835,35 @@ void ScoreHost::apply_tempo_ladder()
     if (source_bar < 0 || source_bar == ladder_bar_)
         return;
     ladder_bar_ = source_bar;
-    const double cap_qpm
-        = flow_.marking_qpm() * session_->model().bar_tempo_ladder(source_bar);
+    // The cap is the MINIMUM rung across the PHRASE containing this bar, not
+    // the bar alone: a passage is played no faster than its hardest bar
+    // allows (the classic rule), so the pulse stays coherent across the
+    // phrase instead of lurching bar-to-bar over the mastery terrain. As
+    // every bar in the phrase improves, the phrase's floor rises — all
+    // ships. Unplayed bars hold the rung at the start fraction, so the
+    // stream never speeds into unread material. Without confident structure
+    // the bar's own rung applies (no phrase to be coherent across).
+    const PieceProfile& profile = session_->piece_profile();
+    double cap_frac = session_->model().bar_tempo_ladder(source_bar);
+    int cap_begin = source_bar;
+    int cap_end = source_bar + 1;
+    if (profile.structure_confidence >= StreamComposer::kMinStructureConfidence)
+    {
+        if (const PieceProfile::Phrase* phrase = profile.phrase_at_bar(source_bar))
+        {
+            cap_begin = phrase->start_bar;
+            cap_end = phrase->end_bar;
+            for (int bar = phrase->start_bar; bar < phrase->end_bar; ++bar)
+                cap_frac = std::min(cap_frac, session_->model().bar_tempo_ladder(bar));
+        }
+    }
+    const double cap_qpm = flow_.marking_qpm() * cap_frac;
     if (flow_.tempo_qpm() > cap_qpm)
     {
         flow_.set_tempo_qpm(cap_qpm);
-        DRAXUL_LOG_DEBUG(LogCategory::App, "score: tempo ladder caps bar %d at %.0f qpm",
-            source_bar + 1, cap_qpm);
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "score: tempo ladder caps bars %d..%d at %.0f qpm (weakest rung %.2f)",
+            cap_begin + 1, cap_end, cap_qpm, cap_frac);
     }
 }
 
