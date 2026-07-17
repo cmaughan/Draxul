@@ -112,16 +112,32 @@ void MidiPlayerInput::feed(const unsigned char* data, size_t size)
     pending.event.on = status == 0x90u && raw_velocity > 0;
     pending.at = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(mutex_);
+    // Bounded backlog (kanban 16): a stalled main thread must not let the
+    // backend queue grow without limit. Overload drops the OLDEST events
+    // first — fresh input reflects the keyboard's current state; a stale
+    // backlog does not. poll() reports the drop count once, off the
+    // realtime thread.
+    while (pending_.size() >= kMaxPendingEvents)
+    {
+        pending_.erase(pending_.begin());
+        ++dropped_events_;
+    }
     pending_.push_back(pending);
 }
 
 void MidiPlayerInput::poll(double t_now_seconds, std::vector<PlayerNoteEvent>& out)
 {
     std::vector<Pending> taken;
+    size_t dropped = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         taken.swap(pending_);
+        dropped = dropped_events_;
+        dropped_events_ = 0;
     }
+    if (dropped > 0)
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "midi: dropped %zu backlogged event(s) (bounded queue)", dropped);
     if (taken.empty())
         return;
     const auto now = std::chrono::steady_clock::now();

@@ -73,6 +73,12 @@ public:
     // ignored for now.
     void feed(const unsigned char* data, size_t size);
 
+    // Backlog bound: the backend queue never exceeds this many events. On
+    // overload the OLDEST events drop first (fresh input reflects the
+    // keyboard's current state; a stale backlog does not) and poll() logs
+    // the drop count once, off the realtime thread.
+    static constexpr size_t kMaxPendingEvents = 4096;
+
 private:
     struct Pending
     {
@@ -86,7 +92,8 @@ private:
     std::string error_;
 
     std::mutex mutex_;
-    std::vector<Pending> pending_; // filled by feed() (backend thread)
+    std::vector<Pending> pending_; // filled by feed() (backend thread), bounded
+    size_t dropped_events_ = 0; // overload drops since the last poll()
     std::vector<MidiVoiceEvent> voice_out_; // drained on the main thread
 };
 
