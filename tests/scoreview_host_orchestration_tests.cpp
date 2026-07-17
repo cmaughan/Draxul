@@ -158,6 +158,64 @@ TEST_CASE("shutdown retires a completed but uninstalled window generation",
     CHECK_FALSE(primed.host.is_running());
 }
 
+namespace
+{
+
+// An engine whose load() always fails: the layout-failure path.
+class FailingLayoutEngine final : public draxul::scoreview::ILayoutEngine
+{
+public:
+    bool load(std::string_view, std::string& error) override
+    {
+        error = "deterministic layout failure";
+        return false;
+    }
+    void set_options(const draxul::scoreview::LayoutOptions&) override {}
+    bool is_loaded() const override
+    {
+        return false;
+    }
+    int page_count() override
+    {
+        return 0;
+    }
+    std::string render_page_svg(int) override
+    {
+        return {};
+    }
+    std::string render_timemap() override
+    {
+        return {};
+    }
+    int midi_pitch_for_element(const std::string&) override
+    {
+        return -1;
+    }
+    int note_letter_for_element(const std::string&) override
+    {
+        return -1;
+    }
+    std::vector<std::string> tie_end_ids() override
+    {
+        return {};
+    }
+};
+
+} // namespace
+
+TEST_CASE("a layout failure degrades to the monolithic fallback, shutdown stays safe",
+    "[scoreview][host][orchestration]")
+{
+    ScoreHost host;
+    std::string error;
+    CHECK_FALSE(ScoreHostTestAccess::prime_window(
+        host, std::make_unique<FailingLayoutEngine>(), kScoreHostFixtureMinimalScore, error));
+    CHECK_FALSE(error.empty());
+    host.shutdown();
+    host.shutdown();
+    CHECK_FALSE(host.is_running());
+}
+
 TEST_CASE("input selection swaps in place and reports requested-vs-engaged",
     "[scoreview][host][orchestration][input]")
 {

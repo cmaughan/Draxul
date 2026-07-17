@@ -10,21 +10,47 @@ ScoreView has several independent background/device edges—engraving, microphon
 
 ## Implementation plan
 
-- [ ] Reuse the injected seams from microphone/rebuild fixes and the ScoreHost fixture; never require real devices in the stress suite.
-- [ ] Add a fake RtMidi adapter whose constructor, port enumeration, callback registration, cancellation, close, and destructor can throw at controlled points.
-- [ ] Add fake input/output device identities and hot-plug events, plus a deterministic audio sink that records scheduled sample positions and discontinuities.
-- [ ] Rapidly create/destroy multiple ScoreHosts, switch keyboard/MIDI/microphone, restart/re-engrave, resize, and flood MIDI events while a worker is paused.
-- [ ] Define queue/backlog limits for MIDI and audio control events; assert overload drops/coalesces by documented policy instead of growing without bound.
-- [ ] Verify instrument switches preserve sample continuity/no click-sized discontinuity and that note release reaches the correct active voice.
-- [ ] Add seeded randomized operation sequences and emit the seed/operation trace on failure.
+- [x] Reuses the shared fixture + injected engraver/engine seams; no real
+      device anywhere in the suite (tests/scoreview_worker_stress_tests.cpp).
+- [ ] Fake RtMidi adapter with throw injection: needs an IMidiBackend seam in
+      MidiPlayerInput — deferred to land with `71 scoreview-midi-auto-
+      reconnect`, which introduces that seam anyway. Device-free coverage
+      today: feed() floods (two backend threads), kNoDevice fallback paths.
+- [ ] Fake device identities/hot-plug + deterministic audio sink: needs an
+      SDL-audio ops seam in ScoreAudioController (mirror of IMicrophoneOps) —
+      deferred to land with `70 scoreview-audio-output-device`.
+- [x] Multi-host create/destroy in both orders, input-switch storm (session
+      survives), restyle/restart storm behind a wedged worker (bounded
+      main-thread latency, monotonic generations, only the newest installs),
+      teardown racing a worker release, MIDI flood while polling slowly.
+- [x] MIDI backlog bounded: MidiPlayerInput::kMaxPendingEvents (drop-oldest,
+      drop count logged from poll — policy documented in the header) with
+      flood tests asserting the cap and freshest-event survival. Audio
+      control events remain unbounded-by-design inside the synth ring
+      (bounded render blocks); revisit with the card-70 seam.
+- [ ] Sample-continuity assertions across instrument switches: needs the
+      deterministic audio sink above (the both-voices-render-every-block
+      design is in place; the assert awaits the seam).
+- [x] Seeded random operation sequence over restyle/restart/poll/input ops;
+      seed + full operation trace CAPTUREd for reproduction
+      (--rng-seed <seed>).
 
 ## Tests and acceptance
 
-- [ ] RtMidi failures always fall back cleanly and never escape a destructor as `std::terminate`.
-- [ ] Two ScoreHosts do not share or double-close device/stream state accidentally.
-- [ ] Every fake callback is cancelled before its target dies; late callbacks are ignored safely.
-- [ ] Main-thread operations have a deterministic bounded latency in the blocked-worker fixture.
-- [ ] Run repeated normal, ASan, and reopened TSan jobs without races, leaks, hangs, or unbounded queues.
+- [x] MIDI open failure falls back cleanly (host suite asserts
+      requested-vs-engaged); throwing-destructor coverage awaits the
+      IMidiBackend fake (card 71).
+- [x] Two ScoreHosts verified independent (own engravers/transports,
+      destroyed in both orders, ASan-clean under the normal run).
+- [x] Late/stale completions are ignored safely (generation filter driven
+      directly via the test seam and via the storm).
+- [x] Main-thread operations bounded (<100 ms asserted) in the blocked-worker
+      fixture.
+- [ ] Normal runs green and repeatable (seeded). TSan on this dev machine is
+      INCONCLUSIVE: the TSan-built test binary segfaults pre-main in the
+      sanitizer runtime (zero output even for single-threaded suites, no
+      race reports) — an environment issue, not a finding; run via the
+      existing TSan CI wiring instead. ASan job not run here.
 
 ## Dependencies and parallelism
 

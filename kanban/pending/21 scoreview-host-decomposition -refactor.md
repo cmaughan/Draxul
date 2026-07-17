@@ -17,17 +17,16 @@ Reduce the 2,778-line `score_host.cpp` collision surface while preserving the `I
 - `ScorePresentation`: score/waterfall/keyboard NanoVG recording, layout, and hit testing; no device or persistence ownership.
 - `ScoreHost`: thin lifecycle/input orchestrator connecting these components to Draxul interfaces.
 
-## Status 2026-07-16
+## Status 2026-07-16 (second pass)
 
-Slices landed via cards 20/22 + three extractions here (each committed green:
-build, scoreview ctest suites, smoke). ScoreHost is down from 2,778 to ~2,150
-lines and owns orchestration only: persistence, device details, audio, and
-the inspector all live in components. What remains is the formal
-`ScoreStreamController` wrapper and the ViewModel/Presentation snapshot —
-the stream's constituent parts (slicer, IComposer+StreamProgram,
-VerdictArchive, WindowEngraver with request-id generations) are already
-extracted, separately-tested components; only the host-side wiring between
-them and the presentation swap is not yet boxed.
+All three controllers are now real: audio, session, and — with cards 15/16's
+fixture and stress suites as the behavioral gate — the formal
+`ScoreStreamController` (slicing, composer + program, verdict archive, window
+bookkeeping, advance policy, and the async-engrave worker state machine).
+ScoreHost is orchestration + presentation only (~1,870 lines of host cpp plus
+the inspector TU). Remaining before this card closes: the formal
+ViewModel/Presentation snapshot types, and a Windows/Vulkan CI pass over the
+new CMake layout.
 
 ## Implementation plan
 
@@ -45,12 +44,14 @@ them and the presentation swap is not yet boxed.
       player model, content-hash progress file, session clock, bar-boundary
       flush, cached piece analysis + dump. Host keeps only tempo
       resume/record (transport-coupled).
-- [ ] Formal `ScoreStreamController`: the components it would own are all
-      extracted (SourceSlicer, IComposer + host-owned StreamProgram,
-      VerdictArchive, WindowEngraver); remaining work is boxing the host's
-      window bookkeeping (first/count/offset, advance policy,
-      build_window_slice, pending-install routing) behind one seam so it can
-      be driven by the card-15 fixture without the whole host.
+- [x] Formal `ScoreStreamController` extracted
+      (src/score_stream_controller.{h,cpp}): source slicing, composer +
+      program, verdict archive, window bookkeeping, the advance policy, and
+      the async-engrave worker state machine (latest-wins generations,
+      stale-completion filter). ScoreHost keeps the sync engrave (main
+      engine), the install swap, and the view/transport checks
+      (apply_completed_engrave). The card-15/16 suites drive the controller
+      through the shared fixture and passed unchanged across the extraction.
 - [x] `ScoreAudioController` extracted (src/score_audio_controller.{h,cpp}):
       output stream, metronome, audition, instrument voices, MIDI play-thru,
       soundfont staging. SDL audio types never cross into the host.
