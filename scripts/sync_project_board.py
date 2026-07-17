@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Sync local work-item markdown files to the GitHub Draxul project board.
 
-work-items/          -> Status: Backlog
-work-items-icebox/   -> Status: IceBox
-work-items-complete/ -> Status: Done
+kanban/pending/  -> Status: Backlog
+kanban/ice-box/  -> Status: IceBox
+kanban/done/     -> Status: Done
 
 Idempotent: matches by title, never creates duplicates. Items already in
 Ready/In progress/In review are left untouched (in-flight work).
@@ -26,9 +26,9 @@ STATUS_DONE   = "98236657"
 STATUS_PRESERVE = {"61e4505c", "47fc9ee4", "df73e18b"}  # Ready, In progress, In review
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BACKLOG_DIR = os.path.join(REPO_ROOT, "plans", "work-items")
-ICEBOX_DIR  = os.path.join(REPO_ROOT, "plans", "work-items-icebox")
-DONE_DIR    = os.path.join(REPO_ROOT, "plans", "work-items-complete")
+BACKLOG_DIR = os.path.join(REPO_ROOT, "kanban", "pending")
+ICEBOX_DIR  = os.path.join(REPO_ROOT, "kanban", "ice-box")
+DONE_DIR    = os.path.join(REPO_ROOT, "kanban", "done")
 
 
 def gh(*args, input_data=None):
@@ -130,10 +130,14 @@ mutation($proj: ID!, $item: ID!, $field: ID!, $opt: String!) {
 }""", proj=PROJECT_ID, item=item_id, field=STATUS_FIELD_ID, opt=option_id)
 
 
+# Board docs that live alongside the cards but are not work items.
+NON_ITEM_FILES = {"index.md", "readme.md"}
+
+
 def collect_items(directory):
     items = []
     for fname in sorted(os.listdir(directory)):
-        if fname.endswith(".md") and fname != "index.md":
+        if fname.endswith(".md") and fname.lower() not in NON_ITEM_FILES:
             path = os.path.join(directory, fname)
             title = get_title(path)
             items.append(title)

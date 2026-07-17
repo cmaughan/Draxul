@@ -9,7 +9,7 @@ USE_MDFILE_AS_MAINPAGE = README.md
 INPUT                  = README.md \
                          docs/module-map.md \
                          docs/learnings.md \
-                         plans/work-items \
+                         kanban \
                          app \
                          libs
 FILE_PATTERNS          = *.h \

@@ -15,13 +15,13 @@ For each confirmed bug, the consensus entry should include:
 - Suggested fix
 - Which agent(s) reported it
 
-Then extract bug-fix work items from the confirmed bugs. File each as a markdown file in `plans/work-items/` starting from `00 <descriptive-name> -bug.md`, with highest-severity bugs getting the lowest numbers. Each work item should contain:
+Then extract bug-fix work items from the confirmed bugs. File each as a markdown file in `kanban/pending/` starting from `00 <descriptive-name> -bug.md`, with highest-severity bugs getting the lowest numbers. Each work item should contain:
 - The bug description and trigger scenario
 - Investigation steps (checkboxes)
 - Fix strategy (checkboxes)
 - Acceptance criteria (checkboxes)
 
-Do NOT create work items for issues already in `plans/work-items/`, `plans/work-items-icebox/`, or `plans/work-items-complete/`.
+Do NOT create work items for issues already in `kanban/pending/`, `kanban/ice-box/`, or `kanban/done/`.
 
 Append your `<model>` identifier to the consensus file so authorship is traceable.
 Flag any interdependencies between bug fixes in the consensus document.

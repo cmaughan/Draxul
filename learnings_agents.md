@@ -11,7 +11,7 @@ Everything learned about agent-driven development from Draxul — a GPU-accelera
 3. The human role distills to: setting direction, triaging agent output, resolving cross-agent conflicts, providing real-app logs for renderer bugs, and pushing back on code smells.
 4. Work items as individual markdown files with checkboxes, file lists, and acceptance criteria are effectively machine-readable task specs any agent can pick up and execute without clarification.
 5. The three-tier work item lifecycle (active → icebox → complete) with 292 completed, 22 active, and 48 iceboxed items creates a self-documenting project history.
-6. Agents should update work item markdown in the same turn as completing the work — ticking checkboxes and moving files to `work-items-complete/` — creating an audit trail.
+6. Agents should update work item markdown in the same turn as completing the work — ticking checkboxes and moving files to `kanban/done/` — creating an audit trail.
 7. Embedding sub-agent recommendations directly in work items (e.g., "can be done in the same agent pass as WI 41, both mechanical") lets the human batch agent work efficiently.
 8. Work items that flag high-conflict files ("app/app.cpp is a high-conflict file — do not combine this WI with other active app/ changes") prevent merge disasters.
 9. Saved prompt templates in `plans/prompts/` create a macro system — the phrase "come to consensus" triggers a complex multi-step synthesis operation reproducibly.

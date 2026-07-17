@@ -1437,7 +1437,7 @@ Single-word shortcuts:
   consensus-bugs [--dry-run]
                Run bug triage consensus on the latest bug reviews through Codex
   coverage     macOS: build with LLVM coverage, export build/coverage.lcov, copy to db/coverage.lcov
-  syncboard    Sync work-items and icebox to the GitHub project board
+  syncboard    Sync kanban pending and ice-box to the GitHub project board
 
 Deterministic render snapshots:
 {compare_help}

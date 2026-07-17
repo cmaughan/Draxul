@@ -116,8 +116,8 @@
 
 85. A running learnings commentary is worth keeping — update it as work happens, not as a post-hoc writeup; small discoveries get forgotten once the bigger feature is done.
 86. Number collisions in work items across planning waves are inevitable — always reference items by full filename, not number alone.
-87. Work items in `plans/work-items/` can be synced to GitHub project board via `python do.py syncboard` — the script is idempotent.
-88. When you complete a work item, tick the checkboxes and move it to `plans/work-items-complete/` in the same turn.
+87. Work items in `kanban/pending/` can be synced to GitHub project board via `python do.py syncboard` — the script is idempotent.
+88. When you complete a work item, tick the checkboxes and move it to `kanban/done/` in the same turn.
 89. The CMake dependency graph and class diagram are the two most useful structural views — regenerate them when architecture changes.
 90. SVG architecture diagrams are cheap to regenerate with Claude — treat them as living documents.
 91. Human-facing structure tools (dependency graphs, class diagrams, `do.py`, render snapshots) are not documentation polish — they control complexity.

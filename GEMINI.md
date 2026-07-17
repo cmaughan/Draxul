@@ -139,7 +139,7 @@ All fetched via CMake FetchContent: SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM,
 - When blessing render references, use `py do.py bless*` helpers.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
 - After every completed work item, run `clang-format`. The pre-commit hook runs it automatically on staged files.
-- When you complete a work item from `plans/work-items/*.md`, tick entries and move to `plans/work-items-complete/`.
+- Work items live in `kanban/`. When you complete one from `kanban/pending/*.md`, tick entries and move to `kanban/done/`.
 - After implementing a new feature, config option, CLI flag, or build/CI change, update `docs/features.md`.
 - Before creating new work items, check `docs/features.md` to verify the capability is not already implemented.
 

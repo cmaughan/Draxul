@@ -245,7 +245,6 @@ TEST_CASE("vtparser overflow: plain_text buffer capped for incomplete multibyte"
 
 // ---------------------------------------------------------------------------
 // Regression: partial UTF-8 at the cap boundary must not be discarded.
-// See plans/work-items-complete/04 vtparser-partial-utf8-discard -bug.md.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("vtparser overflow: partial UTF-8 at cap boundary preserved", "[vtparser][overflow]")

@@ -269,7 +269,7 @@ Lesson:
 
 ### GitHub Project Board Sync
 
-The work-item markdown files in `plans/work-items/` and `plans/work-items-icebox/` can be synced to the GitHub project board (project #1, "Draxul") using:
+The work-item markdown files in `kanban/pending/` and `kanban/ice-box/` can be synced to the GitHub project board (project #1, "Draxul") using:
 
 ```
 python do.py syncboard
@@ -354,8 +354,8 @@ python sync_project_board.py
 ```
 
 **How it works:**
-- Items in `plans/work-items/` are created/maintained as **Backlog** on the board.
-- Items in `plans/work-items-icebox/` are created/maintained as **IceBox**.
+- Items in `kanban/pending/` are created/maintained as **Backlog** on the board.
+- Items in `kanban/ice-box/` are created/maintained as **IceBox**.
 - Items already in **Ready / In progress / In review / Done** are left untouched — the script never resets active work.
 - Matching is by title (extracted from the `# H1` heading of each file).
 - The script is idempotent; safe to run at any time.

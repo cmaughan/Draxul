@@ -22,7 +22,7 @@ For each bug found, report:
 Do NOT report:
 - Code smells, style issues, or refactoring opportunities
 - Missing features or enhancements
-- Items already tracked in `plans/work-items/`, `plans/work-items-icebox/`, or `plans/work-items-complete/`
+- Items already tracked in `kanban/pending/`, `kanban/ice-box/`, or `kanban/done/`
 - Theoretical issues you cannot construct a trigger scenario for
 
 docs/features.md has a list of implemented features for context.

@@ -204,10 +204,43 @@ All fetched automatically via CMake FetchContent (in `cmake/FetchDependencies.cm
 - When blessing render references, use `py do.py blessbasic`, `py do.py blesscmdline`, `py do.py blessunicode`, `py do.py blessnanovg`, or `py do.py blessall` from the repo root instead of calling `draxul.exe --render-test` manually.
 - If you change build wiring, keep both Windows and macOS paths valid in CI.
 - Do not run `clang-format` manually in this repo. The pre-commit hook runs `clang-format` automatically on staged files, so if formatting is needed the first commit attempt may fail; re-stage the hook's edits and retry the commit.
-- When you complete a work item or a concrete subtask from `plans/work-items/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.
-- When a work item from `plans/work-items/*.md` is fully complete, move it to `plans/work-items-complete/` in the same turn and update any index/reference links that still point at the old location.
+- Work items live in `kanban/` — `kanban/pending/` (active), `kanban/ice-box/` (deferred), `kanban/done/` (complete). See [Work Items](#work-items) below.
+- When you complete a work item or a concrete subtask from `kanban/pending/*.md`, update that markdown file in the same turn and mark the completed entries with Markdown task ticks (`- [x]`). Leave incomplete follow-ups as unchecked items so progress stays visible in the file itself.
+- When a work item is fully complete, move it from `kanban/pending/` to `kanban/done/` in the same turn and update any index/reference links that still point at the old location.
 - After implementing a new user-facing feature, configuration option, CLI flag, or build/CI change, update `docs/features.md` to include it. This file is the canonical reference for what the app already supports — keeping it current prevents future agents from proposing work items for features that already exist.
 - Before creating new work items, check `docs/features.md` to verify the proposed feature or capability is not already implemented.
+
+## Work Items
+
+Work items live in `kanban/`. This is the only tracker — `plans/` holds design docs and
+research notes, never work items.
+
+| Directory | Purpose |
+|-----------|---------|
+| `kanban/pending/` | Active items — in scope for the current or next work session |
+| `kanban/ice-box/` | Deferred items — good ideas, not yet scheduled |
+| `kanban/done/` | Completed items — kept for reference |
+
+File naming: `<number> <slug> -<type>.md`
+
+- **number** — priority/sequence. Unique within `kanban/pending/`, but numbers are reused
+  across waves and can collide between directories.
+- **slug** — hyphenated short description.
+- **type** — one of `bug`, `test`, `feature`, `refactor`.
+
+**Always cross-reference an item by its full filename**, never by number alone, because
+numbers are reused:
+
+```
+# Good
+See kanban/ice-box/20 url-detection-click -feature.md
+
+# Bad — ambiguous
+See item 20
+```
+
+`python do.py syncboard` syncs `kanban/pending` (as Backlog) and `kanban/ice-box` (as
+IceBox) to the GitHub project board; it is idempotent.
 
 ## Platform
 

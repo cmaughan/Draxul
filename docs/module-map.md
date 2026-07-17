@@ -17,7 +17,7 @@ If you only want the shortest path to orientation:
 2. Look at the target dependency graph in [deps.svg](deps/deps.svg).
 3. Look at the class diagram in [draxul_classes.svg](uml/draxul_classes.svg).
 4. Generate local API docs with `python scripts/build_docs.py --api-only`, then open `docs/api/index.html`.
-5. Check active follow-up items in [plans/work-items/](../plans/work-items/).
+5. Check active follow-up items in [kanban/pending/](../kanban/pending/).
 6. Use the snapshot and smoke flows through [do.py](../do.py) when touching UI or rendering.
 
 ## Main Libraries
@@ -183,7 +183,7 @@ Use this when:
 
 ## Planning Links
 
-- Active work items: [plans/work-items/](../plans/work-items/)
+- Active work items: [kanban/pending/](../kanban/pending/)
 - Design notes: [plans/design](../plans/design)
 - Review notes: [plans/reviews](../plans/reviews)
 - Learnings: [docs/learnings.md](learnings.md)
