@@ -19,8 +19,10 @@
 
 #include "nanovg.h"
 #include "score_audio_controller.h"
+#include "score_presentation.h"
 #include "score_session_controller.h"
 #include "score_stream_controller.h"
+#include "score_view_model.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -51,116 +53,10 @@ constexpr double kStreamVisibleBars = 2.0;
 
 // Placeholder engraving proportions (no-source mode), see plans/scoreview.md
 // phase 0. Staff-relative thicknesses follow SMuFL engravingDefaults.
-constexpr float STAFF_HEIGHT_FRAC = 0.045f;
-constexpr float STAFF_LINE_THICKNESS_SP = 0.13f;
-constexpr float BARLINE_THIN_SP = 0.16f;
-constexpr float BARLINE_THICK_SP = 0.5f;
-constexpr float BARLINE_SEPARATION_SP = 0.4f;
-constexpr int PLACEHOLDER_MEASURES = 4;
 
-const NVGcolor INK = { { { 0.12f, 0.11f, 0.10f, 1.0f } } };
 // Reading-room backdrop behind the pages; drawn inside the pane only. The
 // host's default_background stays the app-standard terminal color so window
 // clear, pane borders, and grid remainder strips match every other pane.
-const NVGcolor BACKDROP = { { { 0.22f, 0.23f, 0.24f, 1.0f } } };
-
-void fill_backdrop(NVGcontext* vg, int w, int h)
-{
-    nvgBeginPath(vg);
-    nvgRect(vg, 0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h));
-    nvgFillColor(vg, BACKDROP);
-    nvgFill(vg);
-}
-
-void fill_vertical_bar(NVGcontext* vg, float x_center, float top, float bottom, float width)
-{
-    nvgBeginPath(vg);
-    nvgRect(vg, x_center - width * 0.5f, top, width, bottom - top);
-    nvgFillColor(vg, INK);
-    nvgFill(vg);
-}
-
-// Curly brace joining the two staves, built from four cubics pinched at the
-// tips and waist. Placeholder only — real pages use the Bravura brace glyph.
-void fill_brace(NVGcontext* vg, float right_x, float top, float bottom, float sp)
-{
-    const float mid = (top + bottom) * 0.5f;
-    const float half = mid - top;
-    const float lobe = right_x - 2.4f * sp;
-    const float inner = right_x - 1.5f * sp;
-    const float waist_x = right_x - 0.5f * sp;
-
-    nvgBeginPath(vg);
-    nvgMoveTo(vg, right_x, top);
-    nvgBezierTo(vg, lobe, top + half * 0.30f, lobe, mid - half * 0.12f, waist_x, mid);
-    nvgBezierTo(vg, lobe, mid + half * 0.12f, lobe, bottom - half * 0.30f, right_x, bottom);
-    nvgBezierTo(vg, inner, bottom - half * 0.30f, inner, mid + half * 0.12f, waist_x, mid);
-    nvgBezierTo(vg, inner, mid - half * 0.12f, inner, top + half * 0.30f, right_x, top);
-    nvgClosePath(vg);
-    nvgFillColor(vg, INK);
-    nvgFill(vg);
-}
-
-void draw_placeholder(NVGcontext* vg, int width, int height, float pixel_scale)
-{
-    const float fw = static_cast<float>(width);
-    const float fh = static_cast<float>(height);
-    fill_backdrop(vg, width, height);
-
-    const float outer_margin = 24.0f * pixel_scale;
-    const float avail_w = fw - 2.0f * outer_margin;
-    const float avail_h = fh - 2.0f * outer_margin;
-    if (avail_w < 64.0f || avail_h < 64.0f)
-        return;
-
-    float page_h = avail_h;
-    float page_w = page_h / SQRT2;
-    if (page_w > avail_w)
-    {
-        page_w = avail_w;
-        page_h = page_w * SQRT2;
-    }
-    const float px = (fw - page_w) * 0.5f;
-    const float py = (fh - page_h) * 0.5f;
-    draw_page_sheet(vg, px, py, page_w, page_h, pixel_scale);
-
-    const float staff_h = page_h * STAFF_HEIGHT_FRAC;
-    const float sp = staff_h / 4.0f;
-    const float line_w = std::max(1.0f, STAFF_LINE_THICKNESS_SP * sp);
-    const float left = px + page_w * 0.10f;
-    const float right = px + page_w * 0.90f;
-    const float upper_top = py + page_h * 0.18f;
-    const float lower_top = upper_top + staff_h + 1.5f * staff_h;
-    const float system_bottom = lower_top + staff_h;
-
-    for (int staff = 0; staff < 2; ++staff)
-    {
-        const float top = staff == 0 ? upper_top : lower_top;
-        for (int i = 0; i < 5; ++i)
-        {
-            const float y = top + static_cast<float>(i) * sp;
-            nvgBeginPath(vg);
-            nvgMoveTo(vg, left, y);
-            nvgLineTo(vg, right, y);
-            nvgStrokeColor(vg, INK);
-            nvgStrokeWidth(vg, line_w);
-            nvgStroke(vg);
-        }
-    }
-
-    const float thin_w = std::max(1.0f, BARLINE_THIN_SP * sp);
-    const float thick_w = BARLINE_THICK_SP * sp;
-    for (int i = 0; i < PLACEHOLDER_MEASURES; ++i)
-    {
-        const float x = left + (right - left) * static_cast<float>(i) / PLACEHOLDER_MEASURES;
-        fill_vertical_bar(vg, x, upper_top, system_bottom, thin_w);
-    }
-    const float final_thin_x = right - thick_w - BARLINE_SEPARATION_SP * sp - thin_w * 0.5f;
-    fill_vertical_bar(vg, final_thin_x, upper_top, system_bottom, thin_w);
-    fill_vertical_bar(vg, right - thick_w * 0.5f, upper_top, system_bottom, thick_w);
-
-    fill_brace(vg, left - 0.6f * sp, upper_top, system_bottom, sp);
-}
 
 } // namespace
 
@@ -170,6 +66,7 @@ ScoreHost::ScoreHost()
     : audio_(std::make_unique<ScoreAudioController>())
     , session_(std::make_unique<ScoreSessionController>())
     , stream_(std::make_unique<ScoreStreamController>())
+    , presentation_(std::make_unique<ScorePresentation>())
 {
 }
 
@@ -574,8 +471,7 @@ void ScoreHost::relayout_flow()
     const FlowBuildResult result = build_flow_from_engine(error);
     // A fresh engraving: re-fit the fixed score band's scale to the new
     // content (the window high-water-mark restarts from the first window).
-    stream_scale_ref_ = 0.0f;
-    stream_scale_ = 0.0f;
+    presentation_->invalidate_scale_lock();
     if (result == FlowBuildResult::InterpretFailed)
     {
         DRAXUL_LOG_ERROR(
@@ -838,8 +734,7 @@ void ScoreHost::reset_stream_plan()
 
 void ScoreHost::reengrave_flow_in_place()
 {
-    stream_scale_ref_ = 0.0f;
-    stream_scale_ = 0.0f;
+    presentation_->invalidate_scale_lock();
     if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
         rebuild_window(stream_->window_first_bar(), stream_position_q(), /*carry=*/true);
     else
@@ -857,7 +752,7 @@ void ScoreHost::maybe_advance_stream()
     if (stream_->async_in_flight())
         return;
     const double stream_q = stream_position_q();
-    const std::optional<int> target = stream_->advance_target(stream_q, stream_ahead_needed_);
+    const std::optional<int> target = stream_->advance_target(stream_q, presentation_->stream_ahead_needed());
     if (!target)
         return;
 
@@ -1379,270 +1274,43 @@ void ScoreHost::draw(IFrameContext& frame)
     if ((view_mode_ == ViewMode::Flow || retain_flow_while_paged_layout_waits) && strip_
         && strip_->canvas_size.y > 0.0f)
     {
-        // The conveyor: the whole piece as one strip on a full-width band,
-        // scrolled so the playhead anchor tracks the transport position.
-        auto strip = strip_;
-        const ScoreHighlightState* highlight = &highlight_;
-        const float vw = static_cast<float>(viewport_.pixel_size.x);
-        const float vh = static_cast<float>(viewport_.pixel_size.y);
-        FlowBand band = flow_band();
-        const bool streaming = stream_active()
-            && flow_.mode() == FlowController::TransportMode::Roll;
-        // Layout (top to bottom): a FIXED score band (score_height_frac_ of the
-        // pane height), then the waterfall, then the stumpy keyboard. The sheet
-        // scales (locked) to fill the score band and is clipped to it, so it
-        // never resizes or jumps as the window scrolls under the playhead.
-        const bool show_wf = streaming && show_waterfall_ && !waterfall_notes_.empty();
-        const float score_region_h
-            = std::clamp(vh * score_height_frac_, 96.0f * pixel_scale, vh * 0.9f);
-        const float keyboard_h = streaming ? std::min(vw / 52.0f * 3.4f, vh * 0.16f) : 0.0f;
-        const float keyboard_y = vh - keyboard_h;
-        const float waterfall_h = show_wf ? std::max(0.0f, keyboard_y - score_region_h) : 0.0f;
-        const float waterfall_top = keyboard_y - waterfall_h;
-        if (streaming)
-        {
-            // Fit the scale to the TALLEST engraving (the full-piece extent
-            // seeds it; a taller fabricated bar grows it once). The reference
-            // only grows, so the sheet fills the band without ever clipping
-            // off the bottom or jittering. Re-fit on viewport/zoom/waterfall/
-            // band-fraction change, or when the reference grows.
-            const float want_ref = std::max(stream_scale_ref_, strip->canvas_size.y);
-            const int wf_key = show_wf ? 1 : 0;
-            if (stream_scale_ <= 0.0f || stream_scale_vw_ != viewport_.pixel_size.x
-                || stream_scale_zoom_ != zoom_ || stream_scale_wf_ != wf_key
-                || stream_scale_frac_ != score_height_frac_ || stream_scale_ref_ != want_ref)
-            {
-                stream_scale_ref_ = want_ref;
-                const float usable = score_region_h * 0.9f;
-                stream_scale_ = (usable / std::max(1.0f, want_ref)) * std::max(0.25f, zoom_);
-                stream_scale_vw_ = viewport_.pixel_size.x;
-                stream_scale_zoom_ = zoom_;
-                stream_scale_wf_ = wf_key;
-                stream_scale_frac_ = score_height_frac_;
-                // Anchor the playhead at ~30% across, but never past the
-                // history the window supplies (history_bars / visible_bars) —
-                // otherwise the scroll clamps left and the playhead snaps back
-                // when the window advances.
-                const double avg_bar_canvas
-                    = strip->canvas_size.x / std::max(1, stream_->window_bar_count());
-                const double visible_bars
-                    = (static_cast<double>(vw) / std::max(0.001f, stream_scale_))
-                    / std::max(1.0, avg_bar_canvas);
-                stream_anchor_ = static_cast<float>(std::min(0.30,
-                    static_cast<double>(ScoreStreamController::kWindowHistoryBars) / std::max(1.0, visible_bars)));
-                // The look-ahead the viewport shows to the right of the
-                // playhead (+1 buffer) — the window advances when it drops to
-                // this, so the sheet never runs out of notes ahead.
-                stream_ahead_needed_ = std::clamp(
-                    static_cast<int>(std::ceil((1.0 - stream_anchor_) * visible_bars)) + 1, 1,
-                    ScoreStreamController::kWindowAheadBars);
-            }
-            // Fixed visual band, independent of the current window's canvas
-            // extent — so the sheet backdrop and playhead never move.
-            band.target_h = score_region_h * 0.9f;
-            band.strip_y = (score_region_h - band.target_h) * 0.5f;
-        }
-        const float target_h = band.target_h;
-        const float scale
-            = streaming ? stream_scale_ : (target_h / std::max(1.0f, strip->canvas_size.y));
-        const double anchor_frac = streaming ? stream_anchor_ : 0.30;
-        const double scroll_canvas = flow_.scroll_x(static_cast<double>(vw) / scale, anchor_frac);
-        const float origin_x = static_cast<float>(-scroll_canvas * scale);
-        const float strip_y = band.strip_y;
-        const float playhead_x = static_cast<float>((flow_.x_at(flow_.position_q()) - scroll_canvas) * scale);
-        const bool waiting = flow_.waiting();
-
-        // The sheet is already colored (build_flow_from_engine paints every
-        // note its spelling's color, once per engraving). Here we only pick
-        // the KEYS to light. Without the waterfall the keyboard is the
-        // anticipatory guide: onsets whose hit window holds the playhead,
-        // faded by trailing clean plays (3 clean = invisible), drills always
-        // on. With the waterfall present the falling blocks do the
-        // anticipating, so the keys instead light on the beat (below) — this
-        // is what keeps a key from lighting before its block lands.
-        std::vector<KeyboardLit> lit;
-        if (streaming && !show_wf)
-        {
-            const double position = flow_.position_q();
-            const auto& onsets = flow_.onsets();
-            const auto& gates = flow_.gates();
-            for (size_t i = 0; i < onsets.size() && i < gates.size(); ++i)
-            {
-                const double q = onsets[i].qstamp;
-                if (q > position + FlowController::kRollEarlyWindowQ)
-                    break;
-                if (q < position - FlowController::kRollLateWindowQ)
-                    continue;
-                const double stream_q = q + stream_->stream_offset_q();
-                int trailing = 0;
-                bool drill = false;
-                if (stream_->composing())
-                {
-                    const StreamProgram::SourceRef ref = stream_->program().source_at(stream_q);
-                    drill = ref.drill;
-                    if (!ref.drill)
-                        trailing = session_->model().onset_trailing_correct(ref.source_q);
-                }
-                else
-                {
-                    trailing = session_->model().onset_trailing_correct(stream_q);
-                }
-                const float need = drill
-                    ? 1.0f
-                    : std::clamp(1.0f - static_cast<float>(trailing) / 3.0f, 0.0f, 1.0f);
-                if (need <= 0.0f)
-                    continue;
-                for (const FlowController::GateNote& note : gates[i].notes)
-                {
-                    if (note.verdict == FlowController::NoteVerdict::Pending
-                        && !note.auto_satisfied)
-                    {
-                        const auto found = note_palette_.find(note.id);
-                        const int palette = found != note_palette_.end()
-                            ? found->second
-                            : guidance_palette_index(note.pitch);
-                        lit.push_back({ note.pitch, need, palette });
-                    }
-                }
-            }
-        }
-        // Waterfall blocks + the keyboard's playback lighting. A block falls
-        // so its bottom edge reaches the keys exactly as the transport crosses
-        // the note's onset; the matching key lights full-bright while the note
-        // sounds and dims when it ends. A note holds for note_gate_ of its
-        // notated length (articulation) with a floor of a couple pixels of
-        // daylight, so successive notes on one key are visibly separate and
-        // never light two-at-once in a run.
-        struct WaterfallBlock
-        {
-            float x = 0.0f, w = 0.0f, y0 = 0.0f, y1 = 0.0f;
-            int palette = 0;
-        };
-        std::vector<WaterfallBlock> blocks;
-        if (show_wf)
-        {
-            const double position = flow_.position_q();
-            const float ppb
-                = waterfall_h / static_cast<float>(std::max(1.0, waterfall_beats_));
-            const float white_w = vw / 52.0f;
-            const float gap = 2.0f * pixel_scale; // guaranteed daylight
-            blocks.reserve(waterfall_notes_.size());
-            for (const WaterfallNote& n : waterfall_notes_)
-            {
-                const float span = static_cast<float>(n.duration_q) * ppb;
-                const float sounding
-                    = static_cast<float>(n.duration_q * note_gate_) * ppb;
-                const float height = std::max(1.0f, std::min(sounding, span - gap));
-                const float bottom
-                    = keyboard_y - static_cast<float>(n.onset_q - position) * ppb;
-                const float top = bottom - height;
-                if (bottom <= waterfall_top || top >= keyboard_y)
-                    continue; // fully above the zone (future) or already played
-                const float y0 = std::max(top, waterfall_top);
-                const float y1 = std::min(bottom, keyboard_y);
-                if (y1 - y0 < 1.0f)
-                    continue;
-                const float cx = keyboard_key_center_x(n.midi, 0.0f, vw);
-                const float bw
-                    = keyboard_is_black(n.midi) ? white_w * 0.52f : white_w * 0.74f;
-                blocks.push_back({ cx - bw * 0.5f, bw, y0, y1, n.palette });
-                // Light the key only while the note is sounding (the gated
-                // length), so it dims before the next onset in a run.
-                if (position + 1e-6 >= n.onset_q
-                    && position < n.onset_q + n.duration_q * note_gate_)
-                    lit.push_back({ n.midi, 1.0f, n.palette });
-            }
-        }
-        const float keyboard_alpha = streaming ? 1.0f : 0.0f;
-        const bool split_acc = split_accidentals_;
-
-        const float score_clip_h = streaming ? score_region_h : vh;
-
-        nanovg_pass_->set_draw_callback(
-            [strip, highlight, pixel_scale, vw, target_h, scale, origin_x, strip_y, playhead_x,
-                waiting, lit, keyboard_alpha, keyboard_y, keyboard_h, streaming, show_wf, blocks,
-                waterfall_top, split_acc, score_clip_h](NVGcontext* vg, int w, int h) {
-                fill_backdrop(vg, w, h);
-                const float band_pad = 18.0f * pixel_scale;
-                // The sheet, notes, and playhead are clipped to the fixed score
-                // band so a tall window (ledger lines) can't spill into the
-                // waterfall below.
-                nvgSave(vg);
-                nvgScissor(vg, 0.0f, 0.0f, static_cast<float>(vw), score_clip_h);
-                draw_page_sheet(vg, -48.0f * pixel_scale, strip_y - band_pad,
-                    vw + 96.0f * pixel_scale, target_h + 2.0f * band_pad, pixel_scale);
-                const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
-                render_draw_list(
-                    vg, *strip, { origin_x, strip_y }, scale, fonts, highlight, split_acc);
-                // Playhead: amber while rolling, teal while awaiting the player.
-                nvgBeginPath(vg);
-                nvgRect(vg, playhead_x - 1.0f * pixel_scale, strip_y - band_pad,
-                    2.0f * pixel_scale, target_h + 2.0f * band_pad);
-                nvgFillColor(vg,
-                    waiting ? nvgRGBA(24, 140, 165, 200) : nvgRGBA(217, 115, 20, 170));
-                nvgFill(vg);
-                nvgRestore(vg);
-                // Waterfall: colored blocks falling to their keys, clipped to
-                // the band between the score and the keyboard.
-                if (show_wf)
-                {
-                    nvgSave(vg);
-                    nvgScissor(vg, 0.0f, waterfall_top, static_cast<float>(vw),
-                        keyboard_y - waterfall_top);
-                    for (const auto& b : blocks)
-                    {
-                        const unsigned char* c
-                            = kGuidancePalette[b.palette % kGuidancePaletteSize];
-                        nvgBeginPath(vg);
-                        nvgRoundedRect(
-                            vg, b.x, b.y0, b.w, b.y1 - b.y0, 3.0f * pixel_scale);
-                        nvgFillColor(vg, nvgRGBA(c[0], c[1], c[2], 235));
-                        nvgFill(vg);
-                    }
-                    nvgRestore(vg);
-                    // The hit line where blocks meet the keys.
-                    nvgBeginPath(vg);
-                    nvgRect(vg, 0.0f, keyboard_y - 1.5f * pixel_scale,
-                        static_cast<float>(vw), 1.5f * pixel_scale);
-                    nvgFillColor(vg, nvgRGBA(255, 255, 255, 46));
-                    nvgFill(vg);
-                }
-                if (streaming)
-                    draw_piano_keyboard(vg, 0.0f, keyboard_y, vw, keyboard_h, lit,
-                        keyboard_alpha, pixel_scale);
-            });
+        // The conveyor frame: the host gathers plain inputs; the presentation
+        // component owns the composition and the fixed-scale lock.
+        ScorePresentation::FlowFrame flow_frame;
+        flow_frame.pixel_scale = pixel_scale;
+        flow_frame.vw = static_cast<float>(viewport_.pixel_size.x);
+        flow_frame.vh = static_cast<float>(viewport_.pixel_size.y);
+        flow_frame.zoom = zoom_;
+        const FlowBand band = flow_band();
+        flow_frame.band_target_h = band.target_h;
+        flow_frame.band_strip_y = band.strip_y;
+        flow_frame.streaming
+            = stream_active() && flow_.mode() == FlowController::TransportMode::Roll;
+        flow_frame.show_waterfall = show_waterfall_;
+        flow_frame.split_accidentals = split_accidentals_;
+        flow_frame.score_height_frac = score_height_frac_;
+        flow_frame.waterfall_beats = waterfall_beats_;
+        flow_frame.note_gate = note_gate_;
+        flow_frame.window_bar_count = stream_->window_bar_count();
+        flow_frame.stream_offset_q = stream_->stream_offset_q();
+        flow_frame.composing = stream_->composing();
+        flow_frame.strip = strip_;
+        flow_frame.highlight = &highlight_;
+        flow_frame.note_palette = &note_palette_;
+        flow_frame.waterfall_notes = &waterfall_notes_;
+        flow_frame.flow = &flow_;
+        flow_frame.program = &stream_->program();
+        flow_frame.model = &session_->model();
+        presentation_->record_flow(*nanovg_pass_, flow_frame);
     }
     else if (!pages_ || pages_->empty())
     {
-        nanovg_pass_->set_draw_callback([pixel_scale](NVGcontext* vg, int w, int h) {
-            draw_placeholder(vg, w, h, pixel_scale);
-        });
+        presentation_->record_placeholder(*nanovg_pass_, pixel_scale);
     }
     else
     {
-        auto pages = pages_;
-        const float margin = page_margin();
-        const float gap = page_gap();
-        const float scroll = scroll_y_;
-        const float page_w = page_width_px_;
-        const float page_h = page_height_px_;
-        const float scale = page_scale_;
-        nanovg_pass_->set_draw_callback(
-            [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale](
-                NVGcontext* vg, int w, int h) {
-                fill_backdrop(vg, w, h);
-                const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
-                float y = margin - scroll;
-                for (const ScoreDrawList& page : *pages)
-                {
-                    if (y + page_h >= 0.0f && y <= static_cast<float>(h))
-                    {
-                        draw_page_sheet(vg, margin, y, page_w, page_h, pixel_scale);
-                        render_draw_list(vg, page, { margin, y }, scale, fonts);
-                    }
-                    y += page_h + gap;
-                }
-            });
+        presentation_->record_paged(*nanovg_pass_, pages_, pixel_scale, page_margin(),
+            page_gap(), scroll_y_, page_width_px_, page_height_px_, page_scale_);
     }
 
     RenderViewport vp;
@@ -1659,6 +1327,184 @@ void ScoreHost::draw(IFrameContext& frame)
     if (imgui_context_ != nullptr && imgui_backend_ != nullptr)
         frame.render_imgui(ImGui::GetDrawData(), imgui_context_);
     frame.flush_submit_chunk();
+}
+
+ScoreViewModel ScoreHost::build_view_model() const
+{
+    // The ONE read point for the inspector: scalars by value, aggregates by
+    // const pointer (stable for the frame — every mutation is deferred
+    // through ScoreInspectorIntents).
+    ScoreViewModel view;
+    view.playing = flow_.playing();
+    view.waiting = flow_.waiting();
+    view.transport_mode = static_cast<int>(flow_.mode());
+    view.position_q = flow_.position_q();
+    view.stream_position_q = stream_position_q();
+    view.tempo_qpm = flow_.tempo_qpm();
+    view.min_tempo_qpm = flow_.min_tempo_qpm();
+    view.max_tempo_qpm = flow_.max_tempo_qpm();
+    view.marking_qpm = flow_.marking_qpm();
+    view.stream_roll_active
+        = stream_active() && flow_.mode() == FlowController::TransportMode::Roll;
+    view.engraving_busy = stream_->async_in_flight() || stream_->engrave_busy();
+    view.accuracy_ema = flow_.accuracy_ema();
+    view.score = flow_.score();
+    view.streak = flow_.streak();
+    view.miss_count = flow_.miss_count();
+    view.wrong_count = flow_.wrong_count();
+    view.input_kind = input_rig_.kind();
+    view.midi_port_name = input_rig_.midi_port_name();
+    view.lock_tempo = lock_tempo_;
+    view.show_waterfall = show_waterfall_;
+    view.mark_mistakes = mark_mistakes_;
+    view.split_accidentals = split_accidentals_;
+    view.composer_enabled = composer_enabled_;
+    view.proportional_spacing = proportional_spacing_;
+    view.score_height_frac = score_height_frac_;
+    view.waterfall_beats = waterfall_beats_;
+    view.note_gate = note_gate_;
+    view.spacing_linear_override = spacing_linear_override_;
+    view.spacing_non_linear_override = spacing_non_linear_override_;
+    view.tick_level = static_cast<int>(audio_->tick_level());
+    view.audition = audio_->audition();
+    view.piano_voice = audio_->voice() == ScoreAudioController::Voice::Piano;
+    view.loaded_soundfont_index = audio_->loaded_soundfont_index();
+    view.soundfonts = &audio_->soundfonts();
+    view.model = &session_->model();
+    view.profile = &session_->piece_profile();
+    view.program = &stream_->program();
+    view.composing = stream_->composing();
+    view.bar_count = stream_->slicer().bar_count();
+    return view;
+}
+
+void ScoreHost::apply_inspector_intents(const ScoreInspectorIntents& intents)
+{
+    // The ONE mutation point for the inspector, after the frame's NanoVG
+    // callback is recorded and ImGui::Render has completed — mid-frame
+    // mutation is structurally impossible.
+    if (!intents.any())
+        return;
+    if (intents.toggle_play)
+    {
+        if (flow_.playing())
+            flow_.pause();
+        else
+            flow_.play();
+    }
+    if (intents.rewind_or_restart)
+    {
+        if (stream_active() && flow_.mode() == FlowController::TransportMode::Roll)
+        {
+            restart_stream(/*keep_tempo=*/true);
+        }
+        else
+        {
+            flow_.rewind();
+            apply_lit_update();
+        }
+    }
+    if (intents.tempo_qpm)
+        flow_.set_tempo_qpm(*intents.tempo_qpm);
+    if (intents.lock_tempo)
+    {
+        lock_tempo_ = *intents.lock_tempo;
+        flow_.set_adapt_tempo(!lock_tempo_);
+        if (lock_tempo_ && flow_.marking_qpm() > 0.0)
+            flow_.set_tempo_qpm(flow_.marking_qpm());
+    }
+    if (intents.select_keyboard_input)
+    {
+        gate_input_requested_ = GateInput::Keyboard;
+        set_gate_input(GateInput::Keyboard, 0.0, 1.0);
+    }
+    if (intents.select_mic_input)
+    {
+        gate_input_requested_ = GateInput::Mic;
+        set_gate_input(GateInput::Mic, 0.0, 1.0);
+    }
+    if (intents.select_midi_port)
+    {
+        gate_input_requested_ = GateInput::Midi;
+        midi_port_requested_ = *intents.select_midi_port;
+        if (set_gate_input(GateInput::Midi, 0.0, 1.0, *intents.select_midi_port)
+            && !flow_.playing())
+            flow_.play(); // the piano is the interface
+    }
+    if (intents.score_height_frac)
+        score_height_frac_ = std::clamp(*intents.score_height_frac, 0.2f, 0.6f);
+    if (intents.show_waterfall)
+    {
+        show_waterfall_ = *intents.show_waterfall;
+        presentation_->invalidate_scale_lock(); // re-fit the band layout
+    }
+    if (intents.waterfall_beats)
+        waterfall_beats_ = *intents.waterfall_beats;
+    if (intents.note_gate)
+        note_gate_ = *intents.note_gate;
+    if (intents.mark_mistakes)
+    {
+        mark_mistakes_ = *intents.mark_mistakes;
+        if (!mark_mistakes_)
+            highlight_.clear_lit(); // drop the current crosses at once
+    }
+    if (intents.split_accidentals)
+        split_accidentals_ = *intents.split_accidentals;
+    if (intents.composer_enabled)
+    {
+        // Re-evaluate and rebuild the stream from the top: on = the adaptive
+        // program, off = the piece scrolling unchanged. The restart keeps the
+        // player's decided tempo — switching the program is not a reason to
+        // change their pace.
+        composer_enabled_ = *intents.composer_enabled;
+        stream_->set_composing(composer_enabled_ && stream_->windowed()
+            && stream_->composer().supports(stream_->slicer()));
+        if (stream_->composing())
+            stream_->composer().configure(
+                &stream_->slicer(), &session_->model(), &session_->piece_profile());
+        restart_stream(/*keep_tempo=*/true);
+    }
+    if (intents.proportional_spacing)
+    {
+        // Switching the preset drops any debug overrides — the point of the
+        // toggle is the two tuned presets.
+        proportional_spacing_ = *intents.proportional_spacing;
+        spacing_linear_override_ = -1.0f;
+        spacing_non_linear_override_ = -1.0f;
+        reengrave_flow_in_place();
+    }
+    if (intents.spacing_linear_override)
+    {
+        spacing_linear_override_ = *intents.spacing_linear_override;
+        reengrave_flow_in_place();
+    }
+    if (intents.spacing_non_linear_override)
+    {
+        spacing_non_linear_override_ = *intents.spacing_non_linear_override;
+        reengrave_flow_in_place();
+    }
+    if (intents.reset_spacing_overrides)
+    {
+        spacing_linear_override_ = -1.0f;
+        spacing_non_linear_override_ = -1.0f;
+        reengrave_flow_in_place();
+    }
+    if (intents.tick_level)
+    {
+        audio_->set_tick_level(static_cast<ScoreAudioController::TickLevel>(*intents.tick_level));
+        if (audio_->tick_level() != ScoreAudioController::TickLevel::Off)
+            audio_->ensure_output_stream();
+    }
+    if (intents.use_synth_voice)
+        audio_->use_synth();
+    if (intents.use_piano_index)
+        audio_->use_piano(*intents.use_piano_index);
+    if (intents.audition)
+        audio_->set_audition(*intents.audition);
+    if (intents.clear_progress)
+        clear_piece_progress();
+    if (callbacks_ != nullptr)
+        callbacks_->request_frame();
 }
 
 void ScoreHost::on_key(const KeyEvent& event)

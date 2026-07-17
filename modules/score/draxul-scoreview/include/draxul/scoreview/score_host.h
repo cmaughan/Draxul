@@ -41,6 +41,9 @@ namespace scoreview
 class ScoreAudioController; // internal audio rig (src/score_audio_controller.h)
 class ScoreSessionController; // internal player-memory session (src/score_session_controller.h)
 class ScoreStreamController; // internal rolling-window stream (src/score_stream_controller.h)
+class ScorePresentation; // internal frame composer (src/score_presentation.h)
+struct ScoreViewModel; // per-frame inspector snapshot (src/score_view_model.h)
+struct ScoreInspectorIntents; // deferred inspector mutations (src/score_view_model.h)
 
 class ScoreHost final : public draxul::IHost
 {
@@ -184,9 +187,12 @@ private:
     bool set_gate_input(
         GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port = -1);
     bool handle_gate_key(int keycode);
-    // The ImGui debug/learning inspector: transport + view controls and live
-    // readouts of the player model, composer program, and piece analysis.
+    // The ImGui debug/learning inspector: reads ONE per-frame snapshot and
+    // requests every mutation through intents, applied at one defined point
+    // after the frame is recorded (never mid-frame).
     void render_debug_ui(float dt);
+    ScoreViewModel build_view_model() const;
+    void apply_inspector_intents(const ScoreInspectorIntents& intents);
 
     std::unique_ptr<draxul::INanoVGPass> nanovg_pass_;
     draxul::HostViewport viewport_;
@@ -249,32 +255,14 @@ private:
     std::string source_bytes_;
     double piece_marking_qpm_ = 0.0;
 
-    // The guidance keyboard + fixed sheet scale (stream follow-up): the
-    // scale locks per viewport/zoom so bars don't breathe as the window
-    // moves; the keyboard eases in when the material under the playhead
-    // still needs help and out once it's proven.
-    float stream_scale_ = 0.0f;
-    int stream_scale_vw_ = 0;
-    float stream_scale_zoom_ = 0.0f;
-    int stream_scale_wf_ = -1; // waterfall-present part of the scale cache key
+    // The frame composer (kanban 21 ScorePresentation): NanoVG recording
+    // for flow/paged/placeholder plus the fixed-sheet scale-lock cache.
+    // Internal component; never null.
+    std::unique_ptr<ScorePresentation> presentation_;
     // The score occupies a FIXED band — this fraction of the pane height —
     // and the sheet scales (locked) to fill it, so it never jumps or resizes
     // as the window scrolls. Adjustable in the debug UI.
     float score_height_frac_ = 0.40f;
-    float stream_scale_frac_ = 0.0f; // score-height part of the scale cache key
-    // Reference canvas height the fixed scale fits into: the tallest window
-    // engraving seen (a header-free grand staff). It only grows and grows in
-    // the same frame a taller window appears, so the sheet fills the band,
-    // never clips off the bottom, and doesn't jitter.
-    float stream_scale_ref_ = 0.0f;
-    // The scroll anchor (playhead's fraction across the viewport), capped at
-    // the history the window actually provides so the scroll never clamps and
-    // snaps the playhead on a window advance.
-    float stream_anchor_ = 0.30f;
-    // Bars of look-ahead the viewport needs to its right (computed from the
-    // anchor and how many bars are visible); the window advances once the
-    // playhead comes within this of the window's tail, so rebuilds are rare.
-    int stream_ahead_needed_ = 14; // ScoreStreamController::kWindowAheadBars
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on

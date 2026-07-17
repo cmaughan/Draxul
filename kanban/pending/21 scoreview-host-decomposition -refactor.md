@@ -23,10 +23,11 @@ All three controllers are now real: audio, session, and — with cards 15/16's
 fixture and stress suites as the behavioral gate — the formal
 `ScoreStreamController` (slicing, composer + program, verdict archive, window
 bookkeeping, advance policy, and the async-engrave worker state machine).
-ScoreHost is orchestration + presentation only (~1,870 lines of host cpp plus
-the inspector TU). Remaining before this card closes: the formal
-ViewModel/Presentation snapshot types, and a Windows/Vulkan CI pass over the
-new CMake layout.
+ScoreHost is orchestration only (~1,900 lines of host cpp; the inspector and
+frame composition live in their own components). Every target boundary from
+this card now exists: session, stream, audio, view model + intents, and
+presentation. Remaining before this card closes: a Windows/Vulkan CI pass
+over the new CMake layout (in progress externally).
 
 ## Implementation plan
 
@@ -57,11 +58,15 @@ new CMake layout.
       soundfont staging. SDL audio types never cross into the host.
       `PlayerInputRig` (card 22) keeps keyboard/mic/MIDI concrete types out
       of the host; platform types stay private.
-- [ ] Presentation input model (`ScoreViewModel`/`ScorePresentation`): the
-      inspector now lives in its own TU and reads through controller getters
-      (close to a snapshot, not yet a formal one); NVG recording already
-      lives in score_render_nvg/keyboard_render_nvg. Formal snapshot types
-      remain follow-up, best done with the card-15 fixture in hand.
+- [x] Presentation input model landed (src/score_view_model.h +
+      src/score_presentation.{h,cpp}): the inspector reads ONE per-frame
+      snapshot (`build_view_model`) and requests every mutation through
+      `ScoreInspectorIntents`, applied at one defined point after
+      ImGui::Render — mid-frame mutation is structurally impossible.
+      `ScorePresentation` owns the flow/paged/placeholder frame composition
+      and the fixed-sheet scale-lock cache; `ScoreHost::draw()` gathers plain
+      inputs and records. Unit + render-snapshot suites green across the
+      move.
 - [x] Behavior-preserving slices, tests green after every slice, one commit
       per slice; no parallel feature work in `score_host.cpp`.
 - [x] Source-file/target splits used internal headers only (`src/*.h`) — no
