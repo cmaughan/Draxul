@@ -16,15 +16,20 @@ namespace
 
 std::string now_iso8601()
 {
+    // LOCAL time, deliberately: the session day feeds the spaced-repetition
+    // schedule, whose real quantity is "a night's sleep between encounters"
+    // — and sleep happens in the player's timezone. A UTC day boundary put
+    // midnight mid-evening for anyone west of Greenwich, letting two
+    // same-evening sittings earn day-separated credit.
     const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    std::tm tm_utc{};
+    std::tm tm_local{};
 #ifdef _WIN32
-    gmtime_s(&tm_utc, &t);
+    localtime_s(&tm_local, &t);
 #else
-    gmtime_r(&t, &tm_utc);
+    localtime_r(&t, &tm_local);
 #endif
     char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", &tm_local);
     return buffer;
 }
 
