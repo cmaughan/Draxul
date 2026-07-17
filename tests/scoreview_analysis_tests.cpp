@@ -548,3 +548,50 @@ TEST_CASE("the real Grieg yields usable phrase structure", "[scoreview][analysis
     CHECK(profile.structure_confidence >= 0.35);
     CHECK(profile.serialize().find("phrases") != std::string::npos);
 }
+
+TEST_CASE("the MEI index attributes notes to their engraved staff",
+    "[scoreview][analysis][structure]")
+{
+    // C5 hand attribution: staff 1 = upper/right hand, 2 = lower/left. Sample
+    // the Grieg's extremes — low notes live on the lower staff, high on the
+    // upper — without demanding it for every mid-range note (hands cross).
+    std::string error;
+    auto engine = VerovioLayoutEngine::create(std::string(DRAXUL_VEROVIO_DATA_DIR), error);
+    REQUIRE(engine != nullptr);
+    LayoutOptions options;
+    options.mode = LayoutMode::Flow;
+    engine->set_options(options);
+    std::ifstream stream(std::string(DRAXUL_PROJECT_ROOT)
+            + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
+        std::ios::binary);
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    REQUIRE(engine->load(buffer.str(), error));
+    auto timemap = parse_timemap(engine->render_timemap(), error);
+    REQUIRE(timemap.has_value());
+
+    int checked = 0;
+    int low_on_lower = 0;
+    int high_on_upper = 0;
+    int with_staff = 0;
+    for (const TimemapEntry& entry : timemap->entries)
+    {
+        for (const std::string& id : entry.note_on)
+        {
+            const int pitch = engine->midi_pitch_for_element(id);
+            const int staff = engine->staff_for_element(id);
+            if (pitch < 0)
+                continue;
+            ++checked;
+            with_staff += staff > 0 ? 1 : 0;
+            if (pitch <= 48)
+                low_on_lower += staff == 2 ? 1 : 0;
+            if (pitch >= 69)
+                high_on_upper += staff == 1 ? 1 : 0;
+        }
+    }
+    REQUIRE(checked > 100);
+    CHECK(with_staff == checked); // every sounding note knows its staff
+    CHECK(low_on_lower > 0);
+    CHECK(high_on_upper > 0);
+}

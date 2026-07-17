@@ -46,6 +46,7 @@ EngraveResult engrave_loaded(
     // Whole-window coloring: resolve each note's spelling once (the engine
     // knows its notated letter here) into the pairing palette.
     out.palette.clear();
+    out.staves.clear();
     for (const FlowController::Gate& gate : out.flow.gates())
     {
         for (const FlowController::GateNote& note : gate.notes)
@@ -54,6 +55,9 @@ EngraveResult engrave_loaded(
                 continue;
             const int letter = engine.note_letter_for_element(note.id);
             out.palette[note.id] = guidance_palette_index(note.pitch, letter);
+            const int staff = engine.staff_for_element(note.id);
+            if (staff > 0)
+                out.staves[note.id] = staff;
         }
     }
 

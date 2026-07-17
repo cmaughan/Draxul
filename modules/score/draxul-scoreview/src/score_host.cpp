@@ -225,9 +225,9 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             show_analysis_overlay_ = true;
         if (command.find("unique") != std::string::npos)
             show_unique_chunks_ = true;
-        // The composer defaults OFF while its program is tuned; `composer`
-        // opts in at launch, `nocomposer` still forces it off (checked first
-        // — "composer" is a substring of "nocomposer").
+        // The composer is ON by default (C6); `nocomposer` opts out at
+        // launch, `composer` is kept as an explicit no-op opt-in (checked
+        // second — "composer" is a substring of "nocomposer").
         if (command.find("nocomposer") != std::string::npos)
             composer_enabled_ = false;
         else if (command.find("composer") != std::string::npos)
@@ -684,6 +684,7 @@ ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
         return FlowBuildResult::TransportFailed;
     flow_ = std::move(engraved.flow);
     note_palette_ = std::move(engraved.palette);
+    note_staff_ = std::move(engraved.staves);
     waterfall_notes_ = std::move(engraved.waterfall);
     for (const auto& [id, palette] : note_palette_)
         highlight_.set_guidance(id, palette);
@@ -763,6 +764,7 @@ void ScoreHost::install_window(EngravedWindow&& engraved, int first_bar, int cou
     strip_ = std::move(engraved.strip);
     flow_ = std::move(engraved.flow);
     note_palette_ = std::move(engraved.palette);
+    note_staff_ = std::move(engraved.staves);
     waterfall_notes_ = std::move(engraved.waterfall);
     rebuild_highlight_from_palette();
 
@@ -1319,6 +1321,14 @@ void ScoreHost::pump()
             // and drill outcomes train pitch/chord stats only.
             for (FlowController::NoteOutcome outcome : flow_.take_note_outcomes())
             {
+                // Hand attribution from the engraving (C5): the staff was
+                // captured at engrave time — the async engraver means the
+                // live engine may hold a different document by now.
+                if (!outcome.stray && !outcome.id.empty())
+                {
+                    const auto staff = note_staff_.find(outcome.id);
+                    outcome.staff = staff != note_staff_.end() ? staff->second : 0;
+                }
                 const double stream_q = outcome.onset_q + stream_->stream_offset_q();
                 if (!outcome.stray)
                     stream_->verdict_archive().record(stream_q, outcome.pitch, outcome.verdict);

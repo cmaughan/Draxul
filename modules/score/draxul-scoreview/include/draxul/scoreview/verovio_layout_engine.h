@@ -31,6 +31,7 @@ public:
     std::string render_timemap() override;
     int midi_pitch_for_element(const std::string& element_id) override;
     int note_letter_for_element(const std::string& element_id) override;
+    int staff_for_element(const std::string& element_id) override;
     std::vector<std::string> tie_end_ids() override;
 
 private:

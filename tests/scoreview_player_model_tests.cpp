@@ -405,3 +405,90 @@ TEST_CASE("the tempo ladder climbs on clean passes and falls on fumbles",
     REQUIRE(restored.deserialize(model.serialize()));
     CHECK(restored.bar_tempo_ladder(0) == Catch::Approx(PM::kLadderCap));
 }
+
+// --- Day-scale spacing (C4) --------------------------------------------------
+
+TEST_CASE("civil days parse from session timestamps", "[scoreview][player-model]")
+{
+    using PM = draxul::scoreview::PlayerModel;
+    const int day = PM::civil_day_from_iso("2026-07-17T10:30:00");
+    CHECK(day > 0);
+    CHECK(PM::civil_day_from_iso("2026-07-18T01:00:00") == day + 1);
+    CHECK(PM::civil_day_from_iso("2026-08-17") == day + 31);
+    CHECK(PM::civil_day_from_iso("garbage") == 0);
+    CHECK(PM::civil_day_from_iso("") == 0);
+}
+
+TEST_CASE("the spaced streak counts day-separated clean re-encounters",
+    "[scoreview][player-model]")
+{
+    // Same-day repetition must NOT advance the streak: minute-scale spacing
+    // demonstrably teaches nothing (no forgetting happens in the gap).
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+    const auto pass = [&](bool clean) {
+        for (int beat = 0; beat < 4; ++beat)
+            model.apply(pass_outcome(beat, clean || beat != 2));
+        model.close_open_pass();
+    };
+    model.begin_session("2026-07-14T09:00:00");
+    pass(true);
+    pass(true); // same day: no streak movement
+    model.end_session(60, 0.6);
+    CHECK(model.bar_spaced_streak(0) == 0);
+
+    model.begin_session("2026-07-15T09:00:00");
+    pass(true);
+    model.end_session(60, 0.6);
+    CHECK(model.bar_spaced_streak(0) == 1);
+
+    model.begin_session("2026-07-17T09:00:00");
+    pass(true);
+    model.end_session(60, 0.6);
+    CHECK(model.bar_spaced_streak(0) == 2);
+
+    model.begin_session("2026-07-18T09:00:00");
+    pass(false); // a fumble resets the spacing credit
+    model.end_session(60, 0.6);
+    CHECK(model.bar_spaced_streak(0) == 0);
+    CHECK(model.bar_last_pass_day(0)
+        == draxul::scoreview::PlayerModel::civil_day_from_iso("2026-07-18"));
+
+    draxul::scoreview::PlayerModel restored;
+    REQUIRE(restored.deserialize(model.serialize()));
+    CHECK(restored.bar_last_pass_day(0) == model.bar_last_pass_day(0));
+    CHECK(restored.bar_spaced_streak(0) == 0);
+}
+
+TEST_CASE("the engraved staff outranks the pitch split for hand tallies",
+    "[scoreview][player-model]")
+{
+    // C5: a low melody note on the UPPER staff belongs to the right hand —
+    // the score says so; middle C is only the fallback.
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+    draxul::scoreview::NoteOutcome low_rh;
+    low_rh.onset_q = 0.0;
+    low_rh.pitch = 48; // far below middle C
+    low_rh.staff = 1; // but engraved on the upper staff
+    low_rh.verdict = draxul::scoreview::NoteVerdict::Correct;
+    low_rh.quality = 1.0;
+    model.apply(low_rh);
+    draxul::scoreview::NoteOutcome high_lh;
+    high_lh.onset_q = 1.0;
+    high_lh.pitch = 72; // above middle C
+    high_lh.staff = 2; // engraved on the lower staff (hand crossing)
+    high_lh.verdict = draxul::scoreview::NoteVerdict::Missed;
+    model.apply(high_lh);
+    draxul::scoreview::NoteOutcome fallback;
+    fallback.onset_q = 2.0;
+    fallback.pitch = 40; // staff unknown: the pitch split applies
+    fallback.verdict = draxul::scoreview::NoteVerdict::Correct;
+    fallback.quality = 1.0;
+    model.apply(fallback);
+
+    const auto& tally = model.bar_tally().at(0);
+    CHECK(tally.right.hit == 1); // the low RH note
+    CHECK(tally.left.miss == 1); // the crossed LH note
+    CHECK(tally.left.hit == 1); // the fallback low note
+}

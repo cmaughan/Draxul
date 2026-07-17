@@ -86,6 +86,13 @@ public:
         std::vector<uint8_t> recent_passes; // capped at kRecentEncounters
         int consecutive_clean = 0; // trailing clean passes
         int pass_count = 0; // lifetime passes
+        // Day-scale spacing (C4): the civil day of the bar's newest pass,
+        // and how many successive DAY-SEPARATED clean re-encounters it has
+        // survived — the expanding-interval schedule reads this, because
+        // minute-scale gaps demonstrably teach nothing (no forgetting
+        // happens, so nothing is reconstructed).
+        int last_pass_day = 0; // 0 = never traversed
+        int spaced_streak = 0; // day-separated clean re-encounters
         // The bar's tempo ladder, as a fraction of the piece's marking:
         // clean passes raise it, fumbles lower it. Speed is an OUTPUT of
         // accurate passes (submaximal practice raises ceiling speed), so
@@ -165,6 +172,18 @@ public:
     // The bar's tempo-ladder rung as a fraction of the marking
     // (kLadderStart when the bar has never been traversed).
     double bar_tempo_ladder(int bar_index) const;
+    // Day-scale views (C4). current_day() is the active session's civil day
+    // (0 when no session or unparseable) — the composer reads time through
+    // the model, never a clock, so planning stays pure and replayable.
+    int current_day() const
+    {
+        return current_day_;
+    }
+    int bar_last_pass_day(int bar_index) const;
+    int bar_spaced_streak(int bar_index) const;
+    // Days since the civil epoch for an ISO-8601 timestamp ("YYYY-MM-DD..."),
+    // 0 on parse failure. Public for tests and the composer's due math.
+    static int civil_day_from_iso(const std::string& iso);
     // Closes the in-flight pass, recording it against its bar. Called on bar
     // transition internally and by the session end.
     void close_open_pass();
@@ -211,6 +230,8 @@ private:
 
     bool session_active_ = false;
     int session_notes_ = 0;
+
+    int current_day_ = 0; // active session's civil day (0 = unknown)
 
     // The in-flight pass: which bar the outcome stream is currently inside,
     // and whether anything in it has gone wrong yet.

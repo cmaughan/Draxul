@@ -43,6 +43,14 @@ public:
     // encountered bar promotes, the arc schedules the full performance run
     // and only then finishes.
     static constexpr int kPromotionCleanPasses = 3;
+    // Day-scale spacing (C4): a mastered bar is DUE again after an expanding
+    // gap — the optimal interval grows with the retention horizon, and
+    // minute-scale gaps teach nothing. Indexed by the bar's day-separated
+    // clean streak, capped at the last entry.
+    static constexpr int kSpacedIntervalsDays[5] = { 1, 3, 7, 14, 30 };
+    // The session opening serves at most this many time-due bars before the
+    // arc resumes — reconsolidation first, never a wall of reviews.
+    static constexpr int kMaxOpeningReviews = 6;
     // The FALLBACK revisit length. Arcs slice on detected phrases (C1); this
     // fixed window is used only when the piece has no confident structure —
     // fixed-length chunking is what the evidence argues against, so it must
@@ -137,6 +145,16 @@ private:
     std::map<int, int> last_seam_slot_; // phrase-tail bar -> slot
     std::map<int, int> seams_used_; // phrase-tail bar -> count
     std::map<int, int> reserved_at_pass_; // bar -> pass_count when re-served
+    // C4 session opening: bars due by the day-scale schedule, dequeued into
+    // the program's first slots. Built once per reset() from the model's
+    // session day — the composer reads time through the model, never a clock.
+    struct OpeningReview
+    {
+        int bar = -1;
+        bool overnight_retest = false; // fumbled on an earlier day
+        int gap_days = 0;
+    };
+    std::vector<OpeningReview> opening_queue_;
     // Convergence arc (S4): after the frontier finishes the piece, the
     // stream loops through the weakest phrase (C1; weakest fixed slice only
     // as a fallback) until every encountered bar promotes, then schedules the

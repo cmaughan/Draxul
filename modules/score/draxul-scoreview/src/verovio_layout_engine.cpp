@@ -111,6 +111,7 @@ struct VerovioLayoutEngine::Impl
     // rebuilt together on the next query.
     std::unordered_map<std::string, int> note_letters;
     std::vector<std::string> tie_ends;
+    std::unordered_map<std::string, int> note_staves;
     bool mei_index_built = false;
     // Lazy note id -> sounding MIDI pitch cache (-1 = none). GetMIDIValuesForElement
     // is a per-element JSON round-trip and the analysis, gate and waterfall
@@ -282,18 +283,27 @@ int letter_from_pname(const char* pname)
 // diatonic letter, and the tie end-ids. A <note> is never a <tie>, so the
 // element type selects at most one branch; the recursion always descends.
 void collect_mei_index(const tinyxml2::XMLElement* element,
-    std::unordered_map<std::string, int>& letters, std::vector<std::string>& tie_ends)
+    std::unordered_map<std::string, int>& letters, std::vector<std::string>& tie_ends,
+    std::unordered_map<std::string, int>& staves, int current_staff)
 {
     for (const tinyxml2::XMLElement* child = element->FirstChildElement(); child != nullptr;
         child = child->NextSiblingElement())
     {
         const char* name = child->Name();
-        if (std::strcmp(name, "note") == 0)
+        int staff = current_staff;
+        if (std::strcmp(name, "staff") == 0)
+            staff = child->IntAttribute("n", current_staff);
+        else if (std::strcmp(name, "note") == 0)
         {
             const char* id = child->Attribute("xml:id");
             const int letter = letter_from_pname(child->Attribute("pname"));
             if (id != nullptr && letter >= 0)
                 letters.emplace(id, letter);
+            // Cross-staff notes carry their own @staff; the enclosing
+            // <staff n> is the default.
+            const int note_staff = child->IntAttribute("staff", staff);
+            if (id != nullptr && note_staff > 0)
+                staves.emplace(id, note_staff);
         }
         else if (std::strcmp(name, "tie") == 0)
         {
@@ -301,7 +311,7 @@ void collect_mei_index(const tinyxml2::XMLElement* element,
             if (endid != nullptr && endid[0] == '#')
                 tie_ends.emplace_back(endid + 1);
         }
-        collect_mei_index(child, letters, tie_ends);
+        collect_mei_index(child, letters, tie_ends, staves, staff);
     }
 }
 
@@ -316,14 +326,25 @@ void VerovioLayoutEngine::ensure_mei_index()
         return;
     impl_->note_letters.clear();
     impl_->tie_ends.clear();
+    impl_->note_staves.clear();
     const std::string mei = impl_->toolkit.GetMEI("");
     tinyxml2::XMLDocument doc;
     if (doc.Parse(mei.data(), mei.size()) == tinyxml2::XML_SUCCESS && doc.RootElement() != nullptr)
-        collect_mei_index(doc.RootElement(), impl_->note_letters, impl_->tie_ends);
+        collect_mei_index(
+            doc.RootElement(), impl_->note_letters, impl_->tie_ends, impl_->note_staves, 0);
     else
         DRAXUL_LOG_ERROR(LogCategory::App,
             "verovio: MEI export unparseable; note spellings and ties unavailable");
     impl_->mei_index_built = true;
+}
+
+int VerovioLayoutEngine::staff_for_element(const std::string& element_id)
+{
+    if (!impl_->loaded)
+        return 0;
+    ensure_mei_index();
+    const auto found = impl_->note_staves.find(element_id);
+    return found == impl_->note_staves.end() ? 0 : found->second;
 }
 
 int VerovioLayoutEngine::note_letter_for_element(const std::string& element_id)

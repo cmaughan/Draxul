@@ -36,6 +36,10 @@ struct EngravedWindow
     std::shared_ptr<const ScoreDrawList> strip;
     FlowController flow;
     std::unordered_map<std::string, int> palette; // note id -> palette index
+    // note id -> engraved staff (1 = RH, 2 = LH on a grand staff). Captured
+    // at engrave time like the palette: with the async engraver the main
+    // engine may hold a stale document by the time outcomes drain.
+    std::unordered_map<std::string, int> staves;
     std::vector<WaterfallNote> waterfall;
 };
 

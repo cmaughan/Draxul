@@ -34,6 +34,10 @@ struct NoteOutcome
     bool stray = false; // matched no onset (wrong pitch / bad timing)
     double delta_q = 0.0; // hit: position - onset, in beats
     double quality = 0.0; // hit: 1 at center, kRollEdgeQuality at edge
+    // Engraved staff carrying the note (1 = RH, 2 = LH on a grand staff;
+    // 0 = unknown, e.g. strays). The host enriches this from the engraving
+    // — hand attribution belongs to the SCORE, not a pitch threshold.
+    int staff = 0;
 };
 
 // Chord-level outcome, emitted when a multi-note onset's window closes.

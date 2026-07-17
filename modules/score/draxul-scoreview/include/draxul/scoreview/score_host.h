@@ -277,6 +277,9 @@ private:
     // (spelling comes from the engine there). Every note wears its color on
     // the sheet always; the keyboard reuses these indices for its lit keys.
     std::unordered_map<std::string, int> note_palette_;
+    // note id -> engraved staff for the current window (1 = RH, 2 = LH);
+    // captured at engrave time alongside the palette.
+    std::unordered_map<std::string, int> note_staff_;
 
     // Waterfall (piano-roll) between the score and the keyboard: each note
     // falls as a colored block toward its key, block height = its duration in
@@ -299,11 +302,14 @@ private:
     // Sharp/flat notehead cue: true = the half-color-over-black split, false =
     // accidentals wear their full spelling color like the naturals.
     bool split_accidentals_ = true;
-    // Composer: true = the adaptive stream (reviews, drills, simplification),
-    // false = just scroll the original piece bar-by-bar, unchanged. OFF by
-    // default while the adaptive program is tuned (over MIDI input); the
-    // inspector checkbox or the `composer` launch token opts in.
-    bool composer_enabled_ = false;
+    // Composer: true = the adaptive stream (reviews, drills, simplification,
+    // spaced openings, error re-serve — plans/scoreview-composer.md C0-C4),
+    // false = just scroll the original piece bar-by-bar, unchanged. ON by
+    // default (C6): the structure-aware, clean-pass-gated program is the
+    // product; `nocomposer` (launch token or inspector) opts back out.
+    // Sources the slicer cannot open (.mxl zips, multi-part scores) still
+    // stream verbatim — composer support is per-source (IComposer::supports).
+    bool composer_enabled_ = true;
     // Spacing experiment (inspector-only): engrave the flow strip with note
     // space proportional to duration so the conveyor scrolls at near-constant
     // speed and score columns align with the waterfall. The paged reading

@@ -38,6 +38,7 @@ void StreamComposer::reset()
     // pass count so a program planned from a restored model doesn't open
     // with "fix" slots for last session's history.
     reserved_at_pass_.clear();
+    opening_queue_.clear();
     if (model_ != nullptr && slicer_ != nullptr && slicer_->ready())
     {
         for (int bar = 0; bar < slicer_->bar_count(); ++bar)
@@ -45,6 +46,57 @@ void StreamComposer::reset()
             const int passes = model_->bar_pass_count(bar);
             if (passes > 0)
                 reserved_at_pass_[bar] = passes;
+        }
+        // C4: the session opening. Two kinds of time-due bars, from the
+        // evidence base:
+        //  - overnight re-tests: bars FUMBLED on an earlier day. Sleep
+        //    selectively consolidates the hardest transitions, so yesterday's
+        //    problem points are re-tested first — expected to have improved
+        //    without practice — rather than drilled from cold.
+        //  - spaced reviews: clean bars whose day gap reached the expanding
+        //    schedule (1/3/7/14/30 days by day-separated clean streak).
+        const int today = model_->current_day();
+        if (today > 0)
+        {
+            std::vector<OpeningReview> retests;
+            std::vector<OpeningReview> due;
+            for (int bar = 0; bar < slicer_->bar_count(); ++bar)
+            {
+                const int last_day = model_->bar_last_pass_day(bar);
+                if (last_day <= 0 || last_day >= today)
+                    continue; // never played, or already seen today
+                OpeningReview review;
+                review.bar = bar;
+                review.gap_days = today - last_day;
+                if (model_->bar_last_pass_dirty(bar))
+                {
+                    review.overnight_retest = true;
+                    retests.push_back(review);
+                }
+                else
+                {
+                    const int streak = std::min(model_->bar_spaced_streak(bar),
+                        static_cast<int>(std::size(kSpacedIntervalsDays)) - 1);
+                    if (review.gap_days >= kSpacedIntervalsDays[streak])
+                        due.push_back(review);
+                }
+            }
+            // Most-overdue first within each kind; re-tests outrank reviews.
+            const auto by_gap = [](const OpeningReview& a, const OpeningReview& b) {
+                return a.gap_days != b.gap_days ? a.gap_days > b.gap_days : a.bar < b.bar;
+            };
+            std::sort(retests.begin(), retests.end(), by_gap);
+            std::sort(due.begin(), due.end(), by_gap);
+            for (const OpeningReview& review : retests)
+            {
+                if (opening_queue_.size() < static_cast<size_t>(kMaxOpeningReviews))
+                    opening_queue_.push_back(review);
+            }
+            for (const OpeningReview& review : due)
+            {
+                if (opening_queue_.size() < static_cast<size_t>(kMaxOpeningReviews))
+                    opening_queue_.push_back(review);
+            }
         }
     }
     arc_ = 0;
@@ -438,6 +490,25 @@ void StreamComposer::compose_next(StreamProgram& program)
     }
 
     const int slot = program.size();
+    // The session opening drains first: overnight re-tests of yesterday's
+    // problem points, then time-due spaced reviews.
+    if (!performance_run_ && !opening_queue_.empty())
+    {
+        const OpeningReview review = opening_queue_.front();
+        opening_queue_.erase(opening_queue_.begin());
+        StreamBarPlan plan;
+        plan.kind = StreamBarPlan::Kind::Review;
+        plan.source_bar = review.bar;
+        plan.source_start_q = slicer_->bar_start_q(review.bar);
+        plan.reason = review.overnight_retest
+            ? "overnight re-test: bar " + std::to_string(review.bar + 1) + " ("
+                + std::to_string(review.gap_days) + "d since fumble)"
+            : "spaced review: bar " + std::to_string(review.bar + 1) + " (gap "
+                + std::to_string(review.gap_days) + "d)";
+        piece_bars_since_special_ = 0;
+        program.append(std::move(plan), slicer_->bar_quarters(review.bar));
+        return;
+    }
     // The error re-serve outranks everything except the performance run —
     // it bypasses the between-specials floor because a correction must not
     // wait its turn behind variety scheduling.

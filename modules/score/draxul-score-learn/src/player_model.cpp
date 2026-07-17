@@ -1,5 +1,7 @@
 #include <draxul/scoreview/player_model.h>
 
+#include <cstdio>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -67,8 +69,27 @@ void PlayerModel::set_piece(const std::string& title, double marking_qpm, double
     quarters_per_bar_ = quarters_per_bar > 0.0 ? quarters_per_bar : 4.0;
 }
 
+int PlayerModel::civil_day_from_iso(const std::string& iso)
+{
+    // Howard Hinnant's days-from-civil; only the date part matters here.
+    int y = 0;
+    int m = 0;
+    int d = 0;
+    if (std::sscanf(iso.c_str(), "%d-%d-%d", &y, &m, &d) != 3 || m < 1 || m > 12 || d < 1
+        || d > 31)
+        return 0;
+    y -= m <= 2;
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(y - era * 400);
+    const unsigned doy
+        = static_cast<unsigned>((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1);
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + static_cast<int>(doe) - 719468;
+}
+
 void PlayerModel::begin_session(const std::string& start_iso)
 {
+    current_day_ = civil_day_from_iso(start_iso);
     if (session_active_)
         return;
     Session session;
@@ -104,6 +125,14 @@ void PlayerModel::close_open_pass()
             tally.recent_passes.erase(tally.recent_passes.begin());
         tally.consecutive_clean = open_pass_dirty_ ? 0 : tally.consecutive_clean + 1;
         ++tally.pass_count;
+        // Day-separated clean re-encounter: the spacing schedule's currency.
+        if (open_pass_dirty_)
+            tally.spaced_streak = 0;
+        else if (current_day_ > 0 && tally.last_pass_day > 0
+            && tally.last_pass_day < current_day_)
+            ++tally.spaced_streak;
+        if (current_day_ > 0)
+            tally.last_pass_day = current_day_;
         if (tally.ladder_frac <= 0.0)
             tally.ladder_frac = kLadderStart;
         tally.ladder_frac = std::clamp(tally.ladder_frac
@@ -164,7 +193,13 @@ void PlayerModel::apply(const NoteOutcome& outcome)
     {
         const int bar = static_cast<int>(std::floor(outcome.onset_q / quarters_per_bar_));
         BarTally& tally = bar_tally_[bar];
-        HandTally& hand = outcome.pitch < kHandSplitMidi ? tally.left : tally.right;
+        // Hand attribution: the engraved staff when known (1 = RH, 2 = LH);
+        // the middle-C pitch split only as the fallback the header admits
+        // is fuzzy.
+        HandTally& hand = outcome.staff == 2
+            ? tally.left
+            : (outcome.staff == 1 ? tally.right
+                                  : (outcome.pitch < kHandSplitMidi ? tally.left : tally.right));
         const bool correct = outcome.verdict == NoteVerdict::Correct;
         ++(correct ? tally.hit : tally.miss);
         ++(correct ? hand.hit : hand.miss);
@@ -211,6 +246,18 @@ int PlayerModel::bar_pass_count(int bar_index) const
 {
     const auto found = bar_tally_.find(bar_index);
     return found != bar_tally_.end() ? found->second.pass_count : 0;
+}
+
+int PlayerModel::bar_last_pass_day(int bar_index) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() ? found->second.last_pass_day : 0;
+}
+
+int PlayerModel::bar_spaced_streak(int bar_index) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() ? found->second.spaced_streak : 0;
 }
 
 double PlayerModel::bar_tempo_ladder(int bar_index) const
@@ -354,7 +401,8 @@ std::string PlayerModel::serialize() const
                   { "lh_miss", t.left.miss }, { "rh_hit", t.right.hit },
                   { "rh_miss", t.right.miss }, { "passes", t.recent_passes },
                   { "clean_streak", t.consecutive_clean }, { "pass_count", t.pass_count },
-                  { "ladder", t.ladder_frac } };
+                  { "ladder", t.ladder_frac }, { "last_day", t.last_pass_day },
+                  { "spaced_streak", t.spaced_streak } };
     }
     doc["bars"] = bars;
 
@@ -466,6 +514,8 @@ bool PlayerModel::deserialize(const std::string& json_text)
             tally.consecutive_clean = value.value("clean_streak", 0);
             tally.pass_count = value.value("pass_count", 0);
             tally.ladder_frac = value.value("ladder", 0.0);
+            tally.last_pass_day = value.value("last_day", 0);
+            tally.spaced_streak = value.value("spaced_streak", 0);
             bar_tally_[std::stoi(key)] = tally;
         }
     }

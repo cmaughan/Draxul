@@ -85,13 +85,13 @@ implementation detail.
 | # | Gap | Evidence violated |
 |---|-----|-------------------|
 | ~~G1~~ | ~~**No phrase/section/cadence structure exists**; `kSliceBars = 8` slices fixed windows.~~ **CLOSED (C0/C1)** — `PieceProfile` carries phrases/sections with a confidence, and arcs slice on the weakest phrase. | Feature 1 **[V]** |
-| G2 | **Spacing is slot-based within a session** (`kDrillCooldownSlots`, `last_review_slot_`). | Feature 5 **[V]** — minute-scale spacing does nothing; must be day-scale |
-| G3 | **No sleep-awareness**, despite `Session.start_iso` already being recorded. | Feature 6 **[V]** |
+| ~~G2~~ | ~~**Spacing is slot-based within a session.**~~ **CLOSED (C4)** — per-bar civil-day tracking with day-separated clean streaks; the session opens with spaced reviews on an expanding 1/3/7/14/30-day schedule. | Feature 5 **[V]** |
+| ~~G3~~ | ~~**No sleep-awareness.**~~ **CLOSED (C4)** — bars fumbled on an earlier day open the next session as *overnight re-tests* (sleep consolidates the hardest transitions; re-test, don't drill from cold), ahead of spaced reviews. | Feature 6 **[V]** |
 | ~~G4~~ | ~~**No serial-position awareness.**~~ **CLOSED (C2)** — `bar_tail_fraction` weights reviews toward phrase tails, and a seam special serves the join. | Feature 4 **[V]** |
 | ~~G5~~ | ~~**`kPromotionMastery = 0.7` is a mean.**~~ **CLOSED (C3)** — promotion = 3 consecutive clean complete passes; fumbles re-serve at the next planned slot; a per-bar tempo ladder caps the roll tempo (clean passes raise the rung, fumbles lower it). | Features 2, 3 **[V]** |
-| G6 | **Per-hand mastery isn't gated** — `bar_mastery` is combined; `hands_done_` is a one-shot bool; hand split is a pitch heuristic (`kHandSplitMidi=60`) not staff assignment. | Feature 8 **[V/P]** |
-| G7 | **No pre-chunk target model** — audition voices notes *as* the playhead crosses, not before the attempt. | Feature 9 **[P]** |
-| G8 | Composer is **off by default** (`composer_enabled_ = false`). | — (ship gate) |
+| ~~G6~~ | ~~**Hand split is a pitch heuristic.**~~ **CLOSED (C5)** — outcomes carry the engraved staff (MEI, captured at engrave time beside the palette; handles hand-crossing), middle-C split only as fallback. Promotion was already hands-together by construction: passes are full-bar traversals and hands-alone drills are sentinel'd out of mastery. | Feature 8 **[V/P]** |
+| G7 | **No pre-chunk target model** — DEFERRED: "hear the model before the attempt" needs a count-in window in the never-stops transport (kanban/ice-box `66 scoreview-count-in`); wiring audition to a count-in is the natural implementation. | Feature 9 **[P]** |
+| ~~G8~~ | ~~**Composer off by default.**~~ **CLOSED (C6)** — on by default; `nocomposer` token/inspector opts out; unsliceable sources (.mxl zips, multi-part) still stream verbatim per `IComposer::supports`. | — |
 
 ---
 
@@ -100,12 +100,16 @@ implementation detail.
 Ordered by dependency and leverage. C0 is the foundation: features 1 and 4 are *impossible*
 without it, and it retires the worst gap.
 
-**Status:** C0–C2 shipped 2026-07-16 (kanban `73`), C3 shipped 2026-07-17 (kanban `75`).
-G1, G4 and G5 are closed — the composer chunks on detected phrases, weights serial
-position, promotes only on consecutive clean complete passes, re-serves fumbled bars, and
-caps tempo per bar on an earned ladder. C4–C6 remain. Honest bound recorded on C3: the
-program is append-only with a ~14-bar engrave lookahead, so a re-serve plays roughly a
-window after the fumble — true mid-window injection is the rewriting composer (kanban 20).
+**Status:** ALL PHASES SHIPPED. C0–C2 2026-07-16 (kanban `73`), C3–C6 2026-07-17
+(kanban `75`, `76`). Every gap G1–G8 is closed except G7's pre-chunk target model
+(deferred: it needs the count-in mechanism, kanban/ice-box `66 scoreview-count-in`,
+because "play the model BEFORE the attempt" conflicts with the never-stops transport
+until a count-in exists). The composer is ON by default; `nocomposer` opts out.
+Honest bounds recorded: re-serve latency is one engrave window (append-only program,
+kanban 20); day-scale scheduling reads time through the model's session clock, so the
+composer stays pure; hand attribution uses the engraved staff with the middle-C split
+only as fallback. What remains is tuning against real play — the open questions at the
+bottom of this plan (dosage, feedback scheduling) are now instrumentable in the app.
 
 **Restatement detection (2026-07-17):** `PieceProfile::Phrase` now carries `repeat_of`/
 `transposed` — phrases whose top-voice interval+rhythm shape already appeared are marked as
@@ -164,7 +168,7 @@ with no clear cadences.
   reconciliation is **re-serve, not stop** — the stream keeps flowing, and the fumbled
   fragment is scheduled to return immediately rather than the transport halting.
 
-### C4 — Time-aware scheduling *(features #5, #6; fixes G2, G3)* — **the biggest scale error today**
+### C4 — Time-aware scheduling ✅ (2026-07-17, kanban 76) *(features #5, #6; fixes G2, G3)* — **the biggest scale error today**
 - `PlayerModel`: per-bar/phrase `last_seen_iso` + `review_due`, with **expanding** intervals
   (day-scale: ~1d, 3d, 7d…), scaled to the retention horizon.
 - Composer: schedule reviews by **due date across sessions**, not slot cooldowns. Slot
@@ -178,7 +182,7 @@ with no clear cadences.
   Keep it that way — inject `now_iso` as an input (via `configure` or the program), never
   call the clock inside the composer.
 
-### C5 — Hands, model, feedback *(features #8, #9, #10; fixes G6, G7)*
+### C5 — Hands, model, feedback ✅ hand-attribution shipped; pre-chunk model DEFERRED (needs count-in, kanban/ice-box 66) *(features #8, #9, #10; fixes G6, G7)*
 - **Per-hand mastery** tracked and gated separately; **hands-together required to promote**
   (hands-separate must never satisfy the gate). Replace the `kHandSplitMidi=60` pitch
   heuristic with **staff assignment** from the layout engine (MEI carries staff numbers) —
@@ -188,7 +192,7 @@ with no clear cadences.
 - **Feedback fading policy:** generalize the guidance keyboard's `1 - trailing_clean/3` fade
   into a single policy the waterfall and other cues also honour.
 
-### C6 (gate) — turn the composer on by default *(G8)*
+### C6 (gate) — turn the composer on by default ✅ (2026-07-17) *(G8)*
 Once C0–C3 land, the composer is defensibly better than scrolling the raw piece. Flip
 `composer_enabled_` and keep `nocomposer` as the escape hatch.
 

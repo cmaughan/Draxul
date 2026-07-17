@@ -101,6 +101,14 @@ public:
     // — C# and Db share a MIDI pitch but differ by letter — which the pairing
     // palette colors distinctly.
     virtual int note_letter_for_element(const std::string& element_id) = 0;
+    // The engraved staff carrying this note (1 = upper/right hand on a grand
+    // staff, 2 = lower/left), 0 = unknown. Defaulted so layout fakes that
+    // predate hand attribution keep compiling.
+    virtual int staff_for_element(const std::string& element_id)
+    {
+        (void)element_id;
+        return 0;
+    }
 
     // Element ids that END a tie (the continuation notes). Their gates
     // auto-open in the runner: demanding a re-strike would be musically

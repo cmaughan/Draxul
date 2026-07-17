@@ -941,3 +941,75 @@ TEST_CASE("restored history never front-loads fixes", "[scoreview][composer]")
     for (int slot = 0; slot < program.size(); ++slot)
         CHECK(program.plan(slot).reason.find("fix") == std::string::npos);
 }
+
+// --- C4: the session opening (overnight re-tests + spaced reviews) ----------
+
+TEST_CASE("the session opens with overnight re-tests, then due spaced reviews",
+    "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    const auto pass_bar = [&](int bar, bool clean) {
+        for (int beat = 0; beat < 3; ++beat)
+        {
+            NoteOutcome outcome;
+            outcome.onset_q = bar * 3.0 + beat;
+            outcome.pitch = 60;
+            const bool fumble = !clean && beat == 1;
+            outcome.verdict = fumble ? NoteVerdict::Missed : NoteVerdict::Correct;
+            outcome.quality = fumble ? 0.0 : 1.0;
+            model.apply(outcome);
+        }
+        model.close_open_pass();
+    };
+    // Three days ago: bar 5 clean. Yesterday: bar 2 fumbled. Today: bar 7
+    // clean already — not due again.
+    model.begin_session("2026-07-14T09:00:00");
+    pass_bar(5, true);
+    model.end_session(60, 0.6);
+    model.begin_session("2026-07-16T09:00:00");
+    pass_bar(2, false);
+    model.end_session(60, 0.6);
+    model.begin_session("2026-07-17T09:00:00");
+    pass_bar(7, true);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 8);
+
+    // Slot 0: the overnight re-test of yesterday's problem point — sleep
+    // consolidates the hardest transitions, so it is re-tested, not drilled.
+    REQUIRE(program.size() >= 2);
+    CHECK(program.plan(0).kind == StreamBarPlan::Kind::Review);
+    CHECK(program.plan(0).source_bar == 2);
+    CHECK(program.plan(0).reason.find("overnight re-test") != std::string::npos);
+    // Slot 1: the spaced review of the three-day-old clean bar.
+    CHECK(program.plan(1).kind == StreamBarPlan::Kind::Review);
+    CHECK(program.plan(1).source_bar == 5);
+    CHECK(program.plan(1).reason.find("spaced review") != std::string::npos);
+    // Bar 7 (seen today) appears in no opening slot.
+    for (int slot = 0; slot < program.size(); ++slot)
+    {
+        if (program.plan(slot).reason.find("re-test") != std::string::npos
+            || program.plan(slot).reason.find("spaced") != std::string::npos)
+            CHECK(program.plan(slot).source_bar != 7);
+    }
+}
+
+TEST_CASE("a session with no history opens straight into the frontier",
+    "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    model.begin_session("2026-07-17T09:00:00");
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 4);
+    REQUIRE(program.size() >= 1);
+    CHECK(program.plan(0).kind == StreamBarPlan::Kind::Piece);
+    CHECK(program.plan(0).source_bar == 0);
+}
