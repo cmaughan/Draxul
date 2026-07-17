@@ -160,6 +160,16 @@ void ScoreHost::render_debug_ui(float dt)
                     intents.proportional_spacing = proportional;
                 ImGui::SameLine();
                 ImGui::TextDisabled("(constant scroll)");
+                bool analysis = view.show_analysis_overlay;
+                if (ImGui::Checkbox("Analysis overlay ('a' in reading view)", &analysis))
+                    intents.show_analysis_overlay = analysis;
+                ImGui::SameLine();
+                ImGui::TextDisabled("(green = discovered)");
+                bool unique = view.show_unique_chunks;
+                if (ImGui::Checkbox("Unique chunks ('s' in reading view)", &unique))
+                    intents.show_unique_chunks = unique;
+                ImGui::SameLine();
+                ImGui::TextDisabled("(ghost the repeats)");
             }
 
             if (ImGui::CollapsingHeader("Spacing debug"))

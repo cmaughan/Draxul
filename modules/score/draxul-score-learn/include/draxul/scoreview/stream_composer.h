@@ -40,7 +40,24 @@ public:
     // when EVERY encountered bar promotes, the arc schedules the full
     // performance run and only then finishes.
     static constexpr double kPromotionMastery = 0.7;
-    static constexpr int kSliceBars = 8; // weakest-slice revisit length
+    // The FALLBACK revisit length. Arcs slice on detected phrases (C1); this
+    // fixed window is used only when the piece has no confident structure —
+    // fixed-length chunking is what the evidence argues against, so it must
+    // never be the first choice.
+    static constexpr int kSliceBars = 8;
+    // Below this, the detected phrasing is mostly the hypermetric prior
+    // guessing, so keep fixed slices rather than trust invented structure.
+    // (Also the honest call for atonal material, where the research says
+    // chunks are hand-shapes rather than tonal groupings.)
+    static constexpr double kMinStructureConfidence = 0.35;
+    // Serial position: recall collapses from a phrase's opening bar to its
+    // tail, so at comparable mastery the later bar earns the review. Weighted
+    // to break ties, never to override a genuinely weaker bar.
+    static constexpr double kTailWeight = 0.15;
+    // Phrase joins: practised as a pair below this mean mastery, capped so a
+    // stubborn join cannot monopolise the specials.
+    static constexpr double kSeamMasteryThreshold = 0.6;
+    static constexpr int kMaxSeamsPerJoin = 2;
 
     const char* name() const override
     {
@@ -87,7 +104,12 @@ private:
     bool try_drill(StreamProgram& program, int slot);
     bool try_scale(StreamProgram& program, int slot);
     bool try_review(StreamProgram& program, int slot);
+    bool try_seam(StreamProgram& program, int slot);
     void begin_next_arc();
+    // Aims the next arc at the weakest detected phrase; false when the piece
+    // has no confident structure and the caller must fall back.
+    bool begin_weakest_phrase(int total);
+    void begin_weakest_slice(int total);
 
     const SourceSlicer* slicer_ = nullptr;
     const PlayerModel* model_ = nullptr;
@@ -103,11 +125,16 @@ private:
     std::map<int, int> last_review_slot_; // source bar -> slot
     std::map<int, bool> hands_done_; // source bar -> weak hand played alone
     std::map<int, int> last_scale_slot_; // register window -> slot
+    std::map<int, int> last_seam_slot_; // phrase-tail bar -> slot
+    std::map<int, int> seams_used_; // phrase-tail bar -> count
     // Convergence arc (S4): after the frontier finishes the piece, the
-    // stream loops through the weakest slices until every encountered bar
-    // promotes, then schedules the full performance run.
+    // stream loops through the weakest phrase (C1; weakest fixed slice only
+    // as a fallback) until every encountered bar promotes, then schedules the
+    // full performance run.
     int arc_ = 0;
+    int arc_start_bar_ = 0; // inclusive start of the current arc's bar range
     int arc_end_bar_ = -1; // exclusive end of the current arc's bar range
+    bool arc_on_phrase_ = false; // arc aimed at a detected phrase, not a slice
     bool performance_run_ = false;
 };
 

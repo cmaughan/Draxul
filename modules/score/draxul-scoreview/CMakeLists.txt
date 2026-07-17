@@ -52,6 +52,7 @@ target_link_libraries(draxul-scoreview
 )
 
 add_library(draxul-scoreview-host STATIC
+    src/analysis_overlay.cpp
     src/keyboard_render_nvg.cpp
     src/mic_player_input.cpp
     src/score_audio_controller.cpp

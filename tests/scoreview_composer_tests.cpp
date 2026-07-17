@@ -93,6 +93,62 @@ void add_weak_bar(PlayerModel& model, int bar, double quarters_per_bar)
     }
 }
 
+// Meet a bar at a chosen recent-encounter quality — the structure tests need
+// bars parked BETWEEN the review and seam thresholds.
+void add_bar_at_quality(PlayerModel& model, int bar, double quarters_per_bar, double quality)
+{
+    for (int beat = 0; beat < 3; ++beat)
+    {
+        NoteOutcome outcome;
+        outcome.onset_q = bar * quarters_per_bar + beat;
+        outcome.pitch = 60 + beat;
+        outcome.verdict = quality > 0.0 ? NoteVerdict::Correct : NoteVerdict::Missed;
+        outcome.quality = quality;
+        model.apply(outcome);
+    }
+}
+
+// A profile with hand-placed phrase boundaries: the composer only reads
+// phrases/bar_positions/structure_confidence, so stating them directly keeps
+// the C1/C2 tests about composer policy rather than about detection.
+PieceProfile phrased_profile(int total_bars, const std::vector<int>& starts, double confidence)
+{
+    PieceProfile profile;
+    profile.structure_confidence = confidence;
+    for (size_t i = 0; i < starts.size(); ++i)
+    {
+        PieceProfile::Phrase phrase;
+        phrase.start_bar = starts[i];
+        phrase.end_bar = i + 1 < starts.size() ? starts[i + 1] : total_bars;
+        phrase.confidence = confidence;
+        profile.phrases.push_back(phrase);
+    }
+    profile.bar_positions.assign(static_cast<size_t>(total_bars), PieceProfile::BarPosition{});
+    for (size_t p = 0; p < profile.phrases.size(); ++p)
+    {
+        const PieceProfile::Phrase& phrase = profile.phrases[p];
+        for (int bar = phrase.start_bar; bar < phrase.end_bar && bar < total_bars; ++bar)
+        {
+            PieceProfile::BarPosition& pos = profile.bar_positions[static_cast<size_t>(bar)];
+            pos.phrase_id = static_cast<int>(p);
+            pos.serial_in_phrase = bar - phrase.start_bar;
+            pos.phrase_length = phrase.end_bar - phrase.start_bar;
+            pos.phrase_open = bar == phrase.start_bar;
+        }
+    }
+    return profile;
+}
+
+bool program_has_reason(const StreamProgram& program, const std::string& needle)
+{
+    for (int slot = 0; slot < program.size(); ++slot)
+    {
+        if (program.plan(slot).reason.find(needle) != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 TEST_CASE("a fabricated drill bar engraves inside a composed window", "[scoreview][composer]")
@@ -598,4 +654,164 @@ TEST_CASE("the pairing palette colors spellings, not just pitch classes", "[scor
         REQUIRE(idx >= 0);
         REQUIRE(idx < kGuidancePaletteSize);
     }
+}
+
+// --- Structure-aware chunking (C1/C2, plans/scoreview-composer.md) --------
+// The evidence: practice segments belong on phrase boundaries, and recall
+// collapses from a phrase's opening bar toward its tail. Fixed-length slices
+// are the fallback for material whose structure we cannot honestly see.
+
+TEST_CASE("arcs slice on the weakest phrase when structure is confident",
+    "[scoreview][composer][structure]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    const double qpb = slicer.bar_quarters(0);
+    REQUIRE(total >= 8);
+
+    const std::vector<int> starts = { 0, total / 4, total / 2, (3 * total) / 4 };
+    const PieceProfile profile = phrased_profile(total, starts, 0.9);
+    const int weak_first = starts[2];
+    const int weak_last = starts[3];
+
+    // Everything solid except the third phrase: nothing has promoted the
+    // piece, so the arc must aim at that phrase's exact bar range.
+    PlayerModel model;
+    model.set_piece("grieg", 120.0, qpb);
+    for (int bar = 0; bar < total; ++bar)
+    {
+        if (bar >= weak_first && bar < weak_last)
+            add_weak_bar(model, bar, qpb);
+        else
+            add_bar_at_quality(model, bar, qpb, 1.0);
+    }
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, &profile);
+    StreamProgram program;
+    composer.ensure(program, total * 3);
+
+    CHECK(program_has_reason(program,
+        "weakest phrase, bars " + std::to_string(weak_first + 1) + ".."
+            + std::to_string(weak_last)));
+    CHECK_FALSE(program_has_reason(program, "weakest slice"));
+}
+
+TEST_CASE("arcs fall back to fixed slices without confident structure",
+    "[scoreview][composer][structure]")
+{
+    // Unphrased/atonal material: the composer must not trust invented
+    // structure, so the fixed window survives exactly here.
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    const double qpb = slicer.bar_quarters(0);
+    PlayerModel model;
+    model.set_piece("grieg", 120.0, qpb);
+    for (int bar = 0; bar < total; ++bar)
+        add_weak_bar(model, bar, qpb);
+
+    const PieceProfile guessed = phrased_profile(total, { 0, total / 2 }, 0.1);
+
+    SECTION("confidence below the gate")
+    {
+        StreamComposer composer;
+        composer.configure(&slicer, &model, &guessed);
+        StreamProgram program;
+        composer.ensure(program, total * 3);
+        CHECK(program_has_reason(program, "weakest slice"));
+        CHECK_FALSE(program_has_reason(program, "weakest phrase"));
+    }
+
+    SECTION("no profile at all")
+    {
+        StreamComposer composer;
+        composer.configure(&slicer, &model, nullptr);
+        StreamProgram program;
+        composer.ensure(program, total * 3);
+        CHECK(program_has_reason(program, "weakest slice"));
+    }
+}
+
+TEST_CASE("review prefers the phrase tail over its opening at equal mastery",
+    "[scoreview][composer][structure]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    const double qpb = slicer.bar_quarters(0);
+    PlayerModel model;
+    model.set_piece("grieg", 120.0, qpb);
+
+    // Bars 0 and 3 are equally weak, but bar 0 opens the phrase (a cheap
+    // anchor) and bar 3 ends it (where recall collapses).
+    const PieceProfile profile = phrased_profile(total, { 0, 4 }, 0.9);
+    add_weak_bar(model, 0, qpb);
+    add_weak_bar(model, 3, qpb);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, &profile);
+    StreamProgram program;
+    composer.ensure(program, 16);
+
+    int first_review_bar = -1;
+    for (int slot = 0; slot < program.size() && first_review_bar < 0; ++slot)
+    {
+        if (program.plan(slot).kind == StreamBarPlan::Kind::Review)
+            first_review_bar = program.plan(slot).source_bar;
+    }
+    CHECK(first_review_bar == 3);
+}
+
+TEST_CASE("the seam special practises the join the arc never crosses",
+    "[scoreview][composer][structure]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    const double qpb = slicer.bar_quarters(0);
+    PlayerModel model;
+    model.set_piece("grieg", 120.0, qpb);
+
+    // Bar 3 ends phrase 0 and bar 4 opens phrase 1. Both are individually
+    // above the review threshold, so only the seam can catch the join — which
+    // is the one place arc practice (one phrase at a time) never reaches.
+    const PieceProfile profile = phrased_profile(total, { 0, 4 }, 0.9);
+    add_bar_at_quality(model, 3, qpb, 0.55);
+    add_bar_at_quality(model, 4, qpb, 0.55);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, &profile);
+    StreamProgram program;
+    composer.ensure(program, 24);
+
+    int seam_slot = -1;
+    for (int slot = 0; slot + 1 < program.size() && seam_slot < 0; ++slot)
+    {
+        if (program.plan(slot).reason.find("seam 4->5") != std::string::npos)
+            seam_slot = slot;
+    }
+    REQUIRE(seam_slot >= 0);
+    // The pair is served back-to-back, in order, as real source bars.
+    CHECK(program.plan(seam_slot).kind == StreamBarPlan::Kind::Review);
+    CHECK(program.plan(seam_slot).source_bar == 3);
+    CHECK(program.plan(seam_slot + 1).kind == StreamBarPlan::Kind::Review);
+    CHECK(program.plan(seam_slot + 1).source_bar == 4);
+}
+
+TEST_CASE("an unmet join is the frontier's job, not the seam's",
+    "[scoreview][composer][structure]")
+{
+    // Bar 4 has never been played: the seam repairs joins, it does not
+    // introduce material.
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    const double qpb = slicer.bar_quarters(0);
+    PlayerModel model;
+    model.set_piece("grieg", 120.0, qpb);
+    const PieceProfile profile = phrased_profile(total, { 0, 4 }, 0.9);
+    add_bar_at_quality(model, 3, qpb, 0.55);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, &profile);
+    StreamProgram program;
+    composer.ensure(program, 16);
+    CHECK_FALSE(program_has_reason(program, "seam"));
 }

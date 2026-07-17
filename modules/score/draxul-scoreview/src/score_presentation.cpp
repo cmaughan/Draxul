@@ -373,23 +373,46 @@ void ScorePresentation::record_placeholder(INanoVGPass& pass, float pixel_scale)
 
 void ScorePresentation::record_paged(INanoVGPass& pass,
     std::shared_ptr<const std::vector<ScoreDrawList>> pages, float pixel_scale, float margin,
-    float gap, float scroll, float page_w, float page_h, float scale)
+    float gap, float scroll, float page_w, float page_h, float scale,
+    std::shared_ptr<const AnalysisOverlay> overlay, bool annotations, bool unique_chunks)
 {
+    if (!annotations && !unique_chunks)
+        overlay = nullptr;
     pass.set_draw_callback(
-        [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale](
-            NVGcontext* vg, int w, int h) {
+        [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale, overlay, annotations,
+            unique_chunks](NVGcontext* vg, int w, int h) {
             fill_backdrop(vg, w, h);
             const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
             float y = margin - scroll;
-            for (const ScoreDrawList& page : *pages)
+            for (size_t index = 0; index < pages->size(); ++index)
             {
+                const ScoreDrawList& page = (*pages)[index];
                 if (y + page_h >= 0.0f && y <= static_cast<float>(h))
                 {
                     draw_page_sheet(vg, margin, y, page_w, page_h, pixel_scale);
-                    render_draw_list(vg, page, { margin, y }, scale, fonts);
+                    // Motif note coloring rides the guidance channel, exactly
+                    // like the flow sheet's spelling colors — only when the
+                    // analysis annotations are on.
+                    const ScoreHighlightState* motif_colors
+                        = overlay && annotations && index < overlay->highlights.size()
+                        ? &overlay->highlights[index]
+                        : nullptr;
+                    render_draw_list(vg, page, { margin, y }, scale, fonts, motif_colors);
+                    if (overlay && index < overlay->pages.size())
+                    {
+                        // Wash first: the green annotations stay legible on top.
+                        if (unique_chunks)
+                            draw_unique_wash(vg, overlay->pages[index], { margin, y }, scale,
+                                pixel_scale, fonts);
+                        if (annotations)
+                            draw_analysis_overlay(vg, *overlay, overlay->pages[index],
+                                { margin, y }, scale, pixel_scale, fonts, unique_chunks);
+                    }
                 }
                 y += page_h + gap;
             }
+            if (overlay && annotations)
+                draw_analysis_banner(vg, *overlay, pixel_scale, fonts);
         });
 }
 

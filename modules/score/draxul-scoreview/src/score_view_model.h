@@ -57,6 +57,8 @@ struct ScoreViewModel
     bool split_accidentals = true;
     bool composer_enabled = false;
     bool proportional_spacing = false;
+    bool show_analysis_overlay = false; // green analysis annotations (paged view, 'a')
+    bool show_unique_chunks = false; // ghost restated phrases (paged view, 's')
     float score_height_frac = 0.4f;
     double waterfall_beats = 7.0;
     double note_gate = 0.95;
@@ -99,6 +101,8 @@ struct ScoreInspectorIntents
     std::optional<bool> split_accidentals;
     std::optional<bool> composer_enabled;
     std::optional<bool> proportional_spacing;
+    std::optional<bool> show_analysis_overlay;
+    std::optional<bool> show_unique_chunks;
     std::optional<float> spacing_linear_override;
     std::optional<float> spacing_non_linear_override;
     bool reset_spacing_overrides = false;
@@ -116,6 +120,7 @@ struct ScoreInspectorIntents
             || select_keyboard_input || select_mic_input || select_midi_port
             || score_height_frac || show_waterfall || waterfall_beats || note_gate
             || mark_mistakes || split_accidentals || composer_enabled || proportional_spacing
+            || show_analysis_overlay || show_unique_chunks
             || spacing_linear_override || spacing_non_linear_override
             || reset_spacing_overrides || tick_level || use_synth_voice || use_piano_index
             || audition || clear_progress;

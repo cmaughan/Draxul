@@ -1,5 +1,7 @@
 #include <draxul/scoreview/score_timemap.h>
 
+#include <unordered_map>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -61,6 +63,47 @@ std::optional<Timemap> parse_timemap(std::string_view json_text, std::string& er
     if (!timemap.entries.empty())
         timemap.duration_q = timemap.entries.back().qstamp;
     return timemap;
+}
+
+std::vector<AnalysisOnset> analysis_onsets_from_timemap(const Timemap& timemap,
+    const std::function<int(const std::string&)>& midi_pitch,
+    std::vector<std::vector<std::string>>* ids_out)
+{
+    // First pass: when each id stops sounding (ids are unique per note).
+    std::unordered_map<std::string, double> off_q;
+    off_q.reserve(timemap.entries.size() * 2);
+    for (const TimemapEntry& entry : timemap.entries)
+    {
+        for (const std::string& id : entry.note_off)
+            off_q[id] = entry.qstamp;
+    }
+    std::vector<AnalysisOnset> onsets;
+    onsets.reserve(timemap.entries.size());
+    if (ids_out != nullptr)
+        ids_out->reserve(timemap.entries.size());
+    for (const TimemapEntry& entry : timemap.entries)
+    {
+        AnalysisOnset onset;
+        onset.qstamp = entry.qstamp;
+        std::vector<std::string> ids;
+        for (const std::string& id : entry.note_on)
+        {
+            const int pitch = midi_pitch ? midi_pitch(id) : -1;
+            if (pitch < 0)
+                continue;
+            onset.pitches.push_back(pitch);
+            const auto found = off_q.find(id);
+            onset.durations.push_back(
+                found != off_q.end() ? std::max(0.0, found->second - entry.qstamp) : 0.0);
+            ids.push_back(id);
+        }
+        if (onset.pitches.empty())
+            continue;
+        onsets.push_back(std::move(onset));
+        if (ids_out != nullptr)
+            ids_out->push_back(std::move(ids));
+    }
+    return onsets;
 }
 
 } // namespace scoreview

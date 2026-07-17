@@ -132,12 +132,26 @@ struct DrawText
     std::string element_id;
 };
 
+// True canvas-space extent of one engraved measure: every op inside the
+// measure's <g class="measure"> group contributes (staff lines, barlines,
+// notes, beams, directions) — so min.x/max.x are the barlines and the y
+// range is the full system band including text above/below the staves.
+// Emitted in encounter order, which for a single-part score IS bar order.
+struct MeasureBox
+{
+    std::string id; // the measure group's xml:id
+    glm::vec2 min{ 0.0f };
+    glm::vec2 max{ 0.0f };
+    bool valid = false; // false until the first op lands inside
+};
+
 struct ScoreDrawList
 {
     std::vector<SymbolOutline> symbols;
     std::vector<GlyphInstance> glyphs;
     std::vector<DrawPath> paths;
     std::vector<DrawText> texts;
+    std::vector<MeasureBox> measures; // encounter order (see MeasureBox)
 
     glm::vec2 canvas_size{ 0.0f }; // definition-scale viewBox extent
     glm::vec2 pixel_size{ 0.0f }; // outer svg viewBox extent (engine's px intent)

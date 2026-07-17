@@ -409,6 +409,7 @@ private:
     {
         Affine xform;
         std::string element_id;
+        int measure = -1; // index into list_.measures while inside one
         bool italic = false;
         bool bold = false;
     };
@@ -498,6 +499,14 @@ private:
             next.xform = element_transform(element, ctx);
             if (const char* id = element->Attribute("id"))
                 next.element_id = id;
+            if (has_class(element->Attribute("class"), "measure"))
+            {
+                MeasureBox measure;
+                if (const char* id = element->Attribute("id"))
+                    measure.id = id;
+                next.measure = static_cast<int>(list_.measures.size());
+                list_.measures.push_back(std::move(measure));
+            }
             apply_class_styles(element->Attribute("class"), next);
             walk_children(element, next);
         }
@@ -521,6 +530,42 @@ private:
         }
         else
             warn(std::string("unhandled SVG element <") + name + ">");
+    }
+
+    static bool has_class(const char* class_attr, std::string_view wanted)
+    {
+        if (class_attr == nullptr)
+            return false;
+        std::string_view classes(class_attr);
+        size_t pos = 0;
+        while (pos < classes.size())
+        {
+            const size_t space = classes.find(' ', pos);
+            const std::string_view cls = classes.substr(
+                pos, space == std::string_view::npos ? classes.size() - pos : space - pos);
+            if (cls == wanted)
+                return true;
+            if (space == std::string_view::npos)
+                break;
+            pos = space + 1;
+        }
+        return false;
+    }
+
+    // Every op emitted inside a measure group grows that measure's box.
+    void extend_measure(const Context& ctx, glm::vec2 point)
+    {
+        if (ctx.measure < 0)
+            return;
+        MeasureBox& box = list_.measures[static_cast<size_t>(ctx.measure)];
+        if (!box.valid)
+        {
+            box.min = box.max = point;
+            box.valid = true;
+            return;
+        }
+        box.min = glm::min(box.min, point);
+        box.max = glm::max(box.max, point);
     }
 
     // Class-driven styles from Verovio's emitted stylesheet:
@@ -566,6 +611,7 @@ private:
         glyph.symbol_index = found->second;
         glyph.xform = element_transform(element, ctx);
         glyph.element_id = ctx.element_id;
+        extend_measure(ctx, { glyph.xform.e, glyph.xform.f });
         list_.glyphs.push_back(std::move(glyph));
     }
 
@@ -581,6 +627,8 @@ private:
             cmd.p = ctx.xform.apply(cmd.p);
             cmd.c1 = ctx.xform.apply(cmd.c1);
             cmd.c2 = ctx.xform.apply(cmd.c2);
+            if (cmd.op != PathCmd::Op::Close)
+                extend_measure(ctx, cmd.p);
             if (cmd.op == PathCmd::Op::CubicTo || cmd.op == PathCmd::Op::Close)
                 has_area = true;
         }
@@ -732,6 +780,7 @@ private:
         text.continues_previous = run.continues;
         text.element_id = ctx.element_id;
         text.content = content;
+        extend_measure(ctx, text.pos);
         list_.texts.push_back(std::move(text));
         run.continues = true;
     }

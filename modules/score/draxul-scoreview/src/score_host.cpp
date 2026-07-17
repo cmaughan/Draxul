@@ -218,6 +218,13 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             mark_mistakes_ = false;
         if (command.find("fullcolor") != std::string::npos)
             split_accidentals_ = false;
+        // The green analysis annotations over the paged reading view (the
+        // inspector's "Analysis overlay"); launch token for headless
+        // screenshots and quick inspection.
+        if (command.find("analysis") != std::string::npos)
+            show_analysis_overlay_ = true;
+        if (command.find("unique") != std::string::npos)
+            show_unique_chunks_ = true;
         // The composer defaults OFF while its program is tuned; `composer`
         // opts in at launch, `nocomposer` still forces it off (checked first
         // — "composer" is a substring of "nocomposer").
@@ -379,6 +386,84 @@ int ScoreHost::current_page() const
     return std::clamp(page, 0, static_cast<int>(pages_->size()) - 1) + 1;
 }
 
+void ScoreHost::rebuild_analysis_overlay()
+{
+    // The green analysis annotations for the paged view. Built whenever the
+    // pages are (cheap next to the engrave), so the inspector toggle costs
+    // nothing — it only gates the draw.
+    analysis_overlay_.reset();
+    if (!pages_ || pages_->empty() || !engine_ || !engine_->is_loaded())
+        return;
+    std::string timemap_error;
+    const auto timemap = parse_timemap(engine_->render_timemap(), timemap_error);
+    if (!timemap || timemap->empty())
+    {
+        if (!timemap)
+            DRAXUL_LOG_DEBUG(LogCategory::App, "score: analysis overlay timemap failed: %s",
+                timemap_error.c_str());
+        return;
+    }
+    // Bar starts on the analysis axis: the slicer's real bar geometry when
+    // it has the piece, else uniform bars from the notated meter. The meter
+    // comes from the model, not quarters_per_bar_ — that member is only set
+    // once the conveyor builds, which paged-at-launch never does.
+    std::vector<double> bar_starts;
+    if (stream_->slicer().ready())
+    {
+        const int bars = stream_->slicer().bar_count();
+        bar_starts.reserve(static_cast<size_t>(bars));
+        for (int bar = 0; bar < bars; ++bar)
+            bar_starts.push_back(stream_->slicer().bar_start_q(bar));
+    }
+    else
+    {
+        const double model_quarters = quarters_per_measure_from_model();
+        const double qpb = model_quarters > 0.0 ? model_quarters : quarters_per_bar_;
+        if (qpb > 0.0)
+        {
+            const int bars
+                = std::max(1, static_cast<int>(std::ceil(timemap->duration_q / qpb)));
+            bar_starts.reserve(static_cast<size_t>(bars));
+            for (int bar = 0; bar < bars; ++bar)
+                bar_starts.push_back(bar * qpb);
+        }
+    }
+    if (bar_starts.empty())
+        return;
+    // Paged-at-launch never builds the conveyor, which is where the piece
+    // analysis normally runs — produce it here from the same timemap so the
+    // overlay (and the composer after it) has a profile either way. Routed
+    // through set_piece_profile so the .analysis.json dump stays in step.
+    const PieceProfile& existing = session_->piece_profile();
+    if (existing.phrases.empty() && existing.chords.empty() && existing.figures.empty())
+    {
+        std::vector<AnalysisOnset> onsets = analysis_onsets_from_timemap(*timemap,
+            [this](const std::string& id) { return engine_->midi_pitch_for_element(id); });
+        if (!onsets.empty())
+        {
+            std::optional<int> notated_fifths;
+            if (has_model_ && !model_.parts.empty())
+            {
+                for (const auto& measure : model_.parts[0].measures)
+                {
+                    if (measure.key)
+                    {
+                        notated_fifths = measure.key->fifths;
+                        break;
+                    }
+                }
+            }
+            const double analysis_qpb
+                = bar_starts.size() > 1 ? bar_starts[1] - bar_starts[0] : quarters_per_bar_;
+            session_->set_piece_profile(
+                analyze_piece(onsets, analysis_qpb, notated_fifths));
+        }
+    }
+    analysis_overlay_ = std::make_shared<const AnalysisOverlay>(
+        build_analysis_overlay(*pages_, *timemap, session_->piece_profile(), bar_starts,
+            [this](const std::string& id) { return engine_->midi_pitch_for_element(id); }));
+}
+
 void ScoreHost::relayout()
 {
     if (!engine_ || !engine_->is_loaded() || viewport_.pixel_size.x <= 0 || viewport_.pixel_size.y <= 0)
@@ -429,6 +514,7 @@ void ScoreHost::relayout()
     }
 
     pages_ = pages;
+    rebuild_analysis_overlay();
     size_t total_ops = 0;
     for (const ScoreDrawList& page : *pages_)
         total_ops += page.glyphs.size() + page.paths.size() + page.texts.size();
@@ -525,21 +611,19 @@ void ScoreHost::relayout_flow()
 
         // Piece analysis (stream plan S1): key, chords + nearings, motifs,
         // rhythm figures — from the judgment axis itself, dumped beside the
-        // progress file for inspection and cached for the composer.
+        // progress file for inspection and cached for the composer. Built
+        // from the timemap so onsets carry DURATIONS (the sustain-aware
+        // skyline needs them to keep accompaniment out of the melody).
         std::vector<AnalysisOnset> analysis_onsets;
-        analysis_onsets.reserve(flow_.onsets().size());
-        for (const FlowController::Onset& onset : flow_.onsets())
         {
-            AnalysisOnset entry;
-            entry.qstamp = onset.qstamp;
-            for (const std::string& id : onset.ids)
-            {
-                const int pitch = engine_->midi_pitch_for_element(id);
-                if (pitch >= 0)
-                    entry.pitches.push_back(pitch);
-            }
-            if (!entry.pitches.empty())
-                analysis_onsets.push_back(std::move(entry));
+            std::string timemap_error;
+            const auto analysis_timemap = parse_timemap(engine_->render_timemap(), timemap_error);
+            if (analysis_timemap)
+                analysis_onsets = analysis_onsets_from_timemap(*analysis_timemap,
+                    [this](const std::string& id) { return engine_->midi_pitch_for_element(id); });
+            else
+                DRAXUL_LOG_DEBUG(LogCategory::App, "score: analysis timemap failed: %s",
+                    timemap_error.c_str());
         }
         std::optional<int> notated_fifths;
         if (has_model_ && !model_.parts.empty())
@@ -555,6 +639,9 @@ void ScoreHost::relayout_flow()
         }
         session_->set_piece_profile(
             analyze_piece(analysis_onsets, quarters_per_bar_, notated_fifths));
+        // A fresh analysis invalidates any overlay built against the old
+        // profile (the paged view may already be holding pages).
+        rebuild_analysis_overlay();
         if (start_in_gate_)
         {
             start_in_gate_ = false;
@@ -1310,7 +1397,8 @@ void ScoreHost::draw(IFrameContext& frame)
     else
     {
         presentation_->record_paged(*nanovg_pass_, pages_, pixel_scale, page_margin(),
-            page_gap(), scroll_y_, page_width_px_, page_height_px_, page_scale_);
+            page_gap(), scroll_y_, page_width_px_, page_height_px_, page_scale_,
+            analysis_overlay_, show_analysis_overlay_, show_unique_chunks_);
     }
 
     RenderViewport vp;
@@ -1360,6 +1448,8 @@ ScoreViewModel ScoreHost::build_view_model() const
     view.split_accidentals = split_accidentals_;
     view.composer_enabled = composer_enabled_;
     view.proportional_spacing = proportional_spacing_;
+    view.show_analysis_overlay = show_analysis_overlay_;
+    view.show_unique_chunks = show_unique_chunks_;
     view.score_height_frac = score_height_frac_;
     view.waterfall_beats = waterfall_beats_;
     view.note_gate = note_gate_;
@@ -1433,6 +1523,18 @@ void ScoreHost::apply_inspector_intents(const ScoreInspectorIntents& intents)
     }
     if (intents.score_height_frac)
         score_height_frac_ = std::clamp(*intents.score_height_frac, 0.2f, 0.6f);
+    if (intents.show_analysis_overlay)
+    {
+        show_analysis_overlay_ = *intents.show_analysis_overlay;
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
+    }
+    if (intents.show_unique_chunks)
+    {
+        show_unique_chunks_ = *intents.show_unique_chunks;
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
+    }
     if (intents.show_waterfall)
     {
         show_waterfall_ = *intents.show_waterfall;
@@ -1618,6 +1720,18 @@ void ScoreHost::on_key(const KeyEvent& event)
         break;
     case SDLK_END:
         scroll_to(max_scroll());
+        break;
+    case SDLK_A:
+        // The green analysis annotations (reading view only).
+        show_analysis_overlay_ = !show_analysis_overlay_;
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
+        break;
+    case SDLK_S:
+        // Unique-chunks: ghost restated phrases — the piece's actual size.
+        show_unique_chunks_ = !show_unique_chunks_;
+        if (callbacks_ != nullptr)
+            callbacks_->request_frame();
         break;
     default:
         break;

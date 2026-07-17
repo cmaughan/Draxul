@@ -32,8 +32,12 @@ void StreamComposer::reset()
     last_review_slot_.clear();
     hands_done_.clear();
     last_scale_slot_.clear();
+    last_seam_slot_.clear();
+    seams_used_.clear();
     arc_ = 0;
+    arc_start_bar_ = 0;
     arc_end_bar_ = -1;
+    arc_on_phrase_ = false;
     performance_run_ = false;
 }
 
@@ -70,7 +74,52 @@ void StreamComposer::begin_next_arc()
         return;
     }
     performance_run_ = false;
-    // The weakest kSliceBars-long slice (unencountered bars count as 0).
+    // Chunk on musical structure, never on a fixed window: practice segments
+    // belong on phrase boundaries, and the fixed slice survives only for
+    // material whose structure we cannot honestly see.
+    if (!begin_weakest_phrase(total))
+        begin_weakest_slice(total);
+    ++arc_;
+}
+
+bool StreamComposer::begin_weakest_phrase(int total)
+{
+    if (profile_ == nullptr || profile_->phrases.empty()
+        || profile_->structure_confidence < kMinStructureConfidence)
+        return false;
+    const PieceProfile::Phrase* weakest = nullptr;
+    double worst = 1e9;
+    for (const PieceProfile::Phrase& phrase : profile_->phrases)
+    {
+        const int begin = std::clamp(phrase.start_bar, 0, total);
+        const int end = std::clamp(phrase.end_bar, 0, total);
+        if (end <= begin)
+            continue;
+        double sum = 0.0;
+        for (int bar = begin; bar < end; ++bar)
+            sum += model_->bar_encounters(bar) > 0 ? model_->bar_mastery(bar) : 0.0;
+        // Mean, not sum: phrases differ in length, and a long phrase must not
+        // look weak merely for being long.
+        const double mean = sum / static_cast<double>(end - begin);
+        if (mean < worst)
+        {
+            worst = mean;
+            weakest = &phrase;
+        }
+    }
+    if (weakest == nullptr)
+        return false;
+    frontier_ = std::clamp(weakest->start_bar, 0, std::max(0, total - 1));
+    arc_start_bar_ = frontier_;
+    arc_end_bar_ = std::clamp(weakest->end_bar, frontier_ + 1, total);
+    arc_on_phrase_ = true;
+    return true;
+}
+
+void StreamComposer::begin_weakest_slice(int total)
+{
+    // Fallback only (see kSliceBars): the weakest fixed-length window, with
+    // unencountered bars counting as 0.
     int best_start = 0;
     double best_mastery = 1e9;
     const int slice = std::min(kSliceBars, total);
@@ -86,8 +135,9 @@ void StreamComposer::begin_next_arc()
         }
     }
     frontier_ = best_start;
+    arc_start_bar_ = best_start;
     arc_end_bar_ = std::min(total, best_start + slice);
-    ++arc_;
+    arc_on_phrase_ = false;
 }
 
 bool StreamComposer::try_hands(StreamProgram& program, int slot)
@@ -227,7 +277,8 @@ bool StreamComposer::try_scale(StreamProgram& program, int slot)
 bool StreamComposer::try_review(StreamProgram& program, int slot)
 {
     int worst_bar = -1;
-    double worst_mastery = kReviewMasteryThreshold;
+    double worst_mastery = 0.0;
+    double best_priority = 0.0;
     for (int bar = 0; bar < slicer_->bar_count(); ++bar)
     {
         if (model_->bar_encounters(bar) == 0)
@@ -238,8 +289,15 @@ bool StreamComposer::try_review(StreamProgram& program, int slot)
         if (last != last_review_slot_.end() && slot - last->second < kDrillCooldownSlots)
             continue;
         const double mastery = model_->bar_mastery(bar);
-        if (mastery < worst_mastery)
+        if (mastery >= kReviewMasteryThreshold)
+            continue;
+        // Weakness first, but serial position breaks the near-ties: recall
+        // collapses toward a phrase's tail, so the later bar earns the slot.
+        const double priority = (kReviewMasteryThreshold - mastery)
+            + kTailWeight * (profile_ != nullptr ? profile_->bar_tail_fraction(bar) : 0.0);
+        if (priority > best_priority)
         {
+            best_priority = priority;
             worst_mastery = mastery;
             worst_bar = bar;
         }
@@ -257,6 +315,61 @@ bool StreamComposer::try_review(StreamProgram& program, int slot)
     last_review_slot_[worst_bar] = slot;
     piece_bars_since_special_ = 0;
     program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
+    return true;
+}
+
+bool StreamComposer::try_seam(StreamProgram& program, int slot)
+{
+    // Hesitations concentrate at the joins between phrases. Arcs practise ONE
+    // phrase at a time and stop dead at its end, so the join to the next
+    // phrase is the one place arc practice never covers — the two bars are
+    // each fine alone and fail together. Serve the pair back-to-back.
+    if (profile_ == nullptr || profile_->phrases.size() < 2
+        || profile_->structure_confidence < kMinStructureConfidence)
+        return false;
+    const int total = slicer_->bar_count();
+    int best_tail = -1;
+    int best_head = -1;
+    double worst = kSeamMasteryThreshold;
+    for (size_t i = 0; i + 1 < profile_->phrases.size(); ++i)
+    {
+        const int tail = profile_->phrases[i].end_bar - 1;
+        const int head = profile_->phrases[i + 1].start_bar;
+        if (tail < 0 || tail >= total || head < 0 || head >= total)
+            continue;
+        // Both sides must have been met: an unplayed join is the frontier's
+        // job, not a repair.
+        if (model_->bar_encounters(tail) == 0 || model_->bar_encounters(head) == 0)
+            continue;
+        if (seams_used_[tail] >= kMaxSeamsPerJoin)
+            continue;
+        const auto last = last_seam_slot_.find(tail);
+        if (last != last_seam_slot_.end() && slot - last->second < kDrillCooldownSlots)
+            continue;
+        const double quality = 0.5 * (model_->bar_mastery(tail) + model_->bar_mastery(head));
+        if (quality < worst)
+        {
+            worst = quality;
+            best_tail = tail;
+            best_head = head;
+        }
+    }
+    if (best_tail < 0)
+        return false;
+    ++seams_used_[best_tail];
+    last_seam_slot_[best_tail] = slot;
+    piece_bars_since_special_ = 0;
+    const std::string join
+        = std::to_string(best_tail + 1) + "->" + std::to_string(best_head + 1);
+    for (const int bar : { best_tail, best_head })
+    {
+        StreamBarPlan plan;
+        plan.kind = StreamBarPlan::Kind::Review;
+        plan.source_bar = bar;
+        plan.source_start_q = slicer_->bar_start_q(bar);
+        plan.reason = "seam " + join + (bar == best_tail ? ": phrase tail" : ": next phrase head");
+        program.append(std::move(plan), slicer_->bar_quarters(bar));
+    }
     return true;
 }
 
@@ -282,12 +395,13 @@ void StreamComposer::compose_next(StreamProgram& program)
         // Rotate the chain so every trouble type gets airtime — twenty
         // weak bars must not starve the chord drills (never boring).
         using TryFn = bool (StreamComposer::*)(StreamProgram&, int);
-        static constexpr TryFn kChain[4] = { &StreamComposer::try_hands,
+        static constexpr TryFn kChain[5] = { &StreamComposer::try_hands,
             &StreamComposer::try_drill, &StreamComposer::try_scale,
-            &StreamComposer::try_review };
-        for (int at = 0; at < 4; ++at)
+            &StreamComposer::try_review, &StreamComposer::try_seam };
+        constexpr int kChainLength = static_cast<int>(std::size(kChain));
+        for (int at = 0; at < kChainLength; ++at)
         {
-            if ((this->*kChain[(specials_count_ + at) % 4])(program, slot))
+            if ((this->*kChain[(specials_count_ + at) % kChainLength])(program, slot))
             {
                 ++specials_count_;
                 return;
@@ -301,9 +415,10 @@ void StreamComposer::compose_next(StreamProgram& program)
     plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
     if (performance_run_ && plan.source_bar == 0)
         plan.reason = "performance run — every bar mastered";
-    else if (arc_ > 0 && !performance_run_ && frontier_ - 1 == arc_end_bar_ - std::min(kSliceBars, total))
-        plan.reason = "arc " + std::to_string(arc_) + ": weakest slice, bars "
-            + std::to_string(frontier_) + ".." + std::to_string(arc_end_bar_);
+    else if (arc_ > 0 && !performance_run_ && plan.source_bar == arc_start_bar_)
+        plan.reason = "arc " + std::to_string(arc_) + ": weakest "
+            + (arc_on_phrase_ ? "phrase" : "slice") + ", bars "
+            + std::to_string(arc_start_bar_ + 1) + ".." + std::to_string(arc_end_bar_);
     ++piece_bars_since_special_;
     const double quarters = slicer_->bar_quarters(plan.source_bar);
     program.append(std::move(plan), quarters);

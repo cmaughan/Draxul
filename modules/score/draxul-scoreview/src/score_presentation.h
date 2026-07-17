@@ -9,6 +9,7 @@
 // Internal to draxul-scoreview-host (no public header).
 
 #include <draxul/nanovg_pass.h>
+#include <draxul/scoreview/analysis_overlay.h>
 #include <draxul/scoreview/engraved_window.h>
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/player_model.h>
@@ -62,9 +63,15 @@ public:
 
     void record_flow(INanoVGPass& pass, const FlowFrame& frame);
     void record_placeholder(INanoVGPass& pass, float pixel_scale);
+    // `overlay` (optional): the analysis data — pages parallel to `pages`.
+    // `annotations` draws the green analysis marks + banner; `unique_chunks`
+    // ghosts restated phrases under a paper wash ('s', the piece's actual
+    // size). Either flag alone works; the overlay is ignored when both off.
     void record_paged(INanoVGPass& pass,
         std::shared_ptr<const std::vector<ScoreDrawList>> pages, float pixel_scale,
-        float margin, float gap, float scroll, float page_w, float page_h, float scale);
+        float margin, float gap, float scroll, float page_w, float page_h, float scale,
+        std::shared_ptr<const AnalysisOverlay> overlay = nullptr, bool annotations = true,
+        bool unique_chunks = false);
 
     // The look-ahead the viewport shows right of the playhead (+1 buffer) —
     // the stream advances when its runway drops to this. Computed by the

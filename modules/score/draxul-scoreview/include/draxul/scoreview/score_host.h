@@ -3,6 +3,7 @@
 #include <draxul/host.h>
 #include <draxul/nanovg_pass.h>
 #include <draxul/notation/score_document.h>
+#include <draxul/scoreview/analysis_overlay.h>
 #include <draxul/scoreview/engraved_window.h>
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/layout_engine.h>
@@ -119,6 +120,7 @@ private:
     int current_page() const;
     void relayout();
     void relayout_flow();
+    void rebuild_analysis_overlay();
     void toggle_flow_mode();
     void apply_lit_update();
     void apply_verdict_update();
@@ -202,6 +204,11 @@ private:
     std::string init_error_;
     std::unique_ptr<ILayoutEngine> engine_;
     std::shared_ptr<const std::vector<ScoreDrawList>> pages_;
+    // Green analysis annotations for the paged reading view (built alongside
+    // pages_ in relayout; drawn only when the inspector toggle is on).
+    std::shared_ptr<const AnalysisOverlay> analysis_overlay_;
+    bool show_analysis_overlay_ = false; // 'a' in the paged view
+    bool show_unique_chunks_ = false; // 's': ghost restated phrases
     draxul::notation::ScoreDocument model_;
     bool has_model_ = false;
 
