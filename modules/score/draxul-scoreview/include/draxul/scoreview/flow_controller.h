@@ -271,7 +271,10 @@ public:
     }
 
     static constexpr double kFallbackMarkingQpm = 120.0;
-    static constexpr double kMinTempoFrac = 0.25;
+    // The floor is deliberately DEEP: a struggling bar may need to crawl.
+    // Ultra-slow practice is still practice (submaximal reps raise ceiling
+    // speed); the adaptive easing climbs back out as soon as accuracy does.
+    static constexpr double kMinTempoFrac = 0.10;
     static constexpr double kMaxTempoFrac = 1.2;
     static constexpr double kStartTempoFrac = 0.6;
     // Pace adaptation: EMA over the player's gate-to-gate pace, eased into

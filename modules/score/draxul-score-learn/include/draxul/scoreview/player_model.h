@@ -105,7 +105,7 @@ public:
     static constexpr double kLadderStart = 0.60;
     static constexpr double kLadderStep = 0.04;
     static constexpr double kLadderDrop = 0.08;
-    static constexpr double kLadderFloor = 0.40;
+    static constexpr double kLadderFloor = 0.10;
     static constexpr double kLadderCap = 1.0;
 
     struct Session
