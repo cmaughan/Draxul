@@ -11,10 +11,6 @@
 #include <draxul/scoreview/player_model.h>
 #include <draxul/scoreview/score_draw_list.h>
 #include <draxul/scoreview/score_highlight.h>
-#include <draxul/scoreview/source_slicer.h>
-#include <draxul/scoreview/stream_composer.h>
-#include <draxul/scoreview/stream_program.h>
-#include <draxul/scoreview/verdict_archive.h>
 #include <draxul/scoreview/window_engraver.h>
 
 #include <chrono>
@@ -44,6 +40,7 @@ namespace scoreview
 // Without a source, a placeholder grand-staff page is drawn.
 class ScoreAudioController; // internal audio rig (src/score_audio_controller.h)
 class ScoreSessionController; // internal player-memory session (src/score_session_controller.h)
+class ScoreStreamController; // internal rolling-window stream (src/score_stream_controller.h)
 
 class ScoreHost final : public draxul::IHost
 {
@@ -135,17 +132,6 @@ private:
         Ok,
     };
     FlowBuildResult build_flow_from_engine(std::string& error);
-    // A window's MusicXML slice plus where it sits in the stream. Produced on
-    // the main thread (slicing + composer planning are cheap); the heavy
-    // Verovio engrave then runs here (sync) or on the worker (async).
-    struct WindowSlice
-    {
-        std::string xml;
-        int first_bar = 0;
-        int count = 0;
-        double stream_offset_q = 0.0;
-    };
-    std::optional<WindowSlice> build_window_slice(int first_bar);
     bool rebuild_window(int first_bar, double stream_position_q, bool carry,
         bool preserve_tempo = false);
     // Swaps a freshly-engraved window into the live host state and replays the
@@ -157,6 +143,11 @@ private:
     // Installs a finished background engrave if one is ready (called each pump).
     void poll_async_engrave();
     void handle_async_engrave_done(WindowEngraver::Done done);
+    // The host-side half of a completed generation: fallback/view checks,
+    // then the presentation install (flattened intent — the controller's
+    // Completed type is internal).
+    void apply_completed_engrave(WindowEngraver::Done done, double intent_position_q,
+        bool carry, bool preserve_tempo, bool fallback_to_monolith);
     // Restarts the stream from bar 0 with a fresh program (verdicts and
     // composer plan dropped). keep_tempo preserves the tempo the player has
     // settled at — their learned pace is a property of the LEARNER, not of
@@ -170,10 +161,7 @@ private:
     // position and verdicts (streaming rebuilds the current window with
     // carry; the monolith goes through flow_dirty_). Resets the band scale.
     void reengrave_flow_in_place();
-    double stream_position_q() const
-    {
-        return flow_.position_q() + stream_offset_q_;
-    }
+    double stream_position_q() const;
     // The click track: position-locked to the transport — ticks fire as the
     // playhead crosses beat lines, so gate mode falls silent while waiting.
     // Player memory (plans/scoreview-stream.md S0): outcomes drain into the
@@ -187,10 +175,7 @@ private:
     // Advances the rolling window when the playhead moves past its history
     // margin; records judged outcomes into the verdict archive first.
     void maybe_advance_stream();
-    bool stream_active() const
-    {
-        return engine_holds_window_;
-    }
+    bool stream_active() const;
     void enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy);
     void exit_gate_mode();
     // Swaps the player-input implementation without touching the session
@@ -255,60 +240,14 @@ private:
     size_t last_logged_gate_ = 0;
     bool logged_gate_end_ = false;
 
-    // Rolling window state (S2). `mono` command falls back to the
-    // monolithic strip (the equivalence-verification instrument).
-    SourceSlicer slicer_;
+    // The rolling-window stream (kanban 21 ScoreStreamController): slicing,
+    // the composer + program, the verdict archive, window bookkeeping, the
+    // advance policy, and the async-engrave worker state machine. The host
+    // keeps the sync engrave (main engine), the install swap, and the
+    // view/transport checks. Internal component; never null.
+    std::unique_ptr<ScoreStreamController> stream_;
     std::string source_bytes_;
-    bool stream_windowed_ = true;
-    bool engine_holds_window_ = false;
-    // Background window engraver (async double-buffer): a second Verovio
-    // toolkit on a worker thread engraves the next rolling window while the
-    // current one keeps playing, so a window advance or interactive rebuild no
-    // longer freezes the frame. Null when the worker could not start (the
-    // stream then falls back to synchronous rebuilds).
-    std::unique_ptr<WindowEngraver> engraver_;
-    bool async_engrave_in_flight_ = false;
-    struct PendingWindowInstall
-    {
-        WindowEngraver::RequestId request_id = 0;
-        double stream_position_q = 0.0;
-        bool carry = false;
-        bool preserve_tempo = false;
-        bool fallback_to_monolith_on_error = false;
-    };
-    std::optional<PendingWindowInstall> pending_window_install_;
-    bool initial_window_installed_ = false;
-    int window_first_bar_ = 0;
-    int window_bar_count_ = 0;
-    double stream_offset_q_ = 0.0;
     double piece_marking_qpm_ = 0.0;
-    // Verdicts already earned on the stream axis — re-applied to the fresh
-    // engraving after every window swap (quantization lives in the archive,
-    // and only there).
-    VerdictArchive verdict_archive_;
-    // History bars kept behind the playhead. This must be enough to fill the
-    // scroll anchor (~30% of the viewport) so the playhead can sit at the
-    // anchor with music scrolling under it — too little and the scroll clamps
-    // to the strip's left edge, snapping the playhead back on every window
-    // advance.
-    static constexpr int kWindowHistoryBars = 4;
-    // Look-ahead bars in the window. Generous, because the window advances
-    // only when the playhead nears its tail (not every bar) — re-engraving
-    // every bar freezes the frame briefly and, at a fast/locked tempo, the
-    // catch-up reads as a jump at each bar. The extra ahead bars are the
-    // drift room between those (now rare) rebuilds.
-    static constexpr int kWindowAheadBars = 14;
-
-    // The composer (S3): plans the stream program (piece bars, review
-    // slices, fabricated drills) when the composer supports the source. The
-    // host owns the program; the composer (an IComposer — the seam future
-    // rewrite-style composers plug into) extends it. reset_stream_plan()
-    // clears both together — composer cooldowns are slot-indexed, so program
-    // and policy state must never diverge.
-    StreamProgram stream_program_;
-    std::unique_ptr<IComposer> composer_ = std::make_unique<StreamComposer>();
-    bool composing_ = false;
-    int last_logged_plan_slot_ = -1;
 
     // The guidance keyboard + fixed sheet scale (stream follow-up): the
     // scale locks per viewport/zoom so bars don't breathe as the window
@@ -335,7 +274,7 @@ private:
     // Bars of look-ahead the viewport needs to its right (computed from the
     // anchor and how many bars are visible); the window advances once the
     // playhead comes within this of the window's tail, so rebuilds are rare.
-    int stream_ahead_needed_ = kWindowAheadBars;
+    int stream_ahead_needed_ = 14; // ScoreStreamController::kWindowAheadBars
     // Whole-piece note coloring: element id -> pairing-palette index for
     // every note in the current engraving, resolved once per window build
     // (spelling comes from the engine there). Every note wears its color on

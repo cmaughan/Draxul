@@ -10,6 +10,7 @@
 
 #include "score_audio_controller.h"
 #include "score_session_controller.h"
+#include "score_stream_controller.h"
 
 #include <imgui.h>
 
@@ -100,7 +101,7 @@ void ScoreHost::render_debug_ui(float dt)
                     : flow_.mode() == FlowController::TransportMode::Gate              ? "Gate"
                                                                                        : "Clock";
                 ImGui::Text("mode %s   position %.2f q", mode, flow_.position_q());
-                if (async_engrave_in_flight_ || (engraver_ && engraver_->busy()))
+                if (stream_->async_in_flight() || stream_->engrave_busy())
                     ImGui::TextDisabled("engraving latest changes...");
 
                 // Player input source: dev keyboard / microphone / any MIDI
@@ -177,10 +178,11 @@ void ScoreHost::render_debug_ui(float dt)
                     // adaptive program, off = the piece scrolling unchanged.
                     // The restart keeps the player's decided tempo — switching
                     // the program is not a reason to change their pace.
-                    composing_ = composer_enabled_ && stream_windowed_
-                        && composer_->supports(slicer_);
-                    if (composing_)
-                        composer_->configure(&slicer_, &session_->model(), &session_->piece_profile());
+                    stream_->set_composing(composer_enabled_ && stream_->windowed()
+                        && stream_->composer().supports(stream_->slicer()));
+                    if (stream_->composing())
+                        stream_->composer().configure(
+                            &stream_->slicer(), &session_->model(), &session_->piece_profile());
                     restart_stream(/*keep_tempo=*/true);
                 }
                 // Switching the preset drops any debug overrides — the point
@@ -399,13 +401,13 @@ void ScoreHost::render_debug_ui(float dt)
                 }
             }
 
-            if (composing_ && ImGui::CollapsingHeader("Composer program", ImGuiTreeNodeFlags_DefaultOpen))
+            if (stream_->composing() && ImGui::CollapsingHeader("Composer program", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                const int slot_now = stream_program_.slot_at(stream_position_q());
-                const int planned = stream_program_.size();
+                const int slot_now = stream_->program().slot_at(stream_position_q());
+                const int planned = stream_->program().size();
                 for (int s = slot_now; s < planned && s < slot_now + 10; ++s)
                 {
-                    const StreamBarPlan& p = stream_program_.plan(s);
+                    const StreamBarPlan& p = stream_->program().plan(s);
                     const char* kind = p.kind == StreamBarPlan::Kind::Piece ? "piece"
                         : p.kind == StreamBarPlan::Kind::Review             ? "review"
                                                                             : "drill";
@@ -419,7 +421,7 @@ void ScoreHost::render_debug_ui(float dt)
 
             if (ImGui::CollapsingHeader("Bar mastery"))
             {
-                const int total = slicer_.bar_count();
+                const int total = stream_->slicer().bar_count();
                 int encountered = 0;
                 int mastered = 0;
                 for (int b = 0; b < total; ++b)

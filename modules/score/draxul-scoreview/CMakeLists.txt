@@ -56,6 +56,7 @@ add_library(draxul-scoreview-host STATIC
     src/mic_player_input.cpp
     src/score_audio_controller.cpp
     src/score_session_controller.cpp
+    src/score_stream_controller.cpp
     src/player_input_rig.cpp
     src/score_host.cpp
     src/score_host_inspector.cpp

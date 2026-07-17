@@ -11,6 +11,8 @@
 #include <draxul/scoreview/player_input_rig.h>
 #include <draxul/scoreview/score_host.h>
 
+#include "score_stream_controller.h"
+
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
@@ -39,12 +41,12 @@ public:
         std::string_view source, std::string& error)
     {
         host.engine_ = std::move(engine);
-        if (!host.slicer_.load(std::string(source), error))
+        if (!host.stream_->load_source(std::string(source), error))
             return false;
         host.view_mode_ = ScoreHost::ViewMode::Flow;
-        host.stream_windowed_ = true;
-        host.engine_holds_window_ = false;
-        host.initial_window_installed_ = false;
+        host.stream_->set_windowed(true);
+        host.stream_->set_active(false);
+        host.stream_->set_initial_window_installed(false);
         host.piece_marking_qpm_ = 120.0;
         if (!host.rebuild_window(0, 0.0, false))
         {
@@ -56,7 +58,7 @@ public:
 
     static void inject_engraver(ScoreHost& host, std::unique_ptr<WindowEngraver> engraver)
     {
-        host.engraver_ = std::move(engraver);
+        host.stream_->adopt_engraver(std::move(engraver));
     }
 
     static void set_transport(ScoreHost& host, double position_q, double tempo_qpm, bool playing)
@@ -100,12 +102,12 @@ public:
 
     static WindowEngraver::RequestId pending_request(const ScoreHost& host)
     {
-        return host.pending_window_install_ ? host.pending_window_install_->request_id : 0;
+        return host.stream_->pending_request();
     }
 
     static bool async_pending(const ScoreHost& host)
     {
-        return host.async_engrave_in_flight_;
+        return host.stream_->async_in_flight();
     }
 
     static double position_q(const ScoreHost& host)
