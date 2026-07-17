@@ -338,6 +338,12 @@ std::string figure_name(const std::string& signature)
 
 std::vector<MelodyNote> skyline_melody(const std::vector<AnalysisOnset>& onsets)
 {
+    // Afterglow: for a short window after a melody note ends, onsets far
+    // below it are still accompaniment (the waltz bass striking in a
+    // half-beat melody breath), not a melodic leap. A genuine register
+    // change (within an octave) or anything after a real rest passes.
+    constexpr double kAfterglowQ = 1.0;
+    constexpr int kAfterglowDropSemitones = 12;
     std::vector<MelodyNote> melody;
     melody.reserve(onsets.size());
     int ring_pitch = -1;
@@ -356,6 +362,9 @@ std::vector<MelodyNote> skyline_melody(const std::vector<AnalysisOnset>& onsets)
         // Shadowed: the previous melody note is still sounding above this
         // onset's top. Strictly-below keeps same-pitch retriggers audible.
         if (onset.qstamp + kQEpsilon < ring_end && onset.pitches[top] < ring_pitch)
+            continue;
+        if (onset.qstamp + kQEpsilon < ring_end + kAfterglowQ
+            && onset.pitches[top] < ring_pitch - kAfterglowDropSemitones)
             continue;
         MelodyNote note;
         note.qstamp = onset.qstamp;
@@ -685,9 +694,35 @@ PieceProfile analyze_piece(const std::vector<AnalysisOnset>& onsets, double quar
             return a.intervals.size() > b.intervals.size();
         return a.first_q < b.first_q;
     });
-    if (motifs.size() > kMotifKeep)
-        motifs.resize(kMotifKeep);
-    profile.motifs = std::move(motifs);
+    // Collapse shift families: a long repeating phrase reaches the depth cap
+    // as MANY overlapping windows, each occurring at a constant offset from
+    // its siblings — one underlying pattern must not flood every kept slot.
+    // Two motifs are the same family when their occurrence lists align under
+    // one constant time shift; the sort order keeps the earliest window.
+    for (const PieceProfile::Motif& motif : motifs)
+    {
+        bool shifted_duplicate = false;
+        for (const PieceProfile::Motif& kept : profile.motifs)
+        {
+            if (kept.occurrences_q.size() != motif.occurrences_q.size())
+                continue;
+            const double delta = motif.occurrences_q.front() - kept.occurrences_q.front();
+            bool constant = true;
+            for (size_t i = 1; i < motif.occurrences_q.size() && constant; ++i)
+                constant = std::abs(
+                               (motif.occurrences_q[i] - kept.occurrences_q[i]) - delta)
+                    < 1e-6;
+            if (constant)
+            {
+                shifted_duplicate = true;
+                break;
+            }
+        }
+        if (!shifted_duplicate)
+            profile.motifs.push_back(motif);
+        if (profile.motifs.size() >= kMotifKeep)
+            break;
+    }
 
     // --- Rhythm figures: per-beat onset patterns on a twelfth grid -------
     std::map<std::string, PieceProfile::Figure> figures;

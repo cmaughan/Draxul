@@ -20,6 +20,13 @@ both with `--host score --command "paged analysis unique"`:
 `--gui-action font_decrease --screenshot` also hung (that path pumps
 `run_smoke_test(10s)` first — possibly the same underlying wait).
 
+## Data point (2026-07-17)
+
+A `.musicxml` + `--screenshot` run with `--command "paged analysis"` (no `unique`
+token) SUCCEEDED — the earlier hanging `.musicxml` runs all carried
+`"paged analysis unique"`. The hang may correlate with the unique token or be
+intermittent; worth trying both when reproducing.
+
 ## Why it matters
 
 Headless screenshots are the verification loop for visual features (the analysis
