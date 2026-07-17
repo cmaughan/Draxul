@@ -465,22 +465,27 @@ TEST_CASE("the arc loops weakest slices until mastery earns the performance run"
     }
     CHECK(arc_hits_weak_region);
 
-    // Promote everything: the next arc is the performance run, then done.
+    // Promote everything: promotion now demands CONSECUTIVE CLEAN COMPLETE
+    // passes, so sweep the whole piece cleanly three times (a mean of good
+    // qualities no longer suffices — that was G5).
     PlayerModel mastered;
     mastered.set_piece("Walz", 130.0, 3.0);
-    for (int bar = 0; bar < total; ++bar)
+    for (int sweep = 0; sweep < 3; ++sweep)
     {
-        for (int beat = 0; beat < 3; ++beat)
+        for (int bar = 0; bar < total; ++bar)
         {
-            NoteOutcome outcome;
-            outcome.onset_q = bar * 3.0 + beat;
-            outcome.pitch = 60;
-            outcome.verdict = NoteVerdict::Correct;
-            outcome.quality = 1.0;
-            for (int enc = 0; enc < 3; ++enc)
+            for (int beat = 0; beat < 3; ++beat)
+            {
+                NoteOutcome outcome;
+                outcome.onset_q = bar * 3.0 + beat;
+                outcome.pitch = 60;
+                outcome.verdict = NoteVerdict::Correct;
+                outcome.quality = 1.0;
                 mastered.apply(outcome);
+            }
         }
     }
+    mastered.close_open_pass(); // the final bar's traversal counts too
     StreamComposer earned;
     earned.configure(&slicer, &mastered, nullptr);
     StreamProgram earned_program;
@@ -814,4 +819,125 @@ TEST_CASE("an unmet join is the frontier's job, not the seam's",
     StreamProgram program;
     composer.ensure(program, 16);
     CHECK_FALSE(program_has_reason(program, "seam"));
+}
+
+// --- C3: clean-complete promotion + error re-serve --------------------------
+
+TEST_CASE("a chronically fumbled bar never promotes on its mean",
+    "[scoreview][composer]")
+{
+    // G5 regression: 70% quality forever used to promote. Three sweeps where
+    // bar 5 always fumbles one note: every OTHER bar reaches three clean
+    // passes, bar 5 has none, and the performance run must not be earned.
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    for (int sweep = 0; sweep < 3; ++sweep)
+    {
+        for (int bar = 0; bar < total; ++bar)
+        {
+            for (int beat = 0; beat < 3; ++beat)
+            {
+                NoteOutcome outcome;
+                outcome.onset_q = bar * 3.0 + beat;
+                outcome.pitch = 60;
+                const bool fumble = bar == 5 && beat == 1;
+                outcome.verdict = fumble ? NoteVerdict::Missed : NoteVerdict::Correct;
+                outcome.quality = fumble ? 0.0 : 1.0;
+                model.apply(outcome);
+            }
+        }
+    }
+    model.close_open_pass();
+    CHECK(model.bar_mastery(5) > 0.6); // the mean still looks fine — that was the bug
+    CHECK(model.bar_consecutive_clean(5) == 0);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 3 * total);
+    CHECK_FALSE(composer.finished()); // no earned performance run
+    bool performance = false;
+    for (int slot = 0; slot < program.size(); ++slot)
+        performance |= program.plan(slot).reason.find("performance run") != std::string::npos;
+    CHECK_FALSE(performance);
+}
+
+TEST_CASE("a live fumble earns exactly one immediate re-serve",
+    "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 4);
+
+    // Play bar 1 cleanly, fumble bar 2, move into bar 3 (closing bar 2's
+    // pass) — mid-program, exactly as the judge feeds the model.
+    for (int beat = 0; beat < 3; ++beat)
+    {
+        NoteOutcome outcome;
+        outcome.onset_q = beat;
+        outcome.pitch = 60;
+        outcome.verdict = NoteVerdict::Correct;
+        outcome.quality = 1.0;
+        model.apply(outcome);
+    }
+    for (int beat = 0; beat < 3; ++beat)
+    {
+        NoteOutcome outcome;
+        outcome.onset_q = 3.0 + beat;
+        outcome.pitch = 60;
+        outcome.verdict = beat == 0 ? NoteVerdict::Missed : NoteVerdict::Correct;
+        outcome.quality = beat == 0 ? 0.0 : 1.0;
+        model.apply(outcome);
+    }
+    NoteOutcome next_bar;
+    next_bar.onset_q = 6.0;
+    next_bar.pitch = 60;
+    next_bar.verdict = NoteVerdict::Correct;
+    next_bar.quality = 1.0;
+    model.apply(next_bar);
+
+    const int before = program.size();
+    composer.ensure(program, before + 6);
+    // The very next planned slot is the fix, ahead of the special rotation.
+    REQUIRE(program.size() > before);
+    const StreamBarPlan& fix = program.plan(before);
+    CHECK(fix.kind == StreamBarPlan::Kind::Review);
+    CHECK(fix.source_bar == 1);
+    CHECK(fix.reason.find("fix") != std::string::npos);
+    // One fumble, one fix: no second re-serve for the same pass.
+    int fixes = 0;
+    for (int slot = 0; slot < program.size(); ++slot)
+        fixes += program.plan(slot).reason.find("fix") != std::string::npos ? 1 : 0;
+    CHECK(fixes == 1);
+}
+
+TEST_CASE("restored history never front-loads fixes", "[scoreview][composer]")
+{
+    // A model carrying yesterday's fumbles: re-serve responds to LIVE
+    // errors, so a fresh program must not open with corrections.
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    add_weak_bar(model, 2, 3.0);
+    NoteOutcome closer;
+    closer.onset_q = 9.0;
+    closer.pitch = 60;
+    closer.verdict = NoteVerdict::Correct;
+    closer.quality = 1.0;
+    model.apply(closer);
+    model.close_open_pass();
+    REQUIRE(model.bar_last_pass_dirty(2));
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 6);
+    for (int slot = 0; slot < program.size(); ++slot)
+        CHECK(program.plan(slot).reason.find("fix") == std::string::npos);
 }

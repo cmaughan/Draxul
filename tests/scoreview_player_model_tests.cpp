@@ -262,3 +262,146 @@ TEST_CASE("bar tally tracks per-bar and per-hand right/wrong", "[scoreview][play
     CHECK(model.pitch_stats().empty());
     CHECK(model.total_notes_judged() == 0);
 }
+
+// --- Complete-pass tracking (C3, plans/scoreview-composer.md) --------------
+// Promotion reads consecutive CLEAN COMPLETE traversals, never the mean of
+// note qualities — a chronically fumbled note must block promotion forever.
+
+namespace
+{
+
+draxul::scoreview::NoteOutcome pass_outcome(double onset_q, bool correct)
+{
+    draxul::scoreview::NoteOutcome outcome;
+    outcome.onset_q = onset_q;
+    outcome.pitch = 60;
+    outcome.verdict = correct ? draxul::scoreview::NoteVerdict::Correct
+                              : draxul::scoreview::NoteVerdict::Missed;
+    outcome.quality = correct ? 1.0 : 0.0;
+    return outcome;
+}
+
+} // namespace
+
+TEST_CASE("bar transitions close complete passes, clean or fumbled",
+    "[scoreview][player-model]")
+{
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+
+    // Bar 0 clean, bar 1 with one miss, back to bar 0 clean again (a review
+    // slot) — each transition closes the previous traversal.
+    for (int beat = 0; beat < 4; ++beat)
+        model.apply(pass_outcome(beat, true));
+    for (int beat = 0; beat < 4; ++beat)
+        model.apply(pass_outcome(4.0 + beat, beat != 2));
+    for (int beat = 0; beat < 4; ++beat)
+        model.apply(pass_outcome(beat, true));
+    model.close_open_pass();
+
+    CHECK(model.bar_pass_count(0) == 2);
+    CHECK(model.bar_consecutive_clean(0) == 2);
+    CHECK_FALSE(model.bar_last_pass_dirty(0));
+    CHECK(model.bar_pass_count(1) == 1);
+    CHECK(model.bar_consecutive_clean(1) == 0);
+    CHECK(model.bar_last_pass_dirty(1));
+}
+
+TEST_CASE("a stray fumbles the pass in flight", "[scoreview][player-model]")
+{
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+    model.apply(pass_outcome(0.0, true));
+    draxul::scoreview::NoteOutcome stray;
+    stray.onset_q = 1.0; // transport position inside bar 0
+    stray.pitch = 61;
+    stray.stray = true;
+    model.apply(stray);
+    model.apply(pass_outcome(2.0, true));
+    model.close_open_pass();
+
+    CHECK(model.bar_pass_count(0) == 1);
+    CHECK(model.bar_consecutive_clean(0) == 0);
+    CHECK(model.bar_last_pass_dirty(0));
+}
+
+TEST_CASE("a fumble resets the clean streak; drills never touch it",
+    "[scoreview][player-model]")
+{
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+    const auto sweep_bar0 = [&](bool clean) {
+        for (int beat = 0; beat < 4; ++beat)
+            model.apply(pass_outcome(beat, clean || beat != 1));
+        // A drill slot between traversals: sentinel onsets, no bar.
+        draxul::scoreview::NoteOutcome drill;
+        drill.onset_q = draxul::scoreview::PlayerModel::kDrillOnsetSentinel;
+        drill.pitch = 60;
+        drill.verdict = draxul::scoreview::NoteVerdict::Missed;
+        model.apply(drill);
+        // Another bar closes bar 0's pass.
+        model.apply(pass_outcome(4.0, true));
+    };
+    sweep_bar0(true);
+    sweep_bar0(true);
+    CHECK(model.bar_consecutive_clean(0) == 2);
+    sweep_bar0(false);
+    CHECK(model.bar_consecutive_clean(0) == 0);
+    sweep_bar0(true);
+    CHECK(model.bar_consecutive_clean(0) == 1);
+    CHECK(model.bar_pass_count(0) == 4);
+}
+
+TEST_CASE("pass rings survive the progress round-trip", "[scoreview][player-model]")
+{
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+    for (int beat = 0; beat < 4; ++beat)
+        model.apply(pass_outcome(beat, true));
+    for (int beat = 0; beat < 4; ++beat)
+        model.apply(pass_outcome(4.0 + beat, beat != 0));
+    model.close_open_pass();
+
+    draxul::scoreview::PlayerModel restored;
+    REQUIRE(restored.deserialize(model.serialize()));
+    CHECK(restored.bar_pass_count(0) == 1);
+    CHECK(restored.bar_consecutive_clean(0) == 1);
+    CHECK(restored.bar_pass_count(1) == 1);
+    CHECK(restored.bar_last_pass_dirty(1));
+}
+
+TEST_CASE("the tempo ladder climbs on clean passes and falls on fumbles",
+    "[scoreview][player-model]")
+{
+    draxul::scoreview::PlayerModel model;
+    model.set_piece("t", 120.0, 4.0);
+    using PM = draxul::scoreview::PlayerModel;
+    CHECK(model.bar_tempo_ladder(0) == Catch::Approx(PM::kLadderStart));
+
+    const auto pass = [&](bool clean) {
+        for (int beat = 0; beat < 4; ++beat)
+            model.apply(pass_outcome(beat, clean || beat != 2));
+        model.close_open_pass();
+    };
+    pass(true);
+    CHECK(model.bar_tempo_ladder(0)
+        == Catch::Approx(PM::kLadderStart + PM::kLadderStep));
+    pass(true);
+    pass(true);
+    const double after_three = model.bar_tempo_ladder(0);
+    CHECK(after_three == Catch::Approx(PM::kLadderStart + 3 * PM::kLadderStep));
+    pass(false);
+    CHECK(model.bar_tempo_ladder(0) == Catch::Approx(after_three - PM::kLadderDrop));
+    // The floor holds under repeated fumbles; the cap under endless success.
+    for (int i = 0; i < 20; ++i)
+        pass(false);
+    CHECK(model.bar_tempo_ladder(0) == Catch::Approx(PM::kLadderFloor));
+    for (int i = 0; i < 40; ++i)
+        pass(true);
+    CHECK(model.bar_tempo_ladder(0) == Catch::Approx(PM::kLadderCap));
+
+    // And it survives the progress round-trip.
+    draxul::scoreview::PlayerModel restored;
+    REQUIRE(restored.deserialize(model.serialize()));
+    CHECK(restored.bar_tempo_ladder(0) == Catch::Approx(PM::kLadderCap));
+}

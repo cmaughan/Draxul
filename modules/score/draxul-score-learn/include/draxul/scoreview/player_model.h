@@ -78,7 +78,28 @@ public:
         int miss = 0;
         HandTally left; // pitches below kHandSplitMidi
         HandTally right; // pitches at or above kHandSplitMidi
+        // Complete passes of this bar (one traversal each), newest last —
+        // 1 = clean (every note Correct, no strays), 0 = fumbled. The
+        // strongest retention predictor in the evidence base is the share
+        // of COMPLETE CORRECT passes, so promotion reads this, never the
+        // mean of note qualities (a chronic 30%-wrong bar has a fine mean).
+        std::vector<uint8_t> recent_passes; // capped at kRecentEncounters
+        int consecutive_clean = 0; // trailing clean passes
+        int pass_count = 0; // lifetime passes
+        // The bar's tempo ladder, as a fraction of the piece's marking:
+        // clean passes raise it, fumbles lower it. Speed is an OUTPUT of
+        // accurate passes (submaximal practice raises ceiling speed), so
+        // the roll tempo is CAPPED at this rung while inside the bar.
+        double ladder_frac = 0.0; // 0 = never played (kLadderStart applies)
     };
+    // Ladder tuning: start submaximal, climb gently on clean passes, drop
+    // harder on fumbles (errors are expensive), never below the floor or
+    // above the marking.
+    static constexpr double kLadderStart = 0.60;
+    static constexpr double kLadderStep = 0.04;
+    static constexpr double kLadderDrop = 0.08;
+    static constexpr double kLadderFloor = 0.40;
+    static constexpr double kLadderCap = 1.0;
 
     struct Session
     {
@@ -132,6 +153,21 @@ public:
     // Number of the bar's onsets with at least one encounter (0 mastery is
     // ambiguous between "all missed" and "never played"; this disambiguates).
     int bar_encounters(int bar_index) const;
+    // Complete-pass views (see BarTally::recent_passes). A pass closes when
+    // the outcome stream moves to a different bar — each stream slot is a
+    // whole bar, so interleaved reviews and drills close passes correctly —
+    // or when the session ends.
+    int bar_consecutive_clean(int bar_index) const;
+    int bar_pass_count(int bar_index) const;
+    // True when the bar has at least one pass and the newest was fumbled —
+    // the composer's re-serve trigger.
+    bool bar_last_pass_dirty(int bar_index) const;
+    // The bar's tempo-ladder rung as a fraction of the marking
+    // (kLadderStart when the bar has never been traversed).
+    double bar_tempo_ladder(int bar_index) const;
+    // Closes the in-flight pass, recording it against its bar. Called on bar
+    // transition internally and by the session end.
+    void close_open_pass();
     // Trailing consecutive CLEAN encounters of one onset (0 when never
     // played) — the guidance keyboard's confidence measure.
     int onset_trailing_correct(double onset_q) const;
@@ -175,6 +211,12 @@ private:
 
     bool session_active_ = false;
     int session_notes_ = 0;
+
+    // The in-flight pass: which bar the outcome stream is currently inside,
+    // and whether anything in it has gone wrong yet.
+    int open_pass_bar_ = -1;
+    bool open_pass_dirty_ = false;
+    int open_pass_outcomes_ = 0;
 
     std::string extra_json_; // unknown top-level fields, preserved verbatim
 };

@@ -91,6 +91,28 @@ void PlayerModel::end_session(int seconds, double tempo_frac)
     last_tempo_frac_ = tempo_frac;
     best_tempo_frac_ = std::max(best_tempo_frac_, tempo_frac);
     session_active_ = false;
+    close_open_pass(); // a traversal in flight still counts
+}
+
+void PlayerModel::close_open_pass()
+{
+    if (open_pass_bar_ >= 0 && open_pass_outcomes_ > 0)
+    {
+        BarTally& tally = bar_tally_[open_pass_bar_];
+        tally.recent_passes.push_back(open_pass_dirty_ ? 0 : 1);
+        if (tally.recent_passes.size() > static_cast<size_t>(kRecentEncounters))
+            tally.recent_passes.erase(tally.recent_passes.begin());
+        tally.consecutive_clean = open_pass_dirty_ ? 0 : tally.consecutive_clean + 1;
+        ++tally.pass_count;
+        if (tally.ladder_frac <= 0.0)
+            tally.ladder_frac = kLadderStart;
+        tally.ladder_frac = std::clamp(tally.ladder_frac
+                + (open_pass_dirty_ ? -kLadderDrop : kLadderStep),
+            kLadderFloor, kLadderCap);
+    }
+    open_pass_bar_ = -1;
+    open_pass_dirty_ = false;
+    open_pass_outcomes_ = 0;
 }
 
 void PlayerModel::apply(const NoteOutcome& outcome)
@@ -99,6 +121,9 @@ void PlayerModel::apply(const NoteOutcome& outcome)
     ++session_notes_;
     if (outcome.stray)
     {
+        // A wrong note fumbles whatever pass is in flight — playing THROUGH
+        // an error must never count as a clean traversal.
+        open_pass_dirty_ = open_pass_bar_ >= 0 ? true : open_pass_dirty_;
         // Attribute the stray to nearby pitches: a fluff one or two
         // semitones off a known note is that note's trouble, not noise.
         for (auto& [pitch, stats] : pitch_)
@@ -143,6 +168,18 @@ void PlayerModel::apply(const NoteOutcome& outcome)
         const bool correct = outcome.verdict == NoteVerdict::Correct;
         ++(correct ? tally.hit : tally.miss);
         ++(correct ? hand.hit : hand.miss);
+
+        // Pass tracking: the outcome stream runs in transport order and each
+        // stream slot is a whole bar, so moving to a different bar closes
+        // the previous bar's traversal.
+        if (bar != open_pass_bar_)
+        {
+            close_open_pass();
+            open_pass_bar_ = bar;
+        }
+        ++open_pass_outcomes_;
+        if (!correct)
+            open_pass_dirty_ = true;
     }
 }
 
@@ -158,7 +195,37 @@ void PlayerModel::clear_progress()
     total_notes_ = 0;
     session_active_ = false;
     session_notes_ = 0;
+    open_pass_bar_ = -1;
+    open_pass_dirty_ = false;
+    open_pass_outcomes_ = 0;
     extra_json_.clear();
+}
+
+int PlayerModel::bar_consecutive_clean(int bar_index) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() ? found->second.consecutive_clean : 0;
+}
+
+int PlayerModel::bar_pass_count(int bar_index) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() ? found->second.pass_count : 0;
+}
+
+double PlayerModel::bar_tempo_ladder(int bar_index) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() && found->second.ladder_frac > 0.0
+        ? found->second.ladder_frac
+        : kLadderStart;
+}
+
+bool PlayerModel::bar_last_pass_dirty(int bar_index) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() && !found->second.recent_passes.empty()
+        && found->second.recent_passes.back() == 0;
 }
 
 int PlayerModel::bar_encounters(int bar_index) const
@@ -284,7 +351,10 @@ std::string PlayerModel::serialize() const
     {
         bars[std::to_string(bar)]
             = { { "hit", t.hit }, { "miss", t.miss }, { "lh_hit", t.left.hit },
-                  { "lh_miss", t.left.miss }, { "rh_hit", t.right.hit }, { "rh_miss", t.right.miss } };
+                  { "lh_miss", t.left.miss }, { "rh_hit", t.right.hit },
+                  { "rh_miss", t.right.miss }, { "passes", t.recent_passes },
+                  { "clean_streak", t.consecutive_clean }, { "pass_count", t.pass_count },
+                  { "ladder", t.ladder_frac } };
     }
     doc["bars"] = bars;
 
@@ -383,6 +453,19 @@ bool PlayerModel::deserialize(const std::string& json_text)
             tally.left.miss = value.value("lh_miss", 0);
             tally.right.hit = value.value("rh_hit", 0);
             tally.right.miss = value.value("rh_miss", 0);
+            if (const auto passes = value.find("passes");
+                passes != value.end() && passes->is_array())
+            {
+                for (const auto& pass : *passes)
+                {
+                    if (pass.is_number_integer())
+                        tally.recent_passes.push_back(
+                            pass.get<int>() != 0 ? uint8_t{ 1 } : uint8_t{ 0 });
+                }
+            }
+            tally.consecutive_clean = value.value("clean_streak", 0);
+            tally.pass_count = value.value("pass_count", 0);
+            tally.ladder_frac = value.value("ladder", 0.0);
             bar_tally_[std::stoi(key)] = tally;
         }
     }

@@ -88,7 +88,7 @@ implementation detail.
 | G2 | **Spacing is slot-based within a session** (`kDrillCooldownSlots`, `last_review_slot_`). | Feature 5 **[V]** — minute-scale spacing does nothing; must be day-scale |
 | G3 | **No sleep-awareness**, despite `Session.start_iso` already being recorded. | Feature 6 **[V]** |
 | ~~G4~~ | ~~**No serial-position awareness.**~~ **CLOSED (C2)** — `bar_tail_fraction` weights reviews toward phrase tails, and a seam special serves the join. | Feature 4 **[V]** |
-| G5 | **`kPromotionMastery = 0.7` is a mean**, not a clean-complete-pass gate (0.7 mean = 30% wrong is "mastered"). | Features 2, 3 **[V]** |
+| ~~G5~~ | ~~**`kPromotionMastery = 0.7` is a mean.**~~ **CLOSED (C3)** — promotion = 3 consecutive clean complete passes; fumbles re-serve at the next planned slot; a per-bar tempo ladder caps the roll tempo (clean passes raise the rung, fumbles lower it). | Features 2, 3 **[V]** |
 | G6 | **Per-hand mastery isn't gated** — `bar_mastery` is combined; `hands_done_` is a one-shot bool; hand split is a pitch heuristic (`kHandSplitMidi=60`) not staff assignment. | Feature 8 **[V/P]** |
 | G7 | **No pre-chunk target model** — audition voices notes *as* the playhead crosses, not before the attempt. | Feature 9 **[P]** |
 | G8 | Composer is **off by default** (`composer_enabled_ = false`). | — (ship gate) |
@@ -100,9 +100,12 @@ implementation detail.
 Ordered by dependency and leverage. C0 is the foundation: features 1 and 4 are *impossible*
 without it, and it retires the worst gap.
 
-**Status:** C0, C1 and C2 shipped 2026-07-16 (kanban item
-`73 scoreview-composer-structure -feature.md`). G1 and G4 are closed — the composer chunks on
-detected phrases and weights serial position. C3–C6 remain.
+**Status:** C0–C2 shipped 2026-07-16 (kanban `73`), C3 shipped 2026-07-17 (kanban `75`).
+G1, G4 and G5 are closed — the composer chunks on detected phrases, weights serial
+position, promotes only on consecutive clean complete passes, re-serves fumbled bars, and
+caps tempo per bar on an earned ladder. C4–C6 remain. Honest bound recorded on C3: the
+program is append-only with a ~14-bar engrave lookahead, so a re-serve plays roughly a
+window after the fumble — true mid-window injection is the rewriting composer (kanban 20).
 
 **Restatement detection (2026-07-17):** `PieceProfile::Phrase` now carries `repeat_of`/
 `transposed` — phrases whose top-voice interval+rhythm shape already appeared are marked as
@@ -150,7 +153,7 @@ with no clear cadences.
 - New special: **seam drills** — the last bar of phrase N joined to the first of N+1. This is
   where hesitations provably concentrate, and no current special targets it.
 
-### C3 — Clean-complete promotion + explicit tempo ladder *(features #2, #3; fixes G5)*
+### C3 — Clean-complete promotion + explicit tempo ladder ✅ (2026-07-17, kanban 75) *(features #2, #3; fixes G5)*
 - **Promotion gate:** K consecutive **clean complete** passes of the chunk, replacing the
   `≥0.7` mean. (Mean-based mastery lets a chronically fumbled note ride along.)
 - **Tempo ladder per chunk:** start submaximal, ramp *only* on clean passes, drop on error.

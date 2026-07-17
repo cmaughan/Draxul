@@ -802,6 +802,38 @@ void ScoreHost::rebuild_highlight_from_palette()
         highlight_.set_guidance(id, palette);
 }
 
+void ScoreHost::apply_tempo_ladder()
+{
+    // The per-bar tempo ladder (C3): entering a bar caps the roll tempo at
+    // that bar's earned rung — clean passes raised it, fumbles lowered it.
+    // The cap only pulls DOWN; the ramp back up stays the roll easing's job,
+    // so tempo rises only through demonstrated accuracy. The tempo lock
+    // always wins, and drills inherit whatever tempo the stream is at.
+    if (lock_tempo_ || !stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
+        return;
+    int source_bar = -1;
+    if (stream_->composing())
+    {
+        const StreamProgram::SourceRef ref = stream_->program().source_at(stream_position_q());
+        source_bar = ref.drill ? -1 : ref.source_bar;
+    }
+    else if (quarters_per_bar_ > 0.0)
+    {
+        source_bar = static_cast<int>(stream_position_q() / quarters_per_bar_);
+    }
+    if (source_bar < 0 || source_bar == ladder_bar_)
+        return;
+    ladder_bar_ = source_bar;
+    const double cap_qpm
+        = flow_.marking_qpm() * session_->model().bar_tempo_ladder(source_bar);
+    if (flow_.tempo_qpm() > cap_qpm)
+    {
+        flow_.set_tempo_qpm(cap_qpm);
+        DRAXUL_LOG_DEBUG(LogCategory::App, "score: tempo ladder caps bar %d at %.0f qpm",
+            source_bar + 1, cap_qpm);
+    }
+}
+
 void ScoreHost::restart_stream(bool keep_tempo)
 {
     const double tempo = flow_.tempo_qpm();
@@ -1311,6 +1343,7 @@ void ScoreHost::pump()
             }
             session_->flush_at_bar(
                 static_cast<int>(stream_position_q() / quarters_per_bar_));
+            apply_tempo_ladder();
             maybe_advance_stream();
 
             // Periodic + final INFO lines feed the G4 log-based verification.

@@ -159,6 +159,8 @@ private:
     // the restart; only clearing the piece's record resets it (and the tempo
     // lock always wins either way).
     void restart_stream(bool keep_tempo);
+    // C3 tempo ladder: cap the roll tempo at the entered bar's earned rung.
+    void apply_tempo_ladder();
     // Drops the planned program AND the composer's slot-indexed policy state
     // together (they must never diverge), plus the plan-log cursor.
     void reset_stream_plan();
@@ -315,6 +317,7 @@ private:
     // Tempo lock: true = play at the piece's proper marking with no Roll-mode
     // adaptation (the runner won't ease the tempo from accuracy).
     bool lock_tempo_ = false;
+    int ladder_bar_ = -1; // last bar the tempo ladder was applied for
 
     // Player memory + persistence (kanban 21 ScoreSessionController): the
     // per-piece model, progress file, session clock, flush policy, and the

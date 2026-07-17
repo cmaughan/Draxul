@@ -34,6 +34,19 @@ void StreamComposer::reset()
     last_scale_slot_.clear();
     last_seam_slot_.clear();
     seams_used_.clear();
+    // Re-serve responds to LIVE fumbles: baseline every bar at its current
+    // pass count so a program planned from a restored model doesn't open
+    // with "fix" slots for last session's history.
+    reserved_at_pass_.clear();
+    if (model_ != nullptr && slicer_ != nullptr && slicer_->ready())
+    {
+        for (int bar = 0; bar < slicer_->bar_count(); ++bar)
+        {
+            const int passes = model_->bar_pass_count(bar);
+            if (passes > 0)
+                reserved_at_pass_[bar] = passes;
+        }
+    }
     arc_ = 0;
     arc_start_bar_ = 0;
     arc_end_bar_ = -1;
@@ -58,7 +71,7 @@ void StreamComposer::begin_next_arc()
     for (int bar = 0; bar < total && all_promoted; ++bar)
     {
         all_promoted = model_->bar_encounters(bar) > 0
-            && model_->bar_mastery(bar) >= kPromotionMastery;
+            && model_->bar_consecutive_clean(bar) >= kPromotionCleanPasses;
     }
     if (all_promoted)
     {
@@ -373,6 +386,42 @@ bool StreamComposer::try_seam(StreamProgram& program, int slot)
     return true;
 }
 
+bool StreamComposer::try_reserve(StreamProgram& program, int slot)
+{
+    // The evidence: errors are corrected and repeated, never played past. A
+    // fumbled traversal brings its bar back at the next planned slot — once
+    // per fumbled pass, so a still-failing bar re-serves after each attempt
+    // without ever flooding the stream.
+    int worst_bar = -1;
+    int worst_pass = -1;
+    for (int bar = 0; bar < slicer_->bar_count(); ++bar)
+    {
+        if (!model_->bar_last_pass_dirty(bar))
+            continue;
+        const int passes = model_->bar_pass_count(bar);
+        const auto served = reserved_at_pass_.find(bar);
+        if (served != reserved_at_pass_.end() && served->second >= passes)
+            continue; // this fumble already earned its re-serve
+        if (passes > worst_pass)
+        {
+            worst_pass = passes;
+            worst_bar = bar;
+        }
+    }
+    if (worst_bar < 0)
+        return false;
+    reserved_at_pass_[worst_bar] = worst_pass;
+    StreamBarPlan plan;
+    plan.kind = StreamBarPlan::Kind::Review;
+    plan.source_bar = worst_bar;
+    plan.source_start_q = slicer_->bar_start_q(worst_bar);
+    plan.reason = "fix: bar " + std::to_string(worst_bar + 1) + " (fumbled pass)";
+    piece_bars_since_special_ = 0;
+    program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
+    (void)slot;
+    return true;
+}
+
 void StreamComposer::compose_next(StreamProgram& program)
 {
     if (!ready())
@@ -389,6 +438,14 @@ void StreamComposer::compose_next(StreamProgram& program)
     }
 
     const int slot = program.size();
+    // The error re-serve outranks everything except the performance run —
+    // it bypasses the between-specials floor because a correction must not
+    // wait its turn behind variety scheduling.
+    if (!performance_run_ && try_reserve(program, slot))
+    {
+        ++specials_count_;
+        return;
+    }
     const bool specials_allowed = !performance_run_ && piece_bars_since_special_ >= kMinPieceBarsBetweenSpecials;
     if (specials_allowed)
     {

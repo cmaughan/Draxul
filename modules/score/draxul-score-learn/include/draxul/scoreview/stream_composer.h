@@ -36,10 +36,13 @@ public:
     // Register trouble (missed pitches inside an octave window) at or above
     // this earns a scale fragment in the piece's key.
     static constexpr int kScaleTroubleThreshold = 5;
-    // Promotion: a bar counts mastered at this recent-encounter quality;
-    // when EVERY encountered bar promotes, the arc schedules the full
-    // performance run and only then finishes.
-    static constexpr double kPromotionMastery = 0.7;
+    // Promotion: a bar counts mastered after this many CONSECUTIVE clean
+    // complete passes — the strongest retention predictor is the share of
+    // complete-correct traversals, and a mean lets a chronically fumbled
+    // note ride along (30% wrong forever still averages 0.7). When EVERY
+    // encountered bar promotes, the arc schedules the full performance run
+    // and only then finishes.
+    static constexpr int kPromotionCleanPasses = 3;
     // The FALLBACK revisit length. Arcs slice on detected phrases (C1); this
     // fixed window is used only when the piece has no confident structure —
     // fixed-length chunking is what the evidence argues against, so it must
@@ -105,6 +108,12 @@ private:
     bool try_scale(StreamProgram& program, int slot);
     bool try_review(StreamProgram& program, int slot);
     bool try_seam(StreamProgram& program, int slot);
+    // Error re-serve: a bar whose LAST pass was fumbled returns at the next
+    // planned slot — errors are corrected, never played past. Bounded by the
+    // append-only program: with the engrave lookahead, "next planned" plays
+    // roughly a window later (true mid-window injection is the rewriting
+    // composer recorded on kanban 20).
+    bool try_reserve(StreamProgram& program, int slot);
     void begin_next_arc();
     // Aims the next arc at the weakest detected phrase; false when the piece
     // has no confident structure and the caller must fall back.
@@ -127,6 +136,7 @@ private:
     std::map<int, int> last_scale_slot_; // register window -> slot
     std::map<int, int> last_seam_slot_; // phrase-tail bar -> slot
     std::map<int, int> seams_used_; // phrase-tail bar -> count
+    std::map<int, int> reserved_at_pass_; // bar -> pass_count when re-served
     // Convergence arc (S4): after the frontier finishes the piece, the
     // stream loops through the weakest phrase (C1; weakest fixed slice only
     // as a fallback) until every encountered bar promotes, then schedules the
