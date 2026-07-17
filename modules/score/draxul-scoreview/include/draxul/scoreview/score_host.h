@@ -313,6 +313,10 @@ private:
     // Sources the slicer cannot open (.mxl zips, multi-part scores) still
     // stream verbatim — composer support is per-source (IComposer::supports).
     bool composer_enabled_ = true;
+    // Pedagogy sub-toggles, forwarded to the composer: fabricated chord
+    // drills and scale fragments. Default OFF pending evaluation.
+    bool composer_drills_ = false;
+    bool composer_scales_ = false;
     // Spacing experiment (inspector-only): engrave the flow strip with note
     // space proportional to duration so the conveyor scrolls at near-constant
     // speed and score columns align with the waterfall. The paged reading

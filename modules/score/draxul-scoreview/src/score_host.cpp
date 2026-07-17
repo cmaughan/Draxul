@@ -232,6 +232,11 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             composer_enabled_ = false;
         else if (command.find("composer") != std::string::npos)
             composer_enabled_ = true;
+        // Fabricated drills/scales are opt-in while their value is evaluated.
+        if (command.find("drills") != std::string::npos)
+            composer_drills_ = true;
+        if (command.find("scales") != std::string::npos)
+            composer_scales_ = true;
         if (command.find("locktempo") != std::string::npos)
             lock_tempo_ = true;
         else if (command.find("tick8") != std::string::npos)
@@ -605,6 +610,8 @@ void ScoreHost::relayout_flow()
             && stream_->composer().supports(stream_->slicer()));
         if (stream_->composing())
         {
+            stream_->composer().set_drills_enabled(composer_drills_);
+            stream_->composer().set_scales_enabled(composer_scales_);
             stream_->composer().configure(&stream_->slicer(), &session_->model(), &session_->piece_profile());
             reset_stream_plan();
         }
@@ -1530,6 +1537,8 @@ ScoreViewModel ScoreHost::build_view_model() const
     view.mark_mistakes = mark_mistakes_;
     view.split_accidentals = split_accidentals_;
     view.composer_enabled = composer_enabled_;
+    view.composer_drills = composer_drills_;
+    view.composer_scales = composer_scales_;
     view.proportional_spacing = proportional_spacing_;
     view.show_analysis_overlay = show_analysis_overlay_;
     view.show_unique_chunks = show_unique_chunks_;
@@ -1645,9 +1654,25 @@ void ScoreHost::apply_inspector_intents(const ScoreInspectorIntents& intents)
         stream_->set_composing(composer_enabled_ && stream_->windowed()
             && stream_->composer().supports(stream_->slicer()));
         if (stream_->composing())
+        {
+            stream_->composer().set_drills_enabled(composer_drills_);
+            stream_->composer().set_scales_enabled(composer_scales_);
             stream_->composer().configure(
                 &stream_->slicer(), &session_->model(), &session_->piece_profile());
+        }
         restart_stream(/*keep_tempo=*/true);
+    }
+    if (intents.composer_drills)
+    {
+        // Live flip: the composer honors it for every slot planned from now
+        // on; already-planned slots stand (they play out within a window).
+        composer_drills_ = *intents.composer_drills;
+        stream_->composer().set_drills_enabled(composer_drills_);
+    }
+    if (intents.composer_scales)
+    {
+        composer_scales_ = *intents.composer_scales;
+        stream_->composer().set_scales_enabled(composer_scales_);
     }
     if (intents.proportional_spacing)
     {

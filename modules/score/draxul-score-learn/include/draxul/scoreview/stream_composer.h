@@ -100,6 +100,14 @@ public:
     // once-per-fumble bookkeeping with try_reserve, so whichever path runs
     // first claims the fix and the other stays silent.
     int plan_urgent(StreamProgram& program, int at_slot) override;
+    void set_drills_enabled(bool enabled) override
+    {
+        drills_enabled_ = enabled;
+    }
+    void set_scales_enabled(bool enabled) override
+    {
+        scales_enabled_ = enabled;
+    }
     bool finished() const override
     {
         return finished_;
@@ -142,6 +150,10 @@ private:
 
     int frontier_ = 0;
     bool finished_ = false;
+    // Pedagogy toggles (NOT plan state — reset() leaves them alone). Both
+    // default off pending evaluation against real play.
+    bool drills_enabled_ = false;
+    bool scales_enabled_ = false;
     int piece_bars_since_special_ = 0;
     int specials_count_ = 0; // rotates the special chain for variety
     std::map<std::string, int> last_drill_slot_; // chord key -> slot

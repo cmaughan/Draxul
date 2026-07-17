@@ -155,6 +155,18 @@ void ScoreHost::render_debug_ui(float dt)
                 bool composer = view.composer_enabled;
                 if (ImGui::Checkbox("Composer (adaptive)", &composer))
                     intents.composer_enabled = composer;
+                ImGui::Indent();
+                bool drills = view.composer_drills;
+                if (ImGui::Checkbox("Chord drills", &drills))
+                    intents.composer_drills = drills;
+                ImGui::SameLine();
+                ImGui::TextDisabled("(fabricated grabs)");
+                bool scales = view.composer_scales;
+                if (ImGui::Checkbox("Scale drills", &scales))
+                    intents.composer_scales = scales;
+                ImGui::SameLine();
+                ImGui::TextDisabled("(troubled registers)");
+                ImGui::Unindent();
                 bool proportional = view.proportional_spacing;
                 if (ImGui::Checkbox("Proportional spacing", &proportional))
                     intents.proportional_spacing = proportional;

@@ -39,6 +39,18 @@ public:
     // Extends `program` up to `slots` entries (may stop early); returns the
     // planned count. Always handed the same program since the last reset().
     virtual int ensure(StreamProgram& program, int slots) = 0;
+    // Pedagogy toggles a composer may honor or ignore: fabricated chord
+    // drills and scale fragments. Both default OFF while their value is
+    // evaluated against real play — reviews, seams, fixes and the
+    // simplification ladder are unaffected.
+    virtual void set_drills_enabled(bool enabled)
+    {
+        (void)enabled;
+    }
+    virtual void set_scales_enabled(bool enabled)
+    {
+        (void)enabled;
+    }
     // The REWRITE hook: splice urgent correction slots in at `at_slot`
     // (already guarded past the playhead by the caller), returning how many
     // were inserted. The composer must keep its own slot-indexed bookkeeping

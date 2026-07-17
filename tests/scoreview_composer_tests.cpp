@@ -261,6 +261,8 @@ TEST_CASE("chord trouble earns a drill with a cooldown", "[scoreview][composer]"
 
     StreamComposer composer;
     composer.configure(&grieg_slicer(), &model, nullptr);
+    composer.set_drills_enabled(true);
+    composer.set_scales_enabled(true);
     StreamProgram program;
     composer.ensure(program, 30);
 
@@ -353,6 +355,10 @@ TEST_CASE("the broken drill arpeggiates before the block grab", "[scoreview][com
     PlayerModel model;
     StreamComposer composer;
     composer.configure(&slicer, &model, nullptr);
+    composer.set_drills_enabled(true);
+    composer.set_scales_enabled(true);
+    composer.set_drills_enabled(true);
+    composer.set_scales_enabled(true);
 
     // Broken form in 3/4: four eighths cycling the uppers, block on beat 3.
     const std::string broken = composer.fabricate_chord_drill("52+60+64", 0, true);
@@ -406,6 +412,8 @@ TEST_CASE("a scale fragment runs through the troubled register in key",
     profile.global_key.minor = true;
     StreamComposer composer;
     composer.configure(&slicer, &model, &profile);
+    composer.set_drills_enabled(true);
+    composer.set_scales_enabled(true);
 
     const std::string scale = composer.fabricate_scale_bar(0, 66); // around F#4
     REQUIRE_FALSE(scale.empty());
@@ -1108,4 +1116,51 @@ TEST_CASE("the urgent splice refuses the performance run", "[scoreview][composer
     closer.quality = 1.0;
     model.apply(closer);
     CHECK(composer.plan_urgent(program, total + 2) == 0);
+}
+
+TEST_CASE("drills and scales are opt-in: off by default", "[scoreview][composer]")
+{
+    // Chord AND register trouble that would previously earn a drill and a
+    // scale fragment: with the defaults, neither appears — reviews and the
+    // rest of the program are untouched.
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    add_chord_trouble(model, { 52, 60 }, 12);
+    for (int i = 0; i < 12; ++i)
+    {
+        NoteOutcome miss;
+        miss.onset_q = PlayerModel::kDrillOnsetSentinel;
+        miss.pitch = 30 + (i % 3); // pile misses into one low octave window
+        miss.verdict = NoteVerdict::Missed;
+        model.apply(miss);
+    }
+    add_weak_bar(model, 3, 3.0);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 24);
+    bool any_drill = false;
+    bool any_scale = false;
+    bool any_review = false;
+    for (int slot = 0; slot < program.size(); ++slot)
+    {
+        const std::string& reason = program.plan(slot).reason;
+        any_drill |= reason.find("drill") != std::string::npos;
+        any_scale |= reason.find("scale") != std::string::npos;
+        any_review |= program.plan(slot).kind == StreamBarPlan::Kind::Review;
+    }
+    CHECK_FALSE(any_drill);
+    CHECK_FALSE(any_scale);
+    CHECK(any_review); // the rest of the pedagogy still runs
+
+    // Opting in brings them back for future planning.
+    composer.set_drills_enabled(true);
+    composer.set_scales_enabled(true);
+    composer.ensure(program, program.size() + 16);
+    bool drill_after = false;
+    for (int slot = 0; slot < program.size(); ++slot)
+        drill_after |= program.plan(slot).reason.find("drill") != std::string::npos;
+    CHECK(drill_after);
 }

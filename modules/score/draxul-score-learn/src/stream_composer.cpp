@@ -260,6 +260,8 @@ bool StreamComposer::try_hands(StreamProgram& program, int slot)
 
 bool StreamComposer::try_drill(StreamProgram& program, int slot)
 {
+    if (!drills_enabled_)
+        return false;
     std::string worst_key;
     int worst_trouble = kDrillTroubleThreshold - 1;
     for (const auto& [key, stats] : model_->chord_stats())
@@ -298,6 +300,8 @@ bool StreamComposer::try_drill(StreamProgram& program, int slot)
 
 bool StreamComposer::try_scale(StreamProgram& program, int slot)
 {
+    if (!scales_enabled_)
+        return false;
     // Register trouble: missed pitches piling up inside an octave window
     // earn a scale fragment through that register, in the piece's key.
     int worst_window = -1;
