@@ -9,6 +9,12 @@
 > notation, heard through the microphone. The phases below built the
 > rendering foundation; future phases (flowing single-row view, timemap
 > highlighting, the selection engine, audio matching) serve the manifesto.
+>
+> **How it should teach:** the pedagogy is not guesswork — the evidence base
+> is [scoreview-learning-research.md](scoreview-learning-research.md) (two
+> verified research passes on minimum-time piano learning), and the composer's
+> game plan against it is [scoreview-composer.md](scoreview-composer.md).
+> Read those before changing what the stream chooses to serve.
 
 ## Goal
 

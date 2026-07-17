@@ -348,18 +348,32 @@ proficiency win:
   strong, precisely calibrated less so.
 - The **interleaving** question is genuinely unresolved for real repertoire — resist a hard "always
   interleave" rule in the product.
-- **Sleep, slow-practice, mental-imagery, and feedback** findings are [P]/[?] here (verification was
-  truncated). Worth a targeted second pass to lock exact effect sizes and pin a couple of source URLs.
-- **Not covered by this pass:** hands-separate vs. hands-together, backward chaining, and the optimal
-  *number* of reps per session — open follow-ups.
+- **Sleep, slow-practice, and motor-imagery** findings were re-verified in pass 2 with exact stats and
+  canonical URLs (now [V]). The **feedback/software** results remain [P]: the headline app study is on
+  *violinists* (not pianists) and non-randomised, and the visual-vs-audio magnitudes come from a 2025
+  *preprint* — both worth watching for peer-reviewed piano replication.
+- **Hands-separate** and **backward chaining** are now covered (pass 2), but note their piano-specific
+  evidence is thin: the strongest hands/bimanual results are lab finger-sequence tasks, and the direct
+  backward-chaining keyboard test is a small undergraduate thesis. Directionally clear, not definitive.
+- **Still open:** the optimal *number* of reps per session; how much a chunk's difficulty should scale
+  its scheduled repetition; and whether these lab effects hold for full pieces over weeks, not
+  single sessions.
 
-## Source set (27 primary sources; those cited above)
-Deliberate practice: Platz 2014 (PMC4073287) · Macnamara 2014 (Purdue). Practice quality: Duke,
-Simmons & Cash 2009 (JRME 0022429408328851). Interleaving/CI: Nature Sci Rep 2024
+## Source set (~45 sources across two passes; those cited above)
+**Deliberate practice:** Platz 2014 (PMC4073287) · Macnamara 2014 (Purdue). **Practice quality:**
+Duke, Simmons & Cash 2009 (JRME 0022429408328851). **Interleaving/CI:** Nature Sci Rep 2024
 (s41598-024-65753-3) · Carter & Grahn 2016 (PMC4989027) · Mathias & Goldman 2025 (JRME
-00224294231222801) · PMC8476370. Spacing: Cepeda 2006 · PLOS ONE (pone.0182986). Whole/part:
-Fontana 2009 (scholarworks 2208). Structure/segmentation: Chaffin 2002 · Williamon & Egner 2004 ·
-Music & Science 2022 (20592043221132932) · PMC10883160 · PMC4141721. Slow practice / sleep / imagery:
-Walker 2004 (learnmem 11/6/705) + motor-learning sources in set. Software/feedback: Frontiers Psych
-2025 (fpsyg.2025.1675762) · bioRxiv 2025 (683818) · PeerJ CS (cs-3464) · JMIR Serious Games 2026
-(e80766).
+00224294231222801) · PMC8476370. **Spacing:** Cepeda 2006 · PLOS ONE (pone.0182986). **Whole/part:**
+Fontana 2009 (scholarworks 2208). **Structure/segmentation:** Chaffin 2002 · Williamon & Egner 2004 ·
+Music & Science 2022 (20592043221132932) · PMC10883160 · PMC4141721.
+**Slow practice (verified):** BMC Neurosci 2013 14:133 (PMC4228459 / PMID 24175946).
+**Sleep (verified):** Kuriyama/Stickgold/Walker 2004 (learnmem 11/6/705 / PMC534699) · Walker et al.
+2002 Neuron (S0896627302007468). **Motor imagery (verified):** Meister 2004 (S0926641004000023) ·
+Pascual-Leone 1995 (PMID 7500130) · variable-MI PMID 25562401 · Di Rienzo 2016 review (PMC4923126).
+**Software/feedback:** *Violy* app — Frontiers Psych 2025 (fpsyg.2025.1675762, violinists) · bioRxiv
+2025 (683818, visual vs audio) · auditory model JRME (0022429413520409) · PeerJ CS (cs-3464) · JMIR
+Serious Games 2026 (e80766). **Hands-separate / bimanual:** BMC Neurosci 2013 14:133 (effector
+specificity, verified) · PMC10224868 (uni↔bi transfer) · PMC5338615 (chord postures) · PMID 25929551
+(coordination transfer) · Frontiers 2023 (1124508, pedagogy). **Backward chaining:** Utwente thesis
+2022 (essay.utwente.nl/87692) · Am J Occup Ther 1978 (PMID 676946) · Slocum & Tiger 2011 (JABA
+44:793) / ABA overview · Northeastern (Lego/chess ABA study).
