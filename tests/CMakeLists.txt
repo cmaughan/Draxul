@@ -57,6 +57,11 @@ if(DRAXUL_ENABLE_SCOREVIEW)
         draxul-scoreview
         draxul-scoreview-host
     )
+    # Host-internal components (session/audio controllers) are tested
+    # directly; their headers are internal by design (kanban 21).
+    target_include_directories(draxul-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/modules/score/draxul-scoreview/src
+    )
     # Layout-engine tests read Verovio's resources straight from the fetched
     # source tree; the app uses the staged <exe-dir>/verovio-data copy instead.
     target_compile_definitions(draxul-tests PRIVATE
