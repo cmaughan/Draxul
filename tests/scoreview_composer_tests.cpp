@@ -1013,3 +1013,99 @@ TEST_CASE("a session with no history opens straight into the frontier",
     CHECK(program.plan(0).kind == StreamBarPlan::Kind::Piece);
     CHECK(program.plan(0).source_bar == 0);
 }
+
+// --- The rewriting composer: urgent splice -----------------------------------
+
+TEST_CASE("a fumble splices its fix just past the playhead", "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 10);
+    const int before = program.size();
+
+    // Fumble bar 1 mid-play (bar transition closes the pass).
+    for (int beat = 0; beat < 3; ++beat)
+    {
+        NoteOutcome outcome;
+        outcome.onset_q = 3.0 + beat;
+        outcome.pitch = 60;
+        outcome.verdict = beat == 1 ? NoteVerdict::Missed : NoteVerdict::Correct;
+        outcome.quality = beat == 1 ? 0.0 : 1.0;
+        model.apply(outcome);
+    }
+    NoteOutcome closer;
+    closer.onset_q = 6.0;
+    closer.pitch = 60;
+    closer.verdict = NoteVerdict::Correct;
+    closer.quality = 1.0;
+    model.apply(closer);
+
+    // Playhead inside slot 2 -> splice at slot 4 (one guard bar).
+    const int inserted = composer.plan_urgent(program, 4);
+    REQUIRE(inserted == 1);
+    REQUIRE(program.size() == before + 1);
+    CHECK(program.plan(4).kind == StreamBarPlan::Kind::Review);
+    CHECK(program.plan(4).source_bar == 1);
+    CHECK(program.plan(4).reason.find("fix now") != std::string::npos);
+    // Slots after the splice shifted intact, in order.
+    CHECK(program.plan(5).kind == StreamBarPlan::Kind::Piece);
+
+    // The splice CLAIMED the fumble: neither path fixes it twice.
+    CHECK(composer.plan_urgent(program, 6) == 0);
+    composer.ensure(program, program.size() + 6);
+    int fixes = 0;
+    for (int slot = 0; slot < program.size(); ++slot)
+        fixes += program.plan(slot).reason.find("fix") != std::string::npos ? 1 : 0;
+    CHECK(fixes == 1);
+}
+
+TEST_CASE("the urgent splice refuses the performance run", "[scoreview][composer]")
+{
+    // Once every bar has earned the performance, a stray fumble must not
+    // tear the run apart mid-flight; the append path handles it afterwards.
+    SourceSlicer& slicer = grieg_slicer();
+    const int total = slicer.bar_count();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    for (int sweep = 0; sweep < 3; ++sweep)
+    {
+        for (int bar = 0; bar < total; ++bar)
+        {
+            for (int beat = 0; beat < 3; ++beat)
+            {
+                NoteOutcome outcome;
+                outcome.onset_q = bar * 3.0 + beat;
+                outcome.pitch = 60;
+                outcome.verdict = NoteVerdict::Correct;
+                outcome.quality = 1.0;
+                model.apply(outcome);
+            }
+        }
+    }
+    model.close_open_pass();
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, total + 5); // into the performance run
+
+    // A fumble arrives mid-performance.
+    for (int beat = 0; beat < 3; ++beat)
+    {
+        NoteOutcome outcome;
+        outcome.onset_q = beat;
+        outcome.pitch = 60;
+        outcome.verdict = NoteVerdict::Missed;
+        model.apply(outcome);
+    }
+    NoteOutcome closer;
+    closer.onset_q = 3.0;
+    closer.pitch = 60;
+    closer.verdict = NoteVerdict::Correct;
+    closer.quality = 1.0;
+    model.apply(closer);
+    CHECK(composer.plan_urgent(program, total + 2) == 0);
+}

@@ -27,6 +27,19 @@ double ScoreStreamController::window_end_q(int first_bar, int count) const
                       : slicer_.bar_start_q(first_bar + count);
 }
 
+bool ScoreStreamController::try_urgent_rewrite(double stream_q)
+{
+    if (!composing_ || composer_ == nullptr)
+        return false;
+    // Splice past the playhead's slot plus ONE guard bar: the background
+    // engrave takes ~100-200ms, far less than a bar, so the guard bar is the
+    // only slot that could play from the OLD window while the new one builds
+    // — and its plan is unchanged.
+    const int playhead_slot = program_.slot_at(stream_q);
+    const int splice = std::min(playhead_slot + 2, program_.size());
+    return composer_->plan_urgent(program_, splice) > 0;
+}
+
 std::optional<ScoreStreamController::WindowSlice> ScoreStreamController::build_window_slice(
     int first_bar)
 {

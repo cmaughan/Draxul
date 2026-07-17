@@ -438,12 +438,11 @@ bool StreamComposer::try_seam(StreamProgram& program, int slot)
     return true;
 }
 
-bool StreamComposer::try_reserve(StreamProgram& program, int slot)
+int StreamComposer::find_fix_bar() const
 {
-    // The evidence: errors are corrected and repeated, never played past. A
-    // fumbled traversal brings its bar back at the next planned slot — once
-    // per fumbled pass, so a still-failing bar re-serves after each attempt
-    // without ever flooding the stream.
+    // The newest fumbled traversal that hasn't earned its correction yet —
+    // once per fumbled pass, so a still-failing bar re-serves after each
+    // attempt without ever flooding the stream.
     int worst_bar = -1;
     int worst_pass = -1;
     for (int bar = 0; bar < slicer_->bar_count(); ++bar)
@@ -460,18 +459,66 @@ bool StreamComposer::try_reserve(StreamProgram& program, int slot)
             worst_bar = bar;
         }
     }
-    if (worst_bar < 0)
+    return worst_bar;
+}
+
+bool StreamComposer::try_reserve(StreamProgram& program, int slot)
+{
+    // The evidence: errors are corrected and repeated, never played past. The
+    // append path — the splice path (plan_urgent) usually claims the fix
+    // first; this catches fumbles when rewriting isn't available.
+    const int bar = find_fix_bar();
+    if (bar < 0)
         return false;
-    reserved_at_pass_[worst_bar] = worst_pass;
+    reserved_at_pass_[bar] = model_->bar_pass_count(bar);
     StreamBarPlan plan;
     plan.kind = StreamBarPlan::Kind::Review;
-    plan.source_bar = worst_bar;
-    plan.source_start_q = slicer_->bar_start_q(worst_bar);
-    plan.reason = "fix: bar " + std::to_string(worst_bar + 1) + " (fumbled pass)";
+    plan.source_bar = bar;
+    plan.source_start_q = slicer_->bar_start_q(bar);
+    plan.reason = "fix: bar " + std::to_string(bar + 1) + " (fumbled pass)";
     piece_bars_since_special_ = 0;
-    program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
+    program.append(std::move(plan), slicer_->bar_quarters(bar));
     (void)slot;
     return true;
+}
+
+int StreamComposer::plan_urgent(StreamProgram& program, int at_slot)
+{
+    // The rewriting composer's first move: a fumble's correction is SPLICED
+    // just past the playhead instead of waiting a full engrave window. The
+    // caller guards the splice point; here we keep the plan consistent:
+    // every slot-indexed cooldown at or past the splice shifts by one.
+    if (!ready() || finished_ || performance_run_)
+        return 0;
+    const int bar = find_fix_bar();
+    if (bar < 0)
+        return 0;
+    reserved_at_pass_[bar] = model_->bar_pass_count(bar);
+    StreamBarPlan plan;
+    plan.kind = StreamBarPlan::Kind::Review;
+    plan.source_bar = bar;
+    plan.source_start_q = slicer_->bar_start_q(bar);
+    plan.reason = "fix now: bar " + std::to_string(bar + 1) + " (fumbled pass)";
+    program.insert(at_slot, std::move(plan), slicer_->bar_quarters(bar));
+    const auto shift = [at_slot](std::map<std::string, int>& slots) {
+        for (auto& [key, slot] : slots)
+        {
+            if (slot >= at_slot)
+                ++slot;
+        }
+    };
+    const auto shift_int = [at_slot](std::map<int, int>& slots) {
+        for (auto& [key, slot] : slots)
+        {
+            if (slot >= at_slot)
+                ++slot;
+        }
+    };
+    shift(last_drill_slot_);
+    shift_int(last_review_slot_);
+    shift_int(last_scale_slot_);
+    shift_int(last_seam_slot_);
+    return 1;
 }
 
 void StreamComposer::compose_next(StreamProgram& program)

@@ -7,10 +7,12 @@
 // ensure(program, slots), and program + composer state reset together
 // (ScoreHost::reset_stream_plan).
 //
-// The program is append-only behind the engrave frontier: geometry for slots
-// already engraved/judged never changes (the stream-q-keyed verdict archive
-// and the window carry depend on it). A future rewriting composer may re-plan
-// only the open future beyond that frontier.
+// The program is append-only behind the PLAYHEAD: geometry for slots already
+// played/judged never changes (the stream-q-keyed verdict archive and the
+// window carry depend on it). Ahead of the playhead the program may be
+// REWRITTEN by splicing (insert): the urgent-fix path inserts a correction
+// just past the playhead and the window re-engraves around it — the sheet
+// ahead of the player updates while the current window keeps playing.
 
 #include <cstdint>
 #include <string>
@@ -60,6 +62,12 @@ public:
     }
     // Appends a slot spanning `quarters` on the stream axis.
     void append(StreamBarPlan plan, double quarters);
+    // Splices a slot in at `at_slot`, shifting everything after it later on
+    // the stream axis. The REWRITE primitive: callers must only splice
+    // beyond the played/committed region (the playhead plus a guard bar) —
+    // the stream-q-keyed verdict archive and the window carry depend on
+    // committed geometry never moving.
+    void insert(int at_slot, StreamBarPlan plan, double quarters);
 
     // Stream-axis geometry over the program (slot 0 starts at 0).
     double slot_start_q(int slot) const;

@@ -140,6 +140,12 @@ public:
     void reset_plan();
 
     // --- window geometry --------------------------------------------------
+    // The urgent rewrite (plans/scoreview-composer.md, rewriting composer):
+    // splice the composer's correction in just past the playhead — one guard
+    // bar covers the async window swap, so nothing playable during the
+    // engrave has its provenance moved. Returns true when the program
+    // changed and the caller should re-engrave the current window.
+    bool try_urgent_rewrite(double stream_q);
     int window_first_bar() const
     {
         return window_first_bar_;

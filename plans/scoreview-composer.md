@@ -105,8 +105,10 @@ without it, and it retires the worst gap.
 (deferred: it needs the count-in mechanism, kanban/ice-box `66 scoreview-count-in`,
 because "play the model BEFORE the attempt" conflicts with the never-stops transport
 until a count-in exists). The composer is ON by default; `nocomposer` opts out.
-Honest bounds recorded: re-serve latency is one engrave window (append-only program,
-kanban 20); day-scale scheduling reads time through the model's session clock, so the
+Honest bounds updated: re-serve latency is now ONE GUARD BAR — the rewriting composer
+(v1: urgent splice, 2026-07-17) inserts the fix just past the playhead and re-engraves
+the window in the background; the full tail-re-planning rewrite remains future work
+(needs composer plan-state derivable from the program, kanban 20); day-scale scheduling reads time through the model's session clock, so the
 composer stays pure; hand attribution uses the engraved staff with the middle-C split
 only as fallback. What remains is tuning against real play — the open questions at the
 bottom of this plan (dosage, feedback scheduling) are now instrumentable in the app.

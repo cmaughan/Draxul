@@ -95,6 +95,11 @@ public:
     // frontier finishes); returns the planned count. Must always be handed
     // the same program this composer has been extending since reset().
     int ensure(StreamProgram& program, int slots) override;
+    // Urgent rewrite: splice a fix for the newest un-served fumble in at
+    // `at_slot`, shifting the slot-indexed cooldowns to match. Shares the
+    // once-per-fumble bookkeeping with try_reserve, so whichever path runs
+    // first claims the fix and the other stays silent.
+    int plan_urgent(StreamProgram& program, int at_slot) override;
     bool finished() const override
     {
         return finished_;
@@ -122,6 +127,9 @@ private:
     // roughly a window later (true mid-window injection is the rewriting
     // composer recorded on kanban 20).
     bool try_reserve(StreamProgram& program, int slot);
+    // The newest fumbled bar that has not yet earned its fix (-1 = none);
+    // shared by the append (try_reserve) and splice (plan_urgent) paths.
+    int find_fix_bar() const;
     void begin_next_arc();
     // Aims the next arc at the weakest detected phrase; false when the piece
     // has no confident structure and the caller must fall back.

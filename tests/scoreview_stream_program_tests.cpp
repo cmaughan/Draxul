@@ -99,3 +99,57 @@ TEST_CASE("provenance maps piece, review, and drill slots to the source axis",
     CHECK(ref.source_bar == 1);
     CHECK(ref.source_q == Catch::Approx(3.5));
 }
+
+TEST_CASE("insert splices a slot and shifts the stream axis after it",
+    "[scoreview][stream-program]")
+{
+    using draxul::scoreview::StreamBarPlan;
+    draxul::scoreview::StreamProgram program;
+    const auto piece = [](int bar) {
+        StreamBarPlan plan;
+        plan.kind = StreamBarPlan::Kind::Piece;
+        plan.source_bar = bar;
+        plan.source_start_q = bar * 3.0;
+        return plan;
+    };
+    for (int bar = 0; bar < 4; ++bar)
+        program.append(piece(bar), 3.0);
+
+    StreamBarPlan fix;
+    fix.kind = StreamBarPlan::Kind::Review;
+    fix.source_bar = 1;
+    fix.source_start_q = 3.0;
+    fix.reason = "fix now";
+    program.insert(2, fix, 3.0);
+
+    REQUIRE(program.size() == 5);
+    // Committed geometry before the splice is untouched...
+    CHECK(program.slot_start_q(0) == Catch::Approx(0.0));
+    CHECK(program.slot_start_q(1) == Catch::Approx(3.0));
+    CHECK(program.slot_start_q(2) == Catch::Approx(6.0));
+    CHECK(program.plan(2).reason == "fix now");
+    // ...and everything after moves one bar later on the stream axis.
+    CHECK(program.plan(3).source_bar == 2);
+    CHECK(program.slot_start_q(3) == Catch::Approx(9.0));
+    CHECK(program.slot_start_q(4) == Catch::Approx(12.0));
+    // Provenance through the spliced region: the fix maps to its source bar.
+    CHECK(program.source_at(7.0).source_bar == 1); // inside the fix
+    CHECK(program.source_at(10.0).source_bar == 2); // the shifted piece bar
+}
+
+TEST_CASE("insert clamps to the program ends", "[scoreview][stream-program]")
+{
+    using draxul::scoreview::StreamBarPlan;
+    draxul::scoreview::StreamProgram program;
+    StreamBarPlan plan;
+    plan.kind = StreamBarPlan::Kind::Piece;
+    plan.source_bar = 0;
+    program.append(plan, 3.0);
+    StreamBarPlan tail;
+    tail.kind = StreamBarPlan::Kind::Review;
+    tail.source_bar = 0;
+    program.insert(99, tail, 3.0); // beyond the end = append
+    REQUIRE(program.size() == 2);
+    CHECK(program.plan(1).kind == StreamBarPlan::Kind::Review);
+    CHECK(program.slot_start_q(2) == Catch::Approx(6.0));
+}

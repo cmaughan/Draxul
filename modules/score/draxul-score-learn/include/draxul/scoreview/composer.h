@@ -39,6 +39,16 @@ public:
     // Extends `program` up to `slots` entries (may stop early); returns the
     // planned count. Always handed the same program since the last reset().
     virtual int ensure(StreamProgram& program, int slots) = 0;
+    // The REWRITE hook: splice urgent correction slots in at `at_slot`
+    // (already guarded past the playhead by the caller), returning how many
+    // were inserted. The composer must keep its own slot-indexed bookkeeping
+    // consistent with the shift. Default: no urgent planning.
+    virtual int plan_urgent(StreamProgram& program, int at_slot)
+    {
+        (void)program;
+        (void)at_slot;
+        return 0;
+    }
     virtual bool finished() const = 0;
 };
 

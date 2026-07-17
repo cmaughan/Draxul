@@ -19,6 +19,18 @@ void StreamProgram::append(StreamBarPlan plan, double quarters)
     slot_start_q_.push_back(slot_start_q_.back() + quarters);
 }
 
+void StreamProgram::insert(int at_slot, StreamBarPlan plan, double quarters)
+{
+    const int clamped = std::clamp(at_slot, 0, size());
+    program_.insert(program_.begin() + clamped, std::move(plan));
+    // Rebuild the prefix sums from the splice point: every later slot moves
+    // `quarters` further along the stream axis.
+    slot_start_q_.insert(
+        slot_start_q_.begin() + clamped + 1, slot_start_q_[static_cast<size_t>(clamped)]);
+    for (size_t slot = static_cast<size_t>(clamped) + 1; slot < slot_start_q_.size(); ++slot)
+        slot_start_q_[slot] += quarters;
+}
+
 double StreamProgram::slot_start_q(int slot) const
 {
     const int clamped = std::clamp(slot, 0, static_cast<int>(slot_start_q_.size()) - 1);

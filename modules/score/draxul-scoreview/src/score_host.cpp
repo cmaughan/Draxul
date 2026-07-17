@@ -864,6 +864,45 @@ void ScoreHost::reengrave_flow_in_place()
         callbacks_->request_frame();
 }
 
+void ScoreHost::maybe_urgent_rewrite()
+{
+    // The rewriting composer: a fumble's correction should not wait a full
+    // engrave window. On the fumble EDGE (the model's monotonic dirty-pass
+    // count advancing), splice the fix just past the playhead and re-engrave
+    // the same window in the background — the sheet ahead of the player
+    // updates while the current window keeps playing. Skipped while a swap
+    // is already in flight or without the async worker (a synchronous
+    // rewrite would freeze mid-play for no urgency win); the append path
+    // (try_reserve) still catches the fumble at the next window then.
+    const int dirty = session_->model().dirty_pass_count();
+    if (dirty == seen_dirty_passes_)
+        return;
+    seen_dirty_passes_ = dirty;
+    if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll
+        || stream_->async_in_flight() || !stream_->engraver_available())
+        return;
+    const double stream_q = stream_position_q();
+    if (!stream_->try_urgent_rewrite(stream_q))
+        return;
+    auto slice = stream_->build_window_slice(stream_->window_first_bar());
+    if (!slice)
+        return;
+    EngraveParams params;
+    params.pixel_scale = ui_scale();
+    params.marking_qpm = piece_marking_qpm_;
+    params.lock_tempo = lock_tempo_;
+    params.proportional_spacing = proportional_spacing_;
+    params.spacing_linear = spacing_linear_override_;
+    params.spacing_non_linear = spacing_non_linear_override_;
+    ScoreStreamController::PendingInstall intent;
+    intent.stream_position_q = stream_q;
+    intent.carry = true;
+    intent.preserve_tempo = false;
+    intent.fallback_to_monolith_on_error = true;
+    stream_->queue_engrave(std::move(*slice), params, intent);
+    DRAXUL_LOG_DEBUG(LogCategory::App, "score: urgent rewrite queued at stream q %.2f", stream_q);
+}
+
 void ScoreHost::maybe_advance_stream()
 {
     if (!stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
@@ -1354,6 +1393,7 @@ void ScoreHost::pump()
             session_->flush_at_bar(
                 static_cast<int>(stream_position_q() / quarters_per_bar_));
             apply_tempo_ladder();
+            maybe_urgent_rewrite();
             maybe_advance_stream();
 
             // Periodic + final INFO lines feed the G4 log-based verification.

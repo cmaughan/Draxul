@@ -121,6 +121,7 @@ void PlayerModel::close_open_pass()
     {
         BarTally& tally = bar_tally_[open_pass_bar_];
         tally.recent_passes.push_back(open_pass_dirty_ ? 0 : 1);
+        dirty_pass_count_ += open_pass_dirty_ ? 1 : 0;
         if (tally.recent_passes.size() > static_cast<size_t>(kRecentEncounters))
             tally.recent_passes.erase(tally.recent_passes.begin());
         tally.consecutive_clean = open_pass_dirty_ ? 0 : tally.consecutive_clean + 1;

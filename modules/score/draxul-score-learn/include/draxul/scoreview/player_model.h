@@ -169,6 +169,12 @@ public:
     // True when the bar has at least one pass and the newest was fumbled —
     // the composer's re-serve trigger.
     bool bar_last_pass_dirty(int bar_index) const;
+    // Monotonic count of fumbled passes — the host's cheap "a fumble just
+    // happened" edge detector for the urgent program rewrite.
+    int dirty_pass_count() const
+    {
+        return dirty_pass_count_;
+    }
     // The bar's tempo-ladder rung as a fraction of the marking
     // (kLadderStart when the bar has never been traversed).
     double bar_tempo_ladder(int bar_index) const;
@@ -232,6 +238,7 @@ private:
     int session_notes_ = 0;
 
     int current_day_ = 0; // active session's civil day (0 = unknown)
+    int dirty_pass_count_ = 0; // lifetime fumbled passes (monotonic)
 
     // The in-flight pass: which bar the outcome stream is currently inside,
     // and whether anything in it has gone wrong yet.

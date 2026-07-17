@@ -32,3 +32,14 @@
 - [ ] G7 pre-chunk target model: depends on a count-in window in the
       never-stops transport (kanban/ice-box `66 scoreview-count-in`). Wire the
       audition voice to the count-in when that ships.
+
+## Follow-on shipped in the same wave
+
+- [x] The rewriting composer, v1 (urgent splice): `StreamProgram::insert` +
+      `IComposer::plan_urgent` + `ScoreStreamController::try_urgent_rewrite` +
+      the host's fumble-edge trigger (`PlayerModel::dirty_pass_count`). A
+      fumble's fix now lands one guard bar past the playhead instead of a
+      full engrave window later. Full tail re-planning (dropping and
+      re-deriving the open future) stays future work — it needs composer
+      plan-state derivable from the program (kanban 20's note).
+

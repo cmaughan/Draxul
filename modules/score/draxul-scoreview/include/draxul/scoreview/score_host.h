@@ -161,6 +161,9 @@ private:
     void restart_stream(bool keep_tempo);
     // C3 tempo ladder: cap the roll tempo at the entered bar's earned rung.
     void apply_tempo_ladder();
+    // The rewriting composer: on a fresh fumble, splice the fix just past
+    // the playhead and re-engrave the current window in the background.
+    void maybe_urgent_rewrite();
     // Drops the planned program AND the composer's slot-indexed policy state
     // together (they must never diverge), plus the plan-log cursor.
     void reset_stream_plan();
@@ -324,6 +327,7 @@ private:
     // adaptation (the runner won't ease the tempo from accuracy).
     bool lock_tempo_ = false;
     int ladder_bar_ = -1; // last bar the tempo ladder was applied for
+    int seen_dirty_passes_ = 0; // rewrite trigger edge (model's monotonic count)
 
     // Player memory + persistence (kanban 21 ScoreSessionController): the
     // per-piece model, progress file, session clock, flush policy, and the
