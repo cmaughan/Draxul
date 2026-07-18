@@ -1,6 +1,6 @@
-// MIDI input + soundfont voice (plans/scoreview.md): the MIDI message
-// parsing and event plumbing are device-free (feed() injects raw bytes), and
-// the soundfont synth renders offline from the fetched YDP grand.
+// MIDI input + soundfont voice (plans/scoreview.md): MIDI message parsing is
+// device-free (feed() injects raw bytes) and judge-only, while the soundfont
+// synth renders offline from the fetched YDP grand for score audition.
 
 #include <catch2/catch_all.hpp>
 
@@ -36,7 +36,7 @@ std::string ydp_soundfont_path()
 
 } // namespace
 
-TEST_CASE("midi input parses note messages into judge and voice streams", "[scoreview][midi]")
+TEST_CASE("midi input parses note messages into judge-only events", "[scoreview][midi]")
 {
     MidiPlayerInput midi(MidiPlayerInput::kNoDevice);
     CHECK_FALSE(midi.ok()); // no device — feed() drives it
@@ -64,24 +64,10 @@ TEST_CASE("midi input parses note messages into judge and voice streams", "[scor
     CHECK(events[0].t_seconds > 9.0); // arrival was microseconds ago, not sec
     CHECK(events[1].midi_pitch == 64);
 
-    // The voice stream carries ons AND offs, in order.
-    std::vector<MidiVoiceEvent> voiced;
-    midi.take_voice_events(voiced);
-    REQUIRE(voiced.size() == 4);
-    CHECK(voiced[0].on);
-    CHECK(voiced[1].on);
-    CHECK_FALSE(voiced[2].on);
-    CHECK(voiced[2].midi_pitch == 60);
-    CHECK_FALSE(voiced[3].on); // the vel-0 note-on
-    CHECK(voiced[3].midi_pitch == 64);
-
-    // Drained: nothing repeats.
+    // Drained: note-offs never surface as judge events, and nothing repeats.
     events.clear();
-    voiced.clear();
     midi.poll(11.0, events);
-    midi.take_voice_events(voiced);
     CHECK(events.empty());
-    CHECK(voiced.empty());
 }
 
 TEST_CASE("soundfont synth renders the YDP grand and damps on release", "[scoreview][midi]")

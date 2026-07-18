@@ -9,6 +9,7 @@
 #include "support/scoreview_host_fixture.h"
 #include "support/temp_dir.h"
 
+#include "score_audio_controller.h"
 #include "score_session_controller.h"
 
 #include <draxul/scoreview/progress_store.h>
@@ -33,6 +34,7 @@ using draxul::scoreview::NoteVerdict;
 using draxul::scoreview::PlayerInputRig;
 using draxul::scoreview::read_verovio_svg_fixture;
 using draxul::scoreview::release_loads;
+using draxul::scoreview::ScoreAudioController;
 using draxul::scoreview::ScoreHost;
 using draxul::scoreview::ScoreHostTestAccess;
 using draxul::scoreview::ScoreSessionController;
@@ -242,6 +244,35 @@ TEST_CASE("input selection swaps in place and reports requested-vs-engaged",
     CHECK(ScoreHostTestAccess::position_q(primed.host) == Catch::Approx(position));
     CHECK(ScoreHostTestAccess::tempo_qpm(primed.host) == Catch::Approx(tempo));
     CHECK(ScoreHostTestAccess::playing(primed.host));
+}
+
+TEST_CASE("full-score note colors are on by default and inspector-toggleable",
+    "[scoreview][host][orchestration][view]")
+{
+    PrimedHost primed;
+    REQUIRE(primed.prime());
+
+    CHECK(ScoreHostTestAccess::show_note_colors(primed.host));
+    ScoreHostTestAccess::set_note_colors(primed.host, false);
+    CHECK_FALSE(ScoreHostTestAccess::show_note_colors(primed.host));
+    ScoreHostTestAccess::set_note_colors(primed.host, true);
+    CHECK(ScoreHostTestAccess::show_note_colors(primed.host));
+}
+
+TEST_CASE("score audio can prefer a staged piano lazily",
+    "[scoreview][host][orchestration][audio]")
+{
+    const draxul::tests::TempDir dir("scoreview-soundfonts");
+    std::ofstream(dir.path / "YDP-GrandPiano-20160804.sf2").put('\0');
+
+    ScoreAudioController audio;
+    audio.stage_soundfonts(dir.path);
+
+    REQUIRE(audio.prefer_piano(0));
+    CHECK(audio.voice() == ScoreAudioController::Voice::Piano);
+    CHECK(audio.selected_soundfont_index() == 0);
+    CHECK(audio.loaded_soundfont_index() == -1);
+    CHECK_FALSE(audio.audition());
 }
 
 TEST_CASE("the session controller survives a corrupt progress file",

@@ -4,6 +4,7 @@
 #include <draxul/scoreview/bot_player_input.h>
 #include <draxul/scoreview/keyboard_player_input.h>
 #include <draxul/scoreview/mic_player_input.h>
+#include <draxul/scoreview/midi_player_input.h>
 
 namespace draxul
 {
@@ -101,12 +102,6 @@ float PlayerInputRig::mic_level() const
 std::string PlayerInputRig::midi_port_name() const
 {
     return midi_ != nullptr ? midi_->port_name() : std::string();
-}
-
-void PlayerInputRig::take_midi_voice_events(std::vector<MidiVoiceEvent>& out)
-{
-    if (midi_ != nullptr)
-        midi_->take_voice_events(out);
 }
 
 std::vector<std::string> PlayerInputRig::list_midi_ports()

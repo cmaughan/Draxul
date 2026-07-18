@@ -374,13 +374,16 @@ void ScorePresentation::record_placeholder(INanoVGPass& pass, float pixel_scale)
 void ScorePresentation::record_paged(INanoVGPass& pass,
     std::shared_ptr<const std::vector<ScoreDrawList>> pages, float pixel_scale, float margin,
     float gap, float scroll, float page_w, float page_h, float scale,
-    std::shared_ptr<const AnalysisOverlay> overlay, bool annotations, bool unique_chunks)
+    std::shared_ptr<const AnalysisOverlay> overlay,
+    std::shared_ptr<const std::vector<ScoreHighlightState>> note_colors, bool annotations,
+    bool unique_chunks, bool show_note_colors, bool split_accidentals)
 {
     if (!annotations && !unique_chunks)
         overlay = nullptr;
     pass.set_draw_callback(
-        [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale, overlay, annotations,
-            unique_chunks](NVGcontext* vg, int w, int h) {
+        [pages, pixel_scale, margin, gap, scroll, page_w, page_h, scale, overlay, note_colors,
+            annotations, unique_chunks, show_note_colors,
+            split_accidentals](NVGcontext* vg, int w, int h) {
             fill_backdrop(vg, w, h);
             const ScoreTextFonts fonts = ensure_score_text_fonts(vg);
             float y = margin - scroll;
@@ -397,7 +400,13 @@ void ScorePresentation::record_paged(INanoVGPass& pass,
                         = overlay && annotations && index < overlay->highlights.size()
                         ? &overlay->highlights[index]
                         : nullptr;
-                    render_draw_list(vg, page, { margin, y }, scale, fonts, motif_colors);
+                    const ScoreHighlightState* spelling_colors
+                        = show_note_colors && note_colors && index < note_colors->size()
+                        ? &(*note_colors)[index]
+                        : nullptr;
+                    render_draw_list(vg, page, { margin, y }, scale, fonts,
+                        motif_colors != nullptr ? motif_colors : spelling_colors,
+                        split_accidentals);
                     if (overlay && index < overlay->pages.size())
                     {
                         // Wash first: the green annotations stay legible on top.

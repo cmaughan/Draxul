@@ -61,7 +61,7 @@ StreamProgram::SourceRef StreamProgram::source_at(double stream_q) const
     const int slot = slot_at(stream_q);
     const StreamBarPlan& p = plan(slot);
     ref.source_bar = p.source_bar;
-    ref.drill = p.kind == StreamBarPlan::Kind::Drill;
+    ref.drill = p.kind == StreamBarPlan::Kind::Drill && !p.drill_trains_source;
     if (!ref.drill)
         ref.source_q = p.source_start_q + (stream_q - slot_start_q(slot));
     return ref;

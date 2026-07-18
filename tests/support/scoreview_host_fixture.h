@@ -12,6 +12,7 @@
 #include <draxul/scoreview/score_host.h>
 
 #include "score_stream_controller.h"
+#include "score_view_model.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -137,6 +138,18 @@ public:
     static PlayerInputRig::Kind input_kind(const ScoreHost& host)
     {
         return host.input_rig_.kind();
+    }
+
+    static bool show_note_colors(const ScoreHost& host)
+    {
+        return host.show_note_colors_;
+    }
+
+    static void set_note_colors(ScoreHost& host, bool on)
+    {
+        ScoreInspectorIntents intents;
+        intents.show_note_colors = on;
+        host.apply_inspector_intents(intents);
     }
 };
 

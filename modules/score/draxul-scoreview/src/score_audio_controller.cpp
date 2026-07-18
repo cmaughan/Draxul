@@ -59,6 +59,8 @@ void ScoreAudioController::cycle_tick_level()
 void ScoreAudioController::set_audition(bool on)
 {
     audition_ = on;
+    if (audition_ && voice_ == Voice::Piano && !ensure_piano_voice())
+        use_synth();
     if (audition_ && !ensure_output_stream())
         audition_ = false;
     if (!audition_)
@@ -78,6 +80,17 @@ void ScoreAudioController::use_synth()
 {
     voice_ = Voice::Synth;
     piano_.clear(); // release held piano voices
+}
+
+bool ScoreAudioController::prefer_piano(int index)
+{
+    if (soundfont_paths_.empty())
+        return false;
+    piano_selected_index_
+        = std::clamp(index, 0, static_cast<int>(soundfont_paths_.size()) - 1);
+    voice_ = Voice::Piano;
+    tones_.clear();
+    return true;
 }
 
 bool ScoreAudioController::use_piano(int index)
@@ -233,27 +246,6 @@ void ScoreAudioController::pump(double p0_q, double p1_q, double dt, double quar
         }
         SDL_PutAudioStreamData(
             tick_stream_, tick_buffer_.data(), static_cast<int>(need * sizeof(float)));
-    }
-}
-
-void ScoreAudioController::voice_midi_events(const std::vector<MidiVoiceEvent>& events)
-{
-    if (events.empty() || !ensure_output_stream())
-        return;
-    const bool piano = voice_ == Voice::Piano && piano_.loaded();
-    for (const MidiVoiceEvent& event : events)
-    {
-        if (piano)
-        {
-            if (event.on)
-                piano_.schedule_note(piano_.cursor(), event.midi_pitch, event.velocity);
-            else
-                piano_.schedule_off(piano_.cursor(), event.midi_pitch);
-        }
-        else if (event.on)
-        {
-            tones_.schedule_note(tones_.cursor(), event.midi_pitch, 0.10f + 0.25f * event.velocity);
-        }
     }
 }
 

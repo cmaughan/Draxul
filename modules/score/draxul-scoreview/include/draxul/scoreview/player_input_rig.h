@@ -7,7 +7,6 @@
 // per-device capabilities below; the concrete input types stay private to
 // the rig, so the host never names a device class again.
 
-#include <draxul/scoreview/midi_player_input.h> // MidiVoiceEvent (play-thru currency)
 #include <draxul/scoreview/player_input.h>
 
 #include <cstdint>
@@ -23,6 +22,7 @@ namespace scoreview
 class FlowController;
 class KeyboardPlayerInput;
 class MicPlayerInput;
+class MidiPlayerInput;
 
 class PlayerInputRig
 {
@@ -80,10 +80,8 @@ public:
     bool mic_ready() const;
     std::string mic_error() const;
     float mic_level() const;
-    // MIDI: the live port's name (empty when MIDI isn't live) and the voice
-    // stream for the play-thru instrument (drain AFTER polling the seam).
+    // MIDI: the live port's name (empty when MIDI isn't live).
     std::string midi_port_name() const;
-    void take_midi_voice_events(std::vector<MidiVoiceEvent>& out);
     // Port enumeration; only call while a picker is open — each probe
     // touches the CoreMIDI client (see the inspector's combo note).
     static std::vector<std::string> list_midi_ports();

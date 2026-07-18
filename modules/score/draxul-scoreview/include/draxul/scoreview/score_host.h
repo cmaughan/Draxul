@@ -186,7 +186,8 @@ private:
     // margin; records judged outcomes into the verdict archive first.
     void maybe_advance_stream();
     bool stream_active() const;
-    void enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy);
+    void enter_gate_mode(
+        GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port = -1);
     void exit_gate_mode();
     // Swaps the player-input implementation without touching the session
     // (verdicts, score, transport survive). Falls back to the keyboard when
@@ -212,6 +213,9 @@ private:
     // Green analysis annotations for the paged reading view (built alongside
     // pages_ in relayout; drawn only when the inspector toggle is on).
     std::shared_ptr<const AnalysisOverlay> analysis_overlay_;
+    // Full-score spelling colors (paged reading view): C red, D orange, ...
+    // The rolling view stays colored via the live flow highlight palette.
+    std::shared_ptr<const std::vector<ScoreHighlightState>> page_note_highlights_;
     bool show_analysis_overlay_ = false; // 'a' in the paged view
     bool show_unique_chunks_ = false; // 's': ghost restated phrases
     draxul::notation::ScoreDocument model_;
@@ -302,6 +306,7 @@ private:
     // Wrong-note marking: a wrong note gets a small cross over its head (the
     // note keeps its spelling color); false leaves the sheet unmarked.
     bool mark_mistakes_ = true;
+    bool show_note_colors_ = true;
     // Sharp/flat notehead cue: true = the half-color-over-black split, false =
     // accidentals wear their full spelling color like the naturals.
     bool split_accidentals_ = true;
@@ -339,7 +344,7 @@ private:
     std::unique_ptr<ScoreSessionController> session_;
 
     // The audio rig (kanban 21 ScoreAudioController): output stream,
-    // metronome, audition, instrument voices, MIDI play-thru, soundfont
+    // metronome, audition, instrument voices, soundfont
     // staging. Internal component — SDL-audio details never cross into the
     // host. Never null (constructed with the host).
     std::unique_ptr<ScoreAudioController> audio_;

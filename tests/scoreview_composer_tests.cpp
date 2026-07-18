@@ -108,6 +108,21 @@ void add_bar_at_quality(PlayerModel& model, int bar, double quarters_per_bar, do
     }
 }
 
+void add_hand_pass(PlayerModel& model, int bar, double quarters_per_bar, int staff, bool clean)
+{
+    for (int beat = 0; beat < 3; ++beat)
+    {
+        NoteOutcome outcome;
+        outcome.onset_q = bar * quarters_per_bar + beat;
+        outcome.pitch = staff == 2 ? 48 + beat : 64 + beat;
+        outcome.staff = staff;
+        outcome.verdict = clean ? NoteVerdict::Correct : NoteVerdict::Missed;
+        outcome.quality = clean ? 1.0 : 0.0;
+        model.apply(outcome);
+    }
+    model.close_open_pass();
+}
+
 // A profile with hand-placed phrase boundaries: the composer only reads
 // phrases/bar_positions/structure_confidence, so stating them directly keeps
 // the C1/C2 tests about composer policy rather than about detection.
@@ -400,6 +415,51 @@ TEST_CASE("hands separate strips one staff and still engraves", "[scoreview][com
         for (const int pitch : pitches)
             CHECK(std::binary_search(allowed.begin(), allowed.end(), pitch));
     }
+}
+
+TEST_CASE("hands separate targets the repeatedly missed hand until it plays cleanly",
+    "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    add_hand_pass(model, 2, 3.0, 1, true);
+    add_hand_pass(model, 2, 3.0, 2, false);
+
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 16);
+
+    int hand_slot = -1;
+    for (int slot = 0; slot < program.size(); ++slot)
+    {
+        if (program.plan(slot).reason.find("left hand alone") != std::string::npos)
+        {
+            hand_slot = slot;
+            break;
+        }
+    }
+    REQUIRE(hand_slot >= 0);
+    const StreamBarPlan& hand_plan = program.plan(hand_slot);
+    CHECK(hand_plan.kind == StreamBarPlan::Kind::Drill);
+    CHECK(hand_plan.drill_trains_source);
+    CHECK(hand_plan.source_bar == 2);
+    CHECK(hand_plan.drill_xml.find("<staff>2</staff>") != std::string::npos);
+    CHECK(hand_plan.drill_xml.find("<staff>1</staff>") == std::string::npos);
+
+    const auto ref = program.source_at(program.slot_start_q(hand_slot) + 0.5);
+    CHECK_FALSE(ref.drill);
+    CHECK(ref.source_bar == 2);
+    CHECK(ref.source_q == Catch::Approx(6.5));
+
+    add_hand_pass(model, 2, 3.0, 2, true);
+    StreamComposer after_clean;
+    after_clean.configure(&slicer, &model, nullptr);
+    StreamProgram clean_program;
+    after_clean.ensure(clean_program, 16);
+    for (int slot = 0; slot < clean_program.size(); ++slot)
+        CHECK(clean_program.plan(slot).reason.find("left hand alone") == std::string::npos);
 }
 
 TEST_CASE("a scale fragment runs through the troubled register in key",
@@ -1069,6 +1129,37 @@ TEST_CASE("a fumble splices its fix just past the playhead", "[scoreview][compos
     for (int slot = 0; slot < program.size(); ++slot)
         fixes += program.plan(slot).reason.find("fix") != std::string::npos ? 1 : 0;
     CHECK(fixes == 1);
+}
+
+TEST_CASE("a repeated one-hand fumble splices that hand alone", "[scoreview][composer]")
+{
+    SourceSlicer& slicer = grieg_slicer();
+    PlayerModel model;
+    model.set_piece("Walz", 130.0, 3.0);
+    StreamComposer composer;
+    composer.configure(&slicer, &model, nullptr);
+    StreamProgram program;
+    composer.ensure(program, 10);
+    const int before = program.size();
+
+    add_hand_pass(model, 2, 3.0, 2, false);
+
+    const int inserted = composer.plan_urgent(program, 4);
+    REQUIRE(inserted == 1);
+    REQUIRE(program.size() == before + 1);
+    const StreamBarPlan& fix = program.plan(4);
+    CHECK(fix.kind == StreamBarPlan::Kind::Drill);
+    CHECK(fix.drill_trains_source);
+    CHECK(fix.source_bar == 2);
+    CHECK(fix.reason.find("fix now") != std::string::npos);
+    CHECK(fix.reason.find("left hand alone") != std::string::npos);
+    CHECK(fix.drill_xml.find("<staff>2</staff>") != std::string::npos);
+    CHECK(fix.drill_xml.find("<staff>1</staff>") == std::string::npos);
+
+    const auto ref = program.source_at(program.slot_start_q(4) + 0.5);
+    CHECK_FALSE(ref.drill);
+    CHECK(ref.source_bar == 2);
+    CHECK(ref.source_q == Catch::Approx(6.5));
 }
 
 TEST_CASE("the urgent splice refuses the performance run", "[scoreview][composer]")

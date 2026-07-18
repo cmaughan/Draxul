@@ -43,6 +43,18 @@ NoteOutcome miss(double onset_q, int pitch)
     return outcome;
 }
 
+NoteOutcome hand_note(double onset_q, int pitch, int staff, bool correct)
+{
+    NoteOutcome outcome;
+    outcome.id = "n";
+    outcome.onset_q = onset_q;
+    outcome.pitch = pitch;
+    outcome.staff = staff;
+    outcome.verdict = correct ? NoteVerdict::Correct : NoteVerdict::Missed;
+    outcome.quality = correct ? 1.0 : 0.0;
+    return outcome;
+}
+
 NoteOutcome stray(int pitch)
 {
     NoteOutcome outcome;
@@ -249,18 +261,45 @@ TEST_CASE("bar tally tracks per-bar and per-hand right/wrong", "[scoreview][play
     CHECK(bars.at(0).left.miss == 1);
     CHECK(bars.at(1).miss == 1);
     CHECK(bars.at(1).left.miss == 1);
+    CHECK(model.bar_hand_last_pass_dirty(0, 2));
+    CHECK_FALSE(model.bar_hand_last_pass_dirty(0, 1));
+    CHECK(model.bar_hand_pass_count(0, 2) == 1);
+    CHECK(model.bar_hand_pass_count(0, 1) == 1);
+    CHECK(model.bar_hand_consecutive_clean(0, 1) == 1);
+    CHECK(model.bar_hand_consecutive_clean(0, 2) == 0);
 
     // Survives the versioned JSON round-trip.
     PlayerModel loaded;
     REQUIRE(loaded.deserialize(model.serialize()));
     CHECK(loaded.bar_tally().at(0).right.hit == 2);
     CHECK(loaded.bar_tally().at(1).left.miss == 1);
+    CHECK(loaded.bar_hand_pass_count(0, 2) == 1);
+    CHECK(loaded.bar_hand_consecutive_clean(0, 1) == 1);
 
     // clear_progress wipes the record but keeps piece identity.
     model.clear_progress();
     CHECK(model.bar_tally().empty());
     CHECK(model.pitch_stats().empty());
     CHECK(model.total_notes_judged() == 0);
+}
+
+TEST_CASE("per-hand pass state clears only after that hand plays cleanly",
+    "[scoreview][player-model]")
+{
+    PlayerModel model;
+    model.set_piece("Walz", 120.0, 3.0);
+    model.apply(hand_note(0.0, 48, 2, false));
+    model.apply(hand_note(1.0, 64, 1, true));
+    model.close_open_pass();
+    CHECK(model.bar_hand_last_pass_dirty(0, 2));
+    CHECK_FALSE(model.bar_hand_last_pass_dirty(0, 1));
+
+    model.apply(hand_note(0.0, 48, 2, true));
+    model.close_open_pass();
+    CHECK_FALSE(model.bar_hand_last_pass_dirty(0, 2));
+    CHECK(model.bar_hand_consecutive_clean(0, 2) == 1);
+    CHECK(model.bar_hand_pass_count(0, 2) == 2);
+    CHECK(model.bar_hand_pass_count(0, 1) == 1);
 }
 
 // --- Complete-pass tracking (C3, plans/scoreview-composer.md) --------------

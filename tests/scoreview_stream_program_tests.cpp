@@ -93,6 +93,14 @@ TEST_CASE("provenance maps piece, review, and drill slots to the source axis",
     CHECK(ref.drill);
     CHECK(ref.source_bar == 1);
 
+    drill.drill_trains_source = true;
+    StreamProgram source_training;
+    source_training.append(drill, 3.0);
+    ref = source_training.source_at(1.25);
+    CHECK_FALSE(ref.drill);
+    CHECK(ref.source_bar == 1);
+    CHECK(ref.source_q == Catch::Approx(4.25));
+
     // The piece resumes after the specials.
     ref = program.source_at(9.5);
     CHECK_FALSE(ref.drill);

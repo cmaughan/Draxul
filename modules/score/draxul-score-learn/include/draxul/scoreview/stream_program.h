@@ -37,9 +37,12 @@ struct StreamBarPlan
     int source_bar = -1;
     // The source bar's start on the SOURCE axis (SourceSlicer::bar_start_q),
     // filled by the composer at plan time so provenance needs no slicer.
-    // Drill slots keep the reference bar's start but map to the drill
-    // sentinel instead (see StreamProgram::source_at).
+    // Drill slots keep the reference bar's start but normally map to the
+    // drill sentinel instead (see StreamProgram::source_at). A drill that is
+    // just a source-preserving simplification, such as hands separate, opts
+    // back into source training.
     double source_start_q = 0.0;
+    bool drill_trains_source = false;
     std::string drill_xml; // Drill only: the fabricated <measure>
     std::string reason; // human-readable, for logs and debugging
 };
@@ -74,10 +77,10 @@ public:
     double slot_quarters(int slot) const;
     int slot_at(double stream_q) const;
 
-    // Provenance: where a stream position lives on the SOURCE axis. Drill
-    // slots have no source location (their outcomes train pitch/chord stats
-    // only, never bar/onset mastery); Piece/Review positions map
-    // bar-relative onto the source bar.
+    // Provenance: where a stream position lives on the SOURCE axis. Ordinary
+    // drill slots have no source location (their outcomes train pitch/chord
+    // stats only, never bar/onset mastery); Piece/Review and source-training
+    // drill positions map bar-relative onto the source bar.
     struct SourceRef
     {
         bool drill = false;

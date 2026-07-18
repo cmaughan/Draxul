@@ -30,6 +30,32 @@ std::string qstamp_key(double q)
     return buffer;
 }
 
+PlayerModel::HandTally& hand_for_staff(PlayerModel::BarTally& tally, int staff)
+{
+    return staff == 2 ? tally.left : tally.right;
+}
+
+const PlayerModel::HandTally& hand_for_staff(const PlayerModel::BarTally& tally, int staff)
+{
+    return staff == 2 ? tally.left : tally.right;
+}
+
+int hand_staff_for_outcome(const NoteOutcome& outcome)
+{
+    if (outcome.staff == 1 || outcome.staff == 2)
+        return outcome.staff;
+    return outcome.pitch < PlayerModel::kHandSplitMidi ? 2 : 1;
+}
+
+void push_hand_pass(PlayerModel::HandTally& hand, bool dirty)
+{
+    hand.recent_passes.push_back(dirty ? 0 : 1);
+    if (hand.recent_passes.size() > static_cast<size_t>(PlayerModel::kRecentEncounters))
+        hand.recent_passes.erase(hand.recent_passes.begin());
+    hand.consecutive_clean = dirty ? 0 : hand.consecutive_clean + 1;
+    ++hand.pass_count;
+}
+
 } // namespace
 
 void PlayerModel::TimingStats::add(double delta_q)
@@ -139,10 +165,18 @@ void PlayerModel::close_open_pass()
         tally.ladder_frac = std::clamp(tally.ladder_frac
                 + (open_pass_dirty_ ? -kLadderDrop : kLadderStep),
             kLadderFloor, kLadderCap);
+        if (open_pass_left_seen_)
+            push_hand_pass(tally.left, open_pass_left_dirty_);
+        if (open_pass_right_seen_)
+            push_hand_pass(tally.right, open_pass_right_dirty_);
     }
     open_pass_bar_ = -1;
     open_pass_dirty_ = false;
     open_pass_outcomes_ = 0;
+    open_pass_left_seen_ = false;
+    open_pass_left_dirty_ = false;
+    open_pass_right_seen_ = false;
+    open_pass_right_dirty_ = false;
 }
 
 void PlayerModel::apply(const NoteOutcome& outcome)
@@ -154,6 +188,10 @@ void PlayerModel::apply(const NoteOutcome& outcome)
         // A wrong note fumbles whatever pass is in flight — playing THROUGH
         // an error must never count as a clean traversal.
         open_pass_dirty_ = open_pass_bar_ >= 0 ? true : open_pass_dirty_;
+        if (open_pass_left_seen_)
+            open_pass_left_dirty_ = true;
+        if (open_pass_right_seen_)
+            open_pass_right_dirty_ = true;
         // Attribute the stray to nearby pitches: a fluff one or two
         // semitones off a known note is that note's trouble, not noise.
         for (auto& [pitch, stats] : pitch_)
@@ -193,18 +231,6 @@ void PlayerModel::apply(const NoteOutcome& outcome)
     if (!drill && quarters_per_bar_ > 0.0)
     {
         const int bar = static_cast<int>(std::floor(outcome.onset_q / quarters_per_bar_));
-        BarTally& tally = bar_tally_[bar];
-        // Hand attribution: the engraved staff when known (1 = RH, 2 = LH);
-        // the middle-C pitch split only as the fallback the header admits
-        // is fuzzy.
-        HandTally& hand = outcome.staff == 2
-            ? tally.left
-            : (outcome.staff == 1 ? tally.right
-                                  : (outcome.pitch < kHandSplitMidi ? tally.left : tally.right));
-        const bool correct = outcome.verdict == NoteVerdict::Correct;
-        ++(correct ? tally.hit : tally.miss);
-        ++(correct ? hand.hit : hand.miss);
-
         // Pass tracking: the outcome stream runs in transport order and each
         // stream slot is a whole bar, so moving to a different bar closes
         // the previous bar's traversal.
@@ -213,9 +239,29 @@ void PlayerModel::apply(const NoteOutcome& outcome)
             close_open_pass();
             open_pass_bar_ = bar;
         }
+        BarTally& tally = bar_tally_[bar];
+        // Hand attribution: the engraved staff when known (1 = RH, 2 = LH);
+        // the middle-C pitch split only as the fallback the header admits
+        // is fuzzy.
+        const int staff = hand_staff_for_outcome(outcome);
+        HandTally& hand = hand_for_staff(tally, staff);
+        const bool correct = outcome.verdict == NoteVerdict::Correct;
+        ++(correct ? tally.hit : tally.miss);
+        ++(correct ? hand.hit : hand.miss);
+
         ++open_pass_outcomes_;
         if (!correct)
             open_pass_dirty_ = true;
+        if (staff == 2)
+        {
+            open_pass_left_seen_ = true;
+            open_pass_left_dirty_ = open_pass_left_dirty_ || !correct;
+        }
+        else
+        {
+            open_pass_right_seen_ = true;
+            open_pass_right_dirty_ = open_pass_right_dirty_ || !correct;
+        }
     }
 }
 
@@ -234,6 +280,10 @@ void PlayerModel::clear_progress()
     open_pass_bar_ = -1;
     open_pass_dirty_ = false;
     open_pass_outcomes_ = 0;
+    open_pass_left_seen_ = false;
+    open_pass_left_dirty_ = false;
+    open_pass_right_seen_ = false;
+    open_pass_right_dirty_ = false;
     extra_json_.clear();
 }
 
@@ -247,6 +297,18 @@ int PlayerModel::bar_pass_count(int bar_index) const
 {
     const auto found = bar_tally_.find(bar_index);
     return found != bar_tally_.end() ? found->second.pass_count : 0;
+}
+
+int PlayerModel::bar_hand_consecutive_clean(int bar_index, int staff) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() ? hand_for_staff(found->second, staff).consecutive_clean : 0;
+}
+
+int PlayerModel::bar_hand_pass_count(int bar_index, int staff) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    return found != bar_tally_.end() ? hand_for_staff(found->second, staff).pass_count : 0;
 }
 
 int PlayerModel::bar_last_pass_day(int bar_index) const
@@ -274,6 +336,15 @@ bool PlayerModel::bar_last_pass_dirty(int bar_index) const
     const auto found = bar_tally_.find(bar_index);
     return found != bar_tally_.end() && !found->second.recent_passes.empty()
         && found->second.recent_passes.back() == 0;
+}
+
+bool PlayerModel::bar_hand_last_pass_dirty(int bar_index, int staff) const
+{
+    const auto found = bar_tally_.find(bar_index);
+    if (found == bar_tally_.end())
+        return false;
+    const HandTally& hand = hand_for_staff(found->second, staff);
+    return !hand.recent_passes.empty() && hand.recent_passes.back() == 0;
 }
 
 int PlayerModel::bar_encounters(int bar_index) const
@@ -400,7 +471,12 @@ std::string PlayerModel::serialize() const
         bars[std::to_string(bar)]
             = { { "hit", t.hit }, { "miss", t.miss }, { "lh_hit", t.left.hit },
                   { "lh_miss", t.left.miss }, { "rh_hit", t.right.hit },
-                  { "rh_miss", t.right.miss }, { "passes", t.recent_passes },
+                  { "rh_miss", t.right.miss }, { "lh_passes", t.left.recent_passes },
+                  { "lh_clean_streak", t.left.consecutive_clean },
+                  { "lh_pass_count", t.left.pass_count },
+                  { "rh_passes", t.right.recent_passes },
+                  { "rh_clean_streak", t.right.consecutive_clean },
+                  { "rh_pass_count", t.right.pass_count }, { "passes", t.recent_passes },
                   { "clean_streak", t.consecutive_clean }, { "pass_count", t.pass_count },
                   { "ladder", t.ladder_frac }, { "last_day", t.last_pass_day },
                   { "spaced_streak", t.spaced_streak } };
@@ -502,6 +578,30 @@ bool PlayerModel::deserialize(const std::string& json_text)
             tally.left.miss = value.value("lh_miss", 0);
             tally.right.hit = value.value("rh_hit", 0);
             tally.right.miss = value.value("rh_miss", 0);
+            if (const auto passes = value.find("lh_passes");
+                passes != value.end() && passes->is_array())
+            {
+                for (const auto& pass : *passes)
+                {
+                    if (pass.is_number_integer())
+                        tally.left.recent_passes.push_back(
+                            pass.get<int>() != 0 ? uint8_t{ 1 } : uint8_t{ 0 });
+                }
+            }
+            tally.left.consecutive_clean = value.value("lh_clean_streak", 0);
+            tally.left.pass_count = value.value("lh_pass_count", 0);
+            if (const auto passes = value.find("rh_passes");
+                passes != value.end() && passes->is_array())
+            {
+                for (const auto& pass : *passes)
+                {
+                    if (pass.is_number_integer())
+                        tally.right.recent_passes.push_back(
+                            pass.get<int>() != 0 ? uint8_t{ 1 } : uint8_t{ 0 });
+                }
+            }
+            tally.right.consecutive_clean = value.value("rh_clean_streak", 0);
+            tally.right.pass_count = value.value("rh_pass_count", 0);
             if (const auto passes = value.find("passes");
                 passes != value.end() && passes->is_array())
             {
@@ -530,6 +630,13 @@ bool PlayerModel::deserialize(const std::string& json_text)
 
     session_active_ = false;
     session_notes_ = 0;
+    open_pass_bar_ = -1;
+    open_pass_dirty_ = false;
+    open_pass_outcomes_ = 0;
+    open_pass_left_seen_ = false;
+    open_pass_left_dirty_ = false;
+    open_pass_right_seen_ = false;
+    open_pass_right_dirty_ = false;
     return true;
 }
 

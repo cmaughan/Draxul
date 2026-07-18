@@ -106,10 +106,10 @@ void MidiPlayerInput::feed(const unsigned char* data, size_t size)
     const int pitch = data[1] & 0x7F;
     const int raw_velocity = data[2] & 0x7F;
     Pending pending;
-    pending.event.midi_pitch = pitch;
-    pending.event.velocity = static_cast<float>(raw_velocity) / 127.0f;
+    pending.midi_pitch = pitch;
+    pending.velocity = static_cast<float>(raw_velocity) / 127.0f;
     // Note-on with velocity 0 is a note-off by long MIDI convention.
-    pending.event.on = status == 0x90u && raw_velocity > 0;
+    pending.on = status == 0x90u && raw_velocity > 0;
     pending.at = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(mutex_);
     // Bounded backlog (kanban 16): a stalled main thread must not let the
@@ -143,25 +143,18 @@ void MidiPlayerInput::poll(double t_now_seconds, std::vector<PlayerNoteEvent>& o
     const auto now = std::chrono::steady_clock::now();
     for (const Pending& pending : taken)
     {
-        if (pending.event.on)
+        if (pending.on)
         {
             PlayerNoteEvent event;
-            event.midi_pitch = pending.event.midi_pitch;
+            event.midi_pitch = pending.midi_pitch;
             // Arrival-time accurate: map the callback's steady-clock stamp
             // into the caller's seconds domain.
             event.t_seconds
                 = t_now_seconds - std::chrono::duration<double>(now - pending.at).count();
-            event.velocity = pending.event.velocity;
+            event.velocity = pending.velocity;
             out.push_back(event);
         }
-        voice_out_.push_back(pending.event);
     }
-}
-
-void MidiPlayerInput::take_voice_events(std::vector<MidiVoiceEvent>& out)
-{
-    out.insert(out.end(), voice_out_.begin(), voice_out_.end());
-    voice_out_.clear();
 }
 
 } // namespace scoreview

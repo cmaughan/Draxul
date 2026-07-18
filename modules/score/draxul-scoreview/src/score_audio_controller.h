@@ -1,15 +1,14 @@
 #pragma once
 
 // The runner's audio rig (kanban 21, ScoreAudioController): output stream,
-// metronome ticks, audition voicing, instrument selection and mixing, MIDI
-// play-thru, and soundfont staging. Owns every SDL-audio and synth detail so
+// metronome ticks, audition voicing, instrument selection and mixing, and
+// soundfont staging. Owns every SDL-audio and synth detail so
 // ScoreHost stays an orchestrator — the stream handle and synth voices never
 // leak across this boundary. Internal to draxul-scoreview-host (no public
 // header; the host holds it by unique_ptr behind a forward declaration).
 
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/metronome_synth.h>
-#include <draxul/scoreview/midi_player_input.h>
 #include <draxul/scoreview/soundfont_synth.h>
 
 #include <cstdint>
@@ -33,7 +32,7 @@ public:
         Eighths, // beats + quieter subdivision ticks
     };
 
-    // Which instrument voices the audition and MIDI play-thru.
+    // Which instrument voices the audition.
     enum class Voice : uint8_t
     {
         Synth, // the built-in three-partial tone
@@ -72,7 +71,7 @@ public:
     void set_audition(bool on);
     void toggle_audition();
 
-    // Instrument voice for audition + MIDI play-thru.
+    // Instrument voice for audition.
     Voice voice() const
     {
         return voice_;
@@ -81,7 +80,14 @@ public:
     {
         return piano_loaded_index_;
     }
+    int selected_soundfont_index() const
+    {
+        return piano_selected_index_;
+    }
     void use_synth();
+    // Selects a staged piano voice without loading it yet. Used for startup
+    // defaults so the large bundled .sf2 stays lazy until audition is enabled.
+    bool prefer_piano(int index);
     // Lazily loads soundfont `index`; false (with a WARN) when it can't
     // load, so callers stay on the synth voice.
     bool use_piano(int index);
@@ -100,11 +106,6 @@ public:
     }
     void pump(double p0_q, double p1_q, double dt, double quarters_per_bar,
         const FlowController& flow);
-
-    // MIDI play-thru: most controllers are silent — voice the keys through
-    // the selected instrument. Offs matter for the piano (the damper stops
-    // the string); the synth ignores them.
-    void voice_midi_events(const std::vector<MidiVoiceEvent>& events);
 
 private:
     bool ensure_piano_voice();

@@ -30,7 +30,7 @@ void StreamComposer::reset()
     drill_stage_.clear();
     reviews_used_.clear();
     last_review_slot_.clear();
-    hands_done_.clear();
+    hands_served_at_pass_.clear();
     last_scale_slot_.clear();
     last_seam_slot_.clear();
     seams_used_.clear();
@@ -207,55 +207,73 @@ void StreamComposer::begin_weakest_slice(int total)
 
 bool StreamComposer::try_hands(StreamProgram& program, int slot)
 {
-    // The deepest simplification rung: the worst deeply-struggling bar
-    // returns with its WEAK HAND ALONE (once per bar per program).
+    // The deepest simplification rung: when one engraved hand keeps fumbling,
+    // isolate just that hand until it earns a clean source-mapped pass.
     int worst_bar = -1;
-    double worst_mastery = kHandsSeparateMastery;
+    int weak_staff = 1;
+    double worst_trouble = 0.0;
     for (int bar = 0; bar < slicer_->bar_count(); ++bar)
     {
-        if (model_->bar_encounters(bar) == 0 || hands_done_[bar])
+        if (model_->bar_encounters(bar) == 0)
             continue;
         const double mastery = model_->bar_mastery(bar);
-        if (mastery < worst_mastery)
+        const auto tally = model_->bar_tally().find(bar);
+        if (tally == model_->bar_tally().end())
+            continue;
+        const auto staves = slicer_->staff_pitches(bar);
+        for (const int staff : { 1, 2 })
         {
-            worst_mastery = mastery;
-            worst_bar = bar;
+            if (staves.find(staff) == staves.end())
+                continue;
+            const PlayerModel::HandTally& hand = staff == 2 ? tally->second.left : tally->second.right;
+            const bool repeated_hand_trouble = hand.miss >= kHandsSeparateTroubleThreshold
+                && hand.miss >= hand.hit;
+            const bool deeply_struggling_hand = mastery < kHandsSeparateMastery && hand.miss > 0;
+            if ((!repeated_hand_trouble && !deeply_struggling_hand)
+                || model_->bar_hand_consecutive_clean(bar, staff) > 0)
+                continue;
+            const int pass_count = model_->bar_hand_pass_count(bar, staff);
+            const int key = bar * 10 + staff;
+            const auto served = hands_served_at_pass_.find(key);
+            if (served != hands_served_at_pass_.end() && served->second == pass_count)
+                continue;
+            const double trouble = static_cast<double>(hand.miss - hand.hit)
+                + (model_->bar_hand_last_pass_dirty(bar, staff) ? 100.0 : 0.0)
+                + std::max(0.0, kHandsSeparateMastery - mastery) * 10.0;
+            if (trouble > worst_trouble)
+            {
+                worst_trouble = trouble;
+                worst_bar = bar;
+                weak_staff = staff;
+            }
         }
     }
     if (worst_bar < 0)
         return false;
-    hands_done_[worst_bar] = true;
-    const auto staves = slicer_->staff_pitches(worst_bar);
-    int weak_staff = 1;
-    double worst_misses = -1.0;
-    for (const auto& [staff, pitches] : staves)
-    {
-        double misses = 0.0;
-        for (const int pitch : pitches)
-        {
-            const auto found = model_->pitch_stats().find(pitch);
-            if (found != model_->pitch_stats().end())
-                misses += found->second.miss;
-        }
-        if (misses > worst_misses)
-        {
-            worst_misses = misses;
-            weak_staff = staff;
-        }
-    }
-    StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Drill;
-    plan.source_bar = worst_bar;
-    plan.source_start_q = slicer_->bar_start_q(worst_bar);
-    plan.drill_xml = slicer_->hands_separate_xml(worst_bar, weak_staff);
+    StreamBarPlan plan = make_hands_plan(worst_bar, weak_staff, "hands separate");
     if (plan.drill_xml.empty())
         return false;
-    plan.reason = "hands separate: bar " + std::to_string(worst_bar + 1) + ", staff "
-        + std::to_string(weak_staff) + " alone";
+    hands_served_at_pass_[worst_bar * 10 + weak_staff]
+        = model_->bar_hand_pass_count(worst_bar, weak_staff);
     piece_bars_since_special_ = 0;
     program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
     (void)slot;
     return true;
+}
+
+StreamBarPlan StreamComposer::make_hands_plan(
+    int bar, int staff, const std::string& reason_prefix) const
+{
+    StreamBarPlan plan;
+    plan.kind = StreamBarPlan::Kind::Drill;
+    plan.source_bar = bar;
+    plan.source_start_q = slicer_->bar_start_q(bar);
+    plan.drill_trains_source = true;
+    plan.drill_xml = slicer_->hands_separate_xml(bar, staff);
+    const char* hand = staff == 2 ? "left hand" : "right hand";
+    plan.reason = reason_prefix + ": bar " + std::to_string(bar + 1) + ", " + hand
+        + " alone";
+    return plan;
 }
 
 bool StreamComposer::try_drill(StreamProgram& program, int slot)
@@ -466,6 +484,32 @@ int StreamComposer::find_fix_bar() const
     return worst_bar;
 }
 
+int StreamComposer::weak_hand_for_fix(int bar) const
+{
+    const auto tally = model_->bar_tally().find(bar);
+    if (tally == model_->bar_tally().end())
+        return -1;
+    const auto staves = slicer_->staff_pitches(bar);
+    int best_staff = -1;
+    int best_trouble = 0;
+    for (const int staff : { 1, 2 })
+    {
+        if (staves.find(staff) == staves.end() || !model_->bar_hand_last_pass_dirty(bar, staff)
+            || model_->bar_hand_consecutive_clean(bar, staff) > 0)
+            continue;
+        const PlayerModel::HandTally& hand = staff == 2 ? tally->second.left : tally->second.right;
+        if (hand.miss < kHandsSeparateTroubleThreshold || hand.miss < hand.hit)
+            continue;
+        const int trouble = hand.miss - hand.hit;
+        if (trouble > best_trouble)
+        {
+            best_trouble = trouble;
+            best_staff = staff;
+        }
+    }
+    return best_staff;
+}
+
 bool StreamComposer::try_reserve(StreamProgram& program, int slot)
 {
     // The evidence: errors are corrected and repeated, never played past. The
@@ -475,11 +519,25 @@ bool StreamComposer::try_reserve(StreamProgram& program, int slot)
     if (bar < 0)
         return false;
     reserved_at_pass_[bar] = model_->bar_pass_count(bar);
+    const int staff = weak_hand_for_fix(bar);
     StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Review;
-    plan.source_bar = bar;
-    plan.source_start_q = slicer_->bar_start_q(bar);
-    plan.reason = "fix: bar " + std::to_string(bar + 1) + " (fumbled pass)";
+    if (staff > 0)
+    {
+        StreamBarPlan hands_plan = make_hands_plan(bar, staff, "fix");
+        if (!hands_plan.drill_xml.empty())
+        {
+            hands_plan.reason += " (fumbled pass)";
+            hands_served_at_pass_[bar * 10 + staff] = model_->bar_hand_pass_count(bar, staff);
+            plan = std::move(hands_plan);
+        }
+    }
+    if (plan.source_bar < 0)
+    {
+        plan.kind = StreamBarPlan::Kind::Review;
+        plan.source_bar = bar;
+        plan.source_start_q = slicer_->bar_start_q(bar);
+        plan.reason = "fix: bar " + std::to_string(bar + 1) + " (fumbled pass)";
+    }
     piece_bars_since_special_ = 0;
     program.append(std::move(plan), slicer_->bar_quarters(bar));
     (void)slot;
@@ -498,11 +556,25 @@ int StreamComposer::plan_urgent(StreamProgram& program, int at_slot)
     if (bar < 0)
         return 0;
     reserved_at_pass_[bar] = model_->bar_pass_count(bar);
+    const int staff = weak_hand_for_fix(bar);
     StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Review;
-    plan.source_bar = bar;
-    plan.source_start_q = slicer_->bar_start_q(bar);
-    plan.reason = "fix now: bar " + std::to_string(bar + 1) + " (fumbled pass)";
+    if (staff > 0)
+    {
+        StreamBarPlan hands_plan = make_hands_plan(bar, staff, "fix now");
+        if (!hands_plan.drill_xml.empty())
+        {
+            hands_plan.reason += " (fumbled pass)";
+            hands_served_at_pass_[bar * 10 + staff] = model_->bar_hand_pass_count(bar, staff);
+            plan = std::move(hands_plan);
+        }
+    }
+    if (plan.source_bar < 0)
+    {
+        plan.kind = StreamBarPlan::Kind::Review;
+        plan.source_bar = bar;
+        plan.source_start_q = slicer_->bar_start_q(bar);
+        plan.reason = "fix now: bar " + std::to_string(bar + 1) + " (fumbled pass)";
+    }
     program.insert(at_slot, std::move(plan), slicer_->bar_quarters(bar));
     const auto shift = [at_slot](std::map<std::string, int>& slots) {
         for (auto& [key, slot] : slots)

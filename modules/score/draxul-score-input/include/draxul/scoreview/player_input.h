@@ -19,7 +19,8 @@ struct PlayerNoteEvent
     int midi_pitch = -1;
     double t_seconds = 0.0;
     // Strike velocity 0..1 when the input source knows it (MIDI); 0 =
-    // unknown. Judging ignores it — it only shades the play-thru voice.
+    // unknown. Judging uses it as performance data; live input never
+    // synthesizes notes.
     float velocity = 0.0f;
 };
 

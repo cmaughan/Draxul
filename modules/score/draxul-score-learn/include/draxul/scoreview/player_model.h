@@ -71,6 +71,9 @@ public:
     {
         int hit = 0;
         int miss = 0;
+        std::vector<uint8_t> recent_passes; // capped at kRecentEncounters
+        int consecutive_clean = 0;
+        int pass_count = 0;
     };
     struct BarTally
     {
@@ -166,9 +169,12 @@ public:
     // or when the session ends.
     int bar_consecutive_clean(int bar_index) const;
     int bar_pass_count(int bar_index) const;
+    int bar_hand_consecutive_clean(int bar_index, int staff) const;
+    int bar_hand_pass_count(int bar_index, int staff) const;
     // True when the bar has at least one pass and the newest was fumbled —
     // the composer's re-serve trigger.
     bool bar_last_pass_dirty(int bar_index) const;
+    bool bar_hand_last_pass_dirty(int bar_index, int staff) const;
     // Monotonic count of fumbled passes — the host's cheap "a fumble just
     // happened" edge detector for the urgent program rewrite.
     int dirty_pass_count() const
@@ -245,6 +251,10 @@ private:
     int open_pass_bar_ = -1;
     bool open_pass_dirty_ = false;
     int open_pass_outcomes_ = 0;
+    bool open_pass_left_seen_ = false;
+    bool open_pass_left_dirty_ = false;
+    bool open_pass_right_seen_ = false;
+    bool open_pass_right_dirty_ = false;
 
     std::string extra_json_; // unknown top-level fields, preserved verbatim
 };

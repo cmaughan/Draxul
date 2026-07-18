@@ -147,6 +147,9 @@ void ScoreHost::render_debug_ui(float dt)
                 bool mark = view.mark_mistakes;
                 if (ImGui::Checkbox("Mark wrong notes (x)", &mark))
                     intents.mark_mistakes = mark;
+                bool colors = view.show_note_colors;
+                if (ImGui::Checkbox("Note colors (full score)", &colors))
+                    intents.show_note_colors = colors;
                 bool split = view.split_accidentals;
                 if (ImGui::Checkbox("Split sharps/flats (half color)", &split))
                     intents.split_accidentals = split;
@@ -231,15 +234,17 @@ void ScoreHost::render_debug_ui(float dt)
                 const char* levels[] = { "Off", "Beats", "Eighths" };
                 if (ImGui::Combo("metronome", &level, levels, 3))
                     intents.tick_level = level;
-                // The instrument voicing audition + MIDI play-thru: the
-                // built-in synth or any staged .sf2 (loaded on selection).
+                // The instrument voicing audition: the built-in synth or
+                // any staged .sf2 (loaded on selection).
                 const auto& soundfonts = *view.soundfonts;
                 std::string instrument_label = "Synth (3-partial)";
-                if (view.piano_voice && view.loaded_soundfont_index >= 0)
+                const int selected = view.loaded_soundfont_index >= 0
+                    ? view.loaded_soundfont_index
+                    : view.selected_soundfont_index;
+                if (view.piano_voice && selected >= 0
+                    && selected < static_cast<int>(soundfonts.size()))
                     instrument_label
-                        = soundfonts[static_cast<size_t>(view.loaded_soundfont_index)]
-                              .stem()
-                              .string();
+                        = soundfonts[static_cast<size_t>(selected)].stem().string();
                 if (ImGui::BeginCombo("instrument", instrument_label.c_str()))
                 {
                     if (ImGui::Selectable("Synth (3-partial)", !view.piano_voice))
@@ -248,8 +253,7 @@ void ScoreHost::render_debug_ui(float dt)
                     {
                         const std::string name
                             = soundfonts[static_cast<size_t>(i)].stem().string();
-                        const bool active
-                            = view.piano_voice && view.loaded_soundfont_index == i;
+                        const bool active = view.piano_voice && selected == i;
                         if (ImGui::Selectable(name.c_str(), active))
                             intents.use_piano_index = i;
                     }

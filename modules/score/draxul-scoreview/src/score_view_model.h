@@ -54,6 +54,7 @@ struct ScoreViewModel
     bool lock_tempo = false;
     bool show_waterfall = true;
     bool mark_mistakes = true;
+    bool show_note_colors = true;
     bool split_accidentals = true;
     bool composer_enabled = false;
     bool composer_drills = false; // fabricated chord drills (opt-in)
@@ -72,6 +73,7 @@ struct ScoreViewModel
     bool audition = false;
     bool piano_voice = false;
     int loaded_soundfont_index = -1;
+    int selected_soundfont_index = -1;
     const std::vector<std::filesystem::path>* soundfonts = nullptr;
 
     // Learning aggregates (stable for the frame — see header comment)
@@ -100,6 +102,7 @@ struct ScoreInspectorIntents
     std::optional<double> waterfall_beats;
     std::optional<double> note_gate;
     std::optional<bool> mark_mistakes;
+    std::optional<bool> show_note_colors;
     std::optional<bool> split_accidentals;
     std::optional<bool> composer_enabled;
     std::optional<bool> composer_drills;
@@ -123,8 +126,8 @@ struct ScoreInspectorIntents
         return toggle_play || rewind_or_restart || tempo_qpm || lock_tempo
             || select_keyboard_input || select_mic_input || select_midi_port
             || score_height_frac || show_waterfall || waterfall_beats || note_gate
-            || mark_mistakes || split_accidentals || composer_enabled || composer_drills
-            || composer_scales || proportional_spacing
+            || mark_mistakes || show_note_colors || split_accidentals || composer_enabled
+            || composer_drills || composer_scales || proportional_spacing
             || show_analysis_overlay || show_unique_chunks
             || spacing_linear_override || spacing_non_linear_override
             || reset_spacing_overrides || tick_level || use_synth_voice || use_piano_index

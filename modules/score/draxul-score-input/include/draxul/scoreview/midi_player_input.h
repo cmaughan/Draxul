@@ -15,16 +15,6 @@ namespace draxul
 namespace scoreview
 {
 
-// A note-on/off with velocity for the play-thru instrument voice. Judging
-// consumes only the note-ons (through IPlayerInput::poll); the voice wants
-// the releases too so held notes damp like a real piano.
-struct MidiVoiceEvent
-{
-    int midi_pitch = -1;
-    float velocity = 0.0f; // 0..1
-    bool on = false;
-};
-
 // A hardware MIDI keyboard as the runner's input (plans/scoreview.md): the
 // judging currency is identical to the microphone listener's — MIDI pitch +
 // steady-clock seconds — but lossless and latency-free, so the composer can
@@ -63,10 +53,6 @@ public:
     // caller's clock domain (arrival-time accurate, not poll-time).
     void poll(double t_now_seconds, std::vector<PlayerNoteEvent>& out) override;
 
-    // Voice stream: every on/off since the last call (velocity preserved).
-    // Drain AFTER poll() — poll is what migrates the pending queue.
-    void take_voice_events(std::vector<MidiVoiceEvent>& out);
-
     // Parses one raw MIDI message — the RtMidi callback body, public and
     // device-free so tests can inject bytes. Understands note-on (velocity 0
     // = off, per convention) and note-off on any channel; everything else is
@@ -82,7 +68,9 @@ public:
 private:
     struct Pending
     {
-        MidiVoiceEvent event;
+        int midi_pitch = -1;
+        float velocity = 0.0f;
+        bool on = false;
         std::chrono::steady_clock::time_point at;
     };
 
@@ -94,7 +82,6 @@ private:
     std::mutex mutex_;
     std::vector<Pending> pending_; // filled by feed() (backend thread), bounded
     size_t dropped_events_ = 0; // overload drops since the last poll()
-    std::vector<MidiVoiceEvent> voice_out_; // drained on the main thread
 };
 
 } // namespace scoreview

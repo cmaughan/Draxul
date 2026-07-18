@@ -70,8 +70,10 @@ public:
     void record_paged(INanoVGPass& pass,
         std::shared_ptr<const std::vector<ScoreDrawList>> pages, float pixel_scale,
         float margin, float gap, float scroll, float page_w, float page_h, float scale,
-        std::shared_ptr<const AnalysisOverlay> overlay = nullptr, bool annotations = true,
-        bool unique_chunks = false);
+        std::shared_ptr<const AnalysisOverlay> overlay = nullptr,
+        std::shared_ptr<const std::vector<ScoreHighlightState>> note_colors = nullptr,
+        bool annotations = true, bool unique_chunks = false, bool show_note_colors = true,
+        bool split_accidentals = true);
 
     // The look-ahead the viewport shows right of the playhead (+1 buffer) —
     // the stream advances when its runway drops to this. Computed by the

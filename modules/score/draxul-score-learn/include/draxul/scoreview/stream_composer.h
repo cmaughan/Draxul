@@ -33,6 +33,7 @@ public:
     // The simplification ladder (S4): below this mastery a struggling bar
     // gets its WEAK HAND ALONE before the full bar returns.
     static constexpr double kHandsSeparateMastery = 0.3;
+    static constexpr int kHandsSeparateTroubleThreshold = 2;
     // Register trouble (missed pitches inside an octave window) at or above
     // this earns a scale fragment in the piece's key.
     static constexpr int kScaleTroubleThreshold = 5;
@@ -138,6 +139,8 @@ private:
     // The newest fumbled bar that has not yet earned its fix (-1 = none);
     // shared by the append (try_reserve) and splice (plan_urgent) paths.
     int find_fix_bar() const;
+    int weak_hand_for_fix(int bar) const;
+    StreamBarPlan make_hands_plan(int bar, int staff, const std::string& reason_prefix) const;
     void begin_next_arc();
     // Aims the next arc at the weakest detected phrase; false when the piece
     // has no confident structure and the caller must fall back.
@@ -160,7 +163,7 @@ private:
     std::map<std::string, int> drill_stage_; // chord key -> rungs climbed
     std::map<int, int> reviews_used_; // source bar -> count
     std::map<int, int> last_review_slot_; // source bar -> slot
-    std::map<int, bool> hands_done_; // source bar -> weak hand played alone
+    std::map<int, int> hands_served_at_pass_; // bar*10+staff -> hand pass_count
     std::map<int, int> last_scale_slot_; // register window -> slot
     std::map<int, int> last_seam_slot_; // phrase-tail bar -> slot
     std::map<int, int> seams_used_; // phrase-tail bar -> count

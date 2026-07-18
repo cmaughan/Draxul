@@ -160,6 +160,7 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         // dropped into the folder just appears). Loading is lazy — the
         // ~118 MB parse happens on first selection, not startup.
         audio_->stage_soundfonts(executable_directory() / "soundfonts");
+        audio_->prefer_piano(0);
 
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
@@ -176,6 +177,12 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         flow_dirty_ = true;
         start_in_gate_ = true;
         gate_input_requested_ = GateInput::Keyboard;
+        const std::vector<std::string> startup_midi_ports = PlayerInputRig::list_midi_ports();
+        if (!startup_midi_ports.empty())
+        {
+            gate_input_requested_ = GateInput::Midi;
+            midi_port_requested_ = 0;
+        }
         game_mode_ = FlowController::TransportMode::Roll;
         const std::string& command = context.launch_options.command;
         if (command.find("paged") != std::string::npos)
@@ -521,6 +528,28 @@ void ScoreHost::relayout()
     }
 
     pages_ = pages;
+    auto page_colors = std::make_shared<std::vector<ScoreHighlightState>>();
+    page_colors->reserve(pages_->size());
+    for (const ScoreDrawList& page : *pages_)
+    {
+        ScoreHighlightState colors;
+        colors.build(page);
+        const auto add_guidance = [this, &colors](const std::string& id) {
+            if (id.empty())
+                return;
+            const int midi = engine_->midi_pitch_for_element(id);
+            if (midi < 0)
+                return;
+            colors.set_guidance(
+                id, guidance_palette_index(midi, engine_->note_letter_for_element(id)));
+        };
+        for (const GlyphInstance& glyph : page.glyphs)
+            add_guidance(glyph.element_id);
+        for (const DrawPath& path : page.paths)
+            add_guidance(path.element_id);
+        page_colors->push_back(std::move(colors));
+    }
+    page_note_highlights_ = page_colors;
     rebuild_analysis_overlay();
     size_t total_ops = 0;
     for (const ScoreDrawList& page : *pages_)
@@ -654,7 +683,8 @@ void ScoreHost::relayout_flow()
         if (start_in_gate_)
         {
             start_in_gate_ = false;
-            enter_gate_mode(gate_input_requested_, kBotPaceQpm, gate_bot_accuracy_);
+            enter_gate_mode(
+                gate_input_requested_, kBotPaceQpm, gate_bot_accuracy_, midi_port_requested_);
         }
     }
 
@@ -1100,14 +1130,11 @@ bool ScoreHost::set_gate_input(
     selection.bot_accuracy = bot_accuracy;
     selection.midi_port = midi_port;
     const bool engaged = input_rig_.select(selection, flow_);
-    // The keyboard is the instrument: make it heard (play-thru needs the
-    // output stream open even when the metronome is off).
-    if (engaged && input_rig_.kind() == PlayerInputRig::Kind::Midi)
-        audio_->ensure_output_stream();
     return engaged;
 }
 
-void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot_accuracy)
+void ScoreHost::enter_gate_mode(
+    GateInput input, double bot_pace_qpm, double bot_accuracy, int midi_port)
 {
     if (!flow_.gates_ready())
         return;
@@ -1128,7 +1155,7 @@ void ScoreHost::enter_gate_mode(GateInput input, double bot_pace_qpm, double bot
     }
     highlight_.clear_lit();
     apply_verdict_update(); // consume the reset
-    set_gate_input(input, bot_pace_qpm, bot_accuracy);
+    set_gate_input(input, bot_pace_qpm, bot_accuracy, midi_port);
     // The gate transport starts immediately for every input: it just glides
     // to the first onset and WAITS there. Space pauses/resumes.
     flow_.play();
@@ -1374,15 +1401,6 @@ void ScoreHost::pump()
                 if (!events.empty())
                     flow_.judge(events);
             }
-            // MIDI play-thru: most controllers are silent — voice the keys
-            // through the selected instrument so playing is audible. Offs
-            // matter for the piano (the damper stops the string).
-            if (input_rig_.kind() == PlayerInputRig::Kind::Midi)
-            {
-                std::vector<MidiVoiceEvent> voiced;
-                input_rig_.take_midi_voice_events(voiced);
-                audio_->voice_midi_events(voiced);
-            }
             apply_verdict_update();
 
             // Player memory: verdicts archive on the STREAM axis (for
@@ -1512,7 +1530,8 @@ void ScoreHost::draw(IFrameContext& frame)
     {
         presentation_->record_paged(*nanovg_pass_, pages_, pixel_scale, page_margin(),
             page_gap(), scroll_y_, page_width_px_, page_height_px_, page_scale_,
-            analysis_overlay_, show_analysis_overlay_, show_unique_chunks_);
+            analysis_overlay_, page_note_highlights_, show_analysis_overlay_,
+            show_unique_chunks_, show_note_colors_, split_accidentals_);
     }
 
     RenderViewport vp;
@@ -1559,6 +1578,7 @@ ScoreViewModel ScoreHost::build_view_model() const
     view.lock_tempo = lock_tempo_;
     view.show_waterfall = show_waterfall_;
     view.mark_mistakes = mark_mistakes_;
+    view.show_note_colors = show_note_colors_;
     view.split_accidentals = split_accidentals_;
     view.composer_enabled = composer_enabled_;
     view.composer_drills = composer_drills_;
@@ -1575,6 +1595,7 @@ ScoreViewModel ScoreHost::build_view_model() const
     view.audition = audio_->audition();
     view.piano_voice = audio_->voice() == ScoreAudioController::Voice::Piano;
     view.loaded_soundfont_index = audio_->loaded_soundfont_index();
+    view.selected_soundfont_index = audio_->selected_soundfont_index();
     view.soundfonts = &audio_->soundfonts();
     view.model = &session_->model();
     view.profile = &session_->piece_profile();
@@ -1666,6 +1687,8 @@ void ScoreHost::apply_inspector_intents(const ScoreInspectorIntents& intents)
         if (!mark_mistakes_)
             highlight_.clear_lit(); // drop the current crosses at once
     }
+    if (intents.show_note_colors)
+        show_note_colors_ = *intents.show_note_colors;
     if (intents.split_accidentals)
         split_accidentals_ = *intents.split_accidentals;
     if (intents.composer_enabled)
