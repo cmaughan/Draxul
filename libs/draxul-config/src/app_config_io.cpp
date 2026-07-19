@@ -1,3 +1,5 @@
+#include "config_schema_driver.h"
+
 #include <draxul/app_config_types.h>
 #include <draxul/config_schema.h>
 #include <draxul/gui_actions.h>
@@ -116,13 +118,6 @@ int parse_window_dimension(const toml::table& document, const char* key, int fal
     return fallback;
 }
 
-int clamp_window_dimension(int value, int fallback, int min_value, int max_value)
-{
-    if (value < min_value || value > max_value)
-        return fallback;
-    return value;
-}
-
 int floor_to_power_of_two(int value)
 {
     PERF_MEASURE();
@@ -202,17 +197,6 @@ std::optional<float> parse_float_value(const toml::table& document, const char* 
     if (auto parsed = toml_support::get_int(document, key); parsed.has_value())
         return static_cast<float>(*parsed);
     return std::nullopt;
-}
-
-std::string color_to_hex(const Color& color)
-{
-    const auto channel = [](float value) {
-        return static_cast<int>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
-    };
-    char buffer[8];
-    std::snprintf(buffer, sizeof(buffer), "#%02x%02x%02x",
-        channel(color.r), channel(color.g), channel(color.b));
-    return std::string(buffer);
 }
 
 bool parse_enable_ligatures(const toml::table& document, bool fallback)
@@ -801,55 +785,14 @@ Result<AppConfig, Error> parse_app_config_checked(
 std::string AppConfig::serialize() const
 {
     PERF_MEASURE();
+    // Top-level scalars plus the [markdown], [chrome], and [terminal] tables are
+    // emitted by the schema driver (config_schema.cpp) from the descriptor table:
+    // per-field serialize range rules (clamp / power-of-two / default) and emit
+    // policy (always / skip-if-empty / skip-if-default) live there now.
     toml::table document;
-    document.insert_or_assign("window_width", clamp_window_dimension(window_width, AppConfig{}.window_width, kMinWindowWidth, kMaxWindowWidth));
-    document.insert_or_assign("window_height", clamp_window_dimension(window_height, AppConfig{}.window_height, kMinWindowHeight, kMaxWindowHeight));
-    document.insert_or_assign("font_size", static_cast<double>(std::clamp(font_size, kMinFontPointSize, kMaxFontPointSize)));
-    {
-        toml::table markdown_table;
-        markdown_table.insert_or_assign(
-            "font_size",
-            static_cast<double>(std::clamp(markdown.font_size, kMinFontPointSize, kMaxFontPointSize)));
-        markdown_table.insert_or_assign(
-            "margin_columns",
-            static_cast<double>(std::clamp(
-                markdown.margin_columns,
-                kMinMarkdownMarginColumns,
-                kMaxMarkdownMarginColumns)));
-        document.insert_or_assign("markdown", std::move(markdown_table));
-    }
-    document.insert_or_assign("atlas_size", floor_to_power_of_two(std::clamp(atlas_size, kMinAtlasSize, kMaxAtlasSize)));
-    document.insert_or_assign("enable_ligatures", enable_ligatures);
-    document.insert_or_assign("smooth_scroll", smooth_scroll);
-    document.insert_or_assign("scroll_speed", static_cast<double>(std::clamp(scroll_speed, 0.1f, 10.0f)));
-    document.insert_or_assign("scrollback_lines",
-        static_cast<int64_t>(std::clamp(scrollback_lines, kMinScrollbackLines, kMaxScrollbackLines)));
-    document.insert_or_assign("palette_bg_alpha", static_cast<double>(std::clamp(palette_bg_alpha, 0.0f, 1.0f)));
-    document.insert_or_assign("focus_border_width", static_cast<double>(std::clamp(focus_border_width, 1.0f, 10.0f)));
-    document.insert_or_assign("enable_toast_notifications", enable_toast_notifications);
-    document.insert_or_assign("toast_duration_s", static_cast<double>(std::clamp(toast_duration_s, 0.5f, 60.0f)));
-    document.insert_or_assign("show_pane_status", show_pane_status);
-    document.insert_or_assign("chord_timeout_ms", std::max(100, chord_timeout_ms));
-    document.insert_or_assign("chord_indicator_fade_ms", std::max(100, chord_indicator_fade_ms));
-    if (!weather_location.empty())
-        document.insert_or_assign("weather_location", weather_location);
-    if (!font_path.empty())
-        document.insert_or_assign("font_path", font_path);
-    if (!bold_font_path.empty())
-        document.insert_or_assign("bold_font_path", bold_font_path);
-    if (!italic_font_path.empty())
-        document.insert_or_assign("italic_font_path", italic_font_path);
-    if (!bold_italic_font_path.empty())
-        document.insert_or_assign("bold_italic_font_path", bold_italic_font_path);
-    if (!fallback_paths.empty())
-    {
-        toml::array fallback_array;
-        fallback_array.reserve(fallback_paths.size());
-        for (const auto& fallback_path : fallback_paths)
-            fallback_array.push_back(fallback_path);
-        document.insert_or_assign("fallback_paths", std::move(fallback_array));
-    }
+    config_schema::serialize_fields(*this, document);
 
+    // The compound [keybindings] table keeps its dedicated writer.
     toml::table keybinding_table;
     for_each_gui_action_config_key([&](std::string_view action) {
         if (const GuiKeybinding* binding = first_binding_for_action(keybindings, action))
@@ -864,74 +807,6 @@ std::string AppConfig::serialize() const
         }
     });
     document.insert_or_assign("keybindings", std::move(keybinding_table));
-
-    {
-        const TerminalConfig defaults;
-        const bool emit_terminal = !terminal.fg.empty() || !terminal.bg.empty()
-            || terminal.selection_max_cells != defaults.selection_max_cells
-            || terminal.copy_on_select != defaults.copy_on_select
-            || terminal.paste_confirm_lines != defaults.paste_confirm_lines
-            || terminal.url_detection != defaults.url_detection
-            || terminal.enable_osc8_hyperlinks != defaults.enable_osc8_hyperlinks
-            || terminal.enable_shell_integration_marks != defaults.enable_shell_integration_marks;
-        if (emit_terminal)
-        {
-            toml::table terminal_table;
-            if (!terminal.fg.empty())
-                terminal_table.insert_or_assign("fg", terminal.fg);
-            if (!terminal.bg.empty())
-                terminal_table.insert_or_assign("bg", terminal.bg);
-            if (terminal.selection_max_cells != defaults.selection_max_cells)
-                terminal_table.insert_or_assign("selection_max_cells",
-                    static_cast<int64_t>(terminal.selection_max_cells));
-            if (terminal.copy_on_select != defaults.copy_on_select)
-                terminal_table.insert_or_assign("copy_on_select", terminal.copy_on_select);
-            if (terminal.paste_confirm_lines != defaults.paste_confirm_lines)
-                terminal_table.insert_or_assign("paste_confirm_lines",
-                    static_cast<int64_t>(terminal.paste_confirm_lines));
-            if (terminal.url_detection != defaults.url_detection)
-                terminal_table.insert_or_assign("url_detection", terminal.url_detection);
-            if (terminal.enable_osc8_hyperlinks != defaults.enable_osc8_hyperlinks)
-                terminal_table.insert_or_assign("enable_osc8_hyperlinks", terminal.enable_osc8_hyperlinks);
-            if (terminal.enable_shell_integration_marks != defaults.enable_shell_integration_marks)
-                terminal_table.insert_or_assign(
-                    "enable_shell_integration_marks", terminal.enable_shell_integration_marks);
-            document.insert_or_assign("terminal", std::move(terminal_table));
-        }
-    }
-
-    {
-        const ChromeTheme defaults;
-        toml::table chrome_table;
-        auto maybe_emit = [&](const char* key, const Color& value, const Color& fallback) {
-            if (value != fallback)
-                chrome_table.insert_or_assign(key, color_to_hex(value));
-        };
-
-        maybe_emit("tab_bar_bg", chrome.tab_bar_bg, defaults.tab_bar_bg);
-        maybe_emit("tab_active_fg", chrome.tab_active_fg, defaults.tab_active_fg);
-        maybe_emit("tab_inactive_fg", chrome.tab_inactive_fg, defaults.tab_inactive_fg);
-        maybe_emit("tab_active_bg", chrome.tab_active_bg, defaults.tab_active_bg);
-        maybe_emit("tab_inactive_bg", chrome.tab_inactive_bg, defaults.tab_inactive_bg);
-        maybe_emit("tab_editing_bg", chrome.tab_editing_bg, defaults.tab_editing_bg);
-        maybe_emit("divider", chrome.divider, defaults.divider);
-        maybe_emit("focus_border", chrome.focus_border, defaults.focus_border);
-        maybe_emit("status_bar_bg", chrome.status_bar_bg, defaults.status_bar_bg);
-        maybe_emit("status_bar_fg", chrome.status_bar_fg, defaults.status_bar_fg);
-        maybe_emit("status_focused_accent_bg", chrome.status_focused_accent_bg, defaults.status_focused_accent_bg);
-        maybe_emit("status_inactive_accent_bg", chrome.status_inactive_accent_bg, defaults.status_inactive_accent_bg);
-        maybe_emit("status_editing_bg", chrome.status_editing_bg, defaults.status_editing_bg);
-        maybe_emit("resource_pill_bg", chrome.resource_pill_bg, defaults.resource_pill_bg);
-        maybe_emit("resource_pill_fg", chrome.resource_pill_fg, defaults.resource_pill_fg);
-        maybe_emit("resource_pill_warn_bg", chrome.resource_pill_warn_bg, defaults.resource_pill_warn_bg);
-        maybe_emit("resource_pill_hot_bg", chrome.resource_pill_hot_bg, defaults.resource_pill_hot_bg);
-        maybe_emit("chord_pill_bg", chrome.chord_pill_bg, defaults.chord_pill_bg);
-        maybe_emit("weather_pill_bg", chrome.weather_pill_bg, defaults.weather_pill_bg);
-        maybe_emit("editing_outline", chrome.editing_outline, defaults.editing_outline);
-
-        if (!chrome_table.empty())
-            document.insert_or_assign("chrome", std::move(chrome_table));
-    }
 
     std::ostringstream out;
     out << document << '\n';

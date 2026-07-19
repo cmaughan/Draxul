@@ -1,12 +1,17 @@
 #include <draxul/config_schema.h>
 
+#include "config_schema_driver.h"
+
 #include <draxul/log.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <sstream>
+#include <string>
+#include <variant>
 
 namespace draxul::config_schema
 {
@@ -476,6 +481,150 @@ std::string render_config_docs_markdown()
     }
 
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Schema driver: serialization
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+int floor_pow2(int value)
+{
+    if (value <= 0)
+        return 0;
+    int result = 1;
+    while (result * 2 <= value)
+        result *= 2;
+    return result;
+}
+
+// Apply a field's serialize-time range rule to an integer value. `default_value`
+// is the field's default (used by UseDefault, which writes the default when the
+// current value is out of range instead of clamping).
+int64_t apply_int_serialize(const ConfigFieldDesc& field, int value, int default_value)
+{
+    const int lo = static_cast<int>(field.min);
+    const int hi = static_cast<int>(field.max);
+    switch (field.serialize_range)
+    {
+    case RangeRule::Clamp:
+        return std::clamp(value, lo, hi);
+    case RangeRule::ClampMin:
+        return std::max(lo, value);
+    case RangeRule::UseDefault:
+        return (value < lo || value > hi) ? default_value : value;
+    case RangeRule::PowerOfTwo:
+        return floor_pow2(std::clamp(value, lo, hi));
+    case RangeRule::None:
+        break;
+    }
+    return value;
+}
+
+float apply_float_serialize(const ConfigFieldDesc& field, float value, float default_value)
+{
+    const float lo = static_cast<float>(field.min);
+    const float hi = static_cast<float>(field.max);
+    switch (field.serialize_range)
+    {
+    case RangeRule::Clamp:
+        return std::clamp(value, lo, hi);
+    case RangeRule::ClampMin:
+        return std::max(lo, value);
+    case RangeRule::UseDefault:
+        return (value < lo || value > hi) ? default_value : value;
+    case RangeRule::PowerOfTwo:
+    case RangeRule::None:
+        break;
+    }
+    return value;
+}
+
+void serialize_one_field(const ConfigFieldDesc& field, const AppConfig& config, toml::table& out)
+{
+    static const AppConfig defaults;
+    const std::string key(field.key);
+    std::visit(
+        [&](auto accessor) {
+            const auto& value = accessor(config);
+            const auto& def = accessor(defaults);
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, bool>)
+            {
+                if (field.emit == EmitRule::SkipIfDefault && value == def)
+                    return;
+                out.insert_or_assign(key, value);
+            }
+            else if constexpr (std::is_same_v<T, int>)
+            {
+                if (field.emit == EmitRule::SkipIfDefault && value == def)
+                    return;
+                out.insert_or_assign(key, apply_int_serialize(field, value, def));
+            }
+            else if constexpr (std::is_same_v<T, float>)
+            {
+                if (field.emit == EmitRule::SkipIfDefault && value == def)
+                    return;
+                out.insert_or_assign(key, static_cast<double>(apply_float_serialize(field, value, def)));
+            }
+            else if constexpr (std::is_same_v<T, std::string>)
+            {
+                // Covers ValueKind::String and ValueKind::HexString (raw hex text).
+                if (field.emit == EmitRule::SkipIfEmpty && value.empty())
+                    return;
+                if (field.emit == EmitRule::SkipIfDefault && value == def)
+                    return;
+                out.insert_or_assign(key, value);
+            }
+            else if constexpr (std::is_same_v<T, Color>)
+            {
+                if (field.emit == EmitRule::SkipIfDefault && value == def)
+                    return;
+                out.insert_or_assign(key, format_color_hex(value));
+            }
+            else // std::vector<std::string>
+            {
+                if (field.emit == EmitRule::SkipIfEmpty && value.empty())
+                    return;
+                toml::array array;
+                array.reserve(value.size());
+                for (const std::string& item : value)
+                    array.push_back(item);
+                out.insert_or_assign(key, std::move(array));
+            }
+        },
+        field.ref);
+}
+
+} // namespace
+
+void serialize_fields(const AppConfig& config, toml::table& document)
+{
+    for (const ConfigFieldDesc& field : kFields)
+    {
+        if (field.section.empty())
+            serialize_one_field(field, config, document);
+    }
+
+    // Non-compound sections build a sub-table and are emitted only when they
+    // carry at least one key, unless the section is marked always_emit. The
+    // compound [keybindings] section is serialized by its dedicated writer in
+    // app_config_io.cpp, so it is skipped here.
+    for (const ConfigSectionDesc& section : kSections)
+    {
+        if (section.compound)
+            continue;
+        toml::table sub;
+        for (const ConfigFieldDesc& field : kFields)
+        {
+            if (field.section == section.name)
+                serialize_one_field(field, config, sub);
+        }
+        if (section.always_emit || !sub.empty())
+            document.insert_or_assign(std::string(section.name), std::move(sub));
+    }
 }
 
 } // namespace draxul::config_schema
