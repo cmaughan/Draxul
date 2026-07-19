@@ -1,5 +1,6 @@
 #include "satview_star_catalog.h"
 
+#include "satview_catalog_container.h"
 #include "satview_texture_assets.h"
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <fstream>
+#include <optional>
 
 namespace draxul::satview
 {
@@ -17,18 +19,6 @@ namespace
 
 constexpr std::array<char, 8> kStarCatalogMagic = { 'D', 'X', 'S', 'T', 'A', 'R', '1', '\0' };
 constexpr std::uint32_t kStarCatalogVersion = 1;
-
-struct StarCatalogHeader
-{
-    std::array<char, 8> magic{};
-    std::uint32_t version = 0;
-    std::uint32_t header_size = 0;
-    std::uint32_t record_size = 0;
-    std::uint32_t record_count = 0;
-    std::uint32_t flags = 0;
-    std::uint32_t source_id = 0;
-};
-static_assert(sizeof(StarCatalogHeader) == 32);
 
 struct StarCatalogRecord
 {
@@ -41,8 +31,13 @@ static_assert(sizeof(StarCatalogRecord) == 32);
 
 std::vector<SatViewStarInstance> load_satview_star_catalog(std::size_t maximum_count)
 {
+    return load_satview_star_catalog(maximum_count, resolve_satview_asset_path("catalog/stars.dxstar"));
+}
+
+std::vector<SatViewStarInstance> load_satview_star_catalog(
+    std::size_t maximum_count, const std::filesystem::path& path)
+{
     PERF_MEASURE();
-    const auto path = resolve_satview_asset_path("catalog/stars.dxstar");
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
     {
@@ -52,12 +47,10 @@ std::vector<SatViewStarInstance> load_satview_star_catalog(std::size_t maximum_c
         return {};
     }
 
-    StarCatalogHeader header;
-    file.read(reinterpret_cast<char*>(&header), sizeof(header));
-    if (!file || header.magic != kStarCatalogMagic
-        || header.version != kStarCatalogVersion
-        || header.header_size < sizeof(StarCatalogHeader)
-        || header.record_size != sizeof(StarCatalogRecord))
+    const std::optional<SingleTableCatalogHeader> header = open_single_table_catalog(
+        file, kStarCatalogMagic, kStarCatalogVersion,
+        static_cast<std::uint32_t>(sizeof(StarCatalogRecord)));
+    if (!header)
     {
         DRAXUL_LOG_WARN(LogCategory::Renderer,
             "SatView: unsupported star catalog format at %s",
@@ -65,8 +58,7 @@ std::vector<SatViewStarInstance> load_satview_star_catalog(std::size_t maximum_c
         return {};
     }
 
-    file.seekg(static_cast<std::streamoff>(header.header_size), std::ios::beg);
-    const std::size_t count = std::min<std::size_t>(header.record_count, maximum_count);
+    const std::size_t count = std::min<std::size_t>(header->record_count, maximum_count);
     std::vector<SatViewStarInstance> stars;
     stars.reserve(count);
     for (std::size_t index = 0; index < count; ++index)

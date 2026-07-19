@@ -1,5 +1,6 @@
 #include "satview_constellation_boundary_catalog.h"
 
+#include "satview_catalog_container.h"
 #include "satview_texture_assets.h"
 
 #include <algorithm>
@@ -18,8 +19,6 @@ namespace
 
 constexpr std::array<char, 8> kMagic = { 'D', 'X', 'C', 'B', 'N', 'D', '0', '1' };
 constexpr std::uint32_t kVersion = 1;
-constexpr std::uint32_t kMaximumRecordCount = 1'000'000;
-constexpr std::uint32_t kMaximumStringBytes = 1'000'000;
 
 struct CatalogHeader
 {
@@ -67,11 +66,6 @@ bool valid_direction(const glm::vec3& direction)
         && glm::dot(direction, direction) > 0.000001f;
 }
 
-bool range_fits(std::uint64_t offset, std::uint64_t size, std::uint64_t file_size)
-{
-    return offset <= file_size && size <= file_size - offset;
-}
-
 std::string designation_string(const std::array<char, 4>& value)
 {
     const auto end = std::find(value.begin(), value.end(), '\0');
@@ -102,20 +96,18 @@ SatViewConstellationBoundaryCatalog load_satview_constellation_boundary_catalog(
 
     CatalogHeader header;
     file.read(reinterpret_cast<char*>(&header), sizeof(header));
-    const std::uint64_t segment_bytes =
-        static_cast<std::uint64_t>(header.segment_count) * sizeof(SegmentRecord);
-    const std::uint64_t label_bytes =
-        static_cast<std::uint64_t>(header.label_count) * sizeof(LabelRecord);
+    const std::uint64_t segment_bytes = static_cast<std::uint64_t>(header.segment_count) * sizeof(SegmentRecord);
+    const std::uint64_t label_bytes = static_cast<std::uint64_t>(header.label_count) * sizeof(LabelRecord);
     if (!file || header.magic != kMagic || header.version != kVersion
         || header.header_size != sizeof(CatalogHeader)
         || header.segment_record_size != sizeof(SegmentRecord)
         || header.label_record_size != sizeof(LabelRecord)
-        || header.segment_count > kMaximumRecordCount
-        || header.label_count > kMaximumRecordCount
-        || header.string_size > kMaximumStringBytes
-        || !range_fits(header.segment_offset, segment_bytes, file_size)
-        || !range_fits(header.label_offset, label_bytes, file_size)
-        || !range_fits(header.string_offset, header.string_size, file_size))
+        || header.segment_count > kCatalogContainerMaximumRecordCount
+        || header.label_count > kCatalogContainerMaximumRecordCount
+        || header.string_size > kCatalogContainerMaximumStringBytes
+        || !catalog_container_range_fits(header.segment_offset, segment_bytes, file_size)
+        || !catalog_container_range_fits(header.label_offset, label_bytes, file_size)
+        || !catalog_container_range_fits(header.string_offset, header.string_size, file_size))
     {
         DRAXUL_LOG_WARN(LogCategory::Renderer,
             "SatView: unsupported constellation boundary catalog at %s",
@@ -155,7 +147,7 @@ SatViewConstellationBoundaryCatalog load_satview_constellation_boundary_catalog(
         LabelRecord record;
         file.read(reinterpret_cast<char*>(&record), sizeof(record));
         if (!file || record.rank < 1 || record.rank > 3
-            || !range_fits(record.name_offset, record.name_size, strings.size()))
+            || !catalog_container_range_fits(record.name_offset, record.name_size, strings.size()))
         {
             return {};
         }

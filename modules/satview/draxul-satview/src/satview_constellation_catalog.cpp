@@ -1,5 +1,6 @@
 #include "satview_constellation_catalog.h"
 
+#include "satview_catalog_container.h"
 #include "satview_texture_assets.h"
 
 #include <array>
@@ -9,6 +10,7 @@
 #include <draxul/perf_timing.h>
 #include <fstream>
 #include <glm/geometric.hpp>
+#include <optional>
 
 namespace draxul::satview
 {
@@ -21,18 +23,6 @@ constexpr std::array<char, 8> kConstellationCatalogMagic = {
 };
 constexpr std::uint32_t kConstellationCatalogVersion = 1;
 constexpr glm::vec4 kConstellationLineColor = { 0.46f, 0.62f, 0.82f, 0.24f };
-
-struct ConstellationCatalogHeader
-{
-    std::array<char, 8> magic{};
-    std::uint32_t version = 0;
-    std::uint32_t header_size = 0;
-    std::uint32_t record_size = 0;
-    std::uint32_t record_count = 0;
-    std::uint32_t flags = 0;
-    std::uint32_t source_id = 0;
-};
-static_assert(sizeof(ConstellationCatalogHeader) == 32);
 
 struct ConstellationCatalogRecord
 {
@@ -53,8 +43,14 @@ bool valid_direction(const glm::vec3& direction)
 
 std::vector<SatViewCelestialLineInstance> load_satview_constellation_catalog()
 {
+    return load_satview_constellation_catalog(
+        resolve_satview_asset_path("catalog/constellations.dxline"));
+}
+
+std::vector<SatViewCelestialLineInstance> load_satview_constellation_catalog(
+    const std::filesystem::path& path)
+{
     PERF_MEASURE();
-    const auto path = resolve_satview_asset_path("catalog/constellations.dxline");
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open())
     {
@@ -64,12 +60,10 @@ std::vector<SatViewCelestialLineInstance> load_satview_constellation_catalog()
         return {};
     }
 
-    ConstellationCatalogHeader header;
-    file.read(reinterpret_cast<char*>(&header), sizeof(header));
-    if (!file || header.magic != kConstellationCatalogMagic
-        || header.version != kConstellationCatalogVersion
-        || header.header_size < sizeof(ConstellationCatalogHeader)
-        || header.record_size != sizeof(ConstellationCatalogRecord))
+    const std::optional<SingleTableCatalogHeader> header = open_single_table_catalog(
+        file, kConstellationCatalogMagic, kConstellationCatalogVersion,
+        static_cast<std::uint32_t>(sizeof(ConstellationCatalogRecord)));
+    if (!header)
     {
         DRAXUL_LOG_WARN(LogCategory::Renderer,
             "SatView: unsupported constellation catalog format at %s",
@@ -77,10 +71,9 @@ std::vector<SatViewCelestialLineInstance> load_satview_constellation_catalog()
         return {};
     }
 
-    file.seekg(static_cast<std::streamoff>(header.header_size), std::ios::beg);
     std::vector<SatViewCelestialLineInstance> lines;
-    lines.reserve(header.record_count);
-    for (std::uint32_t index = 0; index < header.record_count; ++index)
+    lines.reserve(header->record_count);
+    for (std::uint32_t index = 0; index < header->record_count; ++index)
     {
         ConstellationCatalogRecord record;
         file.read(reinterpret_cast<char*>(&record), sizeof(record));
