@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <draxul/app_options.h>
 #include <draxul/renderer.h>
 #include <filesystem>
@@ -42,5 +44,22 @@ std::optional<RenderTestScenario> load_render_test_scenario(const std::filesyste
 bool export_render_test_frame(const std::filesystem::path& path, const CapturedFrame& frame, std::string* error_message = nullptr);
 bool finalize_render_test_result(const RenderTestScenario& scenario, const CapturedFrame& frame, bool bless_reference, std::string* error_message = nullptr);
 void write_render_test_failure_report(const RenderTestScenario& scenario, std::string_view error_message);
+
+// Pure frame comparison used by the render-test finalizer. Exposed for unit tests
+// (no GPU/window/Neovim needed). `changed_pixels` counts pixels whose maximum
+// per-channel absolute delta is strictly greater than `tolerance`; `passed` is
+// `changed_pixels_pct <= threshold_pct`. An invalid frame or a dimension mismatch
+// performs no comparison and returns `passed == false`.
+struct RenderDiff
+{
+    bool passed = false;
+    std::size_t changed_pixels = 0;
+    double changed_pixels_pct = 0.0;
+    double mean_abs_channel_diff = 0.0;
+    std::uint8_t max_channel_diff = 0;
+    CapturedFrame diff_image;
+};
+
+RenderDiff compare_frames(const CapturedFrame& actual, const CapturedFrame& reference, int tolerance, double threshold_pct);
 
 } // namespace draxul
