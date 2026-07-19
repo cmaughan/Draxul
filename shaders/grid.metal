@@ -18,6 +18,9 @@ struct Cell
     uint _pad0, _pad1, _pad2;
 };
 
+// ABI contract: fields + [[buffer/texture/sampler]] indices below are checked
+// against shaders/contracts/grid_push_constants.toml by the [shader_abi] test.
+// Edit the manifest and every consumer together, never one side alone.
 struct PushConstants
 {
     float screen_w;

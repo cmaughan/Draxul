@@ -27,6 +27,9 @@ target_precompile_headers(draxul-tests PRIVATE
 
 target_include_directories(draxul-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/support
+    # Backend-private renderer sources: shader_abi_parity_tests.cpp includes
+    # src/shared/grid_contract.h to check the C++ ABI struct against the manifest.
+    ${CMAKE_SOURCE_DIR}/libs/draxul-renderer/src
 )
 if(DRAXUL_ENABLE_MEGACITY)
     target_include_directories(draxul-tests PRIVATE

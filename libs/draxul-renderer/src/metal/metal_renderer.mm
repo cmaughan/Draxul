@@ -12,6 +12,8 @@
 #include <draxul/window.h>
 #include <imgui.h>
 
+#include "shared/grid_contract.h"
+
 #import <CoreGraphics/CoreGraphics.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -888,10 +890,9 @@ bool MetalRenderer::draw_grid_handle_now(IGridHandle& handle)
         [active_encoder_.get() setScissorRect:scissor];
     }
 
-    struct
-    {
-        float screen_w, screen_h, cell_w, cell_h, scroll_offset_px, viewport_x, viewport_y;
-    } push_data = {
+    // Wire format is the shared grid push-constant contract; layout is guarded
+    // by static_asserts in shared/grid_contract.h against grid_push_constants.toml.
+    grid_contract::GridPushConstants push_data = {
         static_cast<float>(pixel_w_), static_cast<float>(pixel_h_),
         static_cast<float>(cell_w_), static_cast<float>(cell_h_),
         metal_handle->scroll_offset_px_,
@@ -900,8 +901,8 @@ bool MetalRenderer::draw_grid_handle_now(IGridHandle& handle)
     };
 
     [active_encoder_.get() setRenderPipelineState:bg_pipeline_.get()];
-    [active_encoder_.get() setVertexBuffer:grid_buf offset:0 atIndex:0];
-    [active_encoder_.get() setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
+    [active_encoder_.get() setVertexBuffer:grid_buf offset:0 atIndex:grid_contract::kMetalCellBufferIndex];
+    [active_encoder_.get() setVertexBytes:&push_data length:sizeof(push_data) atIndex:grid_contract::kMetalPushConstantIndex];
     [active_encoder_.get() drawPrimitives:MTLPrimitiveTypeTriangle
                               vertexStart:0
                               vertexCount:6
@@ -909,10 +910,10 @@ bool MetalRenderer::draw_grid_handle_now(IGridHandle& handle)
                              baseInstance:0];
 
     [active_encoder_.get() setRenderPipelineState:fg_pipeline_.get()];
-    [active_encoder_.get() setVertexBuffer:grid_buf offset:0 atIndex:0];
-    [active_encoder_.get() setVertexBytes:&push_data length:sizeof(push_data) atIndex:1];
-    [active_encoder_.get() setFragmentTexture:atlas_texture_.get() atIndex:0];
-    [active_encoder_.get() setFragmentSamplerState:atlas_sampler_.get() atIndex:0];
+    [active_encoder_.get() setVertexBuffer:grid_buf offset:0 atIndex:grid_contract::kMetalCellBufferIndex];
+    [active_encoder_.get() setVertexBytes:&push_data length:sizeof(push_data) atIndex:grid_contract::kMetalPushConstantIndex];
+    [active_encoder_.get() setFragmentTexture:atlas_texture_.get() atIndex:grid_contract::kMetalAtlasTextureIndex];
+    [active_encoder_.get() setFragmentSamplerState:atlas_sampler_.get() atIndex:grid_contract::kMetalAtlasSamplerIndex];
     [active_encoder_.get() drawPrimitives:MTLPrimitiveTypeTriangle
                               vertexStart:0
                               vertexCount:6

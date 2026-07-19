@@ -1,0 +1,103 @@
+# Grid vertex push-constant ABI contract — DECLARATIVE SINGLE SOURCE OF TRUTH.
+#
+# This manifest is the one authoritative description of the CPU->GPU grid
+# push-constant block and the grid pipeline's resource binding/slot indices.
+# Every language-specific copy of the contract must agree with the values here:
+#
+#   C++  (writer, backend-private) libs/draxul-renderer/src/shared/grid_contract.h
+#   MSL  (macOS reader)            shaders/grid.metal          (struct PushConstants)
+#   GLSL (Vulkan reader)           shaders/grid_bg.vert, grid_fg.vert  (push_constant)
+#                                  shaders/grid_fg.frag        (atlas sampler binding)
+#
+# tests/shader_abi_parity_tests.cpp mechanically re-derives the layout and the
+# binding indices from EACH consumer and asserts they equal this manifest, so a
+# one-sided edit (in the C++ header, the MSL, or the GLSL) can no longer slip
+# through: it fails either the renderer build (C++ static_assert) or the
+# `[shader_abi]` integrity test. See kanban/pending/19 shader-abi-parity -test.md.
+#
+# WHY THIS CONTRACT FIRST: the block is only 28 bytes (7 tightly packed floats)
+# yet it is written CPU-side today as an *unnamed* anonymous struct (Metal) and a
+# raw `float[7]` array (Vulkan) with no type, no name and no assertion. A field
+# reorder or a stray insert silently corrupts positioning/scroll/viewport with
+# zero compiler complaint — exactly the "manually mirrored, only a subset
+# asserted" gap the card targets. It is the smallest slice of the grid pipeline;
+# the larger 112-byte GpuCell/`Cell` SSBO is the next contract to migrate.
+#
+# Editing rules:
+#   * Change a field or a binding HERE first, then update all consumers listed
+#     above in the same commit. Never edit one side alone.
+#   * `offset`/`size` are in bytes. The block is std430/Metal-constant tight
+#     packing: 7 x float32, no padding, no trailing pad.
+
+[contract]
+name = "GridPushConstants"
+description = "Per-draw grid vertex uniform: screen + cell dimensions, scroll and pane-viewport origin. Uploaded once per pane before the bg/fg instanced draws."
+
+[struct]
+# Total size and alignment of the packed block, in bytes.
+size = 28
+align = 4
+
+# Fields in DECLARATION ORDER. Order is load-bearing: the shaders read the block
+# positionally, not by name.
+[[field]]
+name = "screen_w"
+type = "float"
+offset = 0
+size = 4
+
+[[field]]
+name = "screen_h"
+type = "float"
+offset = 4
+size = 4
+
+[[field]]
+name = "cell_w"
+type = "float"
+offset = 8
+size = 4
+
+[[field]]
+name = "cell_h"
+type = "float"
+offset = 12
+size = 4
+
+[[field]]
+name = "scroll_offset_px"
+type = "float"
+offset = 16
+size = 4
+
+[[field]]
+name = "viewport_x"
+type = "float"
+offset = 20
+size = 4
+
+[[field]]
+name = "viewport_y"
+type = "float"
+offset = 24
+size = 4
+
+# Metal (macOS) argument-table indices. Verified on macOS by the parity test
+# against shaders/grid.metal attributes ([[buffer(N)]], [[texture(N)]],
+# [[sampler(N)]]) and against grid_contract.h constants.
+[bindings.metal]
+cell_buffer = 0      # device const Cell*     cells         [[buffer(0)]]
+push_constants = 1   # constant PushConstants& pc           [[buffer(1)]]
+atlas_texture = 0    # texture2d<float>        atlas         [[texture(0)]]
+atlas_sampler = 0    # sampler                 atlas_sampler [[sampler(0)]]
+
+# Vulkan/GLSL descriptor indices. NOTE: on macOS the parity test only does a
+# deterministic TEXT check of the GLSL sources against these values. The
+# authoritative Vulkan check — SPIR-V reflection of the compiled modules — is
+# CI-only and NOT YET IMPLEMENTED here (no glslc/SPIR-V tooling on macOS). This
+# table is structured so that CI check can be added later against the same source.
+[bindings.vulkan]
+descriptor_set = 0        # layout(set = 0, ...)
+cell_buffer_binding = 0   # layout(set = 0, binding = 0) readonly buffer CellBuffer  (grid_bg/fg .vert)
+atlas_sampler_binding = 1 # layout(set = 0, binding = 1) uniform sampler2D atlas     (grid_fg.frag)
+push_constant_offset = 0  # vkCmdPushConstants(..., offset = 0, ...)  VK_SHADER_STAGE_VERTEX_BIT
