@@ -82,15 +82,6 @@ target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_ENABLE_RENDER_TESTS
 )
 
-
-# Workaround: Apple Clang 16+ libc++ uses __int128 for chrono::steady_clock
-# duration, which triggers ambiguous operator<< in Catch2 v3.7.x StringMaker.
-# Exclude affected test file on Apple until Catch2 ships a fix.
-if(APPLE)
-    get_target_property(_test_sources draxul-tests SOURCES)
-    list(FILTER _test_sources EXCLUDE REGEX "session_attach_tests\\.cpp$")
-    set_target_properties(draxul-tests PROPERTIES SOURCES "${_test_sources}")
-endif()
 if(DRAXUL_ENABLE_MEGACITY)
     target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_MEGACITY)
 endif()
