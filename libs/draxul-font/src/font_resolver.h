@@ -105,69 +105,6 @@ public:
 
     void load_fallback_fonts();
 
-    FontManager& bold()
-    {
-        return style(FontStyle::Bold).font;
-    }
-    TextShaper& bold_shaper()
-    {
-        return style(FontStyle::Bold).shaper;
-    }
-    TextShaper& bold_unligated_shaper()
-    {
-        return style(FontStyle::Bold).unligated_shaper;
-    }
-    bool has_bold() const
-    {
-        return has_style(FontStyle::Bold);
-    }
-    const std::string& bold_font_path() const
-    {
-        return style(FontStyle::Bold).path;
-    }
-
-    FontManager& italic()
-    {
-        return style(FontStyle::Italic).font;
-    }
-    TextShaper& italic_shaper()
-    {
-        return style(FontStyle::Italic).shaper;
-    }
-    TextShaper& italic_unligated_shaper()
-    {
-        return style(FontStyle::Italic).unligated_shaper;
-    }
-    bool has_italic() const
-    {
-        return has_style(FontStyle::Italic);
-    }
-    const std::string& italic_font_path() const
-    {
-        return style(FontStyle::Italic).path;
-    }
-
-    FontManager& bold_italic()
-    {
-        return style(FontStyle::BoldItalic).font;
-    }
-    TextShaper& bold_italic_shaper()
-    {
-        return style(FontStyle::BoldItalic).shaper;
-    }
-    TextShaper& bold_italic_unligated_shaper()
-    {
-        return style(FontStyle::BoldItalic).unligated_shaper;
-    }
-    bool has_bold_italic() const
-    {
-        return has_style(FontStyle::BoldItalic);
-    }
-    const std::string& bold_italic_font_path() const
-    {
-        return style(FontStyle::BoldItalic).path;
-    }
-
     // Warnings collected during initialize() — e.g. missing bold/italic/bold-italic
     // variants. The list is filled once per initialize() and consumed by callers
     // (typically TextService → App) which surface them as toast notifications.

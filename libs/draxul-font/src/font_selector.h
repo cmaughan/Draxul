@@ -2,11 +2,13 @@
 
 #include "font_engine.h"
 #include "font_resolver.h"
+#include "font_style.h"
 
 #include <draxul/text_service.h>
 #include <draxul/unicode.h>
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <optional>
 #include <string>
@@ -115,7 +117,9 @@ struct TransparentStringEqual
 
 } // namespace detail
 
-// Selects the best font face for a given text cluster, with per-cluster caching.
+// Selects the best font face for a given text cluster, with per-cluster
+// caching. Each FontStyle keeps its own cache slot so a cluster can resolve
+// to different faces per style.
 class FontSelector
 {
 public:
@@ -127,10 +131,8 @@ public:
 
     void reset_cache()
     {
-        cache_.clear();
-        bold_cache_.clear();
-        italic_cache_.clear();
-        bold_italic_cache_.clear();
+        for (auto& cache : caches_)
+            cache.clear();
     }
 
     void set_cache_limit(size_t limit)
@@ -138,38 +140,23 @@ public:
         cache_limit_ = std::max<size_t>(1, limit);
     }
 
-    // Returns the face+shaper best suited to render `text`.
+    // Returns the face+shaper best suited to render `text`. Styled requests
+    // walk the style's fallback chain (BoldItalic -> Bold -> Italic) before
+    // degrading to the regular selection path.
     Selection select(const std::string& text, FontResolver& resolver, bool is_bold = false, bool is_italic = false)
     {
-        if (is_bold && is_italic && resolver.has_bold_italic())
+        for (FontStyle variant : font_style_fallback_chain(font_style_from_flags(is_bold, is_italic)))
         {
-            auto sel = try_variant_selection(text, bold_italic_cache_,
-                resolver.bold_italic().face(), resolver.bold_italic_shaper(), resolver,
-                [this](const std::string& t, int i) { store_bold_italic(t, i); });
+            if (!resolver.has_style(variant))
+                continue;
+            auto sel = try_variant_selection(variant, text, resolver);
             if (sel.face)
                 return sel;
         }
 
-        if (is_bold && resolver.has_bold())
-        {
-            auto sel = try_variant_selection(text, bold_cache_,
-                resolver.bold().face(), resolver.bold_shaper(), resolver,
-                [this](const std::string& t, int i) { store_bold(t, i); });
-            if (sel.face)
-                return sel;
-        }
-
-        if (is_italic && resolver.has_italic())
-        {
-            auto sel = try_variant_selection(text, italic_cache_,
-                resolver.italic().face(), resolver.italic_shaper(), resolver,
-                [this](const std::string& t, int i) { store_italic(t, i); });
-            if (sel.face)
-                return sel;
-        }
-
-        auto it = cache_.find(text);
-        if (it != cache_.end())
+        auto& regular_cache = cache_for(FontStyle::Regular);
+        auto it = regular_cache.find(text);
+        if (it != regular_cache.end())
         {
             int idx = it->second;
             if (idx < 0)
@@ -187,7 +174,7 @@ public:
 
         if (detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
         {
-            store(text, -1);
+            store(FontStyle::Regular, text, -1);
             return { resolver.primary().face(), &resolver.primary_shaper() };
         }
 
@@ -195,13 +182,18 @@ public:
         if (fb.face)
             return fb;
 
-        store(text, -1);
+        store(FontStyle::Regular, text, -1);
         return { resolver.primary().face(), &resolver.primary_shaper() };
     }
 
     size_t cache_size() const
     {
-        return cache_.size();
+        return cache_size(FontStyle::Regular);
+    }
+
+    size_t cache_size(FontStyle style) const
+    {
+        return caches_[font_style_index(style)].size();
     }
 
     // Rasterization can fail after coverage selection succeeds (for example,
@@ -224,7 +216,7 @@ public:
                 continue;
             if (detail::can_render_cluster(fallback.font.face(), fallback.shaper, text))
             {
-                store(text, i);
+                store(FontStyle::Regular, text, i);
                 return { fallback.font.face(), &fallback.shaper };
             }
         }
@@ -232,13 +224,20 @@ public:
         if (!excluded(resolver.primary().face())
             && detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
         {
-            store(text, -1);
+            store(FontStyle::Regular, text, -1);
             return { resolver.primary().face(), &resolver.primary_shaper() };
         }
         return {};
     }
 
 private:
+    using StyleCache = std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual>;
+
+    StyleCache& cache_for(FontStyle style)
+    {
+        return caches_[font_style_index(style)];
+    }
+
     // Search fallback fonts for a renderable cluster. If color_only, only color-capable fonts are tried.
     Selection search_fallbacks(const std::string& text, FontResolver& resolver, bool color_only)
     {
@@ -252,7 +251,7 @@ private:
                 continue;
             if (detail::can_render_cluster(fb.font.face(), fb.shaper, text))
             {
-                store(text, i);
+                store(FontStyle::Regular, text, i);
                 return { fb.font.face(), &fb.shaper };
             }
         }
@@ -265,7 +264,7 @@ private:
         if (detail::font_has_color(resolver.primary().face())
             && detail::can_render_cluster(resolver.primary().face(), resolver.primary_shaper(), text))
         {
-            store(text, -1);
+            store(FontStyle::Regular, text, -1);
             return Selection{ resolver.primary().face(), &resolver.primary_shaper() };
         }
         auto fb = search_fallbacks(text, resolver, /*color_only=*/true);
@@ -274,13 +273,15 @@ private:
         return std::nullopt;
     }
 
-    // Check cache then try a style-variant face; returns empty Selection on miss.
-    template <typename StoreFn>
-    static Selection try_variant_selection(const std::string& text,
-        std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual>& variant_cache,
-        FT_Face variant_face, TextShaper& variant_shaper,
-        FontResolver& resolver, StoreFn store_fn)
+    // Check the style's cache then try its variant face; returns an empty
+    // Selection on miss so the caller can degrade along the fallback chain.
+    Selection try_variant_selection(FontStyle style, const std::string& text, FontResolver& resolver)
     {
+        auto& slot = resolver.style(style);
+        FT_Face variant_face = slot.font.face();
+        TextShaper& variant_shaper = slot.shaper;
+
+        auto& variant_cache = cache_for(style);
         auto it = variant_cache.find(text);
         if (it != variant_cache.end())
         {
@@ -293,44 +294,21 @@ private:
         }
         if (detail::can_render_cluster(variant_face, variant_shaper, text))
         {
-            store_fn(text, -1);
+            store(style, text, -1);
             return { variant_face, &variant_shaper };
         }
         return {};
     }
 
-    void store(const std::string& text, int idx)
+    void store(FontStyle style, const std::string& text, int idx)
     {
-        if (cache_.size() >= cache_limit_)
-            cache_.clear();
-        cache_[text] = idx;
+        auto& cache = cache_for(style);
+        if (cache.size() >= cache_limit_)
+            cache.clear();
+        cache[text] = idx;
     }
 
-    void store_bold(const std::string& text, int idx)
-    {
-        if (bold_cache_.size() >= cache_limit_)
-            bold_cache_.clear();
-        bold_cache_[text] = idx;
-    }
-
-    void store_italic(const std::string& text, int idx)
-    {
-        if (italic_cache_.size() >= cache_limit_)
-            italic_cache_.clear();
-        italic_cache_[text] = idx;
-    }
-
-    void store_bold_italic(const std::string& text, int idx)
-    {
-        if (bold_italic_cache_.size() >= cache_limit_)
-            bold_italic_cache_.clear();
-        bold_italic_cache_[text] = idx;
-    }
-
-    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> cache_;
-    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> bold_cache_;
-    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> italic_cache_;
-    std::unordered_map<std::string, int, detail::TransparentStringHash, detail::TransparentStringEqual> bold_italic_cache_;
+    std::array<StyleCache, FONT_STYLE_COUNT> caches_;
     size_t cache_limit_ = TextServiceConfig::DEFAULT_FONT_CHOICE_CACHE_LIMIT;
 };
 
