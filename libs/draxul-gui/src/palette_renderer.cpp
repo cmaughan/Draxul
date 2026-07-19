@@ -1,5 +1,5 @@
-#include <draxul/gui/palette_renderer.h>
 #include <draxul/gui/overlay_text.h>
+#include <draxul/gui/palette_renderer.h>
 
 #include <algorithm>
 #include <draxul/text_service.h>
@@ -25,7 +25,10 @@ constexpr Color kPromptFg{ 0.6f, 0.6f, 0.65f, 1.0f };
 
 constexpr int kPanelPadding = 1; // 1-cell padding inside panel edges
 
-struct PanelLayout
+// Geometry of the palette panel within the host grid, plus the scroll window
+// into the entry list. Named PaletteLayout (not PanelLayout) to avoid
+// colliding with the public diagnostics PanelLayout in <draxul/ui_panel.h>.
+struct PaletteLayout
 {
     int col0, row0;
     int cols, rows;
@@ -33,9 +36,9 @@ struct PanelLayout
     int scroll_offset;
 };
 
-PanelLayout compute_layout(const PaletteViewState& state)
+PaletteLayout compute_palette_layout(const PaletteViewState& state)
 {
-    PanelLayout layout;
+    PaletteLayout layout;
     layout.cols = state.grid_cols;
     layout.rows = state.grid_rows;
     layout.visible_entries = std::max(1, layout.rows - 2); // reserve separator + input
@@ -73,7 +76,7 @@ std::vector<CellUpdate> render_palette(
     if (state.grid_cols < 5 || state.grid_rows < 2)
         return {};
 
-    const PanelLayout layout = compute_layout(state);
+    const PaletteLayout layout = compute_palette_layout(state);
     const Color panel_bg{ kPanelBg.r, kPanelBg.g, kPanelBg.b, state.panel_bg_alpha };
 
     // Resolve a full-block glyph used to occlude underlying terminal text.
