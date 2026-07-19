@@ -13,6 +13,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import satview_catalog_container as catalog_container
+
 
 CONSTELLATION_LINES_URL = (
     "https://raw.githubusercontent.com/MarcvdSluys/ConstellationLines/"
@@ -23,7 +25,6 @@ HIPPARCOS_SOURCE = "I/239/hip_main"
 VIZIER_URL = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv"
 MAGIC = b"DXCLINE1"
 VERSION = 1
-HEADER_SIZE = 32
 RECORD_SIZE = 24
 SOURCE_ID_CONSTELLATION_LINES_V1_3 = 1
 
@@ -199,22 +200,15 @@ def build_records(
 
 
 def write_catalog(path: Path, records) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as output:
-        output.write(
-            struct.pack(
-                "<8sIIIIII",
-                MAGIC,
-                VERSION,
-                HEADER_SIZE,
-                RECORD_SIZE,
-                len(records),
-                0,
-                SOURCE_ID_CONSTELLATION_LINES_V1_3,
-            )
-        )
-        for start, end in records:
-            output.write(struct.pack("<ffffff", *start, *end))
+    packed_records = [struct.pack("<ffffff", *start, *end) for start, end in records]
+    catalog_container.write_single_table_catalog(
+        path,
+        magic=MAGIC,
+        version=VERSION,
+        record_size=RECORD_SIZE,
+        records=packed_records,
+        source_id=SOURCE_ID_CONSTELLATION_LINES_V1_3,
+    )
 
 
 def main(argv: list[str]) -> int:
