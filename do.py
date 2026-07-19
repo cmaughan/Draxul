@@ -9,6 +9,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import tempfile
 import sys
 from datetime import datetime
 from types import SimpleNamespace
@@ -1373,6 +1374,54 @@ def build_shortcut_exe(root: pathlib.Path) -> tuple[int, pathlib.Path | None, di
     return 0, exe, env
 
 
+def cmd_score_shot_check(root: pathlib.Path) -> int:
+    """Regression guard for kanban 74 (score-screenshot-size-hang).
+
+    The score host used to hang under `--screenshot-size` and for uncompressed
+    `.musicxml` sources (the readiness pump never saw the slicer-ready signal), so
+    only the plain window-capture `.mxl` path worked. This runs the previously
+    hanging path headless under a timeout and requires a byte-exact BMP at the
+    requested size. A hang, a non-zero exit, or a wrong-sized file fails the check.
+    """
+    fixture = root / "tests" / "fixtures" / "musicxml" / "grieg-waltz-op-12-no-2.musicxml"
+    if not fixture.exists():
+        print(f"score-shot-check: FAILED — fixture missing: {fixture}")
+        return 1
+
+    rc, exe, env = build_shortcut_exe(root)
+    if rc != 0 or exe is None:
+        return 1
+
+    width, height = 640, 900
+    expected = width * height * 4 + 54  # RGBA pixels + 54-byte BMP header
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "score-shot-check.bmp"
+        cmd = [str(exe), "--console", "--host", "score",
+               "--command", "paged analysis unique",
+               "--source", str(fixture),
+               "--screenshot", str(out),
+               "--screenshot-size", f"{width}x{height}"]
+        try:
+            proc = subprocess.run(cmd, cwd=root, env=env, timeout=90, check=False)
+        except subprocess.TimeoutExpired:
+            print("score-shot-check: FAILED — score host hung (kanban 74 regression)")
+            return 1
+        if proc.returncode != 0:
+            print(f"score-shot-check: FAILED — exit {proc.returncode}")
+            return 1
+        if not out.exists():
+            print("score-shot-check: FAILED — no screenshot written")
+            return 1
+        actual = out.stat().st_size
+        if actual != expected:
+            print(f"score-shot-check: FAILED — BMP is {actual} bytes, "
+                  f"expected {expected} ({width}x{height} RGBA + header)")
+            return 1
+
+    print(f"score-shot-check: OK — {width}x{height} BMP from .musicxml, no hang")
+    return 0
+
+
 def ensure_built(root: pathlib.Path) -> int:
     exe = draxul_path(root)
     if exe.exists():
@@ -1570,6 +1619,7 @@ Single-word shortcuts:
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   clean        Remove repository build directories
   smoke        Run the app smoke test
+  score-shot-check  Regression guard (kanban 74): score host --screenshot-size + .musicxml
   test         Run unit tests (four C++ shards plus do.py tests)
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
@@ -1798,6 +1848,9 @@ def main() -> int:
         if rc != 0 or exe is None:
             return 1
         return run([str(exe), "--console", "--smoke-test"], root, env=env)
+
+    if command == "score-shot-check":
+        return cmd_score_shot_check(root)
 
     render_map = render_command_map(root)
 

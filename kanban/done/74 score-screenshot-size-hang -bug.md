@@ -43,6 +43,28 @@ capturing anything below the first-window fold.
 
 ## Acceptance
 
-- [ ] `--screenshot-size WxH` writes a BMP at the requested size for the score host.
-- [ ] `.musicxml` sources screenshot identically to `.mxl`.
-- [ ] A regression note in the do.py smoke or a headless test covering one sized capture.
+- [x] `--screenshot-size WxH` writes a BMP at the requested size for the score host.
+- [x] `.musicxml` sources screenshot identically to `.mxl`.
+- [x] A regression note in the do.py smoke or a headless test covering one sized capture.
+
+## Status 2026-07-19 — RESOLVED (already fixed upstream; regression guard added)
+
+```
+DEBUG REPORT
+Symptom:    score host hung under --screenshot-size and for uncompressed .musicxml
+            + --screenshot (log reached 'engraved N page(s)' then nothing; killed).
+Root cause: the readiness stall the card hypothesized lived in the score host's
+            engrave/stream path. The ScoreView host decomposition (async double-buffer
+            WindowEngraver with latest-wins generation checks + the ScoreViewModel/
+            ScorePresentation split, commit 94bf825 and the C0-C6 composer series)
+            reworked exactly that path and resolved the stall. No standalone code fix
+            remained to make on the current tree.
+Evidence:   both previously-hanging variants now complete rc=0 with correct output:
+            .musicxml --screenshot -> 23 MB PNG; --screenshot-size 900x1500 ->
+            5,400,054 bytes = 900*1500*4 + 54-byte BMP header (byte-exact size).
+Guard:      added `do.py score-shot-check` (do.py) — runs the score host headless with
+            --screenshot-size 640x900 from the .musicxml fixture under a 90s timeout and
+            requires a byte-exact 2,304,054-byte BMP. A hang, non-zero exit, or wrong
+            size fails. Passes on the current tree.
+Status:     DONE — verified fixed on macOS + regression guard in place.
+```
