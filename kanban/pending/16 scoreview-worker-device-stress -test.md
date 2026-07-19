@@ -57,3 +57,7 @@ ScoreView has several independent background/device edges—engraving, microphon
 Depends on bugs 00/14 and preferably item 15's fixture. It should complete before item 21 or be used as that refactor's gate. One test owner can work mostly outside `score_host.cpp` once the injected contracts are stable.
 
 <model>GPT-5 Codex</model>
+
+## Verified 2026-07-19
+
+Re-ran the committed device-free suite (`tests/scoreview_worker_stress_tests.cpp`, commit db306da) on the current main: `[stress]` = 250 assertions / 6 cases, all green (engraver storm, lifetime, input-switch, MIDI backlog cap, multi-host, seeded op sequence). The three still-unchecked items (fake RtMidi throw-injection, fake audio device/hot-plug + deterministic sink, cross-switch sample-continuity) remain deferred to cards 71 and 70, which introduce the IMidiBackend / SDL-audio-ops seams those assertions require — so this card stays in pending pending those seams. Everything achievable device-free today is done and passing.
