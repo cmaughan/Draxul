@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Canonical agent guide
+
+CLAUDE.md is the single source of truth for shared rules — build commands, architecture,
+threading invariants, the `kanban/` tracker, validation expectations, and known pitfalls —
+for every agent family (Claude, Codex via `AGENTS.md`, Gemini via `GEMINI.md`). Those
+sibling files must stay thin: a pointer here plus only genuinely model-specific notes, so
+shared rules cannot silently diverge between models. `learnings_agents.md` is a retrospective
+essay, not a rule source. Change a shared rule here and nowhere else.
+
 ## Build Commands
 
 ### Windows
