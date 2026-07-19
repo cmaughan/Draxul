@@ -43,30 +43,17 @@ constexpr float kMaxMarkdownMarginColumns = 24.0f;
 // The list of known GUI action keys lives in <draxul/gui_actions.h> as the canonical
 // source of truth. Use is_known_gui_action_config_key() / for_each_gui_action_config_key().
 // The known top-level key inventory (the 21 scalar/list keys plus the four
-// section tables) comes from the config schema: config_schema::is_core_top_level_key.
+// section tables) and the [chrome] key inventory both come from the config
+// schema: config_schema::is_core_top_level_key and config_schema::fields().
 
-constexpr std::array<std::string_view, 20> kKnownChromeKeys = {
-    "tab_bar_bg",
-    "tab_active_fg",
-    "tab_inactive_fg",
-    "tab_active_bg",
-    "tab_inactive_bg",
-    "tab_editing_bg",
-    "divider",
-    "focus_border",
-    "status_bar_bg",
-    "status_bar_fg",
-    "status_focused_accent_bg",
-    "status_inactive_accent_bg",
-    "status_editing_bg",
-    "resource_pill_bg",
-    "resource_pill_fg",
-    "resource_pill_warn_bg",
-    "resource_pill_hot_bg",
-    "chord_pill_bg",
-    "weather_pill_bg",
-    "editing_outline",
-};
+// True when `key` is a known field of the schema section `section`.
+bool is_known_section_field(std::string_view section, std::string_view key)
+{
+    return std::any_of(config_schema::fields().begin(), config_schema::fields().end(),
+        [&](const config_schema::ConfigFieldDesc& field) {
+            return field.section == section && field.key == key;
+        });
+}
 
 std::filesystem::path config_path()
 {
@@ -330,7 +317,7 @@ void apply_chrome_overrides(AppConfig& config, const toml::table& chrome)
     for (const auto& [key, value] : chrome)
     {
         std::string_view key_sv = key.str();
-        const bool known = std::find(kKnownChromeKeys.begin(), kKnownChromeKeys.end(), key_sv) != kKnownChromeKeys.end();
+        const bool known = is_known_section_field("chrome", key_sv);
         if (!known)
         {
             DRAXUL_LOG_WARN(LogCategory::App, "[config] Unknown chrome key 'chrome.%.*s' -- check spelling",
@@ -472,10 +459,12 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
     }
     if (chrome_table)
     {
-        for (std::string_view key : kKnownChromeKeys)
+        for (const config_schema::ConfigFieldDesc& field : config_schema::fields())
         {
-            if (const toml::node* node = chrome_table->get(key); node && !node->is_string())
-                report_type_error(std::string("chrome.") + std::string(key), "string", *node);
+            if (field.section != "chrome")
+                continue;
+            if (const toml::node* node = chrome_table->get(field.key); node && !node->is_string())
+                report_type_error("chrome." + std::string(field.key), "string", *node);
         }
     }
     if (const toml::table* keybindings = document["keybindings"].as_table())
