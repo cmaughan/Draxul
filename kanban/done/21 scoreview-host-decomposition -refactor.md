@@ -88,12 +88,25 @@ over the new CMake layout (in progress externally).
       constructible and testable without the host (archive/program/composer/
       measure-writer have dedicated suites; session/audio are host-free
       classes awaiting the card-15 fixture for lifecycle coverage).
-- [ ] Windows/Vulkan build validation of the new CMake layout (macOS build +
-      smoke + unit suites verified here; the layout has no platform
-      branches, but CI should confirm before this card closes).
+- [ ] Windows/Vulkan build validation of the new CMake layout — pending CI
+      (macOS re-verified 2026-07-19, see below; the layout has no platform
+      branches).
 
 ## Dependencies and parallelism
 
 Depends on new bugs 00/14 and tests 15/16; coordinate with pending 35 modular test targets. The composer/program seams land first in `20 scoreview-composer-decoupling -refactor.md` so `ScoreStreamController` is built around `StreamProgram` provenance rather than re-extracting it. One integration owner should sequence extractions. After interfaces stabilize, separate agents can own session/stream, audio, and presentation migrations, but they must not edit `score_host.cpp` concurrently without that owner.
 
 <model>GPT-5 Codex</model>
+
+## Verified 2026-07-19 (third pass — moved to done)
+
+Re-verified on the current tree AFTER the composer C0-C6 series, the rewriting
+composer v1, and f097f6f all landed on top of the decomposition: every target
+boundary still exists (session/stream/audio controllers, view model + intents,
+presentation), the host owns no persistence/device/audio-mixing (grep-checked),
+and validation is green — `[scoreview]` 184 cases / 5,030 assertions, `[stress]`
+6 cases / 250 assertions, full ctest 12/12, smoke clean. score_host.cpp is 2,169
+lines (up from ~1,900 — the C-series urgent-rewrite/engrave-tail growth that
+`22 scoreview-composer-two-prep -refactor.md`'s cheap-sweep trims back).
+Moved to done with the Windows/Vulkan box left unticked pending CI, matching the
+session convention for platform-only remainders (cards 15/30/32).
