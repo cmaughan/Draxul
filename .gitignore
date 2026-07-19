@@ -14,7 +14,11 @@ docs/deps/deps.dot.*
 *.sqlite3
 Testing/
 *.user
-*.obj
+# Compiler/link objects only ever appear under the already-ignored build dirs
+# (build*/, out/, deploy/). Root-anchor the object rule so the only stray objects
+# it catches are at the repo root — notably Windows' reserved-device NUL.obj —
+# while Wavefront mesh assets (*.obj) in module/asset subdirs stay tracked.
+/*.obj
 CMakeUserPresets.json
 out/
 /plans/prompts/history/
@@ -26,7 +30,10 @@ __pycache__/
 plans/.obsidian/workspace.json
 plans/.obsidian/workspace-mobile.json
 plans/.obsidian/cache
+# macOS Finder metadata.
 .DS_Store
+# Generated logs: debug.log (from --log-file), draxul.log, and any other *.log.
+# Logs are never legitimate source; ignore them everywhere.
 draxul.log
 .a
 logs/**
