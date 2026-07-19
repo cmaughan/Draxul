@@ -1,0 +1,61 @@
+atlas_size = 2048
+chord_indicator_fade_ms = 2500
+chord_timeout_ms = 1500
+enable_ligatures = true
+enable_toast_notifications = true
+focus_border_width = 3.0
+font_size = 11.0
+palette_bg_alpha = 0.89999997615814209
+scroll_speed = 1.0
+scrollback_lines = 10000
+show_pane_status = true
+smooth_scroll = true
+toast_duration_s = 4.0
+window_height = 800
+window_width = 1280
+
+[keybindings]
+'activate_tab:1' = 'Ctrl+S, 1'
+'activate_tab:2' = 'Ctrl+S, 2'
+'activate_tab:3' = 'Ctrl+S, 3'
+'activate_tab:4' = 'Ctrl+S, 4'
+'activate_tab:5' = 'Ctrl+S, 5'
+'activate_tab:6' = 'Ctrl+S, 6'
+'activate_tab:7' = 'Ctrl+S, 7'
+'activate_tab:8' = 'Ctrl+S, 8'
+'activate_tab:9' = 'Ctrl+S, 9'
+cancel_paste = 'Ctrl+Shift+Escape'
+close_pane = 'Ctrl+S, X'
+close_tab = 'Ctrl+S, Shift+7'
+command_palette = 'Ctrl+Shift+P'
+confirm_paste = 'Ctrl+Shift+Return'
+copy = 'Ctrl+Shift+C'
+focus_down = 'Ctrl+J'
+focus_left = 'Ctrl+H'
+focus_right = 'Ctrl+L'
+focus_up = 'Ctrl+K'
+font_decrease = 'Ctrl+-'
+font_increase = 'Ctrl+='
+font_reset = 'Ctrl+0'
+new_tab = 'Ctrl+S, C'
+next_tab = 'Ctrl+S, N'
+paste = 'Ctrl+Shift+V'
+prev_tab = 'Ctrl+S, P'
+rename_pane = 'Ctrl+S, .'
+rename_tab = 'Ctrl+S, ,'
+resize_pane_down = 'Ctrl+S, Down'
+resize_pane_left = 'Ctrl+S, Left'
+resize_pane_right = 'Ctrl+S, Right'
+resize_pane_up = 'Ctrl+S, Up'
+restart_host = 'Ctrl+S, R'
+split_horizontal = 'Ctrl+S, -'
+split_vertical = 'Ctrl+S, Shift+\'
+swap_pane = 'Ctrl+S, O'
+toggle_copy_mode = 'Ctrl+S, Return'
+toggle_diagnostics = 'F12'
+toggle_host_ui = 'F1'
+toggle_zoom = 'Ctrl+S, Z'
+
+[markdown]
+font_size = 11.0
+margin_columns = 2.0

@@ -1,0 +1,99 @@
+atlas_size = 4096
+bold_font_path = '/fonts/bold.ttf'
+bold_italic_font_path = '/fonts/bold-italic.ttf'
+chord_indicator_fade_ms = 2345
+chord_timeout_ms = 1234
+enable_ligatures = false
+enable_toast_notifications = false
+fallback_paths = [ '/fonts/emoji.ttf', '/fonts/cjk.ttf' ]
+focus_border_width = 7.0
+font_path = '/fonts/regular.ttf'
+font_size = 17.5
+italic_font_path = '/fonts/italic.ttf'
+palette_bg_alpha = 0.41999998688697815
+scroll_speed = 2.75
+scrollback_lines = 4321
+show_pane_status = false
+smooth_scroll = false
+toast_duration_s = 9.5
+weather_location = 'York, UK'
+window_height = 999
+window_width = 1777
+
+[chrome]
+chord_pill_bg = '#444546'
+divider = '#232425'
+editing_outline = '#4a4b4c'
+focus_border = '#262728'
+resource_pill_bg = '#38393a'
+resource_pill_fg = '#3b3c3d'
+resource_pill_hot_bg = '#414243'
+resource_pill_warn_bg = '#3e3f40'
+status_bar_bg = '#292a2b'
+status_bar_fg = '#2c2d2e'
+status_editing_bg = '#353637'
+status_focused_accent_bg = '#2f3031'
+status_inactive_accent_bg = '#323334'
+tab_active_bg = '#1a1b1c'
+tab_active_fg = '#141516'
+tab_bar_bg = '#111213'
+tab_editing_bg = '#202122'
+tab_inactive_bg = '#1d1e1f'
+tab_inactive_fg = '#171819'
+weather_pill_bg = '#474849'
+
+[keybindings]
+'activate_tab:1' = 'Ctrl+S, 1'
+'activate_tab:2' = 'Ctrl+S, 2'
+'activate_tab:3' = 'Ctrl+S, 3'
+'activate_tab:4' = 'Ctrl+S, 4'
+'activate_tab:5' = 'Ctrl+S, 5'
+'activate_tab:6' = 'Ctrl+S, 6'
+'activate_tab:7' = 'Ctrl+S, 7'
+'activate_tab:8' = 'Ctrl+S, 8'
+'activate_tab:9' = 'Ctrl+S, 9'
+cancel_paste = 'Ctrl+Shift+Escape'
+close_pane = 'Ctrl+S, X'
+close_tab = 'Ctrl+S, Shift+7'
+command_palette = 'Ctrl+Shift+P'
+confirm_paste = 'Ctrl+Shift+Return'
+copy = 'Ctrl+Alt+X'
+focus_down = 'Ctrl+J'
+focus_left = 'Ctrl+H'
+focus_right = 'Ctrl+L'
+focus_up = 'Ctrl+K'
+font_decrease = 'Ctrl+-'
+font_increase = 'Ctrl+='
+font_reset = 'Ctrl+0'
+new_tab = 'Ctrl+S, C'
+next_tab = 'Ctrl+S, N'
+paste = 'Ctrl+Shift+V'
+prev_tab = 'Ctrl+S, P'
+rename_pane = 'Ctrl+S, .'
+rename_tab = 'Ctrl+S, ,'
+resize_pane_down = 'Ctrl+S, Down'
+resize_pane_left = 'Ctrl+S, Left'
+resize_pane_right = 'Ctrl+S, Right'
+resize_pane_up = 'Ctrl+S, Up'
+restart_host = 'Ctrl+S, R'
+split_horizontal = 'Ctrl+S, -'
+split_vertical = 'Ctrl+S, |'
+swap_pane = 'Ctrl+S, O'
+toggle_copy_mode = 'Ctrl+S, Return'
+toggle_diagnostics = 'F12'
+toggle_host_ui = 'F1'
+toggle_zoom = 'Ctrl+S, Z'
+
+[markdown]
+font_size = 15.5
+margin_columns = 4.5
+
+[terminal]
+bg = '#405060'
+copy_on_select = false
+enable_osc8_hyperlinks = false
+enable_shell_integration_marks = false
+fg = '#102030'
+paste_confirm_lines = 12
+selection_max_cells = 12345
+url_detection = false
