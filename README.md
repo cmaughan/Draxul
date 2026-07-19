@@ -60,7 +60,7 @@ _Click any image to view full size._
 
 ## Features
 
-For the full user-facing feature reference — config options, keybindings, terminal behaviour, mouse support, scrollback, and more — see **[FEATURES.md](FEATURES.md)**.
+For the full user-facing feature reference — config options, keybindings, terminal behaviour, mouse support, scrollback, and more — see **[docs/features.md](docs/features.md)** (detail pages for the larger hosts live under [docs/features/](docs/features/)).
 
 - **Terminal emulator** — run `zsh`, `bash`, `powershell`, or any shell; cross-platform
 - **Neovim GUI** — full ext_linegrid UI with deep Neovim integration
