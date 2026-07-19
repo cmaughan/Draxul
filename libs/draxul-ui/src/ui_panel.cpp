@@ -207,16 +207,37 @@ bool UiPanel::initialize()
     return true;
 }
 
-void UiPanel::set_imgui_backend(IImGuiHost* backend)
-{
-    impl_->imgui_backend = backend;
-}
-
-void UiPanel::activate_imgui_context()
+bool UiPanel::attach_imgui_backend(IImGuiHost& backend)
 {
     PERF_MEASURE();
+    if (!impl_->context)
+        return false;
+
+    if (impl_->imgui_backend == &backend)
+        return true;
+
+    detach_imgui_backend();
+
+    ImGui::SetCurrentContext(impl_->context);
+    if (!backend.initialize_imgui_backend())
+        return false;
+
+    impl_->imgui_backend = &backend;
+    return true;
+}
+
+void UiPanel::detach_imgui_backend()
+{
+    PERF_MEASURE();
+    if (!impl_->imgui_backend)
+        return;
+
     if (impl_->context)
+    {
         ImGui::SetCurrentContext(impl_->context);
+        impl_->imgui_backend->shutdown_imgui_backend();
+    }
+    impl_->imgui_backend = nullptr;
 }
 
 void UiPanel::shutdown()
@@ -225,12 +246,8 @@ void UiPanel::shutdown()
     if (!impl_->context)
         return;
 
+    detach_imgui_backend();
     ImGui::SetCurrentContext(impl_->context);
-    if (impl_->imgui_backend)
-    {
-        impl_->imgui_backend->shutdown_imgui_backend();
-        impl_->imgui_backend = nullptr;
-    }
     ImGui::DestroyContext(impl_->context);
     impl_->context = nullptr;
 }
@@ -290,49 +307,26 @@ void UiPanel::update_diagnostic_state(const DiagnosticPanelState& state)
     impl_->debug_state.visible = impl_->layout.visible;
 }
 
-void UiPanel::begin_frame(float delta_seconds)
-{
-    PERF_MEASURE();
-    if (!impl_->context)
-        return;
-
-    ImGui::SetCurrentContext(impl_->context);
-    ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(static_cast<float>(impl_->layout.window_size.x), static_cast<float>(impl_->layout.window_size.y));
-    io.DeltaTime = delta_seconds > 0.0f ? delta_seconds : (1.0f / 60.0f);
-    ImGui::NewFrame();
-}
-
 void UiPanel::render(IFrameContext& frame, float delta_seconds)
 {
     PERF_MEASURE();
     if (!impl_->context || !impl_->layout.visible || impl_->layout.panel_height <= 0)
         return;
 
-    activate_imgui_context();
+    ImGui::SetCurrentContext(impl_->context);
     if (impl_->imgui_backend)
         impl_->imgui_backend->begin_imgui_frame();
-    begin_frame(delta_seconds);
-    render_into_current_context();
-    const ImDrawData* dd = end_frame();
-    if (dd)
-        frame.render_imgui(dd, impl_->context);
-}
 
-const ImDrawData* UiPanel::end_frame() const
-{
-    PERF_MEASURE();
-    if (!impl_->context)
-        return nullptr;
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(static_cast<float>(impl_->layout.window_size.x), static_cast<float>(impl_->layout.window_size.y));
+    io.DeltaTime = delta_seconds > 0.0f ? delta_seconds : (1.0f / 60.0f);
+    ImGui::NewFrame();
 
-    ImGui::SetCurrentContext(impl_->context);
-    ImGui::Render();
-    return ImGui::GetDrawData();
-}
-
-void UiPanel::render_into_current_context() const
-{
     render_panel_windows(impl_->layout, impl_->debug_state);
+
+    ImGui::Render();
+    if (const ImDrawData* dd = ImGui::GetDrawData())
+        frame.render_imgui(dd, impl_->context);
 }
 
 void UiPanel::on_mouse_move(const MouseMoveEvent& event)

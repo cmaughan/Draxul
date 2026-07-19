@@ -121,7 +121,10 @@ HostDebugState DiagnosticsPanelHost::debug_state() const
 
 void DiagnosticsPanelHost::attach_imgui_host(IImGuiHost& host)
 {
-    panel_.set_imgui_backend(&host);
+    // Initializes the backend against the panel's ImGui context; App's
+    // follow-up initialize_imgui_backend() check is then a guarded no-op
+    // that still surfaces initialization failures.
+    panel_.attach_imgui_backend(host);
 }
 
 void DiagnosticsPanelHost::set_imgui_font(const std::string& path, float size_pixels)
