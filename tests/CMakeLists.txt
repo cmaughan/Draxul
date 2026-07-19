@@ -128,6 +128,21 @@ set_tests_properties(draxul-do-py-tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 
+if(DRAXUL_ENABLE_SATVIEW)
+    # Shared catalog container writer + generator determinism (runs offline on
+    # synthetic inputs). Mirrors tests/satview_catalog_container_tests.cpp.
+    add_test(
+        NAME draxul-satview-catalog-py-tests
+        COMMAND ${Python3_EXECUTABLE} -m unittest tests.satview_catalog_py_tests
+    )
+    set_tests_properties(draxul-satview-catalog-py-tests
+        PROPERTIES
+            LABELS unit
+            TIMEOUT 120
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+endif()
+
 draxul_apply_sanitizers(draxul-tests)
 draxul_apply_sanitizers(draxul-rpc-fake)
 draxul_apply_coverage(draxul-tests)
