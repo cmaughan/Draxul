@@ -360,121 +360,14 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
         }
     };
 
-    // Warn on type mismatches for integer keys
-    auto check_int_type = [&](const char* key) {
-        if (const toml::node* node = document.get(key); node && !node->is_integer())
-            report_type_error(key, "integer", *node);
-    };
-    auto check_bool_type = [&](const char* key) {
-        if (const toml::node* node = document.get(key); node && !node->is_boolean())
-            report_type_error(key, "boolean", *node);
-    };
-    auto check_string_type = [&](const char* key) {
-        if (const toml::node* node = document.get(key); node && !node->is_string())
-            report_type_error(key, "string", *node);
-    };
-    auto check_array_type = [&](const char* key) {
-        if (const toml::node* node = document.get(key); node && !node->is_array())
-            report_type_error(key, "array", *node);
-    };
+    // Wrong-type pass: every schema field, section table, fallback element, and
+    // keybinding entry is checked against its descriptor ValueKind, in the same
+    // order as before, so the first-reported error in a checked parse is stable.
+    config_schema::check_types(document, report_type_error);
 
-    // font_size and scroll_speed accept both integer and floating-point TOML values.
-    auto check_font_size_type = [&]() {
-        if (const toml::node* node = document.get("font_size");
-            node && !node->is_integer() && !node->is_floating_point())
-            report_type_error("font_size", "integer or float", *node);
-    };
-    auto check_float_type = [&](const char* key) {
-        if (const toml::node* node = document.get(key);
-            node && !node->is_integer() && !node->is_floating_point())
-            report_type_error(key, "integer or float", *node);
-    };
-    auto check_nested_float_type = [&](const toml::table* table, const char* table_name, const char* key) {
-        if (table == nullptr)
-            return;
-        if (const toml::node* node = table->get(key);
-            node && !node->is_integer() && !node->is_floating_point())
-            report_type_error(std::string(table_name) + "." + key, "integer or float", *node);
-    };
-
-    check_int_type("window_width");
-    check_int_type("window_height");
-    check_font_size_type();
-    check_int_type("atlas_size");
-    check_int_type("scrollback_lines");
-    check_bool_type("enable_ligatures");
-    check_bool_type("smooth_scroll");
-    check_bool_type("enable_toast_notifications");
-    check_bool_type("show_pane_status");
-    check_int_type("chord_timeout_ms");
-    check_int_type("chord_indicator_fade_ms");
-    check_float_type("scroll_speed");
-    check_float_type("palette_bg_alpha");
-    check_float_type("focus_border_width");
-    check_float_type("toast_duration_s");
-    check_string_type("font_path");
-    check_string_type("bold_font_path");
-    check_string_type("italic_font_path");
-    check_string_type("bold_italic_font_path");
-    check_string_type("weather_location");
-    check_array_type("fallback_paths");
+    // Sub-tables are resolved once here for the value-application pass below.
     const toml::table* markdown_table = document["markdown"].as_table();
-    if (const toml::node* node = document.get("markdown"); node && markdown_table == nullptr)
-        report_type_error("markdown", "table", *node);
     const toml::table* chrome_table = document["chrome"].as_table();
-    if (const toml::node* node = document.get("chrome"); node && chrome_table == nullptr)
-        report_type_error("chrome", "table", *node);
-    if (const toml::node* node = document.get("terminal"); node && !node->is_table())
-        report_type_error("terminal", "table", *node);
-    if (const toml::node* node = document.get("keybindings"); node && !node->is_table())
-        report_type_error("keybindings", "table", *node);
-    check_nested_float_type(markdown_table, "markdown", "font_size");
-    check_nested_float_type(markdown_table, "markdown", "margin_columns");
-
-    if (const toml::array* fallbacks = document["fallback_paths"].as_array())
-    {
-        for (const toml::node& entry : *fallbacks)
-        {
-            if (!entry.is_string())
-            {
-                report_type_error("fallback_paths[]", "string", entry);
-                break;
-            }
-        }
-    }
-    if (const toml::table* terminal_table = document["terminal"].as_table())
-    {
-        const auto check_terminal = [&](const char* key, auto predicate, std::string_view expected) {
-            if (const toml::node* node = terminal_table->get(key); node && !predicate(*node))
-                report_type_error(std::string("terminal.") + key, expected, *node);
-        };
-        check_terminal("fg", [](const toml::node& node) { return node.is_string(); }, "string");
-        check_terminal("bg", [](const toml::node& node) { return node.is_string(); }, "string");
-        check_terminal("selection_max_cells", [](const toml::node& node) { return node.is_integer(); }, "integer");
-        check_terminal("copy_on_select", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
-        check_terminal("paste_confirm_lines", [](const toml::node& node) { return node.is_integer(); }, "integer");
-        check_terminal("url_detection", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
-        check_terminal("enable_osc8_hyperlinks", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
-        check_terminal("enable_shell_integration_marks", [](const toml::node& node) { return node.is_boolean(); }, "boolean");
-    }
-    if (chrome_table)
-    {
-        for (const config_schema::ConfigFieldDesc& field : config_schema::fields())
-        {
-            if (field.section != "chrome")
-                continue;
-            if (const toml::node* node = chrome_table->get(field.key); node && !node->is_string())
-                report_type_error("chrome." + std::string(field.key), "string", *node);
-        }
-    }
-    if (const toml::table* keybindings = document["keybindings"].as_table())
-    {
-        for (const auto& [key, value] : *keybindings)
-        {
-            if (!value.is_string())
-                report_type_error(std::string("keybindings.") + std::string(key.str()), "string", value);
-        }
-    }
 
     config.window_width = parse_window_dimension(document, "window_width", config.window_width, kMinWindowWidth, kMaxWindowWidth);
     config.window_height = parse_window_dimension(document, "window_height", config.window_height, kMinWindowHeight, kMaxWindowHeight);

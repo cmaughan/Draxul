@@ -598,7 +598,123 @@ void serialize_one_field(const ConfigFieldDesc& field, const AppConfig& config, 
         field.ref);
 }
 
+// True when `node`'s TOML type is acceptable for a field of the given kind.
+bool type_matches(ValueKind kind, const toml::node& node)
+{
+    switch (kind)
+    {
+    case ValueKind::Bool:
+        return node.is_boolean();
+    case ValueKind::Int:
+        return node.is_integer();
+    case ValueKind::Float:
+        return node.is_integer() || node.is_floating_point();
+    case ValueKind::String:
+    case ValueKind::HexString:
+    case ValueKind::ColorHex:
+        return node.is_string();
+    case ValueKind::StringList:
+        return node.is_array();
+    }
+    return true;
+}
+
+// The human-readable expected-type words used in wrong-type diagnostics.
+std::string_view type_error_words(ValueKind kind)
+{
+    switch (kind)
+    {
+    case ValueKind::Bool:
+        return "boolean";
+    case ValueKind::Int:
+        return "integer";
+    case ValueKind::Float:
+        return "integer or float";
+    case ValueKind::String:
+    case ValueKind::HexString:
+    case ValueKind::ColorHex:
+        return "string";
+    case ValueKind::StringList:
+        return "array";
+    }
+    return "";
+}
+
+// Wrong-type check for every descriptor field of `section_name` present in the
+// document, in descriptor order.
+void check_section_field_types(
+    const toml::table& document, std::string_view section_name, const TypeErrorFn& report)
+{
+    const toml::node* node = document.get(section_name);
+    const toml::table* table = node != nullptr ? node->as_table() : nullptr;
+    if (table == nullptr)
+        return;
+    for (const ConfigFieldDesc& field : kFields)
+    {
+        if (field.section != section_name)
+            continue;
+        if (const toml::node* value = table->get(field.key);
+            value != nullptr && !type_matches(field.kind, *value))
+            report(field.dotted_key(), type_error_words(field.kind), *value);
+    }
+}
+
 } // namespace
+
+void check_types(const toml::table& document, const TypeErrorFn& report)
+{
+    // The order mirrors the historical hand-written pass so that, in a checked
+    // parse, the first-reported error is unchanged: top-level scalars, then each
+    // section table's existence, then nested markdown fields, fallback elements,
+    // terminal fields, chrome fields, and finally keybinding entries.
+    for (const ConfigFieldDesc& field : kFields)
+    {
+        if (!field.section.empty())
+            continue;
+        if (const toml::node* node = document.get(field.key);
+            node != nullptr && !type_matches(field.kind, *node))
+            report(field.key, type_error_words(field.kind), *node);
+    }
+
+    for (const ConfigSectionDesc& section : kSections)
+    {
+        if (const toml::node* node = document.get(section.name);
+            node != nullptr && !node->is_table())
+            report(section.name, "table", *node);
+    }
+
+    check_section_field_types(document, "markdown", report);
+
+    if (const toml::node* node = document.get("fallback_paths"))
+    {
+        if (const toml::array* array = node->as_array())
+        {
+            for (const toml::node& entry : *array)
+            {
+                if (!entry.is_string())
+                {
+                    report("fallback_paths[]", "string", entry);
+                    break;
+                }
+            }
+        }
+    }
+
+    check_section_field_types(document, "terminal", report);
+    check_section_field_types(document, "chrome", report);
+
+    if (const toml::node* node = document.get("keybindings"))
+    {
+        if (const toml::table* keybindings = node->as_table())
+        {
+            for (const auto& [key, value] : *keybindings)
+            {
+                if (!value.is_string())
+                    report(std::string("keybindings.") + std::string(key.str()), "string", value);
+            }
+        }
+    }
+}
 
 void serialize_fields(const AppConfig& config, toml::table& document)
 {
