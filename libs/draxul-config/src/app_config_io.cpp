@@ -1,4 +1,5 @@
 #include <draxul/app_config_types.h>
+#include <draxul/config_schema.h>
 #include <draxul/gui_actions.h>
 #include <draxul/keybinding_parser.h>
 #include <draxul/perf_timing.h>
@@ -39,33 +40,8 @@ constexpr float kMaxMarkdownMarginColumns = 24.0f;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
 // The list of known GUI action keys lives in <draxul/gui_actions.h> as the canonical
 // source of truth. Use is_known_gui_action_config_key() / for_each_gui_action_config_key().
-constexpr std::array<std::string_view, 25> kKnownTopLevelKeys = {
-    "window_width",
-    "window_height",
-    "font_size",
-    "atlas_size",
-    "enable_ligatures",
-    "smooth_scroll",
-    "scroll_speed",
-    "scrollback_lines",
-    "palette_bg_alpha",
-    "font_path",
-    "bold_font_path",
-    "italic_font_path",
-    "bold_italic_font_path",
-    "fallback_paths",
-    "focus_border_width",
-    "enable_toast_notifications",
-    "toast_duration_s",
-    "show_pane_status",
-    "chord_timeout_ms",
-    "chord_indicator_fade_ms",
-    "weather_location",
-    "keybindings",
-    "terminal",
-    "chrome",
-    "markdown",
-};
+// The known top-level key inventory (the 21 scalar/list keys plus the four
+// section tables) comes from the config schema: config_schema::is_core_top_level_key.
 
 constexpr std::array<std::string_view, 20> kKnownChromeKeys = {
     "tab_bar_bg",
@@ -634,11 +610,12 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
     if (markdown_table != nullptr)
         apply_markdown_overrides(config, *markdown_table);
 
-    // Warn about unknown top-level keys
+    // Warn about unknown top-level keys. The ownership inventory is the schema's;
+    // unknown top-level *tables* are treated as module-owned and never warned on.
     for (const auto& [key, value] : document)
     {
         std::string_view key_sv = key.str();
-        bool known = std::find(kKnownTopLevelKeys.begin(), kKnownTopLevelKeys.end(), key_sv) != kKnownTopLevelKeys.end();
+        bool known = config_schema::is_core_top_level_key(key_sv);
         if (!known && value.is_table())
             continue;
         if (!known)
