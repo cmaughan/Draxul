@@ -344,3 +344,63 @@ TEST_CASE("selector rebinds style selections after resolver reinitialize", "[fon
 
     resolver.shutdown();
 }
+
+TEST_CASE("selector caches each style independently and reset clears every slot", "[font]")
+{
+    FontResolver resolver;
+    TextServiceConfig config;
+    config.font_path = jetbrains_font("Regular").string();
+    INFO("font resolver initializes with all variants");
+    REQUIRE(resolver.initialize(config, 11, 96.0f));
+
+    FontSelector selector;
+    const std::string text = "A";
+
+    struct Request
+    {
+        bool is_bold;
+        bool is_italic;
+        FontStyle style;
+    };
+    const Request requests[] = {
+        { false, false, FontStyle::Regular },
+        { true, false, FontStyle::Bold },
+        { false, true, FontStyle::Italic },
+        { true, true, FontStyle::BoldItalic },
+    };
+
+    // A styled selection must populate only its own cache slot; the four
+    // per-style caches are independent (bold caching never disturbs italic).
+    for (const auto& request : requests)
+    {
+        selector.reset_cache();
+        selector.select(text, resolver, request.is_bold, request.is_italic);
+
+        for (size_t i = 0; i < FONT_STYLE_COUNT; ++i)
+        {
+            const auto style = static_cast<FontStyle>(i);
+            const size_t expected = (style == request.style) ? 1u : 0u;
+            INFO("request " << font_style_display_name(request.style) << " touches only the "
+                            << font_style_display_name(style) << " cache");
+            REQUIRE(selector.cache_size(style) == expected);
+        }
+    }
+
+    // Warm every slot, then confirm reset_cache() invalidates all four at once.
+    for (const auto& request : requests)
+        selector.select(text, resolver, request.is_bold, request.is_italic);
+    for (size_t i = 0; i < FONT_STYLE_COUNT; ++i)
+    {
+        INFO(font_style_display_name(static_cast<FontStyle>(i)));
+        REQUIRE(selector.cache_size(static_cast<FontStyle>(i)) == 1);
+    }
+
+    selector.reset_cache();
+    for (size_t i = 0; i < FONT_STYLE_COUNT; ++i)
+    {
+        INFO("reset clears " << font_style_display_name(static_cast<FontStyle>(i)));
+        REQUIRE(selector.cache_size(static_cast<FontStyle>(i)) == 0);
+    }
+
+    resolver.shutdown();
+}
