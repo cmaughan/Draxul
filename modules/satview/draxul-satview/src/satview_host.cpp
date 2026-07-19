@@ -1036,11 +1036,37 @@ bool SatViewHost::initialize(const HostContext& context, IHostCallbacks& callbac
         io.LogFilename = nullptr;
         ImGui::StyleColorsDark();
     }
-    catalog_service_.start();
-    SatViewCloudService::Config cloud_config;
-    cloud_config.cache_directory = SatViewCatalogService::default_cache_directory();
-    cloud_service_->start(std::move(cloud_config));
-    simulated_seconds_ = unix_seconds_now();
+    if (test_hooks_.active)
+    {
+        // Offline test path: fake transports + a temp cache directory keep the
+        // services CPU-only. A missing hook falls back to an offline stub so a
+        // fixture can never accidentally reach the real network.
+        const auto offline_stub = [](std::string_view, std::string& error) {
+            error = "offline";
+            return std::string{};
+        };
+        SatViewCatalogService::Config catalog_config;
+        catalog_config.fetch = test_hooks_.catalog_fetch
+            ? test_hooks_.catalog_fetch
+            : SatViewCatalogService::FetchFunction(offline_stub);
+        catalog_config.cache_directory = test_hooks_.cache_directory;
+        catalog_service_.start(std::move(catalog_config));
+
+        SatViewCloudService::Config cloud_config;
+        cloud_config.fetch = test_hooks_.cloud_fetch
+            ? test_hooks_.cloud_fetch
+            : SatViewCloudService::FetchFunction(offline_stub);
+        cloud_config.cache_directory = test_hooks_.cache_directory;
+        cloud_service_->start(std::move(cloud_config));
+    }
+    else
+    {
+        catalog_service_.start();
+        SatViewCloudService::Config cloud_config;
+        cloud_config.cache_directory = SatViewCatalogService::default_cache_directory();
+        cloud_service_->start(std::move(cloud_config));
+    }
+    simulated_seconds_ = now_unix_seconds();
     last_draw_simulation_seconds_ = simulated_seconds_;
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
     const SatViewMoonPosition moon = satview_moon_position(simulated_seconds_);
@@ -2192,6 +2218,13 @@ void SatViewHost::on_font_metrics_changed()
     refresh_scene_text_service();
 }
 
+double SatViewHost::now_unix_seconds() const
+{
+    // The test seam replaces the wall clock so CPU-only fixtures stay
+    // deterministic and never read the live system clock.
+    return test_hooks_.clock ? test_hooks_.clock() : unix_seconds_now();
+}
+
 void SatViewHost::request_redraw()
 {
     last_activity_time_ = std::chrono::steady_clock::now();
@@ -2906,7 +2939,7 @@ void SatViewHost::rebuild_scene_labels(
 
 void SatViewHost::set_real_time()
 {
-    simulated_seconds_ = unix_seconds_now();
+    simulated_seconds_ = now_unix_seconds();
     last_draw_simulation_seconds_ = simulated_seconds_;
     time_speed_ = 1.0f;
     paused_ = false;
@@ -3028,7 +3061,7 @@ void SatViewHost::reset_to_default_settings()
     dragging_ = false;
     pending_click_ = false;
     paused_ = false;
-    simulated_seconds_ = unix_seconds_now();
+    simulated_seconds_ = now_unix_seconds();
     last_draw_simulation_seconds_ = simulated_seconds_;
 
     const glm::vec3 sun = glm::vec3(solar_direction_render(simulated_seconds_));
@@ -4598,8 +4631,8 @@ void SatViewHost::render_control_panel(const SatViewSimulationSnapshot* snapshot
                 !selected->sun_synchronous_candidate
                     ? "No"
                     : selected->sun_synchronous_terminator
-                        ? "Dawn/dusk terminator (derived)"
-                        : "Other (derived)");
+                    ? "Dawn/dusk terminator (derived)"
+                    : "Other (derived)");
             if (metadata && !metadata->object_type.empty())
                 ImGui::Text("Type: %s", metadata->object_type.c_str());
             ImGui::Text("Kind: %.*s",
