@@ -1,9 +1,9 @@
 #include <draxul/config_document.h>
+#include <draxul/config_schema.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/toml_support.h>
 
-#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -15,37 +15,6 @@ namespace draxul
 
 namespace
 {
-
-// Complete AppConfig ownership inventory. Only these app-owned keys are
-// replaced during a merge; unlisted top-level tables belong to optional host
-// modules and are deliberately preserved verbatim in the TOML document tree.
-constexpr std::array<std::string_view, 25> kCoreTopLevelKeys = {
-    "window_width",
-    "window_height",
-    "font_size",
-    "atlas_size",
-    "enable_ligatures",
-    "smooth_scroll",
-    "scroll_speed",
-    "scrollback_lines",
-    "palette_bg_alpha",
-    "focus_border_width",
-    "enable_toast_notifications",
-    "toast_duration_s",
-    "show_pane_status",
-    "chord_timeout_ms",
-    "chord_indicator_fade_ms",
-    "weather_location",
-    "font_path",
-    "bold_font_path",
-    "italic_font_path",
-    "bold_italic_font_path",
-    "fallback_paths",
-    "keybindings",
-    "terminal",
-    "chrome",
-    "markdown",
-};
 
 std::vector<std::string_view> split_dotted_path(std::string_view dotted_path)
 {
@@ -236,12 +205,16 @@ void ConfigDocument::merge_core_config(const AppConfig& config)
         return;
     }
 
-    for (std::string_view key : kCoreTopLevelKeys)
-    {
+    // The ownership inventory -- the only keys a core merge replaces -- comes
+    // from the schema. Unlisted top-level tables belong to optional modules and
+    // are deliberately preserved verbatim in the document tree. Iteration order
+    // is irrelevant: each key's erase+insert is independent and toml++ emits
+    // tables in sorted key order regardless.
+    config_schema::for_each_core_top_level_key([&](std::string_view key) {
         document_.erase(key);
         if (const toml::node* node = parsed->get(key))
             document_.insert_or_assign(std::string(key), *node);
-    }
+    });
 }
 
 } // namespace draxul
