@@ -12,6 +12,10 @@ enum class KanbanNavigationCommand
     SelectRight,
     SelectUp,
     SelectDown,
+    SelectPageUp,
+    SelectPageDown,
+    SelectFirst,
+    SelectLast,
     MoveLeft,
     MoveRight,
     MoveUp,
@@ -24,6 +28,10 @@ class KanbanNavigationState
 {
 public:
     KanbanNavigationCommand on_key(const draxul::KeyEvent& event);
+    void reset();
+
+private:
+    bool pending_g_ = false;
 };
 
 } // namespace draxul::kanban

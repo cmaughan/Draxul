@@ -10,7 +10,7 @@ A developer on Windows cannot locally produce trustworthy macOS Metal references
 
 ## Implementation plan
 
-- [ ] Land item 03 and define CI artifact metadata: commit SHA, platform, build configuration, manifest hash, scenario name, image hash, and comparison report.
+- [ ] Ensure CI publishes cross-platform render-test artifacts (already in place: `.github/workflows/build.yml` runs on push/PR and uploads both platforms' render outputs) and define CI artifact metadata: commit SHA, platform, build configuration, manifest hash, scenario name, image hash, and comparison report.
 - [ ] Add `py do.py bless-from-ci <run-id> [--platform ...] [--scenario ...]` using `gh run download` or the GitHub API.
 - [ ] Verify the run belongs to the same repository/commit (or require an explicit override), succeeded, and used a compatible manifest.
 - [ ] Stage downloads in a temporary directory and show old/new hashes plus diff summary before replacing references.
@@ -27,6 +27,6 @@ A developer on Windows cannot locally produce trustworthy macOS Metal references
 
 ## Dependencies and parallelism
 
-Depends on item 03 and reopening automatic CI. Good isolated tooling sub-agent task afterward.
+Depends on CI publishing cross-platform render-test artifacts — now satisfied (`.github/workflows/build.yml` runs automatically on push/PR and uploads both platforms' render outputs). (The earlier bare "item 03" reference is stale: that number now belongs to an unrelated ice-box card.) Good isolated tooling sub-agent task.
 
 <model>GPT-5 Codex</model>

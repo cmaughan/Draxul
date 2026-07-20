@@ -1,6 +1,9 @@
 #include <draxul/scoreview/stream_program.h>
 
+#include <draxul/scoreview/source_slicer.h>
+
 #include <algorithm>
+#include <utility>
 
 namespace draxul
 {
@@ -65,6 +68,62 @@ StreamProgram::SourceRef StreamProgram::source_at(double stream_q) const
     if (!ref.drill)
         ref.source_q = p.source_start_q + (stream_q - slot_start_q(slot));
     return ref;
+}
+
+namespace
+{
+StreamBarPlan source_bar_plan(
+    const SourceSlicer& slicer, StreamBarPlan::Kind kind, int bar, std::string reason)
+{
+    StreamBarPlan plan;
+    plan.kind = kind;
+    plan.source_bar = bar;
+    plan.source_start_q = slicer.bar_start_q(bar);
+    plan.reason = std::move(reason);
+    return plan;
+}
+
+StreamBarPlan fabricated_plan(const SourceSlicer& slicer, int reference_bar, std::string xml,
+    std::string reason, bool trains_source)
+{
+    StreamBarPlan plan;
+    plan.kind = StreamBarPlan::Kind::Drill;
+    plan.source_bar = reference_bar;
+    plan.source_start_q = slicer.bar_start_q(reference_bar);
+    plan.drill_trains_source = trains_source;
+    plan.drill_xml = std::move(xml);
+    plan.reason = std::move(reason);
+    return plan;
+}
+} // namespace
+
+void append_source_bar(StreamProgram& program, const SourceSlicer& slicer,
+    StreamBarPlan::Kind kind, int bar, std::string reason)
+{
+    program.append(source_bar_plan(slicer, kind, bar, std::move(reason)), slicer.bar_quarters(bar));
+}
+
+void append_fabricated(StreamProgram& program, const SourceSlicer& slicer, int reference_bar,
+    std::string xml, std::string reason, bool trains_source)
+{
+    program.append(
+        fabricated_plan(slicer, reference_bar, std::move(xml), std::move(reason), trains_source),
+        slicer.bar_quarters(reference_bar));
+}
+
+void insert_source_bar(StreamProgram& program, const SourceSlicer& slicer, int at_slot,
+    StreamBarPlan::Kind kind, int bar, std::string reason)
+{
+    program.insert(
+        at_slot, source_bar_plan(slicer, kind, bar, std::move(reason)), slicer.bar_quarters(bar));
+}
+
+void insert_fabricated(StreamProgram& program, const SourceSlicer& slicer, int at_slot,
+    int reference_bar, std::string xml, std::string reason, bool trains_source)
+{
+    program.insert(at_slot,
+        fabricated_plan(slicer, reference_bar, std::move(xml), std::move(reason), trains_source),
+        slicer.bar_quarters(reference_bar));
 }
 
 } // namespace scoreview

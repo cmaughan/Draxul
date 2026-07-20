@@ -41,14 +41,27 @@ TEST_CASE("kanban shifted navigation maps card movement", "[kanban][navigation]"
 {
     KanbanNavigationState navigation;
 
-    REQUIRE(navigation.on_key(key_event(SDLK_H, kModShift)) == KanbanNavigationCommand::MoveLeft);
-    REQUIRE(navigation.on_key(key_event(SDLK_L, kModShift)) == KanbanNavigationCommand::MoveRight);
-    REQUIRE(navigation.on_key(key_event(SDLK_K, kModShift)) == KanbanNavigationCommand::MoveUp);
-    REQUIRE(navigation.on_key(key_event(SDLK_J, kModShift)) == KanbanNavigationCommand::MoveDown);
-    REQUIRE(navigation.on_key(key_event(SDLK_LEFT, kModShift)) == KanbanNavigationCommand::MoveLeft);
-    REQUIRE(navigation.on_key(key_event(SDLK_RIGHT, kModShift)) == KanbanNavigationCommand::MoveRight);
+    REQUIRE(navigation.on_key(key_event(SDLK_COMMA, kModShift)) == KanbanNavigationCommand::MoveLeft);
+    REQUIRE(navigation.on_key(key_event(SDLK_PERIOD, kModShift)) == KanbanNavigationCommand::MoveRight);
     REQUIRE(navigation.on_key(key_event(SDLK_UP, kModShift)) == KanbanNavigationCommand::MoveUp);
     REQUIRE(navigation.on_key(key_event(SDLK_DOWN, kModShift)) == KanbanNavigationCommand::MoveDown);
+    REQUIRE(navigation.on_key(key_event(SDLK_H, kModShift)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_L, kModShift)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_K, kModShift)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_J, kModShift)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_LEFT, kModShift)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_RIGHT, kModShift)) == KanbanNavigationCommand::None);
+}
+
+TEST_CASE("kanban vim navigation maps page and edge jumps", "[kanban][navigation]")
+{
+    KanbanNavigationState navigation;
+
+    REQUIRE(navigation.on_key(key_event(SDLK_F, kModCtrl)) == KanbanNavigationCommand::SelectPageDown);
+    REQUIRE(navigation.on_key(key_event(SDLK_B, kModCtrl)) == KanbanNavigationCommand::SelectPageUp);
+    REQUIRE(navigation.on_key(key_event(SDLK_G, kModShift)) == KanbanNavigationCommand::SelectLast);
+    REQUIRE(navigation.on_key(key_event(SDLK_G)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_G)) == KanbanNavigationCommand::SelectFirst);
 }
 
 TEST_CASE("kanban navigation maps arrows enter and reload", "[kanban][navigation]")
@@ -75,7 +88,8 @@ TEST_CASE("kanban navigation ignores caps lock modifier state", "[kanban][naviga
     REQUIRE(navigation.on_key(key_event(SDLK_LEFT, kModCaps)) == KanbanNavigationCommand::SelectLeft);
     REQUIRE(navigation.on_key(key_event(SDLK_RETURN, kModCaps)) == KanbanNavigationCommand::Open);
     REQUIRE(navigation.on_key(key_event(SDLK_R, kModCaps)) == KanbanNavigationCommand::Reload);
-    REQUIRE(navigation.on_key(key_event(SDLK_LEFT, kModShift | kModCaps)) == KanbanNavigationCommand::MoveLeft);
+    REQUIRE(navigation.on_key(key_event(SDLK_COMMA, kModShift | kModCaps)) == KanbanNavigationCommand::MoveLeft);
+    REQUIRE(navigation.on_key(key_event(SDLK_LEFT, kModShift | kModCaps)) == KanbanNavigationCommand::None);
 }
 
 TEST_CASE("kanban navigation ignores num and scroll lock modifier state", "[kanban][navigation]")

@@ -52,6 +52,11 @@ KanbanNavigationCommand movement_command(int keycode, bool move)
     }
 }
 
+KanbanNavigationCommand selection_movement_command(int keycode)
+{
+    return movement_command(keycode, false);
+}
+
 } // namespace
 
 KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& event)
@@ -59,26 +64,75 @@ KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& ev
     if (!event.pressed)
         return KanbanNavigationCommand::None;
 
+    if (has_only_modifiers(event.mod, kModCtrl))
+    {
+        pending_g_ = false;
+        if (event.keycode == SDLK_F)
+            return KanbanNavigationCommand::SelectPageDown;
+        if (event.keycode == SDLK_B)
+            return KanbanNavigationCommand::SelectPageUp;
+        return KanbanNavigationCommand::None;
+    }
+
     if (has_only_modifiers(event.mod, kModShift))
-        return movement_command(event.keycode, true);
+    {
+        pending_g_ = false;
+        switch (event.keycode)
+        {
+        case SDLK_COMMA:
+            return KanbanNavigationCommand::MoveLeft;
+        case SDLK_PERIOD:
+            return KanbanNavigationCommand::MoveRight;
+        case SDLK_UP:
+            return KanbanNavigationCommand::MoveUp;
+        case SDLK_DOWN:
+            return KanbanNavigationCommand::MoveDown;
+        case SDLK_G:
+            return KanbanNavigationCommand::SelectLast;
+        default:
+            return KanbanNavigationCommand::None;
+        }
+    }
 
     if (!has_only_modifiers(event.mod, kModNone))
+    {
+        pending_g_ = false;
         return KanbanNavigationCommand::None;
+    }
 
-    const auto movement = movement_command(event.keycode, false);
+    const auto movement = selection_movement_command(event.keycode);
     if (movement != KanbanNavigationCommand::None)
+    {
+        pending_g_ = false;
         return movement;
+    }
 
     switch (event.keycode)
     {
+    case SDLK_G:
+        if (pending_g_)
+        {
+            pending_g_ = false;
+            return KanbanNavigationCommand::SelectFirst;
+        }
+        pending_g_ = true;
+        return KanbanNavigationCommand::None;
     case SDLK_RETURN:
     case SDLK_KP_ENTER:
+        pending_g_ = false;
         return KanbanNavigationCommand::Open;
     case SDLK_R:
+        pending_g_ = false;
         return KanbanNavigationCommand::Reload;
     default:
+        pending_g_ = false;
         return KanbanNavigationCommand::None;
     }
+}
+
+void KanbanNavigationState::reset()
+{
+    pending_g_ = false;
 }
 
 } // namespace draxul::kanban

@@ -133,13 +133,6 @@ public:
         return false;
     }
 
-    // Request that a Markdown source file be opened in a Markdown host.
-    // Returns false when the app cannot route or create such a host.
-    virtual bool open_markdown_source(std::string_view /*path*/)
-    {
-        return false;
-    }
-
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}
 };

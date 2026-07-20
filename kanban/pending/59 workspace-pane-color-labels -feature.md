@@ -26,6 +26,6 @@ Assign a small color and optional short tag to workspaces/panes so large mixed s
 
 ## Dependencies and parallelism
 
-Depends on pending 22/23 and coordinates with layout templates/clone/move. Good presentation-focused task after Chrome layout extraction.
+Depends on the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`, currently deferred to the ice box) and pending `23 chrome-layout-render-editing -refactor.md`; coordinates with layout templates/clone/move. Good presentation-focused task after Chrome layout extraction.
 
 <model>GPT-5 Codex</model>

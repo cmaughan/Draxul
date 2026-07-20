@@ -26,8 +26,8 @@
 #include <draxul/sdl_window.h>
 #include <filesystem>
 #include <imgui.h>
-#include <utility>
 #include <stdexcept>
+#include <utility>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -1733,8 +1733,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             int timeout_ms = window_ && !window_->is_visible() ? 200 : -1;
             if (wait_deadline)
             {
-                const int deadline_ms = std::max(0, static_cast<int>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(*wait_deadline - now).count()));
+                const int deadline_ms = std::max(0, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(*wait_deadline - now).count()));
                 timeout_ms = timeout_ms < 0 ? deadline_ms : std::min(timeout_ms, deadline_ms);
             }
             if (!window_->wait_events(timeout_ms))
@@ -1960,55 +1959,6 @@ bool App::dispatch_to_nvim_host(std::string_view action)
     if (new_host)
         new_host->dispatch_action(action);
 
-    return true;
-}
-
-bool App::open_markdown_source(std::string_view path)
-{
-    const LeafId caller_leaf = active_host_manager().focused_leaf();
-    auto restore_caller_focus = [this, caller_leaf]() {
-        if (caller_leaf != kInvalidLeaf && active_host_manager().host_for(caller_leaf))
-            active_host_manager().set_focused(caller_leaf);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
-    };
-
-    IHost* markdown_host = nullptr;
-    active_host_manager().for_each_host([&markdown_host](LeafId, IHost& host) {
-        if (!markdown_host && host.is_markdown_host())
-        {
-            markdown_host = &host;
-        }
-    });
-
-    if (markdown_host)
-    {
-        std::string action = "open_file:";
-        action.append(path);
-        if (!markdown_host->dispatch_action(action))
-        {
-            push_toast(2, "Failed to open Markdown source: " + std::string(path));
-            return false;
-        }
-
-        restore_caller_focus();
-        request_frame();
-        return true;
-    }
-
-    HostLaunchOptions launch;
-    launch.kind = HostKind::Markdown;
-    launch.source_path = std::string(path);
-    LeafId new_leaf = active_host_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
-    if (new_leaf == kInvalidLeaf)
-    {
-        const std::string& err = active_host_manager().error();
-        push_toast(2, err.empty() ? std::string("Failed to spawn markdown host") : err);
-        return false;
-    }
-
-    refresh_window_layout();
-    restore_caller_focus();
-    request_frame();
     return true;
 }
 

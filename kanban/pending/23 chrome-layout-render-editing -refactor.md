@@ -10,7 +10,7 @@
 
 ## Implementation plan
 
-- [ ] Land Unicode item 08 and allocation tests item 20 first.
+- [ ] Allocation-failure tests are done (`done/20 overlay-allocation-failure -test.md`); the earlier "Unicode item 08" prerequisite no longer maps to a current card (numbers were reused), so re-confirm whether any Unicode-hardening blocker remains before starting.
 - [ ] Capture current tab/status/weather geometry in pure tests across DPI, resize, zoom, one/many workspaces, and rename state.
 - [ ] Extract pure `ChromeLayout` input/output structs producing rectangles, text runs, clipping, and stable hit-region ids.
 - [ ] Extract `RenameEditor` state transitions/caret/text operations with no renderer dependency.
@@ -28,6 +28,6 @@
 
 ## Dependencies and parallelism
 
-Depends on 08 and 20. Give one UI sub-agent exclusive ownership of `chrome_host.*`; pure layout tests can be prepared separately first.
+Allocation tests (`done/20 overlay-allocation-failure -test.md`) are complete; the earlier "item 08" Unicode prerequisite is stale (no current card carries that number/topic). Give one UI sub-agent exclusive ownership of `chrome_host.*`; pure layout tests can be prepared separately first.
 
 <model>GPT-5 Codex</model>

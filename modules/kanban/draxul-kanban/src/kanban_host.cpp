@@ -65,10 +65,10 @@ int text_cell_width(std::string_view text)
 int max_scroll_row(const KanbanBoard& board, int grid_rows)
 {
     const auto layout = layout_kanban_board(board, KanbanSelection{}, KanbanLayoutOptions{
-                                                                  .grid_cols = 1,
-                                                                  .grid_rows = grid_rows,
-                                                                  .scroll_row = 0,
-                                                              });
+                                                                          .grid_cols = 1,
+                                                                          .grid_rows = grid_rows,
+                                                                          .scroll_row = 0,
+                                                                      });
     return std::max(0, layout.content_rows - layout.visible_card_rows);
 }
 
@@ -80,6 +80,9 @@ bool is_repeatable_selection_command(KanbanNavigationCommand command)
     case KanbanNavigationCommand::SelectRight:
     case KanbanNavigationCommand::SelectUp:
     case KanbanNavigationCommand::SelectDown:
+        return true;
+    case KanbanNavigationCommand::SelectPageUp:
+    case KanbanNavigationCommand::SelectPageDown:
         return true;
     default:
         return false;
@@ -103,6 +106,14 @@ const char* command_name(KanbanNavigationCommand command)
         return "select_up";
     case KanbanNavigationCommand::SelectDown:
         return "select_down";
+    case KanbanNavigationCommand::SelectPageUp:
+        return "select_page_up";
+    case KanbanNavigationCommand::SelectPageDown:
+        return "select_page_down";
+    case KanbanNavigationCommand::SelectFirst:
+        return "select_first";
+    case KanbanNavigationCommand::SelectLast:
+        return "select_last";
     case KanbanNavigationCommand::MoveLeft:
         return "move_left";
     case KanbanNavigationCommand::MoveRight:
@@ -155,6 +166,7 @@ bool KanbanHost::initialize_host()
 void KanbanHost::shutdown()
 {
     held_selection_command_.reset();
+    navigation_.reset();
     running_ = false;
 }
 
@@ -288,6 +300,7 @@ bool KanbanHost::dispatch_action(std::string_view action)
 void KanbanHost::request_close()
 {
     held_selection_command_.reset();
+    navigation_.reset();
     running_ = false;
 }
 
@@ -379,10 +392,10 @@ void KanbanHost::redraw_board()
 
     const auto layout_start = std::chrono::steady_clock::now();
     const KanbanLayout layout = layout_kanban_board(board_, selection_, KanbanLayoutOptions{
-                                                                        .grid_cols = cols,
-                                                                        .grid_rows = rows,
-                                                                        .scroll_row = scroll_row_,
-                                                                    });
+                                                                            .grid_cols = cols,
+                                                                            .grid_rows = rows,
+                                                                            .scroll_row = scroll_row_,
+                                                                        });
     const long long layout_us = elapsed_us(layout_start);
     const auto draw_start = std::chrono::steady_clock::now();
 
@@ -439,10 +452,10 @@ void KanbanHost::redraw_selection_change(KanbanSelection previous_selection)
 
     const auto layout_start = std::chrono::steady_clock::now();
     const KanbanLayout layout = layout_kanban_board(board_, selection_, KanbanLayoutOptions{
-                                                                        .grid_cols = cols,
-                                                                        .grid_rows = rows,
-                                                                        .scroll_row = scroll_row_,
-                                                                    });
+                                                                            .grid_cols = cols,
+                                                                            .grid_rows = rows,
+                                                                            .scroll_row = scroll_row_,
+                                                                        });
     const long long layout_us = elapsed_us(layout_start);
 
     const auto previous_row = find_card_row(layout, previous_selection);
@@ -570,6 +583,22 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
     case KanbanNavigationCommand::SelectDown:
         move_selection(0, 1);
         break;
+    case KanbanNavigationCommand::SelectPageUp:
+        page_selection(-1);
+        break;
+    case KanbanNavigationCommand::SelectPageDown:
+        page_selection(1);
+        break;
+    case KanbanNavigationCommand::SelectFirst:
+        jump_selection_to_card(0);
+        break;
+    case KanbanNavigationCommand::SelectLast:
+        if (selection_.column >= 0 && selection_.column < static_cast<int>(board_.columns.size()))
+        {
+            const auto& cards = board_.columns[static_cast<size_t>(selection_.column)].cards;
+            jump_selection_to_card(static_cast<int>(cards.size()) - 1);
+        }
+        break;
     case KanbanNavigationCommand::MoveLeft:
         move_card(-1, 0);
         break;
@@ -679,6 +708,47 @@ void KanbanHost::move_selection(int column_delta, int card_delta)
     }
 }
 
+void KanbanHost::page_selection(int direction)
+{
+    if (direction == 0)
+        return;
+
+    const int visible_cards = std::max(1, grid_rows() - 4);
+    move_selection(0, direction * visible_cards);
+}
+
+void KanbanHost::jump_selection_to_card(int card_index)
+{
+    if (board_.columns.empty())
+        return;
+    if (selection_.column < 0 || selection_.column >= static_cast<int>(board_.columns.size()))
+        return;
+
+    const auto& cards = board_.columns[static_cast<size_t>(selection_.column)].cards;
+    if (cards.empty())
+        return;
+
+    const KanbanSelection before = selection_;
+    const int before_scroll = scroll_row_;
+    selection_.card = std::clamp(card_index, 0, static_cast<int>(cards.size()) - 1);
+    if (selection_.card == before.card)
+        return;
+
+    keep_selection_visible();
+    if (scroll_row_ != before_scroll)
+    {
+        selection_before_redraw_.reset();
+        clear_before_redraw_ = true;
+    }
+    else if (!selection_before_redraw_)
+    {
+        selection_before_redraw_ = before;
+    }
+    update_status();
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
 void KanbanHost::move_card(int column_delta, int row_delta)
 {
     if (!selection_has_card(board_, selection_))
@@ -737,8 +807,12 @@ void KanbanHost::open_selected_card()
     if (!card)
         return;
 
-    if (!callbacks().open_markdown_source(card->path.string()))
-        notify_error("Failed to open Markdown card: " + card->path.string());
+    // Open the card's Markdown file in a Neovim host so it can be edited (with
+    // whatever Markdown plugins the user has configured) rather than shown in a
+    // read-only viewer. Reuses an existing Neovim pane when one is present,
+    // otherwise spawns a split; mirrors the megacity "jump to file" flow.
+    if (!callbacks().dispatch_to_nvim_host("open_file:" + card->path.string()))
+        notify_error("Failed to open card in Neovim: " + card->path.string());
 }
 
 void KanbanHost::keep_selection_visible()

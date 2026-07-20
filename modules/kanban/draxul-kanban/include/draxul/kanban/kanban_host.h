@@ -52,6 +52,8 @@ private:
     void update_key_repeat(const draxul::KeyEvent& event, KanbanNavigationCommand command);
     void pump_key_repeat(std::chrono::steady_clock::time_point now);
     void move_selection(int column_delta, int card_delta);
+    void page_selection(int direction);
+    void jump_selection_to_card(int card_index);
     void move_card(int column_delta, int row_delta);
     void open_selected_card();
     void keep_selection_visible();

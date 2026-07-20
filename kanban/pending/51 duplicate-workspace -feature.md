@@ -27,6 +27,6 @@ Clone a useful split layout and its launch descriptors as a new workspace withou
 
 ## Dependencies and parallelism
 
-Depends on pending 12, 13, 17, and 22. Shares descriptor helpers with layout templates (55), so agree on one serialized layout type before parallel implementation.
+Depends on the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`) and its host/session-state prerequisites — all currently deferred to the ice box, so this card is blocked until they are scheduled. Shares descriptor helpers with layout templates (55), so agree on one serialized layout type before parallel implementation.
 
 <model>GPT-5 Codex</model>

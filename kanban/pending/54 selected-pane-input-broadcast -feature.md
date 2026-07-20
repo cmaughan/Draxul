@@ -27,6 +27,6 @@ Send keyboard/text input to an explicit group of terminal panes for coordinated 
 
 ## Dependencies and parallelism
 
-Depends on stable host capabilities from pending 12/31 and workspace ownership from 22. High-risk interaction feature: use one input-routing owner and do not combine with an unrelated `InputDispatcher` refactor.
+Depends on stable host capabilities (pending `31 foundation-dependency-cleanup -refactor.md`, plus the ice-boxed host-capability work) and workspace ownership from the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`), currently deferred to the ice box. High-risk interaction feature: use one input-routing owner and do not combine with an unrelated `InputDispatcher` refactor.
 
 <model>GPT-5 Codex</model>

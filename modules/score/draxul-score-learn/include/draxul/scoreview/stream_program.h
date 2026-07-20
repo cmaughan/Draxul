@@ -94,5 +94,29 @@ private:
     std::vector<double> slot_start_q_{ 0.0 }; // size = program_.size() + 1
 };
 
+class SourceSlicer;
+
+// The plan-building vocabulary a composer writes in (kanban 22): compute a
+// slot's stream-axis span and source provenance from the slicer so an
+// implementation never hand-assembles a StreamBarPlan or repeats the
+// bar_start_q / bar_quarters bookkeeping. Every planned slot spans
+// `slicer.bar_quarters(bar)` on the stream axis and carries
+// `slicer.bar_start_q(bar)` as its source anchor.
+//
+// append_source_bar plans a Piece/Review slot playing source `bar` verbatim;
+// append_fabricated plans a Drill slot from a fabricated <measure> in the
+// attribute context of `reference_bar` (`trains_source` opts a
+// source-preserving drill, such as hands separate, back into source training).
+// The insert_* variants are the rewrite primitive (plan_urgent): the same slot
+// spliced in at `at_slot` instead of appended.
+void append_source_bar(StreamProgram& program, const SourceSlicer& slicer,
+    StreamBarPlan::Kind kind, int bar, std::string reason);
+void append_fabricated(StreamProgram& program, const SourceSlicer& slicer, int reference_bar,
+    std::string xml, std::string reason, bool trains_source = false);
+void insert_source_bar(StreamProgram& program, const SourceSlicer& slicer, int at_slot,
+    StreamBarPlan::Kind kind, int bar, std::string reason);
+void insert_fabricated(StreamProgram& program, const SourceSlicer& slicer, int at_slot,
+    int reference_bar, std::string xml, std::string reason, bool trains_source = false);
+
 } // namespace scoreview
 } // namespace draxul

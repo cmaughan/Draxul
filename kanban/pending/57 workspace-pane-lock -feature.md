@@ -26,6 +26,6 @@ Protect important long-running panes or complete workspaces from accidental clos
 
 ## Dependencies and parallelism
 
-Depends on pending 22 and coordinates with busy-process close guard (44). Implement one shared close policy rather than stacking independent confirmation dialogs.
+Depends on the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`), currently deferred to the ice box, and coordinates with busy-process close guard (44). Implement one shared close policy rather than stacking independent confirmation dialogs.
 
 <model>GPT-5 Codex</model>

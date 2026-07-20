@@ -10,7 +10,7 @@ Move a running pane to another workspace without restarting its Nvim, shell, or 
 
 ## Implementation plan
 
-- [ ] Add a `WorkspaceController::move_pane(source_workspace, LeafId, target_workspace, placement)` operation after pending 22 establishes controller ownership.
+- [ ] Add a `WorkspaceController::move_pane(source_workspace, LeafId, target_workspace, placement)` operation after the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`, currently deferred to the ice box) establishes controller ownership.
 - [ ] Extend `HostManager`/`SplitTree` with an ownership-safe leaf extraction/insertion transaction that moves the existing `unique_ptr<IHost>` and pane metadata rather than relaunching it.
 - [ ] Define target placement (`focused split`, `new tab root`, or explicit side) and a deterministic fallback when the destination is empty.
 - [ ] Preserve host owner lifetime tokens, renderer/pass attachment, zoom, title override, working directory, focus, viewport, and session launch descriptor.
@@ -28,6 +28,6 @@ Move a running pane to another workspace without restarting its Nvim, shell, or 
 
 ## Dependencies and parallelism
 
-Depends on pending 13 and 22. Coordinate with detachable windows (43), which can later reuse the same extraction transaction. Good isolated feature-agent task after `WorkspaceController` is stable.
+Depends on the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`) and its host/session-state prerequisites — all currently deferred to the ice box, so this card is blocked until they are scheduled. Coordinate with detachable windows (43), which can later reuse the same extraction transaction. Good isolated feature-agent task after `WorkspaceController` is stable.
 
 <model>GPT-5 Codex</model>

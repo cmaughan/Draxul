@@ -27,6 +27,6 @@ Create balanced rows, columns, grids, and main-plus-stack layouts quickly, then 
 
 ## Dependencies and parallelism
 
-Depends on pending 12, 13, 17, and 22. Share descriptor/storage types with duplicate workspace (51). Preset math can be developed independently after the controller transaction contract is fixed.
+Depends on the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`) and its host/session-state prerequisites — all currently deferred to the ice box, so this card is blocked until they are scheduled. Share descriptor/storage types with duplicate workspace (51). Preset math can be developed independently after the controller transaction contract is fixed.
 
 <model>GPT-5 Codex</model>

@@ -37,10 +37,10 @@ public:
 
     void set_text_input_area(int, int, int, int) override {}
 
-    bool open_markdown_source(std::string_view path) override
+    bool dispatch_to_nvim_host(std::string_view action) override
     {
-        opened_markdown_path = std::string(path);
-        return open_markdown_result;
+        nvim_action = std::string(action);
+        return dispatch_nvim_result;
     }
 
     void push_toast(int level, std::string_view message) override
@@ -50,8 +50,8 @@ public:
     }
 
     int request_frame_calls = 0;
-    bool open_markdown_result = true;
-    std::string opened_markdown_path;
+    bool dispatch_nvim_result = true;
+    std::string nvim_action;
     std::string window_title;
     int toast_level = -1;
     std::string toast_message;
@@ -77,15 +77,24 @@ struct KanbanHostFixture
     KanbanHost host;
     std::filesystem::path card_path;
 
-    explicit KanbanHostFixture(int card_count = 1, int column_count = 1, glm::ivec2 grid_size = { 80, 12 })
+    explicit KanbanHostFixture(
+        int card_count = 1,
+        int column_count = 1,
+        glm::ivec2 grid_size = { 80, 12 },
+        bool populate_all_columns = true,
+        bool zero_pad_cards = false)
     {
         for (int column = 0; column < column_count; ++column)
         {
             const auto column_dir = temp.path / (column_count == 1 ? std::string("todo") : ("column-" + std::to_string(column + 1)));
             std::filesystem::create_directories(column_dir);
-            for (int i = 0; i < card_count; ++i)
+            const int cards_in_column = (populate_all_columns || column == 0) ? card_count : 0;
+            for (int i = 0; i < cards_in_column; ++i)
             {
-                const auto path = column_dir / ("card-" + std::to_string(i + 1) + "-feature.md");
+                const std::string number = zero_pad_cards
+                    ? std::string(i + 1 < 10 ? "00" : (i + 1 < 100 ? "0" : "")) + std::to_string(i + 1)
+                    : std::to_string(i + 1);
+                const auto path = column_dir / ("card-" + number + "-feature.md");
                 std::ofstream(path) << "# Card " << (i + 1) << "\n";
                 if (column == 0 && i == 0)
                     card_path = path;
@@ -131,20 +140,23 @@ TEST_CASE("kanban host initializes and reports board status", "[kanban][host]")
     REQUIRE(fixture.renderer.create_grid_handle_calls == 1);
 }
 
-TEST_CASE("kanban host opens selected card through markdown callback", "[kanban][host]")
+TEST_CASE("kanban host opens selected card in a Neovim host", "[kanban][host]")
 {
     KanbanHostFixture fixture;
 
     fixture.host.on_key(key_event(SDLK_RETURN));
 
-    REQUIRE(std::filesystem::weakly_canonical(fixture.callbacks.opened_markdown_path)
+    constexpr std::string_view prefix = "open_file:";
+    REQUIRE(fixture.callbacks.nvim_action.starts_with(prefix));
+    const std::string opened_path = fixture.callbacks.nvim_action.substr(prefix.size());
+    REQUIRE(std::filesystem::weakly_canonical(opened_path)
         == std::filesystem::weakly_canonical(fixture.card_path));
 }
 
-TEST_CASE("kanban host reports toast when markdown open callback fails", "[kanban][host]")
+TEST_CASE("kanban host reports toast when Neovim open fails", "[kanban][host]")
 {
     KanbanHostFixture fixture;
-    fixture.callbacks.open_markdown_result = false;
+    fixture.callbacks.dispatch_nvim_result = false;
 
     fixture.host.on_key(key_event(SDLK_RETURN));
 
@@ -165,6 +177,41 @@ TEST_CASE("kanban host selection movement updates a small dirty region", "[kanba
     const auto& updates = fixture.renderer.last_handle->update_batches.back();
     INFO("single-row selection move should not redraw the full 80x12 pane");
     REQUIRE(updates.size() < 400);
+}
+
+TEST_CASE("kanban host supports vim-style page and edge jumps within a column", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(20, 1, { 80, 12 }, true, true);
+
+    fixture.host.on_key(key_event(SDLK_F, kModCtrl));
+    REQUIRE(fixture.host.status_text().find("card-009-feature.md") != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_B, kModCtrl));
+    REQUIRE(fixture.host.status_text().find("card-001-feature.md") != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_G, kModShift));
+    REQUIRE(fixture.host.status_text().find("card-020-feature.md") != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_G));
+    REQUIRE(fixture.host.status_text().find("card-020-feature.md") != std::string::npos);
+
+    fixture.host.on_key(key_event(SDLK_G));
+    REQUIRE(fixture.host.status_text().find("card-001-feature.md") != std::string::npos);
+}
+
+TEST_CASE("kanban host moves cards between columns with angle brackets only", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(1, 2, { 80, 12 }, false);
+    const auto source_path = fixture.temp.path / "column-1" / "card-1-feature.md";
+    const auto target_path = fixture.temp.path / "column-2" / "card-1-feature.md";
+
+    fixture.host.on_key(key_event(SDLK_L, kModShift));
+    REQUIRE(std::filesystem::exists(source_path));
+    REQUIRE_FALSE(std::filesystem::exists(target_path));
+
+    fixture.host.on_key(key_event(SDLK_PERIOD, kModShift));
+    REQUIRE_FALSE(std::filesystem::exists(source_path));
+    REQUIRE(std::filesystem::exists(target_path));
 }
 
 TEST_CASE("kanban host selection movement stays bounded on a large visible board", "[kanban][host][perf]")

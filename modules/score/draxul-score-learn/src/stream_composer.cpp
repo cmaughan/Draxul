@@ -256,7 +256,8 @@ bool StreamComposer::try_hands(StreamProgram& program, int slot)
     hands_served_at_pass_[worst_bar * 10 + weak_staff]
         = model_->bar_hand_pass_count(worst_bar, weak_staff);
     piece_bars_since_special_ = 0;
-    program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
+    append_fabricated(program, *slicer_, worst_bar, std::move(plan.drill_xml),
+        std::move(plan.reason), /*trains_source=*/true);
     (void)slot;
     return true;
 }
@@ -300,19 +301,15 @@ bool StreamComposer::try_drill(StreamProgram& program, int slot)
     // The ladder climbs: broken (arpeggiated) first, the block grab after.
     const int stage = drill_stage_[worst_key]++;
     const bool broken = stage == 0;
-    StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Drill;
-    plan.source_bar = std::clamp(frontier_, 0, slicer_->bar_count() - 1);
-    plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
-    plan.drill_xml = fabricate_chord_drill(worst_key, plan.source_bar, broken);
-    if (plan.drill_xml.empty())
+    const int reference_bar = std::clamp(frontier_, 0, slicer_->bar_count() - 1);
+    std::string xml = fabricate_chord_drill(worst_key, reference_bar, broken);
+    if (xml.empty())
         return false;
-    plan.reason = std::string(broken ? "drill (broken) chord " : "drill chord ") + worst_key
+    std::string reason = std::string(broken ? "drill (broken) chord " : "drill chord ") + worst_key
         + " (" + std::to_string(worst_trouble) + " trouble)";
     last_drill_slot_[worst_key] = slot;
     piece_bars_since_special_ = 0;
-    const double quarters = slicer_->bar_quarters(plan.source_bar);
-    program.append(std::move(plan), quarters);
+    append_fabricated(program, *slicer_, reference_bar, std::move(xml), std::move(reason));
     return true;
 }
 
@@ -344,20 +341,16 @@ bool StreamComposer::try_scale(StreamProgram& program, int slot)
     }
     if (worst_window < 0)
         return false;
-    StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Drill;
-    plan.source_bar = std::clamp(frontier_, 0, slicer_->bar_count() - 1);
-    plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
-    plan.drill_xml = fabricate_scale_bar(plan.source_bar, worst_window * 12 + 6);
-    if (plan.drill_xml.empty())
+    const int reference_bar = std::clamp(frontier_, 0, slicer_->bar_count() - 1);
+    std::string xml = fabricate_scale_bar(reference_bar, worst_window * 12 + 6);
+    if (xml.empty())
         return false;
-    plan.reason = "scale through the troubled register (midi "
+    std::string reason = "scale through the troubled register (midi "
         + std::to_string(worst_window * 12) + ".." + std::to_string(worst_window * 12 + 11)
         + ", " + std::to_string(worst_misses) + " misses)";
     last_scale_slot_[worst_window] = slot;
     piece_bars_since_special_ = 0;
-    const double quarters = slicer_->bar_quarters(plan.source_bar);
-    program.append(std::move(plan), quarters);
+    append_fabricated(program, *slicer_, reference_bar, std::move(xml), std::move(reason));
     return true;
 }
 
@@ -391,17 +384,14 @@ bool StreamComposer::try_review(StreamProgram& program, int slot)
     }
     if (worst_bar < 0)
         return false;
-    StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Review;
-    plan.source_bar = worst_bar;
-    plan.source_start_q = slicer_->bar_start_q(worst_bar);
     char mastery_text[32];
     std::snprintf(mastery_text, sizeof(mastery_text), "%.2f", worst_mastery);
-    plan.reason = "review bar " + std::to_string(worst_bar + 1) + " (mastery " + mastery_text + ")";
+    std::string reason
+        = "review bar " + std::to_string(worst_bar + 1) + " (mastery " + mastery_text + ")";
     ++reviews_used_[worst_bar];
     last_review_slot_[worst_bar] = slot;
     piece_bars_since_special_ = 0;
-    program.append(std::move(plan), slicer_->bar_quarters(worst_bar));
+    append_source_bar(program, *slicer_, StreamBarPlan::Kind::Review, worst_bar, std::move(reason));
     return true;
 }
 
@@ -450,12 +440,8 @@ bool StreamComposer::try_seam(StreamProgram& program, int slot)
         = std::to_string(best_tail + 1) + "->" + std::to_string(best_head + 1);
     for (const int bar : { best_tail, best_head })
     {
-        StreamBarPlan plan;
-        plan.kind = StreamBarPlan::Kind::Review;
-        plan.source_bar = bar;
-        plan.source_start_q = slicer_->bar_start_q(bar);
-        plan.reason = "seam " + join + (bar == best_tail ? ": phrase tail" : ": next phrase head");
-        program.append(std::move(plan), slicer_->bar_quarters(bar));
+        append_source_bar(program, *slicer_, StreamBarPlan::Kind::Review, bar,
+            "seam " + join + (bar == best_tail ? ": phrase tail" : ": next phrase head"));
     }
     return true;
 }
@@ -519,27 +505,22 @@ bool StreamComposer::try_reserve(StreamProgram& program, int slot)
     if (bar < 0)
         return false;
     reserved_at_pass_[bar] = model_->bar_pass_count(bar);
+    piece_bars_since_special_ = 0;
     const int staff = weak_hand_for_fix(bar);
-    StreamBarPlan plan;
     if (staff > 0)
     {
         StreamBarPlan hands_plan = make_hands_plan(bar, staff, "fix");
         if (!hands_plan.drill_xml.empty())
         {
-            hands_plan.reason += " (fumbled pass)";
             hands_served_at_pass_[bar * 10 + staff] = model_->bar_hand_pass_count(bar, staff);
-            plan = std::move(hands_plan);
+            append_fabricated(program, *slicer_, bar, std::move(hands_plan.drill_xml),
+                hands_plan.reason + " (fumbled pass)", /*trains_source=*/true);
+            (void)slot;
+            return true;
         }
     }
-    if (plan.source_bar < 0)
-    {
-        plan.kind = StreamBarPlan::Kind::Review;
-        plan.source_bar = bar;
-        plan.source_start_q = slicer_->bar_start_q(bar);
-        plan.reason = "fix: bar " + std::to_string(bar + 1) + " (fumbled pass)";
-    }
-    piece_bars_since_special_ = 0;
-    program.append(std::move(plan), slicer_->bar_quarters(bar));
+    append_source_bar(program, *slicer_, StreamBarPlan::Kind::Review, bar,
+        "fix: bar " + std::to_string(bar + 1) + " (fumbled pass)");
     (void)slot;
     return true;
 }
@@ -557,25 +538,23 @@ int StreamComposer::plan_urgent(StreamProgram& program, int at_slot)
         return 0;
     reserved_at_pass_[bar] = model_->bar_pass_count(bar);
     const int staff = weak_hand_for_fix(bar);
-    StreamBarPlan plan;
+    bool spliced = false;
     if (staff > 0)
     {
         StreamBarPlan hands_plan = make_hands_plan(bar, staff, "fix now");
         if (!hands_plan.drill_xml.empty())
         {
-            hands_plan.reason += " (fumbled pass)";
             hands_served_at_pass_[bar * 10 + staff] = model_->bar_hand_pass_count(bar, staff);
-            plan = std::move(hands_plan);
+            insert_fabricated(program, *slicer_, at_slot, bar, std::move(hands_plan.drill_xml),
+                hands_plan.reason + " (fumbled pass)", /*trains_source=*/true);
+            spliced = true;
         }
     }
-    if (plan.source_bar < 0)
+    if (!spliced)
     {
-        plan.kind = StreamBarPlan::Kind::Review;
-        plan.source_bar = bar;
-        plan.source_start_q = slicer_->bar_start_q(bar);
-        plan.reason = "fix now: bar " + std::to_string(bar + 1) + " (fumbled pass)";
+        insert_source_bar(program, *slicer_, at_slot, StreamBarPlan::Kind::Review, bar,
+            "fix now: bar " + std::to_string(bar + 1) + " (fumbled pass)");
     }
-    program.insert(at_slot, std::move(plan), slicer_->bar_quarters(bar));
     const auto shift = [at_slot](std::map<std::string, int>& slots) {
         for (auto& [key, slot] : slots)
         {
@@ -619,17 +598,14 @@ void StreamComposer::compose_next(StreamProgram& program)
     {
         const OpeningReview review = opening_queue_.front();
         opening_queue_.erase(opening_queue_.begin());
-        StreamBarPlan plan;
-        plan.kind = StreamBarPlan::Kind::Review;
-        plan.source_bar = review.bar;
-        plan.source_start_q = slicer_->bar_start_q(review.bar);
-        plan.reason = review.overnight_retest
+        std::string reason = review.overnight_retest
             ? "overnight re-test: bar " + std::to_string(review.bar + 1) + " ("
                 + std::to_string(review.gap_days) + "d since fumble)"
             : "spaced review: bar " + std::to_string(review.bar + 1) + " (gap "
                 + std::to_string(review.gap_days) + "d)";
         piece_bars_since_special_ = 0;
-        program.append(std::move(plan), slicer_->bar_quarters(review.bar));
+        append_source_bar(
+            program, *slicer_, StreamBarPlan::Kind::Review, review.bar, std::move(reason));
         return;
     }
     // The error re-serve outranks everything except the performance run —
@@ -660,19 +636,16 @@ void StreamComposer::compose_next(StreamProgram& program)
         }
     }
 
-    StreamBarPlan plan;
-    plan.kind = StreamBarPlan::Kind::Piece;
-    plan.source_bar = frontier_++;
-    plan.source_start_q = slicer_->bar_start_q(plan.source_bar);
-    if (performance_run_ && plan.source_bar == 0)
-        plan.reason = "performance run — every bar mastered";
-    else if (arc_ > 0 && !performance_run_ && plan.source_bar == arc_start_bar_)
-        plan.reason = "arc " + std::to_string(arc_) + ": weakest "
+    const int piece_bar = frontier_++;
+    std::string reason;
+    if (performance_run_ && piece_bar == 0)
+        reason = "performance run — every bar mastered";
+    else if (arc_ > 0 && !performance_run_ && piece_bar == arc_start_bar_)
+        reason = "arc " + std::to_string(arc_) + ": weakest "
             + (arc_on_phrase_ ? "phrase" : "slice") + ", bars "
             + std::to_string(arc_start_bar_ + 1) + ".." + std::to_string(arc_end_bar_);
     ++piece_bars_since_special_;
-    const double quarters = slicer_->bar_quarters(plan.source_bar);
-    program.append(std::move(plan), quarters);
+    append_source_bar(program, *slicer_, StreamBarPlan::Kind::Piece, piece_bar, std::move(reason));
 }
 
 std::string StreamComposer::fabricate_chord_drill(

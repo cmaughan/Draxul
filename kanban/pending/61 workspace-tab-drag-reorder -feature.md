@@ -10,7 +10,7 @@ Reorder workspace tabs directly with the pointer instead of invoking move-left/r
 
 ## Implementation plan
 
-- [ ] Build on `ChromeLayout` tab rectangles from pending 23 and the existing `App::move_workspace()` operation moved into `WorkspaceController`.
+- [ ] Build on `ChromeLayout` tab rectangles from pending `23 chrome-layout-render-editing -refactor.md` and the existing `App::move_workspace()` operation moved into `WorkspaceController` (the `ice-box/22 app-workspace-session-controllers -refactor.md` refactor, currently deferred).
 - [ ] Add a tab-drag state machine with press threshold, captured workspace ID, insertion index, cancellation, and focus-loss handling.
 - [ ] Render an insertion marker/ghost without mutating order on every mouse move; commit one controller reorder on release.
 - [ ] Keep click-to-activate and inline rename behavior distinct from drag through distance/time thresholds.
@@ -26,6 +26,6 @@ Reorder workspace tabs directly with the pointer instead of invoking move-left/r
 
 ## Dependencies and parallelism
 
-Depends on pending 22/23. Distinct from ice-boxed pane drag/reorder. Best owned by a Chrome-focused agent after layout geometry is pure/tested.
+Depends on the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`, currently deferred to the ice box) and pending `23 chrome-layout-render-editing -refactor.md`. Distinct from ice-boxed pane drag/reorder. Best owned by a Chrome-focused agent after layout geometry is pure/tested.
 
 <model>GPT-5 Codex</model>

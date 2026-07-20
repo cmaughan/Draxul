@@ -10,7 +10,7 @@ Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanic
 
 ## Implementation plan
 
-- [ ] Land item 01 so the extracted launcher begins with safe Windows/POSIX behavior.
+- [ ] Land the app self-launch fix (`ice-box/01 macos-app-self-launch -bug.md`, currently deferred) so the extracted launcher begins with safe Windows/POSIX behavior.
 - [ ] Define a `SessionCliRequest` from `CliArgs` and a result enum distinguishing handled/continue/error.
 - [ ] Extract owner-argument construction, launch, retry/backoff, and error formatting into `SessionOwnerLauncher`.
 - [ ] Extract list/attach/detach/kill/rename orchestration into `SessionCli` using injected state/attach services.
@@ -27,6 +27,6 @@ Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanic
 
 ## Dependencies and parallelism
 
-Depends on item 01; should land before SessionController extraction in item 22. One session/process sub-agent should own `main.cpp` during this work.
+Depends on the app self-launch fix (`ice-box/01 macos-app-self-launch -bug.md`, currently deferred); should land before the SessionController extraction (`ice-box/22 app-workspace-session-controllers -refactor.md`, also deferred). One session/process sub-agent should own `main.cpp` during this work.
 
 <model>GPT-5 Codex</model>
