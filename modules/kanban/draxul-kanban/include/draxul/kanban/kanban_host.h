@@ -56,6 +56,10 @@ private:
     void jump_selection_to_card(int card_index);
     void move_card(int column_delta, int row_delta);
     void open_selected_card();
+    void toggle_column_zoom();
+    void toggle_card_preview();
+    void refresh_card_preview();
+    std::optional<int> active_zoom_column() const;
     void keep_selection_visible();
     void draw_text(int col, int row, std::string_view text, uint16_t hl, int max_cells);
     void fill_row(int row, int col, int width, uint16_t hl);
@@ -71,6 +75,11 @@ private:
     bool running_ = false;
     bool redraw_needed_ = true;
     bool clear_before_redraw_ = true;
+    // 'z' zooms the board to a single full-width column (the selected one);
+    // 'p' pins a Markdown preview pane below the board that follows the
+    // selection. Both are pure view state owned by this host.
+    bool column_zoom_ = false;
+    bool preview_visible_ = false;
     int scroll_row_ = 0;
     std::optional<KanbanSelection> selection_before_redraw_;
     std::optional<KanbanNavigationCommand> held_selection_command_;

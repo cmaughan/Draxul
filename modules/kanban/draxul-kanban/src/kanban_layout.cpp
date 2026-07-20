@@ -22,6 +22,20 @@ int max_card_count(const KanbanBoard& board)
     return result;
 }
 
+bool is_valid_column(const KanbanBoard& board, std::optional<int> column)
+{
+    return column && *column >= 0 && *column < static_cast<int>(board.columns.size());
+}
+
+// Scrollable content height: a zoomed single column scrolls over its own cards,
+// otherwise scrolling spans the tallest column.
+int content_rows_for(const KanbanBoard& board, std::optional<int> zoom_column)
+{
+    if (is_valid_column(board, zoom_column))
+        return static_cast<int>(board.columns[static_cast<size_t>(*zoom_column)].cards.size());
+    return max_card_count(board);
+}
+
 int text_cell_width(std::string_view text)
 {
     return draxul::display_cell_width(text);
@@ -38,36 +52,49 @@ KanbanLayout layout_kanban_board(const KanbanBoard& board, KanbanSelection selec
 {
     KanbanLayout layout;
     layout.visible_card_rows = visible_card_rows_for_grid(options.grid_rows);
-    layout.content_rows = max_card_count(board);
+    layout.content_rows = content_rows_for(board, options.zoom_column);
 
     const int column_count = static_cast<int>(board.columns.size());
     if (column_count <= 0)
         return layout;
 
-    layout.columns.reserve(board.columns.size());
-    const int base_width = options.grid_cols / column_count;
-    int x = 0;
-    for (int column = 0; column < column_count; ++column)
+    const bool zoomed = is_valid_column(board, options.zoom_column);
+    if (zoomed)
     {
-        const bool is_last = column == column_count - 1;
-        const int width = is_last ? std::max(0, options.grid_cols - x) : std::max(0, base_width);
+        // Single column spanning the whole width.
         layout.columns.push_back(KanbanColumnLayout{
-            .x = x,
-            .width = width,
-            .index = column,
+            .x = 0,
+            .width = std::max(0, options.grid_cols),
+            .index = *options.zoom_column,
         });
-        x += width;
+    }
+    else
+    {
+        layout.columns.reserve(board.columns.size());
+        const int base_width = options.grid_cols / column_count;
+        int x = 0;
+        for (int column = 0; column < column_count; ++column)
+        {
+            const bool is_last = column == column_count - 1;
+            const int width = is_last ? std::max(0, options.grid_cols - x) : std::max(0, base_width);
+            layout.columns.push_back(KanbanColumnLayout{
+                .x = x,
+                .width = width,
+                .index = column,
+            });
+            x += width;
+        }
     }
 
     const int scroll_row = std::max(0, options.scroll_row);
     const int visible_end = scroll_row + layout.visible_card_rows;
-    for (int column = 0; column < column_count; ++column)
+    for (const auto& column_layout : layout.columns)
     {
-        const auto& cards = board.columns[static_cast<size_t>(column)].cards;
-        const auto& column_layout = layout.columns[static_cast<size_t>(column)];
         if (column_layout.width <= 0)
             continue;
 
+        const int column = column_layout.index;
+        const auto& cards = board.columns[static_cast<size_t>(column)].cards;
         for (int card = 0; card < static_cast<int>(cards.size()); ++card)
         {
             if (card < scroll_row || card >= visible_end)
@@ -114,13 +141,14 @@ std::string truncate_to_cells(std::string_view text, int max_cells)
     return result;
 }
 
-int next_scroll_row_for_selection(const KanbanBoard& board, KanbanSelection selection, int current_scroll_row, int grid_rows)
+int next_scroll_row_for_selection(const KanbanBoard& board, KanbanSelection selection, int current_scroll_row,
+    int grid_rows, std::optional<int> zoom_column)
 {
     const int visible_rows = visible_card_rows_for_grid(grid_rows);
     if (visible_rows <= 0)
         return 0;
 
-    const int content_rows = max_card_count(board);
+    const int content_rows = content_rows_for(board, zoom_column);
     const int max_scroll = std::max(0, content_rows - visible_rows);
     const int current = std::clamp(current_scroll_row, 0, max_scroll);
 

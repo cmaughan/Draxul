@@ -283,6 +283,14 @@ bool HostManager::close_leaf(LeafId id)
         zoomed_leaf_ = kInvalidLeaf;
     }
 
+    // Drop companion-preview tracking if either the preview or its owner is the
+    // pane being closed, so the ids can never dangle.
+    if (id == markdown_preview_leaf_ || id == markdown_preview_owner_)
+    {
+        markdown_preview_leaf_ = kInvalidLeaf;
+        markdown_preview_owner_ = kInvalidLeaf;
+    }
+
     // Shut down the host
     if (it->second)
         it->second->shutdown();
@@ -417,6 +425,77 @@ void HostManager::toggle_zoom(int pixel_w, int pixel_h)
     }
 }
 
+LeafId HostManager::show_markdown_preview(
+    LeafId owner, float top_ratio, std::string_view path, IHostCallbacks& callbacks)
+{
+    PERF_MEASURE();
+
+    // Already open: just reload the source in place, leaving the split alone.
+    if (markdown_preview_leaf_ != kInvalidLeaf)
+    {
+        if (IHost* preview = host_for(markdown_preview_leaf_))
+        {
+            preview->dispatch_action(std::string("open_file:") + std::string(path));
+            return markdown_preview_leaf_;
+        }
+        // The preview leaf vanished (e.g. closed elsewhere) — fall through and
+        // recreate it.
+        markdown_preview_leaf_ = kInvalidLeaf;
+        markdown_preview_owner_ = kInvalidLeaf;
+    }
+
+    if (host_for(owner) == nullptr)
+        return kInvalidLeaf;
+
+    // split_focused() splits the focused leaf; point it at the owner first.
+    const LeafId prev_focus = tree_.focused();
+    tree_.set_focused(owner);
+
+    HostLaunchOptions launch;
+    launch.kind = HostKind::Markdown;
+    launch.source_path = std::string(path);
+    const LeafId preview = split_focused(SplitDirection::Horizontal, std::move(launch), callbacks);
+    if (preview == kInvalidLeaf)
+    {
+        update_focus(prev_focus == kInvalidLeaf ? owner : prev_focus);
+        return kInvalidLeaf;
+    }
+
+    // The owner is the first (top) child, so `top_ratio` of the height stays
+    // with it and the preview takes the bottom remainder.
+    const DividerId divider = tree_.find_ancestor_divider(preview, FocusDirection::Up);
+    if (divider != kInvalidDivider)
+    {
+        tree_.set_divider_ratio(divider, top_ratio);
+        update_all_viewports();
+    }
+
+    markdown_preview_leaf_ = preview;
+    markdown_preview_owner_ = owner;
+
+    // Keep input focus on the owner (Kanban) rather than the new preview pane.
+    update_focus(owner);
+    return preview;
+}
+
+void HostManager::hide_markdown_preview()
+{
+    PERF_MEASURE();
+    if (markdown_preview_leaf_ == kInvalidLeaf)
+        return;
+
+    const LeafId preview = markdown_preview_leaf_;
+    const LeafId owner = markdown_preview_owner_;
+    markdown_preview_leaf_ = kInvalidLeaf;
+    markdown_preview_owner_ = kInvalidLeaf;
+
+    // close_leaf() collapses the split and shifts focus to the surviving
+    // sibling (the owner); make focus explicit in case the tree chose otherwise.
+    close_leaf(preview);
+    if (owner != kInvalidLeaf && host_for(owner))
+        update_focus(owner);
+}
+
 void HostManager::shutdown()
 {
     PERF_MEASURE();
@@ -433,6 +512,8 @@ void HostManager::shutdown()
     pane_user_names_.clear();
     pane_ids_.clear();
     next_pane_serial_ = 1;
+    markdown_preview_leaf_ = kInvalidLeaf;
+    markdown_preview_owner_ = kInvalidLeaf;
 }
 
 bool HostManager::has_detachable_shell_session() const

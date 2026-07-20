@@ -37,10 +37,26 @@ public:
 
     void set_text_input_area(int, int, int, int) override {}
 
-    bool dispatch_to_nvim_host(std::string_view action) override
+    bool dispatch_to_nvim_host(std::string_view action, bool keep_focus) override
     {
         nvim_action = std::string(action);
+        nvim_keep_focus = keep_focus;
+        ++dispatch_nvim_calls;
         return dispatch_nvim_result;
+    }
+
+    bool show_markdown_preview(std::string_view path) override
+    {
+        preview_path = std::string(path);
+        ++show_preview_calls;
+        preview_visible = true;
+        return show_preview_result;
+    }
+
+    void hide_markdown_preview() override
+    {
+        ++hide_preview_calls;
+        preview_visible = false;
     }
 
     void push_toast(int level, std::string_view message) override
@@ -51,10 +67,18 @@ public:
 
     int request_frame_calls = 0;
     bool dispatch_nvim_result = true;
+    int dispatch_nvim_calls = 0;
     std::string nvim_action;
+    bool nvim_keep_focus = false;
     std::string window_title;
     int toast_level = -1;
     std::string toast_message;
+
+    bool show_preview_result = true;
+    int show_preview_calls = 0;
+    int hide_preview_calls = 0;
+    bool preview_visible = false;
+    std::string preview_path;
 };
 
 KeyEvent key_event(int keycode, ModifierFlags mod = kModNone)
@@ -151,6 +175,9 @@ TEST_CASE("kanban host opens selected card in a Neovim host", "[kanban][host]")
     const std::string opened_path = fixture.callbacks.nvim_action.substr(prefix.size());
     REQUIRE(std::filesystem::weakly_canonical(opened_path)
         == std::filesystem::weakly_canonical(fixture.card_path));
+
+    // Enter surfaces the card in Neovim but must NOT steal focus from the board.
+    REQUIRE(fixture.callbacks.nvim_keep_focus);
 }
 
 TEST_CASE("kanban host reports toast when Neovim open fails", "[kanban][host]")
@@ -162,6 +189,88 @@ TEST_CASE("kanban host reports toast when Neovim open fails", "[kanban][host]")
 
     REQUIRE(fixture.callbacks.toast_level == 2);
     REQUIRE(fixture.callbacks.toast_message.find("card-1-feature.md") != std::string::npos);
+}
+
+TEST_CASE("kanban host toggles a Markdown preview pane with p", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture;
+
+    // First 'p' opens the preview and points it at the selected card.
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.show_preview_calls == 1);
+    REQUIRE(fixture.callbacks.preview_visible);
+    REQUIRE(std::filesystem::weakly_canonical(fixture.callbacks.preview_path)
+        == std::filesystem::weakly_canonical(fixture.card_path));
+
+    // Second 'p' tears it back down.
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.hide_preview_calls == 1);
+    REQUIRE_FALSE(fixture.callbacks.preview_visible);
+}
+
+TEST_CASE("kanban host preview follows the moved-to card", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(3);
+    const auto second_card = fixture.temp.path / "todo" / "card-2-feature.md";
+
+    fixture.host.on_key(key_event(SDLK_P));
+    REQUIRE(fixture.callbacks.show_preview_calls == 1);
+
+    // Moving the selection while the preview is pinned reloads it in place.
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.callbacks.show_preview_calls == 2);
+    REQUIRE(fixture.callbacks.hide_preview_calls == 0);
+    REQUIRE(std::filesystem::weakly_canonical(fixture.callbacks.preview_path)
+        == std::filesystem::weakly_canonical(second_card));
+}
+
+TEST_CASE("kanban host does not touch the preview until it is pinned", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(3);
+
+    // Navigating without a preview open must not spawn one.
+    fixture.host.on_key(key_event(SDLK_J));
+    REQUIRE(fixture.callbacks.show_preview_calls == 0);
+}
+
+namespace
+{
+// Widest column touched by cells carrying the "selected card" background on a
+// given grid row, across every recorded update batch (later writes win).
+int max_selected_col_on_row(const draxul::tests::FakeGridHandle& handle, int row)
+{
+    const Color selected_bg = color_from_rgb(0x3E5167);
+    int max_col = -1;
+    for (const auto& batch : handle.update_batches)
+        for (const auto& cell : batch)
+            if (cell.row == row && cell.bg == selected_bg)
+                max_col = std::max(max_col, cell.col);
+    return max_col;
+}
+} // namespace
+
+TEST_CASE("kanban host zoom widens the selected column to full width", "[kanban][host][input]")
+{
+    KanbanHostFixture fixture(1, 2, { 80, 12 });
+    REQUIRE(fixture.renderer.last_handle != nullptr);
+    constexpr int kFirstCardRow = 3;
+
+    // Zoom: the selected column (0) fills the whole 80-cell width, so its
+    // selected card row extends well past the un-zoomed half-width column.
+    fixture.renderer.last_handle->update_batches.clear();
+    fixture.host.on_key(key_event(SDLK_Z));
+    fixture.host.pump();
+    const int zoomed_span = max_selected_col_on_row(*fixture.renderer.last_handle, kFirstCardRow);
+    REQUIRE(zoomed_span > 60);
+
+    // Un-zoom: back to side-by-side columns, so the selected span shrinks to
+    // roughly the left half.
+    fixture.renderer.last_handle->update_batches.clear();
+    fixture.host.on_key(key_event(SDLK_Z));
+    fixture.host.pump();
+    const int unzoomed_span = max_selected_col_on_row(*fixture.renderer.last_handle, kFirstCardRow);
+    REQUIRE(unzoomed_span > 0);
+    REQUIRE(unzoomed_span < 45);
 }
 
 TEST_CASE("kanban host selection movement updates a small dirty region", "[kanban][host][perf]")

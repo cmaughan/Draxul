@@ -62,12 +62,13 @@ int text_cell_width(std::string_view text)
     return draxul::display_cell_width(text);
 }
 
-int max_scroll_row(const KanbanBoard& board, int grid_rows)
+int max_scroll_row(const KanbanBoard& board, int grid_rows, std::optional<int> zoom_column)
 {
     const auto layout = layout_kanban_board(board, KanbanSelection{}, KanbanLayoutOptions{
                                                                           .grid_cols = 1,
                                                                           .grid_rows = grid_rows,
                                                                           .scroll_row = 0,
+                                                                          .zoom_column = zoom_column,
                                                                       });
     return std::max(0, layout.content_rows - layout.visible_card_rows);
 }
@@ -126,6 +127,10 @@ const char* command_name(KanbanNavigationCommand command)
         return "open";
     case KanbanNavigationCommand::Reload:
         return "reload";
+    case KanbanNavigationCommand::ToggleColumnZoom:
+        return "toggle_column_zoom";
+    case KanbanNavigationCommand::TogglePreview:
+        return "toggle_preview";
     }
     return "unknown";
 }
@@ -370,6 +375,7 @@ bool KanbanHost::reload_board()
     clamp_selection(board_, selection_);
     keep_selection_visible();
     update_status();
+    refresh_card_preview();
     selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;
@@ -395,6 +401,7 @@ void KanbanHost::redraw_board()
                                                                             .grid_cols = cols,
                                                                             .grid_rows = rows,
                                                                             .scroll_row = scroll_row_,
+                                                                            .zoom_column = active_zoom_column(),
                                                                         });
     const long long layout_us = elapsed_us(layout_start);
     const auto draw_start = std::chrono::steady_clock::now();
@@ -455,6 +462,7 @@ void KanbanHost::redraw_selection_change(KanbanSelection previous_selection)
                                                                             .grid_cols = cols,
                                                                             .grid_rows = rows,
                                                                             .scroll_row = scroll_row_,
+                                                                            .zoom_column = active_zoom_column(),
                                                                         });
     const long long layout_us = elapsed_us(layout_start);
 
@@ -617,6 +625,12 @@ void KanbanHost::apply_navigation_command(KanbanNavigationCommand command)
     case KanbanNavigationCommand::Reload:
         reload_board();
         break;
+    case KanbanNavigationCommand::ToggleColumnZoom:
+        toggle_column_zoom();
+        break;
+    case KanbanNavigationCommand::TogglePreview:
+        toggle_card_preview();
+        break;
     case KanbanNavigationCommand::None:
         break;
     }
@@ -680,7 +694,10 @@ void KanbanHost::move_selection(int column_delta, int card_delta)
         return;
 
     keep_selection_visible();
-    if (scroll_row_ != before_scroll)
+    // In column-zoom the visible column IS the selection, so switching columns
+    // re-lays out the whole view and cannot use the partial-redraw fast path.
+    const bool zoom_column_changed = column_zoom_ && selection_.column != before.column;
+    if (scroll_row_ != before_scroll || zoom_column_changed)
     {
         selection_before_redraw_.reset();
         clear_before_redraw_ = true;
@@ -690,6 +707,7 @@ void KanbanHost::move_selection(int column_delta, int card_delta)
         selection_before_redraw_ = before;
     }
     update_status();
+    refresh_card_preview();
     redraw_needed_ = true;
     callbacks().request_frame();
     if (log_would_emit(LogLevel::Trace, LogCategory::Input))
@@ -745,6 +763,7 @@ void KanbanHost::jump_selection_to_card(int card_index)
         selection_before_redraw_ = before;
     }
     update_status();
+    refresh_card_preview();
     redraw_needed_ = true;
     callbacks().request_frame();
 }
@@ -795,6 +814,7 @@ void KanbanHost::move_card(int column_delta, int row_delta)
 
     keep_selection_visible();
     update_status();
+    refresh_card_preview();
     selection_before_redraw_.reset();
     clear_before_redraw_ = true;
     redraw_needed_ = true;
@@ -811,14 +831,63 @@ void KanbanHost::open_selected_card()
     // whatever Markdown plugins the user has configured) rather than shown in a
     // read-only viewer. Reuses an existing Neovim pane when one is present,
     // otherwise spawns a split; mirrors the megacity "jump to file" flow.
-    if (!callbacks().dispatch_to_nvim_host("open_file:" + card->path.string()))
+    // keep_focus keeps the user on the board — the card opens in the background
+    // Neovim pane instead of stealing focus.
+    if (!callbacks().dispatch_to_nvim_host("open_file:" + card->path.string(), /*keep_focus=*/true))
         notify_error("Failed to open card in Neovim: " + card->path.string());
+}
+
+void KanbanHost::toggle_column_zoom()
+{
+    column_zoom_ = !column_zoom_;
+    keep_selection_visible();
+    selection_before_redraw_.reset();
+    clear_before_redraw_ = true;
+    redraw_needed_ = true;
+    callbacks().request_frame();
+}
+
+void KanbanHost::toggle_card_preview()
+{
+    if (preview_visible_)
+    {
+        preview_visible_ = false;
+        callbacks().hide_markdown_preview();
+        return;
+    }
+
+    preview_visible_ = true;
+    refresh_card_preview();
+}
+
+void KanbanHost::refresh_card_preview()
+{
+    if (!preview_visible_)
+        return;
+
+    // No card to show yet (empty board / empty column): leave the toggle armed
+    // so the preview appears as soon as the selection lands on a card.
+    const KanbanCard* card = selected_card(board_, selection_);
+    if (!card)
+        return;
+
+    callbacks().show_markdown_preview(card->path.string());
+}
+
+std::optional<int> KanbanHost::active_zoom_column() const
+{
+    if (!column_zoom_)
+        return std::nullopt;
+    if (selection_.column < 0 || selection_.column >= static_cast<int>(board_.columns.size()))
+        return std::nullopt;
+    return selection_.column;
 }
 
 void KanbanHost::keep_selection_visible()
 {
-    scroll_row_ = next_scroll_row_for_selection(board_, selection_, scroll_row_, grid_rows());
-    scroll_row_ = std::clamp(scroll_row_, 0, max_scroll_row(board_, grid_rows()));
+    const std::optional<int> zoom_column = active_zoom_column();
+    scroll_row_ = next_scroll_row_for_selection(board_, selection_, scroll_row_, grid_rows(), zoom_column);
+    scroll_row_ = std::clamp(scroll_row_, 0, max_scroll_row(board_, grid_rows(), zoom_column));
 }
 
 void KanbanHost::draw_text(int col, int row, std::string_view text, uint16_t hl, int max_cells)

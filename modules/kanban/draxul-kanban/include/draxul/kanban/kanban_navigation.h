@@ -22,6 +22,8 @@ enum class KanbanNavigationCommand
     MoveDown,
     Open,
     Reload,
+    ToggleColumnZoom,
+    TogglePreview,
 };
 
 class KanbanNavigationState

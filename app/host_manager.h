@@ -114,6 +114,25 @@ public:
     void recompute_viewports(int pixel_w, int pixel_h);
     void recompute_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
 
+    // Companion Markdown preview pane (Kanban card preview). The preview is a
+    // leaf split horizontally below `owner`, sized so `owner` keeps `top_ratio`
+    // of the height and the preview takes the rest. The first call creates the
+    // pane and loads `path`; later calls reuse the pane and just reload `path`.
+    // Focus is left unchanged. Returns the preview leaf id, or kInvalidLeaf on
+    // failure.
+    LeafId show_markdown_preview(
+        LeafId owner, float top_ratio, std::string_view path, IHostCallbacks& callbacks);
+
+    // Closes the companion Markdown preview pane, if any, and collapses the
+    // split so the owner reclaims the space.
+    void hide_markdown_preview();
+
+    // Whether a companion Markdown preview pane is currently open.
+    bool has_markdown_preview() const
+    {
+        return markdown_preview_leaf_ != kInvalidLeaf;
+    }
+
     // Toggles pane zoom: expands the focused pane to fill the full window,
     // or restores the previous split layout if already zoomed.
     // pixel_w/pixel_h are the current window dimensions for viewport recomputation.
@@ -242,6 +261,12 @@ private:
     LeafId zoomed_leaf_ = kInvalidLeaf;
     int zoom_pixel_w_ = 0;
     int zoom_pixel_h_ = 0;
+
+    // Companion Markdown preview pane (Kanban card preview). kInvalidLeaf when
+    // no preview is open. owner tracks the pane it is attached to so both refs
+    // can be cleared if either leaf closes.
+    LeafId markdown_preview_leaf_ = kInvalidLeaf;
+    LeafId markdown_preview_owner_ = kInvalidLeaf;
 };
 
 } // namespace draxul

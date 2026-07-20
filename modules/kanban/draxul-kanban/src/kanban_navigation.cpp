@@ -124,6 +124,12 @@ KanbanNavigationCommand KanbanNavigationState::on_key(const draxul::KeyEvent& ev
     case SDLK_R:
         pending_g_ = false;
         return KanbanNavigationCommand::Reload;
+    case SDLK_Z:
+        pending_g_ = false;
+        return KanbanNavigationCommand::ToggleColumnZoom;
+    case SDLK_P:
+        pending_g_ = false;
+        return KanbanNavigationCommand::TogglePreview;
     default:
         pending_g_ = false;
         return KanbanNavigationCommand::None;

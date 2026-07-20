@@ -77,6 +77,34 @@ TEST_CASE("kanban navigation maps arrows enter and reload", "[kanban][navigation
     REQUIRE(navigation.on_key(key_event(SDLK_R)) == KanbanNavigationCommand::Reload);
 }
 
+TEST_CASE("kanban navigation maps zoom and preview toggles", "[kanban][navigation]")
+{
+    KanbanNavigationState navigation;
+
+    REQUIRE(navigation.on_key(key_event(SDLK_Z)) == KanbanNavigationCommand::ToggleColumnZoom);
+    REQUIRE(navigation.on_key(key_event(SDLK_P)) == KanbanNavigationCommand::TogglePreview);
+
+    // Caps lock is ignored like the other bindings.
+    REQUIRE(navigation.on_key(key_event(SDLK_Z, kModCaps)) == KanbanNavigationCommand::ToggleColumnZoom);
+    REQUIRE(navigation.on_key(key_event(SDLK_P, kModCaps)) == KanbanNavigationCommand::TogglePreview);
+
+    // Modifier chords are not zoom/preview toggles.
+    REQUIRE(navigation.on_key(key_event(SDLK_Z, kModCtrl)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_P, kModShift)) == KanbanNavigationCommand::None);
+}
+
+TEST_CASE("kanban zoom toggle clears a pending g prefix", "[kanban][navigation]")
+{
+    KanbanNavigationState navigation;
+
+    // A lone 'g' arms the gg jump; 'z' must consume and cancel it rather than
+    // completing SelectFirst.
+    REQUIRE(navigation.on_key(key_event(SDLK_G)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_Z)) == KanbanNavigationCommand::ToggleColumnZoom);
+    REQUIRE(navigation.on_key(key_event(SDLK_G)) == KanbanNavigationCommand::None);
+    REQUIRE(navigation.on_key(key_event(SDLK_G)) == KanbanNavigationCommand::SelectFirst);
+}
+
 TEST_CASE("kanban navigation ignores caps lock modifier state", "[kanban][navigation]")
 {
     KanbanNavigationState navigation;

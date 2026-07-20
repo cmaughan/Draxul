@@ -128,10 +128,28 @@ public:
     // Dispatch an action to a Neovim host. If one exists, dispatches to it and
     // returns true. If none exists, creates a vertical split with a new NvimHost,
     // dispatches the action, and returns true. Returns false on failure.
-    virtual bool dispatch_to_nvim_host(std::string_view /*action*/)
+    //
+    // keep_focus: when true, the calling pane retains input focus instead of
+    // the Neovim pane being focused. Used by hosts (e.g. Kanban) that want to
+    // surface a file in Neovim as a side effect without leaving their own view.
+    virtual bool dispatch_to_nvim_host(std::string_view /*action*/, bool /*keep_focus*/ = false)
     {
         return false;
     }
+
+    // Show (or refresh) a companion Markdown preview pane linked to the calling
+    // host. On first call the caller's pane is split horizontally and the
+    // preview occupies the bottom third; subsequent calls reuse the pane and
+    // load `path`. Input focus stays with the caller. Returns true if a preview
+    // pane is visible afterwards.
+    virtual bool show_markdown_preview(std::string_view /*path*/)
+    {
+        return false;
+    }
+
+    // Close the companion Markdown preview pane opened by show_markdown_preview,
+    // if one exists. No-op otherwise.
+    virtual void hide_markdown_preview() {}
 
     // Show a non-blocking toast notification. level: 0=info, 1=warn, 2=error.
     virtual void push_toast(int /*level*/, std::string_view /*message*/) {}

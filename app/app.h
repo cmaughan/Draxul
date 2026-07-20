@@ -125,7 +125,9 @@ private:
     void wake_window() override;
     void set_window_title(const std::string& title) override;
     void set_text_input_area(int x, int y, int w, int h) override;
-    bool dispatch_to_nvim_host(std::string_view action) override;
+    bool dispatch_to_nvim_host(std::string_view action, bool keep_focus) override;
+    bool show_markdown_preview(std::string_view path) override;
+    void hide_markdown_preview() override;
     void push_toast(int level, std::string_view message) override;
     void update_diagnostics_panel();
     void refresh_window_layout();

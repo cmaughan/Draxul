@@ -43,6 +43,11 @@ namespace draxul
 namespace
 {
 
+// Fraction of the owner pane's height kept for its content when a Markdown
+// preview pane is attached below it (Kanban card preview). The preview
+// occupies the remaining bottom third.
+constexpr float kMarkdownPreviewTopRatio = 2.0f / 3.0f;
+
 // Compute the pixel size for ImGui fonts from actual font metrics.
 //
 // FreeType's cell_height (face->size->metrics.height) includes ascender, descender, AND the
@@ -1919,8 +1924,12 @@ void App::set_text_input_area(int x, int y, int w, int h)
         window_->set_text_input_area(x, y, w, h);
 }
 
-bool App::dispatch_to_nvim_host(std::string_view action)
+bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
 {
+    // Remember the caller's pane so keep_focus can restore it after we either
+    // focus the target Neovim pane or split a new one (both steal focus).
+    const LeafId origin_leaf = active_host_manager().focused_leaf();
+
     // Find an existing NvimHost via the typed capability query. The first
     // host (in HostManager iteration order) reporting is_nvim_host()==true wins;
     // this is the same selection policy as before, just without the debug-string
@@ -1938,7 +1947,7 @@ bool App::dispatch_to_nvim_host(std::string_view action)
     if (nvim_host)
     {
         nvim_host->dispatch_action(action);
-        active_host_manager().set_focused(nvim_leaf);
+        active_host_manager().set_focused(keep_focus ? origin_leaf : nvim_leaf);
         request_frame();
         return true;
     }
@@ -1952,6 +1961,11 @@ bool App::dispatch_to_nvim_host(std::string_view action)
         return false;
     }
 
+    // split_focused() focuses the new pane; restore the caller's focus when the
+    // caller asked to stay put (e.g. Kanban opening a card in the background).
+    if (keep_focus && origin_leaf != kInvalidLeaf)
+        active_host_manager().set_focused(origin_leaf);
+
     refresh_window_layout();
     request_frame();
 
@@ -1960,6 +1974,40 @@ bool App::dispatch_to_nvim_host(std::string_view action)
         new_host->dispatch_action(action);
 
     return true;
+}
+
+bool App::show_markdown_preview(std::string_view path)
+{
+    HostManager& hm = active_host_manager();
+    const LeafId owner = hm.focused_leaf();
+    if (owner == kInvalidLeaf)
+        return false;
+
+    const bool existed = hm.has_markdown_preview();
+    const LeafId preview = hm.show_markdown_preview(owner, kMarkdownPreviewTopRatio, path, *this);
+    if (preview == kInvalidLeaf)
+    {
+        const std::string& err = hm.error();
+        push_toast(2, err.empty() ? std::string("Failed to open Markdown preview") : err);
+        return false;
+    }
+
+    // Only the first call changes the split layout; refreshing per keystroke as
+    // the selection moves would be wasteful (the pane is merely reloaded).
+    if (!existed)
+        refresh_window_layout();
+    request_frame();
+    return true;
+}
+
+void App::hide_markdown_preview()
+{
+    HostManager& hm = active_host_manager();
+    if (!hm.has_markdown_preview())
+        return;
+    hm.hide_markdown_preview();
+    refresh_window_layout();
+    request_frame();
 }
 
 void App::push_toast(int level, std::string_view message)

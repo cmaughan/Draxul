@@ -94,6 +94,63 @@ TEST_CASE("kanban layout omits rows for zero-width columns in narrow grids", "[k
     }));
 }
 
+TEST_CASE("kanban layout zooms to a single full-width column", "[kanban][layout]")
+{
+    const auto board = make_board();
+    const auto layout = layout_kanban_board(board, KanbanSelection{ .column = 2, .card = 1 },
+        KanbanLayoutOptions{ .grid_cols = 91, .grid_rows = 12, .zoom_column = 2 });
+
+    REQUIRE(layout.columns.size() == 1);
+    REQUIRE(layout.columns[0].x == 0);
+    REQUIRE(layout.columns[0].width == 91);
+    REQUIRE(layout.columns[0].index == 2);
+
+    // Scrollable content and rows come from the zoomed column only.
+    REQUIRE(layout.content_rows == 2);
+    REQUIRE(layout.rows.size() == 2);
+    REQUIRE(std::ranges::all_of(layout.rows, [](const KanbanCardRowLayout& row) {
+        return row.column == 2 && row.x == 1 && row.width == 89;
+    }));
+
+    const auto selected = std::ranges::find_if(layout.rows, [](const KanbanCardRowLayout& row) {
+        return row.selected;
+    });
+    REQUIRE(selected != layout.rows.end());
+    REQUIRE(selected->card == 1);
+}
+
+TEST_CASE("kanban layout zoom scrolls within the zoomed column", "[kanban][layout]")
+{
+    KanbanBoard board;
+    KanbanColumn tall{ .name = "todo" };
+    for (int i = 0; i < 6; ++i)
+        tall.cards.push_back(KanbanCard{ .file_name = "card-" + std::to_string(i) + ".md" });
+    board.columns = { std::move(tall) };
+
+    const auto layout = layout_kanban_board(board, KanbanSelection{ .column = 0, .card = 4 },
+        KanbanLayoutOptions{ .grid_cols = 40, .grid_rows = 6, .scroll_row = 3, .zoom_column = 0 });
+
+    REQUIRE(layout.visible_card_rows == 2);
+    REQUIRE(layout.content_rows == 6);
+    REQUIRE(layout.rows.size() == 2);
+    // Cards 3 and 4 are the visible window; card 3 sits at the first card row.
+    REQUIRE(layout.rows.front().card == 3);
+    REQUIRE(layout.rows.front().y == 3);
+    REQUIRE(layout.rows.back().card == 4);
+    REQUIRE(layout.rows.back().y == 4);
+}
+
+TEST_CASE("kanban layout ignores an out-of-range zoom column", "[kanban][layout]")
+{
+    const auto board = make_board();
+    const auto layout = layout_kanban_board(board, KanbanSelection{ .column = 0, .card = 0 },
+        KanbanLayoutOptions{ .grid_cols = 91, .grid_rows = 12, .zoom_column = 7 });
+
+    // An invalid zoom index falls back to the normal multi-column layout.
+    REQUIRE(layout.columns.size() == 3);
+    REQUIRE(layout.content_rows == 3);
+}
+
 TEST_CASE("kanban truncation uses cell widths and ascii ellipsis", "[kanban][layout]")
 {
     REQUIRE(truncate_to_cells("abcdef", 6) == "abcdef");
@@ -105,14 +162,35 @@ TEST_CASE("kanban truncation uses cell widths and ascii ellipsis", "[kanban][lay
 
 TEST_CASE("kanban truncation respects wide and utf8 codepoints", "[kanban][layout]")
 {
-    REQUIRE(truncate_to_cells("ab\xE7\x95\x8C" "cd", 6) == "ab\xE7\x95\x8C" "cd");
-    REQUIRE(truncate_to_cells("ab\xE7\x95\x8C" "cd", 5) == "ab...");
-    REQUIRE(truncate_to_cells("\xE7\x95\x8C" "abcd", 5) == "\xE7\x95\x8C" "...");
-    REQUIRE(truncate_to_cells("e\xCC\x81" "abcde", 5) == "e\xCC\x81" "a...");
-    REQUIRE(truncate_to_cells("\xE0\xA4\x95\xE0\xA5\x8D\xE0\xA4\xB7" "abcd", 4)
-        == "\xE0\xA4\x95\xE0\xA5\x8D\xE0\xA4\xB7" "...");
-    REQUIRE(truncate_to_cells("\xE0\xA4\x95\xE0\xA5\x8D\xE2\x80\x8D\xE0\xA4\xB7" "abcd", 4)
-        == "\xE0\xA4\x95\xE0\xA5\x8D\xE2\x80\x8D\xE0\xA4\xB7" "...");
+    REQUIRE(truncate_to_cells("ab\xE7\x95\x8C"
+                              "cd",
+                6)
+        == "ab\xE7\x95\x8C"
+           "cd");
+    REQUIRE(truncate_to_cells("ab\xE7\x95\x8C"
+                              "cd",
+                5)
+        == "ab...");
+    REQUIRE(truncate_to_cells("\xE7\x95\x8C"
+                              "abcd",
+                5)
+        == "\xE7\x95\x8C"
+           "...");
+    REQUIRE(truncate_to_cells("e\xCC\x81"
+                              "abcde",
+                5)
+        == "e\xCC\x81"
+           "a...");
+    REQUIRE(truncate_to_cells("\xE0\xA4\x95\xE0\xA5\x8D\xE0\xA4\xB7"
+                              "abcd",
+                4)
+        == "\xE0\xA4\x95\xE0\xA5\x8D\xE0\xA4\xB7"
+           "...");
+    REQUIRE(truncate_to_cells("\xE0\xA4\x95\xE0\xA5\x8D\xE2\x80\x8D\xE0\xA4\xB7"
+                              "abcd",
+                4)
+        == "\xE0\xA4\x95\xE0\xA5\x8D\xE2\x80\x8D\xE0\xA4\xB7"
+           "...");
 }
 
 TEST_CASE("kanban scroll helper keeps the selected card visible", "[kanban][layout]")
