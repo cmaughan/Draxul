@@ -3,9 +3,9 @@
 #include "camera.h"
 #include "camera_manipulator.h"
 #include "satview_camera_key_state.h"
-#include "satview_cloud_service.h"
 #include "satview_simulation_worker.h"
 #include "satview_time_format.h"
+#include <draxul/satview/satview_cloud_service.h>
 #include <draxul/satview/satview_constellation_boundary_catalog.h>
 #include <draxul/satview/satview_constellation_catalog.h>
 #include <draxul/satview/satview_geodetic.h>

@@ -8,8 +8,6 @@ cmake_minimum_required(VERSION 3.25)
 # their headers transitively.
 
 set(SATVIEW_SOURCES
-    src/satview_catalog_service.cpp
-    src/satview_cloud_service.cpp
     src/satview_config_io.cpp
     src/satview_host.cpp
     src/satview_simulation_worker.cpp
@@ -34,8 +32,8 @@ target_compile_definitions(draxul-satview PRIVATE
 target_link_libraries(draxul-satview PUBLIC
     draxul-satview-core
     draxul-satview-scene
+    draxul-satview-services
     draxul-types
-    draxul-http
     draxul-host
     draxul-renderer
     imgui

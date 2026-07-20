@@ -400,8 +400,7 @@ void SatViewCatalogService::start(Config config)
     {
         satcat_catalog = std::move(satcat_cached->first);
         std::string disposition_error;
-        const std::size_t disposition_count =
-            load_bundled_lunar_dispositions(satcat_catalog, &disposition_error);
+        const std::size_t disposition_count = load_bundled_lunar_dispositions(satcat_catalog, &disposition_error);
         if (disposition_count > 0)
             DRAXUL_LOG_DEBUG(LogCategory::Renderer,
                 "SatView: excluded %zu confirmed non-orbiting lunar objects",
@@ -688,10 +687,9 @@ void SatViewCatalogService::start_refresh()
                     result.satcat.success = true;
                     result.satcat.catalog = std::move(parsed.catalog);
                     std::string disposition_error;
-                    const std::size_t disposition_count =
-                        load_bundled_lunar_dispositions(
-                            result.satcat.catalog,
-                            &disposition_error);
+                    const std::size_t disposition_count = load_bundled_lunar_dispositions(
+                        result.satcat.catalog,
+                        &disposition_error);
                     if (disposition_count > 0)
                         DRAXUL_LOG_DEBUG(LogCategory::Renderer,
                             "SatView: excluded %zu confirmed non-orbiting lunar objects",
@@ -723,8 +721,7 @@ void SatViewCatalogService::start_refresh()
         {
             result.merged_catalog = merge_satellite_catalogs(gp_catalog, satcat_catalog);
             std::string ephemeris_error;
-            const std::size_t ephemeris_count =
-                load_bundled_sampled_ephemeris(result.merged_catalog, &ephemeris_error);
+            const std::size_t ephemeris_count = load_bundled_sampled_ephemeris(result.merged_catalog, &ephemeris_error);
             if (ephemeris_count > 0)
                 DRAXUL_LOG_DEBUG(LogCategory::Renderer,
                     "SatView: applied sampled ephemerides to %zu lunar objects", ephemeris_count);
