@@ -496,6 +496,88 @@ TEST_CASE("host manager: callbacks remain valid across pane teardown", "[host_ma
     REQUIRE(harness.callbacks.request_frame_calls == 2);
 }
 
+TEST_CASE("host manager: markdown preview splits below the owner and keeps focus", "[host_manager]")
+{
+    HostManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId owner = harness.manager.focused_leaf();
+    REQUIRE(harness.manager.host_count() == 1);
+    REQUIRE_FALSE(harness.manager.has_markdown_preview());
+
+    const LeafId preview = harness.manager.show_markdown_preview(
+        owner, 2.0f / 3.0f, "/tmp/card.md", harness.callbacks);
+    REQUIRE(preview != kInvalidLeaf);
+    REQUIRE(preview != owner);
+    REQUIRE(harness.manager.has_markdown_preview());
+    REQUIRE(harness.manager.host_count() == 2);
+
+    // Focus stays on the board, not the freshly-created preview pane.
+    CHECK(harness.manager.focused_leaf() == owner);
+
+    // The preview sits below the owner and takes roughly the bottom third.
+    const PaneDescriptor owner_desc = harness.manager.tree().descriptor_for(owner);
+    const PaneDescriptor preview_desc = harness.manager.tree().descriptor_for(preview);
+    CHECK(preview_desc.pixel_pos.y > owner_desc.pixel_pos.y);
+    CHECK(owner_desc.pixel_size.y > preview_desc.pixel_size.y);
+    CHECK(preview_desc.pixel_size.y >= 150);
+    CHECK(preview_desc.pixel_size.y <= 240);
+}
+
+TEST_CASE("host manager: markdown preview reuses the pane and reloads on refresh", "[host_manager]")
+{
+    HostManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId owner = harness.manager.focused_leaf();
+
+    // First call creates the pane; the initial source arrives via the host's
+    // launch options (loaded on init), so it is not a dispatch_action.
+    const LeafId first
+        = harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/a.md", harness.callbacks);
+    // Second call must reuse the same pane and reload it via dispatch_action.
+    const LeafId second
+        = harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/b.md", harness.callbacks);
+
+    CHECK(first == second);
+    CHECK(harness.manager.host_count() == 2);
+    REQUIRE(harness.created_hosts.size() == 2);
+    const auto& actions = harness.created_hosts[1]->dispatched_actions;
+    CHECK(std::ranges::find(actions, std::string("open_file:/tmp/b.md")) != actions.end());
+}
+
+TEST_CASE("host manager: hiding the markdown preview restores the owner", "[host_manager]")
+{
+    HostManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId owner = harness.manager.focused_leaf();
+
+    harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/card.md", harness.callbacks);
+    REQUIRE(harness.manager.host_count() == 2);
+
+    harness.manager.hide_markdown_preview();
+    CHECK_FALSE(harness.manager.has_markdown_preview());
+    CHECK(harness.manager.host_count() == 1);
+    CHECK(harness.manager.focused_leaf() == owner);
+
+    // Hiding again is a harmless no-op.
+    harness.manager.hide_markdown_preview();
+    CHECK(harness.manager.host_count() == 1);
+}
+
+TEST_CASE("host manager: closing the preview pane clears preview tracking", "[host_manager]")
+{
+    HostManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    const LeafId owner = harness.manager.focused_leaf();
+
+    const LeafId preview
+        = harness.manager.show_markdown_preview(owner, 2.0f / 3.0f, "/tmp/card.md", harness.callbacks);
+    REQUIRE(harness.manager.has_markdown_preview());
+
+    // Closing the preview by any other path must not leave a dangling ref.
+    REQUIRE(harness.manager.close_leaf(preview));
+    CHECK_FALSE(harness.manager.has_markdown_preview());
+}
+
 TEST_CASE("host manager: session state round-trips layout and pane metadata", "[host_manager]")
 {
     HostManagerHarness harness;
