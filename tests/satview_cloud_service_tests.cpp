@@ -1,5 +1,5 @@
-#include "satview_cloud_service.h"
 #include "temp_dir.h"
+#include <draxul/satview/satview_cloud_service.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -17,8 +17,12 @@ std::string tiny_cloud_ppm()
 {
     std::string image = "P6\n2 1\n255\n";
     const char pixels[] = {
-        static_cast<char>(255), 0, 0,
-        0, static_cast<char>(255), 0,
+        static_cast<char>(255),
+        0,
+        0,
+        0,
+        static_cast<char>(255),
+        0,
     };
     image.append(pixels, sizeof(pixels));
     return image;

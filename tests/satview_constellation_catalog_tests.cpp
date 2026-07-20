@@ -1,4 +1,4 @@
-#include "satview_constellation_catalog.h"
+#include <draxul/satview/satview_constellation_catalog.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

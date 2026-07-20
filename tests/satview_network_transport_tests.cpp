@@ -1,5 +1,5 @@
-#include "satview_cloud_service.h"
 #include "temp_dir.h"
+#include <draxul/satview/satview_cloud_service.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/http/http_client.h>
@@ -54,17 +54,20 @@ constexpr std::string_view kCatalogJson = R"json([
   }
 ])json";
 
-constexpr std::string_view kSatcatCsv =
-    "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,OWNER,DECAY_DATE,PERIOD,"
-    "INCLINATION,APOGEE,PERIGEE,RCS,DATA_STATUS_CODE,ORBIT_CENTER,ORBIT_TYPE\n"
-    "LAST GOOD,990001,2026-099A,PAY,+,US,,92.9,51.6,430,410,100,,EA,ORB\n";
+constexpr std::string_view kSatcatCsv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,OWNER,DECAY_DATE,PERIOD,"
+                                        "INCLINATION,APOGEE,PERIGEE,RCS,DATA_STATUS_CODE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                        "LAST GOOD,990001,2026-099A,PAY,+,US,,92.9,51.6,430,410,100,,EA,ORB\n";
 
 std::string tiny_cloud_ppm()
 {
     std::string image = "P6\n2 1\n255\n";
     const char pixels[] = {
-        static_cast<char>(255), 0, 0,
-        0, static_cast<char>(255), 0,
+        static_cast<char>(255),
+        0,
+        0,
+        0,
+        static_cast<char>(255),
+        0,
     };
     image.append(pixels, sizeof(pixels));
     return image;

@@ -1,6 +1,6 @@
-#include "satview_map_projection.h"
-#include "satview_moon_ephemeris.h"
-#include "satview_sun_ephemeris.h"
+#include <draxul/satview/satview_map_projection.h>
+#include <draxul/satview/satview_moon_ephemeris.h>
+#include <draxul/satview/satview_sun_ephemeris.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -12,13 +12,13 @@ namespace
 
 using Catch::Matchers::WithinAbs;
 using draxul::satview::greenwich_sidereal_angle_radians;
+using draxul::satview::kSatViewEarthEquatorialRadiusKm;
 using draxul::satview::normalized_satview_map_center;
-using draxul::satview::SatViewMapBody;
-using draxul::satview::satview_map_position_from_teme;
 using draxul::satview::satview_map_pan_delta;
+using draxul::satview::satview_map_position_from_teme;
 using draxul::satview::satview_moon_position;
 using draxul::satview::satview_sun_position;
-using draxul::satview::kSatViewEarthEquatorialRadiusKm;
+using draxul::satview::SatViewMapBody;
 
 TEST_CASE("SatView map projection aligns TEME Greenwich with the map center", "[satview][map]")
 {
@@ -29,8 +29,7 @@ TEST_CASE("SatView map projection aligns TEME Greenwich with the map center", "[
         std::sin(sidereal_angle),
         0.0);
 
-    const glm::vec2 map_position =
-        satview_map_position_from_teme(teme_greenwich, kJ2000UnixSeconds);
+    const glm::vec2 map_position = satview_map_position_from_teme(teme_greenwich, kJ2000UnixSeconds);
     CHECK_THAT(map_position.x, WithinAbs(0.0f, 1.0e-6f));
     CHECK_THAT(map_position.y, WithinAbs(0.0f, 1.0e-6f));
 }
@@ -81,8 +80,7 @@ TEST_CASE("SatView Sun map uses the rotating solar body frame", "[satview][map][
     constexpr double kJ2000UnixSeconds = 946728000.0;
     const auto moon = satview_moon_position(kJ2000UnixSeconds);
     const auto sun = satview_sun_position(kJ2000UnixSeconds);
-    const glm::dvec3 body_meridian_render =
-        sun.render_position_earth_radii
+    const glm::dvec3 body_meridian_render = sun.render_position_earth_radii
         + sun.body_to_render_orientation * glm::dvec3(10.0, 0.0, 0.0);
     const glm::dvec3 body_meridian_teme_km(
         -body_meridian_render.z,

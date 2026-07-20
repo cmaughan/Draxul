@@ -1,6 +1,6 @@
-#include "satview_lunar_frame.h"
-#include "satview_map_projection.h"
-#include "satview_moon_ephemeris.h"
+#include <draxul/satview/satview_lunar_frame.h>
+#include <draxul/satview/satview_map_projection.h>
+#include <draxul/satview/satview_moon_ephemeris.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
