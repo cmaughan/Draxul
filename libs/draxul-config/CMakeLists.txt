@@ -1,6 +1,7 @@
 add_library(draxul-config
     src/app_config_io.cpp
     src/config_document.cpp
+    src/config_schema.cpp
     src/keybinding_parser.cpp
 )
 

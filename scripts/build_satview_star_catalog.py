@@ -11,12 +11,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import satview_catalog_container as catalog_container
+
 
 VIZIER_URL = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv"
 SOURCE_NAME = "I/239/hip_main"
 MAGIC = b"DXSTAR1\0"
 VERSION = 1
-HEADER_SIZE = 32
 RECORD_SIZE = 32
 SOURCE_ID_HIPPARCOS = 1
 
@@ -182,34 +183,28 @@ def build_records(tsv: str, maximum_stars: int, saturation: float):
 
 
 def write_catalog(path: Path, records) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as output:
-        output.write(
-            struct.pack(
-                "<8sIIIIII",
-                MAGIC,
-                VERSION,
-                HEADER_SIZE,
-                RECORD_SIZE,
-                len(records),
-                0,
-                SOURCE_ID_HIPPARCOS,
-            )
+    packed_records = [
+        struct.pack(
+            "<ffffffff",
+            direction[0],
+            direction[1],
+            direction[2],
+            magnitude,
+            color_size[0],
+            color_size[1],
+            color_size[2],
+            color_size[3],
         )
-        for magnitude, _hip, direction, color_size in records:
-            output.write(
-                struct.pack(
-                    "<ffffffff",
-                    direction[0],
-                    direction[1],
-                    direction[2],
-                    magnitude,
-                    color_size[0],
-                    color_size[1],
-                    color_size[2],
-                    color_size[3],
-                )
-            )
+        for magnitude, _hip, direction, color_size in records
+    ]
+    catalog_container.write_single_table_catalog(
+        path,
+        magic=MAGIC,
+        version=VERSION,
+        record_size=RECORD_SIZE,
+        records=packed_records,
+        source_id=SOURCE_ID_HIPPARCOS,
+    )
 
 
 def main(argv: list[str]) -> int:

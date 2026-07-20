@@ -4,10 +4,6 @@
 #include "support/home_dir_redirect.h"
 #include "support/temp_dir.h"
 
-// Workaround: Xcode 16+'s libc++ uses __int128 for chrono duration arithmetic
-// which triggers an ambiguous operator<< in Catch2's StringMaker. Disabling
-// Catch2's chrono stringification avoids the compile error.
-#define CATCH_CONFIG_NO_CHRONO_TOSTRING
 #include <catch2/catch_test_macros.hpp>
 #include <draxul/app_options.h>
 #include <draxul/host.h>
@@ -21,6 +17,17 @@
 #include <filesystem>
 #include <mutex>
 #include <thread>
+
+#ifndef _WIN32
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <sstream>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -101,7 +108,7 @@ AppOptions make_attach_options()
 
 } // namespace
 
-TEST_CASE("session attach: no server reports no server", "[session_attach]")
+TEST_CASE("session attach: no server reports no server", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-no-server");
     HomeDirRedirect redirect(temp_dir.path);
@@ -109,7 +116,7 @@ TEST_CASE("session attach: no server reports no server", "[session_attach]")
     REQUIRE(SessionAttachServer::try_attach("default") == SessionAttachServer::AttachStatus::NoServer);
 }
 
-TEST_CASE("session attach: server accepts an attach request", "[session_attach]")
+TEST_CASE("session attach: server accepts an attach request", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-server");
     HomeDirRedirect redirect(temp_dir.path);
@@ -134,7 +141,7 @@ TEST_CASE("session attach: server accepts an attach request", "[session_attach]"
     server.stop();
 }
 
-TEST_CASE("session attach: shutdown command stops the server", "[session_attach]")
+TEST_CASE("session attach: shutdown command stops the server", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-shutdown");
     HomeDirRedirect redirect(temp_dir.path);
@@ -152,7 +159,7 @@ TEST_CASE("session attach: shutdown command stops the server", "[session_attach]
     server.stop();
 }
 
-TEST_CASE("session attach: stop does not dispatch shutdown command", "[session_attach]")
+TEST_CASE("session attach: stop does not dispatch shutdown command", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-stop-internal");
     HomeDirRedirect redirect(temp_dir.path);
@@ -180,7 +187,7 @@ TEST_CASE("session attach: stop does not dispatch shutdown command", "[session_a
     REQUIRE(shutdown_count == 0);
 }
 
-TEST_CASE("session attach: detach command reaches the server", "[session_attach]")
+TEST_CASE("session attach: detach command reaches the server", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-detach");
     HomeDirRedirect redirect(temp_dir.path);
@@ -208,7 +215,7 @@ TEST_CASE("session attach: detach command reaches the server", "[session_attach]
     server.stop();
 }
 
-TEST_CASE("session attach: different session ids stay isolated", "[session_attach]")
+TEST_CASE("session attach: different session ids stay isolated", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-isolated");
     HomeDirRedirect redirect(temp_dir.path);
@@ -222,7 +229,7 @@ TEST_CASE("session attach: different session ids stay isolated", "[session_attac
     server.stop();
 }
 
-TEST_CASE("session attach: probe reports a running session server", "[session_attach]")
+TEST_CASE("session attach: probe reports a running session server", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-probe");
     HomeDirRedirect redirect(temp_dir.path);
@@ -234,7 +241,7 @@ TEST_CASE("session attach: probe reports a running session server", "[session_at
     server.stop();
 }
 
-TEST_CASE("session attach: live-session query returns server summary", "[session_attach]")
+TEST_CASE("session attach: live-session query returns server summary", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-query");
     HomeDirRedirect redirect(temp_dir.path);
@@ -266,7 +273,7 @@ TEST_CASE("session attach: live-session query returns server summary", "[session
     server.stop();
 }
 
-TEST_CASE("session attach: rename request reaches the server", "[session_attach]")
+TEST_CASE("session attach: rename request reaches the server", "[session_attach][protocol]")
 {
     TempDir temp_dir("session-attach-rename");
     HomeDirRedirect redirect(temp_dir.path);
@@ -555,7 +562,15 @@ TEST_CASE("app session attach: periodic checkpoint refreshes saved state", "[ses
     }
 
     const auto after = std::filesystem::last_write_time(state_path);
-    REQUIRE(after > before);
+    // std::filesystem::file_time_type's libc++ rep is __int128, which Catch2
+    // 3.7.x cannot stringify (ambiguous operator<<). Decomposing fixed-width
+    // 64-bit nanosecond counts keeps full assertion diagnostics without
+    // disabling chrono stringification for the whole file. See kanban 15.
+    const auto before_ns
+        = std::chrono::duration_cast<std::chrono::nanoseconds>(before.time_since_epoch()).count();
+    const auto after_ns
+        = std::chrono::duration_cast<std::chrono::nanoseconds>(after.time_since_epoch()).count();
+    REQUIRE(after_ns > before_ns);
 
     app.shutdown();
 }
@@ -629,3 +644,218 @@ TEST_CASE("app session attach: rename command updates persisted session name", "
 
     app.shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// POSIX transport coverage (Unix-domain sockets).
+//
+// The tests above exercise the shared protocol/dispatch contract through the
+// public API and run on every platform. The cases below reach into the
+// POSIX-specific transport (socket path, node type/ownership, stale-endpoint
+// cleanup) and the exact protocol bytes on the wire, so they are guarded to
+// non-Windows. Windows named-pipe transport keeps its own coverage on that
+// platform. kanban 25 (session-attach-platform-split) will formalize the
+// SessionTransport seam these lean on today.
+// ---------------------------------------------------------------------------
+#ifndef _WIN32
+namespace
+{
+
+// Mirror of draxul::(anonymous)::endpoint_suffix()/socket_path() in
+// libs/draxul-runtime-support/src/session_attach.cpp. Duplicated deliberately
+// so a transport test can name the exact endpoint without a production seam;
+// if the production formula ever drifts, the "socket is created" assertion
+// below fails loudly instead of silently planting files at the wrong path.
+// kanban 25 will replace this mirror with a shared transport-path primitive.
+std::filesystem::path expected_socket_path(
+    const std::filesystem::path& config_dir, std::string_view session_id)
+{
+    uint64_t hash = 14695981039346656037ull;
+    const std::string key = config_dir.string() + "|" + std::string(session_id);
+    for (unsigned char ch : key)
+    {
+        hash ^= static_cast<uint64_t>(ch);
+        hash *= 1099511628211ull;
+    }
+    std::ostringstream suffix;
+    suffix << std::hex << hash;
+    return std::filesystem::temp_directory_path()
+        / ("draxul-session-attach-" + suffix.str() + ".sock");
+}
+
+int bind_unix(int fd, const std::filesystem::path& path)
+{
+    sockaddr_un addr = {};
+    addr.sun_family = AF_UNIX;
+    std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.string().c_str());
+    return ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+}
+
+int connect_unix(int fd, const std::filesystem::path& path)
+{
+    sockaddr_un addr = {};
+    addr.sun_family = AF_UNIX;
+    std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.string().c_str());
+    return ::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+}
+
+} // namespace
+
+TEST_CASE("session attach transport: server creates a user-owned unix socket",
+    "[session_attach][transport][posix]")
+{
+    TempDir temp_dir("session-attach-posix-socket");
+    HomeDirRedirect redirect(temp_dir.path);
+    const auto sock = expected_socket_path(redirect.config_path.parent_path(), "alpha");
+
+    std::error_code ec;
+    REQUIRE_FALSE(std::filesystem::exists(sock, ec));
+
+    SessionAttachServer server;
+    REQUIRE(server.start("alpha", []() {}));
+
+    // Path: the endpoint lives under the system temp dir with the documented name.
+    REQUIRE(std::filesystem::exists(sock, ec));
+    // temp_directory_path() may carry a trailing slash on some platforms (macOS),
+    // so compare by directory identity rather than exact path string.
+    REQUIRE(std::filesystem::equivalent(sock.parent_path(), std::filesystem::temp_directory_path()));
+
+    // Permissions/ownership: a socket node owned by the current user.
+    struct stat st = {};
+    REQUIRE(::stat(sock.string().c_str(), &st) == 0);
+    REQUIRE(S_ISSOCK(st.st_mode));
+    REQUIRE(st.st_uid == ::getuid());
+
+    // Cleanup: stop() unlinks the socket node.
+    server.stop();
+    REQUIRE_FALSE(std::filesystem::exists(sock, ec));
+}
+
+TEST_CASE("session attach transport: destructor unlinks the unix socket",
+    "[session_attach][transport][posix]")
+{
+    TempDir temp_dir("session-attach-posix-dtor");
+    HomeDirRedirect redirect(temp_dir.path);
+    const auto sock = expected_socket_path(redirect.config_path.parent_path(), "alpha");
+    std::error_code ec;
+
+    {
+        SessionAttachServer server;
+        REQUIRE(server.start("alpha", []() {}));
+        REQUIRE(std::filesystem::exists(sock, ec));
+    }
+
+    REQUIRE_FALSE(std::filesystem::exists(sock, ec));
+}
+
+TEST_CASE("session attach transport: start reclaims a stale socket endpoint",
+    "[session_attach][transport][posix]")
+{
+    TempDir temp_dir("session-attach-posix-stale");
+    HomeDirRedirect redirect(temp_dir.path);
+    const auto sock = expected_socket_path(redirect.config_path.parent_path(), "alpha");
+
+    // Plant a stale AF_UNIX socket node with no listener behind it: bind then
+    // close leaves the filesystem node, but nothing accepts, so a connect()
+    // yields ECONNREFUSED — the exact stale-owner case start() must reclaim.
+    {
+        const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        REQUIRE(fd >= 0);
+        REQUIRE(bind_unix(fd, sock) == 0);
+        ::close(fd);
+    }
+    std::error_code ec;
+    REQUIRE(std::filesystem::exists(sock, ec));
+
+    SessionAttachServer server;
+    std::string error;
+    const bool started = server.start("alpha", []() {}, &error);
+    INFO(error);
+    REQUIRE(started);
+    REQUIRE(SessionAttachServer::probe("alpha") == SessionAttachServer::ProbeStatus::Running);
+
+    server.stop();
+    REQUIRE_FALSE(std::filesystem::exists(sock, ec));
+}
+
+TEST_CASE("session attach protocol: client writes the documented command token",
+    "[session_attach][protocol][posix]")
+{
+    TempDir temp_dir("session-attach-wire-command");
+    HomeDirRedirect redirect(temp_dir.path);
+    const auto sock = expected_socket_path(redirect.config_path.parent_path(), "wire");
+
+    // Stand a raw listener at the endpoint the client will compute for "wire",
+    // then capture the exact bytes send_command() puts on the wire. Detach does
+    // not read a reply, so no response is written here (avoids SIGPIPE).
+    const int listen_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    REQUIRE(listen_fd >= 0);
+    REQUIRE(bind_unix(listen_fd, sock) == 0);
+    REQUIRE(::listen(listen_fd, 1) == 0);
+
+    SessionAttachServer::AttachStatus status = SessionAttachServer::AttachStatus::Error;
+    std::thread client([&]() {
+        status = SessionAttachServer::send_command("wire", SessionAttachServer::Command::Detach);
+    });
+
+    const int conn = ::accept(listen_fd, nullptr, nullptr);
+    std::string captured;
+    if (conn >= 0)
+    {
+        char buffer[64] = {};
+        const ssize_t n = ::read(conn, buffer, sizeof(buffer));
+        if (n > 0)
+            captured.assign(buffer, static_cast<size_t>(n));
+        ::close(conn);
+    }
+    client.join();
+    ::close(listen_fd);
+    std::error_code ec;
+    std::filesystem::remove(sock, ec);
+
+    REQUIRE(conn >= 0);
+    REQUIRE(captured == "detach");
+    REQUIRE(status == SessionAttachServer::AttachStatus::Attached);
+}
+
+TEST_CASE("session attach protocol: server serializes the documented live-session frame",
+    "[session_attach][protocol][posix]")
+{
+    TempDir temp_dir("session-attach-wire-response");
+    HomeDirRedirect redirect(temp_dir.path);
+    const auto sock = expected_socket_path(redirect.config_path.parent_path(), "alpha");
+
+    SessionAttachServer server;
+    REQUIRE(server.start(
+        "alpha",
+        [](SessionAttachServer::Command) {},
+        []() {
+            SessionAttachServer::LiveSessionInfo info;
+            info.workspace_count = 2;
+            info.pane_count = 5;
+            info.detached = true;
+            info.owner_pid = 4242;
+            info.last_attached_unix_s = 111;
+            info.last_detached_unix_s = 222;
+            return info;
+        }));
+
+    // Raw client: send the query token, read the reply frame verbatim.
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    REQUIRE(fd >= 0);
+    REQUIRE(connect_unix(fd, sock) == 0);
+    const std::string query = "query-live-session";
+    REQUIRE(::write(fd, query.data(), query.size()) == static_cast<ssize_t>(query.size()));
+
+    std::string response;
+    char buffer[64] = {};
+    ssize_t n = 0;
+    while ((n = ::read(fd, buffer, sizeof(buffer))) > 0)
+        response.append(buffer, static_cast<size_t>(n));
+    ::close(fd);
+    server.stop();
+
+    REQUIRE(response
+        == "workspace_count=2\npane_count=5\ndetached=1\nowner_pid=4242\n"
+           "last_attached_unix_s=111\nlast_detached_unix_s=222\n");
+}
+#endif // !_WIN32

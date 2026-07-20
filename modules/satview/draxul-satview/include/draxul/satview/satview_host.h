@@ -6,10 +6,12 @@
 #include <draxul/satview/satview_config.h>
 #include <draxul/satview/satview_filter.h>
 #include <draxul/satview/satview_propagation.h>
+#include <functional>
 #include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 struct ImGuiContext;
@@ -105,6 +107,24 @@ private:
         bool operator==(const SelectedSurfaceObject&) const = default;
     };
 
+    // Test seam (kanban 18): CPU-only host fixtures inject a fake clock and
+    // offline catalog/cloud transports so construct/initialize/pump/draw can run
+    // with no GPU, no network, and no system-clock reads. Inert in production —
+    // when `active` is false the real clock, HTTP client, and default cache
+    // directory are used unchanged. Installed via SatViewHostTestAccess before
+    // initialize(); it is the sole friend that may reach the private host state.
+    friend class SatViewHostTestAccess;
+    using TestFetchFunction = std::function<std::string(std::string_view url, std::string& error)>;
+    struct TestHooks
+    {
+        bool active = false;
+        std::function<double()> clock;
+        TestFetchFunction catalog_fetch;
+        TestFetchFunction cloud_fetch;
+        std::string cache_directory;
+    };
+    [[nodiscard]] double now_unix_seconds() const;
+
     void request_redraw();
     void invalidate_track_buffer();
     void invalidate_marker_buffer();
@@ -158,6 +178,7 @@ private:
     bool select_nearest_surface_object(const glm::ivec2& screen_pos);
     void center_selected_surface_object(double simulation_seconds);
 
+    TestHooks test_hooks_;
     draxul::IHostCallbacks* callbacks_ = nullptr;
     draxul::ConfigDocument* config_document_ = nullptr;
     draxul::HostViewport viewport_;

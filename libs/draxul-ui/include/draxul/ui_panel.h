@@ -8,8 +8,6 @@
 #include <string>
 #include <vector>
 
-struct ImDrawData;
-
 namespace draxul
 {
 
@@ -73,9 +71,34 @@ public:
     ~UiPanel();
 
     bool initialize();
-    void set_imgui_backend(IImGuiHost* backend);
+
+    // --- ImGui backend attachment contract -------------------------------
+    // The panel never owns the backend. attach_imgui_backend() makes the
+    // panel's ImGui context current, stores a reference, and initializes the
+    // backend for that context (IImGuiHost::initialize_imgui_backend();
+    // returns its result). The caller guarantees the backend stays alive
+    // until detach_imgui_backend() — or the panel's shutdown(), which
+    // performs an implicit detach — whichever comes first. Call
+    // detach_imgui_backend() explicitly if the backend is torn down before
+    // the panel.
+    //
+    // While attached:
+    //   - render() calls IImGuiHost::begin_imgui_frame() each frame,
+    //   - set_font() calls IImGuiHost::rebuild_imgui_font_texture(),
+    //   - detach (explicit or via shutdown()) calls
+    //     IImGuiHost::shutdown_imgui_backend() with the panel's context
+    //     current, exactly once per attachment.
+    //
+    // Requires initialize() to have succeeded; before that, attach stores
+    // nothing and returns false. If backend initialization fails, nothing
+    // stays attached and attach returns false. Attaching a new backend
+    // detaches the previous one first; re-attaching the already-attached
+    // backend is a no-op returning true. detach_imgui_backend() is a no-op
+    // when nothing is attached.
+    bool attach_imgui_backend(IImGuiHost& backend);
+    void detach_imgui_backend();
+
     void set_font(const std::string& font_path, float size_pixels);
-    void activate_imgui_context(); // make this panel's ImGui context current (for backend shutdown)
     void shutdown();
 
     void set_visible(bool visible);
@@ -87,11 +110,13 @@ public:
 
     void update_diagnostic_state(const DiagnosticPanelState& state);
 
+    // The single frame-driving API. Runs the whole ImGui frame for this
+    // panel — activate the panel's context, IImGuiHost::begin_imgui_frame(),
+    // ImGui::NewFrame(), draw the diagnostics windows, ImGui::Render(), then
+    // submit the draw data through frame.render_imgui(). Call once per frame
+    // (typically from IHost::draw). No-op while the panel is hidden, has no
+    // reserved height, or initialize() has not succeeded.
     void render(IFrameContext& frame, float delta_seconds);
-
-    void begin_frame(float delta_seconds);
-    const ImDrawData* end_frame() const;
-    void render_into_current_context() const;
 
     void on_key(const KeyEvent& event);
     void on_mouse_move(const MouseMoveEvent& event);

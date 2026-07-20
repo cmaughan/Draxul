@@ -9,6 +9,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import tempfile
 import sys
 from datetime import datetime
 from types import SimpleNamespace
@@ -1373,6 +1374,54 @@ def build_shortcut_exe(root: pathlib.Path) -> tuple[int, pathlib.Path | None, di
     return 0, exe, env
 
 
+def cmd_score_shot_check(root: pathlib.Path) -> int:
+    """Regression guard for kanban 74 (score-screenshot-size-hang).
+
+    The score host used to hang under `--screenshot-size` and for uncompressed
+    `.musicxml` sources (the readiness pump never saw the slicer-ready signal), so
+    only the plain window-capture `.mxl` path worked. This runs the previously
+    hanging path headless under a timeout and requires a byte-exact BMP at the
+    requested size. A hang, a non-zero exit, or a wrong-sized file fails the check.
+    """
+    fixture = root / "tests" / "fixtures" / "musicxml" / "grieg-waltz-op-12-no-2.musicxml"
+    if not fixture.exists():
+        print(f"score-shot-check: FAILED — fixture missing: {fixture}")
+        return 1
+
+    rc, exe, env = build_shortcut_exe(root)
+    if rc != 0 or exe is None:
+        return 1
+
+    width, height = 640, 900
+    expected = width * height * 4 + 54  # RGBA pixels + 54-byte BMP header
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "score-shot-check.bmp"
+        cmd = [str(exe), "--console", "--host", "score",
+               "--command", "paged analysis unique",
+               "--source", str(fixture),
+               "--screenshot", str(out),
+               "--screenshot-size", f"{width}x{height}"]
+        try:
+            proc = subprocess.run(cmd, cwd=root, env=env, timeout=90, check=False)
+        except subprocess.TimeoutExpired:
+            print("score-shot-check: FAILED — score host hung (kanban 74 regression)")
+            return 1
+        if proc.returncode != 0:
+            print(f"score-shot-check: FAILED — exit {proc.returncode}")
+            return 1
+        if not out.exists():
+            print("score-shot-check: FAILED — no screenshot written")
+            return 1
+        actual = out.stat().st_size
+        if actual != expected:
+            print(f"score-shot-check: FAILED — BMP is {actual} bytes, "
+                  f"expected {expected} ({width}x{height} RGBA + header)")
+            return 1
+
+    print(f"score-shot-check: OK — {width}x{height} BMP from .musicxml, no hang")
+    return 0
+
+
 def ensure_built(root: pathlib.Path) -> int:
     exe = draxul_path(root)
     if exe.exists():
@@ -1392,6 +1441,156 @@ def cmd_clean(root: pathlib.Path) -> int:
     for directory in directories:
         print(f"Removing build directory: {directory}")
         _remove_tree(directory)
+    return 0
+
+
+# --- Repository hygiene -----------------------------------------------------
+#
+# Artifacts that must never be tracked. OS/coverage temps are forbidden anywhere
+# in the tree; log/object/bitmap files are forbidden only at the repo root, so
+# legitimate assets keep working (mesh `*.obj` under module dirs, render-test
+# reference `*.bmp` under tests/render/reference/).
+FORBIDDEN_ANYWHERE_NAMES = frozenset({".DS_Store"})
+FORBIDDEN_ANYWHERE_PREFIXES = (".!",)  # partial-transfer temps, e.g. ".!75583!.DS_Store"
+FORBIDDEN_ANYWHERE_SUFFIXES = (".profraw", ".profdata")
+FORBIDDEN_ROOT_NAMES = frozenset({"key.txt", "megacity-linux-drivers-mesh.bmp", "NUL.obj"})
+FORBIDDEN_ROOT_SUFFIXES = (".log", ".obj", ".bmp")
+
+# A canonical feature inventory lives at docs/features.md. Root FEATURES.md must
+# stay a short pointer to it rather than growing into a second inventory.
+FEATURE_DOC_POINTER_MAX_LINES = 40
+
+
+def forbidden_artifacts(tracked_relpaths: list[str]) -> list[str]:
+    """Return the tracked paths that violate the artifact policy (sorted, unique)."""
+    offenders: set[str] = set()
+    for raw in tracked_relpaths:
+        norm = raw.replace("\\", "/").strip()
+        if not norm:
+            continue
+        name = norm.rsplit("/", 1)[-1]
+        at_root = "/" not in norm
+        if (
+            name in FORBIDDEN_ANYWHERE_NAMES
+            or name.startswith(FORBIDDEN_ANYWHERE_PREFIXES)
+            or name.endswith(FORBIDDEN_ANYWHERE_SUFFIXES)
+            or (at_root and (name in FORBIDDEN_ROOT_NAMES or name.endswith(FORBIDDEN_ROOT_SUFFIXES)))
+        ):
+            offenders.add(norm)
+    return sorted(offenders)
+
+
+def feature_doc_problems(features_md: str | None, docs_features_exists: bool) -> list[str]:
+    """Flag a missing canonical inventory or a FEATURES.md that duplicates it."""
+    problems: list[str] = []
+    if not docs_features_exists:
+        problems.append("docs/features.md (the canonical feature inventory) is missing")
+    if features_md is not None:
+        if "docs/features.md" not in features_md:
+            problems.append("FEATURES.md must point to docs/features.md (no reference found)")
+        line_count = len(features_md.splitlines())
+        if line_count > FEATURE_DOC_POINTER_MAX_LINES:
+            problems.append(
+                f"FEATURES.md has {line_count} lines (> {FEATURE_DOC_POINTER_MAX_LINES}); it should be a "
+                "short pointer to docs/features.md, not a second feature inventory"
+            )
+    return problems
+
+
+def tracked_files(root: pathlib.Path) -> list[str]:
+    """Repo-relative paths git is tracking — the authoritative view for hygiene."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "ls-files"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def cmd_hygiene(root: pathlib.Path) -> int:
+    """Fail if forbidden artifacts are tracked or the feature docs have duplicated."""
+    problems: list[str] = []
+    problems.extend(
+        f"forbidden tracked artifact: {path}" for path in forbidden_artifacts(tracked_files(root))
+    )
+    features_path = root / "FEATURES.md"
+    features_md = features_path.read_text(encoding="utf-8", errors="replace") if features_path.is_file() else None
+    problems.extend(feature_doc_problems(features_md, (root / "docs" / "features.md").is_file()))
+
+    if problems:
+        print("Hygiene check FAILED:")
+        for problem in problems:
+            print(f"  - {problem}")
+        return 1
+    print("Hygiene check passed: no forbidden tracked artifacts; single feature-doc source of truth.")
+    return 0
+
+
+# --- Kanban report ----------------------------------------------------------
+
+KANBAN_LANES = ("pending", "ice-box", "done")
+
+_TASK_CHECKED_RE = re.compile(r"(?m)^\s*[-*]\s+\[[xX]\]\s")
+_TASK_UNCHECKED_RE = re.compile(r"(?m)^\s*[-*]\s+\[ \]\s")
+
+
+def count_task_boxes(text: str) -> tuple[int, int]:
+    """Return (checked, unchecked) Markdown task-list box counts in ``text``."""
+    return (len(_TASK_CHECKED_RE.findall(text)), len(_TASK_UNCHECKED_RE.findall(text)))
+
+
+def lane_cards(lane_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Sorted Markdown cards in a kanban lane (README files excluded)."""
+    if not lane_dir.is_dir():
+        return []
+    return sorted(
+        path
+        for path in lane_dir.glob("*.md")
+        if path.is_file() and path.name.lower() != "readme.md"
+    )
+
+
+def cmd_kanban_report(root: pathlib.Path) -> int:
+    """Summarize kanban lanes and flag ambiguous done cards. Never edits cards."""
+    board = root / "kanban"
+    if not board.is_dir():
+        print(f"No kanban/ directory under {root}")
+        return 0
+
+    print("Kanban report (kanban/ is authoritative; this command never edits cards)")
+    print()
+    ambiguous: list[tuple[str, int, int]] = []
+    ready: list[str] = []
+    for lane in KANBAN_LANES:
+        cards = lane_cards(board / lane)
+        print(f"  {lane:<8} {len(cards)} cards")
+        for card in cards:
+            checked, unchecked = count_task_boxes(card.read_text(encoding="utf-8", errors="replace"))
+            rel = card.relative_to(board).as_posix()
+            if lane == "done" and unchecked > 0:
+                ambiguous.append((rel, checked, unchecked))
+            elif lane == "pending" and checked > 0 and unchecked == 0:
+                ready.append(rel)
+
+    print()
+    if ambiguous:
+        print(
+            f"Ambiguous done cards ({len(ambiguous)}) — in kanban/done but still carrying unchecked "
+            "boxes. Review by hand; this report never ticks or moves them:"
+        )
+        for rel, checked, unchecked in ambiguous:
+            print(f"  - {rel}  [{checked} ticked / {unchecked} unchecked]")
+    else:
+        print("No ambiguous done cards: every kanban/done card is fully ticked.")
+
+    if ready:
+        print()
+        print(f"Fully-ticked pending cards ({len(ready)}) — candidates to move to kanban/done:")
+        for rel in ready:
+            print(f"  - {rel}")
     return 0
 
 
@@ -1420,6 +1619,7 @@ Single-word shortcuts:
                Build Release and package deploy/YYYY_MM_DD/mac|win plus a zip archive
   clean        Remove repository build directories
   smoke        Run the app smoke test
+  score-shot-check  Regression guard (kanban 74): score host --screenshot-size + .musicxml
   test         Run unit tests (four C++ shards plus do.py tests)
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
@@ -1438,6 +1638,8 @@ Single-word shortcuts:
                Run bug triage consensus on the latest bug reviews through Codex
   coverage     macOS: build with LLVM coverage, export build/coverage.lcov, copy to db/coverage.lcov
   syncboard    Sync kanban pending and ice-box to the GitHub project board
+  hygiene      Check for forbidden tracked artifacts and duplicate feature docs
+  kanban-report  Summarize kanban lanes; flag done cards with unchecked boxes
 
 Deterministic render snapshots:
 {compare_help}
@@ -1483,6 +1685,24 @@ def main() -> int:
             )
             return 2
         return cmd_clean(root)
+
+    if command == "hygiene":
+        if args[1:]:
+            print(
+                f"ERROR: hygiene does not accept arguments: {shlex.join(args[1:])}",
+                file=sys.stderr,
+            )
+            return 2
+        return cmd_hygiene(root)
+
+    if command == "kanban-report":
+        if args[1:]:
+            print(
+                f"ERROR: kanban-report does not accept arguments: {shlex.join(args[1:])}",
+                file=sys.stderr,
+            )
+            return 2
+        return cmd_kanban_report(root)
 
     if command == "test":
         if sys.platform.startswith("win"):
@@ -1628,6 +1848,9 @@ def main() -> int:
         if rc != 0 or exe is None:
             return 1
         return run([str(exe), "--console", "--smoke-test"], root, env=env)
+
+    if command == "score-shot-check":
+        return cmd_score_shot_check(root)
 
     render_map = render_command_map(root)
 

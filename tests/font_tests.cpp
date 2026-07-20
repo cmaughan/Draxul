@@ -172,20 +172,20 @@ TEST_CASE("font resolver clears stale style variants on reinitialize", "[font]")
     with_variants.font_path = jetbrains_regular.string();
     INFO("font resolver initializes with auto-detected variants");
     REQUIRE(resolver.initialize(with_variants, 11, 96.0f));
-    REQUIRE(resolver.has_bold());
-    REQUIRE(resolver.has_italic());
-    REQUIRE(resolver.has_bold_italic());
+    REQUIRE(resolver.has_style(FontStyle::Bold));
+    REQUIRE(resolver.has_style(FontStyle::Italic));
+    REQUIRE(resolver.has_style(FontStyle::BoldItalic));
 
     TextServiceConfig regular_only;
     regular_only.font_path = cascadia_regular.string();
     INFO("font resolver reinitializes with a regular-only font");
     REQUIRE(resolver.initialize(regular_only, 11, 96.0f));
     INFO("bold face state from the previous font must not survive reinitialize");
-    REQUIRE_FALSE(resolver.has_bold());
+    REQUIRE_FALSE(resolver.has_style(FontStyle::Bold));
     INFO("italic face state from the previous font must not survive reinitialize");
-    REQUIRE_FALSE(resolver.has_italic());
+    REQUIRE_FALSE(resolver.has_style(FontStyle::Italic));
     INFO("bold-italic face state from the previous font must not survive reinitialize");
-    REQUIRE_FALSE(resolver.has_bold_italic());
+    REQUIRE_FALSE(resolver.has_style(FontStyle::BoldItalic));
 
     resolver.shutdown();
 }

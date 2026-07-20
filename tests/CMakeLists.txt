@@ -27,6 +27,9 @@ target_precompile_headers(draxul-tests PRIVATE
 
 target_include_directories(draxul-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/support
+    # Backend-private renderer sources: shader_abi_parity_tests.cpp includes
+    # src/shared/grid_contract.h to check the C++ ABI struct against the manifest.
+    ${CMAKE_SOURCE_DIR}/libs/draxul-renderer/src
 )
 if(DRAXUL_ENABLE_MEGACITY)
     target_include_directories(draxul-tests PRIVATE
@@ -82,15 +85,6 @@ target_compile_definitions(draxul-tests PRIVATE
     DRAXUL_ENABLE_RENDER_TESTS
 )
 
-
-# Workaround: Apple Clang 16+ libc++ uses __int128 for chrono::steady_clock
-# duration, which triggers ambiguous operator<< in Catch2 v3.7.x StringMaker.
-# Exclude affected test file on Apple until Catch2 ships a fix.
-if(APPLE)
-    get_target_property(_test_sources draxul-tests SOURCES)
-    list(FILTER _test_sources EXCLUDE REGEX "session_attach_tests\\.cpp$")
-    set_target_properties(draxul-tests PROPERTIES SOURCES "${_test_sources}")
-endif()
 if(DRAXUL_ENABLE_MEGACITY)
     target_compile_definitions(draxul-tests PRIVATE DRAXUL_ENABLE_MEGACITY)
 endif()
@@ -127,6 +121,21 @@ set_tests_properties(draxul-do-py-tests
         TIMEOUT 120
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+if(DRAXUL_ENABLE_SATVIEW)
+    # Shared catalog container writer + generator determinism (runs offline on
+    # synthetic inputs). Mirrors tests/satview_catalog_container_tests.cpp.
+    add_test(
+        NAME draxul-satview-catalog-py-tests
+        COMMAND ${Python3_EXECUTABLE} -m unittest tests.satview_catalog_py_tests
+    )
+    set_tests_properties(draxul-satview-catalog-py-tests
+        PROPERTIES
+            LABELS unit
+            TIMEOUT 120
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+endif()
 
 draxul_apply_sanitizers(draxul-tests)
 draxul_apply_sanitizers(draxul-rpc-fake)

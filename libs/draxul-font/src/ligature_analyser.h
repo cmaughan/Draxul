@@ -3,6 +3,7 @@
 #include "font_engine.h"
 #include "font_resolver.h"
 #include "font_selector.h"
+#include "font_style.h"
 
 #include <draxul/unicode.h>
 
@@ -125,21 +126,20 @@ public:
             return 0;
         }
 
-        // Find the unligated shaper for the chosen face.
+        // Find the unligated shaper for the chosen face: style variants
+        // first, then fallback faces (faces are distinct per slot).
         TextShaper* unligated = &resolver.primary_unligated_shaper();
-        if (resolver.has_bold_italic() && sel.face == resolver.bold_italic().face())
+        bool matched_variant = false;
+        for (FontStyle variant : FONT_STYLE_VARIANTS)
         {
-            unligated = &resolver.bold_italic_unligated_shaper();
+            if (resolver.has_style(variant) && sel.face == resolver.style(variant).font.face())
+            {
+                unligated = &resolver.style(variant).unligated_shaper;
+                matched_variant = true;
+                break;
+            }
         }
-        else if (resolver.has_bold() && sel.face == resolver.bold().face())
-        {
-            unligated = &resolver.bold_unligated_shaper();
-        }
-        else if (resolver.has_italic() && sel.face == resolver.italic().face())
-        {
-            unligated = &resolver.italic_unligated_shaper();
-        }
-        else if (sel.face != resolver.primary().face())
+        if (!matched_variant && sel.face != resolver.primary().face())
         {
             auto& fallbacks = resolver.fallbacks();
             auto fb_it = std::find_if(

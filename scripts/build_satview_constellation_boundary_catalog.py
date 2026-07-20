@@ -12,6 +12,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import satview_catalog_container as catalog_container
+
 
 D3_CELESTIAL_COMMIT = "7e720a3de062059d4c5400a379146a601d9010e0"
 D3_CELESTIAL_RAW = f"https://raw.githubusercontent.com/ofrohn/d3-celestial/{D3_CELESTIAL_COMMIT}/data"
@@ -166,44 +168,62 @@ def write_catalog(path: Path, segments, labels) -> None:
         label_records.append(
             (direction, rank, name_offset, len(encoded_name), designation.encode("ascii"), area_index)
         )
+    if len(strings) > catalog_container.MAX_STRING_BYTES:
+        raise ValueError(
+            f"label strings are {len(strings)} bytes, "
+            f"limit is {catalog_container.MAX_STRING_BYTES}"
+        )
+
+    segment_payload = catalog_container.pack_records(
+        (
+            struct.pack("<ffffffII", *start, *end, feature_index, 0)
+            for start, end, feature_index in segments
+        ),
+        SEGMENT_RECORD_SIZE,
+        "segment",
+    )
+    label_payload = catalog_container.pack_records(
+        (
+            struct.pack(
+                "<fffIII4sI",
+                *direction,
+                rank,
+                name_offset,
+                name_size,
+                designation.ljust(4, b"\0"),
+                area_index,
+            )
+            for direction, rank, name_offset, name_size, designation, area_index in label_records
+        ),
+        LABEL_RECORD_SIZE,
+        "label",
+    )
 
     segment_offset = HEADER_SIZE
-    label_offset = segment_offset + len(segments) * SEGMENT_RECORD_SIZE
-    string_offset = label_offset + len(label_records) * LABEL_RECORD_SIZE
+    label_offset = segment_offset + len(segment_payload)
+    string_offset = label_offset + len(label_payload)
+    header = catalog_container.pack_header(
+        MAGIC,
+        VERSION,
+        HEADER_SIZE,
+        [
+            SEGMENT_RECORD_SIZE,
+            LABEL_RECORD_SIZE,
+            len(segments),
+            len(label_records),
+            segment_offset,
+            label_offset,
+            string_offset,
+            len(strings),
+            SOURCE_ID_D3_CELESTIAL,
+            0,
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as output:
-        output.write(
-            struct.pack(
-                "<8s12I",
-                MAGIC,
-                VERSION,
-                HEADER_SIZE,
-                SEGMENT_RECORD_SIZE,
-                LABEL_RECORD_SIZE,
-                len(segments),
-                len(label_records),
-                segment_offset,
-                label_offset,
-                string_offset,
-                len(strings),
-                SOURCE_ID_D3_CELESTIAL,
-                0,
-            )
-        )
-        for start, end, feature_index in segments:
-            output.write(struct.pack("<ffffffII", *start, *end, feature_index, 0))
-        for direction, rank, name_offset, name_size, designation, area_index in label_records:
-            output.write(
-                struct.pack(
-                    "<fffIII4sI",
-                    *direction,
-                    rank,
-                    name_offset,
-                    name_size,
-                    designation.ljust(4, b"\0"),
-                    area_index,
-                )
-            )
+        output.write(header)
+        output.write(segment_payload)
+        output.write(label_payload)
         output.write(strings)
 
 

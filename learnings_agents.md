@@ -2,6 +2,11 @@
 
 Everything learned about agent-driven development from Draxul — a GPU-accelerated Neovim frontend and 3D code-city visualizer built 100% agentically across Claude, Codex, and Gemini, representing several person-years of equivalent effort in under 3 weeks.
 
+> **Scope: this is a retrospective essay, not an agent rule source.** Nothing here is an
+> authoritative build/architecture/tracker instruction — where a point below restates a
+> working rule, [CLAUDE.md](CLAUDE.md) is canonical and wins. Read this for the *why* behind
+> the process; follow CLAUDE.md for the *what*. Don't cite a numbered learning as a rule.
+
 ---
 
 **Orchestration & Workflow**

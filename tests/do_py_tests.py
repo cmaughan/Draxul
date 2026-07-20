@@ -516,5 +516,194 @@ class NativeCommandTests(unittest.TestCase):
         self.assertEqual("bad: \ufffd", result.stdout)
 
 
+class HygieneCommandTests(unittest.TestCase):
+    def test_help_lists_hygiene_command(self) -> None:
+        self.assertIn("hygiene", draxul_do.help_text())
+
+    def test_forbidden_artifacts_flags_root_and_anywhere_offenders(self) -> None:
+        offenders = draxul_do.forbidden_artifacts(
+            [
+                "key.txt",
+                "megacity-linux-drivers-mesh.bmp",
+                "NUL.obj",
+                "debug.log",
+                "default.profraw",
+                ".DS_Store",
+                ".!75583!.DS_Store",
+                "sub/dir/.DS_Store",
+                "coverage/report.profdata",
+            ]
+        )
+        self.assertEqual(
+            [
+                ".!75583!.DS_Store",
+                ".DS_Store",
+                "NUL.obj",
+                "coverage/report.profdata",
+                "debug.log",
+                "default.profraw",
+                "key.txt",
+                "megacity-linux-drivers-mesh.bmp",
+                "sub/dir/.DS_Store",
+            ],
+            offenders,
+        )
+
+    def test_forbidden_artifacts_allows_legitimate_source_and_assets(self) -> None:
+        offenders = draxul_do.forbidden_artifacts(
+            [
+                "app/app.cpp",
+                "docs/features.md",
+                "modules/megacity/assets/tree.obj",  # nested mesh asset
+                "tests/render/reference/basic-view.macos.bmp",  # nested render reference
+                "kanban/ice-box/22 inputdispatcher-null-deps -test.md",  # 'nul' substring only
+                "CMakeLists.txt",
+            ]
+        )
+        self.assertEqual([], offenders)
+
+    def test_feature_doc_problems_accepts_short_pointer(self) -> None:
+        self.assertEqual(
+            [],
+            draxul_do.feature_doc_problems("See docs/features.md for the inventory.\n", True),
+        )
+
+    def test_feature_doc_problems_flags_missing_canonical_inventory(self) -> None:
+        self.assertIn(
+            "docs/features.md (the canonical feature inventory) is missing",
+            draxul_do.feature_doc_problems("See docs/features.md\n", False),
+        )
+
+    def test_feature_doc_problems_flags_duplicate_inventory_and_missing_pointer(self) -> None:
+        duplicate_inventory = "# Features\n" + "\n".join(f"- feature {n}" for n in range(60))
+        problems = draxul_do.feature_doc_problems(duplicate_inventory, True)
+        self.assertTrue(any("short pointer to docs/features.md" in problem for problem in problems))
+        self.assertTrue(any("must point to docs/features.md" in problem for problem in problems))
+
+    def _clean_hygiene_root(self, root: pathlib.Path) -> None:
+        (root / "FEATURES.md").write_text("See docs/features.md for features.\n", encoding="utf-8")
+        (root / "docs").mkdir()
+        (root / "docs" / "features.md").write_text("# Inventory\n", encoding="utf-8")
+
+    def test_hygiene_command_passes_on_clean_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._clean_hygiene_root(root)
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do, "tracked_files", return_value=["app/app.cpp", "FEATURES.md"]),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "hygiene"]),
+            ):
+                self.assertEqual(0, draxul_do.main())
+            self.assertIn("Hygiene check passed", output.getvalue())
+
+    def test_hygiene_command_fails_on_forbidden_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._clean_hygiene_root(root)
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do, "tracked_files", return_value=["key.txt", "app/app.cpp"]),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "hygiene"]),
+            ):
+                self.assertEqual(1, draxul_do.main())
+            self.assertIn("forbidden tracked artifact: key.txt", output.getvalue())
+
+    def test_hygiene_rejects_arguments(self) -> None:
+        error = io.StringIO()
+        with (
+            contextlib.redirect_stderr(error),
+            mock.patch.object(draxul_do.sys, "argv", ["do.py", "hygiene", "--oops"]),
+        ):
+            self.assertEqual(2, draxul_do.main())
+        self.assertIn("hygiene does not accept arguments: --oops", error.getvalue())
+
+    def test_repository_passes_hygiene(self) -> None:
+        # Integration guard: the real tree must stay free of forbidden artifacts
+        # and keep a single feature-doc source of truth.
+        self.assertEqual(0, draxul_do.cmd_hygiene(ROOT))
+
+
+class KanbanReportTests(unittest.TestCase):
+    def test_help_lists_kanban_report_command(self) -> None:
+        self.assertIn("kanban-report", draxul_do.help_text())
+
+    def test_count_task_boxes_counts_checked_and_unchecked(self) -> None:
+        text = "# Card\n- [x] done one\n- [X] done two\n- [ ] open one\n  - [ ] nested open\nplain - [ ] not a box\n"
+        self.assertEqual((2, 2), draxul_do.count_task_boxes(text))
+
+    def test_lane_cards_sorts_and_excludes_readme(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lane = pathlib.Path(tmp)
+            (lane / "02 b -bug.md").write_text("b")
+            (lane / "01 a -feature.md").write_text("a")
+            (lane / "README.md").write_text("readme")
+            (lane / "notes.txt").write_text("ignored")
+            names = [card.name for card in draxul_do.lane_cards(lane)]
+            self.assertEqual(["01 a -feature.md", "02 b -bug.md"], names)
+
+    def test_kanban_report_flags_ambiguous_done_and_ready_pending_without_editing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            board = root / "kanban"
+            (board / "pending").mkdir(parents=True)
+            (board / "done").mkdir(parents=True)
+            done_card = board / "done" / "01 shipped -feature.md"
+            done_card.write_text("# Shipped\n- [x] built\n- [ ] follow-up left open\n", encoding="utf-8")
+            ready_card = board / "pending" / "02 ready -refactor.md"
+            ready_card.write_text("# Ready\n- [x] one\n- [x] two\n", encoding="utf-8")
+            done_before = done_card.read_text(encoding="utf-8")
+            output = io.StringIO()
+
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "kanban-report"]),
+            ):
+                self.assertEqual(0, draxul_do.main())
+
+            report = output.getvalue()
+            self.assertIn("Ambiguous done cards (1)", report)
+            self.assertIn("01 shipped -feature.md", report)
+            self.assertIn("Fully-ticked pending cards (1)", report)
+            self.assertIn("02 ready -refactor.md", report)
+            # Read-only: the report must never rewrite a card.
+            self.assertEqual(done_before, done_card.read_text(encoding="utf-8"))
+
+    def test_kanban_report_reports_clean_done_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            done = root / "kanban" / "done"
+            done.mkdir(parents=True)
+            (done / "01 clean -bug.md").write_text("# Clean\n- [x] all ticked\n", encoding="utf-8")
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output),
+                mock.patch.object(draxul_do, "repo_root", return_value=root),
+                mock.patch.object(draxul_do.sys, "argv", ["do.py", "kanban-report"]),
+            ):
+                self.assertEqual(0, draxul_do.main())
+            self.assertIn("No ambiguous done cards", output.getvalue())
+
+    def test_kanban_report_rejects_arguments(self) -> None:
+        error = io.StringIO()
+        with (
+            contextlib.redirect_stderr(error),
+            mock.patch.object(draxul_do.sys, "argv", ["do.py", "kanban-report", "extra"]),
+        ):
+            self.assertEqual(2, draxul_do.main())
+        self.assertIn("kanban-report does not accept arguments: extra", error.getvalue())
+
+    def test_repository_kanban_report_runs(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(0, draxul_do.cmd_kanban_report(ROOT))
+        self.assertIn("Kanban report", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

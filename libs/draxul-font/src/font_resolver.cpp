@@ -4,7 +4,6 @@
 #include <draxul/text_service.h>
 
 #include <filesystem>
-#include <initializer_list>
 #include <utility>
 
 namespace draxul
@@ -91,13 +90,18 @@ std::string first_existing_path(const std::vector<std::string>& candidates)
     return {};
 }
 
-std::string auto_detect_bold_path(const std::string& regular_path)
+std::string auto_detect_style_path(const std::string& regular_path, FontStyle style)
 {
-    for (const auto& [from, to] : std::initializer_list<std::pair<std::string, std::string>>{
-             { "-Regular.", "-Bold." },
-             { "_Regular.", "_Bold." },
-             { "-Regular-", "-Bold-" },
-         })
+    if (style == FontStyle::Regular)
+        return {};
+
+    const std::string suffix = font_style_file_suffix(style);
+    const std::pair<std::string, std::string> replacements[] = {
+        { "-Regular.", "-" + suffix + "." },
+        { "_Regular.", "_" + suffix + "." },
+        { "-Regular-", "-" + suffix + "-" },
+    };
+    for (const auto& [from, to] : replacements)
     {
         auto pos = regular_path.rfind(from);
         if (pos != std::string::npos)
@@ -110,43 +114,33 @@ std::string auto_detect_bold_path(const std::string& regular_path)
     return {};
 }
 
-std::string auto_detect_italic_path(const std::string& regular_path)
+namespace
 {
-    for (const auto& [from, to] : std::initializer_list<std::pair<std::string, std::string>>{
-             { "-Regular.", "-Italic." },
-             { "_Regular.", "_Italic." },
-             { "-Regular-", "-Italic-" },
-         })
+
+// Maps each style variant to its explicit TextServiceConfig path override.
+const std::string& config_style_path(const TextServiceConfig& config, FontStyle style)
+{
+    switch (style)
     {
-        auto pos = regular_path.rfind(from);
-        if (pos != std::string::npos)
-        {
-            std::string candidate = regular_path.substr(0, pos) + to + regular_path.substr(pos + from.size());
-            if (std::filesystem::exists(candidate))
-                return candidate;
-        }
+    case FontStyle::Bold:
+        return config.bold_font_path;
+    case FontStyle::Italic:
+        return config.italic_font_path;
+    case FontStyle::BoldItalic:
+        return config.bold_italic_font_path;
+    default:
+        return config.font_path;
     }
-    return {};
 }
 
-std::string auto_detect_bold_italic_path(const std::string& regular_path)
+void resize_styled_font(FontResolver::StyledFont& slot, float point_size, bool enable_ligatures)
 {
-    for (const auto& [from, to] : std::initializer_list<std::pair<std::string, std::string>>{
-             { "-Regular.", "-BoldItalic." },
-             { "_Regular.", "_BoldItalic." },
-             { "-Regular-", "-BoldItalic-" },
-         })
-    {
-        auto pos = regular_path.rfind(from);
-        if (pos != std::string::npos)
-        {
-            std::string candidate = regular_path.substr(0, pos) + to + regular_path.substr(pos + from.size());
-            if (std::filesystem::exists(candidate))
-                return candidate;
-        }
-    }
-    return {};
+    slot.font.set_point_size(point_size);
+    slot.shaper.initialize(slot.font.hb_font(), enable_ligatures);
+    slot.unligated_shaper.initialize(slot.font.hb_font(), false);
 }
+
+} // namespace
 
 } // namespace detail
 
@@ -157,132 +151,81 @@ bool FontResolver::initialize(const TextServiceConfig& config, float point_size,
     config_ = &config;
     display_ppi_ = display_ppi;
     warnings_.clear();
+
+    auto& regular = style(FontStyle::Regular);
     if (config.font_path.empty())
     {
-        font_path_ = detail::first_existing_path(detail::default_primary_font_candidates());
+        regular.path = detail::first_existing_path(detail::default_primary_font_candidates());
     }
     else
     {
-        font_path_ = config.font_path;
-        if (!std::filesystem::exists(font_path_))
+        regular.path = config.font_path;
+        if (!std::filesystem::exists(regular.path))
         {
-            DRAXUL_LOG_WARN(LogCategory::Font, "Configured font path does not exist: '%s'", font_path_.c_str());
-            warnings_.push_back("Configured font path does not exist: " + font_path_);
+            DRAXUL_LOG_WARN(LogCategory::Font, "Configured font path does not exist: '%s'", regular.path.c_str());
+            warnings_.push_back("Configured font path does not exist: " + regular.path);
         }
     }
-    if (font_path_.empty())
-        font_path_ = "fonts/JetBrainsMonoNerdFont-Regular.ttf";
+    if (regular.path.empty())
+        regular.path = "fonts/JetBrainsMonoNerdFont-Regular.ttf";
 
-    if (!primary_.initialize(font_path_, point_size, display_ppi))
+    if (!regular.font.initialize(regular.path, point_size, display_ppi))
     {
-        primary_.shutdown();
+        regular.font.shutdown();
         return false;
     }
 
-    primary_shaper_.initialize(primary_.hb_font(), config.enable_ligatures);
-    primary_unligated_shaper_.initialize(primary_.hb_font(), false);
+    regular.shaper.initialize(regular.font.hb_font(), config.enable_ligatures);
+    regular.unligated_shaper.initialize(regular.font.hb_font(), false);
+    regular.loaded = true;
 
-    // Determine bold font path
-    std::string bold_path = config.bold_font_path;
-    if (bold_path.empty())
-        bold_path = detail::auto_detect_bold_path(font_path_);
-    if (!bold_path.empty() && bold_path != font_path_)
-    {
-        if (bold_.initialize(bold_path, point_size, display_ppi))
-        {
-            bold_shaper_.initialize(bold_.hb_font(), config.enable_ligatures);
-            bold_unligated_shaper_.initialize(bold_.hb_font(), false);
-            bold_loaded_ = true;
-            bold_font_path_ = bold_path;
-            DRAXUL_LOG_DEBUG(LogCategory::Font, "Bold font loaded: %s", bold_path.c_str());
-        }
-        else
-        {
-            bold_.shutdown();
-            DRAXUL_LOG_WARN(LogCategory::Font, "Bold font not found: %s", bold_path.c_str());
-            warnings_.push_back("Bold font not found: " + bold_path);
-        }
-    }
-    else if (!bold_path.empty())
-    {
-        DRAXUL_LOG_DEBUG(LogCategory::Font, "Bold font path same as regular, skipping");
-    }
-    else
-    {
-        DRAXUL_LOG_WARN(LogCategory::Font, "No bold font found for: %s", font_path_.c_str());
-        warnings_.push_back("No bold font variant found; using regular");
-    }
-
-    // Determine italic font path
-    std::string italic_path = config.italic_font_path;
-    if (italic_path.empty())
-        italic_path = detail::auto_detect_italic_path(font_path_);
-    if (!italic_path.empty() && italic_path != font_path_)
-    {
-        if (italic_.initialize(italic_path, point_size, display_ppi))
-        {
-            italic_shaper_.initialize(italic_.hb_font(), config.enable_ligatures);
-            italic_unligated_shaper_.initialize(italic_.hb_font(), false);
-            italic_loaded_ = true;
-            italic_font_path_ = italic_path;
-            DRAXUL_LOG_DEBUG(LogCategory::Font, "Italic font loaded: %s", italic_path.c_str());
-        }
-        else
-        {
-            italic_.shutdown();
-            DRAXUL_LOG_WARN(LogCategory::Font, "Italic font not found: %s", italic_path.c_str());
-            warnings_.push_back("Italic font not found: " + italic_path);
-        }
-    }
-    else if (!italic_path.empty())
-    {
-        DRAXUL_LOG_DEBUG(LogCategory::Font, "Italic font path same as regular, skipping");
-    }
-    else
-    {
-        DRAXUL_LOG_WARN(LogCategory::Font, "No italic font found for: %s", font_path_.c_str());
-        warnings_.push_back("No italic font variant found; using regular");
-    }
-
-    // Determine bold-italic font path
-    std::string bold_italic_path = config.bold_italic_font_path;
-    if (bold_italic_path.empty())
-        bold_italic_path = detail::auto_detect_bold_italic_path(font_path_);
-    if (!bold_italic_path.empty() && bold_italic_path != font_path_)
-    {
-        if (bold_italic_.initialize(bold_italic_path, point_size, display_ppi))
-        {
-            bold_italic_shaper_.initialize(bold_italic_.hb_font(), config.enable_ligatures);
-            bold_italic_unligated_shaper_.initialize(bold_italic_.hb_font(), false);
-            bold_italic_loaded_ = true;
-            bold_italic_font_path_ = bold_italic_path;
-            DRAXUL_LOG_DEBUG(LogCategory::Font, "Bold-italic font loaded: %s", bold_italic_path.c_str());
-        }
-        else
-        {
-            bold_italic_.shutdown();
-            DRAXUL_LOG_WARN(LogCategory::Font, "Bold-italic font not found: %s", bold_italic_path.c_str());
-            warnings_.push_back("Bold-italic font not found: " + bold_italic_path);
-        }
-    }
-    else if (!bold_italic_path.empty())
-    {
-        DRAXUL_LOG_DEBUG(LogCategory::Font, "Bold-italic font path same as regular, skipping");
-    }
-    else
-    {
-        DRAXUL_LOG_WARN(LogCategory::Font, "No bold-italic font found for: %s", font_path_.c_str());
-        warnings_.push_back("No bold-italic font variant found; using regular");
-    }
+    for (FontStyle variant : FONT_STYLE_VARIANTS)
+        load_style_variant(variant, point_size);
 
     load_fallback_fonts();
     return true;
 }
 
+void FontResolver::load_style_variant(FontStyle variant, float point_size)
+{
+    const char* display_name = font_style_display_name(variant);
+
+    std::string path = detail::config_style_path(*config_, variant);
+    if (path.empty())
+        path = detail::auto_detect_style_path(font_path(), variant);
+
+    if (path.empty())
+    {
+        DRAXUL_LOG_WARN(LogCategory::Font, "No %s font found for: %s",
+            font_style_lower_name(variant), font_path().c_str());
+        warnings_.push_back(
+            std::string("No ") + font_style_lower_name(variant) + " font variant found; using regular");
+        return;
+    }
+    if (path == font_path())
+    {
+        DRAXUL_LOG_DEBUG(LogCategory::Font, "%s font path same as regular, skipping", display_name);
+        return;
+    }
+
+    auto& slot = style(variant);
+    if (!slot.font.initialize(path, point_size, display_ppi_))
+    {
+        slot.font.shutdown();
+        DRAXUL_LOG_WARN(LogCategory::Font, "%s font not found: %s", display_name, path.c_str());
+        warnings_.push_back(std::string(display_name) + " font not found: " + path);
+        return;
+    }
+
+    slot.shaper.initialize(slot.font.hb_font(), config_->enable_ligatures);
+    slot.unligated_shaper.initialize(slot.font.hb_font(), false);
+    slot.loaded = true;
+    slot.path = path;
+    DRAXUL_LOG_DEBUG(LogCategory::Font, "%s font loaded: %s", display_name, path.c_str());
+}
+
 void FontResolver::shutdown()
 {
-    primary_shaper_.shutdown();
-    primary_unligated_shaper_.shutdown();
     for (auto& fallback : fallbacks_)
     {
         if (!fallback.loaded)
@@ -292,68 +235,41 @@ void FontResolver::shutdown()
         fallback.font.shutdown();
     }
     fallbacks_.clear();
-    primary_.shutdown();
-    font_path_.clear();
+
+    for (auto& slot : styles_)
+    {
+        slot.shaper.shutdown();
+        slot.unligated_shaper.shutdown();
+        slot.font.shutdown();
+        slot.path.clear();
+        slot.loaded = false;
+        slot.failed = false;
+    }
+
     config_ = nullptr;
-
-    bold_shaper_.shutdown();
-    bold_unligated_shaper_.shutdown();
-    bold_.shutdown();
-    bold_loaded_ = false;
-    bold_font_path_.clear();
-
-    italic_shaper_.shutdown();
-    italic_unligated_shaper_.shutdown();
-    italic_.shutdown();
-    italic_loaded_ = false;
-    italic_font_path_.clear();
-
-    bold_italic_shaper_.shutdown();
-    bold_italic_unligated_shaper_.shutdown();
-    bold_italic_.shutdown();
-    bold_italic_loaded_ = false;
-    bold_italic_font_path_.clear();
 }
 
 bool FontResolver::set_point_size(float point_size)
 {
-    if (!primary_.set_point_size(point_size))
+    if (!primary().set_point_size(point_size))
         return false;
 
-    primary_shaper_.initialize(primary_.hb_font(), config_->enable_ligatures);
-    primary_unligated_shaper_.initialize(primary_.hb_font(), false);
+    auto& regular = style(FontStyle::Regular);
+    regular.shaper.initialize(regular.font.hb_font(), config_->enable_ligatures);
+    regular.unligated_shaper.initialize(regular.font.hb_font(), false);
 
     for (auto& fallback : fallbacks_)
     {
         if (!fallback.loaded)
             continue;
-        fallback.font.set_point_size(point_size);
-        fallback.shaper.initialize(fallback.font.hb_font(), config_->enable_ligatures);
-        fallback.unligated_shaper.initialize(fallback.font.hb_font(), false);
+        detail::resize_styled_font(fallback, point_size, config_->enable_ligatures);
     }
-    if (bold_loaded_)
+    for (FontStyle variant : FONT_STYLE_VARIANTS)
     {
-        bold_.set_point_size(point_size);
-        bold_shaper_.shutdown();
-        bold_unligated_shaper_.shutdown();
-        bold_shaper_.initialize(bold_.hb_font(), config_->enable_ligatures);
-        bold_unligated_shaper_.initialize(bold_.hb_font(), false);
-    }
-    if (italic_loaded_)
-    {
-        italic_.set_point_size(point_size);
-        italic_shaper_.shutdown();
-        italic_unligated_shaper_.shutdown();
-        italic_shaper_.initialize(italic_.hb_font(), config_->enable_ligatures);
-        italic_unligated_shaper_.initialize(italic_.hb_font(), false);
-    }
-    if (bold_italic_loaded_)
-    {
-        bold_italic_.set_point_size(point_size);
-        bold_italic_shaper_.shutdown();
-        bold_italic_unligated_shaper_.shutdown();
-        bold_italic_shaper_.initialize(bold_italic_.hb_font(), config_->enable_ligatures);
-        bold_italic_unligated_shaper_.initialize(bold_italic_.hb_font(), false);
+        auto& slot = style(variant);
+        if (!slot.loaded)
+            continue;
+        detail::resize_styled_font(slot, point_size, config_->enable_ligatures);
     }
     return true;
 }
@@ -366,7 +282,7 @@ bool FontResolver::ensure_loaded(size_t index)
     if (fb.failed)
         return false;
 
-    if (!fb.font.initialize(fb.path, primary_.point_size(), display_ppi_))
+    if (!fb.font.initialize(fb.path, primary().point_size(), display_ppi_))
     {
         DRAXUL_LOG_WARN(LogCategory::Font, "Fallback font failed to load: %s", fb.path.c_str());
         fb.failed = true;
@@ -391,7 +307,7 @@ void FontResolver::load_fallback_fonts()
     fallbacks_.reserve(candidates.size());
     for (const auto& path : candidates)
     {
-        if (path == font_path_)
+        if (path == font_path())
         {
             DRAXUL_LOG_DEBUG(LogCategory::Font, "Fallback candidate skipped (same as primary): %s", path.c_str());
             continue;

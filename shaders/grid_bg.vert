@@ -3,6 +3,8 @@
 
 #include "quad_offsets_shared.h"
 
+// ABI contract: this block + the CellBuffer binding are checked against
+// shaders/contracts/grid_push_constants.toml by the [shader_abi] test.
 layout(push_constant) uniform PushConstants {
     float screen_w;
     float screen_h;

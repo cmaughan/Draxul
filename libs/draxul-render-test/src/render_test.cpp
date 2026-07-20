@@ -56,15 +56,7 @@ std::string expand_placeholders(std::string value, const std::filesystem::path& 
     return value;
 }
 
-struct RenderDiff
-{
-    bool passed = false;
-    size_t changed_pixels = 0;
-    double changed_pixels_pct = 0.0;
-    double mean_abs_channel_diff = 0.0;
-    uint8_t max_channel_diff = 0;
-    CapturedFrame diff_image;
-};
+} // namespace
 
 RenderDiff compare_frames(const CapturedFrame& actual, const CapturedFrame& reference, int tolerance, double threshold_pct)
 {
@@ -104,6 +96,9 @@ RenderDiff compare_frames(const CapturedFrame& actual, const CapturedFrame& refe
     diff.passed = diff.changed_pixels_pct <= threshold_pct;
     return diff;
 }
+
+namespace
+{
 
 bool write_report(const std::filesystem::path& path, const RenderTestScenario& scenario, const CapturedFrame& actual,
     const std::optional<CapturedFrame>& reference, const RenderDiff* diff, bool blessed)
