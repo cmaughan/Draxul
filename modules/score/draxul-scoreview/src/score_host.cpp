@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -161,6 +162,7 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
         // ~118 MB parse happens on first selection, not startup.
         audio_->stage_soundfonts(executable_directory() / "soundfonts");
         audio_->prefer_piano(0);
+        audio_->set_audition(true);
 
         // Player memory: the per-piece progress file, keyed by the source
         // bytes so renames don't lose history (stream plan S0).
@@ -534,20 +536,30 @@ void ScoreHost::relayout()
     {
         ScoreHighlightState colors;
         colors.build(page);
-        const auto add_guidance = [this, &colors](const std::string& id) {
-            if (id.empty())
-                return;
+        page_colors->push_back(std::move(colors));
+    }
+    std::string color_timemap_error;
+    const auto color_timemap = parse_timemap(engine_->render_timemap(), color_timemap_error);
+    if (color_timemap)
+    {
+        std::unordered_set<std::string> note_ids;
+        for (const TimemapEntry& entry : color_timemap->entries)
+            note_ids.insert(entry.note_on.begin(), entry.note_on.end());
+        for (const std::string& id : note_ids)
+        {
             const int midi = engine_->midi_pitch_for_element(id);
             if (midi < 0)
-                return;
-            colors.set_guidance(
-                id, guidance_palette_index(midi, engine_->note_letter_for_element(id)));
-        };
-        for (const GlyphInstance& glyph : page.glyphs)
-            add_guidance(glyph.element_id);
-        for (const DrawPath& path : page.paths)
-            add_guidance(path.element_id);
-        page_colors->push_back(std::move(colors));
+                continue;
+            const int palette
+                = guidance_palette_index(midi, engine_->note_letter_for_element(id));
+            for (ScoreHighlightState& colors : *page_colors)
+                colors.set_guidance(id, palette);
+        }
+    }
+    else
+    {
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "score: full-score note colors unavailable: %s", color_timemap_error.c_str());
     }
     page_note_highlights_ = page_colors;
     rebuild_analysis_overlay();

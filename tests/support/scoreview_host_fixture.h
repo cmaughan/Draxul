@@ -42,6 +42,7 @@ public:
         std::string_view source, std::string& error)
     {
         host.engine_ = std::move(engine);
+        host.source_bytes_ = std::string(source);
         if (!host.stream_->load_source(std::string(source), error))
             return false;
         host.view_mode_ = ScoreHost::ViewMode::Flow;
@@ -54,6 +55,18 @@ public:
             error = "initial synchronous window build failed";
             return false;
         }
+        return true;
+    }
+
+    static bool prime_paged(ScoreHost& host, std::unique_ptr<ILayoutEngine> engine,
+        std::string_view source, std::string& error)
+    {
+        if (!engine->load(source, error))
+            return false;
+        host.engine_ = std::move(engine);
+        host.source_bytes_ = std::string(source);
+        host.view_mode_ = ScoreHost::ViewMode::Paged;
+        host.layout_dirty_ = true;
         return true;
     }
 
@@ -140,6 +153,27 @@ public:
         return host.input_rig_.kind();
     }
 
+    static void relayout_paged(ScoreHost& host, int width = 800, int height = 600)
+    {
+        host.viewport_.pixel_size = { width, height };
+        host.viewport_.pixel_scale = 1.0f;
+        host.view_mode_ = ScoreHost::ViewMode::Paged;
+        host.relayout();
+    }
+
+    static size_t paged_guided_glyph_count(const ScoreHost& host)
+    {
+        size_t guided = 0;
+        if (!host.page_note_highlights_)
+            return 0;
+        for (const ScoreHighlightState& colors : *host.page_note_highlights_)
+        {
+            for (const uint8_t guide : colors.glyph_guide)
+                guided += guide != 0 ? 1 : 0;
+        }
+        return guided;
+    }
+
     static bool show_note_colors(const ScoreHost& host)
     {
         return host.show_note_colors_;
@@ -169,10 +203,12 @@ class DeterministicLayoutEngine final : public ILayoutEngine
 {
 public:
     DeterministicLayoutEngine(
-        std::shared_ptr<FakeEngineState> state, std::string svg, bool block_load)
+        std::shared_ptr<FakeEngineState> state, std::string svg, bool block_load,
+        bool require_timemap_for_midi = false)
         : state_(std::move(state))
         , svg_(std::move(svg))
         , block_load_(block_load)
+        , require_timemap_for_midi_(require_timemap_for_midi)
     {
     }
 
@@ -206,6 +242,8 @@ public:
     std::string render_timemap() override;
     int midi_pitch_for_element(const std::string& element_id) override
     {
+        if (require_timemap_for_midi_ && !timemap_rendered_)
+            return -1;
         return element_id == "usfythd" ? 60 : -1;
     }
     int note_letter_for_element(const std::string& element_id) override
@@ -221,6 +259,8 @@ private:
     std::shared_ptr<FakeEngineState> state_;
     std::string svg_;
     bool block_load_ = false;
+    bool require_timemap_for_midi_ = false;
+    bool timemap_rendered_ = false;
     bool loaded_ = false;
 };
 
@@ -248,6 +288,7 @@ inline constexpr std::string_view kScoreHostFixtureTimemap = R"json([
 
 inline std::string DeterministicLayoutEngine::render_timemap()
 {
+    timemap_rendered_ = true;
     return loaded_ ? std::string(kScoreHostFixtureTimemap) : std::string{};
 }
 

@@ -259,6 +259,24 @@ TEST_CASE("full-score note colors are on by default and inspector-toggleable",
     CHECK(ScoreHostTestAccess::show_note_colors(primed.host));
 }
 
+TEST_CASE("full-score note colors resolve after the paged timemap is available",
+    "[scoreview][host][orchestration][view]")
+{
+    auto engine_state = std::make_shared<FakeEngineState>();
+    ScoreHost host;
+    const std::string svg = read_verovio_svg_fixture();
+    REQUIRE_FALSE(svg.empty());
+
+    std::string error;
+    REQUIRE(ScoreHostTestAccess::prime_paged(host,
+        std::make_unique<DeterministicLayoutEngine>(
+            engine_state, svg, false, /*require_timemap_for_midi=*/true),
+        kScoreHostFixtureMinimalScore, error));
+
+    ScoreHostTestAccess::relayout_paged(host);
+    CHECK(ScoreHostTestAccess::paged_guided_glyph_count(host) > 0);
+}
+
 TEST_CASE("score audio can prefer a staged piano lazily",
     "[scoreview][host][orchestration][audio]")
 {
