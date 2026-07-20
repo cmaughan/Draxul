@@ -26,9 +26,9 @@ The catalog and live-cloud services share the SatView cache directory:
 | Linux fallback | `~/.cache/draxul/satview` |
 
 The implementation is in
-[`satview_catalog_service.cpp`](../../modules/satview/draxul-satview/src/satview_catalog_service.cpp)
+[`satview_catalog_service.cpp`](../../modules/satview/draxul-satview-services/src/satview_catalog_service.cpp)
 and
-[`satview_cloud_service.cpp`](../../modules/satview/draxul-satview/src/satview_cloud_service.cpp).
+[`satview_cloud_service.cpp`](../../modules/satview/draxul-satview-services/src/satview_cloud_service.cpp).
 
 ## Live Runtime Feeds
 
@@ -124,7 +124,7 @@ track current rover traverse positions.
 ## Solar-System Body Catalogue
 
 The initial planet/major-moon view is an offline presentation catalogue in
-[`satview_solar_system.cpp`](../../modules/satview/draxul-satview/src/satview_solar_system.cpp).
+[`satview_solar_system.cpp`](../../modules/satview/draxul-satview-core/src/satview_solar_system.cpp).
 It contains the Sun, eight planets, and 20 major moons, including parent-body
 hierarchy, equatorial/polar radii, rotation periods, and compact mean orbital
 elements.
@@ -203,9 +203,9 @@ periodically downloaded datasets.
 | Model | Source/storage | Update behavior |
 |---|---|---|
 | Earth satellite propagation | Vallado/CelesTrak AIAA-2006-6753 SGP4 reference implementation | CMake downloads the upstream archive when the dependency is absent. The URL content is pinned by SHA-256 in `cmake/FetchDependencies.cmake`, so it cannot silently change. It is not a runtime feed. |
-| Moon position around Earth | Internal analytical lunar ephemeris in [`satview_moon_ephemeris.cpp`](../../modules/satview/draxul-satview/src/satview_moon_ephemeris.cpp) | Computed from simulation time; no network or daily data file. |
-| Sun position, orientation, and Earth orbit | Internal analytical solar model in [`satview_sun_ephemeris.cpp`](../../modules/satview/draxul-satview/src/satview_sun_ephemeris.cpp) | Computed from simulation time. |
-| Planet and major-moon local-system layout | Mean-element Kepler model in [`satview_solar_system.cpp`](../../modules/satview/draxul-satview/src/satview_solar_system.cpp), sourced from JPL/NAIF reference data | Computed from simulation time. Approximate presentation fidelity is explicit; no runtime update. |
+| Moon position around Earth | Internal analytical lunar ephemeris in [`satview_moon_ephemeris.cpp`](../../modules/satview/draxul-satview-core/src/satview_moon_ephemeris.cpp) | Computed from simulation time; no network or daily data file. |
+| Sun position, orientation, and Earth orbit | Internal analytical solar model in [`satview_sun_ephemeris.cpp`](../../modules/satview/draxul-satview-core/src/satview_sun_ephemeris.cpp) | Computed from simulation time. |
+| Planet and major-moon local-system layout | Mean-element Kepler model in [`satview_solar_system.cpp`](../../modules/satview/draxul-satview-core/src/satview_solar_system.cpp), sourced from JPL/NAIF reference data | Computed from simulation time. Approximate presentation fidelity is explicit; no runtime update. |
 | Atmosphere, ground grid, and observatory landscape | Procedural code and constants | No external source or update cadence. |
 
 ## Build-Time Staging
