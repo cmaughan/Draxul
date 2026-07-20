@@ -12,11 +12,6 @@ set(SATVIEW_SOURCES
     src/satview_host.cpp
     src/satview_simulation_worker.cpp
 )
-if(APPLE)
-    list(APPEND SATVIEW_SOURCES src/satview_render.mm)
-else()
-    list(APPEND SATVIEW_SOURCES src/satview_render_vk.cpp)
-endif()
 
 add_library(draxul-satview STATIC ${SATVIEW_SOURCES})
 
@@ -33,6 +28,7 @@ target_link_libraries(draxul-satview PUBLIC
     draxul-satview-core
     draxul-satview-scene
     draxul-satview-services
+    draxul-satview-renderer
     draxul-types
     draxul-host
     draxul-renderer
@@ -43,16 +39,3 @@ target_link_libraries(draxul-satview PRIVATE
     draxul-font
     draxul-ui
 )
-
-if(APPLE)
-    find_library(METAL_FRAMEWORK Metal REQUIRED)
-    target_link_libraries(draxul-satview PRIVATE ${METAL_FRAMEWORK})
-    set_source_files_properties(src/satview_render.mm PROPERTIES
-        COMPILE_FLAGS "-fobjc-arc"
-    )
-else()
-    target_link_libraries(draxul-satview PRIVATE
-        Vulkan::Vulkan
-        GPUOpen::VulkanMemoryAllocator
-    )
-endif()

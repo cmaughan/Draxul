@@ -10,4 +10,5 @@
 add_subdirectory(draxul-satview-core)
 add_subdirectory(draxul-satview-scene)
 add_subdirectory(draxul-satview-services)
+add_subdirectory(draxul-satview-renderer)
 add_subdirectory(draxul-satview)
