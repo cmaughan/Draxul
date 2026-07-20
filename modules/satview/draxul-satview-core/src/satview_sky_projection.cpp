@@ -1,4 +1,4 @@
-#include "satview_sky_projection.h"
+#include <draxul/satview/satview_sky_projection.h>
 
 #include <algorithm>
 #include <cmath>

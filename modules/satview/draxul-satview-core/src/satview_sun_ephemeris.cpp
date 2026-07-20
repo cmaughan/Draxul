@@ -1,7 +1,7 @@
-#include "satview_sun_ephemeris.h"
+#include <draxul/satview/satview_sun_ephemeris.h>
 
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <draxul/satview/satview_propagation.h>
 #include <glm/geometric.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -56,14 +56,11 @@ glm::dquat sun_body_to_render_orientation(double days_since_j2000)
 
 SatViewSunPosition satview_sun_position(double unix_seconds)
 {
-    const double days_since_j2000 =
-        julian_date_from_unix_seconds(unix_seconds).value() - 2451545.0;
+    const double days_since_j2000 = julian_date_from_unix_seconds(unix_seconds).value() - 2451545.0;
     const double mean_anomaly = radians(357.529 + 0.98560028 * days_since_j2000);
-    const double distance_au =
-        1.00014 - 0.01671 * std::cos(mean_anomaly)
+    const double distance_au = 1.00014 - 0.01671 * std::cos(mean_anomaly)
         - 0.00014 * std::cos(2.0 * mean_anomaly);
-    const glm::dvec3 equatorial_position_km =
-        solar_direction_teme(unix_seconds)
+    const glm::dvec3 equatorial_position_km = solar_direction_teme(unix_seconds)
         * (distance_au * kSatViewAstronomicalUnitKm);
 
     return {
@@ -81,14 +78,13 @@ std::vector<glm::dvec3> satview_earth_orbit_track(
     std::vector<glm::dvec3> positions;
     positions.reserve(segment_count);
 
-    const double start_seconds =
-        center_unix_seconds - 0.5 * kSatViewEarthOrbitPeriodSeconds;
+    const double start_seconds = center_unix_seconds - 0.5 * kSatViewEarthOrbitPeriodSeconds;
     for (std::size_t i = 0; i < segment_count; ++i)
     {
         const double fraction = static_cast<double>(i) / static_cast<double>(segment_count);
         positions.push_back(-satview_sun_position(
             start_seconds + fraction * kSatViewEarthOrbitPeriodSeconds)
-                                 .render_position_earth_radii);
+                .render_position_earth_radii);
     }
     return positions;
 }

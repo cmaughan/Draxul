@@ -1,4 +1,4 @@
-#include "satview_geodetic.h"
+#include <draxul/satview/satview_geodetic.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -9,8 +9,8 @@ namespace
 {
 
 using Catch::Matchers::WithinAbs;
-using draxul::satview::SatViewGeodeticPosition;
 using draxul::satview::satview_geodetic_from_ecef;
+using draxul::satview::SatViewGeodeticPosition;
 
 constexpr double kEquatorialRadiusKm = 6378.137;
 constexpr double kFlattening = 1.0 / 298.257223563;
@@ -18,22 +18,19 @@ constexpr double kPolarRadiusKm = kEquatorialRadiusKm * (1.0 - kFlattening);
 
 TEST_CASE("SatView converts equatorial ECEF positions to geodetic coordinates", "[satview][geodetic]")
 {
-    const SatViewGeodeticPosition greenwich =
-        satview_geodetic_from_ecef(glm::dvec3(kEquatorialRadiusKm, 0.0, 0.0));
+    const SatViewGeodeticPosition greenwich = satview_geodetic_from_ecef(glm::dvec3(kEquatorialRadiusKm, 0.0, 0.0));
     CHECK_THAT(greenwich.latitude_degrees, WithinAbs(0.0, 1.0e-10));
     CHECK_THAT(greenwich.longitude_degrees, WithinAbs(0.0, 1.0e-10));
     CHECK_THAT(greenwich.altitude_km, WithinAbs(0.0, 1.0e-10));
 
-    const SatViewGeodeticPosition east =
-        satview_geodetic_from_ecef(glm::dvec3(0.0, kEquatorialRadiusKm, 0.0));
+    const SatViewGeodeticPosition east = satview_geodetic_from_ecef(glm::dvec3(0.0, kEquatorialRadiusKm, 0.0));
     CHECK_THAT(east.latitude_degrees, WithinAbs(0.0, 1.0e-10));
     CHECK_THAT(east.longitude_degrees, WithinAbs(90.0, 1.0e-10));
 }
 
 TEST_CASE("SatView converts polar ECEF positions to geodetic coordinates", "[satview][geodetic]")
 {
-    const SatViewGeodeticPosition north =
-        satview_geodetic_from_ecef(glm::dvec3(0.0, 0.0, kPolarRadiusKm));
+    const SatViewGeodeticPosition north = satview_geodetic_from_ecef(glm::dvec3(0.0, 0.0, kPolarRadiusKm));
     CHECK_THAT(north.latitude_degrees, WithinAbs(90.0, 1.0e-10));
     CHECK_THAT(north.longitude_degrees, WithinAbs(0.0, 1.0e-10));
     CHECK_THAT(north.altitude_km, WithinAbs(0.0, 1.0e-10));

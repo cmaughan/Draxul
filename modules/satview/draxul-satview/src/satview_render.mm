@@ -1,5 +1,5 @@
 #include "satview_scene_pass.h"
-#include "satview_texture_assets.h"
+#include <draxul/satview/satview_texture_assets.h>
 
 #include <draxul/log.h>
 #include <draxul/metal/metal_render_context.h>

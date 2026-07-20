@@ -1,6 +1,6 @@
-#include "satview_map_projection.h"
+#include <draxul/satview/satview_map_projection.h>
 
-#include "satview_lunar_frame.h"
+#include <draxul/satview/satview_lunar_frame.h>
 
 #include <algorithm>
 #include <cmath>

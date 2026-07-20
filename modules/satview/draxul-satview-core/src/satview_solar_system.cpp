@@ -1,4 +1,4 @@
-#include "satview_solar_system.h"
+#include <draxul/satview/satview_solar_system.h>
 
 #include <algorithm>
 #include <array>

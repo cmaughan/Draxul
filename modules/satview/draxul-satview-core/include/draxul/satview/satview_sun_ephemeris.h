@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <cstddef>
 #include <vector>
 
 namespace draxul::satview
@@ -10,8 +10,7 @@ namespace draxul::satview
 
 inline constexpr double kSatViewSunMeanRadiusKm = 695700.0;
 inline constexpr double kSatViewAstronomicalUnitKm = 149597870.7;
-inline constexpr double kSatViewSunSiderealRotationPeriodSeconds =
-    360.0 / 14.1844 * 86400.0;
+inline constexpr double kSatViewSunSiderealRotationPeriodSeconds = 360.0 / 14.1844 * 86400.0;
 inline constexpr double kSatViewEarthOrbitPeriodSeconds = 360.0 / 0.9856474 * 86400.0;
 
 struct SatViewSunPosition

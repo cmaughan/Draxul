@@ -1,4 +1,4 @@
-#include "satview_object_style.h"
+#include <draxul/satview/satview_object_style.h>
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>

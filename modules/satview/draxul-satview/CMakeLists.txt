@@ -1,76 +1,27 @@
 cmake_minimum_required(VERSION 3.25)
 
+# NOTE: This target is being decomposed into stable library boundaries
+# (kanban 26). draxul-satview-core has been peeled off below; scene, services,
+# renderer, and host follow. Until the split completes this target holds the
+# not-yet-extracted scene/services/renderer/host sources and links the
+# already-extracted lower targets PUBLIC so tests and the app keep resolving
+# their headers transitively.
+
+set(SATVIEW_SOURCES
+    src/satview_catalog_service.cpp
+    src/satview_cloud_service.cpp
+    src/satview_config_io.cpp
+    src/satview_constellation_catalog.cpp
+    src/satview_host.cpp
+    src/satview_label_layout.cpp
+    src/satview_landscape.cpp
+    src/satview_simulation_worker.cpp
+    src/satview_star_catalog.cpp
+)
 if(APPLE)
-    set(SATVIEW_SOURCES
-        src/satview_catalog.cpp
-        src/satview_catalog_container.cpp
-        src/satview_catalog_service.cpp
-        src/satview_cloud_service.cpp
-        src/satview_config.cpp
-        src/satview_constellation_boundary_catalog.cpp
-        src/satview_constellation_catalog.cpp
-        src/satview_filter.cpp
-        src/satview_geodetic.cpp
-        src/satview_ground_view.cpp
-        src/satview_host.cpp
-        src/satview_label_layout.cpp
-        src/satview_landscape.cpp
-        src/satview_lunar_frame.cpp
-        src/satview_lunar_surface_catalog.cpp
-        src/satview_surface_catalog.cpp
-        src/satview_map_projection.cpp
-        src/satview_moon_ephemeris.cpp
-        src/satview_propagation.cpp
-        src/satview_simulation_worker.cpp
-        src/satview_sky_projection.cpp
-        src/satview_solar_system.cpp
-        src/satview_star_catalog.cpp
-        src/satview_sun_ephemeris.cpp
-        src/satview_texture_assets.cpp
-        src/satview_render.mm
-    )
+    list(APPEND SATVIEW_SOURCES src/satview_render.mm)
 else()
-    set(SATVIEW_SOURCES
-        src/satview_catalog.cpp
-        src/satview_catalog_container.cpp
-        src/satview_catalog_service.cpp
-        src/satview_cloud_service.cpp
-        src/satview_config.cpp
-        src/satview_constellation_boundary_catalog.cpp
-        src/satview_constellation_catalog.cpp
-        src/satview_filter.cpp
-        src/satview_geodetic.cpp
-        src/satview_ground_view.cpp
-        src/satview_host.cpp
-        src/satview_label_layout.cpp
-        src/satview_landscape.cpp
-        src/satview_lunar_frame.cpp
-        src/satview_lunar_surface_catalog.cpp
-        src/satview_surface_catalog.cpp
-        src/satview_map_projection.cpp
-        src/satview_moon_ephemeris.cpp
-        src/satview_propagation.cpp
-        src/satview_simulation_worker.cpp
-        src/satview_sky_projection.cpp
-        src/satview_solar_system.cpp
-        src/satview_star_catalog.cpp
-        src/satview_sun_ephemeris.cpp
-        src/satview_texture_assets.cpp
-        src/satview_render_vk.cpp
-    )
-endif()
-
-set(SATVIEW_SGP4_SOURCE_DIR "${celestrak_sgp4_SOURCE_DIR}/cpp/SGP4/SGP4")
-if(NOT EXISTS "${SATVIEW_SGP4_SOURCE_DIR}/SGP4.cpp")
-    message(FATAL_ERROR "CelesTrak SGP4 source was not found at ${SATVIEW_SGP4_SOURCE_DIR}")
-endif()
-
-add_library(celestrak-sgp4 STATIC src/vallado_sgp4.cpp)
-target_include_directories(celestrak-sgp4 SYSTEM PUBLIC "${SATVIEW_SGP4_SOURCE_DIR}")
-if(MSVC)
-    target_compile_options(celestrak-sgp4 PRIVATE /w)
-else()
-    target_compile_options(celestrak-sgp4 PRIVATE -w)
+    list(APPEND SATVIEW_SOURCES src/satview_render_vk.cpp)
 endif()
 
 add_library(draxul-satview STATIC ${SATVIEW_SOURCES})
@@ -85,6 +36,7 @@ target_compile_definitions(draxul-satview PRIVATE
 )
 
 target_link_libraries(draxul-satview PUBLIC
+    draxul-satview-core
     draxul-types
     draxul-http
     draxul-host
@@ -92,7 +44,6 @@ target_link_libraries(draxul-satview PUBLIC
     imgui
 )
 target_link_libraries(draxul-satview PRIVATE
-    celestrak-sgp4
     draxul-config
     draxul-font
     draxul-ui

@@ -1,4 +1,4 @@
-#include "satview_geodetic.h"
+#include <draxul/satview/satview_geodetic.h>
 
 #include <cmath>
 #include <numbers>
@@ -12,14 +12,12 @@ SatViewGeodeticPosition satview_geodetic_from_ecef(const glm::dvec3& ecef_positi
     constexpr double kFlattening = 1.0 / 298.257223563;
     constexpr double kPolarRadiusKm = kEquatorialRadiusKm * (1.0 - kFlattening);
     constexpr double kFirstEccentricitySquared = kFlattening * (2.0 - kFlattening);
-    constexpr double kSecondEccentricitySquared =
-        (kEquatorialRadiusKm * kEquatorialRadiusKm - kPolarRadiusKm * kPolarRadiusKm)
+    constexpr double kSecondEccentricitySquared = (kEquatorialRadiusKm * kEquatorialRadiusKm - kPolarRadiusKm * kPolarRadiusKm)
         / (kPolarRadiusKm * kPolarRadiusKm);
     constexpr double kRadiansToDegrees = 180.0 / std::numbers::pi_v<double>;
 
     const double distance_from_axis_km = std::hypot(ecef_position_km.x, ecef_position_km.y);
-    const double longitude_radians =
-        std::atan2(ecef_position_km.y, ecef_position_km.x);
+    const double longitude_radians = std::atan2(ecef_position_km.y, ecef_position_km.x);
 
     if (distance_from_axis_km < 1.0e-12)
     {
@@ -58,8 +56,7 @@ SatViewGeodeticPosition satview_geodetic_from_ecef(const glm::dvec3& ecef_positi
     const double sin_latitude = std::sin(latitude_radians);
     const double prime_vertical_radius_km = kEquatorialRadiusKm
         / std::sqrt(1.0 - kFirstEccentricitySquared * sin_latitude * sin_latitude);
-    const double altitude_km =
-        distance_from_axis_km / std::cos(latitude_radians) - prime_vertical_radius_km;
+    const double altitude_km = distance_from_axis_km / std::cos(latitude_radians) - prime_vertical_radius_km;
 
     return {
         latitude_radians * kRadiansToDegrees,

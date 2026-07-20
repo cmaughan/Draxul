@@ -1,4 +1,4 @@
-#include "satview_lunar_frame.h"
+#include <draxul/satview/satview_lunar_frame.h>
 
 #include <cmath>
 #include <glm/geometric.hpp>
@@ -82,7 +82,7 @@ glm::dvec3 satview_lunar_surface_render_position(
         longitude_east_degrees);
     return moon_render_position_earth_radii
         + satview_lunar_body_to_render_direction(direction, moon_render_position_earth_radii)
-            * radius_earth_radii;
+        * radius_earth_radii;
 }
 
 } // namespace draxul::satview

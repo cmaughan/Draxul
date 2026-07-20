@@ -1,5 +1,5 @@
-#include "satview_texture_assets.h"
-#include "satview_solar_system.h"
+#include <draxul/satview/satview_solar_system.h>
+#include <draxul/satview/satview_texture_assets.h>
 
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
@@ -91,8 +91,7 @@ EarthTextureImages load_earth_texture_images()
 LoadedTextureImage load_moon_texture_image()
 {
     PERF_MEASURE();
-    LoadedTextureImage image =
-        load_rgba8_image_impl(resolve_satview_asset_path("textures/moon_lroc_8k.jpg"));
+    LoadedTextureImage image = load_rgba8_image_impl(resolve_satview_asset_path("textures/moon_lroc_8k.jpg"));
     if (!image.valid())
         image = make_solid_rgba8(118, 118, 116, 255);
     return image;
@@ -128,8 +127,7 @@ LoadedTextureImage load_solar_system_body_texture_image(SatViewCameraPov body)
 LoadedTextureImage load_milky_way_texture_image()
 {
     PERF_MEASURE();
-    LoadedTextureImage image =
-        load_rgba8_image_impl(resolve_satview_asset_path("textures/milky_way_nasa_4k.jpg"));
+    LoadedTextureImage image = load_rgba8_image_impl(resolve_satview_asset_path("textures/milky_way_nasa_4k.jpg"));
     if (!image.valid())
         image = make_solid_rgba8(0, 0, 0, 255);
     return image;

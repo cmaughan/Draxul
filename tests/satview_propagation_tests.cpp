@@ -1,27 +1,27 @@
+#include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <draxul/satview/satview_catalog.h>
-#include <draxul/satview/satview_propagation.h>
-#include "satview_moon_ephemeris.h"
-#include <glm/geometric.hpp>
-#include <algorithm>
 #include <cmath>
+#include <draxul/satview/satview_catalog.h>
+#include <draxul/satview/satview_moon_ephemeris.h>
+#include <draxul/satview/satview_propagation.h>
+#include <glm/geometric.hpp>
 #include <limits>
 #include <numbers>
 #include <string>
 
 using Catch::Approx;
-using draxul::satview::SatellitePropagationExecutor;
-using draxul::satview::CentralBody;
-using draxul::satview::SatellitePropagationSettings;
 using draxul::satview::build_satellite_propagation_model;
+using draxul::satview::CentralBody;
 using draxul::satview::greenwich_sidereal_angle_radians;
 using draxul::satview::kSatViewEarthEquatorialRadiusKm;
+using draxul::satview::load_bundled_sampled_ephemeris;
 using draxul::satview::parse_celestrak_epoch_utc;
 using draxul::satview::parse_celestrak_gp_json;
 using draxul::satview::parse_celestrak_satcat_csv;
 using draxul::satview::propagate_satellites;
-using draxul::satview::load_bundled_sampled_ephemeris;
+using draxul::satview::SatellitePropagationExecutor;
+using draxul::satview::SatellitePropagationSettings;
 using draxul::satview::solar_direction_render;
 using draxul::satview::solar_direction_teme;
 using draxul::satview::teme_position_to_render_earth_radii;
@@ -128,8 +128,8 @@ TEST_CASE("SatView solar direction follows UTC date and Earth rotation", "[satvi
     const double march_declination = std::asin(march_sun.z) * kRadiansToDegrees;
     const double march_right_ascension = std::atan2(march_sun.y, march_sun.x);
     const double march_subsolar_longitude = std::remainder(
-        march_right_ascension - greenwich_sidereal_angle_radians(kMarchEquinoxNoonUtc),
-        2.0 * 3.14159265358979323846)
+                                                march_right_ascension - greenwich_sidereal_angle_radians(kMarchEquinoxNoonUtc),
+                                                2.0 * 3.14159265358979323846)
         * kRadiansToDegrees;
     CHECK(march_declination == Approx(0.15).margin(0.2));
     CHECK(march_subsolar_longitude == Approx(1.83).margin(0.5));
@@ -202,8 +202,7 @@ TEST_CASE("SatView propagation generates configurable track samples", "[satview]
     CHECK(result.tracks[0].ecef_points_km.size() == 12);
     CHECK(result.tracks[0].render_points_earth_radii.size() == 12);
     CHECK(glm::length(result.tracks[0].render_points_earth_radii[0]) > 1.0);
-    const glm::dvec3 expected_render_point =
-        teme_position_to_render_earth_radii(result.tracks[0].teme_points_km[0]);
+    const glm::dvec3 expected_render_point = teme_position_to_render_earth_radii(result.tracks[0].teme_points_km[0]);
     check_vec3(result.tracks[0].render_teme_points_earth_radii[0],
         expected_render_point.x,
         expected_render_point.y,
@@ -250,10 +249,9 @@ TEST_CASE("SatView propagation retains derived sun-synchronous metadata", "[satv
 
 TEST_CASE("SatView SATCAT summary propagation is deterministic periodic and bounded", "[satview][propagation]")
 {
-    const std::string csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
-        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "ESTIMATED,123456789,2026-001A,PAY,-,,240,63,3500,500,EA,ORB\n";
+    const std::string csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+                            "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                            "ESTIMATED,123456789,2026-001A,PAY,-,,240,63,3500,500,EA,ORB\n";
     const auto catalog = parse_celestrak_satcat_csv(csv);
     REQUIRE(catalog);
     REQUIRE(catalog.catalog.objects.size() == 1);
@@ -305,10 +303,9 @@ TEST_CASE("SatView sun-synchronous summary orbits keep their node locked to the 
     "[satview][propagation][sun-synchronous]")
 {
     // ~700 km at 98.2 deg inclination: the canonical sun-synchronous LEO geometry.
-    const std::string csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
-        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "SSO SAMPLE,987654321,2026-050A,PAY,+,,98.77,98.2,705,695,EA,ORB\n";
+    const std::string csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+                            "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                            "SSO SAMPLE,987654321,2026-050A,PAY,+,,98.77,98.2,705,695,EA,ORB\n";
     const auto catalog = parse_celestrak_satcat_csv(csv);
     REQUIRE(catalog);
     REQUIRE(catalog.catalog.objects.size() == 1);
@@ -340,10 +337,8 @@ TEST_CASE("SatView sun-synchronous summary orbits keep their node locked to the 
     REQUIRE(states0.states.size() == 1);
     REQUIRE(states1.states.size() == 1);
 
-    const double raan0 =
-        orbit_raan(states0.states[0].teme_position_km, states0.states[0].teme_velocity_km_per_s);
-    const double raan1 =
-        orbit_raan(states1.states[0].teme_position_km, states1.states[0].teme_velocity_km_per_s);
+    const double raan0 = orbit_raan(states0.states[0].teme_position_km, states0.states[0].teme_velocity_km_per_s);
+    const double raan1 = orbit_raan(states1.states[0].teme_position_km, states1.states[0].teme_velocity_km_per_s);
 
     // Over 60 days the Sun's right ascension advances ~59 deg; a sun-synchronous
     // node must precess with it, not stay inertially fixed (the hashed-RAAN bug).
@@ -398,10 +393,9 @@ TEST_CASE("SatView classifies dawn/dusk sun-synchronous orbits as terminator",
 
 TEST_CASE("SatView does not invent Moon-relative states from SATCAT summaries", "[satview][propagation][moon]")
 {
-    const std::string csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
-        "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "DRO-A,81002,2026-001B,PAY,+,,13000,5,70000,69000,MO,ORB\n";
+    const std::string csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_ID,OBJECT_TYPE,OPS_STATUS_CODE,DECAY_DATE,PERIOD,"
+                            "INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                            "DRO-A,81002,2026-001B,PAY,+,,13000,5,70000,69000,MO,ORB\n";
     const auto catalog = parse_celestrak_satcat_csv(csv);
     REQUIRE(catalog);
     REQUIRE(catalog.catalog.objects.size() == 1);
@@ -452,8 +446,7 @@ TEST_CASE("SatView sampled lunar ephemerides interpolate only within their valid
     CHECK(track_points[2].y - moon.y == Approx(192.0));
     const glm::dvec3 later_moon = draxul::satview::satview_moon_position(1090.0)
                                       .equatorial_position_km;
-    const glm::dvec3 anchor_offset =
-        draxul::satview::satellite_track_anchor_offset_km(midpoint.tracks[0], 1090.0);
+    const glm::dvec3 anchor_offset = draxul::satview::satellite_track_anchor_offset_km(midpoint.tracks[0], 1090.0);
     CHECK(moon.x + anchor_offset.x == Approx(later_moon.x));
     CHECK(moon.y + anchor_offset.y == Approx(later_moon.y));
     CHECK(moon.z + anchor_offset.z == Approx(later_moon.z));
@@ -504,14 +497,13 @@ TEST_CASE("SatView sampled lunar tracks default to one osculating orbit", "[satv
 
 TEST_CASE("SatView propagates the bundled curated Horizons missions near the Moon", "[satview][propagation][moon]")
 {
-    const std::string satcat_csv =
-        "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
-        "ARTEMIS P1 (THEMIS B),30581,PAY,,,,,,MO,ORB\n"
-        "ARTEMIS P2 (THEMIS C),30582,PAY,,,,,,MO,ORB\n"
-        "LRO,35315,PAY,,,,,,MO,ORB\n"
-        "CHANDRAYAAN-2,44441,PAY,,,,,,MO,ORB\n"
-        "CAPSTONE,52914,PAY,,,,,,MO,ORB\n"
-        "DANURI,53365,PAY,,,,,,MO,ORB\n";
+    const std::string satcat_csv = "OBJECT_NAME,NORAD_CAT_ID,OBJECT_TYPE,DECAY_DATE,PERIOD,INCLINATION,APOGEE,PERIGEE,ORBIT_CENTER,ORBIT_TYPE\n"
+                                   "ARTEMIS P1 (THEMIS B),30581,PAY,,,,,,MO,ORB\n"
+                                   "ARTEMIS P2 (THEMIS C),30582,PAY,,,,,,MO,ORB\n"
+                                   "LRO,35315,PAY,,,,,,MO,ORB\n"
+                                   "CHANDRAYAAN-2,44441,PAY,,,,,,MO,ORB\n"
+                                   "CAPSTONE,52914,PAY,,,,,,MO,ORB\n"
+                                   "DANURI,53365,PAY,,,,,,MO,ORB\n";
     auto parsed = parse_celestrak_satcat_csv(satcat_csv);
     REQUIRE(parsed);
     REQUIRE(load_bundled_sampled_ephemeris(parsed.catalog) == 6);
@@ -534,7 +526,7 @@ TEST_CASE("SatView propagates the bundled curated Horizons missions near the Moo
     REQUIRE(result.states.size() == 7);
     REQUIRE(result.tracks.size() == 6);
     const glm::dvec3 moon = draxul::satview::satview_moon_position(kJuly5NoonUtc)
-                                 .equatorial_position_km;
+                                .equatorial_position_km;
     for (const auto& state : result.states)
     {
         if (state.central_body != CentralBody::Moon)

@@ -2,8 +2,8 @@
 
 #include "satview_label_layout.h"
 #include "satview_landscape.h"
-#include "satview_solar_system.h"
-#include "satview_texture_assets.h"
+#include <draxul/satview/satview_solar_system.h>
+#include <draxul/satview/satview_texture_assets.h>
 
 #include <algorithm>
 #include <cstdint>

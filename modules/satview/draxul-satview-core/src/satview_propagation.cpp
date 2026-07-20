@@ -1,13 +1,13 @@
 #include <draxul/satview/satview_propagation.h>
 
-#include "satview_object_style.h"
-#include "satview_moon_ephemeris.h"
+#include <draxul/satview/satview_moon_ephemeris.h>
+#include <draxul/satview/satview_object_style.h>
 
 #include "SGP4.h"
 
 #include <algorithm>
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -295,10 +295,8 @@ std::optional<CompiledOrbit> compile_record(const SatelliteRecord& record)
 
     const double deg_to_rad = kPi / 180.0;
     const double mean_motion_rad_per_minute = record.mean_motion_rev_per_day / kReferenceMeanMotionScale;
-    const double mean_motion_dot_rad_per_minute2 =
-        record.mean_motion_dot / (kReferenceMeanMotionScale * kMinutesPerDay);
-    const double mean_motion_ddot_rad_per_minute3 =
-        record.mean_motion_ddot / (kReferenceMeanMotionScale * kMinutesPerDay * kMinutesPerDay);
+    const double mean_motion_dot_rad_per_minute2 = record.mean_motion_dot / (kReferenceMeanMotionScale * kMinutesPerDay);
+    const double mean_motion_ddot_rad_per_minute3 = record.mean_motion_ddot / (kReferenceMeanMotionScale * kMinutesPerDay * kMinutesPerDay);
 
     SGP4Funcs::sgp4init(
         wgs72,
@@ -357,9 +355,7 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
 
     summary.period_seconds = record.satcat_period_minutes.has_value()
         ? *record.satcat_period_minutes * 60.0
-        : kTwoPi * std::sqrt(
-              summary.semi_major_axis_km * summary.semi_major_axis_km * summary.semi_major_axis_km
-              / body_mu_km3_per_s2);
+        : kTwoPi * std::sqrt(summary.semi_major_axis_km * summary.semi_major_axis_km * summary.semi_major_axis_km / body_mu_km3_per_s2);
     summary.inclination_radians = *record.satcat_inclination_deg * kPi / 180.0;
     summary.right_ascension_radians = stable_angle(record.norad_catalog_id, 0x3c6ef372fe94f82bull);
     summary.argument_perigee_radians = stable_angle(record.norad_catalog_id, 0xa54ff53a5f1d36f1ull);
@@ -372,8 +368,7 @@ std::optional<CompiledOrbit> compile_summary_record(const SatelliteRecord& recor
         // while the Sun moves ~1 deg/day, so it drifts through every beta angle
         // and dips randomly into shadow. Instead lock the node to the Sun.
         summary.sun_synchronous = true;
-        summary.sun_relative_node_offset_radians =
-            sun_synchronous_node_offset_radians(record.norad_catalog_id);
+        summary.sun_relative_node_offset_radians = sun_synchronous_node_offset_radians(record.norad_catalog_id);
     }
 
     if (!std::isfinite(summary.semi_major_axis_km)
@@ -617,15 +612,13 @@ bool propagate_one(
                 simulation_unix_seconds + kVelocitySampleSeconds)
                                              .equatorial_position_km;
             out.teme_position_km += moon.equatorial_position_km;
-            out.teme_velocity_km_per_s +=
-                (moon_next - moon.equatorial_position_km) / kVelocitySampleSeconds;
+            out.teme_velocity_km_per_s += (moon_next - moon.equatorial_position_km) / kVelocitySampleSeconds;
         }
     }
     else
     {
         elsetrec satrec = orbit.satrec;
-        const double tsince_minutes =
-            (jd.day - satrec.jdsatepoch) * kMinutesPerDay
+        const double tsince_minutes = (jd.day - satrec.jdsatepoch) * kMinutesPerDay
             + (jd.fraction - satrec.jdsatepochF) * kMinutesPerDay;
 
         double r[3]{};
@@ -688,8 +681,7 @@ void append_track_samples(
                   : entry.period_minutes);
     if (settings.track_horizon_minutes <= 0.0)
     {
-        const std::optional<double> sampled_period =
-            sampled_moon_orbit_period_minutes(orbit, simulation_unix_seconds);
+        const std::optional<double> sampled_period = sampled_moon_orbit_period_minutes(orbit, simulation_unix_seconds);
         // Preserve catalog windows close to one revolution, but trim clear multi-loop defaults.
         if (sampled_period.has_value()
             && horizon_minutes > *sampled_period * kMultiRevolutionTrackThreshold)
@@ -725,8 +717,7 @@ void append_track_samples(
             display_teme_position_km += *track_center
                 - satview_moon_position(sample_unix_seconds).equatorial_position_km;
         }
-        const glm::dvec3 display_ecef_position_km =
-            teme_to_ecef_km(display_teme_position_km, jd);
+        const glm::dvec3 display_ecef_position_km = teme_to_ecef_km(display_teme_position_km, jd);
         track.teme_points_km.push_back(display_teme_position_km);
         track.ecef_points_km.push_back(display_ecef_position_km);
         track.render_teme_points_earth_radii.push_back(

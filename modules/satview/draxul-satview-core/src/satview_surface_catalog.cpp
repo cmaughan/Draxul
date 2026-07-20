@@ -1,6 +1,6 @@
-#include "satview_surface_catalog.h"
+#include <draxul/satview/satview_surface_catalog.h>
 
-#include "satview_texture_assets.h"
+#include <draxul/satview/satview_texture_assets.h>
 
 #include <charconv>
 #include <cmath>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "satview_texture_assets.h"
+#include <draxul/satview/satview_texture_assets.h>
 
 #include <chrono>
 #include <cstdint>

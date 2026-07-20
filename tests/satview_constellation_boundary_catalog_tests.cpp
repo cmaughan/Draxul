@@ -1,8 +1,8 @@
-#include "satview_constellation_boundary_catalog.h"
+#include <draxul/satview/satview_constellation_boundary_catalog.h>
 
+#include <algorithm>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -14,8 +14,7 @@ using namespace draxul::satview;
 
 TEST_CASE("SatView loads the pinned constellation boundary and name catalog", "[satview][constellations]")
 {
-    const SatViewConstellationBoundaryCatalog catalog =
-        load_satview_constellation_boundary_catalog();
+    const SatViewConstellationBoundaryCatalog catalog = load_satview_constellation_boundary_catalog();
 
     REQUIRE(catalog.segments.size() > 1'000);
     REQUIRE(catalog.labels.size() == 89);
@@ -52,8 +51,7 @@ TEST_CASE("SatView rejects a truncated constellation boundary catalog", "[satvie
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
         output.write("DXCBND01", 8);
     }
-    const SatViewConstellationBoundaryCatalog catalog =
-        load_satview_constellation_boundary_catalog(path);
+    const SatViewConstellationBoundaryCatalog catalog = load_satview_constellation_boundary_catalog(path);
     std::error_code error;
     std::filesystem::remove(path, error);
 

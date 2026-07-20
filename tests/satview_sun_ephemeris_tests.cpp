@@ -1,4 +1,4 @@
-#include "satview_sun_ephemeris.h"
+#include <draxul/satview/satview_sun_ephemeris.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -12,13 +12,13 @@ namespace
 
 using Catch::Matchers::WithinAbs;
 using draxul::satview::kSatViewAstronomicalUnitKm;
-using draxul::satview::kSatViewEarthOrbitPeriodSeconds;
 using draxul::satview::kSatViewEarthEquatorialRadiusKm;
-using draxul::satview::kSatViewSunSiderealRotationPeriodSeconds;
+using draxul::satview::kSatViewEarthOrbitPeriodSeconds;
 using draxul::satview::kSatViewSunMeanRadiusKm;
-using draxul::satview::solar_direction_render;
+using draxul::satview::kSatViewSunSiderealRotationPeriodSeconds;
 using draxul::satview::satview_earth_orbit_track;
 using draxul::satview::satview_sun_position;
+using draxul::satview::solar_direction_render;
 
 TEST_CASE("SatView Sun ephemeris uses date-aware Earth distance", "[satview][sun]")
 {
@@ -38,8 +38,7 @@ TEST_CASE("SatView Sun ephemeris uses date-aware Earth distance", "[satview][sun
               glm::normalize(sun.render_position_earth_radii),
               solar_direction_render(kMarchEquinoxNoonUtc))
         > 0.999999);
-    const double angular_diameter_degrees = 2.0 * std::asin(
-        kSatViewSunMeanRadiusKm / glm::length(sun.equatorial_position_km))
+    const double angular_diameter_degrees = 2.0 * std::asin(kSatViewSunMeanRadiusKm / glm::length(sun.equatorial_position_km))
         * 180.0 / std::numbers::pi_v<double>;
     CHECK(angular_diameter_degrees > 0.52);
     CHECK(angular_diameter_degrees < 0.55);
@@ -65,10 +64,8 @@ TEST_CASE("SatView Sun orientation preserves the IAU pole and rotation period", 
         -equatorial_north.x);
     CHECK(glm::dot(glm::normalize(north), glm::normalize(expected_render_north)) > 0.999999);
 
-    const glm::dvec3 first_meridian =
-        first.body_to_render_orientation * glm::dvec3(1.0, 0.0, 0.0);
-    const glm::dvec3 repeated_meridian =
-        one_rotation.body_to_render_orientation * glm::dvec3(1.0, 0.0, 0.0);
+    const glm::dvec3 first_meridian = first.body_to_render_orientation * glm::dvec3(1.0, 0.0, 0.0);
+    const glm::dvec3 repeated_meridian = one_rotation.body_to_render_orientation * glm::dvec3(1.0, 0.0, 0.0);
     CHECK(glm::dot(first_meridian, repeated_meridian) > 0.999999);
 }
 

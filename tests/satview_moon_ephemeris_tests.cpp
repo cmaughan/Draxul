@@ -1,8 +1,8 @@
-#include "satview_moon_ephemeris.h"
+#include <draxul/satview/satview_moon_ephemeris.h>
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
-#include <algorithm>
 #include <cmath>
 #include <draxul/satview/satview_propagation.h>
 #include <glm/geometric.hpp>
@@ -13,9 +13,9 @@ namespace
 
 using Catch::Matchers::WithinAbs;
 using draxul::satview::kSatViewEarthEquatorialRadiusKm;
-using draxul::satview::solar_direction_render;
 using draxul::satview::satview_moon_orbit_track;
 using draxul::satview::satview_moon_position;
+using draxul::satview::solar_direction_render;
 
 TEST_CASE("SatView Moon ephemeris agrees with a JPL Horizons reference vector", "[satview][moon]")
 {
@@ -57,8 +57,7 @@ TEST_CASE("SatView Moon orbit track spans a lunar cycle around its center time",
     const auto track = satview_moon_orbit_track(kCenterSeconds, kSegments);
 
     REQUIRE(track.size() == kSegments);
-    const glm::dvec3 center_position =
-        satview_moon_position(kCenterSeconds).render_position_earth_radii;
+    const glm::dvec3 center_position = satview_moon_position(kCenterSeconds).render_position_earth_radii;
     CHECK(glm::length(track[kSegments / 2] - center_position) < 1.0e-10);
     for (const glm::dvec3& position : track)
     {
@@ -70,8 +69,7 @@ TEST_CASE("SatView Moon orbit track spans a lunar cycle around its center time",
 TEST_CASE("SatView Moon phase follows the observer side", "[satview][moon][lighting]")
 {
     constexpr double kJune28NoonUtc = 1782648000.0;
-    const glm::dvec3 moon =
-        satview_moon_position(kJune28NoonUtc).render_position_earth_radii;
+    const glm::dvec3 moon = satview_moon_position(kJune28NoonUtc).render_position_earth_radii;
     const glm::dvec3 sun = solar_direction_render(kJune28NoonUtc);
     const auto illuminated_fraction = [&](const glm::dvec3& observer) {
         const glm::dvec3 observer_direction = glm::normalize(observer - moon);

@@ -1,4 +1,4 @@
-#include "satview_moon_ephemeris.h"
+#include <draxul/satview/satview_moon_ephemeris.h>
 
 #include <algorithm>
 #include <cmath>
@@ -20,8 +20,7 @@ double radians(double degrees)
 
 SatViewMoonPosition satview_moon_position(double unix_seconds)
 {
-    const double julian_centuries =
-        (julian_date_from_unix_seconds(unix_seconds).value() - 2451545.0) / 36525.0;
+    const double julian_centuries = (julian_date_from_unix_seconds(unix_seconds).value() - 2451545.0) / 36525.0;
     const double t2 = julian_centuries * julian_centuries;
     const double t3 = t2 * julian_centuries;
     const double t4 = t3 * julian_centuries;
@@ -43,8 +42,7 @@ SatViewMoonPosition satview_moon_position(double unix_seconds)
         - t3 / 3526000.0 + t4 / 863310000.0);
     const double eccentricity = 1.0 - 0.002516 * julian_centuries - 0.0000074 * t2;
 
-    const double longitude_correction_degrees =
-        6.288774 * std::sin(lunar_anomaly)
+    const double longitude_correction_degrees = 6.288774 * std::sin(lunar_anomaly)
         + 1.274027 * std::sin(2.0 * elongation - lunar_anomaly)
         + 0.658314 * std::sin(2.0 * elongation)
         + 0.213618 * std::sin(2.0 * lunar_anomaly)
@@ -65,8 +63,7 @@ SatViewMoonPosition satview_moon_position(double unix_seconds)
         + 0.010034 * std::sin(3.0 * lunar_anomaly)
         + 0.008548 * std::sin(4.0 * elongation - 2.0 * lunar_anomaly);
 
-    const double latitude_degrees =
-        5.128122 * std::sin(argument_of_latitude)
+    const double latitude_degrees = 5.128122 * std::sin(argument_of_latitude)
         + 0.280602 * std::sin(lunar_anomaly + argument_of_latitude)
         + 0.277693 * std::sin(lunar_anomaly - argument_of_latitude)
         + 0.173237 * std::sin(2.0 * elongation - argument_of_latitude)
@@ -77,8 +74,7 @@ SatViewMoonPosition satview_moon_position(double unix_seconds)
         + 0.009267 * std::sin(2.0 * elongation + lunar_anomaly - argument_of_latitude)
         + 0.008823 * std::sin(2.0 * lunar_anomaly - argument_of_latitude);
 
-    const double distance_km =
-        385000.56
+    const double distance_km = 385000.56
         - 20905.355 * std::cos(lunar_anomaly)
         - 3699.111 * std::cos(2.0 * elongation - lunar_anomaly)
         - 2955.968 * std::cos(2.0 * elongation)
@@ -94,10 +90,7 @@ SatViewMoonPosition satview_moon_position(double unix_seconds)
     const double longitude = mean_longitude + radians(longitude_correction_degrees);
     const double latitude = radians(latitude_degrees);
     const double cos_latitude = std::cos(latitude);
-    const glm::dvec3 ecliptic_position_km = distance_km * glm::dvec3(
-        cos_latitude * std::cos(longitude),
-        cos_latitude * std::sin(longitude),
-        std::sin(latitude));
+    const glm::dvec3 ecliptic_position_km = distance_km * glm::dvec3(cos_latitude * std::cos(longitude), cos_latitude * std::sin(longitude), std::sin(latitude));
 
     const double obliquity = radians(
         23.439291111 - 0.013004167 * julian_centuries
@@ -123,14 +116,13 @@ std::vector<glm::dvec3> satview_moon_orbit_track(
     std::vector<glm::dvec3> positions;
     positions.reserve(segment_count);
 
-    const double start_seconds =
-        center_unix_seconds - 0.5 * kSatViewMoonSiderealPeriodSeconds;
+    const double start_seconds = center_unix_seconds - 0.5 * kSatViewMoonSiderealPeriodSeconds;
     for (std::size_t i = 0; i < segment_count; ++i)
     {
         const double fraction = static_cast<double>(i) / static_cast<double>(segment_count);
         positions.push_back(satview_moon_position(
             start_seconds + fraction * kSatViewMoonSiderealPeriodSeconds)
-                                .render_position_earth_radii);
+                .render_position_earth_radii);
     }
     return positions;
 }

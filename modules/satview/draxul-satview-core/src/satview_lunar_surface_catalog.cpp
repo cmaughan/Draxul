@@ -1,4 +1,4 @@
-#include "satview_lunar_surface_catalog.h"
+#include <draxul/satview/satview_lunar_surface_catalog.h>
 
 namespace draxul::satview
 {

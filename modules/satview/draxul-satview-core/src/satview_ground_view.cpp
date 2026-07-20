@@ -1,4 +1,4 @@
-#include "satview_ground_view.h"
+#include <draxul/satview/satview_ground_view.h>
 
 #include <algorithm>
 #include <cmath>
