@@ -126,6 +126,18 @@ private:
     void apply_verdict_update();
     int approx_measure() const;
     double quarters_per_measure_from_model() const;
+    // The playhead's source-axis position while composing (kanban 22): its
+    // source bar and whether it sits on a fabricated drill. nullopt when not
+    // composing on a live program, so each caller keeps its own non-composing
+    // fallback and drill policy — the tempo ladder skips drills and divides by
+    // the bar length, the measure readout shows the drill's bar and divides by
+    // the measure length.
+    struct PlayheadSource
+    {
+        int source_bar = -1;
+        bool drill = false;
+    };
+    std::optional<PlayheadSource> playhead_source() const;
     double now_seconds() const;
     // The rolling window (plans/scoreview-stream.md S2): the roll game runs
     // on a short re-engraved window of the stream; the transport's local
@@ -137,6 +149,16 @@ private:
         Ok,
     };
     FlowBuildResult build_flow_from_engine(std::string& error);
+    // The engrave inputs a rolling-window rebuild shares (kanban 22): pixel
+    // scale, the piece marking, tempo lock, and the spacing overrides.
+    // (build_flow_from_engine deliberately fills a partial set — it leaves the
+    // marking and lock to the pump.)
+    EngraveParams current_engrave_params() const;
+    // Slices the window at `first_bar` and queues it on the worker as a carried
+    // advance (kanban 22): the shared slice->params->intent->queue tail of
+    // maybe_advance_stream and maybe_urgent_rewrite. Returns whether a job was
+    // queued (false when the slice is empty or the worker rejects it).
+    bool queue_stream_engrave(int first_bar, double stream_q, bool fallback_to_monolith);
     bool rebuild_window(int first_bar, double stream_position_q, bool carry,
         bool preserve_tempo = false);
     // Swaps a freshly-engraved window into the live host state and replays the
@@ -318,6 +340,10 @@ private:
     // Sources the slicer cannot open (.mxl zips, multi-part scores) still
     // stream verbatim — composer support is per-source (IComposer::supports).
     bool composer_enabled_ = true;
+    // Which IComposer the stream runs (kanban 22 selection seam). The
+    // `composer=<name>` launch token overrides the adaptive-stream default;
+    // an unknown name is warned and falls back.
+    std::string composer_name_ = "adaptive-stream";
     // Pedagogy sub-toggles, forwarded to the composer: fabricated chord
     // drills and scale fragments. Default OFF pending evaluation.
     bool composer_drills_ = false;

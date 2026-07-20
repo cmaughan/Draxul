@@ -4,6 +4,8 @@
 
 #include <catch2/catch_all.hpp>
 
+#include "support/scoreview_engrave_helpers.h"
+
 #include <draxul/scoreview/bot_player_input.h>
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/score_highlight.h>
@@ -11,10 +13,8 @@
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
 
-#include <fstream>
 #include <map>
 #include <set>
-#include <sstream>
 #include <string>
 
 using namespace draxul::scoreview;
@@ -97,12 +97,8 @@ TEST_CASE("engine reports pitches and tie ends for the live Grieg", "[scoreview]
     LayoutOptions options;
     options.mode = LayoutMode::Flow;
     engine->set_options(options);
-    std::ifstream stream(
-        std::string(DRAXUL_PROJECT_ROOT) + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
 
     auto timemap = parse_timemap(engine->render_timemap(), error);
     REQUIRE(timemap.has_value());

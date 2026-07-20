@@ -4,12 +4,12 @@
 
 #include <catch2/catch_all.hpp>
 
+#include "support/scoreview_engrave_helpers.h"
+
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/score_timemap.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
 
-#include <fstream>
-#include <sstream>
 #include <string>
 
 using namespace draxul::scoreview;
@@ -69,12 +69,8 @@ const PieceProfile& grieg_profile()
         LayoutOptions options;
         options.mode = LayoutMode::Flow;
         engine->set_options(options);
-        std::ifstream stream(std::string(DRAXUL_PROJECT_ROOT)
-                + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-            std::ios::binary);
-        std::ostringstream buffer;
-        buffer << stream.rdbuf();
-        REQUIRE(engine->load(buffer.str(), error));
+        REQUIRE(engine->load(
+            read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
         auto timemap = parse_timemap(engine->render_timemap(), error);
         REQUIRE(timemap.has_value());
         std::vector<AnalysisOnset> onsets;
@@ -381,12 +377,8 @@ TEST_CASE("analysis profiles the real Grieg", "[scoreview][analysis]")
     LayoutOptions options;
     options.mode = LayoutMode::Flow;
     engine->set_options(options);
-    std::ifstream stream(
-        std::string(DRAXUL_PROJECT_ROOT) + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
     auto timemap = parse_timemap(engine->render_timemap(), error);
     REQUIRE(timemap.has_value());
 
@@ -561,12 +553,8 @@ TEST_CASE("the MEI index attributes notes to their engraved staff",
     LayoutOptions options;
     options.mode = LayoutMode::Flow;
     engine->set_options(options);
-    std::ifstream stream(std::string(DRAXUL_PROJECT_ROOT)
-            + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
     auto timemap = parse_timemap(engine->render_timemap(), error);
     REQUIRE(timemap.has_value());
 

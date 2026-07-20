@@ -384,6 +384,13 @@ std::string key_name(int tonic_pc, bool minor)
     return std::string(kPitchNames[((tonic_pc % 12) + 12) % 12]) + (minor ? " minor" : " major");
 }
 
+std::string note_name(int midi)
+{
+    if (midi < 0)
+        return "?";
+    return std::string(kPitchNames[((midi % 12) + 12) % 12]) + std::to_string(midi / 12 - 1);
+}
+
 PieceProfile analyze_piece(const std::vector<AnalysisOnset>& onsets, double quarters_per_bar,
     std::optional<int> notated_fifths)
 {

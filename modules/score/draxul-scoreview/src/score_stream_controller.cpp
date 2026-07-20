@@ -3,15 +3,44 @@
 #include <draxul/log.h>
 
 #include <algorithm>
+#include <utility>
 
 namespace draxul
 {
 namespace scoreview
 {
 
-ScoreStreamController::ScoreStreamController()
-    : composer_(std::make_unique<StreamComposer>())
+namespace
 {
+// Name-keyed composer factory (kanban 22): the single place a second IComposer
+// registers. Unknown names return null so the caller keeps the current
+// composer; the controller seeds the adaptive-stream default at construction.
+std::unique_ptr<IComposer> make_composer(std::string_view name)
+{
+    if (name.empty() || name == "adaptive-stream")
+        return std::make_unique<StreamComposer>();
+    return nullptr;
+}
+} // namespace
+
+ScoreStreamController::ScoreStreamController()
+    : composer_(make_composer("adaptive-stream"))
+{
+}
+
+bool ScoreStreamController::select_composer(std::string_view name)
+{
+    if (composer_ && name == composer_->name())
+        return true; // already selected — keep its policy state
+    auto next = make_composer(name);
+    if (!next)
+        return false; // unknown name; the caller keeps the current composer
+    composer_ = std::move(next);
+    // A different composer plans a different program; drop the stale plan and
+    // the plan-log cursor so the new one starts clean (mirrors reset_plan).
+    program_.clear();
+    last_logged_plan_slot_ = -1;
+    return true;
 }
 
 void ScoreStreamController::reset_plan()

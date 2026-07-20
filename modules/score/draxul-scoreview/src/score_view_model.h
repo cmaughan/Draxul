@@ -38,6 +38,7 @@ struct ScoreViewModel
     double marking_qpm = 0.0;
     bool stream_roll_active = false; // rolling window + Roll mode
     bool engraving_busy = false;
+    std::string composer_name; // active IComposer::name() (kanban 22 seam)
 
     // Performance
     double accuracy_ema = 0.0;

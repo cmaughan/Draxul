@@ -176,6 +176,10 @@ struct PieceProfile
 };
 
 std::string key_name(int tonic_pc, bool minor);
+// Scientific-pitch name for a MIDI note (e.g. 60 -> "C4"), sharp spelling;
+// "?" for a negative pitch. The one pitch-class table outside measure_xml
+// (whose step+alter encoding is a different thing).
+std::string note_name(int midi);
 
 PieceProfile analyze_piece(const std::vector<AnalysisOnset>& onsets, double quarters_per_bar,
     std::optional<int> notated_fifths);

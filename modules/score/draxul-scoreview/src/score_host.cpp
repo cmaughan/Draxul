@@ -243,6 +243,17 @@ bool ScoreHost::initialize(const HostContext& context, IHostCallbacks& callbacks
             composer_enabled_ = false;
         else if (command.find("composer") != std::string::npos)
             composer_enabled_ = true;
+        // `composer=<name>` picks the IComposer (kanban 22 selection seam); the
+        // bare `composer` token above already enabled it. Unknown names fall
+        // back to the default when select_composer runs at flow-build time.
+        const std::string composer_tok = "composer=";
+        if (const size_t eq = command.find(composer_tok); eq != std::string::npos)
+        {
+            const size_t start = eq + composer_tok.size();
+            const size_t end = command.find_first_of(" \t", start);
+            composer_name_ = command.substr(
+                start, end == std::string::npos ? std::string::npos : end - start);
+        }
         // Fabricated drills/scales are opt-in while their value is evaluated.
         if (command.find("drills") != std::string::npos)
             composer_drills_ = true;
@@ -646,6 +657,11 @@ void ScoreHost::relayout_flow()
                     slicer_error.c_str());
             }
         }
+        // Select the requested IComposer before configuring it (kanban 22
+        // seam); an unknown name keeps the adaptive-stream default.
+        if (!stream_->select_composer(composer_name_))
+            DRAXUL_LOG_WARN(LogCategory::App, "score: unknown composer '%s', using '%s'",
+                composer_name_.c_str(), stream_->composer().name());
         // Source compatibility is the composer's call (IComposer::supports):
         // the adaptive stream needs a single-part source for its grand-staff
         // drill bars; unsupported pieces stream the source verbatim.
@@ -710,19 +726,40 @@ void ScoreHost::relayout_flow()
         callbacks_->request_frame();
 }
 
+EngraveParams ScoreHost::current_engrave_params() const
+{
+    EngraveParams params;
+    params.pixel_scale = ui_scale();
+    params.marking_qpm = piece_marking_qpm_;
+    params.lock_tempo = lock_tempo_;
+    params.proportional_spacing = proportional_spacing_;
+    params.spacing_linear = spacing_linear_override_;
+    params.spacing_non_linear = spacing_non_linear_override_;
+    return params;
+}
+
+bool ScoreHost::queue_stream_engrave(int first_bar, double stream_q, bool fallback_to_monolith)
+{
+    auto slice = stream_->build_window_slice(first_bar);
+    if (!slice)
+        return false;
+    ScoreStreamController::PendingInstall intent;
+    intent.stream_position_q = stream_q;
+    intent.carry = true;
+    intent.preserve_tempo = false;
+    intent.fallback_to_monolith_on_error = fallback_to_monolith;
+    return stream_->queue_engrave(std::move(*slice), current_engrave_params(), intent);
+}
+
 ScoreHost::FlowBuildResult ScoreHost::build_flow_from_engine(std::string& error)
 {
     // The whole-piece flow build (Clock conveyor, the `mono` strip, and the
     // initial engraving) shares its extraction with a rolling window; only the
     // transport policy differs. This path leaves the mode/marking to the pump
-    // and enter_gate_mode, so it does not use engrave_window's Roll config.
-    EngraveParams params;
-    params.pixel_scale = ui_scale();
-    params.proportional_spacing = proportional_spacing_;
-    params.spacing_linear = spacing_linear_override_;
-    params.spacing_non_linear = spacing_non_linear_override_;
+    // and enter_gate_mode: engrave_loaded reads only the scale/spacing fields,
+    // so the marking/lock current_engrave_params() also carries are ignored.
     EngravedWindow engraved;
-    const EngraveResult result = engrave_loaded(*engine_, params, engraved, error);
+    const EngraveResult result = engrave_loaded(*engine_, current_engrave_params(), engraved, error);
     if (result == EngraveResult::InterpretFailed)
         return FlowBuildResult::InterpretFailed;
     // Show the strip even when the transport join fails (paged fallback).
@@ -756,13 +793,7 @@ bool ScoreHost::rebuild_window(
         return false;
     }
 
-    EngraveParams params;
-    params.pixel_scale = ui_scale();
-    params.marking_qpm = piece_marking_qpm_;
-    params.lock_tempo = lock_tempo_;
-    params.proportional_spacing = proportional_spacing_;
-    params.spacing_linear = spacing_linear_override_;
-    params.spacing_non_linear = spacing_non_linear_override_;
+    const EngraveParams params = current_engrave_params();
 
     // Startup performs one synchronous build before interactive frames exist.
     // Every later rebuild uses the latest-wins worker and leaves the current
@@ -855,6 +886,16 @@ void ScoreHost::rebuild_highlight_from_palette()
         highlight_.set_guidance(id, palette);
 }
 
+std::optional<ScoreHost::PlayheadSource> ScoreHost::playhead_source() const
+{
+    if (stream_->composing() && stream_active() && !stream_->program().empty())
+    {
+        const StreamProgram::SourceRef ref = stream_->program().source_at(stream_position_q());
+        return PlayheadSource{ ref.source_bar, ref.drill };
+    }
+    return std::nullopt;
+}
+
 void ScoreHost::apply_tempo_ladder()
 {
     // The per-bar tempo ladder (C3): entering a bar caps the roll tempo at
@@ -865,15 +906,10 @@ void ScoreHost::apply_tempo_ladder()
     if (lock_tempo_ || !stream_active() || flow_.mode() != FlowController::TransportMode::Roll)
         return;
     int source_bar = -1;
-    if (stream_->composing())
-    {
-        const StreamProgram::SourceRef ref = stream_->program().source_at(stream_position_q());
-        source_bar = ref.drill ? -1 : ref.source_bar;
-    }
-    else if (quarters_per_bar_ > 0.0)
-    {
+    if (const auto source = playhead_source())
+        source_bar = source->drill ? -1 : source->source_bar; // drills don't cap
+    else if (!stream_->composing() && quarters_per_bar_ > 0.0)
         source_bar = static_cast<int>(stream_position_q() / quarters_per_bar_);
-    }
     if (source_bar < 0 || source_bar == ladder_bar_)
         return;
     ladder_bar_ = source_bar;
@@ -957,23 +993,10 @@ void ScoreHost::maybe_urgent_rewrite()
     const double stream_q = stream_position_q();
     if (!stream_->try_urgent_rewrite(stream_q))
         return;
-    auto slice = stream_->build_window_slice(stream_->window_first_bar());
-    if (!slice)
-        return;
-    EngraveParams params;
-    params.pixel_scale = ui_scale();
-    params.marking_qpm = piece_marking_qpm_;
-    params.lock_tempo = lock_tempo_;
-    params.proportional_spacing = proportional_spacing_;
-    params.spacing_linear = spacing_linear_override_;
-    params.spacing_non_linear = spacing_non_linear_override_;
-    ScoreStreamController::PendingInstall intent;
-    intent.stream_position_q = stream_q;
-    intent.carry = true;
-    intent.preserve_tempo = false;
-    intent.fallback_to_monolith_on_error = true;
-    stream_->queue_engrave(std::move(*slice), params, intent);
-    DRAXUL_LOG_DEBUG(LogCategory::App, "score: urgent rewrite queued at stream q %.2f", stream_q);
+    if (queue_stream_engrave(
+            stream_->window_first_bar(), stream_q, /*fallback_to_monolith=*/true))
+        DRAXUL_LOG_DEBUG(
+            LogCategory::App, "score: urgent rewrite queued at stream q %.2f", stream_q);
 }
 
 void ScoreHost::maybe_advance_stream()
@@ -992,24 +1015,9 @@ void ScoreHost::maybe_advance_stream()
     // Slice + plan on the main thread (cheap), then hand the heavy Verovio
     // engrave to the worker. The current window goes on playing until poll()
     // installs the result — no freeze, no wall-time catch-up.
-    auto slice = stream_->build_window_slice(*target);
-    if (!slice)
-        return;
     if (stream_->engraver_available())
     {
-        EngraveParams params;
-        params.pixel_scale = ui_scale();
-        params.marking_qpm = piece_marking_qpm_;
-        params.lock_tempo = lock_tempo_;
-        params.proportional_spacing = proportional_spacing_;
-        params.spacing_linear = spacing_linear_override_;
-        params.spacing_non_linear = spacing_non_linear_override_;
-        ScoreStreamController::PendingInstall intent;
-        intent.stream_position_q = stream_q;
-        intent.carry = true;
-        intent.preserve_tempo = false;
-        intent.fallback_to_monolith_on_error = true;
-        stream_->queue_engrave(std::move(*slice), params, intent);
+        queue_stream_engrave(*target, stream_q, /*fallback_to_monolith=*/true);
         return;
     }
     // No worker (creation failed): fall back to the synchronous swap, and don't
@@ -1365,12 +1373,8 @@ int ScoreHost::approx_measure() const
     const double quarters_per_measure = quarters_per_measure_from_model();
     if (quarters_per_measure <= 0.0)
         return 0;
-    if (stream_->composing() && stream_active())
-    {
-        const int slot = stream_->program().slot_at(stream_position_q());
-        if (slot < stream_->program().size())
-            return stream_->program().plan(slot).source_bar + 1;
-    }
+    if (const auto source = playhead_source())
+        return source->source_bar + 1; // a drill shows its reference bar
     return static_cast<int>(stream_position_q() / quarters_per_measure) + 1;
 }
 
@@ -1580,6 +1584,7 @@ ScoreViewModel ScoreHost::build_view_model() const
     view.stream_roll_active
         = stream_active() && flow_.mode() == FlowController::TransportMode::Roll;
     view.engraving_busy = stream_->async_in_flight() || stream_->engrave_busy();
+    view.composer_name = stream_->composer().name();
     view.accuracy_ema = flow_.accuracy_ema();
     view.score = flow_.score();
     view.streak = flow_.streak();

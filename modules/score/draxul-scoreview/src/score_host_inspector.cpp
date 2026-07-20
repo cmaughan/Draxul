@@ -9,6 +9,7 @@
 #include <draxul/imgui_host.h>
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/layout_engine.h>
+#include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/player_input_rig.h>
 
 #include "score_view_model.h"
@@ -25,17 +26,8 @@ namespace draxul
 namespace scoreview
 {
 
-namespace
-{
-std::string note_name(int midi)
-{
-    static const char* kNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A",
-        "A#", "B" };
-    if (midi < 0)
-        return "?";
-    return std::string(kNames[((midi % 12) + 12) % 12]) + std::to_string(midi / 12 - 1);
-}
-} // namespace
+// note_name(midi) lives in draxul-score-learn (piece_analysis.h), reached here
+// through score_view_model.h; the inspector no longer carries its own copy.
 
 void ScoreHost::render_debug_ui(float dt)
 {
@@ -88,6 +80,8 @@ void ScoreHost::render_debug_ui(float dt)
                     : view.transport_mode == gate              ? "Gate"
                                                                : "Clock";
                 ImGui::Text("mode %s   position %.2f q", mode, view.position_q);
+                if (view.composing && !view.composer_name.empty())
+                    ImGui::Text("composer: %s", view.composer_name.c_str());
                 if (view.engraving_busy)
                     ImGui::TextDisabled("engraving latest changes...");
 

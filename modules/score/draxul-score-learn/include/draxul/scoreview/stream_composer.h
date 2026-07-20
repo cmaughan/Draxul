@@ -9,9 +9,11 @@
 // back through the program's provenance.
 
 #include <draxul/scoreview/composer.h>
+#include <draxul/scoreview/slot_cooldowns.h>
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace draxul
 {
@@ -70,6 +72,12 @@ public:
     // stubborn join cannot monopolise the specials.
     static constexpr double kSeamMasteryThreshold = 0.6;
     static constexpr int kMaxSeamsPerJoin = 2;
+
+    // slot_cooldowns_ holds pointers to sibling members, so the composer is
+    // pinned in place — it lives behind a unique_ptr<IComposer> anyway.
+    StreamComposer() = default;
+    StreamComposer(const StreamComposer&) = delete;
+    StreamComposer& operator=(const StreamComposer&) = delete;
 
     const char* name() const override
     {
@@ -159,14 +167,20 @@ private:
     bool scales_enabled_ = false;
     int piece_bars_since_special_ = 0;
     int specials_count_ = 0; // rotates the special chain for variety
-    std::map<std::string, int> last_drill_slot_; // chord key -> slot
     std::map<std::string, int> drill_stage_; // chord key -> rungs climbed
     std::map<int, int> reviews_used_; // source bar -> count
-    std::map<int, int> last_review_slot_; // source bar -> slot
     std::map<int, int> hands_served_at_pass_; // bar*10+staff -> hand pass_count
-    std::map<int, int> last_scale_slot_; // register window -> slot
-    std::map<int, int> last_seam_slot_; // phrase-tail bar -> slot
     std::map<int, int> seams_used_; // phrase-tail bar -> count
+    // Rotating-special cooldowns (kanban 22): the shared "not again for
+    // kDrillCooldownSlots" gate, held in one list so plan_urgent's splice
+    // shifts every one in a single loop — a cooldown registered here can never
+    // be left out of the shift the way a hand-written map once could.
+    SlotCooldowns<std::string> drill_cooldown_{ kDrillCooldownSlots }; // chord key
+    SlotCooldowns<int> review_cooldown_{ kDrillCooldownSlots }; // source bar
+    SlotCooldowns<int> scale_cooldown_{ kDrillCooldownSlots }; // register window
+    SlotCooldowns<int> seam_cooldown_{ kDrillCooldownSlots }; // phrase-tail bar
+    std::vector<ISlotShift*> slot_cooldowns_{ &drill_cooldown_, &review_cooldown_,
+        &scale_cooldown_, &seam_cooldown_ };
     std::map<int, int> reserved_at_pass_; // bar -> pass_count when re-served
     // C4 session opening: bars due by the day-scale schedule, dequeued into
     // the program's first slots. Built once per reset() from the model's

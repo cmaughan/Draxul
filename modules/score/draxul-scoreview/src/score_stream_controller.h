@@ -19,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace draxul
 {
@@ -115,6 +116,12 @@ public:
     {
         return *composer_;
     }
+    // Selects the stream composer by name (kanban 22 seam): a config key /
+    // launch token drives which IComposer runs; the constructor seeds the
+    // adaptive-stream default. Returns false for an unknown name, leaving the
+    // current composer in place. A no-op (returns true) when `name` already
+    // names the active composer, so re-selecting on every reload is free.
+    bool select_composer(std::string_view name);
     StreamProgram& program()
     {
         return program_;

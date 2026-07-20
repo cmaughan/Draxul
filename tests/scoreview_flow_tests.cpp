@@ -4,6 +4,8 @@
 
 #include <catch2/catch_all.hpp>
 
+#include "support/scoreview_engrave_helpers.h"
+
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/score_highlight.h>
 #include <draxul/scoreview/score_timemap.h>
@@ -11,9 +13,7 @@
 #include <draxul/scoreview/verovio_layout_engine.h>
 
 #include <algorithm>
-#include <fstream>
 #include <set>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -377,12 +377,8 @@ SpeedStats grieg_speed_stats(
     options.spacing_non_linear = spacing_non_linear;
     engine->set_options(options);
 
-    std::ifstream stream(
-        std::string(DRAXUL_PROJECT_ROOT) + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
 
     auto strip = interpret_score_svg(engine->render_page_svg(1), error);
     REQUIRE(strip.has_value());
@@ -463,13 +459,8 @@ TEST_CASE("flow layout and timemap join the live Grieg end-to-end", "[scoreview]
     options.mode = LayoutMode::Flow;
     engine->set_options(options);
 
-    std::ifstream stream(
-        std::string(DRAXUL_PROJECT_ROOT) + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    REQUIRE(stream.good());
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
 
     // One endless system in the known dialect.
     CHECK(engine->page_count() == 1);

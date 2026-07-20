@@ -18,7 +18,7 @@ behavior-preserving except the new selection seam, whose default leaves
 
 ## Must-haves (gate composer #2)
 
-- [ ] **Plan-builder helpers (draxul-score-learn).** The five-line "build a
+- [x] **Plan-builder helpers (draxul-score-learn).** The five-line "build a
       plan for bar N and append it" block is hand-assembled ~8× inside
       `stream_composer.cpp` — review-shaped in `try_review` (:376),
       `try_seam` (:433, in a loop), `try_reserve` (:478), `plan_urgent`
@@ -30,7 +30,7 @@ behavior-preserving except the new selection seam, whose default leaves
       (plus an insert-variant or an `at_slot` parameter for the splice
       path). ~60 lines removed; composer #2 writes in this vocabulary
       instead of copying the block a ninth time.
-- [ ] **`SlotCooldowns` helper — mechanize the splice-shift contract.** The
+- [x] **`SlotCooldowns` helper — mechanize the splice-shift contract.** The
       four `last_*_slot_` maps repeat the identical cooldown gate
       (`find`, compare against `kDrillCooldownSlots`, skip) and
       `plan_urgent` must shift every slot-indexed map by hand via two
@@ -41,14 +41,14 @@ behavior-preserving except the new selection seam, whose default leaves
       `shift_from(slot)`), hold the instances in one list so the splice
       shift is a single loop, and `plan_urgent`'s "keep your bookkeeping
       consistent" comment becomes a mechanism any composer inherits.
-- [ ] **Composer selection seam.** `ScoreStreamController`'s constructor
+- [x] **Composer selection seam.** `ScoreStreamController`'s constructor
       hardcodes `make_unique<StreamComposer>()` — there is no way to choose
       an implementation. Add a boring name-keyed factory (a switch is fine)
       driven by a config key / launch token, defaulting to
       `adaptive-stream`; surface `composer().name()` in the inspector's
       transport section. This is the deliberately deferred follow-up from
       kanban 20 phase 4 — its time has come.
-- [ ] **Composer-agnostic contract suite.** The 580-line composer test file
+- [x] **Composer-agnostic contract suite.** The 580-line composer test file
       encodes adaptive-stream's *pedagogy*; nothing tests the *seam
       invariants* any `IComposer` must satisfy. Add a suite parameterized
       over an `IComposer` instance (start with `StreamComposer`) asserting:
@@ -62,22 +62,22 @@ behavior-preserving except the new selection seam, whose default leaves
 
 ## Cheap sweep (same card, separate slices)
 
-- [ ] **Host engrave-tail dedup.** The six-line `EngraveParams` fill appears
+- [x] **Host engrave-tail dedup.** The six-line `EngraveParams` fill appears
       4× (`score_host.cpp` :678 partial, :718, :922, :959) and
       `maybe_urgent_rewrite` duplicates `maybe_advance_stream`'s whole
       slice→params→intent→queue tail. Add
       `EngraveParams ScoreHost::current_engrave_params() const` and a
       `queue_stream_engrave(slice, stream_q, fallback_to_monolith)` helper.
-- [ ] **`current_source_bar()` helper.** `apply_tempo_ladder` and
+- [x] **`current_source_bar()` helper.** `apply_tempo_ladder` and
       `approx_measure` both hand-roll the same "composing ? `source_at()` :
       divide by quarters-per-bar" dual path — one host helper serves both.
-- [ ] **One pitch-name table.** The inspector's `note_name`
+- [x] **One pitch-name table.** The inspector's `note_name`
       (score_host_inspector.cpp:30) duplicates `kPitchNames` in
       piece_analysis. Move `note_name(midi)` into draxul-score-learn beside
       `key_name`; the inspector uses it. `measure_xml`'s
       `kStepNames`/`kStepAlters` stay — step+alter is a different (XML)
       encoding, not a duplicate.
-- [ ] **Shared engrave test helpers.** `engrave_onsets` is defined verbatim
+- [x] **Shared engrave test helpers.** `engrave_onsets` is defined verbatim
       in `scoreview_composer_tests.cpp:49` and
       `scoreview_stream_tests.cpp:37`, and five scoreview test files carry
       their own `std::ifstream` fixture loaders (Grieg / Swan Lake). Add
@@ -103,20 +103,57 @@ behavior-preserving except the new selection seam, whose default leaves
 
 ## Tests and acceptance
 
-- [ ] Behavior-preserving throughout (helpers are verbatim extractions);
+- [x] Behavior-preserving throughout (helpers are verbatim extractions);
       the selection seam defaults to `adaptive-stream` with unchanged
       behavior. Build + scoreview ctest suites + smoke green per slice.
-- [ ] Existing composer/stream suites pass with only mechanical helper
+- [x] Existing composer/stream suites pass with only mechanical helper
       adoption; the contract suite passes for `StreamComposer`, including a
       splice-consistency case that would have caught a missed cooldown
       shift.
-- [ ] Grep-verifiable end state: one `EngraveParams` fill site in the host,
+- [x] Grep-verifiable end state: one `EngraveParams` fill site in the host,
       one pitch-name table outside `measure_xml`, one `engrave_onsets`
       definition under tests/, no hand-rolled cooldown-gate loops in
       `stream_composer.cpp`.
-- [ ] A short note in plans/scoreview-composition-model.md or the card
+- [x] A short note in plans/scoreview-composition-model.md or the card
       itself records how composer #2 registers (factory name + contract
       suite hookup).
+
+## Landed (2026-07-20, Claude Fable 5)
+
+All four must-haves and all four cheap-sweep slices implemented
+behavior-preserving. Build (app + tests) green; `[scoreview]` ctest is 191
+cases / 5762 assertions (incl. the new `[contract]` suite, 6 cases); `do.py
+smoke` exits 0. Grep end-state confirmed: one `EngraveParams` fill site
+(`ScoreHost::current_engrave_params`, `score_host.cpp`), one pitch-name table
+(`kPitchNames` in `piece_analysis.cpp`) outside `measure_xml`, one
+`engrave_onsets` definition (`tests/support/scoreview_engrave_helpers.h`), no
+hand-rolled cooldown-gate loops in `stream_composer.cpp`.
+
+New seams:
+
+- Plan-builders `append_source_bar` / `append_fabricated` / `insert_source_bar`
+  / `insert_fabricated` beside `StreamProgram` (`stream_program.{h,cpp}`).
+- `SlotCooldowns<Key>` + `ISlotShift` (`slot_cooldowns.h`); the four cooldowns
+  live in `StreamComposer::slot_cooldowns_`, so `plan_urgent` shifts them all in
+  one loop.
+- `make_composer(name)` factory + `ScoreStreamController::select_composer`;
+  `composer().name()` shows in the inspector transport section.
+- `tests/scoreview_composer_contract_tests.cpp` (`[contract]`) and
+  `tests/support/scoreview_engrave_helpers.h`.
+
+**How composer #2 registers:**
+
+1. Implement `IComposer` in `draxul-score-learn`, writing plans through the
+   `append_*` / `insert_*` helpers and holding any slot cooldowns in a
+   `SlotCooldowns` registered in a shift list (splice-consistency for free).
+2. Add a `case` to `make_composer(name)` in `score_stream_controller.cpp`
+   returning the new composer for its name; launch it with
+   `--command 'composer=<name>'` (the default stays `adaptive-stream`, and an
+   unknown name warns and falls back).
+3. Add its factory to `registered_composers()` in
+   `scoreview_composer_contract_tests.cpp` — the geometry / provenance / splice
+   / reset / finished contract then runs against it automatically; behavior
+   tests reuse `scoreview_engrave_helpers.h`.
 
 ## Dependencies and parallelism
 

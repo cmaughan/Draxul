@@ -26,13 +26,13 @@ void StreamComposer::reset()
     finished_ = false;
     piece_bars_since_special_ = 0;
     specials_count_ = 0;
-    last_drill_slot_.clear();
+    drill_cooldown_.clear();
     drill_stage_.clear();
     reviews_used_.clear();
-    last_review_slot_.clear();
+    review_cooldown_.clear();
     hands_served_at_pass_.clear();
-    last_scale_slot_.clear();
-    last_seam_slot_.clear();
+    scale_cooldown_.clear();
+    seam_cooldown_.clear();
     seams_used_.clear();
     // Re-serve responds to LIVE fumbles: baseline every bar at its current
     // pass count so a program planned from a restored model doesn't open
@@ -289,8 +289,7 @@ bool StreamComposer::try_drill(StreamProgram& program, int slot)
         const int trouble = stats.miss + stats.split - stats.clean;
         if (trouble > worst_trouble)
         {
-            const auto last = last_drill_slot_.find(key);
-            if (last != last_drill_slot_.end() && slot - last->second < kDrillCooldownSlots)
+            if (!drill_cooldown_.ready(key, slot))
                 continue;
             worst_trouble = trouble;
             worst_key = key;
@@ -307,7 +306,7 @@ bool StreamComposer::try_drill(StreamProgram& program, int slot)
         return false;
     std::string reason = std::string(broken ? "drill (broken) chord " : "drill chord ") + worst_key
         + " (" + std::to_string(worst_trouble) + " trouble)";
-    last_drill_slot_[worst_key] = slot;
+    drill_cooldown_.note(worst_key, slot);
     piece_bars_since_special_ = 0;
     append_fabricated(program, *slicer_, reference_bar, std::move(xml), std::move(reason));
     return true;
@@ -332,8 +331,7 @@ bool StreamComposer::try_scale(StreamProgram& program, int slot)
     {
         if (counts.first > worst_misses && counts.first > counts.second)
         {
-            const auto last = last_scale_slot_.find(window);
-            if (last != last_scale_slot_.end() && slot - last->second < kDrillCooldownSlots)
+            if (!scale_cooldown_.ready(window, slot))
                 continue;
             worst_misses = counts.first;
             worst_window = window;
@@ -348,7 +346,7 @@ bool StreamComposer::try_scale(StreamProgram& program, int slot)
     std::string reason = "scale through the troubled register (midi "
         + std::to_string(worst_window * 12) + ".." + std::to_string(worst_window * 12 + 11)
         + ", " + std::to_string(worst_misses) + " misses)";
-    last_scale_slot_[worst_window] = slot;
+    scale_cooldown_.note(worst_window, slot);
     piece_bars_since_special_ = 0;
     append_fabricated(program, *slicer_, reference_bar, std::move(xml), std::move(reason));
     return true;
@@ -365,8 +363,7 @@ bool StreamComposer::try_review(StreamProgram& program, int slot)
             continue;
         if (reviews_used_[bar] >= kMaxReviewsPerBar)
             continue;
-        const auto last = last_review_slot_.find(bar);
-        if (last != last_review_slot_.end() && slot - last->second < kDrillCooldownSlots)
+        if (!review_cooldown_.ready(bar, slot))
             continue;
         const double mastery = model_->bar_mastery(bar);
         if (mastery >= kReviewMasteryThreshold)
@@ -389,7 +386,7 @@ bool StreamComposer::try_review(StreamProgram& program, int slot)
     std::string reason
         = "review bar " + std::to_string(worst_bar + 1) + " (mastery " + mastery_text + ")";
     ++reviews_used_[worst_bar];
-    last_review_slot_[worst_bar] = slot;
+    review_cooldown_.note(worst_bar, slot);
     piece_bars_since_special_ = 0;
     append_source_bar(program, *slicer_, StreamBarPlan::Kind::Review, worst_bar, std::move(reason));
     return true;
@@ -420,8 +417,7 @@ bool StreamComposer::try_seam(StreamProgram& program, int slot)
             continue;
         if (seams_used_[tail] >= kMaxSeamsPerJoin)
             continue;
-        const auto last = last_seam_slot_.find(tail);
-        if (last != last_seam_slot_.end() && slot - last->second < kDrillCooldownSlots)
+        if (!seam_cooldown_.ready(tail, slot))
             continue;
         const double quality = 0.5 * (model_->bar_mastery(tail) + model_->bar_mastery(head));
         if (quality < worst)
@@ -434,7 +430,7 @@ bool StreamComposer::try_seam(StreamProgram& program, int slot)
     if (best_tail < 0)
         return false;
     ++seams_used_[best_tail];
-    last_seam_slot_[best_tail] = slot;
+    seam_cooldown_.note(best_tail, slot);
     piece_bars_since_special_ = 0;
     const std::string join
         = std::to_string(best_tail + 1) + "->" + std::to_string(best_head + 1);
@@ -555,24 +551,11 @@ int StreamComposer::plan_urgent(StreamProgram& program, int at_slot)
         insert_source_bar(program, *slicer_, at_slot, StreamBarPlan::Kind::Review, bar,
             "fix now: bar " + std::to_string(bar + 1) + " (fumbled pass)");
     }
-    const auto shift = [at_slot](std::map<std::string, int>& slots) {
-        for (auto& [key, slot] : slots)
-        {
-            if (slot >= at_slot)
-                ++slot;
-        }
-    };
-    const auto shift_int = [at_slot](std::map<int, int>& slots) {
-        for (auto& [key, slot] : slots)
-        {
-            if (slot >= at_slot)
-                ++slot;
-        }
-    };
-    shift(last_drill_slot_);
-    shift_int(last_review_slot_);
-    shift_int(last_scale_slot_);
-    shift_int(last_seam_slot_);
+    // Every slot-indexed cooldown at or past the splice shifts by one, in one
+    // loop over the registered list — a cooldown a composer adds is shifted
+    // automatically, so the plan can never silently desync after a rewrite.
+    for (ISlotShift* cooldown : slot_cooldowns_)
+        cooldown->shift_from(at_slot);
     return 1;
 }
 

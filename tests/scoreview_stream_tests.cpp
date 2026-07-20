@@ -5,6 +5,8 @@
 
 #include <catch2/catch_all.hpp>
 
+#include "support/scoreview_engrave_helpers.h"
+
 #include <draxul/scoreview/flow_controller.h>
 #include <draxul/scoreview/score_timemap.h>
 #include <draxul/scoreview/source_slicer.h>
@@ -12,55 +14,11 @@
 #include <draxul/scoreview/verovio_layout_engine.h>
 
 #include <algorithm>
-#include <fstream>
 #include <map>
-#include <sstream>
 #include <string>
 #include <vector>
 
 using namespace draxul::scoreview;
-
-namespace
-{
-
-std::string read_grieg_xml()
-{
-    std::ifstream stream(std::string(DRAXUL_PROJECT_ROOT)
-            + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.musicxml",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    return buffer.str();
-}
-
-// qstamp -> sorted sounding pitches, via a Verovio load of `xml`.
-std::map<double, std::vector<int>> engrave_onsets(const std::string& xml)
-{
-    std::string error;
-    auto engine = VerovioLayoutEngine::create(std::string(DRAXUL_VEROVIO_DATA_DIR), error);
-    REQUIRE(engine != nullptr);
-    LayoutOptions options;
-    options.mode = LayoutMode::Flow;
-    engine->set_options(options);
-    REQUIRE(engine->load(xml, error));
-    auto timemap = parse_timemap(engine->render_timemap(), error);
-    REQUIRE(timemap.has_value());
-    std::map<double, std::vector<int>> onsets;
-    for (const TimemapEntry& entry : timemap->entries)
-    {
-        for (const std::string& id : entry.note_on)
-        {
-            const int pitch = engine->midi_pitch_for_element(id);
-            if (pitch >= 0)
-                onsets[entry.qstamp].push_back(pitch);
-        }
-    }
-    for (auto& [q, pitches] : onsets)
-        std::sort(pitches.begin(), pitches.end());
-    return onsets;
-}
-
-} // namespace
 
 TEST_CASE("slicer indexes the Grieg and its bar geometry", "[scoreview][stream]")
 {

@@ -5,14 +5,14 @@
 
 #include <catch2/catch_all.hpp>
 
+#include "support/scoreview_engrave_helpers.h"
+
 #include <draxul/scoreview/analysis_overlay.h>
 #include <draxul/scoreview/piece_analysis.h>
 #include <draxul/scoreview/score_timemap.h>
 #include <draxul/scoreview/svg_score_interpreter.h>
 #include <draxul/scoreview/verovio_layout_engine.h>
 
-#include <fstream>
-#include <sstream>
 #include <string>
 
 using namespace draxul::scoreview;
@@ -305,12 +305,8 @@ TEST_CASE("the wash never covers new material on the real Grieg",
     LayoutOptions options;
     options.page_size_px = { 800, 1131 };
     engine->set_options(options);
-    std::ifstream stream(std::string(DRAXUL_PROJECT_ROOT)
-            + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
     std::vector<ScoreDrawList> pages;
     for (int page = 1; page <= engine->page_count(); ++page)
     {
@@ -391,12 +387,8 @@ TEST_CASE("the real Grieg builds a usable overlay", "[scoreview][overlay]")
     LayoutOptions options;
     options.page_size_px = { 800, 1131 };
     engine->set_options(options);
-    std::ifstream stream(std::string(DRAXUL_PROJECT_ROOT)
-            + "/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl",
-        std::ios::binary);
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-    REQUIRE(engine->load(buffer.str(), error));
+    REQUIRE(engine->load(
+        read_fixture("/tests/fixtures/musicxml/grieg-waltz-op-12-no-2.mxl"), error));
 
     std::vector<ScoreDrawList> pages;
     for (int page = 1; page <= engine->page_count(); ++page)
