@@ -92,3 +92,4 @@ GUI-only keyboard shortcuts (action = combo).
 Compound section: `action = "combo"` pairs. See the GUI action
 registry (`libs/draxul-config/include/draxul/gui_actions.h`) for the
 full list of action names and `docs/features.md` for combo syntax.
+
