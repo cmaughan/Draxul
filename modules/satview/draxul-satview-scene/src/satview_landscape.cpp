@@ -1,4 +1,4 @@
-#include "satview_landscape.h"
+#include <draxul/satview/satview_landscape.h>
 
 #include <algorithm>
 #include <array>

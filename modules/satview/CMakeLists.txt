@@ -8,4 +8,5 @@
 # draxul-satview into their own targets one boundary at a time.
 
 add_subdirectory(draxul-satview-core)
+add_subdirectory(draxul-satview-scene)
 add_subdirectory(draxul-satview)

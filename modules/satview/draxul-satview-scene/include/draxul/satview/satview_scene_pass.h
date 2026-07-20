@@ -1,7 +1,7 @@
 #pragma once
 
-#include "satview_label_layout.h"
-#include "satview_landscape.h"
+#include <draxul/satview/satview_label_layout.h>
+#include <draxul/satview/satview_landscape.h>
 #include <draxul/satview/satview_solar_system.h>
 #include <draxul/satview/satview_texture_assets.h>
 

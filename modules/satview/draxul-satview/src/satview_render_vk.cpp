@@ -1,5 +1,5 @@
 #include "satview_render_vk_math.h"
-#include "satview_scene_pass.h"
+#include <draxul/satview/satview_scene_pass.h>
 #include <draxul/satview/satview_texture_assets.h>
 
 #include <algorithm>

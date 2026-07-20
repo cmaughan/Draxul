@@ -1,4 +1,4 @@
-#include "satview_star_catalog.h"
+#include <draxul/satview/satview_star_catalog.h>
 
 #include <draxul/satview/satview_catalog_container.h>
 #include <draxul/satview/satview_texture_assets.h>

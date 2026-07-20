@@ -5,10 +5,10 @@
 // handcrafted little-endian bytes — NOT produced by the production structs —
 // so any accidental change to the header or record layout fails loudly here.
 
-#include "satview_constellation_catalog.h"
-#include "satview_star_catalog.h"
 #include <draxul/satview/satview_catalog_container.h>
 #include <draxul/satview/satview_constellation_boundary_catalog.h>
+#include <draxul/satview/satview_constellation_catalog.h>
+#include <draxul/satview/satview_star_catalog.h>
 #include <draxul/satview/satview_texture_assets.h>
 
 #include <array>

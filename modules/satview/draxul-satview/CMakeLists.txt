@@ -11,12 +11,8 @@ set(SATVIEW_SOURCES
     src/satview_catalog_service.cpp
     src/satview_cloud_service.cpp
     src/satview_config_io.cpp
-    src/satview_constellation_catalog.cpp
     src/satview_host.cpp
-    src/satview_label_layout.cpp
-    src/satview_landscape.cpp
     src/satview_simulation_worker.cpp
-    src/satview_star_catalog.cpp
 )
 if(APPLE)
     list(APPEND SATVIEW_SOURCES src/satview_render.mm)
@@ -37,6 +33,7 @@ target_compile_definitions(draxul-satview PRIVATE
 
 target_link_libraries(draxul-satview PUBLIC
     draxul-satview-core
+    draxul-satview-scene
     draxul-types
     draxul-http
     draxul-host

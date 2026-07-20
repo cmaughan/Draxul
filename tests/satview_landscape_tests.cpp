@@ -1,4 +1,4 @@
-#include "satview_landscape.h"
+#include <draxul/satview/satview_landscape.h>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -22,10 +22,8 @@ TEST_CASE("SatView local azimuth directions use north-through-east convention", 
 TEST_CASE("SatView observatory landscape is a bounded angular mesh", "[satview][landscape]")
 {
     constexpr float kObserverAltitudeEarthRadii = 0.0003f;
-    const SatViewLandscapeMesh mesh =
-        build_satview_observatory_landscape(kObserverAltitudeEarthRadii);
-    const float expected_horizon_altitude =
-        -std::acos(1.0f / (1.0f + kObserverAltitudeEarthRadii));
+    const SatViewLandscapeMesh mesh = build_satview_observatory_landscape(kObserverAltitudeEarthRadii);
+    const float expected_horizon_altitude = -std::acos(1.0f / (1.0f + kObserverAltitudeEarthRadii));
     REQUIRE(mesh.fill_triangles.size() > 40);
     REQUIRE(mesh.rim_lines.size() > 50);
     CHECK(std::asin(mesh.fill_triangles.front().local_direction0.z)

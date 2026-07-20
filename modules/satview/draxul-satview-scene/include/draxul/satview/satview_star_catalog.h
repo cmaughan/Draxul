@@ -1,6 +1,6 @@
 #pragma once
 
-#include "satview_scene_pass.h"
+#include <draxul/satview/satview_scene_pass.h>
 
 #include <cstddef>
 #include <filesystem>
