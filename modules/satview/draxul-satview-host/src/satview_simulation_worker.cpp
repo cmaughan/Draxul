@@ -293,8 +293,7 @@ void SatViewSimulationWorker::run_loop()
     std::uint64_t model_catalog_generation = 0;
     std::uint64_t snapshot_generation = 0;
     SatViewSimulationControls controls;
-    std::shared_ptr<const std::vector<SatelliteOrbitTrack>> cached_tracks =
-        std::make_shared<const std::vector<SatelliteOrbitTrack>>();
+    std::shared_ptr<const std::vector<SatelliteOrbitTrack>> cached_tracks = std::make_shared<const std::vector<SatelliteOrbitTrack>>();
     auto next_position_time = Clock::now();
     bool force_tracks = true;
 
@@ -430,8 +429,7 @@ void SatViewSimulationWorker::run_loop()
         }
         const double next_simulation_seconds = controls.paused
             ? simulation_seconds
-            : simulation_seconds + std::chrono::duration<double>(kPositionTick).count()
-                * static_cast<double>(controls.time_speed);
+            : simulation_seconds + std::chrono::duration<double>(kPositionTick).count() * static_cast<double>(controls.time_speed);
         SatellitePropagationResult next_result;
         if (result && next_simulation_seconds != simulation_seconds)
         {

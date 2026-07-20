@@ -1,7 +1,7 @@
 #pragma once
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -80,10 +80,22 @@ public:
         ReadGuard(ReadGuard&& other) noexcept;
         ReadGuard& operator=(ReadGuard&& other) noexcept;
 
-        [[nodiscard]] explicit operator bool() const { return snapshot_ != nullptr; }
-        [[nodiscard]] const SatViewSimulationSnapshot* get() const { return snapshot_; }
-        [[nodiscard]] const SatViewSimulationSnapshot& operator*() const { return *snapshot_; }
-        [[nodiscard]] const SatViewSimulationSnapshot* operator->() const { return snapshot_; }
+        [[nodiscard]] explicit operator bool() const
+        {
+            return snapshot_ != nullptr;
+        }
+        [[nodiscard]] const SatViewSimulationSnapshot* get() const
+        {
+            return snapshot_;
+        }
+        [[nodiscard]] const SatViewSimulationSnapshot& operator*() const
+        {
+            return *snapshot_;
+        }
+        [[nodiscard]] const SatViewSimulationSnapshot* operator->() const
+        {
+            return snapshot_;
+        }
 
     private:
         ReadGuard(const Slot* slot, const SatViewSimulationSnapshot* snapshot);
