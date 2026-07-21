@@ -27,14 +27,22 @@ Split the 1,385-line `session_attach.cpp` into shared framing/protocol, Windows 
 - [x] No interleaved platform `#ifdef` blocks remain in the shared protocol implementation.
 - [ ] Full session tests, `ctest`, and smoke pass on Windows and macOS.
 
-Build-only validation is required for this work session: the shared fake-transport
-suite now covers fragmented, malformed, and truncated live-session frames without
-opening a platform endpoint. Windows coverage inspects named-pipe ownership/DACLs
-and endpoint exclusivity; POSIX coverage retains socket ownership, stale cleanup,
-wire-byte, and unlink checks. Runtime execution remains unchecked above until the
-Windows and macOS suites can be launched safely. Build-only validation passed on
-Windows in Release for `draxul-runtime-support` and `draxul-test-app`; no test or
-application executable was launched.
+### Validation status (2026-07-21)
+
+Windows Release automated coverage is green: `t.bat release` built the full
+tree and passed all 22 CTest entries, including shared fake-transport protocol,
+named-pipe integration/security, session CLI, and app smoke coverage. The
+security test was repeated directly three times in Release and passed all three.
+The user also completed a PC visual check with no behavior regression observed.
+
+The Debug build, app smoke, and all unrelated tests passed, but
+`session attach Windows pipe is owned by and grants access to the current user`
+fails deterministically: the queried pipe owner does not equal the current token
+user SID and the expected user access entry is not found. The exact case failed
+three out of three direct Debug reruns, while passing three out of three Release
+reruns, so this is a repeatable configuration-specific validation blocker rather
+than a suite-order flake. Both acceptance items remain open for that Debug issue
+and for macOS execution.
 
 ## Dependencies and parallelism
 

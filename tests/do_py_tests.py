@@ -482,7 +482,7 @@ class ReviewArgumentParsingTests(unittest.TestCase):
 class ReviewPlanTests(unittest.TestCase):
     def test_review_models_use_current_defaults(self) -> None:
         self.assertEqual("gpt-5.6-sol", draxul_do.CODEX_REVIEW_MODEL)
-        self.assertEqual("fable", draxul_do.CLAUDE_REVIEW_MODEL)
+        self.assertEqual("opus", draxul_do.CLAUDE_REVIEW_MODEL)
 
     def test_default_review_plan_preserves_draxul_review_filenames(self) -> None:
         plan = draxul_do.create_review_plan(ROOT)

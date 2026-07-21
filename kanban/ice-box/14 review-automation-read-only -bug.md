@@ -6,11 +6,11 @@
 
 ## Problem
 
-`scripts/ask_agent.py` and `scripts/Run-Review.ps1` tell unattended agents to review only while enabling write/edit tools, permission bypass, full-auto, or `danger-full-access`. In a shared moving checkout, prompt compliance is the only write barrier.
+`scripts/ask_agent.py` and the provider-specific review routines in `do.py` tell unattended agents to review only while enabling write/edit tools, permission bypass, full-auto, or `danger-full-access`. In a shared moving checkout, prompt compliance is the only write barrier.
 
 ## Implementation plan
 
-- [ ] Define a single `review-safe` execution policy used by `do_review.py`, `ask_agent.py`, and `Run-Review.ps1`.
+- [ ] Define a single `review-safe` execution policy used by `do.py`, `do_review.py`, and `ask_agent.py`.
 - [ ] Invoke Codex review agents with a read-only sandbox and no approval bypass.
 - [ ] Give Claude/Gemini only genuinely read-only capabilities; if a runner cannot enforce that, run it against an isolated read-only snapshot.
 - [ ] Have agents return review text to stdout/a designated result channel; only the parent process may write the named review file.
@@ -21,7 +21,7 @@
 
 ## Tests
 
-- [ ] Extend Python/PowerShell dry-run tests to assert exact argv/tool allowlists for every provider.
+- [ ] Extend Python dry-run tests to assert exact argv/tool allowlists for every provider.
 - [ ] Add a fixture agent that attempts a write and prove the review run cannot modify the source checkout.
 - [ ] Verify a failed agent does not leave a partial review file presented as success.
 

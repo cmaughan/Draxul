@@ -29,7 +29,7 @@ Remove repeated, error-prone buffer/image/shader/staging/attachment setup across
 ## Tests and acceptance
 
 - [x] Add failure-injection tests for partial allocation/upload cleanup where seams permit.
-- [ ] Run Vulkan validation for every migrated caller and existing render snapshots. (Outstanding: this requires launching renderer/test executables, explicitly prohibited for the current task; build-only coverage is recorded below.)
+- [ ] Run Vulkan validation for every migrated caller and existing render snapshots. (The Debug validation-layer app/smoke/render path and existing snapshots are now green; literal every-caller automation still needs module-specific renderer launches for Markdown, SatView, and MegaCity.)
 - [x] Resource ownership/retirement semantics remain explicit at call sites.
 - [x] Code reduction does not merge unrelated pass policy.
 
@@ -41,12 +41,19 @@ The expanded MegaCity buffer/image/attachment migration was revalidated by rebui
 was not run and did not finish linking because concurrent foundation refactors temporarily
 removed unrelated public include paths. No application, helper, or test executable was launched.
 
-The 2026-07-21 audit added Windows Release build-only coverage: the SatView
-Vulkan renderer/host built with the helpers enabled, and a Release `draxul`
-build linked the migrated core/Markdown path. The card remains pending solely
-for live Vulkan validation and render-snapshot execution across every migrated
-caller; those gates require launching renderer/test executables and were not
-run in this task.
+The 2026-07-21 automated PC run supersedes the earlier build-only status.
+`t.bat release` built the full tree and passed all 22 CTest entries, including
+the five existing render snapshots and the core helper, Markdown, SatView, and
+MegaCity unit suites. `t.bat debug` built the migrated Vulkan targets and passed
+app smoke, all five render snapshots under the Debug validation-layer path, and
+the relevant core/module test shards; its sole failure is the unrelated session
+pipe security assertion recorded on item 25. The user also visually checked PC
+behavior with no regression observed.
+
+The checkbox remains open because the current render manifest does not launch
+each migrated Markdown, SatView, and MegaCity renderer as an isolated
+validation-layer scenario. Adding those module-specific automated launches is
+testable work; it is not a manual-only gate.
 
 ## Dependencies and parallelism
 

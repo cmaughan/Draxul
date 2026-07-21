@@ -22,18 +22,21 @@
 ## Tests and acceptance
 
 - [x] Golden-structure tests compare layout/hit ids, not screenshots, for key states.
-- [ ] Existing chrome/rename/hit-test tests and render references remain stable.
+- [x] Existing chrome/rename/hit-test tests and render references remain stable.
 - [x] `ChromeHost::draw()` becomes orchestration-sized and contains no rename state machine.
 - [ ] Build, `ctest`, render scenarios, and smoke pass on both backend code paths.
 
 ### Validation status (2026-07-21)
 
-Windows Release build-only coverage is green: `draxul-test-app` compiled and
-linked the chrome layout/rename test sources, and a Release `draxul` build also
-linked successfully. No test, render, helper, or application executable was
-launched. This card remains pending for execution of the existing chrome,
-rename, hit-test, render-reference, `ctest`, and smoke gates, plus macOS/Metal
-validation.
+Windows automated coverage is green for this refactor. `t.bat release` built the
+full tree and passed all 22 CTest entries, including app smoke, the app test
+shards containing the chrome/rename/hit-test cases, and all five render
+snapshots. `t.bat debug` also built successfully; its smoke and all five Vulkan
+render snapshots passed under the Debug validation-layer path. The only Debug
+suite failure is the unrelated session named-pipe owner/DACL assertion recorded
+on item 25. The user also completed a PC visual check with no behavior or visual
+regression observed. The cross-backend acceptance item remains open for
+macOS/Metal execution.
 
 ## Dependencies and parallelism
 

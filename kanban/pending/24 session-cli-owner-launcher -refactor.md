@@ -27,12 +27,15 @@ Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanic
 
 ### Validation status (2026-07-21)
 
-Windows Release build-only coverage is green: `draxul-test-app` compiled and
-linked `session_cli_tests.cpp` and `self_launch_tests.cpp`, and a Release
-`draxul` build linked the extracted CLI/launcher path successfully. No test,
-helper process, or application executable was launched. This card remains
-pending for runtime CLI/session integration, `ctest`, smoke, and macOS launch
-execution.
+Windows Release automated coverage is green: `t.bat release` built the full
+tree and passed all 22 CTest entries, including the CLI/session cases, harmless
+helper-process launch coverage, and app smoke. The exact session CLI and
+self-launch tests also passed as part of the app shards. The user completed a PC
+visual check with no behavior regression observed. Debug built and passed smoke,
+but the aggregate Debug suite is not fully green because the separate session
+attach owner/DACL assertion recorded on item 25 fails deterministically. This
+card remains pending for macOS launch/runtime execution before the platform
+acceptance gate is closed.
 
 ## Dependencies and parallelism
 

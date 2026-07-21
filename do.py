@@ -52,7 +52,7 @@ REVIEW_KIND_ALIASES = {
 }
 
 CODEX_REVIEW_MODEL = "gpt-5.6-sol"
-CLAUDE_REVIEW_MODEL = "fable"
+CLAUDE_REVIEW_MODEL = "opus"
 
 REVIEW_FAILURE_PATTERNS = (
     "CreateProcessAsUserW failed: 1312",
@@ -995,8 +995,6 @@ def create_review_plan(
     claude_run_json_path = reviews_dir / f"{review_basename}.claude.run.json"
     consensus_codex_message_path = reviews_dir / f"{consensus_basename}.codex-message.md"
     consensus_run_log_path = reviews_dir / f"{consensus_basename}.codex.run.log"
-    review_script_path = root / "scripts" / "Run-Review.ps1"
-
     return SimpleNamespace(
         repo_root=root,
         reviews_dir=reviews_dir,
@@ -1012,7 +1010,6 @@ def create_review_plan(
         claude_run_json_path=claude_run_json_path,
         consensus_codex_message_path=consensus_codex_message_path,
         consensus_run_log_path=consensus_run_log_path,
-        review_script_path=review_script_path,
         mode=REVIEW_MODES[normalized_target],
         agy_timeout_seconds=agy_timeout_seconds,
     )

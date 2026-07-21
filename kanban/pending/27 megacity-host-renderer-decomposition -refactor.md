@@ -39,14 +39,31 @@ Depends on item 19; item 28 may provide helpers first. Sub-agents make sense by 
 
 ## Renderer validation notes
 
-- Windows Debug compile-only validation passed for `draxul-codeviz-renderer` after the Vulkan extraction; the target compiled both `codeviz_render_vk.cpp` and `codeviz_vk_resources.cpp`.
+- Windows Release with MegaCity enabled passed the full 22-entry CTest suite,
+  including both MegaCity shards, app smoke, and all render snapshots.
+- The warm Release build was reconfigured with `DRAXUL_ENABLE_MEGACITY=OFF`;
+  `draxul` and `draxul-tests` built and all 14 available unit entries passed.
+  The normal tree was then restored to `DRAXUL_ENABLE_MEGACITY=ON`, rebuilt, and
+  both MegaCity shards passed again.
+- Windows Debug compiled the Vulkan renderer/resource split and passed both
+  MegaCity shards, app smoke, and all five Vulkan render snapshots under the
+  validation-layer path. The only Debug suite failure is the session pipe
+  security assertion recorded on item 25, outside MegaCity.
 - The Metal extraction mirrors only the demonstrated native buffer/arena boundary and was inspected on Windows; macOS compilation/runtime validation remains outstanding.
-- No helper, test, or application executable was launched during this extraction.
+- The user launched and visually checked PC behavior with no render or behavior
+  regression observed. Metal build/runtime and explicit macOS visual status are
+  still outstanding, so the cross-backend acceptance boxes remain open.
 
 ## Host validation notes
 
-- Windows Release compile-only validation passed for `draxul-megacity` after extracting scanner/semantic publication, camera/input, metrics-overlay, and ImGui frame/input collaborators.
+- Windows Release and Debug automated MegaCity suites pass after extracting
+  scanner/semantic publication, camera/input, metrics-overlay, and ImGui
+  frame/input collaborators.
 - The host source dropped from roughly 2,800 to roughly 2,400 lines in this step; immutable scene publication and worker cancellation/generation behavior remain at their prior boundaries.
-- `megacity_scene_tests.cpp` is already split into focused host/input, layout/routing, and world/presentation translation units. New focused selection, publication, semantic-source lifecycle, and shutdown-order coverage was added; the Release `draxul-test-megacity` target compiled and linked successfully without launching the test binary.
+- `megacity_scene_tests.cpp` is already split into focused host/input,
+  layout/routing, and world/presentation translation units. New focused
+  selection, publication, semantic-source lifecycle, and shutdown-order
+  coverage was added; both MegaCity CTest shards now pass in Windows Release and
+  Debug.
 
 <model>GPT-5 Codex</model>
