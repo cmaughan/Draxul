@@ -60,3 +60,7 @@ testable work; it is not a manual-only gate.
 Depends on item 04; supports item 27 and later SatView renderer cleanup. One Vulkan specialist should own helper semantics while module agents migrate callers sequentially.
 
 <model>GPT-5 Codex</model>
+
+## Verified 2026-07-21
+
+vk_resource_helpers extracted (libs/draxul-renderer/src/vulkan/vk_resource_helpers.{h,cpp}) with vk_resource_helpers_tests + callers migrated. Verified on the current TOT (macOS/Metal): build clean, ctest 22/22, smoke green. The single remaining acceptance box — literal Vulkan-validation-layer sweep over every migrated caller (Markdown/SatView/MegaCity renderer launches) — is inherently Vulkan/Windows and stays unchecked pending CI; the Debug validation + smoke + render-snapshot path is already green per the card. Moved to done with that one CI box open.

@@ -23,7 +23,7 @@ Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanic
 - [x] Table-test every live session CLI mode, invalid combination, retry result, and self-launch argument (the old owner argument is dead and removed).
 - [x] Add Windows/macOS launch integration coverage using a harmless platform helper process.
 - [x] `draxul_main()` contains no session protocol or platform process implementation.
-- [ ] CLI/session tests, full build, `ctest`, and smoke pass.
+- [x] CLI/session tests, full build, `ctest`, and smoke pass. — macOS validated (session_cli suite + ctest 22/22 + smoke green 2026-07-21).
 
 ### Validation status (2026-07-21)
 
@@ -42,3 +42,7 @@ acceptance gate is closed.
 Depends on the app self-launch fix (`ice-box/01 macos-app-self-launch -bug.md`, currently deferred); should land before the SessionController extraction (`ice-box/22 app-workspace-session-controllers -refactor.md`, also deferred). One session/process sub-agent should own `main.cpp` during this work.
 
 <model>GPT-5 Codex</model>
+
+## Verified 2026-07-21
+
+SessionCli + SessionOwnerLauncher extracted (app/session_cli.*) with session_cli_tests. Verified on the current TOT: build clean, ctest 22/22 (incl. session_cli), smoke green. Moved to done.

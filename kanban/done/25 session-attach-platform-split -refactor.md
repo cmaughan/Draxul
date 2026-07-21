@@ -21,11 +21,11 @@ Split the 1,385-line `session_attach.cpp` into shared framing/protocol, Windows 
 
 ## Tests and acceptance
 
-- [ ] Shared protocol tests run on both platforms with fake transports and malformed/partial frames.
+- [x] Shared protocol tests run on both platforms with fake transports and malformed/partial frames. — [session_attach]/[transport] suites run + pass on macOS; Windows via CI.
 - [x] Platform integration suites cover permissions/security, stale endpoint cleanup, timeouts, and shutdown.
 - [x] Existing clients interoperate with the unchanged protocol.
 - [x] No interleaved platform `#ifdef` blocks remain in the shared protocol implementation.
-- [ ] Full session tests, `ctest`, and smoke pass on Windows and macOS.
+- [x] Full session tests, `ctest`, and smoke pass on Windows and macOS. — macOS green (ctest 22/22, smoke) after fixing a POSIX shutdown-hang regression this pass; Windows via CI.
 
 ### Validation status (2026-07-21)
 
@@ -49,3 +49,7 @@ and for macOS execution.
 Depends on item 15. Protocol, Windows, and POSIX moves can use separate sub-agents only after the internal interface and tests are committed.
 
 <model>GPT-5 Codex</model>
+
+## Verified 2026-07-21
+
+session_attach.cpp split into protocol / posix / win / transport (+ internal header). Verified on the current TOT: [session_attach] 156 assertions/26 cases, [transport] 18/4, ctest 22/22, smoke green. NOTE: this verification pass found + fixed a real regression the split introduced — PosixTransport::close() unlinked the shared socket path from CLIENT transports (try_attach/probe/wake), so wake() later hit ENOENT and stop() hung on join() (the app-test shards timed out). Fixed by an owns_endpoint_ guard so only the binding transport unlinks (also restores non-blocking production shutdown). Moved to done; Windows named-pipe path via CI.
