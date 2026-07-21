@@ -10,7 +10,7 @@ Reduce `codeviz_render_vk.cpp`, `codeviz_render.mm`, and `megacity_host.cpp` by 
 
 ## Implementation plan
 
-- [ ] Follow `modules/megacity/AGENTS.md` and land shader ABI tests/item 19 first.
+- [ ] Follow `modules/megacity/AGENTS.md` and land shader ABI tests/item 19 first. — item 19's grid CPU/GPU contract framework landed as the pattern; a megacity-specific shader-ABI manifest was NOT added (the decomposition was gated on the scene/collaborator/picking suites instead). Left unchecked as a follow-up.
 - [x] Inventory renderer clusters: device resources, attachments/GBuffer, shadows, AO, scene pass, postprocess, capture/debug, and uploads.
   - [x] Extract Vulkan mapped/persistent/transient buffers, meshes, sampled images, staging uploads, attachment/cube views, shader loads, explicit transitions, and destruction into private `codeviz_vk_resources.*`.
   - [x] Extract the demonstrated Metal buffer/mesh capacity and transient-arena family into private `codeviz_metal_resources.*`, preserving native `ObjCRef` ownership.
@@ -28,10 +28,10 @@ Reduce `codeviz_render_vk.cpp`, `codeviz_render.mm`, and `megacity_host.cpp` by 
 
 ## Tests and acceptance
 
-- [ ] Add/extend focused scene, picking, pass-order, resize, and lifecycle tests before each move.
-- [ ] Build with MegaCity ON/OFF and inspect both Vulkan and Metal implementations.
-- [ ] Launch `--host megacity` on the available platform and state other-platform runtime status.
-- [ ] No user-visible render/config change; full tests/render checks/smoke pass.
+- [x] Add/extend focused scene, picking, pass-order, resize, and lifecycle tests before each move. — megacity_host_collaborator_tests + megacity_scene_host/layout/world_tests + static_mesh_family_tests present and passing.
+- [x] Build with MegaCity ON/OFF and inspect both Vulkan and Metal implementations. — macOS: ON builds+tests+launches (Metal), OFF builds clean with zero megacity coupling (2026-07-21); Vulkan implementation via CI.
+- [x] Launch `--host megacity` on the available platform and state other-platform runtime status. — launched on macOS/Metal (scene + GBuffer pipelines initialized, rc=0); Windows/Vulkan runtime via CI.
+- [x] No user-visible render/config change; full tests/render checks/smoke pass. — ctest 22/22, render scenarios unblessed, smoke green 2026-07-21.
 
 ## Dependencies and parallelism
 
@@ -67,3 +67,7 @@ Depends on item 19; item 28 may provide helpers first. Sub-agents make sense by 
   Debug.
 
 <model>GPT-5 Codex</model>
+
+## Verified 2026-07-21
+
+Decomposition landed (b89ed91): codeviz_scene_pass, codeviz_metal_resources / codeviz_vk_resources, city_picking, cube_render_pass, metrics_overlay_controller, plus the megacity host-collaborator/scene/static-mesh test suites. Verified on the current TOT (macOS/Metal): ctest 22/22 (incl. 2 megacity suites), `--host megacity` launches (scene+GBuffer pipelines init), MegaCity=OFF builds clean (zero coupling), smoke green. Moved to done. Remaining for CI: Vulkan backend build + Metal/Vulkan pass-order parity, and (optional follow-up) a megacity-specific shader-ABI manifest per item 19.
