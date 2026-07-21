@@ -14,13 +14,43 @@ Use it when you want to answer:
 If you only want the shortest path to orientation:
 
 1. Read the top-level layout in [README.md](../README.md).
-2. Look at the target dependency graph in [deps.svg](deps/deps.svg).
+2. Read the maintained high-level dependency shape below, then use the generated
+   [deps.svg](deps/deps.svg) for exact edges from its last documentation build.
 3. Look at the class diagram in [draxul_classes.svg](uml/draxul_classes.svg).
 4. Generate local API docs with `python scripts/build_docs.py --api-only`, then open `docs/api/index.html`.
 5. Check active follow-up items in [kanban/pending/](../kanban/pending/).
 6. Use the snapshot and smoke flows through [do.py](../do.py) when touching UI or rendering.
 
-## Main Libraries
+## Dependency Shape
+
+`CMakeLists.txt` files are authoritative. At a useful orientation level, the current
+target graph has four layers:
+
+```text
+draxul executable
+├── draxul-app
+├── draxul-markdown-host
+├── draxul-kanban
+└── optional product hosts: draxul-megacity / draxul-satview-host / draxul-scoreview-host
+        │
+        ├── product-specific model, scene, service, and renderer targets
+        └── shared host / renderer / UI infrastructure
+                │
+                ├── draxul-host / draxul-runtime-support / draxul-render-test
+                ├── draxul-config / draxul-gui / draxul-ui / draxul-nanovg
+                └── draxul-http / draxul-font / draxul-grid / draxul-nvim /
+                    draxul-renderer / draxul-window
+                            │
+                            └── narrow foundations: draxul-types / draxul-performance /
+                                draxul-bmp / draxul-host-identity
+```
+
+This is a dependency shape, not a promise that every target in one row links every
+target below it. Consult the target's `CMakeLists.txt` for exact public/private edges.
+In particular, `draxul-app` deliberately has no source-level dependency on optional
+product modules; the executable links and registers those host providers.
+
+## Core Libraries
 
 ### app/
 
@@ -53,6 +83,23 @@ Owns:
 Good place for:
 - narrow shared contracts
 - POD-like data passed between modules
+
+Compiled BMP I/O, runtime performance collection, and host/provider identity are
+deliberately not owned here. They live in the narrowly named `draxul-bmp`,
+`draxul-performance`, and `draxul-host-identity` targets so changing those facilities
+does not rebuild or extend the universal value-type archive.
+
+### Foundation support targets
+
+| Directory | Ownership |
+|---|---|
+| `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
+| `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
+| `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
+
+These targets must not depend on product modules. Configure-time checks in
+`cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
+`draxul-host` dependencies needed by its public and implementation headers.
 
 ### libs/draxul-window/
 
@@ -135,13 +182,41 @@ Good place for:
 - transport behavior
 - input fidelity
 
+### Remaining core libraries
+
+| Directory | Ownership |
+|---|---|
+| `libs/draxul-http/` | Cross-platform HTTP transport (WinHTTP on Windows, Foundation on macOS) |
+| `libs/draxul-config/` | Config schema, TOML document I/O, and keybinding parsing |
+| `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
+| `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI |
+| `libs/draxul-runtime-support/` | Shared grid-render pipeline, session attach, printing, resource monitoring, and background UI requests |
+| `libs/draxul-host/` | Host interfaces/base classes, terminal/Neovim hosts, PTY/ConPTY behavior, and terminal emulation |
+| `libs/draxul-nanovg/` | Cross-platform NanoVG render-pass integration |
+| `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |
+| `libs/draxul-app-support/` | Interface target bundling reusable config/runtime/render-test dependencies |
+
+## Product Modules
+
+| Directory | CMake gate | Main targets and responsibility |
+|---|---|---|
+| `modules/markdown/` | Always built | `draxul-markdown` parses/layouts documents; `draxul-markdown-host` integrates the native pane and platform render pass |
+| `modules/kanban/` | Always built | `draxul-kanban` owns board storage, layout/navigation, and the native Kanban host |
+| `modules/megacity/` | `DRAXUL_ENABLE_MEGACITY` | Code semantics/tree-sitter, geometry, scene, renderer, host helpers, and the `draxul-megacity` product host; see its nested `AGENTS.md` |
+| `modules/satview/` | `DRAXUL_ENABLE_SATVIEW` | Satellite core, scene, services, renderer, and `draxul-satview-host` |
+| `modules/score/` | `DRAXUL_ENABLE_SCOREVIEW` | Notation, learning, MIDI/audio input, ScoreView model, and `draxul-scoreview-host` |
+
+Markdown and Kanban are linked directly into `draxul`. Optional product hosts are
+also linked only at the executable boundary when their CMake option is enabled.
+
 ## Generated Views
 
 ### Target graph
 
 [deps.svg](deps/deps.svg)
 
-Use this when:
+This file is generated from a configured build and may reflect the options used for
+that documentation build. Use it when:
 - checking module boundaries
 - spotting unexpected library dependencies
 - deciding where a new abstraction belongs
@@ -186,7 +261,7 @@ Use this when:
 - Active work items: [kanban/pending/](../kanban/pending/)
 - Design notes: [plans/design](../plans/design)
 - Review notes: [plans/reviews](../plans/reviews)
-- Learnings: [docs/learnings.md](learnings.md)
+- Learnings: [docs/learnings/learnings.md](learnings/learnings.md)
 
 ## Practical Heuristics
 
@@ -195,7 +270,10 @@ Use this when:
 - If the issue is about how the screen is drawn, start in `draxul-renderer`.
 - If the issue is about glyph choice, shaping, emoji, tofu, or atlas behavior, start in `draxul-font`.
 - If the issue is about DPI, focus, clipboard, IME, or visible window behavior, start in `draxul-window`.
-- If the issue crosses several modules, start in `app/` and work downward.
+- If the issue is about config parsing/validation, start in `draxul-config`.
+- If the issue is about terminal/shell behavior or pane host lifecycle, start in `draxul-host`.
+- If the issue belongs only to Markdown, Kanban, Megacity, SatView, or ScoreView, start in that product's `modules/` directory.
+- If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward.
 
 ## Why This Exists
 

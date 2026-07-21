@@ -23,3 +23,7 @@ target_link_libraries(draxul-render-test PUBLIC
     draxul-nanovg
     draxul-renderer
 )
+target_link_libraries(draxul-render-test PRIVATE
+    draxul-bmp
+    draxul-performance
+)

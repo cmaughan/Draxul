@@ -13,3 +13,4 @@ target_link_libraries(draxul-code-semantics PUBLIC
     draxul-treesitter
     draxul-types
 )
+target_link_libraries(draxul-code-semantics PRIVATE draxul-performance)

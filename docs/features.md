@@ -413,9 +413,9 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 - `do smoke` remains the explicit startup check; the individual render shortcuts and `renderall` remain the explicit visual checks. `t.sh`, `t.bat`, and `scripts/run_tests.*` retain the full unit + smoke + available render-snapshot workflow for pre-commit, release, and CI validation
 - `do run release --host megacity --parser treesitter` strips the helper flag before launching, writes `[mega_city_code].code_source = "treesitter_db"`, and removes stale `graphify_graph_path` entries from that section. `--parser treesitter_db` is accepted as the same helper alias
 - `do deploy` creates a Release build, stages the runtime payload into `deploy/YYYY_MM_DD/mac` or `deploy/YYYY_MM_DD/win`, and writes a matching `draxul-YYYY_MM_DD-mac|win.zip` archive under the date folder. Windows packages contain only `draxul.exe`, its Microsoft C++ and adjacent runtime DLLs, compiled shaders, bundled fonts, and runtime assets; CMake metadata, object files, static libraries, tests, and source/build directories are excluded
-- `do review` / `do review-bugs` run Codex + Claude review passes by default, add Gemini on macOS, and use Codex for the final consensus pass
-- `do consensus` / `do consensus-bugs` default to Codex; `claude`, `gemini`, and legacy `gpt` selector arguments are also accepted
-- `do review-codex` runs just the Codex review helper; `do review-gpt` remains as a compatibility alias
+- `do review features`, `do review bugs`, and `do review refactor` run focused Codex, Gemini/Agy, and Claude review passes followed by the matching Codex consensus; plain `do review` defaults to `features`, while `do review-bugs` remains a compatibility alias
+- `do consensus features|bugs|refactor` reruns only the matching Codex consensus over the latest focused reviews; plain `do consensus` defaults to `features`, while `do consensus-bugs` remains a compatibility alias
+- A reviewer selector can follow the review kind (`codex`, `agy`/`gemini`, or `claude`) to run one review without consensus; `do review-codex` and the legacy `do review-gpt` shortcut run the feature review unless another kind is supplied
 
 ### CMake Options
 

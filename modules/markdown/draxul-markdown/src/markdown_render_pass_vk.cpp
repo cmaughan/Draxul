@@ -7,12 +7,12 @@
 #include <draxul/runtime_path.h>
 #include <draxul/vulkan/vk_render_context.h>
 #include <filesystem>
-#include <fstream>
 #include <map>
 #include <utility>
 #include <vector>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
+#include "vk_resource_helpers.h"
 
 namespace draxul::markdown
 {
@@ -68,34 +68,11 @@ bool instance_range_valid(const std::vector<T>& instances, uint32_t first, uint3
 
 VkShaderModule load_shader(VkDevice device, const std::filesystem::path& path)
 {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open())
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to open shader: %s", path.string().c_str());
-        return VK_NULL_HANDLE;
-    }
-
-    const size_t size = static_cast<size_t>(file.tellg());
-    if (size == 0 || (size % sizeof(uint32_t)) != 0)
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: invalid shader bytecode: %s", path.string().c_str());
-        return VK_NULL_HANDLE;
-    }
-
-    std::vector<char> code(size);
-    file.seekg(0);
-    file.read(code.data(), static_cast<std::streamsize>(size));
-
-    VkShaderModuleCreateInfo create_info = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-    create_info.codeSize = code.size();
-    create_info.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-    VkShaderModule shader = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(device, &create_info, nullptr, &shader) != VK_SUCCESS)
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to create shader module: %s", path.string().c_str());
-        return VK_NULL_HANDLE;
-    }
+    std::string error;
+    const std::string debug_name = "markdown.shader." + path.filename().string();
+    const VkShaderModule shader = vkresources::load_shader_module(device, path, debug_name, error);
+    if (shader == VK_NULL_HANDLE)
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: %s", error.c_str());
     return shader;
 }
 
@@ -116,10 +93,12 @@ void destroy_image(VkDevice device, VmaAllocator allocator, Image& image)
 }
 
 bool ensure_mapped_buffer(
+    VkDevice device,
     VmaAllocator allocator,
     Buffer& buffer,
     VkDeviceSize required_size,
     VkBufferUsageFlags usage,
+    vkresources::LifetimeScope lifetime,
     const char* label)
 {
     if (required_size == 0)
@@ -129,30 +108,27 @@ bool ensure_mapped_buffer(
     if (buffer.buffer != VK_NULL_HANDLE && buffer.size >= allocation_size)
         return true;
 
-    Buffer replacement;
-    VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    buffer_info.size = allocation_size;
-    buffer_info.usage = usage;
-    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo allocation_info = {};
-    allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
-    allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-        | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-    VmaAllocationInfo vma_info = {};
-    if (vmaCreateBuffer(allocator, &buffer_info, &allocation_info,
-            &replacement.buffer, &replacement.allocation, &vma_info)
-        != VK_SUCCESS)
+    // Markdown buffers persist with their owning pass/frame. The caller still
+    // owns retirement and explicitly waits before atlas replacement.
+    vkresources::ScopedBuffer replacement;
+    std::string error;
+    if (!vkresources::create_buffer(device, allocator,
+            vkresources::BufferRequest(allocation_size, usage,
+                vkresources::MemoryPolicy::HostSequentialWrite,
+                std::string("markdown.") + label,
+                lifetime),
+            replacement, error))
     {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to create %s buffer", label);
+        DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to create %s buffer: %s", label, error.c_str());
         return false;
     }
 
-    replacement.mapped = vma_info.pMappedData;
-    replacement.size = allocation_size;
+    const vkresources::BufferResource created = replacement.release();
     destroy_buffer(allocator, buffer);
-    buffer = replacement;
+    buffer.buffer = created.buffer;
+    buffer.allocation = created.allocation;
+    buffer.mapped = created.mapped;
+    buffer.size = created.size;
     return true;
 }
 
@@ -178,21 +154,12 @@ void transition_image(
     VkPipelineStageFlags src_stage,
     VkPipelineStageFlags dst_stage)
 {
-    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcAccessMask = src_access;
-    barrier.dstAccessMask = dst_access;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-
-    vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    VkImageSubresourceRange range{};
+    range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    range.levelCount = 1;
+    range.layerCount = 1;
+    vkresources::transition_image(cmd, vkresources::ImageTransition{
+        image, old_layout, new_layout, src_access, dst_access, src_stage, dst_stage, range });
 }
 
 int clamped_extent(int origin, int requested, int limit)
@@ -604,10 +571,12 @@ struct MarkdownRenderPass::State
         if (rect_bytes > 0)
         {
             if (!ensure_mapped_buffer(
+                    device,
                     allocator,
                     frame.rect_buffer,
                     rect_bytes,
                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                    vkresources::LifetimeScope::Frame,
                     "markdown rect instance"))
             {
                 return false;
@@ -620,10 +589,12 @@ struct MarkdownRenderPass::State
         if (glyph_bytes > 0)
         {
             if (!ensure_mapped_buffer(
+                    device,
                     allocator,
                     frame.glyph_buffer,
                     glyph_bytes,
                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                    vkresources::LifetimeScope::Frame,
                     "markdown glyph instance"))
             {
                 return false;
@@ -667,30 +638,22 @@ struct MarkdownRenderPass::State
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        VmaAllocationCreateInfo allocation_info = {};
-        allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-        if (vmaCreateImage(allocator, &image_info, &allocation_info, &atlas.image.image, &atlas.image.allocation, nullptr)
-            != VK_SUCCESS)
+        vkresources::ScopedImage replacement;
+        std::string error;
+        if (!vkresources::create_image(device, allocator,
+                vkresources::ImageRequest(image_info, VK_IMAGE_VIEW_TYPE_2D,
+                    VK_IMAGE_ASPECT_COLOR_BIT, vkresources::MemoryPolicy::DevicePreferred,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "markdown.atlas",
+                    vkresources::LifetimeScope::Persistent),
+                replacement, error))
         {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to create atlas image");
+            DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to create atlas image: %s", error.c_str());
             return false;
         }
-
-        VkImageViewCreateInfo view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-        view_info.image = atlas.image.image;
-        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view_info.format = image_info.format;
-        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        view_info.subresourceRange.baseMipLevel = 0;
-        view_info.subresourceRange.levelCount = 1;
-        view_info.subresourceRange.baseArrayLayer = 0;
-        view_info.subresourceRange.layerCount = 1;
-        if (vkCreateImageView(device, &view_info, nullptr, &atlas.image.view) != VK_SUCCESS)
-        {
-            DRAXUL_LOG_ERROR(LogCategory::Renderer, "Markdown: failed to create atlas image view");
-            destroy_image(device, allocator, atlas.image);
-            return false;
-        }
+        const vkresources::ImageResource created = replacement.release();
+        atlas.image.image = created.image;
+        atlas.image.allocation = created.allocation;
+        atlas.image.view = created.view;
 
         atlas.image.width = width;
         atlas.image.height = height;
@@ -775,10 +738,12 @@ struct MarkdownRenderPass::State
             total_bytes += static_cast<VkDeviceSize>(copy.bytes);
 
         if (!ensure_mapped_buffer(
+                device,
                 allocator,
                 frame.atlas_staging,
                 total_bytes,
                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                vkresources::LifetimeScope::Frame,
                 "markdown atlas staging"))
         {
             return false;

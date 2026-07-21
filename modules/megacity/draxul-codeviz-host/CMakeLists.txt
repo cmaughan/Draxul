@@ -14,5 +14,6 @@ target_link_libraries(draxul-codeviz-host
         draxul-codeviz-scene
         draxul-types
     PRIVATE
+        draxul-performance
         SDL3::SDL3
 )

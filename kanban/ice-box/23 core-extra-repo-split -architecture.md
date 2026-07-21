@@ -41,8 +41,9 @@ filtered-mirror fallback — lives in plans/repo-split-core-extras.md.
       megacity tests + their fixtures (Grieg, Swan Lake, the minimal SVG)
       into `modules/<x>/tests/` with per-tree CTest registration; the public
       tree exports a `draxul-test-support` interface target (test_pch,
-      temp_dir, the ScoreHost fixture). This IS pending
-      `35 modular-test-targets -refactor.md` — execute it as that card.
+      temp_dir, the ScoreHost fixture). The prerequisite target split is
+      complete in `kanban/done/35 modular-test-targets -refactor.md`; this
+      architecture item still owns the later physical source relocation.
 - [ ] Extras' third-party fetches (verovio, rtmidi, tinysoundfont, kissfft,
       the YDP soundfont) relocate from `cmake/FetchDependencies.cmake` into
       their module trees, so the public repo never fetches them and the

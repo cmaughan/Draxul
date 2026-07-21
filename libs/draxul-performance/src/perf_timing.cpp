@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -53,21 +54,20 @@ public:
     void set_enabled(bool enabled)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        enabled_ = enabled;
-        if (!enabled_)
+        enabled_.store(enabled, std::memory_order_release);
+        if (!enabled)
             frame_active_ = false;
     }
 
     [[nodiscard]] bool enabled() const
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return enabled_;
+        return enabled_.load(std::memory_order_acquire);
     }
 
     void begin_frame()
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!enabled_)
+        if (!enabled_.load(std::memory_order_relaxed))
             return;
 
         frame_active_ = true;
@@ -85,7 +85,7 @@ public:
     void end_frame(uint64_t frame_time_override_microseconds)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!enabled_ || !frame_active_)
+        if (!enabled_.load(std::memory_order_relaxed) || !frame_active_)
             return;
 
         frame_active_ = false;
@@ -176,7 +176,7 @@ public:
     void report_timing(const PerfTimingTag& tag, uint64_t microseconds)
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!enabled_ || !frame_active_ || microseconds == 0)
+        if (!enabled_.load(std::memory_order_relaxed) || !frame_active_ || microseconds == 0)
             return;
 
         FrameMetric& frame_metric = frame_metrics_[&tag];
@@ -298,7 +298,7 @@ private:
     }
 
     mutable std::mutex mutex_;
-    bool enabled_ = false;
+    std::atomic_bool enabled_{false};
     bool frame_active_ = false;
     Clock::time_point frame_start_{};
     uint64_t generation_ = 0;
@@ -370,9 +370,10 @@ RuntimePerfCollector& runtime_perf_collector()
 
 ScopedPerfMeasure::ScopedPerfMeasure(const PerfTimingTag& tag)
     : tag_(&tag)
-    , start_microseconds_(now_microseconds())
     , active_(runtime_perf_collector().enabled())
 {
+    if (active_)
+        start_microseconds_ = now_microseconds();
 }
 
 ScopedPerfMeasure::~ScopedPerfMeasure()

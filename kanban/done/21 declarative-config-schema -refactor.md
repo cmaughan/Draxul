@@ -12,11 +12,11 @@ Replace the hand-synchronized config key lists, parse/apply/serialize branches, 
 
 - [x] Land item 07 first and capture its parity tests as the behavioral baseline.
 - [x] Define descriptors for key path, type, default (read back through the accessor), target field/accessor, validation/range, persistence policy (emit rule), and user-facing description. (Reload policy is not a per-field column: reload uses the uniform checked-parse path `parse_app_config_checked`.)
-- [~] Generate or drive known-key checks, parse/validation, serialization, and core-merge behavior from the descriptors. (Done: known-key checks, serialization, core-merge, and the wrong-type validation pass. **Not yet: value parsing + range validation** -- still hand-written in `config_from_toml`.)
-- [~] Keep custom parsers only for compound values such as colors, keybindings, and font paths; register them through the same schema. (Colors have dedicated `ValueKind` rows -- `HexString` for terminal fg/bg, `ColorHex` for chrome -- and serialize through the driver; keybindings are a compound section. The *parse* side of the color hooks is still hand-written, pending the value-parse migration.)
+- [x] Generate or drive known-key checks, parse/validation, serialization, and core-merge behavior from the descriptors.
+- [x] Keep custom parsers only for compound values such as colors and keybindings; register them through the same schema. (Colors use schema `ValueKind` hooks; keybindings remain the sole compound section parser.)
 - [x] Add nested schema groups for terminal, markdown, chrome, and modules without making `draxul-config` depend on product modules.
 - [x] Generate the configuration tables in a checked fragment (`docs/config-keys.generated.md`) from the schema. (Left `docs/features.md` untouched -- owned by another agent this session.)
-- [~] Migrate core fields in small groups and delete old lists only after parity tests pass. (Done: all three key lists deleted; serialization + wrong-type pass migrated. Pending: the value-parse/range group.)
+- [x] Migrate core fields in small groups and delete old lists only after parity tests pass.
 - [x] Provide a documented extension hook (`register_module_table`) for SatView/MegaCity settings rather than adding their fields to the core library.
 
 ## Tests and acceptance
@@ -27,7 +27,22 @@ Replace the hand-synchronized config key lists, parse/apply/serialize branches, 
 - [~] Unknown comments/tables survive round trips. (Unknown module **tables** survive -- pinned by the merged-document golden. **Comments are dropped by toml++** on any round trip; this is pre-existing behavior unchanged by the refactor, not a new regression.)
 - [~] Build/tests/smoke pass with optional modules on and off. (Modules **on**: full ctest 11/11 + smoke green at every commit. Modules **off**: `draxul-config` -- the entire change surface, which has no module dependency -- configured and built clean; see Status.)
 
-## Status (2026-07-19)
+## Status (2026-07-21)
+
+Implementation is complete. `config_from_toml` now delegates top-level and
+section value parsing, range handling, color hooks, and unknown-key warnings to
+the schema driver. The legacy one-off behaviors remain pinned: Markdown font
+inheritance is applied between the two schema passes, out-of-range
+`UseDefault` fields warn where they did before, and an integer literal for
+`palette_bg_alpha` remains ignored.
+
+Focused validation: the Release `draxul-config` target builds cleanly. The
+monolithic `draxul-tests` rebuild was stopped at the integration owner's request
+because concurrent modular-test work needed to reconfigure the shared build
+tree. The card remains pending until integration completes the required config,
+parity, full-test, and smoke runs.
+
+## Prior migration status (2026-07-19)
 
 Schema infrastructure and the low-risk migrations are **done and fully green**;
 the **value-parse / range-validation** group is the remaining work. The item

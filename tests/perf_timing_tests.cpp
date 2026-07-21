@@ -2,6 +2,9 @@
 
 #include <draxul/perf_timing.h>
 
+#include <chrono>
+#include <mutex>
+
 using namespace draxul;
 
 namespace
@@ -69,5 +72,45 @@ TEST_CASE("runtime perf collector reports normalized smoothed frame timings", "[
     CHECK(end_frame->normalized_heat < begin_frame->normalized_heat);
 
     collector.reset();
+    collector.set_enabled(false);
+}
+
+TEST_CASE("runtime perf scope overhead benchmark", "[.perf-benchmark]")
+{
+    auto& collector = runtime_perf_collector();
+    collector.reset();
+
+    static const PerfTimingTag kBenchmarkTag{
+        "tests/perf_timing_tests.cpp",
+        "perf_scope_benchmark",
+        "void draxul::perf_scope_benchmark()",
+    };
+
+    collector.set_enabled(false);
+    std::mutex legacy_mutex;
+    bool legacy_enabled = false;
+    BENCHMARK("legacy disabled scope shape")
+    {
+        const auto start = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(legacy_mutex);
+        return legacy_enabled
+            ? std::chrono::steady_clock::now() - start
+            : std::chrono::steady_clock::duration::zero();
+    };
+
+    BENCHMARK("disabled scoped measurement")
+    {
+        ScopedPerfMeasure measurement(kBenchmarkTag);
+        return 0;
+    };
+
+    collector.set_enabled(true);
+    collector.begin_frame();
+    BENCHMARK("enabled scoped measurement")
+    {
+        ScopedPerfMeasure measurement(kBenchmarkTag);
+        return 0;
+    };
+    collector.cancel_frame();
     collector.set_enabled(false);
 }

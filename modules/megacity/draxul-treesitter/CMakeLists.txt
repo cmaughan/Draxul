@@ -11,3 +11,4 @@ target_link_libraries(draxul-treesitter PUBLIC
     tree_sitter_cpp_grammar
     draxul-types
 )
+target_link_libraries(draxul-treesitter PRIVATE draxul-performance)

@@ -31,8 +31,8 @@ SatView's single target currently mixes catalogs, network/cache services, propag
 ## Tests and acceptance
 
 - [x] Assign focused tests to the narrowest target and keep the host smoke test. (The repo uses a single `draxul-tests` target, as MegaCity does; tests reach each boundary's private `src/` via include dirs — host + renderer — and public headers resolve transitively. `satview_host_smoke_tests` stays the key behavioral gate and is green.)
-- [ ] Configure/build with SatView ON and OFF on Windows and macOS paths. (macOS ON+OFF verified green here; **Windows/Vulkan pending CI** — this machine cannot build the Vulkan backend or the Windows path.)
-- [ ] Vulkan and Metal consume identical scene records; no catalog/filter logic enters backends. (Both backends consume one scene contract, `SatViewScenePass`; no catalog/filter code lives in the renderer target. Metal verified locally and the `satview_ring_render_state_tests` parity test is green; **Vulkan side pending CI**.)
+- [x] Configure/build with SatView ON and OFF on Windows and macOS paths. (macOS ON+OFF was previously verified. Windows Release now builds `draxul-satview-host` with SatView ON and configures/links `draxul` with SatView OFF; the normal ON configuration was restored afterward.)
+- [x] Vulkan and Metal consume identical scene records; no catalog/filter logic enters backends. (Both backends consume the shared `SatViewScenePass` contract; no catalog/filter code lives in the renderer target. Metal parity tests were previously green, and the Windows/Vulkan renderer and host now compile through that same scene target.)
 - [x] Full build, focused SatView tests, `ctest`, render/startup check, and smoke pass. (macOS/Metal: full build green; `[satview]` 165 cases / 28415 assertions green at every boundary; `do.py smoke` exit 0; `ctest` 11/12 — the single failure is a **pre-existing, unrelated** trailing-newline drift in `docs/config-keys.generated.md` vs `render_config_docs_markdown()`, no satview content, both inputs byte-identical to the base commit.)
 
 ## Dependencies and parallelism
@@ -60,8 +60,18 @@ services,renderer,host}`). The single `draxul-satview` target is now:
 
 `app/main.cpp` is unchanged (still includes `<draxul/satview/satview_host.h>`
 and calls `register_satview_host_provider`); only the CMake link line moved to
-`draxul-satview-host`. Kept in `kanban/pending/` because two acceptance lines
-remain: Windows/Vulkan CI must confirm the OFF/ON configure+build and the
-Metal/Vulkan scene-record parity on the non-Apple path.
+`draxul-satview-host`.
+
+Windows follow-up validation on 2026-07-21 completed the two remaining gates:
+
+- `cmake --build build --config Release --target draxul-satview-host -- /m:1`
+  passed with the Vulkan backend enabled.
+- Reconfiguration with `DRAXUL_ENABLE_SATVIEW=OFF` (and unrelated optional
+  products disabled to isolate the boundary) followed by a Release `draxul`
+  build passed. The shared build was then restored with SatView, MegaCity, and
+  ScoreView enabled.
+
+This was build-only validation; no application, helper, or test executable was
+launched.
 
 <model>GPT-5 Codex</model>

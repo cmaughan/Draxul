@@ -1,5 +1,5 @@
 // Unit tests for the declarative config schema
-// (kanban/pending/21 declarative-config-schema -refactor.md).
+// (kanban/done/21 declarative-config-schema -refactor.md).
 //
 // These pin the schema itself: that it enumerates exactly the AppConfig fields,
 // that its query surface is consistent, that the module extension hook behaves,
@@ -9,7 +9,7 @@
 //
 // To regenerate the docs fragment after an INTENTIONAL schema change, run:
 //
-//   DRAXUL_REGEN_CONFIG_DOCS=1 ./build/tests/draxul-tests "[config][docs]"
+//   DRAXUL_REGEN_CONFIG_DOCS=1 ./build/tests/draxul-test-core "[config][docs]"
 //
 // and review the diff like any other code change.
 
@@ -117,6 +117,12 @@ std::string read_file_bytes(const std::filesystem::path& path)
     if (!in)
         return {};
     return std::string(std::istreambuf_iterator<char>(in), {});
+}
+
+std::string normalize_checkout_line_endings(std::string text)
+{
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    return text;
 }
 
 bool regen_docs()
@@ -230,7 +236,8 @@ TEST_CASE("config schema generated docs fragment is current", "[config][docs]")
     INFO("regenerate with DRAXUL_REGEN_CONFIG_DOCS=1 if this schema change is intentional");
     const std::string on_disk = read_file_bytes(path);
     REQUIRE_FALSE(on_disk.empty());
-    CHECK(rendered == on_disk);
+    CHECK(normalize_checkout_line_endings(rendered)
+        == normalize_checkout_line_endings(on_disk));
 
     // Spot-check the rendering actually contains schema content.
     CHECK(rendered.find("window_width") != std::string::npos);

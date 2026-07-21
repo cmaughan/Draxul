@@ -686,18 +686,9 @@ bool App::initialize_chrome_host()
     refresh_system_resource_snapshot(std::chrono::steady_clock::now());
 
     ChromeHost::Deps chrome_deps;
-    chrome_deps.options = &options_;
     chrome_deps.config = &config_;
-    chrome_deps.config_document = &config_document_;
-    chrome_deps.window = window_.get();
     chrome_deps.grid_renderer = renderer_.grid();
-    chrome_deps.imgui_host = renderer_.imgui();
     chrome_deps.text_service = &text_service_;
-    chrome_deps.display_ppi = &display_ppi_;
-    chrome_deps.owner_lifetime = host_owner_lifetime_;
-    chrome_deps.compute_viewport = [this](const PaneDescriptor& desc) {
-        return viewport_from_descriptor(desc);
-    };
     chrome_deps.workspaces = &workspaces_;
     chrome_deps.active_workspace_id = &active_workspace_;
     chrome_deps.system_resource_snapshot = &system_resource_snapshot_;

@@ -25,35 +25,9 @@ namespace draxul
 namespace
 {
 
-constexpr int kMinWindowWidth = 640;
-constexpr int kMinWindowHeight = 400;
-constexpr int kMaxWindowWidth = 3840;
-constexpr int kMaxWindowHeight = 2160;
-constexpr int kMinAtlasSize = 1024;
-constexpr int kMaxAtlasSize = 8192;
-constexpr int kMinScrollbackLines = 1;
-constexpr int kMaxScrollbackLines = 1000000;
-// Mirror TextService::MIN/MAX_POINT_SIZE so that draxul-config does not need to
-// link draxul-font. Keep in sync with text_service.h if those values change.
-constexpr float kMinFontPointSize = 6.0f;
-constexpr float kMaxFontPointSize = 72.0f;
-constexpr float kMinMarkdownMarginColumns = 0.0f;
-constexpr float kMaxMarkdownMarginColumns = 24.0f;
 // kGuiModifierMask is defined in input_types.h as kGuiModifierMask (same bit values).
 // The list of known GUI action keys lives in <draxul/gui_actions.h> as the canonical
 // source of truth. Use is_known_gui_action_config_key() / for_each_gui_action_config_key().
-// The known top-level key inventory (the 21 scalar/list keys plus the four
-// section tables) and the [chrome] key inventory both come from the config
-// schema: config_schema::is_core_top_level_key and config_schema::fields().
-
-// True when `key` is a known field of the schema section `section`.
-bool is_known_section_field(std::string_view section, std::string_view key)
-{
-    return std::any_of(config_schema::fields().begin(), config_schema::fields().end(),
-        [&](const config_schema::ConfigFieldDesc& field) {
-            return field.section == section && field.key == key;
-        });
-}
 
 std::filesystem::path config_path()
 {
@@ -94,55 +68,6 @@ std::filesystem::path config_path()
 #endif
 }
 
-int parse_window_dimension(const toml::table& document, const char* key, int fallback, int min_value, int max_value)
-{
-    if (auto parsed = toml_support::get_int(document, key); parsed.has_value())
-    {
-        if (*parsed < min_value || *parsed > max_value)
-            return fallback;
-        return static_cast<int>(*parsed);
-    }
-    return fallback;
-}
-
-int floor_to_power_of_two(int value)
-{
-    PERF_MEASURE();
-    if (value <= 0)
-        return 0;
-    int result = 1;
-    while (result * 2 <= value)
-        result *= 2;
-    return result;
-}
-
-int parse_atlas_size(const toml::table& document, int fallback)
-{
-    PERF_MEASURE();
-    if (auto parsed = toml_support::get_int(document, "atlas_size"); parsed.has_value())
-    {
-        auto clamped = static_cast<int>(std::clamp(*parsed, static_cast<int64_t>(kMinAtlasSize), static_cast<int64_t>(kMaxAtlasSize)));
-        return floor_to_power_of_two(clamped);
-    }
-    return fallback;
-}
-
-int parse_scrollback_lines(const toml::table& document, int fallback)
-{
-    if (auto parsed = toml_support::get_int(document, "scrollback_lines"); parsed.has_value())
-    {
-        if (*parsed < kMinScrollbackLines || *parsed > kMaxScrollbackLines)
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "[config] scrollback_lines %lld out of range [%d,%d] -- using default",
-                static_cast<long long>(*parsed), kMinScrollbackLines, kMaxScrollbackLines);
-            return fallback;
-        }
-        return static_cast<int>(*parsed);
-    }
-    return fallback;
-}
-
 void replace_gui_keybinding(std::vector<GuiKeybinding>& bindings, GuiKeybinding binding)
 {
     PERF_MEASURE();
@@ -164,31 +89,6 @@ const GuiKeybinding* first_binding_for_action(const std::vector<GuiKeybinding>& 
     auto it = std::find_if(bindings.begin(), bindings.end(),
         [&](const GuiKeybinding& binding) { return binding.action == action; });
     return it != bindings.end() ? &*it : nullptr;
-}
-
-float parse_font_size(const toml::table& document, float fallback)
-{
-    PERF_MEASURE();
-    // Accept both integer (font_size = 14) and float (font_size = 14.5) TOML values.
-    if (auto parsed = toml_support::get_double(document, "font_size"); parsed.has_value())
-        return std::clamp(static_cast<float>(*parsed), kMinFontPointSize, kMaxFontPointSize);
-    if (auto parsed = toml_support::get_int(document, "font_size"); parsed.has_value())
-        return std::clamp(static_cast<float>(*parsed), kMinFontPointSize, kMaxFontPointSize);
-    return fallback;
-}
-
-std::optional<float> parse_float_value(const toml::table& document, const char* key)
-{
-    if (auto parsed = toml_support::get_double(document, key); parsed.has_value())
-        return static_cast<float>(*parsed);
-    if (auto parsed = toml_support::get_int(document, key); parsed.has_value())
-        return static_cast<float>(*parsed);
-    return std::nullopt;
-}
-
-bool parse_enable_ligatures(const toml::table& document, bool fallback)
-{
-    return toml_support::get_bool(document, "enable_ligatures").value_or(fallback);
 }
 
 void apply_gui_keybindings(AppConfig& config, const toml::table& keybindings)
@@ -219,129 +119,6 @@ void apply_gui_keybindings(AppConfig& config, const toml::table& keybindings)
     }
 }
 
-void apply_terminal_overrides(AppConfig& config, const toml::table& terminal)
-{
-    PERF_MEASURE();
-    if (auto fg = toml_support::get_string(terminal, "fg"))
-    {
-        if (auto parsed = parse_hex_color(*fg); parsed.has_value())
-            config.terminal.fg = *fg;
-        else
-            DRAXUL_LOG_WARN(LogCategory::App, "[config] terminal.fg '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring", fg->c_str());
-    }
-
-    if (auto bg = toml_support::get_string(terminal, "bg"))
-    {
-        if (auto parsed = parse_hex_color(*bg); parsed.has_value())
-            config.terminal.bg = *bg;
-        else
-            DRAXUL_LOG_WARN(LogCategory::App, "[config] terminal.bg '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring", bg->c_str());
-    }
-
-    if (auto cells = toml_support::get_int(terminal, "selection_max_cells"))
-    {
-        constexpr int kMin = 256;
-        constexpr int kMax = 1048576;
-        if (*cells < kMin || *cells > kMax)
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "[config] terminal.selection_max_cells %lld out of range [%d,%d] -- using default",
-                static_cast<long long>(*cells), kMin, kMax);
-        }
-        else
-        {
-            config.terminal.selection_max_cells = static_cast<int>(*cells);
-        }
-    }
-
-    if (auto cos = toml_support::get_bool(terminal, "copy_on_select"))
-        config.terminal.copy_on_select = *cos;
-
-    if (auto pcl = toml_support::get_int(terminal, "paste_confirm_lines"))
-    {
-        if (*pcl < 0 || *pcl > 100000)
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "[config] terminal.paste_confirm_lines %lld out of range [0,100000] -- using default",
-                static_cast<long long>(*pcl));
-        }
-        else
-        {
-            config.terminal.paste_confirm_lines = static_cast<int>(*pcl);
-        }
-    }
-    if (auto parsed = toml_support::get_bool(terminal, "url_detection"))
-        config.terminal.url_detection = *parsed;
-    if (auto parsed = toml_support::get_bool(terminal, "enable_osc8_hyperlinks"))
-        config.terminal.enable_osc8_hyperlinks = *parsed;
-    if (auto parsed = toml_support::get_bool(terminal, "enable_shell_integration_marks"))
-        config.terminal.enable_shell_integration_marks = *parsed;
-}
-
-void apply_chrome_overrides(AppConfig& config, const toml::table& chrome)
-{
-    PERF_MEASURE();
-    auto apply_color = [&](const char* key, Color& target) {
-        if (auto value = toml_support::get_string(chrome, key))
-        {
-            if (auto parsed = parse_hex_color(*value); parsed.has_value())
-                target = *parsed;
-            else
-                DRAXUL_LOG_WARN(LogCategory::App,
-                    "[config] chrome.%s '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring",
-                    key, value->c_str());
-        }
-    };
-
-    apply_color("tab_bar_bg", config.chrome.tab_bar_bg);
-    apply_color("tab_active_fg", config.chrome.tab_active_fg);
-    apply_color("tab_inactive_fg", config.chrome.tab_inactive_fg);
-    apply_color("tab_active_bg", config.chrome.tab_active_bg);
-    apply_color("tab_inactive_bg", config.chrome.tab_inactive_bg);
-    apply_color("tab_editing_bg", config.chrome.tab_editing_bg);
-    apply_color("divider", config.chrome.divider);
-    apply_color("focus_border", config.chrome.focus_border);
-    apply_color("status_bar_bg", config.chrome.status_bar_bg);
-    apply_color("status_bar_fg", config.chrome.status_bar_fg);
-    apply_color("status_focused_accent_bg", config.chrome.status_focused_accent_bg);
-    apply_color("status_inactive_accent_bg", config.chrome.status_inactive_accent_bg);
-    apply_color("status_editing_bg", config.chrome.status_editing_bg);
-    apply_color("resource_pill_bg", config.chrome.resource_pill_bg);
-    apply_color("resource_pill_fg", config.chrome.resource_pill_fg);
-    apply_color("resource_pill_warn_bg", config.chrome.resource_pill_warn_bg);
-    apply_color("resource_pill_hot_bg", config.chrome.resource_pill_hot_bg);
-    apply_color("chord_pill_bg", config.chrome.chord_pill_bg);
-    apply_color("weather_pill_bg", config.chrome.weather_pill_bg);
-    apply_color("editing_outline", config.chrome.editing_outline);
-
-    for (const auto& [key, value] : chrome)
-    {
-        std::string_view key_sv = key.str();
-        const bool known = is_known_section_field("chrome", key_sv);
-        if (!known)
-        {
-            DRAXUL_LOG_WARN(LogCategory::App, "[config] Unknown chrome key 'chrome.%.*s' -- check spelling",
-                static_cast<int>(key_sv.size()), key_sv.data());
-            std::string warning = "Unknown chrome config key: ";
-            warning.append(key_sv);
-            config.warnings.push_back(std::move(warning));
-        }
-        (void)value;
-    }
-}
-
-void apply_markdown_overrides(AppConfig& config, const toml::table& markdown)
-{
-    PERF_MEASURE();
-    if (auto parsed = parse_float_value(markdown, "font_size"); parsed.has_value())
-        config.markdown.font_size = std::clamp(*parsed, kMinFontPointSize, kMaxFontPointSize);
-    if (auto parsed = parse_float_value(markdown, "margin_columns"); parsed.has_value())
-        config.markdown.margin_columns = std::clamp(
-            *parsed,
-            kMinMarkdownMarginColumns,
-            kMaxMarkdownMarginColumns);
-}
-
 AppConfig config_from_toml(const toml::table& document, std::string* validation_error = nullptr)
 {
     PERF_MEASURE();
@@ -365,89 +142,13 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
     // order as before, so the first-reported error in a checked parse is stable.
     config_schema::check_types(document, report_type_error);
 
-    // Sub-tables are resolved once here for the value-application pass below.
-    const toml::table* markdown_table = document["markdown"].as_table();
-    const toml::table* chrome_table = document["chrome"].as_table();
+    config_schema::parse_top_level_fields(document, config);
 
-    config.window_width = parse_window_dimension(document, "window_width", config.window_width, kMinWindowWidth, kMaxWindowWidth);
-    config.window_height = parse_window_dimension(document, "window_height", config.window_height, kMinWindowHeight, kMaxWindowHeight);
-    config.font_size = parse_font_size(document, config.font_size);
+    // Markdown inherits the parsed global size unless its own section overrides
+    // it. This is the sole cross-field rule and deliberately sits between the
+    // schema driver's top-level and section passes.
     config.markdown.font_size = config.font_size;
-    config.atlas_size = parse_atlas_size(document, config.atlas_size);
-    config.scrollback_lines = parse_scrollback_lines(document, config.scrollback_lines);
-    config.enable_ligatures = parse_enable_ligatures(document, config.enable_ligatures);
-    if (auto parsed = toml_support::get_bool(document, "smooth_scroll"); parsed.has_value())
-        config.smooth_scroll = *parsed;
-
-    {
-        constexpr float kScrollSpeedMin = 0.1f;
-        constexpr float kScrollSpeedMax = 10.0f;
-        float raw_speed = config.scroll_speed;
-        if (auto parsed = toml_support::get_double(document, "scroll_speed"); parsed.has_value())
-            raw_speed = static_cast<float>(*parsed);
-        else if (auto parsed_int = toml_support::get_int(document, "scroll_speed"); parsed_int.has_value())
-            raw_speed = static_cast<float>(*parsed_int);
-        if (document["scroll_speed"])
-        {
-            if (raw_speed < kScrollSpeedMin || raw_speed > kScrollSpeedMax)
-            {
-                DRAXUL_LOG_WARN(LogCategory::App,
-                    "[config] scroll_speed %.2f out of range (%.1f, %.1f] -- using default 1.0",
-                    static_cast<double>(raw_speed), static_cast<double>(kScrollSpeedMin), static_cast<double>(kScrollSpeedMax));
-                config.scroll_speed = 1.0f;
-            }
-            else
-            {
-                config.scroll_speed = raw_speed;
-            }
-        }
-    }
-
-    {
-        if (auto parsed = toml_support::get_double(document, "palette_bg_alpha"); parsed.has_value())
-            config.palette_bg_alpha = std::clamp(static_cast<float>(*parsed), 0.0f, 1.0f);
-    }
-
-    {
-        if (auto parsed = toml_support::get_double(document, "focus_border_width"); parsed.has_value())
-            config.focus_border_width = std::clamp(static_cast<float>(*parsed), 1.0f, 10.0f);
-        else if (auto parsed_int = toml_support::get_int(document, "focus_border_width"); parsed_int.has_value())
-            config.focus_border_width = std::clamp(static_cast<float>(*parsed_int), 1.0f, 10.0f);
-    }
-
-    if (auto parsed = toml_support::get_bool(document, "enable_toast_notifications"); parsed.has_value())
-        config.enable_toast_notifications = *parsed;
-
-    if (auto parsed = toml_support::get_bool(document, "show_pane_status"); parsed.has_value())
-        config.show_pane_status = *parsed;
-
-    if (auto parsed = toml_support::get_int(document, "chord_timeout_ms"); parsed.has_value())
-        config.chord_timeout_ms = std::max(100, static_cast<int>(*parsed));
-    if (auto parsed = toml_support::get_int(document, "chord_indicator_fade_ms"); parsed.has_value())
-        config.chord_indicator_fade_ms = std::max(100, static_cast<int>(*parsed));
-
-    {
-        constexpr float kMinToastDuration = 0.5f;
-        constexpr float kMaxToastDuration = 60.0f;
-        if (auto parsed = toml_support::get_double(document, "toast_duration_s"); parsed.has_value())
-            config.toast_duration_s = std::clamp(static_cast<float>(*parsed), kMinToastDuration, kMaxToastDuration);
-        else if (auto parsed_int = toml_support::get_int(document, "toast_duration_s"); parsed_int.has_value())
-            config.toast_duration_s = std::clamp(static_cast<float>(*parsed_int), kMinToastDuration, kMaxToastDuration);
-    }
-
-    if (auto loc = toml_support::get_string(document, "weather_location"))
-        config.weather_location = *loc;
-
-    if (auto font_path = toml_support::get_string(document, "font_path"))
-        config.font_path = *font_path;
-    if (auto bold_font_path = toml_support::get_string(document, "bold_font_path"))
-        config.bold_font_path = *bold_font_path;
-    if (auto italic_font_path = toml_support::get_string(document, "italic_font_path"))
-        config.italic_font_path = *italic_font_path;
-    if (auto bold_italic_font_path = toml_support::get_string(document, "bold_italic_font_path"))
-        config.bold_italic_font_path = *bold_italic_font_path;
-    if (auto fallback_paths = toml_support::get_string_array(document, "fallback_paths"))
-        config.fallback_paths = std::move(*fallback_paths);
+    config_schema::parse_section_fields(document, config);
 
     if (const auto* keybindings = document["keybindings"].as_table())
         apply_gui_keybindings(config, *keybindings);
@@ -468,30 +169,7 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
         }
     }
 
-    // [terminal] section -- optional fg/bg hex color overrides for shell panes.
-    if (const auto* terminal = document["terminal"].as_table())
-        apply_terminal_overrides(config, *terminal);
-    if (chrome_table != nullptr)
-        apply_chrome_overrides(config, *chrome_table);
-    if (markdown_table != nullptr)
-        apply_markdown_overrides(config, *markdown_table);
-
-    // Warn about unknown top-level keys. The ownership inventory is the schema's;
-    // unknown top-level *tables* are treated as module-owned and never warned on.
-    for (const auto& [key, value] : document)
-    {
-        std::string_view key_sv = key.str();
-        bool known = config_schema::is_core_top_level_key(key_sv);
-        if (!known && value.is_table())
-            continue;
-        if (!known)
-        {
-            DRAXUL_LOG_WARN(LogCategory::App, "[config] Unknown key '%.*s' -- check spelling", static_cast<int>(key_sv.size()), key_sv.data());
-            std::string warning = "Unknown config key: ";
-            warning.append(key_sv);
-            config.warnings.push_back(std::move(warning));
-        }
-    }
+    config_schema::warn_unknown_keys(document, config);
 
     return config;
 }

@@ -6,10 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CLAUDE.md is the single source of truth for shared rules — build commands, architecture,
 threading invariants, the `kanban/` tracker, validation expectations, and known pitfalls —
-for every agent family (Claude, Codex via `AGENTS.md`, Gemini via `GEMINI.md`). Those
-sibling files must stay thin: a pointer here plus only genuinely model-specific notes, so
-shared rules cannot silently diverge between models. `learnings_agents.md` is a retrospective
-essay, not a rule source. Change a shared rule here and nowhere else.
+for every agent family. `AGENTS.md` and `GEMINI.md` are thin pointers with only genuinely
+model-specific notes; `learnings_agents.md` is a retrospective, not a rule source. Change
+a shared rule here and nowhere else.
+
+The detailed current library and product-module graph lives in
+[docs/module-map.md](docs/module-map.md). CMake is authoritative when the prose and build
+files disagree.
+
+## Scope
+
+Draxul is a cross-platform Neovim GUI frontend that also supports Bash, Zsh,
+PowerShell, and WSL shell hosts. It uses SDL3 for windowing/input, Vulkan on Windows,
+Metal on macOS, and msgpack-RPC over pipes to communicate with `nvim --embed`.
+
+Unless a task is explicitly scoped to one platform or backend, user-facing features
+and fixes must keep both Windows and macOS working. When touching platform, renderer,
+process, input, or shell-host behavior, inspect the corresponding paths for both
+platforms and call out any unsupported gap explicitly.
+
+Keep `app/` focused on orchestration. Put reusable platform or subsystem behavior in
+`libs/`, and product-specific behavior in its owning directory under `modules/`.
 
 ## Build Commands
 
@@ -20,6 +37,7 @@ Requires CMake 3.25+, Visual Studio 2022, and Vulkan SDK (with glslc).
 cmake --preset default                              # Configure (Debug, VS 2022 x64)
 cmake --preset release                               # Configure (Release)
 cmake --build build --config Release --target draxul # Build
+ctest --test-dir build --build-config Release --output-on-failure
 ```
 
 Run: `.\build\Release\draxul.exe` (requires `nvim` on PATH). Pass `--console` to allocate a debug console window.
@@ -44,6 +62,12 @@ To run the unit test suite under TSan (ThreadSanitizer — mutually exclusive wi
 
 TSan suppressions for third-party library noise (SDL3, Metal, system frameworks) live in `tsan.supp` at the repo root. When running TSan locally, set `TSAN_OPTIONS="suppressions=tsan.supp"`.
 
+### Convenience scripts
+
+- `do run`: configure, build, and run the application; supports `debug`/`release`,
+  `--vs`/`--ninja`, and `--reconfigure`.
+- `t.bat` / `t.sh`: build and run the test suite.
+
 ### Debugging / Logging
 
 Use the `--log-file` and `--log-level` CLI flags for debug logging. These are reliable on all platforms (env vars like `DRAXUL_LOG_FILE` do not propagate into macOS `.app` bundles).
@@ -59,74 +83,31 @@ Use the `--log-file` and `--log-level` CLI flags for debug logging. These are re
 
 ## Project Structure
 
-```
-draxul/
-├── CMakeLists.txt                  # Top-level: wires libraries + app
-├── CLAUDE.md
-├── libs/
-│   ├── draxul-types/              # Shared POD types (header-only)
-│   │   ├── include/draxul/
-│   │   │   ├── types.h             # Color, AtlasRegion, CursorShape, CellUpdate
-│   │   │   └── events.h            # WindowResizeEvent, KeyEvent, etc.
-│   │   └── CMakeLists.txt
-│   ├── draxul-window/             # Window abstraction + SDL implementation
-│   │   ├── include/draxul/
-│   │   │   ├── window.h            # IWindow interface
-│   │   │   └── sdl_window.h        # SdlWindow implementation
-│   │   ├── src/sdl_window.cpp
-│   │   └── CMakeLists.txt
-│   ├── draxul-renderer/           # Renderer interface + backends
-│   │   ├── include/draxul/
-│   │   │   ├── base_renderer.h     # IBaseRenderer, I3DRenderer, IRenderPass, IRenderContext
-│   │   │   └── renderer.h          # IGridRenderer (extends I3DRenderer), RendererBundle
-│   │   ├── src/vulkan/             # Vulkan backend (Windows)
-│   │   ├── src/metal/              # Metal backend (macOS)
-│   │   └── CMakeLists.txt
-│   ├── draxul-font/               # Font loading, shaping, glyph cache
-│   │   ├── include/draxul/
-│   │   │   ├── font_metrics.h      # FontMetrics struct
-│   │   │   └── text_service.h      # TextService glyph atlas + metrics API
-│   │   ├── src/
-│   │   └── CMakeLists.txt
-│   ├── draxul-app-support/        # Reusable app-layer helpers shared by the app and tests
-│   │   └── CMakeLists.txt
-│   ├── draxul-grid/               # 2D cell grid + highlight table
-│   │   ├── include/draxul/
-│   │   │   └── grid.h              # Grid, Cell, HlAttr, HighlightTable
-│   │   ├── src/grid.cpp
-│   │   └── CMakeLists.txt
-│   └── draxul-nvim/               # Neovim process, RPC, UI events, input
-│       ├── include/draxul/
-│       │   └── nvim.h              # NvimProcess, NvimRpc, UiEventHandler, NvimInput
-│       ├── src/
-│       └── CMakeLists.txt
-├── app/                            # The executable — just wiring
-│   ├── app.h/cpp
-│   ├── main.cpp
-│   └── renderer_factory.cpp
-├── shaders/
-└── fonts/
-```
+- `app/`: executable and `draxul-app` orchestration target.
+- `libs/`: reusable infrastructure libraries; see the complete ownership list in
+  [docs/module-map.md](docs/module-map.md#core-libraries).
+- `modules/markdown/` and `modules/kanban/`: product modules built by default.
+- `modules/megacity/`, `modules/satview/`, and `modules/score/`: optional product
+  families gated by `DRAXUL_ENABLE_MEGACITY`, `DRAXUL_ENABLE_SATVIEW`, and
+  `DRAXUL_ENABLE_SCOREVIEW`.
+- `tests/`: unit, integration, performance, and render-snapshot coverage.
+- `docs/`: canonical feature inventory, module map, generated diagrams, and API docs.
+- `kanban/`: the only work-item tracker; `plans/` contains designs and research.
+
+When working under `modules/megacity/`, also read `modules/megacity/AGENTS.md`.
 
 ## Architecture
 
 Draxul is a Neovim GUI frontend. It spawns `nvim --embed`, communicates via msgpack-RPC over stdin/stdout pipes, and renders the terminal grid using the platform's GPU API (Vulkan on Windows, Metal on macOS).
 
-### Dependency Graph (libraries only link downward)
+### Dependency graph
 
-```
-                    draxul-types (header-only)
-                   /      |       |       \
-          window   renderer   font    grid
-            |         |        |       |
-            └────┬────┘        └───┬───┘
-                 |                 |
-              draxul-nvim --------┘
-                 |
-        draxul-app-support
-                 |
-                app (executable)
-```
+The graph is no longer a single linear stack: core infrastructure fans out from
+the narrow `draxul-types`, `draxul-performance`, `draxul-bmp`, and
+`draxul-host-identity` foundations; runtime and host composition sit above them, and product
+modules connect to the executable through host targets. See
+[docs/module-map.md](docs/module-map.md#dependency-shape) for the maintained high-level
+graph and each `CMakeLists.txt` for exact target edges.
 
 ### Data flow
 

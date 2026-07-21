@@ -19,5 +19,6 @@ target_link_libraries(draxul-config PUBLIC
 )
 
 target_link_libraries(draxul-config PRIVATE
+    draxul-performance
     SDL3::SDL3
 )

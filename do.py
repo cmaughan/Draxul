@@ -24,6 +24,33 @@ REVIEW_MODES = {
     "claude": "Claude",
 }
 
+REVIEW_KINDS = {
+    "features": {
+        "prompt_stem": "review",
+        "review_basename": "review-latest",
+        "consensus_basename": "review-consensus",
+    },
+    "bugs": {
+        "prompt_stem": "review_bugs",
+        "review_basename": "review-bugs-latest",
+        "consensus_basename": "review-bugs-consensus",
+    },
+    "refactor": {
+        "prompt_stem": "review_refactor",
+        "review_basename": "review-refactor-latest",
+        "consensus_basename": "review-refactor-consensus",
+    },
+}
+
+REVIEW_KIND_ALIASES = {
+    "feature": "features",
+    "features": "features",
+    "bug": "bugs",
+    "bugs": "bugs",
+    "refactor": "refactor",
+    "refactors": "refactor",
+}
+
 CODEX_REVIEW_MODEL = "gpt-5.6-sol"
 CLAUDE_REVIEW_MODEL = "fable"
 
@@ -836,17 +863,28 @@ def _unexpected_review_arg(arg: str) -> None:
 
 def parse_review_args(args: list[str]) -> SimpleNamespace:
     review_target = "all"
+    review_kind = "features"
     agy_timeout_seconds = 900
     dry_run = False
+    saw_review_target = False
+    saw_review_kind = False
     index = 0
 
     while index < len(args):
         arg = args[index]
         lowered = arg.lower()
+        if lowered in REVIEW_KIND_ALIASES:
+            if saw_review_kind:
+                _unexpected_review_arg(arg)
+            review_kind = REVIEW_KIND_ALIASES[lowered]
+            saw_review_kind = True
+            index += 1
+            continue
         if lowered in REVIEW_MODES:
-            if review_target != "all":
+            if saw_review_target:
                 _unexpected_review_arg(arg)
             review_target = lowered
+            saw_review_target = True
             index += 1
             continue
         if arg == "--dry-run":
@@ -879,6 +917,8 @@ def parse_review_args(args: list[str]) -> SimpleNamespace:
         raise SystemExit(2)
 
     return SimpleNamespace(
+        review_kind=review_kind,
+        review_kind_explicit=saw_review_kind,
         review_target=review_target,
         agy_timeout_seconds=agy_timeout_seconds,
         dry_run=dry_run,
@@ -887,10 +927,18 @@ def parse_review_args(args: list[str]) -> SimpleNamespace:
 
 def parse_consensus_args(args: list[str]) -> SimpleNamespace:
     dry_run = False
+    review_kind = "features"
+    saw_review_kind = False
     for arg in args:
         lowered = arg.lower()
         if arg == "--dry-run":
             dry_run = True
+            continue
+        if lowered in REVIEW_KIND_ALIASES:
+            if saw_review_kind:
+                _unexpected_review_arg(arg)
+            review_kind = REVIEW_KIND_ALIASES[lowered]
+            saw_review_kind = True
             continue
         if lowered in {"codex", "gpt"}:
             continue
@@ -899,7 +947,11 @@ def parse_consensus_args(args: list[str]) -> SimpleNamespace:
             print(help_text())
             raise SystemExit(2)
         _unexpected_review_arg(arg)
-    return SimpleNamespace(dry_run=dry_run)
+    return SimpleNamespace(
+        review_kind=review_kind,
+        review_kind_explicit=saw_review_kind,
+        dry_run=dry_run,
+    )
 
 
 def _consensus_basename_for_prompt(prompt_stem: str) -> str:
@@ -981,6 +1033,32 @@ def create_consensus_plan(
     )
     plan.mode = "Consensus"
     return plan
+
+
+def create_review_kind_plan(
+    root: pathlib.Path,
+    review_kind: str,
+    agy_timeout_seconds: int = 900,
+    review_target: str = "all",
+) -> SimpleNamespace:
+    try:
+        config = REVIEW_KINDS[review_kind]
+    except KeyError as error:
+        raise ValueError(f"Unsupported review kind: {review_kind}") from error
+    return create_review_plan(
+        root,
+        agy_timeout_seconds,
+        review_target,
+        **config,
+    )
+
+
+def create_consensus_kind_plan(root: pathlib.Path, review_kind: str) -> SimpleNamespace:
+    try:
+        config = REVIEW_KINDS[review_kind]
+    except KeyError as error:
+        raise ValueError(f"Unsupported review kind: {review_kind}") from error
+    return create_consensus_plan(root, **config)
 
 
 def resolve_required_command(command: str, install_hint: str, dry_run: bool = False) -> str:
@@ -1624,16 +1702,16 @@ Single-word shortcuts:
   shot         Regenerate the README hero screenshot
   api          Build local Doxygen API docs
   docs         Build all docs artifacts
-  review [all|codex|agy|gemini|claude] [--agy-timeout seconds] [--dry-run]
-               Run AI code review with the native Codex/Claude/Agy flow
-  review-bugs [all|codex|agy|gemini|claude] [--agy-timeout seconds] [--dry-run]
-               Run bug-focused AI review with the native Codex/Claude/Agy flow
+  review [features|bugs|refactor] [all|codex|agy|gemini|claude]
+      [--agy-timeout seconds] [--dry-run]
+               Run a focused AI review and, for all reviewers, its consensus
+               (defaults to features; review-bugs remains a compatibility alias)
   review-codex Run only the Codex reviewer
   review-gemini  Run only the Gemini reviewer
   review-claude  Run only the Claude reviewer
   review-gpt     Alias for review-codex
-  consensus [--dry-run]
-               Run consensus synthesis on the latest reviews through Codex
+  consensus [features|bugs|refactor] [--dry-run]
+               Run focused consensus synthesis on the latest reviews through Codex
   consensus-bugs [--dry-run]
                Run bug triage consensus on the latest bug reviews through Codex
   coverage     macOS: build with LLVM coverage, export build/coverage.lcov, copy to db/coverage.lcov
@@ -1661,6 +1739,10 @@ Examples:
   do run --reconfigure     # Force CMake reconfigure
   do clean
   do smoke
+  do review features --dry-run
+  do review bugs --dry-run
+  do review refactor --dry-run
+  do consensus refactor --dry-run
   do basic
   do blessall
 """
@@ -1723,18 +1805,23 @@ def main() -> int:
 
     if command == "review":
         parsed = parse_review_args(args[1:])
-        plan = create_review_plan(root, parsed.agy_timeout_seconds, parsed.review_target)
+        plan = create_review_kind_plan(
+            root,
+            parsed.review_kind,
+            parsed.agy_timeout_seconds,
+            parsed.review_target,
+        )
         return run_review(plan, parsed.dry_run)
 
     if command == "review-bugs":
         parsed = parse_review_args(args[1:])
-        plan = create_review_plan(
+        if parsed.review_kind_explicit:
+            _unexpected_review_arg(parsed.review_kind)
+        plan = create_review_kind_plan(
             root,
+            "bugs",
             parsed.agy_timeout_seconds,
             parsed.review_target,
-            prompt_stem="review_bugs",
-            review_basename="review-bugs-latest",
-            consensus_basename="review-bugs-consensus",
         )
         return run_review(plan, parsed.dry_run)
 
@@ -1747,22 +1834,24 @@ def main() -> int:
             "gpt": "gpt",
         }[agent]
         parsed = parse_review_args([review_target, *args[1:]])
-        plan = create_review_plan(root, parsed.agy_timeout_seconds, parsed.review_target)
+        plan = create_review_kind_plan(
+            root,
+            parsed.review_kind,
+            parsed.agy_timeout_seconds,
+            parsed.review_target,
+        )
         return run_review(plan, parsed.dry_run)
 
     if command == "consensus":
         parsed = parse_consensus_args(args[1:])
-        plan = create_consensus_plan(root)
+        plan = create_consensus_kind_plan(root, parsed.review_kind)
         return run_review(plan, parsed.dry_run)
 
     if command == "consensus-bugs":
         parsed = parse_consensus_args(args[1:])
-        plan = create_consensus_plan(
-            root,
-            prompt_stem="review_bugs",
-            review_basename="review-bugs-latest",
-            consensus_basename="review-bugs-consensus",
-        )
+        if parsed.review_kind_explicit:
+            _unexpected_review_arg(parsed.review_kind)
+        plan = create_consensus_kind_plan(root, "bugs")
         return run_review(plan, parsed.dry_run)
 
     if command == "coverage":
@@ -1802,14 +1891,37 @@ def main() -> int:
         rc = run(["xcrun", "llvm-profdata", "merge", "-sparse"] + profraw_files + ["-o", str(profdata)], root)
         if rc != 0:
             return rc
-        # 5. Export LCOV
+        # 5. Export LCOV from every focused test executable. llvm-cov accepts
+        # additional instrumented objects via -object, so the modular test
+        # targets retain one combined report just like the former monolith.
         lcov_file = bd / "coverage.lcov"
-        test_exe = bd / "tests" / "draxul-tests"
+        test_dir = bd / "tests"
+        test_executables = [
+            test_dir / name
+            for name in (
+                "draxul-test-core",
+                "draxul-test-app",
+                "draxul-test-markdown-kanban",
+                "draxul-test-megacity",
+                "draxul-test-satview",
+                "draxul-test-scoreview",
+                "draxul-test-scoreview-host",
+            )
+            if (test_dir / name).is_file()
+        ]
+        if not test_executables:
+            print("ERROR: no modular test executables found")
+            return 1
+        cov_command = ["xcrun", "llvm-cov", "export", str(test_executables[0])]
+        for test_exe in test_executables[1:]:
+            cov_command.extend(["-object", str(test_exe)])
+        cov_command.extend([
+            f"--instr-profile={profdata}",
+            "--format=lcov",
+            "--ignore-filename-regex=(build/_deps|tests/)",
+        ])
         rc = subprocess.run(
-            ["xcrun", "llvm-cov", "export", str(test_exe),
-             f"--instr-profile={profdata}",
-             "--format=lcov",
-             "--ignore-filename-regex=(build/_deps|tests/)"],
+            cov_command,
             stdout=open(lcov_file, "w"), cwd=root, check=False,
         ).returncode
         if rc != 0:

@@ -10,23 +10,23 @@ The POSIX branches in `app/main.cpp` and `app/session_picker_host.cpp` allocate 
 
 ## Implementation plan
 
-- [ ] Extract one internal self-launch helper used by the session owner and session picker.
-- [ ] Build executable-path storage, argv strings, and pointer arrays entirely in the parent.
-- [ ] On macOS use `posix_spawn()` with explicit attributes/file actions; preserve current Windows `CreateProcessW` behavior.
-- [ ] Return structured launch errors including the failing API and error code; keep UI error text at the caller.
-- [ ] Define child ownership/reaping explicitly so failed or short-lived launches cannot become zombies.
-- [ ] Keep the helper small enough to move into the session CLI component in item 24 without changing behavior again.
+- [x] Extract one internal self-launch helper used by the live session-picker launch path. The old session-owner self-launch path was dead after single-process persistence and was removed by item 24.
+- [x] Build executable-path storage, argv strings, and pointer arrays entirely in the parent.
+- [x] On macOS use `posix_spawn()` with explicit attributes/file actions; preserve current Windows `CreateProcessW` behavior.
+- [x] Return structured launch errors including the failing API and error code; keep UI error text at the caller.
+- [x] Define child ownership/reaping explicitly so failed or short-lived launches cannot become zombies.
+- [x] Keep the helper as the small `app/self_launch.*` process boundary used by the session picker and CLI-adjacent composition.
 
 ## Tests
 
-- [ ] Unit-test argv preservation for spaces, Unicode, empty optional values, and session-name arguments.
-- [ ] Add a macOS integration test that launches a harmless helper while allocator/worker threads are active.
-- [ ] Verify spawn failure is reported without leaving a partial session owner record.
+- [x] Unit-test argv preservation for spaces, Unicode, empty optional values, and session-name arguments.
+- [x] Add cross-platform integration coverage that launches a harmless helper while allocator/worker threads are active.
+- [x] Verify spawn failure reports the failing API and code. No session-owner record can be left partial because the obsolete owner-spawn path and its record lifecycle were removed.
 
 ## Acceptance criteria
 
-- [ ] No app-level `fork()`/post-fork C++ allocation remains in either launch path.
-- [ ] Session-owner retry and picker attach/restore behavior remain unchanged.
+- [x] No app-level `fork()`/post-fork C++ allocation remains in either launch path.
+- [x] The live owner-collision retry and picker attach/restore behavior remain unchanged.
 - [ ] Build/test on macOS and inspect the Windows branch for parity; run the normal smoke path.
 
 ## Dependencies and parallelism

@@ -24,6 +24,7 @@ target_link_libraries(draxul-gui PUBLIC
     draxul-font
     draxul-renderer
 )
+target_link_libraries(draxul-gui PRIVATE draxul-performance)
 
 set_target_properties(draxul-gui PROPERTIES
     CXX_STANDARD 20

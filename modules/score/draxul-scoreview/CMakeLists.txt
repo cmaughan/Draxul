@@ -90,3 +90,13 @@ if(APPLE)
 else()
     target_sources(draxul-scoreview-host PRIVATE src/mic_permission_stub.cpp)
 endif()
+
+# Host orchestration tests need controller internals, but those controllers are
+# not public product API. Keep the exception named and confined to tests.
+add_library(draxul-scoreview-host-test-internals INTERFACE)
+target_include_directories(draxul-scoreview-host-test-internals INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(draxul-scoreview-host-test-internals INTERFACE
+    draxul-scoreview-host
+)

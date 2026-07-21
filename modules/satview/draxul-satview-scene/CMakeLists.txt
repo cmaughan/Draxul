@@ -23,3 +23,4 @@ target_link_libraries(draxul-satview-scene PUBLIC
     draxul-satview-core
     draxul-renderer
 )
+target_link_libraries(draxul-satview-scene PRIVATE draxul-performance)

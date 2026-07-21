@@ -2,7 +2,7 @@
 
 <!-- Generated from the config schema (libs/draxul-config/src/config_schema.cpp).
      Do not edit by hand. Regenerate with:
-       DRAXUL_REGEN_CONFIG_DOCS=1 ./build/tests/draxul-tests "[config][docs]" -->
+       DRAXUL_REGEN_CONFIG_DOCS=1 ./build/tests/draxul-test-core "[config][docs]" -->
 
 User settings live in `config.toml`. Every key below is owned by the core
 config layer; optional product modules own their own top-level tables and are

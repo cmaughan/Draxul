@@ -324,6 +324,39 @@ TEST_CASE("app config parse clamps font_size to valid range", "[config]")
     REQUIRE(too_large.font_size <= TextService::MAX_POINT_SIZE);
 }
 
+TEST_CASE("schema-driven config parsing preserves range and literal semantics", "[config][schema]")
+{
+    ScopedLogCapture capture;
+    const AppConfig config = AppConfig::parse(
+        "scroll_speed = 99\n"
+        "palette_bg_alpha = 1\n"
+        "focus_border_width = 0\n"
+        "toast_duration_s = 99\n"
+        "chord_timeout_ms = 1\n"
+        "chord_indicator_fade_ms = 2\n"
+        "[markdown]\n"
+        "font_size = 2\n"
+        "margin_columns = 99\n"
+        "[terminal]\n"
+        "selection_max_cells = 1\n"
+        "paste_confirm_lines = -1\n");
+    const AppConfig defaults;
+
+    CHECK(config.scroll_speed == defaults.scroll_speed);
+    CHECK(config.palette_bg_alpha == defaults.palette_bg_alpha);
+    CHECK(config.focus_border_width == 1.0f);
+    CHECK(config.toast_duration_s == 60.0f);
+    CHECK(config.chord_timeout_ms == 100);
+    CHECK(config.chord_indicator_fade_ms == 100);
+    CHECK(config.markdown.font_size == 6.0f);
+    CHECK(config.markdown.margin_columns == 24.0f);
+    CHECK(config.terminal.selection_max_cells == defaults.terminal.selection_max_cells);
+    CHECK(config.terminal.paste_confirm_lines == defaults.terminal.paste_confirm_lines);
+    CHECK(contains_message(capture.records, "scroll_speed"));
+    CHECK(contains_message(capture.records, "selection_max_cells"));
+    CHECK(contains_message(capture.records, "paste_confirm_lines"));
+}
+
 TEST_CASE("app config serialize/parse round-trip preserves all fields", "[config]")
 {
     AppConfig original;

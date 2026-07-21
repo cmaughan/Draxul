@@ -3,17 +3,19 @@
 #include "city_builder.h"
 #include "city_helpers.h"
 #include "city_meshes.h"
-#include <draxul/codeviz_input_state.h>
 #include "city_picking.h"
+#include "city_selection.h"
+#include "megacity_camera_input.h"
+#include "megacity_host_panels.h"
 #include <draxul/isometric_camera.h>
 #include <draxul/codeviz_scene_pass.h>
-#include "lcov_coverage.h"
 #include "live_city_metrics.h"
-#include "scene_snapshot_builder.h"
+#include "metrics_overlay_controller.h"
+#include "scene_publication.h"
 #include <draxul/codeviz_scene_world.h>
 #include "semantic_city_layout.h"
+#include "semantic_source_controller.h"
 #include "sign_label_atlas.h"
-#include "ui_city_map_panel.h"
 #include "ui_treesitter_panel.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -27,7 +29,6 @@
 #include <draxul/log.h>
 #include <draxul/megacity_host.h>
 #include <draxul/perf_timing.h>
-#include <draxul/sdl_imgui_input.h>
 #include <draxul/text_service.h>
 #include <filesystem>
 #include <fstream>
@@ -46,14 +47,9 @@ namespace draxul
 namespace
 {
 
-constexpr float kMovementSpeedFractionPerSecond = 0.35f;
-constexpr float kOrbitSpeedRadiansPerSecond = 1.8f;
-constexpr float kZoomSpeedPerSecond = 1.35f;
-constexpr float kPitchSpeedRadiansPerSecond = 0.9f;
 constexpr int kHoverTooltipResetDistancePixels = 4;
 constexpr auto kMovementTick = std::chrono::milliseconds(16);
 constexpr auto kDragSmoothingTick = std::chrono::milliseconds(8);
-constexpr auto kLivePerfRefreshTick = std::chrono::milliseconds(100);
 
 void save_merged_megacity_config(
     ConfigDocument* config_document,
@@ -67,19 +63,6 @@ void save_merged_megacity_config(
     store_megacity_code_config(latest, current, defaults);
     latest.save();
     *config_document = std::move(latest);
-}
-
-/// Returns true for overlay modes that use the live runtime perf collector (Perf, Coverage).
-/// LcovCoverage uses a static import and does not need the runtime collector.
-bool is_live_perf_overlay(OverlayMode mode)
-{
-    return mode == OverlayMode::Perf || mode == OverlayMode::Coverage;
-}
-
-/// Returns true if any overlay mode is active (including LcovCoverage).
-bool is_overlay_active(OverlayMode mode)
-{
-    return mode != OverlayMode::None;
 }
 
 const SemanticCityBuilding* find_layout_building_for_route_debug(
@@ -386,153 +369,10 @@ bool requires_world_rebuild(const MegaCityCodeConfig& before, const MegaCityCode
     return world_rebuild_signature(before) != world_rebuild_signature(after);
 }
 
-std::string building_identity_key(std::string_view module_path, std::string_view qualified_name)
-{
-    std::string key;
-    key.reserve(module_path.size() + qualified_name.size() + 1);
-    key.append(module_path);
-    key.push_back('|');
-    key.append(qualified_name);
-    return key;
-}
-
-std::string exact_building_identity_key(
-    std::string_view source_file_path,
-    std::string_view module_path,
-    std::string_view qualified_name)
-{
-    std::string key;
-    key.reserve(source_file_path.size() + module_path.size() + qualified_name.size() + 2);
-    key.append(source_file_path);
-    key.push_back('|');
-    key.append(module_path);
-    key.push_back('|');
-    key.append(qualified_name);
-    return key;
-}
-
-std::unordered_set<std::string> connected_building_identities(
-    const SemanticMegacityModel& model,
-    std::string_view selected_source_file_path,
-    std::string_view selected_module_path,
-    std::string_view selected_qualified_name,
-    std::string_view focus_entity_name = {})
-{
-    const std::string selected_identity
-        = exact_building_identity_key(selected_source_file_path, selected_module_path, selected_qualified_name);
-
-    // For function bundles and struct stacks, resolve a dep's identity through
-    // the remap so that individual deps match the grouped building.
-    auto resolve_identity = [&](const std::string& source_file_path, const std::string& module_path,
-                                const std::string& qualified_name) -> std::string {
-        std::string identity = exact_building_identity_key(source_file_path, module_path, qualified_name);
-        if (identity == selected_identity)
-            return identity;
-        auto remap_it = model.function_bundle_remap.find(qualified_name);
-        if (remap_it != model.function_bundle_remap.end())
-            return exact_building_identity_key("", module_path, remap_it->second);
-        auto struct_remap_it = model.struct_stack_remap.find(qualified_name);
-        if (struct_remap_it != model.struct_stack_remap.end())
-            return exact_building_identity_key("", module_path, struct_remap_it->second);
-        return identity;
-    };
-
-    std::unordered_set<std::string> connected;
-    for (const auto& dep : model.dependencies)
-    {
-        // When a specific entity within a bundle/stack is focused, only include
-        // deps that involve that entity (not other entities in the same group).
-        if (!focus_entity_name.empty()
-            && dep.source_qualified_name != focus_entity_name
-            && dep.target_qualified_name != focus_entity_name)
-            continue;
-
-        const std::string source_identity
-            = resolve_identity(dep.source_file_path, dep.source_module_path, dep.source_qualified_name);
-        const std::string target_identity
-            = resolve_identity(dep.target_file_path, dep.target_module_path, dep.target_qualified_name);
-        if (source_identity == selected_identity)
-            connected.insert(target_identity);
-        else if (target_identity == selected_identity)
-            connected.insert(source_identity);
-    }
-    return connected;
-}
-
 bool is_module_context_object(const CodeVizRenderable& obj)
 {
     return obj.role == CodeVizRenderable::Role::ModuleOutline
         || obj.role == CodeVizRenderable::Role::ModuleLabel;
-}
-
-bool runtime_timing_has_activity(const RuntimePerfFunctionTiming& timing)
-{
-    return timing.frame_fraction > 0.0f
-        || timing.smoothed_frame_fraction > 0.0f
-        || timing.frame_microseconds > 0
-        || timing.smoothed_microseconds > 0
-        || timing.call_count > 0;
-}
-
-std::string runtime_perf_function_key(
-    std::string_view source_file_path,
-    std::string_view owner_qualified_name,
-    std::string_view function_name)
-{
-    std::string key;
-    key.reserve(source_file_path.size() + owner_qualified_name.size() + function_name.size() + 2);
-    key.append(source_file_path);
-    key.push_back('\n');
-    key.append(owner_qualified_name);
-    key.push_back('\n');
-    key.append(function_name);
-    return key;
-}
-
-void clear_coverage_snapshot(RuntimePerfSnapshot& snapshot)
-{
-    snapshot = RuntimePerfSnapshot{};
-}
-
-void merge_runtime_perf_coverage(RuntimePerfSnapshot& coverage_snapshot, const RuntimePerfSnapshot& latest_snapshot)
-{
-    coverage_snapshot.generation = latest_snapshot.generation;
-    coverage_snapshot.frame_index = latest_snapshot.frame_index;
-    coverage_snapshot.frame_time_microseconds = latest_snapshot.frame_time_microseconds;
-
-    std::unordered_map<std::string, size_t> indices_by_key;
-    indices_by_key.reserve(coverage_snapshot.functions.size());
-    for (size_t i = 0; i < coverage_snapshot.functions.size(); ++i)
-    {
-        const auto& function = coverage_snapshot.functions[i];
-        indices_by_key.emplace(
-            runtime_perf_function_key(
-                function.source_file_path,
-                function.owner_qualified_name,
-                function.function_name),
-            i);
-    }
-
-    for (const RuntimePerfFunctionTiming& timing : latest_snapshot.functions)
-    {
-        if (!runtime_timing_has_activity(timing))
-            continue;
-
-        const std::string key = runtime_perf_function_key(
-            timing.source_file_path,
-            timing.owner_qualified_name,
-            timing.function_name);
-        const auto existing = indices_by_key.find(key);
-        if (existing == indices_by_key.end())
-        {
-            coverage_snapshot.functions.push_back(timing);
-            indices_by_key.emplace(key, coverage_snapshot.functions.size() - 1);
-        }
-        else
-        {
-            coverage_snapshot.functions[existing->second] = timing;
-        }
-    }
 }
 
 const LiveCityBuildingMetric* find_building_metric(
@@ -575,18 +415,6 @@ const LiveCityFunctionMetric* find_function_metric(
     return nullptr;
 }
 
-void preserve_visible_tooltip(const CodeVizScenePass* scene_pass, bool hover_tooltip_visible, CodeVizSceneSnapshot& snapshot)
-{
-    if (!scene_pass || !hover_tooltip_visible)
-        return;
-
-    const TooltipOverlay& tooltip = scene_pass->scene().tooltip;
-    if (!tooltip.valid())
-        return;
-
-    snapshot.tooltip = tooltip;
-}
-
 bool is_biology_view(MegaCityVisualizationMode mode)
 {
     return mode == MegaCityVisualizationMode::Biology;
@@ -606,7 +434,9 @@ const char* visualization_log_name(MegaCityVisualizationMode mode)
 
 MegaCityHost::MegaCityHost(MegaCityVisualizationMode mode)
     : visualization_mode_(mode)
-    , input_(std::make_unique<CodeVizInputState>())
+    , camera_input_(std::make_unique<MegacityCameraInput>())
+    , semantic_source_(std::make_unique<SemanticSourceController>())
+    , metrics_overlay_(std::make_unique<MetricsOverlayController>())
 {
 }
 
@@ -689,7 +519,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     const auto resolved_scan_root = resolve_scan_root(context.launch_options, &init_error_);
     if (!resolved_scan_root)
         return false;
-    scan_root_ = *resolved_scan_root;
+    semantic_source_->set_root(*resolved_scan_root);
 
     // Create MegaCity's own ImGui context for isolated docking and layout.
     {
@@ -724,15 +554,12 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     scene_pass_ = std::make_shared<CodeVizScenePass>(1, 1, world_->tile_size());
     refresh_sign_text_service();
 
-    semantic_snapshot_ready_ = false;
     world_rebuild_pending_ = false;
     city_bounds_valid_ = false;
     last_activity_time_ = std::chrono::steady_clock::now();
     last_pump_time_ = last_activity_time_;
-    last_live_perf_refresh_time_ = last_activity_time_;
-    last_live_perf_generation_ = 0;
-    runtime_perf_collector().set_enabled(
-        !is_biology_view(visualization_mode_) && is_live_perf_overlay(renderer_config_.overlay_mode));
+    metrics_overlay_->reset();
+    metrics_overlay_->set_collection_enabled(is_biology_view(visualization_mode_), renderer_config_.overlay_mode);
 
     route_worker_stop_ = false;
     start_tree_sitter_semantic_source();
@@ -742,7 +569,7 @@ bool MegaCityHost::initialize(const HostContext& context, IHostCallbacks& callba
     mark_scene_dirty();
 
     DRAXUL_LOG_INFO(LogCategory::App, "%s initialized (%dx%d), scanning %s",
-        visualization_log_name(visualization_mode_), pixel_w_, pixel_h_, scan_root_.string().c_str());
+        visualization_log_name(visualization_mode_), pixel_w_, pixel_h_, semantic_source_->root().string().c_str());
     return true;
 }
 
@@ -945,7 +772,7 @@ void MegaCityHost::clear_semantic_city()
     semantic_model_ = std::make_shared<SemanticMegacityModel>();
     semantic_layout_.reset();
     code_semantics_.reset();
-    live_metrics_.reset();
+    metrics_overlay_->reset();
     sign_label_atlas_.reset();
     foliage_stem_mesh_.reset();
     foliage_card_mesh_.reset();
@@ -1040,48 +867,15 @@ void MegaCityHost::join_all_grid_threads()
 void MegaCityHost::start_tree_sitter_semantic_source()
 {
     PERF_MEASURE();
-    applied_treesitter_snapshot_.reset();
     code_semantics_.reset();
-    semantic_snapshot_ready_ = false;
-    refresh_available_modules();
-
-    if (!scanner_started_)
-    {
-        scanner_.start(scan_root_);
-        scanner_started_ = true;
-        scan_start_time_ = std::chrono::steady_clock::now();
-    }
+    semantic_source_->start();
 }
 
 void MegaCityHost::stop_tree_sitter_semantic_source()
 {
     PERF_MEASURE();
-    if (scanner_started_)
-    {
-        scanner_.stop();
-        scanner_started_ = false;
-    }
-    applied_treesitter_snapshot_.reset();
+    semantic_source_->stop();
     code_semantics_.reset();
-    semantic_snapshot_ready_ = false;
-}
-
-void MegaCityHost::refresh_available_modules()
-{
-    PERF_MEASURE();
-    available_modules_.clear();
-    if (code_semantics_)
-    {
-        for (const CodeSemanticNode& node : code_semantics_->nodes)
-        {
-            if (node.kind == CodeSemanticNodeKind::Module)
-                available_modules_.push_back(node.module_path);
-        }
-        std::sort(available_modules_.begin(), available_modules_.end());
-        available_modules_.erase(
-            std::unique(available_modules_.begin(), available_modules_.end()),
-            available_modules_.end());
-    }
 }
 
 void MegaCityHost::sync_camera_state_to_configs()
@@ -1123,32 +917,18 @@ void MegaCityHost::reset_camera_to_default_frame()
 
 void MegaCityHost::on_focus_lost()
 {
-    input_->reset_keys();
+    camera_input_->reset_keys();
 }
 
 void MegaCityHost::on_key(const KeyEvent& event)
 {
     PERF_MEASURE();
 
-    // Feed the MegaCity ImGui context so panels receive keyboard input.
-    if (imgui_context_)
+    if (route_megacity_imgui_key(imgui_context_, event))
     {
-        ImGui::SetCurrentContext(imgui_context_);
-        ImGuiIO& io = ImGui::GetIO();
-        io.AddKeyEvent(ImGuiMod_Ctrl, (event.mod & kModCtrl) != 0);
-        io.AddKeyEvent(ImGuiMod_Shift, (event.mod & kModShift) != 0);
-        io.AddKeyEvent(ImGuiMod_Alt, (event.mod & kModAlt) != 0);
-        io.AddKeyEvent(ImGuiMod_Super, (event.mod & kModSuper) != 0);
-        const ImGuiKey key = sdl_scancode_to_imgui_key(event.scancode);
-        if (key != ImGuiKey_None)
-            io.AddKeyEvent(key, event.pressed);
-
-        if (io.WantCaptureKeyboard)
-        {
-            if (callbacks_)
-                callbacks_->request_frame();
-            return;
-        }
+        if (callbacks_)
+            callbacks_->request_frame();
+        return;
     }
 
     // F1 toggles UI panels (press only, not release)
@@ -1180,7 +960,7 @@ void MegaCityHost::on_key(const KeyEvent& event)
         return;
     }
 
-    if (input_->on_key(event))
+    if (camera_input_->on_key(event))
     {
         last_pump_time_ = std::chrono::steady_clock::now();
         mark_scene_dirty();
@@ -1190,14 +970,7 @@ void MegaCityHost::on_key(const KeyEvent& event)
 void MegaCityHost::on_text_input(const TextInputEvent& event)
 {
     PERF_MEASURE();
-    if (!imgui_context_ || event.text.empty())
-        return;
-
-    ImGui::SetCurrentContext(imgui_context_);
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddInputCharactersUTF8(event.text.c_str());
-
-    if ((io.WantTextInput || io.WantCaptureKeyboard) && callbacks_)
+    if (route_megacity_imgui_text(imgui_context_, event) && callbacks_)
         callbacks_->request_frame();
 }
 
@@ -1205,18 +978,11 @@ void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
 {
     PERF_MEASURE();
 
-    // Feed the MegaCity ImGui context so panels receive mouse position.
-    if (imgui_context_)
+    if (route_megacity_imgui_mouse_move(imgui_context_, event))
     {
-        ImGui::SetCurrentContext(imgui_context_);
-        ImGui::GetIO().AddMousePosEvent(static_cast<float>(event.pos.x), static_cast<float>(event.pos.y));
-
-        if (ImGui::GetIO().WantCaptureMouse)
-        {
-            if (callbacks_)
-                callbacks_->request_frame();
-            return;
-        }
+        if (callbacks_)
+            callbacks_->request_frame();
+        return;
     }
 
     if (!camera_)
@@ -1253,7 +1019,7 @@ void MegaCityHost::on_mouse_move(const MouseMoveEvent& event)
     if (shift_held && callbacks_)
         callbacks_->request_frame();
 
-    if (input_->on_mouse_move(event, *camera_))
+    if (camera_input_->on_mouse_move(event, *camera_))
     {
         last_activity_time_ = std::chrono::steady_clock::now();
         if (callbacks_)
@@ -1265,49 +1031,21 @@ void MegaCityHost::on_mouse_button(const MouseButtonEvent& event)
 {
     PERF_MEASURE();
 
-    // Feed the MegaCity ImGui context so panels receive mouse clicks.
-    if (imgui_context_)
+    if (route_megacity_imgui_mouse_button(imgui_context_, event))
     {
-        ImGui::SetCurrentContext(imgui_context_);
-        int button = -1;
-        switch (event.button)
-        {
-        case 1:
-            button = 0;
-            break;
-        case 2:
-            button = 2;
-            break;
-        case 3:
-            button = 1;
-            break;
-        default:
-            break;
-        }
-        if (button >= 0)
-            ImGui::GetIO().AddMouseButtonEvent(button, event.pressed);
-
-        if (ImGui::GetIO().WantCaptureMouse)
-        {
-            if (callbacks_)
-                callbacks_->request_frame();
-            return;
-        }
+        if (callbacks_)
+            callbacks_->request_frame();
+        return;
     }
 
-    input_->on_mouse_button(event);
+    camera_input_->on_mouse_button(event);
     if (!event.pressed && callbacks_)
         callbacks_->request_frame();
 }
 
 void MegaCityHost::on_mouse_wheel(const MouseWheelEvent& event)
 {
-    // Feed the MegaCity ImGui context so panels receive scroll input.
-    if (imgui_context_)
-    {
-        ImGui::SetCurrentContext(imgui_context_);
-        ImGui::GetIO().AddMouseWheelEvent(event.delta.x, event.delta.y);
-    }
+    route_megacity_imgui_mouse_wheel(imgui_context_, event);
 }
 
 void MegaCityHost::set_imgui_font(const std::string& path, float size_pixels)
@@ -1345,96 +1083,33 @@ void MegaCityHost::attach_imgui_host(IImGuiHost& host)
 void MegaCityHost::render_host_imgui(float dt)
 {
     PERF_MEASURE();
-    if (!imgui_context_ || !imgui_backend_)
+    MegacityHostPanelFrame panel_frame(
+        imgui_context_, imgui_backend_, viewport_, pixel_w_, pixel_h_, dt, show_ui_panels_);
+    if (!panel_frame.active() || !panel_frame.panels_visible())
         return;
 
-    ImGui::SetCurrentContext(imgui_context_);
-    imgui_backend_->begin_imgui_frame();
-    ImGuiIO& io = ImGui::GetIO();
-    // DisplaySize must cover from screen origin to the pane's bottom-right corner.
-    // ImGui_ImplMetal sets its Metal viewport to (0, 0, DisplaySize), so using the
-    // pane size alone would render the ImGui at screen (0,0) instead of at the pane
-    // position — causing a gap at the bottom equal to the pane's Y offset (tab bar).
-    io.DisplaySize = ImVec2(
-        static_cast<float>(viewport_.pixel_pos.x + pixel_w_),
-        static_cast<float>(viewport_.pixel_pos.y + pixel_h_));
-    io.DeltaTime = dt > 0.0f ? dt : (1.0f / 60.0f);
-    ImGui::NewFrame();
-
-    const ImGuiWindowFlags ds_flags = ImGuiWindowFlags_NoDocking
-        | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse
-        | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus
-        | ImGuiWindowFlags_NoBackground;
-    ImGui::SetNextWindowPos(ImVec2(static_cast<float>(viewport_.pixel_pos.x), static_cast<float>(viewport_.pixel_pos.y)));
-    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(pixel_w_), static_cast<float>(pixel_h_)));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::Begin("##dockspace_root", nullptr, ds_flags);
-    ImGui::PopStyleVar(3);
-    const ImGuiID dock_id = ImGui::GetID("MegaCityDock");
-    ImGui::DockSpace(dock_id, ImVec2(0.0f, 0.0f),
-        ImGuiDockNodeFlags_PassthruCentralNode);
-    ImGui::End();
-
-    if (!show_ui_panels_)
+    std::shared_ptr<const CityGrid> grid;
     {
-        ImGui::Render();
-        return;
+        std::lock_guard<std::mutex> lock(grid_mutex_);
+        grid = city_grid_;
     }
+    panel_frame.render_fixed_panels(
+        scene_pass_.get(), is_biology_view(visualization_mode_), grid, grid_build_in_progress_.load());
 
-    if (scene_pass_)
-    {
-
-        scene_pass_->render_gbuffer_debug_ui();
-    }
-
-    // City map overview panel
-    if (!is_biology_view(visualization_mode_))
-    {
-
-        std::shared_ptr<const CityGrid> grid;
-        {
-            std::lock_guard<std::mutex> lock(grid_mutex_);
-            grid = city_grid_;
-        }
-        render_city_map_panel(grid, grid_build_in_progress_.load());
-    }
-
-    std::shared_ptr<const LiveCityPerfDebugState> perf_debug;
-    if (!is_biology_view(visualization_mode_) && semantic_model_)
-    {
-        if (pending_renderer_config_.overlay_mode == OverlayMode::LcovCoverage && lcov_lookup_)
-        {
-            perf_debug = std::make_shared<LiveCityPerfDebugState>(
-                build_lcov_city_perf_debug_state(*semantic_model_, *lcov_lookup_));
-        }
-        else
-        {
-            const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
-            const RuntimePerfSnapshot* debug_snapshot
-                = pending_renderer_config_.overlay_mode == OverlayMode::Coverage
-                ? &coverage_perf_snapshot_
-                : &perf_snapshot;
-            perf_debug = std::make_shared<LiveCityPerfDebugState>(
-                build_live_city_perf_debug_state(
-                    *semantic_model_,
-                    debug_snapshot,
-                    pending_renderer_config_.overlay_mode == OverlayMode::Coverage));
-        }
-    }
+    const auto perf_debug = is_biology_view(visualization_mode_)
+        ? nullptr
+        : metrics_overlay_->build_debug_state(pending_renderer_config_.overlay_mode, semantic_model_.get());
 
     CodeVizRendererControls renderer_controls{
         .config = pending_renderer_config_,
         .defaults = renderer_defaults_,
-        .available_modules = available_modules_,
+        .available_modules = semantic_source_->available_modules(),
         .perf_debug = perf_debug,
         .rebuild_pending = world_rebuild_pending_
             || requires_world_rebuild(renderer_config_, pending_renderer_config_),
     };
-    const auto scanner_snapshot = scanner_started_ ? scanner_.snapshot() : nullptr;
-    const CodebaseScanProgress scanner_progress = scanner_started_ ? scanner_.progress() : CodebaseScanProgress{};
+    const auto scanner_snapshot = semantic_source_->scanner_snapshot();
+    const CodebaseScanProgress scanner_progress = semantic_source_->progress();
     const CodeVisualizationPanelMode panel_mode = is_biology_view(visualization_mode_)
         ? CodeVisualizationPanelMode::Biology
         : CodeVisualizationPanelMode::City;
@@ -1460,68 +1135,12 @@ void MegaCityHost::render_host_imgui(float dt)
             save_merged_megacity_config(config_document_, pending_renderer_config_, renderer_defaults_);
         };
         const bool pending_changed = previous_pending != pending_renderer_config_;
-        const bool coverage_mode_toggled
-            = (previous_pending.overlay_mode == OverlayMode::Coverage)
-            != (pending_renderer_config_.overlay_mode == OverlayMode::Coverage);
-        const bool lcov_mode_toggled
-            = (previous_pending.overlay_mode == OverlayMode::LcovCoverage)
-            != (pending_renderer_config_.overlay_mode == OverlayMode::LcovCoverage);
         const bool world_rebuild_needed = requires_world_rebuild(renderer_config_, pending_renderer_config_);
-
-        if (coverage_mode_toggled)
-        {
-            clear_coverage_snapshot(coverage_perf_snapshot_);
-            last_live_perf_generation_ = 0;
-        }
-
-        if (lcov_mode_toggled && pending_renderer_config_.overlay_mode == OverlayMode::LcovCoverage)
-        {
-            // Load LCOV report on activation — pick the most recent of
-            // the repo copy in db/coverage.lcov and the transient build/coverage.lcov.
-            // The local `do.py coverage` workflow refreshes both.
-            const std::filesystem::path repo_root(DRAXUL_REPO_ROOT);
-            const std::filesystem::path db_lcov = repo_root / "db" / "coverage.lcov";
-            const std::filesystem::path build_lcov = repo_root / "build" / "coverage.lcov";
-            std::filesystem::path lcov_path;
-            {
-                std::error_code ec;
-                const auto db_time = std::filesystem::last_write_time(db_lcov, ec);
-                const bool db_ok = !ec;
-                const auto build_time = std::filesystem::last_write_time(build_lcov, ec);
-                const bool build_ok = !ec;
-                if (db_ok && build_ok)
-                    lcov_path = (build_time >= db_time) ? build_lcov : db_lcov;
-                else if (build_ok)
-                    lcov_path = build_lcov;
-                else if (db_ok)
-                    lcov_path = db_lcov;
-            }
-            const auto report = lcov_path.empty() ? LcovCoverageReport{} : load_lcov_file(lcov_path);
-            if (report.total_functions > 0)
-            {
-                lcov_lookup_ = std::make_shared<LcovFunctionLookup>(build_lcov_lookup(report, repo_root));
-                DRAXUL_LOG_DEBUG(LogCategory::App,
-                    "LCOV loaded from %s: %u total functions, %u covered",
-                    lcov_path.string().c_str(), report.total_functions, report.covered_functions);
-            }
-            else
-            {
-                lcov_lookup_.reset();
-                DRAXUL_LOG_WARN(LogCategory::App, "No LCOV file found (checked db/ and build/)");
-            }
-            // Build LCOV metrics immediately
-            if (semantic_model_ && lcov_lookup_)
-            {
-                live_metrics_ = std::make_shared<LiveCityMetricsSnapshot>(
-                    build_lcov_city_metrics_snapshot(*semantic_model_, *lcov_lookup_));
-                mark_scene_dirty();
-            }
-        }
-        else if (lcov_mode_toggled)
-        {
-            // Leaving LCOV mode — clear lookup
-            lcov_lookup_.reset();
-        }
+        if (metrics_overlay_->apply_mode_transition(
+                previous_pending.overlay_mode,
+                pending_renderer_config_.overlay_mode,
+                semantic_model_.get()))
+            mark_scene_dirty();
 
         if (world_rebuild_needed)
         {
@@ -1558,11 +1177,11 @@ void MegaCityHost::render_host_imgui(float dt)
         {
             renderer_config_ = pending_renderer_config_;
             refresh_sign_text_service();
-            if (!semantic_snapshot_ready_ || !scanner_started_)
+            if (!semantic_source_->ready() || !semantic_source_->started())
             {
                 start_tree_sitter_semantic_source();
             }
-            const bool semantic_source_ready = semantic_snapshot_ready_;
+            const bool semantic_source_ready = semantic_source_->ready();
             if (semantic_source_ready)
                 rebuild_semantic_city();
             else
@@ -1570,7 +1189,7 @@ void MegaCityHost::render_host_imgui(float dt)
         }
     }
 
-    ImGui::Render();
+    panel_frame.finish();
 }
 
 void MegaCityHost::shutdown()
@@ -1586,18 +1205,13 @@ void MegaCityHost::shutdown()
         completed_route_result_.reset();
     }
     route_cv_.notify_all();
-    if (scanner_started_)
-    {
-        scanner_.stop();
-        scanner_started_ = false;
-    }
+    semantic_source_->stop();
 
     join_all_grid_threads();
     if (route_thread_.joinable())
         route_thread_.join();
     city_grid_.reset();
     semantic_layout_.reset();
-    applied_treesitter_snapshot_.reset();
     code_semantics_.reset();
 
     // Destroy pass-owned Vulkan debug textures while this ImGui backend is still alive.
@@ -1628,9 +1242,9 @@ void MegaCityHost::shutdown()
         sign_text_service_->shutdown();
         sign_text_service_.reset();
     }
-    runtime_perf_collector().set_enabled(false);
+    metrics_overlay_->set_collection_enabled(true, OverlayMode::None);
     sign_label_atlas_.reset();
-    live_metrics_.reset();
+    metrics_overlay_->reset();
     semantic_model_.reset();
     code_semantics_.reset();
     camera_.reset();
@@ -1670,8 +1284,6 @@ void MegaCityHost::rebuild_semantic_city()
     const bool had_existing_city = semantic_model_ && !semantic_model_->empty();
     if (!code_semantics_)
         return;
-    refresh_available_modules();
-
     bool result_bounds_valid = false;
     float result_min_x = 0.0f;
     float result_max_x = 0.0f;
@@ -1757,32 +1369,10 @@ void MegaCityHost::rebuild_semantic_city()
     }
 
     sign_label_atlas_ = std::move(result_sign_label_atlas);
-    live_metrics_ = std::move(result_live_metrics);
-    last_live_perf_generation_ = 0;
+    metrics_overlay_->adopt_build_metrics(std::move(result_live_metrics));
     semantic_model_ = std::move(result_semantic_model);
 
-    // If LCOV overlay is active, (re)load coverage data now that the model is available
-    if (renderer_config_.overlay_mode == OverlayMode::LcovCoverage && semantic_model_)
-    {
-        if (!lcov_lookup_)
-        {
-            const std::filesystem::path repo_root(DRAXUL_REPO_ROOT);
-            const std::filesystem::path lcov_path = repo_root / "build" / "coverage.lcov";
-            const auto report = load_lcov_file(lcov_path);
-            if (report.total_functions > 0)
-            {
-                lcov_lookup_ = std::make_shared<LcovFunctionLookup>(build_lcov_lookup(report, repo_root));
-                DRAXUL_LOG_DEBUG(LogCategory::App,
-                    "LCOV loaded on world rebuild: %u total functions, %u covered",
-                    report.total_functions, report.covered_functions);
-            }
-        }
-        if (lcov_lookup_)
-        {
-            live_metrics_ = std::make_shared<LiveCityMetricsSnapshot>(
-                build_lcov_city_metrics_snapshot(*semantic_model_, *lcov_lookup_));
-        }
-    }
+    metrics_overlay_->rebuild_lcov_metrics(renderer_config_.overlay_mode, semantic_model_.get());
 
     semantic_layout_ = std::move(result_semantic_layout);
     clear_active_routes(false);
@@ -1908,57 +1498,23 @@ void MegaCityHost::pump()
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - last_pump_time_).count();
     last_imgui_delta_seconds_ = dt;
-    runtime_perf_collector().set_enabled(
-        !is_biology_view(visualization_mode_) && is_live_perf_overlay(renderer_config_.overlay_mode));
-    bool camera_changed = false;
-
+    metrics_overlay_->set_collection_enabled(is_biology_view(visualization_mode_), renderer_config_.overlay_mode);
     if (camera_)
     {
-        if (input_->movement_active())
+        const MegacityCameraInputFrame input_frame = camera_input_->update(dt, world_span_, *camera_);
+        if (input_frame.double_click)
+            handle_double_click(*input_frame.double_click);
+        else if (input_frame.click)
+            handle_click(*input_frame.click);
+
+        if (input_frame.camera_changed)
         {
-            const CameraMovement m = input_->movement();
-            const float pan_distance = dt * kMovementSpeedFractionPerSecond * world_span_;
-            if (pan_distance > 0.0f && glm::dot(m.pan_input, m.pan_input) > 0.0f)
-            {
-                const glm::vec2 right = camera_->planar_right_vector();
-                const glm::vec2 up = camera_->planar_up_vector();
-                const glm::vec2 pan = glm::normalize(m.pan_input.x * right + m.pan_input.y * up);
-                camera_->translate_target(pan.x * pan_distance, pan.y * pan_distance);
-                camera_changed = true;
-            }
-            if (m.orbit != 0.0f && dt > 0.0f)
-            {
-                camera_->orbit_target(m.orbit * dt * kOrbitSpeedRadiansPerSecond);
-                camera_changed = true;
-            }
-            if (m.zoom != 0.0f && dt > 0.0f)
-            {
-                camera_->zoom_by(m.zoom * dt * kZoomSpeedPerSecond);
-                camera_changed = true;
-            }
-            if (m.pitch != 0.0f && dt > 0.0f)
-            {
-                camera_->adjust_pitch(m.pitch * dt * kPitchSpeedRadiansPerSecond);
-                camera_changed = true;
-            }
+            sync_camera_state_to_configs();
+            scene_dirty_ = true;
+            last_activity_time_ = now;
+            if (callbacks_)
+                callbacks_->request_frame();
         }
-
-        if (input_->apply_drag_smoothing(dt, *camera_))
-            camera_changed = true;
-
-        if (auto dbl = input_->consume_double_click())
-            handle_double_click(*dbl);
-        else if (auto click = input_->consume_click())
-            handle_click(*click);
-    }
-
-    if (camera_changed)
-    {
-        sync_camera_state_to_configs();
-        scene_dirty_ = true;
-        last_activity_time_ = now;
-        if (callbacks_)
-            callbacks_->request_frame();
     }
 
     bool selection_alpha_changed = false;
@@ -1967,63 +1523,31 @@ void MegaCityHost::pump()
 
     last_pump_time_ = now;
 
-    if (!semantic_snapshot_ready_
-        && scanner_started_)
+    if (auto source_update = semantic_source_->poll())
     {
-        if (const auto snapshot = scanner_.snapshot(); snapshot && snapshot->complete)
-        {
-            const auto scan_end = std::chrono::steady_clock::now();
-            const auto scan_ms = std::chrono::duration<double, std::milli>(scan_end - scan_start_time_).count();
-            const auto semantic_start = std::chrono::steady_clock::now();
-            code_semantics_ = std::make_shared<CodeSemanticSnapshot>(build_code_semantic_snapshot(*snapshot));
-            applied_treesitter_snapshot_ = snapshot;
-            semantic_snapshot_ready_ = true;
-            refresh_available_modules();
-            const auto layout_start = std::chrono::steady_clock::now();
-            rebuild_semantic_city();
-            const auto layout_end = std::chrono::steady_clock::now();
-            const auto semantic_ms = std::chrono::duration<double, std::milli>(layout_start - semantic_start).count();
-            const auto layout_ms = std::chrono::duration<double, std::milli>(layout_end - layout_start).count();
-            DRAXUL_LOG_INFO(LogCategory::App,
-                "%s: built Tree-sitter semantic snapshot (%zu files, %zu modules)",
-                visualization_log_name(visualization_mode_),
-                snapshot->files.size(),
-                available_modules_.size());
-            DRAXUL_LOG_DEBUG(LogCategory::App,
-                "%s: scan %.0fms, semantic snapshot %.0fms, presentation %.0fms",
-                visualization_log_name(visualization_mode_),
-                scan_ms,
-                semantic_ms,
-                layout_ms);
-        }
+        code_semantics_ = source_update->semantic_snapshot;
+        const auto layout_start = std::chrono::steady_clock::now();
+        rebuild_semantic_city();
+        const auto layout_end = std::chrono::steady_clock::now();
+        const auto layout_ms = std::chrono::duration<double, std::milli>(layout_end - layout_start).count();
+        DRAXUL_LOG_INFO(LogCategory::App,
+            "%s: built Tree-sitter semantic snapshot (%zu files, %zu modules)",
+            visualization_log_name(visualization_mode_),
+            source_update->parsed_snapshot->files.size(),
+            source_update->available_modules.size());
+        DRAXUL_LOG_DEBUG(LogCategory::App,
+            "%s: scan %.0fms, semantic snapshot %.0fms, presentation %.0fms",
+            visualization_log_name(visualization_mode_),
+            source_update->scan_ms,
+            source_update->semantic_ms,
+            layout_ms);
     }
 
     consume_completed_routes();
 
     if (!is_biology_view(visualization_mode_)
-        && is_live_perf_overlay(renderer_config_.overlay_mode)
-        && semantic_model_
-        && now - last_live_perf_refresh_time_ >= kLivePerfRefreshTick)
-    {
-        last_live_perf_refresh_time_ = now;
-        const RuntimePerfSnapshot perf_snapshot = runtime_perf_collector().latest_snapshot();
-        if (perf_snapshot.generation != last_live_perf_generation_)
-        {
-            const RuntimePerfSnapshot* metrics_snapshot = &perf_snapshot;
-            if (renderer_config_.overlay_mode == OverlayMode::Coverage)
-            {
-                merge_runtime_perf_coverage(coverage_perf_snapshot_, perf_snapshot);
-                metrics_snapshot = &coverage_perf_snapshot_;
-            }
-            live_metrics_ = std::make_shared<LiveCityMetricsSnapshot>(
-                build_live_city_metrics_snapshot(
-                    *semantic_model_,
-                    metrics_snapshot,
-                    renderer_config_.overlay_mode == OverlayMode::Coverage));
-            last_live_perf_generation_ = perf_snapshot.generation;
-            mark_scene_dirty();
-        }
-    }
+        && metrics_overlay_->refresh_live_metrics(now, renderer_config_.overlay_mode, semantic_model_.get()))
+        mark_scene_dirty();
 
     if (!selected_building_name_.empty() && semantic_layout_ && semantic_model_
         && !selection_routes_requested_)
@@ -2045,17 +1569,16 @@ void MegaCityHost::pump()
 
     if (scene_dirty_ && scene_pass_ && camera_ && world_)
     {
-        auto result = build_scene_snapshot(
+        world_span_ = publish_scene_snapshot(
+            *scene_pass_,
             *camera_,
             *world_,
             renderer_config_,
-            live_metrics_,
+            metrics_overlay_->metrics(),
             sign_label_atlas_,
             foliage_stem_mesh_,
-            foliage_card_mesh_);
-        preserve_visible_tooltip(scene_pass_.get(), hover_tooltip_visible_, result.snapshot);
-        world_span_ = result.world_span;
-        scene_pass_->set_scene(std::move(result.snapshot));
+            foliage_card_mesh_,
+            hover_tooltip_visible_);
         if (!selected_building_name_.empty())
             apply_selection_opacity();
         scene_dirty_ = false;
@@ -2156,10 +1679,10 @@ void MegaCityHost::pump()
                             tooltip_data.is_function_bundle = bldg.is_free_function;
                             tooltip_data.is_struct_stack = bldg.is_struct_stack;
                             tooltip_data.lcov_mode = (renderer_config_.overlay_mode == OverlayMode::LcovCoverage);
-                            if (live_metrics_)
+                            if (const auto live_metrics = metrics_overlay_->metrics())
                             {
                                 if (const auto* building_metric = find_building_metric(
-                                        *live_metrics_,
+                                        *live_metrics,
                                         bldg.source_file_path,
                                         bldg.module_path,
                                         bldg.qualified_name))
@@ -2186,10 +1709,10 @@ void MegaCityHost::pump()
                                             tooltip_data.hovered_field_count = layer.function_size;
                                         if ((bldg.is_free_function || bldg.is_struct_stack) && !layer.source_file_path.empty())
                                             tooltip_data.module_path = layer.source_file_path;
-                                        if (live_metrics_)
+                                        if (const auto live_metrics = metrics_overlay_->metrics())
                                         {
                                             if (const auto* function_metric = find_function_metric(
-                                                    *live_metrics_,
+                                                    *live_metrics,
                                                     bldg.source_file_path,
                                                     bldg.module_path,
                                                     bldg.qualified_name,
@@ -2268,135 +1791,39 @@ void MegaCityHost::pump()
                 }
                 else
                 {
-                    // No building hit — try picking a park or tree.
-                    const float ndc_x = 2.0f * static_cast<float>(local_pos.x) / static_cast<float>(pixel_w_) - 1.0f;
-                    const float ndc_y = 1.0f - 2.0f * static_cast<float>(local_pos.y) / static_cast<float>(pixel_h_);
-                    const glm::mat4 inv_vp = glm::inverse(camera_->proj_matrix() * camera_->view_matrix());
-                    glm::vec4 near_h = inv_vp * glm::vec4(ndc_x, ndc_y, 0.0f, 1.0f);
-                    glm::vec4 far_h = inv_vp * glm::vec4(ndc_x, ndc_y, 1.0f, 1.0f);
-                    near_h /= near_h.w;
-                    far_h /= far_h.w;
-                    const glm::vec3 ray_origin(near_h);
-                    const glm::vec3 ray_dir = glm::normalize(glm::vec3(far_h) - glm::vec3(near_h));
-
-                    bool picked_park_or_tree = false;
-                    for (const auto& mod : semantic_layout_->modules)
+                    std::shared_ptr<const CityGrid> grid;
+                    if (hover_shift_held_)
                     {
-                        if (mod.park_footprint <= 0.0f)
-                            continue;
-
-                        const float park_half = mod.park_footprint * 0.5f;
-                        const float park_base = building_base_elevation(renderer_config_);
-                        const float park_top = park_base + renderer_config_.park_height;
-
-                        // Check park slab AABB.
-                        const glm::vec3 park_min(
-                            mod.park_center.x - park_half, park_base,
-                            mod.park_center.y - park_half);
-                        const glm::vec3 park_max(
-                            mod.park_center.x + park_half, park_top,
-                            mod.park_center.y + park_half);
-
-                        float t_min_r = -std::numeric_limits<float>::max();
-                        float t_max_r = std::numeric_limits<float>::max();
-                        bool park_hit = true;
-                        for (int axis = 0; axis < 3; ++axis)
-                        {
-                            if (std::abs(ray_dir[axis]) < 1e-8f)
-                            {
-                                if (ray_origin[axis] < park_min[axis] || ray_origin[axis] > park_max[axis])
-                                {
-                                    park_hit = false;
-                                    break;
-                                }
-                            }
-                            else
-                            {
-                                float inv_d = 1.0f / ray_dir[axis];
-                                float t1 = (park_min[axis] - ray_origin[axis]) * inv_d;
-                                float t2 = (park_max[axis] - ray_origin[axis]) * inv_d;
-                                if (t1 > t2)
-                                    std::swap(t1, t2);
-                                t_min_r = std::max(t_min_r, t1);
-                                t_max_r = std::min(t_max_r, t2);
-                                if (t_min_r > t_max_r)
-                                {
-                                    park_hit = false;
-                                    break;
-                                }
-                            }
-                        }
-                        if (park_hit && t_min_r >= 0.0f)
-                        {
-                            BuildingTooltipData tooltip_data;
-                            tooltip_data.name = mod.is_central_park ? "Central Park" : "Module Park";
-                            tooltip_data.park_module = mod.module_path;
-                            tooltip_data.park_quality = mod.quality;
-                            tooltip_data.park_footprint = mod.park_footprint;
-                            auto bitmap = rasterize_building_tooltip(*tooltip_text_service_, tooltip_data);
-                            show_tooltip_bitmap(bitmap);
-                            picked_park_or_tree = true;
-                            break;
-                        }
+                        std::lock_guard<std::mutex> lock(grid_mutex_);
+                        grid = city_grid_;
                     }
-
-                    if (!picked_park_or_tree && hover_shift_held_)
+                    if (const auto feature = pick_city_feature(
+                            local_pos,
+                            pixel_w_,
+                            pixel_h_,
+                            *camera_,
+                            *semantic_layout_,
+                            renderer_config_,
+                            grid.get(),
+                            hover_shift_held_))
                     {
-                        // No park/tree hit — try picking a route segment (shift only).
-                        std::shared_ptr<const CityGrid> grid;
+                        BuildingTooltipData tooltip_data;
+                        if (feature->kind == CityFeaturePick::Kind::Park)
                         {
-                            std::lock_guard<std::mutex> lock(grid_mutex_);
-                            grid = city_grid_;
+                            tooltip_data.name = feature->is_central_park ? "Central Park" : "Module Park";
+                            tooltip_data.park_module = feature->module_path;
+                            tooltip_data.park_quality = feature->park_quality;
+                            tooltip_data.park_footprint = feature->park_footprint;
                         }
-                        if (grid && !grid->routes.empty() && std::abs(ray_dir.y) > 1e-6f)
+                        else
                         {
-                            // Find the nearest route segment using each route's own elevation.
-                            float best_dist_sq = std::numeric_limits<float>::max();
-                            const CityGrid::RoutePolyline* best_route = nullptr;
-                            constexpr float kMaxPickDist = 1.0f;
-
-                            for (const auto& route : grid->routes)
-                            {
-                                const float avg_elev = (route.source_elevation + route.target_elevation) * 0.5f;
-                                const float t = (avg_elev - ray_origin.y) / ray_dir.y;
-                                if (t < 0.0f)
-                                    continue;
-                                const glm::vec2 hit_pos(
-                                    ray_origin.x + t * ray_dir.x,
-                                    ray_origin.z + t * ray_dir.z);
-
-                                for (size_t i = 1; i < route.world_points.size(); ++i)
-                                {
-                                    const glm::vec2 a = route.world_points[i - 1];
-                                    const glm::vec2 b = route.world_points[i];
-                                    const glm::vec2 ab = b - a;
-                                    const float seg_len_sq = glm::dot(ab, ab);
-                                    float proj_t = 0.0f;
-                                    if (seg_len_sq > 1e-8f)
-                                        proj_t = std::clamp(
-                                            glm::dot(hit_pos - a, ab) / seg_len_sq, 0.0f, 1.0f);
-                                    const glm::vec2 closest = a + proj_t * ab;
-                                    const float dist_sq
-                                        = glm::dot(hit_pos - closest, hit_pos - closest);
-                                    if (dist_sq < best_dist_sq)
-                                    {
-                                        best_dist_sq = dist_sq;
-                                        best_route = &route;
-                                    }
-                                }
-                            }
-
-                            if (best_route && best_dist_sq <= kMaxPickDist * kMaxPickDist)
-                            {
-                                BuildingTooltipData tooltip_data;
-                                tooltip_data.route_source = best_route->source_qualified_name;
-                                tooltip_data.route_target = best_route->target_qualified_name;
-                                tooltip_data.route_field_name = best_route->field_name;
-                                tooltip_data.route_field_type = best_route->field_type_name;
-                                auto bitmap = rasterize_building_tooltip(*tooltip_text_service_, tooltip_data);
-                                show_tooltip_bitmap(bitmap);
-                            }
+                            tooltip_data.route_source = feature->route_source;
+                            tooltip_data.route_target = feature->route_target;
+                            tooltip_data.route_field_name = feature->route_field_name;
+                            tooltip_data.route_field_type = feature->route_field_type;
                         }
+                        auto bitmap = rasterize_building_tooltip(*tooltip_text_service_, tooltip_data);
+                        show_tooltip_bitmap(bitmap);
                     }
                 }
             }
@@ -2423,17 +1850,16 @@ void MegaCityHost::draw(IFrameContext& frame)
 
     if (scene_dirty_ && camera_ && world_)
     {
-        auto result = build_scene_snapshot(
+        world_span_ = publish_scene_snapshot(
+            *scene_pass_,
             *camera_,
             *world_,
             renderer_config_,
-            live_metrics_,
+            metrics_overlay_->metrics(),
             sign_label_atlas_,
             foliage_stem_mesh_,
-            foliage_card_mesh_);
-        preserve_visible_tooltip(scene_pass_.get(), hover_tooltip_visible_, result.snapshot);
-        world_span_ = result.world_span;
-        scene_pass_->set_scene(std::move(result.snapshot));
+            foliage_card_mesh_,
+            hover_tooltip_visible_);
         if (!selected_building_name_.empty())
             apply_selection_opacity();
         scene_dirty_ = false;
@@ -2468,14 +1894,14 @@ std::optional<std::chrono::steady_clock::time_point> MegaCityHost::next_deadline
     if (imgui_settle_frames_ > 0)
         return std::chrono::steady_clock::now();
 
-    if (!continuous_refresh_enabled_ && !input_->movement_active() && !input_->drag_smoothing_active()
+    if (!continuous_refresh_enabled_ && !camera_input_->movement_active() && !camera_input_->drag_smoothing_active()
         && hidden_hover_blend_ <= 1e-3f
         && !is_overlay_active(renderer_config_.overlay_mode))
         return std::nullopt;
-    if (input_->drag_smoothing_active())
+    if (camera_input_->drag_smoothing_active())
         return std::chrono::steady_clock::now() + kDragSmoothingTick;
     if (!is_biology_view(visualization_mode_) && is_live_perf_overlay(renderer_config_.overlay_mode))
-        return std::chrono::steady_clock::now() + kLivePerfRefreshTick;
+        return std::chrono::steady_clock::now() + MetricsOverlayController::refresh_interval();
     return std::chrono::steady_clock::now() + kMovementTick;
 }
 
@@ -2799,7 +2225,7 @@ void MegaCityHost::handle_double_click(const glm::ivec2& screen_pos)
 
             const bool open_as_type = bldg.is_struct || bldg.is_struct_stack;
             const auto target = find_implementation_file(
-                scan_root_,
+                semantic_source_->root(),
                 nav_source_file,
                 open_as_type ? std::string_view{} : std::string_view(function_name));
 

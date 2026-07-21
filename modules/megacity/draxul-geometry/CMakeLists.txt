@@ -14,3 +14,4 @@ target_link_libraries(draxul-geometry PUBLIC
     glm
     draxul-types
 )
+target_link_libraries(draxul-geometry PRIVATE draxul-performance)

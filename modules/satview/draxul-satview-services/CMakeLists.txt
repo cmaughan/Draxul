@@ -19,3 +19,4 @@ target_link_libraries(draxul-satview-services PUBLIC
     draxul-satview-core
     draxul-http
 )
+target_link_libraries(draxul-satview-services PRIVATE draxul-performance)

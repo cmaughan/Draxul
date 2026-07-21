@@ -7,7 +7,10 @@ add_library(draxul-window
     $<$<PLATFORM_ID:Windows>:src/sdl_window_win32.cpp>
 )
 target_include_directories(draxul-window PUBLIC include)
-target_link_libraries(draxul-window PUBLIC draxul-types SDL3::SDL3)
+target_link_libraries(draxul-window
+    PUBLIC draxul-types SDL3::SDL3
+    PRIVATE draxul-performance
+)
 
 if(APPLE)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)

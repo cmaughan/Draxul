@@ -1,6 +1,7 @@
 #include <draxul/codeviz_scene_pass.h>
 
 #include "codeviz_material_library.h"
+#include "codeviz_vk_resources.h"
 #include "mesh_library.h"
 #include "shadow_cascade.h"
 #include <algorithm>
@@ -11,7 +12,6 @@
 #include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
 #include <draxul/vulkan/vk_render_context.h>
-#include <fstream>
 #include <imgui.h>
 #include <vector>
 
@@ -20,6 +20,8 @@ namespace draxul
 
 namespace
 {
+
+using namespace codeviz_vk;
 
 struct alignas(16) FrameUniforms
 {
@@ -64,76 +66,6 @@ struct alignas(16) MaterialInstanceUniform
 struct alignas(16) MaterialUniforms
 {
     std::array<MaterialInstanceUniform, kMaxSceneMaterials> materials{};
-};
-
-struct Buffer
-{
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VmaAllocation allocation = VK_NULL_HANDLE;
-    void* mapped = nullptr;
-    size_t size = 0;
-    bool mapped_by_vma_api = false;
-};
-
-struct MeshBuffers
-{
-    Buffer vertices;
-    Buffer indices;
-    uint32_t index_count = 0;
-    uint32_t first_index = 0;
-    int32_t vertex_offset = 0;
-};
-
-struct ImageResource
-{
-    VkImage image = VK_NULL_HANDLE;
-    VmaAllocation allocation = VK_NULL_HANDLE;
-    VkImageView view = VK_NULL_HANDLE;
-    VkSampler sampler = VK_NULL_HANDLE;
-    int width = 0;
-    int height = 0;
-    int size = 0;
-    uint32_t mip_levels = 1;
-};
-
-struct BufferSlice
-{
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VmaAllocation allocation = VK_NULL_HANDLE;
-    void* mapped = nullptr;
-    size_t offset = 0;
-};
-
-struct MeshSlice
-{
-    VkBuffer vertex_buffer = VK_NULL_HANDLE;
-    VkDeviceSize vertex_offset = 0;
-    VkBuffer index_buffer = VK_NULL_HANDLE;
-    VkDeviceSize index_offset = 0;
-    uint32_t index_count = 0;
-};
-
-struct TransientBufferArena
-{
-    Buffer buffer;
-    size_t head = 0;
-
-    void reset()
-    {
-        head = 0;
-    }
-};
-
-struct TransientGeometryArena
-{
-    TransientBufferArena vertices;
-    TransientBufferArena indices;
-
-    void reset()
-    {
-        vertices.reset();
-        indices.reset();
-    }
 };
 
 struct FrameResources
@@ -277,592 +209,6 @@ float compute_ao_radius_pixels(float zoom_half_height, float radius_world, int v
     if (viewport_h <= 0 || zoom_half_height <= 1e-5f)
         return 1.0f;
     return std::max(1.0f, radius_world * static_cast<float>(viewport_h) / (2.0f * zoom_half_height));
-}
-
-void destroy_buffer(VmaAllocator allocator, Buffer& buffer)
-{
-    if (buffer.mapped_by_vma_api && buffer.allocation != VK_NULL_HANDLE)
-        vmaUnmapMemory(allocator, buffer.allocation);
-    if (buffer.buffer != VK_NULL_HANDLE)
-        vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
-    buffer = {};
-}
-
-bool create_mapped_buffer(VmaAllocator allocator, size_t size, VkBufferUsageFlags usage, Buffer& buffer)
-{
-    PERF_MEASURE();
-    VkBufferCreateInfo buf_ci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-    buf_ci.size = size;
-    buf_ci.usage = usage;
-    buf_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo alloc_ci = {};
-    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-    alloc_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-    VmaAllocationInfo alloc_info = {};
-    if (vmaCreateBuffer(allocator, &buf_ci, &alloc_ci, &buffer.buffer, &buffer.allocation, &alloc_info) != VK_SUCCESS)
-        return false;
-
-    buffer.mapped = alloc_info.pMappedData;
-    if (!buffer.mapped)
-    {
-        if (vmaMapMemory(allocator, buffer.allocation, &buffer.mapped) != VK_SUCCESS || !buffer.mapped)
-        {
-            vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
-            buffer = {};
-            DRAXUL_LOG_ERROR(LogCategory::Renderer,
-                "MegaCity scene: failed to map CPU-visible Vulkan buffer (size=%zu, usage=0x%x)",
-                size,
-                static_cast<unsigned>(usage));
-            return false;
-        }
-        buffer.mapped_by_vma_api = true;
-    }
-    buffer.size = size;
-    return true;
-}
-
-bool upload_mesh(VmaAllocator allocator, const MeshData& mesh, MeshBuffers& gpu_mesh)
-{
-    PERF_MEASURE();
-    if (mesh.vertices.empty() || mesh.indices.empty())
-    {
-        gpu_mesh = {};
-        return true;
-    }
-
-    const size_t vertex_bytes = mesh.vertices.size() * sizeof(SceneVertex);
-    const size_t index_bytes = mesh.indices.size() * sizeof(uint16_t);
-
-    if (!create_mapped_buffer(allocator, vertex_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, gpu_mesh.vertices))
-        return false;
-    if (!create_mapped_buffer(allocator, index_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, gpu_mesh.indices))
-        return false;
-
-    std::memcpy(gpu_mesh.vertices.mapped, mesh.vertices.data(), vertex_bytes);
-    std::memcpy(gpu_mesh.indices.mapped, mesh.indices.data(), index_bytes);
-    vmaFlushAllocation(allocator, gpu_mesh.vertices.allocation, 0, vertex_bytes);
-    vmaFlushAllocation(allocator, gpu_mesh.indices.allocation, 0, index_bytes);
-    gpu_mesh.index_count = static_cast<uint32_t>(mesh.indices.size());
-    return true;
-}
-
-size_t align_up(size_t value, size_t alignment)
-{
-    if (alignment <= 1)
-        return value;
-    const size_t remainder = value % alignment;
-    return remainder == 0 ? value : value + (alignment - remainder);
-}
-
-size_t grow_capacity(size_t current_size, size_t required_size, size_t minimum_size)
-{
-    if (current_size == 0)
-        return std::max(required_size, minimum_size);
-    return std::max(required_size, std::max(current_size * 2, minimum_size));
-}
-
-bool ensure_mapped_buffer_capacity(VmaAllocator allocator, size_t required_size,
-    VkBufferUsageFlags usage, Buffer& buffer, size_t minimum_size)
-{
-    PERF_MEASURE();
-    if (required_size == 0 || required_size <= buffer.size)
-        return true;
-
-    Buffer replacement;
-    if (!create_mapped_buffer(allocator, grow_capacity(buffer.size, required_size, minimum_size), usage, replacement))
-        return false;
-
-    destroy_buffer(allocator, buffer);
-    buffer = std::move(replacement);
-    return true;
-}
-
-bool reserve_transient_buffer(VmaAllocator allocator, TransientBufferArena& arena, size_t size,
-    size_t alignment, VkBufferUsageFlags usage, size_t minimum_size, BufferSlice& slice)
-{
-    PERF_MEASURE();
-    if (size == 0)
-    {
-        slice = {};
-        return true;
-    }
-
-    const size_t offset = align_up(arena.head, alignment);
-    const size_t required_size = offset + size;
-    if (!ensure_mapped_buffer_capacity(allocator, required_size, usage, arena.buffer, minimum_size))
-        return false;
-
-    slice.buffer = arena.buffer.buffer;
-    slice.allocation = arena.buffer.allocation;
-    slice.offset = offset;
-    slice.mapped = static_cast<char*>(arena.buffer.mapped) + offset;
-    arena.head = required_size;
-    return true;
-}
-
-bool stream_transient_mesh(VmaAllocator allocator, const MeshData& mesh,
-    TransientGeometryArena& arena, MeshSlice& slice)
-{
-    PERF_MEASURE();
-    constexpr size_t kMinimumVertexArenaBytes = 16 * 1024;
-    constexpr size_t kMinimumIndexArenaBytes = 4 * 1024;
-
-    const size_t vertex_bytes = mesh.vertices.size() * sizeof(SceneVertex);
-    const size_t index_bytes = mesh.indices.size() * sizeof(uint16_t);
-    if (vertex_bytes == 0 || index_bytes == 0)
-    {
-        slice = {};
-        return true;
-    }
-
-    BufferSlice vertex_slice;
-    if (!reserve_transient_buffer(allocator, arena.vertices, vertex_bytes, alignof(SceneVertex),
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, kMinimumVertexArenaBytes, vertex_slice))
-    {
-        return false;
-    }
-
-    BufferSlice index_slice;
-    if (!reserve_transient_buffer(allocator, arena.indices, index_bytes, alignof(uint16_t),
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, kMinimumIndexArenaBytes, index_slice))
-    {
-        return false;
-    }
-
-    std::memcpy(vertex_slice.mapped, mesh.vertices.data(), vertex_bytes);
-    std::memcpy(index_slice.mapped, mesh.indices.data(), index_bytes);
-    vmaFlushAllocation(allocator, vertex_slice.allocation, vertex_slice.offset, vertex_bytes);
-    vmaFlushAllocation(allocator, index_slice.allocation, index_slice.offset, index_bytes);
-
-    slice.vertex_buffer = vertex_slice.buffer;
-    slice.vertex_offset = static_cast<VkDeviceSize>(vertex_slice.offset);
-    slice.index_buffer = index_slice.buffer;
-    slice.index_offset = static_cast<VkDeviceSize>(index_slice.offset);
-    slice.index_count = static_cast<uint32_t>(mesh.indices.size());
-    return true;
-}
-
-void destroy_mesh(VmaAllocator allocator, MeshBuffers& mesh)
-{
-    destroy_buffer(allocator, mesh.vertices);
-    destroy_buffer(allocator, mesh.indices);
-    mesh.index_count = 0;
-}
-
-void destroy_image(VkDevice device, VmaAllocator allocator, ImageResource& image)
-{
-    if (image.sampler != VK_NULL_HANDLE)
-        vkDestroySampler(device, image.sampler, nullptr);
-    if (image.view != VK_NULL_HANDLE)
-        vkDestroyImageView(device, image.view, nullptr);
-    if (image.image != VK_NULL_HANDLE)
-        vmaDestroyImage(allocator, image.image, image.allocation);
-    image = {};
-}
-
-bool create_sampled_image(VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator,
-    int width, int height, VkFormat format, VkSamplerAddressMode address_mode, bool generate_mips, ImageResource& image)
-{
-    PERF_MEASURE();
-    const uint32_t mip_levels = generate_mips
-        ? static_cast<uint32_t>(std::floor(std::log2(static_cast<double>(std::max(width, height))))) + 1
-        : 1u;
-    VkImageCreateInfo img_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    img_ci.imageType = VK_IMAGE_TYPE_2D;
-    img_ci.format = format;
-    img_ci.extent = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-    img_ci.mipLevels = mip_levels;
-    img_ci.arrayLayers = 1;
-    img_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    img_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    img_ci.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    if (mip_levels > 1)
-        img_ci.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    img_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VmaAllocationCreateInfo alloc_ci = {};
-    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    if (vmaCreateImage(allocator, &img_ci, &alloc_ci, &image.image, &image.allocation, nullptr) != VK_SUCCESS)
-        return false;
-
-    VkImageViewCreateInfo view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    view_ci.image = image.image;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = img_ci.format;
-    view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    view_ci.subresourceRange.levelCount = mip_levels;
-    view_ci.subresourceRange.layerCount = 1;
-    if (vkCreateImageView(device, &view_ci, nullptr, &image.view) != VK_SUCCESS)
-    {
-        vmaDestroyImage(allocator, image.image, image.allocation);
-        image.image = VK_NULL_HANDLE;
-        image.allocation = VK_NULL_HANDLE;
-        return false;
-    }
-
-    VkSamplerCreateInfo sampler_ci = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
-    sampler_ci.magFilter = VK_FILTER_LINEAR;
-    sampler_ci.minFilter = VK_FILTER_LINEAR;
-    sampler_ci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_ci.addressModeU = address_mode;
-    sampler_ci.addressModeV = address_mode;
-    sampler_ci.addressModeW = address_mode;
-    sampler_ci.maxLod = static_cast<float>(mip_levels - 1);
-    VkPhysicalDeviceFeatures features{};
-    vkGetPhysicalDeviceFeatures(physical_device, &features);
-    if (features.samplerAnisotropy)
-    {
-        VkPhysicalDeviceProperties properties{};
-        vkGetPhysicalDeviceProperties(physical_device, &properties);
-        sampler_ci.anisotropyEnable = VK_TRUE;
-        sampler_ci.maxAnisotropy = std::min(8.0f, properties.limits.maxSamplerAnisotropy);
-    }
-    if (vkCreateSampler(device, &sampler_ci, nullptr, &image.sampler) != VK_SUCCESS)
-    {
-        vkDestroyImageView(device, image.view, nullptr);
-        image.view = VK_NULL_HANDLE;
-        vmaDestroyImage(allocator, image.image, image.allocation);
-        image.image = VK_NULL_HANDLE;
-        image.allocation = VK_NULL_HANDLE;
-        return false;
-    }
-
-    image.width = width;
-    image.height = height;
-    image.size = static_cast<VkDeviceSize>(width) * height * 4;
-    image.mip_levels = mip_levels;
-    return true;
-}
-
-bool create_label_image(VkPhysicalDevice physical_device, VkDevice device, VmaAllocator allocator,
-    int width, int height, ImageResource& image)
-{
-    return create_sampled_image(
-        physical_device,
-        device,
-        allocator,
-        width,
-        height,
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        false,
-        image);
-}
-
-VkSampleCountFlagBits choose_scene_sample_count(VkPhysicalDevice physical_device)
-{
-    VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(physical_device, &properties);
-    const VkSampleCountFlags counts = properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
-    if ((counts & VK_SAMPLE_COUNT_4_BIT) != 0)
-        return VK_SAMPLE_COUNT_4_BIT;
-    return VK_SAMPLE_COUNT_1_BIT;
-}
-
-bool create_attachment_image(VkDevice device, VmaAllocator allocator, int width, int height,
-    VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect_mask,
-    VkSampleCountFlagBits samples, VkImage& image, VmaAllocation& allocation, VkImageView& view,
-    VkImageCreateFlags flags = 0)
-{
-    PERF_MEASURE();
-    VkImageCreateInfo image_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    image_ci.flags = flags;
-    image_ci.imageType = VK_IMAGE_TYPE_2D;
-    image_ci.format = format;
-    image_ci.extent = {
-        static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height),
-        1u
-    };
-    image_ci.mipLevels = 1;
-    image_ci.arrayLayers = 1;
-    image_ci.samples = samples;
-    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_ci.usage = usage;
-    image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VmaAllocationCreateInfo alloc_ci = {};
-    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    if (vmaCreateImage(allocator, &image_ci, &alloc_ci, &image, &allocation, nullptr) != VK_SUCCESS)
-        return false;
-
-    VkImageViewCreateInfo view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    view_ci.image = image;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = format;
-    view_ci.subresourceRange.aspectMask = aspect_mask;
-    view_ci.subresourceRange.levelCount = 1;
-    view_ci.subresourceRange.layerCount = 1;
-    if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS)
-        return false;
-
-    return true;
-}
-
-bool create_attachment_view(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspect_mask,
-    VkImageView& view)
-{
-    VkImageViewCreateInfo view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    view_ci.image = image;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = format;
-    view_ci.subresourceRange.aspectMask = aspect_mask;
-    view_ci.subresourceRange.levelCount = 1;
-    view_ci.subresourceRange.layerCount = 1;
-    return vkCreateImageView(device, &view_ci, nullptr, &view) == VK_SUCCESS;
-}
-
-bool create_cube_attachment_image(
-    VkDevice device,
-    VmaAllocator allocator,
-    int size,
-    VkFormat format,
-    VkImageUsageFlags usage,
-    VkImage& image,
-    VmaAllocation& allocation,
-    VkImageView& cube_view,
-    std::array<VkImageView, kPointShadowFaceCount>& face_views)
-{
-    PERF_MEASURE();
-    VkImageCreateInfo image_ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-    image_ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-    image_ci.imageType = VK_IMAGE_TYPE_2D;
-    image_ci.format = format;
-    image_ci.extent = {
-        static_cast<uint32_t>(size),
-        static_cast<uint32_t>(size),
-        1u
-    };
-    image_ci.mipLevels = 1;
-    image_ci.arrayLayers = kPointShadowFaceCount;
-    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_ci.usage = usage;
-    image_ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VmaAllocationCreateInfo alloc_ci = {};
-    alloc_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    if (vmaCreateImage(allocator, &image_ci, &alloc_ci, &image, &allocation, nullptr) != VK_SUCCESS)
-        return false;
-
-    VkImageViewCreateInfo cube_view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-    cube_view_ci.image = image;
-    cube_view_ci.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-    cube_view_ci.format = format;
-    cube_view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    cube_view_ci.subresourceRange.levelCount = 1;
-    cube_view_ci.subresourceRange.layerCount = kPointShadowFaceCount;
-    if (vkCreateImageView(device, &cube_view_ci, nullptr, &cube_view) != VK_SUCCESS)
-        return false;
-
-    for (uint32_t face_index = 0; face_index < kPointShadowFaceCount; ++face_index)
-    {
-        VkImageViewCreateInfo face_view_ci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-        face_view_ci.image = image;
-        face_view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        face_view_ci.format = format;
-        face_view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        face_view_ci.subresourceRange.levelCount = 1;
-        face_view_ci.subresourceRange.baseArrayLayer = face_index;
-        face_view_ci.subresourceRange.layerCount = 1;
-        if (vkCreateImageView(device, &face_view_ci, nullptr, &face_views[face_index]) != VK_SUCCESS)
-            return false;
-    }
-
-    return true;
-}
-
-void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
-    uint32_t base_mip_level = 0, uint32_t level_count = 1)
-{
-    PERF_MEASURE();
-    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = base_mip_level;
-    barrier.subresourceRange.levelCount = level_count;
-    barrier.subresourceRange.layerCount = 1;
-
-    VkPipelineStageFlags src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    VkPipelineStageFlags dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    if (old_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        src_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    if (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    {
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-
-    vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-}
-
-bool generate_mipmaps(VkCommandBuffer cmd, const ImageResource& target)
-{
-    PERF_MEASURE();
-    if (target.mip_levels <= 1)
-        return true;
-
-    int32_t mip_width = target.width;
-    int32_t mip_height = target.height;
-
-    for (uint32_t level = 1; level < target.mip_levels; ++level)
-    {
-        VkImageMemoryBarrier to_src = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-        to_src.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        to_src.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        to_src.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        to_src.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        to_src.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        to_src.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        to_src.image = target.image;
-        to_src.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        to_src.subresourceRange.baseMipLevel = level - 1;
-        to_src.subresourceRange.levelCount = 1;
-        to_src.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(cmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &to_src);
-
-        VkImageBlit blit = {};
-        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.srcSubresource.mipLevel = level - 1;
-        blit.srcSubresource.layerCount = 1;
-        blit.srcOffsets[1] = { mip_width, mip_height, 1 };
-        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.dstSubresource.mipLevel = level;
-        blit.dstSubresource.layerCount = 1;
-        blit.dstOffsets[1] = {
-            std::max(mip_width / 2, 1),
-            std::max(mip_height / 2, 1),
-            1
-        };
-
-        vkCmdBlitImage(cmd,
-            target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1, &blit, VK_FILTER_LINEAR);
-
-        VkImageMemoryBarrier to_shader = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-        to_shader.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        to_shader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        to_shader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        to_shader.image = target.image;
-        to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        to_shader.subresourceRange.baseMipLevel = level - 1;
-        to_shader.subresourceRange.levelCount = 1;
-        to_shader.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(cmd,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, nullptr, 0, nullptr, 1, &to_shader);
-
-        mip_width = std::max(mip_width / 2, 1);
-        mip_height = std::max(mip_height / 2, 1);
-    }
-
-    VkImageMemoryBarrier last_level_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-    last_level_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    last_level_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    last_level_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    last_level_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    last_level_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    last_level_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    last_level_barrier.image = target.image;
-    last_level_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    last_level_barrier.subresourceRange.baseMipLevel = target.mip_levels - 1;
-    last_level_barrier.subresourceRange.levelCount = 1;
-    last_level_barrier.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &last_level_barrier);
-
-    return true;
-}
-
-bool upload_rgba_texture(VmaAllocator allocator, VkCommandBuffer cmd, Buffer& staging,
-    size_t staging_offset, const LoadedTextureImage& image, ImageResource& target)
-{
-    PERF_MEASURE();
-    const size_t bytes = static_cast<size_t>(image.width) * static_cast<size_t>(image.height) * 4;
-    const size_t required_bytes = staging_offset + bytes;
-    if (!ensure_mapped_buffer_capacity(
-            allocator, required_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, required_bytes))
-        return false;
-
-    auto* staging_bytes = static_cast<std::byte*>(staging.mapped);
-    std::memcpy(staging_bytes + staging_offset, image.rgba.data(), bytes);
-    vmaFlushAllocation(allocator, staging.allocation, staging_offset, bytes);
-
-    transition_image(
-        cmd,
-        target.image,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        0,
-        target.mip_levels);
-    VkBufferImageCopy copy = {};
-    copy.bufferOffset = staging_offset;
-    copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    copy.imageSubresource.mipLevel = 0;
-    copy.imageSubresource.layerCount = 1;
-    copy.imageExtent = { static_cast<uint32_t>(image.width), static_cast<uint32_t>(image.height), 1 };
-    vkCmdCopyBufferToImage(cmd, staging.buffer, target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-    if (target.mip_levels <= 1)
-    {
-        transition_image(cmd, target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        return true;
-    }
-    return generate_mipmaps(cmd, target);
-}
-
-VkShaderModule load_shader(VkDevice device, const std::string& path)
-{
-    PERF_MEASURE();
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open())
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to open shader %s", path.c_str());
-        return VK_NULL_HANDLE;
-    }
-
-    const size_t size = static_cast<size_t>(file.tellg());
-    std::vector<char> code(size);
-    file.seekg(0);
-    file.read(code.data(), static_cast<std::streamsize>(size));
-
-    VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
-    ci.codeSize = size;
-    ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-    VkShaderModule shader_module = VK_NULL_HANDLE;
-    if (vkCreateShaderModule(device, &ci, nullptr, &shader_module) != VK_SUCCESS)
-    {
-        DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create shader module %s", path.c_str());
-        return VK_NULL_HANDLE;
-    }
-    return shader_module;
 }
 
 glm::mat4 make_vulkan_projection(glm::mat4 proj)
@@ -1070,13 +416,17 @@ struct CodeVizScenePass::State
     }
 
     bool ensure_retired_mapped_buffer_capacity(
-        size_t required_size, VkBufferUsageFlags usage, Buffer& buffer, size_t minimum_size, uint32_t current_frame_index)
+        size_t required_size, VkBufferUsageFlags usage,
+        vkresources::LifetimeScope lifetime, std::string_view debug_name,
+        Buffer& buffer, size_t minimum_size, uint32_t current_frame_index)
     {
         if (required_size == 0 || required_size <= buffer.size)
             return true;
 
         Buffer replacement;
-        if (!create_mapped_buffer(allocator, grow_capacity(buffer.size, required_size, minimum_size), usage, replacement))
+        if (!create_mapped_buffer(device, allocator,
+                grow_capacity(buffer.size, required_size, minimum_size), usage,
+                lifetime, debug_name, replacement))
             return false;
 
         retire_buffer(buffer, current_frame_index);
@@ -1311,20 +661,23 @@ struct CodeVizScenePass::State
             frame.post_descriptor_set = post_descriptor_sets[i];
             frame.prepass_descriptor_set = prepass_descriptor_sets[i];
 
-            if (!create_mapped_buffer(allocator, sizeof(FrameUniforms),
-                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, frame.frame_uniforms))
+            if (!create_mapped_buffer(device, allocator, sizeof(FrameUniforms),
+                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, vkresources::LifetimeScope::Frame,
+                    "megacity.frame-uniforms", frame.frame_uniforms))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create frame uniform buffer");
                 return false;
             }
-            if (!create_mapped_buffer(allocator, sizeof(MaterialUniforms),
-                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, frame.material_uniforms))
+            if (!create_mapped_buffer(device, allocator, sizeof(MaterialUniforms),
+                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, vkresources::LifetimeScope::Frame,
+                    "megacity.material-uniforms", frame.material_uniforms))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create material uniform buffer");
                 return false;
             }
-            if (!create_mapped_buffer(allocator, sizeof(float),
-                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, frame.performance_heat_values))
+            if (!create_mapped_buffer(device, allocator, sizeof(float),
+                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, vkresources::LifetimeScope::Frame,
+                    "megacity.performance-heat", frame.performance_heat_values))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to create performance heat buffer");
                 return false;
@@ -1376,37 +729,37 @@ struct CodeVizScenePass::State
         refresh_prepass_descriptors();
         refresh_post_descriptors();
 
-        if (!upload_mesh(allocator, build_unit_cube_mesh(), cube_mesh))
+        if (!upload_mesh(device, allocator, build_unit_cube_mesh(), "megacity.mesh.cube", cube_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload cube mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_floor_box_mesh(), floor_mesh))
+        if (!upload_mesh(device, allocator, build_floor_box_mesh(), "megacity.mesh.floor", floor_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload floor mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_foliage_stem_mesh(), foliage_stem_mesh))
+        if (!upload_mesh(device, allocator, build_foliage_stem_mesh(), "megacity.mesh.foliage-stem", foliage_stem_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload foliage stem mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_foliage_card_mesh(), foliage_card_mesh))
+        if (!upload_mesh(device, allocator, build_foliage_card_mesh(), "megacity.mesh.foliage-card", foliage_card_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload foliage card mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_textured_surface_mesh(), textured_surface_mesh))
+        if (!upload_mesh(device, allocator, build_textured_surface_mesh(), "megacity.mesh.textured-surface", textured_surface_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload textured surface mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_top_label_panel_mesh(), top_label_panel_mesh))
+        if (!upload_mesh(device, allocator, build_top_label_panel_mesh(), "megacity.mesh.top-label", top_label_panel_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload top label panel mesh");
             return false;
         }
-        if (!upload_mesh(allocator, build_front_label_panel_mesh(), front_label_panel_mesh))
+        if (!upload_mesh(device, allocator, build_front_label_panel_mesh(), "megacity.mesh.front-label", front_label_panel_mesh))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload front label panel mesh");
             return false;
@@ -1507,7 +860,9 @@ struct CodeVizScenePass::State
             total_upload_bytes = (total_upload_bytes + 3u) & ~size_t(3u);
         }
         if (!ensure_mapped_buffer_capacity(
-                allocator, total_upload_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, material_staging, total_upload_bytes))
+                device, allocator, total_upload_bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                vkresources::LifetimeScope::Upload, "megacity.material-staging",
+                material_staging, total_upload_bytes))
         {
             DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to reserve material staging buffer");
             return false;
@@ -1526,9 +881,13 @@ struct CodeVizScenePass::State
                     spec.format,
                     VK_SAMPLER_ADDRESS_MODE_REPEAT,
                     true,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Persistent,
+                    "megacity.material-texture",
                     texture)
                 || !upload_rgba_texture(
-                    allocator, cmd, material_staging, upload_offsets[spec_index], *spec.image, texture))
+                    device, allocator, cmd, material_staging,
+                    upload_offsets[spec_index], *spec.image, texture))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create or upload material texture");
                 for (auto& cleanup : material_textures)
@@ -1552,7 +911,8 @@ struct CodeVizScenePass::State
             && !(foliage_stem_mesh_source == foliage_stem_mesh_data.get() && foliage_stem_mesh.index_count > 0))
         {
             MeshBuffers replacement;
-            if (!upload_mesh(allocator, *foliage_stem_mesh_data, replacement))
+            if (!upload_mesh(device, allocator, *foliage_stem_mesh_data,
+                    "megacity.mesh.foliage-stem-dynamic", replacement))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural foliage stem mesh");
                 return false;
@@ -1565,7 +925,8 @@ struct CodeVizScenePass::State
             && !(foliage_card_mesh_source == foliage_card_mesh_data.get() && foliage_card_mesh.index_count > 0))
         {
             MeshBuffers replacement;
-            if (!upload_mesh(allocator, *foliage_card_mesh_data, replacement))
+            if (!upload_mesh(device, allocator, *foliage_card_mesh_data,
+                    "megacity.mesh.foliage-card-dynamic", replacement))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity scene: failed to upload procedural foliage card mesh");
                 return false;
@@ -1609,6 +970,7 @@ struct CodeVizScenePass::State
         {
             if (!ensure_retired_mapped_buffer_capacity(
                     total_vertex_bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    vkresources::LifetimeScope::Persistent, "megacity.custom-mesh.vertices",
                     custom_vertex_pool, total_vertex_bytes, current_frame_index))
                 return false;
         }
@@ -1616,6 +978,7 @@ struct CodeVizScenePass::State
         {
             if (!ensure_retired_mapped_buffer_capacity(
                     total_index_bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                    vkresources::LifetimeScope::Persistent, "megacity.custom-mesh.indices",
                     custom_index_pool, total_index_bytes, current_frame_index))
                 return false;
         }
@@ -1905,13 +1268,22 @@ struct CodeVizScenePass::State
         const uint8_t* pixels = has_atlas ? atlas->rgba.data() : clear_pixel;
         const size_t bytes = static_cast<size_t>(desired_width) * static_cast<size_t>(desired_height) * 4;
         if (!ensure_retired_mapped_buffer_capacity(
-                bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, label_staging, bytes, current_frame_index))
+                bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                vkresources::LifetimeScope::Upload, "megacity.label-staging",
+                label_staging, bytes, current_frame_index))
             return false;
 
         std::memcpy(label_staging.mapped, pixels, bytes);
         vmaFlushAllocation(allocator, label_staging.allocation, 0, bytes);
 
-        transition_image(cmd, label_atlas.image, label_atlas_layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        transition_image(cmd, label_atlas.image,
+            label_atlas_layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            label_atlas_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            label_atlas_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1);
         VkBufferImageCopy copy = {};
         copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         copy.imageSubresource.layerCount = 1;
@@ -1919,7 +1291,10 @@ struct CodeVizScenePass::State
         vkCmdCopyBufferToImage(cmd, label_staging.buffer, label_atlas.image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         transition_image(cmd, label_atlas.image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 1);
         label_atlas_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         label_atlas_revision = has_atlas ? atlas->revision : 0;
         return true;
@@ -2617,7 +1992,9 @@ struct CodeVizScenePass::State
             if (!create_sampled_image(physical_device, device, allocator,
                     tooltip.width, tooltip.height,
                     VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-                    false, frame.tooltip_image))
+                    false, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame, "megacity.tooltip",
+                    frame.tooltip_image))
             {
                 return false;
             }
@@ -2631,14 +2008,24 @@ struct CodeVizScenePass::State
         // Upload RGBA data via staging buffer.
         const size_t bytes = static_cast<size_t>(tooltip.width) * tooltip.height * 4;
         if (!ensure_mapped_buffer_capacity(
-                allocator, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, frame.tooltip_staging, bytes))
+                device, allocator, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                vkresources::LifetimeScope::Frame, "megacity.tooltip-staging",
+                frame.tooltip_staging, bytes))
             return false;
 
         std::memcpy(frame.tooltip_staging.mapped, tooltip.rgba.data(), bytes);
         vmaFlushAllocation(allocator, frame.tooltip_staging.allocation, 0, bytes);
 
         transition_image(cmd, frame.tooltip_image.image, frame.tooltip_image_layout,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            frame.tooltip_image_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                ? VK_ACCESS_SHADER_READ_BIT
+                : 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            frame.tooltip_image_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1);
         VkBufferImageCopy copy = {};
         copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         copy.imageSubresource.layerCount = 1;
@@ -2649,7 +2036,10 @@ struct CodeVizScenePass::State
         vkCmdCopyBufferToImage(cmd, frame.tooltip_staging.buffer, frame.tooltip_image.image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         transition_image(cmd, frame.tooltip_image.image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 1);
         frame.tooltip_image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         frame.tooltip_texture_revision = tooltip.revision;
 
@@ -3705,6 +3095,8 @@ struct CodeVizScenePass::State
             bool shadow_ok = true;
             for (size_t cascade_index = 0; cascade_index < kShadowCascadeCount; ++cascade_index)
             {
+                const std::string shadow_name = "megacity.gbuffer.shadow-"
+                    + std::to_string(cascade_index);
                 shadow_ok = shadow_ok
                     && create_attachment_image(
                         device,
@@ -3715,6 +3107,10 @@ struct CodeVizScenePass::State
                         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                         VK_IMAGE_ASPECT_DEPTH_BIT,
                         VK_SAMPLE_COUNT_1_BIT,
+                        0,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        vkresources::LifetimeScope::Frame,
+                        shadow_name,
                         t.shadow_images[cascade_index],
                         t.shadow_allocs[cascade_index],
                         t.shadow_views[cascade_index]);
@@ -3727,6 +3123,9 @@ struct CodeVizScenePass::State
                     point_shadow_map_resolution,
                     VK_FORMAT_R32_SFLOAT,
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.gbuffer.point-shadow-cube",
                     t.point_shadow_image,
                     t.point_shadow_alloc,
                     t.point_shadow_cube_view,
@@ -3740,6 +3139,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                     VK_IMAGE_ASPECT_DEPTH_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    0,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.gbuffer.point-shadow-depth",
                     t.point_shadow_depth_image,
                     t.point_shadow_depth_alloc,
                     t.point_shadow_depth_view)
@@ -3752,6 +3155,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    0,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.gbuffer.normal",
                     t.normal_image,
                     t.normal_alloc,
                     t.normal_view)
@@ -3764,6 +3171,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    0,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.gbuffer.ao-raw",
                     t.ao_raw_image,
                     t.ao_raw_alloc,
                     t.ao_raw_view)
@@ -3776,6 +3187,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    0,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.gbuffer.ao",
                     t.ao_image,
                     t.ao_alloc,
                     t.ao_view)
@@ -3788,6 +3203,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_IMAGE_ASPECT_DEPTH_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    0,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.gbuffer.depth",
                     t.depth_image,
                     t.depth_alloc,
                     t.depth_view)
@@ -3800,6 +3219,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                     VK_IMAGE_ASPECT_COLOR_BIT,
                     scene_sample_count,
+                    0,
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.scene.color-msaa",
                     t.scene_color_msaa_image,
                     t.scene_color_msaa_alloc,
                     t.scene_color_msaa_view)
@@ -3812,6 +3235,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                     VK_IMAGE_ASPECT_DEPTH_BIT,
                     scene_sample_count,
+                    0,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.scene.depth-msaa",
                     t.scene_depth_msaa_image,
                     t.scene_depth_msaa_alloc,
                     t.scene_depth_msaa_view)
@@ -3824,6 +3251,10 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    0,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.scene.hdr",
                     t.scene_hdr_image,
                     t.scene_hdr_alloc,
                     t.scene_hdr_view)
@@ -3836,15 +3267,19 @@ struct CodeVizScenePass::State
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                     VK_IMAGE_ASPECT_COLOR_BIT,
                     VK_SAMPLE_COUNT_1_BIT,
+                    VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    vkresources::LifetimeScope::Frame,
+                    "megacity.scene.final",
                     t.scene_final_image,
                     t.scene_final_alloc,
-                    t.scene_final_srgb_view,
-                    VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)
+                    t.scene_final_srgb_view)
                 || !create_attachment_view(
                     device,
                     t.scene_final_image,
                     VK_FORMAT_B8G8R8A8_UNORM,
                     VK_IMAGE_ASPECT_COLOR_BIT,
+                    "megacity.scene.final-unorm",
                     t.scene_final_unorm_view))
             {
                 DRAXUL_LOG_ERROR(LogCategory::Renderer, "MegaCity: failed to create offscreen scene targets");
@@ -4142,7 +3577,7 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
         return;
     MeshSlice grid_slice;
     if (state_->has_cached_grid_mesh
-        && !stream_transient_mesh(vk_ctx->allocator(), state_->cached_grid_mesh,
+        && !stream_transient_mesh(vk_ctx->device(), vk_ctx->allocator(), state_->cached_grid_mesh,
             frame_res.geometry_arena, grid_slice))
     {
         return;
@@ -4204,9 +3639,12 @@ void CodeVizScenePass::record_prepass(IRenderContext& ctx)
     vmaFlushAllocation(vk_ctx->allocator(), frame_res.material_uniforms.allocation, 0, sizeof(material_uniforms));
     const size_t performance_heat_bytes = std::max<size_t>(scene_.performance_heat_values.size(), 1u) * sizeof(float);
     if (!ensure_mapped_buffer_capacity(
+            vk_ctx->device(),
             vk_ctx->allocator(),
             performance_heat_bytes,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            vkresources::LifetimeScope::Frame,
+            "megacity.performance-heat",
             frame_res.performance_heat_values,
             sizeof(float)))
     {

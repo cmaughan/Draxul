@@ -31,6 +31,63 @@ struct RayBuildingHit
     uint32_t layer_index = 0u;
 };
 
+struct PickRay
+{
+    glm::vec3 origin{ 0.0f };
+    glm::vec3 direction{ 0.0f };
+};
+
+std::optional<PickRay> make_pick_ray(
+    const glm::ivec2& screen_pos,
+    int viewport_width,
+    int viewport_height,
+    const IsometricCamera& camera)
+{
+    if (viewport_width <= 0 || viewport_height <= 0)
+        return std::nullopt;
+
+    const float ndc_x = 2.0f * static_cast<float>(screen_pos.x) / static_cast<float>(viewport_width) - 1.0f;
+    const float ndc_y = 1.0f - 2.0f * static_cast<float>(screen_pos.y) / static_cast<float>(viewport_height);
+    const glm::mat4 inv_vp = glm::inverse(camera.proj_matrix() * camera.view_matrix());
+    glm::vec4 near_h = inv_vp * glm::vec4(ndc_x, ndc_y, 0.0f, 1.0f);
+    glm::vec4 far_h = inv_vp * glm::vec4(ndc_x, ndc_y, 1.0f, 1.0f);
+    near_h /= near_h.w;
+    far_h /= far_h.w;
+    return PickRay{
+        glm::vec3(near_h),
+        glm::normalize(glm::vec3(far_h) - glm::vec3(near_h)),
+    };
+}
+
+bool ray_aabb_intersect(
+    const PickRay& ray,
+    const glm::vec3& bounds_min,
+    const glm::vec3& bounds_max)
+{
+    float t_min = -std::numeric_limits<float>::max();
+    float t_max = std::numeric_limits<float>::max();
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        if (std::abs(ray.direction[axis]) < 1e-8f)
+        {
+            if (ray.origin[axis] < bounds_min[axis] || ray.origin[axis] > bounds_max[axis])
+                return false;
+            continue;
+        }
+
+        const float inv_direction = 1.0f / ray.direction[axis];
+        float t1 = (bounds_min[axis] - ray.origin[axis]) * inv_direction;
+        float t2 = (bounds_max[axis] - ray.origin[axis]) * inv_direction;
+        if (t1 > t2)
+            std::swap(t1, t2);
+        t_min = std::max(t_min, t1);
+        t_max = std::min(t_max, t2);
+        if (t_min > t_max)
+            return false;
+    }
+    return t_min >= 0.0f;
+}
+
 bool ray_triangle_intersect(
     const glm::vec3& ray_origin,
     const glm::vec3& ray_dir,
@@ -492,23 +549,9 @@ std::optional<PickResult> pick_building(
     const MegaCityCodeConfig* config)
 {
     PERF_MEASURE();
-    if (viewport_width <= 0 || viewport_height <= 0)
+    const auto ray = make_pick_ray(screen_pos, viewport_width, viewport_height, camera);
+    if (!ray)
         return std::nullopt;
-
-    // Convert screen pixel to NDC [-1, 1]
-    const float ndc_x = 2.0f * static_cast<float>(screen_pos.x) / static_cast<float>(viewport_width) - 1.0f;
-    const float ndc_y = 1.0f - 2.0f * static_cast<float>(screen_pos.y) / static_cast<float>(viewport_height);
-
-    const glm::mat4 inv_vp = glm::inverse(camera.proj_matrix() * camera.view_matrix());
-
-    // Unproject near and far points
-    glm::vec4 near_h = inv_vp * glm::vec4(ndc_x, ndc_y, 0.0f, 1.0f);
-    glm::vec4 far_h = inv_vp * glm::vec4(ndc_x, ndc_y, 1.0f, 1.0f);
-    near_h /= near_h.w;
-    far_h /= far_h.w;
-
-    const glm::vec3 ray_origin(near_h);
-    const glm::vec3 ray_dir = glm::normalize(glm::vec3(far_h) - glm::vec3(near_h));
     const std::optional<std::unordered_map<std::string, int>> incident_connection_counts
         = model && config ? std::optional(build_incident_connection_counts(*model)) : std::nullopt;
     const float middle_strip_scale = 1.0f + std::max(config ? config->building_middle_strip_push : 0.0f, 0.0f);
@@ -540,7 +583,7 @@ std::optional<PickResult> pick_building(
             if (building.is_struct_stack && config)
             {
                 hit = ray_brick_building_intersect(
-                    ray_origin, ray_dir, building,
+                    ray->origin, ray->direction, building,
                     base_elevation, 0.0f, *config);
             }
             else
@@ -551,7 +594,7 @@ std::optional<PickResult> pick_building(
                     config);
                 const float level_gap = (building.is_struct_stack && config) ? config->struct_stack_gap : 0.0f;
                 hit = ray_building_intersect(
-                    ray_origin, ray_dir, building,
+                    ray->origin, ray->direction, building,
                     sides, middle_strip_scale,
                     base_elevation, sign_extension, level_gap);
             }
@@ -579,6 +622,88 @@ std::optional<PickResult> pick_building(
     }
 
     return best;
+}
+
+std::optional<CityFeaturePick> pick_city_feature(
+    const glm::ivec2& screen_pos,
+    int viewport_width, int viewport_height,
+    const IsometricCamera& camera,
+    const SemanticMegacityLayout& layout,
+    const MegaCityCodeConfig& config,
+    const CityGrid* grid,
+    bool include_routes)
+{
+    PERF_MEASURE();
+    const auto ray = make_pick_ray(screen_pos, viewport_width, viewport_height, camera);
+    if (!ray)
+        return std::nullopt;
+
+    const float park_base = building_base_elevation(config);
+    const float park_top = park_base + config.park_height;
+    for (const auto& module : layout.modules)
+    {
+        if (module.park_footprint <= 0.0f)
+            continue;
+        const float half = module.park_footprint * 0.5f;
+        if (ray_aabb_intersect(
+                *ray,
+                glm::vec3(module.park_center.x - half, park_base, module.park_center.y - half),
+                glm::vec3(module.park_center.x + half, park_top, module.park_center.y + half)))
+        {
+            CityFeaturePick result;
+            result.kind = CityFeaturePick::Kind::Park;
+            result.module_path = module.module_path;
+            result.park_quality = module.quality;
+            result.park_footprint = module.park_footprint;
+            result.is_central_park = module.is_central_park;
+            return result;
+        }
+    }
+
+    if (!include_routes || !grid || grid->routes.empty() || std::abs(ray->direction.y) <= 1e-6f)
+        return std::nullopt;
+
+    float best_distance_sq = std::numeric_limits<float>::max();
+    const CityGrid::RoutePolyline* best_route = nullptr;
+    constexpr float kMaxPickDistance = 1.0f;
+    for (const auto& route : grid->routes)
+    {
+        const float elevation = (route.source_elevation + route.target_elevation) * 0.5f;
+        const float ray_t = (elevation - ray->origin.y) / ray->direction.y;
+        if (ray_t < 0.0f)
+            continue;
+        const glm::vec2 hit_position(
+            ray->origin.x + ray_t * ray->direction.x,
+            ray->origin.z + ray_t * ray->direction.z);
+        for (size_t i = 1; i < route.world_points.size(); ++i)
+        {
+            const glm::vec2 a = route.world_points[i - 1];
+            const glm::vec2 b = route.world_points[i];
+            const glm::vec2 segment = b - a;
+            const float segment_length_sq = glm::dot(segment, segment);
+            float projection = 0.0f;
+            if (segment_length_sq > 1e-8f)
+                projection = std::clamp(glm::dot(hit_position - a, segment) / segment_length_sq, 0.0f, 1.0f);
+            const glm::vec2 closest = a + projection * segment;
+            const float distance_sq = glm::dot(hit_position - closest, hit_position - closest);
+            if (distance_sq < best_distance_sq)
+            {
+                best_distance_sq = distance_sq;
+                best_route = &route;
+            }
+        }
+    }
+
+    if (!best_route || best_distance_sq > kMaxPickDistance * kMaxPickDistance)
+        return std::nullopt;
+
+    CityFeaturePick result;
+    result.kind = CityFeaturePick::Kind::Route;
+    result.route_source = best_route->source_qualified_name;
+    result.route_target = best_route->target_qualified_name;
+    result.route_field_name = best_route->field_name;
+    result.route_field_type = best_route->field_type_name;
+    return result;
 }
 
 } // namespace draxul

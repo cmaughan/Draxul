@@ -17,7 +17,10 @@ target_include_directories(draxul-renderer-core
     PUBLIC include
     PRIVATE src
 )
-target_link_libraries(draxul-renderer-core PUBLIC ${DRAXUL_RENDERER_PUBLIC_DEPS})
+target_link_libraries(draxul-renderer-core
+    PUBLIC ${DRAXUL_RENDERER_PUBLIC_DEPS}
+    PRIVATE draxul-performance
+)
 
 if(APPLE)
     set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm
@@ -36,6 +39,7 @@ if(APPLE)
     )
     target_link_libraries(draxul-renderer-metal PRIVATE
         ${DRAXUL_RENDERER_PUBLIC_DEPS}
+        draxul-performance
         ${METAL_FRAMEWORK}
         ${QUARTZCORE_FRAMEWORK}
         ${FOUNDATION_FRAMEWORK}
@@ -53,6 +57,20 @@ else()
     set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
         PROPERTIES COMPILE_OPTIONS "${DRAXUL_IMGUI_BACKEND_WARNING_OPTIONS}"
     )
+    # Vulkan resource construction stays in a backend-private implementation
+    # target. Product renderers consume it privately; no Vulkan ownership type
+    # is published from draxul-renderer's public include tree.
+    add_library(draxul-vulkan-resources STATIC
+        src/vulkan/vk_resource_helpers.cpp
+    )
+    target_include_directories(draxul-vulkan-resources PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan
+    )
+    target_link_libraries(draxul-vulkan-resources PRIVATE
+        Vulkan::Vulkan
+        GPUOpen::VulkanMemoryAllocator
+    )
+
     add_library(draxul-renderer-vulkan OBJECT
         src/vulkan/vk_renderer.cpp
         src/vulkan/vk_context.cpp
@@ -68,6 +86,8 @@ else()
     )
     target_link_libraries(draxul-renderer-vulkan PRIVATE
         ${DRAXUL_RENDERER_PUBLIC_DEPS}
+        draxul-performance
+        draxul-vulkan-resources
         Vulkan::Vulkan
         vk-bootstrap::vk-bootstrap
         GPUOpen::VulkanMemoryAllocator
@@ -76,6 +96,7 @@ else()
         $<TARGET_OBJECTS:draxul-renderer-vulkan>
     )
     set(DRAXUL_RENDERER_BACKEND_LINK_LIBS
+        draxul-vulkan-resources
         Vulkan::Vulkan
         vk-bootstrap::vk-bootstrap
         GPUOpen::VulkanMemoryAllocator
@@ -94,5 +115,14 @@ target_include_directories(draxul-renderer
 )
 target_link_libraries(draxul-renderer
     PUBLIC ${DRAXUL_RENDERER_PUBLIC_DEPS}
-    PRIVATE ${DRAXUL_RENDERER_BACKEND_LINK_LIBS}
+    PRIVATE draxul-performance ${DRAXUL_RENDERER_BACKEND_LINK_LIBS}
 )
+
+# White-box ABI/resource tests deliberately consume backend-private records.
+# Keep that access explicit and test-only instead of teaching tests the source
+# tree layout or widening draxul-renderer's production include surface.
+add_library(draxul-renderer-test-internals INTERFACE)
+target_include_directories(draxul-renderer-test-internals INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(draxul-renderer-test-internals INTERFACE draxul-renderer)

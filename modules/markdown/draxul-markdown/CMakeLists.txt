@@ -60,6 +60,7 @@ if(APPLE)
     )
 else()
     target_link_libraries(draxul-markdown-host PRIVATE
+        draxul-vulkan-resources
         Vulkan::Vulkan
         GPUOpen::VulkanMemoryAllocator
     )

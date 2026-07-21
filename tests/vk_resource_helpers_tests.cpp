@@ -1,7 +1,8 @@
 
 #include <catch2/catch_all.hpp>
 
-#include <draxul/vulkan/vk_resource_helpers.h>
+#include <draxul/pending_atlas_upload.h>
+#include "vulkan/vk_resource_ownership.h"
 
 using namespace draxul;
 
@@ -59,6 +60,33 @@ TEST_CASE("vulkan buffer helper replaces the old buffer only after a successful 
     REQUIRE(buffer.allocation == 44);
     INFO("successful resize updates the stored size");
     REQUIRE(buffer.size == static_cast<size_t>(128));
+}
+
+TEST_CASE("vulkan resource transaction cleans up a partial dependent allocation", "[renderer]")
+{
+    struct Resource
+    {
+        int primary = 0;
+        int dependent = 0;
+    };
+
+    Resource output{ 7, 8 };
+    int destroyed_primary = 0;
+    const bool created = create_resource_transactionally(output,
+        [](Resource& replacement) {
+            replacement.primary = 42;
+            return true;
+        },
+        [](Resource&) { return false; },
+        [&](Resource& replacement) {
+            destroyed_primary = replacement.primary;
+            replacement = {};
+        });
+
+    REQUIRE_FALSE(created);
+    REQUIRE(destroyed_primary == 42);
+    REQUIRE(output.primary == 7);
+    REQUIRE(output.dependent == 8);
 }
 
 TEST_CASE("full atlas uploads replace queued region uploads", "[renderer]")

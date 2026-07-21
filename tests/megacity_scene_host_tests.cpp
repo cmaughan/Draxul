@@ -444,9 +444,9 @@ TEST_CASE("megacity host source override controls the Tree-sitter scan root", "[
     };
 
     REQUIRE(host.initialize(context, callbacks));
-    CHECK(host.scan_root_ == std::filesystem::weakly_canonical(scan_root));
+    CHECK(host.semantic_source_->root() == std::filesystem::weakly_canonical(scan_root));
 
-    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    const auto snapshot = wait_for_complete_snapshot(*host.semantic_source_);
     REQUIRE(snapshot);
     REQUIRE(snapshot->complete);
     CHECK(std::any_of(snapshot->files.begin(), snapshot->files.end(), [](const ParsedFile& file) {
@@ -490,22 +490,22 @@ TEST_CASE("megacity host publishes a code semantic snapshot without database sta
     };
 
     REQUIRE(host.initialize(context, callbacks));
-    CHECK(host.scanner_started_);
+    CHECK(host.semantic_source_->started());
     CHECK(host.code_semantics_ == nullptr);
-    CHECK(host.applied_treesitter_snapshot_ == nullptr);
-    CHECK_FALSE(host.semantic_snapshot_ready_);
+    CHECK(host.semantic_source_->parsed_snapshot() == nullptr);
+    CHECK_FALSE(host.semantic_source_->ready());
 
-    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    const auto snapshot = wait_for_complete_snapshot(*host.semantic_source_);
     REQUIRE(snapshot);
     REQUIRE(snapshot->complete);
 
     host.pump();
 
-    CHECK(host.semantic_snapshot_ready_);
+    CHECK(host.semantic_source_->ready());
     REQUIRE(host.code_semantics_ != nullptr);
     CHECK(host.code_semantics_->complete);
-    CHECK(host.applied_treesitter_snapshot_ == snapshot);
-    CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
+    CHECK(host.semantic_source_->parsed_snapshot() == snapshot);
+    CHECK(host.semantic_source_->available_modules() == std::vector<std::string>{ "src" });
     REQUIRE(host.semantic_model_ != nullptr);
     REQUIRE(host.semantic_model_->modules.size() == 1);
     CHECK(host.semantic_model_->modules[0].module_path == "src");
@@ -554,22 +554,22 @@ TEST_CASE("megacity host treats stale graphify config as Tree-sitter source", "[
     };
 
     REQUIRE(host.initialize(context, callbacks));
-    CHECK(host.scanner_started_);
+    CHECK(host.semantic_source_->started());
     CHECK(host.code_semantics_ == nullptr);
-    CHECK(host.applied_treesitter_snapshot_ == nullptr);
-    CHECK_FALSE(host.semantic_snapshot_ready_);
+    CHECK(host.semantic_source_->parsed_snapshot() == nullptr);
+    CHECK_FALSE(host.semantic_source_->ready());
 
-    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    const auto snapshot = wait_for_complete_snapshot(*host.semantic_source_);
     REQUIRE(snapshot);
     REQUIRE(snapshot->complete);
 
     host.pump();
 
-    CHECK(host.semantic_snapshot_ready_);
+    CHECK(host.semantic_source_->ready());
     CHECK(host.code_semantics_ != nullptr);
     CHECK(host.code_semantics_->complete);
-    CHECK(host.applied_treesitter_snapshot_ == snapshot);
-    CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
+    CHECK(host.semantic_source_->parsed_snapshot() == snapshot);
+    CHECK(host.semantic_source_->available_modules() == std::vector<std::string>{ "src" });
     REQUIRE(host.semantic_model_ != nullptr);
     REQUIRE(host.semantic_model_->modules.size() == 1);
     CHECK(host.semantic_model_->modules[0].module_path == "src");
@@ -613,16 +613,16 @@ TEST_CASE("bioview host builds from neutral semantics without a city model", "[m
     };
 
     REQUIRE(host.initialize(context, callbacks));
-    const auto snapshot = wait_for_complete_snapshot(host.scanner_);
+    const auto snapshot = wait_for_complete_snapshot(*host.semantic_source_);
     REQUIRE(snapshot);
     REQUIRE(snapshot->complete);
 
     host.pump();
 
-    CHECK(host.semantic_snapshot_ready_);
+    CHECK(host.semantic_source_->ready());
     REQUIRE(host.code_semantics_ != nullptr);
     CHECK(host.code_semantics_->complete);
-    CHECK(host.available_modules_ == std::vector<std::string>{ "src" });
+    CHECK(host.semantic_source_->available_modules() == std::vector<std::string>{ "src" });
     CHECK(host.semantic_model_ == nullptr);
     CHECK(host.semantic_layout_ == nullptr);
     CHECK(host.city_grid_ == nullptr);

@@ -1,26 +1,29 @@
 #define CATCH_CONFIG_RUNNER
 #include <catch2/catch_all.hpp>
 
+#include <draxul/log.h>
+
+#ifdef DRAXUL_TEST_REGISTER_APP_HOSTS
 #include <draxul/host_registry.h>
 #include <draxul/kanban/kanban_host.h>
-#include <draxul/log.h>
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
+#endif
+#if defined(DRAXUL_TEST_REGISTER_APP_HOSTS) && defined(DRAXUL_ENABLE_MEGACITY)
+#include <draxul/megacity_host.h>
+#endif
+#if defined(DRAXUL_TEST_REGISTER_APP_HOSTS) && defined(DRAXUL_ENABLE_SATVIEW)
+#include <draxul/satview/satview_host.h>
+#endif
+#if defined(DRAXUL_TEST_REGISTER_APP_HOSTS) && defined(DRAXUL_ENABLE_SCOREVIEW)
+#include <draxul/scoreview/score_host.h>
+#endif
 
 #include <cstdlib>
 #include <string_view>
 
 #ifndef _WIN32
 #include <csignal>
-#endif
-#ifdef DRAXUL_ENABLE_MEGACITY
-#include <draxul/megacity_host.h>
-#endif
-#ifdef DRAXUL_ENABLE_SATVIEW
-#include <draxul/satview/satview_host.h>
-#endif
-#ifdef DRAXUL_ENABLE_SCOREVIEW
-#include <draxul/scoreview/score_host.h>
 #endif
 
 int main(int argc, char* argv[])
@@ -49,8 +52,10 @@ int main(int argc, char* argv[])
 
     draxul::configure_logging(log_options);
 
-    // Tests share the same provider registry as the app. Register the same
-    // set the executable would so HostManager can create real hosts.
+#ifdef DRAXUL_TEST_REGISTER_APP_HOSTS
+    // App/session tests share the same provider registry as the application.
+    // Module-focused executables construct their hosts directly and avoid
+    // inheriting every product dependency through the common test entrypoint.
     auto& registry = draxul::HostProviderRegistry::global();
     registry.clear();
     draxul::register_builtin_host_providers(registry);
@@ -65,6 +70,7 @@ int main(int argc, char* argv[])
 #endif
 #ifdef DRAXUL_ENABLE_SCOREVIEW
     draxul::scoreview::register_score_host_provider(registry);
+#endif
 #endif
 
     return Catch::Session().run(argc, argv);

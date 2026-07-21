@@ -30,10 +30,15 @@ endif()
 target_include_directories(draxul-host PUBLIC include)
 
 target_link_libraries(draxul-host PUBLIC
-    draxul-font
     draxul-grid
+    draxul-host-identity
+    draxul-nvim
     draxul-renderer
     draxul-runtime-support
     draxul-types
+)
+target_link_libraries(draxul-host PRIVATE
+    draxul-font
+    draxul-performance
     draxul-window
 )

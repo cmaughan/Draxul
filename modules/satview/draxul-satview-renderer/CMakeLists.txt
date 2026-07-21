@@ -28,6 +28,7 @@ target_link_libraries(draxul-satview-renderer PUBLIC
     draxul-satview-scene
 )
 target_link_libraries(draxul-satview-renderer PRIVATE
+    draxul-performance
     draxul-satview-core
     imgui
 )
@@ -40,7 +41,18 @@ if(APPLE)
     )
 else()
     target_link_libraries(draxul-satview-renderer PRIVATE
+        draxul-vulkan-resources
         Vulkan::Vulkan
         GPUOpen::VulkanMemoryAllocator
     )
 endif()
+
+# Renderer-math tests are cross-platform but intentionally white-box. Expose
+# their header through a named test contract rather than a raw src/ include.
+add_library(draxul-satview-renderer-test-internals INTERFACE)
+target_include_directories(draxul-satview-renderer-test-internals INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(draxul-satview-renderer-test-internals INTERFACE
+    draxul-satview-renderer
+)

@@ -70,6 +70,17 @@ private:
 
 } // namespace draxul
 
+// Instrumentation policy:
+// - Measure lifecycle, frame, I/O, allocation/upload, and meaningful batch work.
+// - Do not measure trivial accessors, setters, coordinate helpers, or leaf
+//   operations already covered by an owning span; their call and aggregation
+//   overhead can exceed the work being observed.
+// - Avoid nested spans unless both levels answer distinct diagnostic questions.
+// - Keep stable names that are surfaced by diagnostics when moving a span.
+//
+// Disabled scopes are intentionally a single atomic check. Keep that fast path
+// free of clocks, locks, allocation, and string work.
+
 #if defined(_MSC_VER)
 #define DRAXUL_PRETTY_FUNCTION __FUNCSIG__
 #else

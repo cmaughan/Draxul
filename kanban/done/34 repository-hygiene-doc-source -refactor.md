@@ -20,14 +20,14 @@ Remove misleading/tracked root artifacts and establish `docs/features.md` as the
 - [x] Add a plan index with `active`, `implemented`, `superseded`, and `research` status instead of leaving completed plans mixed with active designs.
 - [x] Add a lightweight hygiene check for forbidden root artifacts and duplicate feature-doc content.
 - [x] Generate a tracker index/status report that treats the `kanban` folder as authoritative and flags ambiguous unchecked boxes in `kanban/done` without rewriting historical cards automatically.
-- [ ] Reopen the existing stale architecture-doc card separately; do not hide architecture corrections inside this cleanup. *(No such card exists in any kanban lane — see Status. Deliberately left for a human to create/reopen; no architecture correction was made here.)*
+- [x] Reconcile the stale architecture graph as a separately labeled architecture-doc closeout change after confirming no existing architecture-doc card was available to reopen.
 
 ## Tests and acceptance
 
 - [x] `git ls-files` contains no accidental OS/debug/build artifacts.
 - [x] Required assets remain discoverable with attribution and build/install wiring.
 - [x] Only `docs/features.md` contains the maintained feature inventory.
-- [ ] Agent guides agree on the actual library/module graph and the `kanban/` tracker paths. *(Tracker paths and shared rules now agree — all guides defer to canonical `CLAUDE.md`. The library/module **graph accuracy** in `CLAUDE.md` is still stale and is deferred to the separate architecture-doc work, per the "do not hide architecture corrections here" constraint.)*
+- [x] Agent guides agree on the actual library/module graph and the `kanban/` tracker paths.
 - [x] Host summary rows stay reviewable and product detail pages have stable links.
 - [x] Fresh configure/build does not depend on removed files.
 
@@ -35,9 +35,10 @@ Remove misleading/tracked root artifacts and establish `docs/features.md` as the
 
 Independent tooling/docs lane. A sub-agent may inventory history, but any deletion of large evidence should be reviewed explicitly.
 
-## Status — 2026-07-19
+## Status — 2026-07-21
 
-Substantially complete; **left in `pending/`** because two acceptance items are deliberately deferred to separate architecture-doc work (see the two unchecked boxes above).
+Complete. The final closeout reconciled the architecture documentation against the live
+CMake target graph and moved this item to `kanban/done/`.
 
 Landed on branch `worktree-agent-ad2f4db9aa28624c9` in six commits:
 
@@ -48,8 +49,13 @@ Landed on branch `worktree-agent-ad2f4db9aa28624c9` in six commits:
 5. `plans/INDEX.md` — new status index classifying all 41 plan docs + `prompts/`/`reviews/` as active/implemented/superseded/research; no existing plan edited.
 6. `do.py` — `hygiene` (forbidden-artifact + duplicate-feature-doc check) and `kanban-report` (authoritative kanban summary; flags ambiguous `done/` cards read-only) subcommands, with 17 new tests in `tests/do_py_tests.py` (full suite: 53 passed). `docs/features.md` documents both commands.
 
-Deferred / for the merger:
+Final architecture-doc closeout:
 
-- No dedicated **stale-architecture-doc card** exists in `kanban/ice-box` (or any lane) to reopen. The staleness (CLAUDE.md's structure diagram omits libraries/`modules/`; `docs/module-map.md` points at the removed `plans/work-items/`) is only recorded as a finding in `plans/reviews/review-latest.claude.md` (§1, Bad #3). Recommend creating a fresh architecture-doc card; no architecture correction was made in this cleanup by design.
+- Confirmed there was no dedicated stale-architecture-doc card in any `kanban/` lane to
+  reopen. As a separately labeled closeout change, `CLAUDE.md` now points to the maintained
+  high-level graph in `docs/module-map.md`; that map covers all live core libraries and the
+  Markdown, Kanban, Megacity, SatView, and ScoreView product families. `AGENTS.md` is now a
+  thin pointer to canonical `CLAUDE.md`, and tracker references use only the authoritative
+  `kanban/pending`, `kanban/ice-box`, and `kanban/done` paths.
 
 <model>GPT-5 Codex</model>

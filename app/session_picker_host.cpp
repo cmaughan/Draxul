@@ -6,45 +6,17 @@
 #include <cstring>
 #include <draxul/gui/palette_renderer.h>
 #include <draxul/log.h>
-#include <draxul/process_util.h>
 #include <draxul/session_attach.h>
 #include <draxul/text_service.h>
+#include <utility>
 #include <vector>
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
 
 namespace draxul
 {
 
-namespace
-{
-
-#ifdef _WIN32
-std::wstring widen_utf8(std::string_view text)
-{
-    if (text.empty())
-        return {};
-    const int size = MultiByteToWideChar(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    if (size <= 0)
-        return {};
-    std::wstring wide(static_cast<size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
-    return wide;
-}
-
-#endif
-
-} // namespace
-
-SessionPickerHost::SessionPickerHost(std::filesystem::path executable_path)
+SessionPickerHost::SessionPickerHost(std::filesystem::path executable_path, LaunchFunction launch)
     : executable_path_(std::move(executable_path))
+    , launch_(std::move(launch))
 {
 }
 
@@ -184,7 +156,6 @@ bool SessionPickerHost::activate_or_restore_session(std::string_view session_id,
     }
 
     std::vector<std::string> args = {
-        executable_path_.string(),
         "--session",
         std::string(session_id),
     };
@@ -194,7 +165,6 @@ bool SessionPickerHost::activate_or_restore_session(std::string_view session_id,
 bool SessionPickerHost::create_new_session(std::string_view session_name, std::string* error)
 {
     std::vector<std::string> args = {
-        executable_path_.string(),
         "--new-session",
     };
     if (!session_name.empty())
@@ -245,63 +215,12 @@ bool SessionPickerHost::spawn_draxul(std::vector<std::string> args, std::string*
         return false;
     }
 
-#ifdef _WIN32
-    std::string command_line_utf8;
-    for (const auto& arg : args)
-    {
-        if (!command_line_utf8.empty())
-            command_line_utf8.push_back(' ');
-        command_line_utf8 += quote_windows_arg(arg);
-    }
-
-    std::wstring exe_path_w = executable_path_.wstring();
-    std::wstring command_line = widen_utf8(command_line_utf8);
-    std::vector<wchar_t> command_line_buffer(command_line.begin(), command_line.end());
-    command_line_buffer.push_back(L'\0');
-
-    STARTUPINFOW startup_info = {};
-    startup_info.cb = sizeof(startup_info);
-    PROCESS_INFORMATION process_info = {};
-    const BOOL ok = CreateProcessW(
-        exe_path_w.c_str(),
-        command_line_buffer.data(),
-        nullptr,
-        nullptr,
-        FALSE,
-        0,
-        nullptr,
-        nullptr,
-        &startup_info,
-        &process_info);
-    if (!ok)
-    {
-        if (error)
-            *error = "CreateProcessW failed: " + std::to_string(GetLastError());
-        return false;
-    }
-    CloseHandle(process_info.hThread);
-    CloseHandle(process_info.hProcess);
-    return true;
-#else
-    const pid_t child = fork();
-    if (child < 0)
-    {
-        if (error)
-            *error = "fork() failed";
-        return false;
-    }
-    if (child == 0)
-    {
-        std::vector<char*> argv;
-        argv.reserve(args.size() + 1);
-        for (auto& arg : args)
-            argv.push_back(arg.data());
-        argv.push_back(nullptr);
-        execv(executable_path_.string().c_str(), argv.data());
-        _exit(127);
-    }
-    return true;
-#endif
+    const auto launch_result = launch_(make_self_launch_command(executable_path_, std::move(args)));
+    if (launch_result.launched())
+        return true;
+    if (error)
+        *error = launch_result.error_message();
+    return false;
 }
 
 void SessionPickerHost::refresh_grid()

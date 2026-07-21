@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -10,6 +11,11 @@
 
 namespace draxul
 {
+
+namespace session_attach_detail
+{
+class SessionTransport;
+}
 
 class SessionAttachServer
 {
@@ -50,7 +56,7 @@ public:
         Error,
     };
 
-    SessionAttachServer() = default;
+    SessionAttachServer();
     ~SessionAttachServer();
 
     SessionAttachServer(const SessionAttachServer&) = delete;
@@ -127,12 +133,7 @@ private:
     std::atomic<bool> running_ = false;
     std::thread server_thread_;
 
-#ifdef _WIN32
-    void* instance_mutex_ = nullptr;
-#else
-    int listen_fd_ = -1;
-    std::string socket_path_;
-#endif
+    std::unique_ptr<session_attach_detail::SessionTransport> transport_;
 };
 
 } // namespace draxul

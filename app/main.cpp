@@ -1,9 +1,8 @@
 #include "app.h"
 #include "cli_args.h"
-#include "session_id.h"
-#include "session_listing.h"
+#include "self_launch.h"
+#include "session_cli.h"
 #include "session_picker_host.h"
-#include "session_state.h"
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <cstdio>
@@ -15,8 +14,6 @@
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
 #include <draxul/perf_timing.h>
-#include <draxul/process_util.h>
-#include <draxul/session_attach.h>
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
@@ -32,7 +29,6 @@
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -43,11 +39,6 @@
 
 // This must come after shellapi!
 #include <shellapi.h>
-#elif defined(__APPLE__)
-#include <mach-o/dyld.h>
-#include <unistd.h>
-#elif defined(__linux__)
-#include <unistd.h>
 #endif
 
 namespace
@@ -123,356 +114,10 @@ std::vector<std::string> command_line_args(int argc, char* argv[])
 // CLI parsing has moved to app/cli_args.{h,cpp} so it can be unit-tested
 // without spawning a subprocess. See draxul::parse_args() / ParseArgsResult.
 
-std::filesystem::path executable_path(const std::vector<std::string>& args)
-{
-    PERF_MEASURE();
-#ifdef _WIN32
-    std::wstring exe_path(MAX_PATH, L'\0');
-    for (;;)
-    {
-        DWORD size = GetModuleFileNameW(nullptr, exe_path.data(), static_cast<DWORD>(exe_path.size()));
-        if (size == 0)
-            return {};
-        if (size < exe_path.size())
-        {
-            exe_path.resize(size);
-            break;
-        }
-        exe_path.resize(exe_path.size() * 2);
-    }
-    return std::filesystem::path(exe_path);
-#elif defined(__APPLE__)
-    uint32_t size = 0;
-    _NSGetExecutablePath(nullptr, &size);
-    if (size == 0)
-        return {};
-
-    std::string exe_path(size, '\0');
-    if (_NSGetExecutablePath(exe_path.data(), &size) != 0)
-        return {};
-    exe_path.resize(std::char_traits<char>::length(exe_path.c_str()));
-    return std::filesystem::path(exe_path);
-#elif defined(__linux__)
-    std::vector<char> exe_path(256, '\0');
-    for (;;)
-    {
-        const ssize_t size = readlink("/proc/self/exe", exe_path.data(), exe_path.size());
-        if (size < 0)
-            break;
-        if (static_cast<size_t>(size) < exe_path.size())
-            return std::filesystem::path(std::string(exe_path.data(), static_cast<size_t>(size)));
-        exe_path.resize(exe_path.size() * 2);
-    }
-    if (args.empty())
-        return {};
-    return std::filesystem::absolute(std::filesystem::path(args.front()));
-#else
-    if (args.empty())
-        return {};
-    return std::filesystem::absolute(std::filesystem::path(args.front()));
-#endif
-}
-
 std::filesystem::path executable_dir(const std::vector<std::string>& args)
 {
-    const auto path = executable_path(args);
+    const auto path = draxul::resolve_self_executable_path(args);
     return path.empty() ? path : path.parent_path();
-}
-
-bool rename_saved_session_records(
-    std::string_view session_id, std::string_view session_name, std::string* error)
-{
-    bool updated = false;
-    std::string io_error;
-    if (auto state = draxul::load_session_state(session_id, &io_error))
-    {
-        state->session_name = std::string(session_name);
-        if (!draxul::save_session_state(*state, &io_error))
-        {
-            if (error)
-                *error = io_error;
-            return false;
-        }
-        updated = true;
-    }
-    else if (!io_error.empty())
-    {
-        if (error)
-            *error = io_error;
-        return false;
-    }
-
-    io_error.clear();
-    if (auto metadata = draxul::load_session_runtime_metadata(session_id, &io_error))
-    {
-        metadata->session_name = std::string(session_name);
-        if (!draxul::save_session_runtime_metadata(*metadata, &io_error))
-        {
-            if (error)
-                *error = io_error;
-            return false;
-        }
-        updated = true;
-    }
-    else if (!io_error.empty())
-    {
-        if (error)
-            *error = io_error;
-        return false;
-    }
-
-    if (!updated && error)
-        *error = "No running or saved session was found.";
-    return updated;
-}
-
-bool session_exists(std::string_view session_id, std::string* error)
-{
-    auto exists = draxul::session_id_exists(session_id);
-    if (!exists)
-    {
-        if (error)
-            *error = exists.error().message;
-        return false;
-    }
-    return *exists;
-}
-
-bool prepare_new_session_launch(draxul::ParsedArgs& parsed, std::string* error)
-{
-    if (!parsed.new_session)
-        return true;
-
-    if (parsed.session_id_explicit)
-    {
-        std::string exists_error;
-        if (session_exists(parsed.session_id, &exists_error))
-        {
-            if (error)
-                *error = "Session '" + parsed.session_id
-                    + "' already exists. Use --session with a different id or omit it to generate one.";
-            return false;
-        }
-        if (!exists_error.empty())
-        {
-            if (error)
-                *error = exists_error;
-            return false;
-        }
-        return true;
-    }
-
-    const int64_t unix_seconds = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch())
-                                     .count();
-    auto session_id = draxul::make_unique_session_id(parsed.session_name, unix_seconds);
-    if (!session_id)
-    {
-        if (error)
-            *error = session_id.error().message;
-        return false;
-    }
-    parsed.session_id = *session_id;
-    return true;
-}
-
-std::vector<std::string> session_owner_args(
-    const std::vector<std::string>& args, const std::filesystem::path& exe_path, const draxul::ParsedArgs& parsed)
-{
-    std::vector<std::string> owner_args;
-    owner_args.reserve(args.size() + 4);
-    owner_args.emplace_back(exe_path.string());
-    for (size_t i = 1; i < args.size(); ++i)
-    {
-        if (args[i] == "--console")
-            continue;
-        if (args[i] == "--session-owner")
-            continue;
-        if (args[i] == "--session" && i + 1 < args.size())
-        {
-            ++i;
-            continue;
-        }
-        owner_args.push_back(args[i]);
-    }
-    owner_args.emplace_back("--session");
-    owner_args.emplace_back(parsed.session_id);
-    if (!parsed.session_name.empty())
-    {
-        owner_args.emplace_back("--session-name");
-        owner_args.emplace_back(parsed.session_name);
-    }
-    owner_args.emplace_back("--session-owner");
-    return owner_args;
-}
-
-#ifdef _WIN32
-std::wstring widen_utf8(std::string_view text)
-{
-    if (text.empty())
-        return {};
-    const int size = MultiByteToWideChar(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    if (size <= 0)
-        return {};
-    std::wstring wide(static_cast<size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
-    return wide;
-}
-
-#endif
-
-bool spawn_session_owner_process(
-    const std::filesystem::path& exe_path, const std::vector<std::string>& owner_args, std::string* error)
-{
-    PERF_MEASURE();
-#ifdef _WIN32
-    std::string command_line_utf8;
-    for (const auto& arg : owner_args)
-    {
-        if (!command_line_utf8.empty())
-            command_line_utf8.push_back(' ');
-        command_line_utf8 += draxul::quote_windows_arg(arg);
-    }
-
-    std::wstring exe_path_w = exe_path.wstring();
-    std::wstring command_line = widen_utf8(command_line_utf8);
-    std::vector<wchar_t> command_line_buffer(command_line.begin(), command_line.end());
-    command_line_buffer.push_back(L'\0');
-
-    STARTUPINFOW startup_info = {};
-    startup_info.cb = sizeof(startup_info);
-    PROCESS_INFORMATION process_info = {};
-    const BOOL ok = CreateProcessW(
-        exe_path_w.c_str(),
-        command_line_buffer.data(),
-        nullptr,
-        nullptr,
-        FALSE,
-        0,
-        nullptr,
-        nullptr,
-        &startup_info,
-        &process_info);
-    if (!ok)
-    {
-        if (error)
-            *error = "CreateProcessW failed: " + std::to_string(GetLastError());
-        return false;
-    }
-    CloseHandle(process_info.hThread);
-    CloseHandle(process_info.hProcess);
-    return true;
-#else
-    const pid_t child = fork();
-    if (child < 0)
-    {
-        if (error)
-            *error = "fork() failed";
-        return false;
-    }
-    if (child == 0)
-    {
-        std::vector<std::string> argv_storage = owner_args;
-        std::vector<char*> argv;
-        argv.reserve(argv_storage.size() + 1);
-        for (auto& arg : argv_storage)
-            argv.push_back(arg.data());
-        argv.push_back(nullptr);
-        execv(exe_path.string().c_str(), argv.data());
-        _exit(127);
-    }
-    return true;
-#endif
-}
-
-enum class SessionOwnerLaunchStatus
-{
-    Attached,
-    SpawnFailed,
-    AttachFailed,
-};
-
-SessionOwnerLaunchStatus launch_session_owner_and_attach(
-    const std::vector<std::string>& args, const draxul::ParsedArgs& parsed, std::string* error)
-{
-    PERF_MEASURE();
-    const auto exe_path = executable_path(args);
-    if (exe_path.empty())
-    {
-        if (error)
-            *error = "Failed to resolve the Draxul executable path.";
-        return SessionOwnerLaunchStatus::SpawnFailed;
-    }
-
-    const auto owner_args = session_owner_args(args, exe_path, parsed);
-    if (!spawn_session_owner_process(exe_path, owner_args, error))
-        return SessionOwnerLaunchStatus::SpawnFailed;
-
-    constexpr auto kAttachTimeout = std::chrono::seconds(10);
-    constexpr auto kAttachPoll = std::chrono::milliseconds(50);
-    const auto deadline = std::chrono::steady_clock::now() + kAttachTimeout;
-    std::string last_error;
-    while (std::chrono::steady_clock::now() < deadline)
-    {
-        last_error.clear();
-        const auto attach_status = draxul::SessionAttachServer::try_attach(parsed.session_id, &last_error);
-        if (attach_status == draxul::SessionAttachServer::AttachStatus::Attached)
-            return SessionOwnerLaunchStatus::Attached;
-        std::this_thread::sleep_for(kAttachPoll);
-    }
-
-    if (error)
-    {
-        *error = last_error.empty()
-            ? "Timed out waiting for the session owner to accept an attach request."
-            : ("Timed out waiting for the session owner to accept an attach request: " + last_error);
-    }
-    return SessionOwnerLaunchStatus::AttachFailed;
-}
-
-bool try_attach_with_retry(std::string_view session_id, std::chrono::milliseconds timeout, std::string* error)
-{
-    constexpr auto kPoll = std::chrono::milliseconds(50);
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    std::string last_error;
-    int attempt = 0;
-
-    DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-        "Retrying session attach for '%s' for up to %lld ms",
-        std::string(session_id).c_str(),
-        static_cast<long long>(timeout.count()));
-
-    while (std::chrono::steady_clock::now() < deadline)
-    {
-        ++attempt;
-        last_error.clear();
-        const auto attach_status = draxul::SessionAttachServer::try_attach(session_id, &last_error);
-        if (attach_status == draxul::SessionAttachServer::AttachStatus::Attached)
-        {
-            DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-                "Retry attach for '%s' succeeded on attempt %d",
-                std::string(session_id).c_str(),
-                attempt);
-            return true;
-        }
-        DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-            "Retry attach attempt %d for '%s' returned status=%d error='%s'",
-            attempt,
-            std::string(session_id).c_str(),
-            static_cast<int>(attach_status),
-            last_error.c_str());
-        std::this_thread::sleep_for(kPoll);
-    }
-
-    if (error)
-        *error = last_error;
-    DRAXUL_LOG_WARN(draxul::LogCategory::App,
-        "Retry attach for '%s' timed out after %d attempts; last error='%s'",
-        std::string(session_id).c_str(),
-        attempt,
-        last_error.c_str());
-    return false;
 }
 
 } // namespace
@@ -498,9 +143,10 @@ static int draxul_main(std::vector<std::string> args)
         return 1;
     }
     draxul::ParsedArgs& parsed = parse_result.args;
+    draxul::SessionCli session_cli;
 
     std::string new_session_error;
-    if (!prepare_new_session_launch(parsed, &new_session_error))
+    if (!session_cli.prepare_new_session_launch(parsed, &new_session_error))
     {
         // Don't exit — fall back to a default session. The window must appear.
         DRAXUL_LOG_WARN(draxul::LogCategory::App,
@@ -554,158 +200,16 @@ static int draxul_main(std::vector<std::string> args)
         draxul::configure_logging(log_overrides);
     }
 
-    if (parsed.list_sessions)
+    const auto session_cli_result = session_cli.run(
+        draxul::SessionCliRequest::from_parsed_args(parsed));
+    if (session_cli_result.disposition != draxul::SessionCliDisposition::Continue)
     {
-        std::string list_error;
-        const auto sessions = draxul::list_known_sessions(&list_error);
-        if (!list_error.empty())
-        {
-            std::fprintf(stderr, "Failed to list sessions: %s\n", list_error.c_str());
-            draxul::shutdown_logging();
-            return 1;
-        }
-        if (sessions.empty())
-        {
-            std::printf("No saved sessions.\n");
-            draxul::shutdown_logging();
-            return 0;
-        }
-        const std::string table = draxul::format_session_listing_table(sessions);
-        std::fputs(table.c_str(), stdout);
+        if (!session_cli_result.output.empty())
+            std::fputs(session_cli_result.output.c_str(), stdout);
+        if (!session_cli_result.error.empty())
+            std::fputs(session_cli_result.error.c_str(), stderr);
         draxul::shutdown_logging();
-        return 0;
-    }
-
-    if (parsed.attach_session)
-    {
-        std::string attach_error;
-        const auto attach_status = draxul::SessionAttachServer::try_attach(
-            parsed.session_id, &attach_error);
-        if (attach_status == draxul::SessionAttachServer::AttachStatus::Attached)
-        {
-            std::printf("Attached to session '%s'.\n", parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 0;
-        }
-        if (attach_status == draxul::SessionAttachServer::AttachStatus::NoServer)
-        {
-            std::fprintf(stderr, "No running session '%s'.\n", parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 1;
-        }
-        std::fprintf(stderr, "Failed to attach to session '%s': %s\n",
-            parsed.session_id.c_str(), attach_error.empty() ? "unknown error" : attach_error.c_str());
-        draxul::shutdown_logging();
-        return 1;
-    }
-
-    if (parsed.detach_session)
-    {
-        std::string command_error;
-        const auto detach_status = draxul::SessionAttachServer::send_command(
-            parsed.session_id, draxul::SessionAttachServer::Command::Detach, &command_error);
-        if (detach_status == draxul::SessionAttachServer::AttachStatus::Attached)
-        {
-            constexpr auto kDetachTimeout = std::chrono::seconds(1);
-            constexpr auto kDetachPoll = std::chrono::milliseconds(50);
-            const auto deadline = std::chrono::steady_clock::now() + kDetachTimeout;
-            while (std::chrono::steady_clock::now() < deadline)
-            {
-                draxul::SessionAttachServer::LiveSessionInfo live_info;
-                if (draxul::SessionAttachServer::query_live_session(parsed.session_id, &live_info)
-                    && live_info.detached)
-                {
-                    std::printf("Detached session '%s'.\n", parsed.session_id.c_str());
-                    draxul::shutdown_logging();
-                    return 0;
-                }
-                std::this_thread::sleep_for(kDetachPoll);
-            }
-            std::fprintf(stderr,
-                "Session '%s' is running but did not detach. It may not be a detachable shell session.\n",
-                parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 1;
-        }
-        if (detach_status == draxul::SessionAttachServer::AttachStatus::NoServer)
-        {
-            std::fprintf(stderr, "No running session '%s'.\n", parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 1;
-        }
-        std::fprintf(stderr, "Failed to detach session '%s': %s\n",
-            parsed.session_id.c_str(), command_error.empty() ? "unknown error" : command_error.c_str());
-        draxul::shutdown_logging();
-        return 1;
-    }
-
-    if (parsed.rename_session)
-    {
-        std::string command_error;
-        if (draxul::SessionAttachServer::rename_session(
-                parsed.session_id, parsed.session_name, &command_error))
-        {
-            std::printf("Renamed session '%s' to '%s'.\n",
-                parsed.session_id.c_str(),
-                parsed.session_name.c_str());
-            draxul::shutdown_logging();
-            return 0;
-        }
-
-        std::string rename_error;
-        if (rename_saved_session_records(parsed.session_id, parsed.session_name, &rename_error))
-        {
-            std::printf("Renamed saved session '%s' to '%s'.\n",
-                parsed.session_id.c_str(),
-                parsed.session_name.c_str());
-            draxul::shutdown_logging();
-            return 0;
-        }
-
-        const char* message = !rename_error.empty() ? rename_error.c_str()
-                                                    : (!command_error.empty() ? command_error.c_str() : "unknown error");
-        std::fprintf(stderr, "Failed to rename session '%s': %s\n",
-            parsed.session_id.c_str(), message);
-        draxul::shutdown_logging();
-        return 1;
-    }
-
-    if (parsed.kill_session)
-    {
-        std::string command_error;
-        const auto kill_status = draxul::SessionAttachServer::send_command(
-            parsed.session_id, draxul::SessionAttachServer::Command::Shutdown, &command_error);
-        if (kill_status == draxul::SessionAttachServer::AttachStatus::Attached)
-        {
-            std::printf("Killed running session '%s'.\n", parsed.session_id.c_str());
-            (void)draxul::delete_session_state(parsed.session_id);
-            (void)draxul::delete_session_runtime_metadata(parsed.session_id);
-            draxul::shutdown_logging();
-            return 0;
-        }
-
-        std::string delete_error;
-        const bool deleted_saved_state = draxul::delete_session_state(parsed.session_id, &delete_error);
-        const bool deleted_metadata = draxul::delete_session_runtime_metadata(parsed.session_id);
-        if (kill_status == draxul::SessionAttachServer::AttachStatus::NoServer
-            && (deleted_saved_state || deleted_metadata))
-        {
-            std::printf("Deleted saved session '%s'.\n", parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 0;
-        }
-
-        if (kill_status == draxul::SessionAttachServer::AttachStatus::NoServer)
-        {
-            std::fprintf(stderr, "No running or saved session '%s'.\n", parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 1;
-        }
-
-        std::fprintf(stderr, "Failed to kill session '%s': %s\n",
-            parsed.session_id.c_str(), command_error.empty() ? "unknown error" : command_error.c_str());
-        draxul::shutdown_logging();
-        return 1;
+        return session_cli_result.disposition == draxul::SessionCliDisposition::Handled ? 0 : 1;
     }
 
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
@@ -778,7 +282,7 @@ static int draxul_main(std::vector<std::string> args)
     options.new_session_requested = parsed.new_session;
     if (parsed.pick_session)
     {
-        const auto picker_exe_path = executable_path(args);
+        const auto picker_exe_path = draxul::resolve_self_executable_path(args);
         options.enable_session_attach = false;
         options.enable_session_restore = false;
         options.host_factory = [picker_exe_path](draxul::HostKind /*kind*/) {
@@ -811,9 +315,8 @@ static int draxul_main(std::vector<std::string> args)
             parsed.persistent_app ? 1 : 0,
             parsed.session_owner ? 1 : 0);
         std::string attach_error;
-        const auto attach_status = draxul::SessionAttachServer::try_attach(
-            parsed.session_id, &attach_error);
-        if (attach_status == draxul::SessionAttachServer::AttachStatus::Attached)
+        const auto attach_attempt = session_cli.try_attach_existing(parsed.session_id, &attach_error);
+        if (attach_attempt.attached)
         {
             DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
                 "Startup attach to session '%s' succeeded; exiting helper process",
@@ -825,7 +328,7 @@ static int draxul_main(std::vector<std::string> args)
         DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
             "Startup attach to session '%s' did not attach (status=%d, error='%s')",
             parsed.session_id.c_str(),
-            static_cast<int>(attach_status),
+            attach_attempt.status_code,
             attach_error.c_str());
     }
 
@@ -841,7 +344,7 @@ static int draxul_main(std::vector<std::string> args)
                 parsed.session_id.c_str(),
                 app.init_error().c_str());
             std::string attach_error;
-            if (try_attach_with_retry(parsed.session_id, std::chrono::seconds(2), &attach_error))
+            if (session_cli.try_attach_with_retry(parsed.session_id, std::chrono::seconds(2), &attach_error))
             {
                 DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
                     "Recovered from session-attach initialization error by attaching to '%s'",

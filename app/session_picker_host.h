@@ -1,11 +1,13 @@
 #pragma once
 
+#include "self_launch.h"
 #include "session_picker.h"
 
 #include <draxul/host.h>
 #include <draxul/renderer.h>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 
 namespace draxul
@@ -14,7 +16,10 @@ namespace draxul
 class SessionPickerHost : public IHost
 {
 public:
-    explicit SessionPickerHost(std::filesystem::path executable_path);
+    using LaunchFunction = std::function<SelfLaunchResult(const SelfLaunchCommand&)>;
+
+    explicit SessionPickerHost(std::filesystem::path executable_path,
+        LaunchFunction launch = launch_self_process);
 
     bool initialize(const HostContext& context, IHostCallbacks& callbacks) override;
     void shutdown() override;
@@ -41,6 +46,7 @@ private:
     void flush_atlas_if_dirty();
 
     std::filesystem::path executable_path_;
+    LaunchFunction launch_;
     SessionPicker picker_;
     std::unique_ptr<IGridHandle> handle_;
     IHostCallbacks* callbacks_ = nullptr;

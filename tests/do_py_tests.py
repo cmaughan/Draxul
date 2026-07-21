@@ -441,6 +441,8 @@ class ReviewArgumentParsingTests(unittest.TestCase):
     def test_review_defaults_to_all_with_default_timeout(self) -> None:
         parsed = draxul_do.parse_review_args([])
 
+        self.assertEqual("features", parsed.review_kind)
+        self.assertFalse(parsed.review_kind_explicit)
         self.assertEqual("all", parsed.review_target)
         self.assertEqual(900, parsed.agy_timeout_seconds)
         self.assertFalse(parsed.dry_run)
@@ -452,9 +454,29 @@ class ReviewArgumentParsingTests(unittest.TestCase):
         self.assertEqual(1200, parsed.agy_timeout_seconds)
         self.assertTrue(parsed.dry_run)
 
+    def test_review_accepts_kind_and_target_in_either_order(self) -> None:
+        refactor = draxul_do.parse_review_args(["refactor", "codex"])
+        bugs = draxul_do.parse_review_args(["claude", "bugs"])
+
+        self.assertEqual("refactor", refactor.review_kind)
+        self.assertTrue(refactor.review_kind_explicit)
+        self.assertEqual("codex", refactor.review_target)
+        self.assertEqual("bugs", bugs.review_kind)
+        self.assertEqual("claude", bugs.review_target)
+
+    def test_review_rejects_multiple_kinds(self) -> None:
+        with self.assertRaises(SystemExit):
+            draxul_do.parse_review_args(["features", "bugs"])
+
     def test_review_rejects_non_positive_timeout(self) -> None:
         with self.assertRaises(SystemExit):
             draxul_do.parse_review_args(["--agy-timeout", "0"])
+
+    def test_consensus_accepts_review_kind(self) -> None:
+        parsed = draxul_do.parse_consensus_args(["refactor", "--dry-run"])
+
+        self.assertEqual("refactor", parsed.review_kind)
+        self.assertTrue(parsed.dry_run)
 
 
 class ReviewPlanTests(unittest.TestCase):
@@ -488,6 +510,23 @@ class ReviewPlanTests(unittest.TestCase):
 
         self.assertEqual("Consensus", plan.mode)
         self.assertEqual(ROOT / "plans" / "prompts" / "consensus_review_bugs.md", plan.consensus_prompt_path)
+
+    def test_refactor_review_kind_plan_uses_refactor_prompt_and_outputs(self) -> None:
+        plan = draxul_do.create_review_kind_plan(ROOT, "refactor")
+
+        self.assertEqual(ROOT / "plans" / "prompts" / "review_refactor.md", plan.review_prompt_path)
+        self.assertEqual(ROOT / "plans" / "prompts" / "consensus_review_refactor.md", plan.consensus_prompt_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-refactor-latest.gpt.md", plan.codex_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-refactor-latest.gemini.md", plan.gemini_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-refactor-latest.claude.md", plan.claude_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-refactor-consensus.md", plan.consensus_review_path)
+
+    def test_feature_kind_plan_preserves_existing_filenames(self) -> None:
+        plan = draxul_do.create_review_kind_plan(ROOT, "features")
+
+        self.assertEqual(ROOT / "plans" / "prompts" / "review.md", plan.review_prompt_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-latest.gpt.md", plan.codex_review_path)
+        self.assertEqual(ROOT / "plans" / "reviews" / "review-consensus.md", plan.consensus_review_path)
 
 
 class NativeCommandTests(unittest.TestCase):

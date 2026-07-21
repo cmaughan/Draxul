@@ -5,8 +5,6 @@
 #include <condition_variable>
 #include <draxul/host.h>
 #include <draxul/megacity_code_config.h>
-#include <draxul/perf_timing.h>
-#include <draxul/treesitter.h>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -20,12 +18,12 @@ struct ImGuiContext;
 namespace draxul
 {
 
-class CodeVizInputState;
+class MegacityCameraInput;
+class SemanticSourceController;
+class MetricsOverlayController;
 struct GeometryMesh;
 class IsometricCamera;
 class CodeVizScenePass;
-struct LiveCityMetricsSnapshot;
-struct LcovFunctionLookup;
 struct SignLabelAtlas;
 struct CodeSemanticSnapshot;
 struct SemanticMegacityModel;
@@ -99,7 +97,6 @@ private:
     void clear_semantic_city();
     void start_tree_sitter_semantic_source();
     void stop_tree_sitter_semantic_source();
-    void refresh_available_modules();
     void rebuild_semantic_city();
     void request_grid_build_cancel();
     void retire_grid_thread();
@@ -110,25 +107,22 @@ private:
     void reset_camera_to_default_frame();
 
     MegaCityVisualizationMode visualization_mode_ = MegaCityVisualizationMode::City;
-    std::unique_ptr<CodeVizInputState> input_;
+    std::unique_ptr<MegacityCameraInput> camera_input_;
     IHostCallbacks* callbacks_ = nullptr;
     HostViewport viewport_;
     std::shared_ptr<CodeVizScenePass> scene_pass_;
     std::unique_ptr<CodeVizSceneWorld> world_;
     std::unique_ptr<IsometricCamera> camera_;
-    CodebaseScanner scanner_;
-    std::filesystem::path scan_root_;
-    std::shared_ptr<const CodebaseSnapshot> applied_treesitter_snapshot_;
+    std::unique_ptr<SemanticSourceController> semantic_source_;
     std::shared_ptr<const CodeSemanticSnapshot> code_semantics_;
     std::unique_ptr<TextService> sign_text_service_;
     std::unique_ptr<TextService> tooltip_text_service_;
     std::shared_ptr<SignLabelAtlas> sign_label_atlas_;
     std::shared_ptr<const GeometryMesh> foliage_stem_mesh_;
     std::shared_ptr<const GeometryMesh> foliage_card_mesh_;
-    std::shared_ptr<const LiveCityMetricsSnapshot> live_metrics_;
+    std::unique_ptr<MetricsOverlayController> metrics_overlay_;
     std::shared_ptr<const SemanticMegacityModel> semantic_model_;
     std::shared_ptr<const SemanticMegacityLayout> semantic_layout_;
-    std::vector<std::string> available_modules_;
     ConfigDocument* config_document_ = nullptr;
     MegaCityCodeConfig renderer_config_;
     MegaCityCodeConfig pending_renderer_config_;
@@ -142,8 +136,6 @@ private:
     float world_span_ = 5.0f;
     bool scene_dirty_ = true;
     bool world_rebuild_pending_ = false;
-    bool semantic_snapshot_ready_ = false;
-    bool scanner_started_ = false;
     bool restore_camera_after_initial_build_ = false;
     bool city_bounds_valid_ = false;
     float city_min_x_ = -2.5f;
@@ -163,20 +155,15 @@ private:
     bool selection_routes_requested_ = false;
     bool hidden_hover_active_ = false;
     float hidden_hover_blend_ = 0.0f;
-    uint64_t last_live_perf_generation_ = 0;
-    RuntimePerfSnapshot coverage_perf_snapshot_;
-    std::shared_ptr<const LcovFunctionLookup> lcov_lookup_;
     std::string init_error_;
     std::chrono::steady_clock::time_point last_activity_time_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_pump_time_ = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point last_live_perf_refresh_time_ = std::chrono::steady_clock::now();
     float last_imgui_delta_seconds_ = 1.0f / 60.0f;
 
     // Hover tooltip state
     glm::ivec2 hover_mouse_pos_{ -1, -1 };
     glm::ivec2 hover_anchor_pos_{ -1, -1 };
     std::chrono::steady_clock::time_point hover_start_time_;
-    std::chrono::steady_clock::time_point scan_start_time_;
     bool hover_tooltip_visible_ = false;
     bool hover_shift_held_ = false;
     std::string hover_building_name_;

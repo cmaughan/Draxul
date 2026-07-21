@@ -53,4 +53,5 @@ target_link_libraries(draxul-satview-core PUBLIC
 )
 target_link_libraries(draxul-satview-core PRIVATE
     celestrak-sgp4
+    draxul-performance
 )

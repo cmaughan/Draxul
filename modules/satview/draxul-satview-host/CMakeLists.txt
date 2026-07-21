@@ -36,3 +36,13 @@ target_link_libraries(draxul-satview-host PRIVATE
     draxul-ui
     SDL3::SDL3
 )
+
+# Camera/controller/worker tests intentionally inspect host internals without
+# making those implementation headers part of the SatView public API.
+add_library(draxul-satview-host-test-internals INTERFACE)
+target_include_directories(draxul-satview-host-test-internals INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(draxul-satview-host-test-internals INTERFACE
+    draxul-satview-host
+)

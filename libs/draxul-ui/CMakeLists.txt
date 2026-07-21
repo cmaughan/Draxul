@@ -15,4 +15,7 @@ target_include_directories(draxul-ui PUBLIC include)
 # Dependency contract: PUBLIC types + imgui (the API exposes ImGuiKey and
 # ImGui-adjacent state); PRIVATE SDL3 (scancode table only) and renderer
 # (IImGuiHost backend interface, IFrameContext submission).
-target_link_libraries(draxul-ui PUBLIC draxul-types imgui PRIVATE SDL3::SDL3 draxul-renderer)
+target_link_libraries(draxul-ui
+    PUBLIC draxul-types imgui
+    PRIVATE draxul-performance SDL3::SDL3 draxul-renderer
+)

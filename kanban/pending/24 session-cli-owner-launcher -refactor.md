@@ -10,20 +10,29 @@ Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanic
 
 ## Implementation plan
 
-- [ ] Land the app self-launch fix (`ice-box/01 macos-app-self-launch -bug.md`, currently deferred) so the extracted launcher begins with safe Windows/POSIX behavior.
-- [ ] Define a `SessionCliRequest` from `CliArgs` and a result enum distinguishing handled/continue/error.
-- [ ] Extract owner-argument construction, launch, retry/backoff, and error formatting into `SessionOwnerLauncher`.
-- [ ] Extract list/attach/detach/kill/rename orchestration into `SessionCli` using injected state/attach services.
-- [ ] Keep console/window setup, provider registration, and final App construction in `main.cpp`.
-- [ ] Make the launcher testable without spawning the Draxul GUI via injected process APIs.
-- [ ] Preserve exit codes and all existing CLI text unless a documented bug requires change.
+- [x] Implement the app self-launch fix (`ice-box/01 macos-app-self-launch -bug.md`) so the live picker launcher uses safe Windows/POSIX behavior.
+- [x] Define a `SessionCliRequest` from `CliArgs` and a result enum distinguishing handled/continue/error.
+- [x] Remove the dead owner-argument/spawn/attach path. Single-process persistence no longer called it, so retaining a `SessionOwnerLauncher` abstraction would preserve unreachable behavior. The live collision retry/backoff now belongs to `SessionCli`.
+- [x] Extract list/attach/detach/kill/rename orchestration into `SessionCli` using injected state/attach services.
+- [x] Keep console/window setup, provider registration, and final App construction in `main.cpp`.
+- [x] Make self-launch testable without spawning the Draxul GUI via an injected picker process API and a structured launch command/result.
+- [x] Preserve exit codes and all existing CLI text unless a documented bug requires change.
 
 ## Tests and acceptance
 
-- [ ] Table-test every session CLI mode, invalid combination, retry result, and owner argument.
-- [ ] Add Windows/macOS launch integration coverage using a helper process.
-- [ ] `draxul_main()` contains no session protocol or platform process implementation.
+- [x] Table-test every live session CLI mode, invalid combination, retry result, and self-launch argument (the old owner argument is dead and removed).
+- [x] Add Windows/macOS launch integration coverage using a harmless platform helper process.
+- [x] `draxul_main()` contains no session protocol or platform process implementation.
 - [ ] CLI/session tests, full build, `ctest`, and smoke pass.
+
+### Validation status (2026-07-21)
+
+Windows Release build-only coverage is green: `draxul-test-app` compiled and
+linked `session_cli_tests.cpp` and `self_launch_tests.cpp`, and a Release
+`draxul` build linked the extracted CLI/launcher path successfully. No test,
+helper process, or application executable was launched. This card remains
+pending for runtime CLI/session integration, `ctest`, smoke, and macOS launch
+execution.
 
 ## Dependencies and parallelism
 

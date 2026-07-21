@@ -1,5 +1,6 @@
 #pragma once
-#include <draxul/vulkan/vk_resource_helpers.h>
+#include "vk_resource_ownership.h"
+#include <draxul/pending_atlas_upload.h>
 
 #include <draxul/types.h>
 #include <span>

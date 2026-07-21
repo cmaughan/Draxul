@@ -587,9 +587,13 @@ PieceProfile analyze_piece(const std::vector<AnalysisOnset>& onsets, double quar
                 break;
             auto [it, fresh] = trie[static_cast<size_t>(node)].children.try_emplace(
                 token.key(), static_cast<int>(trie.size()));
+            // Growing the trie can reallocate the vector and move the map that
+            // owns `it`. Preserve the child index before emplacing a node so we
+            // never dereference an invalidated iterator.
+            const int child = it->second;
             if (fresh)
                 trie.emplace_back();
-            node = it->second;
+            node = child;
             trie[static_cast<size_t>(node)].starts.push_back(static_cast<int>(s0));
         }
     }

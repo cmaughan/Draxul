@@ -16,6 +16,7 @@
 #include "live_city_metrics.h"
 #include "mesh_library.h"
 #include "scene_snapshot_builder.h"
+#include "semantic_source_controller.h"
 #include "semantic_city_layout.h"
 #include "temp_dir.h"
 #include "test_host_callbacks.h"
@@ -108,6 +109,20 @@ std::shared_ptr<const CodebaseSnapshot> wait_for_complete_snapshot(
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     return scanner.snapshot();
+}
+
+std::shared_ptr<const CodebaseSnapshot> wait_for_complete_snapshot(
+    SemanticSourceController& source,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(2000))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (const auto snapshot = source.scanner_snapshot(); snapshot && snapshot->complete)
+            return snapshot;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return source.scanner_snapshot();
 }
 
 struct ShutdownOrderImGuiHost : IImGuiHost

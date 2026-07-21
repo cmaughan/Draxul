@@ -141,7 +141,10 @@ else()
 endif()
 
 # --- Libraries ---
+add_subdirectory(libs/draxul-performance)
+add_subdirectory(libs/draxul-host-identity)
 add_subdirectory(libs/draxul-types)
+add_subdirectory(libs/draxul-bmp)
 add_subdirectory(libs/draxul-http)
 add_subdirectory(libs/draxul-window)
 add_subdirectory(libs/draxul-renderer)
@@ -168,9 +171,12 @@ if(DRAXUL_ENABLE_SCOREVIEW)
     add_subdirectory(modules/score)
 endif()
 
+include(cmake/CheckDependencyBoundaries.cmake)
+draxul_check_dependency_boundaries()
+
 # Apply sanitizers/coverage to all draxul library targets (not FetchContent deps)
 foreach(_draxul_lib
-    draxul-types draxul-http draxul-window draxul-renderer draxul-ui
+    draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
@@ -262,7 +268,13 @@ endif()
 add_library(draxul-app
     app/app.cpp
     app/chrome_host.cpp
+    app/chrome_layout.cpp
+    app/chrome_text_layer.cpp
+    app/chrome_vector_pass.cpp
+    app/rename_editor.cpp
     app/cli_args.cpp
+    app/self_launch.cpp
+    app/session_cli.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
     app/session_listing.cpp
@@ -303,6 +315,7 @@ target_link_libraries(draxul-app PUBLIC
     draxul-host
     draxul-nanovg
 )
+target_link_libraries(draxul-app PRIVATE draxul-performance)
 # NOTE: draxul-megacity is intentionally NOT linked here. The terminal product
 # library has zero megacity dependency. Megacity is linked into the executable
 # target below, where main.cpp registers it via the host provider registry.
@@ -333,7 +346,13 @@ draxul_apply_sanitizers(draxul)
 draxul_apply_coverage(draxul)
 draxul_apply_msvc_parallel_pdb_fix(draxul)
 
-target_link_libraries(draxul PRIVATE draxul-app draxul-markdown-host draxul-kanban)
+target_link_libraries(draxul PRIVATE
+    draxul-app
+    draxul-bmp
+    draxul-markdown-host
+    draxul-kanban
+    draxul-performance
+)
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_MEGACITY)

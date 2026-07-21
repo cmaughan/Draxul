@@ -1,5 +1,5 @@
 // Byte-exact serialization parity snapshots for the declarative config schema
-// migration (kanban/pending/21 declarative-config-schema -refactor.md).
+// migration (kanban/done/21 declarative-config-schema -refactor.md).
 //
 // These tests pin the exact TOML text produced by the config layer BEFORE the
 // schema migration. Every migration group must keep them byte-identical; they
@@ -8,7 +8,7 @@
 // Golden files live in tests/fixtures/config/. To regenerate after an
 // INTENTIONAL format change, run:
 //
-//   DRAXUL_REGEN_CONFIG_GOLDENS=1 ./build/tests/draxul-tests "[parity]"
+//   DRAXUL_REGEN_CONFIG_GOLDENS=1 ./build/tests/draxul-test-core "[parity]"
 //
 // and review the fixture diff like any other code change.
 
@@ -16,11 +16,16 @@
 
 #include <draxul/app_config.h>
 #include <draxul/config_document.h>
+#include <draxul/toml_support.h>
 
+#include <algorithm>
 #include <catch2/catch_all.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <string>
 
 using namespace draxul;
@@ -47,6 +52,53 @@ bool regen_goldens()
     return env != nullptr && env[0] != '\0' && env[0] != '0';
 }
 
+std::string canonicalize_checkout_bytes(std::string text)
+{
+    // Git may materialize checked text fixtures as CRLF on Windows, whereas
+    // AppConfig::serialize() intentionally returns a platform-neutral LF
+    // string (ofstream performs native text conversion when saving). Compare
+    // the canonical in-memory representation rather than checkout policy.
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+
+    // toml++ may choose either of two equivalent last-digit spellings for a
+    // double that originated as float (MSVC currently emits
+    // 0.8999999761581421; libc++ has emitted 0.89999997615814209). Preserve
+    // byte checks for layout, ordering, quoting, booleans, and integers while
+    // canonicalizing only standalone floating-point assignment values.
+    std::string result;
+    result.reserve(text.size());
+    size_t cursor = 0;
+    while (cursor < text.size())
+    {
+        const size_t newline = text.find('\n', cursor);
+        const size_t end = newline == std::string::npos ? text.size() : newline;
+        std::string line = text.substr(cursor, end - cursor);
+        const size_t equals = line.find(" = ");
+        if (equals != std::string::npos)
+        {
+            const size_t value_start = equals + 3;
+            const std::string value = line.substr(value_start);
+            if (value.find_first_of(".eE") != std::string::npos)
+            {
+                char* parse_end = nullptr;
+                const double parsed = std::strtod(value.c_str(), &parse_end);
+                if (parse_end == value.c_str() + value.size())
+                {
+                    std::ostringstream canonical;
+                    canonical << std::setprecision(std::numeric_limits<double>::max_digits10)
+                              << parsed;
+                    line.replace(value_start, std::string::npos, canonical.str());
+                }
+            }
+        }
+        result.append(line);
+        if (newline != std::string::npos)
+            result.push_back('\n');
+        cursor = newline == std::string::npos ? text.size() : newline + 1;
+    }
+    return result;
+}
+
 void compare_against_golden(const std::string& actual, const char* golden_name)
 {
     const std::filesystem::path golden = fixture_path(golden_name);
@@ -61,7 +113,16 @@ void compare_against_golden(const std::string& actual, const char* golden_name)
     INFO("regenerate with DRAXUL_REGEN_CONFIG_GOLDENS=1 if this change is intentional");
     const std::string expected = read_file_bytes(golden);
     REQUIRE_FALSE(expected.empty());
-    CHECK(actual == expected);
+
+    // Semantic parity remains exact even where the formatter's equivalent
+    // floating spelling differs between standard-library implementations.
+    const auto actual_document = toml_support::parse_document(actual);
+    const auto expected_document = toml_support::parse_document(expected);
+    REQUIRE(actual_document.has_value());
+    REQUIRE(expected_document.has_value());
+    CHECK(*actual_document == *expected_document);
+
+    CHECK(canonicalize_checkout_bytes(actual) == canonicalize_checkout_bytes(expected));
 }
 
 // Every config key the app owns, each set to a valid non-default value. Keep in

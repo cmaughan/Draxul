@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <variant>
 
 namespace draxul::config_schema
@@ -452,7 +453,7 @@ std::string render_config_docs_markdown()
     out.append(
         "     Do not edit by hand. Regenerate with:\n");
     out.append(
-        "       DRAXUL_REGEN_CONFIG_DOCS=1 ./build/tests/draxul-tests \"[config][docs]\" -->\n\n");
+        "       DRAXUL_REGEN_CONFIG_DOCS=1 ./build/tests/draxul-test-core \"[config][docs]\" -->\n\n");
     out.append("User settings live in `config.toml`. Every key below is owned by the core\n");
     out.append("config layer; optional product modules own their own top-level tables and are\n");
     out.append("preserved verbatim.\n\n");
@@ -498,6 +499,164 @@ int floor_pow2(int value)
     while (result * 2 <= value)
         result *= 2;
     return result;
+}
+
+bool type_matches(ValueKind kind, const toml::node& node);
+
+void warn_out_of_range(const ConfigFieldDesc& field, double value)
+{
+    if (!field.warn_out_of_range)
+        return;
+
+    const std::string key = field.dotted_key();
+    DRAXUL_LOG_WARN(LogCategory::App,
+        "[config] %s %g out of range [%g,%g] -- using default",
+        key.c_str(), value, field.min, field.max);
+}
+
+int apply_int_parse(const ConfigFieldDesc& field, int64_t value, int default_value)
+{
+    const int64_t lo = static_cast<int64_t>(field.min);
+    const int64_t hi = static_cast<int64_t>(field.max);
+    switch (field.parse_range)
+    {
+    case RangeRule::Clamp:
+        value = std::clamp(value, lo, hi);
+        break;
+    case RangeRule::ClampMin:
+        value = std::max(value, lo);
+        break;
+    case RangeRule::UseDefault:
+        if (value < lo || value > hi)
+        {
+            warn_out_of_range(field, static_cast<double>(value));
+            return default_value;
+        }
+        break;
+    case RangeRule::PowerOfTwo:
+        return floor_pow2(static_cast<int>(std::clamp(value, lo, hi)));
+    case RangeRule::None:
+        break;
+    }
+    return static_cast<int>(value);
+}
+
+float apply_float_parse(const ConfigFieldDesc& field, double value, float default_value)
+{
+    const double lo = field.min;
+    const double hi = field.max;
+    switch (field.parse_range)
+    {
+    case RangeRule::Clamp:
+        value = std::clamp(value, lo, hi);
+        break;
+    case RangeRule::ClampMin:
+        value = std::max(value, lo);
+        break;
+    case RangeRule::UseDefault:
+        if (value < lo || value > hi)
+        {
+            warn_out_of_range(field, value);
+            return default_value;
+        }
+        break;
+    case RangeRule::PowerOfTwo:
+    case RangeRule::None:
+        break;
+    }
+    return static_cast<float>(value);
+}
+
+const toml::node* field_node(const ConfigFieldDesc& field, const toml::table& document)
+{
+    if (field.section.empty())
+        return document.get(field.key);
+    const toml::table* section = document[field.section].as_table();
+    return section != nullptr ? section->get(field.key) : nullptr;
+}
+
+void parse_one_field(const ConfigFieldDesc& field, const toml::table& document, AppConfig& config)
+{
+    const toml::node* node = field_node(field, document);
+    if (node == nullptr || !type_matches(field.kind, *node))
+        return;
+
+    static const AppConfig defaults;
+    std::visit(
+        [&](auto accessor) {
+            const auto& default_value = accessor(defaults);
+            auto& target = const_cast<std::remove_const_t<std::remove_reference_t<decltype(accessor(config))>>&>(accessor(config));
+            using T = std::decay_t<decltype(target)>;
+            if constexpr (std::is_same_v<T, bool>)
+            {
+                if (auto value = node->value<bool>())
+                    target = *value;
+            }
+            else if constexpr (std::is_same_v<T, int>)
+            {
+                if (auto value = node->value<int64_t>())
+                    target = apply_int_parse(field, *value, default_value);
+            }
+            else if constexpr (std::is_same_v<T, float>)
+            {
+                // Preserve the legacy exception: palette_bg_alpha accepted only
+                // a TOML floating-point literal, while every other Float field
+                // accepted either an integer or a floating-point literal.
+                if (field.section.empty() && field.key == "palette_bg_alpha" && node->is_integer())
+                    return;
+                if (auto value = node->value<double>())
+                    target = apply_float_parse(field, *value, default_value);
+                else if (auto value = node->value<int64_t>())
+                    target = apply_float_parse(field, static_cast<double>(*value), default_value);
+            }
+            else if constexpr (std::is_same_v<T, std::string>)
+            {
+                if (auto value = node->value<std::string>())
+                {
+                    if (field.kind == ValueKind::HexString && !parse_hex_color(*value))
+                    {
+                        const std::string key = field.dotted_key();
+                        DRAXUL_LOG_WARN(LogCategory::App,
+                            "[config] %s '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring",
+                            key.c_str(), value->c_str());
+                        return;
+                    }
+                    target = std::move(*value);
+                }
+            }
+            else if constexpr (std::is_same_v<T, Color>)
+            {
+                if (auto value = node->value<std::string>())
+                {
+                    if (auto parsed = parse_hex_color(*value))
+                        target = *parsed;
+                    else
+                    {
+                        const std::string key = field.dotted_key();
+                        DRAXUL_LOG_WARN(LogCategory::App,
+                            "[config] %s '%s' is not a valid hex color (#RRGGBB or #RGB) -- ignoring",
+                            key.c_str(), value->c_str());
+                    }
+                }
+            }
+            else // std::vector<std::string>
+            {
+                const toml::array* array = node->as_array();
+                if (array == nullptr)
+                    return;
+                std::vector<std::string> values;
+                values.reserve(array->size());
+                for (const toml::node& entry : *array)
+                {
+                    auto value = entry.value<std::string>();
+                    if (!value)
+                        return;
+                    values.push_back(std::move(*value));
+                }
+                target = std::move(values);
+            }
+        },
+        field.ref);
 }
 
 // Apply a field's serialize-time range rule to an integer value. `default_value`
@@ -712,6 +871,68 @@ void check_types(const toml::table& document, const TypeErrorFn& report)
                 if (!value.is_string())
                     report(std::string("keybindings.") + std::string(key.str()), "string", value);
             }
+        }
+    }
+}
+
+void parse_top_level_fields(const toml::table& document, AppConfig& config)
+{
+    for (const ConfigFieldDesc& field : kFields)
+    {
+        if (field.section.empty())
+            parse_one_field(field, document, config);
+    }
+}
+
+void parse_section_fields(const toml::table& document, AppConfig& config)
+{
+    for (const ConfigFieldDesc& field : kFields)
+    {
+        if (!field.section.empty())
+            parse_one_field(field, document, config);
+    }
+}
+
+void warn_unknown_keys(const toml::table& document, AppConfig& config)
+{
+    // Unknown top-level tables belong to optional modules and are deliberately
+    // accepted so ConfigDocument can preserve them verbatim.
+    for (const auto& [key, value] : document)
+    {
+        const std::string_view key_view = key.str();
+        if (is_core_top_level_key(key_view) || value.is_table())
+            continue;
+
+        DRAXUL_LOG_WARN(LogCategory::App, "[config] Unknown key '%.*s' -- check spelling",
+            static_cast<int>(key_view.size()), key_view.data());
+        config.warnings.push_back("Unknown config key: " + std::string(key_view));
+    }
+
+    for (const ConfigSectionDesc& section : kSections)
+    {
+        if (!section.warn_unknown_keys)
+            continue;
+        const toml::table* table = document[section.name].as_table();
+        if (table == nullptr)
+            continue;
+        for (const auto& [key, value] : *table)
+        {
+            const std::string_view key_view = key.str();
+            const bool known = std::any_of(kFields.begin(), kFields.end(),
+                [&](const ConfigFieldDesc& field) {
+                    return field.section == section.name && field.key == key_view;
+                });
+            if (known)
+                continue;
+
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "[config] Unknown %.*s key '%.*s.%.*s' -- check spelling",
+                static_cast<int>(section.name.size()), section.name.data(),
+                static_cast<int>(section.name.size()), section.name.data(),
+                static_cast<int>(key_view.size()), key_view.data());
+            config.warnings.push_back("Unknown " + std::string(section.name)
+                + " config key: " + std::string(key_view));
+            (void)value;
         }
     }
 }
