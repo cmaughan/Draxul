@@ -117,7 +117,7 @@ public:
     explicit PosixTransport(std::string_view session_id)
         : path_((std::filesystem::temp_directory_path()
               / ("draxul-session-attach-" + endpoint_suffix(session_id) + ".sock"))
-                    .string())
+                  .string())
     {
     }
 
@@ -134,7 +134,8 @@ public:
         {
             if (::connect(probe_fd,
                     reinterpret_cast<const sockaddr*>(&address),
-                    sizeof(address)) != 0
+                    sizeof(address))
+                    != 0
                 && (errno == ENOENT || errno == ECONNREFUSED))
             {
                 std::error_code remove_error;
@@ -171,6 +172,7 @@ public:
             close();
             return false;
         }
+        owns_endpoint_ = true;
         return true;
     }
 
@@ -254,15 +256,22 @@ public:
             ::close(listen_fd_);
             listen_fd_ = -1;
         }
-        if (!path_.empty())
+        // Only the transport that BOUND the endpoint owns the socket file. Client
+        // transports (connect/probe/wake) share the same path but must NOT unlink a
+        // live server's socket: doing so leaves the server's accept() loop with no
+        // reachable endpoint, so a later wake() connects into ENOENT and stop()
+        // hangs forever on join() (kanban 25 platform-split regression).
+        if (owns_endpoint_ && !path_.empty())
         {
             std::error_code error;
             std::filesystem::remove(path_, error);
         }
+        owns_endpoint_ = false;
     }
 
 private:
     int listen_fd_ = -1;
+    bool owns_endpoint_ = false;
     std::string path_;
 };
 
