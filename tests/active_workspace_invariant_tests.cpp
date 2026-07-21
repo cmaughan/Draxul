@@ -56,7 +56,7 @@ struct AppTestAccess
 
     static void shutdown_without_persistence(App& app)
     {
-        app.session_killed_ = true;
+        app.discard_session_state_on_shutdown_ = true;
         app.shutdown();
     }
 };

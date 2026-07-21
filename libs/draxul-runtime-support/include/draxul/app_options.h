@@ -38,11 +38,6 @@ struct AppOptions
     // selected session id. This is file-backed restore; it does not keep the
     // process alive after the window is closed.
     bool enable_session_restore = false;
-    // When true, a desktop launch participates in the live attach flow:
-    // closing the main window detaches shell sessions into a hidden background
-    // instance, and a later launch with the same option reactivates that
-    // instance instead of starting a second process. Implies session restore.
-    bool enable_session_attach = false;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind
     // doesn't matter — any host that wants to render every frame can opt in.
@@ -51,7 +46,7 @@ struct AppOptions
     // When true, hosts that have an optional ImGui/debug overlay should hide it
     // on startup. Hosts without such overlays ignore the flag.
     bool hide_host_ui_panels = false;
-    // Stable session id for the shell-session attach/restore flow.
+    // Stable session id for the file-backed shell-session restore flow.
     std::string session_id = "default";
     std::string session_name;
     bool new_session_requested = false;

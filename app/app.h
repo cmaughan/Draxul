@@ -17,15 +17,12 @@
 #include <draxul/host.h>
 #include <draxul/renderer.h>
 #include <draxul/result.h>
-#include <draxul/session_attach.h>
 #include <draxul/system_resource_monitor.h>
 
 #include "weather_service.h"
-#include <atomic>
 #include <draxul/text_service.h>
 #include <draxul/window.h>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -101,8 +98,6 @@ public:
 private:
     bool initialize_text_service();
     bool initialize_chrome_host();
-    bool initialize_session_attach();
-    bool start_session_attach_server(std::string* error);
     void wire_window_callbacks();
     void apply_pending_resize();
     // Returns a TextServiceConfig populated from config_. Used by initialize_text_service() and
@@ -150,19 +145,9 @@ private:
     // call every frame — bails out as soon as the cwd basename matches.
     void refresh_workspace_default_names();
     bool can_snapshot_session_state() const;
-    bool can_detach_window() const;
-    void detach_window();
-    void reattach_window();
-    void kill_session();
-    void rename_session(std::string name);
     std::optional<AppSessionState> snapshot_session_state() const;
     void persist_session_state();
-    SessionRuntimeMetadata snapshot_session_runtime_metadata(bool live) const;
-    void persist_session_runtime_metadata(bool live);
-    void mark_session_attached();
-    void mark_session_detached();
     void maybe_checkpoint_session(std::chrono::steady_clock::time_point now);
-    SessionAttachServer::LiveSessionInfo live_session_info() const;
     bool restore_session_state(int pixel_w, int pixel_h, const AppSessionState& state);
 
     // --- Workspace management (moved from ChromeHost) ---
@@ -243,17 +228,8 @@ private:
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;
     DiagnosticsCollector diagnostics_collector_;
-    SessionAttachServer session_attach_server_;
-    std::atomic<bool> external_attach_requested_ = false;
-    std::atomic<bool> external_detach_requested_ = false;
-    std::atomic<bool> external_session_shutdown_requested_ = false;
-    std::mutex external_session_rename_mutex_;
-    std::optional<std::string> external_session_rename_requested_;
-    bool detached_ = false;
-    bool session_killed_ = false;
     std::string session_name_;
-    int64_t session_last_attached_unix_s_ = 0;
-    int64_t session_last_detached_unix_s_ = 0;
+    bool discard_session_state_on_shutdown_ = false;
     std::chrono::steady_clock::time_point last_session_checkpoint_time_{};
     std::unordered_set<std::string> announced_dead_panes_;
     std::optional<std::pair<int, int>> pending_window_resize_;

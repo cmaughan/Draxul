@@ -27,7 +27,7 @@ All code sits in the `draxul::gui` namespace.
   (`PaletteViewState`, `ToastViewState`, …) and call a render function each
   time something changes. No retained UI, no frame loop, no input handling —
   input routing belongs to the owning host (`app/command_palette_host.cpp`,
-  `app/toast_host.cpp`, `app/session_picker_host.cpp`).
+  `app/toast_host.cpp`).
 - **Cell-grid output only.** Overlays are cells (or a bitmap the caller
   positions); they inherit the terminal's font, atlas, and DPI handling for
   free via `TextService`.

@@ -190,7 +190,7 @@ Good place for:
 | `libs/draxul-config/` | Config schema, TOML document I/O, and keybinding parsing |
 | `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
 | `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI |
-| `libs/draxul-runtime-support/` | Shared grid-render pipeline, session attach, printing, resource monitoring, and background UI requests |
+| `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
 | `libs/draxul-host/` | Host interfaces/base classes, terminal/Neovim hosts, PTY/ConPTY behavior, and terminal emulation |
 | `libs/draxul-nanovg/` | Cross-platform NanoVG render-pass integration |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |

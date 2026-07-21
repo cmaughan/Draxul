@@ -15,7 +15,7 @@ Allow a pane or full workspace to move into a new OS window and later rejoin wit
 - [ ] Move host/session ownership above individual windows so transferring a workspace does not recreate processes.
 - [ ] Phase 1: detach/rejoin an entire workspace; keep pane detachment disabled.
 - [ ] Phase 2: move a leaf/subtree between workspace trees using a transactional split-tree transfer.
-- [ ] Define focus, active workspace, close-last-window, persistent-app, and session serialization semantics.
+- [ ] Define focus, active workspace, close-last-window, process-lifetime, and file-backed session serialization semantics.
 - [ ] Create independent Vulkan swapchains/Metal views per window while sharing only resources whose device/lifetime contract permits it.
 - [ ] Add commands and visible destinations; support failure rollback if the second window/renderer cannot initialize.
 

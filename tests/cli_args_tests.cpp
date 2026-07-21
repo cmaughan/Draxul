@@ -133,46 +133,11 @@ TEST_CASE("cli: --list-sessions sets the flag", "[cli]")
     REQUIRE(r.args.list_sessions);
 }
 
-TEST_CASE("cli: --pick-session sets the flag", "[cli]")
-{
-    auto r = parse({ "--pick-session" });
-    REQUIRE_FALSE(r.error.has_value());
-    REQUIRE(r.args.pick_session);
-}
-
 TEST_CASE("cli: --new-session sets the flag", "[cli]")
 {
     auto r = parse({ "--new-session" });
     REQUIRE_FALSE(r.error.has_value());
     REQUIRE(r.args.new_session);
-}
-
-TEST_CASE("cli: --session-owner sets the internal owner flag", "[cli]")
-{
-    auto r = parse({ "--session-owner" });
-    REQUIRE_FALSE(r.error.has_value());
-    REQUIRE(r.args.session_owner);
-}
-
-TEST_CASE("cli: --persistent-app sets the persistent app flag", "[cli]")
-{
-    auto r = parse({ "--persistent-app" });
-    REQUIRE_FALSE(r.error.has_value());
-    REQUIRE(r.args.persistent_app);
-}
-
-TEST_CASE("cli: --attach-session sets the flag", "[cli]")
-{
-    auto r = parse({ "--attach-session" });
-    REQUIRE_FALSE(r.error.has_value());
-    REQUIRE(r.args.attach_session);
-}
-
-TEST_CASE("cli: --detach-session sets the flag", "[cli]")
-{
-    auto r = parse({ "--detach-session" });
-    REQUIRE_FALSE(r.error.has_value());
-    REQUIRE(r.args.detach_session);
 }
 
 TEST_CASE("cli: --rename-session sets the flag", "[cli]")
@@ -189,16 +154,16 @@ TEST_CASE("cli: --rename-session without --session-name reports an error", "[cli
     REQUIRE(r.error->find("--rename-session") != std::string::npos);
 }
 
-TEST_CASE("cli: --kill-session sets the flag", "[cli]")
+TEST_CASE("cli: --delete-session sets the flag", "[cli]")
 {
-    auto r = parse({ "--kill-session" });
+    auto r = parse({ "--delete-session" });
     REQUIRE_FALSE(r.error.has_value());
-    REQUIRE(r.args.kill_session);
+    REQUIRE(r.args.delete_session);
 }
 
 TEST_CASE("cli: session control modes are mutually exclusive", "[cli]")
 {
-    auto r = parse({ "--pick-session", "--list-sessions" });
+    auto r = parse({ "--delete-session", "--list-sessions" });
     REQUIRE(r.error.has_value());
     REQUIRE(r.error->find("choose only one") != std::string::npos);
 }

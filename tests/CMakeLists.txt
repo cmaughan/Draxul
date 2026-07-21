@@ -45,10 +45,8 @@ set(DRAXUL_APP_TEST_SOURCES
     input_dispatcher_routing_tests.cpp
     overlay_allocation_failure_tests.cpp
     pane_status_pill_tests.cpp
-    session_attach_tests.cpp
-    session_attach_transport_tests.cpp
+    session_cli_tests.cpp
     session_listing_tests.cpp
-    session_picker_tests.cpp
     session_state_tests.cpp
     split_tree_tests.cpp
     startup_config_tests.cpp
@@ -56,15 +54,6 @@ set(DRAXUL_APP_TEST_SOURCES
     tab_keybinding_roundtrip_tests.cpp
     toast_host_tests.cpp
 )
-# These session-boundary tests can be absent in intermediate checkouts while
-# their owning refactor lands; when present they belong to the app/session
-# executable rather than falling through to core.
-foreach(session_test_source session_cli_tests.cpp self_launch_tests.cpp)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${session_test_source}")
-        list(APPEND DRAXUL_APP_TEST_SOURCES ${session_test_source})
-    endif()
-endforeach()
-
 file(GLOB DRAXUL_MARKDOWN_KANBAN_TEST_SOURCES CONFIGURE_DEPENDS
     RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     markdown_*_tests.cpp
@@ -191,9 +180,9 @@ endif()
 # These are the source-level inventories at the modular split boundary. They
 # intentionally include every platform and optional product. Additions are
 # welcome; a drop requires an explicit baseline update and review.
-set(DRAXUL_TEST_SOURCE_BASELINE 194)
-set(DRAXUL_TEST_REGISTRATION_BASELINE 1861)
-set(DRAXUL_TEST_TAG_TOKEN_BASELINE 237)
+set(DRAXUL_TEST_SOURCE_BASELINE 190)
+set(DRAXUL_TEST_REGISTRATION_BASELINE 1815)
+set(DRAXUL_TEST_TAG_TOKEN_BASELINE 229)
 list(LENGTH DRAXUL_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 if(DRAXUL_TEST_SOURCE_COUNT LESS DRAXUL_TEST_SOURCE_BASELINE
    OR DRAXUL_ALL_REGISTRATION_COUNT LESS DRAXUL_TEST_REGISTRATION_BASELINE
@@ -279,7 +268,6 @@ target_link_libraries(draxul-test-app PRIVATE
     draxul-app
     draxul-markdown-host
     draxul-kanban
-    draxul-runtime-support-test-internals
 )
 target_compile_definitions(draxul-test-app PRIVATE DRAXUL_TEST_REGISTER_APP_HOSTS)
 if(DRAXUL_ENABLE_MEGACITY)

@@ -6,7 +6,7 @@
 
 ## Goal
 
-Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiActionHandler`, or `HostManager` extraction. The new growth is workspace ownership and persistent-session orchestration.
+Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiActionHandler`, or `HostManager` extraction. The remaining growth is workspace ownership and file-backed session orchestration.
 
 ## Implementation plan
 
@@ -14,7 +14,7 @@ Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiAct
 - [ ] Catalogue `App` fields/methods into bootstrap/frame/overlay, workspace, and session responsibilities.
 - [ ] Extract `WorkspaceController` to own workspace records, active id, create/close/activate/reorder, split-tree access, focus transitions, and viewport recomputation.
 - [ ] Give it narrow callbacks for host construction/frame requests; do not make it own window/renderer/overlays.
-- [ ] After items 24-25 stabilize process/IPC boundaries, extract `SessionController` for state load/save, attach/detach/rename/kill, runtime metadata, and rollback.
+- [ ] Extract `SessionController` for file-backed state load/save, list/rename/delete, checkpointing, and load/save rollback; do not reintroduce live-process state.
 - [ ] Replace repeated layout-refresh rituals with one controller operation returning the state App must refresh.
 - [ ] Keep `App` responsible for top-level subsystem ownership and the main event/frame loop.
 - [ ] Land workspace and session extraction as separate commits/PRs.
@@ -29,6 +29,6 @@ Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiAct
 
 ## Dependencies and parallelism
 
-Workspace extraction depends on 13/17 and can run beside 24/25. Session extraction waits for 24/25. Large, good for a dedicated App-focused sub-agent with exclusive ownership of `app/app.cpp`.
+Workspace extraction depends on 13/17. The session boundary was simplified by completed item 26 and can now be extracted independently. Large, good for a dedicated App-focused sub-agent with exclusive ownership of `app/app.cpp`.
 
 <model>GPT-5 Codex</model>

@@ -27,12 +27,6 @@ namespace draxul
 #ifdef __APPLE__
 extern void apply_title_bar_color_macos(SDL_Window*, Color);
 extern void disable_press_and_hold_macos();
-extern void* install_dock_reopen_handler(std::function<void()> callback);
-extern void uninstall_dock_reopen_handler(void* handler);
-#elif defined(_WIN32)
-extern void* create_system_tray_icon(std::function<void()> on_attach, std::function<void()> on_quit);
-extern void destroy_system_tray_icon(void* tray_icon);
-extern void pump_tray_messages(void* tray_icon);
 #endif
 
 namespace
@@ -206,10 +200,6 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
     PERF_MEASURE();
     SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "1");
     SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "1");
-    // Closing the last window should not auto-post SDL_EVENT_QUIT; Draxul's
-    // app layer decides whether a close request means detach or full shutdown.
-    SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0");
-
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
     {
         DRAXUL_LOG_ERROR(LogCategory::Window, "SDL_Init failed: %s", SDL_GetError());
@@ -221,10 +211,6 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
     // registerDefaults:, which replaces key repeat with macOS accent pickers.
     // Override it to NO so that holding a key generates OS repeat events.
     disable_press_and_hold_macos();
-    dock_reopen_handler_ = install_dock_reopen_handler([this]() {
-        if (on_dock_reopen)
-            on_dock_reopen();
-    });
 #endif
 
     wake_event_type_ = SDL_RegisterEvents(2);
@@ -278,8 +264,6 @@ bool SdlWindow::initialize(const std::string& title, int width, int height)
         DRAXUL_LOG_ERROR(LogCategory::Window, "SDL_CreateWindow failed: %s", SDL_GetError());
         return false;
     }
-    visible_ = !hidden_;
-
     // Enable text input events (required in SDL3)
     SDL_StartTextInput(window_);
 
@@ -307,7 +291,7 @@ void SdlWindow::activate()
     if (!window_)
         return;
 
-    show();
+    SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
     SDL_SyncWindow(window_);
 
@@ -343,56 +327,9 @@ void SdlWindow::activate()
 #endif
 }
 
-void SdlWindow::show()
-{
-    PERF_MEASURE();
-    if (!window_)
-        return;
-    SDL_ShowWindow(window_);
-    visible_ = true;
-#ifdef _WIN32
-    if (system_tray_icon_)
-    {
-        destroy_system_tray_icon(system_tray_icon_);
-        system_tray_icon_ = nullptr;
-    }
-#endif
-}
-
-void SdlWindow::hide()
-{
-    PERF_MEASURE();
-    if (!window_)
-        return;
-    SDL_HideWindow(window_);
-    visible_ = false;
-#ifdef _WIN32
-    if (!system_tray_icon_)
-        system_tray_icon_ = create_system_tray_icon(on_dock_reopen, on_quit_requested);
-#endif
-}
-
-bool SdlWindow::is_visible() const
-{
-    return window_ ? visible_ : false;
-}
-
 void SdlWindow::shutdown()
 {
     PERF_MEASURE();
-#ifdef __APPLE__
-    if (dock_reopen_handler_)
-    {
-        uninstall_dock_reopen_handler(dock_reopen_handler_);
-        dock_reopen_handler_ = nullptr;
-    }
-#elif defined(_WIN32)
-    if (system_tray_icon_)
-    {
-        destroy_system_tray_icon(system_tray_icon_);
-        system_tray_icon_ = nullptr;
-    }
-#endif
     clear_callbacks();
     if (cursor_default_)
     {
@@ -420,21 +357,6 @@ void SdlWindow::shutdown()
         window_ = nullptr;
     }
     SDL_Quit();
-}
-
-void SdlWindow::clear_lifecycle_callbacks()
-{
-#ifdef _WIN32
-    // The tray context owns copies of these callbacks. Destroy it before
-    // invalidating the window-level registration so no queued native message
-    // can retain an App callback during teardown.
-    if (system_tray_icon_)
-    {
-        destroy_system_tray_icon(system_tray_icon_);
-        system_tray_icon_ = nullptr;
-    }
-#endif
-    IWindow::clear_lifecycle_callbacks();
 }
 
 SDL_Cursor* SdlWindow::ensure_cursor(MouseCursor cursor)
@@ -484,7 +406,7 @@ bool SdlWindow::handle_event(const SDL_Event& event)
     switch (event.type)
     {
     case SDL_EVENT_QUIT:
-        // Cmd+Q / menu Quit / Dock Quit — always terminate, never detach.
+        // Cmd+Q / menu Quit requests application shutdown.
         if (on_quit_requested)
             on_quit_requested();
         else if (on_close_requested)
@@ -492,17 +414,9 @@ bool SdlWindow::handle_event(const SDL_Event& event)
         return true;
 
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-        // Window close button — may detach instead of quit.
+        // Window close button requests application shutdown.
         if (on_close_requested)
             on_close_requested();
-        break;
-
-    case SDL_EVENT_WINDOW_SHOWN:
-        visible_ = true;
-        break;
-
-    case SDL_EVENT_WINDOW_HIDDEN:
-        visible_ = false;
         break;
 
     case SDL_EVENT_WINDOW_RESIZED:
@@ -609,9 +523,6 @@ bool SdlWindow::poll_events()
 {
     PERF_MEASURE();
     flush_text_input_area();
-#ifdef _WIN32
-    pump_tray_messages(system_tray_icon_);
-#endif
     SDL_Event event;
     while (SDL_PollEvent(&event))
     {

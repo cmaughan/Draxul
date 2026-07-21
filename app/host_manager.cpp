@@ -516,7 +516,7 @@ void HostManager::shutdown()
     markdown_preview_owner_ = kInvalidLeaf;
 }
 
-bool HostManager::has_detachable_shell_session() const
+bool HostManager::has_restorable_shell_session() const
 {
     if (hosts_.empty() || launch_options_.empty())
         return false;

@@ -20,7 +20,6 @@
 #include <draxul/app_config.h>
 #include <draxul/host.h>
 #include <draxul/http/http_client.h>
-#include <draxul/session_attach.h>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -545,6 +544,34 @@ TEST_CASE("app smoke: reload_config action reloads user config from disk", "[app
     app.shutdown();
 }
 
+TEST_CASE("app smoke: closing the window exits and preserves file-backed session state",
+    "[app_smoke][session][lifecycle]")
+{
+    TempDir temp("draxul-close-saves-session");
+    HomeDirRedirect redir(temp.path);
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_session_restore = true;
+    opts.session_id = "close-me";
+    opts.session_name = "Close Me";
+    opts.host_kind = HostKind::PowerShell;
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(g_last_fake_window != nullptr);
+
+    REQUIRE(g_last_fake_window->on_close_requested);
+    g_last_fake_window->on_close_requested();
+    CHECK_FALSE(app.run_smoke_test(std::chrono::milliseconds(1)));
+    app.shutdown();
+
+    auto saved = load_session_state("close-me");
+    REQUIRE(saved);
+    CHECK(saved->session_name == "Close Me");
+    REQUIRE(saved->workspaces.size() == 1);
+    REQUIRE(saved->workspaces[0].host_manager.panes.size() == 1);
+}
+
 TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
 {
     const std::string font = bundled_font_path();
@@ -937,9 +964,6 @@ TEST_CASE("app smoke: save_session_as persists a named session and switches acti
     CHECK(saved_state->session_id == new_id);
     CHECK(saved_state->session_name == "Work Bench");
 
-    if (auto old_metadata = load_session_runtime_metadata("default"))
-        CHECK_FALSE(old_metadata->live);
-
     REQUIRE(app.run_smoke_test(std::chrono::milliseconds(200)));
 
     saved_state = load_session_state(new_id);
@@ -1007,72 +1031,12 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     REQUIRE(previous_state);
     CHECK(previous_state->session_name == "Default Session");
 
-    auto previous_metadata = load_session_runtime_metadata("default");
-    REQUIRE(previous_metadata);
-    CHECK_FALSE(previous_metadata->live);
-
     auto loaded_state = load_session_state("target");
     REQUIRE(loaded_state);
     CHECK(loaded_state->session_name == "Target Session");
     REQUIRE(loaded_state->workspaces.size() == 1);
     CHECK(loaded_state->workspaces[0].name == "loaded");
 
-    auto loaded_metadata = load_session_runtime_metadata("target");
-    REQUIRE(loaded_metadata);
-    CHECK(loaded_metadata->session_name == "Target Session");
-    CHECK_FALSE(loaded_metadata->live);
-
-    app.shutdown();
-}
-
-TEST_CASE("app smoke: load_session rejects sessions that are already live elsewhere",
-    "[app_smoke][session]")
-{
-    TempDir temp("draxul-load-session-live-guard");
-    HomeDirRedirect redir(temp.path);
-
-    SplitTree tree;
-    const LeafId leaf = tree.reset(640, 360);
-
-    AppSessionState target;
-    target.session_id = "target";
-    target.session_name = "Target Session";
-    target.active_workspace_id = 1;
-    target.next_workspace_id = 2;
-
-    WorkspaceSessionState workspace;
-    workspace.id = 1;
-    workspace.host_manager.tree = tree.snapshot();
-    workspace.host_manager.panes.push_back({
-        .leaf_id = leaf,
-        .launch = {
-            .kind = HostKind::PowerShell,
-            .command = "pwsh",
-        },
-        .pane_id = "pane-live",
-    });
-    target.workspaces.push_back(std::move(workspace));
-
-    std::string session_error;
-    REQUIRE(save_session_state(target, &session_error));
-    REQUIRE(session_error.empty());
-
-    SessionAttachServer live_server;
-    REQUIRE(live_server.start("target", [](SessionAttachServer::Command) {}));
-
-    AppOptions opts = make_smoke_options();
-    opts.enable_session_restore = true;
-    opts.session_id = "default";
-    opts.host_kind = HostKind::PowerShell;
-
-    App app(std::move(opts));
-    REQUIRE(app.initialize());
-
-    auto loaded = app.load_session("target");
-    REQUIRE_FALSE(loaded);
-    CHECK(loaded.error().message.find("already running") != std::string::npos);
-
-    live_server.stop();
     app.shutdown();
 }
 

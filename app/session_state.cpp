@@ -21,7 +21,6 @@ namespace
 {
 
 constexpr int kSessionStateVersion = 1;
-constexpr int kSessionMetadataVersion = 1;
 
 uint64_t fnv1a_hash(std::string_view text)
 {
@@ -57,13 +56,6 @@ std::string session_file_name(std::string_view session_id)
 {
     std::ostringstream out;
     out << std::hex << fnv1a_hash(session_id) << "-" << session_slug(session_id) << ".toml";
-    return out.str();
-}
-
-std::string session_metadata_file_name(std::string_view session_id)
-{
-    std::ostringstream out;
-    out << std::hex << fnv1a_hash(session_id) << "-" << session_slug(session_id) << ".meta.toml";
     return out.str();
 }
 
@@ -379,53 +371,6 @@ SessionSummary summarize_session_state(const AppSessionState& state)
     return summary;
 }
 
-void merge_runtime_metadata(SessionSummary& summary, const SessionRuntimeMetadata& metadata)
-{
-    if (!metadata.session_name.empty())
-        summary.session_name = metadata.session_name;
-    summary.live = metadata.live;
-    summary.detached = metadata.detached;
-    summary.owner_pid = metadata.owner_pid;
-    summary.last_attached_unix_s = metadata.last_attached_unix_s;
-    summary.last_detached_unix_s = metadata.last_detached_unix_s;
-}
-
-std::optional<SessionRuntimeMetadata> load_session_runtime_metadata_from_path(
-    const std::filesystem::path& path, std::string* error)
-{
-    if (!std::filesystem::exists(path))
-        return std::nullopt;
-
-    std::string parse_error;
-    auto document = toml_support::parse_file(path, &parse_error);
-    if (!document)
-    {
-        if (error)
-            *error = parse_error;
-        return std::nullopt;
-    }
-
-    SessionRuntimeMetadata metadata;
-    metadata.version = static_cast<int>(toml_support::get_int(*document, "version").value_or(0));
-    if (metadata.version != kSessionMetadataVersion)
-    {
-        if (error)
-            *error = "Unsupported session metadata version.";
-        return std::nullopt;
-    }
-
-    metadata.session_id = toml_support::get_string(*document, "session_id").value_or("default");
-    metadata.session_name = toml_support::get_string(*document, "session_name").value_or(metadata.session_id);
-    metadata.live = toml_support::get_bool(*document, "live").value_or(false);
-    metadata.detached = toml_support::get_bool(*document, "detached").value_or(false);
-    metadata.owner_pid = static_cast<uint64_t>(toml_support::get_int(*document, "owner_pid").value_or(0));
-    metadata.last_attached_unix_s = toml_support::get_int(
-        *document, "last_attached_unix_s").value_or(0);
-    metadata.last_detached_unix_s = toml_support::get_int(
-        *document, "last_detached_unix_s").value_or(0);
-    return metadata;
-}
-
 } // namespace
 
 std::filesystem::path session_state_directory()
@@ -439,13 +384,6 @@ std::filesystem::path session_state_path(std::string_view session_id)
     PERF_MEASURE();
     const std::string normalized_id = session_id.empty() ? "default" : std::string(session_id);
     return session_state_directory() / session_file_name(normalized_id);
-}
-
-std::filesystem::path session_metadata_path(std::string_view session_id)
-{
-    PERF_MEASURE();
-    const std::string normalized_id = session_id.empty() ? "default" : std::string(session_id);
-    return session_state_directory() / session_metadata_file_name(normalized_id);
 }
 
 bool has_saved_session_state(std::string_view session_id, std::string* error)
@@ -553,122 +491,6 @@ bool delete_session_state(std::string_view session_id, std::string* error)
     }
 }
 
-bool save_session_runtime_metadata(
-    const SessionRuntimeMetadata& metadata, std::string* error)
-{
-    PERF_MEASURE();
-    try
-    {
-        const std::string normalized_id = metadata.session_id.empty()
-            ? "default"
-            : metadata.session_id;
-        toml::table document;
-        document.insert_or_assign("version", metadata.version);
-        document.insert_or_assign("session_id", normalized_id);
-        document.insert_or_assign(
-            "session_name", metadata.session_name.empty() ? normalized_id : metadata.session_name);
-        document.insert_or_assign("live", metadata.live);
-        document.insert_or_assign("detached", metadata.detached);
-        document.insert_or_assign("owner_pid", static_cast<int64_t>(metadata.owner_pid));
-        document.insert_or_assign("last_attached_unix_s", metadata.last_attached_unix_s);
-        document.insert_or_assign("last_detached_unix_s", metadata.last_detached_unix_s);
-
-        const auto path = session_metadata_path(normalized_id);
-        std::filesystem::create_directories(path.parent_path());
-        std::ofstream out(path, std::ios::trunc);
-        if (!out)
-        {
-            if (error)
-                *error = "Unable to open session metadata for writing.";
-            return false;
-        }
-        out << document << '\n';
-        if (!out)
-        {
-            if (error)
-                *error = "Failed writing session metadata.";
-            return false;
-        }
-        return true;
-    }
-    catch (const std::exception& ex)
-    {
-        if (error)
-            *error = ex.what();
-        return false;
-    }
-}
-
-bool delete_session_runtime_metadata(std::string_view session_id, std::string* error)
-{
-    PERF_MEASURE();
-    try
-    {
-        std::error_code ec;
-        const bool removed = std::filesystem::remove(session_metadata_path(session_id), ec);
-        if (ec)
-        {
-            if (error)
-                *error = ec.message();
-            return false;
-        }
-        return removed;
-    }
-    catch (const std::exception& ex)
-    {
-        if (error)
-            *error = ex.what();
-        return false;
-    }
-}
-
-bool clear_session_runtime_liveness(std::string_view session_id, std::string* error)
-{
-    PERF_MEASURE();
-    std::string io_error;
-    auto metadata = load_session_runtime_metadata(session_id, &io_error);
-    if (!metadata)
-    {
-        if (!io_error.empty())
-        {
-            if (error)
-                *error = io_error;
-            return false;
-        }
-        if (error)
-            error->clear();
-        return true;
-    }
-
-    if (!metadata->live && !metadata->detached && metadata->owner_pid == 0)
-    {
-        if (error)
-            error->clear();
-        return true;
-    }
-
-    metadata->live = false;
-    metadata->detached = false;
-    metadata->owner_pid = 0;
-    if (!save_session_runtime_metadata(*metadata, &io_error))
-    {
-        if (error)
-            *error = io_error;
-        return false;
-    }
-
-    if (error)
-        error->clear();
-    return true;
-}
-
-std::optional<SessionRuntimeMetadata> load_session_runtime_metadata(
-    std::string_view session_id, std::string* error)
-{
-    PERF_MEASURE();
-    return load_session_runtime_metadata_from_path(session_metadata_path(session_id), error);
-}
-
 std::optional<AppSessionState> load_session_state(
     std::string_view session_id, std::string* error)
 {
@@ -707,32 +529,11 @@ std::vector<SessionSummary> list_saved_sessions(std::string* error)
                 const std::string file_name = entry.path().filename().string();
                 std::string load_error;
                 if (file_name.ends_with(".meta.toml"))
-                {
-                    if (auto metadata = load_session_runtime_metadata_from_path(entry.path(), &load_error))
-                    {
-                        SessionSummary& summary = by_id[metadata->session_id];
-                        summary.session_id = metadata->session_id;
-                        if (summary.session_name.empty())
-                            summary.session_name = metadata->session_id;
-                        merge_runtime_metadata(summary, *metadata);
-                    }
-                    else if (!load_error.empty())
-                    {
-                        DRAXUL_LOG_WARN(LogCategory::App,
-                            "Skipping invalid session metadata %s: %s",
-                            entry.path().string().c_str(), load_error.c_str());
-                    }
-                }
-                else if (auto state = load_session_state_from_path(entry.path(), &load_error))
+                    continue;
+                if (auto state = load_session_state_from_path(entry.path(), &load_error))
                 {
                     SessionSummary summary = summarize_session_state(*state);
-                    SessionSummary& slot = by_id[summary.session_id];
-                    slot.session_id = summary.session_id;
-                    if (slot.session_name.empty() || slot.session_name == slot.session_id)
-                        slot.session_name = summary.session_name;
-                    slot.workspace_count = summary.workspace_count;
-                    slot.pane_count = summary.pane_count;
-                    slot.has_saved_state = true;
+                    by_id[summary.session_id] = std::move(summary);
                 }
                 else if (!load_error.empty())
                 {

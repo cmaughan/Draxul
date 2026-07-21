@@ -46,7 +46,6 @@ public:
     {
         std::function<void()> on_close_requested;
         std::function<void()> on_quit_requested;
-        std::function<void()> on_dock_reopen;
     };
 
     class CallbackConnection
@@ -117,18 +116,6 @@ public:
         return false;
     }
     virtual void set_text_input_area(int x, int y, int w, int h) = 0;
-    virtual void show()
-    {
-        // Default no-op; platform backends override when they can show the window.
-    }
-    virtual void hide()
-    {
-        // Default no-op; platform backends override when they can hide the window.
-    }
-    virtual bool is_visible() const
-    {
-        return true;
-    }
     virtual void normalize_render_target_window_size(int /*target_pixel_width*/, int /*target_pixel_height*/)
     {
         // Default no-op; window backends override when render tests need size normalization.
@@ -202,12 +189,8 @@ public:
     std::function<void(const MouseMoveEvent&)> on_mouse_move;
     std::function<void(const MouseWheelEvent&)> on_mouse_wheel;
     std::function<void()> on_close_requested;
-    // Fired on Cmd+Q / menu Quit / Dock right-click Quit. Unlike close_requested
-    // (which may detach), this always terminates the application.
+    // Fired on Cmd+Q / menu Quit.
     std::function<void()> on_quit_requested;
-    // macOS: fired when the user clicks the Dock icon while no windows are visible.
-    // The handler should create/show a window (e.g. reattach a session).
-    std::function<void()> on_dock_reopen;
     // Fired when a file is dropped onto the window or chosen via the open dialog.
     std::function<void(std::string_view path)> on_drop_file;
 
@@ -334,7 +317,6 @@ inline IWindow::CallbackConnection IWindow::connect_lifecycle_callbacks(Lifecycl
     callback_state_->lifecycle_lifetime = lifetime;
     on_close_requested = guarded_callback(std::move(callbacks.on_close_requested), lifetime);
     on_quit_requested = guarded_callback(std::move(callbacks.on_quit_requested), lifetime);
-    on_dock_reopen = guarded_callback(std::move(callbacks.on_dock_reopen), lifetime);
     return CallbackConnection(callback_state_, CallbackGroup::Lifecycle,
         callback_state_->lifecycle_generation, lifetime);
 }
@@ -364,7 +346,6 @@ inline void IWindow::clear_lifecycle_callbacks()
     ++callback_state_->lifecycle_generation;
     on_close_requested = {};
     on_quit_requested = {};
-    on_dock_reopen = {};
 }
 
 inline void IWindow::clear_callbacks()

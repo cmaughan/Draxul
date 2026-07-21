@@ -4,6 +4,10 @@
 **Priority:** 25
 **Raised by:** GPT/Codex, Claude
 
+**Resolution:** Superseded on 2026-07-21 by item 26. The attach protocol and
+both platform transports were deleted, so their platform-validation backlog no
+longer applies.
+
 ## Goal
 
 Split the 1,385-line `session_attach.cpp` into shared framing/protocol, Windows named-pipe security/transport, POSIX socket transport, and small client/server orchestration without changing the wire protocol.
@@ -21,11 +25,13 @@ Split the 1,385-line `session_attach.cpp` into shared framing/protocol, Windows 
 
 ## Tests and acceptance
 
-- [x] Shared protocol tests run on both platforms with fake transports and malformed/partial frames. — [session_attach]/[transport] suites run + pass on macOS; Windows via CI.
+- [x] Shared protocol tests ran on both platforms before the protocol was
+  removed (macOS session-attach/transport suites passed; Windows via CI).
 - [x] Platform integration suites cover permissions/security, stale endpoint cleanup, timeouts, and shutdown.
 - [x] Existing clients interoperate with the unchanged protocol.
 - [x] No interleaved platform `#ifdef` blocks remain in the shared protocol implementation.
-- [x] Full session tests, `ctest`, and smoke pass on Windows and macOS. — macOS green (ctest 22/22, smoke) after fixing a POSIX shutdown-hang regression this pass; Windows via CI.
+- [x] Full session tests, `ctest`, and smoke passed on macOS before removal;
+  item 26 records validation of the file-backed replacement on Windows.
 
 ### Validation status (2026-07-21)
 

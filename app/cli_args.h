@@ -18,15 +18,10 @@ struct ParsedArgs
     bool continuous_refresh = false;
     bool no_vblank = false;
     bool no_ui = false;
-    bool session_owner = false;
-    bool persistent_app = false;
     bool list_sessions = false;
-    bool pick_session = false;
     bool new_session = false;
-    bool attach_session = false;
-    bool detach_session = false;
     bool rename_session = false;
-    bool kill_session = false;
+    bool delete_session = false;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     bool bless_render_test = false;
     bool show_render_test_window = false;

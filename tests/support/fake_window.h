@@ -76,22 +76,7 @@ public:
         return true;
     }
     void set_text_input_area(int, int, int, int) override {}
-    void activate() override
-    {
-        visible_ = true;
-    }
-    void show() override
-    {
-        visible_ = true;
-    }
-    void hide() override
-    {
-        visible_ = false;
-    }
-    bool is_visible() const override
-    {
-        return visible_;
-    }
+    void activate() override {}
 
     // Configurable state — set by tests to simulate different display configurations.
     int pixel_w_ = 800;
@@ -104,7 +89,6 @@ public:
     std::string clipboard_;
     std::string last_title_;
     std::vector<std::string> opened_urls_;
-    bool visible_ = true;
     bool queued_close_request_ = false;
     std::optional<std::pair<int, int>> queued_resize_;
 
@@ -113,7 +97,6 @@ public:
         clipboard_.clear();
         last_title_.clear();
         opened_urls_.clear();
-        visible_ = true;
         queued_close_request_ = false;
         queued_resize_.reset();
     }

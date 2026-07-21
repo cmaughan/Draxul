@@ -5,7 +5,6 @@
 #include <cctype>
 #include <cstdio>
 #include <ctime>
-#include <draxul/session_attach.h>
 
 namespace draxul
 {
@@ -79,23 +78,12 @@ std::string make_session_id_candidate(std::string_view base, int suffix)
 
 Result<bool, Error> session_id_exists(std::string_view session_id)
 {
-    std::string probe_error;
-    const auto probe_status = SessionAttachServer::probe(session_id, &probe_error);
-    if (probe_status == SessionAttachServer::ProbeStatus::Running)
-        return true;
-    if (probe_status == SessionAttachServer::ProbeStatus::Error)
-    {
-        return Result<bool, Error>::err(Error::io(
-            probe_error.empty() ? "Failed probing for an existing session." : probe_error));
-    }
-
     std::string io_error;
     if (has_saved_session_state(session_id, &io_error))
         return true;
     if (!io_error.empty())
         return Result<bool, Error>::err(Error::io(io_error));
 
-    (void)clear_session_runtime_liveness(session_id);
     return false;
 }
 

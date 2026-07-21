@@ -4,6 +4,10 @@
 **Priority:** 24
 **Raised by:** GPT/Codex, Claude
 
+**Resolution:** Superseded on 2026-07-21 by item 26, which removed live
+session ownership, self-launch, attach/detach, and the standalone picker. The
+remaining saved-session CLI boundary is retained and tested.
+
 ## Goal
 
 Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanics out of the 940-line `app/main.cpp` while keeping `main` as composition and dispatch.
@@ -23,7 +27,9 @@ Move attach/list/kill/rename modes, owner launch/retry, and self-launch mechanic
 - [x] Table-test every live session CLI mode, invalid combination, retry result, and self-launch argument (the old owner argument is dead and removed).
 - [x] Add Windows/macOS launch integration coverage using a harmless platform helper process.
 - [x] `draxul_main()` contains no session protocol or platform process implementation.
-- [x] CLI/session tests, full build, `ctest`, and smoke pass. — macOS validated (session_cli suite + ctest 22/22 + smoke green 2026-07-21).
+- [x] CLI/session tests, full build, `ctest`, and smoke pass. macOS validated
+  before removal (session CLI suite, CTest 22/22, and smoke green on
+  2026-07-21); the retained file-backed behavior is validated by item 26.
 
 ### Validation status (2026-07-21)
 

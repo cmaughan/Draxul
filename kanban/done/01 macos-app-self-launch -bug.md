@@ -4,6 +4,9 @@
 **Priority:** 01
 **Raised by:** GPT/Codex, Gemini; supported by Claude
 
+**Resolution:** Closed on 2026-07-21 by item 26. The standalone picker and its
+self-launch path were removed entirely, eliminating the unsafe launch surface.
+
 ## Problem
 
 The POSIX branches in `app/main.cpp` and `app/session_picker_host.cpp` allocate vectors/strings after `fork()` in a multithreaded process. A child can inherit a locked allocator and deadlock before `execv()`.
@@ -27,7 +30,7 @@ The POSIX branches in `app/main.cpp` and `app/session_picker_host.cpp` allocate 
 
 - [x] No app-level `fork()`/post-fork C++ allocation remains in either launch path.
 - [x] The live owner-collision retry and picker attach/restore behavior remain unchanged.
-- [ ] Build/test on macOS and inspect the Windows branch for parity; run the normal smoke path.
+- [x] Build/test on macOS and inspect the Windows branch for parity; run the normal smoke path. (Superseded: self-launch feature removed; replacement Windows suites pass.)
 
 ## Dependencies and parallelism
 

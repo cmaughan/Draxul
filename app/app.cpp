@@ -29,14 +29,6 @@
 #include <stdexcept>
 #include <utility>
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
-
 namespace draxul
 {
 
@@ -216,15 +208,6 @@ std::string trim_session_name(std::string_view name)
     return std::string(name);
 }
 
-uint64_t current_process_id()
-{
-#ifdef _WIN32
-    return static_cast<uint64_t>(GetCurrentProcessId());
-#else
-    return static_cast<uint64_t>(getpid());
-#endif
-}
-
 } // namespace
 
 AppDeps AppDeps::from_options(AppOptions opts)
@@ -252,8 +235,6 @@ App::App(AppDeps deps)
         weather_service_.set_http_client(std::move(deps.http_client));
     // HostManager reads options_.host_factory to create hosts.  Sync our
     // canonical factory back so the two sources stay consistent.
-    if (options_.enable_session_attach)
-        options_.enable_session_restore = true;
     options_.host_factory = host_factory_;
     pending_window_activation_ = options_.activate_window_on_startup;
 }
@@ -324,9 +305,6 @@ bool App::initialize()
     InitRollback rollback(this);
 
     if (!ok)
-        return false;
-
-    if (!time_step("Session Attach", [this]() { return initialize_session_attach(); }))
         return false;
 
     if (!time_step("Window Create (SDL)", [this]() {
@@ -472,9 +450,7 @@ bool App::initialize()
     rebuild_render_tree();
     if (options_.enable_session_restore)
     {
-        mark_session_attached();
         persist_session_state();
-        persist_session_runtime_metadata(options_.enable_session_attach);
         last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     }
 
@@ -517,53 +493,6 @@ bool App::initialize_text_service()
     renderer_.grid()->set_ascender(metrics.ascender);
     refresh_window_layout();
     return true;
-}
-
-bool App::initialize_session_attach()
-{
-    PERF_MEASURE();
-    if (!options_.enable_session_attach)
-        return true;
-
-    DRAXUL_LOG_DEBUG(LogCategory::App,
-        "Initializing session attach server for '%s' (pid=%llu)",
-        options_.session_id.c_str(),
-        static_cast<unsigned long long>(current_process_id()));
-
-    std::string error;
-    if (!start_session_attach_server(&error))
-    {
-        last_init_error_ = error.empty()
-            ? "Failed to start the session attach server."
-            : error;
-        DRAXUL_LOG_WARN(LogCategory::App,
-            "Failed to initialize session attach server for '%s': %s",
-            options_.session_id.c_str(),
-            last_init_error_.c_str());
-        return false;
-    }
-
-    DRAXUL_LOG_DEBUG(LogCategory::App,
-        "Session attach server initialized for '%s' (pid=%llu)",
-        options_.session_id.c_str(),
-        static_cast<unsigned long long>(current_process_id()));
-    return true;
-}
-
-bool App::start_session_attach_server(std::string* error)
-{
-    PERF_MEASURE();
-    return session_attach_server_.start(options_.session_id, [this](SessionAttachServer::Command command) {
-            if (command == SessionAttachServer::Command::Activate)
-                external_attach_requested_.store(true);
-            else if (command == SessionAttachServer::Command::Detach)
-                external_detach_requested_.store(true);
-            else if (command == SessionAttachServer::Command::Shutdown)
-                external_session_shutdown_requested_.store(true);
-            wake_window(); }, [this]() { return live_session_info(); }, [this](std::string_view session_name) {
-            std::lock_guard lock(external_session_rename_mutex_);
-            external_session_rename_requested_ = std::string(session_name);
-            wake_window(); }, error);
 }
 
 void App::apply_font_metrics()
@@ -751,20 +680,6 @@ bool App::initialize_chrome_host()
     bool restored_session = false;
     if (options_.enable_session_restore)
     {
-        std::string metadata_error;
-        if (auto metadata = load_session_runtime_metadata(options_.session_id, &metadata_error))
-        {
-            if (options_.session_name.empty() && !metadata->session_name.empty())
-                session_name_ = metadata->session_name;
-            session_last_attached_unix_s_ = metadata->last_attached_unix_s;
-            session_last_detached_unix_s_ = metadata->last_detached_unix_s;
-        }
-        else if (!metadata_error.empty())
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "Failed to load session metadata: %s", metadata_error.c_str());
-        }
-
         if (pending_window_activation_ && window_)
         {
             // Bring the app window forward before we respawn restored panes so
@@ -820,7 +735,6 @@ bool App::initialize_chrome_host()
         // but don't retry — if the host can't be created (e.g. nvim not on PATH),
         // retrying won't help and makes CI smoke tests fail harder.
         delete_session_state(options_.session_id);
-        delete_session_runtime_metadata(options_.session_id);
         return false;
     }
 
@@ -928,7 +842,7 @@ void App::wire_gui_actions()
         const int tab_y = chrome_host_->tab_bar_height();
         active_host_manager().toggle_zoom(
             window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
-        input_dispatcher_.set_host(detached_ ? nullptr : active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
     gui_deps.on_close_pane = [this]() {
@@ -936,21 +850,16 @@ void App::wire_gui_actions()
         {
             if (workspace_count() <= 1)
             {
-                // Last pane in last workspace — Ghostty-style: stay
-                // alive with no window so the Dock/tray icon can reopen.
-                session_killed_ = true;
+                // Closing the last pane discards this saved topology and exits.
+                discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
-                delete_session_runtime_metadata(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
                 for (auto& ws : workspaces_)
                     ws->host_manager.shutdown();
                 workspaces_.clear();
                 active_workspace_ = -1;
                 render_root_ = RenderNode{};
-                if (options_.enable_session_attach)
-                    window_->hide();
-                else
-                    running_ = false;
+                running_ = false;
                 return;
             }
             // Last pane in this workspace — close the workspace, switch to another.
@@ -967,7 +876,7 @@ void App::wire_gui_actions()
         }
         input_dispatcher_.set_host(nullptr);
         active_host_manager().close_focused();
-        input_dispatcher_.set_host(detached_ ? nullptr : active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
     gui_deps.on_restart_host = [this]() {
@@ -1283,12 +1192,6 @@ void App::wire_window_callbacks()
     IWindow::LifecycleCallbacks lifecycle_callbacks;
     lifecycle_callbacks.on_close_requested = [this]() { on_window_close_requested(); };
     lifecycle_callbacks.on_quit_requested = [this]() { request_quit(); };
-    lifecycle_callbacks.on_dock_reopen = [this]() {
-        // Fires when the user clicks the Dock icon with no visible windows in
-        // the opt-in persistent-app mode.
-        if (options_.enable_session_attach)
-            external_attach_requested_ = true;
-    };
     window_lifecycle_connection_ = window_->connect_lifecycle_callbacks(
         std::move(lifecycle_callbacks));
 }
@@ -1529,22 +1432,17 @@ bool App::close_dead_panes()
             // Last pane in this workspace died.
             if (workspace_count() <= 1)
             {
-                // Last pane in the last workspace. Persistent-app mode keeps a
-                // hidden owner around; normal mode exits after clearing state.
-                session_killed_ = true;
+                // The final host has exited, so discard the empty saved
+                // topology and terminate the application.
+                discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
-                delete_session_runtime_metadata(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                // Tear down all dead workspaces so reattach_window() starts clean.
                 for (auto& ws : workspaces_)
                     ws->host_manager.shutdown();
                 workspaces_.clear();
                 active_workspace_ = -1;
                 render_root_ = RenderNode{};
-                if (options_.enable_session_attach)
-                    window_->hide();
-                else
-                    running_ = false;
+                running_ = false;
                 return false;
             }
             // Close this workspace and switch to another.
@@ -1655,39 +1553,6 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
     PERF_MEASURE();
     while (running_)
     {
-        if (external_attach_requested_.exchange(false))
-        {
-            DRAXUL_LOG_DEBUG(LogCategory::App,
-                "Processing external attach request for '%s' (pid=%llu, detached=%d)",
-                options_.session_id.c_str(),
-                static_cast<unsigned long long>(current_process_id()),
-                detached_ ? 1 : 0);
-            reattach_window();
-        }
-        if (external_detach_requested_.exchange(false))
-        {
-            DRAXUL_LOG_DEBUG(LogCategory::App,
-                "Processing external detach request for '%s' (pid=%llu)",
-                options_.session_id.c_str(),
-                static_cast<unsigned long long>(current_process_id()));
-            detach_window();
-        }
-        {
-            std::optional<std::string> renamed_session;
-            {
-                std::lock_guard lock(external_session_rename_mutex_);
-                renamed_session.swap(external_session_rename_requested_);
-            }
-            if (renamed_session)
-                rename_session(std::move(*renamed_session));
-        }
-        if (external_session_shutdown_requested_.exchange(false))
-        {
-            kill_session();
-            running_ = false;
-            return false;
-        }
-
         if (pending_window_activation_)
         {
             window_->activate();
@@ -1711,33 +1576,14 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         runtime_perf_collector().begin_frame();
 
-        // A persistent app may intentionally have no workspace after its last
-        // pane closes. Keep servicing lifecycle/attach events without routing
-        // work into a fabricated HostManager.
+        // File-backed sessions never remain alive without a workspace.
         if (find_active_workspace() == nullptr)
         {
             input_dispatcher_.set_host(nullptr);
             frame_requested_ = false;
             runtime_perf_collector().cancel_frame();
-            const auto now = std::chrono::steady_clock::now();
-            if (wait_deadline && now >= *wait_deadline)
-                return running_;
-
-            // render_root_ contains non-owning host pointers, so an empty
-            // workspace state must not derive its wait deadline from that
-            // tree. Only lifecycle/attach events can make progress here.
-            int timeout_ms = window_ && !window_->is_visible() ? 200 : -1;
-            if (wait_deadline)
-            {
-                const int deadline_ms = std::max(0, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(*wait_deadline - now).count()));
-                timeout_ms = timeout_ms < 0 ? deadline_ms : std::min(timeout_ms, deadline_ms);
-            }
-            if (!window_->wait_events(timeout_ms))
-            {
-                request_quit();
-                return false;
-            }
-            continue;
+            running_ = false;
+            return false;
         }
 
         if (!close_dead_panes())
@@ -1769,10 +1615,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         if (frame_requested_)
         {
-            if (detached_)
-                frame_requested_ = false;
-            else
-                render_frame();
+            render_frame();
             return running_;
         }
 
@@ -1889,11 +1732,6 @@ void App::request_quit()
 
 void App::on_window_close_requested()
 {
-    if (can_detach_window())
-    {
-        detach_window();
-        return;
-    }
     request_quit();
 }
 
@@ -2130,10 +1968,7 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
     {
         if (any_host_running)
             return kHostPollIntervalMs;
-        // When no hosts are running (e.g. window hidden after all panes
-        // closed), use a short poll interval so we can respond to dock
-        // reopen / tray icon clicks promptly.
-        return window_ && !window_->is_visible() ? 200 : -1;
+        return -1;
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -2204,151 +2039,11 @@ bool App::can_snapshot_session_state() const
 
     for (const auto& ws : workspaces_)
     {
-        if (!ws->host_manager.has_detachable_shell_session())
+        if (!ws->host_manager.has_restorable_shell_session())
             return false;
     }
 
     return true;
-}
-
-bool App::can_detach_window() const
-{
-    return options_.enable_session_attach && can_snapshot_session_state();
-}
-
-void App::detach_window()
-{
-    PERF_MEASURE();
-    if (detached_ || !can_detach_window())
-        return;
-
-    DRAXUL_LOG_DEBUG(LogCategory::App,
-        "Detaching window for session '%s' (pid=%llu)",
-        options_.session_id.c_str(),
-        static_cast<unsigned long long>(current_process_id()));
-
-    detached_ = true;
-    mark_session_detached();
-    persist_session_state();
-    persist_session_runtime_metadata(true);
-    input_dispatcher_.set_host(nullptr);
-    pending_window_activation_ = false;
-    frame_requested_ = false;
-    window_->hide();
-    DRAXUL_LOG_DEBUG(LogCategory::App,
-        "Window detached and hidden for session '%s' (pid=%llu)",
-        options_.session_id.c_str(),
-        static_cast<unsigned long long>(current_process_id()));
-}
-
-void App::reattach_window()
-{
-    PERF_MEASURE();
-    const bool was_detached = detached_;
-    DRAXUL_LOG_DEBUG(LogCategory::App,
-        "Reattaching window for session '%s' (pid=%llu, was_detached=%d, visible=%d)",
-        options_.session_id.c_str(),
-        static_cast<unsigned long long>(current_process_id()),
-        was_detached ? 1 : 0,
-        window_ && window_->is_visible() ? 1 : 0);
-    detached_ = false;
-    mark_session_attached();
-    pending_window_activation_ = true;
-
-    // A persistent app may have intentionally destroyed its final workspace.
-    // Re-establish a real manager before routing focus or input through it.
-    Workspace* workspace = find_active_workspace();
-    bool created_workspace = false;
-    if (workspace == nullptr || !workspace->host_manager.host())
-    {
-        session_killed_ = false;
-        const int pw = window_->width_pixels();
-        const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
-                                         : window_->height_pixels();
-        const int tab_y = chrome_host_ ? chrome_host_->tab_bar_height() : 0;
-        if (add_workspace(pw, th - tab_y) < 0)
-        {
-            input_dispatcher_.set_host(nullptr);
-            push_toast(2, "Could not create a workspace while reopening the window");
-            return;
-        }
-        recompute_all_viewports(0, tab_y, pw, th - tab_y);
-        workspace = find_active_workspace();
-        created_workspace = true;
-    }
-
-    input_dispatcher_.set_host(workspace ? workspace->host_manager.focused_host() : nullptr);
-    if (was_detached)
-    {
-        if (!created_workspace && workspace)
-        {
-            if (IHost* focused = workspace->host_manager.focused_host())
-                focused->on_focus_gained();
-        }
-        const std::string session_label = session_name_.empty() ? options_.session_id : session_name_;
-        push_toast(0, "Reattached live session '" + session_label + "'.");
-    }
-    else if (window_ && !window_->is_visible())
-    {
-        window_->show();
-    }
-
-    persist_session_runtime_metadata(true);
-    request_frame();
-    DRAXUL_LOG_DEBUG(LogCategory::App,
-        "Reattach finished for session '%s' (pid=%llu, visible=%d)",
-        options_.session_id.c_str(),
-        static_cast<unsigned long long>(current_process_id()),
-        window_ && window_->is_visible() ? 1 : 0);
-}
-
-void App::kill_session()
-{
-    PERF_MEASURE();
-    if (session_killed_)
-        return;
-
-    session_killed_ = true;
-    detached_ = false;
-    pending_window_activation_ = false;
-    input_dispatcher_.set_host(nullptr);
-
-    std::string error;
-    if (!delete_session_state(options_.session_id, &error) && !error.empty())
-    {
-        DRAXUL_LOG_WARN(LogCategory::App,
-            "Failed to delete session state for %s: %s",
-            options_.session_id.c_str(), error.c_str());
-    }
-    error.clear();
-    if (!delete_session_runtime_metadata(options_.session_id, &error) && !error.empty())
-    {
-        DRAXUL_LOG_WARN(LogCategory::App,
-            "Failed to delete session metadata for %s: %s",
-            options_.session_id.c_str(), error.c_str());
-    }
-
-    if (Workspace* workspace = find_active_workspace())
-    {
-        workspace->host_manager.for_each_host([](LeafId, IHost& h) {
-            h.request_close();
-        });
-    }
-    // Note: callers decide whether to set running_ = false (quit) or
-    // hide the window (Ghostty-style stay-in-Dock). kill_session() only
-    // cleans up session state; it does not stop the event loop.
-}
-
-void App::rename_session(std::string name)
-{
-    PERF_MEASURE();
-    if (name.empty() || name == session_name_)
-        return;
-
-    session_name_ = std::move(name);
-    persist_session_state();
-    persist_session_runtime_metadata(options_.enable_session_attach);
-    request_frame();
 }
 
 Result<void, Error> App::load_session(std::string_view raw_session_id)
@@ -2368,19 +2063,6 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
     {
         return Result<void, Error>::err(
             Error::invalid_argument("Current panes cannot be saved before loading another session."));
-    }
-
-    std::string probe_error;
-    const auto probe_status = SessionAttachServer::probe(target_id, &probe_error);
-    if (probe_status == SessionAttachServer::ProbeStatus::Running)
-    {
-        return Result<void, Error>::err(Error::invalid_argument(
-            "Session '" + target_id + "' is already running. Use the startup session picker to attach to it."));
-    }
-    if (probe_status == SessionAttachServer::ProbeStatus::Error)
-    {
-        return Result<void, Error>::err(Error::io(
-            probe_error.empty() ? "Failed to check whether the selected session is running." : probe_error));
     }
 
     std::string load_error;
@@ -2407,40 +2089,14 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
         return Result<void, Error>::err(
             Error::io(save_error.empty() ? "Failed to save the current session before loading." : save_error));
     }
-    save_error.clear();
-    if (!save_session_runtime_metadata(snapshot_session_runtime_metadata(false), &save_error))
-    {
-        return Result<void, Error>::err(
-            Error::io(save_error.empty() ? "Failed to save current session metadata before loading." : save_error));
-    }
-
     const std::string old_id = options_.session_id;
     const std::string old_option_name = options_.session_name;
     const std::string old_session_name = session_name_;
-    const int64_t old_last_attached_unix_s = session_last_attached_unix_s_;
-    const int64_t old_last_detached_unix_s = session_last_detached_unix_s_;
-    const bool old_detached = detached_;
-    const bool old_session_killed = session_killed_;
 
     auto rollback = [&]() {
         options_.session_id = old_id;
         options_.session_name = old_option_name;
         session_name_ = old_session_name;
-        session_last_attached_unix_s_ = old_last_attached_unix_s;
-        session_last_detached_unix_s_ = old_last_detached_unix_s;
-        detached_ = old_detached;
-        session_killed_ = old_session_killed;
-        if (options_.enable_session_attach)
-        {
-            std::string restart_error;
-            if (!start_session_attach_server(&restart_error))
-            {
-                DRAXUL_LOG_WARN(LogCategory::App,
-                    "Failed to restore session attach server for '%s' after load rollback: %s",
-                    options_.session_id.c_str(),
-                    restart_error.empty() ? "unknown error" : restart_error.c_str());
-            }
-        }
         const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
         const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
                                          : (window_ ? window_->height_pixels() : last_pixel_h_);
@@ -2458,32 +2114,6 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
     options_.session_id = target_id;
     options_.session_name = target_state->session_name.empty() ? target_id : target_state->session_name;
     session_name_ = options_.session_name;
-    detached_ = false;
-    session_killed_ = false;
-    session_last_attached_unix_s_ = 0;
-    session_last_detached_unix_s_ = 0;
-    if (auto metadata = load_session_runtime_metadata(target_id))
-    {
-        if (!metadata->session_name.empty())
-        {
-            options_.session_name = metadata->session_name;
-            session_name_ = metadata->session_name;
-        }
-        session_last_attached_unix_s_ = metadata->last_attached_unix_s;
-        session_last_detached_unix_s_ = metadata->last_detached_unix_s;
-    }
-    mark_session_attached();
-
-    if (options_.enable_session_attach)
-    {
-        std::string start_error;
-        if (!start_session_attach_server(&start_error))
-        {
-            rollback();
-            return Result<void, Error>::err(Error::io(
-                start_error.empty() ? "Failed to start the selected session attach server." : start_error));
-        }
-    }
 
     const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
     const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
@@ -2500,7 +2130,6 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
     recompute_all_viewports(0, tab_y, pw, host_h);
     input_dispatcher_.set_host(active_host_manager().focused_host());
     persist_session_state();
-    persist_session_runtime_metadata(options_.enable_session_attach);
     last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     request_frame();
     return Result<void, Error>::ok();
@@ -2531,8 +2160,6 @@ Result<std::string, Error> App::save_session_as(std::string_view raw_name)
     const std::string old_id = options_.session_id;
     const std::string old_option_name = options_.session_name;
     const std::string old_session_name = session_name_;
-    const int64_t old_last_attached_unix_s = session_last_attached_unix_s_;
-    const int64_t old_last_detached_unix_s = session_last_detached_unix_s_;
 
     auto delete_new_files = [&]() {
         std::string delete_error;
@@ -2543,51 +2170,18 @@ Result<std::string, Error> App::save_session_as(std::string_view raw_name)
                 new_id.c_str(),
                 delete_error.c_str());
         }
-        delete_error.clear();
-        if (!delete_session_runtime_metadata(new_id, &delete_error) && !delete_error.empty())
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "Failed to delete rolled-back session metadata for %s: %s",
-                new_id.c_str(),
-                delete_error.c_str());
-        }
     };
 
     auto rollback = [&]() {
         options_.session_id = old_id;
         options_.session_name = old_option_name;
         session_name_ = old_session_name;
-        session_last_attached_unix_s_ = old_last_attached_unix_s;
-        session_last_detached_unix_s_ = old_last_detached_unix_s;
         delete_new_files();
-        if (options_.enable_session_attach)
-        {
-            std::string restart_error;
-            if (!start_session_attach_server(&restart_error))
-            {
-                DRAXUL_LOG_WARN(LogCategory::App,
-                    "Failed to restore session attach server for '%s' after save-as rollback: %s",
-                    options_.session_id.c_str(),
-                    restart_error.empty() ? "unknown error" : restart_error.c_str());
-            }
-        }
     };
 
     options_.session_id = new_id;
     options_.session_name = display_name;
     session_name_ = display_name;
-    mark_session_attached();
-
-    if (options_.enable_session_attach)
-    {
-        std::string start_error;
-        if (!start_session_attach_server(&start_error))
-        {
-            rollback();
-            return Result<std::string, Error>::err(Error::io(
-                start_error.empty() ? "Failed to start the session attach server." : start_error));
-        }
-    }
 
     auto state = snapshot_session_state();
     if (!state)
@@ -2603,27 +2197,6 @@ Result<std::string, Error> App::save_session_as(std::string_view raw_name)
         rollback();
         return Result<std::string, Error>::err(
             Error::io(save_error.empty() ? "Failed to save named session." : save_error));
-    }
-
-    save_error.clear();
-    if (!save_session_runtime_metadata(
-            snapshot_session_runtime_metadata(options_.enable_session_attach), &save_error))
-    {
-        rollback();
-        return Result<std::string, Error>::err(
-            Error::io(save_error.empty() ? "Failed to save named session metadata." : save_error));
-    }
-
-    if (old_id != new_id)
-    {
-        std::string liveness_error;
-        if (!clear_session_runtime_liveness(old_id, &liveness_error) && !liveness_error.empty())
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "Failed to clear old session liveness for %s after save-as: %s",
-                old_id.c_str(),
-                liveness_error.c_str());
-        }
     }
 
     request_frame();
@@ -2662,7 +2235,7 @@ std::optional<AppSessionState> App::snapshot_session_state() const
 void App::persist_session_state()
 {
     PERF_MEASURE();
-    if (!options_.enable_session_restore || session_killed_)
+    if (!options_.enable_session_restore || discard_session_state_on_shutdown_)
         return;
 
     auto state = snapshot_session_state();
@@ -2678,68 +2251,17 @@ void App::persist_session_state()
     }
 }
 
-SessionRuntimeMetadata App::snapshot_session_runtime_metadata(bool live) const
-{
-    SessionRuntimeMetadata metadata;
-    metadata.session_id = options_.session_id;
-    metadata.session_name = session_name_.empty() ? options_.session_id : session_name_;
-    metadata.live = live;
-    metadata.detached = live && detached_;
-    metadata.owner_pid = live ? current_process_id() : 0;
-    metadata.last_attached_unix_s = session_last_attached_unix_s_;
-    metadata.last_detached_unix_s = session_last_detached_unix_s_;
-    return metadata;
-}
-
-void App::persist_session_runtime_metadata(bool live)
-{
-    PERF_MEASURE();
-    if (!options_.enable_session_restore || session_killed_ || !can_snapshot_session_state())
-        return;
-
-    std::string error;
-    if (!save_session_runtime_metadata(snapshot_session_runtime_metadata(live), &error))
-    {
-        DRAXUL_LOG_WARN(LogCategory::App,
-            "Failed to save session metadata: %s",
-            error.empty() ? "unknown error" : error.c_str());
-    }
-}
-
-void App::mark_session_attached()
-{
-    session_last_attached_unix_s_ = unix_now_seconds();
-}
-
-void App::mark_session_detached()
-{
-    session_last_detached_unix_s_ = unix_now_seconds();
-}
-
 void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
 {
-    if (!options_.enable_session_restore || detached_ || session_killed_ || !can_snapshot_session_state())
+    if (!options_.enable_session_restore || discard_session_state_on_shutdown_
+        || !can_snapshot_session_state())
         return;
     if (last_session_checkpoint_time_.time_since_epoch().count() != 0
         && now - last_session_checkpoint_time_ < options_.session_checkpoint_interval)
         return;
 
     persist_session_state();
-    persist_session_runtime_metadata(options_.enable_session_attach);
     last_session_checkpoint_time_ = now;
-}
-
-SessionAttachServer::LiveSessionInfo App::live_session_info() const
-{
-    SessionAttachServer::LiveSessionInfo info;
-    info.workspace_count = static_cast<int>(workspaces_.size());
-    info.detached = detached_;
-    info.owner_pid = current_process_id();
-    info.last_attached_unix_s = session_last_attached_unix_s_;
-    info.last_detached_unix_s = session_last_detached_unix_s_;
-    for (const auto& ws : workspaces_)
-        info.pane_count += ws->host_manager.host_count();
-    return info;
 }
 
 bool App::restore_session_state(int pixel_w, int pixel_h, const AppSessionState& state)
@@ -3033,12 +2555,8 @@ void App::shutdown()
     macos_menu_.reset(); // tear down menu before handler goes away
 #endif
 
-    if (!session_killed_)
-    {
+    if (!discard_session_state_on_shutdown_)
         persist_session_state();
-        persist_session_runtime_metadata(false);
-    }
-    session_attach_server_.stop();
 
     for (auto& ws : workspaces_)
         ws->host_manager.shutdown();

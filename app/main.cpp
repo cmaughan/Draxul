@@ -1,8 +1,6 @@
 #include "app.h"
 #include "cli_args.h"
-#include "self_launch.h"
 #include "session_cli.h"
-#include "session_picker_host.h"
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <cstdio>
@@ -14,6 +12,7 @@
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
 #include <draxul/perf_timing.h>
+#include <draxul/runtime_path.h>
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
@@ -114,10 +113,9 @@ std::vector<std::string> command_line_args(int argc, char* argv[])
 // CLI parsing has moved to app/cli_args.{h,cpp} so it can be unit-tested
 // without spawning a subprocess. See draxul::parse_args() / ParseArgsResult.
 
-std::filesystem::path executable_dir(const std::vector<std::string>& args)
+std::filesystem::path executable_dir()
 {
-    const auto path = draxul::resolve_self_executable_path(args);
-    return path.empty() ? path : path.parent_path();
+    return draxul::executable_directory();
 }
 
 } // namespace
@@ -130,11 +128,9 @@ static int draxul_main(std::vector<std::string> args)
     const bool needs_console_output = parse_result.error.has_value()
         || parse_result.args.want_console
         || parse_result.args.list_sessions
-        || parse_result.args.attach_session
-        || parse_result.args.detach_session
         || parse_result.args.rename_session
-        || parse_result.args.kill_session;
-    if (needs_console_output && !parse_result.args.session_owner)
+        || parse_result.args.delete_session;
+    if (needs_console_output)
         ensure_console_io(true);
 #endif
     if (parse_result.error)
@@ -237,9 +233,6 @@ static int draxul_main(std::vector<std::string> args)
     {
         options.activate_window_on_startup = false;
     }
-    // --session-owner is the legacy spelling for the opt-in persistent app
-    // mode. Keep it quiet so old shortcuts still behave like they used to.
-
     if (parsed.host_kind)
     {
         options.host_kind = *parsed.host_kind;
@@ -269,7 +262,7 @@ static int draxul_main(std::vector<std::string> args)
         options.save_user_config = false;
     }
 
-    const auto exe_dir = executable_dir(args);
+    const auto exe_dir = executable_dir();
     if (!options.config_overrides.font_path.has_value() && !exe_dir.empty())
     {
         const auto bundled_font = exe_dir / "fonts" / "JetBrainsMonoNerdFont-Regular.ttf";
@@ -280,85 +273,20 @@ static int draxul_main(std::vector<std::string> args)
     if (!parsed.session_name.empty())
         options.session_name = parsed.session_name;
     options.new_session_requested = parsed.new_session;
-    if (parsed.pick_session)
-    {
-        const auto picker_exe_path = draxul::resolve_self_executable_path(args);
-        options.enable_session_attach = false;
-        options.enable_session_restore = false;
-        options.host_factory = [picker_exe_path](draxul::HostKind /*kind*/) {
-            return std::make_unique<draxul::SessionPickerHost>(picker_exe_path);
-        };
-    }
-
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     const bool allow_session_restore = !parsed.smoke_test
         && !render_test.has_value()
-        && parsed.screenshot_path.empty()
-        && !parsed.pick_session;
+        && parsed.screenshot_path.empty();
 #else
     const bool allow_session_restore = !parsed.smoke_test
-        && parsed.screenshot_path.empty()
-        && !parsed.pick_session;
+        && parsed.screenshot_path.empty();
 #endif
-    const bool enable_live_session_attach
-        = allow_session_restore && (parsed.persistent_app || parsed.session_owner);
     options.enable_session_restore = allow_session_restore;
-    options.enable_session_attach = enable_live_session_attach;
-
-    if (enable_live_session_attach)
-    {
-        // Persistent-app mode: if another live owner is already running for
-        // this session, tell it to show its window and exit.
-        DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-            "Startup attach probe for session '%s' (persistent_app=%d, session_owner=%d)",
-            parsed.session_id.c_str(),
-            parsed.persistent_app ? 1 : 0,
-            parsed.session_owner ? 1 : 0);
-        std::string attach_error;
-        const auto attach_attempt = session_cli.try_attach_existing(parsed.session_id, &attach_error);
-        if (attach_attempt.attached)
-        {
-            DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-                "Startup attach to session '%s' succeeded; exiting helper process",
-                parsed.session_id.c_str());
-            draxul::shutdown_logging();
-            return 0;
-        }
-        // Any other status (NoServer, Error) — proceed with in-process startup.
-        DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-            "Startup attach to session '%s' did not attach (status=%d, error='%s')",
-            parsed.session_id.c_str(),
-            attach_attempt.status_code,
-            attach_error.c_str());
-    }
 
     draxul::App app(std::move(options));
 
     if (!app.initialize())
     {
-        if (enable_live_session_attach
-            && app.init_error().find("session-attach") != std::string::npos)
-        {
-            DRAXUL_LOG_WARN(draxul::LogCategory::App,
-                "App initialization hit session-attach error for '%s': %s",
-                parsed.session_id.c_str(),
-                app.init_error().c_str());
-            std::string attach_error;
-            if (session_cli.try_attach_with_retry(parsed.session_id, std::chrono::seconds(2), &attach_error))
-            {
-                DRAXUL_LOG_DEBUG(draxul::LogCategory::App,
-                    "Recovered from session-attach initialization error by attaching to '%s'",
-                    parsed.session_id.c_str());
-                draxul::shutdown_logging();
-                return 0;
-            }
-            if (!attach_error.empty())
-            {
-                DRAXUL_LOG_WARN(draxul::LogCategory::App,
-                    "Retry attach after session-server collision failed: %s", attach_error.c_str());
-            }
-        }
-
         DRAXUL_LOG_ERROR(draxul::LogCategory::App, "Failed to initialize draxul: %s", app.init_error().c_str());
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
         const bool ci_mode = parsed.smoke_test || !parsed.render_test_path.empty() || !parsed.screenshot_path.empty();

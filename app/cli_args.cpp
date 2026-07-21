@@ -24,24 +24,14 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.no_vblank = true;
         else if (args[i] == "--no-ui")
             parsed.no_ui = true;
-        else if (args[i] == "--session-owner")
-            parsed.session_owner = true;
-        else if (args[i] == "--persistent-app")
-            parsed.persistent_app = true;
         else if (args[i] == "--list-sessions")
             parsed.list_sessions = true;
-        else if (args[i] == "--pick-session")
-            parsed.pick_session = true;
         else if (args[i] == "--new-session")
             parsed.new_session = true;
-        else if (args[i] == "--attach-session")
-            parsed.attach_session = true;
-        else if (args[i] == "--detach-session")
-            parsed.detach_session = true;
         else if (args[i] == "--rename-session")
             parsed.rename_session = true;
-        else if (args[i] == "--kill-session")
-            parsed.kill_session = true;
+        else if (args[i] == "--delete-session")
+            parsed.delete_session = true;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
         else if (args[i] == "--bless-render-test")
             parsed.bless_render_test = true;
@@ -191,16 +181,13 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         return result;
     }
     const int session_mode_count = (parsed.list_sessions ? 1 : 0)
-        + (parsed.pick_session ? 1 : 0)
         + (parsed.new_session ? 1 : 0)
-        + (parsed.attach_session ? 1 : 0)
-        + (parsed.detach_session ? 1 : 0)
         + (parsed.rename_session ? 1 : 0)
-        + (parsed.kill_session ? 1 : 0);
+        + (parsed.delete_session ? 1 : 0);
     if (session_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --list-sessions, --pick-session, --new-session, --attach-session, --detach-session, --rename-session, or --kill-session";
+            = "error: choose only one of --list-sessions, --new-session, --rename-session, or --delete-session";
         return result;
     }
     return result;

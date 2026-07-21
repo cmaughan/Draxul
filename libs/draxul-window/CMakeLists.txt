@@ -4,7 +4,6 @@ add_library(draxul-window
     src/sdl_clipboard.cpp
     src/sdl_file_dialog.cpp
     $<$<PLATFORM_ID:Darwin>:src/sdl_window_macos.mm>
-    $<$<PLATFORM_ID:Windows>:src/sdl_window_win32.cpp>
 )
 target_include_directories(draxul-window PUBLIC include)
 target_link_libraries(draxul-window

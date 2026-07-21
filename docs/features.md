@@ -136,12 +136,10 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - Keyboard-driven pane resizing via `resize_pane_left`, `resize_pane_right`, `resize_pane_up`, `resize_pane_down` actions (each nudges the nearest enclosing divider by 5%)
 - **Pane zoom**: `toggle_zoom` action (default `Ctrl+S, z`) expands the focused pane to fill the full window; toggling again restores the previous split layout exactly (like tmux `Ctrl+B z`)
 - **Close pane**: Closes the focused pane and its host; if last pane, exits the app
-- **Shell session restore from saved topology**: Normal desktop launches save shell-session tabs, split layout, focus, pane names, tab names, launch commands, and working directories in a local session-state file on clean shutdown, then restore that saved shell layout by respawning panes on the next launch. This is still shell-host only and not full crash recovery yet.
-- **Opt-in shell session detach/reattach**: `--persistent-app` restores the old live background behavior: closing the main window hides Draxul and keeps shell-pane workspaces alive, and a later launch with `--persistent-app` reattaches to that existing instance instead of starting a second process.
-- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets the saved display name for a newly launched or restored session, `--rename-session --session-name <name>` renames a running or saved session, `--list-sessions` prints known sessions with live/detached/saved status and workspace/pane counts (preferring live owner summaries when available), `--persistent-app` enables live detach/reattach for desktop launches, `--attach-session` explicitly activates a running persistent app session, `--detach-session` explicitly detaches a running persistent app session without killing it, `--kill-session` explicitly kills a live session or deletes its saved topology, the command palette `save_session_as` action saves the current restorable shell topology under a prompted display name and switches the running app to the generated named session id, and the command palette `load_session` action shows a fuzzy selectable list of saved sessions and restores the selected saved topology in the current window.
-- **Session picker UI**: `--pick-session` opens a keyboard-driven session picker that lists known sessions, lets Enter attach or restore the selected session, lets Delete kill one, and keeps a `new-session` row at the top so typing a query becomes the name of a fresh session.
+- **Shell session restore from saved topology**: Normal desktop launches periodically checkpoint shell-session tabs, split layout, focus, pane names, tab names, launch commands, and working directories in a local session-state file, save again on clean shutdown, and restore that topology by respawning panes on the next launch. Closing the final window exits Draxul; no hidden background owner remains. This is still shell-host only and not full crash recovery yet.
+- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, `--rename-session --session-name <name>` renames a saved session, `--list-sessions` prints saved sessions with workspace/pane counts, and `--delete-session` deletes saved topology. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
 - **Abnormally exited shell panes stay inspectable**: If a shell pane dies unexpectedly, Draxul keeps the pane and its last rendered output visible instead of immediately tearing it down. The pane status pill shows `[exited]`, a toast points you at `restart_host`, and the existing restart action respawns the host in place. Clean shell exits still close the pane normally.
-- **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session, restores a saved topology, or reattaches to a live detached session, so the user can tell which kind of magic just happened.
+- **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session or restores saved topology, so the user can tell which path was taken.
 - **Restart host**: Kills the current host in the focused pane and relaunches with the same arguments
 - **Swap pane**: Swaps the focused pane with the next pane in spatial order
 
@@ -354,15 +352,11 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `--command <cmd>` | Override host command path |
 | `--source <path>` | Markdown file for `--host markdown`; Tree-sitter scan root for `--host megacity` or `--host bioview`; MusicXML or `.mxl` score for `--host score` |
 | `--session <id>` | Select which saved shell session to restore |
-| `--persistent-app` | Opt into live detach/reattach: closing the window hides Draxul, and a later launch with this flag reattaches to the running instance |
-| `--pick-session` | Open the session picker UI to browse, attach, restore, create, or kill shell sessions |
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
-| `--rename-session` | Rename the selected running or saved shell session using `--session-name <name>` |
-| `--list-sessions` | Print saved sessions with live/saved state plus workspace and pane counts |
-| `--attach-session` | Explicitly activate a running persistent app session |
-| `--detach-session` | Explicitly detach a running persistent app session without killing it |
-| `--kill-session` | Explicitly kill a running persistent app session or delete its saved state |
+| `--rename-session` | Rename the selected saved shell session using `--session-name <name>` |
+| `--list-sessions` | Print saved sessions with workspace and pane counts |
+| `--delete-session` | Delete the selected saved shell session |
 | `--continuous-refresh` | Let animation/3D hosts request frames continuously; use `--no-vblank` separately when unsynced presentation is desired |
 | `--log-file <path>` | Write logs to file |
 | `--log-level <level>` | Minimum level: error, warn, info, debug, trace |
