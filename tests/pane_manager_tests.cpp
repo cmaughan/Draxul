@@ -578,7 +578,7 @@ TEST_CASE("pane manager: closing the preview pane clears preview tracking", "[pa
     CHECK_FALSE(harness.manager.has_markdown_preview());
 }
 
-TEST_CASE("pane manager: session state round-trips layout and pane metadata", "[pane_manager]")
+TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_manager]")
 {
     PaneManagerHarness harness;
 
@@ -601,7 +601,7 @@ TEST_CASE("pane manager: session state round-trips layout and pane metadata", "[
     harness.manager.set_focused(split);
     harness.manager.toggle_zoom(800, 600);
 
-    auto saved = harness.manager.session_state();
+    auto saved = harness.manager.snapshot_layout();
     REQUIRE(saved);
     REQUIRE(saved->panes.size() == 2);
     CHECK(!saved->panes[0].pane_id.empty());
@@ -609,7 +609,7 @@ TEST_CASE("pane manager: session state round-trips layout and pane metadata", "[
     CHECK(saved->panes[0].pane_id != saved->panes[1].pane_id);
 
     PaneManagerHarness restored_harness;
-    REQUIRE(restored_harness.manager.restore_session_state(
+    REQUIRE(restored_harness.manager.restore_layout(
         restored_harness.callbacks, 800, 600, *saved));
     REQUIRE(restored_harness.manager.host_count() == 2);
     CHECK(restored_harness.manager.focused_leaf() == split);
@@ -618,7 +618,7 @@ TEST_CASE("pane manager: session state round-trips layout and pane metadata", "[
     CHECK(restored_harness.manager.is_zoomed());
     CHECK(restored_harness.manager.zoomed_leaf() == split);
 
-    auto restored = restored_harness.manager.session_state();
+    auto restored = restored_harness.manager.snapshot_layout();
     REQUIRE(restored);
     REQUIRE(restored->panes.size() == 2);
 

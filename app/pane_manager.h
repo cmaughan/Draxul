@@ -228,8 +228,8 @@ public:
     }
     bool has_restorable_shell_session() const;
     bool should_preserve_dead_leaf(LeafId id) const;
-    std::optional<PaneLayoutSnapshot> session_state() const;
-    bool restore_session_state(
+    std::optional<PaneLayoutSnapshot> snapshot_layout() const;
+    bool restore_layout(
         IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state);
     const SplitTree& tree() const
     {

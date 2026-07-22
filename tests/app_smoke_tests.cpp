@@ -569,7 +569,7 @@ TEST_CASE("app smoke: closing the window exits and preserves file-backed session
     REQUIRE(saved);
     CHECK(saved->session_name == "Close Me");
     REQUIRE(saved->tabs.size() == 1);
-    REQUIRE(saved->tabs[0].pane_manager.panes.size() == 1);
+    REQUIRE(saved->tabs[0].pane_layout.panes.size() == 1);
 }
 
 TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
@@ -992,8 +992,8 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     tab.id = 7;
     tab.name = "loaded";
     tab.name_user_set = true;
-    tab.pane_manager.tree = tree.snapshot();
-    tab.pane_manager.panes.push_back({
+    tab.pane_layout.tree = tree.snapshot();
+    tab.pane_layout.panes.push_back({
         .leaf_id = leaf,
         .launch = {
             .kind = HostKind::PowerShell,
@@ -1054,8 +1054,8 @@ TEST_CASE("app smoke: restoring a multi-tab session reapplies chrome offsets to 
         tab.id = id;
         tab.name = std::string(name);
         tab.name_user_set = true;
-        tab.pane_manager.tree = tree.snapshot();
-        tab.pane_manager.panes.push_back({
+        tab.pane_layout.tree = tree.snapshot();
+        tab.pane_layout.panes.push_back({
             .leaf_id = leaf,
             .launch = {
                 .kind = HostKind::PowerShell,

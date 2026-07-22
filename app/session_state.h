@@ -17,7 +17,7 @@ struct TabSnapshot
     int id = -1;
     std::string name;
     bool name_user_set = false;
-    PaneManager::PaneLayoutSnapshot pane_manager;
+    PaneManager::PaneLayoutSnapshot pane_layout;
 };
 
 struct SessionSnapshot

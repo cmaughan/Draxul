@@ -175,7 +175,7 @@ std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
     return node;
 }
 
-toml::table serialize_pane_manager_state(const PaneManager::PaneLayoutSnapshot& state)
+toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
 {
     toml::table table;
     table.insert_or_assign("focused_leaf", state.tree.focused_id);
@@ -212,7 +212,7 @@ toml::table serialize_pane_manager_state(const PaneManager::PaneLayoutSnapshot& 
     return table;
 }
 
-std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_manager_state(
+std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
     const toml::table& table, std::string* error)
 {
     PaneManager::PaneLayoutSnapshot state;
@@ -340,8 +340,8 @@ std::optional<SessionSnapshot> load_session_state_from_path(
         const auto name_user_set = toml_support::get_bool(*tab_table, "name_user_set");
         // Version 1 persisted this table as "host_manager". Keep the wire key
         // stable while the in-memory owner is renamed to PaneManager.
-        const toml::table* pane_manager = (*tab_table)["host_manager"].as_table();
-        if (!id || !name_user_set || !pane_manager)
+        const toml::table* pane_layout = (*tab_table)["host_manager"].as_table();
+        if (!id || !name_user_set || !pane_layout)
         {
             if (error)
                 *error = "Session state tab is missing required fields.";
@@ -353,10 +353,10 @@ std::optional<SessionSnapshot> load_session_state_from_path(
         tab.name = toml_support::get_string(*tab_table, "name").value_or("");
         tab.name_user_set = *name_user_set;
 
-        auto parsed_pane_manager = parse_pane_manager_state(*pane_manager, error);
-        if (!parsed_pane_manager)
+        auto parsed_pane_layout = parse_pane_layout(*pane_layout, error);
+        if (!parsed_pane_layout)
             return std::nullopt;
-        tab.pane_manager = std::move(*parsed_pane_manager);
+        tab.pane_layout = std::move(*parsed_pane_layout);
         state.tabs.push_back(std::move(tab));
     }
 
@@ -371,7 +371,7 @@ SessionSummary summarize_session_state(const SessionSnapshot& state)
     summary.tab_count = static_cast<int>(state.tabs.size());
     summary.has_saved_state = true;
     for (const TabSnapshot& tab : state.tabs)
-        summary.pane_count += static_cast<int>(tab.pane_manager.panes.size());
+        summary.pane_count += static_cast<int>(tab.pane_layout.panes.size());
     return summary;
 }
 
@@ -432,7 +432,7 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
             // Preserve the version-1 table name for compatibility with older
             // Draxul releases and existing saved sessions.
             tab_table.insert_or_assign(
-                "host_manager", serialize_pane_manager_state(tab.pane_manager));
+                "host_manager", serialize_pane_layout(tab.pane_layout));
             tabs.push_back(std::move(tab_table));
         }
         document.insert_or_assign("workspaces", std::move(tabs));

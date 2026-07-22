@@ -76,11 +76,11 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     const LeafId right = tree.split_leaf(left, SplitDirection::Vertical);
     tree.set_focused(right);
 
-    PaneManager::PaneLayoutSnapshot pane_manager_state;
-    pane_manager_state.tree = tree.snapshot();
-    pane_manager_state.zoomed = true;
-    pane_manager_state.zoomed_leaf = right;
-    pane_manager_state.panes.push_back({
+    PaneManager::PaneLayoutSnapshot pane_layout;
+    pane_layout.tree = tree.snapshot();
+    pane_layout.zoomed = true;
+    pane_layout.zoomed_leaf = right;
+    pane_layout.panes.push_back({
         .leaf_id = left,
         .launch = {
             .kind = HostKind::PowerShell,
@@ -93,7 +93,7 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
         .pane_name = "left",
         .pane_id = "pane-left",
     });
-    pane_manager_state.panes.push_back({
+    pane_layout.panes.push_back({
         .leaf_id = right,
         .launch = {
             .kind = HostKind::PowerShell,
@@ -111,7 +111,7 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     tab.id = 7;
     tab.name = "session";
     tab.name_user_set = true;
-    tab.pane_manager = std::move(pane_manager_state);
+    tab.pane_layout = std::move(pane_layout);
 
     SessionSnapshot state;
     state.session_id = "workbench";
@@ -150,23 +150,23 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(loaded_tab.id == 7);
     CHECK(loaded_tab.name == "session");
     CHECK(loaded_tab.name_user_set);
-    REQUIRE(loaded_tab.pane_manager.panes.size() == 2);
-    CHECK(loaded_tab.pane_manager.zoomed);
-    CHECK(loaded_tab.pane_manager.zoomed_leaf == right);
+    REQUIRE(loaded_tab.pane_layout.panes.size() == 2);
+    CHECK(loaded_tab.pane_layout.zoomed);
+    CHECK(loaded_tab.pane_layout.zoomed_leaf == right);
 
     SplitTree restored_tree;
-    REQUIRE(restored_tree.restore(loaded_tab.pane_manager.tree, 1200, 800));
+    REQUIRE(restored_tree.restore(loaded_tab.pane_layout.tree, 1200, 800));
     CHECK(restored_tree.leaf_count() == 2);
     CHECK(restored_tree.focused() == right);
     CHECK(restored_tree.descriptor_for(left).pixel_size.x == tree.descriptor_for(left).pixel_size.x);
     CHECK(restored_tree.descriptor_for(right).pixel_pos.x == tree.descriptor_for(right).pixel_pos.x);
 
-    CHECK(loaded_tab.pane_manager.panes[0].pane_name == "left");
-    CHECK(loaded_tab.pane_manager.panes[0].pane_id == "pane-left");
-    CHECK(loaded_tab.pane_manager.panes[0].launch.working_dir == "D:/left");
-    CHECK(loaded_tab.pane_manager.panes[1].pane_name == "right");
-    CHECK(loaded_tab.pane_manager.panes[1].pane_id == "pane-right");
-    CHECK(loaded_tab.pane_manager.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
+    CHECK(loaded_tab.pane_layout.panes[0].pane_name == "left");
+    CHECK(loaded_tab.pane_layout.panes[0].pane_id == "pane-left");
+    CHECK(loaded_tab.pane_layout.panes[0].launch.working_dir == "D:/left");
+    CHECK(loaded_tab.pane_layout.panes[1].pane_name == "right");
+    CHECK(loaded_tab.pane_layout.panes[1].pane_id == "pane-right");
+    CHECK(loaded_tab.pane_layout.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
 
     const auto sessions = list_saved_sessions(&load_error);
     REQUIRE(load_error.empty());
@@ -189,8 +189,8 @@ TEST_CASE("session state: distinct session ids persist separately", "[session_st
         tab.id = id;
         tab.name = std::move(name);
         tab.name_user_set = true;
-        tab.pane_manager.tree = tree.snapshot();
-        tab.pane_manager.panes.push_back({
+        tab.pane_layout.tree = tree.snapshot();
+        tab.pane_layout.panes.push_back({
             .leaf_id = leaf,
             .launch = {
                 .kind = HostKind::PowerShell,
@@ -251,8 +251,8 @@ TEST_CASE("session state: delete removes saved session state", "[session_state]"
     tab.id = 1;
     tab.name = "delete-me";
     tab.name_user_set = true;
-    tab.pane_manager.tree = tree.snapshot();
-    tab.pane_manager.panes.push_back({
+    tab.pane_layout.tree = tree.snapshot();
+    tab.pane_layout.panes.push_back({
         .leaf_id = leaf,
         .launch = {
             .kind = HostKind::PowerShell,

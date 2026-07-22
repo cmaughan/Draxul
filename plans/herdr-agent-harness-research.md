@@ -257,6 +257,9 @@ Session
 | `HostManager` | `PaneManager` | It owns the split tree, panes, and their host occupants for one tab. |
 | `HostManager::SessionState` | `PaneLayoutSnapshot` | It is a split-tree and pane snapshot, not a complete session. |
 | `PaneSessionState` | `PaneSnapshot` | Straightforward persistence terminology. |
+| `TabSnapshot::pane_manager` | `pane_layout` | Snapshot data describes a layout, not its runtime owner. |
+| `PaneManager::session_state()` | `snapshot_layout()` | Names the specific state captured by the manager. |
+| `PaneManager::restore_session_state()` | `restore_layout()` | Keeps session orchestration outside the pane owner. |
 
 `Workspace` should disappear from normal Draxul UI and most application code. Herdr
 uses the word in its documentation, but retaining Draxul's current meaning of

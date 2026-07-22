@@ -552,7 +552,7 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
     return true;
 }
 
-std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::session_state() const
+std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::snapshot_layout() const
 {
     PERF_MEASURE();
     if (hosts_.empty() || launch_options_.empty())
@@ -593,7 +593,7 @@ std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::session_state() cons
     return state;
 }
 
-bool PaneManager::restore_session_state(
+bool PaneManager::restore_layout(
     IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state)
 {
     PERF_MEASURE();

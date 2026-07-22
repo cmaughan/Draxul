@@ -2217,15 +2217,15 @@ std::optional<SessionSnapshot> App::snapshot_session_state() const
 
     for (const auto& tab : tabs_)
     {
-        auto pane_manager_state = tab->pane_manager.session_state();
-        if (!pane_manager_state)
+        auto pane_layout = tab->pane_manager.snapshot_layout();
+        if (!pane_layout)
             return std::nullopt;
 
         TabSnapshot tab_state;
         tab_state.id = tab->id;
         tab_state.name = tab->name;
         tab_state.name_user_set = tab->name_user_set;
-        tab_state.pane_manager = std::move(*pane_manager_state);
+        tab_state.pane_layout = std::move(*pane_layout);
         state.tabs.push_back(std::move(tab_state));
     }
 
@@ -2280,7 +2280,7 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
     for (const TabSnapshot& tab_state : state.tabs)
     {
         auto tab = std::make_unique<Tab>(tab_state.id, make_pane_manager_deps());
-        if (!tab->pane_manager.restore_session_state(*this, pixel_w, pixel_h, tab_state.pane_manager))
+        if (!tab->pane_manager.restore_layout(*this, pixel_w, pixel_h, tab_state.pane_layout))
         {
             for (auto& created_tab : tabs_)
                 created_tab->pane_manager.shutdown();
