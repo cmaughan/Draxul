@@ -3,8 +3,9 @@
 **Status:** research and preliminary design direction  
 **Date:** 2026-07-21  
 **Implementation note:** the behaviour-neutral `Workspace` to `Tab`, `HostManager`
-to `PaneManager`, snapshot-type renames, and `TabController` extraction were completed
-on 2026-07-22; the default Space and `SpaceController` remain future work.
+to `PaneManager`, snapshot-type renames, `TabController` extraction, and the single
+default `Space`/`SpaceController` ownership boundary were completed on 2026-07-22;
+multiple live Spaces, persistence v2, and the sidebar remain future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -186,12 +187,14 @@ the split tree, pane leaves, host instances, launch options, and stable pane str
 
 The former `AppSessionState`, now [`SessionSnapshot`](../app/session_state.h), owns a
 vector of `TabSnapshot`, an active tab ID, and the next tab ID. The live collection,
-selection, navigation, pane-layout snapshot/restore, and shutdown boundary now lives in
-[`TabController`](../app/tab_controller.h), while `App` supplies host dependencies and
-orchestrates the outer saved session. Structurally, today's Draxul session contains tabs
-and panes but has no project-level Space grouping. The version-1 persistence keys retain
-their historical `workspace` spelling and `host_manager` table name for backward and
-forward compatibility; these are wire-format details rather than live terminology.
+selection, navigation, pane-layout snapshot/restore, and shutdown boundary lives in
+[`TabController`](../app/tab_controller.h). That controller is now owned by one default
+[`Space`](../app/space.h), and [`SpaceController`](../app/space_controller.h) owns and
+routes the active Space while `App` supplies host dependencies and orchestrates the
+outer saved session. The version-1 snapshot is still the default Space's tabs without a
+persisted Space wrapper. Its historical `workspace` and `host_manager` keys remain
+unchanged for backward and forward compatibility; these are wire-format details rather
+than live terminology.
 
 The application already has several useful foundations:
 
@@ -210,9 +213,9 @@ There are also relevant constraints:
   session snapshot if any tab does not consist entirely of restorable shell
   hosts. Space-aware persistence should avoid allowing one non-restorable product
   space to block checkpoints for every agent space.
-- `App` still owns saved-session transactions, but `TabController` now owns the live tab
-  collection. The next boundary is to put that controller inside a default Space rather
-  than adding the Space hierarchy directly to `App`.
+- `App` still owns saved-session transactions, while `SpaceController` owns the default
+  Space and its `TabController`. Phase 1 can extend that controller instead of adding a
+  Space hierarchy directly to `App`.
 - [`ChromeHost`](../app/chrome_host.h) currently owns top-bar and pane-chrome layout.
   A substantial sidebar should use a dedicated controller and pure layout model rather
   than turning `ChromeHost` into the owner of space and agent domain state.
@@ -303,10 +306,13 @@ struct Space
     SpaceId id;
     std::string name;
     std::filesystem::path root_directory;
-    std::vector<std::unique_ptr<Tab>> tabs;
-    TabId active_tab_id;
+    TabController tab_controller;
 };
 ```
+
+The Phase 0 default Space uses ID `0`, the name `default`, and the launch working
+directory when one is supplied. It is deliberately not written into version-1 session
+files.
 
 ### Agent vocabulary
 
@@ -366,9 +372,10 @@ Agent metadata should be separated into durable and ephemeral fields:
 ### Phase 0: ownership and naming boundary
 
 The behaviour-neutral `Workspace` to `Tab`, `HostManager` to `PaneManager`, snapshot
-terminology renames, and live tab ownership extraction into `TabController` are complete.
-The remaining work is to add `SpaceController` with a single default Space and move the
-controller behind that boundary so behaviour remains unchanged initially.
+terminology renames, live tab ownership extraction into `TabController`, and the single
+default `Space`/`SpaceController` ownership boundary are complete. `App` and `ChromeHost`
+resolve tabs through the active Space while the version-1 session format remains
+unchanged.
 
 **Exit condition:** existing tabs, panes, session files, focus behaviour, and shell
 restore work unchanged; version-1 session tests still pass.

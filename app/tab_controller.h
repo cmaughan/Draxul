@@ -13,7 +13,7 @@
 namespace draxul
 {
 
-// Owns the tabs within one future Space: their stable identities, active
+// Owns the tabs within one Space: their stable identities, active
 // selection, pane layouts, and lifecycle. App supplies host-specific
 // dependencies but does not own or manipulate the collection directly.
 class TabController

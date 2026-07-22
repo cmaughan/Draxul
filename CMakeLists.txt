@@ -287,6 +287,7 @@ add_library(draxul-app
     app/render_tree.cpp
     app/session_id.cpp
     app/session_state.cpp
+    app/space_controller.cpp
     app/split_tree.cpp
     app/tab_controller.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}

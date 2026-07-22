@@ -10,7 +10,7 @@
 
 #include "chrome_host.h"
 #include "pane_manager.h"
-#include "tab_controller.h"
+#include "space_controller.h"
 
 #include "fake_grid_pipeline_renderer.h"
 
@@ -38,22 +38,23 @@ std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 // / hit_test_tab() without a real GPU backend.
 struct TabBarFixture
 {
-    TabController tab_controller;
+    SpaceController space_controller;
     FakeGridPipelineRenderer renderer;
     std::unique_ptr<ChromeHost> host;
 
     explicit TabBarFixture(std::initializer_list<std::pair<int, std::string>> ws_list)
     {
         for (const auto& [id, name] : ws_list)
-            tab_controller.tabs().push_back(make_test_tab(id, name));
-        if (!tab_controller.empty())
-            tab_controller.activate_tab(tab_controller.tabs().front()->id);
+            space_controller.active_tab_controller().tabs().push_back(make_test_tab(id, name));
+        auto& tabs = space_controller.active_tab_controller();
+        if (!tabs.empty())
+            tabs.activate_tab(tabs.tabs().front()->id);
 
         renderer.cell_width_pixels = 10;
         renderer.cell_height_pixels = 20;
 
         ChromeHost::Deps deps;
-        deps.tab_controller = &tab_controller;
+        deps.space_controller = &space_controller;
         deps.grid_renderer = &renderer;
         host = std::make_unique<ChromeHost>(std::move(deps));
     }
@@ -65,7 +66,7 @@ struct TabBarFixture
     {
         constexpr int kTabPadCols = 1;
         int col_cursor = 0;
-        const auto& tabs = tab_controller.tabs();
+        const auto& tabs = space_controller.active_tab_controller().tabs();
         for (size_t i = 0; i <= index && i < tabs.size(); ++i)
         {
             const std::string label = std::to_string(i + 1) + ": " + tabs[i]->name;
@@ -104,12 +105,12 @@ TEST_CASE("ChromeHost tab_bar_height: hidden when no grid renderer", "[chrome_ho
     // Analogue of "chrome hidden" — no grid renderer means ChromeHost cannot
     // know a cell size and reports a 0-height tab bar, so App reserves no
     // vertical space for chrome.
-    TabController tab_controller;
-    tab_controller.tabs().push_back(make_test_tab(1, "solo"));
-    tab_controller.activate_tab(1);
+    SpaceController space_controller;
+    space_controller.active_tab_controller().tabs().push_back(make_test_tab(1, "solo"));
+    space_controller.active_tab_controller().activate_tab(1);
 
     ChromeHost::Deps deps;
-    deps.tab_controller = &tab_controller;
+    deps.space_controller = &space_controller;
     deps.grid_renderer = nullptr;
     auto host = std::make_unique<ChromeHost>(std::move(deps));
 
@@ -198,13 +199,13 @@ TEST_CASE("ChromeHost hit_test_tab: empty tab list misses all clicks",
     // Zero tabs is an unusual transient state (e.g. between teardown
     // and fresh init). Hit-testing must never return a tab index in that
     // case.
-    TabController tab_controller;
+    SpaceController space_controller;
     FakeGridPipelineRenderer renderer;
     renderer.cell_width_pixels = 10;
     renderer.cell_height_pixels = 20;
 
     ChromeHost::Deps deps;
-    deps.tab_controller = &tab_controller;
+    deps.space_controller = &space_controller;
     deps.grid_renderer = &renderer;
     auto host = std::make_unique<ChromeHost>(std::move(deps));
 

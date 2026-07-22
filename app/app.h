@@ -7,8 +7,8 @@
 #include "input_dispatcher.h"
 #include "render_tree.h"
 #include "session_state.h"
+#include "space_controller.h"
 #include "toast_host.h"
-#include "tab_controller.h"
 #include <chrono>
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
@@ -151,6 +151,8 @@ private:
     bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
+    TabController& active_tab_controller();
+    const TabController& active_tab_controller() const;
     PaneManager::Deps make_pane_manager_deps();
     bool create_initial_tab(int pixel_w, int pixel_h);
     int add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind = std::nullopt);
@@ -222,7 +224,7 @@ private:
     };
     std::vector<PendingInitToast> pending_init_toasts_;
     std::unique_ptr<class ChromeHost> chrome_host_;
-    TabController tab_controller_;
+    SpaceController space_controller_;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;
     DiagnosticsCollector diagnostics_collector_;

@@ -230,6 +230,7 @@ App::App(AppDeps deps)
     , window_factory_(std::move(deps.window_factory))
     , renderer_factory_(std::move(deps.renderer_factory))
     , host_factory_(std::move(deps.host_factory))
+    , space_controller_(std::filesystem::path(options_.host_working_dir))
 {
     if (deps.http_client)
         weather_service_.set_http_client(std::move(deps.http_client));
@@ -503,7 +504,7 @@ void App::apply_font_metrics()
     renderer_.grid()->set_ascender(metrics.ascender);
     const float imgui_font_size = imgui_font_size_from_metrics(metrics);
     diagnostics_host_->set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
-    for (auto& tab : tab_controller_.tabs())
+    for (auto& tab : active_tab_controller().tabs())
     {
         tab->pane_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
             host.set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
@@ -595,7 +596,7 @@ Result<void, Error> App::reload_config()
         push_toast(0, warning);
 
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
-    for (auto& tab : tab_controller_.tabs())
+    for (auto& tab : active_tab_controller().tabs())
     {
         tab->pane_manager.for_each_host([&host_reload](LeafId, IHost& host) {
             host.on_config_reloaded(host_reload);
@@ -618,7 +619,7 @@ bool App::initialize_chrome_host()
     chrome_deps.config = &config_;
     chrome_deps.grid_renderer = renderer_.grid();
     chrome_deps.text_service = &text_service_;
-    chrome_deps.tab_controller = &tab_controller_;
+    chrome_deps.space_controller = &space_controller_;
     chrome_deps.system_resource_snapshot = &system_resource_snapshot_;
     chrome_deps.weather_emoji = [this]() -> std::string {
         return weather_service_.emoji();
@@ -633,7 +634,7 @@ bool App::initialize_chrome_host()
         return std::make_pair(state.text, state.alpha);
     };
     chrome_deps.set_tab_name = [this](int tab_id, std::string name) {
-        for (auto& tab : tab_controller_.tabs())
+        for (auto& tab : active_tab_controller().tabs())
         {
             if (tab->id == tab_id)
             {
@@ -853,7 +854,7 @@ void App::wire_gui_actions()
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                tab_controller_.shutdown_all();
+                space_controller_.shutdown_all();
                 render_root_ = RenderNode{};
                 running_ = false;
                 return;
@@ -974,7 +975,7 @@ void App::wire_gui_actions()
     };
     gui_deps.on_rename_tab = [this]() {
         if (chrome_host_)
-            chrome_host_->begin_tab_rename_by_id(tab_controller_.active_tab_id());
+            chrome_host_->begin_tab_rename_by_id(active_tab_controller().active_tab_id());
         request_frame();
     };
     gui_deps.on_move_tab_left = [this]() {
@@ -1433,7 +1434,7 @@ bool App::close_dead_panes()
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                tab_controller_.shutdown_all();
+                space_controller_.shutdown_all();
                 render_root_ = RenderNode{};
                 running_ = false;
                 return false;
@@ -1978,6 +1979,16 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 // Tab orchestration (collection ownership lives in TabController)
 // ---------------------------------------------------------------------------
 
+TabController& App::active_tab_controller()
+{
+    return space_controller_.active_tab_controller();
+}
+
+const TabController& App::active_tab_controller() const
+{
+    return space_controller_.active_tab_controller();
+}
+
 PaneManager::Deps App::make_pane_manager_deps()
 {
     PaneManager::Deps deps;
@@ -1998,7 +2009,7 @@ PaneManager::Deps App::make_pane_manager_deps()
 
 void App::refresh_tab_default_names()
 {
-    for (auto& tab : tab_controller_.tabs())
+    for (auto& tab : active_tab_controller().tabs())
     {
         if (tab->name_user_set)
             continue;
@@ -2027,7 +2038,7 @@ void App::refresh_tab_default_names()
 
 bool App::can_snapshot_session_state() const
 {
-    return options_.enable_session_restore && tab_controller_.all_tabs_restorable();
+    return options_.enable_session_restore && active_tab_controller().all_tabs_restorable();
 }
 
 Result<void, Error> App::load_session(std::string_view raw_session_id)
@@ -2196,9 +2207,9 @@ std::optional<SessionSnapshot> App::snapshot_session_state() const
     SessionSnapshot state;
     state.session_id = options_.session_id;
     state.session_name = session_name_.empty() ? options_.session_id : session_name_;
-    state.active_tab_id = tab_controller_.active_tab_id();
-    state.next_tab_id = tab_controller_.next_tab_id();
-    auto tabs = tab_controller_.snapshot_tabs();
+    state.active_tab_id = active_tab_controller().active_tab_id();
+    state.next_tab_id = active_tab_controller().next_tab_id();
+    auto tabs = active_tab_controller().snapshot_tabs();
     if (!tabs)
         return std::nullopt;
     state.tabs = std::move(*tabs);
@@ -2245,7 +2256,7 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
         return false;
 
     render_root_ = RenderNode{};
-    const bool restored = tab_controller_.restore_tabs(*this, pixel_w, pixel_h,
+    const bool restored = active_tab_controller().restore_tabs(*this, pixel_w, pixel_h,
         state.tabs, state.active_tab_id, state.next_tab_id,
         [this]() { return make_pane_manager_deps(); });
     if (!restored)
@@ -2255,9 +2266,10 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
 
 bool App::create_initial_tab(int pixel_w, int pixel_h)
 {
-    if (!tab_controller_.create_initial_tab(*this, pixel_w, pixel_h, make_pane_manager_deps()))
+    if (!active_tab_controller().create_initial_tab(
+            *this, pixel_w, pixel_h, make_pane_manager_deps()))
     {
-        last_init_error_ = tab_controller_.last_error();
+        last_init_error_ = active_tab_controller().last_error();
         return false;
     }
     return true;
@@ -2265,41 +2277,41 @@ bool App::create_initial_tab(int pixel_w, int pixel_h)
 
 int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 {
-    const int id = tab_controller_.add_tab(
+    const int id = active_tab_controller().add_tab(
         *this, pixel_w, pixel_h, make_pane_manager_deps(), host_kind);
     if (id < 0)
-        last_init_error_ = tab_controller_.last_error();
+        last_init_error_ = active_tab_controller().last_error();
     return id;
 }
 
 bool App::close_tab(int tab_id)
 {
-    return tab_controller_.close_tab(tab_id);
+    return active_tab_controller().close_tab(tab_id);
 }
 
 void App::activate_tab(int tab_id)
 {
-    tab_controller_.activate_tab(tab_id);
+    active_tab_controller().activate_tab(tab_id);
 }
 
 void App::next_tab()
 {
-    tab_controller_.next_tab();
+    active_tab_controller().next_tab();
 }
 
 void App::prev_tab()
 {
-    tab_controller_.prev_tab();
+    active_tab_controller().prev_tab();
 }
 
 void App::move_tab(int direction)
 {
-    tab_controller_.move_tab(direction);
+    active_tab_controller().move_tab(direction);
 }
 
 void App::activate_tab_by_index(int one_based_index)
 {
-    tab_controller_.activate_tab_by_index(one_based_index);
+    active_tab_controller().activate_tab_by_index(one_based_index);
 }
 
 void App::activate_pane_by_index(int one_based_index)
@@ -2323,52 +2335,54 @@ void App::activate_pane_by_index(int one_based_index)
 
 void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
-    tab_controller_.recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
+    active_tab_controller().recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }
 
 PaneManager& App::active_pane_manager()
 {
-    return tab_controller_.active_pane_manager();
+    return active_tab_controller().active_pane_manager();
 }
 
 const PaneManager& App::active_pane_manager() const
 {
-    return tab_controller_.active_pane_manager();
+    return active_tab_controller().active_pane_manager();
 }
 
 Tab* App::find_active_tab() noexcept
 {
-    return tab_controller_.find_active_tab();
+    Space* space = space_controller_.find_active_space();
+    return space ? space->tab_controller.find_active_tab() : nullptr;
 }
 
 const Tab* App::find_active_tab() const noexcept
 {
-    return tab_controller_.find_active_tab();
+    const Space* space = space_controller_.find_active_space();
+    return space ? space->tab_controller.find_active_tab() : nullptr;
 }
 
 Tab& App::require_active_tab(std::string_view context)
 {
-    return tab_controller_.require_active_tab(context);
+    return active_tab_controller().require_active_tab(context);
 }
 
 const Tab& App::require_active_tab(std::string_view context) const
 {
-    return tab_controller_.require_active_tab(context);
+    return active_tab_controller().require_active_tab(context);
 }
 
 const SplitTree& App::active_tree() const
 {
-    return tab_controller_.active_tree();
+    return active_tab_controller().active_tree();
 }
 
 int App::tab_count() const
 {
-    return tab_controller_.count();
+    return active_tab_controller().count();
 }
 
 int App::active_tab_id() const
 {
-    return tab_controller_.active_tab_id();
+    return active_tab_controller().active_tab_id();
 }
 
 void App::shutdown()
@@ -2388,7 +2402,7 @@ void App::shutdown()
     if (!discard_session_state_on_shutdown_)
         persist_session_state();
 
-    tab_controller_.shutdown_all();
+    space_controller_.shutdown_all();
     render_root_ = RenderNode{};
 
     if (chrome_host_)

@@ -11,12 +11,13 @@ struct AppTestAccess
 {
     static void add_empty_tab(App& app, int id)
     {
-        app.tab_controller_.tabs().push_back(std::make_unique<Tab>(id, PaneManager::Deps{}));
+        app.space_controller_.active_tab_controller().tabs().push_back(
+            std::make_unique<Tab>(id, PaneManager::Deps{}));
     }
 
     static void clear_tabs_without_resetting_active_id(App& app)
     {
-        app.tab_controller_.tabs().clear();
+        app.space_controller_.active_tab_controller().tabs().clear();
     }
 
     static Tab* find_active(App& app)
@@ -41,12 +42,12 @@ struct AppTestAccess
 
     static size_t count(const App& app)
     {
-        return app.tab_controller_.tabs().size();
+        return app.space_controller_.active_tab_controller().tabs().size();
     }
 
     static int active_id(const App& app)
     {
-        return app.tab_controller_.active_tab_id();
+        return app.space_controller_.active_tab_controller().active_tab_id();
     }
 
     static bool restore(App& app, const SessionSnapshot& state)

@@ -16,6 +16,14 @@ ChromeHost::ChromeHost(Deps deps)
 {
 }
 
+const TabController* ChromeHost::active_tabs() const noexcept
+{
+    if (!deps_.space_controller)
+        return nullptr;
+    const Space* space = deps_.space_controller->find_active_space();
+    return space ? &space->tab_controller : nullptr;
+}
+
 const ChromeTheme& ChromeHost::theme() const
 {
     static const ChromeTheme defaults;
@@ -49,11 +57,11 @@ void ChromeHost::set_viewport(const HostViewport& viewport)
 
 const SplitTree& ChromeHost::active_tree() const
 {
-    if (deps_.tab_controller)
+    if (const TabController* controller = active_tabs())
     {
-        for (const auto& tab : deps_.tab_controller->tabs())
+        for (const auto& tab : controller->tabs())
         {
-            if (tab->id == deps_.tab_controller->active_tab_id())
+            if (tab->id == controller->active_tab_id())
                 return tab->pane_manager.tree();
         }
     }
@@ -90,15 +98,16 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
         input.grid_padding = kChromeGridPadding;
     }
 
-    const bool have_tabs = deps_.tab_controller && !deps_.tab_controller->empty();
+    const TabController* controller = active_tabs();
+    const bool have_tabs = controller && !controller->empty();
     const bool have_resources = deps_.system_resource_snapshot
         && deps_.system_resource_snapshot->available();
     input.show_top_bar = deps_.grid_renderer && (have_tabs || have_resources);
-    if (deps_.tab_controller)
+    if (controller)
     {
-        const int active_id = deps_.tab_controller->active_tab_id();
-        input.tabs.reserve(deps_.tab_controller->tabs().size());
-        for (const auto& tab : deps_.tab_controller->tabs())
+        const int active_id = controller->active_tab_id();
+        input.tabs.reserve(controller->tabs().size());
+        for (const auto& tab : controller->tabs())
             input.tabs.push_back({ tab->id, tab->name, tab->id == active_id });
     }
     if (have_resources)
@@ -136,12 +145,12 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
 
     input.show_status = deps_.config && deps_.config->show_pane_status;
     if (input.show_status && deps_.grid_renderer && input.cell_width > 0 && input.cell_height > 0
-        && deps_.tab_controller)
+        && controller)
     {
         const PaneManager* manager = nullptr;
-        for (const auto& tab : deps_.tab_controller->tabs())
+        for (const auto& tab : controller->tabs())
         {
-            if (tab->id == deps_.tab_controller->active_tab_id())
+            if (tab->id == controller->active_tab_id())
             {
                 manager = &tab->pane_manager;
                 break;
@@ -177,7 +186,8 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
 
 int ChromeHost::hit_test_tab(int px, int py) const
 {
-    if (!deps_.tab_controller || deps_.tab_controller->empty() || !deps_.grid_renderer)
+    const TabController* controller = active_tabs();
+    if (!controller || controller->empty() || !deps_.grid_renderer)
         return 0;
     return hit_test_chrome(compute_chrome_layout(build_layout_input()),
         ChromeHitKind::Tab, px, py);
@@ -205,10 +215,11 @@ void ChromeHost::draw(IFrameContext& frame)
 
 int ChromeHost::tab_id_for_index(int tab_index) const
 {
-    if (!deps_.tab_controller || tab_index <= 0
-        || static_cast<size_t>(tab_index) > deps_.tab_controller->tabs().size())
+    const TabController* controller = active_tabs();
+    if (!controller || tab_index <= 0
+        || static_cast<size_t>(tab_index) > controller->tabs().size())
         return -1;
-    return deps_.tab_controller->tabs()[static_cast<size_t>(tab_index - 1)]->id;
+    return controller->tabs()[static_cast<size_t>(tab_index - 1)]->id;
 }
 
 void ChromeHost::begin_tab_rename(int tab_index)
@@ -220,7 +231,8 @@ void ChromeHost::begin_tab_rename(int tab_index)
 
 void ChromeHost::begin_tab_rename_by_id(int tab_id)
 {
-    if (!deps_.tab_controller)
+    const TabController* controller = active_tabs();
+    if (!controller)
         return;
     if (rename_editor_.active()
         && !(rename_editor_.editing_tab() && rename_editor_.tab_id() == tab_id))
@@ -228,7 +240,7 @@ void ChromeHost::begin_tab_rename_by_id(int tab_id)
         if (auto commit = rename_editor_.commit())
             apply_rename_commit(std::move(*commit));
     }
-    for (const auto& tab : deps_.tab_controller->tabs())
+    for (const auto& tab : controller->tabs())
     {
         if (tab->id == tab_id)
         {

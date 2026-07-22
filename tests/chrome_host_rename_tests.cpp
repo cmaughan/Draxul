@@ -9,7 +9,7 @@
 
 #include "chrome_host.h"
 #include "pane_manager.h"
-#include "tab_controller.h"
+#include "space_controller.h"
 
 #include <SDL3/SDL_keycode.h>
 #include <memory>
@@ -28,7 +28,7 @@ std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 
 struct RenameFixture
 {
-    TabController tab_controller;
+    SpaceController space_controller;
     std::unique_ptr<ChromeHost> host;
     int frame_requests = 0;
     // Stand-in for PaneManager::pane_user_names_ — exercised by the pane
@@ -37,14 +37,15 @@ struct RenameFixture
 
     RenameFixture()
     {
-        tab_controller.tabs().push_back(make_test_tab(1, "alpha"));
-        tab_controller.tabs().push_back(make_test_tab(2, "beta"));
-        tab_controller.activate_tab(1);
+        auto& tabs = space_controller.active_tab_controller();
+        tabs.tabs().push_back(make_test_tab(1, "alpha"));
+        tabs.tabs().push_back(make_test_tab(2, "beta"));
+        tabs.activate_tab(1);
 
         ChromeHost::Deps deps;
-        deps.tab_controller = &tab_controller;
+        deps.space_controller = &space_controller;
         deps.set_tab_name = [this](int tab_id, std::string name) {
-            for (auto& tab : tab_controller.tabs())
+            for (auto& tab : space_controller.active_tab_controller().tabs())
             {
                 if (tab->id == tab_id)
                 {
@@ -86,10 +87,10 @@ TEST_CASE("ChromeHost rename: typing and Enter commits", "[chrome_host][rename]"
     REQUIRE_FALSE(f.host->is_editing_tab());
 
     // The seeded buffer was "alpha"; we appended "dev" → final name "alphadev".
-    REQUIRE(f.tab_controller.tabs()[0]->name == "alphadev");
-    REQUIRE(f.tab_controller.tabs()[0]->name_user_set);
-    REQUIRE(f.tab_controller.tabs()[1]->name == "beta");
-    REQUIRE_FALSE(f.tab_controller.tabs()[1]->name_user_set);
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alphadev");
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name_user_set);
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[1]->name == "beta");
+    REQUIRE_FALSE(f.space_controller.active_tab_controller().tabs()[1]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: Escape cancels without mutation", "[chrome_host][rename]")
@@ -99,8 +100,8 @@ TEST_CASE("ChromeHost rename: Escape cancels without mutation", "[chrome_host][r
     f.host->on_rename_text_input("x");
     REQUIRE(f.host->on_rename_key(SDLK_ESCAPE));
     REQUIRE_FALSE(f.host->is_editing_tab());
-    REQUIRE(f.tab_controller.tabs()[1]->name == "beta");
-    REQUIRE_FALSE(f.tab_controller.tabs()[1]->name_user_set);
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[1]->name == "beta");
+    REQUIRE_FALSE(f.space_controller.active_tab_controller().tabs()[1]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: Backspace deletes the previous codepoint", "[chrome_host][rename]")
@@ -111,7 +112,7 @@ TEST_CASE("ChromeHost rename: Backspace deletes the previous codepoint", "[chrom
     REQUIRE(f.host->on_rename_key(SDLK_BACKSPACE));
     REQUIRE(f.host->on_rename_key(SDLK_BACKSPACE));
     REQUIRE(f.host->on_rename_key(SDLK_RETURN));
-    REQUIRE(f.tab_controller.tabs()[0]->name == "alp");
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alp");
 }
 
 TEST_CASE("ChromeHost rename: empty buffer commit keeps the original name", "[chrome_host][rename]")
@@ -122,8 +123,8 @@ TEST_CASE("ChromeHost rename: empty buffer commit keeps the original name", "[ch
         f.host->on_rename_key(SDLK_BACKSPACE);
     REQUIRE(f.host->on_rename_key(SDLK_RETURN));
     // Empty commit must NOT replace the name with "".
-    REQUIRE(f.tab_controller.tabs()[0]->name == "alpha");
-    REQUIRE_FALSE(f.tab_controller.tabs()[0]->name_user_set);
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alpha");
+    REQUIRE_FALSE(f.space_controller.active_tab_controller().tabs()[0]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: cursor movement keys consumed even when buffer is empty",
@@ -148,8 +149,8 @@ TEST_CASE("ChromeHost rename: switching tabs commits the in-progress edit",
     f.host->begin_tab_rename(2);
     REQUIRE(f.host->is_editing_tab());
     REQUIRE(f.host->editing_tab_id() == 2);
-    REQUIRE(f.tab_controller.tabs()[0]->name == "alphaX");
-    REQUIRE(f.tab_controller.tabs()[0]->name_user_set);
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alphaX");
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: ignores keys when no session is active",
@@ -255,6 +256,6 @@ TEST_CASE("ChromeHost pane rename: switching from tab to pane edit commits in-pr
     f.host->begin_pane_rename(kLeaf);
     REQUIRE(f.host->is_editing_pane());
     REQUIRE_FALSE(f.host->is_editing_tab());
-    REQUIRE(f.tab_controller.tabs()[0]->name == "alphaZ");
-    REQUIRE(f.tab_controller.tabs()[0]->name_user_set);
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name == "alphaZ");
+    REQUIRE(f.space_controller.active_tab_controller().tabs()[0]->name_user_set);
 }

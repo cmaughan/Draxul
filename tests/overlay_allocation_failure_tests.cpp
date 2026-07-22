@@ -356,12 +356,12 @@ TEST_CASE("overlay alloc matrix / chrome text: tab-grid handle failure degrades 
     if (!init_text_service(text_service))
         SKIP("bundled font not found");
 
-    TabController tab_controller;
-    tab_controller.tabs().push_back(make_test_tab(1, "alpha"));
-    tab_controller.activate_tab(1);
+    SpaceController space_controller;
+    space_controller.active_tab_controller().tabs().push_back(make_test_tab(1, "alpha"));
+    space_controller.active_tab_controller().activate_tab(1);
 
     ChromeHost::Deps deps;
-    deps.tab_controller = &tab_controller;
+    deps.space_controller = &space_controller;
     deps.grid_renderer = &renderer;
     deps.text_service = &text_service;
 

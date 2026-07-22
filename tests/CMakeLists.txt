@@ -48,6 +48,7 @@ set(DRAXUL_APP_TEST_SOURCES
     session_cli_tests.cpp
     session_listing_tests.cpp
     session_state_tests.cpp
+    space_controller_tests.cpp
     split_tree_tests.cpp
     startup_config_tests.cpp
     startup_rollback_tests.cpp

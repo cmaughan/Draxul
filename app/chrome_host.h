@@ -4,7 +4,7 @@
 #include "chrome_text_layer.h"
 #include "chrome_vector_pass.h"
 #include "rename_editor.h"
-#include "tab_controller.h"
+#include "space_controller.h"
 
 #include <chrono>
 #include <draxul/app_config_types.h>
@@ -34,8 +34,8 @@ public:
         IGridRenderer* grid_renderer = nullptr;
         TextService* text_service = nullptr;
 
-        // Read-only tab info for tab bar / divider rendering.
-        const TabController* tab_controller = nullptr;
+        // Read-only access to the active Space for tab bar / divider rendering.
+        const SpaceController* space_controller = nullptr;
         const SystemResourceSnapshot* system_resource_snapshot = nullptr;
         std::function<std::optional<std::pair<std::string, float>>()> chord_indicator = nullptr;
         // Weather callbacks — return emoji (for example "\u2600\uFE0F") and
@@ -145,6 +145,7 @@ public:
 
 private:
     ChromeLayoutInput build_layout_input() const;
+    const TabController* active_tabs() const noexcept;
     void apply_rename_commit(RenameCommit commit);
     const ChromeTheme& theme() const;
 
