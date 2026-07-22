@@ -8,7 +8,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "chrome_host.h"
-#include "host_manager.h"
+#include "pane_manager.h"
 #include "tab.h"
 
 #include <SDL3/SDL_keycode.h>
@@ -21,7 +21,7 @@ namespace
 {
 std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 {
-    auto tab = std::make_unique<Tab>(id, HostManager::Deps{});
+    auto tab = std::make_unique<Tab>(id, PaneManager::Deps{});
     tab->name = std::move(name);
     return tab;
 }
@@ -32,8 +32,8 @@ struct RenameFixture
     int active = 1;
     std::unique_ptr<ChromeHost> host;
     int frame_requests = 0;
-    // Stand-in for HostManager::pane_user_names_ — exercised by the pane
-    // rename test cases without standing up a real HostManager.
+    // Stand-in for PaneManager::pane_user_names_ — exercised by the pane
+    // rename test cases without standing up a real PaneManager.
     std::unordered_map<LeafId, std::string> pane_names;
 
     RenameFixture()

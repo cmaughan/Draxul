@@ -43,7 +43,7 @@ public:
         return overlay_host_fn ? overlay_host_fn() : nullptr;
     }
 
-    HostManager* host_manager() override
+    PaneManager* pane_manager() override
     {
         return nullptr;
     }

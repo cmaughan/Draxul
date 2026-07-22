@@ -20,7 +20,7 @@ struct GuiKeybinding;
 class GuiActionHandler;
 class UiPanel;
 class IHost;
-class HostManager;
+class PaneManager;
 class SdlWindow;
 struct KeyEvent;
 struct MouseButtonEvent;
@@ -32,7 +32,7 @@ class IInputRouter
 public:
     virtual ~IInputRouter() = default;
     virtual IHost* overlay_host() = 0;
-    virtual HostManager* host_manager() = 0;
+    virtual PaneManager* pane_manager() = 0;
     virtual int hit_test_tab(int phys_x, int phys_y) = 0;
     virtual LeafId hit_test_pane_pill(int phys_x, int phys_y) = 0;
     virtual int tab_bar_height_phys() = 0;

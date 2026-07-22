@@ -53,8 +53,8 @@ digraph DraxulArchitecture {
       top-level runtime coordinator
     >, fillcolor="#ffd7d7", color="#b53a3a"];
 
-    HostManager [label=<
-      <b>HostManager</b><br/>
+    PaneManager [label=<
+      <b>PaneManager</b><br/>
       owns pane hosts + lifecycle
     >, fillcolor="#ffd7d7", color="#b53a3a"];
 
@@ -93,8 +93,8 @@ digraph DraxulArchitecture {
       native menu integration
     >, fillcolor="#ffd7d7", color="#b53a3a"];
 
-    App -> HostManager [style=invis, weight=30];
-    HostManager -> SplitTree [style=invis, weight=30];
+    App -> PaneManager [style=invis, weight=30];
+    PaneManager -> SplitTree [style=invis, weight=30];
     SplitTree -> InputDispatcher [style=invis, weight=30];
     InputDispatcher -> GuiActionHandler [style=invis, weight=30];
     GuiActionHandler -> UiPanel [style=invis, weight=30];
@@ -586,7 +586,7 @@ digraph DraxulArchitecture {
   // ═════════════════════════════════════════════════
 
   // App owns
-  App -> HostManager [style=dashed, arrowhead=vee, label="owns"];
+  App -> PaneManager [style=dashed, arrowhead=vee, label="owns"];
   App -> InputDispatcher [style=dashed, arrowhead=vee, label="owns"];
   App -> GuiActionHandler [style=dashed, arrowhead=vee, label="owns"];
   App -> UiPanel [style=dashed, arrowhead=vee, label="owns"];
@@ -596,9 +596,9 @@ digraph DraxulArchitecture {
   App -> RendererBundle [style=dashed, arrowhead=vee, label="owns"];
   App -> TextService [style=dashed, arrowhead=vee, label="owns"];
 
-  // HostManager owns
-  HostManager -> SplitTree [style=dashed, arrowhead=vee, label="owns"];
-  HostManager -> IHost [style=dashed, arrowhead=vee, label="owns hosts"];
+  // PaneManager owns
+  PaneManager -> SplitTree [style=dashed, arrowhead=vee, label="owns"];
+  PaneManager -> IHost [style=dashed, arrowhead=vee, label="owns hosts"];
 
   // GridHostBase owns
   GridHostBase -> Grid [style=dashed, arrowhead=vee, label="owns"];
@@ -659,20 +659,20 @@ digraph DraxulArchitecture {
   GridHostBase -> TextService [label="uses", constraint=false, color="#94a3b8"];
   GridHostBase -> IHostCallbacks [label="notifies", constraint=false, color="#94a3b8"];
 
-  HostManager -> IWindow [label="supplies host context", constraint=false, color="#94a3b8"];
-  HostManager -> IGridRenderer [label="supplies host context", constraint=false, color="#94a3b8"];
-  HostManager -> TextService [label="supplies host context", constraint=false, color="#94a3b8"];
-  HostManager -> IHostCallbacks [label="passes observer", constraint=false, color="#94a3b8"];
+  PaneManager -> IWindow [label="supplies host context", constraint=false, color="#94a3b8"];
+  PaneManager -> IGridRenderer [label="supplies host context", constraint=false, color="#94a3b8"];
+  PaneManager -> TextService [label="supplies host context", constraint=false, color="#94a3b8"];
+  PaneManager -> IHostCallbacks [label="passes observer", constraint=false, color="#94a3b8"];
 
   InputDispatcher -> IWindow [label="connects callbacks", constraint=false, color="#94a3b8"];
-  InputDispatcher -> HostManager [label="mouse hit-test", constraint=false, color="#94a3b8"];
+  InputDispatcher -> PaneManager [label="mouse hit-test", constraint=false, color="#94a3b8"];
   InputDispatcher -> IHost [label="forwards input", constraint=false, color="#94a3b8"];
   InputDispatcher -> UiPanel [label="routes panel input", constraint=false, color="#94a3b8"];
 
   GuiActionHandler -> TextService [label="font actions", constraint=false, color="#94a3b8"];
   GuiActionHandler -> UiPanel [label="toggle diagnostics", constraint=false, color="#94a3b8"];
   GuiActionHandler -> IHost [label="copy/paste/actions", constraint=false, color="#94a3b8"];
-  GuiActionHandler -> HostManager [label="split panes", constraint=false, color="#94a3b8"];
+  GuiActionHandler -> PaneManager [label="split panes", constraint=false, color="#94a3b8"];
   GuiActionHandler -> IImGuiHost [label="font texture rebuild", constraint=false, color="#94a3b8"];
 
   UiPanel -> IImGuiHost [label="produces ImGui draw data", constraint=false, color="#94a3b8"];

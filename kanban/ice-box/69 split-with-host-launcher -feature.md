@@ -11,7 +11,7 @@ Create a split and choose Nvim, shell, Markdown, ScoreView, SatView, or another 
 ## Implementation plan
 
 - [ ] Extend provider metadata with display name, description, source/path requirements, default launch options, icon/category, and availability reason.
-- [ ] Add `HostManager::split_with_descriptor(direction, descriptor)` as a transaction that validates and initializes the host before committing the split tree.
+- [ ] Add `PaneManager::split_with_descriptor(direction, descriptor)` as a transaction that validates and initializes the host before committing the split tree.
 - [ ] Register “Split with host…” in the structured palette, first choosing direction/provider and then completing required source/path/working-directory arguments.
 - [ ] Offer a compact quick-launch grid as an alternate presentation over the same provider/descriptor model, not a second hardcoded host list.
 - [ ] Preserve current `split_vertical`/`split_horizontal` actions as fast shell defaults.
@@ -27,6 +27,6 @@ Create a split and choose Nvim, shell, Markdown, ScoreView, SatView, or another 
 
 ## Dependencies and parallelism
 
-Depends on pending 12, 22, and structured palette item 58. Share provider picking with type-aware drops (52) and scaffolding (38). One HostManager integration owner should land the transactional split API.
+Depends on pending 12, 22, and structured palette item 58. Share provider picking with type-aware drops (52) and scaffolding (38). One PaneManager integration owner should land the transactional split API.
 
 <model>GPT-5 Codex</model>

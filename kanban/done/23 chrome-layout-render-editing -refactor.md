@@ -16,7 +16,7 @@
 - [x] Extract `RenameEditor` state transitions/caret/text operations with no renderer dependency.
 - [x] Extract `ChromeVectorPass` for NanoVG shapes and `ChromeTextLayer` for grid-backed text.
 - [x] Make `ChromeHost` assemble the layout and passes, forward input/editing, and expose hit-test results.
-- [x] Remove unused `Deps` fields after verifying no hidden tests rely on them. (Removed the seven former HostManager-forwarding dependencies; App now owns that composition directly.)
+- [x] Remove unused `Deps` fields after verifying no hidden tests rely on them. (Removed the seven former PaneManager-forwarding dependencies; App now owns that composition directly.)
 - [x] Centralize logical/physical/cell conversion in the layout input boundary.
 
 ## Tests and acceptance

@@ -3,7 +3,7 @@
 #include "diagnostics_panel_host.h"
 #include "frame_timer.h"
 #include "gui_action_handler.h"
-#include "host_manager.h"
+#include "pane_manager.h"
 #include "input_dispatcher.h"
 #include "render_tree.h"
 #include "session_state.h"
@@ -151,7 +151,7 @@ private:
     bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
 
     // --- Tab management (moved from ChromeHost) ---
-    HostManager::Deps make_host_manager_deps();
+    PaneManager::Deps make_pane_manager_deps();
     bool create_initial_tab(int pixel_w, int pixel_h);
     int add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind = std::nullopt);
     bool close_tab(int tab_id);
@@ -166,8 +166,8 @@ private:
     const Tab* find_active_tab() const noexcept;
     Tab& require_active_tab(std::string_view context);
     const Tab& require_active_tab(std::string_view context) const;
-    HostManager& active_host_manager();
-    const HostManager& active_host_manager() const;
+    PaneManager& active_pane_manager();
+    const PaneManager& active_pane_manager() const;
     const SplitTree& active_tree() const;
     int tab_count() const;
     int active_tab_id() const;

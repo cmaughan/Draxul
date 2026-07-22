@@ -1,6 +1,6 @@
 #include "chrome_host.h"
 
-#include "host_manager.h"
+#include "pane_manager.h"
 
 #include <SDL3/SDL_keycode.h>
 #include <draxul/app_config.h>
@@ -54,7 +54,7 @@ const SplitTree& ChromeHost::active_tree() const
         for (const auto& tab : *deps_.tabs)
         {
             if (tab->id == *deps_.active_tab_id)
-                return tab->host_manager.tree();
+                return tab->pane_manager.tree();
         }
     }
     static const SplitTree empty;
@@ -138,12 +138,12 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
     if (input.show_status && deps_.grid_renderer && input.cell_width > 0 && input.cell_height > 0
         && deps_.tabs && deps_.active_tab_id)
     {
-        const HostManager* manager = nullptr;
+        const PaneManager* manager = nullptr;
         for (const auto& tab : *deps_.tabs)
         {
             if (tab->id == *deps_.active_tab_id)
             {
-                manager = &tab->host_manager;
+                manager = &tab->pane_manager;
                 break;
             }
         }

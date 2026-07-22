@@ -36,7 +36,7 @@ Verify that the host lifecycle transitions are robust against out-of-order, doub
 
 - WI 04 (NvimHost RAII rollback) must be fixed before the failure-path test passes.
 - WI 25 (centralised test fixtures) provides `FakeHost` helpers.
-- WI 14 (HostManager split/close stress) is the multi-host companion test.
+- WI 14 (PaneManager split/close stress) is the multi-host companion test.
 
 ---
 

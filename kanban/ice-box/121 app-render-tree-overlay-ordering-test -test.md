@@ -43,10 +43,10 @@ Input routing:
 
 ## Implementation Notes
 
-- This may require a lightweight `App` test harness or a focused `HostManager` unit test
+- This may require a lightweight `App` test harness or a focused `PaneManager` unit test
 - The render tree is assembled differently than the input tree — test both
 - Consider a `RenderTreeSpy` that records the ordered host list after each frame
-- Test file: `tests/app_overlay_ordering_tests.cpp` or extend `tests/host_manager_tests.cpp`
+- Test file: `tests/app_overlay_ordering_tests.cpp` or extend `tests/pane_manager_tests.cpp`
 
 ---
 

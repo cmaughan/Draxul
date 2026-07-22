@@ -119,7 +119,7 @@ Everything learned about agent-driven development from Draxul — a GPU-accelera
 **Scaling Insights**
 
 81. The project grew from Neovim frontend to shell hosts + 3D code analysis host using the same pipeline — the host abstraction architecture (documented for agents) enabled this.
-82. As the codebase grew, the App class became a god object (~867 lines) — systematic agent-driven decomposition extracted InputDispatcher, GuiActionHandler, and HostManager.
+82. As the codebase grew, the App class became a god object (~867 lines) — systematic agent-driven decomposition extracted InputDispatcher, GuiActionHandler, and PaneManager.
 83. Agent context files grow in parallel with the codebase and diverge between models — this creates a maintenance burden (icebox WI 22: agent scripts deduplication).
 84. The `docs/features.md` registry becomes critical at scale — once past 100 features, agents will propose duplicates without a canonical check-first reference.
 85. Work item interdependency tracking becomes essential as the backlog grows — "WI 38 must land before WI 40" prevents agents from building on unstable foundations.

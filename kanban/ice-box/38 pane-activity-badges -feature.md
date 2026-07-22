@@ -42,7 +42,7 @@ The badge should clear when the user focuses the pane. The intent is to allow us
       running  = 1 << 2,
   };
   ```
-- [ ] Add `activity_flags()` getter and `clear_activity()` method (called by `HostManager` when a host gains focus).
+- [ ] Add `activity_flags()` getter and `clear_activity()` method (called by `PaneManager` when a host gains focus).
 
 ### Step 2: BEL detection
 

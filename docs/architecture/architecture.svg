@@ -63,18 +63,18 @@
 <text xml:space="preserve" text-anchor="start" x="243.12" y="-2806.13" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">App</text>
 <text xml:space="preserve" text-anchor="start" x="161.75" y="-2795.13" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;top&#45;level runtime coordinator &#160;&#160;&#160;</text>
 </g>
-<!-- HostManager -->
+<!-- PaneManager -->
 <g id="node2" class="node">
-<title>HostManager</title>
+<title>PaneManager</title>
 <path fill="#ffd7d7" stroke="#b53a3a" stroke-width="1.2" d="M322.26,-2643.82C322.26,-2643.82 167.74,-2643.82 167.74,-2643.82 161.74,-2643.82 155.74,-2637.82 155.74,-2631.82 155.74,-2631.82 155.74,-2619.82 155.74,-2619.82 155.74,-2613.82 161.74,-2607.82 167.74,-2607.82 167.74,-2607.82 322.26,-2607.82 322.26,-2607.82 328.26,-2607.82 334.26,-2613.82 334.26,-2619.82 334.26,-2619.82 334.26,-2631.82 334.26,-2631.82 334.26,-2637.82 328.26,-2643.82 322.26,-2643.82"/>
 <text xml:space="preserve" text-anchor="start" x="201.12" y="-2627.37" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;</text>
-<text xml:space="preserve" text-anchor="start" x="219.12" y="-2627.37" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">HostManager</text>
+<text xml:space="preserve" text-anchor="start" x="219.12" y="-2627.37" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">PaneManager</text>
 <text xml:space="preserve" text-anchor="start" x="164.38" y="-2616.37" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;owns pane hosts + lifecycle &#160;&#160;&#160;</text>
 </g>
-<!-- App&#45;&gt;HostManager -->
-<!-- App&#45;&gt;HostManager -->
+<!-- App&#45;&gt;PaneManager -->
+<!-- App&#45;&gt;PaneManager -->
 <g id="edge88" class="edge">
-<title>App&#45;&gt;HostManager</title>
+<title>App&#45;&gt;PaneManager</title>
 <path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M236.53,-2786.24C228.53,-2769.87 217.75,-2747.82 217.75,-2747.82 217.75,-2747.82 217.75,-2735.82 217.75,-2735.82 217.75,-2735.82 230.32,-2685.56 238.38,-2653.29"/>
 <polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="240.3,-2645.63 241.85,-2654.27 239.7,-2648.23 238.4,-2653.41 238.36,-2653.39 238.31,-2653.38 239.6,-2648.2 234.86,-2652.52 240.3,-2645.63"/>
 <text xml:space="preserve" text-anchor="middle" x="229.38" y="-2738.32" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
@@ -255,24 +255,24 @@
 <text xml:space="preserve" text-anchor="start" x="302.75" y="-2495.11" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">SplitTree</text>
 <text xml:space="preserve" text-anchor="start" x="227.38" y="-2484.11" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;&#160;&#160;pane layout + divider hit&#45;testing &#160;&#160;&#160;</text>
 </g>
-<!-- HostManager&#45;&gt;SplitTree -->
-<!-- HostManager&#45;&gt;SplitTree -->
+<!-- PaneManager&#45;&gt;SplitTree -->
+<!-- PaneManager&#45;&gt;SplitTree -->
 <g id="edge97" class="edge">
-<title>HostManager&#45;&gt;SplitTree</title>
+<title>PaneManager&#45;&gt;SplitTree</title>
 <path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M247.64,-2607.36C251.38,-2582.68 257.75,-2540.56 257.75,-2540.56 257.75,-2540.56 272.57,-2529.05 287.39,-2517.55"/>
 <polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="293.54,-2512.77 289.43,-2520.52 291.47,-2514.44 287.25,-2517.72 287.22,-2517.68 287.19,-2517.64 291.41,-2514.36 285.01,-2514.83 293.54,-2512.77"/>
 <text xml:space="preserve" text-anchor="middle" x="269.38" y="-2543.06" font-family="Helvetica,sans-Serif" font-size="10.00">owns</text>
 </g>
-<!-- HostManager&#45;&gt;IGridRenderer -->
+<!-- PaneManager&#45;&gt;IGridRenderer -->
 <g id="edge140" class="edge">
-<title>HostManager&#45;&gt;IGridRenderer</title>
+<title>PaneManager&#45;&gt;IGridRenderer</title>
 <path fill="none" stroke="#94a3b8" stroke-width="1.1" d="M334.71,-2612.54C428.13,-2599.75 561,-2581.56 561,-2581.56 561,-2581.56 1124,-2552.56 1124,-2552.56 1124,-2552.56 2836,-2405.56 2836,-2405.56 2836,-2405.56 2836,-2369.56 2836,-2369.56 2836,-2369.56 2818,-2200.56 2818,-2200.56 2818,-2200.56 2771,-2159.56 2771,-2159.56 2771,-2159.56 1513,-2065.56 1513,-2065.56 1513,-2065.56 1495,-1918.56 1495,-1918.56 1495,-1918.56 1495,-1874.04 1495,-1874.04 1495,-1874.04 1601,-1804.04 1601,-1804.04 1601,-1804.04 1611,-1727.04 1611,-1727.04 1611,-1727.04 1806,-1591.04 1806,-1591.04 1806,-1591.04 2008,-1570.04 2008,-1570.04 2008,-1570.04 2014,-1550.04 2014,-1550.04 2014,-1550.04 2037,-1401.04 2037,-1401.04 2037,-1401.04 2037,-1389.04 2037,-1389.04 2037,-1389.04 1976,-1381.04 1976,-1381.04 1976,-1381.04 1931,-1220.04 1931,-1220.04 1931,-1220.04 1576,-1191.04 1576,-1191.04 1576,-1191.04 1542,-1155.04 1542,-1155.04 1542,-1155.04 1501,-1114.04 1501,-1114.04 1501,-1114.04 1487.98,-1102.95 1474.72,-1091.65"/>
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="1476.59,-1089.57 1468.68,-1086.51 1472.96,-1093.83 1476.59,-1089.57"/>
 <text xml:space="preserve" text-anchor="middle" x="1541.5" y="-1892.8" font-family="Helvetica,sans-Serif" font-size="10.00">supplies host context</text>
 </g>
-<!-- HostManager&#45;&gt;IHostCallbacks -->
+<!-- PaneManager&#45;&gt;IHostCallbacks -->
 <g id="edge142" class="edge">
-<title>HostManager&#45;&gt;IHostCallbacks</title>
+<title>PaneManager&#45;&gt;IHostCallbacks</title>
 <path fill="none" stroke="#94a3b8" stroke-width="1.1" d="M334.64,-2625.82C419.31,-2625.82 544.72,-2625.82 623.33,-2625.82"/>
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="623.01,-2628.62 631.01,-2625.82 623.01,-2623.02 623.01,-2628.62"/>
 <text xml:space="preserve" text-anchor="middle" x="483.62" y="-2631.32" font-family="Helvetica,sans-Serif" font-size="10.00">passes observer</text>
@@ -285,31 +285,31 @@
 <text xml:space="preserve" text-anchor="start" x="685.12" y="-2490.86" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="11.00">IHost</text>
 <text xml:space="preserve" text-anchor="start" x="712.88" y="-2490.86" font-family="Helvetica,sans-Serif" font-size="11.00"> &#160;&#160;&#160;</text>
 </g>
-<!-- HostManager&#45;&gt;IHost -->
+<!-- PaneManager&#45;&gt;IHost -->
 <g id="edge98" class="edge">
-<title>HostManager&#45;&gt;IHost</title>
+<title>PaneManager&#45;&gt;IHost</title>
 <path fill="none" stroke="#4a5568" stroke-width="1.1" stroke-dasharray="5,2" d="M305.82,-2607.25C397.11,-2580.89 567.56,-2531.66 649.57,-2507.97"/>
 <polygon fill="#4a5568" stroke="#4a5568" stroke-width="1.1" points="656.89,-2505.86 650.2,-2511.53 654.35,-2506.64 649.22,-2508.12 649.2,-2508.08 649.19,-2508.03 654.32,-2506.55 648.2,-2504.62 656.89,-2505.86"/>
 <text xml:space="preserve" text-anchor="middle" x="549.28" y="-2543.06" font-family="Helvetica,sans-Serif" font-size="10.00">owns hosts</text>
 </g>
-<!-- HostManager&#45;&gt;IWindow -->
+<!-- PaneManager&#45;&gt;IWindow -->
 <g id="edge139" class="edge">
-<title>HostManager&#45;&gt;IWindow</title>
+<title>PaneManager&#45;&gt;IWindow</title>
 <path fill="none" stroke="#94a3b8" stroke-width="1.1" d="M284.51,-2644.2C342.8,-2671.32 445,-2718.86 445,-2718.86 445,-2718.86 817,-2718.86 817,-2718.86 817,-2718.86 907.15,-2675.85 964.86,-2648.31"/>
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="965.96,-2650.89 971.97,-2644.92 963.55,-2645.84 965.96,-2650.89"/>
 <text xml:space="preserve" text-anchor="middle" x="397" y="-2738.32" font-family="Helvetica,sans-Serif" font-size="10.00">supplies host context</text>
 </g>
-<!-- HostManager&#45;&gt;TextService -->
+<!-- PaneManager&#45;&gt;TextService -->
 <g id="edge141" class="edge">
-<title>HostManager&#45;&gt;TextService</title>
+<title>PaneManager&#45;&gt;TextService</title>
 <path fill="none" stroke="#94a3b8" stroke-width="1.1" d="M334.71,-2612.54C428.13,-2599.75 561,-2581.56 561,-2581.56 561,-2581.56 1099,-2552.56 1099,-2552.56 1099,-2552.56 1180,-2511.56 1180,-2511.56 1180,-2511.56 1180,-2467.56 1180,-2467.56 1180,-2467.56 1166,-2328.56 1166,-2328.56 1166,-2328.56 1035.95,-2272.53 962.33,-2240.81"/>
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="963.63,-2238.33 955.18,-2237.73 961.42,-2243.47 963.63,-2238.33"/>
 <text xml:space="preserve" text-anchor="middle" x="1224.37" y="-2437.06" font-family="Helvetica,sans-Serif" font-size="10.00">supplies host context</text>
 </g>
 <!-- SplitTree&#45;&gt;InputDispatcher -->
-<!-- InputDispatcher&#45;&gt;HostManager -->
+<!-- InputDispatcher&#45;&gt;PaneManager -->
 <g id="edge144" class="edge">
-<title>InputDispatcher&#45;&gt;HostManager</title>
+<title>InputDispatcher&#45;&gt;PaneManager</title>
 <path fill="none" stroke="#94a3b8" stroke-width="1.1" d="M233.91,-2403.43C168.75,-2416.87 83,-2434.56 83,-2434.56 83,-2434.56 79.75,-2467.56 79.75,-2467.56 79.75,-2467.56 79.75,-2511.56 79.75,-2511.56 79.75,-2511.56 163.59,-2569.02 211.84,-2602.09"/>
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="209.99,-2604.22 218.17,-2606.43 213.15,-2599.6 209.99,-2604.22"/>
 <text xml:space="preserve" text-anchor="middle" x="110.88" y="-2490.06" font-family="Helvetica,sans-Serif" font-size="10.00">mouse hit&#45;test</text>
@@ -336,9 +336,9 @@
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="976.7,-2604.26 984.89,-2606.44 979.85,-2599.63 976.7,-2604.26"/>
 <text xml:space="preserve" text-anchor="middle" x="887" y="-2490.06" font-family="Helvetica,sans-Serif" font-size="10.00">connects callbacks</text>
 </g>
-<!-- GuiActionHandler&#45;&gt;HostManager -->
+<!-- GuiActionHandler&#45;&gt;PaneManager -->
 <g id="edge150" class="edge">
-<title>GuiActionHandler&#45;&gt;HostManager</title>
+<title>GuiActionHandler&#45;&gt;PaneManager</title>
 <path fill="none" stroke="#94a3b8" stroke-width="1.1" d="M293.28,-2237.15C272.37,-2266.09 233,-2320.56 233,-2320.56 233,-2320.56 157,-2328.56 157,-2328.56 157,-2328.56 142,-2467.56 142,-2467.56 142,-2467.56 142,-2511.56 142,-2511.56 142,-2511.56 170,-2552.56 170,-2552.56 170,-2552.56 198.21,-2579.74 220.03,-2600.76"/>
 <polygon fill="#94a3b8" stroke="#94a3b8" stroke-width="1.1" points="217.94,-2602.64 225.65,-2606.17 221.83,-2598.61 217.94,-2602.64"/>
 <text xml:space="preserve" text-anchor="middle" x="169.16" y="-2437.06" font-family="Helvetica,sans-Serif" font-size="10.00">split panes</text>

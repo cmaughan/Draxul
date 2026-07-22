@@ -27,7 +27,7 @@ namespace draxul
 class ChromeHost final : public IHost
 {
 public:
-    // Shared dependencies passed to every tab's HostManager.
+    // Shared dependencies passed to every tab's PaneManager.
     struct Deps
     {
         AppConfig* config = nullptr;
@@ -50,7 +50,7 @@ public:
         // updates don't overwrite the user's choice.
         std::function<void(int tab_id, std::string name)> set_tab_name;
         // Apply a user-typed name to a pane (per-leaf override). Owner (App)
-        // forwards this to HostManager::set_pane_name. Empty name clears the
+        // forwards this to PaneManager::set_pane_name. Empty name clears the
         // override and reverts to host->status_text().
         std::function<void(LeafId leaf, std::string name)> set_pane_name;
         // Look up the existing user override for a pane. Returns empty string

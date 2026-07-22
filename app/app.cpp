@@ -5,7 +5,7 @@
 #endif
 #include "chrome_host.h"
 #include "gui_action_handler.h"
-#include "host_manager.h"
+#include "pane_manager.h"
 #include "input_dispatcher.h"
 #include "session_id.h"
 #include "session_listing.h"
@@ -76,7 +76,7 @@ class CallbackInputRouter final : public IInputRouter
 {
 public:
     std::function<IHost*()> overlay_host_fn;
-    std::function<HostManager*()> host_manager_fn;
+    std::function<PaneManager*()> pane_manager_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
     std::function<int()> tab_bar_height_phys_fn;
@@ -95,9 +95,9 @@ public:
         return overlay_host_fn ? overlay_host_fn() : nullptr;
     }
 
-    HostManager* host_manager() override
+    PaneManager* pane_manager() override
     {
-        return host_manager_fn ? host_manager_fn() : nullptr;
+        return pane_manager_fn ? pane_manager_fn() : nullptr;
     }
 
     int hit_test_tab(int phys_x, int phys_y) override
@@ -233,7 +233,7 @@ App::App(AppDeps deps)
 {
     if (deps.http_client)
         weather_service_.set_http_client(std::move(deps.http_client));
-    // HostManager reads options_.host_factory to create hosts.  Sync our
+    // PaneManager reads options_.host_factory to create hosts.  Sync our
     // canonical factory back so the two sources stay consistent.
     options_.host_factory = host_factory_;
     pending_window_activation_ = options_.activate_window_on_startup;
@@ -388,8 +388,8 @@ bool App::initialize()
     if (!time_step("Host", [this]() { return initialize_chrome_host(); }))
         return false;
 
-    if (active_host_manager().host())
-        diagnostics_collector_.amend_last_step_label("Host (" + active_host_manager().host()->debug_state().name + ")");
+    if (active_pane_manager().host())
+        diagnostics_collector_.amend_last_step_label("Host (" + active_pane_manager().host()->debug_state().name + ")");
 
     diagnostics_collector_.set_startup_total_ms(Ms(Clock::now() - init_start).count());
 
@@ -505,7 +505,7 @@ void App::apply_font_metrics()
     diagnostics_host_->set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
     for (auto& tab : tabs_)
     {
-        tab->host_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
+        tab->pane_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
             host.set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
             host.on_font_metrics_changed();
         });
@@ -597,7 +597,7 @@ Result<void, Error> App::reload_config()
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
     for (auto& tab : tabs_)
     {
-        tab->host_manager.for_each_host([&host_reload](LeafId, IHost& host) {
+        tab->pane_manager.for_each_host([&host_reload](LeafId, IHost& host) {
             host.on_config_reloaded(host_reload);
         });
     }
@@ -648,11 +648,11 @@ bool App::initialize_chrome_host()
     chrome_deps.set_pane_name = [this](LeafId leaf, std::string name) {
         // Apply to whichever tab currently owns the leaf — pane edits
         // are always against the active tab.
-        active_host_manager().set_pane_name(leaf, std::move(name));
+        active_pane_manager().set_pane_name(leaf, std::move(name));
         request_frame();
     };
     chrome_deps.get_pane_name = [this](LeafId leaf) {
-        return active_host_manager().pane_name(leaf);
+        return active_pane_manager().pane_name(leaf);
     };
     chrome_deps.request_frame = [this]() { request_frame(); };
     chrome_host_ = std::make_unique<ChromeHost>(std::move(chrome_deps));
@@ -745,7 +745,7 @@ bool App::initialize_chrome_host()
     }
 
     const float font_size = imgui_font_size_from_metrics(text_service_.metrics());
-    active_host_manager().host()->set_imgui_font(text_service_.primary_font_path(), font_size);
+    active_pane_manager().host()->set_imgui_font(text_service_.primary_font_path(), font_size);
 
     const std::string session_label = session_name_.empty() ? options_.session_id : session_name_;
     if (restored_session)
@@ -763,38 +763,38 @@ void App::wire_gui_actions()
     GuiActionHandler::Deps gui_deps;
     gui_deps.text_service = &text_service_;
     gui_deps.ui_panel = diagnostics_host_ ? &diagnostics_host_->panel() : nullptr;
-    gui_deps.focused_host = [this]() { return active_host_manager().focused_host(); };
+    gui_deps.focused_host = [this]() { return active_pane_manager().focused_host(); };
     gui_deps.imgui_host = renderer_.imgui();
     gui_deps.config = &config_;
     gui_deps.on_font_changed = [this]() { apply_font_metrics(); };
     gui_deps.on_open_file_dialog = [this]() { window_->show_open_file_dialog(); };
     gui_deps.on_split_vertical = [this](std::optional<HostKind> kind) {
         LeafId new_leaf = kind
-            ? active_host_manager().split_focused(SplitDirection::Vertical, *kind, *this)
-            : active_host_manager().split_focused(SplitDirection::Vertical, *this);
+            ? active_pane_manager().split_focused(SplitDirection::Vertical, *kind, *this)
+            : active_pane_manager().split_focused(SplitDirection::Vertical, *this);
         if (new_leaf != kInvalidLeaf)
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
         else
         {
-            const std::string& err = active_host_manager().error();
+            const std::string& err = active_pane_manager().error();
             push_toast(2, err.empty() ? std::string("Failed to spawn split pane") : err);
         }
     };
     gui_deps.on_split_horizontal = [this](std::optional<HostKind> kind) {
         LeafId new_leaf = kind
-            ? active_host_manager().split_focused(SplitDirection::Horizontal, *kind, *this)
-            : active_host_manager().split_focused(SplitDirection::Horizontal, *this);
+            ? active_pane_manager().split_focused(SplitDirection::Horizontal, *kind, *this)
+            : active_pane_manager().split_focused(SplitDirection::Horizontal, *this);
         if (new_leaf != kInvalidLeaf)
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
         else
         {
-            const std::string& err = active_host_manager().error();
+            const std::string& err = active_pane_manager().error();
             push_toast(2, err.empty() ? std::string("Failed to spawn split pane") : err);
         }
     };
@@ -820,15 +820,15 @@ void App::wire_gui_actions()
         HostLaunchOptions launch;
         launch.kind = HostKind::Nvim;
         launch.args = { ConfigDocument::default_path().string() };
-        LeafId new_leaf = active_host_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
+        LeafId new_leaf = active_pane_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
         if (new_leaf != kInvalidLeaf)
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
         else
         {
-            const std::string& err = active_host_manager().error();
+            const std::string& err = active_pane_manager().error();
             push_toast(2, err.empty() ? std::string("Failed to open config in split pane") : err);
         }
     };
@@ -840,13 +840,13 @@ void App::wire_gui_actions()
     };
     gui_deps.on_toggle_zoom = [this]() {
         const int tab_y = chrome_host_->tab_bar_height();
-        active_host_manager().toggle_zoom(
+        active_pane_manager().toggle_zoom(
             window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     gui_deps.on_close_pane = [this]() {
-        if (active_host_manager().host_count() <= 1)
+        if (active_pane_manager().host_count() <= 1)
         {
             if (tab_count() <= 1)
             {
@@ -855,7 +855,7 @@ void App::wire_gui_actions()
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
                 for (auto& tab : tabs_)
-                    tab->host_manager.shutdown();
+                    tab->pane_manager.shutdown();
                 tabs_.clear();
                 active_tab_id_ = -1;
                 render_root_ = RenderNode{};
@@ -870,38 +870,38 @@ void App::wire_gui_actions()
             const int th = diagnostics_host_->layout().terminal_height;
             const int tab_y = chrome_host_->tab_bar_height();
             recompute_all_viewports(0, tab_y, pw, th - tab_y);
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
             return;
         }
         input_dispatcher_.set_host(nullptr);
-        active_host_manager().close_focused();
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        active_pane_manager().close_focused();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     gui_deps.on_restart_host = [this]() {
         input_dispatcher_.set_host(nullptr);
-        if (active_host_manager().restart_focused(*this))
+        if (active_pane_manager().restart_focused(*this))
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
         else
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
         }
     };
     gui_deps.on_swap_pane = [this]() {
-        if (active_host_manager().swap_focused_with_next())
+        if (active_pane_manager().swap_focused_with_next())
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
     };
     auto focus_pane = [this](FocusDirection dir) {
-        if (active_host_manager().focus_direction(dir))
+        if (active_pane_manager().focus_direction(dir))
         {
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
     };
@@ -910,7 +910,7 @@ void App::wire_gui_actions()
     gui_deps.on_focus_up = [focus_pane]() { focus_pane(FocusDirection::Up); };
     gui_deps.on_focus_down = [focus_pane]() { focus_pane(FocusDirection::Down); };
     auto resize_pane = [this](FocusDirection dir) {
-        HostManager& hm = active_host_manager();
+        PaneManager& hm = active_pane_manager();
         DividerId id = hm.find_focused_ancestor_divider(dir);
         if (id == kInvalidDivider)
             return;
@@ -935,7 +935,7 @@ void App::wire_gui_actions()
         if (id >= 0)
         {
             // Set the font on the new host so ImGui uses the app's font, not the default.
-            if (IHost* h = active_host_manager().host())
+            if (IHost* h = active_pane_manager().host())
             {
                 const float font_size = imgui_font_size_from_metrics(text_service_.metrics());
                 h->set_imgui_font(text_service_.primary_font_path(), font_size);
@@ -943,7 +943,7 @@ void App::wire_gui_actions()
             // Recompute ALL tab viewports with the (possibly new) tab bar offset.
             const int tab_y = chrome_host_->tab_bar_height();
             recompute_all_viewports(0, tab_y, pw, th - tab_y);
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
     };
@@ -958,22 +958,22 @@ void App::wire_gui_actions()
         const int th = diagnostics_host_->layout().terminal_height;
         const int tab_y = chrome_host_->tab_bar_height();
         recompute_all_viewports(0, tab_y, pw, th - tab_y);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     gui_deps.on_next_tab = [this]() {
         next_tab();
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     gui_deps.on_prev_tab = [this]() {
         prev_tab();
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     gui_deps.on_activate_tab = [this](int index) {
         activate_tab_by_index(index);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     gui_deps.on_rename_tab = [this]() {
@@ -990,35 +990,35 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_duplicate_pane = [this]() {
-        if (auto* host = active_host_manager().focused_host())
+        if (auto* host = active_pane_manager().focused_host())
         {
             const std::string cwd = host->current_working_directory();
             HostLaunchOptions launch;
-            launch.kind = HostManager::platform_default_split_host_kind();
+            launch.kind = PaneManager::platform_default_split_host_kind();
             launch.enable_ligatures = config_.enable_ligatures;
             if (!cwd.empty())
                 launch.working_dir = cwd;
-            active_host_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            active_pane_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
     };
     gui_deps.on_equalize_panes = [this]() {
-        active_host_manager().equalize_splits(*this);
+        active_pane_manager().equalize_splits(*this);
         request_frame();
     };
     gui_deps.on_print_pane = [this]() { start_print_focused_pane(); };
     gui_deps.on_rename_pane = [this]() {
         if (!chrome_host_)
             return;
-        const LeafId leaf = active_host_manager().focused_leaf();
+        const LeafId leaf = active_pane_manager().focused_leaf();
         if (leaf == kInvalidLeaf)
             return;
         chrome_host_->begin_pane_rename(leaf);
         request_frame();
     };
     gui_deps.broadcast_action = [this](std::string_view action) {
-        active_host_manager().for_each_host(
+        active_pane_manager().for_each_host(
             [action](LeafId, IHost& h) { h.dispatch_action(action); });
         request_frame();
     };
@@ -1132,8 +1132,8 @@ void App::wire_window_callbacks()
         return (palette_host_ && palette_host_->is_active()) ? palette_host_.get() : nullptr;
     };
     disp_deps.ui_panel = diagnostics_host_ ? &diagnostics_host_->panel() : nullptr;
-    disp_deps.host = active_host_manager().host();
-    router->host_manager_fn = [this]() -> HostManager* { return &active_host_manager(); };
+    disp_deps.host = active_pane_manager().host();
+    router->pane_manager_fn = [this]() -> PaneManager* { return &active_pane_manager(); };
     disp_deps.smooth_scroll = config_.smooth_scroll;
     disp_deps.scroll_speed = config_.scroll_speed;
     disp_deps.pixel_scale = PixelScale::from_window(window_->width_pixels(), window_->width_logical());
@@ -1147,19 +1147,19 @@ void App::wire_window_callbacks()
     };
     router->activate_tab_fn = [this](int index) {
         activate_tab_by_index(index);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     router->activate_pane_fn = [this](int index) {
         activate_pane_by_index(index);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
     router->begin_tab_rename_fn = [this](int tab_index) {
         // Activate the tab before editing so the user always edits the
         // visually-active tab.
         activate_tab_by_index(tab_index);
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
         chrome_host_->begin_tab_rename(tab_index);
         request_frame();
     };
@@ -1211,8 +1211,8 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
     {
         pump_once(deadline);
         const Tab* tab = find_active_tab();
-        if (tab != nullptr && tab->host_manager.host()
-            && tab->host_manager.host()->runtime_state().content_ready && saw_frame_)
+        if (tab != nullptr && tab->pane_manager.host()
+            && tab->pane_manager.host()->runtime_state().content_ready && saw_frame_)
             return true;
     }
     return false;
@@ -1281,7 +1281,7 @@ void App::start_print_focused_pane()
         push_toast(1, "The focused pane has no visible area");
         return;
     }
-    IHost* focused_host = active_host_manager().focused_host();
+    IHost* focused_host = active_pane_manager().focused_host();
     print_hint_ = focused_host != nullptr ? focused_host->print_hint() : HostPrintHint{};
     print_capture_pending_ = true;
     renderer_.capture()->request_frame_capture();
@@ -1361,7 +1361,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
         const Tab* tab = find_active_tab();
         if (tab != nullptr)
         {
-            if (auto* host = tab->host_manager.host())
+            if (auto* host = tab->pane_manager.host())
                 return host->runtime_state();
         }
         return std::nullopt;
@@ -1396,21 +1396,21 @@ bool App::close_dead_panes()
     if (find_active_tab() == nullptr)
         return false;
     std::vector<LeafId> dead;
-    active_host_manager().for_each_host([this, &dead](LeafId id, const IHost& h) {
-        const std::string pane_id = active_host_manager().pane_id(id);
+    active_pane_manager().for_each_host([this, &dead](LeafId id, const IHost& h) {
+        const std::string pane_id = active_pane_manager().pane_id(id);
         if (h.is_running())
         {
             if (!pane_id.empty())
                 announced_dead_panes_.erase(pane_id);
             return;
         }
-        if (active_host_manager().should_preserve_dead_leaf(id))
+        if (active_pane_manager().should_preserve_dead_leaf(id))
         {
             if (!pane_id.empty() && announced_dead_panes_.insert(pane_id).second)
             {
-                const std::string pane_label = active_host_manager().pane_name(id).empty()
+                const std::string pane_label = active_pane_manager().pane_name(id).empty()
                     ? pane_id
-                    : active_host_manager().pane_name(id);
+                    : active_pane_manager().pane_name(id);
                 push_toast(1, "Pane '" + pane_label + "' exited unexpectedly. Use restart_host to respawn it.");
             }
             return;
@@ -1426,8 +1426,8 @@ bool App::close_dead_panes()
     }
     for (LeafId id : dead)
     {
-        announced_dead_panes_.erase(active_host_manager().pane_id(id));
-        if (active_host_manager().host_count() == 1)
+        announced_dead_panes_.erase(active_pane_manager().pane_id(id));
+        if (active_pane_manager().host_count() == 1)
         {
             // Last pane in this tab died.
             if (tab_count() <= 1)
@@ -1438,7 +1438,7 @@ bool App::close_dead_panes()
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
                 for (auto& tab : tabs_)
-                    tab->host_manager.shutdown();
+                    tab->pane_manager.shutdown();
                 tabs_.clear();
                 active_tab_id_ = -1;
                 render_root_ = RenderNode{};
@@ -1452,13 +1452,13 @@ bool App::close_dead_panes()
             const int th = diagnostics_host_->layout().terminal_height;
             const int tab_y = chrome_host_->tab_bar_height();
             recompute_all_viewports(0, tab_y, pw, th - tab_y);
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
-            return active_host_manager().host() != nullptr;
+            return active_pane_manager().host() != nullptr;
         }
-        active_host_manager().close_leaf(id);
+        active_pane_manager().close_leaf(id);
     }
-    return active_host_manager().host() != nullptr;
+    return active_pane_manager().host() != nullptr;
 }
 
 void App::rebuild_render_tree()
@@ -1466,7 +1466,7 @@ void App::rebuild_render_tree()
     render_root_ = RenderNode{};
     render_root_.tag = "root";
 
-    const auto& hm = active_host_manager();
+    const auto& hm = active_pane_manager();
     const bool zoomed = hm.is_zoomed();
 
     // Chrome host draws pane dividers / tab bar — hidden when zoomed.
@@ -1505,7 +1505,7 @@ bool App::render_frame()
     update_diagnostics_panel();
 
     const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
-    if (auto* host = active_host_manager().focused_host())
+    if (auto* host = active_pane_manager().focused_host())
         host->set_scroll_offset(input_dispatcher_.scroll_fraction() * static_cast<float>(ch));
     input_dispatcher_.clear_scroll_event();
 
@@ -1591,7 +1591,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             runtime_perf_collector().cancel_frame();
             return false;
         }
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
 
         // Pump all visible hosts via tree walk.
         rebuild_render_tree();
@@ -1611,7 +1611,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             runtime_perf_collector().cancel_frame();
             return false;
         }
-        input_dispatcher_.set_host(active_host_manager().focused_host());
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
 
         if (frame_requested_)
         {
@@ -1723,7 +1723,7 @@ void App::request_quit()
 {
     if (Tab* tab = find_active_tab())
     {
-        tab->host_manager.for_each_host([](LeafId, IHost& h) {
+        tab->pane_manager.for_each_host([](LeafId, IHost& h) {
             h.request_close();
         });
     }
@@ -1757,15 +1757,15 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
 {
     // Remember the caller's pane so keep_focus can restore it after we either
     // focus the target Neovim pane or split a new one (both steal focus).
-    const LeafId origin_leaf = active_host_manager().focused_leaf();
+    const LeafId origin_leaf = active_pane_manager().focused_leaf();
 
     // Find an existing NvimHost via the typed capability query. The first
-    // host (in HostManager iteration order) reporting is_nvim_host()==true wins;
+    // host (in PaneManager iteration order) reporting is_nvim_host()==true wins;
     // this is the same selection policy as before, just without the debug-string
     // heuristic.
     IHost* nvim_host = nullptr;
     LeafId nvim_leaf = kInvalidLeaf;
-    active_host_manager().for_each_host([&nvim_host, &nvim_leaf](LeafId id, IHost& host) {
+    active_pane_manager().for_each_host([&nvim_host, &nvim_leaf](LeafId id, IHost& host) {
         if (!nvim_host && host.is_nvim_host())
         {
             nvim_host = &host;
@@ -1776,16 +1776,16 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
     if (nvim_host)
     {
         nvim_host->dispatch_action(action);
-        active_host_manager().set_focused(keep_focus ? origin_leaf : nvim_leaf);
+        active_pane_manager().set_focused(keep_focus ? origin_leaf : nvim_leaf);
         request_frame();
         return true;
     }
 
     // No existing NvimHost — create a vertical split with one.
-    LeafId new_leaf = active_host_manager().split_focused(SplitDirection::Vertical, HostKind::Nvim, *this);
+    LeafId new_leaf = active_pane_manager().split_focused(SplitDirection::Vertical, HostKind::Nvim, *this);
     if (new_leaf == kInvalidLeaf)
     {
-        const std::string& err = active_host_manager().error();
+        const std::string& err = active_pane_manager().error();
         push_toast(2, err.empty() ? std::string("Failed to spawn nvim host") : err);
         return false;
     }
@@ -1793,12 +1793,12 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
     // split_focused() focuses the new pane; restore the caller's focus when the
     // caller asked to stay put (e.g. Kanban opening a card in the background).
     if (keep_focus && origin_leaf != kInvalidLeaf)
-        active_host_manager().set_focused(origin_leaf);
+        active_pane_manager().set_focused(origin_leaf);
 
     refresh_window_layout();
     request_frame();
 
-    IHost* new_host = active_host_manager().host_for(new_leaf);
+    IHost* new_host = active_pane_manager().host_for(new_leaf);
     if (new_host)
         new_host->dispatch_action(action);
 
@@ -1807,7 +1807,7 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
 
 bool App::show_markdown_preview(std::string_view path)
 {
-    HostManager& hm = active_host_manager();
+    PaneManager& hm = active_pane_manager();
     const LeafId owner = hm.focused_leaf();
     if (owner == kInvalidLeaf)
         return false;
@@ -1831,7 +1831,7 @@ bool App::show_markdown_preview(std::string_view path)
 
 void App::hide_markdown_preview()
 {
-    HostManager& hm = active_host_manager();
+    PaneManager& hm = active_pane_manager();
     if (!hm.has_markdown_preview())
         return;
     hm.hide_markdown_preview();
@@ -1882,9 +1882,9 @@ void App::update_diagnostics_panel()
     panel.startup_total_ms = diagnostics_collector_.startup_total_ms();
 
     const Tab* tab = find_active_tab();
-    if (tab != nullptr && tab->host_manager.host())
+    if (tab != nullptr && tab->pane_manager.host())
     {
-        const HostDebugState host_state = tab->host_manager.host()->debug_state();
+        const HostDebugState host_state = tab->pane_manager.host()->debug_state();
         panel.grid_size = { host_state.grid_cols, host_state.grid_rows };
         panel.dirty_cells = host_state.dirty_cells;
     }
@@ -1893,7 +1893,7 @@ void App::update_diagnostics_panel()
 
     if (tab != nullptr)
     {
-        const auto& hm = tab->host_manager;
+        const auto& hm = tab->pane_manager;
         hm.for_each_host([&panel, &hm](LeafId id, IHost& h) {
             const auto dbg = h.debug_state();
             const auto pd = hm.tree().descriptor_for(id);
@@ -1985,9 +1985,9 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 // Tab management (moved from ChromeHost)
 // ---------------------------------------------------------------------------
 
-HostManager::Deps App::make_host_manager_deps()
+PaneManager::Deps App::make_pane_manager_deps()
 {
-    HostManager::Deps deps;
+    PaneManager::Deps deps;
     deps.options = &options_;
     deps.config = &config_;
     deps.config_document = &config_document_;
@@ -2009,7 +2009,7 @@ void App::refresh_tab_default_names()
     {
         if (tab->name_user_set)
             continue;
-        IHost* focused = tab->host_manager.focused_host();
+        IHost* focused = tab->pane_manager.focused_host();
         if (!focused)
             continue;
         const std::string cwd = focused->current_working_directory();
@@ -2039,7 +2039,7 @@ bool App::can_snapshot_session_state() const
 
     for (const auto& tab : tabs_)
     {
-        if (!tab->host_manager.has_restorable_shell_session())
+        if (!tab->pane_manager.has_restorable_shell_session())
             return false;
     }
 
@@ -2106,7 +2106,7 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
         if (restore_session_state(pw, host_h, *previous_state))
         {
             recompute_all_viewports(0, tab_y, pw, host_h);
-            input_dispatcher_.set_host(active_host_manager().focused_host());
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
     };
@@ -2128,7 +2128,7 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
     }
 
     recompute_all_viewports(0, tab_y, pw, host_h);
-    input_dispatcher_.set_host(active_host_manager().focused_host());
+    input_dispatcher_.set_host(active_pane_manager().focused_host());
     persist_session_state();
     last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     request_frame();
@@ -2217,15 +2217,15 @@ std::optional<SessionSnapshot> App::snapshot_session_state() const
 
     for (const auto& tab : tabs_)
     {
-        auto host_manager_state = tab->host_manager.session_state();
-        if (!host_manager_state)
+        auto pane_manager_state = tab->pane_manager.session_state();
+        if (!pane_manager_state)
             return std::nullopt;
 
         TabSnapshot tab_state;
         tab_state.id = tab->id;
         tab_state.name = tab->name;
         tab_state.name_user_set = tab->name_user_set;
-        tab_state.host_manager = std::move(*host_manager_state);
+        tab_state.pane_manager = std::move(*pane_manager_state);
         state.tabs.push_back(std::move(tab_state));
     }
 
@@ -2271,7 +2271,7 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
         return false;
 
     for (auto& tab : tabs_)
-        tab->host_manager.shutdown();
+        tab->pane_manager.shutdown();
     tabs_.clear();
     active_tab_id_ = -1;
     render_root_ = RenderNode{};
@@ -2279,11 +2279,11 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
     int max_tab_id = -1;
     for (const TabSnapshot& tab_state : state.tabs)
     {
-        auto tab = std::make_unique<Tab>(tab_state.id, make_host_manager_deps());
-        if (!tab->host_manager.restore_session_state(*this, pixel_w, pixel_h, tab_state.host_manager))
+        auto tab = std::make_unique<Tab>(tab_state.id, make_pane_manager_deps());
+        if (!tab->pane_manager.restore_session_state(*this, pixel_w, pixel_h, tab_state.pane_manager))
         {
             for (auto& created_tab : tabs_)
-                created_tab->host_manager.shutdown();
+                created_tab->pane_manager.shutdown();
             tabs_.clear();
             active_tab_id_ = -1;
             render_root_ = RenderNode{};
@@ -2311,14 +2311,14 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
 
 bool App::create_initial_tab(int pixel_w, int pixel_h)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++, make_host_manager_deps());
-    if (!tab->host_manager.create(*this, pixel_w, pixel_h))
+    auto tab = std::make_unique<Tab>(next_tab_id_++, make_pane_manager_deps());
+    if (!tab->pane_manager.create(*this, pixel_w, pixel_h))
     {
-        last_init_error_ = tab->host_manager.error();
+        last_init_error_ = tab->pane_manager.error();
         return false;
     }
     tab->initialized = true;
-    if (IHost* h = tab->host_manager.host())
+    if (IHost* h = tab->pane_manager.host())
         tab->name = h->debug_state().name;
     else
         tab->name = "tab";
@@ -2330,15 +2330,15 @@ bool App::create_initial_tab(int pixel_w, int pixel_h)
 
 int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++, make_host_manager_deps());
-    const HostKind kind = host_kind.value_or(HostManager::platform_default_split_host_kind());
-    if (!tab->host_manager.create(*this, pixel_w, pixel_h, kind))
+    auto tab = std::make_unique<Tab>(next_tab_id_++, make_pane_manager_deps());
+    const HostKind kind = host_kind.value_or(PaneManager::platform_default_split_host_kind());
+    if (!tab->pane_manager.create(*this, pixel_w, pixel_h, kind))
     {
-        last_init_error_ = tab->host_manager.error();
+        last_init_error_ = tab->pane_manager.error();
         return -1;
     }
     tab->initialized = true;
-    if (IHost* h = tab->host_manager.host())
+    if (IHost* h = tab->pane_manager.host())
         tab->name = h->debug_state().name;
     else
         tab->name = "tab";
@@ -2370,7 +2370,7 @@ bool App::close_tab(int tab_id)
         activate_tab((*replacement)->id);
     }
 
-    (*it)->host_manager.shutdown();
+    (*it)->pane_manager.shutdown();
     tabs_.erase(it);
     return true;
 }
@@ -2390,11 +2390,11 @@ void App::activate_tab(int tab_id)
 
     if (Tab* current = find_active_tab())
     {
-        if (IHost* h = current->host_manager.focused_host())
+        if (IHost* h = current->pane_manager.focused_host())
             h->on_focus_lost();
     }
     active_tab_id_ = tab_id;
-    if (IHost* h = (*target)->host_manager.focused_host())
+    if (IHost* h = (*target)->pane_manager.focused_host())
         h->on_focus_gained();
 }
 
@@ -2467,23 +2467,23 @@ void App::activate_pane_by_index(int one_based_index)
     });
 
     if (target != kInvalidLeaf)
-        active_host_manager().set_focused(target);
+        active_pane_manager().set_focused(target);
 }
 
 void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
     for (auto& tab : tabs_)
-        tab->host_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
+        tab->pane_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }
 
-HostManager& App::active_host_manager()
+PaneManager& App::active_pane_manager()
 {
-    return require_active_tab("active_host_manager").host_manager;
+    return require_active_tab("active_pane_manager").pane_manager;
 }
 
-const HostManager& App::active_host_manager() const
+const PaneManager& App::active_pane_manager() const
 {
-    return require_active_tab("active_host_manager const").host_manager;
+    return require_active_tab("active_pane_manager const").pane_manager;
 }
 
 Tab* App::find_active_tab() noexcept
@@ -2528,7 +2528,7 @@ const Tab& App::require_active_tab(std::string_view context) const
 
 const SplitTree& App::active_tree() const
 {
-    return active_host_manager().tree();
+    return active_pane_manager().tree();
 }
 
 int App::tab_count() const
@@ -2559,7 +2559,7 @@ void App::shutdown()
         persist_session_state();
 
     for (auto& tab : tabs_)
-        tab->host_manager.shutdown();
+        tab->pane_manager.shutdown();
     tabs_.clear();
     active_tab_id_ = -1;
     render_root_ = RenderNode{};

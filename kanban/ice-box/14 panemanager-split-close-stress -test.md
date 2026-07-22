@@ -1,4 +1,4 @@
-# WI 14 — HostManager split/close stress test
+# WI 14 — PaneManager split/close stress test
 
 **Type:** test  
 **Source:** review-latest.claude.md (critical gap), review-latest.gemini.md  
@@ -8,7 +8,7 @@
 
 ## Goal
 
-Verify that HostManager's split-tree remains structurally valid and all pane descriptors are consistent after many rapid split/close cycles. This gap was flagged unanimously — rapid split/close is a real user workflow (muscle-memory `<C-w>s` / `<C-w>q` chains) and currently has zero coverage.
+Verify that PaneManager's split-tree remains structurally valid and all pane descriptors are consistent after many rapid split/close cycles. This gap was flagged unanimously — rapid split/close is a real user workflow (muscle-memory `<C-w>s` / `<C-w>q` chains) and currently has zero coverage.
 
 ---
 
@@ -27,9 +27,9 @@ Verify that HostManager's split-tree remains structurally valid and all pane des
 
 ## Implementation notes
 
-- Use `HostManager` with `FakeHost` instances (see WI 25 for centralised fixtures).
+- Use `PaneManager` with `FakeHost` instances (see WI 25 for centralised fixtures).
 - No GPU renderer needed — pass a `NullRenderer` or `FakeRenderer`.
-- This test should be runnable with `ctest -R hostmanager-split-close-stress` on both macOS and Windows.
+- This test should be runnable with `ctest -R panemanager-split-close-stress` on both macOS and Windows.
 - Run the stress portion under ASan to catch any use-after-free in the tree mutation paths.
 
 ---

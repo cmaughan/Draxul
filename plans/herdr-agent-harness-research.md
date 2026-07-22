@@ -2,8 +2,8 @@
 
 **Status:** research and preliminary design direction  
 **Date:** 2026-07-21  
-**Implementation note:** the behaviour-neutral `Workspace` to `Tab` vocabulary and
-snapshot-type rename is the first implementation step on 2026-07-22; controller
+**Implementation note:** the behaviour-neutral `Workspace` to `Tab`, `HostManager`
+to `PaneManager`, and snapshot-type renames were completed on 2026-07-22; controller
 extraction and the new Space layer remain future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
@@ -181,14 +181,15 @@ may contain credentials, tokens, source code, or other sensitive data.
 
 The former `Workspace` type, now [`Tab`](../app/tab.h), is explicitly one
 self-contained pane layout and one top-bar tab. It owns a
-[`HostManager`](../app/host_manager.h), which owns
+[`PaneManager`](../app/pane_manager.h), which owns
 the split tree, pane leaves, host instances, launch options, and stable pane strings.
 
 The former `AppSessionState`, now [`SessionSnapshot`](../app/session_state.h), owns a
 vector of `TabSnapshot`, an active tab ID, and the next tab ID. Structurally, today's
 Draxul session contains tabs and panes but has no project-level Space grouping. The
-version-1 persistence keys retain their historical `workspace` spelling for backward
-and forward compatibility; this is a wire-format detail rather than live terminology.
+version-1 persistence keys retain their historical `workspace` spelling and
+`host_manager` table name for backward and forward compatibility; these are wire-format
+details rather than live terminology.
 
 The application already has several useful foundations:
 
@@ -272,9 +273,8 @@ terminology.
   `PaneId`; Draxul already has a separate stable pane identity suitable for persistence
   and APIs.
 
-Renaming `HostManager` to `PaneManager` is lower priority than `Workspace` to `Tab`.
-It should happen when controller extraction already touches its ownership boundary,
-not as an unrelated large mechanical diff.
+The `PaneManager` rename completes the preliminary ownership vocabulary. It remains a
+pane-layout owner; it does not become the future `TabController` or `SpaceController`.
 
 ### New Space vocabulary
 
@@ -359,8 +359,9 @@ Agent metadata should be separated into durable and ephemeral fields:
 
 ### Phase 0: ownership and naming boundary
 
-The behaviour-neutral `Workspace` to `Tab` and snapshot terminology rename is complete.
-The remaining work is to extract tab/session ownership from `App` and add
+The behaviour-neutral `Workspace` to `Tab`, `HostManager` to `PaneManager`, and
+snapshot terminology renames are complete. The remaining work is to extract
+tab/session ownership from `App` and add
 `SpaceController` with a single default Space so behaviour remains unchanged initially.
 
 **Exit condition:** existing tabs, panes, session files, focus behaviour, and shell

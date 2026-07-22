@@ -1,6 +1,6 @@
 #pragma once
 
-#include "host_manager.h"
+#include "pane_manager.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -17,7 +17,7 @@ struct TabSnapshot
     int id = -1;
     std::string name;
     bool name_user_set = false;
-    HostManager::PaneLayoutSnapshot host_manager;
+    PaneManager::PaneLayoutSnapshot pane_manager;
 };
 
 struct SessionSnapshot

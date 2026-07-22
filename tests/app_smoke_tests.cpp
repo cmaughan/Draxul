@@ -569,7 +569,7 @@ TEST_CASE("app smoke: closing the window exits and preserves file-backed session
     REQUIRE(saved);
     CHECK(saved->session_name == "Close Me");
     REQUIRE(saved->tabs.size() == 1);
-    REQUIRE(saved->tabs[0].host_manager.panes.size() == 1);
+    REQUIRE(saved->tabs[0].pane_manager.panes.size() == 1);
 }
 
 TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
@@ -855,7 +855,7 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive tabs",
 // ---------------------------------------------------------------------------
 // WI 66 — config reload propagates to multiple panes within a single tab
 // (the WI 107 case fans out across tabs; this case fans out across the
-//  splits inside one tab's HostManager).
+//  splits inside one tab's PaneManager).
 // ---------------------------------------------------------------------------
 
 TEST_CASE("app smoke: reload_config propagates to all split panes in the active tab",
@@ -901,7 +901,7 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     REQUIRE(g_all_reload_hosts.size() == 1);
 
     // Trigger a vertical split inside the (only) tab. This creates a
-    // second pane / second host in the same HostManager.
+    // second pane / second host in the same PaneManager.
     REQUIRE(created_window->on_key != nullptr);
     created_window->on_key(KeyEvent{ 0, SDLK_V, kModCtrl | kModAlt, true });
     REQUIRE(g_all_reload_hosts.size() == 2);
@@ -924,7 +924,7 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
 
     // Both panes in the same tab must see the reload exactly once
-    // (regression guard for "for_each_host fan-out within a HostManager").
+    // (regression guard for "for_each_host fan-out within a PaneManager").
     REQUIRE(pane_a->reload_count() == 1);
     REQUIRE(pane_b->reload_count() == 1);
     REQUIRE(pane_a->font_metrics_changed_count() >= 1);
@@ -992,8 +992,8 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     tab.id = 7;
     tab.name = "loaded";
     tab.name_user_set = true;
-    tab.host_manager.tree = tree.snapshot();
-    tab.host_manager.panes.push_back({
+    tab.pane_manager.tree = tree.snapshot();
+    tab.pane_manager.panes.push_back({
         .leaf_id = leaf,
         .launch = {
             .kind = HostKind::PowerShell,
@@ -1054,8 +1054,8 @@ TEST_CASE("app smoke: restoring a multi-tab session reapplies chrome offsets to 
         tab.id = id;
         tab.name = std::string(name);
         tab.name_user_set = true;
-        tab.host_manager.tree = tree.snapshot();
-        tab.host_manager.panes.push_back({
+        tab.pane_manager.tree = tree.snapshot();
+        tab.pane_manager.panes.push_back({
             .leaf_id = leaf,
             .launch = {
                 .kind = HostKind::PowerShell,

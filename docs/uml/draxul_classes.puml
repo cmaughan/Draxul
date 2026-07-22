@@ -828,9 +828,9 @@ class "IGridHost" as C_0010202254357218365197
 class C_0010202254357218365197 {
 __
 }
-class "HostManager" as C_0006767731107981727121
+class "PaneManager" as C_0006767731107981727121
 class C_0006767731107981727121 {
-+HostManager() : void
++PaneManager() : void
 ..
 +create() : bool
 +error() const : const std::string &
@@ -842,7 +842,7 @@ __
 -error_ : std::string
 -host_ : std::unique_ptr<IHost>
 }
-class "HostManager::Deps" as C_0017675893223522493133
+class "PaneManager::Deps" as C_0017675893223522493133
 class C_0017675893223522493133 {
 __
 +config : const AppConfig *
@@ -1106,7 +1106,7 @@ __
 -display_ppi_ : float
 -frame_requested_ : bool
 -gui_action_handler_ : GuiActionHandler
--host_manager_ : HostManager
+-pane_manager_ : PaneManager
 -input_dispatcher_ : InputDispatcher
 -last_activity_time_ : std::chrono::steady_clock::time_point
 -last_frame_ms_ : double
@@ -1293,7 +1293,7 @@ C_0004474198408368591089 o-- C_0017708234387737448190 : -window_
 C_0004474198408368591089 o-- C_0002198398896520044869 : -renderer_
 C_0004474198408368591089 o-- C_0007094459942163548211 : -text_service_
 C_0004474198408368591089 o-- C_0010065214798730932279 : -ui_panel_
-C_0004474198408368591089 o-- C_0006767731107981727121 : -host_manager_
+C_0004474198408368591089 o-- C_0006767731107981727121 : -pane_manager_
 C_0004474198408368591089 o-- C_0015344056630990463416 : -gui_action_handler_
 C_0004474198408368591089 o-- C_0017662050381851980314 : -input_dispatcher_
 C_0004474198408368591089 o-- C_0006199028389812970130 : -startup_steps_

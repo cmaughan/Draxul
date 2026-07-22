@@ -175,7 +175,7 @@ std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
     return node;
 }
 
-toml::table serialize_host_manager_state(const HostManager::PaneLayoutSnapshot& state)
+toml::table serialize_pane_manager_state(const PaneManager::PaneLayoutSnapshot& state)
 {
     toml::table table;
     table.insert_or_assign("focused_leaf", state.tree.focused_id);
@@ -186,7 +186,7 @@ toml::table serialize_host_manager_state(const HostManager::PaneLayoutSnapshot& 
         table.insert_or_assign("layout", serialize_tree_node(*state.tree.root));
 
     toml::array panes;
-    for (const HostManager::PaneSnapshot& pane : state.panes)
+    for (const PaneManager::PaneSnapshot& pane : state.panes)
     {
         toml::table pane_table;
         pane_table.insert_or_assign("leaf_id", pane.leaf_id);
@@ -212,10 +212,10 @@ toml::table serialize_host_manager_state(const HostManager::PaneLayoutSnapshot& 
     return table;
 }
 
-std::optional<HostManager::PaneLayoutSnapshot> parse_host_manager_state(
+std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_manager_state(
     const toml::table& table, std::string* error)
 {
-    HostManager::PaneLayoutSnapshot state;
+    PaneManager::PaneLayoutSnapshot state;
     const auto focused_leaf = toml_support::get_int(table, "focused_leaf");
     const auto next_leaf_id = toml_support::get_int(table, "next_leaf_id");
     const auto zoomed = toml_support::get_bool(table, "zoomed");
@@ -265,7 +265,7 @@ std::optional<HostManager::PaneLayoutSnapshot> parse_host_manager_state(
             return std::nullopt;
         }
 
-        HostManager::PaneSnapshot pane;
+        PaneManager::PaneSnapshot pane;
         pane.leaf_id = static_cast<LeafId>(*leaf_id);
         pane.launch.kind = *kind;
         pane.launch.command = toml_support::get_string(*pane_table, "command").value_or("");
@@ -338,8 +338,10 @@ std::optional<SessionSnapshot> load_session_state_from_path(
 
         const auto id = toml_support::get_int(*tab_table, "id");
         const auto name_user_set = toml_support::get_bool(*tab_table, "name_user_set");
-        const toml::table* host_manager = (*tab_table)["host_manager"].as_table();
-        if (!id || !name_user_set || !host_manager)
+        // Version 1 persisted this table as "host_manager". Keep the wire key
+        // stable while the in-memory owner is renamed to PaneManager.
+        const toml::table* pane_manager = (*tab_table)["host_manager"].as_table();
+        if (!id || !name_user_set || !pane_manager)
         {
             if (error)
                 *error = "Session state tab is missing required fields.";
@@ -351,10 +353,10 @@ std::optional<SessionSnapshot> load_session_state_from_path(
         tab.name = toml_support::get_string(*tab_table, "name").value_or("");
         tab.name_user_set = *name_user_set;
 
-        auto parsed_host_manager = parse_host_manager_state(*host_manager, error);
-        if (!parsed_host_manager)
+        auto parsed_pane_manager = parse_pane_manager_state(*pane_manager, error);
+        if (!parsed_pane_manager)
             return std::nullopt;
-        tab.host_manager = std::move(*parsed_host_manager);
+        tab.pane_manager = std::move(*parsed_pane_manager);
         state.tabs.push_back(std::move(tab));
     }
 
@@ -369,7 +371,7 @@ SessionSummary summarize_session_state(const SessionSnapshot& state)
     summary.tab_count = static_cast<int>(state.tabs.size());
     summary.has_saved_state = true;
     for (const TabSnapshot& tab : state.tabs)
-        summary.pane_count += static_cast<int>(tab.host_manager.panes.size());
+        summary.pane_count += static_cast<int>(tab.pane_manager.panes.size());
     return summary;
 }
 
@@ -427,8 +429,10 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
             if (!tab.name.empty())
                 tab_table.insert_or_assign("name", tab.name);
             tab_table.insert_or_assign("name_user_set", tab.name_user_set);
+            // Preserve the version-1 table name for compatibility with older
+            // Draxul releases and existing saved sessions.
             tab_table.insert_or_assign(
-                "host_manager", serialize_host_manager_state(tab.host_manager));
+                "host_manager", serialize_pane_manager_state(tab.pane_manager));
             tabs.push_back(std::move(tab_table));
         }
         document.insert_or_assign("workspaces", std::move(tabs));

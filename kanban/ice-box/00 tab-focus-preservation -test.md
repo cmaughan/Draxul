@@ -23,20 +23,20 @@ The `tab.h` / `tab.cpp` logic carries a `focused_leaf` field but this is exercis
 - [ ] Call `prev_tab()` to return to tab A; verify focus reverts to the correct leaf in tab A.
 - [ ] Close one pane in tab B and verify the focused leaf in tab A is not affected.
 - [ ] Switch back to tab B and verify its focus has been updated correctly after the close.
-- [ ] Verify that `HostManager::active_host()` returns the expected host for each case without touching `App` god-object state directly.
+- [ ] Verify that `PaneManager::active_host()` returns the expected host for each case without touching `App` god-object state directly.
 
 ---
 
 ## Implementation Plan
 
-1. **Locate the test file.** Add to `tests/host_manager_tests.cpp` or create `tests/tab_focus_tests.cpp` if the test scope warrants isolation.
+1. **Locate the test file.** Add to `tests/pane_manager_tests.cpp` or create `tests/tab_focus_tests.cpp` if the test scope warrants isolation.
 
-2. **Use `HostManager::Deps` fake.** `HostManager` accepts a `Deps` struct — use fake `IWindow`, fake `IGridRenderer`, and a fake `IHost` factory. No Neovim or real renderer needed.
+2. **Use `PaneManager::Deps` fake.** `PaneManager` accepts a `Deps` struct — use fake `IWindow`, fake `IGridRenderer`, and a fake `IHost` factory. No Neovim or real renderer needed.
 
 3. **Construct two tabs with split panes.**
    ```cpp
    // Pseudo-code — adapt to real API
-   auto mgr = make_host_manager(fake_deps);
+   auto mgr = make_pane_manager(fake_deps);
    mgr.open_new_tab();       // tab 0
    mgr.split_vertical();     // two leaves in tab 0
    mgr.set_focus(leaf_id_0a);
@@ -53,9 +53,9 @@ The `tab.h` / `tab.cpp` logic carries a `focused_leaf` field but this is exercis
 
 ## Files Likely Involved
 
-- `app/host_manager.h` / `app/host_manager.cpp`
+- `app/pane_manager.h` / `app/pane_manager.cpp`
 - `app/tab.h` / `app/tab.cpp`
-- `tests/host_manager_tests.cpp` (add test cases) or new `tests/tab_focus_tests.cpp`
+- `tests/pane_manager_tests.cpp` (add test cases) or new `tests/tab_focus_tests.cpp`
 - `tests/support/` (check for a suitable fake host fixture)
 
 ---

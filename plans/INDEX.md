@@ -25,7 +25,7 @@ is (design docs, research, and review output — **not** work items; those live 
 
 | Plan | Status | Notes |
 |------|--------|-------|
-| [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research, Draxul terminology alignment, and phased local agent-harness direction; the Workspace-to-Tab pass is implemented here. |
+| [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research, Draxul terminology alignment, and phased local agent-harness direction; the Workspace-to-Tab and PaneManager passes are implemented here. |
 | [music-notation-research.md](music-notation-research.md) | research | State-of-the-art notes feeding ScoreView; self-labelled research. |
 | [scoreview.md](scoreview.md) | active | ScoreView master plan; rendering foundation shipped, anchors future phases toward the manifesto. |
 | [scoreview-manifesto.md](scoreview-manifesto.md) | active | North-star vision (the adaptive piano-learning runner). Destination, not a milestone. |

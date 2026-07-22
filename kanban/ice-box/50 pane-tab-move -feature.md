@@ -11,7 +11,7 @@ Move a running pane to another tab without restarting its Nvim, shell, or produc
 ## Implementation plan
 
 - [ ] Add a `TabController::move_pane(source_tab, LeafId, target_tab, placement)` operation after the `TabController` refactor (`ice-box/22 app-tab-session-controllers -refactor.md`, currently deferred to the ice box) establishes controller ownership.
-- [ ] Extend `HostManager`/`SplitTree` with an ownership-safe leaf extraction/insertion transaction that moves the existing `unique_ptr<IHost>` and pane metadata rather than relaunching it.
+- [ ] Extend `PaneManager`/`SplitTree` with an ownership-safe leaf extraction/insertion transaction that moves the existing `unique_ptr<IHost>` and pane metadata rather than relaunching it.
 - [ ] Define target placement (`focused split`, `new tab root`, or explicit side) and a deterministic fallback when the destination is empty.
 - [ ] Preserve host owner lifetime tokens, renderer/pass attachment, zoom, title override, working directory, focus, viewport, and session launch descriptor.
 - [ ] Rebind renderer/context callbacks only if their ownership is tab-scoped; do not shut down the moved host.

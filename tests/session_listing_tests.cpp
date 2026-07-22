@@ -27,8 +27,8 @@ SessionSnapshot make_saved_session(std::string session_id, std::string session_n
     tab.id = 1;
     tab.name = "alpha";
     tab.name_user_set = true;
-    tab.host_manager.tree = tree.snapshot();
-    tab.host_manager.panes.push_back({
+    tab.pane_manager.tree = tree.snapshot();
+    tab.pane_manager.panes.push_back({
         .leaf_id = leaf,
         .launch = { .kind = HostKind::PowerShell, .command = "pwsh", .working_dir = "D:/tmp" },
         .pane_name = "shell",

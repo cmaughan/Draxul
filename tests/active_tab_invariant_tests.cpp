@@ -11,7 +11,7 @@ struct AppTestAccess
 {
     static void add_empty_tab(App& app, int id)
     {
-        app.tabs_.push_back(std::make_unique<Tab>(id, HostManager::Deps{}));
+        app.tabs_.push_back(std::make_unique<Tab>(id, PaneManager::Deps{}));
     }
 
     static void set_active_id(App& app, int id)

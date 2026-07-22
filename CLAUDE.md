@@ -127,7 +127,7 @@ nvim --embed (child process)
 - **Renderer hierarchy** (`libs/draxul-renderer/include/draxul/`): `IBaseRenderer` → `I3DRenderer` → `IGridRenderer`. The grid renderer IS-A 3D renderer IS-A base renderer. `MetalRenderer` and `VkRenderer` implement `IGridRenderer` and transitively satisfy both upper tiers.
   - `IRenderPass` / `IRenderContext` (`base_renderer.h`): typed render pass abstraction replacing the legacy `void*` callback. Any subsystem can register a pass with `I3DRenderer::register_render_pass(shared_ptr<IRenderPass>)`; the renderer calls `IRenderPass::record(IRenderContext&)` each frame.
 - **Host hierarchy** (`libs/draxul-host/include/draxul/host.h`): `IHost` → `I3DHost` → `IGridHost` → `GridHostBase`. Terminal/Neovim hosts inherit `GridHostBase` (which provides no-op 3D hooks). `MegaCityHost` inherits `I3DHost` directly and registers a `CubeRenderPass` via `attach_3d_renderer()`.
-  - `HostManager` calls `attach_3d_renderer()` post-`initialize()` for any host that is `I3DHost` (one-shot `dynamic_cast` at startup only).
+  - `PaneManager` calls `attach_3d_renderer()` post-`initialize()` for any host that is `I3DHost` (one-shot `dynamic_cast` at startup only).
 - **IWindow** (`libs/draxul-window/include/draxul/window.h`) — abstract window interface. The renderer knows nothing about fonts, neovim, or text — only colored rectangles and textured quads at grid positions.
 - **App** (`app/app.h/cpp`) is the orchestrator that owns all subsystems and runs the main loop.
 - Platform-specific renderer implementations live in `libs/draxul-renderer/src/vulkan/` (Windows) and `libs/draxul-renderer/src/metal/` (macOS).

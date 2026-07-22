@@ -40,7 +40,7 @@ IHost (base)                   ← virtual draw(IFrameContext&), pump(), input, 
   └─ MegaCityHost              (3D scene, NOT a grid host; owns its IRenderPass)
 ```
 
-The intermediate `I3DHost` type and the `attach_3d_renderer()` plumbing have been removed. `MegaCityHost` inherits `IHost` directly, owns its `IsometricScenePass` as a member, and registers it from its own `draw()` via `frame.record_render_pass(*scene_pass_, viewport)`. `HostManager` no longer does a `dynamic_cast<I3DHost*>` at startup — every host is treated uniformly through `IHost::draw(IFrameContext&)`.
+The intermediate `I3DHost` type and the `attach_3d_renderer()` plumbing have been removed. `MegaCityHost` inherits `IHost` directly, owns its `IsometricScenePass` as a member, and registers it from its own `draw()` via `frame.record_render_pass(*scene_pass_, viewport)`. `PaneManager` no longer does a `dynamic_cast<I3DHost*>` at startup — every host is treated uniformly through `IHost::draw(IFrameContext&)`.
 
 ## MegaCity: How Meshes Are Created
 
@@ -87,7 +87,7 @@ App (orchestrator)
 ├── Window (SdlWindow)
 ├── RendererBundle (VkRenderer or MetalRenderer)
 ├── TextService (FreeType + HarfBuzz + GlyphCache)
-├── HostManager
+├── PaneManager
 │   ├── SplitTree (binary tree of panes)
 │   └── map<LeafId, unique_ptr<IHost>>
 ├── InputDispatcher
@@ -156,7 +156,7 @@ grid_rows = cell_h > 0 ? std::max(1, usable_h / cell_h) : 1;
 
 Cell size comes from `FontMetrics` (FreeType): `cell_width` = monospace advance, `cell_height` = ascender + descender + leading. The app calls `renderer.set_cell_size()` and `set_ascender()` after loading fonts.
 
-Window resize triggers: `on_resize()` → `renderer.resize(pixel_w, pixel_h)` → `refresh_window_layout()` → `host_manager_.recompute_viewports()`.
+Window resize triggers: `on_resize()` → `renderer.resize(pixel_w, pixel_h)` → `refresh_window_layout()` → `pane_manager_.recompute_viewports()`.
 
 ### GpuCell Structure (112 bytes, alignas(16))
 

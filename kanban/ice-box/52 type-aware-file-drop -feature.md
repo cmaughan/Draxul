@@ -15,7 +15,7 @@ Dropping a file should open it in an appropriate Draxul host instead of blindly 
 - [ ] Route Markdown to a Markdown pane, `.musicxml`/`.mxl` to ScoreView, code/text to Nvim, and directories to a shell pane with that working directory.
 - [ ] For a focused shell, offer/define a safe “insert path” behavior using platform/shell-aware quoting and bracketed paste; never execute the path automatically.
 - [ ] Define modifier behavior (for example, hold a modifier to force focused-host delivery) and a chooser for ambiguous/unknown types.
-- [ ] Use `TabController`/HostManager APIs to split or reuse panes according to one documented policy; do not add host-specific branches to `InputDispatcher`.
+- [ ] Use `TabController`/PaneManager APIs to split or reuse panes according to one documented policy; do not add host-specific branches to `InputDispatcher`.
 - [ ] Preserve existing `open_file:` encoding for direct host delivery and handle multiple dropped paths in stable order with a reasonable count limit.
 
 ## Tests and acceptance

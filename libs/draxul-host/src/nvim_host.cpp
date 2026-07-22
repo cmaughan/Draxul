@@ -67,7 +67,7 @@ bool NvimHost::initialize_host()
     // thrown exception) after we have started any background threads or the
     // nvim child, call shutdown() to drain them. Without this, the joinable
     // std::thread members inside NvimRpc and UiRequestWorker would trigger
-    // std::terminate when NvimHost is destroyed by HostManager. See WI 04.
+    // std::terminate when NvimHost is destroyed by PaneManager. See WI 04.
     struct InitRollback
     {
         NvimHost* host = nullptr;

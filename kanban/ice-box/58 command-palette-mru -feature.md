@@ -55,6 +55,6 @@ The command palette (`app/command_palette_host.cpp`) currently shows all actions
 
 ## Notes for Agent
 
-- Keep the MRU store inside `CommandPaletteHost`; do not add it to `App` or `HostManager`.
+- Keep the MRU store inside `CommandPaletteHost`; do not add it to `App` or `PaneManager`.
 - Max MRU size of 10 is a reasonable default; do not expose it as a config option yet.
 - The visual separator between "Recent" and "All" should be subtle — a dim label, not a prominent divider.

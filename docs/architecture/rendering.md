@@ -5,7 +5,7 @@ This is the current render architecture after the per-host immediate draw refact
 ## Ownership
 
 - `App` orchestrates frame order.
-- `HostManager` owns pane hosts in split-tree order.
+- `PaneManager` owns pane hosts in split-tree order.
 - Each grid-capable host owns its own `IGridHandle`.
 - Each `IGridHandle` owns its own per-frame GPU grid buffer.
 - `MegaCityHost` owns its scene pass and records its own 3D work.

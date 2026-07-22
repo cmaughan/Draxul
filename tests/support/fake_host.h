@@ -4,7 +4,7 @@
 //
 // A minimal IHost implementation suitable for unit tests that need a hostable
 // pane without spawning Neovim, a shell, or any real grid renderer. It
-// records calls that App/HostManager/InputDispatcher perform against a host
+// records calls that App/PaneManager/InputDispatcher perform against a host
 // so tests can assert on routing behaviour, lifecycle ordering, and dispatch
 // correctness.
 //

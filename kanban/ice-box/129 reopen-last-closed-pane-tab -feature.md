@@ -16,7 +16,7 @@ When a user accidentally closes a pane or tab there is no way to reopen it. Mode
 ## Proposed Design
 
 ### Pane Close
-1. When a pane is closed (`HostManager::close_leaf()`), push a `ClosedPaneRecord` onto a bounded stack (max depth: 10):
+1. When a pane is closed (`PaneManager::close_leaf()`), push a `ClosedPaneRecord` onto a bounded stack (max depth: 10):
    ```cpp
    struct ClosedPaneRecord {
        HostKind kind;           // nvim, shell, megacity, etc.
@@ -38,7 +38,7 @@ When a user accidentally closes a pane or tab there is no way to reopen it. Mode
 
 ## Implementation Notes
 
-- `ClosedPaneRecord` stack lives in `App` (or `HostManager`) — small, bounded, no persistence required for MVP
+- `ClosedPaneRecord` stack lives in `App` (or `PaneManager`) — small, bounded, no persistence required for MVP
 - For session persistence integration, the record format can be reused by **WI 25** (session restore)
 - CWD only available if the pane reported OSC 7; gracefully fall back to default CWD otherwise
 - Shell host reopens a fresh shell in the last CWD (not a replay of the session)

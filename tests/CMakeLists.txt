@@ -39,7 +39,7 @@ set(DRAXUL_APP_TEST_SOURCES
     fuzzy_match_tests.cpp
     grid_host_null_handle_tests.cpp
     gui_action_handler_tests.cpp
-    host_manager_tests.cpp
+    pane_manager_tests.cpp
     host_provider_availability_tests.cpp
     http_weather_tests.cpp
     input_dispatcher_routing_tests.cpp

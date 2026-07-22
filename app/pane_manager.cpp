@@ -1,4 +1,4 @@
-#include "host_manager.h"
+#include "pane_manager.h"
 
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
@@ -73,9 +73,9 @@ void apply_global_host_options(HostLaunchOptions& launch, const AppOptions& opti
     launch.pty_capture_file = options.pty_capture_file;
 }
 
-HostManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& launch)
+PaneManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& launch)
 {
-    HostManager::SavedLaunchOptions saved;
+    PaneManager::SavedLaunchOptions saved;
     saved.kind = launch.kind;
     saved.command = launch.command;
     saved.args = launch.args;
@@ -86,8 +86,8 @@ HostManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& lau
     return saved;
 }
 
-HostLaunchOptions restore_launch_options(const HostManager::SavedLaunchOptions& saved,
-    const HostManager::Deps& deps)
+HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& saved,
+    const PaneManager::Deps& deps)
 {
     HostLaunchOptions launch;
     launch.kind = saved.kind;
@@ -134,24 +134,24 @@ bool parse_generated_pane_id(std::string_view text, uint64_t* value)
 
 } // namespace
 
-HostManager::HostManager(Deps deps)
+PaneManager::PaneManager(Deps deps)
     : deps_(std::move(deps))
 {
 }
 
-HostKind HostManager::platform_default_split_host_kind()
+HostKind PaneManager::platform_default_split_host_kind()
 {
     return platform_default_split_host_kind_impl();
 }
 
-HostKind HostManager::split_host_kind_for(HostKind primary_kind)
+HostKind PaneManager::split_host_kind_for(HostKind primary_kind)
 {
     if (is_terminal_shell_host(primary_kind))
         return primary_kind;
     return platform_default_split_host_kind_impl();
 }
 
-bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     std::optional<HostKind> host_kind_override)
 {
     PERF_MEASURE();
@@ -183,7 +183,7 @@ bool HostManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     return create_host_for_leaf(root_id, callbacks, std::move(launch), true);
 }
 
-LeafId HostManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
+LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
     LeafId focused = tree_.focused();
@@ -230,14 +230,14 @@ LeafId HostManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
     return new_id;
 }
 
-LeafId HostManager::split_focused(SplitDirection dir, HostKind kind, IHostCallbacks& callbacks)
+LeafId PaneManager::split_focused(SplitDirection dir, HostKind kind, IHostCallbacks& callbacks)
 {
     HostLaunchOptions launch;
     launch.kind = kind;
     return split_focused(dir, std::move(launch), callbacks);
 }
 
-LeafId HostManager::split_focused(SplitDirection dir, HostLaunchOptions launch, IHostCallbacks& callbacks)
+LeafId PaneManager::split_focused(SplitDirection dir, HostLaunchOptions launch, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
     LeafId focused = tree_.focused();
@@ -266,7 +266,7 @@ LeafId HostManager::split_focused(SplitDirection dir, HostLaunchOptions launch, 
     return new_id;
 }
 
-bool HostManager::close_leaf(LeafId id)
+bool PaneManager::close_leaf(LeafId id)
 {
     PERF_MEASURE();
     if (tree_.leaf_count() <= 1)
@@ -318,12 +318,12 @@ bool HostManager::close_leaf(LeafId id)
     return true;
 }
 
-bool HostManager::close_focused()
+bool PaneManager::close_focused()
 {
     return close_leaf(tree_.focused());
 }
 
-bool HostManager::restart_focused(IHostCallbacks& callbacks)
+bool PaneManager::restart_focused(IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
     LeafId id = tree_.focused();
@@ -356,7 +356,7 @@ bool HostManager::restart_focused(IHostCallbacks& callbacks)
     return true;
 }
 
-bool HostManager::swap_focused_with_next()
+bool PaneManager::swap_focused_with_next()
 {
     PERF_MEASURE();
     LeafId focused = tree_.focused();
@@ -380,12 +380,12 @@ bool HostManager::swap_focused_with_next()
     return true;
 }
 
-void HostManager::recompute_viewports(int pixel_w, int pixel_h)
+void PaneManager::recompute_viewports(int pixel_w, int pixel_h)
 {
     recompute_viewports(0, 0, pixel_w, pixel_h);
 }
 
-void HostManager::recompute_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
+void PaneManager::recompute_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
     PERF_MEASURE();
     tree_.recompute(origin_x, origin_y, pixel_w, pixel_h);
@@ -397,7 +397,7 @@ void HostManager::recompute_viewports(int origin_x, int origin_y, int pixel_w, i
     update_all_viewports();
 }
 
-void HostManager::toggle_zoom(int pixel_w, int pixel_h)
+void PaneManager::toggle_zoom(int pixel_w, int pixel_h)
 {
     PERF_MEASURE();
     if (tree_.leaf_count() <= 1)
@@ -425,7 +425,7 @@ void HostManager::toggle_zoom(int pixel_w, int pixel_h)
     }
 }
 
-LeafId HostManager::show_markdown_preview(
+LeafId PaneManager::show_markdown_preview(
     LeafId owner, float top_ratio, std::string_view path, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
@@ -478,7 +478,7 @@ LeafId HostManager::show_markdown_preview(
     return preview;
 }
 
-void HostManager::hide_markdown_preview()
+void PaneManager::hide_markdown_preview()
 {
     PERF_MEASURE();
     if (markdown_preview_leaf_ == kInvalidLeaf)
@@ -496,7 +496,7 @@ void HostManager::hide_markdown_preview()
         update_focus(owner);
 }
 
-void HostManager::shutdown()
+void PaneManager::shutdown()
 {
     PERF_MEASURE();
     for (auto& [id, host] : hosts_)
@@ -516,7 +516,7 @@ void HostManager::shutdown()
     markdown_preview_owner_ = kInvalidLeaf;
 }
 
-bool HostManager::has_restorable_shell_session() const
+bool PaneManager::has_restorable_shell_session() const
 {
     if (hosts_.empty() || launch_options_.empty())
         return false;
@@ -532,7 +532,7 @@ bool HostManager::has_restorable_shell_session() const
     return true;
 }
 
-bool HostManager::should_preserve_dead_leaf(LeafId id) const
+bool PaneManager::should_preserve_dead_leaf(LeafId id) const
 {
     const auto host_it = hosts_.find(id);
     const auto launch_it = launch_options_.find(id);
@@ -552,7 +552,7 @@ bool HostManager::should_preserve_dead_leaf(LeafId id) const
     return true;
 }
 
-std::optional<HostManager::PaneLayoutSnapshot> HostManager::session_state() const
+std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::session_state() const
 {
     PERF_MEASURE();
     if (hosts_.empty() || launch_options_.empty())
@@ -593,7 +593,7 @@ std::optional<HostManager::PaneLayoutSnapshot> HostManager::session_state() cons
     return state;
 }
 
-bool HostManager::restore_session_state(
+bool PaneManager::restore_session_state(
     IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state)
 {
     PERF_MEASURE();
@@ -661,7 +661,7 @@ bool HostManager::restore_session_state(
     return true;
 }
 
-void HostManager::set_pane_name(LeafId id, std::string name)
+void PaneManager::set_pane_name(LeafId id, std::string name)
 {
     if (name.empty())
         pane_user_names_.erase(id);
@@ -669,36 +669,36 @@ void HostManager::set_pane_name(LeafId id, std::string name)
         pane_user_names_[id] = std::move(name);
 }
 
-const std::string& HostManager::pane_name(LeafId id) const
+const std::string& PaneManager::pane_name(LeafId id) const
 {
     static const std::string empty;
     auto it = pane_user_names_.find(id);
     return it == pane_user_names_.end() ? empty : it->second;
 }
 
-bool HostManager::has_pane_name(LeafId id) const
+bool PaneManager::has_pane_name(LeafId id) const
 {
     return pane_user_names_.find(id) != pane_user_names_.end();
 }
 
-const std::string& HostManager::pane_id(LeafId id) const
+const std::string& PaneManager::pane_id(LeafId id) const
 {
     static const std::string empty;
     auto it = pane_ids_.find(id);
     return it == pane_ids_.end() ? empty : it->second;
 }
 
-IHost* HostManager::focused_host() const
+IHost* PaneManager::focused_host() const
 {
     return host_for(tree_.focused());
 }
 
-void HostManager::set_focused(LeafId id)
+void PaneManager::set_focused(LeafId id)
 {
     update_focus(id);
 }
 
-bool HostManager::focus_direction(FocusDirection direction)
+bool PaneManager::focus_direction(FocusDirection direction)
 {
     PERF_MEASURE();
     LeafId current = tree_.focused();
@@ -713,7 +713,7 @@ bool HostManager::focus_direction(FocusDirection direction)
     return true;
 }
 
-void HostManager::update_focus(LeafId new_id)
+void PaneManager::update_focus(LeafId new_id)
 {
     LeafId old_id = tree_.focused();
     if (old_id == new_id)
@@ -728,13 +728,13 @@ void HostManager::update_focus(LeafId new_id)
         new_host->on_focus_gained();
 }
 
-IHost* HostManager::host_for(LeafId id) const
+IHost* PaneManager::host_for(LeafId id) const
 {
     auto it = hosts_.find(id);
     return it != hosts_.end() ? it->second.get() : nullptr;
 }
 
-IHost* HostManager::host_at_point(int px, int py)
+IHost* PaneManager::host_at_point(int px, int py)
 {
     PERF_MEASURE();
     auto result = tree_.hit_test(px, py);
@@ -747,7 +747,7 @@ IHost* HostManager::host_at_point(int px, int py)
     return focused_host();
 }
 
-std::optional<HostManager::DividerHitInfo> HostManager::divider_at_point(int px, int py) const
+std::optional<PaneManager::DividerHitInfo> PaneManager::divider_at_point(int px, int py) const
 {
     PERF_MEASURE();
     auto result = tree_.hit_test(px, py);
@@ -769,7 +769,7 @@ int snap_step_for_divider(const SplitTree& tree, DividerId id, int cell_w, int c
 }
 } // namespace
 
-void HostManager::update_divider_from_pixel(DividerId id, int px, int py, int cell_w, int cell_h)
+void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int cell_w, int cell_h)
 {
     PERF_MEASURE();
     if (zoomed_)
@@ -783,7 +783,7 @@ void HostManager::update_divider_from_pixel(DividerId id, int px, int py, int ce
     update_all_viewports();
 }
 
-void HostManager::nudge_divider(DividerId id, float delta, int cell_w, int cell_h)
+void PaneManager::nudge_divider(DividerId id, float delta, int cell_w, int cell_h)
 {
     PERF_MEASURE();
     if (zoomed_)
@@ -793,12 +793,12 @@ void HostManager::nudge_divider(DividerId id, float delta, int cell_w, int cell_
     update_all_viewports();
 }
 
-DividerId HostManager::find_focused_ancestor_divider(FocusDirection direction) const
+DividerId PaneManager::find_focused_ancestor_divider(FocusDirection direction) const
 {
     return tree_.find_ancestor_divider(tree_.focused(), direction);
 }
 
-bool HostManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
+bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     HostLaunchOptions launch, bool is_primary)
 {
     PERF_MEASURE();
@@ -886,14 +886,14 @@ bool HostManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     return true;
 }
 
-void HostManager::equalize_splits(IHostCallbacks& /*callbacks*/)
+void PaneManager::equalize_splits(IHostCallbacks& /*callbacks*/)
 {
     PERF_MEASURE();
     tree_.equalize_splits();
     update_all_viewports();
 }
 
-void HostManager::update_all_viewports()
+void PaneManager::update_all_viewports()
 {
     PERF_MEASURE();
     if (!deps_.compute_viewport)

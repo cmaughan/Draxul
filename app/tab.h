@@ -1,6 +1,6 @@
 #pragma once
 
-#include "host_manager.h"
+#include "pane_manager.h"
 #include <string>
 
 namespace draxul
@@ -16,12 +16,12 @@ struct Tab
     // UI (or the rename_tab action). Default-naming from OSC 7 cwd updates is
     // suppressed once this flag is set so the user's choice is sticky.
     bool name_user_set = false;
-    HostManager host_manager;
+    PaneManager pane_manager;
     bool initialized = false;
 
-    explicit Tab(int tab_id, HostManager::Deps deps)
+    explicit Tab(int tab_id, PaneManager::Deps deps)
         : id(tab_id)
-        , host_manager(std::move(deps))
+        , pane_manager(std::move(deps))
     {
     }
 };

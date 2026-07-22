@@ -52,7 +52,7 @@
 #include "chrome_host.h"
 #include "command_palette_host.h"
 #include "diagnostics_panel_host.h"
-#include "host_manager.h"
+#include "pane_manager.h"
 #include "toast_host.h"
 #include "tab.h"
 
@@ -182,7 +182,7 @@ public:
 
 std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 {
-    auto tab = std::make_unique<Tab>(id, HostManager::Deps{});
+    auto tab = std::make_unique<Tab>(id, PaneManager::Deps{});
     tab->name = std::move(name);
     return tab;
 }

@@ -283,7 +283,7 @@ add_library(draxul-app
     app/fuzzy_match.cpp
     app/gui_action_handler.cpp
     app/input_dispatcher.cpp
-    app/host_manager.cpp
+    app/pane_manager.cpp
     app/render_tree.cpp
     app/session_id.cpp
     app/session_state.cpp

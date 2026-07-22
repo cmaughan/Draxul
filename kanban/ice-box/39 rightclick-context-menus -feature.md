@@ -24,7 +24,7 @@ The goal is discoverability — users who don't know the keychords can right-cli
 - [ ] Read `app/input_dispatcher.cpp` — find where right-click (`SDL_BUTTON_RIGHT`) mouse events are currently handled. They may be forwarded to Neovim or discarded.
 - [ ] Read `app/chrome_host.cpp` — find where tab hit-testing and pane-pill hit-testing happen; understand what logical region is identified from a mouse position.
 - [ ] Check if an ImGui or NanoVG popup/overlay pattern already exists in the codebase (e.g., does the command palette use a similar overlay mechanism).
-- [ ] Read `app/host_manager.cpp` — identify available actions for tab/pane operations.
+- [ ] Read `app/pane_manager.cpp` — identify available actions for tab/pane operations.
 
 ---
 

@@ -1,7 +1,7 @@
 #include "input_dispatcher.h"
 
 #include "gui_action_handler.h"
-#include "host_manager.h"
+#include "pane_manager.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cassert>
@@ -126,7 +126,7 @@ bool InputDispatcher::update_cursor_for_divider(int phys_x, int phys_y)
     PERF_MEASURE();
     if (!deps_.window)
         return false;
-    HostManager* hm = deps_.router ? deps_.router->host_manager() : nullptr;
+    PaneManager* hm = deps_.router ? deps_.router->pane_manager() : nullptr;
     if (!hm)
         return false;
     auto hit = hm->divider_at_point(phys_x, phys_y);
@@ -148,7 +148,7 @@ bool InputDispatcher::update_cursor_for_divider(int phys_x, int phys_y)
 IHost* InputDispatcher::host_for_mouse_pos(int px, int py)
 {
     PERF_MEASURE();
-    HostManager* hm = deps_.router ? deps_.router->host_manager() : nullptr;
+    PaneManager* hm = deps_.router ? deps_.router->pane_manager() : nullptr;
     if (hm)
     {
         const int phys_x = deps_.pixel_scale.to_physical(px);
@@ -573,7 +573,7 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
     {
         if (event.pressed && drag_divider_id_ == kInvalidDivider)
         {
-            HostManager* hm = deps_.router ? deps_.router->host_manager() : nullptr;
+            PaneManager* hm = deps_.router ? deps_.router->pane_manager() : nullptr;
             if (hm)
             {
                 if (auto hit = hm->divider_at_point(phys_x, phys_y))
@@ -614,12 +614,12 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
     const int phys_x_mv = deps_.pixel_scale.to_physical(event.pos.x);
     const int phys_y_mv = deps_.pixel_scale.to_physical(event.pos.y);
 
-    // Active divider drag: route directly to host manager and skip the rest.
+    // Active divider drag: route directly to pane manager and skip the rest.
     // Handled before the chrome-strip suppression so a drag that strays into
     // the tab bar still updates the divider ratio.
     if (drag_divider_id_ != kInvalidDivider)
     {
-        if (HostManager* hm = deps_.router ? deps_.router->host_manager() : nullptr)
+        if (PaneManager* hm = deps_.router ? deps_.router->pane_manager() : nullptr)
         {
             int cw = 0, ch = 0;
             if (deps_.router)

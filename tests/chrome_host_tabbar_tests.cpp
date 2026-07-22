@@ -9,7 +9,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "chrome_host.h"
-#include "host_manager.h"
+#include "pane_manager.h"
 #include "tab.h"
 
 #include "fake_grid_pipeline_renderer.h"
@@ -28,7 +28,7 @@ constexpr int kGridPadding = 4;
 
 std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 {
-    auto tab = std::make_unique<Tab>(id, HostManager::Deps{});
+    auto tab = std::make_unique<Tab>(id, PaneManager::Deps{});
     tab->name = std::move(name);
     return tab;
 }

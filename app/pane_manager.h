@@ -22,8 +22,8 @@ struct AppConfig;
 class ConfigDocument;
 
 // Owns the IHost instance(s), the SplitTree layout, and manages their lifecycle.
-// App holds a HostManager and calls create() during initialisation.
-class HostManager
+// App holds a PaneManager and calls create() during initialisation.
+class PaneManager
 {
 public:
     static HostKind platform_default_split_host_kind();
@@ -73,7 +73,7 @@ public:
         std::function<HostViewport(const PaneDescriptor&)> compute_viewport;
     };
 
-    explicit HostManager(Deps deps);
+    explicit PaneManager(Deps deps);
 
     // Creates and initialises the primary host, resetting the tree to a single leaf.
     // Returns false on failure; error() contains the reason.
@@ -199,7 +199,7 @@ public:
     // viewports. Used during drag. The SplitTree retains its own origin/size
     // from the most recent recompute_viewports(), so the chrome reservation
     // is preserved without callers needing to re-supply it. cell_w/cell_h
-    // quantize the divider position to cell boundaries (tmux-style); HostManager
+    // quantize the divider position to cell boundaries (tmux-style); PaneManager
     // picks the relevant axis from the divider's split direction. Pass 0/0
     // to disable snapping.
     void update_divider_from_pixel(DividerId id, int px, int py, int cell_w = 0, int cell_h = 0);

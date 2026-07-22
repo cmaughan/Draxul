@@ -6,7 +6,7 @@
 
 ## Goal
 
-Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiActionHandler`, or `HostManager` extraction. The remaining growth is tab ownership and file-backed session orchestration.
+Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiActionHandler`, or `PaneManager` extraction. The remaining growth is tab ownership and file-backed session orchestration.
 
 ## Implementation plan
 

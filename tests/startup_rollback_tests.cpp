@@ -5,7 +5,7 @@
 #include <draxul/app_config.h>
 #include <filesystem>
 
-// App and HostManager live under app/; included directly (not as a library).
+// App and PaneManager live under app/; included directly (not as a library).
 // The DI seams in AppOptions (window_factory, renderer_create_fn) allow tests
 // to inject failures without real SDL or GPU backends.
 #include "app.h"

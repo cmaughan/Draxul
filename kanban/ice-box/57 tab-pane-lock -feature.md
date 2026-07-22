@@ -11,7 +11,7 @@ Protect important long-running panes or complete tabs from accidental close, res
 ## Implementation plan
 
 - [ ] Add `locked` metadata to pane/tab controller records and versioned session state; locking a tab protects all current panes plus tab deletion.
-- [ ] Centralize destructive-operation authorization in `TabController`/HostManager so palette, keybinding, window close, layout template, move, and session actions cannot bypass it.
+- [ ] Centralize destructive-operation authorization in `TabController`/PaneManager so palette, keybinding, window close, layout template, move, and session actions cannot bypass it.
 - [ ] Define explicit force/unlock flows with confirmation and clear reason text; application quit may summarize locked busy panes rather than silently ignoring them.
 - [ ] Show lock icons/status affordances and palette actions for lock/unlock without reducing pane-title hit targets.
 - [ ] Decide persistence policy explicitly (recommended: persist locks, never persist a pending confirmation) and handle older sessions as unlocked.

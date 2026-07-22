@@ -10,7 +10,7 @@
 #include <draxul/app_options.h>
 #include <draxul/text_service.h>
 
-#include "host_manager.h"
+#include "pane_manager.h"
 #include "split_tree.h"
 #include <draxul/grid_host_base.h>
 #ifdef DRAXUL_ENABLE_MEGACITY
@@ -28,7 +28,7 @@ std::string bundled_font_path()
     return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
 }
 
-// Thin FakeHost alias for the host-manager harness. The shared FakeHost
+// Thin FakeHost alias for the pane-manager harness. The shared FakeHost
 // provides all the tracking (shutdown_calls, fire_callback_on_shutdown,
 // trigger_frame_request, etc.) that LifetimeTestHost previously duplicated.
 using LifetimeTestHost = draxul::tests::FakeHost;
@@ -70,7 +70,7 @@ public:
     HostLaunchOptions captured_launch;
 };
 
-struct HostManagerHarness
+struct PaneManagerHarness
 {
     FakeWindow window;
     FakeTermRenderer renderer;
@@ -81,9 +81,9 @@ struct HostManagerHarness
     float display_ppi = 96.0f;
     std::vector<LifetimeTestHost*> created_hosts;
     std::vector<std::shared_ptr<int>> shutdown_counters;
-    HostManager manager;
+    PaneManager manager;
 
-    HostManagerHarness()
+    PaneManagerHarness()
         : manager(make_deps())
     {
         TextServiceConfig ts_cfg;
@@ -92,7 +92,7 @@ struct HostManagerHarness
         REQUIRE(ok);
     }
 
-    HostManager::Deps make_deps()
+    PaneManager::Deps make_deps()
     {
         options.load_user_config = false;
         options.save_user_config = false;
@@ -106,7 +106,7 @@ struct HostManagerHarness
             return host;
         };
 
-        HostManager::Deps deps;
+        PaneManager::Deps deps;
         deps.options = &options;
         deps.config = &config;
         deps.window = &window;
@@ -124,7 +124,7 @@ struct HostManagerHarness
     }
 };
 
-struct ShellHostManagerHarness
+struct ShellPaneManagerHarness
 {
     FakeWindow window;
     FakeTermRenderer renderer;
@@ -134,9 +134,9 @@ struct ShellHostManagerHarness
     AppConfig config;
     float display_ppi = 96.0f;
     std::vector<ExitableTestHost*> created_hosts;
-    HostManager manager;
+    PaneManager manager;
 
-    ShellHostManagerHarness()
+    ShellPaneManagerHarness()
         : manager(make_deps())
     {
         TextServiceConfig ts_cfg;
@@ -145,7 +145,7 @@ struct ShellHostManagerHarness
         REQUIRE(ok);
     }
 
-    HostManager::Deps make_deps()
+    PaneManager::Deps make_deps()
     {
         options.load_user_config = false;
         options.save_user_config = false;
@@ -156,7 +156,7 @@ struct ShellHostManagerHarness
             return host;
         };
 
-        HostManager::Deps deps;
+        PaneManager::Deps deps;
         deps.options = &options;
         deps.config = &config;
         deps.window = &window;
@@ -176,7 +176,7 @@ struct ShellHostManagerHarness
 
 } // namespace
 
-TEST_CASE("host manager: split panes use the platform shell for non-shell primary hosts", "[host_manager]")
+TEST_CASE("pane manager: split panes use the platform shell for non-shell primary hosts", "[pane_manager]")
 {
 #ifdef _WIN32
     constexpr HostKind expected = HostKind::PowerShell;
@@ -184,21 +184,21 @@ TEST_CASE("host manager: split panes use the platform shell for non-shell primar
     constexpr HostKind expected = HostKind::Zsh;
 #endif
 
-    REQUIRE(HostManager::platform_default_split_host_kind() == expected);
-    REQUIRE(HostManager::split_host_kind_for(HostKind::Nvim) == expected);
-    REQUIRE(HostManager::split_host_kind_for(HostKind::MegaCity) == expected);
+    REQUIRE(PaneManager::platform_default_split_host_kind() == expected);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::Nvim) == expected);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::MegaCity) == expected);
 }
 
-TEST_CASE("host manager: split panes preserve explicit shell host choices", "[host_manager]")
+TEST_CASE("pane manager: split panes preserve explicit shell host choices", "[pane_manager]")
 {
-    REQUIRE(HostManager::split_host_kind_for(HostKind::PowerShell) == HostKind::PowerShell);
-    REQUIRE(HostManager::split_host_kind_for(HostKind::Bash) == HostKind::Bash);
-    REQUIRE(HostManager::split_host_kind_for(HostKind::Zsh) == HostKind::Zsh);
-    REQUIRE(HostManager::split_host_kind_for(HostKind::Wsl) == HostKind::Wsl);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::PowerShell) == HostKind::PowerShell);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::Bash) == HostKind::Bash);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::Zsh) == HostKind::Zsh);
+    REQUIRE(PaneManager::split_host_kind_for(HostKind::Wsl) == HostKind::Wsl);
 }
 
-TEST_CASE("host manager: explicit primary host override does not inherit incompatible source options",
-    "[host_manager]")
+TEST_CASE("pane manager: explicit primary host override does not inherit incompatible source options",
+    "[pane_manager]")
 {
     FakeWindow window;
     FakeTermRenderer renderer;
@@ -224,7 +224,7 @@ TEST_CASE("host manager: explicit primary host override does not inherit incompa
         return host;
     };
 
-    HostManager::Deps deps;
+    PaneManager::Deps deps;
     deps.options = &options;
     deps.config = &config;
     deps.window = &window;
@@ -238,7 +238,7 @@ TEST_CASE("host manager: explicit primary host override does not inherit incompa
         return viewport;
     };
 
-    HostManager manager(deps);
+    PaneManager manager(deps);
     REQUIRE(manager.create(callbacks, 800, 600, HostKind::Kanban));
     REQUIRE(created_hosts.size() == 1);
 
@@ -251,8 +251,8 @@ TEST_CASE("host manager: explicit primary host override does not inherit incompa
     REQUIRE(launch.working_dir == "D:/work");
 }
 
-TEST_CASE("host manager: shell launch options inherit configured scrollback capacity",
-    "[host_manager][scrollback]")
+TEST_CASE("pane manager: shell launch options inherit configured scrollback capacity",
+    "[pane_manager][scrollback]")
 {
     FakeWindow window;
     FakeTermRenderer renderer;
@@ -276,7 +276,7 @@ TEST_CASE("host manager: shell launch options inherit configured scrollback capa
         return host;
     };
 
-    HostManager::Deps deps;
+    PaneManager::Deps deps;
     deps.options = &options;
     deps.config = &config;
     deps.window = &window;
@@ -290,7 +290,7 @@ TEST_CASE("host manager: shell launch options inherit configured scrollback capa
         return viewport;
     };
 
-    HostManager manager(deps);
+    PaneManager manager(deps);
     REQUIRE(manager.create(callbacks, 800, 600));
     REQUIRE(created_hosts.size() == 1);
     REQUIRE(created_hosts.front()->captured_launch.scrollback_lines == 77);
@@ -301,9 +301,9 @@ TEST_CASE("host manager: shell launch options inherit configured scrollback capa
 }
 
 // --- SplitTree-level lifecycle tests ---
-// These test the SplitTree that HostManager uses for layout and lifecycle.
+// These test the SplitTree that PaneManager uses for layout and lifecycle.
 
-TEST_CASE("split tree: reset creates single leaf", "[host_manager]")
+TEST_CASE("split tree: reset creates single leaf", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -312,7 +312,7 @@ TEST_CASE("split tree: reset creates single leaf", "[host_manager]")
     REQUIRE(tree.focused() == root);
 }
 
-TEST_CASE("split tree: split creates two leaves with correct viewports", "[host_manager]")
+TEST_CASE("split tree: split creates two leaves with correct viewports", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -335,7 +335,7 @@ TEST_CASE("split tree: split creates two leaves with correct viewports", "[host_
     REQUIRE(d1.pixel_size.x + d2.pixel_size.x + SplitTree::kDividerWidth <= 800);
 }
 
-TEST_CASE("split tree: horizontal split divides height", "[host_manager]")
+TEST_CASE("split tree: horizontal split divides height", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -353,7 +353,7 @@ TEST_CASE("split tree: horizontal split divides height", "[host_manager]")
     REQUIRE(d2.pixel_size.x == 800);
 }
 
-TEST_CASE("split tree: close leaf collapses tree and reassigns focus", "[host_manager]")
+TEST_CASE("split tree: close leaf collapses tree and reassigns focus", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -370,7 +370,7 @@ TEST_CASE("split tree: close leaf collapses tree and reassigns focus", "[host_ma
     REQUIRE(tree.focused() == root);
 }
 
-TEST_CASE("split tree: cannot close last leaf", "[host_manager]")
+TEST_CASE("split tree: cannot close last leaf", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -380,7 +380,7 @@ TEST_CASE("split tree: cannot close last leaf", "[host_manager]")
     REQUIRE(tree.leaf_count() == 1);
 }
 
-TEST_CASE("split tree: hit test returns correct leaf", "[host_manager]")
+TEST_CASE("split tree: hit test returns correct leaf", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -400,7 +400,7 @@ TEST_CASE("split tree: hit test returns correct leaf", "[host_manager]")
     REQUIRE(std::get<SplitTree::LeafHit>(result_right).id == right);
 }
 
-TEST_CASE("split tree: recompute updates all descriptors proportionally", "[host_manager]")
+TEST_CASE("split tree: recompute updates all descriptors proportionally", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -422,7 +422,7 @@ TEST_CASE("split tree: recompute updates all descriptors proportionally", "[host
     REQUIRE(d1_after.pixel_size.y == 1200);
 }
 
-TEST_CASE("split tree: for_each_leaf visits all leaves", "[host_manager]")
+TEST_CASE("split tree: for_each_leaf visits all leaves", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -441,7 +441,7 @@ TEST_CASE("split tree: for_each_leaf visits all leaves", "[host_manager]")
     REQUIRE(std::find(visited.begin(), visited.end(), third) != visited.end());
 }
 
-TEST_CASE("split tree: focus changes via set_focused", "[host_manager]")
+TEST_CASE("split tree: focus changes via set_focused", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -456,7 +456,7 @@ TEST_CASE("split tree: focus changes via set_focused", "[host_manager]")
     REQUIRE(tree.focused() == root);
 }
 
-TEST_CASE("split tree: double split creates three panes", "[host_manager]")
+TEST_CASE("split tree: double split creates three panes", "[pane_manager]")
 {
     SplitTree tree;
     LeafId root = tree.reset(800, 600);
@@ -471,9 +471,9 @@ TEST_CASE("split tree: double split creates three panes", "[host_manager]")
     REQUIRE(tree.descriptor_for(third).pixel_size.x > 0);
 }
 
-TEST_CASE("host manager: callbacks remain valid across pane teardown", "[host_manager]")
+TEST_CASE("pane manager: callbacks remain valid across pane teardown", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
 
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     REQUIRE(harness.created_hosts.size() == 1);
@@ -496,9 +496,9 @@ TEST_CASE("host manager: callbacks remain valid across pane teardown", "[host_ma
     REQUIRE(harness.callbacks.request_frame_calls == 2);
 }
 
-TEST_CASE("host manager: markdown preview splits below the owner and keeps focus", "[host_manager]")
+TEST_CASE("pane manager: markdown preview splits below the owner and keeps focus", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId owner = harness.manager.focused_leaf();
     REQUIRE(harness.manager.host_count() == 1);
@@ -523,9 +523,9 @@ TEST_CASE("host manager: markdown preview splits below the owner and keeps focus
     CHECK(preview_desc.pixel_size.y <= 240);
 }
 
-TEST_CASE("host manager: markdown preview reuses the pane and reloads on refresh", "[host_manager]")
+TEST_CASE("pane manager: markdown preview reuses the pane and reloads on refresh", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId owner = harness.manager.focused_leaf();
 
@@ -544,9 +544,9 @@ TEST_CASE("host manager: markdown preview reuses the pane and reloads on refresh
     CHECK(std::ranges::find(actions, std::string("open_file:/tmp/b.md")) != actions.end());
 }
 
-TEST_CASE("host manager: hiding the markdown preview restores the owner", "[host_manager]")
+TEST_CASE("pane manager: hiding the markdown preview restores the owner", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId owner = harness.manager.focused_leaf();
 
@@ -563,9 +563,9 @@ TEST_CASE("host manager: hiding the markdown preview restores the owner", "[host
     CHECK(harness.manager.host_count() == 1);
 }
 
-TEST_CASE("host manager: closing the preview pane clears preview tracking", "[host_manager]")
+TEST_CASE("pane manager: closing the preview pane clears preview tracking", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId owner = harness.manager.focused_leaf();
 
@@ -578,9 +578,9 @@ TEST_CASE("host manager: closing the preview pane clears preview tracking", "[ho
     CHECK_FALSE(harness.manager.has_markdown_preview());
 }
 
-TEST_CASE("host manager: session state round-trips layout and pane metadata", "[host_manager]")
+TEST_CASE("pane manager: session state round-trips layout and pane metadata", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
 
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId root = harness.manager.focused_leaf();
@@ -608,7 +608,7 @@ TEST_CASE("host manager: session state round-trips layout and pane metadata", "[
     CHECK(!saved->panes[1].pane_id.empty());
     CHECK(saved->panes[0].pane_id != saved->panes[1].pane_id);
 
-    HostManagerHarness restored_harness;
+    PaneManagerHarness restored_harness;
     REQUIRE(restored_harness.manager.restore_session_state(
         restored_harness.callbacks, 800, 600, *saved));
     REQUIRE(restored_harness.manager.host_count() == 2);
@@ -623,10 +623,10 @@ TEST_CASE("host manager: session state round-trips layout and pane metadata", "[
     REQUIRE(restored->panes.size() == 2);
 
     const auto restored_split = std::find_if(restored->panes.begin(), restored->panes.end(),
-        [split](const HostManager::PaneSnapshot& pane) { return pane.leaf_id == split; });
+        [split](const PaneManager::PaneSnapshot& pane) { return pane.leaf_id == split; });
     REQUIRE(restored_split != restored->panes.end());
     const auto original_split = std::find_if(saved->panes.begin(), saved->panes.end(),
-        [split](const HostManager::PaneSnapshot& pane) { return pane.leaf_id == split; });
+        [split](const PaneManager::PaneSnapshot& pane) { return pane.leaf_id == split; });
     REQUIRE(original_split != saved->panes.end());
     CHECK(restored_split->pane_id == original_split->pane_id);
     CHECK(restored_split->launch.kind == HostKind::PowerShell);
@@ -636,9 +636,9 @@ TEST_CASE("host manager: session state round-trips layout and pane metadata", "[
     CHECK(restored_split->launch.startup_commands == (std::vector<std::string>{ "echo ready" }));
 }
 
-TEST_CASE("host manager: dead shell panes are preserved for restart", "[host_manager]")
+TEST_CASE("pane manager: dead shell panes are preserved for restart", "[pane_manager]")
 {
-    ShellHostManagerHarness harness;
+    ShellPaneManagerHarness harness;
 
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     REQUIRE(harness.created_hosts.size() == 1);
@@ -652,9 +652,9 @@ TEST_CASE("host manager: dead shell panes are preserved for restart", "[host_man
     CHECK(harness.manager.should_preserve_dead_leaf(root));
 }
 
-TEST_CASE("host manager: clean shell exits are not preserved", "[host_manager]")
+TEST_CASE("pane manager: clean shell exits are not preserved", "[pane_manager]")
 {
-    ShellHostManagerHarness harness;
+    ShellPaneManagerHarness harness;
 
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     REQUIRE(harness.created_hosts.size() == 1);
@@ -667,9 +667,9 @@ TEST_CASE("host manager: clean shell exits are not preserved", "[host_manager]")
     CHECK_FALSE(harness.manager.should_preserve_dead_leaf(root));
 }
 
-TEST_CASE("host manager: dead nvim panes are preserved for restart", "[host_manager]")
+TEST_CASE("pane manager: dead nvim panes are preserved for restart", "[pane_manager]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
 
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     REQUIRE(harness.created_hosts.size() == 1);
@@ -683,7 +683,7 @@ TEST_CASE("host manager: dead nvim panes are preserved for restart", "[host_mana
     CHECK(harness.manager.should_preserve_dead_leaf(root));
 }
 
-TEST_CASE("grid host base: invalidated owner lifetime blocks renderer and callback use", "[host_manager]")
+TEST_CASE("grid host base: invalidated owner lifetime blocks renderer and callback use", "[pane_manager]")
 {
     FakeWindow window;
     FakeTermRenderer renderer;
@@ -740,9 +740,9 @@ TEST_CASE("grid host base: invalidated owner lifetime blocks renderer and callba
 //   * single-pane toggle is a no-op (no zoom state set)
 //   * focus navigation references the surviving pane after a zoomed-pane close
 
-TEST_CASE("zoom: toggle on/off restores original two-pane layout", "[host_manager][zoom]")
+TEST_CASE("zoom: toggle on/off restores original two-pane layout", "[pane_manager][zoom]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId left = harness.manager.focused_leaf();
     const LeafId right = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
@@ -768,9 +768,9 @@ TEST_CASE("zoom: toggle on/off restores original two-pane layout", "[host_manage
     CHECK(after_right.pixel_size.y == before_right.pixel_size.y);
 }
 
-TEST_CASE("zoom: closing the zoomed pane clears zoom state", "[host_manager][zoom]")
+TEST_CASE("zoom: closing the zoomed pane clears zoom state", "[pane_manager][zoom]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId left = harness.manager.focused_leaf();
     const LeafId right = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
@@ -794,11 +794,11 @@ TEST_CASE("zoom: closing the zoomed pane clears zoom state", "[host_manager][zoo
 }
 
 TEST_CASE("zoom: closing a non-zoomed pane in a 3-pane tree leaves the other zoomed",
-    "[host_manager][zoom]")
+    "[pane_manager][zoom]")
 {
     // close_leaf() inspects leaf_count() *before* the close: with 3 panes pre-close
     // (leaf_count()==3 > 2), the auto-cancel branch does not fire, so zoom survives.
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId left = harness.manager.focused_leaf();
     const LeafId right = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
@@ -820,11 +820,11 @@ TEST_CASE("zoom: closing a non-zoomed pane in a 3-pane tree leaves the other zoo
 }
 
 TEST_CASE("zoom: closing the last sibling in a 2-pane tree auto-clears zoom",
-    "[host_manager][zoom]")
+    "[pane_manager][zoom]")
 {
     // With 2 panes pre-close, leaf_count()==2 <= 2 trips the defensive cancel,
     // even when the closed pane is NOT the zoomed one.
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId left = harness.manager.focused_leaf();
     const LeafId right = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
@@ -840,12 +840,12 @@ TEST_CASE("zoom: closing the last sibling in a 2-pane tree auto-clears zoom",
 }
 
 TEST_CASE("zoom: closing a non-zoomed pane in a 4-pane tree preserves zoom",
-    "[host_manager][zoom]")
+    "[pane_manager][zoom]")
 {
     // Same as the previous test but with a fourth pane so the close does NOT
     // trip the "drop to 2 panes" auto-cancel — verifies the zoomed pane stays
     // zoomed when there is still ambient layout to preserve.
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId a = harness.manager.focused_leaf();
     const LeafId b = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
@@ -868,9 +868,9 @@ TEST_CASE("zoom: closing a non-zoomed pane in a 4-pane tree preserves zoom",
     CHECK(harness.manager.tree().descriptor_for(c).pixel_size.x > 0);
 }
 
-TEST_CASE("zoom: toggle is a no-op on a single-pane tree", "[host_manager][zoom]")
+TEST_CASE("zoom: toggle is a no-op on a single-pane tree", "[pane_manager][zoom]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     REQUIRE(harness.manager.host_count() == 1);
 
@@ -880,9 +880,9 @@ TEST_CASE("zoom: toggle is a no-op on a single-pane tree", "[host_manager][zoom]
 }
 
 TEST_CASE("zoom: focus navigation after zoomed-pane close lands on a valid host",
-    "[host_manager][zoom]")
+    "[pane_manager][zoom]")
 {
-    HostManagerHarness harness;
+    PaneManagerHarness harness;
     REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
     const LeafId left = harness.manager.focused_leaf();
     const LeafId right = harness.manager.split_focused(SplitDirection::Vertical, harness.callbacks);
@@ -898,7 +898,7 @@ TEST_CASE("zoom: focus navigation after zoomed-pane close lands on a valid host"
 }
 
 #ifdef DRAXUL_ENABLE_MEGACITY
-TEST_CASE("host manager: MegaCity continuous refresh option enables idle deadlines", "[host_manager][megacity]")
+TEST_CASE("pane manager: MegaCity continuous refresh option enables idle deadlines", "[pane_manager][megacity]")
 {
     FakeWindow window;
     FakeTermRenderer renderer;
@@ -917,7 +917,7 @@ TEST_CASE("host manager: MegaCity continuous refresh option enables idle deadlin
     options.host_kind = HostKind::MegaCity;
     options.request_continuous_refresh = true;
 
-    HostManager::Deps deps;
+    PaneManager::Deps deps;
     deps.options = &options;
     deps.config = &config;
     deps.window = &window;
@@ -932,7 +932,7 @@ TEST_CASE("host manager: MegaCity continuous refresh option enables idle deadlin
         return viewport;
     };
 
-    HostManager manager(std::move(deps));
+    PaneManager manager(std::move(deps));
     REQUIRE(manager.create(callbacks, 800, 600));
 
     auto* megacity = dynamic_cast<MegaCityHost*>(manager.focused_host());
