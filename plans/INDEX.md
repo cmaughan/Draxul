@@ -25,7 +25,7 @@ is (design docs, research, and review output — **not** work items; those live 
 
 | Plan | Status | Notes |
 |------|--------|-------|
-| [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research and phased local agent-harness direction; vocabulary, TabController, and the in-memory multi-Space lifecycle are implemented, while the sidebar and persistence v2 remain. |
+| [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research and phased local agent-harness direction; vocabulary, TabController, the in-memory multi-Space lifecycle, app actions, and Spaces rail are implemented, while persistence v2 and last-active restore remain. |
 | [music-notation-research.md](music-notation-research.md) | research | State-of-the-art notes feeding ScoreView; self-labelled research. |
 | [scoreview.md](scoreview.md) | active | ScoreView master plan; rendering foundation shipped, anchors future phases toward the manifesto. |
 | [scoreview-manifesto.md](scoreview-manifesto.md) | active | North-star vision (the adaptive piano-learning runner). Destination, not a milestone. |

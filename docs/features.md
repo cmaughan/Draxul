@@ -145,6 +145,18 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 
 ---
 
+## Spaces
+
+- The live hierarchy is **Session -> Space -> Tab -> Pane**. A Space is a local project/task container with its own tabs, split layouts, hosts, and default root directory.
+- A Draxul process can own multiple live Spaces. Switching the active Space preserves every inactive Space's panes and processes; inactive hosts continue to be pumped.
+- The left Spaces rail appears once a second Space exists. Click a numbered Space row to activate it; the tab bar and pane area then show that Space.
+- `new_space`, `switch_space`, `rename_space`, and `close_space` are available in the command palette. They are unbound by default.
+- A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
+- Closing a Space terminates the hosts it owns. The final Space cannot be closed.
+- Spaces are currently local and in-memory. Version-1 session snapshots are disabled while multiple Spaces exist so no inactive Space can be silently discarded. Persisted multi-Space restore, last-active selection, suspend/resume, background ownership, SSH, and remote Spaces are future work.
+
+---
+
 ## Tabs
 
 - Multiple tabs, each with its own independent split tree and host set
@@ -191,6 +203,10 @@ Toggle with F12. Shows:
 | `command_palette` | `Ctrl + Shift + P` |
 | `save_session_as` | (unbound) |
 | `load_session` | (unbound) |
+| `new_space` | (unbound) |
+| `switch_space` | (unbound) |
+| `rename_space` | (unbound) |
+| `close_space` | (unbound) |
 | `edit_config` | (unbound) |
 | `reload_config` | (unbound) |
 | `toggle_zoom` | `Ctrl + S, Z` |

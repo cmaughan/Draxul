@@ -55,6 +55,33 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
     if (!pass_)
         return;
     pass_->set_draw_callback([layout, theme](NVGcontext* vg, int, int) {
+        if (layout.sidebar_width > 0)
+        {
+            nvgBeginPath(vg);
+            nvgRect(vg, 0.0f, 0.0f, static_cast<float>(layout.sidebar_width),
+                static_cast<float>(layout.sidebar_height));
+            nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
+            nvgFill(vg);
+
+            for (const auto& space : layout.spaces)
+            {
+                const auto& rect = space.rect;
+                nvgBeginPath(vg);
+                nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, 4.0f);
+                nvgFillColor(vg, nvg_color(
+                    space.active ? theme.tab_active_bg : theme.tab_inactive_bg));
+                nvgFill(vg);
+            }
+
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, static_cast<float>(layout.sidebar_width) - 0.5f, 0.0f);
+            nvgLineTo(vg, static_cast<float>(layout.sidebar_width) - 0.5f,
+                static_cast<float>(layout.sidebar_height));
+            nvgStrokeColor(vg, nvg_color(theme.divider));
+            nvgStrokeWidth(vg, 1.0f);
+            nvgStroke(vg);
+        }
+
         for (const auto& status : layout.panes)
         {
             const auto& rect = status.rect;
@@ -88,7 +115,8 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
         if (layout.bar_height > 0)
         {
             nvgBeginPath(vg);
-            nvgRect(vg, 0.0f, 0.0f, static_cast<float>(layout.bar_width),
+            nvgRect(vg, static_cast<float>(layout.content_x), 0.0f,
+                static_cast<float>(layout.bar_width),
                 static_cast<float>(layout.bar_height));
             nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
             nvgFill(vg);

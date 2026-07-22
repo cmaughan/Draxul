@@ -34,6 +34,7 @@ public:
         std::string title;
         std::string prompt;
         std::string initial_value;
+        std::string empty_message = "Enter a session name";
         std::function<void(std::string)> on_submit;
         std::function<void()> on_cancel;
     };

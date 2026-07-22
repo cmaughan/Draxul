@@ -91,6 +91,23 @@ TEST_CASE("CommandPalette: action_names excludes command_palette", "[palette]")
     CHECK(found_copy);
 }
 
+TEST_CASE("CommandPalette lists Space lifecycle actions", "[palette][spaces]")
+{
+    CommandPalette palette;
+    palette.open();
+    const auto state = palette.view_state(80, 80);
+    const auto has_action = [&state](std::string_view name) {
+        return std::any_of(state.entries.begin(), state.entries.end(), [name](const auto& entry) {
+            return entry.name == name;
+        });
+    };
+
+    CHECK(has_action("new_space"));
+    CHECK(has_action("switch_space"));
+    CHECK(has_action("rename_space"));
+    CHECK(has_action("close_space"));
+}
+
 TEST_CASE("CommandPalette prompt: submit trims input and closes", "[palette][prompt]")
 {
     std::string submitted;

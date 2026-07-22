@@ -23,6 +23,7 @@ struct ChromeRect
 
 enum class ChromeHitKind
 {
+    Space,
     Tab,
     PaneStatus,
 };
@@ -30,7 +31,7 @@ enum class ChromeHitKind
 struct ChromeHitRegion
 {
     ChromeHitKind kind = ChromeHitKind::Tab;
-    int stable_id = 0; // 1-based tab index or LeafId
+    int stable_id = 0; // SpaceId, 1-based tab index, or LeafId
     ChromeRect rect{};
 };
 
@@ -44,6 +45,13 @@ struct ChromeLabelCluster
 struct ChromeTabInput
 {
     int tab_id = -1;
+    std::string name;
+    bool active = false;
+};
+
+struct ChromeSpaceInput
+{
+    int space_id = -1;
     std::string name;
     bool active = false;
 };
@@ -73,10 +81,12 @@ struct ChromeLayoutInput
     int cell_width = 0;
     int cell_height = 0;
     int grid_padding = kChromeGridPadding;
+    int sidebar_width = 0;
     bool show_top_bar = false;
     bool show_status = false;
     ChromeTheme theme{};
     std::vector<ChromeTabInput> tabs;
+    std::vector<ChromeSpaceInput> spaces;
     std::optional<SystemResourceSnapshot> resources;
     std::string weather_emoji;
     std::string weather_temperature;
@@ -101,6 +111,16 @@ struct ChromeTabLayout
     ChromeRect rect{};
     ChromeRect clip{};
     float accent_w = 0.0f;
+};
+
+struct ChromeSpaceLayout
+{
+    int space_id = -1;
+    int space_index = 0;
+    int row = 0;
+    bool active = false;
+    std::string label;
+    ChromeRect rect{};
 };
 
 struct ChromeRightPillLayout
@@ -143,12 +163,18 @@ struct ChromeCaretLayout
 
 struct ChromeLayoutOutput
 {
+    int content_x = 0;
     int bar_width = 0;
     int bar_height = 0;
     int grid_cols = 0;
     int cell_width = 0;
     int cell_height = 0;
     int grid_padding = kChromeGridPadding;
+    int sidebar_width = 0;
+    int sidebar_height = 0;
+    int sidebar_cols = 0;
+    int sidebar_rows = 0;
+    std::vector<ChromeSpaceLayout> spaces;
     ChromeRect top_bar_clip{};
     std::vector<ChromeTabLayout> tabs;
     std::vector<ChromeRightPillLayout> right_pills;

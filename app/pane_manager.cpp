@@ -102,8 +102,10 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
         apply_terminal_config(launch, *deps.config);
     if (deps.options)
         apply_global_host_options(launch, *deps.options);
-    if (deps.options && launch.working_dir.empty())
-        launch.working_dir = deps.options->host_working_dir;
+    if (launch.working_dir.empty())
+        launch.working_dir = deps.default_working_dir.empty() && deps.options
+            ? deps.options->host_working_dir
+            : deps.default_working_dir;
     return launch;
 }
 
@@ -174,7 +176,9 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
         launch.source_path = deps_.options->host_source_path;
         launch.startup_commands = deps_.options->startup_commands;
     }
-    launch.working_dir = deps_.options->host_working_dir;
+    launch.working_dir = deps_.default_working_dir.empty()
+        ? deps_.options->host_working_dir
+        : deps_.default_working_dir;
     launch.enable_ligatures = deps_.config->enable_ligatures;
     apply_terminal_config(launch, *deps_.config);
     if (deps_.options)
@@ -205,7 +209,9 @@ LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
         apply_global_host_options(launch, *deps_.options);
     if (deps_.options)
     {
-        launch.working_dir = deps_.options->host_working_dir;
+        launch.working_dir = deps_.default_working_dir.empty()
+            ? deps_.options->host_working_dir
+            : deps_.default_working_dir;
         if (is_terminal_shell_host(primary_kind) && launch.kind == primary_kind)
         {
             launch.command = deps_.options->host_command;
@@ -252,8 +258,10 @@ LeafId PaneManager::split_focused(SplitDirection dir, HostLaunchOptions launch, 
     apply_terminal_config(launch, *deps_.config);
     if (deps_.options)
         apply_global_host_options(launch, *deps_.options);
-    if (deps_.options && launch.working_dir.empty())
-        launch.working_dir = deps_.options->host_working_dir;
+    if (launch.working_dir.empty())
+        launch.working_dir = deps_.default_working_dir.empty() && deps_.options
+            ? deps_.options->host_working_dir
+            : deps_.default_working_dir;
 
     if (!create_host_for_leaf(new_id, callbacks, std::move(launch), false))
     {

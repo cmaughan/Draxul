@@ -20,11 +20,13 @@ public:
 
 private:
     void update_top_bar(const ChromeLayoutOutput& layout, const ChromeTheme& theme);
+    void update_sidebar(const ChromeLayoutOutput& layout, const ChromeTheme& theme);
     void update_panes(const ChromeLayoutOutput& layout, const ChromeTheme& theme);
 
     IGridRenderer* renderer_ = nullptr;
     TextService* text_service_ = nullptr;
     std::unique_ptr<IGridHandle> top_bar_handle_;
+    std::unique_ptr<IGridHandle> sidebar_handle_;
     std::unordered_map<LeafId, std::unique_ptr<IGridHandle>> pane_handles_;
 };
 

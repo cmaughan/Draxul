@@ -502,7 +502,20 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
     const int phys_x = deps_.pixel_scale.to_physical(event.pos.x);
     const int phys_y = deps_.pixel_scale.to_physical(event.pos.y);
     const int chrome_h = deps_.router ? deps_.router->tab_bar_height_phys() : 0;
+    const int sidebar_w = deps_.router ? deps_.router->space_sidebar_width_phys() : 0;
     const bool over_chrome = (chrome_h > 0 && phys_y >= 0 && phys_y < chrome_h);
+    const bool over_sidebar = (sidebar_w > 0 && phys_x >= 0 && phys_x < sidebar_w);
+
+    // Space sidebar click — activate the stable Space id represented by the row.
+    if (event.pressed && deps_.router)
+    {
+        const int space_id = deps_.router->hit_test_space(phys_x, phys_y);
+        if (space_id >= 0)
+        {
+            deps_.router->activate_space(space_id);
+            return;
+        }
+    }
 
     // Tab bar click — check before anything else.
     if (event.pressed && deps_.router)
@@ -545,7 +558,7 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
     // Any click within the chrome strip is consumed — never forwarded to
     // the underlying host. Also commits an in-progress rename if the user
     // clicked on a chrome region that wasn't a tab.
-    if (over_chrome)
+    if (over_chrome || over_sidebar)
     {
         if (log_would_emit(LogLevel::Trace, LogCategory::Input))
             log_printf(LogLevel::Trace, LogCategory::Input, "input trace: dispatcher mouse_button swallowed by chrome");
@@ -639,7 +652,9 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
     // tab pill doesn't translate into a drag-select in the underlying host.
     {
         const int chrome_h = deps_.router ? deps_.router->tab_bar_height_phys() : 0;
-        if (chrome_h > 0 && phys_y_mv >= 0 && phys_y_mv < chrome_h)
+        const int sidebar_w = deps_.router ? deps_.router->space_sidebar_width_phys() : 0;
+        if ((chrome_h > 0 && phys_y_mv >= 0 && phys_y_mv < chrome_h)
+            || (sidebar_w > 0 && phys_x_mv >= 0 && phys_x_mv < sidebar_w))
             return;
     }
 
@@ -680,8 +695,11 @@ void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
     // bar should not scroll the terminal beneath.
     {
         const int chrome_h = deps_.router ? deps_.router->tab_bar_height_phys() : 0;
+        const int sidebar_w = deps_.router ? deps_.router->space_sidebar_width_phys() : 0;
+        const int phys_x = deps_.pixel_scale.to_physical(event.pos.x);
         const int phys_y = deps_.pixel_scale.to_physical(event.pos.y);
-        if (chrome_h > 0 && phys_y >= 0 && phys_y < chrome_h)
+        if ((chrome_h > 0 && phys_y >= 0 && phys_y < chrome_h)
+            || (sidebar_w > 0 && phys_x >= 0 && phys_x < sidebar_w))
             return;
     }
 

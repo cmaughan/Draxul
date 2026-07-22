@@ -139,6 +139,39 @@ TEST_CASE("ChromeHost hit_test_tab: single tab hits anywhere across its span",
     REQUIRE(f.host->hit_test_tab(right + 200, py_mid) == 0);
 }
 
+TEST_CASE("ChromeHost exposes and hit-tests the Space sidebar when multiple Spaces exist",
+    "[chrome_host][spaces][hittest]")
+{
+    TabBarFixture f{ { 1, "alpha" } };
+    HostViewport viewport;
+    viewport.pixel_size = { 800, 600 };
+    f.host->set_viewport(viewport);
+
+    const SpaceId renderer = f.space_controller.create_space("renderer");
+    REQUIRE(renderer != kInvalidSpaceId);
+    REQUIRE(f.host->space_sidebar_width() == 200);
+
+    CHECK(f.host->hit_test_space(10, 50) == kDefaultSpaceId);
+    CHECK(f.host->hit_test_space(10, 70) == renderer);
+    CHECK(f.host->hit_test_space(210, 50) == kInvalidSpaceId);
+
+    const auto [tab_left, tab_right] = f.expected_tab_px_range(0);
+    CHECK(f.host->hit_test_tab(tab_left, 10) == 0);
+    CHECK(f.host->hit_test_tab(200 + tab_left, 10) == 1);
+    CHECK(f.host->hit_test_tab(200 + tab_right, 10) == 0);
+}
+
+TEST_CASE("ChromeHost clamps the Space sidebar on narrow viewports", "[chrome_host][spaces]")
+{
+    TabBarFixture f{ { 1, "alpha" } };
+    HostViewport viewport;
+    viewport.pixel_size = { 300, 200 };
+    f.host->set_viewport(viewport);
+    REQUIRE(f.space_controller.create_space("renderer") != kInvalidSpaceId);
+
+    CHECK(f.host->space_sidebar_width() == 100);
+}
+
 TEST_CASE("ChromeHost hit_test_tab: multiple tabs return correct 1-based index",
     "[chrome_host][tabbar][hittest]")
 {

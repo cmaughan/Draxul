@@ -3,6 +3,7 @@
 #include "pane_manager.h"
 
 #include <SDL3/SDL_keycode.h>
+#include <algorithm>
 #include <draxul/app_config.h>
 #include <draxul/text_service.h>
 #include <draxul/unicode.h>
@@ -78,6 +79,19 @@ int ChromeHost::tab_bar_height() const
     return cell_height + 2;
 }
 
+int ChromeHost::space_sidebar_width() const
+{
+    if (!deps_.grid_renderer || !deps_.space_controller
+        || deps_.space_controller->count() <= 1)
+        return 0;
+    const auto [cell_width, cell_height] = deps_.grid_renderer->cell_size_pixels();
+    (void)cell_height;
+    constexpr int kSidebarColumns = 20;
+    const int ideal_width = std::max(0, cell_width * kSidebarColumns);
+    const int maximum_width = std::max(0, viewport_.pixel_size.x / 3);
+    return std::min(ideal_width, maximum_width);
+}
+
 ChromeLayoutInput ChromeHost::build_layout_input() const
 {
     ChromeLayoutInput input;
@@ -96,6 +110,17 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
         // IGridRenderer::padding() is not part of Chrome's layout API and test
         // renderers may use a different internal padding value.
         input.grid_padding = kChromeGridPadding;
+    }
+
+    input.sidebar_width = space_sidebar_width();
+    if (input.sidebar_width > 0 && deps_.space_controller)
+    {
+        input.spaces.reserve(deps_.space_controller->spaces().size());
+        for (const auto& space : deps_.space_controller->spaces())
+        {
+            input.spaces.push_back(
+                { space->id, space->name, space->id == deps_.space_controller->active_space_id() });
+        }
     }
 
     const TabController* controller = active_tabs();
@@ -193,6 +218,15 @@ int ChromeHost::hit_test_tab(int px, int py) const
         ChromeHitKind::Tab, px, py);
 }
 
+SpaceId ChromeHost::hit_test_space(int px, int py) const
+{
+    if (!deps_.space_controller || deps_.space_controller->count() <= 1
+        || !deps_.grid_renderer)
+        return kInvalidSpaceId;
+    return static_cast<SpaceId>(hit_test_chrome(
+        compute_chrome_layout(build_layout_input()), ChromeHitKind::Space, px, py));
+}
+
 LeafId ChromeHost::hit_test_pane_status_pill(int px, int py) const
 {
     return static_cast<LeafId>(hit_test_chrome(last_layout_, ChromeHitKind::PaneStatus, px, py));
@@ -204,8 +238,8 @@ void ChromeHost::draw(IFrameContext& frame)
         return;
     ChromeLayoutInput input = build_layout_input();
     last_layout_ = compute_chrome_layout(input);
-    if (last_layout_.bar_height == 0 && last_layout_.dividers.empty()
-        && last_layout_.panes.empty())
+    if (last_layout_.bar_height == 0 && last_layout_.sidebar_width == 0
+        && last_layout_.dividers.empty() && last_layout_.panes.empty())
         return;
     vector_pass_.record(frame, last_layout_, input.theme,
         viewport_.pixel_size.x, viewport_.pixel_size.y);

@@ -164,7 +164,8 @@ PaneStatusPillLayout pane_status_pill_layout(
 ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
 {
     ChromeLayoutOutput out;
-    out.bar_width = input.viewport_width;
+    out.content_x = std::clamp(input.sidebar_width, 0, std::max(0, input.viewport_width));
+    out.bar_width = std::max(0, input.viewport_width - out.content_x);
     out.cell_width = input.cell_width;
     out.cell_height = input.cell_height;
     out.grid_padding = input.grid_padding;
@@ -175,11 +176,41 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
 
     const int cw = input.cell_width;
     const int ch = input.cell_height;
+    if (out.content_x > 0 && cw > 0 && ch > 0 && !input.spaces.empty())
+    {
+        out.sidebar_width = out.content_x;
+        out.sidebar_height = input.viewport_height;
+        out.sidebar_cols = std::max(1, out.sidebar_width / cw);
+        out.sidebar_rows = std::max(1, input.viewport_height / ch);
+        for (size_t i = 0; i < input.spaces.size(); ++i)
+        {
+            const int row = static_cast<int>(i) + 2;
+            if (row >= out.sidebar_rows)
+                break;
+            const auto& source = input.spaces[i];
+            const std::string prefix = std::to_string(i + 1) + " ";
+            ChromeSpaceLayout space;
+            space.space_id = source.space_id;
+            space.space_index = static_cast<int>(i) + 1;
+            space.row = row;
+            space.active = source.active;
+            space.label = prefix + truncate_to_columns(
+                source.name, std::max(1, out.sidebar_cols - 2 - display_columns(prefix)));
+            space.rect = { 4.0f, static_cast<float>(row * ch + 2),
+                static_cast<float>(std::max(0, out.sidebar_width - 8)),
+                static_cast<float>(std::max(0, ch - 4)) };
+            out.hit_regions.push_back({ ChromeHitKind::Space, space.space_id,
+                { 0.0f, static_cast<float>(row * ch),
+                    static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });
+            out.spaces.push_back(std::move(space));
+        }
+    }
     if (input.show_top_bar && cw > 0 && ch > 0)
     {
         out.bar_height = ch + 2;
-        out.grid_cols = std::max(0, input.viewport_width / cw);
-        out.top_bar_clip = { 0.0f, 0.0f, static_cast<float>(input.viewport_width),
+        out.grid_cols = std::max(0, out.bar_width / cw);
+        out.top_bar_clip = { static_cast<float>(out.content_x), 0.0f,
+            static_cast<float>(out.bar_width),
             static_cast<float>(out.bar_height) };
         int right_cursor = out.grid_cols;
         if (input.resources && input.resources->available() && out.grid_cols > 0)
@@ -235,9 +266,9 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
         for (auto& pill : out.right_pills)
         {
             const int total = std::max(1, pill.col_end - pill.col_begin);
-            const float x = std::max(0.0f,
+            const float x = static_cast<float>(out.content_x) + std::max(0.0f,
                 static_cast<float>(pill.col_begin * cw + input.grid_padding) + half_gap);
-            const float width = pill.flat_right_edge && pill.col_end >= input.viewport_width / cw
+            const float width = pill.flat_right_edge && pill.col_end >= out.bar_width / cw
                 ? static_cast<float>(input.viewport_width) - x
                 : static_cast<float>(total * cw) - half_gap * 2.0f;
             pill.rect = { x, 2.0f, width, pill_h };
@@ -270,18 +301,18 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             tab.active = source.active;
             tab.editing = editing;
             tab.label = label;
-            tab.rect = { static_cast<float>(col * cw + input.grid_padding) + half_gap,
+            tab.rect = { static_cast<float>(out.content_x + col * cw + input.grid_padding) + half_gap,
                 2.0f, static_cast<float>(total * cw) - half_gap * 2.0f, pill_h };
             tab.clip = tab.rect;
             tab.accent_w = static_cast<float>((kTabPadCols + digits + 1) * cw);
             out.hit_regions.push_back({ ChromeHitKind::Tab, tab.tab_index,
-                { static_cast<float>(col * cw + input.grid_padding), 0.0f,
+                { static_cast<float>(out.content_x + col * cw + input.grid_padding), 0.0f,
                     static_cast<float>(total * cw), static_cast<float>(ch) } });
             if (editing)
             {
                 const int caret_col = tab.text_col + digits + 2
                     + columns_to_offset(input.rename.buffer, input.rename.cursor);
-                out.tab_caret = ChromeCaretLayout{ { static_cast<float>(caret_col * cw + input.grid_padding),
+                out.tab_caret = ChromeCaretLayout{ { static_cast<float>(out.content_x + caret_col * cw + input.grid_padding),
                     4.0f, 1.5f, pill_h - 4.0f } };
             }
             out.tabs.push_back(std::move(tab));
@@ -360,7 +391,11 @@ int hit_test_chrome(const ChromeLayoutOutput& layout, ChromeHitKind kind, int px
             && y >= hit.rect.y && y < hit.rect.y + hit.rect.h)
             return hit.stable_id;
     }
-    return kind == ChromeHitKind::PaneStatus ? kInvalidLeaf : 0;
+    if (kind == ChromeHitKind::PaneStatus)
+        return kInvalidLeaf;
+    if (kind == ChromeHitKind::Space)
+        return -1;
+    return 0;
 }
 
 } // namespace draxul

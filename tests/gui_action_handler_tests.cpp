@@ -335,6 +335,34 @@ TEST_CASE("gui action handler: load_session invokes callback", "[gui_actions]")
     CHECK(load_count == 1);
 }
 
+TEST_CASE("gui action handler: Space lifecycle actions invoke their callbacks", "[gui_actions][spaces]")
+{
+    TextService ts;
+    AppConfig config;
+    GuiActionHandler::Deps deps;
+    deps.text_service = &ts;
+    deps.config = &config;
+    int new_count = 0;
+    int switch_count = 0;
+    int rename_count = 0;
+    int close_count = 0;
+    deps.on_new_space = [&new_count]() { ++new_count; };
+    deps.on_switch_space = [&switch_count]() { ++switch_count; };
+    deps.on_rename_space = [&rename_count]() { ++rename_count; };
+    deps.on_close_space = [&close_count]() { ++close_count; };
+    GuiActionHandler handler(std::move(deps));
+
+    REQUIRE(handler.execute("new_space"));
+    REQUIRE(handler.execute("switch_space"));
+    REQUIRE(handler.execute("rename_space"));
+    REQUIRE(handler.execute("close_space"));
+
+    CHECK(new_count == 1);
+    CHECK(switch_count == 1);
+    CHECK(rename_count == 1);
+    CHECK(close_count == 1);
+}
+
 // ---------------------------------------------------------------------------
 // Registry parity (WI 67 / WI 71)
 // ---------------------------------------------------------------------------

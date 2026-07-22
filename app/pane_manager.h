@@ -59,6 +59,9 @@ public:
     struct Deps
     {
         const AppOptions* options = nullptr;
+        // Space-scoped working directory used when a launch does not provide
+        // one explicitly. Empty falls back to AppOptions::host_working_dir.
+        std::string default_working_dir;
         AppConfig* config = nullptr;
         ConfigDocument* config_document = nullptr;
         IWindow* window = nullptr;

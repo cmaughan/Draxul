@@ -36,6 +36,9 @@ class TestInputRouter final : public IInputRouter
 {
 public:
     std::function<IHost*()> overlay_host_fn;
+    std::function<int(int, int)> hit_test_space_fn;
+    std::function<int()> space_sidebar_width_phys_fn;
+    std::function<void(int)> activate_space_fn;
     std::function<void(int)> activate_pane_fn;
 
     IHost* overlay_host() override
@@ -53,6 +56,11 @@ public:
         return 0;
     }
 
+    int hit_test_space(int x, int y) override
+    {
+        return hit_test_space_fn ? hit_test_space_fn(x, y) : -1;
+    }
+
     LeafId hit_test_pane_pill(int, int) override
     {
         return kInvalidLeaf;
@@ -63,12 +71,22 @@ public:
         return 0;
     }
 
+    int space_sidebar_width_phys() override
+    {
+        return space_sidebar_width_phys_fn ? space_sidebar_width_phys_fn() : 0;
+    }
+
     std::pair<int, int> cell_size_phys() override
     {
         return { 0, 0 };
     }
 
     void activate_tab(int) override {}
+    void activate_space(int id) override
+    {
+        if (activate_space_fn)
+            activate_space_fn(id);
+    }
 
     void activate_pane(int one_based_index) override
     {
@@ -739,6 +757,39 @@ TEST_CASE("overlay: when cleared, all event types reach the underlying host agai
     REQUIRE(setup.overlay.mouse_button_events.empty());
     REQUIRE(setup.overlay.text_input_events.empty());
     REQUIRE(setup.overlay.key_events.empty());
+}
+
+TEST_CASE("Space sidebar clicks activate a Space and do not reach the active host",
+    "[input_dispatcher][spaces]")
+{
+    OverlayE2ESetup setup;
+    setup.overlay_active = false;
+    int activated_space = -1;
+    setup.router.space_sidebar_width_phys_fn = []() { return 200; };
+    setup.router.hit_test_space_fn = [](int x, int y) {
+        return x < 200 && y >= 60 && y < 80 ? 7 : -1;
+    };
+    setup.router.activate_space_fn = [&activated_space](int id) { activated_space = id; };
+
+    setup.window.on_mouse_button(make_click(10, 70));
+
+    CHECK(activated_space == 7);
+    CHECK(setup.host.mouse_button_events.empty());
+}
+
+TEST_CASE("Space sidebar background consumes pointer events", "[input_dispatcher][spaces]")
+{
+    OverlayE2ESetup setup;
+    setup.overlay_active = false;
+    setup.router.space_sidebar_width_phys_fn = []() { return 200; };
+
+    setup.window.on_mouse_button(make_click(10, 150));
+    setup.window.on_mouse_move(make_move(10, 150));
+    setup.window.on_mouse_wheel(make_wheel(10, 150));
+
+    CHECK(setup.host.mouse_button_events.empty());
+    CHECK(setup.host.mouse_move_events.empty());
+    CHECK(setup.host.mouse_wheel_events.empty());
 }
 
 // ---------------------------------------------------------------------------

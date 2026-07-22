@@ -6,8 +6,9 @@
 to `PaneManager`, snapshot-type renames, `TabController` extraction, and the
 in-memory `Space`/`SpaceController` lifecycle were completed on 2026-07-22. Draxul
 can now create, activate, rename, re-root, enumerate, and close multiple live Spaces;
-inactive hosts keep pumping and retain their processes. Persistence v2 and the sidebar
-remain future work.
+inactive hosts keep pumping and retain their processes. The app-level lifecycle,
+command-palette actions, and clickable multi-Space left rail are also implemented.
+Persistence v2 and last-active Space restore remain future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -391,16 +392,19 @@ last-active selection. Existing top-bar tabs belong to the selected Space.
 Switching Spaces must leave inactive Space processes running. Closing a Space is a
 process-terminating action and should clearly communicate that effect.
 
-**Implemented backend slice (2026-07-22):** `SpaceController` now supplies stable IDs,
+**Implemented local UI slice (2026-07-22):** `SpaceController` supplies stable IDs,
 metadata mutation, guarded activation, focus handoff, and close semantics. `App` pumps
 hosts in inactive tabs and Spaces, observes their deadlines, applies config/font/layout changes to
 every Space, and requests close from every host at application exit. A newly created
 Space may be empty while its first tab is assembled, but it cannot become active until
 that tab exists. Version-1 session snapshots are deliberately refused while multiple
-Spaces exist so inactive Spaces cannot be silently discarded.
+Spaces exist so inactive Spaces cannot be silently discarded. `App` now exposes
+create/activate/rename/close transactions, Space roots seed new host working directories,
+the command palette exposes the four lifecycle actions, and a clickable left rail appears
+when multiple Spaces exist without changing the single-Space layout.
 
-**Remaining in this phase:** expose the lifecycle through `App`, add the Spaces rail and
-its actions, define version-2 persistence, and restore the last-active Space.
+**Remaining in this phase:** define version-2 persistence and restore the last-active
+Space.
 
 **Exit condition:** users can switch between multiple local Spaces without terminating
 their panes, and restarting Draxul restores the saved topology and last active Space.

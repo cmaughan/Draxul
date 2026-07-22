@@ -90,6 +90,15 @@ public:
     void shutdown();
     Result<std::string, Error> save_session_as(std::string_view name);
     Result<void, Error> load_session(std::string_view session_id);
+    Result<SpaceId, Error> create_space(
+        std::string_view name, std::filesystem::path root_directory = {});
+    Result<void, Error> activate_space(SpaceId id);
+    Result<void, Error> rename_space(SpaceId id, std::string_view name);
+    Result<void, Error> close_space(SpaceId id);
+    const SpaceController& space_controller() const noexcept
+    {
+        return space_controller_;
+    }
     const std::string& init_error() const
     {
         return last_init_error_;
@@ -132,6 +141,9 @@ private:
     void wire_gui_actions();
     void open_save_session_prompt();
     void open_load_session_picker();
+    void open_new_space_prompt();
+    void open_switch_space_picker();
+    void open_rename_space_prompt();
     bool close_dead_panes();
     void rebuild_render_tree();
     bool render_frame();
@@ -154,7 +166,7 @@ private:
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();
     const TabController& active_tab_controller() const;
-    PaneManager::Deps make_pane_manager_deps();
+    PaneManager::Deps make_pane_manager_deps(const Space* space = nullptr);
     bool create_initial_tab(int pixel_w, int pixel_h);
     int add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind = std::nullopt);
     bool close_tab(int tab_id);

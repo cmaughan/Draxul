@@ -96,10 +96,12 @@ public:
 
     // Tab bar height in pixels. Remains visible even with a single tab.
     int tab_bar_height() const;
+    int space_sidebar_width() const;
 
     // Hit-test a point (physical pixels) against the tab bar.
     // Returns the 1-based tab index if hit, or 0 if not in the tab bar.
     int hit_test_tab(int px, int py) const;
+    SpaceId hit_test_space(int px, int py) const;
 
     // ----- Inline tab/pane rename (WI 128) -----------------------------
     // A single edit session can target either a tab or a pane

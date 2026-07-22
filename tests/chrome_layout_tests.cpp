@@ -50,6 +50,38 @@ TEST_CASE("ChromeLayout golden tab structure remains stable", "[chrome][layout][
     CHECK(hit_test_chrome(layout, ChromeHitKind::Tab, 104, 5) == 2);
 }
 
+TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][spaces]")
+{
+    auto input = base_input();
+    input.sidebar_width = 200;
+    input.spaces = {
+        { 0, "default", true },
+        { 7, "renderer", false },
+    };
+
+    const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.content_x == 200);
+    REQUIRE(layout.sidebar_width == 200);
+    REQUIRE(layout.sidebar_cols == 20);
+    REQUIRE(layout.bar_width == 600);
+    REQUIRE(layout.grid_cols == 60);
+    REQUIRE(layout.spaces.size() == 2);
+
+    CHECK(layout.spaces[0].space_id == 0);
+    CHECK(layout.spaces[0].row == 2);
+    CHECK(layout.spaces[0].active);
+    CHECK(layout.spaces[0].label == "1 default");
+    CHECK(layout.spaces[1].space_id == 7);
+    CHECK(layout.spaces[1].row == 3);
+    CHECK_FALSE(layout.spaces[1].active);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 50) == 0);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 70) == 7);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 50) == -1);
+
+    REQUIRE(layout.tabs.size() == 2);
+    CHECK(layout.tabs[0].rect.x == Catch::Approx(206.5f));
+}
+
 TEST_CASE("ChromeLayout keeps logical structure while DPI scales physical geometry",
     "[chrome][layout][golden][dpi]")
 {

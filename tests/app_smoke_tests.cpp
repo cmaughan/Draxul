@@ -59,6 +59,29 @@ public:
     }
 };
 
+struct CapturedHostLaunch
+{
+    HostLaunchOptions options;
+};
+
+class LaunchCapturingHost final : public SmokeTestHost
+{
+public:
+    explicit LaunchCapturingHost(std::shared_ptr<CapturedHostLaunch> launch)
+        : launch_(std::move(launch))
+    {
+    }
+
+    bool initialize(const HostContext& context, IHostCallbacks& callbacks) override
+    {
+        launch_->options = context.launch_options;
+        return SmokeTestHost::initialize(context, callbacks);
+    }
+
+private:
+    std::shared_ptr<CapturedHostLaunch> launch_;
+};
+
 // A host that fails to initialize — used by the "host init fails" test case.
 class FailingInitHost final : public SmokeTestHost
 {
@@ -295,6 +318,56 @@ TEST_CASE("app smoke: initialize succeeds with all fakes", "[app_smoke]")
     REQUIRE(app.init_error().empty());
     REQUIRE(g_last_smoke_host != nullptr);
     REQUIRE(g_last_smoke_host->was_initialized());
+
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",
+    "[app_smoke][spaces]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    TempDir temp("draxul-space-lifecycle");
+    const auto renderer_root = temp.path / "renderer";
+    std::filesystem::create_directories(renderer_root);
+    std::vector<std::shared_ptr<CapturedHostLaunch>> launches;
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_session_restore = false;
+    opts.host_factory = [&launches](HostKind) -> std::unique_ptr<IHost> {
+        auto launch = std::make_shared<CapturedHostLaunch>();
+        launches.push_back(launch);
+        return std::make_unique<LaunchCapturingHost>(std::move(launch));
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    REQUIRE(launches.size() == 1);
+
+    const auto created = app.create_space("renderer", renderer_root);
+    REQUIRE(created);
+    const SpaceId renderer_id = created.value();
+    REQUIRE(launches.size() == 2);
+    CHECK(launches[1]->options.working_dir == renderer_root.string());
+    CHECK(app.space_controller().count() == 2);
+    CHECK(app.space_controller().active_space_id() == renderer_id);
+
+    const Space* renderer_space = app.space_controller().find_space(renderer_id);
+    REQUIRE(renderer_space != nullptr);
+    CHECK(renderer_space->name == "renderer");
+    CHECK(renderer_space->root_directory == renderer_root);
+    CHECK_FALSE(renderer_space->tab_controller.empty());
+
+    REQUIRE(app.activate_space(kDefaultSpaceId));
+    CHECK(app.space_controller().active_space_id() == kDefaultSpaceId);
+    REQUIRE(app.rename_space(renderer_id, "render-agents"));
+    REQUIRE(app.space_controller().find_space(renderer_id) != nullptr);
+    CHECK(app.space_controller().find_space(renderer_id)->name == "render-agents");
+    REQUIRE(app.close_space(renderer_id));
+    CHECK(app.space_controller().count() == 1);
+    CHECK(app.space_controller().find_space(renderer_id) == nullptr);
 
     app.shutdown();
 }

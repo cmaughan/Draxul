@@ -77,11 +77,14 @@ class CallbackInputRouter final : public IInputRouter
 public:
     std::function<IHost*()> overlay_host_fn;
     std::function<PaneManager*()> pane_manager_fn;
+    std::function<int(int, int)> hit_test_space_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
     std::function<int()> tab_bar_height_phys_fn;
+    std::function<int()> space_sidebar_width_phys_fn;
     std::function<std::pair<int, int>()> cell_size_phys_fn;
     std::function<void(int)> activate_tab_fn;
+    std::function<void(int)> activate_space_fn;
     std::function<void(int)> activate_pane_fn;
     std::function<void(int)> begin_tab_rename_fn;
     std::function<void(LeafId)> begin_pane_rename_fn;
@@ -100,6 +103,11 @@ public:
         return pane_manager_fn ? pane_manager_fn() : nullptr;
     }
 
+    int hit_test_space(int phys_x, int phys_y) override
+    {
+        return hit_test_space_fn ? hit_test_space_fn(phys_x, phys_y) : kInvalidSpaceId;
+    }
+
     int hit_test_tab(int phys_x, int phys_y) override
     {
         return hit_test_tab_fn ? hit_test_tab_fn(phys_x, phys_y) : 0;
@@ -115,6 +123,11 @@ public:
         return tab_bar_height_phys_fn ? tab_bar_height_phys_fn() : 0;
     }
 
+    int space_sidebar_width_phys() override
+    {
+        return space_sidebar_width_phys_fn ? space_sidebar_width_phys_fn() : 0;
+    }
+
     std::pair<int, int> cell_size_phys() override
     {
         return cell_size_phys_fn ? cell_size_phys_fn() : std::pair<int, int>{ 0, 0 };
@@ -124,6 +137,12 @@ public:
     {
         if (activate_tab_fn)
             activate_tab_fn(one_based_index);
+    }
+
+    void activate_space(int space_id) override
+    {
+        if (activate_space_fn)
+            activate_space_fn(space_id);
     }
 
     void activate_pane(int one_based_index) override
@@ -822,6 +841,17 @@ void App::wire_gui_actions()
     gui_deps.on_load_session = [this]() {
         open_load_session_picker();
     };
+    gui_deps.on_new_space = [this]() { open_new_space_prompt(); };
+    gui_deps.on_switch_space = [this]() { open_switch_space_picker(); };
+    gui_deps.on_rename_space = [this]() { open_rename_space_prompt(); };
+    gui_deps.on_close_space = [this]() {
+        const Space* active = space_controller_.find_active_space();
+        const std::string name = active ? active->name : std::string("space");
+        if (auto closed = close_space(space_controller_.active_space_id()); !closed)
+            push_toast(2, closed.error().message);
+        else
+            push_toast(0, "Closed Space '" + name + "'.");
+    };
     gui_deps.on_edit_config = [this]() {
         HostLaunchOptions launch;
         launch.kind = HostKind::Nvim;
@@ -1136,6 +1166,85 @@ void App::open_load_session_picker()
         push_toast(2, "Unable to open session picker.");
 }
 
+void App::open_new_space_prompt()
+{
+    if (!palette_host_)
+        return;
+
+    CommandPalette::PromptRequest request;
+    request.title = "New Space";
+    request.prompt = "Name";
+    request.empty_message = "Enter a Space name";
+    request.on_submit = [this](std::string name) {
+        auto created = create_space(name);
+        if (!created)
+        {
+            push_toast(2, created.error().message);
+            return;
+        }
+        push_toast(0, "Created Space '" + name + "'.");
+    };
+    if (!palette_host_->open_prompt(std::move(request)))
+        push_toast(2, "Unable to open Space name prompt.");
+}
+
+void App::open_switch_space_picker()
+{
+    if (!palette_host_)
+        return;
+
+    CommandPalette::ChoiceRequest request;
+    request.title = "Switch Space";
+    request.entries.reserve(space_controller_.spaces().size());
+    for (const auto& space : space_controller_.spaces())
+    {
+        const bool active = space->id == space_controller_.active_space_id();
+        const std::string root = space->root_directory.string();
+        request.entries.push_back({
+            .id = std::to_string(space->id),
+            .name = space->name,
+            .shortcut_hint = active ? "active" : root,
+            .search_text = space->name + " " + root,
+        });
+    }
+    request.on_submit = [this](std::string id_text) {
+        try
+        {
+            const SpaceId id = std::stoi(id_text);
+            if (auto activated = activate_space(id); !activated)
+                push_toast(2, activated.error().message);
+        }
+        catch (const std::exception&)
+        {
+            push_toast(2, "Invalid Space selection.");
+        }
+    };
+    if (!palette_host_->open_choices(std::move(request)))
+        push_toast(2, "Unable to open Space picker.");
+}
+
+void App::open_rename_space_prompt()
+{
+    if (!palette_host_)
+        return;
+    const Space* active = space_controller_.find_active_space();
+    if (!active)
+        return;
+    const SpaceId id = active->id;
+
+    CommandPalette::PromptRequest request;
+    request.title = "Rename Space";
+    request.prompt = "Name";
+    request.initial_value = active->name;
+    request.empty_message = "Enter a Space name";
+    request.on_submit = [this, id](std::string name) {
+        if (auto renamed = rename_space(id, name); !renamed)
+            push_toast(2, renamed.error().message);
+    };
+    if (!palette_host_->open_prompt(std::move(request)))
+        push_toast(2, "Unable to open Space rename prompt.");
+}
+
 void App::wire_window_callbacks()
 {
     PERF_MEASURE();
@@ -1157,7 +1266,13 @@ void App::wire_window_callbacks()
     disp_deps.on_resize = [this](int w, int h) { on_resize(w, h); };
     disp_deps.on_display_scale_changed = [this](float ppi) { on_display_scale_changed(ppi); };
     router->hit_test_tab_fn = [this](int px, int py) { return chrome_host_ ? chrome_host_->hit_test_tab(px, py) : 0; };
+    router->hit_test_space_fn = [this](int px, int py) {
+        return chrome_host_ ? chrome_host_->hit_test_space(px, py) : kInvalidSpaceId;
+    };
     router->tab_bar_height_phys_fn = [this]() { return chrome_host_ ? chrome_host_->tab_bar_height() : 0; };
+    router->space_sidebar_width_phys_fn = [this]() {
+        return chrome_host_ ? chrome_host_->space_sidebar_width() : 0;
+    };
     router->cell_size_phys_fn = [this]() {
         return renderer_.grid() ? renderer_.grid()->cell_size_pixels() : std::pair<int, int>{ 0, 0 };
     };
@@ -1165,6 +1280,10 @@ void App::wire_window_callbacks()
         activate_tab_by_index(index);
         input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
+    };
+    router->activate_space_fn = [this](int id) {
+        if (auto activated = activate_space(static_cast<SpaceId>(id)); !activated)
+            push_toast(2, activated.error().message);
     };
     router->activate_pane_fn = [this](int index) {
         activate_pane_by_index(index);
@@ -2065,10 +2184,14 @@ const TabController& App::active_tab_controller() const
     return space_controller_.active_tab_controller();
 }
 
-PaneManager::Deps App::make_pane_manager_deps()
+PaneManager::Deps App::make_pane_manager_deps(const Space* space)
 {
+    if (!space)
+        space = space_controller_.find_active_space();
     PaneManager::Deps deps;
     deps.options = &options_;
+    if (space)
+        deps.default_working_dir = space->root_directory.string();
     deps.config = &config_;
     deps.config_document = &config_document_;
     deps.window = window_.get();
@@ -2121,6 +2244,122 @@ bool App::can_snapshot_session_state() const
     // to silently discard inactive Spaces until the version-2 format lands.
     return options_.enable_session_restore && space_controller_.count() == 1
         && active_tab_controller().all_tabs_restorable();
+}
+
+Result<SpaceId, Error> App::create_space(
+    std::string_view raw_name, std::filesystem::path root_directory)
+{
+    const std::string name = trim_session_name(raw_name);
+    if (name.empty())
+        return Result<SpaceId, Error>::err(Error::invalid_argument("Enter a Space name."));
+    if (!window_ || !chrome_host_ || !diagnostics_host_)
+        return Result<SpaceId, Error>::err(Error::init("Draxul is not ready to create a Space."));
+
+    if (root_directory.empty())
+    {
+        if (IHost* host = active_pane_manager().focused_host())
+        {
+            const std::string cwd = host->current_working_directory();
+            if (!cwd.empty())
+                root_directory = cwd;
+        }
+        if (root_directory.empty())
+        {
+            if (const Space* active = space_controller_.find_active_space())
+                root_directory = active->root_directory;
+        }
+        if (root_directory.empty())
+            root_directory = options_.host_working_dir;
+    }
+
+    const SpaceId id = space_controller_.create_space(name, std::move(root_directory));
+    if (id == kInvalidSpaceId)
+        return Result<SpaceId, Error>::err(Error::invalid_argument("Unable to create the Space."));
+    Space* space = space_controller_.find_space(id);
+    if (!space)
+        return Result<SpaceId, Error>::err(Error::init("Created Space could not be resolved."));
+
+    const int pixel_w = window_->width_pixels();
+    const int tab_y = chrome_host_->tab_bar_height();
+    const int host_h = std::max(1, diagnostics_host_->layout().terminal_height - tab_y);
+    if (!space->tab_controller.create_initial_tab(
+            *this, pixel_w, host_h, make_pane_manager_deps(space)))
+    {
+        const std::string error = space->tab_controller.last_error();
+        space_controller_.close_space(id);
+        return Result<SpaceId, Error>::err(Error::spawn(
+            error.empty() ? "Failed to create the first Space tab." : error));
+    }
+
+    if (!space_controller_.activate_space(id))
+    {
+        space_controller_.close_space(id);
+        return Result<SpaceId, Error>::err(Error::init("Failed to activate the new Space."));
+    }
+
+    recompute_all_viewports(0, tab_y, pixel_w, host_h);
+    input_dispatcher_.set_host(active_pane_manager().focused_host());
+    request_frame();
+    return id;
+}
+
+Result<void, Error> App::activate_space(SpaceId id)
+{
+    if (!space_controller_.find_space(id))
+        return Result<void, Error>::err(Error::not_found("Space was not found."));
+    if (!space_controller_.activate_space(id))
+        return Result<void, Error>::err(Error::invalid_argument("Space has no active tab."));
+
+    if (window_ && chrome_host_ && diagnostics_host_)
+    {
+        const int tab_y = chrome_host_->tab_bar_height();
+        const int host_h = std::max(1, diagnostics_host_->layout().terminal_height - tab_y);
+        recompute_all_viewports(0, tab_y, window_->width_pixels(), host_h);
+    }
+    input_dispatcher_.set_host(active_pane_manager().focused_host());
+    request_frame();
+    return Result<void, Error>::ok();
+}
+
+Result<void, Error> App::rename_space(SpaceId id, std::string_view raw_name)
+{
+    const std::string name = trim_session_name(raw_name);
+    if (name.empty())
+        return Result<void, Error>::err(Error::invalid_argument("Enter a Space name."));
+    if (!space_controller_.rename_space(id, name))
+        return Result<void, Error>::err(Error::not_found("Space was not found."));
+    request_frame();
+    return Result<void, Error>::ok();
+}
+
+Result<void, Error> App::close_space(SpaceId id)
+{
+    const bool closing_active = id == space_controller_.active_space_id();
+    if (!space_controller_.find_space(id))
+        return Result<void, Error>::err(Error::not_found("Space was not found."));
+    if (space_controller_.count() <= 1)
+        return Result<void, Error>::err(Error::invalid_argument("The final Space cannot be closed."));
+
+    if (closing_active)
+        input_dispatcher_.set_host(nullptr);
+    if (!space_controller_.close_space(id))
+    {
+        if (closing_active)
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
+        return Result<void, Error>::err(
+            Error::invalid_argument("No populated replacement Space is available."));
+    }
+
+    if (window_ && chrome_host_ && diagnostics_host_)
+    {
+        const int tab_y = chrome_host_->tab_bar_height();
+        const int host_h = std::max(1, diagnostics_host_->layout().terminal_height - tab_y);
+        recompute_all_viewports(0, tab_y, window_->width_pixels(), host_h);
+    }
+    if (closing_active)
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+    request_frame();
+    return Result<void, Error>::ok();
 }
 
 Result<void, Error> App::load_session(std::string_view raw_session_id)
@@ -2417,6 +2656,9 @@ void App::activate_pane_by_index(int one_based_index)
 
 void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
+    const int sidebar_width = chrome_host_ ? chrome_host_->space_sidebar_width() : 0;
+    origin_x += sidebar_width;
+    pixel_w = std::max(1, pixel_w - sidebar_width);
     for (const auto& space : space_controller_.spaces())
         space->tab_controller.recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }

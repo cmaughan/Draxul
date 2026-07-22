@@ -393,7 +393,7 @@ void CommandPalette::submit_prompt()
     std::string value = trim_copy(query_);
     if (value.empty())
     {
-        prompt_message_ = "Enter a session name";
+        prompt_message_ = prompt_.empty_message;
         if (deps_.request_frame)
             deps_.request_frame();
         return;
