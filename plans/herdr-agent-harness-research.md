@@ -3,9 +3,11 @@
 **Status:** research and preliminary design direction  
 **Date:** 2026-07-21  
 **Implementation note:** the behaviour-neutral `Workspace` to `Tab`, `HostManager`
-to `PaneManager`, snapshot-type renames, `TabController` extraction, and the single
-default `Space`/`SpaceController` ownership boundary were completed on 2026-07-22;
-multiple live Spaces, persistence v2, and the sidebar remain future work.
+to `PaneManager`, snapshot-type renames, `TabController` extraction, and the
+in-memory `Space`/`SpaceController` lifecycle were completed on 2026-07-22. Draxul
+can now create, activate, rename, re-root, enumerate, and close multiple live Spaces;
+inactive hosts keep pumping and retain their processes. Persistence v2 and the sidebar
+remain future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -389,6 +391,17 @@ last-active selection. Existing top-bar tabs belong to the selected Space.
 Switching Spaces must leave inactive Space processes running. Closing a Space is a
 process-terminating action and should clearly communicate that effect.
 
+**Implemented backend slice (2026-07-22):** `SpaceController` now supplies stable IDs,
+metadata mutation, guarded activation, focus handoff, and close semantics. `App` pumps
+hosts in inactive tabs and Spaces, observes their deadlines, applies config/font/layout changes to
+every Space, and requests close from every host at application exit. A newly created
+Space may be empty while its first tab is assembled, but it cannot become active until
+that tab exists. Version-1 session snapshots are deliberately refused while multiple
+Spaces exist so inactive Spaces cannot be silently discarded.
+
+**Remaining in this phase:** expose the lifecycle through `App`, add the Spaces rail and
+its actions, define version-2 persistence, and restore the last-active Space.
+
 **Exit condition:** users can switch between multiple local Spaces without terminating
 their panes, and restarting Draxul restores the saved topology and last active Space.
 
@@ -510,12 +523,13 @@ switching within an open Draxul process can preserve agents; application exit ca
    remote attachment.
 8. Make explicit agent launches reliable before adding heuristic discovery.
 9. Add a local API to make Draxul an agent harness rather than only an agent dashboard.
+10. Permit an empty Space during construction, but require an active tab before it can
+    become the active Space.
 
 ## Open design questions
 
 - Should the Agents section default to the active Space or show all agents grouped by
   Space? A global priority view is useful, but active-Space scope is less noisy.
-- Should creating a Space create its first tab immediately, or can an empty Space exist?
 - Should a Space be repository-rooted, arbitrary-directory-rooted, or support both with
   optional repository metadata?
 - Should closing a non-empty Space require confirmation, or is a clear count of running

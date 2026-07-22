@@ -99,16 +99,40 @@ bool TabController::activate_tab(int tab_id)
         return false;
     }
 
-    if (Tab* current = find_active_tab())
+    if (focus_enabled_)
     {
-        if (IHost* host = current->pane_manager.focused_host())
-            host->on_focus_lost();
+        if (Tab* current = find_active_tab())
+        {
+            if (IHost* host = current->pane_manager.focused_host())
+                host->on_focus_lost();
+        }
     }
 
     active_tab_id_ = tab_id;
-    if (IHost* host = (*target)->pane_manager.focused_host())
-        host->on_focus_gained();
+    if (focus_enabled_)
+    {
+        if (IHost* host = (*target)->pane_manager.focused_host())
+            host->on_focus_gained();
+    }
     return true;
+}
+
+void TabController::set_focus_enabled(bool enabled)
+{
+    if (enabled == focus_enabled_)
+        return;
+
+    if (Tab* active = find_active_tab())
+    {
+        if (IHost* host = active->pane_manager.focused_host())
+        {
+            if (enabled)
+                host->on_focus_gained();
+            else
+                host->on_focus_lost();
+        }
+    }
+    focus_enabled_ = enabled;
 }
 
 void TabController::next_tab()

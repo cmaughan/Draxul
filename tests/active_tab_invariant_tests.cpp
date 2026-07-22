@@ -1,8 +1,17 @@
 #include <catch2/catch_all.hpp>
 
+#include "support/fake_host.h"
+#include "support/fake_renderer.h"
+#include "support/fake_window.h"
+#include "support/test_host_callbacks.h"
+
+#include <draxul/app_config.h>
+#include <draxul/app_options.h>
+
 #include "app.h"
 
 using namespace draxul;
+using namespace draxul::tests;
 
 namespace draxul
 {
@@ -60,9 +69,69 @@ struct AppTestAccess
         app.discard_session_state_on_shutdown_ = true;
         app.shutdown();
     }
+
+    static SpaceId create_space(App& app, std::string name)
+    {
+        return app.space_controller_.create_space(std::move(name));
+    }
+
+    static Space* find_space(App& app, SpaceId id)
+    {
+        return app.space_controller_.find_space(id);
+    }
+
+    static void pump_background_hosts(App& app)
+    {
+        app.pump_background_hosts();
+    }
+
+    static int wait_timeout_ms(App& app)
+    {
+        return app.wait_timeout_ms(std::nullopt);
+    }
+
+    static void request_quit(App& app)
+    {
+        app.request_quit();
+    }
 };
 
 } // namespace draxul
+
+namespace
+{
+
+struct InactiveSpaceHostHarness
+{
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TestHostCallbacks callbacks;
+    AppOptions options;
+    AppConfig config;
+    std::vector<FakeHost*> hosts;
+
+    PaneManager::Deps make_deps()
+    {
+        options.host_kind = HostKind::Nvim;
+        options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
+            auto created = std::make_unique<FakeHost>("inactive-space-host");
+            hosts.push_back(created.get());
+            return created;
+        };
+
+        PaneManager::Deps deps;
+        deps.options = &options;
+        deps.config = &config;
+        deps.window = &window;
+        deps.grid_renderer = &renderer;
+        deps.compute_viewport = [](const PaneDescriptor&) {
+            return HostViewport{ .pixel_size = { 800, 600 }, .grid_size = { 100, 37 } };
+        };
+        return deps;
+    }
+};
+
+} // namespace
 
 TEST_CASE("active tab lookup makes empty and stale states explicit", "[app][tab]")
 {
@@ -156,4 +225,39 @@ TEST_CASE("failed restore and empty shutdown leave an explicit no-tab state", "[
 
     CHECK_NOTHROW(AppTestAccess::shutdown_without_persistence(app));
     CHECK(AppTestAccess::active_id(app) == -1);
+}
+
+TEST_CASE("app services and closes hosts in background tabs and spaces",
+    "[app][space][lifecycle]")
+{
+    InactiveSpaceHostHarness harness;
+    App app;
+    AppTestAccess::add_empty_tab(app, 1);
+    AppTestAccess::activate(app, 1);
+
+    const SpaceId inactive_id = AppTestAccess::create_space(app, "inactive");
+    Space* inactive = AppTestAccess::find_space(app, inactive_id);
+    REQUIRE(inactive != nullptr);
+    REQUIRE(inactive->tab_controller.create_initial_tab(
+        harness.callbacks, 800, 600, harness.make_deps()));
+    REQUIRE(harness.hosts.size() == 1);
+    FakeHost* inactive_space_host = harness.hosts[0];
+
+    Space* active = AppTestAccess::find_space(app, kDefaultSpaceId);
+    REQUIRE(active != nullptr);
+    REQUIRE(active->tab_controller.add_tab(
+                harness.callbacks, 800, 600, harness.make_deps(), HostKind::Nvim)
+        >= 0);
+    REQUIRE(active->tab_controller.activate_tab(1));
+    REQUIRE(harness.hosts.size() == 2);
+    FakeHost* inactive_tab_host = harness.hosts[1];
+
+    AppTestAccess::pump_background_hosts(app);
+    CHECK(inactive_space_host->pump_calls == 1);
+    CHECK(inactive_tab_host->pump_calls == 1);
+    CHECK(AppTestAccess::wait_timeout_ms(app) == 50);
+
+    AppTestAccess::request_quit(app);
+    CHECK(inactive_space_host->request_close_calls == 1);
+    CHECK(inactive_tab_host->request_close_calls == 1);
 }

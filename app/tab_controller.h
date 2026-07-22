@@ -30,6 +30,7 @@ public:
 
     bool close_tab(int tab_id);
     bool activate_tab(int tab_id);
+    void set_focus_enabled(bool enabled);
     void next_tab();
     void prev_tab();
     void move_tab(int direction);
@@ -76,6 +77,10 @@ public:
     {
         return next_tab_id_;
     }
+    bool focus_enabled() const noexcept
+    {
+        return focus_enabled_;
+    }
     const std::string& last_error() const noexcept
     {
         return last_error_;
@@ -85,6 +90,7 @@ private:
     Tabs tabs_;
     int active_tab_id_ = -1;
     int next_tab_id_ = 0;
+    bool focus_enabled_ = true;
     std::string last_error_;
 };
 

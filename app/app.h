@@ -112,6 +112,7 @@ private:
     Result<void, Error> reload_config();
 
     bool pump_once(std::optional<std::chrono::steady_clock::time_point> wait_deadline = std::nullopt);
+    void pump_background_hosts();
     void on_resize(int pixel_w, int pixel_h);
     void on_display_scale_changed(float new_ppi);
     void request_frame() override;

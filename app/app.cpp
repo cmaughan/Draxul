@@ -504,12 +504,15 @@ void App::apply_font_metrics()
     renderer_.grid()->set_ascender(metrics.ascender);
     const float imgui_font_size = imgui_font_size_from_metrics(metrics);
     diagnostics_host_->set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
-    for (auto& tab : active_tab_controller().tabs())
+    for (const auto& space : space_controller_.spaces())
     {
-        tab->pane_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
-            host.set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
-            host.on_font_metrics_changed();
-        });
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            tab->pane_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
+                host.set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
+                host.on_font_metrics_changed();
+            });
+        }
     }
     refresh_window_layout();
     {
@@ -596,11 +599,14 @@ Result<void, Error> App::reload_config()
         push_toast(0, warning);
 
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
-    for (auto& tab : active_tab_controller().tabs())
+    for (const auto& space : space_controller_.spaces())
     {
-        tab->pane_manager.for_each_host([&host_reload](LeafId, IHost& host) {
-            host.on_config_reloaded(host_reload);
-        });
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            tab->pane_manager.for_each_host([&host_reload](LeafId, IHost& host) {
+                host.on_config_reloaded(host_reload);
+            });
+        }
     }
 
     request_frame();
@@ -850,10 +856,23 @@ void App::wire_gui_actions()
         {
             if (tab_count() <= 1)
             {
+                input_dispatcher_.set_host(nullptr);
+                const SpaceId closing_space_id = space_controller_.active_space_id();
+                if (space_controller_.count() > 1
+                    && space_controller_.close_space(closing_space_id))
+                {
+                    const int pw = window_->width_pixels();
+                    const int th = diagnostics_host_->layout().terminal_height;
+                    const int tab_y = chrome_host_->tab_bar_height();
+                    recompute_all_viewports(0, tab_y, pw, th - tab_y);
+                    input_dispatcher_.set_host(active_pane_manager().focused_host());
+                    request_frame();
+                    return;
+                }
+
                 // Closing the last pane discards this saved topology and exits.
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
-                input_dispatcher_.set_host(nullptr);
                 space_controller_.shutdown_all();
                 render_root_ = RenderNode{};
                 running_ = false;
@@ -1429,6 +1448,19 @@ bool App::close_dead_panes()
             // Last pane in this tab died.
             if (tab_count() <= 1)
             {
+                const SpaceId closing_space_id = space_controller_.active_space_id();
+                if (space_controller_.count() > 1
+                    && space_controller_.close_space(closing_space_id))
+                {
+                    const int pw = window_->width_pixels();
+                    const int th = diagnostics_host_->layout().terminal_height;
+                    const int tab_y = chrome_host_->tab_bar_height();
+                    recompute_all_viewports(0, tab_y, pw, th - tab_y);
+                    input_dispatcher_.set_host(active_pane_manager().focused_host());
+                    request_frame();
+                    return active_pane_manager().host() != nullptr;
+                }
+
                 // The final host has exited, so discard the empty saved
                 // topology and terminate the application.
                 discard_session_state_on_shutdown_ = true;
@@ -1590,6 +1622,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // Pump all visible hosts via tree walk.
         rebuild_render_tree();
         walk_pump(render_root_);
+        pump_background_hosts();
         refresh_tab_default_names();
         const auto now = std::chrono::steady_clock::now();
         maybe_checkpoint_session(now);
@@ -1627,6 +1660,26 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
     }
 
     return false;
+}
+
+void App::pump_background_hosts()
+{
+    const SpaceId active_space_id = space_controller_.active_space_id();
+    for (const auto& space : space_controller_.spaces())
+    {
+        const int foreground_tab_id = space->id == active_space_id
+            ? space->tab_controller.active_tab_id()
+            : -1;
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            if (tab->id == foreground_tab_id)
+                continue;
+            tab->pane_manager.for_each_host([](LeafId, IHost& host) {
+                if (host.is_running())
+                    host.pump();
+            });
+        }
+    }
 }
 
 void App::refresh_system_resource_snapshot(std::chrono::steady_clock::time_point now)
@@ -1715,11 +1768,14 @@ void App::request_frame()
 
 void App::request_quit()
 {
-    if (Tab* tab = find_active_tab())
+    for (const auto& space : space_controller_.spaces())
     {
-        tab->pane_manager.for_each_host([](LeafId, IHost& h) {
-            h.request_close();
-        });
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            tab->pane_manager.for_each_host([](LeafId, IHost& host) {
+                host.request_close();
+            });
+        }
     }
     running_ = false;
 }
@@ -1955,6 +2011,26 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 
     auto deadline = walk_deadline(render_root_);
     bool any_host_running = walk_any_running(render_root_);
+    const SpaceId active_space_id = space_controller_.active_space_id();
+    for (const auto& space : space_controller_.spaces())
+    {
+        const int foreground_tab_id = space->id == active_space_id
+            ? space->tab_controller.active_tab_id()
+            : -1;
+        for (const auto& tab : space->tab_controller.tabs())
+        {
+            if (tab->id == foreground_tab_id)
+                continue;
+            tab->pane_manager.for_each_host([&deadline, &any_host_running](LeafId, IHost& host) {
+                if (const auto host_deadline = host.next_deadline();
+                    host_deadline && (!deadline || *host_deadline < *deadline))
+                {
+                    deadline = host_deadline;
+                }
+                any_host_running = any_host_running || host.is_running();
+            });
+        }
+    }
     if (wait_deadline && (!deadline || *wait_deadline < *deadline))
         deadline = wait_deadline;
 
@@ -2009,36 +2085,42 @@ PaneManager::Deps App::make_pane_manager_deps()
 
 void App::refresh_tab_default_names()
 {
-    for (auto& tab : active_tab_controller().tabs())
+    for (const auto& space : space_controller_.spaces())
     {
-        if (tab->name_user_set)
-            continue;
-        IHost* focused = tab->pane_manager.focused_host();
-        if (!focused)
-            continue;
-        const std::string cwd = focused->current_working_directory();
-        if (cwd.empty())
-            continue;
-        // Strip trailing slashes, then take the basename.
-        std::string_view sv = cwd;
-        while (sv.size() > 1 && sv.back() == '/')
-            sv.remove_suffix(1);
-        const auto last_slash = sv.rfind('/');
-        const std::string_view basename
-            = (last_slash != std::string_view::npos) ? sv.substr(last_slash + 1) : sv;
-        if (basename.empty())
-            continue;
-        std::string new_name(basename);
-        if (tab->name == new_name)
-            continue;
-        tab->name = std::move(new_name);
-        request_frame();
+        for (auto& tab : space->tab_controller.tabs())
+        {
+            if (tab->name_user_set)
+                continue;
+            IHost* focused = tab->pane_manager.focused_host();
+            if (!focused)
+                continue;
+            const std::string cwd = focused->current_working_directory();
+            if (cwd.empty())
+                continue;
+            // Strip trailing slashes, then take the basename.
+            std::string_view sv = cwd;
+            while (sv.size() > 1 && sv.back() == '/')
+                sv.remove_suffix(1);
+            const auto last_slash = sv.rfind('/');
+            const std::string_view basename
+                = (last_slash != std::string_view::npos) ? sv.substr(last_slash + 1) : sv;
+            if (basename.empty())
+                continue;
+            std::string new_name(basename);
+            if (tab->name == new_name)
+                continue;
+            tab->name = std::move(new_name);
+            request_frame();
+        }
     }
 }
 
 bool App::can_snapshot_session_state() const
 {
-    return options_.enable_session_restore && active_tab_controller().all_tabs_restorable();
+    // Version 1 stores one tab collection and has no Space envelope. Refuse
+    // to silently discard inactive Spaces until the version-2 format lands.
+    return options_.enable_session_restore && space_controller_.count() == 1
+        && active_tab_controller().all_tabs_restorable();
 }
 
 Result<void, Error> App::load_session(std::string_view raw_session_id)
@@ -2335,7 +2417,8 @@ void App::activate_pane_by_index(int one_based_index)
 
 void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
-    active_tab_controller().recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
+    for (const auto& space : space_controller_.spaces())
+        space->tab_controller.recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }
 
 PaneManager& App::active_pane_manager()
