@@ -86,7 +86,7 @@ void CommandPalette::open()
         if (kHostArgActions.count(name))
         {
             const HostLaunchContext context = name == "new_tab"
-                ? HostLaunchContext::NewWorkspace
+                ? HostLaunchContext::NewTab
                 : HostLaunchContext::Split;
             for (const auto& provider : registry.available_providers())
             {

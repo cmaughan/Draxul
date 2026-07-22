@@ -623,10 +623,10 @@ TEST_CASE("host manager: session state round-trips layout and pane metadata", "[
     REQUIRE(restored->panes.size() == 2);
 
     const auto restored_split = std::find_if(restored->panes.begin(), restored->panes.end(),
-        [split](const HostManager::PaneSessionState& pane) { return pane.leaf_id == split; });
+        [split](const HostManager::PaneSnapshot& pane) { return pane.leaf_id == split; });
     REQUIRE(restored_split != restored->panes.end());
     const auto original_split = std::find_if(saved->panes.begin(), saved->panes.end(),
-        [split](const HostManager::PaneSessionState& pane) { return pane.leaf_id == split; });
+        [split](const HostManager::PaneSnapshot& pane) { return pane.leaf_id == split; });
     REQUIRE(original_split != saved->panes.end());
     CHECK(restored_split->pane_id == original_split->pane_id);
     CHECK(restored_split->launch.kind == HostKind::PowerShell);

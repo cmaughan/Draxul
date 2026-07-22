@@ -23,7 +23,7 @@ file(GLOB DRAXUL_ALL_TEST_SOURCES CONFIGURE_DEPENDS
 )
 
 set(DRAXUL_APP_TEST_SOURCES
-    active_workspace_invariant_tests.cpp
+    active_tab_invariant_tests.cpp
     app_config_tests.cpp
     app_dispatch_tests.cpp
     app_pump_tests.cpp
@@ -182,7 +182,9 @@ endif()
 # welcome; a drop requires an explicit baseline update and review.
 set(DRAXUL_TEST_SOURCE_BASELINE 190)
 set(DRAXUL_TEST_REGISTRATION_BASELINE 1815)
-set(DRAXUL_TEST_TAG_TOKEN_BASELINE 229)
+# The Workspace -> Tab terminology migration consolidated the old [workspace]
+# tag into the existing [tab] token without removing any test registrations.
+set(DRAXUL_TEST_TAG_TOKEN_BASELINE 228)
 list(LENGTH DRAXUL_ALL_TEST_SOURCES DRAXUL_TEST_SOURCE_COUNT)
 if(DRAXUL_TEST_SOURCE_COUNT LESS DRAXUL_TEST_SOURCE_BASELINE
    OR DRAXUL_ALL_REGISTRATION_COUNT LESS DRAXUL_TEST_REGISTRATION_BASELINE

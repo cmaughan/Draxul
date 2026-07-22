@@ -552,13 +552,13 @@ bool HostManager::should_preserve_dead_leaf(LeafId id) const
     return true;
 }
 
-std::optional<HostManager::SessionState> HostManager::session_state() const
+std::optional<HostManager::PaneLayoutSnapshot> HostManager::session_state() const
 {
     PERF_MEASURE();
     if (hosts_.empty() || launch_options_.empty())
         return std::nullopt;
 
-    SessionState state;
+    PaneLayoutSnapshot state;
     state.tree = tree_.snapshot();
     state.zoomed = zoomed_;
     state.zoomed_leaf = zoomed_leaf_;
@@ -576,7 +576,7 @@ std::optional<HostManager::SessionState> HostManager::session_state() const
             return;
         }
 
-        PaneSessionState pane;
+        PaneSnapshot pane;
         pane.leaf_id = id;
         pane.launch = save_launch_options(launch_it->second);
         const std::string current_cwd = host_it->second->current_working_directory();
@@ -594,7 +594,7 @@ std::optional<HostManager::SessionState> HostManager::session_state() const
 }
 
 bool HostManager::restore_session_state(
-    IHostCallbacks& callbacks, int pixel_w, int pixel_h, const SessionState& state)
+    IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state)
 {
     PERF_MEASURE();
     error_.clear();
@@ -622,7 +622,7 @@ bool HostManager::restore_session_state(
         });
         return found;
     };
-    for (const PaneSessionState& pane : state.panes)
+    for (const PaneSnapshot& pane : state.panes)
     {
         if (!leaf_exists(pane.leaf_id))
         {

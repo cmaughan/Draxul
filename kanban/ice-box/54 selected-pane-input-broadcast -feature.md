@@ -10,12 +10,12 @@ Send keyboard/text input to an explicit group of terminal panes for coordinated 
 
 ## Implementation plan
 
-- [ ] Add stable pane selection IDs to workspace state and commands to add/remove the focused terminal pane from a broadcast group.
+- [ ] Add stable pane selection IDs to tab state and commands to add/remove the focused terminal pane from a broadcast group.
 - [ ] Keep broadcast routing in `InputDispatcher`/a dedicated router using `HostCapability::TerminalInput`; never infer eligibility from debug names or concrete casts.
 - [ ] Require an explicit activation step after selection, display a persistent high-contrast Chrome/status indicator, and provide one-key emergency stop.
 - [ ] Broadcast text/key/paste in deterministic pane order while keeping GUI shortcuts, overlays, confirmation dialogs, and mouse input single-targeted.
 - [ ] Require confirmation before broadcasting paste, Enter after pasted commands, or destructive control sequences according to a documented policy.
-- [ ] Automatically remove closed/restarted panes, disable on workspace/session change unless explicitly global, and never persist “active” broadcast across restart.
+- [ ] Automatically remove closed/restarted panes, disable on tab/session change unless explicitly global, and never persist “active” broadcast across restart.
 - [ ] Bound per-pane write queues and report partial delivery rather than silently diverging.
 
 ## Tests and acceptance
@@ -27,6 +27,6 @@ Send keyboard/text input to an explicit group of terminal panes for coordinated 
 
 ## Dependencies and parallelism
 
-Depends on stable host capabilities (pending `31 foundation-dependency-cleanup -refactor.md`, plus the ice-boxed host-capability work) and workspace ownership from the `WorkspaceController` refactor (`ice-box/22 app-workspace-session-controllers -refactor.md`), currently deferred to the ice box. High-risk interaction feature: use one input-routing owner and do not combine with an unrelated `InputDispatcher` refactor.
+Depends on stable host capabilities (pending `31 foundation-dependency-cleanup -refactor.md`, plus the ice-boxed host-capability work) and tab ownership from the `TabController` refactor (`ice-box/22 app-tab-session-controllers -refactor.md`), currently deferred to the ice box. High-risk interaction feature: use one input-routing owner and do not combine with an unrelated `InputDispatcher` refactor.
 
 <model>GPT-5 Codex</model>

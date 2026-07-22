@@ -2,6 +2,9 @@
 
 **Status:** research and preliminary design direction  
 **Date:** 2026-07-21  
+**Implementation note:** the behaviour-neutral `Workspace` to `Tab` vocabulary and
+snapshot-type rename is the first implementation step on 2026-07-22; controller
+extraction and the new Space layer remain future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -20,7 +23,7 @@ tracking, and file-backed topology restore. The main mismatch is terminology and
 missing hierarchy level:
 
 ```text
-Today:       Session -> Workspace -> Pane -> Host
+Before pass: Session -> Workspace -> Pane -> Host
 Recommended: Session -> Space -> Tab -> Pane -> Host
                                               `-> Agent (optional occupant)
 ```
@@ -174,16 +177,18 @@ without first implementing detach, handoff, or SSH.
 Terminal screen history should not be persisted by default because prompts and output
 may contain credentials, tokens, source code, or other sensitive data.
 
-## Draxul today
+## Draxul before the terminology pass
 
-The current [`Workspace`](../app/workspace.h) is explicitly one self-contained pane
-layout and one top-bar tab. It owns a [`HostManager`](../app/host_manager.h), which owns
+The former `Workspace` type, now [`Tab`](../app/tab.h), is explicitly one
+self-contained pane layout and one top-bar tab. It owns a
+[`HostManager`](../app/host_manager.h), which owns
 the split tree, pane leaves, host instances, launch options, and stable pane strings.
 
-[`AppSessionState`](../app/session_state.h) owns a vector of
-`WorkspaceSessionState`, an active workspace ID, and the next workspace ID. Structurally,
-this means today's Draxul session contains tabs and panes but has no project-level
-Space grouping.
+The former `AppSessionState`, now [`SessionSnapshot`](../app/session_state.h), owns a
+vector of `TabSnapshot`, an active tab ID, and the next tab ID. Structurally, today's
+Draxul session contains tabs and panes but has no project-level Space grouping. The
+version-1 persistence keys retain their historical `workspace` spelling for backward
+and forward compatibility; this is a wire-format detail rather than live terminology.
 
 The application already has several useful foundations:
 
@@ -199,10 +204,10 @@ The application already has several useful foundations:
 There are also relevant constraints:
 
 - [`App::can_snapshot_session_state()`](../app/app.cpp) currently rejects the whole
-  session snapshot if any workspace does not consist entirely of restorable shell
+  session snapshot if any tab does not consist entirely of restorable shell
   hosts. Space-aware persistence should avoid allowing one non-restorable product
   space to block checkpoints for every agent space.
-- `App` directly owns the workspace vector and session transaction details. Adding a
+- `App` directly owns the tab vector and session transaction details. Adding a
   Space hierarchy directly to `App` would deepen an existing orchestration hotspot.
 - [`ChromeHost`](../app/chrome_host.h) currently owns top-bar and pane-chrome layout.
   A substantial sidebar should use a dedicated controller and pure layout model rather
@@ -213,11 +218,11 @@ There are also relevant constraints:
 
 Two existing ice-box items are adjacent to this direction:
 
-- [`22 app-workspace-session-controllers -refactor.md`](../kanban/ice-box/22%20app-workspace-session-controllers%20-refactor.md)
-  proposes extracting the current workspace and file-backed session ownership from
+- [`22 app-tab-session-controllers -refactor.md`](../kanban/ice-box/22%20app-tab-session-controllers%20-refactor.md)
+  proposes extracting the current tab and file-backed session ownership from
   `App`.
-- [`42 global-session-workspace-switcher -feature.md`](../kanban/ice-box/42%20global-session-workspace-switcher%20-feature.md)
-  proposes a searchable index of sessions, workspace tabs, panes, directories, and
+- [`42 global-session-tab-switcher -feature.md`](../kanban/ice-box/42%20global-session-tab-switcher%20-feature.md)
+  proposes a searchable index of sessions, tabs, panes, directories, and
   titles. Its query model could also feed a sidebar instead of building two unrelated
   navigation indexes.
 
@@ -236,7 +241,7 @@ Session
 
 ### Core renames
 
-| Current Draxul name | Preliminary replacement | Rationale |
+| Pre-rename Draxul name | Adopted replacement | Rationale |
 |---|---|---|
 | `Workspace` | `Tab` | The object is one top-bar tab and one pane layout. |
 | `WorkspaceSessionState` | `TabSnapshot` | It is the persisted representation of one tab. |
@@ -354,9 +359,9 @@ Agent metadata should be separated into durable and ephemeral fields:
 
 ### Phase 0: ownership and naming boundary
 
-Rename `Workspace` to `Tab`, introduce snapshot terminology, and extract tab/session
-ownership from `App`. Add `SpaceController` with a single default Space so behaviour
-remains unchanged initially.
+The behaviour-neutral `Workspace` to `Tab` and snapshot terminology rename is complete.
+The remaining work is to extract tab/session ownership from `App` and add
+`SpaceController` with a single default Space so behaviour remains unchanged initially.
 
 **Exit condition:** existing tabs, panes, session files, focus behaviour, and shell
 restore work unchanged; version-1 session tests still pass.
@@ -482,7 +487,7 @@ switching within an open Draxul process can preserve agents; application exit ca
 
 1. Keep `Session` as the outer Draxul namespace.
 2. Introduce `Space` as the project/task container within a Session.
-3. Rename today's `Workspace` to `Tab` before adding the new hierarchy.
+3. Keep the adopted `Tab` vocabulary when adding the new Space hierarchy.
 4. Keep `Pane`, `Host`, and internal `LeafId` distinct.
 5. Model an Agent as an optional pane occupant with separate lifecycle, semantic status,
    status authority, and native conversation identity.

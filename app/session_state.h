@@ -12,29 +12,29 @@
 namespace draxul
 {
 
-struct WorkspaceSessionState
+struct TabSnapshot
 {
     int id = -1;
     std::string name;
     bool name_user_set = false;
-    HostManager::SessionState host_manager;
+    HostManager::PaneLayoutSnapshot host_manager;
 };
 
-struct AppSessionState
+struct SessionSnapshot
 {
     int version = 1;
     std::string session_id = "default";
     std::string session_name = "default";
-    int active_workspace_id = -1;
-    int next_workspace_id = 0;
-    std::vector<WorkspaceSessionState> workspaces;
+    int active_tab_id = -1;
+    int next_tab_id = 0;
+    std::vector<TabSnapshot> tabs;
 };
 
 struct SessionSummary
 {
     std::string session_id;
     std::string session_name;
-    int workspace_count = 0;
+    int tab_count = 0;
     int pane_count = 0;
     bool has_saved_state = false;
 };
@@ -42,11 +42,11 @@ struct SessionSummary
 std::filesystem::path session_state_directory();
 std::filesystem::path session_state_path(std::string_view session_id);
 bool has_saved_session_state(std::string_view session_id, std::string* error = nullptr);
-bool save_session_state(const AppSessionState& state, std::string* error = nullptr);
+bool save_session_state(const SessionSnapshot& state, std::string* error = nullptr);
 bool delete_session_state(std::string_view session_id, std::string* error = nullptr);
-std::optional<AppSessionState> load_session_state(
+std::optional<SessionSnapshot> load_session_state(
     std::string_view session_id, std::string* error = nullptr);
-std::optional<AppSessionState> load_session_state(std::string* error = nullptr);
+std::optional<SessionSnapshot> load_session_state(std::string* error = nullptr);
 std::vector<SessionSummary> list_saved_sessions(std::string* error = nullptr);
 
 } // namespace draxul

@@ -7,6 +7,8 @@
 #include <catch2/catch_all.hpp>
 
 #include <cctype>
+#include <fstream>
+#include <iterator>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -49,11 +51,11 @@ TEST_CASE("session id: generated unique ids skip saved state collisions", "[sess
     const int64_t fixed_time = 0;
     const std::string base = make_session_id_base("Work Bench", fixed_time);
 
-    AppSessionState state;
+    SessionSnapshot state;
     state.session_id = base;
     state.session_name = "Work Bench";
-    state.active_workspace_id = 1;
-    state.next_workspace_id = 2;
+    state.active_tab_id = 1;
+    state.next_tab_id = 2;
 
     std::string error;
     REQUIRE(save_session_state(state, &error));
@@ -64,7 +66,7 @@ TEST_CASE("session id: generated unique ids skip saved state collisions", "[sess
     CHECK(*generated == base + "-2");
 }
 
-TEST_CASE("session state: save/load round-trip preserves workspace topology", "[session_state]")
+TEST_CASE("session state: save/load round-trip preserves tab topology", "[session_state]")
 {
     TempDir temp_dir("session-state-roundtrip");
     HomeDirRedirect redirect(temp_dir.path);
@@ -74,7 +76,7 @@ TEST_CASE("session state: save/load round-trip preserves workspace topology", "[
     const LeafId right = tree.split_leaf(left, SplitDirection::Vertical);
     tree.set_focused(right);
 
-    HostManager::SessionState host_manager_state;
+    HostManager::PaneLayoutSnapshot host_manager_state;
     host_manager_state.tree = tree.snapshot();
     host_manager_state.zoomed = true;
     host_manager_state.zoomed_leaf = right;
@@ -105,22 +107,32 @@ TEST_CASE("session state: save/load round-trip preserves workspace topology", "[
         .pane_id = "pane-right",
     });
 
-    WorkspaceSessionState workspace;
-    workspace.id = 7;
-    workspace.name = "session";
-    workspace.name_user_set = true;
-    workspace.host_manager = std::move(host_manager_state);
+    TabSnapshot tab;
+    tab.id = 7;
+    tab.name = "session";
+    tab.name_user_set = true;
+    tab.host_manager = std::move(host_manager_state);
 
-    AppSessionState state;
+    SessionSnapshot state;
     state.session_id = "workbench";
     state.session_name = "workbench";
-    state.active_workspace_id = 7;
-    state.next_workspace_id = 8;
-    state.workspaces.push_back(std::move(workspace));
+    state.active_tab_id = 7;
+    state.next_tab_id = 8;
+    state.tabs.push_back(std::move(tab));
 
     std::string save_error;
     REQUIRE(save_session_state(state, &save_error));
     REQUIRE(save_error.empty());
+
+    std::ifstream saved_file(session_state_path("workbench"));
+    REQUIRE(saved_file.is_open());
+    const std::string saved_text{
+        std::istreambuf_iterator<char>(saved_file), std::istreambuf_iterator<char>()
+    };
+    CHECK(saved_text.find("active_workspace_id") != std::string::npos);
+    CHECK(saved_text.find("next_workspace_id") != std::string::npos);
+    CHECK(saved_text.find("workspaces") != std::string::npos);
+    CHECK(saved_text.find("active_tab_id") == std::string::npos);
 
     std::string load_error;
     auto loaded = load_session_state("workbench", &load_error);
@@ -128,38 +140,38 @@ TEST_CASE("session state: save/load round-trip preserves workspace topology", "[
     REQUIRE(load_error.empty());
     REQUIRE(loaded->session_id == "workbench");
     REQUIRE(loaded->session_name == "workbench");
-    REQUIRE(loaded->active_workspace_id == 7);
-    REQUIRE(loaded->next_workspace_id == 8);
-    REQUIRE(loaded->workspaces.size() == 1);
+    REQUIRE(loaded->active_tab_id == 7);
+    REQUIRE(loaded->next_tab_id == 8);
+    REQUIRE(loaded->tabs.size() == 1);
 
-    const WorkspaceSessionState& loaded_workspace = loaded->workspaces.front();
-    CHECK(loaded_workspace.id == 7);
-    CHECK(loaded_workspace.name == "session");
-    CHECK(loaded_workspace.name_user_set);
-    REQUIRE(loaded_workspace.host_manager.panes.size() == 2);
-    CHECK(loaded_workspace.host_manager.zoomed);
-    CHECK(loaded_workspace.host_manager.zoomed_leaf == right);
+    const TabSnapshot& loaded_tab = loaded->tabs.front();
+    CHECK(loaded_tab.id == 7);
+    CHECK(loaded_tab.name == "session");
+    CHECK(loaded_tab.name_user_set);
+    REQUIRE(loaded_tab.host_manager.panes.size() == 2);
+    CHECK(loaded_tab.host_manager.zoomed);
+    CHECK(loaded_tab.host_manager.zoomed_leaf == right);
 
     SplitTree restored_tree;
-    REQUIRE(restored_tree.restore(loaded_workspace.host_manager.tree, 1200, 800));
+    REQUIRE(restored_tree.restore(loaded_tab.host_manager.tree, 1200, 800));
     CHECK(restored_tree.leaf_count() == 2);
     CHECK(restored_tree.focused() == right);
     CHECK(restored_tree.descriptor_for(left).pixel_size.x == tree.descriptor_for(left).pixel_size.x);
     CHECK(restored_tree.descriptor_for(right).pixel_pos.x == tree.descriptor_for(right).pixel_pos.x);
 
-    CHECK(loaded_workspace.host_manager.panes[0].pane_name == "left");
-    CHECK(loaded_workspace.host_manager.panes[0].pane_id == "pane-left");
-    CHECK(loaded_workspace.host_manager.panes[0].launch.working_dir == "D:/left");
-    CHECK(loaded_workspace.host_manager.panes[1].pane_name == "right");
-    CHECK(loaded_workspace.host_manager.panes[1].pane_id == "pane-right");
-    CHECK(loaded_workspace.host_manager.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
+    CHECK(loaded_tab.host_manager.panes[0].pane_name == "left");
+    CHECK(loaded_tab.host_manager.panes[0].pane_id == "pane-left");
+    CHECK(loaded_tab.host_manager.panes[0].launch.working_dir == "D:/left");
+    CHECK(loaded_tab.host_manager.panes[1].pane_name == "right");
+    CHECK(loaded_tab.host_manager.panes[1].pane_id == "pane-right");
+    CHECK(loaded_tab.host_manager.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
 
     const auto sessions = list_saved_sessions(&load_error);
     REQUIRE(load_error.empty());
     REQUIRE(sessions.size() == 1);
     CHECK(sessions[0].session_id == "workbench");
     CHECK(sessions[0].session_name == "workbench");
-    CHECK(sessions[0].workspace_count == 1);
+    CHECK(sessions[0].tab_count == 1);
     CHECK(sessions[0].pane_count == 2);
 }
 
@@ -168,15 +180,15 @@ TEST_CASE("session state: distinct session ids persist separately", "[session_st
     TempDir temp_dir("session-state-separate");
     HomeDirRedirect redirect(temp_dir.path);
 
-    auto make_workspace = [](int id, std::string name) {
+    auto make_tab = [](int id, std::string name) {
         SplitTree tree;
         const LeafId leaf = tree.reset(800, 600);
-        WorkspaceSessionState workspace;
-        workspace.id = id;
-        workspace.name = std::move(name);
-        workspace.name_user_set = true;
-        workspace.host_manager.tree = tree.snapshot();
-        workspace.host_manager.panes.push_back({
+        TabSnapshot tab;
+        tab.id = id;
+        tab.name = std::move(name);
+        tab.name_user_set = true;
+        tab.host_manager.tree = tree.snapshot();
+        tab.host_manager.panes.push_back({
             .leaf_id = leaf,
             .launch = {
                 .kind = HostKind::PowerShell,
@@ -188,22 +200,22 @@ TEST_CASE("session state: distinct session ids persist separately", "[session_st
             },
             .pane_name = "shell",
         });
-        return workspace;
+        return tab;
     };
 
-    AppSessionState alpha;
+    SessionSnapshot alpha;
     alpha.session_id = "alpha";
     alpha.session_name = "Alpha Session";
-    alpha.active_workspace_id = 1;
-    alpha.next_workspace_id = 2;
-    alpha.workspaces.push_back(make_workspace(1, "alpha"));
+    alpha.active_tab_id = 1;
+    alpha.next_tab_id = 2;
+    alpha.tabs.push_back(make_tab(1, "alpha"));
 
-    AppSessionState beta;
+    SessionSnapshot beta;
     beta.session_id = "beta/dev";
     beta.session_name = "beta/dev";
-    beta.active_workspace_id = 2;
-    beta.next_workspace_id = 3;
-    beta.workspaces.push_back(make_workspace(2, "beta"));
+    beta.active_tab_id = 2;
+    beta.next_tab_id = 3;
+    beta.tabs.push_back(make_tab(2, "beta"));
 
     std::string error;
     REQUIRE(save_session_state(alpha, &error));
@@ -227,18 +239,18 @@ TEST_CASE("session state: delete removes saved session state", "[session_state]"
     SplitTree tree;
     const LeafId leaf = tree.reset(800, 600);
 
-    AppSessionState state;
+    SessionSnapshot state;
     state.session_id = "delete-me";
     state.session_name = "delete-me";
-    state.active_workspace_id = 1;
-    state.next_workspace_id = 2;
+    state.active_tab_id = 1;
+    state.next_tab_id = 2;
 
-    WorkspaceSessionState workspace;
-    workspace.id = 1;
-    workspace.name = "delete-me";
-    workspace.name_user_set = true;
-    workspace.host_manager.tree = tree.snapshot();
-    workspace.host_manager.panes.push_back({
+    TabSnapshot tab;
+    tab.id = 1;
+    tab.name = "delete-me";
+    tab.name_user_set = true;
+    tab.host_manager.tree = tree.snapshot();
+    tab.host_manager.panes.push_back({
         .leaf_id = leaf,
         .launch = {
             .kind = HostKind::PowerShell,
@@ -247,7 +259,7 @@ TEST_CASE("session state: delete removes saved session state", "[session_state]"
         },
         .pane_name = "shell",
     });
-    state.workspaces.push_back(std::move(workspace));
+    state.tabs.push_back(std::move(tab));
 
     std::string error;
     REQUIRE(save_session_state(state, &error));

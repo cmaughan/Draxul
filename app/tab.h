@@ -6,9 +6,9 @@
 namespace draxul
 {
 
-// A workspace is a self-contained pane layout: one SplitTree + its hosts.
-// ChromeHost owns a collection of workspaces (one per tab).
-struct Workspace
+// A tab is a self-contained pane layout: one SplitTree + its hosts.
+// ChromeHost presents the collection as top-bar tabs.
+struct Tab
 {
     int id = -1;
     std::string name;
@@ -19,8 +19,8 @@ struct Workspace
     HostManager host_manager;
     bool initialized = false;
 
-    explicit Workspace(int workspace_id, HostManager::Deps deps)
-        : id(workspace_id)
+    explicit Tab(int tab_id, HostManager::Deps deps)
+        : id(tab_id)
         , host_manager(std::move(deps))
     {
     }

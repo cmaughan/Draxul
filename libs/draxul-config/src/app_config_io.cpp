@@ -280,7 +280,7 @@ AppConfig::AppConfig()
             static_cast<int32_t>(SDLK_UP), kModNone },
         { "resize_pane_down", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_DOWN), kModNone },
-        // Tab/workspace management: Ctrl+S chord prefix (tmux-style)
+        // Tab/tab management: Ctrl+S chord prefix (tmux-style)
         // new_tab = Ctrl+S, C
         { "new_tab", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_C), kModNone },

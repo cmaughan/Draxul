@@ -40,7 +40,7 @@ public:
         std::string pty_capture_file;
     };
 
-    struct PaneSessionState
+    struct PaneSnapshot
     {
         LeafId leaf_id = kInvalidLeaf;
         SavedLaunchOptions launch;
@@ -48,10 +48,10 @@ public:
         std::string pane_id;
     };
 
-    struct SessionState
+    struct PaneLayoutSnapshot
     {
         SplitTree::Snapshot tree;
-        std::vector<PaneSessionState> panes;
+        std::vector<PaneSnapshot> panes;
         bool zoomed = false;
         LeafId zoomed_leaf = kInvalidLeaf;
     };
@@ -228,9 +228,9 @@ public:
     }
     bool has_restorable_shell_session() const;
     bool should_preserve_dead_leaf(LeafId id) const;
-    std::optional<SessionState> session_state() const;
+    std::optional<PaneLayoutSnapshot> session_state() const;
     bool restore_session_state(
-        IHostCallbacks& callbacks, int pixel_w, int pixel_h, const SessionState& state);
+        IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state);
     const SplitTree& tree() const
     {
         return tree_;

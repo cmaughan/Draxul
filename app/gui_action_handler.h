@@ -54,8 +54,8 @@ public:
         std::function<void()> on_resize_pane_right; // grow focused pane horizontally
         std::function<void()> on_resize_pane_up; // shrink focused pane vertically
         std::function<void()> on_resize_pane_down; // grow focused pane vertically
-        std::function<void(std::optional<HostKind>)> on_new_tab; // create a new workspace tab
-        std::function<void()> on_close_tab; // close the active workspace tab
+        std::function<void(std::optional<HostKind>)> on_new_tab; // create a new tab
+        std::function<void()> on_close_tab; // close the active tab
         std::function<void()> on_next_tab; // switch to the next tab
         std::function<void()> on_prev_tab; // switch to the previous tab
         std::function<void(int)> on_activate_tab; // switch to tab by 1-based index

@@ -6,7 +6,7 @@
 
 ## User need
 
-Save the focused pane as a portable PNG without invoking printing or capturing unrelated Chrome/workspaces.
+Save the focused pane as a portable PNG without invoking printing or capturing unrelated Chrome/tabs.
 
 ## Implementation plan
 

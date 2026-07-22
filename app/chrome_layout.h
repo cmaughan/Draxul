@@ -23,13 +23,13 @@ struct ChromeRect
 
 enum class ChromeHitKind
 {
-    WorkspaceTab,
+    Tab,
     PaneStatus,
 };
 
 struct ChromeHitRegion
 {
-    ChromeHitKind kind = ChromeHitKind::WorkspaceTab;
+    ChromeHitKind kind = ChromeHitKind::Tab;
     int stable_id = 0; // 1-based tab index or LeafId
     ChromeRect rect{};
 };
@@ -43,7 +43,7 @@ struct ChromeLabelCluster
 
 struct ChromeTabInput
 {
-    int workspace_id = -1;
+    int tab_id = -1;
     std::string name;
     bool active = false;
 };
@@ -90,7 +90,7 @@ struct ChromeLayoutInput
 
 struct ChromeTabLayout
 {
-    int workspace_id = -1;
+    int tab_id = -1;
     int tab_index = 0; // stable 1-based hit id
     int col_begin = 0;
     int col_end = 0;

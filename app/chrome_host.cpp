@@ -49,12 +49,12 @@ void ChromeHost::set_viewport(const HostViewport& viewport)
 
 const SplitTree& ChromeHost::active_tree() const
 {
-    if (deps_.workspaces && deps_.active_workspace_id)
+    if (deps_.tabs && deps_.active_tab_id)
     {
-        for (const auto& workspace : *deps_.workspaces)
+        for (const auto& tab : *deps_.tabs)
         {
-            if (workspace->id == *deps_.active_workspace_id)
-                return workspace->host_manager.tree();
+            if (tab->id == *deps_.active_tab_id)
+                return tab->host_manager.tree();
         }
     }
     static const SplitTree empty;
@@ -90,16 +90,16 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
         input.grid_padding = kChromeGridPadding;
     }
 
-    const bool have_workspaces = deps_.workspaces && !deps_.workspaces->empty();
+    const bool have_tabs = deps_.tabs && !deps_.tabs->empty();
     const bool have_resources = deps_.system_resource_snapshot
         && deps_.system_resource_snapshot->available();
-    input.show_top_bar = deps_.grid_renderer && (have_workspaces || have_resources);
-    if (deps_.workspaces)
+    input.show_top_bar = deps_.grid_renderer && (have_tabs || have_resources);
+    if (deps_.tabs)
     {
-        const int active_id = deps_.active_workspace_id ? *deps_.active_workspace_id : -1;
-        input.tabs.reserve(deps_.workspaces->size());
-        for (const auto& workspace : *deps_.workspaces)
-            input.tabs.push_back({ workspace->id, workspace->name, workspace->id == active_id });
+        const int active_id = deps_.active_tab_id ? *deps_.active_tab_id : -1;
+        input.tabs.reserve(deps_.tabs->size());
+        for (const auto& tab : *deps_.tabs)
+            input.tabs.push_back({ tab->id, tab->name, tab->id == active_id });
     }
     if (have_resources)
         input.resources = *deps_.system_resource_snapshot;
@@ -136,14 +136,14 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
 
     input.show_status = deps_.config && deps_.config->show_pane_status;
     if (input.show_status && deps_.grid_renderer && input.cell_width > 0 && input.cell_height > 0
-        && deps_.workspaces && deps_.active_workspace_id)
+        && deps_.tabs && deps_.active_tab_id)
     {
         const HostManager* manager = nullptr;
-        for (const auto& workspace : *deps_.workspaces)
+        for (const auto& tab : *deps_.tabs)
         {
-            if (workspace->id == *deps_.active_workspace_id)
+            if (tab->id == *deps_.active_tab_id)
             {
-                manager = &workspace->host_manager;
+                manager = &tab->host_manager;
                 break;
             }
         }
@@ -177,10 +177,10 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
 
 int ChromeHost::hit_test_tab(int px, int py) const
 {
-    if (!deps_.workspaces || deps_.workspaces->empty() || !deps_.grid_renderer)
+    if (!deps_.tabs || deps_.tabs->empty() || !deps_.grid_renderer)
         return 0;
     return hit_test_chrome(compute_chrome_layout(build_layout_input()),
-        ChromeHitKind::WorkspaceTab, px, py);
+        ChromeHitKind::Tab, px, py);
 }
 
 LeafId ChromeHost::hit_test_pane_status_pill(int px, int py) const
@@ -203,36 +203,36 @@ void ChromeHost::draw(IFrameContext& frame)
     frame.flush_submit_chunk();
 }
 
-int ChromeHost::workspace_id_for_index(int tab_index) const
+int ChromeHost::tab_id_for_index(int tab_index) const
 {
-    if (!deps_.workspaces || tab_index <= 0
-        || static_cast<size_t>(tab_index) > deps_.workspaces->size())
+    if (!deps_.tabs || tab_index <= 0
+        || static_cast<size_t>(tab_index) > deps_.tabs->size())
         return -1;
-    return (*deps_.workspaces)[static_cast<size_t>(tab_index - 1)]->id;
+    return (*deps_.tabs)[static_cast<size_t>(tab_index - 1)]->id;
 }
 
 void ChromeHost::begin_tab_rename(int tab_index)
 {
-    const int workspace_id = workspace_id_for_index(tab_index);
-    if (workspace_id >= 0)
-        begin_tab_rename_by_id(workspace_id);
+    const int tab_id = tab_id_for_index(tab_index);
+    if (tab_id >= 0)
+        begin_tab_rename_by_id(tab_id);
 }
 
-void ChromeHost::begin_tab_rename_by_id(int workspace_id)
+void ChromeHost::begin_tab_rename_by_id(int tab_id)
 {
-    if (!deps_.workspaces)
+    if (!deps_.tabs)
         return;
     if (rename_editor_.active()
-        && !(rename_editor_.editing_workspace() && rename_editor_.workspace_id() == workspace_id))
+        && !(rename_editor_.editing_tab() && rename_editor_.tab_id() == tab_id))
     {
         if (auto commit = rename_editor_.commit())
             apply_rename_commit(std::move(*commit));
     }
-    for (const auto& workspace : *deps_.workspaces)
+    for (const auto& tab : *deps_.tabs)
     {
-        if (workspace->id == workspace_id)
+        if (tab->id == tab_id)
         {
-            rename_editor_.begin_workspace(workspace_id, workspace->name);
+            rename_editor_.begin_tab(tab_id, tab->name);
             if (deps_.request_frame)
                 deps_.request_frame();
             return;
@@ -260,12 +260,12 @@ void ChromeHost::begin_pane_rename(LeafId leaf)
 
 bool ChromeHost::is_editing_tab() const
 {
-    return rename_editor_.editing_workspace();
+    return rename_editor_.editing_tab();
 }
 
-int ChromeHost::editing_workspace_id() const
+int ChromeHost::editing_tab_id() const
 {
-    return rename_editor_.workspace_id();
+    return rename_editor_.tab_id();
 }
 
 bool ChromeHost::is_editing_pane() const
@@ -285,10 +285,10 @@ bool ChromeHost::is_editing() const
 
 void ChromeHost::apply_rename_commit(RenameCommit commit)
 {
-    if (commit.target == RenameTarget::Workspace)
+    if (commit.target == RenameTarget::Tab)
     {
-        if (!commit.text.empty() && deps_.set_workspace_name)
-            deps_.set_workspace_name(commit.workspace_id, std::move(commit.text));
+        if (!commit.text.empty() && deps_.set_tab_name)
+            deps_.set_tab_name(commit.tab_id, std::move(commit.text));
     }
     else if (commit.target == RenameTarget::Pane && deps_.set_pane_name)
     {

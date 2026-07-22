@@ -100,7 +100,7 @@ void GridHostBase::on_focus_gained()
         grid_handle_->set_cursor_visible(true);
     // Restart the blink cycle so the cursor starts in the visible phase.
     // Without this, the cursor blinker may be in a hidden phase from before
-    // the workspace switch, leaving the cursor invisible until the next
+    // the tab switch, leaving the cursor invisible until the next
     // blink transition.
     restart_cursor_blink(std::chrono::steady_clock::now());
 }

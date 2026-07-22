@@ -175,7 +175,7 @@ std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
     return node;
 }
 
-toml::table serialize_host_manager_state(const HostManager::SessionState& state)
+toml::table serialize_host_manager_state(const HostManager::PaneLayoutSnapshot& state)
 {
     toml::table table;
     table.insert_or_assign("focused_leaf", state.tree.focused_id);
@@ -186,7 +186,7 @@ toml::table serialize_host_manager_state(const HostManager::SessionState& state)
         table.insert_or_assign("layout", serialize_tree_node(*state.tree.root));
 
     toml::array panes;
-    for (const HostManager::PaneSessionState& pane : state.panes)
+    for (const HostManager::PaneSnapshot& pane : state.panes)
     {
         toml::table pane_table;
         pane_table.insert_or_assign("leaf_id", pane.leaf_id);
@@ -212,10 +212,10 @@ toml::table serialize_host_manager_state(const HostManager::SessionState& state)
     return table;
 }
 
-std::optional<HostManager::SessionState> parse_host_manager_state(
+std::optional<HostManager::PaneLayoutSnapshot> parse_host_manager_state(
     const toml::table& table, std::string* error)
 {
-    HostManager::SessionState state;
+    HostManager::PaneLayoutSnapshot state;
     const auto focused_leaf = toml_support::get_int(table, "focused_leaf");
     const auto next_leaf_id = toml_support::get_int(table, "next_leaf_id");
     const auto zoomed = toml_support::get_bool(table, "zoomed");
@@ -225,7 +225,7 @@ std::optional<HostManager::SessionState> parse_host_manager_state(
     if (!focused_leaf || !next_leaf_id || !zoomed || !zoomed_leaf || !layout || !panes)
     {
         if (error)
-            *error = "Session state workspace is missing layout metadata.";
+            *error = "Session state tab is missing layout metadata.";
         return std::nullopt;
     }
 
@@ -265,7 +265,7 @@ std::optional<HostManager::SessionState> parse_host_manager_state(
             return std::nullopt;
         }
 
-        HostManager::PaneSessionState pane;
+        HostManager::PaneSnapshot pane;
         pane.leaf_id = static_cast<LeafId>(*leaf_id);
         pane.launch.kind = *kind;
         pane.launch.command = toml_support::get_string(*pane_table, "command").value_or("");
@@ -285,7 +285,7 @@ std::optional<HostManager::SessionState> parse_host_manager_state(
     return state;
 }
 
-std::optional<AppSessionState> load_session_state_from_path(
+std::optional<SessionSnapshot> load_session_state_from_path(
     const std::filesystem::path& path, std::string* error)
 {
     if (!std::filesystem::exists(path))
@@ -300,7 +300,7 @@ std::optional<AppSessionState> load_session_state_from_path(
         return std::nullopt;
     }
 
-    AppSessionState state;
+    SessionSnapshot state;
     state.version = static_cast<int>(toml_support::get_int(*document, "version").value_or(0));
     if (state.version != kSessionStateVersion)
     {
@@ -311,63 +311,65 @@ std::optional<AppSessionState> load_session_state_from_path(
 
     state.session_id = toml_support::get_string(*document, "session_id").value_or("default");
     state.session_name = toml_support::get_string(*document, "session_name").value_or(state.session_id);
-    state.active_workspace_id = static_cast<int>(
+    // Version 1 called Draxul tabs "workspaces". Keep those wire keys stable
+    // while the in-memory vocabulary moves to Session -> Tab.
+    state.active_tab_id = static_cast<int>(
         toml_support::get_int(*document, "active_workspace_id").value_or(-1));
-    state.next_workspace_id = static_cast<int>(
+    state.next_tab_id = static_cast<int>(
         toml_support::get_int(*document, "next_workspace_id").value_or(0));
 
-    const toml::array* workspaces = (*document)["workspaces"].as_array();
-    if (!workspaces)
+    const toml::array* tabs = (*document)["workspaces"].as_array();
+    if (!tabs)
     {
         if (error)
-            *error = "Session state is missing workspaces.";
+            *error = "Session state is missing tabs.";
         return std::nullopt;
     }
 
-    for (const toml::node& node : *workspaces)
+    for (const toml::node& node : *tabs)
     {
-        const toml::table* workspace_table = node.as_table();
-        if (!workspace_table)
+        const toml::table* tab_table = node.as_table();
+        if (!tab_table)
         {
             if (error)
-                *error = "Session state workspace entry is not a table.";
+                *error = "Session state tab entry is not a table.";
             return std::nullopt;
         }
 
-        const auto id = toml_support::get_int(*workspace_table, "id");
-        const auto name_user_set = toml_support::get_bool(*workspace_table, "name_user_set");
-        const toml::table* host_manager = (*workspace_table)["host_manager"].as_table();
+        const auto id = toml_support::get_int(*tab_table, "id");
+        const auto name_user_set = toml_support::get_bool(*tab_table, "name_user_set");
+        const toml::table* host_manager = (*tab_table)["host_manager"].as_table();
         if (!id || !name_user_set || !host_manager)
         {
             if (error)
-                *error = "Session state workspace is missing required fields.";
+                *error = "Session state tab is missing required fields.";
             return std::nullopt;
         }
 
-        WorkspaceSessionState workspace;
-        workspace.id = static_cast<int>(*id);
-        workspace.name = toml_support::get_string(*workspace_table, "name").value_or("");
-        workspace.name_user_set = *name_user_set;
+        TabSnapshot tab;
+        tab.id = static_cast<int>(*id);
+        tab.name = toml_support::get_string(*tab_table, "name").value_or("");
+        tab.name_user_set = *name_user_set;
 
         auto parsed_host_manager = parse_host_manager_state(*host_manager, error);
         if (!parsed_host_manager)
             return std::nullopt;
-        workspace.host_manager = std::move(*parsed_host_manager);
-        state.workspaces.push_back(std::move(workspace));
+        tab.host_manager = std::move(*parsed_host_manager);
+        state.tabs.push_back(std::move(tab));
     }
 
     return state;
 }
 
-SessionSummary summarize_session_state(const AppSessionState& state)
+SessionSummary summarize_session_state(const SessionSnapshot& state)
 {
     SessionSummary summary;
     summary.session_id = state.session_id;
     summary.session_name = state.session_name;
-    summary.workspace_count = static_cast<int>(state.workspaces.size());
+    summary.tab_count = static_cast<int>(state.tabs.size());
     summary.has_saved_state = true;
-    for (const WorkspaceSessionState& workspace : state.workspaces)
-        summary.pane_count += static_cast<int>(workspace.host_manager.panes.size());
+    for (const TabSnapshot& tab : state.tabs)
+        summary.pane_count += static_cast<int>(tab.host_manager.panes.size());
     return summary;
 }
 
@@ -402,7 +404,7 @@ bool has_saved_session_state(std::string_view session_id, std::string* error)
     return exists;
 }
 
-bool save_session_state(const AppSessionState& state, std::string* error)
+bool save_session_state(const SessionSnapshot& state, std::string* error)
 {
     PERF_MEASURE();
     try
@@ -412,22 +414,24 @@ bool save_session_state(const AppSessionState& state, std::string* error)
         document.insert_or_assign("version", state.version);
         document.insert_or_assign("session_id", normalized_id);
         document.insert_or_assign("session_name", state.session_name.empty() ? normalized_id : state.session_name);
-        document.insert_or_assign("active_workspace_id", state.active_workspace_id);
-        document.insert_or_assign("next_workspace_id", state.next_workspace_id);
+        // Preserve the version-1 field names so existing Draxul releases can
+        // still read snapshots written after the terminology-only rename.
+        document.insert_or_assign("active_workspace_id", state.active_tab_id);
+        document.insert_or_assign("next_workspace_id", state.next_tab_id);
 
-        toml::array workspaces;
-        for (const WorkspaceSessionState& workspace : state.workspaces)
+        toml::array tabs;
+        for (const TabSnapshot& tab : state.tabs)
         {
-            toml::table workspace_table;
-            workspace_table.insert_or_assign("id", workspace.id);
-            if (!workspace.name.empty())
-                workspace_table.insert_or_assign("name", workspace.name);
-            workspace_table.insert_or_assign("name_user_set", workspace.name_user_set);
-            workspace_table.insert_or_assign(
-                "host_manager", serialize_host_manager_state(workspace.host_manager));
-            workspaces.push_back(std::move(workspace_table));
+            toml::table tab_table;
+            tab_table.insert_or_assign("id", tab.id);
+            if (!tab.name.empty())
+                tab_table.insert_or_assign("name", tab.name);
+            tab_table.insert_or_assign("name_user_set", tab.name_user_set);
+            tab_table.insert_or_assign(
+                "host_manager", serialize_host_manager_state(tab.host_manager));
+            tabs.push_back(std::move(tab_table));
         }
-        document.insert_or_assign("workspaces", std::move(workspaces));
+        document.insert_or_assign("workspaces", std::move(tabs));
 
         const auto path = session_state_path(normalized_id);
         std::filesystem::create_directories(path.parent_path());
@@ -491,7 +495,7 @@ bool delete_session_state(std::string_view session_id, std::string* error)
     }
 }
 
-std::optional<AppSessionState> load_session_state(
+std::optional<SessionSnapshot> load_session_state(
     std::string_view session_id, std::string* error)
 {
     PERF_MEASURE();
@@ -506,7 +510,7 @@ std::optional<AppSessionState> load_session_state(
     return std::nullopt;
 }
 
-std::optional<AppSessionState> load_session_state(std::string* error)
+std::optional<SessionSnapshot> load_session_state(std::string* error)
 {
     return load_session_state("default", error);
 }

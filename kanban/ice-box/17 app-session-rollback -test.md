@@ -7,7 +7,7 @@
 ## Gap
 
 `App::load_session` and `save_session_as` coordinate file-backed state,
-workspace replacement, session identity, and rollback lambdas. Success paths
+tab replacement, session identity, and rollback lambdas. Success paths
 are covered, but mid-operation storage and restore failures are not directly
 pinned.
 
@@ -15,9 +15,9 @@ pinned.
 
 - [ ] Enumerate mutation stages and rollback obligations for load, save-as, and restore failure.
 - [ ] Add a narrow injected session-state store only if filesystem fault injection cannot cover a stage deterministically.
-- [ ] Build fixtures with multiple workspaces/panes, custom names, focus, active session id, and persisted state.
+- [ ] Build fixtures with multiple tabs/panes, custom names, focus, active session id, and persisted state.
 - [ ] Fail each stage after the preceding mutation and assert the complete pre-operation state is restored.
-- [ ] Assert input host pointers, active workspace id, render tree, and frame requests are valid after rollback.
+- [ ] Assert input host pointers, active tab id, render tree, and frame requests are valid after rollback.
 - [ ] Add success-path assertions alongside failures so the seam cannot test a different flow from production.
 
 ## Verification
@@ -38,7 +38,7 @@ Safety net before item 22. Coordinate with item 02 if atomic-store injection cha
 
 Item 26 removed attach-server identity, runtime metadata, and attach-thread
 rollback obligations. Existing App smoke fixtures now drive real file-backed
-save/load paths, so this card can focus strictly on storage and workspace
+save/load paths, so this card can focus strictly on storage and tab
 transaction failures.
 
 <model>GPT-5 Codex</model>

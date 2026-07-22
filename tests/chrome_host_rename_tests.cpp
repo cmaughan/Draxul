@@ -1,4 +1,4 @@
-// WI 128 — Inline workspace tab rename state machine.
+// WI 128 — Inline tab rename state machine.
 //
 // These tests exercise ChromeHost's rename API directly without standing up
 // a renderer or text service. The methods under test only mutate the
@@ -9,7 +9,7 @@
 
 #include "chrome_host.h"
 #include "host_manager.h"
-#include "workspace.h"
+#include "tab.h"
 
 #include <SDL3/SDL_keycode.h>
 #include <memory>
@@ -19,16 +19,16 @@ using namespace draxul;
 
 namespace
 {
-std::unique_ptr<Workspace> make_test_workspace(int id, std::string name)
+std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 {
-    auto ws = std::make_unique<Workspace>(id, HostManager::Deps{});
-    ws->name = std::move(name);
-    return ws;
+    auto tab = std::make_unique<Tab>(id, HostManager::Deps{});
+    tab->name = std::move(name);
+    return tab;
 }
 
 struct RenameFixture
 {
-    std::vector<std::unique_ptr<Workspace>> workspaces;
+    std::vector<std::unique_ptr<Tab>> tabs;
     int active = 1;
     std::unique_ptr<ChromeHost> host;
     int frame_requests = 0;
@@ -38,20 +38,20 @@ struct RenameFixture
 
     RenameFixture()
     {
-        workspaces.push_back(make_test_workspace(1, "alpha"));
-        workspaces.push_back(make_test_workspace(2, "beta"));
+        tabs.push_back(make_test_tab(1, "alpha"));
+        tabs.push_back(make_test_tab(2, "beta"));
         active = 1;
 
         ChromeHost::Deps deps;
-        deps.workspaces = &workspaces;
-        deps.active_workspace_id = &active;
-        deps.set_workspace_name = [this](int workspace_id, std::string name) {
-            for (auto& ws : workspaces)
+        deps.tabs = &tabs;
+        deps.active_tab_id = &active;
+        deps.set_tab_name = [this](int tab_id, std::string name) {
+            for (auto& tab : tabs)
             {
-                if (ws->id == workspace_id)
+                if (tab->id == tab_id)
                 {
-                    ws->name = std::move(name);
-                    ws->name_user_set = true;
+                    tab->name = std::move(name);
+                    tab->name_user_set = true;
                     return;
                 }
             }
@@ -78,7 +78,7 @@ TEST_CASE("ChromeHost rename: typing and Enter commits", "[chrome_host][rename]"
 
     f.host->begin_tab_rename(1);
     REQUIRE(f.host->is_editing_tab());
-    REQUIRE(f.host->editing_workspace_id() == 1);
+    REQUIRE(f.host->editing_tab_id() == 1);
 
     REQUIRE(f.host->on_rename_text_input("d"));
     REQUIRE(f.host->on_rename_text_input("e"));
@@ -88,10 +88,10 @@ TEST_CASE("ChromeHost rename: typing and Enter commits", "[chrome_host][rename]"
     REQUIRE_FALSE(f.host->is_editing_tab());
 
     // The seeded buffer was "alpha"; we appended "dev" → final name "alphadev".
-    REQUIRE(f.workspaces[0]->name == "alphadev");
-    REQUIRE(f.workspaces[0]->name_user_set);
-    REQUIRE(f.workspaces[1]->name == "beta");
-    REQUIRE_FALSE(f.workspaces[1]->name_user_set);
+    REQUIRE(f.tabs[0]->name == "alphadev");
+    REQUIRE(f.tabs[0]->name_user_set);
+    REQUIRE(f.tabs[1]->name == "beta");
+    REQUIRE_FALSE(f.tabs[1]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: Escape cancels without mutation", "[chrome_host][rename]")
@@ -101,8 +101,8 @@ TEST_CASE("ChromeHost rename: Escape cancels without mutation", "[chrome_host][r
     f.host->on_rename_text_input("x");
     REQUIRE(f.host->on_rename_key(SDLK_ESCAPE));
     REQUIRE_FALSE(f.host->is_editing_tab());
-    REQUIRE(f.workspaces[1]->name == "beta");
-    REQUIRE_FALSE(f.workspaces[1]->name_user_set);
+    REQUIRE(f.tabs[1]->name == "beta");
+    REQUIRE_FALSE(f.tabs[1]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: Backspace deletes the previous codepoint", "[chrome_host][rename]")
@@ -113,7 +113,7 @@ TEST_CASE("ChromeHost rename: Backspace deletes the previous codepoint", "[chrom
     REQUIRE(f.host->on_rename_key(SDLK_BACKSPACE));
     REQUIRE(f.host->on_rename_key(SDLK_BACKSPACE));
     REQUIRE(f.host->on_rename_key(SDLK_RETURN));
-    REQUIRE(f.workspaces[0]->name == "alp");
+    REQUIRE(f.tabs[0]->name == "alp");
 }
 
 TEST_CASE("ChromeHost rename: empty buffer commit keeps the original name", "[chrome_host][rename]")
@@ -124,8 +124,8 @@ TEST_CASE("ChromeHost rename: empty buffer commit keeps the original name", "[ch
         f.host->on_rename_key(SDLK_BACKSPACE);
     REQUIRE(f.host->on_rename_key(SDLK_RETURN));
     // Empty commit must NOT replace the name with "".
-    REQUIRE(f.workspaces[0]->name == "alpha");
-    REQUIRE_FALSE(f.workspaces[0]->name_user_set);
+    REQUIRE(f.tabs[0]->name == "alpha");
+    REQUIRE_FALSE(f.tabs[0]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: cursor movement keys consumed even when buffer is empty",
@@ -149,9 +149,9 @@ TEST_CASE("ChromeHost rename: switching tabs commits the in-progress edit",
     f.host->on_rename_text_input("X");
     f.host->begin_tab_rename(2);
     REQUIRE(f.host->is_editing_tab());
-    REQUIRE(f.host->editing_workspace_id() == 2);
-    REQUIRE(f.workspaces[0]->name == "alphaX");
-    REQUIRE(f.workspaces[0]->name_user_set);
+    REQUIRE(f.host->editing_tab_id() == 2);
+    REQUIRE(f.tabs[0]->name == "alphaX");
+    REQUIRE(f.tabs[0]->name_user_set);
 }
 
 TEST_CASE("ChromeHost rename: ignores keys when no session is active",
@@ -210,7 +210,7 @@ TEST_CASE("ChromeHost pane rename: empty buffer commit clears override",
     for (int i = 0; i < 10; ++i)
         f.host->on_rename_key(SDLK_BACKSPACE);
     REQUIRE(f.host->on_rename_key(SDLK_RETURN));
-    // Pane semantics differ from workspace: an empty commit clears the override.
+    // Pane semantics differ from tab: an empty commit clears the override.
     REQUIRE(f.pane_names.find(kLeaf) == f.pane_names.end());
 }
 
@@ -257,6 +257,6 @@ TEST_CASE("ChromeHost pane rename: switching from tab to pane edit commits in-pr
     f.host->begin_pane_rename(kLeaf);
     REQUIRE(f.host->is_editing_pane());
     REQUIRE_FALSE(f.host->is_editing_tab());
-    REQUIRE(f.workspaces[0]->name == "alphaZ");
-    REQUIRE(f.workspaces[0]->name_user_set);
+    REQUIRE(f.tabs[0]->name == "alphaZ");
+    REQUIRE(f.tabs[0]->name_user_set);
 }

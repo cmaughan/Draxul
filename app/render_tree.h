@@ -11,7 +11,7 @@ namespace draxul
 class IHost;
 class IFrameContext;
 
-// A node in the render tree. Hosts are leaves; containers (workspaces) have
+// A node in the render tree. Hosts are leaves; containers (tabs) have
 // children but no host. The tree is walked depth-first, pre-order. Hidden
 // nodes and their entire subtree are skipped.
 struct RenderNode

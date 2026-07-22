@@ -28,7 +28,7 @@ TEST_CASE("ChromeLayout golden tab structure remains stable", "[chrome][layout][
     REQUIRE(layout.tabs.size() == 2);
 
     const auto& first = layout.tabs[0];
-    CHECK(first.workspace_id == 11);
+    CHECK(first.tab_id == 11);
     CHECK(first.tab_index == 1);
     CHECK(first.col_begin == 0);
     CHECK(first.col_end == 10);
@@ -41,13 +41,13 @@ TEST_CASE("ChromeLayout golden tab structure remains stable", "[chrome][layout][
     CHECK(first.accent_w == Catch::Approx(30.0f));
 
     const auto& second = layout.tabs[1];
-    CHECK(second.workspace_id == 22);
+    CHECK(second.tab_id == 22);
     CHECK(second.tab_index == 2);
     CHECK(second.col_begin == 10);
     CHECK(second.col_end == 19);
     CHECK(second.label == "2: beta");
-    CHECK(hit_test_chrome(layout, ChromeHitKind::WorkspaceTab, 103, 5) == 1);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::WorkspaceTab, 104, 5) == 2);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Tab, 103, 5) == 1);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Tab, 104, 5) == 2);
 }
 
 TEST_CASE("ChromeLayout keeps logical structure while DPI scales physical geometry",
@@ -65,16 +65,16 @@ TEST_CASE("ChromeLayout keeps logical structure while DPI scales physical geomet
     CHECK(two_x.bar_height == 42);
     CHECK(two_x.tabs[0].rect.x == Catch::Approx(9.0f));
     CHECK(two_x.tabs[0].rect.w == Catch::Approx(190.0f));
-    CHECK(hit_test_chrome(two_x, ChromeHitKind::WorkspaceTab, 203, 39) == 1);
-    CHECK(hit_test_chrome(two_x, ChromeHitKind::WorkspaceTab, 204, 39) == 2);
+    CHECK(hit_test_chrome(two_x, ChromeHitKind::Tab, 203, 39) == 1);
+    CHECK(hit_test_chrome(two_x, ChromeHitKind::Tab, 204, 39) == 2);
 }
 
 TEST_CASE("ChromeLayout rename uses Unicode display columns and exposes caret geometry",
     "[chrome][layout][golden][rename][unicode]")
 {
     auto input = base_input();
-    input.rename.target = RenameTarget::Workspace;
-    input.rename.workspace_id = 11;
+    input.rename.target = RenameTarget::Tab;
+    input.rename.tab_id = 11;
     input.rename.buffer = "\xc3\x85\xe7\x95\x8c"; // one narrow plus one wide codepoint
     input.rename.cursor = input.rename.buffer.size();
     const auto layout = compute_chrome_layout(input);
@@ -131,7 +131,7 @@ TEST_CASE("ChromeLayout clips tabs before right-side status pills", "[chrome][la
         CHECK(tab.col_end <= layout.right_pills[0].col_begin - 1);
 }
 
-TEST_CASE("ChromeLayout preserves one-workspace geometry with weather and chord pills after resize",
+TEST_CASE("ChromeLayout preserves one-tab geometry with weather and chord pills after resize",
     "[chrome][layout][golden][resize][weather]")
 {
     auto input = base_input();
@@ -143,7 +143,7 @@ TEST_CASE("ChromeLayout preserves one-workspace geometry with weather and chord 
 
     const auto layout = compute_chrome_layout(input);
     REQUIRE(layout.tabs.size() == 1);
-    CHECK(layout.tabs[0].workspace_id == 11);
+    CHECK(layout.tabs[0].tab_id == 11);
     CHECK(layout.tabs[0].tab_index == 1);
     REQUIRE(layout.right_pills.size() == 2);
     // Text is stored as display clusters, matching the pre-extraction grid

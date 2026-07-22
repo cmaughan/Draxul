@@ -9,7 +9,7 @@
 
 ## Problem / Motivation
 
-When a user accidentally closes a pane or workspace tab there is no way to reopen it. Modern terminals (iTerm2, WezTerm, Zellij) support "reopen last closed pane" as a standard keybinding. Gemini listed this as a top QoL improvement: "Reopen the last closed pane or tab."
+When a user accidentally closes a pane or tab there is no way to reopen it. Modern terminals (iTerm2, WezTerm, Zellij) support "reopen last closed pane" as a standard keybinding. Gemini listed this as a top QoL improvement: "Reopen the last closed pane or tab."
 
 ---
 
@@ -21,14 +21,14 @@ When a user accidentally closes a pane or workspace tab there is no way to reope
    struct ClosedPaneRecord {
        HostKind kind;           // nvim, shell, megacity, etc.
        std::string cwd;         // OSC 7 last reported CWD
-       std::string tab_name;    // workspace tab name
+       std::string tab_name;    // tab name
        SplitRatio ratio;        // approximate split geometry hint
    };
    ```
 2. GUI action `"reopen_last_pane:"` pops the top record and creates a new pane with those parameters.
 
 ### Tab Close
-1. When a workspace tab is closed, push a `ClosedTabRecord` with all pane records.
+1. When a tab is closed, push a `ClosedTabRecord` with all pane records.
 2. GUI action `"reopen_last_tab:"` pops and recreates the tab.
 
 ### Keybinding

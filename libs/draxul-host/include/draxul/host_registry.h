@@ -34,7 +34,7 @@ enum class HostLaunchContext : uint8_t
     None = 0,
     Cli = 1 << 0,
     Split = 1 << 1,
-    NewWorkspace = 1 << 2,
+    NewTab = 1 << 2,
 };
 
 inline HostLaunchContext operator|(HostLaunchContext lhs, HostLaunchContext rhs)

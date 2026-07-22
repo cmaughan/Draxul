@@ -6,12 +6,12 @@
 
 ## User need
 
-Clean shutdown saves shell topology, but a crash loses changes since the last checkpoint. Record bounded topology mutations so startup can recover the last consistent workspace.
+Clean shutdown saves shell topology, but a crash loses changes since the last checkpoint. Record bounded topology mutations so startup can recover the last consistent tab.
 
 ## Implementation plan
 
 - [ ] Land atomic persistence item 02 and SessionController item 22.
-- [ ] Define versioned journal records for workspace/pane create/close/move/rename/focus and host launch descriptors; exclude terminal contents and secrets.
+- [ ] Define versioned journal records for tab/pane create/close/move/rename/focus and host launch descriptors; exclude terminal contents and secrets.
 - [ ] Append length/checksum-framed records and flush on a bounded debounce rather than every input event.
 - [ ] Periodically write an atomic full checkpoint and compact records already represented by it.
 - [ ] On startup validate sequence/checksums, replay through pure session-state operations, and stop at the last valid record.

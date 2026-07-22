@@ -54,7 +54,7 @@
 #include "diagnostics_panel_host.h"
 #include "host_manager.h"
 #include "toast_host.h"
-#include "workspace.h"
+#include "tab.h"
 
 #include <draxul/base_renderer.h>
 #include <draxul/gui/tooltip.h>
@@ -180,11 +180,11 @@ public:
     int begin_frame_calls = 0;
 };
 
-std::unique_ptr<Workspace> make_test_workspace(int id, std::string name)
+std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 {
-    auto ws = std::make_unique<Workspace>(id, HostManager::Deps{});
-    ws->name = std::move(name);
-    return ws;
+    auto tab = std::make_unique<Tab>(id, HostManager::Deps{});
+    tab->name = std::move(name);
+    return tab;
 }
 
 } // namespace
@@ -356,13 +356,13 @@ TEST_CASE("overlay alloc matrix / chrome text: tab-grid handle failure degrades 
     if (!init_text_service(text_service))
         SKIP("bundled font not found");
 
-    std::vector<std::unique_ptr<Workspace>> workspaces;
-    workspaces.push_back(make_test_workspace(1, "alpha"));
+    std::vector<std::unique_ptr<Tab>> tabs;
+    tabs.push_back(make_test_tab(1, "alpha"));
     int active = 1;
 
     ChromeHost::Deps deps;
-    deps.workspaces = &workspaces;
-    deps.active_workspace_id = &active;
+    deps.tabs = &tabs;
+    deps.active_tab_id = &active;
     deps.grid_renderer = &renderer;
     deps.text_service = &text_service;
 

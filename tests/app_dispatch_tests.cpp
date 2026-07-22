@@ -171,13 +171,13 @@ TEST_CASE("app dispatch: nvim-targeted action reaches single NvimHost pane",
 }
 
 // ---------------------------------------------------------------------------
-// WI 122 — case 2: workspace has both a Neovim pane and a terminal pane.
+// WI 122 — case 2: tab has both a Neovim pane and a terminal pane.
 // Dispatching an nvim-targeted action via the terminal pane's callbacks
 // must still reach the NvimHost — routing is by capability, not focus or
 // identity of the caller.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("app dispatch: mixed-host workspace routes nvim action to NvimHost pane",
+TEST_CASE("app dispatch: mixed-host tab routes nvim action to NvimHost pane",
     "[app_dispatch][WI122]")
 {
     const std::string font = bundled_font_path();
@@ -284,13 +284,13 @@ TEST_CASE("app dispatch: debug-name rename does not break nvim routing",
 }
 
 // ---------------------------------------------------------------------------
-// WI 122 — case 4: no Neovim pane present. The workspace's primary host is
+// WI 122 — case 4: no Neovim pane present. The tab's primary host is
 // a terminal; dispatching an nvim-targeted action must not crash and must
 // lazily create a new NvimHost via a split (the current documented policy
 // of App::dispatch_to_nvim_host()).
 // ---------------------------------------------------------------------------
 
-TEST_CASE("app dispatch: no-nvim workspace spawns a new NvimHost on dispatch",
+TEST_CASE("app dispatch: no-nvim tab spawns a new NvimHost on dispatch",
     "[app_dispatch][WI122]")
 {
     const std::string font = bundled_font_path();

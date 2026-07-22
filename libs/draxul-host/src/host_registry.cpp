@@ -18,7 +18,7 @@ HostProviderMetadata default_metadata(HostKind kind)
     metadata.canonical_cli_name = to_string(kind);
     for (const auto alias : host_kind_aliases(kind))
         metadata.aliases.emplace_back(alias);
-    metadata.launch_contexts = HostLaunchContext::Cli | HostLaunchContext::Split | HostLaunchContext::NewWorkspace;
+    metadata.launch_contexts = HostLaunchContext::Cli | HostLaunchContext::Split | HostLaunchContext::NewTab;
 
     switch (kind)
     {

@@ -250,8 +250,8 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
         for (size_t i = 0; i < input.tabs.size(); ++i)
         {
             const auto& source = input.tabs[i];
-            const bool editing = input.rename.target == RenameTarget::Workspace
-                && input.rename.workspace_id == source.workspace_id;
+            const bool editing = input.rename.target == RenameTarget::Tab
+                && input.rename.tab_id == source.tab_id;
             const std::string name = editing ? std::string(input.rename.buffer) : source.name;
             const std::string label = std::to_string(i + 1) + ": " + name;
             int label_cols = display_columns(label);
@@ -262,7 +262,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             if (tabs_end > 0 && col + total > tabs_end)
                 break;
             ChromeTabLayout tab;
-            tab.workspace_id = source.workspace_id;
+            tab.tab_id = source.tab_id;
             tab.tab_index = static_cast<int>(i) + 1;
             tab.col_begin = col;
             tab.col_end = col + total;
@@ -274,7 +274,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 2.0f, static_cast<float>(total * cw) - half_gap * 2.0f, pill_h };
             tab.clip = tab.rect;
             tab.accent_w = static_cast<float>((kTabPadCols + digits + 1) * cw);
-            out.hit_regions.push_back({ ChromeHitKind::WorkspaceTab, tab.tab_index,
+            out.hit_regions.push_back({ ChromeHitKind::Tab, tab.tab_index,
                 { static_cast<float>(col * cw + input.grid_padding), 0.0f,
                     static_cast<float>(total * cw), static_cast<float>(ch) } });
             if (editing)

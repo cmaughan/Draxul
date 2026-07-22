@@ -9,47 +9,47 @@ namespace draxul
 
 struct AppTestAccess
 {
-    static void add_empty_workspace(App& app, int id)
+    static void add_empty_tab(App& app, int id)
     {
-        app.workspaces_.push_back(std::make_unique<Workspace>(id, HostManager::Deps{}));
+        app.tabs_.push_back(std::make_unique<Tab>(id, HostManager::Deps{}));
     }
 
     static void set_active_id(App& app, int id)
     {
-        app.active_workspace_ = id;
+        app.active_tab_id_ = id;
     }
 
-    static Workspace* find_active(App& app)
+    static Tab* find_active(App& app)
     {
-        return app.find_active_workspace();
+        return app.find_active_tab();
     }
 
-    static Workspace& require_active(App& app)
+    static Tab& require_active(App& app)
     {
-        return app.require_active_workspace("active workspace invariant test");
+        return app.require_active_tab("active tab invariant test");
     }
 
     static bool close(App& app, int id)
     {
-        return app.close_workspace(id);
+        return app.close_tab(id);
     }
 
     static void activate(App& app, int id)
     {
-        app.activate_workspace(id);
+        app.activate_tab(id);
     }
 
     static size_t count(const App& app)
     {
-        return app.workspaces_.size();
+        return app.tabs_.size();
     }
 
     static int active_id(const App& app)
     {
-        return app.active_workspace_;
+        return app.active_tab_id_;
     }
 
-    static bool restore(App& app, const AppSessionState& state)
+    static bool restore(App& app, const SessionSnapshot& state)
     {
         return app.restore_session_state(800, 600, state);
     }
@@ -63,13 +63,13 @@ struct AppTestAccess
 
 } // namespace draxul
 
-TEST_CASE("active workspace lookup makes empty and stale states explicit", "[app][workspace]")
+TEST_CASE("active tab lookup makes empty and stale states explicit", "[app][tab]")
 {
     App app;
     CHECK(AppTestAccess::find_active(app) == nullptr);
     CHECK_THROWS_AS(AppTestAccess::require_active(app), std::logic_error);
 
-    AppTestAccess::add_empty_workspace(app, 7);
+    AppTestAccess::add_empty_tab(app, 7);
     AppTestAccess::set_active_id(app, 99);
     CHECK(AppTestAccess::find_active(app) == nullptr);
     CHECK_THROWS_AS(AppTestAccess::require_active(app), std::logic_error);
@@ -83,11 +83,11 @@ TEST_CASE("active workspace lookup makes empty and stale states explicit", "[app
     CHECK(AppTestAccess::find_active(app)->id == 7);
 }
 
-TEST_CASE("closing an active workspace selects its replacement before destruction", "[app][workspace]")
+TEST_CASE("closing an active tab selects its replacement before destruction", "[app][tab]")
 {
     App app;
-    AppTestAccess::add_empty_workspace(app, 1);
-    AppTestAccess::add_empty_workspace(app, 2);
+    AppTestAccess::add_empty_tab(app, 1);
+    AppTestAccess::add_empty_tab(app, 2);
     AppTestAccess::set_active_id(app, 1);
 
     REQUIRE(AppTestAccess::close(app, 1));
@@ -97,11 +97,11 @@ TEST_CASE("closing an active workspace selects its replacement before destructio
     CHECK(AppTestAccess::find_active(app)->id == 2);
 }
 
-TEST_CASE("closing an inactive workspace preserves active identity and the last workspace", "[app][workspace]")
+TEST_CASE("closing an inactive tab preserves active identity and the last tab", "[app][tab]")
 {
     App app;
-    AppTestAccess::add_empty_workspace(app, 1);
-    AppTestAccess::add_empty_workspace(app, 2);
+    AppTestAccess::add_empty_tab(app, 1);
+    AppTestAccess::add_empty_tab(app, 2);
     AppTestAccess::set_active_id(app, 1);
 
     REQUIRE(AppTestAccess::close(app, 2));
@@ -112,14 +112,14 @@ TEST_CASE("closing an inactive workspace preserves active identity and the last 
     CHECK(AppTestAccess::active_id(app) == 1);
 }
 
-TEST_CASE("failed restore and empty shutdown leave an explicit no-workspace state", "[app][workspace][session]")
+TEST_CASE("failed restore and empty shutdown leave an explicit no-tab state", "[app][tab][session]")
 {
     App app;
-    AppTestAccess::add_empty_workspace(app, 1);
+    AppTestAccess::add_empty_tab(app, 1);
     AppTestAccess::set_active_id(app, 1);
 
-    AppSessionState invalid;
-    invalid.workspaces.push_back(WorkspaceSessionState{ .id = 9 });
+    SessionSnapshot invalid;
+    invalid.tabs.push_back(TabSnapshot{ .id = 9 });
     CHECK_FALSE(AppTestAccess::restore(app, invalid));
     CHECK(AppTestAccess::count(app) == 0);
     CHECK(AppTestAccess::active_id(app) == -1);

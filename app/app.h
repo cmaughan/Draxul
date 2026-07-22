@@ -8,7 +8,7 @@
 #include "render_tree.h"
 #include "session_state.h"
 #include "toast_host.h"
-#include "workspace.h"
+#include "tab.h"
 #include <chrono>
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
@@ -140,37 +140,37 @@ private:
     void finish_print_capture(const CapturedFrame& frame);
     int wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wait_deadline) const;
     void refresh_system_resource_snapshot(std::chrono::steady_clock::time_point now);
-    // Update workspace tab names from each workspace's focused-pane cwd
+    // Update tab names from each tab's focused-pane cwd
     // (OSC 7) when the user has not explicitly renamed the tab. Cheap to
     // call every frame — bails out as soon as the cwd basename matches.
-    void refresh_workspace_default_names();
+    void refresh_tab_default_names();
     bool can_snapshot_session_state() const;
-    std::optional<AppSessionState> snapshot_session_state() const;
+    std::optional<SessionSnapshot> snapshot_session_state() const;
     void persist_session_state();
     void maybe_checkpoint_session(std::chrono::steady_clock::time_point now);
-    bool restore_session_state(int pixel_w, int pixel_h, const AppSessionState& state);
+    bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
 
-    // --- Workspace management (moved from ChromeHost) ---
+    // --- Tab management (moved from ChromeHost) ---
     HostManager::Deps make_host_manager_deps();
-    bool create_initial_workspace(int pixel_w, int pixel_h);
-    int add_workspace(int pixel_w, int pixel_h, std::optional<HostKind> host_kind = std::nullopt);
-    bool close_workspace(int workspace_id);
-    void activate_workspace(int workspace_id);
-    void next_workspace();
-    void prev_workspace();
-    void move_workspace(int direction); // -1 = left, +1 = right
-    void activate_workspace_by_index(int one_based_index);
+    bool create_initial_tab(int pixel_w, int pixel_h);
+    int add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind = std::nullopt);
+    bool close_tab(int tab_id);
+    void activate_tab(int tab_id);
+    void next_tab();
+    void prev_tab();
+    void move_tab(int direction); // -1 = left, +1 = right
+    void activate_tab_by_index(int one_based_index);
     void activate_pane_by_index(int one_based_index);
     void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
-    Workspace* find_active_workspace() noexcept;
-    const Workspace* find_active_workspace() const noexcept;
-    Workspace& require_active_workspace(std::string_view context);
-    const Workspace& require_active_workspace(std::string_view context) const;
+    Tab* find_active_tab() noexcept;
+    const Tab* find_active_tab() const noexcept;
+    Tab& require_active_tab(std::string_view context);
+    const Tab& require_active_tab(std::string_view context) const;
     HostManager& active_host_manager();
     const HostManager& active_host_manager() const;
     const SplitTree& active_tree() const;
-    int workspace_count() const;
-    int active_workspace_id() const;
+    int tab_count() const;
+    int active_tab_id() const;
 
     AppOptions options_;
     // Dependency factories — populated from AppDeps or from AppOptions' factory fields.
@@ -222,9 +222,9 @@ private:
     };
     std::vector<PendingInitToast> pending_init_toasts_;
     std::unique_ptr<class ChromeHost> chrome_host_;
-    std::vector<std::unique_ptr<Workspace>> workspaces_;
-    int active_workspace_ = -1;
-    int next_workspace_id_ = 0;
+    std::vector<std::unique_ptr<Tab>> tabs_;
+    int active_tab_id_ = -1;
+    int next_tab_id_ = 0;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;
     DiagnosticsCollector diagnostics_collector_;

@@ -21,7 +21,7 @@ Quick reference of all user-facing features, configuration, CLI flags, build opt
 | SatView | `--host satview` | Satellite-overview host: interactive 3D globe, full-screen 2D map, and ground-observer sky views; Sun/planet/major-moon POVs; CelesTrak GP + SATCAT catalogs with SGP4 propagation; HDR pipeline with stars, constellations, Milky Way, atmosphere, and clouds; surface-object catalogues; six ImGui dock panels with filters, selection, and time controls. Full narrative: [docs/features/satview.md](features/satview.md) |
 
 Pane splits use the platform default shell (Zsh on macOS, PowerShell on Windows) regardless of primary host type.
-Host names, aliases, platform support, test-only status, and split/new-workspace visibility come from the registered provider metadata. Optional hosts that are not built are therefore absent from the command palette and rejected explicitly by `--host`; the hidden `nanovg-demo` provider remains directly launchable by the render harness.
+Host names, aliases, platform support, test-only status, and split/new-tab visibility come from the registered provider metadata. Optional hosts that are not built are therefore absent from the command palette and rejected explicitly by `--host`; the hidden `nanovg-demo` provider remains directly launchable by the render harness.
 
 ---
 
@@ -137,7 +137,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Pane zoom**: `toggle_zoom` action (default `Ctrl+S, z`) expands the focused pane to fill the full window; toggling again restores the previous split layout exactly (like tmux `Ctrl+B z`)
 - **Close pane**: Closes the focused pane and its host; if last pane, exits the app
 - **Shell session restore from saved topology**: Normal desktop launches periodically checkpoint shell-session tabs, split layout, focus, pane names, tab names, launch commands, and working directories in a local session-state file, save again on clean shutdown, and restore that topology by respawning panes on the next launch. Closing the final window exits Draxul; no hidden background owner remains. This is still shell-host only and not full crash recovery yet.
-- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, `--rename-session --session-name <name>` renames a saved session, `--list-sessions` prints saved sessions with workspace/pane counts, and `--delete-session` deletes saved topology. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
+- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, `--rename-session --session-name <name>` renames a saved session, `--list-sessions` prints saved sessions with tab/pane counts, and `--delete-session` deletes saved topology. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
 - **Abnormally exited shell panes stay inspectable**: If a shell pane dies unexpectedly, Draxul keeps the pane and its last rendered output visible instead of immediately tearing it down. The pane status pill shows `[exited]`, a toast points you at `restart_host`, and the existing restart action respawns the host in place. Clean shell exits still close the pane normally.
 - **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session or restores saved topology, so the user can tell which path was taken.
 - **Restart host**: Kills the current host in the focused pane and relaunches with the same arguments
@@ -145,17 +145,17 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 
 ---
 
-## Workspace Tabs
+## Tabs
 
-- Multiple workspaces, each with its own independent split tree and host set
-- The top tab bar remains visible even with a single workspace and shows right-aligned pills for live system usage and active chord prefixes
-- `new_tab` (`Ctrl+S, C`): Create a new workspace tab
-- `close_tab` (`Ctrl+S, &`): Close the active workspace tab (disabled when only one tab remains)
-- `next_tab` (`Ctrl+S, N`): Cycle to the next workspace
-- `prev_tab` (`Ctrl+S, P`): Cycle to the previous workspace
-- Tab switching preserves focus state per workspace (focus lost/gained notifications)
-- **Inline tab rename**: double-click a workspace tab pill (or press `Ctrl+S, ,` — tmux-style chord) to edit the tab name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
-- **OSC 7 default naming**: shell hosts (e.g. zsh) drive the workspace tab name from the OSC 7 working-directory escape until the user explicitly renames the tab; once the user sets a name, OSC 7 updates no longer overwrite it.
+- Multiple tabs, each with its own independent split tree and host set
+- The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
+- `new_tab` (`Ctrl+S, C`): Create a new tab
+- `close_tab` (`Ctrl+S, &`): Close the active tab (disabled when only one tab remains)
+- `next_tab` (`Ctrl+S, N`): Cycle to the next tab
+- `prev_tab` (`Ctrl+S, P`): Cycle to the previous tab
+- Tab switching preserves focus state per tab (focus lost/gained notifications)
+- **Inline tab rename**: double-click a tab pill (or press `Ctrl+S, ,` — tmux-style chord) to edit the tab name in place. Enter commits, Escape cancels, Backspace/Delete/Home/End/Left/Right work as expected. Empty commits leave the existing name untouched.
+- **OSC 7 default naming**: shell hosts (e.g. zsh) drive the tab name from the OSC 7 working-directory escape until the user explicitly renames the tab; once the user sets a name, OSC 7 updates no longer overwrite it.
 - **Inline pane rename**: double-click a pane status pill (or press `Ctrl+S, .`) to set a per-pane override name. Empty commit clears the override and reverts to the host-provided status text. Pane name overrides are in-memory only and follow the leaf for the lifetime of the session.
 - **Luminance-based pill text colour**: tab and pane pill text colour is chosen automatically from the underlying NanoVG fill via BT.709 relative luminance, so any future background tweak gets a readable foreground without re-tuning a constant.
 
@@ -355,7 +355,7 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
 | `--rename-session` | Rename the selected saved shell session using `--session-name <name>` |
-| `--list-sessions` | Print saved sessions with workspace and pane counts |
+| `--list-sessions` | Print saved sessions with tab and pane counts |
 | `--delete-session` | Delete the selected saved shell session |
 | `--continuous-refresh` | Let animation/3D hosts request frames continuously; use `--no-vblank` separately when unsynced presentation is desired |
 | `--log-file <path>` | Write logs to file |

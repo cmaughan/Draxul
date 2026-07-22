@@ -4,7 +4,7 @@
 #include "chrome_text_layer.h"
 #include "chrome_vector_pass.h"
 #include "rename_editor.h"
-#include "workspace.h"
+#include "tab.h"
 
 #include <chrono>
 #include <draxul/app_config_types.h>
@@ -21,22 +21,22 @@
 namespace draxul
 {
 
-// ChromeHost is the central layout manager. It owns one or more Workspaces
+// ChromeHost is the central layout manager. It presents one or more tabs
 // (each with its own SplitTree + hosts) and draws window chrome (pane dividers,
 // focus indicator, future tab bar) using NanoVG.
 class ChromeHost final : public IHost
 {
 public:
-    // Shared dependencies passed to every workspace's HostManager.
+    // Shared dependencies passed to every tab's HostManager.
     struct Deps
     {
         AppConfig* config = nullptr;
         IGridRenderer* grid_renderer = nullptr;
         TextService* text_service = nullptr;
 
-        // Read-only workspace info for tab bar / divider rendering (owned by App).
-        const std::vector<std::unique_ptr<Workspace>>* workspaces = nullptr;
-        const int* active_workspace_id = nullptr;
+        // Read-only tab info for tab bar / divider rendering (owned by App).
+        const std::vector<std::unique_ptr<Tab>>* tabs = nullptr;
+        const int* active_tab_id = nullptr;
         const SystemResourceSnapshot* system_resource_snapshot = nullptr;
         std::function<std::optional<std::pair<std::string, float>>()> chord_indicator = nullptr;
         // Weather callbacks — return emoji (for example "\u2600\uFE0F") and
@@ -45,10 +45,10 @@ public:
         std::function<std::string()> weather_emoji;
         std::function<std::string()> weather_temperature;
 
-        // Apply a user-typed name to a workspace tab. Owner (App) sets
-        // workspace.name and marks workspace.name_user_set so subsequent OSC 7
+        // Apply a user-typed name to a tab. Owner (App) sets
+        // tab.name and marks tab.name_user_set so subsequent OSC 7
         // updates don't overwrite the user's choice.
-        std::function<void(int workspace_id, std::string name)> set_workspace_name;
+        std::function<void(int tab_id, std::string name)> set_tab_name;
         // Apply a user-typed name to a pane (per-leaf override). Owner (App)
         // forwards this to HostManager::set_pane_name. Empty name clears the
         // override and reverts to host->status_text().
@@ -95,7 +95,7 @@ public:
         return { "chrome" };
     }
 
-    // Tab bar height in pixels. Remains visible even with a single workspace.
+    // Tab bar height in pixels. Remains visible even with a single tab.
     int tab_bar_height() const;
 
     // Hit-test a point (physical pixels) against the tab bar.
@@ -103,18 +103,18 @@ public:
     int hit_test_tab(int px, int py) const;
 
     // ----- Inline tab/pane rename (WI 128) -----------------------------
-    // A single edit session can target either a workspace tab or a pane
+    // A single edit session can target either a tab or a pane
     // status pill. Only one target is active at a time; starting a new edit
     // commits any in-progress one.
     //
-    // Workspace target:
+    // Tab target:
     void begin_tab_rename(int tab_index);
-    // Begin editing the tab corresponding to a workspace_id. Same semantics
+    // Begin editing the tab corresponding to a tab_id. Same semantics
     // as begin_tab_rename(int). Used by the rename_tab command palette
-    // action which knows the active workspace id, not its 1-based index.
-    void begin_tab_rename_by_id(int workspace_id);
+    // action which knows the active tab id, not its 1-based index.
+    void begin_tab_rename_by_id(int tab_id);
     bool is_editing_tab() const;
-    int editing_workspace_id() const;
+    int editing_tab_id() const;
     // Pane target:
     void begin_pane_rename(LeafId leaf);
     bool is_editing_pane() const;
@@ -141,7 +141,7 @@ public:
     // ChromeHost caches the pill rects from the most recent frame.
     LeafId hit_test_pane_status_pill(int px, int py) const;
 
-    // Access the active workspace's tree for divider/focus rendering.
+    // Access the active tab's tree for divider/focus rendering.
     const SplitTree& active_tree() const;
 
 private:
@@ -149,8 +149,8 @@ private:
     void apply_rename_commit(RenameCommit commit);
     const ChromeTheme& theme() const;
 
-    // Resolve a workspace id from a 1-based tab index, or -1 if out of range.
-    int workspace_id_for_index(int tab_index) const;
+    // Resolve a tab id from a 1-based tab index, or -1 if out of range.
+    int tab_id_for_index(int tab_index) const;
 
     Deps deps_;
     ChromeVectorPass vector_pass_;

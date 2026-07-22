@@ -26,6 +26,6 @@ While dragging a terminal selection beyond the pane's top or bottom edge, scroll
 
 ## Dependencies and parallelism
 
-Touches InputDispatcher and terminal selection/scrollback; one interaction owner should integrate it after existing workspace/input work settles. It is unrelated to the proposed but unplanned terminal scrollbar.
+Touches InputDispatcher and terminal selection/scrollback; one interaction owner should integrate it after existing tab/input work settles. It is unrelated to the proposed but unplanned terminal scrollbar.
 
 <model>GPT-5 Codex</model>

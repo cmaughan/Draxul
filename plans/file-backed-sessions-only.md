@@ -11,7 +11,7 @@ helper process remains.
 ## Preserved behavior
 
 - Normal desktop launches restore the selected saved shell-session topology.
-- Periodic checkpoints and clean shutdown persist workspaces, split trees,
+- Periodic checkpoints and clean shutdown persist tabs, split trees,
   focus, pane/tab names, launch commands, and working directories.
 - `save_session_as` and `load_session` remain available through the command
   palette and retain rollback on failed load/save transitions.

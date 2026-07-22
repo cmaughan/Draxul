@@ -568,8 +568,8 @@ TEST_CASE("app smoke: closing the window exits and preserves file-backed session
     auto saved = load_session_state("close-me");
     REQUIRE(saved);
     CHECK(saved->session_name == "Close Me");
-    REQUIRE(saved->workspaces.size() == 1);
-    REQUIRE(saved->workspaces[0].host_manager.panes.size() == 1);
+    REQUIRE(saved->tabs.size() == 1);
+    REQUIRE(saved->tabs[0].host_manager.panes.size() == 1);
 }
 
 TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
@@ -751,8 +751,8 @@ TEST_CASE("app smoke: weather reload handles add change and clear with cancellat
 }
 
 // ---------------------------------------------------------------------------
-// WI 107 — inactive workspaces also receive config reloads + font updates
-// (regression guard for WI 104 config-font-inactive-workspace-bias).
+// WI 107 — inactive tabs also receive config reloads + font updates
+// (regression guard for WI 104 config-font-inactive-tab-bias).
 // ---------------------------------------------------------------------------
 
 namespace
@@ -760,8 +760,8 @@ namespace
 std::vector<ReloadTrackingHost*> g_all_reload_hosts;
 } // namespace
 
-TEST_CASE("app smoke: reload_config propagates to hosts in inactive workspaces",
-    "[app_smoke][config][workspaces]")
+TEST_CASE("app smoke: reload_config propagates to hosts in inactive tabs",
+    "[app_smoke][config][tabs]")
 {
     const std::string font = bundled_font_path();
     if (!std::filesystem::exists(font))
@@ -801,11 +801,11 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive workspaces",
     App app(std::move(opts));
     REQUIRE(app.initialize());
     REQUIRE(created_window != nullptr);
-    // First workspace's host was created during initialize.
+    // First tab's host was created during initialize.
     REQUIRE(g_all_reload_hosts.size() == 1);
 
-    // Open a second workspace via the new_tab keybinding (Ctrl+T). The new
-    // workspace becomes active, leaving workspace 1's host inactive.
+    // Open a second tab via the new_tab keybinding (Ctrl+T). The new
+    // tab becomes active, leaving tab 1's host inactive.
     REQUIRE(created_window->on_key != nullptr);
     created_window->on_key(KeyEvent{ 0, SDLK_T, kModCtrl, true });
     REQUIRE(g_all_reload_hosts.size() == 2);
@@ -833,7 +833,7 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive workspaces",
     created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
 
     // Both hosts must see the reload exactly once — no double-apply on the
-    // active workspace, and no skipping of the inactive one.
+    // active tab, and no skipping of the inactive one.
     INFO("inactive host reload count");
     REQUIRE(host_inactive->reload_count() == 1);
     INFO("active host reload count");
@@ -853,12 +853,12 @@ TEST_CASE("app smoke: reload_config propagates to hosts in inactive workspaces",
 }
 
 // ---------------------------------------------------------------------------
-// WI 66 — config reload propagates to multiple panes within a single workspace
-// (the WI 107 case fans out across workspaces; this case fans out across the
-//  splits inside one workspace's HostManager).
+// WI 66 — config reload propagates to multiple panes within a single tab
+// (the WI 107 case fans out across tabs; this case fans out across the
+//  splits inside one tab's HostManager).
 // ---------------------------------------------------------------------------
 
-TEST_CASE("app smoke: reload_config propagates to all split panes in the active workspace",
+TEST_CASE("app smoke: reload_config propagates to all split panes in the active tab",
     "[app_smoke][config][splits]")
 {
     const std::string font = bundled_font_path();
@@ -900,7 +900,7 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     REQUIRE(created_window != nullptr);
     REQUIRE(g_all_reload_hosts.size() == 1);
 
-    // Trigger a vertical split inside the (only) workspace. This creates a
+    // Trigger a vertical split inside the (only) tab. This creates a
     // second pane / second host in the same HostManager.
     REQUIRE(created_window->on_key != nullptr);
     created_window->on_key(KeyEvent{ 0, SDLK_V, kModCtrl | kModAlt, true });
@@ -923,7 +923,7 @@ TEST_CASE("app smoke: reload_config propagates to all split panes in the active 
     }
     created_window->on_key(KeyEvent{ 0, SDLK_R, kModCtrl | kModAlt, true });
 
-    // Both panes in the same workspace must see the reload exactly once
+    // Both panes in the same tab must see the reload exactly once
     // (regression guard for "for_each_host fan-out within a HostManager").
     REQUIRE(pane_a->reload_count() == 1);
     REQUIRE(pane_b->reload_count() == 1);
@@ -982,18 +982,18 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     SplitTree tree;
     const LeafId leaf = tree.reset(640, 360);
 
-    AppSessionState target;
+    SessionSnapshot target;
     target.session_id = "target";
     target.session_name = "Target Session";
-    target.active_workspace_id = 7;
-    target.next_workspace_id = 8;
+    target.active_tab_id = 7;
+    target.next_tab_id = 8;
 
-    WorkspaceSessionState workspace;
-    workspace.id = 7;
-    workspace.name = "loaded";
-    workspace.name_user_set = true;
-    workspace.host_manager.tree = tree.snapshot();
-    workspace.host_manager.panes.push_back({
+    TabSnapshot tab;
+    tab.id = 7;
+    tab.name = "loaded";
+    tab.name_user_set = true;
+    tab.host_manager.tree = tree.snapshot();
+    tab.host_manager.panes.push_back({
         .leaf_id = leaf,
         .launch = {
             .kind = HostKind::PowerShell,
@@ -1006,7 +1006,7 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
         .pane_name = "loaded-shell",
         .pane_id = "pane-loaded",
     });
-    target.workspaces.push_back(std::move(workspace));
+    target.tabs.push_back(std::move(tab));
 
     std::string session_error;
     REQUIRE(save_session_state(target, &session_error));
@@ -1034,28 +1034,28 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     auto loaded_state = load_session_state("target");
     REQUIRE(loaded_state);
     CHECK(loaded_state->session_name == "Target Session");
-    REQUIRE(loaded_state->workspaces.size() == 1);
-    CHECK(loaded_state->workspaces[0].name == "loaded");
+    REQUIRE(loaded_state->tabs.size() == 1);
+    CHECK(loaded_state->tabs[0].name == "loaded");
 
     app.shutdown();
 }
 
-TEST_CASE("app smoke: restoring a multi-workspace session reapplies chrome offsets to inactive workspaces",
-    "[app_smoke][session][workspaces][layout]")
+TEST_CASE("app smoke: restoring a multi-tab session reapplies chrome offsets to inactive tabs",
+    "[app_smoke][session][tabs][layout]")
 {
     TempDir temp("draxul-restore-multi-ws-viewports");
     HomeDirRedirect redir(temp.path);
 
-    const auto make_workspace = [](int id, std::string_view name) {
+    const auto make_tab = [](int id, std::string_view name) {
         SplitTree tree;
         const LeafId leaf = tree.reset(800, 600);
 
-        WorkspaceSessionState workspace;
-        workspace.id = id;
-        workspace.name = std::string(name);
-        workspace.name_user_set = true;
-        workspace.host_manager.tree = tree.snapshot();
-        workspace.host_manager.panes.push_back({
+        TabSnapshot tab;
+        tab.id = id;
+        tab.name = std::string(name);
+        tab.name_user_set = true;
+        tab.host_manager.tree = tree.snapshot();
+        tab.host_manager.panes.push_back({
             .leaf_id = leaf,
             .launch = {
                 .kind = HostKind::PowerShell,
@@ -1068,16 +1068,16 @@ TEST_CASE("app smoke: restoring a multi-workspace session reapplies chrome offse
             .pane_name = "shell",
             .pane_id = "pane-" + std::to_string(id),
         });
-        return workspace;
+        return tab;
     };
 
-    AppSessionState state;
+    SessionSnapshot state;
     state.session_id = "restore-multi-ws-viewports";
     state.session_name = "restore-multi-ws-viewports";
-    state.active_workspace_id = 2;
-    state.next_workspace_id = 3;
-    state.workspaces.push_back(make_workspace(1, "one"));
-    state.workspaces.push_back(make_workspace(2, "two"));
+    state.active_tab_id = 2;
+    state.next_tab_id = 3;
+    state.tabs.push_back(make_tab(1, "one"));
+    state.tabs.push_back(make_tab(2, "two"));
 
     std::string session_error;
     REQUIRE(save_session_state(state, &session_error));
@@ -1110,9 +1110,9 @@ TEST_CASE("app smoke: restoring a multi-workspace session reapplies chrome offse
 
     for (FakeHost* host : g_viewport_hosts)
     {
-        INFO("each restored workspace should receive a post-startup viewport recompute");
+        INFO("each restored tab should receive a post-startup viewport recompute");
         REQUIRE(host->set_viewport_calls >= 2);
-        INFO("restored workspace viewport should start below the chrome strip");
+        INFO("restored tab viewport should start below the chrome strip");
         REQUIRE(host->last_viewport.pixel_pos.y == expected_tab_y);
     }
 

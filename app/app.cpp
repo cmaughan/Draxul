@@ -503,9 +503,9 @@ void App::apply_font_metrics()
     renderer_.grid()->set_ascender(metrics.ascender);
     const float imgui_font_size = imgui_font_size_from_metrics(metrics);
     diagnostics_host_->set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
-    for (auto& ws : workspaces_)
+    for (auto& tab : tabs_)
     {
-        ws->host_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
+        tab->host_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
             host.set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
             host.on_font_metrics_changed();
         });
@@ -595,9 +595,9 @@ Result<void, Error> App::reload_config()
         push_toast(0, warning);
 
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
-    for (auto& ws : workspaces_)
+    for (auto& tab : tabs_)
     {
-        ws->host_manager.for_each_host([&host_reload](LeafId, IHost& host) {
+        tab->host_manager.for_each_host([&host_reload](LeafId, IHost& host) {
             host.on_config_reloaded(host_reload);
         });
     }
@@ -618,8 +618,8 @@ bool App::initialize_chrome_host()
     chrome_deps.config = &config_;
     chrome_deps.grid_renderer = renderer_.grid();
     chrome_deps.text_service = &text_service_;
-    chrome_deps.workspaces = &workspaces_;
-    chrome_deps.active_workspace_id = &active_workspace_;
+    chrome_deps.tabs = &tabs_;
+    chrome_deps.active_tab_id = &active_tab_id_;
     chrome_deps.system_resource_snapshot = &system_resource_snapshot_;
     chrome_deps.weather_emoji = [this]() -> std::string {
         return weather_service_.emoji();
@@ -633,21 +633,21 @@ bool App::initialize_chrome_host()
             return std::nullopt;
         return std::make_pair(state.text, state.alpha);
     };
-    chrome_deps.set_workspace_name = [this](int workspace_id, std::string name) {
-        for (auto& ws : workspaces_)
+    chrome_deps.set_tab_name = [this](int tab_id, std::string name) {
+        for (auto& tab : tabs_)
         {
-            if (ws->id == workspace_id)
+            if (tab->id == tab_id)
             {
-                ws->name = std::move(name);
-                ws->name_user_set = true;
+                tab->name = std::move(name);
+                tab->name_user_set = true;
                 break;
             }
         }
         request_frame();
     };
     chrome_deps.set_pane_name = [this](LeafId leaf, std::string name) {
-        // Apply to whichever workspace currently owns the leaf — pane edits
-        // are always against the active workspace.
+        // Apply to whichever tab currently owns the leaf — pane edits
+        // are always against the active tab.
         active_host_manager().set_pane_name(leaf, std::move(name));
         request_frame();
     };
@@ -697,7 +697,7 @@ bool App::initialize_chrome_host()
         {
             std::string session_error;
             if (auto saved_session = load_session_state(options_.session_id, &session_error);
-                saved_session && !saved_session->workspaces.empty())
+                saved_session && !saved_session->tabs.empty())
             {
                 if (options_.session_name.empty() && !saved_session->session_name.empty())
                     session_name_ = saved_session->session_name;
@@ -729,7 +729,7 @@ bool App::initialize_chrome_host()
     }
 
     if (!restored_session
-        && !create_initial_workspace(window_->width_pixels(), diagnostics_host_->layout().terminal_height))
+        && !create_initial_tab(window_->width_pixels(), diagnostics_host_->layout().terminal_height))
     {
         // Clean up stale session state that may have contributed to the failure,
         // but don't retry — if the host can't be created (e.g. nvim not on PATH),
@@ -848,24 +848,24 @@ void App::wire_gui_actions()
     gui_deps.on_close_pane = [this]() {
         if (active_host_manager().host_count() <= 1)
         {
-            if (workspace_count() <= 1)
+            if (tab_count() <= 1)
             {
                 // Closing the last pane discards this saved topology and exits.
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                for (auto& ws : workspaces_)
-                    ws->host_manager.shutdown();
-                workspaces_.clear();
-                active_workspace_ = -1;
+                for (auto& tab : tabs_)
+                    tab->host_manager.shutdown();
+                tabs_.clear();
+                active_tab_id_ = -1;
                 render_root_ = RenderNode{};
                 running_ = false;
                 return;
             }
-            // Last pane in this workspace — close the workspace, switch to another.
+            // Last pane in this tab — close the tab, switch to another.
             input_dispatcher_.set_host(nullptr);
-            int closing = active_workspace_id();
-            close_workspace(closing);
+            int closing = active_tab_id();
+            close_tab(closing);
             const int pw = window_->width_pixels();
             const int th = diagnostics_host_->layout().terminal_height;
             const int tab_y = chrome_host_->tab_bar_height();
@@ -931,7 +931,7 @@ void App::wire_gui_actions()
     gui_deps.on_new_tab = [this](std::optional<HostKind> kind) {
         const int pw = window_->width_pixels();
         const int th = diagnostics_host_->layout().terminal_height;
-        int id = add_workspace(pw, th, kind);
+        int id = add_tab(pw, th, kind);
         if (id >= 0)
         {
             // Set the font on the new host so ImGui uses the app's font, not the default.
@@ -940,7 +940,7 @@ void App::wire_gui_actions()
                 const float font_size = imgui_font_size_from_metrics(text_service_.metrics());
                 h->set_imgui_font(text_service_.primary_font_path(), font_size);
             }
-            // Recompute ALL workspace viewports with the (possibly new) tab bar offset.
+            // Recompute ALL tab viewports with the (possibly new) tab bar offset.
             const int tab_y = chrome_host_->tab_bar_height();
             recompute_all_viewports(0, tab_y, pw, th - tab_y);
             input_dispatcher_.set_host(active_host_manager().focused_host());
@@ -948,11 +948,11 @@ void App::wire_gui_actions()
         }
     };
     gui_deps.on_close_tab = [this]() {
-        if (workspace_count() <= 1)
+        if (tab_count() <= 1)
             return;
-        int closing = active_workspace_id();
+        int closing = active_tab_id();
         input_dispatcher_.set_host(nullptr);
-        close_workspace(closing);
+        close_tab(closing);
         // Recompute all viewports with the (possibly changed) tab bar offset.
         const int pw = window_->width_pixels();
         const int th = diagnostics_host_->layout().terminal_height;
@@ -962,31 +962,31 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_next_tab = [this]() {
-        next_workspace();
+        next_tab();
         input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
     gui_deps.on_prev_tab = [this]() {
-        prev_workspace();
+        prev_tab();
         input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
     gui_deps.on_activate_tab = [this](int index) {
-        activate_workspace_by_index(index);
+        activate_tab_by_index(index);
         input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
     gui_deps.on_rename_tab = [this]() {
         if (chrome_host_)
-            chrome_host_->begin_tab_rename_by_id(active_workspace_);
+            chrome_host_->begin_tab_rename_by_id(active_tab_id_);
         request_frame();
     };
     gui_deps.on_move_tab_left = [this]() {
-        move_workspace(-1);
+        move_tab(-1);
         request_frame();
     };
     gui_deps.on_move_tab_right = [this]() {
-        move_workspace(1);
+        move_tab(1);
         request_frame();
     };
     gui_deps.on_duplicate_pane = [this]() {
@@ -1146,7 +1146,7 @@ void App::wire_window_callbacks()
         return renderer_.grid() ? renderer_.grid()->cell_size_pixels() : std::pair<int, int>{ 0, 0 };
     };
     router->activate_tab_fn = [this](int index) {
-        activate_workspace_by_index(index);
+        activate_tab_by_index(index);
         input_dispatcher_.set_host(active_host_manager().focused_host());
         request_frame();
     };
@@ -1157,8 +1157,8 @@ void App::wire_window_callbacks()
     };
     router->begin_tab_rename_fn = [this](int tab_index) {
         // Activate the tab before editing so the user always edits the
-        // visually-active workspace.
-        activate_workspace_by_index(tab_index);
+        // visually-active tab.
+        activate_tab_by_index(tab_index);
         input_dispatcher_.set_host(active_host_manager().focused_host());
         chrome_host_->begin_tab_rename(tab_index);
         request_frame();
@@ -1210,9 +1210,9 @@ bool App::run_smoke_test(std::chrono::milliseconds timeout)
     while (running_ && std::chrono::steady_clock::now() < deadline)
     {
         pump_once(deadline);
-        const Workspace* workspace = find_active_workspace();
-        if (workspace != nullptr && workspace->host_manager.host()
-            && workspace->host_manager.host()->runtime_state().content_ready && saw_frame_)
+        const Tab* tab = find_active_tab();
+        if (tab != nullptr && tab->host_manager.host()
+            && tab->host_manager.host()->runtime_state().content_ready && saw_frame_)
             return true;
     }
     return false;
@@ -1258,7 +1258,7 @@ std::optional<CapturedFrame> App::run_screenshot(std::chrono::milliseconds delay
 
 void App::start_print_focused_pane()
 {
-    if (find_active_workspace() == nullptr)
+    if (find_active_tab() == nullptr)
     {
         push_toast(1, "No focused pane to print");
         return;
@@ -1358,10 +1358,10 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
     env.saw_frame = [this]() { return saw_frame_; };
     env.frame_requested = [this]() { return frame_requested_; };
     env.active_host_state = [this]() -> std::optional<HostRuntimeState> {
-        const Workspace* workspace = find_active_workspace();
-        if (workspace != nullptr)
+        const Tab* tab = find_active_tab();
+        if (tab != nullptr)
         {
-            if (auto* host = workspace->host_manager.host())
+            if (auto* host = tab->host_manager.host())
                 return host->runtime_state();
         }
         return std::nullopt;
@@ -1393,7 +1393,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
 bool App::close_dead_panes()
 {
     PERF_MEASURE();
-    if (find_active_workspace() == nullptr)
+    if (find_active_tab() == nullptr)
         return false;
     std::vector<LeafId> dead;
     active_host_manager().for_each_host([this, &dead](LeafId id, const IHost& h) {
@@ -1429,25 +1429,25 @@ bool App::close_dead_panes()
         announced_dead_panes_.erase(active_host_manager().pane_id(id));
         if (active_host_manager().host_count() == 1)
         {
-            // Last pane in this workspace died.
-            if (workspace_count() <= 1)
+            // Last pane in this tab died.
+            if (tab_count() <= 1)
             {
                 // The final host has exited, so discard the empty saved
                 // topology and terminate the application.
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                for (auto& ws : workspaces_)
-                    ws->host_manager.shutdown();
-                workspaces_.clear();
-                active_workspace_ = -1;
+                for (auto& tab : tabs_)
+                    tab->host_manager.shutdown();
+                tabs_.clear();
+                active_tab_id_ = -1;
                 render_root_ = RenderNode{};
                 running_ = false;
                 return false;
             }
-            // Close this workspace and switch to another.
-            int closing = active_workspace_id();
-            close_workspace(closing);
+            // Close this tab and switch to another.
+            int closing = active_tab_id();
+            close_tab(closing);
             const int pw = window_->width_pixels();
             const int th = diagnostics_host_->layout().terminal_height;
             const int tab_y = chrome_host_->tab_bar_height();
@@ -1473,8 +1473,8 @@ void App::rebuild_render_tree()
     if (chrome_host_)
         render_root_.children.push_back({ chrome_host_.get(), !zoomed, "chrome", {} });
 
-    // Active workspace's hosts.
-    RenderNode ws_node{ nullptr, true, "workspace", {} };
+    // Active tab's hosts.
+    RenderNode ws_node{ nullptr, true, "tab", {} };
     hm.for_each_host([&ws_node, zoomed, &hm](LeafId id, IHost& h) {
         const bool vis = !zoomed || id == hm.zoomed_leaf();
         ws_node.children.push_back({ &h, vis, "host", {} });
@@ -1576,8 +1576,8 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
 
         runtime_perf_collector().begin_frame();
 
-        // File-backed sessions never remain alive without a workspace.
-        if (find_active_workspace() == nullptr)
+        // File-backed sessions never remain alive without a tab.
+        if (find_active_tab() == nullptr)
         {
             input_dispatcher_.set_host(nullptr);
             frame_requested_ = false;
@@ -1596,7 +1596,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // Pump all visible hosts via tree walk.
         rebuild_render_tree();
         walk_pump(render_root_);
-        refresh_workspace_default_names();
+        refresh_tab_default_names();
         const auto now = std::chrono::steady_clock::now();
         maybe_checkpoint_session(now);
         refresh_system_resource_snapshot(now);
@@ -1721,9 +1721,9 @@ void App::request_frame()
 
 void App::request_quit()
 {
-    if (Workspace* workspace = find_active_workspace())
+    if (Tab* tab = find_active_tab())
     {
-        workspace->host_manager.for_each_host([](LeafId, IHost& h) {
+        tab->host_manager.for_each_host([](LeafId, IHost& h) {
             h.request_close();
         });
     }
@@ -1881,19 +1881,19 @@ void App::update_diagnostics_panel()
     panel.startup_steps = diagnostics_collector_.startup_steps();
     panel.startup_total_ms = diagnostics_collector_.startup_total_ms();
 
-    const Workspace* workspace = find_active_workspace();
-    if (workspace != nullptr && workspace->host_manager.host())
+    const Tab* tab = find_active_tab();
+    if (tab != nullptr && tab->host_manager.host())
     {
-        const HostDebugState host_state = workspace->host_manager.host()->debug_state();
+        const HostDebugState host_state = tab->host_manager.host()->debug_state();
         panel.grid_size = { host_state.grid_cols, host_state.grid_rows };
         panel.dirty_cells = host_state.dirty_cells;
     }
 
     panel.host_panes.push_back({ "ChromeHost", { 0, 0 }, { last_pixel_w_, last_pixel_h_ } });
 
-    if (workspace != nullptr)
+    if (tab != nullptr)
     {
-        const auto& hm = workspace->host_manager;
+        const auto& hm = tab->host_manager;
         hm.for_each_host([&panel, &hm](LeafId id, IHost& h) {
             const auto dbg = h.debug_state();
             const auto pd = hm.tree().descriptor_for(id);
@@ -1982,7 +1982,7 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 }
 
 // ---------------------------------------------------------------------------
-// Workspace management (moved from ChromeHost)
+// Tab management (moved from ChromeHost)
 // ---------------------------------------------------------------------------
 
 HostManager::Deps App::make_host_manager_deps()
@@ -2003,13 +2003,13 @@ HostManager::Deps App::make_host_manager_deps()
     return deps;
 }
 
-void App::refresh_workspace_default_names()
+void App::refresh_tab_default_names()
 {
-    for (auto& ws : workspaces_)
+    for (auto& tab : tabs_)
     {
-        if (ws->name_user_set)
+        if (tab->name_user_set)
             continue;
-        IHost* focused = ws->host_manager.focused_host();
+        IHost* focused = tab->host_manager.focused_host();
         if (!focused)
             continue;
         const std::string cwd = focused->current_working_directory();
@@ -2025,21 +2025,21 @@ void App::refresh_workspace_default_names()
         if (basename.empty())
             continue;
         std::string new_name(basename);
-        if (ws->name == new_name)
+        if (tab->name == new_name)
             continue;
-        ws->name = std::move(new_name);
+        tab->name = std::move(new_name);
         request_frame();
     }
 }
 
 bool App::can_snapshot_session_state() const
 {
-    if (!options_.enable_session_restore || workspaces_.empty())
+    if (!options_.enable_session_restore || tabs_.empty())
         return false;
 
-    for (const auto& ws : workspaces_)
+    for (const auto& tab : tabs_)
     {
-        if (!ws->host_manager.has_restorable_shell_session())
+        if (!tab->host_manager.has_restorable_shell_session())
             return false;
     }
 
@@ -2073,8 +2073,8 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
                 ? Error::not_found("Saved session '" + target_id + "' was not found.")
                 : Error::io(load_error));
     }
-    if (target_state->workspaces.empty())
-        return Result<void, Error>::err(Error::invalid_argument("Saved session has no workspaces."));
+    if (target_state->tabs.empty())
+        return Result<void, Error>::err(Error::invalid_argument("Saved session has no tabs."));
 
     auto previous_state = snapshot_session_state();
     if (!previous_state)
@@ -2203,30 +2203,30 @@ Result<std::string, Error> App::save_session_as(std::string_view raw_name)
     return new_id;
 }
 
-std::optional<AppSessionState> App::snapshot_session_state() const
+std::optional<SessionSnapshot> App::snapshot_session_state() const
 {
     PERF_MEASURE();
     if (!can_snapshot_session_state())
         return std::nullopt;
 
-    AppSessionState state;
+    SessionSnapshot state;
     state.session_id = options_.session_id;
     state.session_name = session_name_.empty() ? options_.session_id : session_name_;
-    state.active_workspace_id = active_workspace_;
-    state.next_workspace_id = next_workspace_id_;
+    state.active_tab_id = active_tab_id_;
+    state.next_tab_id = next_tab_id_;
 
-    for (const auto& ws : workspaces_)
+    for (const auto& tab : tabs_)
     {
-        auto host_manager_state = ws->host_manager.session_state();
+        auto host_manager_state = tab->host_manager.session_state();
         if (!host_manager_state)
             return std::nullopt;
 
-        WorkspaceSessionState workspace_state;
-        workspace_state.id = ws->id;
-        workspace_state.name = ws->name;
-        workspace_state.name_user_set = ws->name_user_set;
-        workspace_state.host_manager = std::move(*host_manager_state);
-        state.workspaces.push_back(std::move(workspace_state));
+        TabSnapshot tab_state;
+        tab_state.id = tab->id;
+        tab_state.name = tab->name;
+        tab_state.name_user_set = tab->name_user_set;
+        tab_state.host_manager = std::move(*host_manager_state);
+        state.tabs.push_back(std::move(tab_state));
     }
 
     return state;
@@ -2264,191 +2264,191 @@ void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
     last_session_checkpoint_time_ = now;
 }
 
-bool App::restore_session_state(int pixel_w, int pixel_h, const AppSessionState& state)
+bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state)
 {
     PERF_MEASURE();
-    if (state.workspaces.empty())
+    if (state.tabs.empty())
         return false;
 
-    for (auto& ws : workspaces_)
-        ws->host_manager.shutdown();
-    workspaces_.clear();
-    active_workspace_ = -1;
+    for (auto& tab : tabs_)
+        tab->host_manager.shutdown();
+    tabs_.clear();
+    active_tab_id_ = -1;
     render_root_ = RenderNode{};
 
-    int max_workspace_id = -1;
-    for (const WorkspaceSessionState& workspace_state : state.workspaces)
+    int max_tab_id = -1;
+    for (const TabSnapshot& tab_state : state.tabs)
     {
-        auto ws = std::make_unique<Workspace>(workspace_state.id, make_host_manager_deps());
-        if (!ws->host_manager.restore_session_state(*this, pixel_w, pixel_h, workspace_state.host_manager))
+        auto tab = std::make_unique<Tab>(tab_state.id, make_host_manager_deps());
+        if (!tab->host_manager.restore_session_state(*this, pixel_w, pixel_h, tab_state.host_manager))
         {
-            for (auto& created_workspace : workspaces_)
-                created_workspace->host_manager.shutdown();
-            workspaces_.clear();
-            active_workspace_ = -1;
+            for (auto& created_tab : tabs_)
+                created_tab->host_manager.shutdown();
+            tabs_.clear();
+            active_tab_id_ = -1;
             render_root_ = RenderNode{};
             return false;
         }
 
-        ws->initialized = true;
-        ws->name = workspace_state.name.empty() ? "tab" : workspace_state.name;
-        ws->name_user_set = workspace_state.name_user_set;
-        max_workspace_id = std::max(max_workspace_id, workspace_state.id);
-        workspaces_.push_back(std::move(ws));
+        tab->initialized = true;
+        tab->name = tab_state.name.empty() ? "tab" : tab_state.name;
+        tab->name_user_set = tab_state.name_user_set;
+        max_tab_id = std::max(max_tab_id, tab_state.id);
+        tabs_.push_back(std::move(tab));
     }
 
-    next_workspace_id_ = std::max(state.next_workspace_id, max_workspace_id + 1);
-    int restored_active_workspace = state.active_workspace_id;
-    const bool has_restored_active_workspace = std::any_of(workspaces_.begin(), workspaces_.end(),
-        [restored_active_workspace](const auto& ws) {
-            return ws->id == restored_active_workspace;
+    next_tab_id_ = std::max(state.next_tab_id, max_tab_id + 1);
+    int restored_active_tab = state.active_tab_id;
+    const bool has_restored_active_tab = std::any_of(tabs_.begin(), tabs_.end(),
+        [restored_active_tab](const auto& tab) {
+            return tab->id == restored_active_tab;
         });
-    if (!has_restored_active_workspace)
-        restored_active_workspace = workspaces_.front()->id;
-    activate_workspace(restored_active_workspace);
+    if (!has_restored_active_tab)
+        restored_active_tab = tabs_.front()->id;
+    activate_tab(restored_active_tab);
     return true;
 }
 
-bool App::create_initial_workspace(int pixel_w, int pixel_h)
+bool App::create_initial_tab(int pixel_w, int pixel_h)
 {
-    auto ws = std::make_unique<Workspace>(next_workspace_id_++, make_host_manager_deps());
-    if (!ws->host_manager.create(*this, pixel_w, pixel_h))
+    auto tab = std::make_unique<Tab>(next_tab_id_++, make_host_manager_deps());
+    if (!tab->host_manager.create(*this, pixel_w, pixel_h))
     {
-        last_init_error_ = ws->host_manager.error();
+        last_init_error_ = tab->host_manager.error();
         return false;
     }
-    ws->initialized = true;
-    if (IHost* h = ws->host_manager.host())
-        ws->name = h->debug_state().name;
+    tab->initialized = true;
+    if (IHost* h = tab->host_manager.host())
+        tab->name = h->debug_state().name;
     else
-        ws->name = "tab";
-    const int id = ws->id;
-    workspaces_.push_back(std::move(ws));
-    activate_workspace(id);
+        tab->name = "tab";
+    const int id = tab->id;
+    tabs_.push_back(std::move(tab));
+    activate_tab(id);
     return true;
 }
 
-int App::add_workspace(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
+int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 {
-    auto ws = std::make_unique<Workspace>(next_workspace_id_++, make_host_manager_deps());
+    auto tab = std::make_unique<Tab>(next_tab_id_++, make_host_manager_deps());
     const HostKind kind = host_kind.value_or(HostManager::platform_default_split_host_kind());
-    if (!ws->host_manager.create(*this, pixel_w, pixel_h, kind))
+    if (!tab->host_manager.create(*this, pixel_w, pixel_h, kind))
     {
-        last_init_error_ = ws->host_manager.error();
+        last_init_error_ = tab->host_manager.error();
         return -1;
     }
-    ws->initialized = true;
-    if (IHost* h = ws->host_manager.host())
-        ws->name = h->debug_state().name;
+    tab->initialized = true;
+    if (IHost* h = tab->host_manager.host())
+        tab->name = h->debug_state().name;
     else
-        ws->name = "tab";
-    int id = ws->id;
-    workspaces_.push_back(std::move(ws));
-    activate_workspace(id);
+        tab->name = "tab";
+    int id = tab->id;
+    tabs_.push_back(std::move(tab));
+    activate_tab(id);
     return id;
 }
 
-bool App::close_workspace(int workspace_id)
+bool App::close_tab(int tab_id)
 {
-    if (workspaces_.size() <= 1)
+    if (tabs_.size() <= 1)
         return false;
-    auto it = std::find_if(workspaces_.begin(), workspaces_.end(),
-        [workspace_id](const auto& ws) { return ws->id == workspace_id; });
-    if (it == workspaces_.end())
+    auto it = std::find_if(tabs_.begin(), tabs_.end(),
+        [tab_id](const auto& tab) { return tab->id == tab_id; });
+    if (it == tabs_.end())
         return false;
 
-    const bool was_active = (workspace_id == active_workspace_);
+    const bool was_active = (tab_id == active_tab_id_);
     if (was_active)
     {
-        const auto replacement = std::find_if(workspaces_.begin(), workspaces_.end(),
-            [workspace_id](const auto& ws) { return ws->id != workspace_id; });
-        if (replacement == workspaces_.end())
+        const auto replacement = std::find_if(tabs_.begin(), tabs_.end(),
+            [tab_id](const auto& tab) { return tab->id != tab_id; });
+        if (replacement == tabs_.end())
             return false;
-        // Complete the focus/identity transition while both workspaces are
+        // Complete the focus/identity transition while both tabs are
         // alive. No callback can observe an active id whose manager was just
         // destroyed.
-        activate_workspace((*replacement)->id);
+        activate_tab((*replacement)->id);
     }
 
     (*it)->host_manager.shutdown();
-    workspaces_.erase(it);
+    tabs_.erase(it);
     return true;
 }
 
-void App::activate_workspace(int workspace_id)
+void App::activate_tab(int tab_id)
 {
-    if (workspace_id == active_workspace_ && find_active_workspace() != nullptr)
+    if (tab_id == active_tab_id_ && find_active_tab() != nullptr)
         return;
 
-    const auto target = std::find_if(workspaces_.begin(), workspaces_.end(),
-        [workspace_id](const auto& ws) { return ws->id == workspace_id; });
-    if (target == workspaces_.end())
+    const auto target = std::find_if(tabs_.begin(), tabs_.end(),
+        [tab_id](const auto& tab) { return tab->id == tab_id; });
+    if (target == tabs_.end())
     {
-        DRAXUL_LOG_ERROR(LogCategory::App, "Cannot activate missing workspace id=%d", workspace_id);
+        DRAXUL_LOG_ERROR(LogCategory::App, "Cannot activate missing tab id=%d", tab_id);
         return;
     }
 
-    if (Workspace* current = find_active_workspace())
+    if (Tab* current = find_active_tab())
     {
         if (IHost* h = current->host_manager.focused_host())
             h->on_focus_lost();
     }
-    active_workspace_ = workspace_id;
+    active_tab_id_ = tab_id;
     if (IHost* h = (*target)->host_manager.focused_host())
         h->on_focus_gained();
 }
 
-void App::next_workspace()
+void App::next_tab()
 {
-    if (workspaces_.size() <= 1)
+    if (tabs_.size() <= 1)
         return;
-    for (size_t i = 0; i < workspaces_.size(); ++i)
+    for (size_t i = 0; i < tabs_.size(); ++i)
     {
-        if (workspaces_[i]->id == active_workspace_)
+        if (tabs_[i]->id == active_tab_id_)
         {
-            activate_workspace(workspaces_[(i + 1) % workspaces_.size()]->id);
+            activate_tab(tabs_[(i + 1) % tabs_.size()]->id);
             return;
         }
     }
 }
 
-void App::prev_workspace()
+void App::prev_tab()
 {
-    if (workspaces_.size() <= 1)
+    if (tabs_.size() <= 1)
         return;
-    for (size_t i = 0; i < workspaces_.size(); ++i)
+    for (size_t i = 0; i < tabs_.size(); ++i)
     {
-        if (workspaces_[i]->id == active_workspace_)
+        if (tabs_[i]->id == active_tab_id_)
         {
-            size_t prev = (i == 0) ? workspaces_.size() - 1 : i - 1;
-            activate_workspace(workspaces_[prev]->id);
+            size_t prev = (i == 0) ? tabs_.size() - 1 : i - 1;
+            activate_tab(tabs_[prev]->id);
             return;
         }
     }
 }
 
-void App::move_workspace(int direction)
+void App::move_tab(int direction)
 {
-    if (workspaces_.size() <= 1)
+    if (tabs_.size() <= 1)
         return;
-    for (size_t i = 0; i < workspaces_.size(); ++i)
+    for (size_t i = 0; i < tabs_.size(); ++i)
     {
-        if (workspaces_[i]->id == active_workspace_)
+        if (tabs_[i]->id == active_tab_id_)
         {
-            const auto n = static_cast<int>(workspaces_.size());
+            const auto n = static_cast<int>(tabs_.size());
             const int target = (static_cast<int>(i) + direction + n) % n;
-            std::swap(workspaces_[i], workspaces_[target]);
+            std::swap(tabs_[i], tabs_[target]);
             return;
         }
     }
 }
 
-void App::activate_workspace_by_index(int one_based_index)
+void App::activate_tab_by_index(int one_based_index)
 {
     const int idx = one_based_index - 1;
-    if (idx < 0 || idx >= static_cast<int>(workspaces_.size()))
+    if (idx < 0 || idx >= static_cast<int>(tabs_.size()))
         return;
-    activate_workspace(workspaces_[static_cast<size_t>(idx)]->id);
+    activate_tab(tabs_[static_cast<size_t>(idx)]->id);
 }
 
 void App::activate_pane_by_index(int one_based_index)
@@ -2472,58 +2472,58 @@ void App::activate_pane_by_index(int one_based_index)
 
 void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
-    for (auto& ws : workspaces_)
-        ws->host_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
+    for (auto& tab : tabs_)
+        tab->host_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }
 
 HostManager& App::active_host_manager()
 {
-    return require_active_workspace("active_host_manager").host_manager;
+    return require_active_tab("active_host_manager").host_manager;
 }
 
 const HostManager& App::active_host_manager() const
 {
-    return require_active_workspace("active_host_manager const").host_manager;
+    return require_active_tab("active_host_manager const").host_manager;
 }
 
-Workspace* App::find_active_workspace() noexcept
+Tab* App::find_active_tab() noexcept
 {
-    for (auto& ws : workspaces_)
+    for (auto& tab : tabs_)
     {
-        if (ws->id == active_workspace_)
-            return ws.get();
+        if (tab->id == active_tab_id_)
+            return tab.get();
     }
     return nullptr;
 }
 
-const Workspace* App::find_active_workspace() const noexcept
+const Tab* App::find_active_tab() const noexcept
 {
-    for (const auto& ws : workspaces_)
+    for (const auto& tab : tabs_)
     {
-        if (ws->id == active_workspace_)
-            return ws.get();
+        if (tab->id == active_tab_id_)
+            return tab.get();
     }
     return nullptr;
 }
 
-Workspace& App::require_active_workspace(std::string_view context)
+Tab& App::require_active_tab(std::string_view context)
 {
-    if (Workspace* workspace = find_active_workspace())
-        return *workspace;
+    if (Tab* tab = find_active_tab())
+        return *tab;
     DRAXUL_LOG_ERROR(LogCategory::App,
-        "Active workspace invariant failed in %.*s (active_id=%d count=%zu)",
-        static_cast<int>(context.size()), context.data(), active_workspace_, workspaces_.size());
-    throw std::logic_error("Draxul active workspace invariant failed in " + std::string(context));
+        "Active tab invariant failed in %.*s (active_id=%d count=%zu)",
+        static_cast<int>(context.size()), context.data(), active_tab_id_, tabs_.size());
+    throw std::logic_error("Draxul active tab invariant failed in " + std::string(context));
 }
 
-const Workspace& App::require_active_workspace(std::string_view context) const
+const Tab& App::require_active_tab(std::string_view context) const
 {
-    if (const Workspace* workspace = find_active_workspace())
-        return *workspace;
+    if (const Tab* tab = find_active_tab())
+        return *tab;
     DRAXUL_LOG_ERROR(LogCategory::App,
-        "Active workspace invariant failed in %.*s (active_id=%d count=%zu)",
-        static_cast<int>(context.size()), context.data(), active_workspace_, workspaces_.size());
-    throw std::logic_error("Draxul active workspace invariant failed in " + std::string(context));
+        "Active tab invariant failed in %.*s (active_id=%d count=%zu)",
+        static_cast<int>(context.size()), context.data(), active_tab_id_, tabs_.size());
+    throw std::logic_error("Draxul active tab invariant failed in " + std::string(context));
 }
 
 const SplitTree& App::active_tree() const
@@ -2531,14 +2531,14 @@ const SplitTree& App::active_tree() const
     return active_host_manager().tree();
 }
 
-int App::workspace_count() const
+int App::tab_count() const
 {
-    return static_cast<int>(workspaces_.size());
+    return static_cast<int>(tabs_.size());
 }
 
-int App::active_workspace_id() const
+int App::active_tab_id() const
 {
-    return active_workspace_;
+    return active_tab_id_;
 }
 
 void App::shutdown()
@@ -2558,10 +2558,10 @@ void App::shutdown()
     if (!discard_session_state_on_shutdown_)
         persist_session_state();
 
-    for (auto& ws : workspaces_)
-        ws->host_manager.shutdown();
-    workspaces_.clear();
-    active_workspace_ = -1;
+    for (auto& tab : tabs_)
+        tab->host_manager.shutdown();
+    tabs_.clear();
+    active_tab_id_ = -1;
     render_root_ = RenderNode{};
 
     if (chrome_host_)

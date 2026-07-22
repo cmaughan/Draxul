@@ -25,10 +25,10 @@ size_t utf8_next(const std::string& text, size_t pos)
 }
 } // namespace
 
-void RenameEditor::begin_workspace(int workspace_id, std::string initial_text)
+void RenameEditor::begin_tab(int tab_id, std::string initial_text)
 {
-    target_ = RenameTarget::Workspace;
-    workspace_id_ = workspace_id;
+    target_ = RenameTarget::Tab;
+    tab_id_ = tab_id;
     leaf_id_ = kInvalidLeaf;
     buffer_ = std::move(initial_text);
     cursor_ = buffer_.size();
@@ -38,7 +38,7 @@ void RenameEditor::begin_workspace(int workspace_id, std::string initial_text)
 void RenameEditor::begin_pane(LeafId leaf_id, std::string initial_text)
 {
     target_ = RenameTarget::Pane;
-    workspace_id_ = -1;
+    tab_id_ = -1;
     leaf_id_ = leaf_id;
     buffer_ = std::move(initial_text);
     cursor_ = buffer_.size();
@@ -50,9 +50,9 @@ bool RenameEditor::active() const
     return target_ != RenameTarget::None;
 }
 
-bool RenameEditor::editing_workspace() const
+bool RenameEditor::editing_tab() const
 {
-    return target_ == RenameTarget::Workspace;
+    return target_ == RenameTarget::Tab;
 }
 
 bool RenameEditor::editing_pane() const
@@ -60,9 +60,9 @@ bool RenameEditor::editing_pane() const
     return target_ == RenameTarget::Pane;
 }
 
-int RenameEditor::workspace_id() const
+int RenameEditor::tab_id() const
 {
-    return editing_workspace() ? workspace_id_ : -1;
+    return editing_tab() ? tab_id_ : -1;
 }
 
 LeafId RenameEditor::leaf_id() const
@@ -72,7 +72,7 @@ LeafId RenameEditor::leaf_id() const
 
 RenameSnapshot RenameEditor::snapshot() const
 {
-    return { target_, workspace_id_, leaf_id_, buffer_, cursor_, started_at_ };
+    return { target_, tab_id_, leaf_id_, buffer_, cursor_, started_at_ };
 }
 
 bool RenameEditor::insert(std::string_view utf8)
@@ -143,7 +143,7 @@ std::optional<RenameCommit> RenameEditor::commit()
 {
     if (!active())
         return std::nullopt;
-    RenameCommit result{ target_, workspace_id_, leaf_id_, std::move(buffer_) };
+    RenameCommit result{ target_, tab_id_, leaf_id_, std::move(buffer_) };
     cancel();
     return result;
 }
@@ -151,7 +151,7 @@ std::optional<RenameCommit> RenameEditor::commit()
 void RenameEditor::cancel()
 {
     target_ = RenameTarget::None;
-    workspace_id_ = -1;
+    tab_id_ = -1;
     leaf_id_ = kInvalidLeaf;
     buffer_.clear();
     cursor_ = 0;
