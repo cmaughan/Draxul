@@ -4,7 +4,7 @@
 #include "chrome_text_layer.h"
 #include "chrome_vector_pass.h"
 #include "rename_editor.h"
-#include "tab.h"
+#include "tab_controller.h"
 
 #include <chrono>
 #include <draxul/app_config_types.h>
@@ -34,9 +34,8 @@ public:
         IGridRenderer* grid_renderer = nullptr;
         TextService* text_service = nullptr;
 
-        // Read-only tab info for tab bar / divider rendering (owned by App).
-        const std::vector<std::unique_ptr<Tab>>* tabs = nullptr;
-        const int* active_tab_id = nullptr;
+        // Read-only tab info for tab bar / divider rendering.
+        const TabController* tab_controller = nullptr;
         const SystemResourceSnapshot* system_resource_snapshot = nullptr;
         std::function<std::optional<std::pair<std::string, float>>()> chord_indicator = nullptr;
         // Weather callbacks — return emoji (for example "\u2600\uFE0F") and

@@ -11,12 +11,12 @@ struct AppTestAccess
 {
     static void add_empty_tab(App& app, int id)
     {
-        app.tabs_.push_back(std::make_unique<Tab>(id, PaneManager::Deps{}));
+        app.tab_controller_.tabs().push_back(std::make_unique<Tab>(id, PaneManager::Deps{}));
     }
 
-    static void set_active_id(App& app, int id)
+    static void clear_tabs_without_resetting_active_id(App& app)
     {
-        app.active_tab_id_ = id;
+        app.tab_controller_.tabs().clear();
     }
 
     static Tab* find_active(App& app)
@@ -41,12 +41,12 @@ struct AppTestAccess
 
     static size_t count(const App& app)
     {
-        return app.tabs_.size();
+        return app.tab_controller_.tabs().size();
     }
 
     static int active_id(const App& app)
     {
-        return app.active_tab_id_;
+        return app.tab_controller_.active_tab_id();
     }
 
     static bool restore(App& app, const SessionSnapshot& state)
@@ -70,14 +70,16 @@ TEST_CASE("active tab lookup makes empty and stale states explicit", "[app][tab]
     CHECK_THROWS_AS(AppTestAccess::require_active(app), std::logic_error);
 
     AppTestAccess::add_empty_tab(app, 7);
-    AppTestAccess::set_active_id(app, 99);
+    AppTestAccess::activate(app, 7);
+    AppTestAccess::clear_tabs_without_resetting_active_id(app);
     CHECK(AppTestAccess::find_active(app) == nullptr);
     CHECK_THROWS_AS(AppTestAccess::require_active(app), std::logic_error);
 
     AppTestAccess::activate(app, 99);
-    CHECK(AppTestAccess::active_id(app) == 99);
+    CHECK(AppTestAccess::active_id(app) == 7);
     CHECK(AppTestAccess::find_active(app) == nullptr);
 
+    AppTestAccess::add_empty_tab(app, 7);
     AppTestAccess::activate(app, 7);
     REQUIRE(AppTestAccess::find_active(app) != nullptr);
     CHECK(AppTestAccess::find_active(app)->id == 7);
@@ -88,7 +90,7 @@ TEST_CASE("closing an active tab selects its replacement before destruction", "[
     App app;
     AppTestAccess::add_empty_tab(app, 1);
     AppTestAccess::add_empty_tab(app, 2);
-    AppTestAccess::set_active_id(app, 1);
+    AppTestAccess::activate(app, 1);
 
     REQUIRE(AppTestAccess::close(app, 1));
     CHECK(AppTestAccess::count(app) == 1);
@@ -102,7 +104,7 @@ TEST_CASE("closing an inactive tab preserves active identity and the last tab", 
     App app;
     AppTestAccess::add_empty_tab(app, 1);
     AppTestAccess::add_empty_tab(app, 2);
-    AppTestAccess::set_active_id(app, 1);
+    AppTestAccess::activate(app, 1);
 
     REQUIRE(AppTestAccess::close(app, 2));
     CHECK(AppTestAccess::active_id(app) == 1);
@@ -112,11 +114,37 @@ TEST_CASE("closing an inactive tab preserves active identity and the last tab", 
     CHECK(AppTestAccess::active_id(app) == 1);
 }
 
+TEST_CASE("tab controller cycles, activates by index, and reorders the active tab",
+    "[tab_controller][tab]")
+{
+    TabController controller;
+    controller.tabs().push_back(std::make_unique<Tab>(1, PaneManager::Deps{}));
+    controller.tabs().push_back(std::make_unique<Tab>(2, PaneManager::Deps{}));
+    controller.tabs().push_back(std::make_unique<Tab>(3, PaneManager::Deps{}));
+
+    REQUIRE(controller.activate_tab(2));
+    controller.next_tab();
+    CHECK(controller.active_tab_id() == 3);
+    controller.prev_tab();
+    CHECK(controller.active_tab_id() == 2);
+
+    controller.move_tab(-1);
+    REQUIRE(controller.tabs().size() == 3);
+    CHECK(controller.tabs()[0]->id == 2);
+    CHECK(controller.tabs()[1]->id == 1);
+    CHECK(controller.tabs()[2]->id == 3);
+
+    controller.activate_tab_by_index(3);
+    CHECK(controller.active_tab_id() == 3);
+    controller.activate_tab_by_index(0);
+    CHECK(controller.active_tab_id() == 3);
+}
+
 TEST_CASE("failed restore and empty shutdown leave an explicit no-tab state", "[app][tab][session]")
 {
     App app;
     AppTestAccess::add_empty_tab(app, 1);
-    AppTestAccess::set_active_id(app, 1);
+    AppTestAccess::activate(app, 1);
 
     SessionSnapshot invalid;
     invalid.tabs.push_back(TabSnapshot{ .id = 9 });

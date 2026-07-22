@@ -288,6 +288,7 @@ add_library(draxul-app
     app/session_id.cpp
     app/session_state.cpp
     app/split_tree.cpp
+    app/tab_controller.cpp
     ${DRAXUL_APP_PLATFORM_SOURCES}
 )
 

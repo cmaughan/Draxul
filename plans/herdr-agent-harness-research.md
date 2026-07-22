@@ -3,8 +3,8 @@
 **Status:** research and preliminary design direction  
 **Date:** 2026-07-21  
 **Implementation note:** the behaviour-neutral `Workspace` to `Tab`, `HostManager`
-to `PaneManager`, and snapshot-type renames were completed on 2026-07-22; controller
-extraction and the new Space layer remain future work.
+to `PaneManager`, snapshot-type renames, and `TabController` extraction were completed
+on 2026-07-22; the default Space and `SpaceController` remain future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -185,11 +185,13 @@ self-contained pane layout and one top-bar tab. It owns a
 the split tree, pane leaves, host instances, launch options, and stable pane strings.
 
 The former `AppSessionState`, now [`SessionSnapshot`](../app/session_state.h), owns a
-vector of `TabSnapshot`, an active tab ID, and the next tab ID. Structurally, today's
-Draxul session contains tabs and panes but has no project-level Space grouping. The
-version-1 persistence keys retain their historical `workspace` spelling and
-`host_manager` table name for backward and forward compatibility; these are wire-format
-details rather than live terminology.
+vector of `TabSnapshot`, an active tab ID, and the next tab ID. The live collection,
+selection, navigation, pane-layout snapshot/restore, and shutdown boundary now lives in
+[`TabController`](../app/tab_controller.h), while `App` supplies host dependencies and
+orchestrates the outer saved session. Structurally, today's Draxul session contains tabs
+and panes but has no project-level Space grouping. The version-1 persistence keys retain
+their historical `workspace` spelling and `host_manager` table name for backward and
+forward compatibility; these are wire-format details rather than live terminology.
 
 The application already has several useful foundations:
 
@@ -208,8 +210,9 @@ There are also relevant constraints:
   session snapshot if any tab does not consist entirely of restorable shell
   hosts. Space-aware persistence should avoid allowing one non-restorable product
   space to block checkpoints for every agent space.
-- `App` directly owns the tab vector and session transaction details. Adding a
-  Space hierarchy directly to `App` would deepen an existing orchestration hotspot.
+- `App` still owns saved-session transactions, but `TabController` now owns the live tab
+  collection. The next boundary is to put that controller inside a default Space rather
+  than adding the Space hierarchy directly to `App`.
 - [`ChromeHost`](../app/chrome_host.h) currently owns top-bar and pane-chrome layout.
   A substantial sidebar should use a dedicated controller and pure layout model rather
   than turning `ChromeHost` into the owner of space and agent domain state.
@@ -362,10 +365,10 @@ Agent metadata should be separated into durable and ephemeral fields:
 
 ### Phase 0: ownership and naming boundary
 
-The behaviour-neutral `Workspace` to `Tab`, `HostManager` to `PaneManager`, and
-snapshot terminology renames are complete. The remaining work is to extract
-tab/session ownership from `App` and add
-`SpaceController` with a single default Space so behaviour remains unchanged initially.
+The behaviour-neutral `Workspace` to `Tab`, `HostManager` to `PaneManager`, snapshot
+terminology renames, and live tab ownership extraction into `TabController` are complete.
+The remaining work is to add `SpaceController` with a single default Space and move the
+controller behind that boundary so behaviour remains unchanged initially.
 
 **Exit condition:** existing tabs, panes, session files, focus behaviour, and shell
 restore work unchanged; version-1 session tests still pass.

@@ -503,7 +503,7 @@ void App::apply_font_metrics()
     renderer_.grid()->set_ascender(metrics.ascender);
     const float imgui_font_size = imgui_font_size_from_metrics(metrics);
     diagnostics_host_->set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
-    for (auto& tab : tabs_)
+    for (auto& tab : tab_controller_.tabs())
     {
         tab->pane_manager.for_each_host([this, imgui_font_size](LeafId, IHost& host) {
             host.set_imgui_font(text_service_.primary_font_path(), imgui_font_size);
@@ -595,7 +595,7 @@ Result<void, Error> App::reload_config()
         push_toast(0, warning);
 
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
-    for (auto& tab : tabs_)
+    for (auto& tab : tab_controller_.tabs())
     {
         tab->pane_manager.for_each_host([&host_reload](LeafId, IHost& host) {
             host.on_config_reloaded(host_reload);
@@ -618,8 +618,7 @@ bool App::initialize_chrome_host()
     chrome_deps.config = &config_;
     chrome_deps.grid_renderer = renderer_.grid();
     chrome_deps.text_service = &text_service_;
-    chrome_deps.tabs = &tabs_;
-    chrome_deps.active_tab_id = &active_tab_id_;
+    chrome_deps.tab_controller = &tab_controller_;
     chrome_deps.system_resource_snapshot = &system_resource_snapshot_;
     chrome_deps.weather_emoji = [this]() -> std::string {
         return weather_service_.emoji();
@@ -634,7 +633,7 @@ bool App::initialize_chrome_host()
         return std::make_pair(state.text, state.alpha);
     };
     chrome_deps.set_tab_name = [this](int tab_id, std::string name) {
-        for (auto& tab : tabs_)
+        for (auto& tab : tab_controller_.tabs())
         {
             if (tab->id == tab_id)
             {
@@ -854,10 +853,7 @@ void App::wire_gui_actions()
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                for (auto& tab : tabs_)
-                    tab->pane_manager.shutdown();
-                tabs_.clear();
-                active_tab_id_ = -1;
+                tab_controller_.shutdown_all();
                 render_root_ = RenderNode{};
                 running_ = false;
                 return;
@@ -978,7 +974,7 @@ void App::wire_gui_actions()
     };
     gui_deps.on_rename_tab = [this]() {
         if (chrome_host_)
-            chrome_host_->begin_tab_rename_by_id(active_tab_id_);
+            chrome_host_->begin_tab_rename_by_id(tab_controller_.active_tab_id());
         request_frame();
     };
     gui_deps.on_move_tab_left = [this]() {
@@ -1437,10 +1433,7 @@ bool App::close_dead_panes()
                 discard_session_state_on_shutdown_ = true;
                 delete_session_state(options_.session_id);
                 input_dispatcher_.set_host(nullptr);
-                for (auto& tab : tabs_)
-                    tab->pane_manager.shutdown();
-                tabs_.clear();
-                active_tab_id_ = -1;
+                tab_controller_.shutdown_all();
                 render_root_ = RenderNode{};
                 running_ = false;
                 return false;
@@ -1982,7 +1975,7 @@ int App::wait_timeout_ms(std::optional<std::chrono::steady_clock::time_point> wa
 }
 
 // ---------------------------------------------------------------------------
-// Tab management (moved from ChromeHost)
+// Tab orchestration (collection ownership lives in TabController)
 // ---------------------------------------------------------------------------
 
 PaneManager::Deps App::make_pane_manager_deps()
@@ -2005,7 +1998,7 @@ PaneManager::Deps App::make_pane_manager_deps()
 
 void App::refresh_tab_default_names()
 {
-    for (auto& tab : tabs_)
+    for (auto& tab : tab_controller_.tabs())
     {
         if (tab->name_user_set)
             continue;
@@ -2034,16 +2027,7 @@ void App::refresh_tab_default_names()
 
 bool App::can_snapshot_session_state() const
 {
-    if (!options_.enable_session_restore || tabs_.empty())
-        return false;
-
-    for (const auto& tab : tabs_)
-    {
-        if (!tab->pane_manager.has_restorable_shell_session())
-            return false;
-    }
-
-    return true;
+    return options_.enable_session_restore && tab_controller_.all_tabs_restorable();
 }
 
 Result<void, Error> App::load_session(std::string_view raw_session_id)
@@ -2212,22 +2196,12 @@ std::optional<SessionSnapshot> App::snapshot_session_state() const
     SessionSnapshot state;
     state.session_id = options_.session_id;
     state.session_name = session_name_.empty() ? options_.session_id : session_name_;
-    state.active_tab_id = active_tab_id_;
-    state.next_tab_id = next_tab_id_;
-
-    for (const auto& tab : tabs_)
-    {
-        auto pane_layout = tab->pane_manager.snapshot_layout();
-        if (!pane_layout)
-            return std::nullopt;
-
-        TabSnapshot tab_state;
-        tab_state.id = tab->id;
-        tab_state.name = tab->name;
-        tab_state.name_user_set = tab->name_user_set;
-        tab_state.pane_layout = std::move(*pane_layout);
-        state.tabs.push_back(std::move(tab_state));
-    }
+    state.active_tab_id = tab_controller_.active_tab_id();
+    state.next_tab_id = tab_controller_.next_tab_id();
+    auto tabs = tab_controller_.snapshot_tabs();
+    if (!tabs)
+        return std::nullopt;
+    state.tabs = std::move(*tabs);
 
     return state;
 }
@@ -2270,185 +2244,62 @@ bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot&
     if (state.tabs.empty())
         return false;
 
-    for (auto& tab : tabs_)
-        tab->pane_manager.shutdown();
-    tabs_.clear();
-    active_tab_id_ = -1;
     render_root_ = RenderNode{};
-
-    int max_tab_id = -1;
-    for (const TabSnapshot& tab_state : state.tabs)
-    {
-        auto tab = std::make_unique<Tab>(tab_state.id, make_pane_manager_deps());
-        if (!tab->pane_manager.restore_layout(*this, pixel_w, pixel_h, tab_state.pane_layout))
-        {
-            for (auto& created_tab : tabs_)
-                created_tab->pane_manager.shutdown();
-            tabs_.clear();
-            active_tab_id_ = -1;
-            render_root_ = RenderNode{};
-            return false;
-        }
-
-        tab->initialized = true;
-        tab->name = tab_state.name.empty() ? "tab" : tab_state.name;
-        tab->name_user_set = tab_state.name_user_set;
-        max_tab_id = std::max(max_tab_id, tab_state.id);
-        tabs_.push_back(std::move(tab));
-    }
-
-    next_tab_id_ = std::max(state.next_tab_id, max_tab_id + 1);
-    int restored_active_tab = state.active_tab_id;
-    const bool has_restored_active_tab = std::any_of(tabs_.begin(), tabs_.end(),
-        [restored_active_tab](const auto& tab) {
-            return tab->id == restored_active_tab;
-        });
-    if (!has_restored_active_tab)
-        restored_active_tab = tabs_.front()->id;
-    activate_tab(restored_active_tab);
-    return true;
+    const bool restored = tab_controller_.restore_tabs(*this, pixel_w, pixel_h,
+        state.tabs, state.active_tab_id, state.next_tab_id,
+        [this]() { return make_pane_manager_deps(); });
+    if (!restored)
+        render_root_ = RenderNode{};
+    return restored;
 }
 
 bool App::create_initial_tab(int pixel_w, int pixel_h)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++, make_pane_manager_deps());
-    if (!tab->pane_manager.create(*this, pixel_w, pixel_h))
+    if (!tab_controller_.create_initial_tab(*this, pixel_w, pixel_h, make_pane_manager_deps()))
     {
-        last_init_error_ = tab->pane_manager.error();
+        last_init_error_ = tab_controller_.last_error();
         return false;
     }
-    tab->initialized = true;
-    if (IHost* h = tab->pane_manager.host())
-        tab->name = h->debug_state().name;
-    else
-        tab->name = "tab";
-    const int id = tab->id;
-    tabs_.push_back(std::move(tab));
-    activate_tab(id);
     return true;
 }
 
 int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
 {
-    auto tab = std::make_unique<Tab>(next_tab_id_++, make_pane_manager_deps());
-    const HostKind kind = host_kind.value_or(PaneManager::platform_default_split_host_kind());
-    if (!tab->pane_manager.create(*this, pixel_w, pixel_h, kind))
-    {
-        last_init_error_ = tab->pane_manager.error();
-        return -1;
-    }
-    tab->initialized = true;
-    if (IHost* h = tab->pane_manager.host())
-        tab->name = h->debug_state().name;
-    else
-        tab->name = "tab";
-    int id = tab->id;
-    tabs_.push_back(std::move(tab));
-    activate_tab(id);
+    const int id = tab_controller_.add_tab(
+        *this, pixel_w, pixel_h, make_pane_manager_deps(), host_kind);
+    if (id < 0)
+        last_init_error_ = tab_controller_.last_error();
     return id;
 }
 
 bool App::close_tab(int tab_id)
 {
-    if (tabs_.size() <= 1)
-        return false;
-    auto it = std::find_if(tabs_.begin(), tabs_.end(),
-        [tab_id](const auto& tab) { return tab->id == tab_id; });
-    if (it == tabs_.end())
-        return false;
-
-    const bool was_active = (tab_id == active_tab_id_);
-    if (was_active)
-    {
-        const auto replacement = std::find_if(tabs_.begin(), tabs_.end(),
-            [tab_id](const auto& tab) { return tab->id != tab_id; });
-        if (replacement == tabs_.end())
-            return false;
-        // Complete the focus/identity transition while both tabs are
-        // alive. No callback can observe an active id whose manager was just
-        // destroyed.
-        activate_tab((*replacement)->id);
-    }
-
-    (*it)->pane_manager.shutdown();
-    tabs_.erase(it);
-    return true;
+    return tab_controller_.close_tab(tab_id);
 }
 
 void App::activate_tab(int tab_id)
 {
-    if (tab_id == active_tab_id_ && find_active_tab() != nullptr)
-        return;
-
-    const auto target = std::find_if(tabs_.begin(), tabs_.end(),
-        [tab_id](const auto& tab) { return tab->id == tab_id; });
-    if (target == tabs_.end())
-    {
-        DRAXUL_LOG_ERROR(LogCategory::App, "Cannot activate missing tab id=%d", tab_id);
-        return;
-    }
-
-    if (Tab* current = find_active_tab())
-    {
-        if (IHost* h = current->pane_manager.focused_host())
-            h->on_focus_lost();
-    }
-    active_tab_id_ = tab_id;
-    if (IHost* h = (*target)->pane_manager.focused_host())
-        h->on_focus_gained();
+    tab_controller_.activate_tab(tab_id);
 }
 
 void App::next_tab()
 {
-    if (tabs_.size() <= 1)
-        return;
-    for (size_t i = 0; i < tabs_.size(); ++i)
-    {
-        if (tabs_[i]->id == active_tab_id_)
-        {
-            activate_tab(tabs_[(i + 1) % tabs_.size()]->id);
-            return;
-        }
-    }
+    tab_controller_.next_tab();
 }
 
 void App::prev_tab()
 {
-    if (tabs_.size() <= 1)
-        return;
-    for (size_t i = 0; i < tabs_.size(); ++i)
-    {
-        if (tabs_[i]->id == active_tab_id_)
-        {
-            size_t prev = (i == 0) ? tabs_.size() - 1 : i - 1;
-            activate_tab(tabs_[prev]->id);
-            return;
-        }
-    }
+    tab_controller_.prev_tab();
 }
 
 void App::move_tab(int direction)
 {
-    if (tabs_.size() <= 1)
-        return;
-    for (size_t i = 0; i < tabs_.size(); ++i)
-    {
-        if (tabs_[i]->id == active_tab_id_)
-        {
-            const auto n = static_cast<int>(tabs_.size());
-            const int target = (static_cast<int>(i) + direction + n) % n;
-            std::swap(tabs_[i], tabs_[target]);
-            return;
-        }
-    }
+    tab_controller_.move_tab(direction);
 }
 
 void App::activate_tab_by_index(int one_based_index)
 {
-    const int idx = one_based_index - 1;
-    if (idx < 0 || idx >= static_cast<int>(tabs_.size()))
-        return;
-    activate_tab(tabs_[static_cast<size_t>(idx)]->id);
+    tab_controller_.activate_tab_by_index(one_based_index);
 }
 
 void App::activate_pane_by_index(int one_based_index)
@@ -2472,73 +2323,52 @@ void App::activate_pane_by_index(int one_based_index)
 
 void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
 {
-    for (auto& tab : tabs_)
-        tab->pane_manager.recompute_viewports(origin_x, origin_y, pixel_w, pixel_h);
+    tab_controller_.recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }
 
 PaneManager& App::active_pane_manager()
 {
-    return require_active_tab("active_pane_manager").pane_manager;
+    return tab_controller_.active_pane_manager();
 }
 
 const PaneManager& App::active_pane_manager() const
 {
-    return require_active_tab("active_pane_manager const").pane_manager;
+    return tab_controller_.active_pane_manager();
 }
 
 Tab* App::find_active_tab() noexcept
 {
-    for (auto& tab : tabs_)
-    {
-        if (tab->id == active_tab_id_)
-            return tab.get();
-    }
-    return nullptr;
+    return tab_controller_.find_active_tab();
 }
 
 const Tab* App::find_active_tab() const noexcept
 {
-    for (const auto& tab : tabs_)
-    {
-        if (tab->id == active_tab_id_)
-            return tab.get();
-    }
-    return nullptr;
+    return tab_controller_.find_active_tab();
 }
 
 Tab& App::require_active_tab(std::string_view context)
 {
-    if (Tab* tab = find_active_tab())
-        return *tab;
-    DRAXUL_LOG_ERROR(LogCategory::App,
-        "Active tab invariant failed in %.*s (active_id=%d count=%zu)",
-        static_cast<int>(context.size()), context.data(), active_tab_id_, tabs_.size());
-    throw std::logic_error("Draxul active tab invariant failed in " + std::string(context));
+    return tab_controller_.require_active_tab(context);
 }
 
 const Tab& App::require_active_tab(std::string_view context) const
 {
-    if (const Tab* tab = find_active_tab())
-        return *tab;
-    DRAXUL_LOG_ERROR(LogCategory::App,
-        "Active tab invariant failed in %.*s (active_id=%d count=%zu)",
-        static_cast<int>(context.size()), context.data(), active_tab_id_, tabs_.size());
-    throw std::logic_error("Draxul active tab invariant failed in " + std::string(context));
+    return tab_controller_.require_active_tab(context);
 }
 
 const SplitTree& App::active_tree() const
 {
-    return active_pane_manager().tree();
+    return tab_controller_.active_tree();
 }
 
 int App::tab_count() const
 {
-    return static_cast<int>(tabs_.size());
+    return tab_controller_.count();
 }
 
 int App::active_tab_id() const
 {
-    return active_tab_id_;
+    return tab_controller_.active_tab_id();
 }
 
 void App::shutdown()
@@ -2558,10 +2388,7 @@ void App::shutdown()
     if (!discard_session_state_on_shutdown_)
         persist_session_state();
 
-    for (auto& tab : tabs_)
-        tab->pane_manager.shutdown();
-    tabs_.clear();
-    active_tab_id_ = -1;
+    tab_controller_.shutdown_all();
     render_root_ = RenderNode{};
 
     if (chrome_host_)
