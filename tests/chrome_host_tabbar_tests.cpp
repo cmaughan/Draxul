@@ -70,6 +70,7 @@ struct TabBarFixture
             .cell_width = renderer.cell_width_pixels,
             .cell_height = renderer.cell_height_pixels,
             .preferred_sidebar_columns = 20,
+            .space_count = space_controller.count(),
             .show_sidebar = space_controller.count() > 1,
         });
         host->set_shell_layout(layout);

@@ -8,6 +8,8 @@ inline constexpr int kMinSpaceSidebarColumns = 12;
 inline constexpr int kMaxSpaceSidebarColumns = 48;
 inline constexpr int kMinContentColumns = 20;
 inline constexpr int kAppShellDividerWidth = 4;
+inline constexpr int kAppShellSectionDividerHeight = 4;
+inline constexpr int kMinSidebarAgentRows = 2;
 
 struct AppShellRect
 {
@@ -29,6 +31,7 @@ struct AppShellLayoutInput
     int cell_width = 0;
     int cell_height = 0;
     int preferred_sidebar_columns = kDefaultSpaceSidebarColumns;
+    int space_count = 0;
     bool show_sidebar = false;
     bool show_tab_bar = true;
     bool zoomed = false;
@@ -39,6 +42,9 @@ struct AppShellLayout
     AppShellRect window;
     AppShellRect work_area;
     AppShellRect sidebar;
+    AppShellRect sidebar_spaces;
+    AppShellRect sidebar_section_divider;
+    AppShellRect sidebar_agents;
     AppShellRect sidebar_divider;
     AppShellRect content;
     AppShellRect tab_bar;

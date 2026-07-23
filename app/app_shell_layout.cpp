@@ -47,6 +47,28 @@ AppShellLayout compute_app_shell_layout(const AppShellLayoutInput& input)
             out.sidebar_visible = true;
             out.effective_sidebar_columns = sidebar_width / input.cell_width;
             out.sidebar = { 0, 0, sidebar_width, terminal_height };
+            const int section_divider_height = std::min(
+                kAppShellSectionDividerHeight, terminal_height);
+            const int minimum_agents_height = std::min(
+                kMinSidebarAgentRows * std::max(0, input.cell_height),
+                std::max(0, terminal_height - section_divider_height));
+            const int maximum_divider_y = std::max(
+                0, terminal_height - section_divider_height - minimum_agents_height);
+            const int desired_divider_y = std::max(0,
+                (std::max(0, input.space_count) + 2) * input.cell_height
+                    + input.cell_height / 2 - section_divider_height / 2);
+            const int section_divider_y = std::min(
+                desired_divider_y, maximum_divider_y);
+            out.sidebar_spaces = { 0, 0, sidebar_width, section_divider_y };
+            out.sidebar_section_divider = {
+                0, section_divider_y, sidebar_width, section_divider_height
+            };
+            out.sidebar_agents = {
+                0,
+                section_divider_y + section_divider_height,
+                sidebar_width,
+                std::max(0, terminal_height - section_divider_y - section_divider_height)
+            };
             out.sidebar_divider = {
                 sidebar_width, 0, kAppShellDividerWidth, terminal_height
             };

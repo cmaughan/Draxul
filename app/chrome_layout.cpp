@@ -163,6 +163,18 @@ float pane_frame_line_inset(float focus_border_width)
         + std::ceil(std::max(0.0f, focus_border_width) * 0.5f);
 }
 
+int pane_content_edge_inset(float focus_border_width, bool window_edge)
+{
+    return pane_content_inset(focus_border_width)
+        + (window_edge ? kPaneWindowEdgeExtraInset : 0);
+}
+
+float pane_frame_line_edge_inset(float focus_border_width, bool window_edge)
+{
+    return pane_frame_line_inset(focus_border_width)
+        + (window_edge ? static_cast<float>(kPaneWindowEdgeExtraInset) : 0.0f);
+}
+
 ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
 {
     ChromeLayoutOutput out;
@@ -179,11 +191,32 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
     const int cw = input.cell_width;
     const int ch = input.cell_height;
     const int pane_inset = std::max(0, input.pane_content_inset);
-    const float frame_line_inset = pane_frame_line_inset(input.focus_border);
     for (const auto& pane : input.panes)
     {
         if (pane.pane_w <= 0 || pane.pane_h <= 0)
             continue;
+        const bool window_left = pane.pane_x <= shell.pane_root.x;
+        const bool window_top = pane.pane_y <= shell.pane_root.y;
+        const bool window_right = pane.pane_x + pane.pane_w
+            >= shell.pane_root.x + shell.pane_root.w;
+        const bool window_bottom = pane.pane_y + pane.pane_h
+            >= shell.pane_root.y + shell.pane_root.h;
+        const float frame_left = pane_frame_line_edge_inset(
+            input.focus_border, window_left);
+        const float frame_top = pane_frame_line_edge_inset(
+            input.focus_border, window_top);
+        const float frame_right = pane_frame_line_edge_inset(
+            input.focus_border, window_right);
+        const float frame_bottom = pane_frame_line_edge_inset(
+            input.focus_border, window_bottom);
+        const int content_left = pane_inset
+            + (window_left ? kPaneWindowEdgeExtraInset : 0);
+        const int content_top = pane_inset
+            + (window_top ? kPaneWindowEdgeExtraInset : 0);
+        const int content_right = pane_inset
+            + (window_right ? kPaneWindowEdgeExtraInset : 0);
+        const int content_bottom = pane_inset
+            + (window_bottom ? kPaneWindowEdgeExtraInset : 0);
         ChromePaneFrameLayout frame;
         frame.leaf = pane.leaf;
         frame.focused = pane.focused;
@@ -193,24 +226,25 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             static_cast<float>(pane.pane_w), static_cast<float>(pane.pane_h)
         };
         frame.rect = {
-            static_cast<float>(pane.pane_x) + frame_line_inset,
-            static_cast<float>(pane.pane_y) + frame_line_inset,
-            std::max(0.0f, static_cast<float>(pane.pane_w) - frame_line_inset * 2.0f),
-            std::max(0.0f, static_cast<float>(pane.pane_h) - frame_line_inset * 2.0f)
+            static_cast<float>(pane.pane_x) + frame_left,
+            static_cast<float>(pane.pane_y) + frame_top,
+            std::max(0.0f, static_cast<float>(pane.pane_w) - frame_left - frame_right),
+            std::max(0.0f, static_cast<float>(pane.pane_h) - frame_top - frame_bottom)
         };
         if (input.show_status && pane.grid_rows > 0 && ch > 0)
         {
-            const float content_x = static_cast<float>(pane.pane_x + pane_inset);
-            const float content_y = static_cast<float>(pane.pane_y + pane_inset);
+            const float content_x = static_cast<float>(pane.pane_x + content_left);
+            const float content_y = static_cast<float>(pane.pane_y + content_top);
             const float host_bottom = static_cast<float>(
-                pane.pane_y + pane.pane_h - pane_inset - chrome_pill_band_height(ch));
+                pane.pane_y + pane.pane_h - content_bottom - chrome_pill_band_height(ch));
             const float grid_bottom = content_y
                 + static_cast<float>(input.grid_padding + pane.grid_rows * ch);
             const float tail_y = std::clamp(grid_bottom, content_y, host_bottom);
             frame.content_tail = {
                 content_x,
                 tail_y,
-                static_cast<float>(std::max(0, pane.pane_w - pane_inset * 2)),
+                static_cast<float>(
+                    std::max(0, pane.pane_w - content_left - content_right)),
                 std::max(0.0f, host_bottom - tail_y)
             };
         }
@@ -226,6 +260,27 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             static_cast<float>(shell.sidebar.x), static_cast<float>(shell.sidebar.y),
             static_cast<float>(shell.sidebar.w), static_cast<float>(shell.sidebar.h)
         };
+        out.sidebar_spaces_rect = {
+            static_cast<float>(shell.sidebar_spaces.x),
+            static_cast<float>(shell.sidebar_spaces.y),
+            static_cast<float>(shell.sidebar_spaces.w),
+            static_cast<float>(shell.sidebar_spaces.h)
+        };
+        out.sidebar_section_divider = {
+            static_cast<float>(shell.sidebar_section_divider.x),
+            static_cast<float>(shell.sidebar_section_divider.y),
+            static_cast<float>(shell.sidebar_section_divider.w),
+            static_cast<float>(shell.sidebar_section_divider.h)
+        };
+        out.sidebar_agents_rect = {
+            static_cast<float>(shell.sidebar_agents.x),
+            static_cast<float>(shell.sidebar_agents.y),
+            static_cast<float>(shell.sidebar_agents.w),
+            static_cast<float>(shell.sidebar_agents.h)
+        };
+        out.sidebar_agents_title_row = std::clamp(
+            (shell.sidebar_agents.y - shell.sidebar.y + ch - 1) / ch,
+            0, out.sidebar_rows - 1);
         out.sidebar_divider = {
             static_cast<float>(shell.sidebar_divider.x),
             static_cast<float>(shell.sidebar_divider.y),
@@ -235,7 +290,9 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
         for (size_t i = 0; i < input.spaces.size(); ++i)
         {
             const int row = static_cast<int>(i) + 2;
-            if (row >= out.sidebar_rows)
+            const int row_bottom = shell.sidebar.y + (row + 1) * ch;
+            if (row >= out.sidebar_rows
+                || row_bottom > shell.sidebar_spaces.y + shell.sidebar_spaces.h)
                 break;
             const auto& source = input.spaces[i];
             const std::string prefix = std::to_string(i + 1) + ": ";
@@ -400,15 +457,30 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
     {
         for (const auto& pane : input.panes)
         {
+            const bool window_left = pane.pane_x <= shell.pane_root.x;
+            const bool window_top = pane.pane_y <= shell.pane_root.y;
+            const bool window_right = pane.pane_x + pane.pane_w
+                >= shell.pane_root.x + shell.pane_root.w;
+            const bool window_bottom = pane.pane_y + pane.pane_h
+                >= shell.pane_root.y + shell.pane_root.h;
+            const int content_left = pane_inset
+                + (window_left ? kPaneWindowEdgeExtraInset : 0);
+            const int content_top = pane_inset
+                + (window_top ? kPaneWindowEdgeExtraInset : 0);
+            const int content_right = pane_inset
+                + (window_right ? kPaneWindowEdgeExtraInset : 0);
+            const int content_bottom = pane_inset
+                + (window_bottom ? kPaneWindowEdgeExtraInset : 0);
             const bool editing = input.rename.target == RenameTarget::Pane
                 && input.rename.leaf_id == pane.leaf;
             const std::string display_text = editing ? std::string(input.rename.buffer) : pane.text;
             const std::string number = std::to_string(pane.index);
             const int text_cols = display_columns(display_text);
-            const int content_width = std::max(0, pane.pane_w - pane_inset * 2);
+            const int content_width = std::max(
+                0, pane.pane_w - content_left - content_right);
             const auto size = pane_status_pill_layout(content_width, cw,
                 static_cast<int>(number.size()), text_cols, editing);
-            if (!size.visible || pane.pane_h <= ch + pane_inset * 2)
+            if (!size.visible || pane.pane_h <= ch + content_top + content_bottom)
                 continue;
             ChromePaneLayout status;
             status.leaf = pane.leaf;
@@ -424,10 +496,11 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 label = number + ": " + display_text;
 
             const float right = static_cast<float>(
-                pane.pane_x + pane.pane_w - pane_inset - kPaneStatusRightMarginCols * cw);
+                pane.pane_x + pane.pane_w - content_right
+                - kPaneStatusRightMarginCols * cw);
             const float logical_x = right - static_cast<float>(size.pill_cols * cw);
             const float logical_y = static_cast<float>(
-                pane.pane_y + pane.pane_h - pane_inset - ch);
+                pane.pane_y + pane.pane_h - content_bottom - ch);
             static_cast<ChromePillLayout&>(status) = layout_chrome_pill({
                 .grid_x = logical_x,
                 .grid_y = logical_y,
@@ -443,7 +516,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             });
             const int logical_x_i = static_cast<int>(logical_x);
             status.viewport_x = logical_x_i - input.grid_padding;
-            status.viewport_y = pane.pane_y + pane.pane_h - pane_inset
+            status.viewport_y = pane.pane_y + pane.pane_h - content_bottom
                 - ch - input.grid_padding;
             status.viewport_w = size.pill_cols * cw + input.grid_padding * 2;
             status.viewport_h = ch + input.grid_padding;

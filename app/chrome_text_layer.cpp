@@ -199,6 +199,11 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
         write_pill_text(cells, layout.sidebar_cols, space.row, space,
             *text_service_, space.palette.accent_fg, space.palette.body_fg);
     }
+    if (layout.sidebar_agents_title_row >= 0
+        && layout.sidebar_agents_title_row < layout.sidebar_rows)
+    {
+        write_text(layout.sidebar_agents_title_row, 1, "AGENTS", theme.tab_inactive_fg);
+    }
     sidebar_handle_->update_cells(cells);
 }
 

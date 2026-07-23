@@ -8,7 +8,9 @@ in-memory `Space`/`SpaceController` lifecycle were completed on 2026-07-22. Drax
 can now create, activate, rename, re-root, enumerate, and close multiple live Spaces;
 inactive hosts keep pumping and retain their processes. The app-level lifecycle,
 command-palette actions, and clickable multi-Space left rail are also implemented.
-Persistence v2 and last-active Space restore remain future work.
+The rail now reserves a lower Agents section with its heading and an application-shell
+divider; agent rows, registry data, persistence v2, and last-active Space restore remain
+future work.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -425,6 +427,11 @@ directory.
 Because Draxul performs the launch, initial identity is reliable without foreground
 process inference. The Agents section can list, focus, rename, and show basic lifecycle
 for these known targets.
+
+**Implemented UI shell (2026-07-23):** the root application layout now divides the left
+rail into explicit Spaces and Agents regions. A horizontal separator follows the visible
+Space list, keeps enough lower-rail room for the `AGENTS` heading at constrained window
+heights, and leaves agent rows deliberately empty until the registry exists.
 
 **Exit condition:** a user can start several agents across Spaces and jump directly to
 the correct Space, tab, and pane from the sidebar.

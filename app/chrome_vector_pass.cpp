@@ -88,6 +88,18 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
                     space.palette.body_bg, space.palette.accent_bg);
             }
 
+            if (layout.sidebar_section_divider.h > 0.0f)
+            {
+                nvgBeginPath(vg);
+                nvgRect(vg,
+                    layout.sidebar_section_divider.x,
+                    layout.sidebar_section_divider.y,
+                    layout.sidebar_section_divider.w,
+                    layout.sidebar_section_divider.h);
+                nvgFillColor(vg, nvg_color(theme.divider));
+                nvgFill(vg);
+            }
+
             constexpr float shell_frame_inset = 2.0f;
             nvgBeginPath(vg);
             nvgRect(vg,

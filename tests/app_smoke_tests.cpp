@@ -1204,7 +1204,7 @@ TEST_CASE("app smoke: restoring a multi-tab session reapplies chrome offsets to 
     REQUIRE(g_viewport_hosts.size() == 2);
 
     const int expected_tab_y = g_last_fake_renderer->cell_size_pixels().second + 2
-        + pane_content_inset(3.0f);
+        + pane_content_edge_inset(3.0f, true);
 
     for (FakeHost* host : g_viewport_hosts)
     {

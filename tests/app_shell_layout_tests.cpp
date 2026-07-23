@@ -15,6 +15,7 @@ AppShellLayoutInput base_input()
         .cell_width = 10,
         .cell_height = 20,
         .preferred_sidebar_columns = 20,
+        .space_count = 2,
         .show_sidebar = true,
         .show_tab_bar = true,
     };
@@ -26,12 +27,27 @@ TEST_CASE("App shell partitions sidebar, tab bar, panes, and diagnostics", "[app
     const auto layout = compute_app_shell_layout(base_input());
 
     CHECK(layout.sidebar == AppShellRect{ 0, 0, 200, 700 });
+    CHECK(layout.sidebar_spaces == AppShellRect{ 0, 0, 200, 88 });
+    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 88, 200, 4 });
+    CHECK(layout.sidebar_agents == AppShellRect{ 0, 92, 200, 608 });
     CHECK(layout.sidebar_divider == AppShellRect{ 200, 0, 4, 700 });
     CHECK(layout.content == AppShellRect{ 204, 0, 996, 700 });
     CHECK(layout.tab_bar == AppShellRect{ 204, 0, 996, 22 });
     CHECK(layout.pane_root == AppShellRect{ 204, 22, 996, 678 });
     CHECK(layout.diagnostics == AppShellRect{ 0, 700, 1200, 100 });
     CHECK(layout.effective_sidebar_columns == 20);
+}
+
+TEST_CASE("App shell reserves an Agents heading when the Space list is tall", "[app_shell]")
+{
+    auto input = base_input();
+    input.window_height = 140;
+    input.terminal_height = 140;
+    input.space_count = 20;
+    const auto layout = compute_app_shell_layout(input);
+
+    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 96, 200, 4 });
+    CHECK(layout.sidebar_agents == AppShellRect{ 0, 100, 200, 40 });
 }
 
 TEST_CASE("App shell hides sidebar for one Space", "[app_shell]")

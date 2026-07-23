@@ -2091,6 +2091,7 @@ void App::refresh_app_shell_layout()
         .cell_width = cell_width,
         .cell_height = cell_height,
         .preferred_sidebar_columns = config_.space_sidebar_columns,
+        .space_count = space_controller_.count(),
         .show_sidebar = space_controller_.count() > 1,
         .show_tab_bar = true,
         .zoomed = zoomed,
@@ -2148,13 +2149,30 @@ HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
     viewport.padding = padding;
     viewport.pixel_scale = layout.pixel_scale;
 
-    const int frame_inset = pane_content_inset(config_.focus_border_width);
-    const int inset_x = std::min(frame_inset, std::max(0, viewport.pixel_size.x / 2));
-    const int inset_y = std::min(frame_inset, std::max(0, viewport.pixel_size.y / 2));
-    viewport.pixel_pos.x += inset_x;
-    viewport.pixel_pos.y += inset_y;
-    viewport.pixel_size.x = std::max(0, viewport.pixel_size.x - inset_x * 2);
-    viewport.pixel_size.y = std::max(0, viewport.pixel_size.y - inset_y * 2);
+    const bool window_left = desc.pixel_pos.x <= shell_layout_.pane_root.x;
+    const bool window_top = desc.pixel_pos.y <= shell_layout_.pane_root.y;
+    const bool window_right = desc.pixel_pos.x + desc.pixel_size.x
+        >= shell_layout_.pane_root.x + shell_layout_.pane_root.w;
+    const bool window_bottom = desc.pixel_pos.y + desc.pixel_size.y
+        >= shell_layout_.pane_root.y + shell_layout_.pane_root.h;
+    const int requested_left = pane_content_edge_inset(
+        config_.focus_border_width, window_left);
+    const int requested_top = pane_content_edge_inset(
+        config_.focus_border_width, window_top);
+    const int requested_right = pane_content_edge_inset(
+        config_.focus_border_width, window_right);
+    const int requested_bottom = pane_content_edge_inset(
+        config_.focus_border_width, window_bottom);
+    const int inset_left = std::min(requested_left, std::max(0, viewport.pixel_size.x));
+    const int inset_top = std::min(requested_top, std::max(0, viewport.pixel_size.y));
+    const int inset_right = std::min(
+        requested_right, std::max(0, viewport.pixel_size.x - inset_left));
+    const int inset_bottom = std::min(
+        requested_bottom, std::max(0, viewport.pixel_size.y - inset_top));
+    viewport.pixel_pos.x += inset_left;
+    viewport.pixel_pos.y += inset_top;
+    viewport.pixel_size.x = std::max(0, viewport.pixel_size.x - inset_left - inset_right);
+    viewport.pixel_size.y = std::max(0, viewport.pixel_size.y - inset_top - inset_bottom);
 
     // Reserve exactly one shared Chrome pill band at the bottom of every pane.
     // ChromeHost fills any fractional grid-row tail with the host background,

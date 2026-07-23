@@ -16,6 +16,7 @@ namespace draxul
 constexpr int kChromeGridPadding = 4;
 constexpr int kPaneContentInset = 8;
 constexpr int kPaneFrameOuterMargin = 4;
+constexpr int kPaneWindowEdgeExtraInset = 2;
 
 enum class ChromeHitKind
 {
@@ -169,7 +170,11 @@ struct ChromeLayoutOutput
     int sidebar_height = 0;
     int sidebar_cols = 0;
     int sidebar_rows = 0;
+    int sidebar_agents_title_row = -1;
     ChromeRect sidebar_rect{};
+    ChromeRect sidebar_spaces_rect{};
+    ChromeRect sidebar_section_divider{};
+    ChromeRect sidebar_agents_rect{};
     ChromeRect sidebar_divider{};
     std::vector<ChromeSpaceLayout> spaces;
     ChromeRect top_bar_clip{};
@@ -197,6 +202,8 @@ PaneStatusPillLayout pane_status_pill_layout(
     int pane_w_px, int cell_w_px, int number_cols, int status_text_cols, bool editing);
 int pane_content_inset(float focus_border_width);
 float pane_frame_line_inset(float focus_border_width);
+int pane_content_edge_inset(float focus_border_width, bool window_edge);
+float pane_frame_line_edge_inset(float focus_border_width, bool window_edge);
 
 ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input);
 int hit_test_chrome(const ChromeLayoutOutput& layout, ChromeHitKind kind, int px, int py);
