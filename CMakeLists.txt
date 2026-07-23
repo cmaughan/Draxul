@@ -267,6 +267,8 @@ endif()
 
 add_library(draxul-app
     app/app.cpp
+    app/app_shell_layout.cpp
+    app/chrome_pill.cpp
     app/chrome_host.cpp
     app/chrome_layout.cpp
     app/chrome_text_layer.cpp

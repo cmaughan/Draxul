@@ -82,6 +82,7 @@ struct AppConfig
     std::vector<std::string> fallback_paths;
     float palette_bg_alpha = 0.9f; // command palette background opacity [0.0, 1.0]
     float focus_border_width = 3.0f; // pane focus indicator thickness in pixels
+    int space_sidebar_columns = 20; // preferred width of the Space sidebar in grid columns
     bool enable_toast_notifications = true; // master enable for non-blocking toast popups
     float toast_duration_s = 4.0f; // how long each toast remains visible before fading out
     bool show_pane_status = true; // per-pane status bar (host kind | dims | cwd) below each pane

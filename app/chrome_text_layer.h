@@ -19,9 +19,9 @@ public:
     void draw(IFrameContext& frame, const ChromeLayoutOutput& layout, const ChromeTheme& theme);
 
 private:
-    void update_top_bar(const ChromeLayoutOutput& layout, const ChromeTheme& theme);
+    void update_top_bar(const ChromeLayoutOutput& layout);
     void update_sidebar(const ChromeLayoutOutput& layout, const ChromeTheme& theme);
-    void update_panes(const ChromeLayoutOutput& layout, const ChromeTheme& theme);
+    void update_panes(const ChromeLayoutOutput& layout);
 
     IGridRenderer* renderer_ = nullptr;
     TextService* text_service_ = nullptr;

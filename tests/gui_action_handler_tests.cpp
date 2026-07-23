@@ -363,6 +363,17 @@ TEST_CASE("gui action handler: Space lifecycle actions invoke their callbacks", 
     CHECK(close_count == 1);
 }
 
+TEST_CASE("gui action handler: quit invokes application callback", "[gui_actions][lifecycle]")
+{
+    GuiActionHandler::Deps deps;
+    int quit_count = 0;
+    deps.on_quit = [&quit_count]() { ++quit_count; };
+    GuiActionHandler handler(std::move(deps));
+
+    REQUIRE(handler.execute("quit"));
+    CHECK(quit_count == 1);
+}
+
 // ---------------------------------------------------------------------------
 // Registry parity (WI 67 / WI 71)
 // ---------------------------------------------------------------------------

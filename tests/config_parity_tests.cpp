@@ -131,6 +131,7 @@ void compare_against_golden(const std::string& actual, const char* golden_name)
 constexpr const char* kKitchenSinkToml = R"(window_width = 1777
 window_height = 999
 font_size = 17.5
+space_sidebar_columns = 31
 atlas_size = 4096
 enable_ligatures = false
 smooth_scroll = false
@@ -173,6 +174,7 @@ margin_columns = 4.5
 tab_bar_bg = "#111213"
 tab_active_fg = "#141516"
 tab_inactive_fg = "#171819"
+space_active_bg = "#18191a"
 tab_active_bg = "#1a1b1c"
 tab_inactive_bg = "#1d1e1f"
 tab_editing_bg = "#202122"

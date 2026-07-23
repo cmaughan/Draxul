@@ -36,7 +36,7 @@ namespace
 // Field order mirrors the historical wrong-type-check order in
 // app_config_io.cpp so that, once type-checking is schema-driven, the
 // "first reported error wins" behavior is preserved byte-for-byte.
-constexpr std::array<ConfigFieldDesc, 51> kFields = { {
+constexpr std::array<ConfigFieldDesc, 53> kFields = { {
     // -- top level ---------------------------------------------------------
     { "", "window_width", ValueKind::Int,
         +[](const AppConfig& c) -> const int& { return c.window_width; },
@@ -50,6 +50,10 @@ constexpr std::array<ConfigFieldDesc, 51> kFields = { {
         +[](const AppConfig& c) -> const float& { return c.font_size; },
         RangeRule::Clamp, RangeRule::Clamp, 6.0, 72.0, false, EmitRule::Always,
         "Terminal/grid font point size. Clamped into range." },
+    { "", "space_sidebar_columns", ValueKind::Int,
+        +[](const AppConfig& c) -> const int& { return c.space_sidebar_columns; },
+        RangeRule::Clamp, RangeRule::Clamp, 12.0, 48.0, false, EmitRule::Always,
+        "Preferred Space sidebar width in terminal grid columns." },
     { "", "atlas_size", ValueKind::Int,
         +[](const AppConfig& c) -> const int& { return c.atlas_size; },
         RangeRule::PowerOfTwo, RangeRule::PowerOfTwo, 1024.0, 8192.0, false, EmitRule::Always,
@@ -137,7 +141,7 @@ constexpr std::array<ConfigFieldDesc, 51> kFields = { {
     { "chrome", "tab_bar_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_bar_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Tab bar background color." },
+        "Application chrome background color (tab bar, Spaces rail, and pane gutters)." },
     { "chrome", "tab_active_fg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_active_fg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -146,6 +150,10 @@ constexpr std::array<ConfigFieldDesc, 51> kFields = { {
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_inactive_fg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
         "Inactive tab label color." },
+    { "chrome", "space_active_bg", ValueKind::ColorHex,
+        +[](const AppConfig& c) -> const Color& { return c.chrome.space_active_bg; },
+        RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
+        "Active Space number accent color." },
     { "chrome", "tab_active_bg", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.tab_active_bg; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
@@ -161,7 +169,7 @@ constexpr std::array<ConfigFieldDesc, 51> kFields = { {
     { "chrome", "divider", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.divider; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Pane divider color." },
+        "Space sidebar divider color." },
     { "chrome", "focus_border", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.focus_border; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,

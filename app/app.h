@@ -1,4 +1,5 @@
 #pragma once
+#include "app_shell_layout.h"
 #include "command_palette_host.h"
 #include "diagnostics_panel_host.h"
 #include "frame_timer.h"
@@ -99,6 +100,10 @@ public:
     {
         return space_controller_;
     }
+    const AppShellLayout& shell_layout() const noexcept
+    {
+        return shell_layout_;
+    }
     const std::string& init_error() const
     {
         return last_init_error_;
@@ -136,6 +141,10 @@ private:
     void push_toast(int level, std::string_view message) override;
     void update_diagnostics_panel();
     void refresh_window_layout();
+    void refresh_app_shell_layout();
+    bool hit_test_app_chrome(int px, int py) const;
+    bool hit_test_shell_divider(int px, int py) const;
+    void resize_space_sidebar_to_pixel(int px);
     // Converts a PaneDescriptor (pixel region from SplitTree) to a full HostViewport.
     HostViewport viewport_from_descriptor(const PaneDescriptor& desc) const;
     void wire_gui_actions();
@@ -176,7 +185,6 @@ private:
     void move_tab(int direction); // -1 = left, +1 = right
     void activate_tab_by_index(int one_based_index);
     void activate_pane_by_index(int one_based_index);
-    void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
     Tab* find_active_tab() noexcept;
     const Tab* find_active_tab() const noexcept;
     Tab& require_active_tab(std::string_view context);
@@ -237,6 +245,7 @@ private:
     };
     std::vector<PendingInitToast> pending_init_toasts_;
     std::unique_ptr<class ChromeHost> chrome_host_;
+    AppShellLayout shell_layout_{};
     SpaceController space_controller_;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;

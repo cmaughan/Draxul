@@ -1,6 +1,6 @@
 #include "chrome_vector_pass.h"
 
-#include <cmath>
+#include <algorithm>
 #include <nanovg.h>
 
 namespace draxul
@@ -31,6 +31,25 @@ void draw_caret(NVGcontext* vg, const std::optional<ChromeCaretLayout>& caret,
     nvgFillColor(vg, nvg_color(color));
     nvgFill(vg);
 }
+
+void draw_segmented_pill(NVGcontext* vg, const ChromeRect& rect,
+    const ChromeRect& clip, float accent_w, const Color& body_bg,
+    const Color& accent_bg)
+{
+    const float radius = rect.h * 0.5f;
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, radius);
+    nvgFillColor(vg, nvg_color(body_bg));
+    nvgFill(vg);
+
+    nvgSave(vg);
+    nvgIntersectScissor(vg, clip.x, clip.y, clip.w, clip.h);
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, rect.x, rect.y, accent_w, rect.h, radius);
+    nvgFillColor(vg, nvg_color(accent_bg));
+    nvgFill(vg);
+    nvgRestore(vg);
+}
 } // namespace
 
 bool ChromeVectorPass::initialize()
@@ -58,27 +77,59 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
         if (layout.sidebar_width > 0)
         {
             nvgBeginPath(vg);
-            nvgRect(vg, 0.0f, 0.0f, static_cast<float>(layout.sidebar_width),
-                static_cast<float>(layout.sidebar_height));
+            nvgRect(vg, layout.sidebar_rect.x, layout.sidebar_rect.y,
+                layout.sidebar_rect.w, layout.sidebar_rect.h);
             nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
             nvgFill(vg);
 
             for (const auto& space : layout.spaces)
             {
-                const auto& rect = space.rect;
+                draw_segmented_pill(vg, space.rect, space.clip, space.accent_w,
+                    space.palette.body_bg, space.palette.accent_bg);
+            }
+
+            constexpr float shell_frame_inset = 2.0f;
+            nvgBeginPath(vg);
+            nvgRect(vg,
+                layout.sidebar_rect.x + shell_frame_inset,
+                layout.sidebar_rect.y + shell_frame_inset,
+                std::max(0.0f, layout.sidebar_rect.w - shell_frame_inset * 2.0f),
+                std::max(0.0f, layout.sidebar_rect.h - shell_frame_inset * 2.0f));
+            nvgStrokeColor(vg, nvg_color(theme.tab_inactive_bg));
+            nvgStrokeWidth(vg, 1.0f);
+            nvgStroke(vg);
+
+            if (layout.sidebar_divider.w > 0)
+            {
                 nvgBeginPath(vg);
-                nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, 4.0f);
-                nvgFillColor(vg, nvg_color(
-                    space.active ? theme.tab_active_bg : theme.tab_inactive_bg));
+                nvgRect(vg, layout.sidebar_divider.x, layout.sidebar_divider.y,
+                    layout.sidebar_divider.w, layout.sidebar_divider.h);
+                nvgFillColor(vg, nvg_color(theme.divider));
+                nvgFill(vg);
+            }
+        }
+
+        for (const auto& pane : layout.pane_frames)
+        {
+            nvgBeginPath(vg);
+            nvgRect(vg, pane.outer.x, pane.outer.y, pane.outer.w, pane.outer.h);
+            nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
+            nvgFill(vg);
+
+            if (pane.content_tail.w > 0.0f && pane.content_tail.h > 0.0f)
+            {
+                nvgBeginPath(vg);
+                nvgRect(vg, pane.content_tail.x, pane.content_tail.y,
+                    pane.content_tail.w, pane.content_tail.h);
+                nvgFillColor(vg, nvg_color(pane.content_background));
                 nvgFill(vg);
             }
 
             nvgBeginPath(vg);
-            nvgMoveTo(vg, static_cast<float>(layout.sidebar_width) - 0.5f, 0.0f);
-            nvgLineTo(vg, static_cast<float>(layout.sidebar_width) - 0.5f,
-                static_cast<float>(layout.sidebar_height));
-            nvgStrokeColor(vg, nvg_color(theme.divider));
-            nvgStrokeWidth(vg, 1.0f);
+            nvgRect(vg, pane.rect.x, pane.rect.y, pane.rect.w, pane.rect.h);
+            nvgStrokeColor(vg, nvg_color(
+                pane.focused ? theme.focus_border : theme.tab_inactive_bg));
+            nvgStrokeWidth(vg, pane.focused ? layout.focus_border : 1.0f);
             nvgStroke(vg);
         }
 
@@ -86,20 +137,8 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
         {
             const auto& rect = status.rect;
             const float radius = rect.h * 0.5f;
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, radius);
-            nvgFillColor(vg, nvg_color(status.editing ? theme.status_editing_bg : theme.status_bar_bg));
-            nvgFill(vg);
-
-            nvgSave(vg);
-            nvgIntersectScissor(vg, status.clip.x, status.clip.y, status.clip.w, status.clip.h);
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, rect.x, rect.y, status.accent_w, rect.h, radius);
-            nvgFillColor(vg, nvg_color(status.focused
-                    ? theme.status_focused_accent_bg
-                    : theme.status_inactive_accent_bg));
-            nvgFill(vg);
-            nvgRestore(vg);
+            draw_segmented_pill(vg, rect, status.clip, status.accent_w,
+                status.palette.body_bg, status.palette.accent_bg);
 
             if (status.editing)
             {
@@ -115,9 +154,8 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
         if (layout.bar_height > 0)
         {
             nvgBeginPath(vg);
-            nvgRect(vg, static_cast<float>(layout.content_x), 0.0f,
-                static_cast<float>(layout.bar_width),
-                static_cast<float>(layout.bar_height));
+            nvgRect(vg, layout.top_bar_clip.x, layout.top_bar_clip.y,
+                layout.top_bar_clip.w, layout.top_bar_clip.h);
             nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
             nvgFill(vg);
         }
@@ -125,18 +163,8 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
         {
             const auto& rect = tab.rect;
             const float radius = rect.h * 0.5f;
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, rect.x, rect.y, rect.w, rect.h, radius);
-            nvgFillColor(vg, nvg_color(tab.editing ? theme.tab_editing_bg : theme.tab_inactive_bg));
-            nvgFill(vg);
-
-            nvgSave(vg);
-            nvgIntersectScissor(vg, tab.clip.x, tab.clip.y, tab.clip.w, tab.clip.h);
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, rect.x, rect.y, tab.accent_w, rect.h, radius);
-            nvgFillColor(vg, nvg_color(tab.active ? theme.tab_active_bg : theme.tab_inactive_bg));
-            nvgFill(vg);
-            nvgRestore(vg);
+            draw_segmented_pill(vg, rect, tab.clip, tab.accent_w,
+                tab.palette.body_bg, tab.palette.accent_bg);
 
             if (tab.editing)
             {
@@ -164,55 +192,14 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
         for (const auto& divider : layout.dividers)
         {
             const auto& rect = divider.rect;
+            if (rect.w <= 0.0f || rect.h <= 0.0f)
+                continue;
             nvgBeginPath(vg);
-            if (divider.direction == SplitDirection::Vertical)
-            {
-                const float center = rect.x + rect.w * 0.5f;
-                nvgMoveTo(vg, center, rect.y);
-                nvgLineTo(vg, center, rect.y + rect.h);
-            }
-            else
-            {
-                const float center = rect.y + rect.h * 0.5f;
-                nvgMoveTo(vg, rect.x, center);
-                nvgLineTo(vg, rect.x + rect.w, center);
-            }
-            nvgStrokeColor(vg, nvg_color(theme.divider));
-            nvgStrokeWidth(vg, 1.0f);
-            nvgStroke(vg);
+            nvgRect(vg, rect.x, rect.y, rect.w, rect.h);
+            nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
+            nvgFill(vg);
         }
 
-        if (layout.focus_rect)
-        {
-            const auto& focus = *layout.focus_rect;
-            const float half = layout.focus_border * 0.5f;
-            constexpr float divider_half = static_cast<float>(SplitTree::kDividerWidth) * 0.5f;
-            const float pane_right = focus.x + focus.w;
-            const float pane_bottom = focus.y + focus.h;
-            bool right_divider = false;
-            bool bottom_divider = false;
-            for (const auto& divider : layout.dividers)
-            {
-                if (divider.direction == SplitDirection::Vertical
-                    && std::abs(divider.rect.x - pane_right) < 1.0f)
-                    right_divider = true;
-                if (divider.direction == SplitDirection::Horizontal
-                    && std::abs(divider.rect.y - pane_bottom) < 1.0f)
-                    bottom_divider = true;
-            }
-            const float right = right_divider ? pane_right + divider_half : pane_right - half;
-            const float bottom = bottom_divider ? pane_bottom + divider_half : pane_bottom - half;
-            nvgStrokeColor(vg, nvg_color(theme.focus_border));
-            nvgStrokeWidth(vg, layout.focus_border);
-            nvgBeginPath(vg);
-            nvgMoveTo(vg, right, focus.y);
-            nvgLineTo(vg, right, bottom);
-            nvgStroke(vg);
-            nvgBeginPath(vg);
-            nvgMoveTo(vg, focus.x, bottom);
-            nvgLineTo(vg, right, bottom);
-            nvgStroke(vg);
-        }
     });
 
     RenderViewport viewport;

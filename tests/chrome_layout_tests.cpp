@@ -6,6 +6,19 @@ using namespace draxul;
 
 namespace
 {
+void refresh_shell(ChromeLayoutInput& input, bool show_sidebar = false)
+{
+    input.shell_layout = compute_app_shell_layout({
+        .window_width = input.viewport_width,
+        .window_height = input.viewport_height,
+        .terminal_height = input.viewport_height,
+        .cell_width = input.cell_width,
+        .cell_height = input.cell_height,
+        .preferred_sidebar_columns = 20,
+        .show_sidebar = show_sidebar,
+    });
+}
+
 ChromeLayoutInput base_input()
 {
     ChromeLayoutInput input;
@@ -15,6 +28,7 @@ ChromeLayoutInput base_input()
     input.cell_height = 20;
     input.show_top_bar = true;
     input.tabs = { { 11, "alpha", true }, { 22, "beta", false } };
+    refresh_shell(input);
     return input;
 }
 } // namespace
@@ -53,33 +67,49 @@ TEST_CASE("ChromeLayout golden tab structure remains stable", "[chrome][layout][
 TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][spaces]")
 {
     auto input = base_input();
-    input.sidebar_width = 200;
+    refresh_shell(input, true);
     input.spaces = {
         { 0, "default", true },
         { 7, "renderer", false },
     };
 
     const auto layout = compute_chrome_layout(input);
-    REQUIRE(layout.content_x == 200);
+    REQUIRE(layout.content_x == 204);
     REQUIRE(layout.sidebar_width == 200);
     REQUIRE(layout.sidebar_cols == 20);
-    REQUIRE(layout.bar_width == 600);
-    REQUIRE(layout.grid_cols == 60);
+    REQUIRE(layout.bar_width == 596);
+    REQUIRE(layout.grid_cols == 59);
     REQUIRE(layout.spaces.size() == 2);
 
     CHECK(layout.spaces[0].space_id == 0);
     CHECK(layout.spaces[0].row == 2);
     CHECK(layout.spaces[0].active);
-    CHECK(layout.spaces[0].label == "1 default");
+    CHECK(layout.spaces[0].label == "1: default");
+    CHECK(layout.spaces[0].accent_w == Catch::Approx(30.0f));
+    CHECK(layout.spaces[0].rect.x == Catch::Approx(6.5f));
+    CHECK(layout.spaces[0].rect.y == Catch::Approx(42.0f));
+    CHECK(layout.spaces[0].rect.w == Catch::Approx(115.0f));
+    CHECK(layout.spaces[0].rect.h == Catch::Approx(16.0f));
+    CHECK(layout.spaces[0].palette.body_bg.r
+        == Catch::Approx(input.theme.tab_inactive_bg.r));
+    CHECK(layout.spaces[0].palette.accent_bg.r
+        == Catch::Approx(input.theme.space_active_bg.r));
     CHECK(layout.spaces[1].space_id == 7);
     CHECK(layout.spaces[1].row == 3);
     CHECK_FALSE(layout.spaces[1].active);
+    CHECK(layout.spaces[1].label == "2: renderer");
     CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 50) == 0);
     CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 70) == 7);
     CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 50) == -1);
 
     REQUIRE(layout.tabs.size() == 2);
-    CHECK(layout.tabs[0].rect.x == Catch::Approx(206.5f));
+    CHECK(layout.tabs[0].rect.x == Catch::Approx(210.5f));
+    CHECK(layout.spaces[0].rect.x - layout.sidebar_rect.x
+        == Catch::Approx(layout.tabs[0].rect.x - layout.content_x));
+    CHECK(layout.spaces[0].rect.y
+            - static_cast<float>(layout.spaces[0].row * layout.cell_height)
+        == Catch::Approx(layout.tabs[0].rect.y));
+    CHECK(layout.spaces[0].rect.h == Catch::Approx(layout.tabs[0].rect.h));
 }
 
 TEST_CASE("ChromeLayout keeps logical structure while DPI scales physical geometry",
@@ -89,6 +119,7 @@ TEST_CASE("ChromeLayout keeps logical structure while DPI scales physical geomet
     const auto one_x = compute_chrome_layout(input);
     input.cell_width = 20;
     input.cell_height = 40;
+    refresh_shell(input);
     const auto two_x = compute_chrome_layout(input);
     REQUIRE(two_x.tabs.size() == one_x.tabs.size());
     CHECK(two_x.tabs[0].col_begin == one_x.tabs[0].col_begin);
@@ -127,14 +158,30 @@ TEST_CASE("ChromeLayout pane status structure degrades and keeps stable leaf hit
     auto input = base_input();
     input.show_status = true;
     input.panes = {
-        { 0, 22, 200, 200, 1, "a very long pane label", true, 41 },
-        { 205, 22, 60, 200, 2, "shell", false, 42 },
+        { 0, 22, 200, 200, 1, "a very long pane label", true, 41,
+            Color{ 0.05f, 0.06f, 0.07f, 1.0f }, 7 },
+        { 205, 22, 70, 200, 2, "shell", false, 42 },
     };
     const auto layout = compute_chrome_layout(input);
+    REQUIRE(layout.pane_frames.size() == 2);
+    CHECK(layout.pane_frames[0].leaf == 41);
+    CHECK(layout.pane_frames[0].focused);
+    CHECK(layout.pane_frames[0].outer.x == Catch::Approx(0.0f));
+    CHECK(layout.pane_frames[0].outer.y == Catch::Approx(22.0f));
+    CHECK(layout.pane_frames[0].rect.x == Catch::Approx(6.0f));
+    CHECK(layout.pane_frames[0].rect.y == Catch::Approx(28.0f));
+    CHECK(layout.pane_frames[0].rect.w == Catch::Approx(188.0f));
+    CHECK(layout.pane_frames[0].rect.h == Catch::Approx(188.0f));
+    CHECK(layout.pane_frames[0].content_tail.x == Catch::Approx(8.0f));
+    CHECK(layout.pane_frames[0].content_tail.y == Catch::Approx(174.0f));
+    CHECK(layout.pane_frames[0].content_tail.w == Catch::Approx(184.0f));
+    CHECK(layout.pane_frames[0].content_tail.h == Catch::Approx(20.0f));
+    CHECK(layout.pane_frames[1].leaf == 42);
+    CHECK_FALSE(layout.pane_frames[1].focused);
     REQUIRE(layout.panes.size() == 2);
     CHECK(layout.panes[0].leaf == 41);
-    CHECK(layout.panes[0].pill_cols == 19);
-    CHECK(layout.panes[0].label == "1: a very long p\xe2\x80\xa6");
+    CHECK(layout.panes[0].columns == 17);
+    CHECK(layout.panes[0].label == "1: a very long\xe2\x80\xa6");
     CHECK_FALSE(layout.panes[0].number_only);
     CHECK(layout.panes[1].leaf == 42);
     CHECK(layout.panes[1].number_only);
@@ -145,10 +192,22 @@ TEST_CASE("ChromeLayout pane status structure degrades and keeps stable leaf hit
     CHECK(hit.rect.w <= 50.0f);
 }
 
+TEST_CASE("ChromeLayout keeps content clear of configurable pane strokes",
+    "[chrome][layout][pane]")
+{
+    CHECK(pane_content_inset(0.0f) == 8);
+    CHECK(pane_content_inset(3.0f) == 8);
+    CHECK(pane_content_inset(10.0f) == 15);
+    CHECK(pane_frame_line_inset(3.0f) == Catch::Approx(6.0f));
+    CHECK(chrome_pill_height(20) == 16);
+    CHECK(chrome_pill_band_height(20) == 20);
+}
+
 TEST_CASE("ChromeLayout clips tabs before right-side status pills", "[chrome][layout][golden][clip]")
 {
     auto input = base_input();
     input.viewport_width = 260;
+    refresh_shell(input);
     SystemResourceSnapshot resources;
     resources.cpu_percent = 25;
     resources.memory_percent = 50;
@@ -168,6 +227,7 @@ TEST_CASE("ChromeLayout preserves one-tab geometry with weather and chord pills 
 {
     auto input = base_input();
     input.viewport_width = 480;
+    refresh_shell(input);
     input.tabs.resize(1);
     input.weather_emoji = "\xe2\x98\x80\xef\xb8\x8f";
     input.weather_temperature = "18\xc2\xb0\x43";

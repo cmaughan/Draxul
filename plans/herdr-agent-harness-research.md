@@ -406,6 +406,12 @@ when multiple Spaces exist without changing the single-Space layout.
 **Remaining in this phase:** define version-2 persistence and restore the last-active
 Space.
 
+The shipped sidebar currently reserves its width through `App` arithmetic and paints a
+decorative boundary rather than participating in an explicit root layout. The focused
+[app-shell layout plan](app-shell-layout.md) makes that boundary a draggable
+application-level splitter while deliberately keeping it outside each tab's pane
+`SplitTree`.
+
 **Exit condition:** users can switch between multiple local Spaces without terminating
 their panes, and restarting Draxul restores the saved topology and last active Space.
 

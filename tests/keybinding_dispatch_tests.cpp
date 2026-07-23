@@ -93,7 +93,7 @@ TEST_CASE("keybinding dispatch: default config has all known bindings", "[config
 {
     AppConfig cfg;
     INFO("default bindings present");
-    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 40);
+    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 41);
     INFO("toggle_diagnostics binding present");
     REQUIRE(find_binding(cfg, "toggle_diagnostics") != nullptr);
     INFO("copy binding present");
@@ -161,6 +161,17 @@ TEST_CASE("keybinding dispatch: toggle_copy_mode default uses Ctrl+S, Return cho
     REQUIRE(binding->prefix_modifiers == kModCtrl);
     INFO("toggle_copy_mode uses Return as the action key");
     REQUIRE(binding->key == static_cast<int32_t>(SDLK_RETURN));
+    REQUIRE(binding->modifiers == kModNone);
+}
+
+TEST_CASE("keybinding dispatch: quit default uses Ctrl+S, Q chord", "[config][lifecycle]")
+{
+    AppConfig cfg;
+    const GuiKeybinding* binding = find_binding(cfg, "quit");
+    REQUIRE(binding != nullptr);
+    REQUIRE(binding->prefix_key == static_cast<int32_t>(SDLK_S));
+    REQUIRE(binding->prefix_modifiers == kModCtrl);
+    REQUIRE(binding->key == static_cast<int32_t>(SDLK_Q));
     REQUIRE(binding->modifiers == kModNone);
 }
 
@@ -315,7 +326,7 @@ TEST_CASE("keybinding dispatch: empty keybindings table leaves defaults intact",
 
     // With an empty [keybindings] table the defaults remain unchanged.
     INFO("defaults remain with empty bindings table");
-    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 40);
+    REQUIRE(static_cast<int>(cfg.keybindings.size()) == 41);
 }
 
 TEST_CASE("keybinding dispatch: no bindings configured — no action fires for any key", "[config]")

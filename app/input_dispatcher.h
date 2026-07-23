@@ -36,8 +36,9 @@ public:
     virtual int hit_test_space(int phys_x, int phys_y) = 0;
     virtual int hit_test_tab(int phys_x, int phys_y) = 0;
     virtual LeafId hit_test_pane_pill(int phys_x, int phys_y) = 0;
-    virtual int tab_bar_height_phys() = 0;
-    virtual int space_sidebar_width_phys() = 0;
+    virtual bool hit_test_app_chrome(int phys_x, int phys_y) = 0;
+    virtual bool hit_test_shell_divider(int phys_x, int phys_y) = 0;
+    virtual void resize_space_sidebar(int phys_x) = 0;
     virtual std::pair<int, int> cell_size_phys() = 0;
     virtual void activate_tab(int one_based_index) = 0;
     virtual void activate_space(int space_id) = 0;
@@ -178,6 +179,7 @@ private:
 
     Deps deps_;
     // Divider drag state.
+    bool dragging_shell_divider_ = false;
     int drag_divider_id_ = -1; // kInvalidDivider
     MouseCursor active_mouse_cursor_ = MouseCursor::Default;
     float pending_scroll_y_ = 0.0f;

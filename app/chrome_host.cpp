@@ -70,36 +70,16 @@ const SplitTree& ChromeHost::active_tree() const
     return empty;
 }
 
-int ChromeHost::tab_bar_height() const
-{
-    if (!deps_.grid_renderer)
-        return 0;
-    const auto [cell_width, cell_height] = deps_.grid_renderer->cell_size_pixels();
-    (void)cell_width;
-    return cell_height + 2;
-}
-
-int ChromeHost::space_sidebar_width() const
-{
-    if (!deps_.grid_renderer || !deps_.space_controller
-        || deps_.space_controller->count() <= 1)
-        return 0;
-    const auto [cell_width, cell_height] = deps_.grid_renderer->cell_size_pixels();
-    (void)cell_height;
-    constexpr int kSidebarColumns = 20;
-    const int ideal_width = std::max(0, cell_width * kSidebarColumns);
-    const int maximum_width = std::max(0, viewport_.pixel_size.x / 3);
-    return std::min(ideal_width, maximum_width);
-}
-
 ChromeLayoutInput ChromeHost::build_layout_input() const
 {
     ChromeLayoutInput input;
+    input.shell_layout = shell_layout_;
     input.viewport_width = viewport_.pixel_size.x;
     input.viewport_height = viewport_.pixel_size.y;
     input.theme = theme();
     input.rename = rename_editor_.snapshot();
     input.focus_border = deps_.config ? deps_.config->focus_border_width : 3.0f;
+    input.pane_content_inset = pane_content_inset(input.focus_border);
     if (deps_.grid_renderer)
     {
         const auto [cell_width, cell_height] = deps_.grid_renderer->cell_size_pixels();
@@ -112,8 +92,7 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
         input.grid_padding = kChromeGridPadding;
     }
 
-    input.sidebar_width = space_sidebar_width();
-    if (input.sidebar_width > 0 && deps_.space_controller)
+    if (shell_layout_.sidebar_visible && deps_.space_controller)
     {
         input.spaces.reserve(deps_.space_controller->spaces().size());
         for (const auto& space : deps_.space_controller->spaces())
@@ -127,7 +106,8 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
     const bool have_tabs = controller && !controller->empty();
     const bool have_resources = deps_.system_resource_snapshot
         && deps_.system_resource_snapshot->available();
-    input.show_top_bar = deps_.grid_renderer && (have_tabs || have_resources);
+    input.show_top_bar = shell_layout_.chrome_visible && shell_layout_.tab_bar.h > 0
+        && deps_.grid_renderer && (have_tabs || have_resources);
     if (controller)
     {
         const int active_id = controller->active_tab_id();
@@ -154,23 +134,10 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                     static_cast<float>(rect.w), static_cast<float>(rect.h) },
                 rect.direction });
         });
-        const LeafId focused = tree.focused();
-        if (focused != kInvalidLeaf)
-        {
-            const auto descriptor = tree.descriptor_for(focused);
-            if (descriptor.pixel_size.x > 0 && descriptor.pixel_size.y > 0)
-            {
-                input.focus_rect = ChromeRect{ static_cast<float>(descriptor.pixel_pos.x),
-                    static_cast<float>(descriptor.pixel_pos.y),
-                    static_cast<float>(descriptor.pixel_size.x),
-                    static_cast<float>(descriptor.pixel_size.y) };
-            }
-        }
     }
 
     input.show_status = deps_.config && deps_.config->show_pane_status;
-    if (input.show_status && deps_.grid_renderer && input.cell_width > 0 && input.cell_height > 0
-        && controller)
+    if (controller)
     {
         const PaneManager* manager = nullptr;
         for (const auto& tab : controller->tabs())
@@ -187,22 +154,26 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
             int index = 1;
             manager->tree().for_each_leaf([&](LeafId leaf, const PaneDescriptor& descriptor) {
                 IHost* host = manager->host_for(leaf);
-                if (!host || descriptor.pixel_size.x <= 0
-                    || descriptor.pixel_size.y <= input.cell_height)
+                if (!host || descriptor.pixel_size.x <= 0 || descriptor.pixel_size.y <= 0)
                     return;
                 std::string override_name;
-                if (deps_.get_pane_name)
+                if (input.show_status && deps_.get_pane_name)
                     override_name = deps_.get_pane_name(leaf);
-                std::string text = override_name.empty() ? host->status_text() : std::move(override_name);
-                if (!host->is_running() && text.find("[exited]") == std::string::npos)
+                std::string text;
+                if (input.show_status)
                 {
-                    if (!text.empty())
-                        text += " ";
-                    text += "[exited]";
+                    text = override_name.empty() ? host->status_text() : std::move(override_name);
+                    if (!host->is_running() && text.find("[exited]") == std::string::npos)
+                    {
+                        if (!text.empty())
+                            text += " ";
+                        text += "[exited]";
+                    }
                 }
+                const HostDebugState debug = host->debug_state();
                 input.panes.push_back({ descriptor.pixel_pos.x, descriptor.pixel_pos.y,
                     descriptor.pixel_size.x, descriptor.pixel_size.y, index++, std::move(text),
-                    leaf == focused, leaf });
+                    leaf == focused, leaf, host->default_background(), debug.grid_rows });
             });
         }
     }
@@ -239,7 +210,8 @@ void ChromeHost::draw(IFrameContext& frame)
     ChromeLayoutInput input = build_layout_input();
     last_layout_ = compute_chrome_layout(input);
     if (last_layout_.bar_height == 0 && last_layout_.sidebar_width == 0
-        && last_layout_.dividers.empty() && last_layout_.panes.empty())
+        && last_layout_.dividers.empty() && last_layout_.panes.empty()
+        && last_layout_.pane_frames.empty())
         return;
     vector_pass_.record(frame, last_layout_, input.theme,
         viewport_.pixel_size.x, viewport_.pixel_size.y);

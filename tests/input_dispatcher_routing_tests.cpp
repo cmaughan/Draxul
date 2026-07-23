@@ -37,7 +37,9 @@ class TestInputRouter final : public IInputRouter
 public:
     std::function<IHost*()> overlay_host_fn;
     std::function<int(int, int)> hit_test_space_fn;
-    std::function<int()> space_sidebar_width_phys_fn;
+    std::function<int()> app_chrome_width_fn;
+    std::function<bool(int, int)> hit_test_shell_divider_fn;
+    std::function<void(int)> resize_space_sidebar_fn;
     std::function<void(int)> activate_space_fn;
     std::function<void(int)> activate_pane_fn;
 
@@ -66,14 +68,21 @@ public:
         return kInvalidLeaf;
     }
 
-    int tab_bar_height_phys() override
+    bool hit_test_app_chrome(int x, int) override
     {
-        return 0;
+        const int width = app_chrome_width_fn ? app_chrome_width_fn() : 0;
+        return x >= 0 && x < width;
     }
 
-    int space_sidebar_width_phys() override
+    bool hit_test_shell_divider(int x, int y) override
     {
-        return space_sidebar_width_phys_fn ? space_sidebar_width_phys_fn() : 0;
+        return hit_test_shell_divider_fn && hit_test_shell_divider_fn(x, y);
+    }
+
+    void resize_space_sidebar(int x) override
+    {
+        if (resize_space_sidebar_fn)
+            resize_space_sidebar_fn(x);
     }
 
     std::pair<int, int> cell_size_phys() override
@@ -765,7 +774,7 @@ TEST_CASE("Space sidebar clicks activate a Space and do not reach the active hos
     OverlayE2ESetup setup;
     setup.overlay_active = false;
     int activated_space = -1;
-    setup.router.space_sidebar_width_phys_fn = []() { return 200; };
+    setup.router.app_chrome_width_fn = []() { return 200; };
     setup.router.hit_test_space_fn = [](int x, int y) {
         return x < 200 && y >= 60 && y < 80 ? 7 : -1;
     };
@@ -781,7 +790,7 @@ TEST_CASE("Space sidebar background consumes pointer events", "[input_dispatcher
 {
     OverlayE2ESetup setup;
     setup.overlay_active = false;
-    setup.router.space_sidebar_width_phys_fn = []() { return 200; };
+    setup.router.app_chrome_width_fn = []() { return 200; };
 
     setup.window.on_mouse_button(make_click(10, 150));
     setup.window.on_mouse_move(make_move(10, 150));
@@ -790,6 +799,34 @@ TEST_CASE("Space sidebar background consumes pointer events", "[input_dispatcher
     CHECK(setup.host.mouse_button_events.empty());
     CHECK(setup.host.mouse_move_events.empty());
     CHECK(setup.host.mouse_wheel_events.empty());
+}
+
+TEST_CASE("Space sidebar divider drag captures motion until release",
+    "[input_dispatcher][spaces][divider]")
+{
+    OverlayE2ESetup setup;
+    setup.overlay_active = false;
+    std::vector<int> resized_to;
+    setup.router.hit_test_shell_divider_fn = [](int x, int y) {
+        return x >= 200 && x < 204 && y >= 0 && y < 600;
+    };
+    setup.router.resize_space_sidebar_fn = [&resized_to](int x) {
+        resized_to.push_back(x);
+    };
+
+    setup.window.on_mouse_button(make_click(201, 100));
+    setup.window.on_mouse_move(make_move(260, 100));
+    setup.window.on_mouse_move(make_move(400, 100));
+    auto release = make_click(400, 100);
+    release.pressed = false;
+    setup.window.on_mouse_button(release);
+
+    CHECK(resized_to == std::vector<int>{ 260, 400 });
+    CHECK(setup.host.mouse_button_events.empty());
+    CHECK(setup.host.mouse_move_events.empty());
+
+    setup.window.on_mouse_move(make_move(450, 100));
+    CHECK(setup.host.mouse_move_events.size() == 1);
 }
 
 // ---------------------------------------------------------------------------

@@ -9,18 +9,6 @@ namespace draxul
 {
 namespace
 {
-float relative_luminance(const Color& color)
-{
-    return 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
-}
-
-Color text_for_bg(const Color& bg)
-{
-    constexpr Color kDarkInk{ 0.10f, 0.10f, 0.12f, 1.0f };
-    constexpr Color kLightInk{ 0.92f, 0.93f, 0.95f, 1.0f };
-    return relative_luminance(bg) > 0.5f ? kDarkInk : kLightInk;
-}
-
 std::vector<std::string> clusters(std::string_view text)
 {
     std::vector<std::string> result;
@@ -56,6 +44,25 @@ void set_glyph(CellUpdate& cell, TextService& text_service, const std::string& t
     if (cell.glyph.is_color)
         cell.style_flags |= STYLE_FLAG_COLOR_GLYPH;
 }
+
+void write_pill_text(std::vector<CellUpdate>& cells, int grid_columns, int row,
+    const ChromePillLayout& pill, TextService& text_service,
+    const Color& accent_fg, const Color& body_fg)
+{
+    int col = pill.text_col;
+    int consumed = 0;
+    for (const auto& cluster : clusters(pill.label))
+    {
+        if (col < 0 || col >= grid_columns)
+            break;
+        const int width = std::max(1, cluster_cell_width(cluster));
+        const size_t index = static_cast<size_t>(row * grid_columns + col);
+        set_glyph(cells[index], text_service, cluster,
+            consumed < pill.prefix_cols ? accent_fg : body_fg);
+        col += width;
+        consumed += width;
+    }
+}
 } // namespace
 
 ChromeTextLayer::ChromeTextLayer(IGridRenderer* renderer, TextService* text_service)
@@ -76,9 +83,9 @@ void ChromeTextLayer::draw(IFrameContext& frame, const ChromeLayoutOutput& layou
 {
     if (!renderer_ || !text_service_)
         return;
-    update_top_bar(layout, theme);
+    update_top_bar(layout);
     update_sidebar(layout, theme);
-    update_panes(layout, theme);
+    update_panes(layout);
     if (layout.bar_height > 0 && (!layout.tabs.empty() || !layout.right_pills.empty())
         && top_bar_handle_)
         frame.draw_grid_handle(*top_bar_handle_);
@@ -92,7 +99,7 @@ void ChromeTextLayer::draw(IFrameContext& frame, const ChromeLayoutOutput& layou
     }
 }
 
-void ChromeTextLayer::update_top_bar(const ChromeLayoutOutput& layout, const ChromeTheme& theme)
+void ChromeTextLayer::update_top_bar(const ChromeLayoutOutput& layout)
 {
     if (layout.grid_cols <= 0 || layout.cell_height <= 0)
         return;
@@ -110,7 +117,10 @@ void ChromeTextLayer::update_top_bar(const ChromeLayoutOutput& layout, const Chr
     }
 
     PaneDescriptor desc;
-    desc.pixel_pos = { layout.content_x, -layout.grid_padding };
+    desc.pixel_pos = {
+        layout.content_x,
+        static_cast<int>(layout.top_bar_clip.y) - layout.grid_padding
+    };
     desc.pixel_size = { layout.bar_width, layout.cell_height + layout.grid_padding };
     top_bar_handle_->set_viewport(desc);
     top_bar_handle_->set_grid_size(layout.grid_cols, 1);
@@ -120,23 +130,8 @@ void ChromeTextLayer::update_top_bar(const ChromeLayoutOutput& layout, const Chr
 
     for (const auto& tab : layout.tabs)
     {
-        const int prefix_cols = static_cast<int>(std::to_string(tab.tab_index).size()) + 1;
-        const Color accent_bg = tab.active ? theme.tab_active_bg : theme.tab_inactive_bg;
-        const Color body_fg = tab.editing ? text_for_bg(theme.tab_editing_bg)
-                                          : (tab.active ? theme.tab_active_fg : theme.tab_inactive_fg);
-        const Color accent_fg = text_for_bg(accent_bg);
-        int col = tab.text_col;
-        int consumed = 0;
-        for (const auto& cluster : clusters(tab.label))
-        {
-            const int width = std::max(1, cluster_cell_width(cluster));
-            text_service_->resolve_cluster(cluster);
-            if (col >= 0 && col < layout.grid_cols)
-                set_glyph(cells[static_cast<size_t>(col)], *text_service_, cluster,
-                    consumed < prefix_cols ? accent_fg : body_fg);
-            col += width;
-            consumed += width;
-        }
+        write_pill_text(cells, layout.grid_cols, 0, tab, *text_service_,
+            tab.palette.accent_fg, tab.palette.body_fg);
     }
     for (const auto& pill : layout.right_pills)
     {
@@ -174,8 +169,14 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
     }
 
     PaneDescriptor desc;
-    desc.pixel_pos = { 0, 0 };
-    desc.pixel_size = { layout.sidebar_width, layout.sidebar_height };
+    desc.pixel_pos = {
+        static_cast<int>(layout.sidebar_rect.x),
+        static_cast<int>(layout.sidebar_rect.y) - layout.grid_padding
+    };
+    desc.pixel_size = {
+        layout.sidebar_width,
+        layout.sidebar_height + layout.grid_padding
+    };
     sidebar_handle_->set_viewport(desc);
     sidebar_handle_->set_grid_size(layout.sidebar_cols, layout.sidebar_rows);
     auto cells = transparent_cells(layout.sidebar_cols, layout.sidebar_rows);
@@ -195,13 +196,13 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
     write_text(0, 1, "SPACES", theme.tab_inactive_fg);
     for (const auto& space : layout.spaces)
     {
-        write_text(space.row, 1, space.label,
-            space.active ? theme.tab_active_fg : theme.tab_inactive_fg);
+        write_pill_text(cells, layout.sidebar_cols, space.row, space,
+            *text_service_, space.palette.accent_fg, space.palette.body_fg);
     }
     sidebar_handle_->update_cells(cells);
 }
 
-void ChromeTextLayer::update_panes(const ChromeLayoutOutput& layout, const ChromeTheme& theme)
+void ChromeTextLayer::update_panes(const ChromeLayoutOutput& layout)
 {
     std::unordered_set<LeafId> live;
     live.reserve(layout.panes.size());
@@ -235,23 +236,10 @@ void ChromeTextLayer::update_panes(const ChromeLayoutOutput& layout, const Chrom
         desc.pixel_pos = { pane.viewport_x, pane.viewport_y };
         desc.pixel_size = { pane.viewport_w, pane.viewport_h };
         handle->set_viewport(desc);
-        handle->set_grid_size(pane.pill_cols, 1);
-        auto cells = transparent_cells(pane.pill_cols, 1);
-        const Color body_fg = pane.editing ? text_for_bg(theme.status_editing_bg) : theme.status_bar_fg;
-        const Color accent_fg = text_for_bg(pane.focused
-                ? theme.status_focused_accent_bg
-                : theme.status_inactive_accent_bg);
-        int col = 1;
-        for (const auto& cluster : clusters(pane.label))
-        {
-            if (col >= pane.pill_cols)
-                break;
-            const int width = std::max(1, cluster_cell_width(cluster));
-            text_service_->resolve_cluster(cluster);
-            set_glyph(cells[static_cast<size_t>(col)], *text_service_, cluster,
-                col < 1 + pane.prefix_cols ? accent_fg : body_fg);
-            col += width;
-        }
+        handle->set_grid_size(pane.columns, 1);
+        auto cells = transparent_cells(pane.columns, 1);
+        write_pill_text(cells, pane.columns, 0, pane, *text_service_,
+            pane.palette.accent_fg, pane.palette.body_fg);
         handle->update_cells(cells);
     }
 }

@@ -129,9 +129,11 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 ## Split Panes
 
 - Binary split tree with vertical and horizontal splits
-- Draggable dividers with ratio-based sizing — hovering a divider switches the mouse cursor to the platform EW/NS resize cursor; click-and-drag updates the ratio in real time
+- Invisible four-pixel split gutters with ratio-based sizing — hovering a gutter switches the mouse cursor to the platform EW/NS resize cursor; click-and-drag updates the ratio in real time without drawing a divider line
 - Per-pane host instance with independent lifecycle
 - Focus tracking and pane-aware input routing
+- Each pane leaves a four-pixel outer margin before its full rectangular focus frame. The host viewport starts at least eight pixels inside the pane, keeping the configured red active frame (or subtle grey inactive frame) clear of both the pane edge and its content.
+- Pane status uses one cell-high pill band. Any fractional terminal-row tail is painted with the host background, so it remains visually part of the content instead of making the status band look oversized.
 - Keyboard-driven pane focus navigation (`Ctrl+H/J/K/L` vim-style) via `focus_left`, `focus_right`, `focus_up`, `focus_down` actions
 - Keyboard-driven pane resizing via `resize_pane_left`, `resize_pane_right`, `resize_pane_up`, `resize_pane_down` actions (each nudges the nearest enclosing divider by 5%)
 - **Pane zoom**: `toggle_zoom` action (default `Ctrl+S, z`) expands the focused pane to fill the full window; toggling again restores the previous split layout exactly (like tmux `Ctrl+B z`)
@@ -149,7 +151,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 
 - The live hierarchy is **Session -> Space -> Tab -> Pane**. A Space is a local project/task container with its own tabs, split layouts, hosts, and default root directory.
 - A Draxul process can own multiple live Spaces. Switching the active Space preserves every inactive Space's panes and processes; inactive hosts continue to be pumped.
-- The left Spaces rail appears once a second Space exists. Click a numbered Space row to activate it; the tab bar and pane area then show that Space.
+- The left Spaces rail appears once a second Space exists. Its background uses the same dark-grey chrome colour as the surrounding UI and default console background, while each Space uses the shared segmented pill component (`1: Name`): a palette-blue number accent for the selected Space (grey when inactive), followed by the name on the standard grey pill body. Click a pill to activate it. The tab bar and pane area then show that Space. Drag the rail's right-hand divider to resize it; the width snaps to terminal columns and is retained across launches.
 - `new_space`, `switch_space`, `rename_space`, and `close_space` are available in the command palette. They are unbound by default.
 - A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
 - Closing a Space terminates the hosts it owns. The final Space cannot be closed.
@@ -160,6 +162,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 ## Tabs
 
 - Multiple tabs, each with its own independent split tree and host set
+- Space, tab, and pane-status labels share one pill layout and palette model for capsule size, number accent width, text columns, foreground contrast, and active/inactive/editing colours.
 - The top tab bar remains visible even with a single tab and shows right-aligned pills for live system usage and active chord prefixes
 - `new_tab` (`Ctrl+S, C`): Create a new tab
 - `close_tab` (`Ctrl+S, &`): Close the active tab (disabled when only one tab remains)
@@ -201,6 +204,7 @@ Toggle with F12. Shows:
 | `split_vertical` | `Ctrl + S, Shift + \` |
 | `split_horizontal` | `Ctrl + S, -` |
 | `command_palette` | `Ctrl + Shift + P` |
+| `quit` | `Ctrl + S, Q` |
 | `save_session_as` | (unbound) |
 | `load_session` | (unbound) |
 | `new_space` | (unbound) |
@@ -261,6 +265,7 @@ Draxul reads `config.toml` on startup and creates it with defaults on first save
 | Key | Default | Range | Notes |
 |-----|---------|-------|-------|
 | `font_size` | 11.0 | 6.0--72.0 | Points; 0.5pt step on increase/decrease |
+| `space_sidebar_columns` | 20 | 12--48 | Preferred width of the multi-Space navigation rail in terminal columns |
 | `font_path` | (bundled) | | Primary font file path |
 | `bold_font_path` | (none) | | Bold variant |
 | `italic_font_path` | (none) | | Italic variant |
@@ -337,13 +342,14 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `tab_bar_bg` | `#181825` | Top tab/status strip background |
+| `tab_bar_bg` | `#161616` | Application chrome background: tab bar, Spaces rail, and pane gutters |
 | `tab_active_fg` | `#f5e0dc` | Active tab label text |
 | `tab_inactive_fg` | `#cdd6f4` | Inactive tab label text |
+| `space_active_bg` | `#89b4fa` | Active Space number/accent fill |
 | `tab_active_bg` | `#b93c3c` | Active tab number/accent fill |
 | `tab_inactive_bg` | `#45475a` | Inactive tab and dim accent fill |
 | `tab_editing_bg` | `#8c90af` | Tab rename field fill |
-| `divider` | `#78788c` | Split divider line |
+| `divider` | `#78788c` | Spaces rail resize divider |
 | `focus_border` | `#b93c3c` | Focused pane border |
 | `status_bar_bg` | `#45475a` | Pane status pill body |
 | `status_bar_fg` | `#cdd6f4` | Pane status text |

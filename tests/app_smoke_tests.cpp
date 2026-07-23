@@ -14,6 +14,7 @@
 #include "support/temp_dir.h"
 
 #include "session_state.h"
+#include "chrome_layout.h"
 
 #include <SDL3/SDL.h>
 #include <catch2/catch_all.hpp>
@@ -353,6 +354,10 @@ TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memor
     CHECK(launches[1]->options.working_dir == renderer_root.string());
     CHECK(app.space_controller().count() == 2);
     CHECK(app.space_controller().active_space_id() == renderer_id);
+    CHECK(app.shell_layout().sidebar_visible);
+    CHECK(app.shell_layout().sidebar_divider.w == kAppShellDividerWidth);
+    CHECK(app.shell_layout().pane_root.x
+        == app.shell_layout().sidebar.w + app.shell_layout().sidebar_divider.w);
 
     const Space* renderer_space = app.space_controller().find_space(renderer_id);
     REQUIRE(renderer_space != nullptr);
@@ -368,6 +373,8 @@ TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memor
     REQUIRE(app.close_space(renderer_id));
     CHECK(app.space_controller().count() == 1);
     CHECK(app.space_controller().find_space(renderer_id) == nullptr);
+    CHECK_FALSE(app.shell_layout().sidebar_visible);
+    CHECK(app.shell_layout().pane_root.x == 0);
 
     app.shutdown();
 }
@@ -643,6 +650,23 @@ TEST_CASE("app smoke: closing the window exits and preserves file-backed session
     CHECK(saved->session_name == "Close Me");
     REQUIRE(saved->tabs.size() == 1);
     REQUIRE(saved->tabs[0].pane_layout.panes.size() == 1);
+}
+
+TEST_CASE("app smoke: Ctrl+S, Q exits through the application quit path",
+    "[app_smoke][lifecycle][keybinding]")
+{
+    App app(make_smoke_options());
+    REQUIRE(app.initialize());
+    REQUIRE(g_last_fake_window != nullptr);
+    REQUIRE(g_last_smoke_host != nullptr);
+    REQUIRE(g_last_fake_window->on_key);
+
+    g_last_fake_window->on_key(KeyEvent{ 0, SDLK_S, kModCtrl, true });
+    g_last_fake_window->on_key(KeyEvent{ 0, SDLK_Q, kModNone, true });
+
+    CHECK(g_last_smoke_host->request_close_calls == 1);
+    CHECK_FALSE(app.run_smoke_test(std::chrono::milliseconds(1)));
+    app.shutdown();
 }
 
 TEST_CASE("app smoke: malformed reload keeps the previous runtime config", "[app_smoke][config][reload]")
@@ -1179,7 +1203,8 @@ TEST_CASE("app smoke: restoring a multi-tab session reapplies chrome offsets to 
     REQUIRE(g_last_fake_renderer != nullptr);
     REQUIRE(g_viewport_hosts.size() == 2);
 
-    const int expected_tab_y = g_last_fake_renderer->cell_size_pixels().second + 2;
+    const int expected_tab_y = g_last_fake_renderer->cell_size_pixels().second + 2
+        + pane_content_inset(3.0f);
 
     for (FakeHost* host : g_viewport_hosts)
     {

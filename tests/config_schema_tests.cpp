@@ -51,6 +51,7 @@ const std::vector<std::string>& expected_field_keys()
         "window_width",
         "window_height",
         "font_size",
+        "space_sidebar_columns",
         "atlas_size",
         "scrollback_lines",
         "enable_ligatures",
@@ -76,6 +77,7 @@ const std::vector<std::string>& expected_field_keys()
         "chrome.tab_bar_bg",
         "chrome.tab_active_fg",
         "chrome.tab_inactive_fg",
+        "chrome.space_active_bg",
         "chrome.tab_active_bg",
         "chrome.tab_inactive_bg",
         "chrome.tab_editing_bg",
@@ -184,13 +186,13 @@ TEST_CASE("config schema top-level key inventory matches merge ownership", "[con
     }
 
     // is_core_top_level_key agrees with for_each_core_top_level_key, and the
-    // count is the 21 scalar/list keys + 4 section tables the merge owns.
+    // count is the 22 scalar/list keys + 4 section tables the merge owns.
     std::vector<std::string> enumerated;
     for_each_core_top_level_key([&](std::string_view key) {
         enumerated.emplace_back(key);
         CHECK(is_core_top_level_key(key));
     });
-    CHECK(enumerated.size() == 25);
+    CHECK(enumerated.size() == 26);
 
     CHECK(is_core_top_level_key("window_width"));
     CHECK(is_core_top_level_key("keybindings"));

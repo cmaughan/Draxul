@@ -25,6 +25,7 @@ file(GLOB DRAXUL_ALL_TEST_SOURCES CONFIGURE_DEPENDS
 set(DRAXUL_APP_TEST_SOURCES
     active_tab_invariant_tests.cpp
     app_config_tests.cpp
+    app_shell_layout_tests.cpp
     app_dispatch_tests.cpp
     app_pump_tests.cpp
     app_smoke_tests.cpp

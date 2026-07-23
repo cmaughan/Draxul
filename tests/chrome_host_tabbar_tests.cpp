@@ -1,7 +1,7 @@
 // WI 119 — ChromeHost tab-bar hit-testing and viewport geometry.
 //
-// These tests pin down ChromeHost's pure layout surface — tab_bar_height(),
-// hit_test_tab(), and how they respond to cell-size (DPI) changes — without
+// These tests pin down ChromeHost's supplied shell geometry, hit_test_tab(),
+// and how they respond to cell-size (DPI) changes — without
 // standing up a real renderer, window, or Neovim process. Together with the
 // existing chrome_host_rename_tests.cpp these give WI 125 (overlay registry
 // refactor) a regression safety net around the chrome layout code.
@@ -34,13 +34,14 @@ std::unique_ptr<Tab> make_test_tab(int id, std::string name)
 }
 
 // Fixture that builds a ChromeHost wired to a FakeGridPipelineRenderer so
-// tests can directly mutate cell_size_pixels() and observe tab_bar_height()
-// / hit_test_tab() without a real GPU backend.
+// tests can directly mutate cell_size_pixels(), refresh the supplied shell,
+// and observe hit_test_tab() without a real GPU backend.
 struct TabBarFixture
 {
     SpaceController space_controller;
     FakeGridPipelineRenderer renderer;
     std::unique_ptr<ChromeHost> host;
+    AppShellLayout layout;
 
     explicit TabBarFixture(std::initializer_list<std::pair<int, std::string>> ws_list)
     {
@@ -57,6 +58,21 @@ struct TabBarFixture
         deps.space_controller = &space_controller;
         deps.grid_renderer = &renderer;
         host = std::make_unique<ChromeHost>(std::move(deps));
+        refresh_layout();
+    }
+
+    void refresh_layout(int width = 800, int height = 600)
+    {
+        layout = compute_app_shell_layout({
+            .window_width = width,
+            .window_height = height,
+            .terminal_height = height,
+            .cell_width = renderer.cell_width_pixels,
+            .cell_height = renderer.cell_height_pixels,
+            .preferred_sidebar_columns = 20,
+            .show_sidebar = space_controller.count() > 1,
+        });
+        host->set_shell_layout(layout);
     }
 
     // Returns the pixel x-range [left, right) that tab at 0-based `index`
@@ -84,27 +100,27 @@ struct TabBarFixture
 };
 } // namespace
 
-TEST_CASE("ChromeHost tab_bar_height: follows renderer cell height", "[chrome_host][tabbar]")
+TEST_CASE("Supplied shell tab bar follows renderer cell height", "[chrome_host][tabbar]")
 {
     TabBarFixture f{ { 1, "alpha" } };
     // Default cell_height_pixels = 20; ChromeHost adds a 2px gap.
-    REQUIRE(f.host->tab_bar_height() == 22);
+    REQUIRE(f.layout.tab_bar.h == 22);
 
     // Simulate a DPI / font-size bump. Cell height doubles → tab bar doubles
     // (plus the same constant 2px gap).
     f.renderer.cell_height_pixels = 40;
-    REQUIRE(f.host->tab_bar_height() == 42);
+    f.refresh_layout();
+    REQUIRE(f.layout.tab_bar.h == 42);
 
     // A tiny cell also tracks linearly — no floor clamp today.
     f.renderer.cell_height_pixels = 10;
-    REQUIRE(f.host->tab_bar_height() == 12);
+    f.refresh_layout();
+    REQUIRE(f.layout.tab_bar.h == 12);
 }
 
-TEST_CASE("ChromeHost tab_bar_height: hidden when no grid renderer", "[chrome_host][tabbar]")
+TEST_CASE("ChromeHost has no tab hits when supplied a hidden tab bar", "[chrome_host][tabbar]")
 {
-    // Analogue of "chrome hidden" — no grid renderer means ChromeHost cannot
-    // know a cell size and reports a 0-height tab bar, so App reserves no
-    // vertical space for chrome.
+    // App supplies the hidden shell geometry; ChromeHost only consumes it.
     SpaceController space_controller;
     space_controller.active_tab_controller().tabs().push_back(make_test_tab(1, "solo"));
     space_controller.active_tab_controller().activate_tab(1);
@@ -113,8 +129,14 @@ TEST_CASE("ChromeHost tab_bar_height: hidden when no grid renderer", "[chrome_ho
     deps.space_controller = &space_controller;
     deps.grid_renderer = nullptr;
     auto host = std::make_unique<ChromeHost>(std::move(deps));
+    host->set_shell_layout(compute_app_shell_layout({
+        .window_width = 800,
+        .window_height = 600,
+        .terminal_height = 600,
+        .show_tab_bar = false,
+    }));
 
-    REQUIRE(host->tab_bar_height() == 0);
+    REQUIRE(host->hit_test_tab(10, 10) == 0);
 }
 
 TEST_CASE("ChromeHost hit_test_tab: single tab hits anywhere across its span",
@@ -149,7 +171,8 @@ TEST_CASE("ChromeHost exposes and hit-tests the Space sidebar when multiple Spac
 
     const SpaceId renderer = f.space_controller.create_space("renderer");
     REQUIRE(renderer != kInvalidSpaceId);
-    REQUIRE(f.host->space_sidebar_width() == 200);
+    f.refresh_layout();
+    REQUIRE(f.layout.sidebar.w == 200);
 
     CHECK(f.host->hit_test_space(10, 50) == kDefaultSpaceId);
     CHECK(f.host->hit_test_space(10, 70) == renderer);
@@ -157,8 +180,8 @@ TEST_CASE("ChromeHost exposes and hit-tests the Space sidebar when multiple Spac
 
     const auto [tab_left, tab_right] = f.expected_tab_px_range(0);
     CHECK(f.host->hit_test_tab(tab_left, 10) == 0);
-    CHECK(f.host->hit_test_tab(200 + tab_left, 10) == 1);
-    CHECK(f.host->hit_test_tab(200 + tab_right, 10) == 0);
+    CHECK(f.host->hit_test_tab(204 + tab_left, 10) == 1);
+    CHECK(f.host->hit_test_tab(204 + tab_right, 10) == 0);
 }
 
 TEST_CASE("ChromeHost clamps the Space sidebar on narrow viewports", "[chrome_host][spaces]")
@@ -168,8 +191,9 @@ TEST_CASE("ChromeHost clamps the Space sidebar on narrow viewports", "[chrome_ho
     viewport.pixel_size = { 300, 200 };
     f.host->set_viewport(viewport);
     REQUIRE(f.space_controller.create_space("renderer") != kInvalidSpaceId);
+    f.refresh_layout(300, 200);
 
-    CHECK(f.host->space_sidebar_width() == 100);
+    CHECK(f.layout.sidebar.w == 90);
 }
 
 TEST_CASE("ChromeHost hit_test_tab: multiple tabs return correct 1-based index",
@@ -255,15 +279,16 @@ TEST_CASE("ChromeHost hit_test_tab: DPI scale doubles both hit regions and bar h
     const auto [left_1x, right_1x] = f.expected_tab_px_range(0);
     const int mid_1x_tab1 = (left_1x + right_1x) / 2;
     REQUIRE(f.host->hit_test_tab(mid_1x_tab1, 5) == 1);
-    const int bar_h_1x = f.host->tab_bar_height();
+    const int bar_h_1x = f.layout.tab_bar.h;
 
     // Simulate a DPI change: 2x cell size in both dimensions.
     f.renderer.cell_width_pixels = 20;
     f.renderer.cell_height_pixels = 40;
+    f.refresh_layout();
 
     // Tab bar height tracks cell height + 2px gap.
-    REQUIRE(f.host->tab_bar_height() == bar_h_1x * 2 - 2); // (20+2) vs (40+2)
-    REQUIRE(f.host->tab_bar_height() == 42);
+    REQUIRE(f.layout.tab_bar.h == bar_h_1x * 2 - 2); // (20+2) vs (40+2)
+    REQUIRE(f.layout.tab_bar.h == 42);
 
     // The pixel coordinate that used to hit tab 1 now falls inside tab 1's
     // left half (since the tab grew). It's still on tab 1.

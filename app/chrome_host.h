@@ -21,9 +21,8 @@
 namespace draxul
 {
 
-// ChromeHost is the central layout manager. It presents one or more tabs
-// (each with its own SplitTree + hosts) and draws window chrome (pane dividers,
-// focus indicator, future tab bar) using NanoVG.
+// ChromeHost renders the application chrome from App's authoritative shell
+// geometry. Each tab retains its own independent SplitTree for pane layout.
 class ChromeHost final : public IHost
 {
 public:
@@ -94,9 +93,10 @@ public:
         return { "chrome" };
     }
 
-    // Tab bar height in pixels. Remains visible even with a single tab.
-    int tab_bar_height() const;
-    int space_sidebar_width() const;
+    void set_shell_layout(const AppShellLayout& layout)
+    {
+        shell_layout_ = layout;
+    }
 
     // Hit-test a point (physical pixels) against the tab bar.
     // Returns the 1-based tab index if hit, or 0 if not in the tab bar.
@@ -158,6 +158,7 @@ private:
     ChromeVectorPass vector_pass_;
     ChromeTextLayer text_layer_;
     HostViewport viewport_{};
+    AppShellLayout shell_layout_{};
     bool running_ = false;
     RenameEditor rename_editor_;
     mutable ChromeLayoutOutput last_layout_;

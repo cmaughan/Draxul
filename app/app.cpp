@@ -80,8 +80,9 @@ public:
     std::function<int(int, int)> hit_test_space_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
-    std::function<int()> tab_bar_height_phys_fn;
-    std::function<int()> space_sidebar_width_phys_fn;
+    std::function<bool(int, int)> hit_test_app_chrome_fn;
+    std::function<bool(int, int)> hit_test_shell_divider_fn;
+    std::function<void(int)> resize_space_sidebar_fn;
     std::function<std::pair<int, int>()> cell_size_phys_fn;
     std::function<void(int)> activate_tab_fn;
     std::function<void(int)> activate_space_fn;
@@ -118,14 +119,20 @@ public:
         return hit_test_pane_pill_fn ? hit_test_pane_pill_fn(phys_x, phys_y) : kInvalidLeaf;
     }
 
-    int tab_bar_height_phys() override
+    bool hit_test_app_chrome(int phys_x, int phys_y) override
     {
-        return tab_bar_height_phys_fn ? tab_bar_height_phys_fn() : 0;
+        return hit_test_app_chrome_fn && hit_test_app_chrome_fn(phys_x, phys_y);
     }
 
-    int space_sidebar_width_phys() override
+    bool hit_test_shell_divider(int phys_x, int phys_y) override
     {
-        return space_sidebar_width_phys_fn ? space_sidebar_width_phys_fn() : 0;
+        return hit_test_shell_divider_fn && hit_test_shell_divider_fn(phys_x, phys_y);
+    }
+
+    void resize_space_sidebar(int phys_x) override
+    {
+        if (resize_space_sidebar_fn)
+            resize_space_sidebar_fn(phys_x);
     }
 
     std::pair<int, int> cell_size_phys() override
@@ -533,12 +540,7 @@ void App::apply_font_metrics()
             });
         }
     }
-    refresh_window_layout();
-    {
-        const int tab_y = chrome_host_->tab_bar_height();
-        recompute_all_viewports(
-            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
-    }
+    refresh_app_shell_layout();
     request_frame();
 }
 
@@ -616,6 +618,10 @@ Result<void, Error> App::reload_config()
 
     for (const auto& warning : config_.warnings)
         push_toast(0, warning);
+
+    if (!staged_text_service
+        && previous_config.space_sidebar_columns != config_.space_sidebar_columns)
+        refresh_app_shell_layout();
 
     const HostReloadConfig host_reload = host_reload_config_from_app_config(config_);
     for (const auto& space : space_controller_.spaces())
@@ -763,11 +769,7 @@ bool App::initialize_chrome_host()
         return false;
     }
 
-    {
-        const int tab_y = chrome_host_->tab_bar_height();
-        recompute_all_viewports(
-            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
-    }
+    refresh_app_shell_layout();
 
     const float font_size = imgui_font_size_from_metrics(text_service_.metrics());
     active_pane_manager().host()->set_imgui_font(text_service_.primary_font_path(), font_size);
@@ -824,10 +826,7 @@ void App::wire_gui_actions()
         }
     };
     gui_deps.on_panel_toggled = [this]() {
-        refresh_window_layout();
-        const int tab_y = chrome_host_->tab_bar_height();
-        recompute_all_viewports(
-            0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
+        refresh_app_shell_layout();
         update_diagnostics_panel();
         request_frame();
     };
@@ -835,6 +834,7 @@ void App::wire_gui_actions()
         if (palette_host_)
             palette_host_->dispatch_action("toggle");
     };
+    gui_deps.on_quit = [this]() { request_quit(); };
     gui_deps.on_save_session_as = [this]() {
         open_save_session_prompt();
     };
@@ -875,9 +875,9 @@ void App::wire_gui_actions()
             push_toast(2, r.error().message);
     };
     gui_deps.on_toggle_zoom = [this]() {
-        const int tab_y = chrome_host_->tab_bar_height();
         active_pane_manager().toggle_zoom(
-            window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
+            shell_layout_.work_area.w, shell_layout_.work_area.h);
+        refresh_app_shell_layout();
         input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
@@ -891,10 +891,7 @@ void App::wire_gui_actions()
                 if (space_controller_.count() > 1
                     && space_controller_.close_space(closing_space_id))
                 {
-                    const int pw = window_->width_pixels();
-                    const int th = diagnostics_host_->layout().terminal_height;
-                    const int tab_y = chrome_host_->tab_bar_height();
-                    recompute_all_viewports(0, tab_y, pw, th - tab_y);
+                    refresh_app_shell_layout();
                     input_dispatcher_.set_host(active_pane_manager().focused_host());
                     request_frame();
                     return;
@@ -912,10 +909,7 @@ void App::wire_gui_actions()
             input_dispatcher_.set_host(nullptr);
             int closing = active_tab_id();
             close_tab(closing);
-            const int pw = window_->width_pixels();
-            const int th = diagnostics_host_->layout().terminal_height;
-            const int tab_y = chrome_host_->tab_bar_height();
-            recompute_all_viewports(0, tab_y, pw, th - tab_y);
+            refresh_app_shell_layout();
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
             return;
@@ -986,9 +980,7 @@ void App::wire_gui_actions()
                 const float font_size = imgui_font_size_from_metrics(text_service_.metrics());
                 h->set_imgui_font(text_service_.primary_font_path(), font_size);
             }
-            // Recompute ALL tab viewports with the (possibly new) tab bar offset.
-            const int tab_y = chrome_host_->tab_bar_height();
-            recompute_all_viewports(0, tab_y, pw, th - tab_y);
+            refresh_app_shell_layout();
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
@@ -999,11 +991,7 @@ void App::wire_gui_actions()
         int closing = active_tab_id();
         input_dispatcher_.set_host(nullptr);
         close_tab(closing);
-        // Recompute all viewports with the (possibly changed) tab bar offset.
-        const int pw = window_->width_pixels();
-        const int th = diagnostics_host_->layout().terminal_height;
-        const int tab_y = chrome_host_->tab_bar_height();
-        recompute_all_viewports(0, tab_y, pw, th - tab_y);
+        refresh_app_shell_layout();
         input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
@@ -1269,9 +1257,14 @@ void App::wire_window_callbacks()
     router->hit_test_space_fn = [this](int px, int py) {
         return chrome_host_ ? chrome_host_->hit_test_space(px, py) : kInvalidSpaceId;
     };
-    router->tab_bar_height_phys_fn = [this]() { return chrome_host_ ? chrome_host_->tab_bar_height() : 0; };
-    router->space_sidebar_width_phys_fn = [this]() {
-        return chrome_host_ ? chrome_host_->space_sidebar_width() : 0;
+    router->hit_test_app_chrome_fn = [this](int px, int py) {
+        return hit_test_app_chrome(px, py);
+    };
+    router->hit_test_shell_divider_fn = [this](int px, int py) {
+        return hit_test_shell_divider(px, py);
+    };
+    router->resize_space_sidebar_fn = [this](int px) {
+        resize_space_sidebar_to_pixel(px);
     };
     router->cell_size_phys_fn = [this]() {
         return renderer_.grid() ? renderer_.grid()->cell_size_pixels() : std::pair<int, int>{ 0, 0 };
@@ -1504,9 +1497,7 @@ std::optional<CapturedFrame> App::run_render_test(std::chrono::milliseconds time
     env.capture = [this]() { return renderer_.capture(); };
     env.enable_diagnostics_panel = [this]() {
         diagnostics_host_->set_visible(true);
-        refresh_window_layout();
-        const int tab_y = chrome_host_->tab_bar_height();
-        recompute_all_viewports(0, tab_y, window_->width_pixels(), diagnostics_host_->layout().terminal_height - tab_y);
+        refresh_app_shell_layout();
         update_diagnostics_panel();
         request_frame();
     };
@@ -1571,10 +1562,7 @@ bool App::close_dead_panes()
                 if (space_controller_.count() > 1
                     && space_controller_.close_space(closing_space_id))
                 {
-                    const int pw = window_->width_pixels();
-                    const int th = diagnostics_host_->layout().terminal_height;
-                    const int tab_y = chrome_host_->tab_bar_height();
-                    recompute_all_viewports(0, tab_y, pw, th - tab_y);
+                    refresh_app_shell_layout();
                     input_dispatcher_.set_host(active_pane_manager().focused_host());
                     request_frame();
                     return active_pane_manager().host() != nullptr;
@@ -1593,10 +1581,7 @@ bool App::close_dead_panes()
             // Close this tab and switch to another.
             int closing = active_tab_id();
             close_tab(closing);
-            const int pw = window_->width_pixels();
-            const int th = diagnostics_host_->layout().terminal_height;
-            const int tab_y = chrome_host_->tab_bar_height();
-            recompute_all_viewports(0, tab_y, pw, th - tab_y);
+            refresh_app_shell_layout();
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
             return active_pane_manager().host() != nullptr;
@@ -1831,12 +1816,7 @@ void App::apply_pending_resize()
     last_pixel_w_ = pixel_w;
     last_pixel_h_ = pixel_h;
     renderer_.grid()->resize(pixel_w, pixel_h);
-    refresh_window_layout();
-    {
-        const int tab_y = chrome_host_->tab_bar_height();
-        recompute_all_viewports(
-            0, tab_y, pixel_w, diagnostics_host_->layout().terminal_height - tab_y);
-    }
+    refresh_app_shell_layout();
     if (chrome_host_)
     {
         HostViewport vp;
@@ -2091,6 +2071,70 @@ void App::refresh_window_layout()
         diagnostics_host_->set_window_metrics(pixel_w, pixel_h, cell_w, cell_h, renderer_.grid()->padding(), pixel_scale.value());
 }
 
+void App::refresh_app_shell_layout()
+{
+    if (!window_ || !renderer_.grid())
+        return;
+
+    refresh_window_layout();
+    const auto [window_width, window_height] = window_->size_pixels();
+    const auto [cell_width, cell_height] = renderer_.grid()->cell_size_pixels();
+    const int terminal_height = diagnostics_host_
+        ? diagnostics_host_->layout().terminal_height
+        : window_height;
+    const Tab* active_tab = find_active_tab();
+    const bool zoomed = active_tab && active_tab->pane_manager.is_zoomed();
+    shell_layout_ = compute_app_shell_layout({
+        .window_width = window_width,
+        .window_height = window_height,
+        .terminal_height = terminal_height,
+        .cell_width = cell_width,
+        .cell_height = cell_height,
+        .preferred_sidebar_columns = config_.space_sidebar_columns,
+        .show_sidebar = space_controller_.count() > 1,
+        .show_tab_bar = true,
+        .zoomed = zoomed,
+    });
+
+    if (chrome_host_)
+        chrome_host_->set_shell_layout(shell_layout_);
+    for (const auto& space : space_controller_.spaces())
+    {
+        space->tab_controller.recompute_all_viewports(
+            shell_layout_.pane_root.x,
+            shell_layout_.pane_root.y,
+            std::max(1, shell_layout_.pane_root.w),
+            std::max(1, shell_layout_.pane_root.h));
+    }
+}
+
+bool App::hit_test_app_chrome(int px, int py) const
+{
+    return contains(shell_layout_.sidebar, px, py)
+        || contains(shell_layout_.sidebar_divider, px, py)
+        || contains(shell_layout_.tab_bar, px, py);
+}
+
+bool App::hit_test_shell_divider(int px, int py) const
+{
+    return contains(shell_layout_.sidebar_divider, px, py);
+}
+
+void App::resize_space_sidebar_to_pixel(int px)
+{
+    if (!renderer_.grid() || !shell_layout_.sidebar_visible)
+        return;
+    const auto [cell_width, cell_height] = renderer_.grid()->cell_size_pixels();
+    (void)cell_height;
+    if (cell_width <= 0)
+        return;
+    const int relative_x = px - shell_layout_.work_area.x;
+    const int columns = (relative_x + cell_width / 2) / cell_width;
+    config_.space_sidebar_columns = std::clamp(
+        columns, kMinSpaceSidebarColumns, kMaxSpaceSidebarColumns);
+    refresh_app_shell_layout();
+}
+
 HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
 {
     PERF_MEASURE();
@@ -2104,11 +2148,21 @@ HostViewport App::viewport_from_descriptor(const PaneDescriptor& desc) const
     viewport.padding = padding;
     viewport.pixel_scale = layout.pixel_scale;
 
-    // WI 78: reserve a one-cell strip at the bottom of every pane for the
-    // per-pane status bar. ChromeHost draws the strip in the reserved area.
+    const int frame_inset = pane_content_inset(config_.focus_border_width);
+    const int inset_x = std::min(frame_inset, std::max(0, viewport.pixel_size.x / 2));
+    const int inset_y = std::min(frame_inset, std::max(0, viewport.pixel_size.y / 2));
+    viewport.pixel_pos.x += inset_x;
+    viewport.pixel_pos.y += inset_y;
+    viewport.pixel_size.x = std::max(0, viewport.pixel_size.x - inset_x * 2);
+    viewport.pixel_size.y = std::max(0, viewport.pixel_size.y - inset_y * 2);
+
+    // Reserve exactly one shared Chrome pill band at the bottom of every pane.
+    // ChromeHost fills any fractional grid-row tail with the host background,
+    // so it cannot visually merge into this band.
     if (config_.show_pane_status && cell_h > 0)
     {
-        const int reserved = std::min(viewport.pixel_size.y, cell_h);
+        const int reserved = std::min(
+            viewport.pixel_size.y, chrome_pill_band_height(cell_h));
         viewport.pixel_size.y -= reserved;
     }
 
@@ -2279,14 +2333,15 @@ Result<SpaceId, Error> App::create_space(
     if (!space)
         return Result<SpaceId, Error>::err(Error::init("Created Space could not be resolved."));
 
-    const int pixel_w = window_->width_pixels();
-    const int tab_y = chrome_host_->tab_bar_height();
-    const int host_h = std::max(1, diagnostics_host_->layout().terminal_height - tab_y);
+    refresh_app_shell_layout();
+    const int pixel_w = std::max(1, shell_layout_.pane_root.w);
+    const int host_h = std::max(1, shell_layout_.pane_root.h);
     if (!space->tab_controller.create_initial_tab(
             *this, pixel_w, host_h, make_pane_manager_deps(space)))
     {
         const std::string error = space->tab_controller.last_error();
         space_controller_.close_space(id);
+        refresh_app_shell_layout();
         return Result<SpaceId, Error>::err(Error::spawn(
             error.empty() ? "Failed to create the first Space tab." : error));
     }
@@ -2297,7 +2352,7 @@ Result<SpaceId, Error> App::create_space(
         return Result<SpaceId, Error>::err(Error::init("Failed to activate the new Space."));
     }
 
-    recompute_all_viewports(0, tab_y, pixel_w, host_h);
+    refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
     request_frame();
     return id;
@@ -2311,11 +2366,7 @@ Result<void, Error> App::activate_space(SpaceId id)
         return Result<void, Error>::err(Error::invalid_argument("Space has no active tab."));
 
     if (window_ && chrome_host_ && diagnostics_host_)
-    {
-        const int tab_y = chrome_host_->tab_bar_height();
-        const int host_h = std::max(1, diagnostics_host_->layout().terminal_height - tab_y);
-        recompute_all_viewports(0, tab_y, window_->width_pixels(), host_h);
-    }
+        refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
     request_frame();
     return Result<void, Error>::ok();
@@ -2351,11 +2402,7 @@ Result<void, Error> App::close_space(SpaceId id)
     }
 
     if (window_ && chrome_host_ && diagnostics_host_)
-    {
-        const int tab_y = chrome_host_->tab_bar_height();
-        const int host_h = std::max(1, diagnostics_host_->layout().terminal_height - tab_y);
-        recompute_all_viewports(0, tab_y, window_->width_pixels(), host_h);
-    }
+        refresh_app_shell_layout();
     if (closing_active)
         input_dispatcher_.set_host(active_pane_manager().focused_host());
     request_frame();
@@ -2414,14 +2461,11 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
         options_.session_name = old_option_name;
         session_name_ = old_session_name;
         const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
-        const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
-                                         : (window_ ? window_->height_pixels() : last_pixel_h_);
-        const int tab_y = chrome_host_ ? chrome_host_->tab_bar_height() : 0;
-        const int host_h = std::max(1, th - tab_y);
+        const int host_h = std::max(1, shell_layout_.pane_root.h);
         input_dispatcher_.set_host(nullptr);
         if (restore_session_state(pw, host_h, *previous_state))
         {
-            recompute_all_viewports(0, tab_y, pw, host_h);
+            refresh_app_shell_layout();
             input_dispatcher_.set_host(active_pane_manager().focused_host());
             request_frame();
         }
@@ -2432,10 +2476,7 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
     session_name_ = options_.session_name;
 
     const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
-    const int th = diagnostics_host_ ? diagnostics_host_->layout().terminal_height
-                                     : (window_ ? window_->height_pixels() : last_pixel_h_);
-    const int tab_y = chrome_host_ ? chrome_host_->tab_bar_height() : 0;
-    const int host_h = std::max(1, th - tab_y);
+    const int host_h = std::max(1, shell_layout_.pane_root.h);
     input_dispatcher_.set_host(nullptr);
     if (!restore_session_state(pw, host_h, *target_state))
     {
@@ -2443,7 +2484,7 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
         return Result<void, Error>::err(Error::io("Failed to restore the selected session."));
     }
 
-    recompute_all_viewports(0, tab_y, pw, host_h);
+    refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
     persist_session_state();
     last_session_checkpoint_time_ = std::chrono::steady_clock::now();
@@ -2613,16 +2654,19 @@ bool App::close_tab(int tab_id)
 void App::activate_tab(int tab_id)
 {
     active_tab_controller().activate_tab(tab_id);
+    refresh_app_shell_layout();
 }
 
 void App::next_tab()
 {
     active_tab_controller().next_tab();
+    refresh_app_shell_layout();
 }
 
 void App::prev_tab()
 {
     active_tab_controller().prev_tab();
+    refresh_app_shell_layout();
 }
 
 void App::move_tab(int direction)
@@ -2633,6 +2677,7 @@ void App::move_tab(int direction)
 void App::activate_tab_by_index(int one_based_index)
 {
     active_tab_controller().activate_tab_by_index(one_based_index);
+    refresh_app_shell_layout();
 }
 
 void App::activate_pane_by_index(int one_based_index)
@@ -2652,15 +2697,6 @@ void App::activate_pane_by_index(int one_based_index)
 
     if (target != kInvalidLeaf)
         active_pane_manager().set_focused(target);
-}
-
-void App::recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h)
-{
-    const int sidebar_width = chrome_host_ ? chrome_host_->space_sidebar_width() : 0;
-    origin_x += sidebar_width;
-    pixel_w = std::max(1, pixel_w - sidebar_width);
-    for (const auto& space : space_controller_.spaces())
-        space->tab_controller.recompute_all_viewports(origin_x, origin_y, pixel_w, pixel_h);
 }
 
 PaneManager& App::active_pane_manager()
@@ -2750,6 +2786,7 @@ void App::shutdown()
             config_to_save.window_height = window_h;
         }
         config_to_save.font_size = text_service_.point_size();
+        config_to_save.space_sidebar_columns = config_.space_sidebar_columns;
         config_to_save.markdown = config_.markdown;
         config_to_save.font_path = text_service_.primary_font_path();
         config_ = config_to_save;

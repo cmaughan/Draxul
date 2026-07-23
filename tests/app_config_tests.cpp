@@ -73,7 +73,7 @@ TEST_CASE("app config parse returns defaults for empty content", "[config]")
     INFO("default fallback_paths is empty");
     REQUIRE(config.fallback_paths.empty());
     INFO("default GUI keybindings are present");
-    REQUIRE(static_cast<int>(config.keybindings.size()) == 40);
+    REQUIRE(static_cast<int>(config.keybindings.size()) == 41);
     const GuiKeybinding* copy_mode = find_keybinding(config, "toggle_copy_mode");
     INFO("toggle_copy_mode default binding exists");
     REQUIRE(copy_mode != nullptr);
@@ -1267,7 +1267,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
     original.markdown.margin_columns = 4.5f;
 
     using ChromeMember = Color ChromeTheme::*;
-    const std::array<ChromeMember, 20> chrome_members = {
+    const std::array<ChromeMember, 21> chrome_members = {
         &ChromeTheme::tab_bar_bg,
         &ChromeTheme::tab_active_fg,
         &ChromeTheme::tab_inactive_fg,
@@ -1288,6 +1288,7 @@ TEST_CASE("app config complete schema round-trips every scalar and nested table"
         &ChromeTheme::chord_pill_bg,
         &ChromeTheme::weather_pill_bg,
         &ChromeTheme::editing_outline,
+        &ChromeTheme::space_active_bg,
     };
     for (std::size_t i = 0; i < chrome_members.size(); ++i)
         original.chrome.*chrome_members[i] = color_from_rgb(0x101010u + static_cast<uint32_t>(i * 0x030507u));
@@ -1365,4 +1366,18 @@ TEST_CASE("config document complete core merge updates app fields and preserves 
     CHECK((*document.find_table("terminal"))["copy_on_select"].value_or(true) == false);
     REQUIRE(document.find_table("host_module") != nullptr);
     CHECK((*document.find_table("host_module"))["custom_value"].value_or(0) == 91);
+}
+TEST_CASE("AppConfig parses and clamps Space sidebar columns", "[config][spaces]")
+{
+    CHECK(AppConfig::parse("space_sidebar_columns = 31").space_sidebar_columns == 31);
+    CHECK(AppConfig::parse("space_sidebar_columns = 2").space_sidebar_columns == 12);
+    CHECK(AppConfig::parse("space_sidebar_columns = 100").space_sidebar_columns == 48);
+}
+
+TEST_CASE("AppConfig round-trips Space sidebar columns", "[config][spaces]")
+{
+    AppConfig original;
+    original.space_sidebar_columns = 29;
+    const AppConfig round_tripped = AppConfig::parse(original.serialize());
+    CHECK(round_tripped.space_sidebar_columns == 29);
 }

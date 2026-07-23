@@ -38,6 +38,7 @@ public:
         std::function<void(std::optional<HostKind>)> on_split_vertical; // create a vertical split
         std::function<void(std::optional<HostKind>)> on_split_horizontal; // create a horizontal split
         std::function<void()> on_command_palette; // toggle command palette
+        std::function<void()> on_quit; // close the application
         std::function<void()> on_save_session_as; // prompt for a named saved session
         std::function<void()> on_load_session; // pick and load a saved session
         std::function<void()> on_new_space; // prompt for and create a Space

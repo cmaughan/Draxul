@@ -88,6 +88,7 @@ void InputDispatcher::reconfigure(Deps deps)
 {
     disconnect();
     deps_ = std::move(deps);
+    dragging_shell_divider_ = false;
     drag_divider_id_ = -1;
     active_mouse_cursor_ = MouseCursor::Default;
     pending_scroll_y_ = 0.0f;
@@ -126,6 +127,11 @@ bool InputDispatcher::update_cursor_for_divider(int phys_x, int phys_y)
     PERF_MEASURE();
     if (!deps_.window)
         return false;
+    if (deps_.router && deps_.router->hit_test_shell_divider(phys_x, phys_y))
+    {
+        set_active_mouse_cursor(MouseCursor::ResizeLeftRight);
+        return true;
+    }
     PaneManager* hm = deps_.router ? deps_.router->pane_manager() : nullptr;
     if (!hm)
         return false;
@@ -501,10 +507,23 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
 
     const int phys_x = deps_.pixel_scale.to_physical(event.pos.x);
     const int phys_y = deps_.pixel_scale.to_physical(event.pos.y);
-    const int chrome_h = deps_.router ? deps_.router->tab_bar_height_phys() : 0;
-    const int sidebar_w = deps_.router ? deps_.router->space_sidebar_width_phys() : 0;
-    const bool over_chrome = (chrome_h > 0 && phys_y >= 0 && phys_y < chrome_h);
-    const bool over_sidebar = (sidebar_w > 0 && phys_x >= 0 && phys_x < sidebar_w);
+    const bool over_chrome = deps_.router
+        && deps_.router->hit_test_app_chrome(phys_x, phys_y);
+
+    if (event.button == SDL_BUTTON_LEFT && deps_.router)
+    {
+        if (!event.pressed && dragging_shell_divider_)
+        {
+            dragging_shell_divider_ = false;
+            update_cursor_for_divider(phys_x, phys_y);
+            return;
+        }
+        if (event.pressed && deps_.router->hit_test_shell_divider(phys_x, phys_y))
+        {
+            dragging_shell_divider_ = true;
+            return;
+        }
+    }
 
     // Space sidebar click — activate the stable Space id represented by the row.
     if (event.pressed && deps_.router)
@@ -558,7 +577,7 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
     // Any click within the chrome strip is consumed — never forwarded to
     // the underlying host. Also commits an in-progress rename if the user
     // clicked on a chrome region that wasn't a tab.
-    if (over_chrome || over_sidebar)
+    if (over_chrome)
     {
         if (log_would_emit(LogLevel::Trace, LogCategory::Input))
             log_printf(LogLevel::Trace, LogCategory::Input, "input trace: dispatcher mouse_button swallowed by chrome");
@@ -627,6 +646,15 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
     const int phys_x_mv = deps_.pixel_scale.to_physical(event.pos.x);
     const int phys_y_mv = deps_.pixel_scale.to_physical(event.pos.y);
 
+    if (dragging_shell_divider_)
+    {
+        if (deps_.router)
+            deps_.router->resize_space_sidebar(phys_x_mv);
+        if (deps_.request_frame)
+            deps_.request_frame();
+        return;
+    }
+
     // Active divider drag: route directly to pane manager and skip the rest.
     // Handled before the chrome-strip suppression so a drag that strays into
     // the tab bar still updates the divider ratio.
@@ -648,28 +676,24 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
         return;
     }
 
-    // Suppress moves over the chrome strip so a click-drag that started on a
-    // tab pill doesn't translate into a drag-select in the underlying host.
-    {
-        const int chrome_h = deps_.router ? deps_.router->tab_bar_height_phys() : 0;
-        const int sidebar_w = deps_.router ? deps_.router->space_sidebar_width_phys() : 0;
-        if ((chrome_h > 0 && phys_y_mv >= 0 && phys_y_mv < chrome_h)
-            || (sidebar_w > 0 && phys_x_mv >= 0 && phys_x_mv < sidebar_w))
-            return;
-    }
-
     // Hover cursor feedback: change to resize cursor when over a divider.
     // Skip while the panel wants the mouse.
-    if (!update_cursor_for_divider(phys_x_mv, phys_y_mv))
+    const bool over_divider = update_cursor_for_divider(phys_x_mv, phys_y_mv);
+    if (over_divider)
+        return;
+
+    // Suppress moves over app chrome so a click-drag that started on a
+    // navigation row or tab cannot become a selection in a pane.
+    if (deps_.router && deps_.router->hit_test_app_chrome(phys_x_mv, phys_y_mv))
+        return;
+
+    MouseCursor desired = MouseCursor::Default;
+    if (IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y))
     {
-        MouseCursor desired = MouseCursor::Default;
-        if (IHost* target = host_for_mouse_pos(event.pos.x, event.pos.y))
-        {
-            if (auto cursor = target->mouse_cursor_at(phys_x_mv, phys_y_mv))
-                desired = *cursor;
-        }
-        set_active_mouse_cursor(desired);
+        if (auto cursor = target->mouse_cursor_at(phys_x_mv, phys_y_mv))
+            desired = *cursor;
     }
+    set_active_mouse_cursor(desired);
 
     deps_.ui_panel->on_mouse_move(event);
     const float scale = deps_.pixel_scale.value();
@@ -694,12 +718,9 @@ void InputDispatcher::on_mouse_wheel_event(const MouseWheelEvent& event)
     // Suppress wheel events over the chrome strip — scrolling on the tab
     // bar should not scroll the terminal beneath.
     {
-        const int chrome_h = deps_.router ? deps_.router->tab_bar_height_phys() : 0;
-        const int sidebar_w = deps_.router ? deps_.router->space_sidebar_width_phys() : 0;
         const int phys_x = deps_.pixel_scale.to_physical(event.pos.x);
         const int phys_y = deps_.pixel_scale.to_physical(event.pos.y);
-        if ((chrome_h > 0 && phys_y >= 0 && phys_y < chrome_h)
-            || (sidebar_w > 0 && phys_x >= 0 && phys_x < sidebar_w))
+        if (deps_.router && deps_.router->hit_test_app_chrome(phys_x, phys_y))
             return;
     }
 

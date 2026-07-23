@@ -15,6 +15,7 @@ preserved verbatim.
 | `window_width` | integer | `1280` | 640 .. 3840 | Initial window width in pixels. Out-of-range values fall back to the default. |
 | `window_height` | integer | `800` | 400 .. 2160 | Initial window height in pixels. Out-of-range values fall back to the default. |
 | `font_size` | float | `11` | 6 .. 72 | Terminal/grid font point size. Clamped into range. |
+| `space_sidebar_columns` | integer | `20` | 12 .. 48 | Preferred Space sidebar width in terminal grid columns. |
 | `atlas_size` | integer | `2048` | 1024 .. 8192 (power of two) | Glyph atlas edge length in texels. Clamped, then rounded down to a power of two. |
 | `scrollback_lines` | integer | `10000` | 1 .. 1000000 | Terminal scrollback buffer size in lines. |
 | `enable_ligatures` | boolean | `true` |  | Combine eligible two-cell programming ligatures during shaping. |
@@ -49,13 +50,14 @@ UI chrome color theme.
 
 | Key | Type | Default | Range | Description |
 |-----|------|---------|-------|-------------|
-| `tab_bar_bg` | color (#RRGGBB) | `#181825` |  | Tab bar background color. |
+| `tab_bar_bg` | color (#RRGGBB) | `#161616` |  | Application chrome background color (tab bar, Spaces rail, and pane gutters). |
 | `tab_active_fg` | color (#RRGGBB) | `#f5e0dc` |  | Active tab label color. |
 | `tab_inactive_fg` | color (#RRGGBB) | `#cdd6f4` |  | Inactive tab label color. |
+| `space_active_bg` | color (#RRGGBB) | `#89b4fa` |  | Active Space number accent color. |
 | `tab_active_bg` | color (#RRGGBB) | `#b93c3c` |  | Active tab background color. |
 | `tab_inactive_bg` | color (#RRGGBB) | `#45475a` |  | Inactive tab background color. |
 | `tab_editing_bg` | color (#RRGGBB) | `#8c90af` |  | Tab background while its name is being edited. |
-| `divider` | color (#RRGGBB) | `#78788c` |  | Pane divider color. |
+| `divider` | color (#RRGGBB) | `#78788c` |  | Space sidebar divider color. |
 | `focus_border` | color (#RRGGBB) | `#b93c3c` |  | Focused pane border color. |
 | `status_bar_bg` | color (#RRGGBB) | `#45475a` |  | Status bar background color. |
 | `status_bar_fg` | color (#RRGGBB) | `#cdd6f4` |  | Status bar text color. |

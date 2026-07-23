@@ -248,6 +248,9 @@ AppConfig::AppConfig()
         { "font_reset", 0, kModNone, static_cast<int32_t>(SDLK_0), kModCtrl },
         { "command_palette", 0, kModNone, static_cast<int32_t>(SDLK_P), kModCtrl | kModShift },
         // Chord bindings: prefix key Ctrl+S (tmux-style prefix).
+        // quit = Ctrl+S, Q
+        { "quit", static_cast<int32_t>(SDLK_S), kModCtrl,
+            static_cast<int32_t>(SDLK_Q), kModNone },
         // split_vertical = Ctrl+S, | (Shift+Backslash on US keyboard; SDL3 reports SDLK_BACKSLASH + kModShift)
         { "split_vertical", static_cast<int32_t>(SDLK_S), kModCtrl,
             static_cast<int32_t>(SDLK_BACKSLASH), kModShift },

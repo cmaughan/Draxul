@@ -370,6 +370,13 @@ TEST_CASE("overlay alloc matrix / chrome text: tab-grid handle failure degrades 
     REQUIRE(host.initialize(context, callbacks));
     REQUIRE(host.is_running()); // NanoVG pass attachment succeeded (headless-safe)
     host.set_viewport(context.initial_viewport);
+    host.set_shell_layout(compute_app_shell_layout({
+        .window_width = context.initial_viewport.pixel_size.x,
+        .window_height = context.initial_viewport.pixel_size.y,
+        .terminal_height = context.initial_viewport.pixel_size.y,
+        .cell_width = renderer.cell_width_pixels,
+        .cell_height = renderer.cell_height_pixels,
+    }));
 
     renderer.fail_create_grid_handle = true;
 

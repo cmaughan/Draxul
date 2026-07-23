@@ -43,6 +43,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"split_horizontal",   [](auto& h, auto args) { h.split_horizontal(args); }},
         {"toggle_host_ui", [](auto& h, auto) { h.toggle_host_ui(); }},
         {"command_palette",    [](auto& h, auto) { if (h.deps_.on_command_palette) h.deps_.on_command_palette(); }},
+        {"quit",               [](auto& h, auto) { if (h.deps_.on_quit) h.deps_.on_quit(); }},
         {"save_session_as",    [](auto& h, auto) { if (h.deps_.on_save_session_as) h.deps_.on_save_session_as(); }},
         {"load_session",       [](auto& h, auto) { if (h.deps_.on_load_session) h.deps_.on_load_session(); }},
         {"new_space",          [](auto& h, auto) { if (h.deps_.on_new_space) h.deps_.on_new_space(); }},
