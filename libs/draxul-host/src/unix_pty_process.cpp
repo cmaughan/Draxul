@@ -36,15 +36,20 @@ bool starts_with(std::string_view text, std::string_view prefix)
     return text.size() >= prefix.size() && text.substr(0, prefix.size()) == prefix;
 }
 
-std::vector<std::string> build_child_environment()
+std::vector<std::string> build_child_environment(
+    const std::vector<std::pair<std::string, std::string>>& overrides)
 {
     std::vector<std::string> env;
     for (char** current = environ; current != nullptr && *current != nullptr; ++current)
     {
         const std::string_view entry(*current);
+        const size_t equals = entry.find('=');
+        const std::string_view key = entry.substr(0, equals);
         if (starts_with(entry, "TERM=")
             || starts_with(entry, "COLORTERM=")
-            || starts_with(entry, "TERM_PROGRAM="))
+            || starts_with(entry, "TERM_PROGRAM=")
+            || std::any_of(overrides.begin(), overrides.end(),
+                [&](const auto& value) { return value.first == key; }))
         {
             continue;
         }
@@ -54,6 +59,8 @@ std::vector<std::string> build_child_environment()
     env.emplace_back("TERM=xterm-256color");
     env.emplace_back("COLORTERM=truecolor");
     env.emplace_back("TERM_PROGRAM=draxul");
+    for (const auto& [key, value] : overrides)
+        env.push_back(key + "=" + value);
     return env;
 }
 
@@ -127,7 +134,8 @@ UnixPtyProcess::~UnixPtyProcess()
 
 bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::string>& args,
     const std::string& working_dir, std::function<void()> on_output_available,
-    int initial_cols, int initial_rows)
+    int initial_cols, int initial_rows, bool login_shell,
+    const std::vector<std::pair<std::string, std::string>>& environment)
 {
     PERF_MEASURE();
     shutdown();
@@ -146,9 +154,9 @@ bool UnixPtyProcess::spawn(const std::string& command, const std::vector<std::st
     struct winsize ws = {};
     ws.ws_col = static_cast<unsigned short>(std::clamp(initial_cols, 1, 320));
     ws.ws_row = static_cast<unsigned short>(std::clamp(initial_rows, 1, 200));
-    std::vector<std::string> child_env = build_child_environment();
+    std::vector<std::string> child_env = build_child_environment(environment);
     std::vector<std::string> exec_paths = resolve_exec_paths(command);
-    std::string login_argv0 = "-";
+    std::string login_argv0 = login_shell ? "-" : "";
     const auto slash = command.rfind('/');
     login_argv0 += (slash == std::string::npos) ? command : command.substr(slash + 1);
 

@@ -223,9 +223,9 @@ protected:
             host_name_str.c_str(),
             command.c_str(),
             launch_options().working_dir.c_str());
-        if (!process_.spawn(command, launch_options().args, launch_options().working_dir, grid_cols(), grid_rows(), [this]() {
-                callbacks().wake_window();
-            }))
+        if (!process_.spawn(command, launch_options().args, launch_options().working_dir,
+                grid_cols(), grid_rows(), [this]() { callbacks().wake_window(); },
+                launch_options().environment))
         {
             set_init_error("Could not start " + command + ". " + hint);
             return false;
@@ -328,7 +328,7 @@ protected:
         init_colors();
 
         std::vector<std::string> args = launch_options().args;
-        if (args.empty())
+        if (args.empty() && launch_options().command.empty())
         {
             args = {
                 "-NoLogo",
@@ -351,9 +351,9 @@ protected:
         std::string command;
         for (const auto& candidate : candidates)
         {
-            if (process().spawn(candidate, args, launch_options().working_dir, cols, rows, [this]() {
-                    callbacks().wake_window();
-                }))
+            if (process().spawn(candidate, args, launch_options().working_dir, cols, rows,
+                    [this]() { callbacks().wake_window(); },
+                    launch_options().environment))
             {
                 command = candidate;
                 break;

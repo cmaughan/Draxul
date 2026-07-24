@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <optional>
 #include <vector>
 
 namespace draxul
@@ -20,6 +21,9 @@ struct AgentProjection
     LeafId leaf_id = kInvalidLeaf;
     std::string pane_id;
     AgentIdentity identity;
+    AgentLifecycle lifecycle = AgentLifecycle::Starting;
+    AgentRuntimeGeneration generation{};
+    std::optional<int> exit_code;
     bool running = false;
     bool focused = false;
 };

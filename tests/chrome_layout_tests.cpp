@@ -74,8 +74,10 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
         { 7, "renderer", false },
     };
     input.agents = {
-        { "agent-0-1-pane-2", "Codex", true, true },
-        { "agent-7-3-pane-4", "Claude", false, false },
+        { .instance_id = "agent-0-1-pane-2", .display_name = "Codex",
+            .running = true, .focused = true },
+        { .instance_id = "agent-7-3-pane-4", .display_name = "Claude",
+            .running = false, .focused = false },
     };
     refresh_shell(input, true);
 

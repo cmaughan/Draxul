@@ -63,6 +63,15 @@ struct MarkdownConfig
     float margin_columns = 2.0f;
 };
 
+struct AgentProfileConfig
+{
+    std::string id;
+    std::string kind;
+    std::string display_name;
+    std::string executable;
+    std::vector<std::string> args;
+};
+
 struct AppConfig
 {
     AppConfig(); // defined in app_config_io.cpp; populates default keybindings
@@ -100,6 +109,7 @@ struct AppConfig
     TerminalConfig terminal; // [terminal] section -- fg/bg hex colors
     ChromeTheme chrome; // [chrome] section -- UI chrome color theme
     MarkdownConfig markdown; // [markdown] section -- markdown viewer layout/font options
+    std::vector<AgentProfileConfig> agent_profiles; // [agents.profiles.<id>]
 
     // Warnings collected during parse() — e.g. unknown top-level keys. Drained by App and
     // surfaced to the user via toast notifications.

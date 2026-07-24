@@ -72,37 +72,6 @@ bool text_service_config_changed(const AppConfig& lhs, const AppConfig& rhs)
         || lhs.fallback_paths != rhs.fallback_paths;
 }
 
-std::string agent_kind_from_command(std::string_view command)
-{
-    while (!command.empty() && std::isspace(static_cast<unsigned char>(command.front())))
-        command.remove_prefix(1);
-    size_t end = 0;
-    while (end < command.size()
-        && !std::isspace(static_cast<unsigned char>(command[end])))
-    {
-        ++end;
-    }
-    std::filesystem::path executable(std::string(command.substr(0, end)));
-    std::string kind = executable.stem().string();
-    std::transform(kind.begin(), kind.end(), kind.begin(),
-        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return kind.empty() ? "agent" : kind;
-}
-
-std::string agent_display_name(std::string_view kind)
-{
-    if (kind == "codex")
-        return "Codex";
-    if (kind == "claude")
-        return "Claude";
-    if (kind == "gemini")
-        return "Gemini";
-    std::string name(kind);
-    if (!name.empty())
-        name.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(name.front())));
-    return name.empty() ? "Agent" : name;
-}
-
 class CallbackInputRouter final : public IInputRouter
 {
 public:
@@ -341,6 +310,7 @@ bool App::initialize()
             config_document_ = {};
         }
         apply_overrides(config_, options_.config_overrides);
+        rebuild_agent_definitions();
         for (const auto& warning : config_.warnings)
             push_toast(0, warning);
         return true;
@@ -632,6 +602,7 @@ Result<void, Error> App::reload_config()
 
     config_ = std::move(reloaded_config);
     config_document_ = std::move(*loaded_document);
+    rebuild_agent_definitions();
 
     if (staged_text_service)
     {
@@ -897,6 +868,32 @@ void App::wire_gui_actions()
             push_toast(0, "Closed Space '" + name + "'.");
     };
     gui_deps.on_launch_agent = [this]() { open_launch_agent_prompt(); };
+    gui_deps.on_focus_agent = [this]() { open_focus_agent_picker(); };
+    gui_deps.on_restart_agent = [this]() {
+        PaneManager& panes = active_pane_manager();
+        if (!panes.agent_identity(panes.focused_leaf()))
+        {
+            push_toast(2, "The focused pane does not contain a tracked agent.");
+            return;
+        }
+        input_dispatcher_.set_host(nullptr);
+        if (!panes.restart_focused(*this))
+            push_toast(2, panes.error().empty() ? "Failed to restart agent." : panes.error());
+        input_dispatcher_.set_host(panes.focused_host());
+        mark_session_dirty();
+        request_frame();
+    };
+    gui_deps.on_clear_agent_identity = [this]() {
+        PaneManager& panes = active_pane_manager();
+        if (!panes.clear_agent_identity(panes.focused_leaf()))
+        {
+            push_toast(2, "The focused pane has no tracked agent identity.");
+            return;
+        }
+        mark_session_dirty();
+        refresh_app_shell_layout();
+        request_frame();
+    };
     gui_deps.on_edit_config = [this]() {
         HostLaunchOptions launch;
         launch.kind = HostKind::Nvim;
@@ -1296,22 +1293,64 @@ void App::open_launch_agent_prompt()
     if (!palette_host_)
         return;
 
-    CommandPalette::PromptRequest request;
+    CommandPalette::ChoiceRequest request;
     request.title = "Launch Agent";
-    request.prompt = "Command";
-    request.initial_value = "codex";
-    request.empty_message = "Enter a local agent command";
-    request.on_submit = [this](std::string command) {
-        auto launched = launch_agent(command);
+    for (const AgentDefinition& definition : agent_definitions_.definitions())
+    {
+        request.entries.push_back({
+            .id = definition.profile_id,
+            .name = definition.display_name,
+            .shortcut_hint = definition.executable,
+            .search_text = definition.profile_id + " " + definition.kind + " "
+                + definition.executable,
+        });
+    }
+    request.on_submit = [this](std::string profile_id) {
+        const AgentDefinition* definition = agent_definitions_.find(profile_id);
+        auto launched = launch_agent(profile_id);
         if (!launched)
         {
             push_toast(2, launched.error().message);
             return;
         }
-        push_toast(0, "Launched agent '" + agent_kind_from_command(command) + "'.");
+        push_toast(0, "Launched agent '"
+                + (definition ? definition->display_name : profile_id) + "'.");
     };
-    if (!palette_host_->open_prompt(std::move(request)))
-        push_toast(2, "Unable to open agent command prompt.");
+    if (!palette_host_->open_choices(std::move(request)))
+        push_toast(2, "Unable to open agent profile picker.");
+}
+
+void App::open_focus_agent_picker()
+{
+    if (!palette_host_)
+        return;
+
+    const auto agents = agent_controller_.query(space_controller_);
+    CommandPalette::ChoiceRequest request;
+    request.title = "Focus Agent";
+    for (const AgentProjection& agent : agents)
+    {
+        const Space* space = space_controller_.find_space(agent.space_id);
+        request.entries.push_back({
+            .id = agent.identity.instance_id,
+            .name = agent.identity.display_name,
+            .shortcut_hint = space ? space->name : std::string{},
+            .search_text = agent.identity.display_name + " " + agent.identity.kind + " "
+                + (space ? space->name : std::string{}),
+        });
+    }
+    request.on_submit = [this](std::string instance_id) {
+        if (!agent_controller_.focus(space_controller_, instance_id))
+        {
+            push_toast(2, "Agent is no longer available.");
+            return;
+        }
+        refresh_app_shell_layout();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        request_frame();
+    };
+    if (!palette_host_->open_choices(std::move(request)))
+        push_toast(2, "Unable to open agent picker.");
 }
 
 void App::wire_window_callbacks()
@@ -2539,24 +2578,57 @@ Result<void, Error> App::close_space(SpaceId id)
     return Result<void, Error>::ok();
 }
 
-Result<std::string, Error> App::launch_agent(std::string_view raw_command)
+void App::rebuild_agent_definitions()
 {
-    const std::string command = trim_session_name(raw_command);
-    if (command.empty())
+    agent_definitions_ = AgentDefinitionRegistry{};
+    for (const AgentProfileConfig& profile : config_.agent_profiles)
+    {
+        agent_definitions_.register_definition({
+            .profile_id = profile.id,
+            .kind = profile.kind,
+            .display_name = profile.display_name,
+            .executable = profile.executable,
+            .default_args = profile.args,
+        });
+    }
+}
+
+Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
+{
+    const AgentDefinition* definition = agent_definitions_.find(request.profile_id);
+    if (!definition)
         return Result<std::string, Error>::err(
-            Error::invalid_argument("Enter a local agent command."));
-    if (command.find_first_of("\r\n") != std::string::npos)
-        return Result<std::string, Error>::err(
-            Error::invalid_argument("Agent command must be a single line."));
+            Error::invalid_argument("Unknown agent profile '" + request.profile_id + "'."));
     if (!window_ || !chrome_host_ || !diagnostics_host_)
         return Result<std::string, Error>::err(
             Error::init("Draxul is not ready to launch an agent."));
 
     HostLaunchOptions launch;
     launch.kind = PaneManager::platform_default_split_host_kind();
-    launch.startup_commands = { command };
+    launch.command = definition->executable;
+    launch.args = definition->default_args;
+    launch.args.insert(launch.args.end(),
+        request.additional_args.begin(), request.additional_args.end());
     if (IHost* host = active_pane_manager().focused_host())
         launch.working_dir = host->current_working_directory();
+
+    std::string instance_id;
+    const auto existing_agents = agent_controller_.query(space_controller_);
+    do
+    {
+        instance_id = "agent-" + options_.session_id + "-"
+            + std::to_string(next_agent_instance_serial_++);
+    } while (std::any_of(existing_agents.begin(), existing_agents.end(),
+        [&](const AgentProjection& agent) {
+            return agent.identity.instance_id == instance_id;
+        }));
+    launch.environment = {
+        { "DRAXUL_ENV", "1" },
+        { "DRAXUL_SESSION_ID", options_.session_id },
+        { "DRAXUL_SPACE_ID", std::to_string(space_controller_.active_space_id()) },
+        { "DRAXUL_TAB_ID", std::to_string(active_tab_controller().active_tab_id()) },
+        { "DRAXUL_AGENT_INSTANCE_ID", instance_id },
+    };
 
     PaneManager& panes = active_pane_manager();
     const LeafId leaf = panes.split_focused(
@@ -2569,14 +2641,9 @@ Result<std::string, Error> App::launch_agent(std::string_view raw_command)
                 : detail));
     }
 
-    const std::string kind = agent_kind_from_command(command);
-    const std::string instance_id = "agent-"
-        + std::to_string(space_controller_.active_space_id()) + "-"
-        + std::to_string(active_tab_controller().active_tab_id()) + "-"
-        + panes.pane_id(leaf);
     panes.set_agent_identity(leaf, {
-        .kind = kind,
-        .display_name = agent_display_name(kind),
+        .kind = definition->kind,
+        .display_name = definition->display_name,
         .instance_id = instance_id,
     });
 

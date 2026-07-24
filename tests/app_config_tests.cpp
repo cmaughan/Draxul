@@ -1381,3 +1381,27 @@ TEST_CASE("AppConfig round-trips Space sidebar columns", "[config][spaces]")
     const AppConfig round_tripped = AppConfig::parse(original.serialize());
     CHECK(round_tripped.space_sidebar_columns == 29);
 }
+
+TEST_CASE("AppConfig parses and round-trips structured agent profiles",
+    "[config][agent]")
+{
+    const AppConfig parsed = AppConfig::parse(R"(
+[agents.profiles.review]
+kind = "codex"
+display_name = "Review Agent"
+executable = "D:/Tools/codex.exe"
+args = ["--ask-for-approval", "never"]
+)");
+    REQUIRE(parsed.agent_profiles.size() == 1);
+    CHECK(parsed.agent_profiles[0].id == "review");
+    CHECK(parsed.agent_profiles[0].kind == "codex");
+    CHECK(parsed.agent_profiles[0].display_name == "Review Agent");
+    CHECK(parsed.agent_profiles[0].executable == "D:/Tools/codex.exe");
+    CHECK(parsed.agent_profiles[0].args
+        == (std::vector<std::string>{ "--ask-for-approval", "never" }));
+
+    const AppConfig round_tripped = AppConfig::parse(parsed.serialize());
+    REQUIRE(round_tripped.agent_profiles.size() == 1);
+    CHECK(round_tripped.agent_profiles[0].id == "review");
+    CHECK(round_tripped.agent_profiles[0].args == parsed.agent_profiles[0].args);
+}

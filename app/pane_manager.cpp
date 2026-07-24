@@ -163,6 +163,8 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     pane_user_names_.clear();
     pane_ids_.clear();
     agent_identities_.clear();
+    runtime_generations_.clear();
+    next_runtime_generation_ = 1;
     next_pane_serial_ = 1;
 
     LeafId root_id = tree_.reset(pixel_w, pixel_h);
@@ -308,6 +310,7 @@ bool PaneManager::close_leaf(LeafId id)
     pane_user_names_.erase(id);
     pane_ids_.erase(id);
     agent_identities_.erase(id);
+    runtime_generations_.erase(id);
 
     // Collapse the tree (this also updates focus if needed)
     LeafId old_focus = tree_.focused();
@@ -522,6 +525,8 @@ void PaneManager::shutdown()
     pane_user_names_.clear();
     pane_ids_.clear();
     agent_identities_.clear();
+    runtime_generations_.clear();
+    next_runtime_generation_ = 1;
     next_pane_serial_ = 1;
     markdown_preview_leaf_ = kInvalidLeaf;
     markdown_preview_owner_ = kInvalidLeaf;
@@ -724,6 +729,14 @@ bool PaneManager::clear_agent_identity(LeafId id)
     return agent_identities_.erase(id) != 0;
 }
 
+AgentRuntimeGeneration PaneManager::agent_runtime_generation(LeafId id) const
+{
+    const auto found = runtime_generations_.find(id);
+    return found == runtime_generations_.end()
+        ? AgentRuntimeGeneration{}
+        : found->second;
+}
+
 IHost* PaneManager::focused_host() const
 {
     return host_for(tree_.focused());
@@ -855,6 +868,20 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
         }
     }
 
+    const bool draxul_managed = std::any_of(launch.environment.begin(),
+        launch.environment.end(), [](const auto& value) {
+            return value.first == "DRAXUL_ENV" && value.second == "1";
+        });
+    if (draxul_managed)
+    {
+        auto pane_env = std::find_if(launch.environment.begin(), launch.environment.end(),
+            [](const auto& value) { return value.first == "DRAXUL_PANE_ID"; });
+        if (pane_env == launch.environment.end())
+            launch.environment.emplace_back("DRAXUL_PANE_ID", pane_ids_[id]);
+        else
+            pane_env->second = pane_ids_[id];
+    }
+
     std::unique_ptr<IHost> new_host;
 
     if (deps_.options && deps_.options->host_factory)
@@ -918,6 +945,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
         grid_renderer.set_default_background(new_host->default_background());
 
     hosts_[id] = std::move(new_host);
+    runtime_generations_[id] = { next_runtime_generation_++ };
     launch_options_[id] = std::move(saved_launch);
     return true;
 }

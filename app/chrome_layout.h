@@ -58,6 +58,7 @@ struct ChromeAgentInput
 {
     std::string instance_id;
     std::string display_name;
+    std::string status_suffix;
     bool running = false;
     bool focused = false;
 };

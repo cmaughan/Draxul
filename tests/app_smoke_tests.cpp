@@ -1140,7 +1140,10 @@ TEST_CASE("app smoke: launched agent identity drives the sidebar and survives re
 
     App app(std::move(opts));
     REQUIRE(app.initialize());
-    auto launched = app.launch_agent("codex --ask-for-approval never");
+    auto launched = app.launch_agent(AgentLaunchRequest{
+        .profile_id = "codex",
+        .additional_args = { "--ask-for-approval", "never" },
+    });
     if (!launched)
         INFO(launched.error().message);
     REQUIRE(launched);
@@ -1168,8 +1171,10 @@ TEST_CASE("app smoke: launched agent identity drives the sidebar and survives re
     REQUIRE(agent_pane != state->spaces[0].tabs[0].pane_layout.panes.end());
     REQUIRE(agent_pane->agent);
     CHECK(agent_pane->agent->instance_id == *launched);
-    CHECK(agent_pane->launch.startup_commands
-        == (std::vector<std::string>{ "codex --ask-for-approval never" }));
+    CHECK(agent_pane->launch.command == "codex");
+    CHECK(agent_pane->launch.args
+        == (std::vector<std::string>{ "--ask-for-approval", "never" }));
+    CHECK(agent_pane->launch.startup_commands.empty());
 
     const std::string saved_id = *saved;
     const std::string agent_id = *launched;

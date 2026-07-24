@@ -31,6 +31,7 @@ struct HostLaunchOptions
     std::string working_dir;
     std::string source_path;
     std::vector<std::string> startup_commands;
+    std::vector<std::pair<std::string, std::string>> environment;
     bool enable_ligatures = true;
     std::string pty_capture_file;
 

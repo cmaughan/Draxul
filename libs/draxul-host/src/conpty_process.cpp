@@ -53,6 +53,51 @@ std::string narrow_utf8(std::wstring_view text)
     return utf8;
 }
 
+std::vector<wchar_t> build_environment_block(
+    const std::vector<std::pair<std::string, std::string>>& overrides)
+{
+    std::vector<std::pair<std::wstring, std::wstring>> wide_overrides;
+    wide_overrides.reserve(overrides.size());
+    for (const auto& [key, value] : overrides)
+        wide_overrides.emplace_back(widen_utf8(key), widen_utf8(value));
+
+    std::vector<std::wstring> entries;
+    LPWCH raw = GetEnvironmentStringsW();
+    if (raw)
+    {
+        for (const wchar_t* current = raw; *current != L'\0';
+             current += std::wcslen(current) + 1)
+        {
+            const std::wstring_view entry(current);
+            const size_t key_start = entry.starts_with(L'=') ? 1 : 0;
+            const size_t equals = entry.find(L'=', key_start);
+            const std::wstring_view key = entry.substr(0, equals);
+            const bool replaced = std::any_of(wide_overrides.begin(), wide_overrides.end(),
+                [&](const auto& value) {
+                    return _wcsicmp(std::wstring(key).c_str(), value.first.c_str()) == 0;
+                });
+            if (!replaced)
+                entries.emplace_back(entry);
+        }
+        FreeEnvironmentStringsW(raw);
+    }
+    for (const auto& [key, value] : wide_overrides)
+        entries.push_back(key + L"=" + value);
+
+    std::sort(entries.begin(), entries.end(), [](const std::wstring& lhs,
+                                              const std::wstring& rhs) {
+        return _wcsicmp(lhs.c_str(), rhs.c_str()) < 0;
+    });
+    std::vector<wchar_t> block;
+    for (const std::wstring& entry : entries)
+    {
+        block.insert(block.end(), entry.begin(), entry.end());
+        block.push_back(L'\0');
+    }
+    block.push_back(L'\0');
+    return block;
+}
+
 bool command_looks_like_path(std::string_view command)
 {
     return command.find('\\') != std::string_view::npos
@@ -256,7 +301,8 @@ ConPtyProcess::~ConPtyProcess()
 
 bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::string>& args,
     const std::string& working_dir, int initial_cols, int initial_rows,
-    std::function<void()> on_output_available)
+    std::function<void()> on_output_available,
+    const std::vector<std::pair<std::string, std::string>>& environment)
 {
     PERF_MEASURE();
     shutdown();
@@ -349,7 +395,8 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
     // ConPTY child creation is supposed to use the pseudoconsole attribute with
     // EXTENDED_STARTUPINFO_PRESENT. CREATE_NO_WINDOW severs the child from the
     // console environment that ConPTY is trying to provide.
-    const DWORD creation_flags = EXTENDED_STARTUPINFO_PRESENT;
+    const DWORD creation_flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT;
+    std::vector<wchar_t> environment_block = build_environment_block(environment);
     DRAXUL_LOG_DEBUG(LogCategory::App,
         "ConPTY spawn request: command='%s' resolved='%s' cwd='%s' cols=%d rows=%d flags=0x%08lx",
         command.c_str(),
@@ -378,7 +425,7 @@ bool ConPtyProcess::spawn(const std::string& command, const std::vector<std::str
         nullptr,
         FALSE,
         creation_flags,
-        nullptr,
+        environment_block.data(),
         working_dir_w.empty() ? nullptr : working_dir_w.c_str(),
         &startup.StartupInfo,
         &proc_info_);

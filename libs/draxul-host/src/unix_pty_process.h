@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace draxul
@@ -22,7 +23,8 @@ public:
 
     bool spawn(const std::string& command, const std::vector<std::string>& args,
         const std::string& working_dir, std::function<void()> on_output_available,
-        int initial_cols = 80, int initial_rows = 24);
+        int initial_cols = 80, int initial_rows = 24, bool login_shell = true,
+        const std::vector<std::pair<std::string, std::string>>& environment = {});
     void shutdown();
     void request_close();
     bool is_running() const;

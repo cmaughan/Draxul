@@ -372,10 +372,26 @@ TEST_CASE("agent controller derives pane occupants and focuses their stable rout
     CHECK(rows[0].pane_id
         == default_space->tab_controller.active_pane_manager().pane_id(default_leaf));
     CHECK(rows[0].running);
+    CHECK(rows[0].lifecycle == AgentLifecycle::Running);
+    CHECK(rows[0].generation.value > 0);
     CHECK(rows[0].focused);
     CHECK(rows[1].space_id == worker_id);
     CHECK(rows[1].identity.instance_id == "agent-worker");
     CHECK_FALSE(rows[1].focused);
+
+    const uint64_t first_generation = rows[0].generation.value;
+    REQUIRE(default_space->tab_controller.active_pane_manager().restart_focused(
+        harness.callbacks));
+    rows = agents.query(spaces);
+    CHECK(rows[0].generation.value > first_generation);
+
+    harness.hosts.back()->fake_exit_code = 7;
+    harness.hosts.back()->shutdown();
+    rows = agents.query(spaces);
+    CHECK_FALSE(rows[0].running);
+    CHECK(rows[0].lifecycle == AgentLifecycle::Failed);
+    REQUIRE(rows[0].exit_code);
+    CHECK(*rows[0].exit_code == 7);
 
     REQUIRE(agents.focus(spaces, "agent-worker"));
     CHECK(spaces.active_space_id() == worker_id);
@@ -431,4 +447,26 @@ TEST_CASE("agent model enum strings are stable", "[agent_controller][agent]")
     CHECK(to_string(AgentRestorePolicy::Fresh) == "fresh");
     CHECK(to_string(AgentRestorePolicy::ResumeIfAvailable) == "resume_if_available");
     CHECK(to_string(AgentRestorePolicy::ShellOnly) == "shell_only");
+}
+
+TEST_CASE("agent definition registry provides built-ins and replaceable profiles",
+    "[agent_controller][agent]")
+{
+    AgentDefinitionRegistry registry;
+    REQUIRE(registry.find("codex") != nullptr);
+    CHECK(registry.find("codex")->executable == "codex");
+    REQUIRE(registry.find("claude") != nullptr);
+
+    REQUIRE(registry.register_definition({
+        .profile_id = "codex",
+        .kind = "codex",
+        .display_name = "Codex Custom",
+        .executable = "D:/tools/codex.exe",
+        .default_args = { "--quiet" },
+    }));
+    REQUIRE(registry.find("codex") != nullptr);
+    CHECK(registry.find("codex")->display_name == "Codex Custom");
+    CHECK(registry.find("codex")->default_args
+        == (std::vector<std::string>{ "--quiet" }));
+    CHECK_FALSE(registry.register_definition({}));
 }

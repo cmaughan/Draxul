@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #define WIN32_LEAN_AND_MEAN
@@ -37,7 +38,8 @@ public:
 
     bool spawn(const std::string& command, const std::vector<std::string>& args,
         const std::string& working_dir, int initial_cols, int initial_rows,
-        std::function<void()> on_output_available);
+        std::function<void()> on_output_available,
+        const std::vector<std::pair<std::string, std::string>>& environment = {});
     void shutdown();
     void request_close();
     bool is_running() const;

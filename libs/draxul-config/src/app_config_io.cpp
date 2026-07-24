@@ -119,6 +119,43 @@ void apply_gui_keybindings(AppConfig& config, const toml::table& keybindings)
     }
 }
 
+void apply_agent_profiles(AppConfig& config, const toml::table& agents,
+    std::string* validation_error)
+{
+    const toml::table* profiles = agents["profiles"].as_table();
+    if (!profiles)
+        return;
+
+    for (const auto& [profile_key, node] : *profiles)
+    {
+        const toml::table* profile = node.as_table();
+        if (!profile)
+        {
+            if (validation_error && validation_error->empty())
+                *validation_error = "Agent profile '" + std::string(profile_key.str())
+                    + "' must be a table.";
+            continue;
+        }
+
+        AgentProfileConfig value;
+        value.id = std::string(profile_key.str());
+        value.kind = toml_support::get_string(*profile, "kind").value_or(value.id);
+        value.display_name = toml_support::get_string(*profile, "display_name")
+                                 .value_or(value.kind);
+        value.executable = toml_support::get_string(*profile, "executable").value_or("");
+        value.args = toml_support::get_string_array(*profile, "args")
+                         .value_or(std::vector<std::string>{});
+        if (value.executable.empty())
+        {
+            if (validation_error && validation_error->empty())
+                *validation_error = "Agent profile '" + value.id
+                    + "' requires a non-empty executable.";
+            continue;
+        }
+        config.agent_profiles.push_back(std::move(value));
+    }
+}
+
 AppConfig config_from_toml(const toml::table& document, std::string* validation_error = nullptr)
 {
     PERF_MEASURE();
@@ -152,6 +189,8 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
 
     if (const auto* keybindings = document["keybindings"].as_table())
         apply_gui_keybindings(config, *keybindings);
+    if (const auto* agents = document["agents"].as_table())
+        apply_agent_profiles(config, *agents, validation_error);
 
     // Warn about duplicate key+modifier combinations in keybindings
     for (size_t i = 0; i < config.keybindings.size(); ++i)
@@ -370,6 +409,26 @@ std::string AppConfig::serialize() const
         }
     });
     document.insert_or_assign("keybindings", std::move(keybinding_table));
+
+    if (!agent_profiles.empty())
+    {
+        toml::table profiles;
+        for (const AgentProfileConfig& profile : agent_profiles)
+        {
+            toml::table value;
+            value.insert_or_assign("kind", profile.kind);
+            value.insert_or_assign("display_name", profile.display_name);
+            value.insert_or_assign("executable", profile.executable);
+            toml::array args;
+            for (const std::string& arg : profile.args)
+                args.push_back(arg);
+            value.insert_or_assign("args", std::move(args));
+            profiles.insert_or_assign(profile.id, std::move(value));
+        }
+        toml::table agents;
+        agents.insert_or_assign("profiles", std::move(profiles));
+        document.insert_or_assign("agents", std::move(agents));
+    }
 
     std::ostringstream out;
     out << document << '\n';

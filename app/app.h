@@ -97,7 +97,11 @@ public:
     Result<void, Error> activate_space(SpaceId id);
     Result<void, Error> rename_space(SpaceId id, std::string_view name);
     Result<void, Error> close_space(SpaceId id);
-    Result<std::string, Error> launch_agent(std::string_view command);
+    Result<std::string, Error> launch_agent(AgentLaunchRequest request);
+    Result<std::string, Error> launch_agent(std::string_view profile_id)
+    {
+        return launch_agent(AgentLaunchRequest{ .profile_id = std::string(profile_id) });
+    }
     const SpaceController& space_controller() const noexcept
     {
         return space_controller_;
@@ -156,6 +160,8 @@ private:
     void open_switch_space_picker();
     void open_rename_space_prompt();
     void open_launch_agent_prompt();
+    void open_focus_agent_picker();
+    void rebuild_agent_definitions();
     bool close_dead_panes();
     void rebuild_render_tree();
     bool render_frame();
@@ -252,6 +258,8 @@ private:
     AppShellLayout shell_layout_{};
     SpaceController space_controller_;
     AgentController agent_controller_;
+    AgentDefinitionRegistry agent_definitions_;
+    uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;
     DiagnosticsCollector diagnostics_collector_;

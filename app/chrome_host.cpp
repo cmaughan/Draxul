@@ -102,9 +102,19 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
         }
         for (const AgentProjection& agent : AgentController{}.query(*deps_.space_controller))
         {
+            std::string suffix;
+            if (agent.lifecycle == AgentLifecycle::Failed)
+                suffix = agent.exit_code ? "[failed " + std::to_string(*agent.exit_code) + "]"
+                                         : "[failed]";
+            else if (agent.lifecycle == AgentLifecycle::Exited)
+                suffix = agent.exit_code ? "[exited " + std::to_string(*agent.exit_code) + "]"
+                                         : "[exited]";
+            else if (agent.lifecycle == AgentLifecycle::Starting)
+                suffix = "[starting]";
             input.agents.push_back({
                 .instance_id = agent.identity.instance_id,
                 .display_name = agent.identity.display_name,
+                .status_suffix = std::move(suffix),
                 .running = agent.running,
                 .focused = agent.focused,
             });

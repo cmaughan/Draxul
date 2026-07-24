@@ -194,6 +194,8 @@ All existing tests and smoke validation pass with no user-visible change.
 
 ## Phase 1: structured profiles and direct managed launches
 
+**Status:** complete (2026-07-24).
+
 **Purpose:** make explicitly launched agents reliable before attempting detection.
 
 ### Work
@@ -259,6 +261,8 @@ Draxul can launch Codex and Claude as directly owned terminal processes, and hos
 lifecycle now describes the managed agent process rather than an enclosing shell.
 
 ## Phase 2: lifecycle truth and sidebar actions
+
+**Status:** complete (2026-07-24).
 
 **Purpose:** make the existing Agents area operational even before semantic detection.
 

@@ -382,7 +382,9 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             const auto& source = input.agents[i];
             const std::string prefix = std::to_string(i + 1) + ": ";
             const int digits = static_cast<int>(std::to_string(i + 1).size());
-            const std::string suffix = source.running ? "" : " [exited]";
+            const std::string suffix = source.status_suffix.empty()
+                ? (source.running ? "" : " [exited]")
+                : " " + source.status_suffix;
             const int max_label_cols = std::max(
                 1, out.sidebar_cols - kTabPadCols * 2 - 1);
             ChromeAgentLayout agent;

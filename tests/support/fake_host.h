@@ -102,6 +102,11 @@ public:
         return running_;
     }
 
+    std::optional<int> exit_code() const override
+    {
+        return fake_exit_code;
+    }
+
     std::string init_error() const override
     {
         return init_error_message;
@@ -229,6 +234,7 @@ public:
     // Controls what dispatch_action returns; tests can flip to false to
     // simulate an action the host does not recognise.
     bool dispatch_action_result = true;
+    std::optional<int> fake_exit_code;
 
     // Recorded state.
     int initialize_calls = 0;

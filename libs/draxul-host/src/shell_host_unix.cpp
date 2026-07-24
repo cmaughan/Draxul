@@ -41,7 +41,10 @@ protected:
         if (command.empty())
             command = (launch_options().kind == HostKind::Zsh) ? "zsh" : "bash";
 
-        if (!process_.spawn(command, launch_options().args, launch_options().working_dir, [this]() { callbacks().wake_window(); }, viewport().grid_size.x, viewport().grid_size.y))
+        if (!process_.spawn(command, launch_options().args, launch_options().working_dir,
+                [this]() { callbacks().wake_window(); }, viewport().grid_size.x,
+                viewport().grid_size.y, launch_options().command.empty(),
+                launch_options().environment))
         {
             set_init_error("Could not start " + command
                 + ". Please ensure it is installed and available on your PATH.");
