@@ -20,8 +20,8 @@ SessionSnapshot make_saved_session(std::string session_id, std::string session_n
     SessionSnapshot state;
     state.session_id = std::move(session_id);
     state.session_name = std::move(session_name);
-    state.active_tab_id = 1;
-    state.next_tab_id = 2;
+    state.active_space_id = 1;
+    state.next_space_id = 2;
 
     TabSnapshot tab;
     tab.id = 1;
@@ -34,7 +34,12 @@ SessionSnapshot make_saved_session(std::string session_id, std::string session_n
         .pane_name = "shell",
         .pane_id = "pane-1",
     });
-    state.tabs.push_back(std::move(tab));
+    SpaceSnapshot space;
+    space.id = 1;
+    space.active_tab_id = 1;
+    space.next_tab_id = 2;
+    space.tabs.push_back(std::move(tab));
+    state.spaces.push_back(std::move(space));
     return state;
 }
 
@@ -54,11 +59,12 @@ TEST_CASE("session listing reports saved session topology", "[session_listing]")
     REQUIRE(sessions.size() == 1);
     CHECK(sessions[0].session_id == "alpha");
     CHECK(sessions[0].session_name == "Alpha Session");
+    CHECK(sessions[0].space_count == 1);
     CHECK(sessions[0].tab_count == 1);
     CHECK(sessions[0].pane_count == 1);
     CHECK(sessions[0].has_saved_state);
     CHECK(session_entry_name(sessions[0]) == "Alpha Session (alpha)");
-    CHECK(session_entry_hint(sessions[0]) == "saved 1t/1p");
+    CHECK(session_entry_hint(sessions[0]) == "saved 1s/1t/1p");
 }
 
 TEST_CASE("session listing formatter prints aligned saved-session table", "[session_listing]")
@@ -66,6 +72,7 @@ TEST_CASE("session listing formatter prints aligned saved-session table", "[sess
     SessionSummary alpha;
     alpha.session_id = "alpha";
     alpha.session_name = "Alpha Session";
+    alpha.space_count = 2;
     alpha.tab_count = 3;
     alpha.pane_count = 12;
     alpha.has_saved_state = true;
@@ -73,15 +80,16 @@ TEST_CASE("session listing formatter prints aligned saved-session table", "[sess
     SessionSummary beta;
     beta.session_id = "beta";
     beta.session_name = "beta";
+    beta.space_count = 1;
     beta.tab_count = 1;
     beta.pane_count = 2;
     beta.has_saved_state = true;
 
     const std::string table = format_session_listing_table({ alpha, beta });
     const std::string expected
-        = "SESSION ID  TABS  PANES  NAME\n"
-          "----------  ----  -----  ----\n"
-          "alpha          3     12  Alpha Session\n"
-          "beta           1      2  \n";
+        = "SESSION ID  SPACES  TABS  PANES  NAME\n"
+          "----------  ------  ----  -----  ----\n"
+          "alpha            2     3     12  Alpha Session\n"
+          "beta             1     1      2  \n";
     CHECK(table == expected);
 }

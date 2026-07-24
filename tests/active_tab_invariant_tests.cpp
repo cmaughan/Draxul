@@ -220,7 +220,10 @@ TEST_CASE("failed restore preserves the current tab collection", "[app][tab][ses
     AppTestAccess::activate(app, 1);
 
     SessionSnapshot invalid;
-    invalid.tabs.push_back(TabSnapshot{ .id = 9 });
+    SpaceSnapshot invalid_space;
+    invalid_space.id = kDefaultSpaceId;
+    invalid_space.tabs.push_back(TabSnapshot{ .id = 9 });
+    invalid.spaces.push_back(std::move(invalid_space));
     CHECK_FALSE(AppTestAccess::restore(app, invalid));
     CHECK(AppTestAccess::count(app) == 1);
     CHECK(AppTestAccess::active_id(app) == 1);

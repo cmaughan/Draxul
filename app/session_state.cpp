@@ -21,7 +21,17 @@ namespace draxul
 namespace
 {
 
-constexpr int kSessionStateVersion = 1;
+constexpr int kSessionStateVersionV1 = 1;
+constexpr int kSessionStateVersionV2 = 2;
+
+struct LegacySessionSnapshotV1
+{
+    std::string session_id = "default";
+    std::string session_name = "default";
+    int active_tab_id = -1;
+    int next_tab_id = 0;
+    std::vector<TabSnapshot> tabs;
+};
 
 uint64_t fnv1a_hash(std::string_view text)
 {
@@ -286,6 +296,41 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
     return state;
 }
 
+toml::table serialize_tab(const TabSnapshot& tab)
+{
+    toml::table table;
+    table.insert_or_assign("id", tab.id);
+    if (!tab.name.empty())
+        table.insert_or_assign("name", tab.name);
+    table.insert_or_assign("name_user_set", tab.name_user_set);
+    table.insert_or_assign("pane_layout", serialize_pane_layout(tab.pane_layout));
+    return table;
+}
+
+std::optional<TabSnapshot> parse_tab(
+    const toml::table& table, std::string_view pane_layout_key, std::string* error)
+{
+    const auto id = toml_support::get_int(table, "id");
+    const auto name_user_set = toml_support::get_bool(table, "name_user_set");
+    const toml::table* pane_layout = table[pane_layout_key].as_table();
+    if (!id || !name_user_set || !pane_layout)
+    {
+        if (error)
+            *error = "Session state tab is missing required fields.";
+        return std::nullopt;
+    }
+
+    TabSnapshot tab;
+    tab.id = static_cast<int>(*id);
+    tab.name = toml_support::get_string(table, "name").value_or("");
+    tab.name_user_set = *name_user_set;
+    auto parsed_pane_layout = parse_pane_layout(*pane_layout, error);
+    if (!parsed_pane_layout)
+        return std::nullopt;
+    tab.pane_layout = std::move(*parsed_pane_layout);
+    return tab;
+}
+
 bool collect_tree_leaf_ids(const SplitTree::SnapshotNode& node,
     std::unordered_set<LeafId>& leaf_ids, std::string* error)
 {
@@ -316,17 +361,10 @@ bool collect_tree_leaf_ids(const SplitTree::SnapshotNode& node,
         && collect_tree_leaf_ids(*node.second, leaf_ids, error);
 }
 
-bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* error)
+bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* error)
 {
-    if (state.version != kSessionStateVersion)
-    {
-        if (error)
-            *error = "Unsupported session state version.";
-        return false;
-    }
-
     std::unordered_set<int> tab_ids;
-    for (const TabSnapshot& tab : state.tabs)
+    for (const TabSnapshot& tab : tabs)
     {
         if (tab.id < 0)
         {
@@ -376,23 +414,67 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
         }
     }
 
+    return true;
+}
+
+bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* error)
+{
+    if (state.version != kSessionStateVersionV2)
+    {
+        if (error)
+            *error = "Unsupported session state version.";
+        return false;
+    }
+
+    std::unordered_set<SpaceId> space_ids;
+    for (const SpaceSnapshot& space : state.spaces)
+    {
+        if (space.id == kInvalidSpaceId || !space_ids.insert(space.id).second)
+        {
+            if (error)
+                *error = "Session state contains a duplicate or invalid Space id.";
+            return false;
+        }
+        if (!validate_tab_snapshots(space.tabs, error))
+            return false;
+    }
+
     if (error)
         error->clear();
     return true;
 }
 
+SessionSnapshot migrate_v1_to_v2(LegacySessionSnapshotV1 legacy)
+{
+    SessionSnapshot state;
+    state.version = kSessionStateVersionV2;
+    state.session_id = std::move(legacy.session_id);
+    state.session_name = std::move(legacy.session_name);
+    state.active_space_id = kDefaultSpaceId;
+    state.next_space_id = kDefaultSpaceId + 1;
+
+    SpaceSnapshot space;
+    space.id = kDefaultSpaceId;
+    space.name = "default";
+    space.active_tab_id = legacy.active_tab_id;
+    space.next_tab_id = legacy.next_tab_id;
+    space.tabs = std::move(legacy.tabs);
+    state.spaces.push_back(std::move(space));
+    return state;
+}
+
 std::optional<SessionSnapshot> decode_v1_document(
     const toml::table& document, std::string* error)
 {
-    SessionSnapshot state;
-    state.version = kSessionStateVersion;
-    state.session_id = toml_support::get_string(document, "session_id").value_or("default");
-    state.session_name = toml_support::get_string(document, "session_name").value_or(state.session_id);
+    LegacySessionSnapshotV1 legacy;
+    legacy.session_id = toml_support::get_string(document, "session_id").value_or("default");
+    legacy.session_name = toml_support::get_string(document, "session_name").value_or(
+        legacy.session_id);
     // Version 1 called Draxul tabs "workspaces". Keep those wire keys stable
     // while the in-memory vocabulary moves to Session -> Tab.
-    state.active_tab_id = static_cast<int>(
+    legacy.active_tab_id = static_cast<int>(
         toml_support::get_int(document, "active_workspace_id").value_or(-1));
-    state.next_tab_id = static_cast<int>(
+    legacy.next_tab_id = static_cast<int>(
         toml_support::get_int(document, "next_workspace_id").value_or(0));
 
     const toml::array* tabs = document["workspaces"].as_array();
@@ -413,28 +495,87 @@ std::optional<SessionSnapshot> decode_v1_document(
             return std::nullopt;
         }
 
-        const auto id = toml_support::get_int(*tab_table, "id");
-        const auto name_user_set = toml_support::get_bool(*tab_table, "name_user_set");
         // Version 1 persisted this table as "host_manager". Keep the wire key
         // stable while the in-memory owner is renamed to PaneManager.
-        const toml::table* pane_layout = (*tab_table)["host_manager"].as_table();
-        if (!id || !name_user_set || !pane_layout)
+        auto tab = parse_tab(*tab_table, "host_manager", error);
+        if (!tab)
+            return std::nullopt;
+        legacy.tabs.push_back(std::move(*tab));
+    }
+
+    if (!validate_tab_snapshots(legacy.tabs, error))
+        return std::nullopt;
+    SessionSnapshot state = migrate_v1_to_v2(std::move(legacy));
+    if (!validate_session_snapshot_impl(state, error))
+        return std::nullopt;
+    return state;
+}
+
+std::optional<SessionSnapshot> decode_v2_document(
+    const toml::table& document, std::string* error)
+{
+    SessionSnapshot state;
+    state.version = kSessionStateVersionV2;
+    state.session_id = toml_support::get_string(document, "session_id").value_or("default");
+    state.session_name = toml_support::get_string(document, "session_name").value_or(
+        state.session_id);
+    state.active_space_id = static_cast<SpaceId>(
+        toml_support::get_int(document, "active_space_id").value_or(kInvalidSpaceId));
+    state.next_space_id = static_cast<SpaceId>(
+        toml_support::get_int(document, "next_space_id").value_or(kDefaultSpaceId));
+
+    const toml::array* spaces = document["spaces"].as_array();
+    if (!spaces)
+    {
+        if (error)
+            *error = "Session state is missing Spaces.";
+        return std::nullopt;
+    }
+
+    for (const toml::node& node : *spaces)
+    {
+        const toml::table* space_table = node.as_table();
+        if (!space_table)
         {
             if (error)
-                *error = "Session state tab is missing required fields.";
+                *error = "Session state Space entry is not a table.";
             return std::nullopt;
         }
 
-        TabSnapshot tab;
-        tab.id = static_cast<int>(*id);
-        tab.name = toml_support::get_string(*tab_table, "name").value_or("");
-        tab.name_user_set = *name_user_set;
-
-        auto parsed_pane_layout = parse_pane_layout(*pane_layout, error);
-        if (!parsed_pane_layout)
+        const auto id = toml_support::get_int(*space_table, "id");
+        const toml::array* tabs = (*space_table)["tabs"].as_array();
+        if (!id || !tabs)
+        {
+            if (error)
+                *error = "Session state Space is missing required fields.";
             return std::nullopt;
-        tab.pane_layout = std::move(*parsed_pane_layout);
-        state.tabs.push_back(std::move(tab));
+        }
+
+        SpaceSnapshot space;
+        space.id = static_cast<SpaceId>(*id);
+        space.name = toml_support::get_string(*space_table, "name").value_or("default");
+        space.root_directory = toml_support::get_string(
+            *space_table, "root_directory").value_or("");
+        space.active_tab_id = static_cast<int>(
+            toml_support::get_int(*space_table, "active_tab_id").value_or(-1));
+        space.next_tab_id = static_cast<int>(
+            toml_support::get_int(*space_table, "next_tab_id").value_or(0));
+
+        for (const toml::node& tab_node : *tabs)
+        {
+            const toml::table* tab_table = tab_node.as_table();
+            if (!tab_table)
+            {
+                if (error)
+                    *error = "Session state tab entry is not a table.";
+                return std::nullopt;
+            }
+            auto tab = parse_tab(*tab_table, "pane_layout", error);
+            if (!tab)
+                return std::nullopt;
+            space.tabs.push_back(std::move(*tab));
+        }
+        state.spaces.push_back(std::move(space));
     }
 
     if (!validate_session_snapshot_impl(state, error))
@@ -466,10 +607,14 @@ SessionSummary summarize_session_state(const SessionSnapshot& state)
     SessionSummary summary;
     summary.session_id = state.session_id;
     summary.session_name = state.session_name;
-    summary.tab_count = static_cast<int>(state.tabs.size());
+    summary.space_count = static_cast<int>(state.spaces.size());
     summary.has_saved_state = true;
-    for (const TabSnapshot& tab : state.tabs)
-        summary.pane_count += static_cast<int>(tab.pane_layout.panes.size());
+    for (const SpaceSnapshot& space : state.spaces)
+    {
+        summary.tab_count += static_cast<int>(space.tabs.size());
+        for (const TabSnapshot& tab : space.tabs)
+            summary.pane_count += static_cast<int>(tab.pane_layout.panes.size());
+    }
     return summary;
 }
 
@@ -502,11 +647,67 @@ std::optional<SessionSnapshot> decode_session_state(
 
     switch (*version)
     {
-    case kSessionStateVersion:
+    case kSessionStateVersionV1:
         return decode_v1_document(*document, error);
+    case kSessionStateVersionV2:
+        return decode_v2_document(*document, error);
     default:
         if (error)
             *error = "Unsupported session state version.";
+        return std::nullopt;
+    }
+}
+
+std::optional<std::string> encode_session_state(
+    const SessionSnapshot& state, std::string* error)
+{
+    if (!validate_session_snapshot(state, error))
+        return std::nullopt;
+
+    try
+    {
+        const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
+        toml::table document;
+        document.insert_or_assign("version", kSessionStateVersionV2);
+        document.insert_or_assign("session_id", normalized_id);
+        document.insert_or_assign(
+            "session_name", state.session_name.empty() ? normalized_id : state.session_name);
+        document.insert_or_assign("active_space_id", state.active_space_id);
+        document.insert_or_assign("next_space_id", state.next_space_id);
+
+        toml::array spaces;
+        for (const SpaceSnapshot& space : state.spaces)
+        {
+            toml::table space_table;
+            space_table.insert_or_assign("id", space.id);
+            if (!space.name.empty())
+                space_table.insert_or_assign("name", space.name);
+            if (!space.root_directory.empty())
+            {
+                space_table.insert_or_assign(
+                    "root_directory", space.root_directory.generic_string());
+            }
+            space_table.insert_or_assign("active_tab_id", space.active_tab_id);
+            space_table.insert_or_assign("next_tab_id", space.next_tab_id);
+
+            toml::array tabs;
+            for (const TabSnapshot& tab : space.tabs)
+                tabs.push_back(serialize_tab(tab));
+            space_table.insert_or_assign("tabs", std::move(tabs));
+            spaces.push_back(std::move(space_table));
+        }
+        document.insert_or_assign("spaces", std::move(spaces));
+
+        std::ostringstream out;
+        out << document << '\n';
+        if (error)
+            error->clear();
+        return out.str();
+    }
+    catch (const std::exception& ex)
+    {
+        if (error)
+            *error = ex.what();
         return std::nullopt;
     }
 }
@@ -545,34 +746,11 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
     PERF_MEASURE();
     try
     {
-        if (!validate_session_snapshot(state, error))
+        auto encoded = encode_session_state(state, error);
+        if (!encoded)
             return false;
 
         const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
-        toml::table document;
-        document.insert_or_assign("version", state.version);
-        document.insert_or_assign("session_id", normalized_id);
-        document.insert_or_assign("session_name", state.session_name.empty() ? normalized_id : state.session_name);
-        // Preserve the version-1 field names so existing Draxul releases can
-        // still read snapshots written after the terminology-only rename.
-        document.insert_or_assign("active_workspace_id", state.active_tab_id);
-        document.insert_or_assign("next_workspace_id", state.next_tab_id);
-
-        toml::array tabs;
-        for (const TabSnapshot& tab : state.tabs)
-        {
-            toml::table tab_table;
-            tab_table.insert_or_assign("id", tab.id);
-            if (!tab.name.empty())
-                tab_table.insert_or_assign("name", tab.name);
-            tab_table.insert_or_assign("name_user_set", tab.name_user_set);
-            // Preserve the version-1 table name for compatibility with older
-            // Draxul releases and existing saved sessions.
-            tab_table.insert_or_assign(
-                "host_manager", serialize_pane_layout(tab.pane_layout));
-            tabs.push_back(std::move(tab_table));
-        }
-        document.insert_or_assign("workspaces", std::move(tabs));
 
         const auto path = session_state_path(normalized_id);
         std::filesystem::create_directories(path.parent_path());
@@ -583,7 +761,7 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
                 *error = "Unable to open session state for writing.";
             return false;
         }
-        out << document << '\n';
+        out << *encoded;
         if (!out)
         {
             if (error)

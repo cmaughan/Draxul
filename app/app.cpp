@@ -728,7 +728,8 @@ bool App::initialize_chrome_host()
         {
             std::string session_error;
             if (auto saved_session = load_session_state(options_.session_id, &session_error);
-                saved_session && !saved_session->tabs.empty())
+                saved_session && !saved_session->spaces.empty()
+                && !saved_session->spaces.front().tabs.empty())
             {
                 if (options_.session_name.empty() && !saved_session->session_name.empty())
                     session_name_ = saved_session->session_name;
@@ -2454,7 +2455,7 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
                 ? Error::not_found("Saved session '" + target_id + "' was not found.")
                 : Error::io(load_error));
     }
-    if (target_state->tabs.empty())
+    if (target_state->spaces.empty() || target_state->spaces.front().tabs.empty())
         return Result<void, Error>::err(Error::invalid_argument("Saved session has no tabs."));
 
     auto previous_state = snapshot_session_state();
@@ -2587,12 +2588,22 @@ std::optional<SessionSnapshot> App::snapshot_session_state() const
     SessionSnapshot state;
     state.session_id = options_.session_id;
     state.session_name = session_name_.empty() ? options_.session_id : session_name_;
-    state.active_tab_id = active_tab_controller().active_tab_id();
-    state.next_tab_id = active_tab_controller().next_tab_id();
+    state.active_space_id = space_controller_.active_space_id();
+    state.next_space_id = space_controller_.next_space_id();
+
+    const Space& active_space = space_controller_.require_active_space(
+        "snapshot_session_state");
+    SpaceSnapshot space;
+    space.id = active_space.id;
+    space.name = active_space.name;
+    space.root_directory = active_space.root_directory;
+    space.active_tab_id = active_space.tab_controller.active_tab_id();
+    space.next_tab_id = active_space.tab_controller.next_tab_id();
     auto tabs = active_tab_controller().snapshot_tabs();
     if (!tabs)
         return std::nullopt;
-    state.tabs = std::move(*tabs);
+    space.tabs = std::move(*tabs);
+    state.spaces.push_back(std::move(space));
 
     return state;
 }
@@ -2632,13 +2643,21 @@ void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
 bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state)
 {
     PERF_MEASURE();
-    if (state.tabs.empty())
+    if (state.spaces.size() != 1 || state.spaces.front().tabs.empty())
         return false;
 
+    const SpaceSnapshot& space = state.spaces.front();
     render_root_ = RenderNode{};
     const bool restored = active_tab_controller().restore_tabs(*this, pixel_w, pixel_h,
-        state.tabs, state.active_tab_id, state.next_tab_id,
+        space.tabs, space.active_tab_id, space.next_tab_id,
         [this]() { return make_pane_manager_deps(); });
+    if (restored)
+    {
+        Space& active_space = space_controller_.require_active_space(
+            "restore_session_state");
+        active_space.name = space.name.empty() ? "default" : space.name;
+        active_space.root_directory = space.root_directory;
+    }
     if (!restored)
         render_root_ = RenderNode{};
     return restored;

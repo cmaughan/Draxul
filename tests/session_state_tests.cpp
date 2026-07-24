@@ -70,8 +70,6 @@ TEST_CASE("session id: generated unique ids skip saved state collisions", "[sess
     SessionSnapshot state;
     state.session_id = base;
     state.session_name = "Work Bench";
-    state.active_tab_id = 1;
-    state.next_tab_id = 2;
 
     std::string error;
     REQUIRE(save_session_state(state, &error));
@@ -132,9 +130,43 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     SessionSnapshot state;
     state.session_id = "workbench";
     state.session_name = "workbench";
-    state.active_tab_id = 7;
-    state.next_tab_id = 8;
-    state.tabs.push_back(std::move(tab));
+    state.active_space_id = 11;
+    state.next_space_id = 12;
+
+    SpaceSnapshot first_space;
+    first_space.id = 4;
+    first_space.name = "Draxul";
+    first_space.root_directory = "D:/dev/Draxul";
+    first_space.active_tab_id = 7;
+    first_space.next_tab_id = 8;
+    first_space.tabs.push_back(std::move(tab));
+    state.spaces.push_back(std::move(first_space));
+
+    SplitTree second_tree;
+    const LeafId second_leaf = second_tree.reset(1200, 800);
+    TabSnapshot second_tab;
+    second_tab.id = 22;
+    second_tab.name = "tokens";
+    second_tab.name_user_set = true;
+    second_tab.pane_layout.tree = second_tree.snapshot();
+    second_tab.pane_layout.panes.push_back({
+        .leaf_id = second_leaf,
+        .launch = {
+            .kind = HostKind::PowerShell,
+            .command = "pwsh",
+            .working_dir = "D:/dev/tokenfu",
+        },
+        .pane_name = "tokenfu",
+        .pane_id = "tokenfu-pane",
+    });
+    SpaceSnapshot second_space;
+    second_space.id = 11;
+    second_space.name = "TokenFu";
+    second_space.root_directory = "D:/dev/tokenfu";
+    second_space.active_tab_id = 22;
+    second_space.next_tab_id = 30;
+    second_space.tabs.push_back(std::move(second_tab));
+    state.spaces.push_back(std::move(second_space));
 
     std::string save_error;
     REQUIRE(save_session_state(state, &save_error));
@@ -145,12 +177,14 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     const std::string saved_text{
         std::istreambuf_iterator<char>(saved_file), std::istreambuf_iterator<char>()
     };
-    CHECK(saved_text.find("active_workspace_id") != std::string::npos);
-    CHECK(saved_text.find("next_workspace_id") != std::string::npos);
-    CHECK(saved_text.find("workspaces") != std::string::npos);
-    CHECK(saved_text.find("host_manager") != std::string::npos);
-    CHECK(saved_text.find("active_tab_id") == std::string::npos);
-    CHECK(saved_text.find("pane_manager") == std::string::npos);
+    CHECK(saved_text.find("version = 2") != std::string::npos);
+    CHECK(saved_text.find("active_space_id") != std::string::npos);
+    CHECK(saved_text.find("next_space_id") != std::string::npos);
+    CHECK(saved_text.find("[[spaces]]") != std::string::npos);
+    CHECK(saved_text.find("[[spaces.tabs]]") != std::string::npos);
+    CHECK(saved_text.find("[spaces.tabs.pane_layout]") != std::string::npos);
+    CHECK(saved_text.find("active_workspace_id") == std::string::npos);
+    CHECK(saved_text.find("host_manager") == std::string::npos);
 
     std::string load_error;
     auto loaded = load_session_state("workbench", &load_error);
@@ -158,11 +192,19 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     REQUIRE(load_error.empty());
     REQUIRE(loaded->session_id == "workbench");
     REQUIRE(loaded->session_name == "workbench");
-    REQUIRE(loaded->active_tab_id == 7);
-    REQUIRE(loaded->next_tab_id == 8);
-    REQUIRE(loaded->tabs.size() == 1);
+    REQUIRE(loaded->version == 2);
+    REQUIRE(loaded->active_space_id == 11);
+    REQUIRE(loaded->next_space_id == 12);
+    REQUIRE(loaded->spaces.size() == 2);
 
-    const TabSnapshot& loaded_tab = loaded->tabs.front();
+    const SpaceSnapshot& loaded_first_space = loaded->spaces[0];
+    CHECK(loaded_first_space.id == 4);
+    CHECK(loaded_first_space.name == "Draxul");
+    CHECK(loaded_first_space.root_directory == std::filesystem::path("D:/dev/Draxul"));
+    CHECK(loaded_first_space.active_tab_id == 7);
+    CHECK(loaded_first_space.next_tab_id == 8);
+    REQUIRE(loaded_first_space.tabs.size() == 1);
+    const TabSnapshot& loaded_tab = loaded_first_space.tabs.front();
     CHECK(loaded_tab.id == 7);
     CHECK(loaded_tab.name == "session");
     CHECK(loaded_tab.name_user_set);
@@ -184,13 +226,24 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(loaded_tab.pane_layout.panes[1].pane_id == "pane-right");
     CHECK(loaded_tab.pane_layout.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
 
+    const SpaceSnapshot& loaded_second_space = loaded->spaces[1];
+    CHECK(loaded_second_space.id == 11);
+    CHECK(loaded_second_space.name == "TokenFu");
+    CHECK(loaded_second_space.root_directory == std::filesystem::path("D:/dev/tokenfu"));
+    CHECK(loaded_second_space.active_tab_id == 22);
+    CHECK(loaded_second_space.next_tab_id == 30);
+    REQUIRE(loaded_second_space.tabs.size() == 1);
+    CHECK(loaded_second_space.tabs[0].id == 22);
+    CHECK(loaded_second_space.tabs[0].pane_layout.panes[0].pane_id == "tokenfu-pane");
+
     const auto sessions = list_saved_sessions(&load_error);
     REQUIRE(load_error.empty());
     REQUIRE(sessions.size() == 1);
     CHECK(sessions[0].session_id == "workbench");
     CHECK(sessions[0].session_name == "workbench");
-    CHECK(sessions[0].tab_count == 1);
-    CHECK(sessions[0].pane_count == 2);
+    CHECK(sessions[0].space_count == 2);
+    CHECK(sessions[0].tab_count == 2);
+    CHECK(sessions[0].pane_count == 3);
 }
 
 TEST_CASE("session state: historical v1 fixture decodes through pure codec",
@@ -202,21 +255,27 @@ TEST_CASE("session state: historical v1 fixture decodes through pure codec",
 
     REQUIRE(decoded);
     REQUIRE(error.empty());
-    CHECK(decoded->version == 1);
+    CHECK(decoded->version == 2);
     CHECK(decoded->session_id == "historical");
     CHECK(decoded->session_name == "Historical Session");
-    CHECK(decoded->active_tab_id == 3);
-    CHECK(decoded->next_tab_id == 4);
-    REQUIRE(decoded->tabs.size() == 1);
-    CHECK(decoded->tabs[0].id == 3);
-    CHECK(decoded->tabs[0].name == "shells");
-    CHECK(decoded->tabs[0].name_user_set);
-    REQUIRE(decoded->tabs[0].pane_layout.panes.size() == 2);
-    CHECK(decoded->tabs[0].pane_layout.panes[0].pane_id == "historical-left");
-    CHECK(decoded->tabs[0].pane_layout.panes[1].pane_id == "historical-right");
+    CHECK(decoded->active_space_id == kDefaultSpaceId);
+    CHECK(decoded->next_space_id == kDefaultSpaceId + 1);
+    REQUIRE(decoded->spaces.size() == 1);
+    const SpaceSnapshot& migrated_space = decoded->spaces.front();
+    CHECK(migrated_space.id == kDefaultSpaceId);
+    CHECK(migrated_space.name == "default");
+    CHECK(migrated_space.active_tab_id == 3);
+    CHECK(migrated_space.next_tab_id == 4);
+    REQUIRE(migrated_space.tabs.size() == 1);
+    CHECK(migrated_space.tabs[0].id == 3);
+    CHECK(migrated_space.tabs[0].name == "shells");
+    CHECK(migrated_space.tabs[0].name_user_set);
+    REQUIRE(migrated_space.tabs[0].pane_layout.panes.size() == 2);
+    CHECK(migrated_space.tabs[0].pane_layout.panes[0].pane_id == "historical-left");
+    CHECK(migrated_space.tabs[0].pane_layout.panes[1].pane_id == "historical-right");
 
     SplitTree restored_tree;
-    REQUIRE(restored_tree.restore(decoded->tabs[0].pane_layout.tree, 1200, 800));
+    REQUIRE(restored_tree.restore(migrated_space.tabs[0].pane_layout.tree, 1200, 800));
     CHECK(restored_tree.leaf_count() == 2);
     CHECK(restored_tree.focused() == 1);
 }
@@ -244,6 +303,21 @@ TEST_CASE("session state: duplicate stable ids are rejected by value validation"
     CHECK(error == "Session state contains a duplicate tab id.");
 }
 
+TEST_CASE("session state: v2 rejects duplicate Space identities",
+    "[session_state]")
+{
+    SessionSnapshot state;
+    state.active_space_id = 5;
+    state.next_space_id = 6;
+    state.spaces.push_back(SpaceSnapshot{ .id = 5, .name = "first" });
+    state.spaces.push_back(SpaceSnapshot{ .id = 5, .name = "second" });
+
+    std::string error;
+    CHECK_FALSE(validate_session_snapshot(state, &error));
+    CHECK(error == "Session state contains a duplicate or invalid Space id.");
+    CHECK_FALSE(encode_session_state(state, &error));
+}
+
 TEST_CASE("session state: filesystem availability and host restorability are not codec concerns",
     "[session_state][fixture]")
 {
@@ -252,18 +326,20 @@ TEST_CASE("session state: filesystem availability and host restorability are not
         read_session_fixture("v1-missing-directory.toml"), &error);
     REQUIRE(missing_directory);
     REQUIRE(error.empty());
-    REQUIRE(missing_directory->tabs.size() == 1);
-    REQUIRE(missing_directory->tabs[0].pane_layout.panes.size() == 1);
-    CHECK(missing_directory->tabs[0].pane_layout.panes[0].launch.working_dir
+    REQUIRE(missing_directory->spaces.size() == 1);
+    REQUIRE(missing_directory->spaces[0].tabs.size() == 1);
+    REQUIRE(missing_directory->spaces[0].tabs[0].pane_layout.panes.size() == 1);
+    CHECK(missing_directory->spaces[0].tabs[0].pane_layout.panes[0].launch.working_dir
         == "Z:/draxul-fixture/path-that-does-not-exist");
 
     auto non_restorable = decode_session_state(
         read_session_fixture("v1-non-restorable-host.toml"), &error);
     REQUIRE(non_restorable);
     REQUIRE(error.empty());
-    REQUIRE(non_restorable->tabs.size() == 1);
-    REQUIRE(non_restorable->tabs[0].pane_layout.panes.size() == 1);
-    CHECK(non_restorable->tabs[0].pane_layout.panes[0].launch.kind
+    REQUIRE(non_restorable->spaces.size() == 1);
+    REQUIRE(non_restorable->spaces[0].tabs.size() == 1);
+    REQUIRE(non_restorable->spaces[0].tabs[0].pane_layout.panes.size() == 1);
+    CHECK(non_restorable->spaces[0].tabs[0].pane_layout.panes[0].launch.kind
         == HostKind::Markdown);
 }
 
@@ -298,16 +374,26 @@ TEST_CASE("session state: distinct session ids persist separately", "[session_st
     SessionSnapshot alpha;
     alpha.session_id = "alpha";
     alpha.session_name = "Alpha Session";
-    alpha.active_tab_id = 1;
-    alpha.next_tab_id = 2;
-    alpha.tabs.push_back(make_tab(1, "alpha"));
+    alpha.active_space_id = 1;
+    alpha.next_space_id = 2;
+    SpaceSnapshot alpha_space;
+    alpha_space.id = 1;
+    alpha_space.active_tab_id = 1;
+    alpha_space.next_tab_id = 2;
+    alpha_space.tabs.push_back(make_tab(1, "alpha"));
+    alpha.spaces.push_back(std::move(alpha_space));
 
     SessionSnapshot beta;
     beta.session_id = "beta/dev";
     beta.session_name = "beta/dev";
-    beta.active_tab_id = 2;
-    beta.next_tab_id = 3;
-    beta.tabs.push_back(make_tab(2, "beta"));
+    beta.active_space_id = 2;
+    beta.next_space_id = 3;
+    SpaceSnapshot beta_space;
+    beta_space.id = 2;
+    beta_space.active_tab_id = 2;
+    beta_space.next_tab_id = 3;
+    beta_space.tabs.push_back(make_tab(2, "beta"));
+    beta.spaces.push_back(std::move(beta_space));
 
     std::string error;
     REQUIRE(save_session_state(alpha, &error));
@@ -334,8 +420,8 @@ TEST_CASE("session state: delete removes saved session state", "[session_state]"
     SessionSnapshot state;
     state.session_id = "delete-me";
     state.session_name = "delete-me";
-    state.active_tab_id = 1;
-    state.next_tab_id = 2;
+    state.active_space_id = 1;
+    state.next_space_id = 2;
 
     TabSnapshot tab;
     tab.id = 1;
@@ -351,7 +437,12 @@ TEST_CASE("session state: delete removes saved session state", "[session_state]"
         },
         .pane_name = "shell",
     });
-    state.tabs.push_back(std::move(tab));
+    SpaceSnapshot space;
+    space.id = 1;
+    space.active_tab_id = 1;
+    space.next_tab_id = 2;
+    space.tabs.push_back(std::move(tab));
+    state.spaces.push_back(std::move(space));
 
     std::string error;
     REQUIRE(save_session_state(state, &error));

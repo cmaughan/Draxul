@@ -139,7 +139,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Pane zoom**: `toggle_zoom` action (default `Ctrl+S, z`) expands the focused pane to fill the full window; toggling again restores the previous split layout exactly (like tmux `Ctrl+B z`)
 - **Close pane**: Closes the focused pane and its host; if last pane, exits the app
 - **Shell session restore from saved topology**: Normal desktop launches periodically checkpoint shell-session tabs, split layout, focus, pane names, tab names, launch commands, and working directories in a local session-state file, save again on clean shutdown, and restore that topology by respawning panes on the next launch. Closing the final window exits Draxul; no hidden background owner remains. This is still shell-host only and not full crash recovery yet.
-- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, `--rename-session --session-name <name>` renames a saved session, `--list-sessions` prints saved sessions with tab/pane counts, and `--delete-session` deletes saved topology. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
+- **Session-scoped shell restore CLI/UI**: `--session <id>` selects which saved shell session Draxul should restore, `--new-session` starts a fresh saved shell session (generating a unique id when `--session` is omitted), `--session-name <name>` sets its display name, `--rename-session --session-name <name>` renames a saved session, `--list-sessions` prints saved sessions with Space/tab/pane counts, and `--delete-session` deletes saved topology. In the running app, `save_session_as` saves the current topology under a prompted name and switches to the generated session id; `load_session` shows a fuzzy list of saved sessions and restores the selection in the current window.
 - **Abnormally exited shell panes stay inspectable**: If a shell pane dies unexpectedly, Draxul keeps the pane and its last rendered output visible instead of immediately tearing it down. The pane status pill shows `[exited]`, a toast points you at `restart_host`, and the existing restart action respawns the host in place. Clean shell exits still close the pane normally.
 - **Session startup messaging**: Shell sessions surface a toast when Draxul starts a brand-new session or restores saved topology, so the user can tell which path was taken.
 - **Restart host**: Kills the current host in the focused pane and relaunches with the same arguments
@@ -155,7 +155,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - `new_space`, `switch_space`, `rename_space`, and `close_space` are available in the command palette. They are unbound by default.
 - A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
 - Closing a Space terminates the hosts it owns. The final Space cannot be closed.
-- Spaces are currently local and in-memory. Version-1 session snapshots are disabled while multiple Spaces exist so no inactive Space can be silently discarded. Persisted multi-Space restore, last-active selection, suspend/resume, background ownership, SSH, and remote Spaces are future work.
+- Spaces are currently local and in-memory. Session snapshots now use a version-2 Space envelope and transparently migrate version-1 files in memory, but checkpointing remains disabled while multiple Spaces exist until all-Space capture and restore land. Suspend/resume, background ownership, SSH, and remote Spaces remain future work.
 
 ---
 
@@ -377,7 +377,7 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `--new-session` | Start a fresh saved shell session; if `--session` is omitted Draxul generates a unique session id |
 | `--session-name <name>` | Set the saved display name for the launched or restored shell session |
 | `--rename-session` | Rename the selected saved shell session using `--session-name <name>` |
-| `--list-sessions` | Print saved sessions with tab and pane counts |
+| `--list-sessions` | Print saved sessions with Space, tab, and pane counts |
 | `--delete-session` | Delete the selected saved shell session |
 | `--continuous-refresh` | Let animation/3D hosts request frames continuously; use `--no-vblank` separately when unsynced presentation is desired |
 | `--log-file <path>` | Write logs to file |

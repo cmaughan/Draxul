@@ -648,8 +648,9 @@ TEST_CASE("app smoke: closing the window exits and preserves file-backed session
     auto saved = load_session_state("close-me");
     REQUIRE(saved);
     CHECK(saved->session_name == "Close Me");
-    REQUIRE(saved->tabs.size() == 1);
-    REQUIRE(saved->tabs[0].pane_layout.panes.size() == 1);
+    REQUIRE(saved->spaces.size() == 1);
+    REQUIRE(saved->spaces[0].tabs.size() == 1);
+    REQUIRE(saved->spaces[0].tabs[0].pane_layout.panes.size() == 1);
 }
 
 TEST_CASE("app smoke: Ctrl+S, Q exits through the application quit path",
@@ -1082,8 +1083,8 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     SessionSnapshot target;
     target.session_id = "target";
     target.session_name = "Target Session";
-    target.active_tab_id = 7;
-    target.next_tab_id = 8;
+    target.active_space_id = kDefaultSpaceId;
+    target.next_space_id = kDefaultSpaceId + 1;
 
     TabSnapshot tab;
     tab.id = 7;
@@ -1103,7 +1104,14 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
         .pane_name = "loaded-shell",
         .pane_id = "pane-loaded",
     });
-    target.tabs.push_back(std::move(tab));
+    SpaceSnapshot target_space;
+    target_space.id = kDefaultSpaceId;
+    target_space.name = "target";
+    target_space.root_directory = "D:/target";
+    target_space.active_tab_id = 7;
+    target_space.next_tab_id = 8;
+    target_space.tabs.push_back(std::move(tab));
+    target.spaces.push_back(std::move(target_space));
 
     std::string session_error;
     REQUIRE(save_session_state(target, &session_error));
@@ -1131,8 +1139,9 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     auto loaded_state = load_session_state("target");
     REQUIRE(loaded_state);
     CHECK(loaded_state->session_name == "Target Session");
-    REQUIRE(loaded_state->tabs.size() == 1);
-    CHECK(loaded_state->tabs[0].name == "loaded");
+    REQUIRE(loaded_state->spaces.size() == 1);
+    REQUIRE(loaded_state->spaces[0].tabs.size() == 1);
+    CHECK(loaded_state->spaces[0].tabs[0].name == "loaded");
 
     app.shutdown();
 }
@@ -1171,10 +1180,16 @@ TEST_CASE("app smoke: restoring a multi-tab session reapplies chrome offsets to 
     SessionSnapshot state;
     state.session_id = "restore-multi-ws-viewports";
     state.session_name = "restore-multi-ws-viewports";
-    state.active_tab_id = 2;
-    state.next_tab_id = 3;
-    state.tabs.push_back(make_tab(1, "one"));
-    state.tabs.push_back(make_tab(2, "two"));
+    state.active_space_id = kDefaultSpaceId;
+    state.next_space_id = kDefaultSpaceId + 1;
+    SpaceSnapshot space;
+    space.id = kDefaultSpaceId;
+    space.name = "default";
+    space.active_tab_id = 2;
+    space.next_tab_id = 3;
+    space.tabs.push_back(make_tab(1, "one"));
+    space.tabs.push_back(make_tab(2, "two"));
+    state.spaces.push_back(std::move(space));
 
     std::string session_error;
     REQUIRE(save_session_state(state, &session_error));

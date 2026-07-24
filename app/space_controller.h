@@ -50,6 +50,10 @@ public:
     {
         return active_space_id_;
     }
+    SpaceId next_space_id() const noexcept
+    {
+        return next_space_id_;
+    }
 
 private:
     Spaces spaces_;

@@ -322,6 +322,8 @@ Implementation notes:
 
 ### Phase 1: v2 values and codec
 
+**Status:** complete (2026-07-24)
+
 - Add `SpaceSnapshot` and the v2 `SessionSnapshot` envelope.
 - Implement pure `encode_v2`, `decode_v2`, and `migrate_v1_to_v2`.
 - Update `SessionSummary` to count Spaces, tabs, and panes.
@@ -332,6 +334,17 @@ Implementation notes:
 
 **Exit:** a v1 file reads into the v2 value model and v2 round-trips without launching
 hosts.
+
+Implementation notes:
+
+- `SpaceId` now has a dependency-light header shared by live and snapshot types.
+- Production saves write v2 `spaces` / `spaces.tabs` / `pane_layout` tables; v1 wire
+  keys remain isolated in the v1 decoder.
+- Every v1 decode migrates into one default `SpaceSnapshot` in memory without
+  rewriting the source file.
+- Session summaries and listing output now report Space, tab, and pane totals.
+- The codec round-trip covers two ordered Spaces with distinct roots, active tabs,
+  split trees, names, and next-ID counters.
 
 ### Phase 2: capture and safely save every Space
 
