@@ -12,7 +12,13 @@ struct ControlCliCommand
     std::string session_id = "default";
     std::string method;
     std::string value;
+    std::string text;
+    std::string working_directory;
+    std::vector<std::string> values;
+    std::vector<std::string> arguments;
     int lines = 50;
+    int timeout_ms = 0;
+    std::optional<int> space_id;
     bool json = false;
 };
 

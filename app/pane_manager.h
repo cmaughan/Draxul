@@ -108,6 +108,7 @@ public:
     // clears the pane, and relaunches with the same launch options.
     // Returns false on failure.
     bool restart_focused(IHostCallbacks& callbacks);
+    bool restart_leaf(LeafId id, IHostCallbacks& callbacks);
 
     // Swaps the focused pane with the next pane in spatial order.
     // Returns false if there are fewer than 2 panes.

@@ -107,6 +107,7 @@ struct AgentLaunchRequest
 {
     std::string profile_id;
     std::vector<std::string> additional_args;
+    std::string working_directory;
 };
 
 class AgentDefinitionRegistry

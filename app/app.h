@@ -34,6 +34,9 @@ namespace draxul
 
 class MacOsMenu;
 class ControlServer;
+class ControlEventJournal;
+struct ControlMethodResult;
+struct ControlRequest;
 
 // ---------------------------------------------------------------------------
 // AppDeps — injectable dependency bundle for App.
@@ -183,6 +186,7 @@ private:
     void maybe_checkpoint_session(std::chrono::steady_clock::time_point now);
     bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
     void process_control_requests();
+    ControlMethodResult handle_control_request(const ControlRequest& request);
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();
@@ -262,6 +266,7 @@ private:
     AgentController agent_controller_;
     AgentDefinitionRegistry agent_definitions_;
     std::unique_ptr<ControlServer> control_server_;
+    std::unique_ptr<ControlEventJournal> control_events_;
     uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;

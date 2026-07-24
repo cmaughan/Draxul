@@ -188,17 +188,19 @@ ControlMethodResult parse_request(std::string_view bytes,
     {
         return ControlMethodResult::error("invalid_request", "Request id is invalid.");
     }
+    // Preserve the correlation id for all subsequent validation errors so
+    // clients receive the actual protocol error instead of an id mismatch.
+    request.id = envelope["id"].get<std::string>();
     if (!envelope.contains("method") || !envelope["method"].is_string()
         || envelope["method"].get_ref<const std::string&>().empty()
         || envelope["method"].get_ref<const std::string&>().size() > 64)
     {
         return ControlMethodResult::error("invalid_request", "Method name is invalid.");
     }
+    request.method = envelope["method"].get<std::string>();
     if (envelope.contains("params") && !envelope["params"].is_object())
         return ControlMethodResult::error("invalid_request", "Request params must be an object.");
 
-    request.id = envelope["id"].get<std::string>();
-    request.method = envelope["method"].get<std::string>();
     request.params = envelope.value("params", nlohmann::json::object());
     return ControlMethodResult::success(nullptr);
 }
@@ -837,13 +839,18 @@ ControlClientResult ControlClient::request(std::string_view session_id,
 
     const auto response =
         nlohmann::json::parse(response_bytes, nullptr, false, true);
-    if (response.is_discarded() || !response.is_object()
-        || response.value("version", 0) != kControlProtocolVersion
-        || response.value("id", std::string{}) != id
-        || !response.contains("ok") || !response["ok"].is_boolean())
-    {
-        return { false, nullptr, "invalid_response", "Control response is invalid." };
-    }
+    if (response.is_discarded() || !response.is_object())
+        return { false, nullptr, "invalid_response",
+            "Control response is not a JSON object." };
+    if (response.value("version", 0) != kControlProtocolVersion)
+        return { false, nullptr, "invalid_response",
+            "Control response has an unsupported version." };
+    if (response.value("id", std::string{}) != id)
+        return { false, nullptr, "invalid_response",
+            "Control response does not match the request id." };
+    if (!response.contains("ok") || !response["ok"].is_boolean())
+        return { false, nullptr, "invalid_response",
+            "Control response has no valid result discriminator." };
     if (response["ok"].get<bool>())
         return { true, response.value("result", nlohmann::json{}), {}, {} };
     if (!response.contains("error") || !response["error"].is_object())

@@ -281,8 +281,9 @@ add_library(draxul-app
     app/session_cli.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
-    app/control_request_router.cpp
     app/control_cli.cpp
+    app/control_event_journal.cpp
+    app/control_request_router.cpp
     app/session_listing.cpp
     app/toast_host.cpp
     app/weather_service.cpp

@@ -4,6 +4,7 @@
 #include "macos_menu.h"
 #endif
 #include "chrome_host.h"
+#include "control_event_journal.h"
 #include "control_request_router.h"
 #include "gui_action_handler.h"
 #include "pane_manager.h"
@@ -2662,7 +2663,9 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
     launch.args = definition->default_args;
     launch.args.insert(launch.args.end(),
         request.additional_args.begin(), request.additional_args.end());
-    if (IHost* host = active_pane_manager().focused_host())
+    if (!request.working_directory.empty())
+        launch.working_dir = std::move(request.working_directory);
+    else if (IHost* host = active_pane_manager().focused_host())
         launch.working_dir = host->current_working_directory();
 
     std::string instance_id;
@@ -3076,9 +3079,294 @@ void App::process_control_requests()
 {
     if (!control_server_)
         return;
-    ControlRequestRouter router(space_controller_, agent_controller_, options_.session_id);
+    if (!control_events_)
+        control_events_ = std::make_unique<ControlEventJournal>();
+    control_events_->observe(
+        space_controller_.active_space_id(), agent_controller_.query(space_controller_));
     control_server_->process_pending(
-        [&router](const ControlRequest& request) { return router.handle(request); });
+        [this](const ControlRequest& request) { return handle_control_request(request); });
+}
+
+ControlMethodResult App::handle_control_request(const ControlRequest& request)
+{
+    ControlRequestRouter read_router(
+        space_controller_, agent_controller_, options_.session_id);
+    auto read_agent = [&](std::string_view instance_id) {
+        return read_router.handle(
+            { request.id, "agent.get", { { "instance_id", instance_id } } });
+    };
+    auto find_agent = [&](std::string_view instance_id)
+        -> std::optional<AgentProjection> {
+        const auto agents = agent_controller_.query(space_controller_);
+        const auto it = std::find_if(agents.begin(), agents.end(),
+            [instance_id](const AgentProjection& agent) {
+                return agent.identity.instance_id == instance_id;
+            });
+        return it == agents.end() ? std::nullopt : std::optional(*it);
+    };
+
+    if (request.method == "space.focus")
+    {
+        if (!request.params.is_object() || !request.params.contains("id")
+            || !request.params["id"].is_number_integer())
+        {
+            return ControlMethodResult::error(
+                "invalid_params", "space.focus requires an integer 'id'.");
+        }
+        const SpaceId id = request.params["id"].get<SpaceId>();
+        const auto activated = activate_space(id);
+        if (!activated)
+            return ControlMethodResult::error("not_found", activated.error().message);
+        return ControlMethodResult::success({
+            { "space_id", id },
+            { "active", true },
+        });
+    }
+
+    if (request.method == "agent.start")
+    {
+        if (!request.params.is_object()
+            || !request.params.contains("profile_id")
+            || !request.params["profile_id"].is_string())
+        {
+            return ControlMethodResult::error(
+                "invalid_params", "agent.start requires a string 'profile_id'.");
+        }
+        if (request.params.contains("space_id"))
+        {
+            if (!request.params["space_id"].is_number_integer())
+                return ControlMethodResult::error(
+                    "invalid_params", "'space_id' must be an integer.");
+            const auto activated =
+                activate_space(request.params["space_id"].get<SpaceId>());
+            if (!activated)
+                return ControlMethodResult::error(
+                    "not_found", activated.error().message);
+        }
+        AgentLaunchRequest launch{
+            .profile_id = request.params["profile_id"].get<std::string>(),
+        };
+        if (request.params.contains("args"))
+        {
+            if (!request.params["args"].is_array()
+                || request.params["args"].size() > 64)
+            {
+                return ControlMethodResult::error(
+                    "invalid_params", "'args' must be an array of at most 64 strings.");
+            }
+            for (const auto& arg : request.params["args"])
+            {
+                if (!arg.is_string() || arg.get_ref<const std::string&>().size() > 4096)
+                    return ControlMethodResult::error(
+                        "invalid_params", "Every agent argument must be a bounded string.");
+                launch.additional_args.push_back(arg.get<std::string>());
+            }
+        }
+        if (request.params.contains("cwd"))
+        {
+            if (!request.params["cwd"].is_string())
+                return ControlMethodResult::error(
+                    "invalid_params", "'cwd' must be a string.");
+            launch.working_directory = request.params["cwd"].get<std::string>();
+        }
+        const auto started = launch_agent(std::move(launch));
+        if (!started)
+            return ControlMethodResult::error(
+                "start_failed", started.error().message);
+        return read_agent(started.value());
+    }
+
+    if (request.method == "agent.focus" || request.method == "agent.restart"
+        || request.method == "agent.send_text" || request.method == "agent.send_keys"
+        || request.method == "agent.wait")
+    {
+        if (!request.params.is_object()
+            || !request.params.contains("instance_id")
+            || !request.params["instance_id"].is_string())
+        {
+            return ControlMethodResult::error(
+                "invalid_params", request.method + " requires 'instance_id'.");
+        }
+        const std::string instance_id =
+            request.params["instance_id"].get<std::string>();
+        const auto agent = find_agent(instance_id);
+        if (!agent)
+            return ControlMethodResult::error("not_found", "Agent not found.");
+
+        if (request.method == "agent.focus")
+        {
+            if (!agent_controller_.focus(space_controller_, instance_id))
+                return ControlMethodResult::error("focus_failed", "Unable to focus agent.");
+            refresh_app_shell_layout();
+            input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
+            request_frame();
+            return read_agent(instance_id);
+        }
+
+        Space* space = space_controller_.find_space(agent->space_id);
+        Tab* tab = nullptr;
+        if (space)
+        {
+            const auto tab_it = std::find_if(space->tab_controller.tabs().begin(),
+                space->tab_controller.tabs().end(),
+                [&](const auto& candidate) {
+                    return candidate && candidate->id == agent->tab_id;
+                });
+            if (tab_it != space->tab_controller.tabs().end())
+                tab = tab_it->get();
+        }
+        if (!tab)
+            return ControlMethodResult::error(
+                "agent_replaced", "The agent pane no longer exists.");
+        IHost* host = tab->pane_manager.host_for(agent->leaf_id);
+
+        if (request.method == "agent.restart")
+        {
+            if (!tab->pane_manager.restart_leaf(agent->leaf_id, *this))
+                return ControlMethodResult::error(
+                    "restart_failed", tab->pane_manager.error());
+            request_frame();
+            return read_agent(instance_id);
+        }
+
+        if (request.method == "agent.wait")
+        {
+            if (request.params.contains("runtime_generation"))
+            {
+                if (!request.params["runtime_generation"].is_number_unsigned())
+                    return ControlMethodResult::error(
+                        "invalid_params", "'runtime_generation' must be unsigned.");
+                if (request.params["runtime_generation"].get<uint64_t>()
+                    != agent->generation.value)
+                {
+                    return ControlMethodResult::success({
+                        { "complete", true },
+                        { "outcome", "agent_replaced" },
+                        { "agent", read_agent(instance_id).value },
+                    });
+                }
+            }
+            std::vector<std::string> desired;
+            if (request.params.contains("until"))
+            {
+                if (!request.params["until"].is_array())
+                    return ControlMethodResult::error(
+                        "invalid_params", "'until' must be an array.");
+                for (const auto& value : request.params["until"])
+                {
+                    if (!value.is_string())
+                        return ControlMethodResult::error(
+                            "invalid_params", "'until' values must be strings.");
+                    desired.push_back(value.get<std::string>());
+                }
+            }
+            if (desired.empty())
+                desired = { "blocked", "done", "exited", "failed" };
+            const auto matches = [&](std::string_view value) {
+                return std::find(desired.begin(), desired.end(), value)
+                    != desired.end();
+            };
+            const std::string lifecycle(to_string(agent->lifecycle));
+            const std::string status(to_string(agent->status));
+            const bool complete = matches(lifecycle) || matches(status);
+            return ControlMethodResult::success({
+                { "complete", complete },
+                { "outcome", complete ? (matches(status) ? status : lifecycle) : "" },
+                { "agent", read_agent(instance_id).value },
+            });
+        }
+
+        if (!host)
+            return ControlMethodResult::error(
+                "not_running", "The agent pane has no live host.");
+        std::string bytes;
+        if (request.method == "agent.send_text")
+        {
+            if (!request.params.contains("text")
+                || !request.params["text"].is_string())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params", "agent.send_text requires string 'text'.");
+            }
+            bytes = request.params["text"].get<std::string>();
+            if (bytes.size() > 64 * 1024)
+                return ControlMethodResult::error(
+                    "invalid_params", "Agent text exceeds 64 KiB.");
+        }
+        else
+        {
+            if (!request.params.contains("keys")
+                || !request.params["keys"].is_array()
+                || request.params["keys"].size() > 64)
+            {
+                return ControlMethodResult::error(
+                    "invalid_params", "agent.send_keys requires at most 64 keys.");
+            }
+            static const std::unordered_map<std::string, std::string> keys{
+                { "enter", "\r" }, { "tab", "\t" }, { "escape", "\x1b" },
+                { "backspace", "\x7f" }, { "up", "\x1b[A" },
+                { "down", "\x1b[B" }, { "right", "\x1b[C" },
+                { "left", "\x1b[D" }, { "home", "\x1b[H" },
+                { "end", "\x1b[F" }, { "delete", "\x1b[3~" },
+                { "insert", "\x1b[2~" }, { "pageup", "\x1b[5~" },
+                { "pagedown", "\x1b[6~" }, { "f1", "\x1bOP" },
+                { "f2", "\x1bOQ" }, { "f3", "\x1bOR" },
+                { "f4", "\x1bOS" }, { "f5", "\x1b[15~" },
+                { "f6", "\x1b[17~" }, { "f7", "\x1b[18~" },
+                { "f8", "\x1b[19~" }, { "f9", "\x1b[20~" },
+                { "f10", "\x1b[21~" }, { "f11", "\x1b[23~" },
+                { "f12", "\x1b[24~" },
+            };
+            for (const auto& value : request.params["keys"])
+            {
+                if (!value.is_string())
+                    return ControlMethodResult::error(
+                        "invalid_params", "Every key must be a string.");
+                std::string key = value.get<std::string>();
+                std::transform(key.begin(), key.end(), key.begin(),
+                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+                const auto known = keys.find(key);
+                if (known != keys.end())
+                    bytes += known->second;
+                else if (key.size() == 6 && key.starts_with("ctrl+")
+                    && key[5] >= 'a' && key[5] <= 'z')
+                    bytes.push_back(static_cast<char>(key[5] - 'a' + 1));
+                else
+                    return ControlMethodResult::error(
+                        "invalid_params", "Unsupported key: " + key);
+            }
+        }
+        if (!host->send_agent_input(bytes))
+            return ControlMethodResult::error(
+                "input_failed", "The agent host rejected input.");
+        return read_agent(instance_id);
+    }
+
+    if (request.method == "event.subscribe")
+    {
+        uint64_t cursor = 0;
+        size_t limit = 64;
+        if (request.params.contains("cursor"))
+        {
+            if (!request.params["cursor"].is_number_unsigned())
+                return ControlMethodResult::error(
+                    "invalid_params", "'cursor' must be unsigned.");
+            cursor = request.params["cursor"].get<uint64_t>();
+        }
+        if (request.params.contains("limit"))
+        {
+            if (!request.params["limit"].is_number_unsigned())
+                return ControlMethodResult::error(
+                    "invalid_params", "'limit' must be unsigned.");
+            limit = std::clamp<size_t>(
+                request.params["limit"].get<size_t>(), 1, 128);
+        }
+        return ControlMethodResult::success(
+            control_events_->read_after(cursor, limit));
+    }
+
+    return read_router.handle(request);
 }
 
 void App::shutdown()
@@ -3089,6 +3377,7 @@ void App::shutdown()
         control_server_->stop();
         control_server_.reset();
     }
+    control_events_.reset();
     // Revoke every window callback before any captured App subsystem begins
     // teardown. The registration tokens also make already-copied late events
     // inert, while clear_callbacks covers any direct test/custom callbacks.

@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** Phases 0-4 complete; Phases 5-7 implementation-ready
+**Status:** Phases 0-5 complete; Phases 6-7 implementation-ready
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -427,6 +427,8 @@ Implementation notes:
 
 ## Phase 5: harness mutations, waits, and events
 
+**Implemented:** 2026-07-24
+
 **Purpose:** allow local agents and scripts to coordinate work safely.
 
 ### Methods
@@ -469,6 +471,21 @@ draxul agent wait <instance-id> --until blocked,done --timeout 10m
 
 A local script can start, locate, inspect, prompt, and wait on several agents across
 Spaces without relying on window focus or mouse/keyboard automation.
+
+Implementation notes:
+
+- Mutations resolve on the application thread and return the resulting agent
+  projection, including its route and runtime generation.
+- `agent.start` accepts only a registered profile, a bounded argv array, an optional
+  working directory, and an optional Space ID. No shell command string is accepted.
+- `agent.send_text` and `agent.send_keys` remain separate protocol methods. Key input
+  accepts a bounded, named-key vocabulary; neither path interprets or confirms prompts.
+- `agent.wait` is a generation-pinned state probe. The CLI polls it locally, owns its
+  timeout/cancellation lifetime, and reports `agent_replaced` if the pane occupant's
+  runtime generation changes.
+- `event.subscribe` is a bounded cursor subscription rather than an indefinitely held
+  transport request. It returns sanitized Space/agent transition events; a client that
+  falls behind the 256-event journal receives `cursor_expired`.
 
 ## Phase 6: official hooks and native conversation restore
 

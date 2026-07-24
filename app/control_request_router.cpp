@@ -140,7 +140,10 @@ ControlMethodResult ControlRequestRouter::handle(const ControlRequest& request)
             { "session_id", session_id_ },
             { "capabilities",
                 { "system.hello", "space.list", "space.get", "agent.list",
-                    "agent.get", "agent.explain", "pane.read" } },
+                    "agent.get", "agent.explain", "pane.read", "space.focus",
+                    "agent.start", "agent.focus", "agent.restart",
+                    "agent.send_text", "agent.send_keys", "agent.wait",
+                    "event.subscribe" } },
         });
     }
 

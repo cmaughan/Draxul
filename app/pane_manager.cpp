@@ -340,8 +340,12 @@ bool PaneManager::close_focused()
 
 bool PaneManager::restart_focused(IHostCallbacks& callbacks)
 {
+    return restart_leaf(tree_.focused(), callbacks);
+}
+
+bool PaneManager::restart_leaf(LeafId id, IHostCallbacks& callbacks)
+{
     PERF_MEASURE();
-    LeafId id = tree_.focused();
     if (id == kInvalidLeaf)
         return false;
 
