@@ -25,6 +25,16 @@ std::optional<int> parse_int(std::string_view text)
     return result;
 }
 
+std::optional<uint64_t> parse_uint64(std::string_view text)
+{
+    uint64_t result = 0;
+    const auto parsed =
+        std::from_chars(text.data(), text.data() + text.size(), result);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size())
+        return std::nullopt;
+    return result;
+}
+
 std::string usage()
 {
     return "Usage: draxul <space|agent|pane> <command> [value] "
@@ -138,6 +148,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         command.method = "agent.wait";
     else if (noun == "pane" && verb == "read")
         command.method = "pane.read";
+    else if (noun == "pane" && verb == "report-agent-session")
+        command.method = "pane.report_agent_session";
     else
     {
         parsed.error = usage();
@@ -150,7 +162,8 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
         || command.method == "agent.focus" || command.method == "agent.restart"
         || command.method == "agent.send_text"
         || command.method == "agent.send_keys" || command.method == "agent.wait"
-        || command.method == "agent.explain" || command.method == "pane.read";
+        || command.method == "agent.explain" || command.method == "pane.read"
+        || command.method == "pane.report_agent_session";
     if (needs_value)
     {
         if (position >= args.size() || args[position].starts_with("--"))
@@ -258,6 +271,81 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
             }
             command.timeout_ms = *timeout;
         }
+        else if (args[position] == "--agent-instance")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--agent-instance requires an id.";
+                return parsed;
+            }
+            command.agent_instance_id = args[position++];
+        }
+        else if (args[position] == "--source")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--source requires a value.";
+                return parsed;
+            }
+            command.source = args[position++];
+        }
+        else if (args[position] == "--agent")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--agent requires a kind.";
+                return parsed;
+            }
+            command.agent_kind = args[position++];
+        }
+        else if (args[position] == "--integration-version")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--integration-version requires an integer.";
+                return parsed;
+            }
+            const auto version = parse_uint64(args[position++]);
+            if (!version || *version == 0 || *version > UINT32_MAX)
+            {
+                parsed.error = "--integration-version is invalid.";
+                return parsed;
+            }
+            command.integration_version = static_cast<uint32_t>(*version);
+        }
+        else if (args[position] == "--sequence")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--sequence requires an integer.";
+                return parsed;
+            }
+            const auto sequence = parse_uint64(args[position++]);
+            if (!sequence)
+            {
+                parsed.error = "--sequence is invalid.";
+                return parsed;
+            }
+            command.sequence = *sequence;
+        }
+        else if (args[position] == "--session-ref")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--session-ref requires a value.";
+                return parsed;
+            }
+            command.reference_value = args[position++];
+        }
+        else if (args[position] == "--ref-kind")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error = "--ref-kind requires id or path.";
+                return parsed;
+            }
+            command.reference_kind = args[position++];
+        }
         else if (args[position] == "--" && command.method == "agent.start")
         {
             ++position;
@@ -296,6 +384,18 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
     if (command.method == "agent.send_keys" && command.values.empty())
     {
         parsed.error = "agent keys requires at least one key.";
+        return parsed;
+    }
+    if (command.method == "pane.report_agent_session"
+        && (command.agent_instance_id.empty() || command.source.empty()
+            || command.agent_kind.empty() || command.integration_version == 0
+            || command.sequence == 0 || command.reference_value.empty()
+            || (command.reference_kind != "id"
+                && command.reference_kind != "path")))
+    {
+        parsed.error =
+            "pane report-agent-session requires --agent-instance, --source, "
+            "--agent, --integration-version, --sequence, and --session-ref.";
         return parsed;
     }
     parsed.command = std::move(command);
@@ -340,6 +440,17 @@ int run_control_cli(const ControlCliCommand& command)
     {
         params["instance_id"] = command.value;
         params["until"] = command.values;
+    }
+    else if (command.method == "pane.report_agent_session")
+    {
+        params["pane_id"] = command.value;
+        params["agent_instance_id"] = command.agent_instance_id;
+        params["source"] = command.source;
+        params["agent"] = command.agent_kind;
+        params["integration_version"] = command.integration_version;
+        params["sequence"] = command.sequence;
+        params["ref_kind"] = command.reference_kind;
+        params["ref_value"] = command.reference_value;
     }
 
     const auto runtime =

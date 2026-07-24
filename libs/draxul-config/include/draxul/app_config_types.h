@@ -70,6 +70,7 @@ struct AgentProfileConfig
     std::string display_name;
     std::string executable;
     std::vector<std::string> args;
+    std::string restore_policy = "resume_if_available";
 };
 
 struct AppConfig
@@ -110,6 +111,7 @@ struct AppConfig
     ChromeTheme chrome; // [chrome] section -- UI chrome color theme
     MarkdownConfig markdown; // [markdown] section -- markdown viewer layout/font options
     std::vector<AgentProfileConfig> agent_profiles; // [agents.profiles.<id>]
+    bool agents_resume_on_restore = false; // [agents].resume_on_restore
 
     // Warnings collected during parse() — e.g. unknown top-level keys. Drained by App and
     // surfaced to the user via toast notifications.

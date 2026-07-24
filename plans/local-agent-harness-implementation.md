@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** Phases 0-5 complete; Phases 6-7 implementation-ready
+**Status:** Phases 0-5 complete; Phase 6 Codex slice implemented; Phase 7 in progress
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -489,6 +489,9 @@ Implementation notes:
 
 ## Phase 6: official hooks and native conversation restore
 
+**Implemented for Codex:** 2026-07-24. Claude installation/reporting remains a
+follow-up through the same integration boundary.
+
 **Purpose:** resume the same Codex or Claude conversation after Draxul reconstructs a
 Session.
 
@@ -611,6 +614,22 @@ official integrations. Per-profile `shell_only` always wins.
 After a normal Draxul restart, all Spaces are rebuilt and supported agent panes can
 resume their prior native conversations as new local processes. Draxul accurately
 describes this as conversation restore, not process survival.
+
+Implementation notes:
+
+- Session snapshot version 3 persists a validated, globally unique
+  `AgentSessionRef`, profile ID, and restore policy while retaining v1/v2 readers.
+- `pane.report_agent_session` routes on the stable pane ID plus agent-instance ID,
+  rejects stale sequences and duplicate native conversations, and never returns the
+  native reference value through the public projection.
+- `draxul integration install|status|uninstall codex` manages a versioned
+  `SessionStart` hook under `CODEX_HOME`, preserves unrelated hooks, and enables the
+  Codex hooks feature idempotently.
+- With `[agents].resume_on_restore = true`, an eligible Codex pane is spawned as
+  `codex resume <id>`. Resume argv and routing environment are runtime-only and do not
+  replace the pane's durable launch profile in the next checkpoint.
+- The initial release remains opt-in and defaults resume to false. Missing or invalid
+  native identity does not become inferred identity.
 
 ## Phase 7: best-effort discovery of manually launched agents
 

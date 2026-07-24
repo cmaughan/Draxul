@@ -33,7 +33,7 @@ struct SpaceSnapshot
 
 struct SessionSnapshot
 {
-    int version = 2;
+    int version = 3;
     std::string session_id = "default";
     std::string session_name = "default";
     SpaceId active_space_id = kInvalidSpaceId;

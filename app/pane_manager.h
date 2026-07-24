@@ -49,6 +49,8 @@ public:
         std::string pane_name;
         std::string pane_id;
         std::optional<AgentIdentity> agent;
+        std::optional<AgentSessionRef> agent_session;
+        AgentRestorePolicy restore_policy = AgentRestorePolicy::ResumeIfAvailable;
     };
 
     struct PaneLayoutSnapshot
@@ -187,9 +189,12 @@ public:
     const std::string& pane_name(LeafId id) const;
     bool has_pane_name(LeafId id) const;
     const std::string& pane_id(LeafId id) const;
-    void set_agent_identity(LeafId id, AgentIdentity identity);
+    void set_agent_identity(LeafId id, AgentIdentity identity,
+        AgentRestorePolicy restore_policy = AgentRestorePolicy::ResumeIfAvailable);
     const AgentIdentity* agent_identity(LeafId id) const;
     bool clear_agent_identity(LeafId id);
+    bool set_agent_session_ref(LeafId id, AgentSessionRef session_ref);
+    const AgentSessionRef* agent_session_ref(LeafId id) const;
     AgentRuntimeGeneration agent_runtime_generation(LeafId id) const;
     std::chrono::steady_clock::time_point agent_runtime_started_at(LeafId id) const;
 
@@ -266,6 +271,8 @@ private:
     std::unordered_map<LeafId, std::string> pane_user_names_;
     std::unordered_map<LeafId, std::string> pane_ids_;
     std::unordered_map<LeafId, AgentIdentity> agent_identities_;
+    std::unordered_map<LeafId, AgentRestorePolicy> agent_restore_policies_;
+    std::unordered_map<LeafId, AgentSessionRef> agent_session_refs_;
     std::unordered_map<LeafId, AgentRuntimeGeneration> runtime_generations_;
     std::unordered_map<LeafId, std::chrono::steady_clock::time_point>
         runtime_started_at_;

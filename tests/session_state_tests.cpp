@@ -176,10 +176,20 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
         .pane_name = "right",
         .pane_id = "pane-right",
         .agent = AgentIdentity{
+            .profile_id = "codex",
             .kind = "codex",
             .display_name = "Codex",
             .instance_id = "agent-4-7-pane-right",
         },
+        .agent_session = AgentSessionRef{
+            .source = "draxul:codex",
+            .agent_kind = "codex",
+            .integration_version = 1,
+            .sequence = 42,
+            .kind = AgentSessionRefKind::Id,
+            .value = "codex-session-42",
+        },
+        .restore_policy = AgentRestorePolicy::ResumeIfAvailable,
     });
 
     TabSnapshot tab;
@@ -238,13 +248,15 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     const std::string saved_text{
         std::istreambuf_iterator<char>(saved_file), std::istreambuf_iterator<char>()
     };
-    CHECK(saved_text.find("version = 2") != std::string::npos);
+    CHECK(saved_text.find("version = 3") != std::string::npos);
     CHECK(saved_text.find("active_space_id") != std::string::npos);
     CHECK(saved_text.find("next_space_id") != std::string::npos);
     CHECK(saved_text.find("[[spaces]]") != std::string::npos);
     CHECK(saved_text.find("[[spaces.tabs]]") != std::string::npos);
     CHECK(saved_text.find("[spaces.tabs.pane_layout]") != std::string::npos);
     CHECK(saved_text.find("instance_id = 'agent-4-7-pane-right'")
+        != std::string::npos);
+    CHECK(saved_text.find("value = 'codex-session-42'")
         != std::string::npos);
     CHECK(saved_text.find("running =") == std::string::npos);
     CHECK(saved_text.find("active_workspace_id") == std::string::npos);
@@ -256,7 +268,7 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     REQUIRE(load_error.empty());
     REQUIRE(loaded->session_id == "workbench");
     REQUIRE(loaded->session_name == "workbench");
-    REQUIRE(loaded->version == 2);
+    REQUIRE(loaded->version == 3);
     REQUIRE(loaded->active_space_id == 11);
     REQUIRE(loaded->next_space_id == 12);
     REQUIRE(loaded->spaces.size() == 2);
@@ -294,6 +306,11 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(loaded_tab.pane_layout.panes[1].agent->display_name == "Codex");
     CHECK(loaded_tab.pane_layout.panes[1].agent->instance_id
         == "agent-4-7-pane-right");
+    REQUIRE(loaded_tab.pane_layout.panes[1].agent_session);
+    CHECK(loaded_tab.pane_layout.panes[1].agent_session->source
+        == "draxul:codex");
+    CHECK(loaded_tab.pane_layout.panes[1].agent_session->value
+        == "codex-session-42");
 
     const SpaceSnapshot& loaded_second_space = loaded->spaces[1];
     CHECK(loaded_second_space.id == 11);
@@ -324,7 +341,7 @@ TEST_CASE("session state: historical v1 fixture decodes through pure codec",
 
     REQUIRE(decoded);
     REQUIRE(error.empty());
-    CHECK(decoded->version == 2);
+    CHECK(decoded->version == 3);
     CHECK(decoded->session_id == "historical");
     CHECK(decoded->session_name == "Historical Session");
     CHECK(decoded->active_space_id == kDefaultSpaceId);
@@ -347,6 +364,28 @@ TEST_CASE("session state: historical v1 fixture decodes through pure codec",
     REQUIRE(restored_tree.restore(migrated_space.tabs[0].pane_layout.tree, 1200, 800));
     CHECK(restored_tree.leaf_count() == 2);
     CHECK(restored_tree.focused() == 1);
+}
+
+TEST_CASE("session state: v2 snapshots migrate to the current in-memory model",
+    "[session_state][migration]")
+{
+    SessionSnapshot state = make_single_pane_session_snapshot();
+    std::string error;
+    auto encoded = encode_session_state(state, &error);
+    REQUIRE(encoded);
+    REQUIRE(error.empty());
+    const auto version = encoded->find("version = 3");
+    REQUIRE(version != std::string::npos);
+    encoded->replace(version, std::string("version = 3").size(), "version = 2");
+
+    auto decoded = decode_session_state(*encoded, &error);
+    REQUIRE(decoded);
+    CHECK(error.empty());
+    CHECK(decoded->version == 3);
+    REQUIRE(decoded->spaces.size() == 1);
+    REQUIRE(decoded->spaces[0].tabs.size() == 1);
+    REQUIRE(decoded->spaces[0].tabs[0].pane_layout.panes.size() == 1);
+    CHECK_FALSE(decoded->spaces[0].tabs[0].pane_layout.panes[0].agent_session);
 }
 
 TEST_CASE("session state: malformed and unsupported fixtures fail before file I/O",
@@ -385,6 +424,55 @@ TEST_CASE("session state: v2 rejects duplicate Space identities",
     CHECK_FALSE(validate_session_snapshot(state, &error));
     CHECK(error == "Session state contains a duplicate or invalid Space id.");
     CHECK_FALSE(encode_session_state(state, &error));
+}
+
+TEST_CASE("session state: a native agent session has one owning pane",
+    "[session_state][agent]")
+{
+    SessionSnapshot state = make_single_pane_session_snapshot();
+    auto& first_pane = state.spaces[0].tabs[0].pane_layout.panes[0];
+    first_pane.agent = AgentIdentity{
+        .profile_id = "codex",
+        .kind = "codex",
+        .display_name = "Codex",
+        .instance_id = "agent-one",
+    };
+    first_pane.agent_session = AgentSessionRef{
+        .source = "draxul:codex",
+        .agent_kind = "codex",
+        .integration_version = 1,
+        .sequence = 1,
+        .kind = AgentSessionRefKind::Id,
+        .value = "shared-native-session",
+    };
+
+    SessionSnapshot duplicate_state = make_single_pane_session_snapshot();
+    SpaceSnapshot duplicate = std::move(duplicate_state.spaces[0]);
+    duplicate.id = 2;
+    duplicate.name = "duplicate";
+    duplicate.tabs[0].id = 2;
+    auto& second_pane = duplicate.tabs[0].pane_layout.panes[0];
+    second_pane.pane_id = "pane-2";
+    second_pane.agent = AgentIdentity{
+        .profile_id = "codex",
+        .kind = "codex",
+        .display_name = "Codex",
+        .instance_id = "agent-two",
+    };
+    second_pane.agent_session = AgentSessionRef{
+        .source = "draxul:codex",
+        .agent_kind = "codex",
+        .integration_version = 1,
+        .sequence = 2,
+        .kind = AgentSessionRefKind::Id,
+        .value = "shared-native-session",
+    };
+    state.spaces.push_back(std::move(duplicate));
+    state.next_space_id = 3;
+
+    std::string error;
+    CHECK_FALSE(validate_session_snapshot(state, &error));
+    CHECK(error == "Session state contains a duplicate native agent session.");
 }
 
 TEST_CASE("session state: recovery input size and cardinality are bounded",

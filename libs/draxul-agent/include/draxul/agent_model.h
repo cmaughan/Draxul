@@ -14,11 +14,30 @@ namespace draxul
 // state is deliberately absent: it is projected from the live host.
 struct AgentIdentity
 {
+    std::string profile_id;
     std::string kind;
     std::string display_name;
     std::string instance_id;
 
     bool operator==(const AgentIdentity&) const = default;
+};
+
+enum class AgentSessionRefKind
+{
+    Id,
+    Path,
+};
+
+struct AgentSessionRef
+{
+    std::string source;
+    std::string agent_kind;
+    uint32_t integration_version = 0;
+    uint64_t sequence = 0;
+    AgentSessionRefKind kind = AgentSessionRefKind::Id;
+    std::string value;
+
+    bool operator==(const AgentSessionRef&) const = default;
 };
 
 enum class AgentLifecycle
@@ -130,6 +149,15 @@ std::string_view to_string(AgentLifecycle value) noexcept;
 std::string_view to_string(AgentStatus value) noexcept;
 std::string_view to_string(AgentStateAuthority value) noexcept;
 std::string_view to_string(AgentRestorePolicy value) noexcept;
+std::optional<AgentRestorePolicy> parse_agent_restore_policy(
+    std::string_view value) noexcept;
+std::string_view to_string(AgentSessionRefKind value) noexcept;
+std::optional<AgentSessionRefKind> parse_agent_session_ref_kind(
+    std::string_view value) noexcept;
+bool is_official_agent_session_source(
+    std::string_view source, std::string_view agent_kind) noexcept;
+bool validate_agent_session_ref(const AgentSessionRef& value,
+    std::string* error = nullptr);
 
 AgentStatusExplanation evaluate_agent_observation(
     std::string_view agent_kind, const AgentObservation& observation);

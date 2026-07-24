@@ -23,6 +23,7 @@ struct AgentProjection
     LeafId leaf_id = kInvalidLeaf;
     std::string pane_id;
     AgentIdentity identity;
+    std::optional<AgentSessionRef> session_ref;
     AgentLifecycle lifecycle = AgentLifecycle::Starting;
     AgentRuntimeGeneration generation{};
     std::chrono::steady_clock::time_point runtime_started_at{};

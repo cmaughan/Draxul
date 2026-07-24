@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <exception>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -28,6 +29,7 @@ namespace
 
 constexpr int kSessionStateVersionV1 = 1;
 constexpr int kSessionStateVersionV2 = 2;
+constexpr int kSessionStateVersionV3 = 3;
 constexpr size_t kMaxSessionStateBytes = 4 * 1024 * 1024;
 constexpr size_t kMaxSpaces = 64;
 constexpr size_t kMaxTabsPerSpace = 128;
@@ -241,9 +243,29 @@ toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
         if (pane.agent)
         {
             toml::table agent;
+            if (!pane.agent->profile_id.empty())
+                agent.insert_or_assign("profile_id", pane.agent->profile_id);
             agent.insert_or_assign("kind", pane.agent->kind);
             agent.insert_or_assign("display_name", pane.agent->display_name);
             agent.insert_or_assign("instance_id", pane.agent->instance_id);
+            agent.insert_or_assign(
+                "restore_policy", to_string(pane.restore_policy));
+            if (pane.agent_session)
+            {
+                toml::table session;
+                session.insert_or_assign("source", pane.agent_session->source);
+                session.insert_or_assign(
+                    "agent_kind", pane.agent_session->agent_kind);
+                session.insert_or_assign("integration_version",
+                    static_cast<int64_t>(
+                        pane.agent_session->integration_version));
+                session.insert_or_assign("sequence",
+                    static_cast<int64_t>(pane.agent_session->sequence));
+                session.insert_or_assign(
+                    "kind", to_string(pane.agent_session->kind));
+                session.insert_or_assign("value", pane.agent_session->value);
+                agent.insert_or_assign("session", std::move(session));
+            }
             pane_table.insert_or_assign("agent", std::move(agent));
         }
         panes.push_back(std::move(pane_table));
@@ -340,10 +362,61 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
                 return std::nullopt;
             }
             pane.agent = AgentIdentity{
+                .profile_id = toml_support::get_string(
+                    *agent, "profile_id").value_or(""),
                 .kind = *kind,
                 .display_name = *display_name,
                 .instance_id = *instance_id,
             };
+            const std::string restore_policy = toml_support::get_string(
+                *agent, "restore_policy").value_or("resume_if_available");
+            const auto parsed_policy =
+                parse_agent_restore_policy(restore_policy);
+            if (!parsed_policy)
+            {
+                if (error)
+                    *error = "Session state agent restore policy is invalid.";
+                return std::nullopt;
+            }
+            pane.restore_policy = *parsed_policy;
+            if (const toml::table* session = (*agent)["session"].as_table())
+            {
+                const auto source =
+                    toml_support::get_string(*session, "source");
+                const auto agent_kind =
+                    toml_support::get_string(*session, "agent_kind");
+                const auto integration_version =
+                    toml_support::get_int(*session, "integration_version");
+                const auto sequence =
+                    toml_support::get_int(*session, "sequence");
+                const auto ref_kind =
+                    toml_support::get_string(*session, "kind");
+                const auto value =
+                    toml_support::get_string(*session, "value");
+                const auto parsed_kind = ref_kind
+                    ? parse_agent_session_ref_kind(*ref_kind)
+                    : std::nullopt;
+                if (!source || !agent_kind || !integration_version
+                    || *integration_version < 0 || !sequence || *sequence < 0
+                    || *integration_version
+                        > static_cast<int64_t>(
+                            (std::numeric_limits<uint32_t>::max)())
+                    || !parsed_kind || !value)
+                {
+                    if (error)
+                        *error = "Session state agent session reference is incomplete.";
+                    return std::nullopt;
+                }
+                pane.agent_session = AgentSessionRef{
+                    .source = *source,
+                    .agent_kind = *agent_kind,
+                    .integration_version =
+                        static_cast<uint32_t>(*integration_version),
+                    .sequence = static_cast<uint64_t>(*sequence),
+                    .kind = *parsed_kind,
+                    .value = *value,
+                };
+            }
         }
         state.panes.push_back(std::move(pane));
     }
@@ -529,6 +602,9 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
             }
             if (pane.agent
                 && (!validate_text_limit(
+                        pane.agent->profile_id, kMaxShortTextBytes,
+                        "agent profile id", error)
+                    || !validate_text_limit(
                         pane.agent->kind, kMaxShortTextBytes, "agent kind", error)
                     || !validate_text_limit(pane.agent->display_name,
                         kMaxShortTextBytes, "agent display name", error)
@@ -536,6 +612,29 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                         kMaxShortTextBytes, "agent instance id", error)))
             {
                 return false;
+            }
+            if (pane.agent_session)
+            {
+                if (pane.agent_session->sequence
+                    > static_cast<uint64_t>(
+                        (std::numeric_limits<int64_t>::max)()))
+                {
+                    if (error)
+                        *error = "Session state agent session sequence is too large.";
+                    return false;
+                }
+                std::string ref_error;
+                if (!pane.agent
+                    || pane.agent->kind != pane.agent_session->agent_kind
+                    || !validate_agent_session_ref(
+                        *pane.agent_session, &ref_error))
+                {
+                    if (error)
+                        *error = ref_error.empty()
+                            ? "Session state agent session reference has no matching agent."
+                            : ref_error;
+                    return false;
+                }
             }
             if (pane.leaf_id == kInvalidLeaf || !pane_leaf_ids.insert(pane.leaf_id).second)
             {
@@ -563,7 +662,7 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
 
 bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* error)
 {
-    if (state.version != kSessionStateVersionV2)
+    if (state.version != kSessionStateVersionV3)
     {
         if (error)
             *error = "Unsupported session state version.";
@@ -585,6 +684,7 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
 
     std::unordered_set<SpaceId> space_ids;
     std::unordered_set<std::string> agent_instance_ids;
+    std::unordered_set<std::string> agent_resume_keys;
     for (const SpaceSnapshot& space : state.spaces)
     {
         if (!validate_text_limit(space.name, kMaxShortTextBytes, "Space name", error))
@@ -614,6 +714,19 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
                         *error = "Session state contains a duplicate agent instance id.";
                     return false;
                 }
+                if (pane.agent_session)
+                {
+                    const std::string key = pane.agent_session->source + "\n"
+                        + pane.agent_session->agent_kind + "\n"
+                        + std::string(to_string(pane.agent_session->kind)) + "\n"
+                        + pane.agent_session->value;
+                    if (!agent_resume_keys.insert(key).second)
+                    {
+                        if (error)
+                            *error = "Session state contains a duplicate native agent session.";
+                        return false;
+                    }
+                }
             }
         }
     }
@@ -626,7 +739,7 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
 SessionSnapshot migrate_v1_to_v2(LegacySessionSnapshotV1 legacy)
 {
     SessionSnapshot state;
-    state.version = kSessionStateVersionV2;
+    state.version = kSessionStateVersionV3;
     state.session_id = std::move(legacy.session_id);
     state.session_name = std::move(legacy.session_name);
     state.active_space_id = kDefaultSpaceId;
@@ -700,7 +813,7 @@ std::optional<SessionSnapshot> decode_v2_document(
     const toml::table& document, std::string* error)
 {
     SessionSnapshot state;
-    state.version = kSessionStateVersionV2;
+    state.version = kSessionStateVersionV3;
     state.session_id = toml_support::get_string(document, "session_id").value_or("default");
     state.session_name = toml_support::get_string(document, "session_name").value_or(
         state.session_id);
@@ -870,6 +983,8 @@ std::optional<SessionSnapshot> decode_session_state(
         return decode_v1_document(*document, error);
     case kSessionStateVersionV2:
         return decode_v2_document(*document, error);
+    case kSessionStateVersionV3:
+        return decode_v2_document(*document, error);
     default:
         if (error)
             *error = "Unsupported session state version.";
@@ -887,7 +1002,7 @@ std::optional<std::string> encode_session_state(
     {
         const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
         toml::table document;
-        document.insert_or_assign("version", kSessionStateVersionV2);
+        document.insert_or_assign("version", kSessionStateVersionV3);
         document.insert_or_assign("session_id", normalized_id);
         document.insert_or_assign(
             "session_name", state.session_name.empty() ? normalized_id : state.session_name);

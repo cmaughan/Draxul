@@ -269,6 +269,7 @@ endif()
 
 add_library(draxul-app
     app/agent_controller.cpp
+    app/agent_integration.cpp
     app/app.cpp
     app/app_shell_layout.cpp
     app/chrome_pill.cpp

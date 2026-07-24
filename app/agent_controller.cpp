@@ -105,6 +105,9 @@ std::vector<AgentProjection> AgentController::query(const SpaceController& space
                     .leaf_id = leaf,
                     .pane_id = panes.pane_id(leaf),
                     .identity = *identity,
+                    .session_ref = panes.agent_session_ref(leaf)
+                        ? std::optional(*panes.agent_session_ref(leaf))
+                        : std::nullopt,
                     .lifecycle = lifecycle,
                     .generation = generation,
                     .runtime_started_at = panes.agent_runtime_started_at(leaf),

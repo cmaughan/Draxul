@@ -145,6 +145,8 @@ void apply_agent_profiles(AppConfig& config, const toml::table& agents,
         value.executable = toml_support::get_string(*profile, "executable").value_or("");
         value.args = toml_support::get_string_array(*profile, "args")
                          .value_or(std::vector<std::string>{});
+        value.restore_policy = toml_support::get_string(
+            *profile, "restore_policy").value_or("resume_if_available");
         if (value.executable.empty())
         {
             if (validation_error && validation_error->empty())
@@ -190,7 +192,11 @@ AppConfig config_from_toml(const toml::table& document, std::string* validation_
     if (const auto* keybindings = document["keybindings"].as_table())
         apply_gui_keybindings(config, *keybindings);
     if (const auto* agents = document["agents"].as_table())
+    {
+        config.agents_resume_on_restore = toml_support::get_bool(
+            *agents, "resume_on_restore").value_or(false);
         apply_agent_profiles(config, *agents, validation_error);
+    }
 
     // Warn about duplicate key+modifier combinations in keybindings
     for (size_t i = 0; i < config.keybindings.size(); ++i)
@@ -410,7 +416,7 @@ std::string AppConfig::serialize() const
     });
     document.insert_or_assign("keybindings", std::move(keybinding_table));
 
-    if (!agent_profiles.empty())
+    if (!agent_profiles.empty() || agents_resume_on_restore)
     {
         toml::table profiles;
         for (const AgentProfileConfig& profile : agent_profiles)
@@ -423,9 +429,11 @@ std::string AppConfig::serialize() const
             for (const std::string& arg : profile.args)
                 args.push_back(arg);
             value.insert_or_assign("args", std::move(args));
+            value.insert_or_assign("restore_policy", profile.restore_policy);
             profiles.insert_or_assign(profile.id, std::move(value));
         }
         toml::table agents;
+        agents.insert_or_assign("resume_on_restore", agents_resume_on_restore);
         agents.insert_or_assign("profiles", std::move(profiles));
         document.insert_or_assign("agents", std::move(agents));
     }

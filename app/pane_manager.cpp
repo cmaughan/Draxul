@@ -163,6 +163,8 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     pane_user_names_.clear();
     pane_ids_.clear();
     agent_identities_.clear();
+    agent_restore_policies_.clear();
+    agent_session_refs_.clear();
     runtime_generations_.clear();
     runtime_started_at_.clear();
     next_runtime_generation_ = 1;
@@ -311,6 +313,8 @@ bool PaneManager::close_leaf(LeafId id)
     pane_user_names_.erase(id);
     pane_ids_.erase(id);
     agent_identities_.erase(id);
+    agent_restore_policies_.erase(id);
+    agent_session_refs_.erase(id);
     runtime_generations_.erase(id);
     runtime_started_at_.erase(id);
 
@@ -609,6 +613,11 @@ std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::snapshot_layout() co
         pane.pane_id = pane_id(id);
         if (const AgentIdentity* agent = agent_identity(id))
             pane.agent = *agent;
+        if (const auto policy = agent_restore_policies_.find(id);
+            policy != agent_restore_policies_.end())
+            pane.restore_policy = policy->second;
+        if (const AgentSessionRef* session_ref = agent_session_ref(id))
+            pane.agent_session = *session_ref;
         state.panes.push_back(std::move(pane));
     });
 
@@ -657,23 +666,63 @@ bool PaneManager::restore_layout(
         }
 
         HostLaunchOptions launch = restore_launch_options(pane.launch, deps_);
+        const HostLaunchOptions persisted_launch = launch;
         pane_ids_[pane.leaf_id] = pane.pane_id.empty()
             ? legacy_pane_id_for_leaf(pane.leaf_id)
             : pane.pane_id;
         uint64_t parsed_id = 0;
         if (parse_generated_pane_id(pane_ids_[pane.leaf_id], &parsed_id))
             next_pane_serial_ = std::max(next_pane_serial_, parsed_id + 1);
+        if (pane.agent)
+        {
+            launch.environment = {
+                { "DRAXUL_ENV", "1" },
+                { "DRAXUL_PANE_ID", pane_ids_[pane.leaf_id] },
+                { "DRAXUL_AGENT_INSTANCE_ID", pane.agent->instance_id },
+            };
+            if (deps_.options)
+                launch.environment.emplace_back(
+                    "DRAXUL_SESSION_ID", deps_.options->session_id);
+
+            if (pane.restore_policy == AgentRestorePolicy::ShellOnly)
+            {
+                launch.command.clear();
+                launch.args.clear();
+                launch.startup_commands.clear();
+            }
+            else if (deps_.config && deps_.config->agents_resume_on_restore
+                && pane.restore_policy == AgentRestorePolicy::ResumeIfAvailable
+                && pane.agent_session
+                && pane.agent_session->kind == AgentSessionRefKind::Id
+                && is_official_agent_session_source(
+                    pane.agent_session->source, pane.agent->kind))
+            {
+                launch.args = pane.agent->kind == "codex"
+                    ? std::vector<std::string>{ "resume", pane.agent_session->value }
+                    : std::vector<std::string>{ "--resume", pane.agent_session->value };
+                launch.startup_commands.clear();
+            }
+        }
         if (!create_host_for_leaf(pane.leaf_id, callbacks, std::move(launch), is_primary))
         {
             shutdown();
             return false;
         }
+        // Resume arguments and Draxul routing variables are runtime launch
+        // details. Keep the original profile launch so the next checkpoint
+        // does not turn a one-time resume into the pane's permanent command.
+        launch_options_[pane.leaf_id] = persisted_launch;
         is_primary = false;
 
         if (!pane.pane_name.empty())
             pane_user_names_[pane.leaf_id] = pane.pane_name;
         if (pane.agent)
+        {
             agent_identities_[pane.leaf_id] = *pane.agent;
+            agent_restore_policies_[pane.leaf_id] = pane.restore_policy;
+        }
+        if (pane.agent_session)
+            agent_session_refs_[pane.leaf_id] = *pane.agent_session;
     }
 
     zoomed_leaf_ = state.zoomed && leaf_exists(state.zoomed_leaf)
@@ -715,7 +764,8 @@ const std::string& PaneManager::pane_id(LeafId id) const
     return it == pane_ids_.end() ? empty : it->second;
 }
 
-void PaneManager::set_agent_identity(LeafId id, AgentIdentity identity)
+void PaneManager::set_agent_identity(
+    LeafId id, AgentIdentity identity, AgentRestorePolicy restore_policy)
 {
     if (!hosts_.contains(id) || identity.kind.empty()
         || identity.display_name.empty() || identity.instance_id.empty())
@@ -723,6 +773,7 @@ void PaneManager::set_agent_identity(LeafId id, AgentIdentity identity)
         return;
     }
     agent_identities_[id] = std::move(identity);
+    agent_restore_policies_[id] = restore_policy;
 }
 
 const AgentIdentity* PaneManager::agent_identity(LeafId id) const
@@ -733,7 +784,30 @@ const AgentIdentity* PaneManager::agent_identity(LeafId id) const
 
 bool PaneManager::clear_agent_identity(LeafId id)
 {
+    agent_restore_policies_.erase(id);
+    agent_session_refs_.erase(id);
     return agent_identities_.erase(id) != 0;
+}
+
+bool PaneManager::set_agent_session_ref(LeafId id, AgentSessionRef session_ref)
+{
+    const AgentIdentity* identity = agent_identity(id);
+    std::string validation_error;
+    if (!identity || identity->kind != session_ref.agent_kind
+        || !validate_agent_session_ref(session_ref, &validation_error))
+        return false;
+    const auto existing = agent_session_refs_.find(id);
+    if (existing != agent_session_refs_.end()
+        && session_ref.sequence <= existing->second.sequence)
+        return false;
+    agent_session_refs_[id] = std::move(session_ref);
+    return true;
+}
+
+const AgentSessionRef* PaneManager::agent_session_ref(LeafId id) const
+{
+    const auto it = agent_session_refs_.find(id);
+    return it == agent_session_refs_.end() ? nullptr : &it->second;
 }
 
 AgentRuntimeGeneration PaneManager::agent_runtime_generation(LeafId id) const

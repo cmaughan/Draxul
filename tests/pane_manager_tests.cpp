@@ -28,10 +28,19 @@ std::string bundled_font_path()
     return std::string(DRAXUL_PROJECT_ROOT) + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
 }
 
-// Thin FakeHost alias for the pane-manager harness. The shared FakeHost
-// provides all the tracking (shutdown_calls, fire_callback_on_shutdown,
-// trigger_frame_request, etc.) that LifetimeTestHost previously duplicated.
-using LifetimeTestHost = draxul::tests::FakeHost;
+class LifetimeTestHost final : public draxul::tests::FakeHost
+{
+public:
+    using FakeHost::FakeHost;
+
+    bool initialize(const HostContext& ctx, IHostCallbacks& callbacks) override
+    {
+        captured_launch = ctx.launch_options;
+        return FakeHost::initialize(ctx, callbacks);
+    }
+
+    HostLaunchOptions captured_launch;
+};
 
 // Alias for the shared FakeGridHost (replaces the ad-hoc GuardedGridHost).
 using GuardedGridHost = draxul::tests::FakeGridHost;
@@ -587,10 +596,9 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
 
     HostLaunchOptions launch;
     launch.kind = HostKind::PowerShell;
-    launch.command = "pwsh";
-    launch.args = { "-NoLogo" };
+    launch.command = "codex";
+    launch.args = { "--model", "gpt-5" };
     launch.working_dir = "D:/dev/Draxul";
-    launch.startup_commands = { "echo ready" };
 
     const LeafId split = harness.manager.split_focused(
         SplitDirection::Vertical, std::move(launch), harness.callbacks);
@@ -599,10 +607,19 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     harness.manager.set_pane_name(root, "left");
     harness.manager.set_pane_name(split, "right");
     harness.manager.set_agent_identity(split, {
+        .profile_id = "codex",
         .kind = "codex",
         .display_name = "Codex",
         .instance_id = "agent-4-7-pane-right",
     });
+    REQUIRE(harness.manager.set_agent_session_ref(split, {
+        .source = "draxul:codex",
+        .agent_kind = "codex",
+        .integration_version = 1,
+        .sequence = 7,
+        .kind = AgentSessionRefKind::Id,
+        .value = "codex-native-session",
+    }));
     harness.manager.set_focused(split);
     harness.manager.toggle_zoom(800, 600);
 
@@ -614,9 +631,19 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     CHECK(saved->panes[0].pane_id != saved->panes[1].pane_id);
 
     PaneManagerHarness restored_harness;
+    restored_harness.config.agents_resume_on_restore = true;
     REQUIRE(restored_harness.manager.restore_layout(
         restored_harness.callbacks, 800, 600, *saved));
     REQUIRE(restored_harness.manager.host_count() == 2);
+    REQUIRE(restored_harness.created_hosts.size() == 2);
+    CHECK(restored_harness.created_hosts[1]->captured_launch.command == "codex");
+    CHECK(restored_harness.created_hosts[1]->captured_launch.args
+        == (std::vector<std::string>{ "resume", "codex-native-session" }));
+    CHECK(std::find(restored_harness.created_hosts[1]->captured_launch.environment.begin(),
+              restored_harness.created_hosts[1]->captured_launch.environment.end(),
+              std::pair<std::string, std::string>{
+                  "DRAXUL_AGENT_INSTANCE_ID", "agent-4-7-pane-right" })
+        != restored_harness.created_hosts[1]->captured_launch.environment.end());
     CHECK(restored_harness.manager.focused_leaf() == split);
     CHECK(restored_harness.manager.pane_name(root) == "left");
     CHECK(restored_harness.manager.pane_name(split) == "right");
@@ -640,12 +667,15 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     REQUIRE(original_split != saved->panes.end());
     CHECK(restored_split->pane_id == original_split->pane_id);
     CHECK(restored_split->launch.kind == HostKind::PowerShell);
-    CHECK(restored_split->launch.command == "pwsh");
-    CHECK(restored_split->launch.args == (std::vector<std::string>{ "-NoLogo" }));
+    CHECK(restored_split->launch.command == "codex");
+    CHECK(restored_split->launch.args
+        == (std::vector<std::string>{ "--model", "gpt-5" }));
     CHECK(restored_split->launch.working_dir == "D:/dev/Draxul");
-    CHECK(restored_split->launch.startup_commands == (std::vector<std::string>{ "echo ready" }));
+    CHECK(restored_split->launch.startup_commands.empty());
     REQUIRE(restored_split->agent);
     CHECK(restored_split->agent->instance_id == "agent-4-7-pane-right");
+    REQUIRE(restored_split->agent_session);
+    CHECK(restored_split->agent_session->value == "codex-native-session");
 }
 
 TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",

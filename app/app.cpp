@@ -2637,12 +2637,16 @@ void App::rebuild_agent_definitions()
     agent_definitions_ = AgentDefinitionRegistry{};
     for (const AgentProfileConfig& profile : config_.agent_profiles)
     {
+        const auto restore_policy =
+            parse_agent_restore_policy(profile.restore_policy);
         agent_definitions_.register_definition({
             .profile_id = profile.id,
             .kind = profile.kind,
             .display_name = profile.display_name,
             .executable = profile.executable,
             .default_args = profile.args,
+            .restore_policy = restore_policy.value_or(
+                AgentRestorePolicy::ResumeIfAvailable),
         });
     }
 }
@@ -2698,10 +2702,11 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
     }
 
     panes.set_agent_identity(leaf, {
+        .profile_id = definition->profile_id,
         .kind = definition->kind,
         .display_name = definition->display_name,
         .instance_id = instance_id,
-    });
+    }, definition->restore_policy);
 
     mark_session_dirty();
     refresh_app_shell_layout();
@@ -3104,6 +3109,114 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
             });
         return it == agents.end() ? std::nullopt : std::optional(*it);
     };
+
+    if (request.method == "pane.report_agent_session")
+    {
+        const auto required_string = [&](const char* name)
+            -> std::optional<std::string> {
+            if (!request.params.is_object() || !request.params.contains(name)
+                || !request.params[name].is_string()
+                || request.params[name].get_ref<const std::string&>().empty())
+                return std::nullopt;
+            return request.params[name].get<std::string>();
+        };
+        const auto pane_id = required_string("pane_id");
+        const auto instance_id = required_string("agent_instance_id");
+        const auto source = required_string("source");
+        const auto agent_kind = required_string("agent");
+        const auto ref_kind_text = required_string("ref_kind");
+        const auto ref_value = required_string("ref_value");
+        if (!pane_id || !instance_id || !source || !agent_kind
+            || !ref_kind_text || !ref_value
+            || !request.params.contains("integration_version")
+            || !request.params["integration_version"].is_number_unsigned()
+            || !request.params.contains("sequence")
+            || !request.params["sequence"].is_number_unsigned())
+        {
+            return ControlMethodResult::error("invalid_params",
+                "pane.report_agent_session requires complete routing, source, "
+                "version, sequence, and reference fields.");
+        }
+        const auto ref_kind =
+            parse_agent_session_ref_kind(*ref_kind_text);
+        if (!ref_kind)
+            return ControlMethodResult::error(
+                "invalid_params", "Unknown native session reference kind.");
+
+        PaneManager* target_panes = nullptr;
+        LeafId target_leaf = kInvalidLeaf;
+        size_t matching_routes = 0;
+        for (const auto& space : space_controller_.spaces())
+        {
+            for (const auto& tab : space->tab_controller.tabs())
+            {
+                tab->pane_manager.tree().for_each_leaf(
+                    [&](LeafId leaf, const PaneDescriptor&) {
+                        const AgentIdentity* candidate =
+                            tab->pane_manager.agent_identity(leaf);
+                        if (tab->pane_manager.pane_id(leaf) == *pane_id
+                            && candidate
+                            && candidate->instance_id == *instance_id)
+                        {
+                            target_panes = &tab->pane_manager;
+                            target_leaf = leaf;
+                            ++matching_routes;
+                        }
+                    });
+            }
+        }
+        const AgentIdentity* identity = target_panes
+            ? target_panes->agent_identity(target_leaf)
+            : nullptr;
+        if (matching_routes != 1 || !identity || identity->kind != *agent_kind)
+        {
+            return ControlMethodResult::error(
+                "routing_mismatch", "Agent routing identity does not match the pane.");
+        }
+
+        AgentSessionRef session_ref{
+            .source = *source,
+            .agent_kind = *agent_kind,
+            .integration_version = request.params["integration_version"].get<uint32_t>(),
+            .sequence = request.params["sequence"].get<uint64_t>(),
+            .kind = *ref_kind,
+            .value = *ref_value,
+        };
+        std::string validation_error;
+        if (!validate_agent_session_ref(session_ref, &validation_error))
+            return ControlMethodResult::error(
+                "invalid_session_ref", validation_error);
+        for (const auto& space : space_controller_.spaces())
+        {
+            for (const auto& tab : space->tab_controller.tabs())
+            {
+                bool duplicate = false;
+                tab->pane_manager.tree().for_each_leaf(
+                    [&](LeafId leaf, const PaneDescriptor&) {
+                        const AgentSessionRef* existing =
+                            tab->pane_manager.agent_session_ref(leaf);
+                        duplicate = duplicate
+                            || (existing && (&tab->pane_manager != target_panes
+                                               || leaf != target_leaf)
+                                && existing->source == session_ref.source
+                                && existing->agent_kind == session_ref.agent_kind
+                                && existing->kind == session_ref.kind
+                                && existing->value == session_ref.value);
+                    });
+                if (duplicate)
+                    return ControlMethodResult::error("duplicate_session_ref",
+                        "Native agent session is already owned by another pane.");
+            }
+        }
+        if (!target_panes->set_agent_session_ref(
+                target_leaf, std::move(session_ref)))
+        {
+            return ControlMethodResult::error("stale_report",
+                "Native session report is stale or was rejected.");
+        }
+        mark_session_dirty();
+        return read_agent(*instance_id);
+    }
 
     if (request.method == "space.focus")
     {

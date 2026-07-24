@@ -1,4 +1,5 @@
 #include "app.h"
+#include "agent_integration.h"
 #include "cli_args.h"
 #include "control_cli.h"
 #include "session_cli.h"
@@ -124,6 +125,19 @@ std::filesystem::path executable_dir()
 static int draxul_main(std::vector<std::string> args)
 {
     PERF_MEASURE();
+    const auto integration_cli = draxul::parse_integration_cli(args);
+#ifdef _WIN32
+    if (integration_cli.recognized)
+        ensure_console_io(true);
+#endif
+    if (integration_cli.error)
+    {
+        std::fprintf(stderr, "%s\n", integration_cli.error->c_str());
+        return 1;
+    }
+    if (integration_cli.command)
+        return draxul::run_integration_cli(*integration_cli.command);
+
     const auto control_cli = draxul::parse_control_cli(args);
 #ifdef _WIN32
     if (control_cli.recognized)

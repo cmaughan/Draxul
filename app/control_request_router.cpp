@@ -108,6 +108,17 @@ nlohmann::json agent_json(const AgentProjection& agent)
         result["exit_code"] = *agent.exit_code;
     else
         result["exit_code"] = nullptr;
+    if (agent.session_ref)
+    {
+        result["native_session"] = {
+            { "source", agent.session_ref->source },
+            { "agent_kind", agent.session_ref->agent_kind },
+            { "integration_version", agent.session_ref->integration_version },
+            { "kind", to_string(agent.session_ref->kind) },
+        };
+    }
+    else
+        result["native_session"] = nullptr;
     return result;
 }
 
@@ -143,7 +154,7 @@ ControlMethodResult ControlRequestRouter::handle(const ControlRequest& request)
                     "agent.get", "agent.explain", "pane.read", "space.focus",
                     "agent.start", "agent.focus", "agent.restart",
                     "agent.send_text", "agent.send_keys", "agent.wait",
-                    "event.subscribe" } },
+                    "event.subscribe", "pane.report_agent_session" } },
         });
     }
 

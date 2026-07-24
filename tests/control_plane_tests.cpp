@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "app.h"
+#include "agent_integration.h"
 #include "agent_controller.h"
 #include "control_cli.h"
 #include "control_event_journal.h"
@@ -15,7 +16,10 @@
 #include <draxul/control_plane.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <future>
+#include <fstream>
+#include <optional>
 #include <thread>
 
 using namespace draxul;
@@ -38,6 +42,38 @@ std::string test_font_path()
     return std::string(DRAXUL_PROJECT_ROOT)
         + "/fonts/JetBrainsMonoNerdFont-Regular.ttf";
 }
+
+class ScopedEnvironment
+{
+public:
+    ScopedEnvironment(std::string name, std::string value)
+        : name_(std::move(name))
+    {
+        if (const char* existing = std::getenv(name_.c_str()))
+            previous_ = existing;
+#ifdef _WIN32
+        _putenv_s(name_.c_str(), value.c_str());
+#else
+        setenv(name_.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    ~ScopedEnvironment()
+    {
+#ifdef _WIN32
+        _putenv_s(name_.c_str(), previous_.value_or("").c_str());
+#else
+        if (previous_)
+            setenv(name_.c_str(), previous_->c_str(), 1);
+        else
+            unsetenv(name_.c_str());
+#endif
+    }
+
+private:
+    std::string name_;
+    std::optional<std::string> previous_;
+};
 
 ControlClientResult request_while_pumping(App& app,
     std::string_view session_id,
@@ -102,6 +138,48 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
     CHECK(wait.command->timeout_ms == 10 * 60 * 1000);
     CHECK(wait.command->values
         == std::vector<std::string>{ "blocked", "done" });
+}
+
+TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks",
+    "[control][integration]")
+{
+    TempDir codex("draxul-codex-integration");
+    const auto hooks_path = codex.path / "hooks.json";
+    const auto config_path = codex.path / "config.toml";
+    {
+        std::ofstream hooks(hooks_path);
+        hooks << R"({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"keep-me"}]}]}})";
+        std::ofstream config(config_path);
+        config << "model = \"gpt-5\"\n";
+    }
+    ScopedEnvironment codex_home("CODEX_HOME", codex.path.string());
+
+    IntegrationCliCommand install{ .action = "install", .target = "codex" };
+    REQUIRE(run_integration_cli(install) == 0);
+    REQUIRE(run_integration_cli(install) == 0);
+
+    {
+        std::ifstream hooks_input(hooks_path);
+        const auto hooks = nlohmann::json::parse(hooks_input);
+        CHECK(hooks["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
+        REQUIRE(hooks["hooks"]["SessionStart"].size() == 1);
+        CHECK(hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .get<std::string>()
+            .find("draxul-agent-session")
+            != std::string::npos);
+        std::ifstream config_input(config_path);
+        const std::string config((std::istreambuf_iterator<char>(config_input)),
+            std::istreambuf_iterator<char>());
+        CHECK(config.find("model = \"gpt-5\"") != std::string::npos);
+        CHECK(config.find("hooks = true") != std::string::npos);
+    }
+
+    IntegrationCliCommand uninstall{ .action = "uninstall", .target = "codex" };
+    REQUIRE(run_integration_cli(uninstall) == 0);
+    std::ifstream remaining_input(hooks_path);
+    const auto remaining = nlohmann::json::parse(remaining_input);
+    CHECK(remaining["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
+    CHECK(remaining["hooks"]["SessionStart"].empty());
 }
 
 TEST_CASE("control event subscriptions are bounded cursor projections", "[control]")
@@ -219,8 +297,19 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
         "agent.start", { { "profile_id", "codex" }, { "args", nlohmann::json::array() } });
     REQUIRE(started.ok);
     const std::string instance_id = started.result.value("instance_id", "");
+    const std::string pane_id =
+        started.result["route"].value("pane_id", "");
     REQUIRE_FALSE(instance_id.empty());
     REQUIRE(hosts.size() == 2);
+
+    auto reported = request_while_pumping(app, "control-app-test", runtime,
+        "pane.report_agent_session",
+        { { "pane_id", pane_id }, { "agent_instance_id", instance_id },
+            { "source", "draxul:codex" }, { "agent", "codex" },
+            { "integration_version", 1 }, { "sequence", 1 },
+            { "ref_kind", "id" }, { "ref_value", "codex-session-1" } });
+    REQUIRE(reported.ok);
+    CHECK(reported.result["native_session"]["source"] == "draxul:codex");
 
     auto sent = request_while_pumping(app, "control-app-test", runtime,
         "agent.send_text",
