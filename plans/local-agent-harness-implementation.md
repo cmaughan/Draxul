@@ -593,13 +593,33 @@ This phase follows explicit launch, hooks, status evaluation, and the control AP
 1. Add platform process observations:
    - Unix PTY session/process group and descendant commands;
    - Windows ConPTY descendant process tree as fallible evidence.
-2. Combine process names, terminal titles, and screen-manifest evidence.
-3. Require stable agreement over several observations before creating a discovered
-   occupant.
-4. Mark discovered identity and lifecycle authority explicitly.
-5. Never assign a native `AgentSessionRef` from process or screen inference.
-6. Let the user attach, correct, or dismiss a discovered identity.
-7. Explain all evidence and confidence.
+2. Normalize direct executable names, known aliases, and wrapped commands by inspecting
+   executable name, argv zero, and structured argv. Cover common Node/Bun, Python,
+   shell, `cmd`, and PowerShell wrappers without treating arbitrary argument text as an
+   executable.
+3. Accept an explicit per-process `DRAXUL_AGENT=<kind>` hint for VM/sandbox wrappers
+   that hide the real executable. The hint is identity evidence only and is never a
+   native conversation reference.
+4. Create a discovered occupant immediately when one foreground candidate is
+   convincing. On Windows, accept multiple matching descendants only when they are the
+   same agent in one ancestor chain; ambiguous competing candidates remain unknown.
+5. Stabilize what is actually noisy:
+   - apply a short startup grace period before semantic screen evaluation;
+   - retain identity through a bounded number of failed process probes;
+   - publish process exit before returning the pane to an ordinary shell; and
+   - debounce working-to-idle transitions.
+6. Combine the identified process with terminal title and screen-manifest evidence for
+   semantic status. Screen text alone must not create an agent identity.
+7. Mark discovered identity and lifecycle authority explicitly.
+8. Never assign a native `AgentSessionRef` from process or screen inference.
+9. Let the user attach, correct, or dismiss a discovered identity.
+10. Explain process identity evidence, wrapper normalization, status evidence, and
+    confidence without logging argv or screen contents.
+
+This follows Herdr's current behavior more closely than the earlier proposal. Herdr
+recognizes a convincing positive foreground-process match immediately; its stability
+logic primarily protects startup, semantic transitions, and removal rather than
+delaying first recognition.
 
 ### Exit
 
