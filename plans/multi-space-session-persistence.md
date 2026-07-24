@@ -1,6 +1,6 @@
 # Multi-Space session persistence and agent identity
 
-**Status:** active implementation plan
+**Status:** complete (2026-07-24)
 **Date:** 2026-07-23
 **Research baseline:** Herdr `e7fc85bfdb51f89488430adbfe5bbced3be79c2f`
 **Scope:** save and restore every locally loaded Space, plus durable agent identity
@@ -451,9 +451,10 @@ survive application exit.
 
 Implementation notes:
 
-- Decode rejects snapshots larger than 4 MiB before TOML parsing or file allocation.
-  Value validation limits a Session to 64 Spaces, 128 tabs per Space, 256 panes per
-  tab, 64 split-tree levels, 256 command-list entries, and bounded text fields.
+- File loads reject snapshots larger than 4 MiB before allocating the parse buffer;
+  direct decode enforces the same limit before TOML parsing. Value validation limits
+  a Session to 64 Spaces, 128 tabs per Space, 256 panes per tab, 64 split-tree
+  levels, 256 command-list entries, and bounded text fields.
 - Parse and value-validation diagnostics name the violated structure or field without
   including its saved command, argument, or path content. Tests pin that behavior.
 - A `.bak` file is not added: sibling-temp write plus atomic replacement already
@@ -493,6 +494,16 @@ py do.py renderall
 
 The render suite should include multiple restored Space pills and populated Agent rows
 once Phase 4 lands.
+
+## Completion validation
+
+Completed on 2026-07-24:
+
+- `py do.py test`: all 16 unit-test shards passed;
+- `py do.py smoke`: the Debug executable smoke test passed;
+- `py do.py renderall`: all five deterministic render comparisons passed;
+- `py do.py hygiene`: repository hygiene passed;
+- `git diff --check`: no whitespace errors in the scoped changes.
 
 ## Maintenance assessment
 
