@@ -343,6 +343,14 @@ It must not expose mutable grid objects or renderer state.
 8. Do not download remote manifest updates in this phase. Bundled rules and explicit
    local overrides are sufficient for the first release.
 
+Implementation note:
+
+- Codex manifest v2 mirrors Herdr's current rule precedence. OSC title action and
+  braille-spinner signals are authoritative; a plain title means idle. The fallback
+  screen rule only recognizes the exact recent `•/◦ Working (... esc to interrupt)`
+  status line, so stale prose containing “working” cannot hold the agent busy after
+  Codex redraws its prompt.
+
 ### Tests
 
 - recorded, hand-redacted Codex fixtures for idle, working, approval/input blocked,

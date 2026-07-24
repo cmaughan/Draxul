@@ -567,7 +567,7 @@ TEST_CASE("Codex screen manifest is conservative and explainable",
     CHECK(blocked.status == AgentStatus::Blocked);
     CHECK(blocked.authority == AgentStateAuthority::ScreenManifest);
     CHECK(blocked.manifest_id == "codex-terminal");
-    CHECK(blocked.manifest_version == 1);
+    CHECK(blocked.manifest_version == 2);
     CHECK(blocked.rule_id == "approval_prompt");
     CHECK(blocked.evidence_category == "approval_required");
     CHECK(blocked.observation_generation == 7);
@@ -586,6 +586,46 @@ TEST_CASE("Codex screen manifest is conservative and explainable",
     CHECK(unknown.rule_id.empty());
     CHECK(unknown.evidence_category.empty());
     CHECK(unknown.fallback_reason.find("private") == std::string::npos);
+
+    observation.output_generation = 10;
+    observation.terminal_title = "⠸ project";
+    observation.bottom_rows = { "ordinary response text", "› Follow-up task" };
+    const auto title_working = evaluate_agent_observation("codex", observation);
+    CHECK(title_working.status == AgentStatus::Working);
+    CHECK(title_working.rule_id == "osc_title_working");
+
+    observation.output_generation = 11;
+    observation.terminal_title = "project";
+    observation.bottom_rows = {
+        "I finished working through the requested changes.",
+        "› Follow-up task",
+        "gpt-5.6-sol default",
+    };
+    const auto title_idle = evaluate_agent_observation("codex", observation);
+    CHECK(title_idle.status == AgentStatus::Idle);
+    CHECK(title_idle.rule_id == "osc_title_idle");
+
+    observation.output_generation = 12;
+    observation.terminal_title = "project";
+    observation.bottom_rows = {
+        "• Working (4s • esc to interrupt)",
+        "■ Conversation interrupted",
+        "› Follow-up task",
+    };
+    const auto interrupted = evaluate_agent_observation("codex", observation);
+    CHECK(interrupted.status == AgentStatus::Idle);
+    CHECK(interrupted.rule_id == "osc_title_idle");
+
+    observation.output_generation = 13;
+    observation.terminal_title.clear();
+    observation.bottom_rows = {
+        "◦ Working (1m 16s • esc to interrupt) · 1 background terminal",
+        "› Follow-up task",
+        "gpt-5.6-sol default",
+    };
+    const auto screen_working = evaluate_agent_observation("codex", observation);
+    CHECK(screen_working.status == AgentStatus::Working);
+    CHECK(screen_working.rule_id == "screen_working_fallback");
 
     observation.output_generation = 10;
     observation.bottom_rows = { "Ctrl+B to run in background" };
