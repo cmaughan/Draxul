@@ -725,7 +725,8 @@ bool App::initialize_chrome_host()
             std::string session_error;
             if (auto saved_session = load_session_state(options_.session_id, &session_error);
                 saved_session && !saved_session->spaces.empty()
-                && !saved_session->spaces.front().tabs.empty())
+                && std::any_of(saved_session->spaces.begin(), saved_session->spaces.end(),
+                    [](const SpaceSnapshot& space) { return !space.tabs.empty(); }))
             {
                 if (options_.session_name.empty() && !saved_session->session_name.empty())
                     session_name_ = saved_session->session_name;
@@ -2478,7 +2479,9 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
                 ? Error::not_found("Saved session '" + target_id + "' was not found.")
                 : Error::io(load_error));
     }
-    if (target_state->spaces.empty() || target_state->spaces.front().tabs.empty())
+    if (target_state->spaces.empty()
+        || std::none_of(target_state->spaces.begin(), target_state->spaces.end(),
+            [](const SpaceSnapshot& space) { return !space.tabs.empty(); }))
         return Result<void, Error>::err(Error::invalid_argument("Saved session has no tabs."));
 
     auto previous_state = snapshot_session_state();
@@ -2494,41 +2497,24 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
         return Result<void, Error>::err(
             Error::io(save_error.empty() ? "Failed to save the current session before loading." : save_error));
     }
-    const std::string old_id = options_.session_id;
-    const std::string old_option_name = options_.session_name;
-    const std::string old_session_name = session_name_;
-
-    auto rollback = [&]() {
-        options_.session_id = old_id;
-        options_.session_name = old_option_name;
-        session_name_ = old_session_name;
-        const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
-        const int host_h = std::max(1, shell_layout_.pane_root.h);
-        input_dispatcher_.set_host(nullptr);
-        if (restore_session_state(pw, host_h, *previous_state))
-        {
-            refresh_app_shell_layout();
-            input_dispatcher_.set_host(active_pane_manager().focused_host());
-            request_frame();
-        }
-    };
-
-    options_.session_id = target_id;
-    options_.session_name = target_state->session_name.empty() ? target_id : target_state->session_name;
-    session_name_ = options_.session_name;
-
     const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
     const int host_h = std::max(1, shell_layout_.pane_root.h);
     input_dispatcher_.set_host(nullptr);
     if (!restore_session_state(pw, host_h, *target_state))
     {
-        rollback();
-        return Result<void, Error>::err(Error::io("Failed to restore the selected session."));
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        const std::string detail = space_controller_.last_restore_error();
+        return Result<void, Error>::err(Error::io(detail.empty()
+                ? "Failed to restore the selected session."
+                : "Failed to restore the selected session: " + detail));
     }
 
+    options_.session_id = target_id;
+    options_.session_name = target_state->session_name.empty() ? target_id : target_state->session_name;
+    session_name_ = options_.session_name;
     refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
-    persist_session_state();
+    session_dirty_ = false;
     last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     request_frame();
     return Result<void, Error>::ok();
@@ -2670,23 +2656,22 @@ void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
 bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state)
 {
     PERF_MEASURE();
-    if (state.spaces.size() != 1 || state.spaces.front().tabs.empty())
+    if (state.spaces.empty())
         return false;
 
-    const SpaceSnapshot& space = state.spaces.front();
-    render_root_ = RenderNode{};
-    const bool restored = active_tab_controller().restore_tabs(*this, pixel_w, pixel_h,
-        space.tabs, space.active_tab_id, space.next_tab_id,
-        [this]() { return make_pane_manager_deps(); });
+    const bool restored = space_controller_.restore_spaces(*this, pixel_w, pixel_h,
+        state.spaces, state.active_space_id, state.next_space_id,
+        [this](const Space* space) { return make_pane_manager_deps(space); });
     if (restored)
     {
-        Space& active_space = space_controller_.require_active_space(
-            "restore_session_state");
-        active_space.name = space.name.empty() ? "default" : space.name;
-        active_space.root_directory = space.root_directory;
-    }
-    if (!restored)
         render_root_ = RenderNode{};
+        if (!space_controller_.last_restore_warning().empty())
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Session restore recovered usable topology: %s",
+                space_controller_.last_restore_warning().c_str());
+        }
+    }
     return restored;
 }
 

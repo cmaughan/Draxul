@@ -278,12 +278,14 @@ std::optional<std::vector<TabSnapshot>> TabController::snapshot_tabs() const
 
 bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     const std::vector<TabSnapshot>& snapshots, int restored_active_tab_id,
-    int restored_next_tab_id, const PaneManagerDepsFactory& make_pane_manager_deps)
+    int restored_next_tab_id, const PaneManagerDepsFactory& make_pane_manager_deps,
+    RestorePolicy policy, std::vector<std::string>* recovery_warnings)
 {
     if (snapshots.empty() || !make_pane_manager_deps)
         return false;
 
     std::unordered_set<int> restored_ids;
+    int max_tab_id = -1;
     for (const TabSnapshot& snapshot : snapshots)
     {
         if (snapshot.id < 0 || !restored_ids.insert(snapshot.id).second)
@@ -291,6 +293,7 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
             last_error_ = "Saved session contains a duplicate or invalid tab id.";
             return false;
         }
+        max_tab_id = std::max(max_tab_id, snapshot.id);
     }
 
     Tabs candidate_tabs;
@@ -301,23 +304,39 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
         candidate_tabs.clear();
     };
 
-    int max_tab_id = -1;
     for (const TabSnapshot& snapshot : snapshots)
     {
         auto tab = std::make_unique<Tab>(snapshot.id, make_pane_manager_deps());
         if (!tab->pane_manager.restore_layout(callbacks, pixel_w, pixel_h, snapshot.pane_layout))
         {
-            last_error_ = tab->pane_manager.error();
+            const std::string tab_error = tab->pane_manager.error().empty()
+                ? "host initialization failed"
+                : tab->pane_manager.error();
             tab->pane_manager.shutdown();
-            shutdown_candidate();
-            return false;
+            if (policy == RestorePolicy::Strict)
+            {
+                last_error_ = tab_error;
+                shutdown_candidate();
+                return false;
+            }
+            if (recovery_warnings)
+            {
+                recovery_warnings->push_back(
+                    "tab " + std::to_string(snapshot.id) + " was skipped: " + tab_error);
+            }
+            continue;
         }
 
         tab->initialized = true;
         tab->name = snapshot.name.empty() ? "tab" : snapshot.name;
         tab->name_user_set = snapshot.name_user_set;
-        max_tab_id = std::max(max_tab_id, snapshot.id);
         candidate_tabs.push_back(std::move(tab));
+    }
+
+    if (candidate_tabs.empty())
+    {
+        last_error_ = "Saved Space has no restorable tabs.";
+        return false;
     }
 
     const bool has_restored_active_tab = std::any_of(candidate_tabs.begin(), candidate_tabs.end(),

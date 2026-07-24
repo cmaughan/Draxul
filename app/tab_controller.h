@@ -22,6 +22,12 @@ public:
     using Tabs = std::vector<std::unique_ptr<Tab>>;
     using PaneManagerDepsFactory = std::function<PaneManager::Deps()>;
 
+    enum class RestorePolicy
+    {
+        Strict,
+        RecoverUsableTabs,
+    };
+
     bool create_initial_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
         PaneManager::Deps pane_manager_deps);
     int add_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
@@ -48,7 +54,9 @@ public:
     std::optional<std::vector<TabSnapshot>> snapshot_tabs() const;
     bool restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
         const std::vector<TabSnapshot>& snapshots, int restored_active_tab_id,
-        int restored_next_tab_id, const PaneManagerDepsFactory& make_pane_manager_deps);
+        int restored_next_tab_id, const PaneManagerDepsFactory& make_pane_manager_deps,
+        RestorePolicy policy = RestorePolicy::Strict,
+        std::vector<std::string>* recovery_warnings = nullptr);
 
     void recompute_all_viewports(int origin_x, int origin_y, int pixel_w, int pixel_h);
     void shutdown_all();

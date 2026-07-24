@@ -378,11 +378,26 @@ Implementation notes:
 - Restore all Spaces unfocused, then activate the saved stable ID.
 - Add partial recovery and one summarized startup warning.
 - Make named Session switching swap candidates transactionally.
-- Remove the current multi-Space save refusal after tests prove no Space is lost.
 
 **Exit:** restart restores every previously loaded Space, every surviving tab/pane
 topology, and the previously active Space. Switching named Sessions cannot destroy the
 current one when the target fails.
+
+Implementation notes:
+
+- `SpaceController::restore_spaces()` builds the complete candidate collection with
+  saved IDs, roots, ordering, tab counters, and focus disabled before touching the
+  live collection.
+- The saved active Space is focused only after all candidates exist; a missing active
+  Space falls back to the first usable restored Space.
+- Runtime host failures recover at tab granularity. Failed tabs and wholly unusable
+  Spaces are omitted, stable counters still advance past their saved IDs, and one
+  summarized warning describes the recovery.
+- If no candidate Space is usable, the current Space collection and its live hosts
+  remain untouched.
+- Named Session switching saves the current snapshot, constructs the target
+  transactionally, and changes the active Session identity only after restore
+  succeeds; it no longer needs destructive restore-and-rollback.
 
 ### Phase 4: durable agent identity and sidebar projection
 

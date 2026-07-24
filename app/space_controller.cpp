@@ -4,6 +4,7 @@
 #include <draxul/log.h>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace draxul
@@ -188,6 +189,116 @@ std::optional<std::vector<SpaceSnapshot>> SpaceController::snapshot_spaces() con
         snapshots.push_back(std::move(snapshot));
     }
     return snapshots;
+}
+
+bool SpaceController::restore_spaces(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+    const std::vector<SpaceSnapshot>& snapshots, SpaceId restored_active_space_id,
+    SpaceId restored_next_space_id, const PaneManagerDepsFactory& make_pane_manager_deps)
+{
+    last_restore_error_.clear();
+    last_restore_warning_.clear();
+    if (snapshots.empty() || !make_pane_manager_deps)
+    {
+        last_restore_error_ = "Saved session has no Spaces.";
+        return false;
+    }
+
+    std::unordered_set<SpaceId> restored_ids;
+    SpaceId max_space_id = kInvalidSpaceId;
+    for (const SpaceSnapshot& snapshot : snapshots)
+    {
+        if (snapshot.id < kDefaultSpaceId || !restored_ids.insert(snapshot.id).second)
+        {
+            last_restore_error_ = "Saved session contains a duplicate or invalid Space id.";
+            return false;
+        }
+        max_space_id = std::max(max_space_id, snapshot.id);
+    }
+
+    Spaces candidate_spaces;
+    candidate_spaces.reserve(snapshots.size());
+    std::vector<std::string> warnings;
+    const auto shutdown_candidates = [&candidate_spaces]() {
+        for (auto& space : candidate_spaces)
+            space->tab_controller.shutdown_all();
+        candidate_spaces.clear();
+    };
+
+    for (const SpaceSnapshot& snapshot : snapshots)
+    {
+        auto space = std::make_unique<Space>();
+        space->id = snapshot.id;
+        space->name = snapshot.name.empty() ? "default" : snapshot.name;
+        space->root_directory = snapshot.root_directory;
+        space->tab_controller.set_focus_enabled(false);
+
+        std::vector<std::string> tab_warnings;
+        if (!space->tab_controller.restore_tabs(callbacks, pixel_w, pixel_h,
+                snapshot.tabs, snapshot.active_tab_id, snapshot.next_tab_id,
+                [&make_pane_manager_deps, candidate = space.get()]() {
+                    return make_pane_manager_deps(candidate);
+                },
+                TabController::RestorePolicy::RecoverUsableTabs, &tab_warnings))
+        {
+            const std::string reason = space->tab_controller.last_error().empty()
+                ? "no restorable tabs"
+                : space->tab_controller.last_error();
+            warnings.push_back(
+                "Space " + std::to_string(snapshot.id) + " was skipped: " + reason);
+            space->tab_controller.shutdown_all();
+            continue;
+        }
+
+        for (std::string& warning : tab_warnings)
+        {
+            warnings.push_back(
+                "Space " + std::to_string(snapshot.id) + " " + std::move(warning));
+        }
+        candidate_spaces.push_back(std::move(space));
+    }
+
+    if (candidate_spaces.empty())
+    {
+        shutdown_candidates();
+        last_restore_error_ = "Saved session has no restorable Spaces.";
+        if (!warnings.empty())
+            last_restore_error_ += " " + warnings.front();
+        return false;
+    }
+
+    const auto requested_active = std::find_if(candidate_spaces.begin(), candidate_spaces.end(),
+        [restored_active_space_id](const auto& space) {
+            return space->id == restored_active_space_id;
+        });
+    const SpaceId active_id = requested_active != candidate_spaces.end()
+        ? restored_active_space_id
+        : candidate_spaces.front()->id;
+    if (requested_active == candidate_spaces.end())
+    {
+        warnings.push_back("the saved active Space was unavailable; the first restored Space was selected");
+    }
+
+    if (Space* active = find_active_space())
+        active->tab_controller.set_focus_enabled(false);
+    shutdown_all();
+    spaces_ = std::move(candidate_spaces);
+    active_space_id_ = kInvalidSpaceId;
+    next_space_id_ = std::max(restored_next_space_id, max_space_id + 1);
+    if (!activate_space(active_id))
+    {
+        shutdown_all();
+        spaces_.clear();
+        last_restore_error_ = "Failed to activate a restored Space.";
+        return false;
+    }
+
+    for (size_t i = 0; i < warnings.size(); ++i)
+    {
+        if (i != 0)
+            last_restore_warning_ += "; ";
+        last_restore_warning_ += warnings[i];
+    }
+    return true;
 }
 
 void SpaceController::shutdown_all()

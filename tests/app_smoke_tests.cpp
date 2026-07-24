@@ -1107,7 +1107,24 @@ TEST_CASE("app smoke: save_session_as captures active and inactive Spaces",
     REQUIRE(state->spaces[0].tabs.size() == 1);
     REQUIRE(state->spaces[1].tabs.size() == 1);
 
+    const std::string saved_id = *saved;
     app.shutdown();
+
+    AppOptions restored_opts = make_smoke_options();
+    restored_opts.enable_session_restore = true;
+    restored_opts.session_id = saved_id;
+    restored_opts.host_kind = HostKind::PowerShell;
+
+    App restored(std::move(restored_opts));
+    REQUIRE(restored.initialize());
+    REQUIRE(restored.space_controller().count() == 2);
+    CHECK(restored.space_controller().active_space_id() == *worker);
+    REQUIRE(restored.space_controller().spaces().size() == 2);
+    CHECK(restored.space_controller().spaces()[0]->name == "default");
+    CHECK(restored.space_controller().spaces()[1]->name == "worker");
+    CHECK(restored.space_controller().spaces()[1]->root_directory
+        == std::filesystem::path("D:/work/worker"));
+    restored.shutdown();
 }
 
 TEST_CASE("app smoke: load_session restores a selected saved session in the current window",
@@ -1182,6 +1199,72 @@ TEST_CASE("app smoke: load_session restores a selected saved session in the curr
     REQUIRE(loaded_state->spaces[0].tabs.size() == 1);
     CHECK(loaded_state->spaces[0].tabs[0].name == "loaded");
 
+    app.shutdown();
+}
+
+TEST_CASE("app smoke: failed named Session restore preserves the live Space collection",
+    "[app_smoke][session][space][restore]")
+{
+    TempDir temp("draxul-load-session-transaction");
+    HomeDirRedirect redir(temp.path);
+
+    SplitTree tree;
+    const LeafId leaf = tree.reset(640, 360);
+    SessionSnapshot target;
+    target.session_id = "broken-target";
+    target.session_name = "Broken Target";
+    target.active_space_id = 5;
+    target.next_space_id = 6;
+
+    TabSnapshot tab;
+    tab.id = 4;
+    tab.name = "cannot-start";
+    tab.pane_layout.tree = tree.snapshot();
+    tab.pane_layout.panes.push_back({
+        .leaf_id = leaf,
+        .launch = { .kind = HostKind::PowerShell, .command = "pwsh" },
+        .pane_id = "pane-broken",
+    });
+    SpaceSnapshot space;
+    space.id = 5;
+    space.name = "broken";
+    space.active_tab_id = 4;
+    space.next_tab_id = 5;
+    space.tabs.push_back(std::move(tab));
+    target.spaces.push_back(std::move(space));
+    REQUIRE(save_session_state(target));
+
+    auto fail_host_initialization = std::make_shared<bool>(false);
+    AppOptions opts = make_smoke_options();
+    opts.enable_session_restore = true;
+    opts.session_id = "default";
+    opts.host_kind = HostKind::PowerShell;
+    opts.host_factory = [fail_host_initialization](HostKind) -> std::unique_ptr<IHost> {
+        auto host = std::make_unique<FakeHost>("transaction-host");
+        host->fail_initialize = *fail_host_initialization;
+        host->init_error_message = "injected named Session restore failure";
+        return host;
+    };
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    const Space* live_space = app.space_controller().find_active_space();
+    REQUIRE(live_space != nullptr);
+    IHost* live_host = live_space->tab_controller.active_pane_manager().focused_host();
+    REQUIRE(live_host != nullptr);
+
+    *fail_host_initialization = true;
+    auto loaded = app.load_session("broken-target");
+    CHECK_FALSE(loaded);
+    CHECK(app.space_controller().count() == 1);
+    CHECK(app.space_controller().find_active_space() == live_space);
+    CHECK(app.space_controller().active_space_id() == kDefaultSpaceId);
+    CHECK(app.space_controller().active_tab_controller().active_tab_id() == 0);
+    CHECK(app.space_controller().active_tab_controller().active_pane_manager().focused_host()
+        == live_host);
+    CHECK(live_host->is_running());
+
+    *fail_host_initialization = false;
     app.shutdown();
 }
 

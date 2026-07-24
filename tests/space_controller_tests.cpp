@@ -26,6 +26,7 @@ struct SpaceHostHarness
     float display_ppi = 96.0f;
     std::vector<FakeHost*> hosts;
     std::vector<std::shared_ptr<int>> shutdown_counts;
+    bool fail_next_initialize = false;
 
     PaneManager::Deps make_deps()
     {
@@ -33,6 +34,10 @@ struct SpaceHostHarness
         options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
             auto shutdown_count = std::make_shared<int>(0);
             auto host = std::make_unique<FakeHost>("space-host");
+            host->fail_initialize = fail_next_initialize;
+            if (fail_next_initialize)
+                host->init_error_message = "injected restore failure";
+            fail_next_initialize = false;
             host->on_shutdown_callback = [shutdown_count] { ++*shutdown_count; };
             shutdown_counts.push_back(shutdown_count);
             hosts.push_back(host.get());
@@ -56,6 +61,23 @@ struct SpaceHostHarness
         return space.tab_controller.create_initial_tab(callbacks, 800, 600, make_deps());
     }
 };
+
+TabSnapshot make_tab_snapshot(int id, std::string name)
+{
+    SplitTree tree;
+    const LeafId leaf = tree.reset(800, 600);
+    TabSnapshot tab;
+    tab.id = id;
+    tab.name = std::move(name);
+    tab.name_user_set = true;
+    tab.pane_layout.tree = tree.snapshot();
+    tab.pane_layout.panes.push_back({
+        .leaf_id = leaf,
+        .launch = { .kind = HostKind::PowerShell, .command = "pwsh" },
+        .pane_id = "pane-" + std::to_string(id),
+    });
+    return tab;
+}
 
 } // namespace
 
@@ -196,6 +218,121 @@ TEST_CASE("space controller snapshots every Space in display order",
     CHECK((*snapshots)[1].root_directory == std::filesystem::path("D:/work/worker"));
     REQUIRE((*snapshots)[1].tabs.size() == 1);
     CHECK((*snapshots)[1].tabs[0].name == "worker-tab");
+
+    controller.shutdown_all();
+}
+
+TEST_CASE("space controller transactionally restores every Space and stable counter",
+    "[space_controller][space][session][restore]")
+{
+    SpaceHostHarness harness;
+    SpaceController controller;
+    REQUIRE(harness.create_initial_tab(*controller.find_space(kDefaultSpaceId)));
+    const auto live_shutdown = harness.shutdown_counts.front();
+
+    SpaceSnapshot default_space;
+    default_space.id = 4;
+    default_space.name = "compiler";
+    default_space.root_directory = "D:/work/compiler";
+    default_space.active_tab_id = 7;
+    default_space.next_tab_id = 12;
+    default_space.tabs.push_back(make_tab_snapshot(7, "build"));
+
+    SpaceSnapshot worker_space;
+    worker_space.id = 9;
+    worker_space.name = "worker";
+    worker_space.root_directory = "D:/work/worker";
+    worker_space.active_tab_id = 3;
+    worker_space.next_tab_id = 5;
+    worker_space.tabs.push_back(make_tab_snapshot(3, "agent"));
+
+    std::vector<SpaceSnapshot> snapshots;
+    snapshots.push_back(std::move(default_space));
+    snapshots.push_back(std::move(worker_space));
+
+    REQUIRE(controller.restore_spaces(harness.callbacks, 800, 600,
+        snapshots, 9, 15,
+        [&harness](const Space*) { return harness.make_deps(); }));
+
+    CHECK(*live_shutdown == 1);
+    REQUIRE(controller.count() == 2);
+    CHECK(controller.spaces()[0]->id == 4);
+    CHECK(controller.spaces()[1]->id == 9);
+    CHECK(controller.active_space_id() == 9);
+    CHECK(controller.next_space_id() == 15);
+    CHECK(controller.find_space(4)->root_directory == std::filesystem::path("D:/work/compiler"));
+    CHECK(controller.find_space(4)->tab_controller.active_tab_id() == 7);
+    CHECK_FALSE(controller.find_space(4)->tab_controller.focus_enabled());
+    CHECK(controller.find_space(9)->tab_controller.active_tab_id() == 3);
+    CHECK(controller.find_space(9)->tab_controller.focus_enabled());
+    CHECK(controller.last_restore_warning().empty());
+
+    controller.shutdown_all();
+}
+
+TEST_CASE("space controller preserves live Spaces when no restore candidate is usable",
+    "[space_controller][space][session][restore]")
+{
+    SpaceHostHarness harness;
+    SpaceController controller;
+    REQUIRE(harness.create_initial_tab(*controller.find_space(kDefaultSpaceId)));
+    FakeHost* live_host = harness.hosts.front();
+    const auto live_shutdown = harness.shutdown_counts.front();
+
+    SpaceSnapshot broken;
+    broken.id = 8;
+    broken.name = "broken";
+    broken.active_tab_id = 2;
+    broken.next_tab_id = 3;
+    broken.tabs.push_back(make_tab_snapshot(2, "broken-tab"));
+
+    std::vector<SpaceSnapshot> broken_snapshots;
+    broken_snapshots.push_back(std::move(broken));
+    harness.fail_next_initialize = true;
+    CHECK_FALSE(controller.restore_spaces(harness.callbacks, 800, 600,
+        broken_snapshots, 8, 9,
+        [&harness](const Space*) { return harness.make_deps(); }));
+
+    CHECK(controller.count() == 1);
+    CHECK(controller.active_space_id() == kDefaultSpaceId);
+    CHECK(controller.active_tab_controller().active_tab_id() == 0);
+    CHECK(live_host->is_running());
+    CHECK(*live_shutdown == 0);
+    CHECK_FALSE(controller.last_restore_error().empty());
+
+    controller.shutdown_all();
+}
+
+TEST_CASE("space controller recovery skips a failed tab and keeps usable topology",
+    "[space_controller][space][session][restore][recovery]")
+{
+    SpaceHostHarness harness;
+    SpaceController controller;
+
+    SpaceSnapshot recovered;
+    recovered.id = 6;
+    recovered.name = "recovered";
+    recovered.active_tab_id = 2;
+    recovered.next_tab_id = 10;
+    recovered.tabs.push_back(make_tab_snapshot(2, "failed"));
+    recovered.tabs.push_back(make_tab_snapshot(7, "usable"));
+
+    std::vector<SpaceSnapshot> recovered_snapshots;
+    recovered_snapshots.push_back(std::move(recovered));
+    harness.fail_next_initialize = true;
+    REQUIRE(controller.restore_spaces(harness.callbacks, 800, 600,
+        recovered_snapshots, 6, 8,
+        [&harness](const Space*) { return harness.make_deps(); }));
+
+    REQUIRE(controller.count() == 1);
+    const Space* space = controller.find_space(6);
+    REQUIRE(space != nullptr);
+    REQUIRE(space->tab_controller.count() == 1);
+    CHECK(space->tab_controller.tabs().front()->id == 7);
+    CHECK(space->tab_controller.active_tab_id() == 7);
+    CHECK(space->tab_controller.next_tab_id() == 10);
+    CHECK(controller.last_restore_warning().find("tab 2 was skipped")
+        != std::string::npos);
 
     controller.shutdown_all();
 }
