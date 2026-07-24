@@ -48,6 +48,8 @@ public:
     std::vector<AgentProjection> query(SpaceController& spaces);
     bool focus(SpaceController& spaces, std::string_view instance_id) const;
     bool focus_by_index(SpaceController& spaces, int one_based_index);
+    bool attach_focused(
+        SpaceController& spaces, const AgentDefinition& definition);
     bool dismiss_focused(SpaceController& spaces);
 
 private:
@@ -72,6 +74,7 @@ private:
         int failed_probes = 0;
         int dismissed_absent_probes = 0;
         bool process_present = false;
+        bool manual_override = false;
         std::string dismissed_kind;
     };
 

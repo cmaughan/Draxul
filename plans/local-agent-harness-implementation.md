@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** Phases 0-7 core complete; interactive discovery correction remains optional
+**Status:** Phases 0-7 complete
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -633,7 +633,7 @@ Implementation notes:
 
 ## Phase 7: best-effort discovery of manually launched agents
 
-**Core implemented:** 2026-07-24.
+**Implemented:** 2026-07-24.
 
 **Purpose:** recognize agents started in ordinary shell panes without weakening the
 reliable managed path.
@@ -696,9 +696,10 @@ Implementation notes:
   results and `explain_agent_state`, but are excluded from Session snapshots and can
   never own a native session reference.
 - `clear_agent_identity` suppresses rediscovery of the same live occupant until it has
-  been absent for the full removal window. Explicit `DRAXUL_AGENT` hints provide the
-  initial correction path; a dedicated interactive attach/correct picker remains a UI
-  follow-up.
+  been absent for the full removal window. `attach_agent_identity` opens the profile
+  picker to attach or correct the focused pane explicitly. That override is scoped to
+  the current pane runtime generation, remains transient, and cannot become resumable.
+  `DRAXUL_AGENT` remains available as a process-provided identity hint.
 
 ## UI progression
 

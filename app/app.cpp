@@ -886,6 +886,9 @@ void App::wire_gui_actions()
             push_toast(0, "Closed Space '" + name + "'.");
     };
     gui_deps.on_launch_agent = [this]() { open_launch_agent_prompt(); };
+    gui_deps.on_attach_agent_identity = [this]() {
+        open_attach_agent_picker();
+    };
     gui_deps.on_focus_agent = [this]() { open_focus_agent_picker(); };
     gui_deps.on_restart_agent = [this]() {
         PaneManager& panes = active_pane_manager();
@@ -1372,6 +1375,42 @@ void App::open_launch_agent_prompt()
     };
     if (!palette_host_->open_choices(std::move(request)))
         push_toast(2, "Unable to open agent profile picker.");
+}
+
+void App::open_attach_agent_picker()
+{
+    if (!palette_host_)
+        return;
+
+    CommandPalette::ChoiceRequest request;
+    request.title = "Attach Agent Identity";
+    for (const AgentDefinition& definition : agent_definitions_.definitions())
+    {
+        request.entries.push_back({
+            .id = definition.profile_id,
+            .name = definition.display_name,
+            .shortcut_hint = definition.kind,
+            .search_text = definition.profile_id + " " + definition.kind + " "
+                + definition.display_name,
+        });
+    }
+    request.on_submit = [this](std::string profile_id) {
+        const AgentDefinition* definition = agent_definitions_.find(profile_id);
+        if (!definition
+            || !agent_controller_.attach_focused(
+                space_controller_, *definition))
+        {
+            push_toast(
+                2, "Unable to attach an agent identity to the focused pane.");
+            return;
+        }
+        push_toast(
+            0, "Attached '" + definition->display_name + "' to the focused pane.");
+        refresh_app_shell_layout();
+        request_frame();
+    };
+    if (!palette_host_->open_choices(std::move(request)))
+        push_toast(2, "Unable to open agent identity picker.");
 }
 
 void App::open_focus_agent_picker()

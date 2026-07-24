@@ -46,6 +46,7 @@ public:
         std::function<void()> on_rename_space; // rename the active Space
         std::function<void()> on_close_space; // close the active Space
         std::function<void()> on_launch_agent; // prompt for and launch a local agent
+        std::function<void()> on_attach_agent_identity; // attach/correct focused pane identity
         std::function<void()> on_focus_agent; // pick and focus a known agent
         std::function<void()> on_restart_agent; // restart the focused agent
         std::function<void()> on_clear_agent_identity; // detach identity from focused pane

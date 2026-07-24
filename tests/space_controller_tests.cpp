@@ -455,6 +455,62 @@ TEST_CASE("agent controller discovers manual agents without persisting identity"
     spaces.shutdown_all();
 }
 
+TEST_CASE("agent controller manually attaches and corrects transient identity",
+    "[agent_controller][agent][discovery]")
+{
+    SpaceHostHarness harness;
+    SpaceController spaces;
+    Space* space = spaces.find_space(kDefaultSpaceId);
+    REQUIRE(space != nullptr);
+    REQUIRE(harness.create_initial_tab(*space));
+
+    AgentController agents;
+    const AgentDefinition codex{
+        .profile_id = "codex",
+        .kind = "codex",
+        .display_name = "Codex",
+        .executable = "codex",
+    };
+    REQUIRE(agents.attach_focused(spaces, codex));
+    auto rows = agents.query(spaces);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].identity.kind == "codex");
+    CHECK(rows[0].identity.origin == AgentIdentityOrigin::Discovered);
+    CHECK(rows[0].identity.instance_id.starts_with("attached-"));
+    CHECK(rows[0].identity_evidence_category == "manual_attach");
+    CHECK(rows[0].identity_high_confidence);
+    CHECK(rows[0].running);
+    CHECK_FALSE(rows[0].session_ref);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(550));
+    CHECK(agents.query(spaces).size() == 1);
+
+    const AgentDefinition claude{
+        .profile_id = "claude",
+        .kind = "claude",
+        .display_name = "Claude",
+        .executable = "claude",
+    };
+    REQUIRE(agents.attach_focused(spaces, claude));
+    rows = agents.query(spaces);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].identity.kind == "claude");
+    CHECK(rows[0].identity_evidence_category == "manual_correction");
+
+    auto snapshot = spaces.snapshot_spaces();
+    REQUIRE(snapshot);
+    CHECK_FALSE((*snapshot)[0].tabs[0].pane_layout.panes[0].agent);
+
+    REQUIRE(space->tab_controller.active_pane_manager().restart_focused(
+        harness.callbacks));
+    CHECK(agents.query(spaces).empty());
+
+    REQUIRE(agents.attach_focused(spaces, claude));
+    REQUIRE(agents.dismiss_focused(spaces));
+    CHECK(agents.query(spaces).empty());
+    spaces.shutdown_all();
+}
+
 TEST_CASE("closing the active space focuses a populated replacement before shutdown",
     "[space_controller][space][focus][lifecycle]")
 {

@@ -168,6 +168,7 @@ private:
     void open_switch_space_picker();
     void open_rename_space_prompt();
     void open_launch_agent_prompt();
+    void open_attach_agent_picker();
     void open_focus_agent_picker();
     void rebuild_agent_definitions();
     bool close_dead_panes();

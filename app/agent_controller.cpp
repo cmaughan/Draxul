@@ -30,21 +30,30 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                     + std::to_string(tab->id) + ":" + panes.pane_id(leaf);
                 live_routes.insert(route);
                 auto& discovery = discovery_state_[route];
+                const AgentIdentity* identity = panes.agent_identity(leaf);
                 if (discovery.runtime_generation != generation)
                 {
+                    const bool expired_manual_override =
+                        discovery.manual_override && identity
+                        && identity->origin == AgentIdentityOrigin::Discovered;
                     discovery = {};
                     discovery.runtime_generation = generation;
+                    if (expired_manual_override)
+                    {
+                        panes.clear_agent_identity(leaf);
+                        identity = nullptr;
+                    }
                 }
 
-                const AgentIdentity* identity = panes.agent_identity(leaf);
                 const bool discovery_owned =
                     identity
                     && identity->origin == AgentIdentityOrigin::Discovered;
                 const bool probe_due = discovery.last_probe_at
                         == std::chrono::steady_clock::time_point{}
                     || now - discovery.last_probe_at >= probe_interval;
-                if ((!identity || discovery_owned) && host && host->is_running()
-                    && probe_due)
+                if ((!identity
+                        || (discovery_owned && !discovery.manual_override))
+                    && host && host->is_running() && probe_due)
                 {
                     discovery.last_probe_at = now;
                     const auto observation =
@@ -118,9 +127,11 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                 const bool discovered =
                     identity->origin == AgentIdentityOrigin::Discovered;
                 const bool host_running = host && host->is_running();
-                const bool running =
-                    discovered ? host_running && discovery.process_present
-                               : host_running;
+                const bool running = discovered
+                    ? host_running
+                        && (discovery.manual_override
+                            || discovery.process_present)
+                    : host_running;
                 const std::optional<int> exit_code = host ? host->exit_code() : std::nullopt;
                 const AgentLifecycle lifecycle = running
                     ? AgentLifecycle::Running
@@ -286,6 +297,49 @@ bool AgentController::focus_by_index(
     return focus(spaces, agents[index].identity.instance_id);
 }
 
+bool AgentController::attach_focused(
+    SpaceController& spaces, const AgentDefinition& definition)
+{
+    Space* space = spaces.find_active_space();
+    if (!space || definition.kind.empty() || definition.display_name.empty())
+        return false;
+    Tab* tab = space->tab_controller.find_active_tab();
+    if (!tab)
+        return false;
+    PaneManager& panes = tab->pane_manager;
+    const LeafId leaf = panes.focused_leaf();
+    IHost* host = panes.host_for(leaf);
+    if (!host || !host->is_running())
+        return false;
+
+    const std::string route = std::to_string(space->id) + ":"
+        + std::to_string(tab->id) + ":" + panes.pane_id(leaf);
+    auto& discovery = discovery_state_[route];
+    const bool correcting = panes.agent_identity(leaf) != nullptr;
+    discovery = {};
+    discovery.runtime_generation = panes.agent_runtime_generation(leaf);
+    discovery.last_probe_at = std::chrono::steady_clock::now();
+    discovery.detected_at = discovery.last_probe_at;
+    discovery.kind = definition.kind;
+    discovery.evidence_category =
+        correcting ? "manual_correction" : "manual_attach";
+    discovery.high_confidence = true;
+    discovery.process_present = true;
+    discovery.manual_override = true;
+
+    std::ostringstream instance;
+    instance << "attached-" << space->id << '-' << tab->id << '-'
+             << panes.pane_id(leaf) << '-' << next_discovered_instance_++;
+    panes.set_agent_identity(leaf, {
+        .profile_id = definition.profile_id,
+        .kind = definition.kind,
+        .display_name = definition.display_name,
+        .instance_id = instance.str(),
+        .origin = AgentIdentityOrigin::Discovered,
+    });
+    return true;
+}
+
 bool AgentController::dismiss_focused(SpaceController& spaces)
 {
     Space* space = spaces.find_active_space();
@@ -307,6 +361,7 @@ bool AgentController::dismiss_focused(SpaceController& spaces)
     discovery.dismissed_kind = identity->kind;
     discovery.dismissed_absent_probes = 0;
     discovery.process_present = false;
+    discovery.manual_override = false;
     return panes.clear_agent_identity(leaf);
 }
 
