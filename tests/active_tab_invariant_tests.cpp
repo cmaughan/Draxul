@@ -109,12 +109,15 @@ struct InactiveSpaceHostHarness
     AppOptions options;
     AppConfig config;
     std::vector<FakeHost*> hosts;
+    bool fail_next_initialize = false;
 
     PaneManager::Deps make_deps()
     {
         options.host_kind = HostKind::Nvim;
         options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
             auto created = std::make_unique<FakeHost>("inactive-space-host");
+            created->fail_initialize = fail_next_initialize;
+            fail_next_initialize = false;
             hosts.push_back(created.get());
             return created;
         };
@@ -210,7 +213,7 @@ TEST_CASE("tab controller cycles, activates by index, and reorders the active ta
     CHECK(controller.active_tab_id() == 3);
 }
 
-TEST_CASE("failed restore and empty shutdown leave an explicit no-tab state", "[app][tab][session]")
+TEST_CASE("failed restore preserves the current tab collection", "[app][tab][session]")
 {
     App app;
     AppTestAccess::add_empty_tab(app, 1);
@@ -219,12 +222,54 @@ TEST_CASE("failed restore and empty shutdown leave an explicit no-tab state", "[
     SessionSnapshot invalid;
     invalid.tabs.push_back(TabSnapshot{ .id = 9 });
     CHECK_FALSE(AppTestAccess::restore(app, invalid));
-    CHECK(AppTestAccess::count(app) == 0);
-    CHECK(AppTestAccess::active_id(app) == -1);
-    CHECK(AppTestAccess::find_active(app) == nullptr);
+    CHECK(AppTestAccess::count(app) == 1);
+    CHECK(AppTestAccess::active_id(app) == 1);
+    REQUIRE(AppTestAccess::find_active(app) != nullptr);
+    CHECK(AppTestAccess::find_active(app)->id == 1);
 
     CHECK_NOTHROW(AppTestAccess::shutdown_without_persistence(app));
     CHECK(AppTestAccess::active_id(app) == -1);
+}
+
+TEST_CASE("tab controller builds restored tabs before replacing live hosts",
+    "[tab_controller][tab][session]")
+{
+    InactiveSpaceHostHarness harness;
+    TabController controller;
+    REQUIRE(controller.create_initial_tab(
+        harness.callbacks, 800, 600, harness.make_deps()));
+    REQUIRE(controller.count() == 1);
+    REQUIRE(harness.hosts.size() == 1);
+    FakeHost* live_host = harness.hosts.front();
+    REQUIRE(live_host != nullptr);
+
+    SplitTree tree;
+    const LeafId leaf = tree.reset(800, 600);
+    TabSnapshot replacement;
+    replacement.id = 9;
+    replacement.name = "replacement";
+    replacement.name_user_set = true;
+    replacement.pane_layout.tree = tree.snapshot();
+    replacement.pane_layout.panes.push_back({
+        .leaf_id = leaf,
+        .launch = { .kind = HostKind::PowerShell, .command = "pwsh" },
+        .pane_id = "replacement-pane",
+    });
+    std::vector<TabSnapshot> replacements;
+    replacements.push_back(std::move(replacement));
+
+    harness.fail_next_initialize = true;
+    CHECK_FALSE(controller.restore_tabs(harness.callbacks, 800, 600,
+        replacements, 9, 10,
+        [&harness]() { return harness.make_deps(); }));
+
+    CHECK(controller.count() == 1);
+    CHECK(controller.active_tab_id() == 0);
+    CHECK(controller.tabs().front()->id == 0);
+    CHECK(live_host->shutdown_calls == 0);
+    CHECK(live_host->is_running());
+
+    controller.shutdown_all();
 }
 
 TEST_CASE("app services and closes hosts in background tabs and spaces",

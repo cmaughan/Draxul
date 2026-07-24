@@ -42,6 +42,9 @@ struct SessionSummary
 std::filesystem::path session_state_directory();
 std::filesystem::path session_state_path(std::string_view session_id);
 bool has_saved_session_state(std::string_view session_id, std::string* error = nullptr);
+bool validate_session_snapshot(const SessionSnapshot& state, std::string* error = nullptr);
+std::optional<SessionSnapshot> decode_session_state(
+    std::string_view content, std::string* error = nullptr);
 bool save_session_state(const SessionSnapshot& state, std::string* error = nullptr);
 bool delete_session_state(std::string_view session_id, std::string* error = nullptr);
 std::optional<SessionSnapshot> load_session_state(

@@ -1,0 +1,25 @@
+version = 1
+session_id = "missing-directory"
+active_workspace_id = 1
+next_workspace_id = 2
+
+[[workspaces]]
+id = 1
+name_user_set = false
+
+[workspaces.host_manager]
+focused_leaf = 0
+next_leaf_id = 1
+zoomed = false
+zoomed_leaf = -1
+
+[workspaces.host_manager.layout]
+type = "leaf"
+leaf_id = 0
+
+[[workspaces.host_manager.panes]]
+leaf_id = 0
+kind = "powershell"
+command = "pwsh"
+working_dir = "Z:/draxul-fixture/path-that-does-not-exist"
+pane_id = "missing-directory-pane"

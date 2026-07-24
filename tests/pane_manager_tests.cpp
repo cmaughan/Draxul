@@ -636,6 +636,18 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     CHECK(restored_split->launch.startup_commands == (std::vector<std::string>{ "echo ready" }));
 }
 
+TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",
+    "[pane_manager][session]")
+{
+    PaneManagerHarness product_harness;
+    REQUIRE(product_harness.manager.create(product_harness.callbacks, 800, 600));
+    CHECK_FALSE(product_harness.manager.has_restorable_shell_session());
+
+    ShellPaneManagerHarness shell_harness;
+    REQUIRE(shell_harness.manager.create(shell_harness.callbacks, 800, 600));
+    CHECK(shell_harness.manager.has_restorable_shell_session());
+}
+
 TEST_CASE("pane manager: dead shell panes are preserved for restart", "[pane_manager]")
 {
     ShellPaneManagerHarness harness;

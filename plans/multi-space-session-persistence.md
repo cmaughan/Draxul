@@ -296,6 +296,8 @@ switch rollback simpler: retain the old controller until the target is fully usa
 
 ### Phase 0: characterize v1 and restore invariants
 
+**Status:** complete (2026-07-24)
+
 - Add committed v1 TOML fixtures, including historical `workspace` and `host_manager`
   keys.
 - Add corrupt, unsupported-version, duplicate-ID, missing-directory, and
@@ -305,6 +307,18 @@ switch rollback simpler: retain the old controller until the target is fully usa
   before failure; fix that boundary before composing multiple Spaces.
 
 **Exit:** v1 compatibility and current failure behavior are pinned by tests.
+
+Implementation notes:
+
+- `decode_session_state()` now provides pure version dispatch and TOML decoding,
+  independent of filesystem reads.
+- `validate_session_snapshot()` rejects duplicate tab, layout-leaf, and stable pane
+  identities, plus pane/layout mismatches.
+- Missing working directories and non-restorable product hosts remain valid durable
+  values at the codec boundary; runtime capture/restore policy owns those decisions.
+- `TabController::restore_tabs()` builds a complete candidate collection before
+  shutting down the live tabs. A failed candidate is cleaned up while the current
+  collection and active tab remain intact.
 
 ### Phase 1: v2 values and codec
 

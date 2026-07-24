@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace draxul
 {
@@ -285,40 +286,116 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
     return state;
 }
 
-std::optional<SessionSnapshot> load_session_state_from_path(
-    const std::filesystem::path& path, std::string* error)
+bool collect_tree_leaf_ids(const SplitTree::SnapshotNode& node,
+    std::unordered_set<LeafId>& leaf_ids, std::string* error)
 {
-    if (!std::filesystem::exists(path))
-        return std::nullopt;
-
-    std::string parse_error;
-    auto document = toml_support::parse_file(path, &parse_error);
-    if (!document)
+    if (node.is_leaf)
     {
-        if (error)
-            *error = parse_error;
-        return std::nullopt;
+        if (node.leaf_id == kInvalidLeaf)
+        {
+            if (error)
+                *error = "Session state contains an invalid pane id.";
+            return false;
+        }
+        if (!leaf_ids.insert(node.leaf_id).second)
+        {
+            if (error)
+                *error = "Session state contains a duplicate pane id.";
+            return false;
+        }
+        return true;
     }
 
-    SessionSnapshot state;
-    state.version = static_cast<int>(toml_support::get_int(*document, "version").value_or(0));
+    if (!node.first || !node.second)
+    {
+        if (error)
+            *error = "Session state split node is incomplete.";
+        return false;
+    }
+    return collect_tree_leaf_ids(*node.first, leaf_ids, error)
+        && collect_tree_leaf_ids(*node.second, leaf_ids, error);
+}
+
+bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* error)
+{
     if (state.version != kSessionStateVersion)
     {
         if (error)
             *error = "Unsupported session state version.";
-        return std::nullopt;
+        return false;
     }
 
-    state.session_id = toml_support::get_string(*document, "session_id").value_or("default");
-    state.session_name = toml_support::get_string(*document, "session_name").value_or(state.session_id);
+    std::unordered_set<int> tab_ids;
+    for (const TabSnapshot& tab : state.tabs)
+    {
+        if (tab.id < 0)
+        {
+            if (error)
+                *error = "Session state contains an invalid tab id.";
+            return false;
+        }
+        if (!tab_ids.insert(tab.id).second)
+        {
+            if (error)
+                *error = "Session state contains a duplicate tab id.";
+            return false;
+        }
+        if (!tab.pane_layout.tree.root)
+        {
+            if (error)
+                *error = "Session state tab is missing a layout tree.";
+            return false;
+        }
+
+        std::unordered_set<LeafId> tree_leaf_ids;
+        if (!collect_tree_leaf_ids(*tab.pane_layout.tree.root, tree_leaf_ids, error))
+            return false;
+
+        std::unordered_set<LeafId> pane_leaf_ids;
+        std::unordered_set<std::string> stable_pane_ids;
+        for (const PaneManager::PaneSnapshot& pane : tab.pane_layout.panes)
+        {
+            if (pane.leaf_id == kInvalidLeaf || !pane_leaf_ids.insert(pane.leaf_id).second)
+            {
+                if (error)
+                    *error = "Session state contains a duplicate or invalid pane entry.";
+                return false;
+            }
+            if (!pane.pane_id.empty() && !stable_pane_ids.insert(pane.pane_id).second)
+            {
+                if (error)
+                    *error = "Session state contains a duplicate stable pane id.";
+                return false;
+            }
+        }
+        if (tree_leaf_ids != pane_leaf_ids)
+        {
+            if (error)
+                *error = "Session state pane entries do not match the layout tree.";
+            return false;
+        }
+    }
+
+    if (error)
+        error->clear();
+    return true;
+}
+
+std::optional<SessionSnapshot> decode_v1_document(
+    const toml::table& document, std::string* error)
+{
+    SessionSnapshot state;
+    state.version = kSessionStateVersion;
+    state.session_id = toml_support::get_string(document, "session_id").value_or("default");
+    state.session_name = toml_support::get_string(document, "session_name").value_or(state.session_id);
     // Version 1 called Draxul tabs "workspaces". Keep those wire keys stable
     // while the in-memory vocabulary moves to Session -> Tab.
     state.active_tab_id = static_cast<int>(
-        toml_support::get_int(*document, "active_workspace_id").value_or(-1));
+        toml_support::get_int(document, "active_workspace_id").value_or(-1));
     state.next_tab_id = static_cast<int>(
-        toml_support::get_int(*document, "next_workspace_id").value_or(0));
+        toml_support::get_int(document, "next_workspace_id").value_or(0));
 
-    const toml::array* tabs = (*document)["workspaces"].as_array();
+    const toml::array* tabs = document["workspaces"].as_array();
     if (!tabs)
     {
         if (error)
@@ -360,7 +437,28 @@ std::optional<SessionSnapshot> load_session_state_from_path(
         state.tabs.push_back(std::move(tab));
     }
 
+    if (!validate_session_snapshot_impl(state, error))
+        return std::nullopt;
     return state;
+}
+
+std::optional<SessionSnapshot> load_session_state_from_path(
+    const std::filesystem::path& path, std::string* error)
+{
+    if (!std::filesystem::exists(path))
+        return std::nullopt;
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+    {
+        if (error)
+            *error = "Unable to open session state for reading.";
+        return std::nullopt;
+    }
+    const std::string content{
+        std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>{}
+    };
+    return decode_session_state(content, error);
 }
 
 SessionSummary summarize_session_state(const SessionSnapshot& state)
@@ -376,6 +474,42 @@ SessionSummary summarize_session_state(const SessionSnapshot& state)
 }
 
 } // namespace
+
+bool validate_session_snapshot(const SessionSnapshot& state, std::string* error)
+{
+    return validate_session_snapshot_impl(state, error);
+}
+
+std::optional<SessionSnapshot> decode_session_state(
+    std::string_view content, std::string* error)
+{
+    std::string parse_error;
+    auto document = toml_support::parse_document(content, &parse_error);
+    if (!document)
+    {
+        if (error)
+            *error = parse_error;
+        return std::nullopt;
+    }
+
+    const auto version = toml_support::get_int(*document, "version");
+    if (!version)
+    {
+        if (error)
+            *error = "Session state is missing a version.";
+        return std::nullopt;
+    }
+
+    switch (*version)
+    {
+    case kSessionStateVersion:
+        return decode_v1_document(*document, error);
+    default:
+        if (error)
+            *error = "Unsupported session state version.";
+        return std::nullopt;
+    }
+}
 
 std::filesystem::path session_state_directory()
 {
@@ -411,6 +545,9 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
     PERF_MEASURE();
     try
     {
+        if (!validate_session_snapshot(state, error))
+            return false;
+
         const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
         toml::table document;
         document.insert_or_assign("version", state.version);
@@ -453,6 +590,8 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
                 *error = "Failed writing session state.";
             return false;
         }
+        if (error)
+            error->clear();
         return true;
     }
     catch (const std::exception& ex)

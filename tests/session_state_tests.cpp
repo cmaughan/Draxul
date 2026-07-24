@@ -13,6 +13,22 @@
 using namespace draxul;
 using namespace draxul::tests;
 
+namespace
+{
+
+std::string read_session_fixture(std::string_view name)
+{
+    const std::filesystem::path path = std::filesystem::path(DRAXUL_PROJECT_ROOT)
+        / "tests" / "fixtures" / "session-state" / name;
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.is_open());
+    return {
+        std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()
+    };
+}
+
+} // namespace
+
 TEST_CASE("session id: slug normalizes display names", "[session_id]")
 {
     CHECK(make_session_id_slug(" Work Bench!! ") == "work-bench");
@@ -175,6 +191,80 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(sessions[0].session_name == "workbench");
     CHECK(sessions[0].tab_count == 1);
     CHECK(sessions[0].pane_count == 2);
+}
+
+TEST_CASE("session state: historical v1 fixture decodes through pure codec",
+    "[session_state][fixture]")
+{
+    std::string error;
+    auto decoded = decode_session_state(
+        read_session_fixture("v1-historical-valid.toml"), &error);
+
+    REQUIRE(decoded);
+    REQUIRE(error.empty());
+    CHECK(decoded->version == 1);
+    CHECK(decoded->session_id == "historical");
+    CHECK(decoded->session_name == "Historical Session");
+    CHECK(decoded->active_tab_id == 3);
+    CHECK(decoded->next_tab_id == 4);
+    REQUIRE(decoded->tabs.size() == 1);
+    CHECK(decoded->tabs[0].id == 3);
+    CHECK(decoded->tabs[0].name == "shells");
+    CHECK(decoded->tabs[0].name_user_set);
+    REQUIRE(decoded->tabs[0].pane_layout.panes.size() == 2);
+    CHECK(decoded->tabs[0].pane_layout.panes[0].pane_id == "historical-left");
+    CHECK(decoded->tabs[0].pane_layout.panes[1].pane_id == "historical-right");
+
+    SplitTree restored_tree;
+    REQUIRE(restored_tree.restore(decoded->tabs[0].pane_layout.tree, 1200, 800));
+    CHECK(restored_tree.leaf_count() == 2);
+    CHECK(restored_tree.focused() == 1);
+}
+
+TEST_CASE("session state: malformed and unsupported fixtures fail before file I/O",
+    "[session_state][fixture]")
+{
+    std::string error;
+    CHECK_FALSE(decode_session_state(
+        read_session_fixture("v1-corrupt.toml"), &error));
+    CHECK_FALSE(error.empty());
+
+    error.clear();
+    CHECK_FALSE(decode_session_state(
+        read_session_fixture("v1-unsupported-version.toml"), &error));
+    CHECK(error == "Unsupported session state version.");
+}
+
+TEST_CASE("session state: duplicate stable ids are rejected by value validation",
+    "[session_state][fixture]")
+{
+    std::string error;
+    CHECK_FALSE(decode_session_state(
+        read_session_fixture("v1-duplicate-tab-id.toml"), &error));
+    CHECK(error == "Session state contains a duplicate tab id.");
+}
+
+TEST_CASE("session state: filesystem availability and host restorability are not codec concerns",
+    "[session_state][fixture]")
+{
+    std::string error;
+    auto missing_directory = decode_session_state(
+        read_session_fixture("v1-missing-directory.toml"), &error);
+    REQUIRE(missing_directory);
+    REQUIRE(error.empty());
+    REQUIRE(missing_directory->tabs.size() == 1);
+    REQUIRE(missing_directory->tabs[0].pane_layout.panes.size() == 1);
+    CHECK(missing_directory->tabs[0].pane_layout.panes[0].launch.working_dir
+        == "Z:/draxul-fixture/path-that-does-not-exist");
+
+    auto non_restorable = decode_session_state(
+        read_session_fixture("v1-non-restorable-host.toml"), &error);
+    REQUIRE(non_restorable);
+    REQUIRE(error.empty());
+    REQUIRE(non_restorable->tabs.size() == 1);
+    REQUIRE(non_restorable->tabs[0].pane_layout.panes.size() == 1);
+    CHECK(non_restorable->tabs[0].pane_layout.panes[0].launch.kind
+        == HostKind::Markdown);
 }
 
 TEST_CASE("session state: distinct session ids persist separately", "[session_state]")

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <draxul/log.h>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 
 namespace draxul
@@ -282,7 +283,23 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
     if (snapshots.empty() || !make_pane_manager_deps)
         return false;
 
-    shutdown_all();
+    std::unordered_set<int> restored_ids;
+    for (const TabSnapshot& snapshot : snapshots)
+    {
+        if (snapshot.id < 0 || !restored_ids.insert(snapshot.id).second)
+        {
+            last_error_ = "Saved session contains a duplicate or invalid tab id.";
+            return false;
+        }
+    }
+
+    Tabs candidate_tabs;
+    candidate_tabs.reserve(snapshots.size());
+    const auto shutdown_candidate = [&candidate_tabs]() {
+        for (auto& tab : candidate_tabs)
+            tab->pane_manager.shutdown();
+        candidate_tabs.clear();
+    };
 
     int max_tab_id = -1;
     for (const TabSnapshot& snapshot : snapshots)
@@ -291,7 +308,8 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
         if (!tab->pane_manager.restore_layout(callbacks, pixel_w, pixel_h, snapshot.pane_layout))
         {
             last_error_ = tab->pane_manager.error();
-            shutdown_all();
+            tab->pane_manager.shutdown();
+            shutdown_candidate();
             return false;
         }
 
@@ -299,17 +317,27 @@ bool TabController::restore_tabs(IHostCallbacks& callbacks, int pixel_w, int pix
         tab->name = snapshot.name.empty() ? "tab" : snapshot.name;
         tab->name_user_set = snapshot.name_user_set;
         max_tab_id = std::max(max_tab_id, snapshot.id);
-        tabs_.push_back(std::move(tab));
+        candidate_tabs.push_back(std::move(tab));
     }
 
-    next_tab_id_ = std::max(restored_next_tab_id, max_tab_id + 1);
-    const bool has_restored_active_tab = std::any_of(tabs_.begin(), tabs_.end(),
+    const bool has_restored_active_tab = std::any_of(candidate_tabs.begin(), candidate_tabs.end(),
         [restored_active_tab_id](const auto& tab) {
             return tab->id == restored_active_tab_id;
         });
     if (!has_restored_active_tab)
-        restored_active_tab_id = tabs_.front()->id;
+        restored_active_tab_id = candidate_tabs.front()->id;
 
+    if (focus_enabled_)
+    {
+        if (Tab* current = find_active_tab())
+        {
+            if (IHost* host = current->pane_manager.focused_host())
+                host->on_focus_lost();
+        }
+    }
+    shutdown_all();
+    tabs_ = std::move(candidate_tabs);
+    next_tab_id_ = std::max(restored_next_tab_id, max_tab_id + 1);
     last_error_.clear();
     return activate_tab(restored_active_tab_id);
 }

@@ -1,0 +1,48 @@
+version = 1
+session_id = "historical"
+session_name = "Historical Session"
+active_workspace_id = 3
+next_workspace_id = 4
+
+[[workspaces]]
+id = 3
+name = "shells"
+name_user_set = true
+
+[workspaces.host_manager]
+focused_leaf = 1
+next_leaf_id = 2
+zoomed = false
+zoomed_leaf = -1
+
+[workspaces.host_manager.layout]
+type = "split"
+direction = "vertical"
+ratio = 0.4
+
+[workspaces.host_manager.layout.first]
+type = "leaf"
+leaf_id = 0
+
+[workspaces.host_manager.layout.second]
+type = "leaf"
+leaf_id = 1
+
+[[workspaces.host_manager.panes]]
+leaf_id = 0
+kind = "powershell"
+command = "pwsh"
+args = ["-NoLogo"]
+working_dir = "D:/dev/Draxul"
+pane_name = "left"
+pane_id = "historical-left"
+
+[[workspaces.host_manager.panes]]
+leaf_id = 1
+kind = "powershell"
+command = "pwsh"
+args = ["-NoProfile"]
+working_dir = "D:/dev/Draxul"
+startup_commands = ["echo restored"]
+pane_name = "right"
+pane_id = "historical-right"
