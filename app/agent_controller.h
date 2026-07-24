@@ -1,8 +1,8 @@
 #pragma once
 
-#include "agent_identity.h"
 #include "space_id.h"
 #include "split_tree.h"
+#include <draxul/agent_model.h>
 
 #include <string>
 #include <string_view>

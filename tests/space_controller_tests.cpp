@@ -412,3 +412,23 @@ TEST_CASE("closing the active space focuses a populated replacement before shutd
     CHECK(*harness.shutdown_counts[1] == 1);
     CHECK(*harness.shutdown_counts[0] == 0);
 }
+
+TEST_CASE("agent model enum strings are stable", "[agent_controller][agent]")
+{
+    CHECK(to_string(AgentLifecycle::Starting) == "starting");
+    CHECK(to_string(AgentLifecycle::Running) == "running");
+    CHECK(to_string(AgentLifecycle::Exited) == "exited");
+    CHECK(to_string(AgentLifecycle::Failed) == "failed");
+    CHECK(to_string(AgentStatus::Unknown) == "unknown");
+    CHECK(to_string(AgentStatus::Idle) == "idle");
+    CHECK(to_string(AgentStatus::Working) == "working");
+    CHECK(to_string(AgentStatus::Blocked) == "blocked");
+    CHECK(to_string(AgentStatus::Done) == "done");
+    CHECK(to_string(AgentStateAuthority::None) == "none");
+    CHECK(to_string(AgentStateAuthority::DirectHost) == "direct_host");
+    CHECK(to_string(AgentStateAuthority::ScreenManifest) == "screen_manifest");
+    CHECK(to_string(AgentStateAuthority::OfficialIntegration) == "official_integration");
+    CHECK(to_string(AgentRestorePolicy::Fresh) == "fresh");
+    CHECK(to_string(AgentRestorePolicy::ResumeIfAvailable) == "resume_if_available");
+    CHECK(to_string(AgentRestorePolicy::ShellOnly) == "shell_only");
+}

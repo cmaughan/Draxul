@@ -153,6 +153,7 @@ add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-grid)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
+add_subdirectory(libs/draxul-agent)
 add_subdirectory(libs/draxul-gui)
 add_subdirectory(modules/markdown)
 add_subdirectory(libs/draxul-runtime-support)
@@ -303,6 +304,7 @@ draxul_apply_coverage(draxul-app)
 draxul_apply_msvc_parallel_pdb_fix(draxul-app)
 
 target_link_libraries(draxul-app PUBLIC
+    draxul-agent
     draxul-http
     nlohmann_json::nlohmann_json
     draxul-config

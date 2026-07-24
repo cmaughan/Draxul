@@ -1,7 +1,7 @@
 #pragma once
 
-#include "agent_identity.h"
 #include "split_tree.h"
+#include <draxul/agent_model.h>
 #include <draxul/host.h>
 #include <draxul/host_kind.h>
 #include <functional>
