@@ -4,6 +4,7 @@
 #include "macos_menu.h"
 #endif
 #include "chrome_host.h"
+#include "control_request_router.h"
 #include "gui_action_handler.h"
 #include "pane_manager.h"
 #include "input_dispatcher.h"
@@ -17,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <draxul/atlas_upload.h>
+#include <draxul/control_plane.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/log.h>
 #include <draxul/pane_print.h>
@@ -485,6 +487,20 @@ bool App::initialize()
 
     saw_frame_ = false;
     running_ = true;
+    if (options_.enable_control_server)
+    {
+        control_server_ = std::make_unique<ControlServer>();
+        std::string control_error;
+        const auto runtime_directory = control_runtime_directory(
+            ConfigDocument::default_path().parent_path());
+        if (!control_server_->start(options_.session_id, runtime_directory,
+                [this]() { wake_window(); }, &control_error))
+        {
+            last_init_error_ = "Failed to start the Session control endpoint: "
+                + control_error;
+            return false;
+        }
+    }
     // Render one initial composite frame after init so hosts that only request
     // redraws on state changes do not start on a blank window.
     request_frame();
@@ -1868,6 +1884,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             request_quit();
             return false;
         }
+        process_control_requests();
 
         // Safety net: detect window size changes that SDL may not deliver as
         // events (e.g. during a Windows modal resize drag).
@@ -3055,9 +3072,23 @@ int App::active_tab_id() const
     return active_tab_controller().active_tab_id();
 }
 
+void App::process_control_requests()
+{
+    if (!control_server_)
+        return;
+    ControlRequestRouter router(space_controller_, agent_controller_, options_.session_id);
+    control_server_->process_pending(
+        [&router](const ControlRequest& request) { return router.handle(request); });
+}
+
 void App::shutdown()
 {
     PERF_MEASURE();
+    if (control_server_)
+    {
+        control_server_->stop();
+        control_server_.reset();
+    }
     // Revoke every window callback before any captured App subsystem begins
     // teardown. The registration tokens also make already-copied late events
     // inert, while clear_callbacks covers any direct test/custom callbacks.

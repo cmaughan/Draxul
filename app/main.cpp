@@ -1,5 +1,6 @@
 #include "app.h"
 #include "cli_args.h"
+#include "control_cli.h"
 #include "session_cli.h"
 #include <SDL3/SDL.h>
 #include <chrono>
@@ -123,6 +124,19 @@ std::filesystem::path executable_dir()
 static int draxul_main(std::vector<std::string> args)
 {
     PERF_MEASURE();
+    const auto control_cli = draxul::parse_control_cli(args);
+#ifdef _WIN32
+    if (control_cli.recognized)
+        ensure_console_io(true);
+#endif
+    if (control_cli.error)
+    {
+        std::fprintf(stderr, "%s\n", control_cli.error->c_str());
+        return 1;
+    }
+    if (control_cli.command)
+        return draxul::run_control_cli(*control_cli.command);
+
     auto parse_result = draxul::parse_args(args);
 #ifdef _WIN32
     const bool needs_console_output = parse_result.error.has_value()
@@ -282,6 +296,7 @@ static int draxul_main(std::vector<std::string> args)
         && parsed.screenshot_path.empty();
 #endif
     options.enable_session_restore = allow_session_restore;
+    options.enable_control_server = allow_session_restore;
 
     draxul::App app(std::move(options));
 

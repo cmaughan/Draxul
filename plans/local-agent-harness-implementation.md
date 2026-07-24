@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** Phases 0-3 complete; Phases 4-7 implementation-ready
+**Status:** Phases 0-4 complete; Phases 5-7 implementation-ready
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -363,6 +363,8 @@ through the same evaluator once its fixtures pass the same contract.
 
 ## Phase 4: local read-only control plane
 
+**Implemented:** 2026-07-24
+
 **Purpose:** make Draxul inspectable as a harness before enabling external mutation.
 
 ### Transport
@@ -410,6 +412,18 @@ presentation fields.
 
 Local scripts can reliably enumerate and inspect all Spaces and agents without UI
 automation or access to Draxul's in-memory objects.
+
+Implementation notes:
+
+- `draxul-control` owns the cross-platform framed transport, runtime metadata,
+  authentication token, bounds checking, and client.
+- The transport queues typed requests; `ControlRequestRouter` resolves them on the
+  application thread.
+- Normal restorable desktop launches expose one endpoint per Session. Smoke tests,
+  render tests, and embedded `App` users remain endpoint-free unless they opt in.
+- `pane.read` currently returns the bounded bottom region exposed by a live terminal
+  host. It does not expose mutable grid state or persisted scrollback.
+- Transport, router, and CLI parsing have focused tests.
 
 ## Phase 5: harness mutations, waits, and events
 

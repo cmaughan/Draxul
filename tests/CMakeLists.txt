@@ -35,6 +35,7 @@ set(DRAXUL_APP_TEST_SOURCES
     cli_args_tests.cpp
     command_palette_tests.cpp
     config_lifecycle_tests.cpp
+    control_plane_tests.cpp
     dpi_hotplug_integration_tests.cpp
     frame_timer_tests.cpp
     fuzzy_match_tests.cpp

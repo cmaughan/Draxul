@@ -38,6 +38,10 @@ struct AppOptions
     // selected session id. This is file-backed restore; it does not keep the
     // process alive after the window is closed.
     bool enable_session_restore = false;
+    // Expose the local, same-user Session control endpoint. Production
+    // desktop launches enable this alongside file-backed Session restore;
+    // tests and embedded front-ends opt in explicitly.
+    bool enable_control_server = false;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind
     // doesn't matter — any host that wants to render every frame can opt in.

@@ -154,6 +154,7 @@ add_subdirectory(libs/draxul-grid)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-control)
 add_subdirectory(libs/draxul-gui)
 add_subdirectory(modules/markdown)
 add_subdirectory(libs/draxul-runtime-support)
@@ -280,6 +281,8 @@ add_library(draxul-app
     app/session_cli.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
+    app/control_request_router.cpp
+    app/control_cli.cpp
     app/session_listing.cpp
     app/toast_host.cpp
     app/weather_service.cpp
@@ -305,6 +308,7 @@ draxul_apply_msvc_parallel_pdb_fix(draxul-app)
 
 target_link_libraries(draxul-app PUBLIC
     draxul-agent
+    draxul-control
     draxul-http
     nlohmann_json::nlohmann_json
     draxul-config
