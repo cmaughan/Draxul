@@ -28,6 +28,14 @@ namespace
 
 constexpr int kSessionStateVersionV1 = 1;
 constexpr int kSessionStateVersionV2 = 2;
+constexpr size_t kMaxSessionStateBytes = 4 * 1024 * 1024;
+constexpr size_t kMaxSpaces = 64;
+constexpr size_t kMaxTabsPerSpace = 128;
+constexpr size_t kMaxPanesPerTab = 256;
+constexpr size_t kMaxTreeDepth = 64;
+constexpr size_t kMaxShortTextBytes = 512;
+constexpr size_t kMaxCommandTextBytes = 8192;
+constexpr size_t kMaxStringListEntries = 256;
 
 struct LegacySessionSnapshotV1
 {
@@ -130,8 +138,16 @@ toml::table serialize_tree_node(const SplitTree::SnapshotNode& node)
 }
 
 std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
-    const toml::table& table, std::string* error)
+    const toml::table& table, std::string* error, size_t depth, size_t& node_count)
 {
+    if (depth > kMaxTreeDepth
+        || ++node_count > kMaxPanesPerTab * 2 - 1)
+    {
+        if (error)
+            *error = "Session state layout exceeds structural limits.";
+        return nullptr;
+    }
+
     const auto type = toml_support::get_string(table, "type");
     if (!type)
     {
@@ -184,8 +200,8 @@ std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
     node->is_leaf = false;
     node->direction = *direction;
     node->ratio = static_cast<float>(*ratio_value);
-    node->first = parse_tree_node(*first, error);
-    node->second = parse_tree_node(*second, error);
+    node->first = parse_tree_node(*first, error, depth + 1, node_count);
+    node->second = parse_tree_node(*second, error, depth + 1, node_count);
     if (!node->first || !node->second)
         return nullptr;
     return node;
@@ -255,12 +271,20 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
 
     state.tree.focused_id = static_cast<LeafId>(*focused_leaf);
     state.tree.next_leaf_id = static_cast<LeafId>(*next_leaf_id);
-    state.tree.root = parse_tree_node(*layout, error);
+    size_t tree_node_count = 0;
+    state.tree.root = parse_tree_node(*layout, error, 0, tree_node_count);
     if (!state.tree.root)
         return std::nullopt;
 
     state.zoomed = *zoomed;
     state.zoomed_leaf = static_cast<LeafId>(*zoomed_leaf);
+
+    if (panes->size() > kMaxPanesPerTab)
+    {
+        if (error)
+            *error = "Session state tab exceeds the pane limit.";
+        return std::nullopt;
+    }
 
     for (const toml::node& node : *panes)
     {
@@ -363,8 +387,17 @@ std::optional<TabSnapshot> parse_tab(
 }
 
 bool collect_tree_leaf_ids(const SplitTree::SnapshotNode& node,
-    std::unordered_set<LeafId>& leaf_ids, std::string* error)
+    std::unordered_set<LeafId>& leaf_ids, std::string* error,
+    size_t depth, size_t& node_count)
 {
+    if (depth > kMaxTreeDepth
+        || ++node_count > kMaxPanesPerTab * 2 - 1)
+    {
+        if (error)
+            *error = "Session state layout exceeds structural limits.";
+        return false;
+    }
+
     if (node.is_leaf)
     {
         if (node.leaf_id == kInvalidLeaf)
@@ -388,15 +421,51 @@ bool collect_tree_leaf_ids(const SplitTree::SnapshotNode& node,
             *error = "Session state split node is incomplete.";
         return false;
     }
-    return collect_tree_leaf_ids(*node.first, leaf_ids, error)
-        && collect_tree_leaf_ids(*node.second, leaf_ids, error);
+    return collect_tree_leaf_ids(*node.first, leaf_ids, error, depth + 1, node_count)
+        && collect_tree_leaf_ids(*node.second, leaf_ids, error, depth + 1, node_count);
+}
+
+bool validate_text_limit(
+    std::string_view text, size_t limit, std::string_view field, std::string* error)
+{
+    if (text.size() <= limit)
+        return true;
+    if (error)
+        *error = "Session state " + std::string(field) + " exceeds the text limit.";
+    return false;
+}
+
+bool validate_string_list(const std::vector<std::string>& values,
+    std::string_view field, std::string* error)
+{
+    if (values.size() > kMaxStringListEntries)
+    {
+        if (error)
+            *error = "Session state " + std::string(field) + " exceeds the entry limit.";
+        return false;
+    }
+    for (const std::string& value : values)
+    {
+        if (!validate_text_limit(value, kMaxCommandTextBytes, field, error))
+            return false;
+    }
+    return true;
 }
 
 bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* error)
 {
+    if (tabs.size() > kMaxTabsPerSpace)
+    {
+        if (error)
+            *error = "Session state Space exceeds the tab limit.";
+        return false;
+    }
+
     std::unordered_set<int> tab_ids;
     for (const TabSnapshot& tab : tabs)
     {
+        if (!validate_text_limit(tab.name, kMaxShortTextBytes, "tab name", error))
+            return false;
         if (tab.id < 0)
         {
             if (error)
@@ -415,21 +484,57 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                 *error = "Session state tab is missing a layout tree.";
             return false;
         }
+        if (tab.pane_layout.panes.size() > kMaxPanesPerTab)
+        {
+            if (error)
+                *error = "Session state tab exceeds the pane limit.";
+            return false;
+        }
 
         std::unordered_set<LeafId> tree_leaf_ids;
-        if (!collect_tree_leaf_ids(*tab.pane_layout.tree.root, tree_leaf_ids, error))
+        size_t tree_node_count = 0;
+        if (!collect_tree_leaf_ids(
+                *tab.pane_layout.tree.root, tree_leaf_ids, error, 0, tree_node_count))
             return false;
 
         std::unordered_set<LeafId> pane_leaf_ids;
         std::unordered_set<std::string> stable_pane_ids;
         for (const PaneManager::PaneSnapshot& pane : tab.pane_layout.panes)
         {
+            if (!validate_text_limit(
+                    pane.pane_name, kMaxShortTextBytes, "pane name", error)
+                || !validate_text_limit(
+                    pane.pane_id, kMaxShortTextBytes, "pane id", error)
+                || !validate_text_limit(
+                    pane.launch.command, kMaxCommandTextBytes, "host command", error)
+                || !validate_text_limit(
+                    pane.launch.working_dir, kMaxCommandTextBytes, "working directory", error)
+                || !validate_text_limit(
+                    pane.launch.source_path, kMaxCommandTextBytes, "source path", error)
+                || !validate_text_limit(
+                    pane.launch.pty_capture_file, kMaxCommandTextBytes, "capture path", error)
+                || !validate_string_list(pane.launch.args, "host arguments", error)
+                || !validate_string_list(
+                    pane.launch.startup_commands, "startup commands", error))
+            {
+                return false;
+            }
             if (pane.agent
                 && (pane.agent->kind.empty() || pane.agent->display_name.empty()
                     || pane.agent->instance_id.empty()))
             {
                 if (error)
                     *error = "Session state agent identity is incomplete.";
+                return false;
+            }
+            if (pane.agent
+                && (!validate_text_limit(
+                        pane.agent->kind, kMaxShortTextBytes, "agent kind", error)
+                    || !validate_text_limit(pane.agent->display_name,
+                        kMaxShortTextBytes, "agent display name", error)
+                    || !validate_text_limit(pane.agent->instance_id,
+                        kMaxShortTextBytes, "agent instance id", error)))
+            {
                 return false;
             }
             if (pane.leaf_id == kInvalidLeaf || !pane_leaf_ids.insert(pane.leaf_id).second)
@@ -464,11 +569,32 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
             *error = "Unsupported session state version.";
         return false;
     }
+    if (state.spaces.size() > kMaxSpaces)
+    {
+        if (error)
+            *error = "Session state exceeds the Space limit.";
+        return false;
+    }
+    if (!validate_text_limit(
+            state.session_id, kMaxShortTextBytes, "session id", error)
+        || !validate_text_limit(
+            state.session_name, kMaxShortTextBytes, "session name", error))
+    {
+        return false;
+    }
 
     std::unordered_set<SpaceId> space_ids;
     std::unordered_set<std::string> agent_instance_ids;
     for (const SpaceSnapshot& space : state.spaces)
     {
+        if (!validate_text_limit(space.name, kMaxShortTextBytes, "Space name", error))
+            return false;
+        if (space.root_directory.native().size() > kMaxCommandTextBytes)
+        {
+            if (error)
+                *error = "Session state root directory exceeds the text limit.";
+            return false;
+        }
         if (space.id == kInvalidSpaceId || !space_ids.insert(space.id).second)
         {
             if (error)
@@ -537,6 +663,12 @@ std::optional<SessionSnapshot> decode_v1_document(
             *error = "Session state is missing tabs.";
         return std::nullopt;
     }
+    if (tabs->size() > kMaxTabsPerSpace)
+    {
+        if (error)
+            *error = "Session state Space exceeds the tab limit.";
+        return std::nullopt;
+    }
 
     for (const toml::node& node : *tabs)
     {
@@ -584,6 +716,12 @@ std::optional<SessionSnapshot> decode_v2_document(
             *error = "Session state is missing Spaces.";
         return std::nullopt;
     }
+    if (spaces->size() > kMaxSpaces)
+    {
+        if (error)
+            *error = "Session state exceeds the Space limit.";
+        return std::nullopt;
+    }
 
     for (const toml::node& node : *spaces)
     {
@@ -601,6 +739,12 @@ std::optional<SessionSnapshot> decode_v2_document(
         {
             if (error)
                 *error = "Session state Space is missing required fields.";
+            return std::nullopt;
+        }
+        if (tabs->size() > kMaxTabsPerSpace)
+        {
+            if (error)
+                *error = "Session state Space exceeds the tab limit.";
             return std::nullopt;
         }
 
@@ -642,6 +786,21 @@ std::optional<SessionSnapshot> load_session_state_from_path(
     if (!std::filesystem::exists(path))
         return std::nullopt;
 
+    std::error_code size_error;
+    const std::uintmax_t file_size = std::filesystem::file_size(path, size_error);
+    if (size_error)
+    {
+        if (error)
+            *error = "Unable to inspect session state.";
+        return std::nullopt;
+    }
+    if (file_size > kMaxSessionStateBytes)
+    {
+        if (error)
+            *error = "Session state exceeds the file size limit.";
+        return std::nullopt;
+    }
+
     std::ifstream in(path, std::ios::binary);
     if (!in)
     {
@@ -681,12 +840,19 @@ bool validate_session_snapshot(const SessionSnapshot& state, std::string* error)
 std::optional<SessionSnapshot> decode_session_state(
     std::string_view content, std::string* error)
 {
+    if (content.size() > kMaxSessionStateBytes)
+    {
+        if (error)
+            *error = "Session state exceeds the file size limit.";
+        return std::nullopt;
+    }
+
     std::string parse_error;
     auto document = toml_support::parse_document(content, &parse_error);
     if (!document)
     {
         if (error)
-            *error = parse_error;
+            *error = "Session state TOML could not be parsed.";
         return std::nullopt;
     }
 
@@ -753,14 +919,21 @@ std::optional<std::string> encode_session_state(
 
         std::ostringstream out;
         out << document << '\n';
+        std::string content = out.str();
+        if (content.size() > kMaxSessionStateBytes)
+        {
+            if (error)
+                *error = "Session state exceeds the file size limit.";
+            return std::nullopt;
+        }
         if (error)
             error->clear();
-        return out.str();
+        return content;
     }
-    catch (const std::exception& ex)
+    catch (const std::exception&)
     {
         if (error)
-            *error = ex.what();
+            *error = "Unable to encode session state.";
         return std::nullopt;
     }
 }
@@ -864,10 +1037,10 @@ bool save_session_state_to_path(const SessionSnapshot& state,
             error->clear();
         return true;
     }
-    catch (const std::exception& ex)
+    catch (const std::exception&)
     {
         if (error)
-            *error = ex.what();
+            *error = "Unable to save session state.";
         return false;
     }
 }

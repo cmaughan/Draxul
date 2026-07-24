@@ -348,6 +348,8 @@ Implementation notes:
 
 ### Phase 2: capture and safely save every Space
 
+**Status:** complete (2026-07-24)
+
 - Add `SpaceController::snapshot_spaces()` or an equivalent pure traversal.
 - Replace `space_controller_.count() == 1` with all-Space restorable validation.
 - Capture the full ordered collection and active Space ID.
@@ -372,6 +374,8 @@ Implementation notes:
   collection. Loading those snapshots becomes available in Phase 3.
 
 ### Phase 3: restore every Space
+
+**Status:** complete (2026-07-24)
 
 - Add a restore-oriented `SpaceController` factory or candidate-builder API that can
   install stable IDs and counters without replaying user actions.
@@ -400,6 +404,8 @@ Implementation notes:
   succeeds; it no longer needs destructive restore-and-rollback.
 
 ### Phase 4: durable agent identity and sidebar projection
+
+**Status:** complete (2026-07-24)
 
 - Add optional `AgentIdentity` to live pane metadata and `AgentIdentitySnapshot` to the
   pane snapshot.
@@ -431,6 +437,8 @@ Implementation notes:
 
 ### Phase 5: hardening and later resume hooks
 
+**Status:** complete (2026-07-24)
+
 - Add optional `.bak` recovery only if field evidence shows temp replacement is
   insufficient.
 - Add schema-size limits and sensitive-field logging tests.
@@ -440,6 +448,23 @@ Implementation notes:
 
 **Exit:** recovery behavior is diagnosable, bounded, and does not imply that processes
 survive application exit.
+
+Implementation notes:
+
+- Decode rejects snapshots larger than 4 MiB before TOML parsing or file allocation.
+  Value validation limits a Session to 64 Spaces, 128 tabs per Space, 256 panes per
+  tab, 64 split-tree levels, 256 command-list entries, and bounded text fields.
+- Parse and value-validation diagnostics name the violated structure or field without
+  including its saved command, argument, or path content. Tests pin that behavior.
+- A `.bak` file is not added: sibling-temp write plus atomic replacement already
+  preserves the last good snapshot across known write failures, and there is no field
+  evidence yet for a second recovery artifact and its lifecycle complexity.
+- `AgentSessionRef` and native conversation resume are not added because no supported
+  product-specific opt-in resume adapter exists. Restored agent panes launch their
+  ordinary saved command as a fresh process, with safe shell behavior rather than an
+  implied conversation continuation.
+- Terminal screen history remains absent from the topology snapshot and off by
+  default.
 
 ## Required tests
 

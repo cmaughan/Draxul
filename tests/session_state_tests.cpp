@@ -27,6 +27,62 @@ std::string read_session_fixture(std::string_view name)
     };
 }
 
+SessionSnapshot make_single_pane_session_snapshot()
+{
+    SplitTree tree;
+    const LeafId leaf = tree.reset(800, 600);
+
+    TabSnapshot tab;
+    tab.id = 1;
+    tab.name = "shell";
+    tab.pane_layout.tree = tree.snapshot();
+    tab.pane_layout.panes.push_back({
+        .leaf_id = leaf,
+        .launch = {
+            .kind = HostKind::PowerShell,
+            .command = "pwsh",
+            .working_dir = "D:/work",
+        },
+        .pane_name = "shell",
+        .pane_id = "pane-1",
+    });
+
+    SpaceSnapshot space;
+    space.id = 1;
+    space.name = "work";
+    space.root_directory = "D:/work";
+    space.active_tab_id = 1;
+    space.next_tab_id = 2;
+    space.tabs.push_back(std::move(tab));
+
+    SessionSnapshot state;
+    state.session_id = "bounded";
+    state.session_name = "Bounded";
+    state.active_space_id = 1;
+    state.next_space_id = 2;
+    state.spaces.push_back(std::move(space));
+    return state;
+}
+
+std::unique_ptr<SplitTree::SnapshotNode> make_deep_snapshot_tree(
+    size_t split_depth, LeafId& next_leaf)
+{
+    auto node = std::make_unique<SplitTree::SnapshotNode>();
+    if (split_depth == 0)
+    {
+        node->leaf_id = next_leaf++;
+        return node;
+    }
+
+    node->is_leaf = false;
+    node->direction = SplitDirection::Vertical;
+    node->ratio = 0.5f;
+    node->first = make_deep_snapshot_tree(split_depth - 1, next_leaf);
+    node->second = std::make_unique<SplitTree::SnapshotNode>();
+    node->second->leaf_id = next_leaf++;
+    return node;
+}
+
 } // namespace
 
 TEST_CASE("session id: slug normalizes display names", "[session_id]")
@@ -329,6 +385,68 @@ TEST_CASE("session state: v2 rejects duplicate Space identities",
     CHECK_FALSE(validate_session_snapshot(state, &error));
     CHECK(error == "Session state contains a duplicate or invalid Space id.");
     CHECK_FALSE(encode_session_state(state, &error));
+}
+
+TEST_CASE("session state: recovery input size and cardinality are bounded",
+    "[session_state][hardening]")
+{
+    TempDir temp_dir("session-state-bounds");
+    HomeDirRedirect redirect(temp_dir.path);
+
+    std::string error;
+    const std::string oversized(4 * 1024 * 1024 + 1, 'x');
+    CHECK_FALSE(decode_session_state(oversized, &error));
+    CHECK(error == "Session state exceeds the file size limit.");
+
+    const std::filesystem::path oversized_path = session_state_path("oversized");
+    REQUIRE(std::filesystem::create_directories(oversized_path.parent_path()));
+    std::ofstream oversized_file(oversized_path, std::ios::binary);
+    REQUIRE(oversized_file.is_open());
+    oversized_file << oversized;
+    oversized_file.close();
+    CHECK_FALSE(load_session_state("oversized", &error));
+    CHECK(error == "Session state exceeds the file size limit.");
+
+    SessionSnapshot too_many_spaces;
+    for (SpaceId id = 1; id <= 65; ++id)
+        too_many_spaces.spaces.push_back(SpaceSnapshot{ .id = id });
+    CHECK_FALSE(validate_session_snapshot(too_many_spaces, &error));
+    CHECK(error == "Session state exceeds the Space limit.");
+
+    SessionSnapshot too_deep = make_single_pane_session_snapshot();
+    LeafId next_leaf = 0;
+    too_deep.spaces[0].tabs[0].pane_layout.tree.root =
+        make_deep_snapshot_tree(65, next_leaf);
+    too_deep.spaces[0].tabs[0].pane_layout.tree.next_leaf_id = next_leaf;
+    CHECK_FALSE(validate_session_snapshot(too_deep, &error));
+    CHECK(error == "Session state layout exceeds structural limits.");
+}
+
+TEST_CASE("session state: diagnostics do not expose commands or paths",
+    "[session_state][hardening]")
+{
+    constexpr std::string_view secret = "SUPER_SECRET_SESSION_VALUE";
+    std::string error;
+
+    SessionSnapshot command_state = make_single_pane_session_snapshot();
+    command_state.spaces[0].tabs[0].pane_layout.panes[0].launch.command =
+        std::string(secret) + std::string(8192, 'x');
+    CHECK_FALSE(validate_session_snapshot(command_state, &error));
+    CHECK(error == "Session state host command exceeds the text limit.");
+    CHECK(error.find(secret) == std::string::npos);
+
+    SessionSnapshot path_state = make_single_pane_session_snapshot();
+    path_state.spaces[0].root_directory =
+        std::string(secret) + std::string(8192, 'x');
+    CHECK_FALSE(validate_session_snapshot(path_state, &error));
+    CHECK(error == "Session state root directory exceeds the text limit.");
+    CHECK(error.find(secret) == std::string::npos);
+
+    const std::string malformed =
+        "version = 2\ncommand = \"" + std::string(secret) + "\n";
+    CHECK_FALSE(decode_session_state(malformed, &error));
+    CHECK(error == "Session state TOML could not be parsed.");
+    CHECK(error.find(secret) == std::string::npos);
 }
 
 TEST_CASE("session state: filesystem availability and host restorability are not codec concerns",

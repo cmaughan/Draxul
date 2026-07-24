@@ -157,6 +157,8 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
 - Closing a Space terminates the hosts it owns. The final Space cannot be closed.
 - Spaces are currently local. Session snapshots use a version-2 Space envelope, transparently migrate version-1 files in memory, atomically checkpoint the complete ordered Space collection, and transactionally restore all usable Spaces with the saved active Space selected. Suspend/resume, background ownership, SSH, and remote Spaces remain future work.
+- Session recovery is bounded before hosts launch: snapshots are limited to 4 MiB, 64 Spaces, 128 tabs per Space, 256 panes per tab, 64 layout levels, and bounded text/list fields. Diagnostics identify the invalid field without echoing saved commands or paths.
+- A successful save atomically replaces the previous snapshot. Draxul does not currently maintain a second `.bak` copy because there is no observed failure mode beyond the protected replacement boundary; this can be added if field evidence justifies the extra recovery policy.
 - Agent runtime state and sidebar rows are projections, not persisted state. Only the optional pane-owned agent identity is stored, so live running/exited/focus status cannot become stale serialized data.
 
 ---
