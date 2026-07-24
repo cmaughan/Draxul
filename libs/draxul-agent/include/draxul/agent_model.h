@@ -10,6 +10,12 @@
 namespace draxul
 {
 
+enum class AgentIdentityOrigin
+{
+    Managed,
+    Discovered,
+};
+
 // Durable metadata for an agent intentionally launched into a pane. Runtime
 // state is deliberately absent: it is projected from the live host.
 struct AgentIdentity
@@ -18,6 +24,7 @@ struct AgentIdentity
     std::string kind;
     std::string display_name;
     std::string instance_id;
+    AgentIdentityOrigin origin = AgentIdentityOrigin::Managed;
 
     bool operator==(const AgentIdentity&) const = default;
 };
@@ -95,6 +102,30 @@ struct AgentObservation
     std::optional<int> exit_code;
 };
 
+struct AgentProcessInfo
+{
+    uint64_t process_id = 0;
+    uint64_t parent_process_id = 0;
+    std::string executable;
+    std::vector<std::string> arguments;
+    std::string agent_hint;
+};
+
+struct AgentProcessObservation
+{
+    std::chrono::steady_clock::time_point captured_at{};
+    std::vector<AgentProcessInfo> processes;
+    bool foreground_reliable = false;
+};
+
+struct AgentDiscoveryMatch
+{
+    std::string kind;
+    std::string display_name;
+    std::string evidence_category;
+    bool high_confidence = false;
+};
+
 // Sanitized explanation of a semantic-state decision. The rule metadata is
 // safe to surface and retain in memory; matched terminal text is not.
 struct AgentStatusExplanation
@@ -146,6 +177,7 @@ private:
 };
 
 std::string_view to_string(AgentLifecycle value) noexcept;
+std::string_view to_string(AgentIdentityOrigin value) noexcept;
 std::string_view to_string(AgentStatus value) noexcept;
 std::string_view to_string(AgentStateAuthority value) noexcept;
 std::string_view to_string(AgentRestorePolicy value) noexcept;
@@ -161,5 +193,7 @@ bool validate_agent_session_ref(const AgentSessionRef& value,
 
 AgentStatusExplanation evaluate_agent_observation(
     std::string_view agent_kind, const AgentObservation& observation);
+std::optional<AgentDiscoveryMatch> discover_agent_process(
+    const AgentProcessObservation& observation);
 
 } // namespace draxul

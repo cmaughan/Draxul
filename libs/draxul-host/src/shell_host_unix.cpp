@@ -26,6 +26,12 @@ public:
         return process_.current_working_directory();
     }
 
+    std::optional<AgentProcessObservation>
+    capture_agent_process_observation() const override
+    {
+        return process_.foreground_process_observation();
+    }
+
 protected:
     bool initialize_host() override
     {

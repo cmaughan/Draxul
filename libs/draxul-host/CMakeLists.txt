@@ -20,6 +20,7 @@ if(WIN32)
         src/conpty_process.cpp
         src/shell_host_win.cpp
     )
+    target_link_libraries(draxul-host PRIVATE shell32)
 else()
     target_sources(draxul-host PRIVATE
         src/unix_pty_process.cpp

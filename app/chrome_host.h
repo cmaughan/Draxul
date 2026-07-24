@@ -35,8 +35,9 @@ public:
         IGridRenderer* grid_renderer = nullptr;
         TextService* text_service = nullptr;
 
-        // Read-only access to the active Space for tab bar / divider rendering.
-        const SpaceController* space_controller = nullptr;
+        // Application-owned Space model. Agent projection refresh may attach
+        // ephemeral process-discovered occupants before rendering the rail.
+        SpaceController* space_controller = nullptr;
         AgentController* agent_controller = nullptr;
         const SystemResourceSnapshot* system_resource_snapshot = nullptr;
         std::function<std::optional<std::pair<std::string, float>>()> chord_indicator = nullptr;

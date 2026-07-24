@@ -106,6 +106,10 @@ public:
     {
         return launch_agent(AgentLaunchRequest{ .profile_id = std::string(profile_id) });
     }
+    SpaceController& space_controller() noexcept
+    {
+        return space_controller_;
+    }
     const SpaceController& space_controller() const noexcept
     {
         return space_controller_;

@@ -902,8 +902,7 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_clear_agent_identity = [this]() {
-        PaneManager& panes = active_pane_manager();
-        if (!panes.clear_agent_identity(panes.focused_leaf()))
+        if (!agent_controller_.dismiss_focused(space_controller_))
         {
             push_toast(2, "The focused pane has no tracked agent identity.");
             return;
@@ -924,7 +923,9 @@ void App::wire_gui_actions()
 
         const AgentStatusExplanation& explanation = it->status_explanation;
         std::string message = it->identity.display_name + ": "
-            + std::string(to_string(it->status)) + "; authority="
+            + std::string(to_string(it->status)) + "; identity="
+            + std::string(to_string(it->identity.origin)) + "/"
+            + it->identity_evidence_category + "; authority="
             + std::string(to_string(it->status_authority));
         if (!explanation.manifest_id.empty())
         {

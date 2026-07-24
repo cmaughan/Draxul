@@ -92,6 +92,9 @@ nlohmann::json agent_json(const AgentProjection& agent)
         { "instance_id", agent.identity.instance_id },
         { "kind", agent.identity.kind },
         { "display_name", agent.identity.display_name },
+        { "origin", to_string(agent.identity.origin) },
+        { "identity_evidence_category", agent.identity_evidence_category },
+        { "identity_high_confidence", agent.identity_high_confidence },
         { "route", route_json(agent) },
         { "lifecycle", to_string(agent.lifecycle) },
         { "runtime_generation", agent.generation.value },
@@ -203,6 +206,14 @@ ControlMethodResult ControlRequestRouter::handle(const ControlRequest& request)
         return ControlMethodResult::success({
             { "instance_id", agent->identity.instance_id },
             { "route", route_json(*agent) },
+            { "identity_explanation",
+                {
+                    { "origin", to_string(agent->identity.origin) },
+                    { "evidence_category",
+                        agent->identity_evidence_category },
+                    { "high_confidence",
+                        agent->identity_high_confidence },
+                } },
             { "explanation", explanation_json(agent->status_explanation) },
         });
     }

@@ -611,7 +611,8 @@ std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::snapshot_layout() co
             pane.launch.working_dir = current_cwd;
         pane.pane_name = pane_name(id);
         pane.pane_id = pane_id(id);
-        if (const AgentIdentity* agent = agent_identity(id))
+        if (const AgentIdentity* agent = agent_identity(id);
+            agent && agent->origin == AgentIdentityOrigin::Managed)
             pane.agent = *agent;
         if (const auto policy = agent_restore_policies_.find(id);
             policy != agent_restore_policies_.end())
@@ -774,6 +775,8 @@ void PaneManager::set_agent_identity(
     }
     agent_identities_[id] = std::move(identity);
     agent_restore_policies_[id] = restore_policy;
+    if (agent_identities_[id].origin == AgentIdentityOrigin::Discovered)
+        agent_session_refs_.erase(id);
 }
 
 const AgentIdentity* PaneManager::agent_identity(LeafId id) const
@@ -793,7 +796,8 @@ bool PaneManager::set_agent_session_ref(LeafId id, AgentSessionRef session_ref)
 {
     const AgentIdentity* identity = agent_identity(id);
     std::string validation_error;
-    if (!identity || identity->kind != session_ref.agent_kind
+    if (!identity || identity->origin != AgentIdentityOrigin::Managed
+        || identity->kind != session_ref.agent_kind
         || !validate_agent_session_ref(session_ref, &validation_error))
         return false;
     const auto existing = agent_session_refs_.find(id);

@@ -270,6 +270,11 @@ public:
     {
         return std::nullopt;
     }
+    virtual std::optional<AgentProcessObservation>
+    capture_agent_process_observation() const
+    {
+        return std::nullopt;
+    }
     virtual bool send_agent_input(std::string_view /*bytes*/)
     {
         return false;

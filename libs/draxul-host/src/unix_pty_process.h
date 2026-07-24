@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <draxul/agent_model.h>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -30,6 +31,7 @@ public:
     bool is_running() const;
     std::optional<int> exit_code() const;
     std::string current_working_directory() const;
+    std::optional<AgentProcessObservation> foreground_process_observation() const;
     bool resize(int cols, int rows) const;
     bool write(std::string_view text) const;
     std::vector<std::string> drain_output();

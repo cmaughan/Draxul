@@ -9,7 +9,10 @@
 #include <filesystem>
 #include <iterator>
 #include <mutex>
+#include <shellapi.h>
 #include <thread>
+#include <tlhelp32.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <winternl.h>
 
@@ -236,6 +239,10 @@ struct RemoteProcessParametersPrefix
     HANDLE standard_output = nullptr;
     HANDLE standard_error = nullptr;
     RemoteCurrentDirectory current_directory;
+    RemoteUnicodeString dll_path;
+    RemoteUnicodeString image_path_name;
+    RemoteUnicodeString command_line;
+    PVOID environment = nullptr;
 };
 
 template <typename T>
@@ -290,6 +297,129 @@ std::string read_remote_current_directory(HANDLE process)
     }
 
     return narrow_utf8(wide);
+}
+
+bool read_remote_process_parameters(
+    HANDLE process, RemoteProcessParametersPrefix* params)
+{
+    if (!process || !params)
+        return false;
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!ntdll)
+        return false;
+    auto* query_info = reinterpret_cast<NtQueryInformationProcessFn>(
+        GetProcAddress(ntdll, "NtQueryInformationProcess"));
+    if (!query_info)
+        return false;
+    PROCESS_BASIC_INFORMATION basic = {};
+    ULONG returned = 0;
+    if (query_info(process, ProcessBasicInformation, &basic, sizeof(basic),
+            &returned)
+            < 0
+        || !basic.PebBaseAddress)
+        return false;
+    RemotePebPrefix peb = {};
+    return read_process_value(process, basic.PebBaseAddress, &peb)
+        && peb.process_parameters
+        && read_process_value(process, peb.process_parameters, params);
+}
+
+std::wstring read_remote_unicode(
+    HANDLE process, const RemoteUnicodeString& value, size_t max_bytes)
+{
+    if (!value.buffer || value.length == 0 || value.length > max_bytes
+        || value.length % sizeof(wchar_t) != 0)
+        return {};
+    std::wstring result(value.length / sizeof(wchar_t), L'\0');
+    SIZE_T bytes_read = 0;
+    if (!ReadProcessMemory(process, value.buffer, result.data(), value.length,
+            &bytes_read)
+        || bytes_read != value.length)
+        return {};
+    return result;
+}
+
+void read_process_arguments_and_hint(DWORD process_id,
+    std::vector<std::string>* arguments, std::string* hint)
+{
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION
+            | PROCESS_VM_READ,
+        FALSE, process_id);
+    if (!process)
+        return;
+    RemoteProcessParametersPrefix params = {};
+    if (!read_remote_process_parameters(process, &params))
+    {
+        CloseHandle(process);
+        return;
+    }
+
+    const std::wstring command_line =
+        read_remote_unicode(process, params.command_line, 64 * 1024);
+    if (!command_line.empty() && arguments)
+    {
+        int count = 0;
+        LPWSTR* values = CommandLineToArgvW(command_line.c_str(), &count);
+        if (values)
+        {
+            for (int index = 0; index < count && index < 64; ++index)
+                arguments->push_back(narrow_utf8(values[index]));
+            LocalFree(values);
+        }
+    }
+
+    if (params.environment && hint)
+    {
+        MEMORY_BASIC_INFORMATION region = {};
+        if (VirtualQueryEx(process, params.environment, &region, sizeof(region))
+            == sizeof(region))
+        {
+            const size_t bytes =
+                std::min<size_t>(region.RegionSize, 64 * 1024);
+            std::vector<wchar_t> environment(bytes / sizeof(wchar_t), L'\0');
+            SIZE_T bytes_read = 0;
+            if (ReadProcessMemory(process, params.environment,
+                    environment.data(),
+                    environment.size() * sizeof(wchar_t), &bytes_read))
+            {
+                const size_t count = bytes_read / sizeof(wchar_t);
+                size_t offset = 0;
+                while (offset < count && environment[offset] != L'\0')
+                {
+                    const wchar_t* entry = environment.data() + offset;
+                    const size_t remaining = count - offset;
+                    const size_t length = wcsnlen_s(entry, remaining);
+                    constexpr std::wstring_view prefix = L"DRAXUL_AGENT=";
+                    if (length >= prefix.size()
+                        && _wcsnicmp(entry, prefix.data(), prefix.size()) == 0)
+                    {
+                        *hint = narrow_utf8(
+                            std::wstring_view(entry + prefix.size(),
+                                length - prefix.size()));
+                        break;
+                    }
+                    offset += length + 1;
+                }
+            }
+        }
+    }
+    CloseHandle(process);
+}
+
+std::string process_executable_name(DWORD process_id)
+{
+    HANDLE process = OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
+    if (!process)
+        return {};
+    std::wstring path(32768, L'\0');
+    DWORD size = static_cast<DWORD>(path.size());
+    const bool ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
+    CloseHandle(process);
+    if (!ok || size == 0)
+        return {};
+    path.resize(size);
+    return narrow_utf8(path);
 }
 
 } // namespace
@@ -586,6 +716,78 @@ std::string ConPtyProcess::current_working_directory() const
     if (!is_running() || !proc_info_.hProcess)
         return {};
     return read_remote_current_directory(proc_info_.hProcess);
+}
+
+std::optional<AgentProcessObservation>
+ConPtyProcess::foreground_process_observation() const
+{
+    if (!is_running() || proc_info_.dwProcessId == 0)
+        return std::nullopt;
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return std::nullopt;
+
+    struct ProcessEntry
+    {
+        DWORD process_id = 0;
+        DWORD parent_process_id = 0;
+    };
+    std::vector<ProcessEntry> entries;
+    std::unordered_map<DWORD, DWORD> parents;
+    PROCESSENTRY32W entry = {};
+    entry.dwSize = sizeof(entry);
+    if (Process32FirstW(snapshot, &entry))
+    {
+        do
+        {
+            entries.push_back({ entry.th32ProcessID, entry.th32ParentProcessID });
+            parents[entry.th32ProcessID] = entry.th32ParentProcessID;
+        } while (entries.size() < 4096 && Process32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+
+    const DWORD root = proc_info_.dwProcessId;
+    const auto belongs_to_tree = [&](DWORD process_id) {
+        for (size_t depth = 0; depth < 64 && process_id != 0; ++depth)
+        {
+            if (process_id == root)
+                return true;
+            const auto parent = parents.find(process_id);
+            if (parent == parents.end() || parent->second == process_id)
+                break;
+            process_id = parent->second;
+        }
+        return false;
+    };
+
+    AgentProcessObservation observation;
+    observation.captured_at = std::chrono::steady_clock::now();
+    // ConPTY does not expose a portable foreground process-group query.
+    // Descendant membership is useful but remains explicitly fallible evidence.
+    observation.foreground_reliable = false;
+    for (const ProcessEntry& process : entries)
+    {
+        if (!belongs_to_tree(process.process_id))
+            continue;
+        std::string executable = process_executable_name(process.process_id);
+        if (executable.empty())
+            continue;
+        std::vector<std::string> arguments;
+        std::string hint;
+        read_process_arguments_and_hint(
+            process.process_id, &arguments, &hint);
+        observation.processes.push_back({
+            .process_id = process.process_id,
+            .parent_process_id = process.parent_process_id,
+            .executable = std::move(executable),
+            .arguments = std::move(arguments),
+            .agent_hint = std::move(hint),
+        });
+        if (observation.processes.size() >= 128)
+            break;
+    }
+    return observation;
 }
 
 bool ConPtyProcess::resize(int cols, int rows)

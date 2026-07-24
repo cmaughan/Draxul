@@ -593,7 +593,8 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                 return false;
             }
             if (pane.agent
-                && (pane.agent->kind.empty() || pane.agent->display_name.empty()
+                && (pane.agent->origin != AgentIdentityOrigin::Managed
+                    || pane.agent->kind.empty() || pane.agent->display_name.empty()
                     || pane.agent->instance_id.empty()))
             {
                 if (error)

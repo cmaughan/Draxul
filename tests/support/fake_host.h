@@ -115,6 +115,13 @@ public:
         return fake_agent_observation;
     }
 
+    std::optional<AgentProcessObservation>
+    capture_agent_process_observation() const override
+    {
+        ++agent_process_observation_calls;
+        return fake_agent_process_observation;
+    }
+
     bool send_agent_input(std::string_view bytes) override
     {
         sent_agent_input.emplace_back(bytes);
@@ -250,6 +257,8 @@ public:
     bool dispatch_action_result = true;
     std::optional<int> fake_exit_code;
     std::optional<AgentObservation> fake_agent_observation;
+    std::optional<AgentProcessObservation> fake_agent_process_observation;
+    mutable int agent_process_observation_calls = 0;
     bool send_agent_input_result = true;
     mutable int last_observation_max_rows = 0;
     mutable size_t last_observation_max_bytes = 0;

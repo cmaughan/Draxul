@@ -4,6 +4,7 @@
 
 #include "../libs/draxul-host/src/conpty_process.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -20,6 +21,18 @@ TEST_CASE("ConPtyProcess reports child process working directory changes", "[con
 
     ConPtyProcess process;
     REQUIRE(process.spawn("cmd.exe", { "/Q", "/K" }, root.string(), 80, 24, [] {}));
+
+    auto process_observation = process.foreground_process_observation();
+    REQUIRE(process_observation);
+    CHECK_FALSE(process_observation->foreground_reliable);
+    const auto command = std::find_if(process_observation->processes.begin(),
+        process_observation->processes.end(), [](const AgentProcessInfo& info) {
+            return std::filesystem::path(info.executable).filename()
+                == "cmd.exe";
+        });
+    REQUIRE(command != process_observation->processes.end());
+    CHECK(std::find(command->arguments.begin(), command->arguments.end(), "/Q")
+        != command->arguments.end());
 
     std::string last_seen_cwd;
     auto wait_for_cwd = [&process, &last_seen_cwd](const std::filesystem::path& expected) {

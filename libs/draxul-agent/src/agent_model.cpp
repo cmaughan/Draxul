@@ -7,6 +7,18 @@
 namespace draxul
 {
 
+std::string_view to_string(AgentIdentityOrigin value) noexcept
+{
+    switch (value)
+    {
+    case AgentIdentityOrigin::Managed:
+        return "managed";
+    case AgentIdentityOrigin::Discovered:
+        return "discovered";
+    }
+    return "managed";
+}
+
 std::string_view to_string(AgentLifecycle value) noexcept
 {
     switch (value)

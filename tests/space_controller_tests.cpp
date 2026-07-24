@@ -11,6 +11,8 @@
 #include "agent_controller.h"
 #include "space_controller.h"
 
+#include <thread>
+
 using namespace draxul;
 using namespace draxul::tests;
 
@@ -407,6 +409,48 @@ TEST_CASE("agent controller derives pane occupants and focuses their stable rout
     REQUIRE(agents.focus_by_index(spaces, 1));
     CHECK(spaces.active_space_id() == kDefaultSpaceId);
     CHECK_FALSE(agents.focus(spaces, "missing-agent"));
+
+    spaces.shutdown_all();
+}
+
+TEST_CASE("agent controller discovers manual agents without persisting identity",
+    "[agent_controller][agent][discovery]")
+{
+    SpaceHostHarness harness;
+    SpaceController spaces;
+    Space* space = spaces.find_space(kDefaultSpaceId);
+    REQUIRE(space != nullptr);
+    REQUIRE(harness.create_initial_tab(*space));
+    REQUIRE(harness.hosts.size() == 1);
+    harness.hosts[0]->fake_agent_process_observation =
+        AgentProcessObservation{
+            .processes = { {
+                .process_id = 81,
+                .parent_process_id = 80,
+                .executable = "C:/tools/codex.exe",
+            } },
+            .foreground_reliable = false,
+        };
+
+    AgentController agents;
+    const auto rows = agents.query(spaces);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].identity.kind == "codex");
+    CHECK(rows[0].identity.origin == AgentIdentityOrigin::Discovered);
+    CHECK(rows[0].identity.instance_id.starts_with("discovered-"));
+    CHECK(rows[0].running);
+    CHECK_FALSE(rows[0].session_ref);
+
+    auto snapshot = spaces.snapshot_spaces();
+    REQUIRE(snapshot);
+    REQUIRE(snapshot->size() == 1);
+    REQUIRE((*snapshot)[0].tabs.size() == 1);
+    REQUIRE((*snapshot)[0].tabs[0].pane_layout.panes.size() == 1);
+    CHECK_FALSE((*snapshot)[0].tabs[0].pane_layout.panes[0].agent);
+
+    REQUIRE(agents.dismiss_focused(spaces));
+    std::this_thread::sleep_for(std::chrono::milliseconds(550));
+    CHECK(agents.query(spaces).empty());
 
     spaces.shutdown_all();
 }

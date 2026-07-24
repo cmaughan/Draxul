@@ -2,33 +2,130 @@
 
 #include "space_controller.h"
 
+#include <sstream>
 #include <unordered_set>
 
 namespace draxul
 {
 
-std::vector<AgentProjection> AgentController::query(const SpaceController& spaces)
+std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
 {
     std::vector<AgentProjection> agents;
     std::unordered_set<std::string> live_instances;
-    for (const auto& space : spaces.spaces())
+    std::unordered_set<std::string> live_routes;
+    const auto now = std::chrono::steady_clock::now();
+    constexpr auto probe_interval = std::chrono::milliseconds(500);
+    constexpr auto discovered_startup_grace = std::chrono::seconds(3);
+    constexpr int removal_probe_count = 6;
+    for (auto& space : spaces.spaces())
     {
-        for (const auto& tab : space->tab_controller.tabs())
+        for (auto& tab : space->tab_controller.tabs())
         {
-            const PaneManager& panes = tab->pane_manager;
+            PaneManager& panes = tab->pane_manager;
             panes.tree().for_each_leaf([&](LeafId leaf, const PaneDescriptor&) {
+                IHost* host = panes.host_for(leaf);
+                const AgentRuntimeGeneration generation =
+                    panes.agent_runtime_generation(leaf);
+                const std::string route = std::to_string(space->id) + ":"
+                    + std::to_string(tab->id) + ":" + panes.pane_id(leaf);
+                live_routes.insert(route);
+                auto& discovery = discovery_state_[route];
+                if (discovery.runtime_generation != generation)
+                {
+                    discovery = {};
+                    discovery.runtime_generation = generation;
+                }
+
                 const AgentIdentity* identity = panes.agent_identity(leaf);
+                const bool discovery_owned =
+                    identity
+                    && identity->origin == AgentIdentityOrigin::Discovered;
+                const bool probe_due = discovery.last_probe_at
+                        == std::chrono::steady_clock::time_point{}
+                    || now - discovery.last_probe_at >= probe_interval;
+                if ((!identity || discovery_owned) && host && host->is_running()
+                    && probe_due)
+                {
+                    discovery.last_probe_at = now;
+                    const auto observation =
+                        host->capture_agent_process_observation();
+                    const auto match = observation
+                        ? discover_agent_process(*observation)
+                        : std::nullopt;
+                    if (match)
+                    {
+                        if (!identity && discovery.dismissed_kind == match->kind)
+                        {
+                            discovery.process_present = true;
+                            discovery.dismissed_absent_probes = 0;
+                            return;
+                        }
+                        if (!discovery.dismissed_kind.empty()
+                            && discovery.dismissed_kind != match->kind)
+                        {
+                            discovery.dismissed_kind.clear();
+                            discovery.dismissed_absent_probes = 0;
+                        }
+                        const bool new_occupant = !identity
+                            || identity->origin != AgentIdentityOrigin::Discovered
+                            || identity->kind != match->kind;
+                        discovery.kind = match->kind;
+                        discovery.evidence_category = match->evidence_category;
+                        discovery.high_confidence = match->high_confidence;
+                        discovery.failed_probes = 0;
+                        discovery.process_present = true;
+                        if (new_occupant)
+                        {
+                            discovery.detected_at = now;
+                            std::ostringstream instance;
+                            instance << "discovered-" << space->id << '-'
+                                     << tab->id << '-' << panes.pane_id(leaf)
+                                     << '-' << next_discovered_instance_++;
+                            panes.set_agent_identity(leaf, {
+                                .kind = match->kind,
+                                .display_name = match->display_name,
+                                .instance_id = instance.str(),
+                                .origin = AgentIdentityOrigin::Discovered,
+                            });
+                            identity = panes.agent_identity(leaf);
+                        }
+                    }
+                    else if (!identity && !discovery.dismissed_kind.empty())
+                    {
+                        if (++discovery.dismissed_absent_probes
+                            >= removal_probe_count)
+                        {
+                            discovery.dismissed_kind.clear();
+                            discovery.dismissed_absent_probes = 0;
+                        }
+                    }
+                    else if (discovery_owned)
+                    {
+                        discovery.process_present = false;
+                        if (++discovery.failed_probes >= removal_probe_count)
+                        {
+                            panes.clear_agent_identity(leaf);
+                            identity = nullptr;
+                            discovery = {};
+                            discovery.runtime_generation = generation;
+                        }
+                    }
+                }
+
+                identity = panes.agent_identity(leaf);
                 if (!identity)
                     return;
-                IHost* host = panes.host_for(leaf);
-                const bool running = host && host->is_running();
+                const bool discovered =
+                    identity->origin == AgentIdentityOrigin::Discovered;
+                const bool host_running = host && host->is_running();
+                const bool running =
+                    discovered ? host_running && discovery.process_present
+                               : host_running;
                 const std::optional<int> exit_code = host ? host->exit_code() : std::nullopt;
                 const AgentLifecycle lifecycle = running
                     ? AgentLifecycle::Running
                     : (exit_code && *exit_code != 0 ? AgentLifecycle::Failed
                                                     : AgentLifecycle::Exited);
-                const AgentRuntimeGeneration generation =
-                    panes.agent_runtime_generation(leaf);
                 const bool focused = space->id == spaces.active_space_id()
                     && tab->id == space->tab_controller.active_tab_id()
                     && leaf == panes.focused_leaf();
@@ -49,7 +146,11 @@ std::vector<AgentProjection> AgentController::query(const SpaceController& space
                         std::chrono::steady_clock::now();
                 }
 
-                if (host)
+                const bool startup_grace_elapsed = !discovered
+                    || discovery.detected_at
+                            == std::chrono::steady_clock::time_point{}
+                    || now - discovery.detected_at >= discovered_startup_grace;
+                if (host && startup_grace_elapsed)
                 {
                     if (const auto observation =
                             host->capture_agent_observation(12, 8 * 1024))
@@ -105,6 +206,12 @@ std::vector<AgentProjection> AgentController::query(const SpaceController& space
                     .leaf_id = leaf,
                     .pane_id = panes.pane_id(leaf),
                     .identity = *identity,
+                    .identity_evidence_category = discovered
+                        ? discovery.evidence_category
+                        : "managed_launch",
+                    .identity_high_confidence = discovered
+                        ? discovery.high_confidence
+                        : true,
                     .session_ref = panes.agent_session_ref(leaf)
                         ? std::optional(*panes.agent_session_ref(leaf))
                         : std::nullopt,
@@ -126,6 +233,9 @@ std::vector<AgentProjection> AgentController::query(const SpaceController& space
     }
     std::erase_if(semantic_state_, [&live_instances](const auto& entry) {
         return !live_instances.contains(entry.first);
+    });
+    std::erase_if(discovery_state_, [&live_routes](const auto& entry) {
+        return !live_routes.contains(entry.first);
     });
     return agents;
 }
@@ -174,6 +284,30 @@ bool AgentController::focus_by_index(
     if (index >= agents.size())
         return false;
     return focus(spaces, agents[index].identity.instance_id);
+}
+
+bool AgentController::dismiss_focused(SpaceController& spaces)
+{
+    Space* space = spaces.find_active_space();
+    if (!space)
+        return false;
+    Tab* tab = space->tab_controller.find_active_tab();
+    if (!tab)
+        return false;
+    PaneManager& panes = tab->pane_manager;
+    const LeafId leaf = panes.focused_leaf();
+    const AgentIdentity* identity = panes.agent_identity(leaf);
+    if (!identity)
+        return false;
+
+    const std::string route = std::to_string(space->id) + ":"
+        + std::to_string(tab->id) + ":" + panes.pane_id(leaf);
+    auto& discovery = discovery_state_[route];
+    discovery.runtime_generation = panes.agent_runtime_generation(leaf);
+    discovery.dismissed_kind = identity->kind;
+    discovery.dismissed_absent_probes = 0;
+    discovery.process_present = false;
+    return panes.clear_agent_identity(leaf);
 }
 
 } // namespace draxul

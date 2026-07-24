@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** Phases 0-5 complete; Phase 6 Codex slice implemented; Phase 7 in progress
+**Status:** Phases 0-5 complete; Phase 6 Codex slice and Phase 7 core implemented
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -633,6 +633,8 @@ Implementation notes:
 
 ## Phase 7: best-effort discovery of manually launched agents
 
+**Core implemented:** 2026-07-24.
+
 **Purpose:** recognize agents started in ordinary shell panes without weakening the
 reliable managed path.
 
@@ -675,6 +677,28 @@ delaying first recognition.
 
 Manually launched Codex/Claude processes can appear in the sidebar without being
 mistaken for officially managed or natively resumable agents.
+
+Implementation notes:
+
+- `IHost` exposes a bounded immutable process observation. Unix terminal hosts sample
+  the PTY foreground process group; Windows samples the ConPTY root's bounded
+  descendant tree and marks the result as fallible foreground evidence.
+- The neutral `draxul-agent` evaluator recognizes direct Codex/Claude executables,
+  structured Node/Bun/npm wrappers, and an explicit `DRAXUL_AGENT` environment hint.
+  Competing agent kinds are rejected; on fallible Windows observations, multiple
+  matches must form one ancestor chain.
+- Convincing positive evidence creates a discovered pane occupant immediately.
+  Screen manifests do not create identity and semantic evaluation has a short startup
+  grace period.
+- Discovery probes are rate-limited, identity is retained through six failed probes,
+  and a missing discovered process is projected as exited before removal.
+- Discovered identities carry origin, evidence category, and confidence in local API
+  results and `explain_agent_state`, but are excluded from Session snapshots and can
+  never own a native session reference.
+- `clear_agent_identity` suppresses rediscovery of the same live occupant until it has
+  been absent for the full removal window. Explicit `DRAXUL_AGENT` hints provide the
+  initial correction path; a dedicated interactive attach/correct picker remains a UI
+  follow-up.
 
 ## UI progression
 
