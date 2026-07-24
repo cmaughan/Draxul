@@ -1,5 +1,8 @@
 # Herdr research and Draxul terminology alignment
 
+> Implementation is consolidated in
+> [local-agent-harness-implementation.md](local-agent-harness-implementation.md).
+
 **Status:** research and preliminary design direction  
 **Date:** 2026-07-21  
 **Implementation note:** the behaviour-neutral `Workspace` to `Tab`, `HostManager`

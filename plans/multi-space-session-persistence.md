@@ -1,5 +1,9 @@
 # Multi-Space session persistence and agent identity
 
+> The follow-on agent harness, status, control API, and native conversation-restore
+> work is consolidated in
+> [local-agent-harness-implementation.md](local-agent-harness-implementation.md).
+
 **Status:** complete (2026-07-24)
 **Date:** 2026-07-23
 **Research baseline:** Herdr `e7fc85bfdb51f89488430adbfe5bbced3be79c2f`
