@@ -426,6 +426,38 @@ TEST_CASE("app smoke: pump_once runs without crash after successful init", "[app
     app.shutdown();
 }
 
+TEST_CASE("app smoke: discovered agent immediately reveals the one-Space sidebar",
+    "[app_smoke][agent][discovery]")
+{
+    const std::string font = bundled_font_path();
+    if (!std::filesystem::exists(font))
+        SKIP("bundled font not found");
+
+    g_last_smoke_host = nullptr;
+    App app(make_smoke_options());
+    REQUIRE(app.initialize());
+    REQUIRE(g_last_smoke_host != nullptr);
+    REQUIRE_FALSE(app.shell_layout().sidebar_visible);
+
+    g_last_smoke_host->fake_agent_process_observation =
+        AgentProcessObservation{
+            .processes = { {
+                .process_id = 42,
+                .parent_process_id = 41,
+                .executable =
+                    "C:/tools/codex-x86_64-pc-windows-msvc.exe",
+            } },
+            .foreground_reliable = false,
+        };
+
+    // Initialization performed the first bounded discovery probe before the
+    // fake process appeared. Wait through the production 500 ms probe window.
+    std::this_thread::sleep_for(std::chrono::milliseconds(550));
+    REQUIRE(app.run_smoke_test(std::chrono::milliseconds(2000)));
+    CHECK(app.shell_layout().sidebar_visible);
+    app.shutdown();
+}
+
 TEST_CASE("app smoke: queued window resize updates the host viewport", "[app_smoke]")
 {
     const std::string font = bundled_font_path();

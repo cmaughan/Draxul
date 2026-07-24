@@ -3122,12 +3122,20 @@ int App::active_tab_id() const
 
 void App::process_control_requests()
 {
+    const auto agents = agent_controller_.query(space_controller_);
+    const bool should_show_sidebar =
+        space_controller_.count() > 1 || !agents.empty();
+    if (shell_layout_.sidebar_visible != should_show_sidebar)
+    {
+        refresh_app_shell_layout();
+        request_frame();
+    }
+
     if (!control_server_)
         return;
     if (!control_events_)
         control_events_ = std::make_unique<ControlEventJournal>();
-    control_events_->observe(
-        space_controller_.active_space_id(), agent_controller_.query(space_controller_));
+    control_events_->observe(space_controller_.active_space_id(), agents);
     control_server_->process_pending(
         [this](const ControlRequest& request) { return handle_control_request(request); });
 }

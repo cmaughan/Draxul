@@ -683,15 +683,19 @@ Implementation notes:
 - `IHost` exposes a bounded immutable process observation. Unix terminal hosts sample
   the PTY foreground process group; Windows samples the ConPTY root's bounded
   descendant tree and marks the result as fallible foreground evidence.
-- The neutral `draxul-agent` evaluator recognizes direct Codex/Claude executables,
-  structured Node/Bun/npm wrappers, and an explicit `DRAXUL_AGENT` environment hint.
-  Competing agent kinds are rejected; on fallible Windows observations, multiple
-  matches must form one ancestor chain.
+- The neutral `draxul-agent` evaluator follows Herdr's foreground-job normalization:
+  it recognizes direct Codex/Claude executables, official target-qualified Codex
+  binaries, argv-zero identity, structured Node/Bun, Python, shell, cmd, and
+  PowerShell wrappers, plus an explicit `DRAXUL_AGENT` environment hint. Competing
+  agent kinds are rejected; on fallible Windows observations, multiple matches must
+  form one ancestor chain.
 - Convincing positive evidence creates a discovered pane occupant immediately.
   Screen manifests do not create identity and semantic evaluation has a short startup
   grace period.
 - Discovery probes are rate-limited, identity is retained through six failed probes,
-  and a missing discovered process is projected as exited before removal.
+  and a missing discovered process is projected as exited before removal. Presence
+  transitions immediately recompute the application shell so a one-Space window
+  reveals or hides its sidebar without requiring a separate resize or layout action.
 - Discovered identities carry origin, evidence category, and confidence in local API
   results and `explain_agent_state`, but are excluded from Session snapshots and can
   never own a native session reference.
