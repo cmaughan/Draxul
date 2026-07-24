@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** Phases 0-5 complete; Phase 6 Codex slice and Phase 7 core implemented
+**Status:** Phases 0-7 core complete; interactive discovery correction remains optional
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -23,8 +23,8 @@ Turn Draxul's existing Agents sidebar into a local agent harness that can:
 - explain how an agent status was derived without persisting or logging terminal
   contents.
 
-The first supported native integration should be Codex. Claude Code should follow
-through the same interfaces rather than introducing a second architecture.
+Codex and Claude Code share one native-session interface despite their different hook
+configuration formats.
 
 ## Current baseline
 
@@ -489,8 +489,7 @@ Implementation notes:
 
 ## Phase 6: official hooks and native conversation restore
 
-**Implemented for Codex:** 2026-07-24. Claude installation/reporting remains a
-follow-up through the same integration boundary.
+**Implemented for Codex and Claude:** 2026-07-24.
 
 **Purpose:** resume the same Codex or Claude conversation after Draxul reconstructs a
 Session.
@@ -510,14 +509,14 @@ draxul integration uninstall claude
 Installation must be opt-in, versioned, idempotent, and preserve unrelated user hooks.
 `status` reports installed, current, outdated, or invalid without modifying files.
 
-The Codex hook reads its `SessionStart` payload and reports:
+The official hooks read their `SessionStart` payloads and report:
 
 ```text
 pane.report_agent_session {
   pane_id,
   agent_instance_id,
-  source = "draxul:codex",
-  agent = "codex",
+  source = "draxul:<agent>",
+  agent = "<agent>",
   integration_version,
   sequence,
   session_ref = { kind = "id", value = <codex-session-id> }
@@ -622,12 +621,13 @@ Implementation notes:
 - `pane.report_agent_session` routes on the stable pane ID plus agent-instance ID,
   rejects stale sequences and duplicate native conversations, and never returns the
   native reference value through the public projection.
-- `draxul integration install|status|uninstall codex` manages a versioned
-  `SessionStart` hook under `CODEX_HOME`, preserves unrelated hooks, and enables the
-  Codex hooks feature idempotently.
-- With `[agents].resume_on_restore = true`, an eligible Codex pane is spawned as
-  `codex resume <id>`. Resume argv and routing environment are runtime-only and do not
-  replace the pane's durable launch profile in the next checkpoint.
+- `draxul integration install|status|uninstall codex|claude` manages versioned
+  `SessionStart` hooks under `CODEX_HOME` or `CLAUDE_CONFIG_DIR`, preserves unrelated
+  configuration, and installs idempotently. Bare `integration status` reports both.
+- With `[agents].resume_on_restore = true`, eligible panes are spawned as
+  `codex resume <id>` or `claude --resume <id>`. Resume argv and routing environment
+  are runtime-only and do not replace the pane's durable launch profile in the next
+  checkpoint.
 - The initial release remains opt-in and defaults resume to false. Missing or invalid
   native identity does not become inferred identity.
 

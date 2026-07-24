@@ -182,6 +182,84 @@ TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks
     CHECK(remaining["hooks"]["SessionStart"].empty());
 }
 
+TEST_CASE("integration CLI supports both official native session hooks",
+    "[control][integration]")
+{
+    auto status =
+        parse_integration_cli({ "draxul", "integration", "status", "--json" });
+    REQUIRE(status.command);
+    CHECK(status.command->target.empty());
+    CHECK(status.command->json);
+
+    auto claude =
+        parse_integration_cli({ "draxul", "integration", "install", "claude" });
+    REQUIRE(claude.command);
+    CHECK(claude.command->target == "claude");
+
+    auto invalid =
+        parse_integration_cli({ "draxul", "integration", "install", "other" });
+    CHECK(invalid.recognized);
+    CHECK(invalid.error);
+}
+
+TEST_CASE("Claude integration install is idempotent and preserves unrelated settings",
+    "[control][integration]")
+{
+    TempDir claude("draxul-claude-integration");
+    const auto settings_path = claude.path / "settings.json";
+    {
+        std::ofstream settings(settings_path);
+        settings << R"({
+  "permissions": {"allow": ["Read"]},
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "keep-me"}]}]
+  }
+})";
+    }
+    ScopedEnvironment claude_home("CLAUDE_CONFIG_DIR", claude.path.string());
+
+    IntegrationCliCommand install{ .action = "install", .target = "claude" };
+    REQUIRE(run_integration_cli(install) == 0);
+    REQUIRE(run_integration_cli(install) == 0);
+
+#ifdef _WIN32
+    const auto hook_path =
+        claude.path / "hooks" / "draxul-agent-session.ps1";
+#else
+    const auto hook_path = claude.path / "hooks" / "draxul-agent-session.sh";
+#endif
+    REQUIRE(std::filesystem::exists(hook_path));
+    {
+        std::ifstream hook_input(hook_path);
+        const std::string hook((std::istreambuf_iterator<char>(hook_input)),
+            std::istreambuf_iterator<char>());
+        CHECK(hook.find("DRAXUL_INTEGRATION_ID=claude") != std::string::npos);
+        CHECK(hook.find("draxul:claude") != std::string::npos);
+        CHECK(hook.find("agent_id") != std::string::npos);
+
+        std::ifstream settings_input(settings_path);
+        const auto settings = nlohmann::json::parse(settings_input);
+        CHECK(settings["permissions"]["allow"][0] == "Read");
+        CHECK(settings["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
+        REQUIRE(settings["hooks"]["SessionStart"].size() == 1);
+        const auto& group = settings["hooks"]["SessionStart"][0];
+        CHECK(group["matcher"] == "*");
+        CHECK(group["hooks"][0]["command"]
+            .get<std::string>()
+            .find("draxul-agent-session")
+            != std::string::npos);
+    }
+
+    IntegrationCliCommand uninstall{ .action = "uninstall", .target = "claude" };
+    REQUIRE(run_integration_cli(uninstall) == 0);
+    CHECK_FALSE(std::filesystem::exists(hook_path));
+    std::ifstream remaining_input(settings_path);
+    const auto remaining = nlohmann::json::parse(remaining_input);
+    CHECK(remaining["permissions"]["allow"][0] == "Read");
+    CHECK(remaining["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
+    CHECK(remaining["hooks"]["SessionStart"].empty());
+}
+
 TEST_CASE("control event subscriptions are bounded cursor projections", "[control]")
 {
     ControlEventJournal journal;
