@@ -9,8 +9,12 @@ can now create, activate, rename, re-root, enumerate, and close multiple live Sp
 inactive hosts keep pumping and retain their processes. The app-level lifecycle,
 command-palette actions, and clickable multi-Space left rail are also implemented.
 The rail now reserves a lower Agents section with its heading and an application-shell
-divider; agent rows, registry data, persistence v2, and last-active Space restore remain
-future work.
+divider; agent rows and persistence v2 remain future work. The source-backed
+[multi-Space persistence plan](multi-space-session-persistence.md) corrects the earlier
+"last active Space" shorthand: all loaded Spaces must be restored, with the saved active
+Space applied only after the collection has been rebuilt. It also refines the agent
+model so pane-owned identity is authoritative and the sidebar is a derived projection,
+rather than a second durable registry.
 **Scope:** local spaces, agent discovery and agent orchestration inside the Draxul process  
 **Out of scope:** detach/reattach ownership, suspend/resume, background server handoff,
 SSH, remote workspaces, and worktree management
@@ -419,10 +423,11 @@ their panes, and restarting Draxul restores the saved topology and last active S
 
 ### Phase 2: explicit agent targets
 
-Add `AgentRegistry` and `AgentController`. Provide an Open Agent action with profiles
-for Codex, Claude, Cursor, and configurable commands. Launch the agent directly into a
-new or selected terminal pane with a known Space, tab, pane, command, and working
-directory.
+Add pane-owned `AgentIdentity`, a derived agent index/projection, and `AgentController`.
+Provide an Open Agent action with profiles for Codex, Claude, Cursor, and configurable
+commands. Launch the agent directly into a new or selected terminal pane with a known
+Space, tab, pane, command, and working directory. Any lookup index must be rebuilt from
+pane occupants rather than persisted as a second source of truth.
 
 Because Draxul performs the launch, initial identity is reliable without foreground
 process inference. The Agents section can list, focus, rename, and show basic lifecycle

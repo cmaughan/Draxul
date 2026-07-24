@@ -82,6 +82,18 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
             nvgFillColor(vg, nvg_color(theme.tab_bar_bg));
             nvgFill(vg);
 
+            for (const ChromeRect& header : {
+                     layout.sidebar_spaces_header,
+                     layout.sidebar_agents_header })
+            {
+                if (header.w <= 0.0f || header.h <= 0.0f)
+                    continue;
+                nvgBeginPath(vg);
+                nvgRect(vg, header.x, header.y, header.w, header.h);
+                nvgFillColor(vg, nvg_color(theme.tab_inactive_bg));
+                nvgFill(vg);
+            }
+
             for (const auto& space : layout.spaces)
             {
                 draw_segmented_pill(vg, space.rect, space.clip, space.accent_w,
@@ -100,25 +112,15 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
                 nvgFill(vg);
             }
 
-            constexpr float shell_frame_inset = 2.0f;
             nvgBeginPath(vg);
             nvgRect(vg,
-                layout.sidebar_rect.x + shell_frame_inset,
-                layout.sidebar_rect.y + shell_frame_inset,
-                std::max(0.0f, layout.sidebar_rect.w - shell_frame_inset * 2.0f),
-                std::max(0.0f, layout.sidebar_rect.h - shell_frame_inset * 2.0f));
+                layout.sidebar_frame.x,
+                layout.sidebar_frame.y,
+                layout.sidebar_frame.w,
+                layout.sidebar_frame.h);
             nvgStrokeColor(vg, nvg_color(theme.tab_inactive_bg));
             nvgStrokeWidth(vg, 1.0f);
             nvgStroke(vg);
-
-            if (layout.sidebar_divider.w > 0)
-            {
-                nvgBeginPath(vg);
-                nvgRect(vg, layout.sidebar_divider.x, layout.sidebar_divider.y,
-                    layout.sidebar_divider.w, layout.sidebar_divider.h);
-                nvgFillColor(vg, nvg_color(theme.divider));
-                nvgFill(vg);
-            }
         }
 
         for (const auto& pane : layout.pane_frames)

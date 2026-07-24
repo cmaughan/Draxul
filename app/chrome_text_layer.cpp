@@ -75,6 +75,8 @@ void ChromeTextLayer::shutdown()
 {
     top_bar_handle_.reset();
     sidebar_handle_.reset();
+    spaces_header_handle_.reset();
+    agents_header_handle_.reset();
     pane_handles_.clear();
 }
 
@@ -91,6 +93,10 @@ void ChromeTextLayer::draw(IFrameContext& frame, const ChromeLayoutOutput& layou
         frame.draw_grid_handle(*top_bar_handle_);
     if (layout.sidebar_width > 0 && sidebar_handle_)
         frame.draw_grid_handle(*sidebar_handle_);
+    if (layout.sidebar_width > 0 && spaces_header_handle_)
+        frame.draw_grid_handle(*spaces_header_handle_);
+    if (layout.sidebar_width > 0 && agents_header_handle_)
+        frame.draw_grid_handle(*agents_header_handle_);
     for (const auto& pane : layout.panes)
     {
         const auto it = pane_handles_.find(pane.leaf);
@@ -152,6 +158,8 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
     if (layout.sidebar_width <= 0 || layout.sidebar_cols <= 0 || layout.sidebar_rows <= 0)
     {
         sidebar_handle_.reset();
+        spaces_header_handle_.reset();
+        agents_header_handle_.reset();
         return;
     }
     if (!sidebar_handle_)
@@ -181,30 +189,65 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
     sidebar_handle_->set_grid_size(layout.sidebar_cols, layout.sidebar_rows);
     auto cells = transparent_cells(layout.sidebar_cols, layout.sidebar_rows);
 
-    auto write_text = [&](int row, int col, std::string_view text, Color color) {
-        for (const auto& cluster : clusters(text))
-        {
-            if (col >= layout.sidebar_cols)
-                break;
-            const int width = std::max(1, cluster_cell_width(cluster));
-            const size_t index = static_cast<size_t>(row * layout.sidebar_cols + col);
-            set_glyph(cells[index], *text_service_, cluster, color);
-            col += width;
-        }
-    };
-
-    write_text(0, 1, "SPACES", theme.tab_inactive_fg);
     for (const auto& space : layout.spaces)
     {
         write_pill_text(cells, layout.sidebar_cols, space.row, space,
             *text_service_, space.palette.accent_fg, space.palette.body_fg);
     }
-    if (layout.sidebar_agents_title_row >= 0
-        && layout.sidebar_agents_title_row < layout.sidebar_rows)
-    {
-        write_text(layout.sidebar_agents_title_row, 1, "AGENTS", theme.tab_inactive_fg);
-    }
     sidebar_handle_->update_cells(cells);
+    update_section_header(spaces_header_handle_, layout,
+        layout.sidebar_spaces_header, "SPACES", theme.tab_inactive_fg);
+    update_section_header(agents_header_handle_, layout,
+        layout.sidebar_agents_header, "AGENTS", theme.tab_inactive_fg);
+}
+
+void ChromeTextLayer::update_section_header(std::unique_ptr<IGridHandle>& handle,
+    const ChromeLayoutOutput& layout, const ChromeRect& rect,
+    std::string_view label, const Color& color)
+{
+    if (rect.w <= 0.0f || rect.h <= 0.0f)
+    {
+        handle.reset();
+        return;
+    }
+    if (!handle)
+    {
+        handle = renderer_->create_grid_handle();
+        if (!handle)
+        {
+            DRAXUL_LOG_ERROR(LogCategory::App,
+                "ChromeTextLayer: section header create_grid_handle() returned null");
+            return;
+        }
+        handle->set_default_background({ 0, 0, 0, 0 });
+        handle->set_cursor(-1, -1, CursorStyle{});
+        handle->set_cursor_visible(false);
+    }
+
+    // The vector header is the usual cell-height pill inset. Position the
+    // one-row text grid two pixels above it so the label remains centered.
+    PaneDescriptor desc;
+    desc.pixel_pos = {
+        static_cast<int>(layout.sidebar_rect.x),
+        static_cast<int>(rect.y) - 2 - layout.grid_padding
+    };
+    desc.pixel_size = {
+        layout.sidebar_width,
+        layout.cell_height + layout.grid_padding
+    };
+    handle->set_viewport(desc);
+    handle->set_grid_size(layout.sidebar_cols, 1);
+    auto cells = transparent_cells(layout.sidebar_cols, 1);
+    int col = 1;
+    for (const auto& cluster : clusters(label))
+    {
+        if (col >= layout.sidebar_cols)
+            break;
+        const int width = std::max(1, cluster_cell_width(cluster));
+        set_glyph(cells[static_cast<size_t>(col)], *text_service_, cluster, color);
+        col += width;
+    }
+    handle->update_cells(cells);
 }
 
 void ChromeTextLayer::update_panes(const ChromeLayoutOutput& layout)

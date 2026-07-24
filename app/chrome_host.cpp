@@ -79,7 +79,6 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
     input.theme = theme();
     input.rename = rename_editor_.snapshot();
     input.focus_border = deps_.config ? deps_.config->focus_border_width : 3.0f;
-    input.pane_content_inset = pane_content_inset(input.focus_border);
     if (deps_.grid_renderer)
     {
         const auto [cell_width, cell_height] = deps_.grid_renderer->cell_size_pixels();

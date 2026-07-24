@@ -25,7 +25,8 @@ is (design docs, research, and review output — **not** work items; those live 
 
 | Plan | Status | Notes |
 |------|--------|-------|
-| [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research and phased local agent-harness direction; vocabulary, TabController, the in-memory multi-Space lifecycle, app actions, and Spaces rail are implemented, while persistence v2 and last-active restore remain. |
+| [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research and phased local agent-harness direction; vocabulary, TabController, the in-memory multi-Space lifecycle, app actions, and Spaces rail are implemented. Multi-Space persistence is refined in the focused plan below. |
+| [multi-space-session-persistence.md](multi-space-session-persistence.md) | active | Source-backed v2 plan: save and restore every loaded Space, retain TOML, use transactional partial restore, and derive the Agents list from pane-owned identity. |
 | [app-shell-layout.md](app-shell-layout.md) | implemented | One authoritative root shell layout, a draggable persisted Spaces/sidebar splitter, and Chrome ownership cleanup without putting app chrome into per-tab pane trees. |
 | [music-notation-research.md](music-notation-research.md) | research | State-of-the-art notes feeding ScoreView; self-labelled research. |
 | [scoreview.md](scoreview.md) | active | ScoreView master plan; rendering foundation shipped, anchors future phases toward the manifesto. |

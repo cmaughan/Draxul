@@ -169,7 +169,7 @@ constexpr std::array<ConfigFieldDesc, 53> kFields = { {
     { "chrome", "divider", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.divider; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,
-        "Space sidebar divider color." },
+        "Spaces/Agents section divider color." },
     { "chrome", "focus_border", ValueKind::ColorHex,
         +[](const AppConfig& c) -> const Color& { return c.chrome.focus_border; },
         RangeRule::None, RangeRule::None, 0.0, 0.0, false, EmitRule::SkipIfDefault,

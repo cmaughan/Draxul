@@ -8,8 +8,9 @@ inline constexpr int kMinSpaceSidebarColumns = 12;
 inline constexpr int kMaxSpaceSidebarColumns = 48;
 inline constexpr int kMinContentColumns = 20;
 inline constexpr int kAppShellDividerWidth = 4;
-inline constexpr int kAppShellSectionDividerHeight = 4;
+inline constexpr int kAppShellSectionDividerHeight = 1;
 inline constexpr int kMinSidebarAgentRows = 2;
+inline constexpr int kSidebarFirstSpaceRow = 3;
 
 struct AppShellRect
 {

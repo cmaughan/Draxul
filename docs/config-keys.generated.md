@@ -57,8 +57,8 @@ UI chrome color theme.
 | `tab_active_bg` | color (#RRGGBB) | `#b93c3c` |  | Active tab background color. |
 | `tab_inactive_bg` | color (#RRGGBB) | `#45475a` |  | Inactive tab background color. |
 | `tab_editing_bg` | color (#RRGGBB) | `#8c90af` |  | Tab background while its name is being edited. |
-| `divider` | color (#RRGGBB) | `#78788c` |  | Space sidebar divider color. |
-| `focus_border` | color (#RRGGBB) | `#b93c3c` |  | Focused pane border color. |
+| `divider` | color (#RRGGBB) | `#78788c` |  | Spaces/Agents section divider color. |
+| `focus_border` | color (#RRGGBB) | `#7b2828` |  | Focused pane border color. |
 | `status_bar_bg` | color (#RRGGBB) | `#45475a` |  | Status bar background color. |
 | `status_bar_fg` | color (#RRGGBB) | `#cdd6f4` |  | Status bar text color. |
 | `status_focused_accent_bg` | color (#RRGGBB) | `#3ca55f` |  | Status bar accent background for the focused pane. |

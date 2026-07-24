@@ -103,7 +103,6 @@ struct ChromeLayoutInput
     std::vector<ChromePaneInput> panes;
     std::vector<ChromeDivider> dividers;
     float focus_border = 3.0f;
-    int pane_content_inset = kPaneContentInset;
     RenameSnapshot rename{};
 };
 
@@ -170,10 +169,12 @@ struct ChromeLayoutOutput
     int sidebar_height = 0;
     int sidebar_cols = 0;
     int sidebar_rows = 0;
-    int sidebar_agents_title_row = -1;
     ChromeRect sidebar_rect{};
+    ChromeRect sidebar_frame{};
+    ChromeRect sidebar_spaces_header{};
     ChromeRect sidebar_spaces_rect{};
     ChromeRect sidebar_section_divider{};
+    ChromeRect sidebar_agents_header{};
     ChromeRect sidebar_agents_rect{};
     ChromeRect sidebar_divider{};
     std::vector<ChromeSpaceLayout> spaces;

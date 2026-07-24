@@ -79,23 +79,36 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
     REQUIRE(layout.content_x == 204);
     REQUIRE(layout.sidebar_width == 200);
     REQUIRE(layout.sidebar_cols == 20);
-    REQUIRE(layout.sidebar_agents_title_row == 5);
+    CHECK(layout.sidebar_frame.x == Catch::Approx(8.0f));
+    CHECK(layout.sidebar_frame.y == Catch::Approx(8.0f));
+    CHECK(layout.sidebar_frame.w == Catch::Approx(190.0f));
+    CHECK(layout.sidebar_frame.h == Catch::Approx(584.0f));
+    CHECK(layout.sidebar_spaces_header.x == Catch::Approx(9.0f));
+    CHECK(layout.sidebar_spaces_header.y == Catch::Approx(8.0f));
+    CHECK(layout.sidebar_spaces_header.w == Catch::Approx(188.0f));
+    CHECK(layout.sidebar_spaces_header.h == Catch::Approx(16.0f));
+    CHECK(layout.sidebar_agents_header.x == Catch::Approx(9.0f));
+    CHECK(layout.sidebar_agents_header.y == Catch::Approx(111.0f));
+    CHECK(layout.sidebar_agents_header.w == Catch::Approx(188.0f));
+    CHECK(layout.sidebar_agents_header.h == Catch::Approx(16.0f));
     CHECK(layout.sidebar_spaces_rect.y == Catch::Approx(0.0f));
-    CHECK(layout.sidebar_spaces_rect.h == Catch::Approx(88.0f));
-    CHECK(layout.sidebar_section_divider.y == Catch::Approx(88.0f));
-    CHECK(layout.sidebar_section_divider.h == Catch::Approx(4.0f));
-    CHECK(layout.sidebar_agents_rect.y == Catch::Approx(92.0f));
+    CHECK(layout.sidebar_spaces_rect.h == Catch::Approx(110.0f));
+    CHECK(layout.sidebar_section_divider.x == Catch::Approx(8.0f));
+    CHECK(layout.sidebar_section_divider.y == Catch::Approx(110.0f));
+    CHECK(layout.sidebar_section_divider.w == Catch::Approx(190.0f));
+    CHECK(layout.sidebar_section_divider.h == Catch::Approx(1.0f));
+    CHECK(layout.sidebar_agents_rect.y == Catch::Approx(111.0f));
     REQUIRE(layout.bar_width == 596);
     REQUIRE(layout.grid_cols == 59);
     REQUIRE(layout.spaces.size() == 2);
 
     CHECK(layout.spaces[0].space_id == 0);
-    CHECK(layout.spaces[0].row == 2);
+    CHECK(layout.spaces[0].row == 3);
     CHECK(layout.spaces[0].active);
     CHECK(layout.spaces[0].label == "1: default");
     CHECK(layout.spaces[0].accent_w == Catch::Approx(30.0f));
     CHECK(layout.spaces[0].rect.x == Catch::Approx(6.5f));
-    CHECK(layout.spaces[0].rect.y == Catch::Approx(42.0f));
+    CHECK(layout.spaces[0].rect.y == Catch::Approx(62.0f));
     CHECK(layout.spaces[0].rect.w == Catch::Approx(115.0f));
     CHECK(layout.spaces[0].rect.h == Catch::Approx(16.0f));
     CHECK(layout.spaces[0].palette.body_bg.r
@@ -103,12 +116,12 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
     CHECK(layout.spaces[0].palette.accent_bg.r
         == Catch::Approx(input.theme.space_active_bg.r));
     CHECK(layout.spaces[1].space_id == 7);
-    CHECK(layout.spaces[1].row == 3);
+    CHECK(layout.spaces[1].row == 4);
     CHECK_FALSE(layout.spaces[1].active);
     CHECK(layout.spaces[1].label == "2: renderer");
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 50) == 0);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 70) == 7);
-    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 50) == -1);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 70) == 0);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 90) == 7);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 70) == -1);
 
     REQUIRE(layout.tabs.size() == 2);
     CHECK(layout.tabs[0].rect.x == Catch::Approx(210.5f));
@@ -178,12 +191,12 @@ TEST_CASE("ChromeLayout pane status structure degrades and keeps stable leaf hit
     CHECK(layout.pane_frames[0].outer.y == Catch::Approx(22.0f));
     CHECK(layout.pane_frames[0].rect.x == Catch::Approx(8.0f));
     CHECK(layout.pane_frames[0].rect.y == Catch::Approx(30.0f));
-    CHECK(layout.pane_frames[0].rect.w == Catch::Approx(186.0f));
-    CHECK(layout.pane_frames[0].rect.h == Catch::Approx(186.0f));
+    CHECK(layout.pane_frames[0].rect.w == Catch::Approx(190.0f));
+    CHECK(layout.pane_frames[0].rect.h == Catch::Approx(190.0f));
     CHECK(layout.pane_frames[0].content_tail.x == Catch::Approx(10.0f));
     CHECK(layout.pane_frames[0].content_tail.y == Catch::Approx(176.0f));
-    CHECK(layout.pane_frames[0].content_tail.w == Catch::Approx(182.0f));
-    CHECK(layout.pane_frames[0].content_tail.h == Catch::Approx(18.0f));
+    CHECK(layout.pane_frames[0].content_tail.w == Catch::Approx(185.0f));
+    CHECK(layout.pane_frames[0].content_tail.h == Catch::Approx(21.0f));
     CHECK(layout.pane_frames[1].leaf == 42);
     CHECK_FALSE(layout.pane_frames[1].focused);
     REQUIRE(layout.panes.size() == 2);
@@ -200,6 +213,20 @@ TEST_CASE("ChromeLayout pane status structure degrades and keeps stable leaf hit
     CHECK(hit.rect.w <= 50.0f);
 }
 
+TEST_CASE("ChromeLayout omits the focus accent when a tab has one visible pane",
+    "[chrome][layout][pane][focus]")
+{
+    auto input = base_input();
+    input.panes = {
+        { 0, 22, 800, 578, 1, "shell", true, 41 },
+    };
+
+    const auto layout = compute_chrome_layout(input);
+
+    REQUIRE(layout.pane_frames.size() == 1);
+    CHECK_FALSE(layout.pane_frames[0].focused);
+}
+
 TEST_CASE("ChromeLayout keeps content clear of configurable pane strokes",
     "[chrome][layout][pane]")
 {
@@ -207,9 +234,9 @@ TEST_CASE("ChromeLayout keeps content clear of configurable pane strokes",
     CHECK(pane_content_inset(3.0f) == 8);
     CHECK(pane_content_inset(10.0f) == 15);
     CHECK(pane_frame_line_inset(3.0f) == Catch::Approx(6.0f));
-    CHECK(pane_content_edge_inset(3.0f, false) == 8);
+    CHECK(pane_content_edge_inset(3.0f, false) == 5);
     CHECK(pane_content_edge_inset(3.0f, true) == 10);
-    CHECK(pane_frame_line_edge_inset(3.0f, false) == Catch::Approx(6.0f));
+    CHECK(pane_frame_line_edge_inset(3.0f, false) == Catch::Approx(2.0f));
     CHECK(pane_frame_line_edge_inset(3.0f, true) == Catch::Approx(8.0f));
     CHECK(chrome_pill_height(20) == 16);
     CHECK(chrome_pill_band_height(20) == 20);
@@ -231,10 +258,10 @@ TEST_CASE("ChromeLayout adds margin at window edges without widening pane joins"
     const auto& right = layout.pane_frames[1].rect;
 
     CHECK(left.x == Catch::Approx(8.0f));
-    CHECK(left.x + left.w == Catch::Approx(194.0f));
-    CHECK(right.x == Catch::Approx(210.0f));
+    CHECK(left.x + left.w == Catch::Approx(198.0f));
+    CHECK(right.x == Catch::Approx(206.0f));
     CHECK(right.x + right.w == Catch::Approx(396.0f));
-    CHECK(right.x - (left.x + left.w) == Catch::Approx(16.0f));
+    CHECK(right.x - (left.x + left.w) == Catch::Approx(8.0f));
 }
 
 TEST_CASE("ChromeLayout clips tabs before right-side status pills", "[chrome][layout][golden][clip]")

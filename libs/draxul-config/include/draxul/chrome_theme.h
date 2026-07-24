@@ -15,7 +15,7 @@ struct ChromeTheme
     Color tab_inactive_bg = color_from_rgba(0x45475aff);
     Color tab_editing_bg = color_from_rgba(0x8c90afff);
     Color divider = color_from_rgba(0x78788cdc);
-    Color focus_border = color_from_rgba(0xb93c3cdc);
+    Color focus_border = color_from_rgba(0x7b2828dc);
     Color status_bar_bg = color_from_rgba(0x45475aff);
     Color status_bar_fg = color_from_rgba(0xcdd6f4ff);
     Color status_focused_accent_bg = color_from_rgba(0x3ca55fdc);

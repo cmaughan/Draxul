@@ -349,8 +349,8 @@ All values are hex colors in `#RRGGBB` or `#RGB` form. Omitted keys keep the bui
 | `tab_active_bg` | `#b93c3c` | Active tab number/accent fill |
 | `tab_inactive_bg` | `#45475a` | Inactive tab and dim accent fill |
 | `tab_editing_bg` | `#8c90af` | Tab rename field fill |
-| `divider` | `#78788c` | Spaces rail resize divider |
-| `focus_border` | `#b93c3c` | Focused pane border |
+| `divider` | `#78788c` | Spaces/Agents section divider |
+| `focus_border` | `#7b2828` | Focused border when a tab has multiple visible panes |
 | `status_bar_bg` | `#45475a` | Pane status pill body |
 | `status_bar_fg` | `#cdd6f4` | Pane status text |
 | `status_focused_accent_bg` | `#3ca55f` | Focused pane status number/accent fill |

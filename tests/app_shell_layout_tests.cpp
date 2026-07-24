@@ -27,9 +27,9 @@ TEST_CASE("App shell partitions sidebar, tab bar, panes, and diagnostics", "[app
     const auto layout = compute_app_shell_layout(base_input());
 
     CHECK(layout.sidebar == AppShellRect{ 0, 0, 200, 700 });
-    CHECK(layout.sidebar_spaces == AppShellRect{ 0, 0, 200, 88 });
-    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 88, 200, 4 });
-    CHECK(layout.sidebar_agents == AppShellRect{ 0, 92, 200, 608 });
+    CHECK(layout.sidebar_spaces == AppShellRect{ 0, 0, 200, 110 });
+    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 110, 200, 1 });
+    CHECK(layout.sidebar_agents == AppShellRect{ 0, 111, 200, 589 });
     CHECK(layout.sidebar_divider == AppShellRect{ 200, 0, 4, 700 });
     CHECK(layout.content == AppShellRect{ 204, 0, 996, 700 });
     CHECK(layout.tab_bar == AppShellRect{ 204, 0, 996, 22 });
@@ -46,7 +46,7 @@ TEST_CASE("App shell reserves an Agents heading when the Space list is tall", "[
     input.space_count = 20;
     const auto layout = compute_app_shell_layout(input);
 
-    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 96, 200, 4 });
+    CHECK(layout.sidebar_section_divider == AppShellRect{ 0, 99, 200, 1 });
     CHECK(layout.sidebar_agents == AppShellRect{ 0, 100, 200, 40 });
 }
 
