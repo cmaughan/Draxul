@@ -61,6 +61,7 @@ struct ChromeAgentInput
     std::string status_suffix;
     bool running = false;
     bool focused = false;
+    bool attention = false;
 };
 
 struct ChromePaneInput
@@ -142,6 +143,7 @@ struct ChromeAgentLayout : ChromePillLayout
     int row = 0;
     bool running = false;
     bool focused = false;
+    bool attention = false;
 };
 
 struct ChromeRightPillLayout

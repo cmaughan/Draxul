@@ -42,7 +42,7 @@ draxul executable
                     draxul-renderer / draxul-window
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
-                                draxul-bmp / draxul-host-identity
+                                draxul-agent / draxul-bmp / draxul-host-identity
 ```
 
 This is a dependency shape, not a promise that every target in one row links every
@@ -96,7 +96,7 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-performance/` | Runtime timing collection and the `PERF_MEASURE` instrumentation API |
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
-| `libs/draxul-agent/` | Neutral agent identity, lifecycle, semantic-status, authority, and restore-policy values |
+| `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status evaluators |
 
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct

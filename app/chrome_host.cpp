@@ -100,7 +100,10 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
             input.spaces.push_back(
                 { space->id, space->name, space->id == deps_.space_controller->active_space_id() });
         }
-        for (const AgentProjection& agent : AgentController{}.query(*deps_.space_controller))
+        const auto agents = deps_.agent_controller
+            ? deps_.agent_controller->query(*deps_.space_controller)
+            : std::vector<AgentProjection>{};
+        for (const AgentProjection& agent : agents)
         {
             std::string suffix;
             if (agent.lifecycle == AgentLifecycle::Failed)
@@ -111,12 +114,21 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
                                          : "[exited]";
             else if (agent.lifecycle == AgentLifecycle::Starting)
                 suffix = "[starting]";
+            else if (agent.status == AgentStatus::Blocked)
+                suffix = "[input]";
+            else if (agent.status == AgentStatus::Working)
+                suffix = "[working]";
+            else if (agent.status == AgentStatus::Done)
+                suffix = "[done]";
+            else if (agent.status == AgentStatus::Idle)
+                suffix = "[idle]";
             input.agents.push_back({
                 .instance_id = agent.identity.instance_id,
                 .display_name = agent.identity.display_name,
                 .status_suffix = std::move(suffix),
                 .running = agent.running,
                 .focused = agent.focused,
+                .attention = agent.attention,
             });
         }
     }

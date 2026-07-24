@@ -202,6 +202,9 @@ void LocalTerminalHost::pump()
     const bool saw_output = !chunks.empty();
     if (!chunks.empty())
     {
+        ++agent_output_generation_;
+        agent_last_output_at_ = std::chrono::steady_clock::now();
+
         // Don't snap to live view on output — only on user input (handled
         // in on_key/on_text_input). This lets the user scroll back while
         // a program is producing output (e.g. `while true; do date; sleep 1; done`).
@@ -623,6 +626,52 @@ std::string LocalTerminalHost::status_text() const
         result += "]";
     }
     return result;
+}
+
+std::optional<AgentObservation> LocalTerminalHost::capture_agent_observation(
+    int max_rows, size_t max_bytes) const
+{
+    AgentObservation observation;
+    observation.output_generation = agent_output_generation_;
+    observation.captured_at = std::chrono::steady_clock::now();
+    observation.last_output_at = agent_last_output_at_;
+    observation.terminal_title = terminal_title();
+    observation.cursor_visible = vt_state().cursor_visible;
+    observation.cursor_col = cursor_col();
+    observation.cursor_row = cursor_row();
+    observation.process_running = is_running();
+    observation.exit_code = exit_code();
+
+    if (max_rows <= 0 || max_bytes == 0 || grid_cols() <= 0 || grid_rows() <= 0)
+        return observation;
+
+    const int first_row = std::max(0, grid_rows() - max_rows);
+    size_t remaining = max_bytes;
+    observation.bottom_rows.reserve(static_cast<size_t>(grid_rows() - first_row));
+    for (int row = first_row; row < grid_rows() && remaining > 0; ++row)
+    {
+        std::string text;
+        for (int col = 0; col < grid_cols(); ++col)
+        {
+            const Cell& cell = grid().get_cell(col, row);
+            if (cell.double_width_cont)
+                continue;
+            const std::string_view cluster = cell.text.view();
+            if (cluster.size() > remaining)
+                break;
+            text.append(cluster);
+            remaining -= cluster.size();
+        }
+        while (!text.empty() && text.back() == ' ')
+            text.pop_back();
+        observation.bottom_rows.push_back(std::move(text));
+    }
+    return observation;
+}
+
+bool LocalTerminalHost::send_agent_input(std::string_view bytes)
+{
+    return is_running() && do_process_write(bytes);
 }
 
 void LocalTerminalHost::on_viewport_changed()

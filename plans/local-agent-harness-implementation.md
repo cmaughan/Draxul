@@ -1,7 +1,7 @@
 # Local agent harness implementation plan
 
 **Date:** 2026-07-24  
-**Status:** implementation-ready  
+**Status:** Phases 0-3 complete; Phases 4-7 implementation-ready
 **Scope:** local agents owned by one running Draxul application
 
 This plan consolidates the agent portions of
@@ -157,6 +157,8 @@ they must publish results back to the main thread. They must never mutate a grid
 
 ## Phase 0: pin the model and current behavior
 
+**Status:** complete (2026-07-24).
+
 **Purpose:** create a safe refactoring boundary before launch behavior changes.
 
 ### Work
@@ -290,6 +292,8 @@ The Agents sidebar accurately represents explicitly managed process lifecycle ac
 all Spaces, including completed and failed agents.
 
 ## Phase 3: terminal observation and semantic status
+
+**Status:** complete (2026-07-24).
 
 **Purpose:** derive explainable `working`, `blocked`, `done`, and `idle` status without
 requiring every agent product to expose complete lifecycle hooks.

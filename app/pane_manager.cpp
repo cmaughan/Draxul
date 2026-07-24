@@ -164,6 +164,7 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     pane_ids_.clear();
     agent_identities_.clear();
     runtime_generations_.clear();
+    runtime_started_at_.clear();
     next_runtime_generation_ = 1;
     next_pane_serial_ = 1;
 
@@ -311,6 +312,7 @@ bool PaneManager::close_leaf(LeafId id)
     pane_ids_.erase(id);
     agent_identities_.erase(id);
     runtime_generations_.erase(id);
+    runtime_started_at_.erase(id);
 
     // Collapse the tree (this also updates focus if needed)
     LeafId old_focus = tree_.focused();
@@ -526,6 +528,7 @@ void PaneManager::shutdown()
     pane_ids_.clear();
     agent_identities_.clear();
     runtime_generations_.clear();
+    runtime_started_at_.clear();
     next_runtime_generation_ = 1;
     next_pane_serial_ = 1;
     markdown_preview_leaf_ = kInvalidLeaf;
@@ -734,6 +737,15 @@ AgentRuntimeGeneration PaneManager::agent_runtime_generation(LeafId id) const
     const auto found = runtime_generations_.find(id);
     return found == runtime_generations_.end()
         ? AgentRuntimeGeneration{}
+        : found->second;
+}
+
+std::chrono::steady_clock::time_point PaneManager::agent_runtime_started_at(
+    LeafId id) const
+{
+    const auto found = runtime_started_at_.find(id);
+    return found == runtime_started_at_.end()
+        ? std::chrono::steady_clock::time_point{}
         : found->second;
 }
 
@@ -946,6 +958,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
 
     hosts_[id] = std::move(new_host);
     runtime_generations_[id] = { next_runtime_generation_++ };
+    runtime_started_at_[id] = std::chrono::steady_clock::now();
     launch_options_[id] = std::move(saved_launch);
     return true;
 }

@@ -21,6 +21,8 @@
 namespace draxul
 {
 
+class AgentController;
+
 // ChromeHost renders the application chrome from App's authoritative shell
 // geometry. Each tab retains its own independent SplitTree for pane layout.
 class ChromeHost final : public IHost
@@ -35,6 +37,7 @@ public:
 
         // Read-only access to the active Space for tab bar / divider rendering.
         const SpaceController* space_controller = nullptr;
+        AgentController* agent_controller = nullptr;
         const SystemResourceSnapshot* system_resource_snapshot = nullptr;
         std::function<std::optional<std::pair<std::string, float>>()> chord_indicator = nullptr;
         // Weather callbacks — return emoji (for example "\u2600\uFE0F") and

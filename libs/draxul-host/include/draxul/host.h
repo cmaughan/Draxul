@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <draxul/agent_model.h>
 #include <draxul/events.h>
 #include <draxul/host_kind.h>
 #include <draxul/types.h>
@@ -260,6 +261,18 @@ public:
     virtual std::optional<int> exit_code() const
     {
         return std::nullopt;
+    }
+
+    // Optional local-terminal capability for agent harnesses. Observations
+    // are immutable and bounded; callers never receive the mutable grid.
+    virtual std::optional<AgentObservation> capture_agent_observation(
+        int /*max_rows*/, size_t /*max_bytes*/) const
+    {
+        return std::nullopt;
+    }
+    virtual bool send_agent_input(std::string_view /*bytes*/)
+    {
+        return false;
     }
 
     // Most recent OSC 7-reported working directory, if any. Returned empty

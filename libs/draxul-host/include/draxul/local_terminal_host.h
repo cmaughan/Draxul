@@ -31,6 +31,9 @@ public:
     void set_scroll_offset(float px) override;
     bool dispatch_action(std::string_view action) override;
     std::string status_text() const override;
+    std::optional<AgentObservation> capture_agent_observation(
+        int max_rows, size_t max_bytes) const override;
+    bool send_agent_input(std::string_view bytes) override;
 
 protected:
     void on_viewport_changed() override;
@@ -95,6 +98,8 @@ private:
         bool active = false;
     };
     ResizeSnapshot resize_snapshot_;
+    uint64_t agent_output_generation_ = 0;
+    std::optional<std::chrono::steady_clock::time_point> agent_last_output_at_;
 };
 
 } // namespace draxul

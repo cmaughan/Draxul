@@ -672,6 +672,7 @@ void TerminalHostBase::handle_osc(std::string_view body)
 
     if (code == "0" || code == "2")
     {
+        terminal_title_ = std::string(payload);
         callbacks().set_window_title(std::string(payload));
     }
     else if (code == "8")

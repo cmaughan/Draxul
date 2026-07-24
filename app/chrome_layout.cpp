@@ -393,6 +393,7 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             agent.row = row;
             agent.running = source.running;
             agent.focused = source.focused;
+            agent.attention = source.attention;
             agent.label = prefix + truncate_to_columns(source.display_name,
                 std::max(1, max_label_cols
                         - display_columns(prefix) - display_columns(suffix)))
@@ -410,7 +411,8 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                 .left_inset = static_cast<float>(input.grid_padding),
                 .label = agent.label,
                 .palette = chrome_pill_palette(
-                    input.theme, ChromePillRole::Agent, agent.focused),
+                    input.theme, ChromePillRole::Agent,
+                    agent.focused || agent.attention),
             });
             out.hit_regions.push_back({ ChromeHitKind::Agent, agent.agent_index,
                 { static_cast<float>(shell.sidebar_agents.x),

@@ -660,6 +660,7 @@ bool App::initialize_chrome_host()
     chrome_deps.grid_renderer = renderer_.grid();
     chrome_deps.text_service = &text_service_;
     chrome_deps.space_controller = &space_controller_;
+    chrome_deps.agent_controller = &agent_controller_;
     chrome_deps.system_resource_snapshot = &system_resource_snapshot_;
     chrome_deps.weather_emoji = [this]() -> std::string {
         return weather_service_.emoji();
@@ -893,6 +894,41 @@ void App::wire_gui_actions()
         mark_session_dirty();
         refresh_app_shell_layout();
         request_frame();
+    };
+    gui_deps.on_explain_agent_state = [this]() {
+        const auto agents = agent_controller_.query(space_controller_);
+        const auto it = std::find_if(agents.begin(), agents.end(),
+            [](const AgentProjection& agent) { return agent.focused; });
+        if (it == agents.end())
+        {
+            push_toast(2, "The focused pane does not contain a tracked agent.");
+            return;
+        }
+
+        const AgentStatusExplanation& explanation = it->status_explanation;
+        std::string message = it->identity.display_name + ": "
+            + std::string(to_string(it->status)) + "; authority="
+            + std::string(to_string(it->status_authority));
+        if (!explanation.manifest_id.empty())
+        {
+            message += "; manifest=" + explanation.manifest_id + "/v"
+                + std::to_string(explanation.manifest_version);
+        }
+        if (!explanation.rule_id.empty())
+            message += "; rule=" + explanation.rule_id;
+        if (!explanation.evidence_category.empty())
+            message += "; evidence=" + explanation.evidence_category;
+        if (!explanation.fallback_reason.empty())
+            message += "; fallback=" + explanation.fallback_reason;
+        if (it->last_status_transition_at
+            != std::chrono::steady_clock::time_point{})
+        {
+            const auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - it->last_status_transition_at);
+            message += "; transition=" + std::to_string(std::max<int64_t>(0, age.count()))
+                + "s ago";
+        }
+        push_toast(0, message);
     };
     gui_deps.on_edit_config = [this]() {
         HostLaunchOptions launch;

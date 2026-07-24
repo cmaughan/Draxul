@@ -374,6 +374,10 @@ TEST_CASE("agent controller derives pane occupants and focuses their stable rout
     CHECK(rows[0].running);
     CHECK(rows[0].lifecycle == AgentLifecycle::Running);
     CHECK(rows[0].generation.value > 0);
+    CHECK(rows[0].runtime_started_at
+        != std::chrono::steady_clock::time_point{});
+    CHECK(rows[0].lifecycle_transition_at
+        != std::chrono::steady_clock::time_point{});
     CHECK(rows[0].focused);
     CHECK(rows[1].space_id == worker_id);
     CHECK(rows[1].identity.instance_id == "agent-worker");
@@ -447,6 +451,132 @@ TEST_CASE("agent model enum strings are stable", "[agent_controller][agent]")
     CHECK(to_string(AgentRestorePolicy::Fresh) == "fresh");
     CHECK(to_string(AgentRestorePolicy::ResumeIfAvailable) == "resume_if_available");
     CHECK(to_string(AgentRestorePolicy::ShellOnly) == "shell_only");
+}
+
+TEST_CASE("Codex screen manifest is conservative and explainable",
+    "[agent_controller][agent][agent_status]")
+{
+    AgentObservation observation;
+    observation.output_generation = 7;
+    observation.bottom_rows = {
+        "✓ Task complete",
+        "Do you want to proceed?  Unicode: λ",
+    };
+
+    const auto blocked = evaluate_agent_observation("codex", observation);
+    CHECK(blocked.status == AgentStatus::Blocked);
+    CHECK(blocked.authority == AgentStateAuthority::ScreenManifest);
+    CHECK(blocked.manifest_id == "codex-terminal");
+    CHECK(blocked.manifest_version == 1);
+    CHECK(blocked.rule_id == "approval_prompt");
+    CHECK(blocked.evidence_category == "approval_required");
+    CHECK(blocked.observation_generation == 7);
+
+    observation.output_generation = 8;
+    observation.bottom_rows = { "Task complete", "Enter a prompt" };
+    const auto idle = evaluate_agent_observation("codex", observation);
+    CHECK(idle.status == AgentStatus::Idle);
+    CHECK(idle.rule_id == "prompt_ready");
+
+    observation.output_generation = 9;
+    observation.bottom_rows = { "unrecognized private fixture text" };
+    const auto unknown = evaluate_agent_observation("codex", observation);
+    CHECK(unknown.status == AgentStatus::Unknown);
+    CHECK(unknown.fallback_reason == "ambiguous_terminal_evidence");
+    CHECK(unknown.rule_id.empty());
+    CHECK(unknown.evidence_category.empty());
+    CHECK(unknown.fallback_reason.find("private") == std::string::npos);
+
+    observation.output_generation = 10;
+    observation.bottom_rows = { "Ctrl+B to run in background" };
+    const auto claude = evaluate_agent_observation("claude", observation);
+    CHECK(claude.status == AgentStatus::Working);
+    CHECK(claude.manifest_id == "claude-terminal");
+    CHECK(claude.rule_id == "backgroundable_work");
+
+    const auto unsupported = evaluate_agent_observation("custom-agent", observation);
+    CHECK(unsupported.status == AgentStatus::Unknown);
+    CHECK(unsupported.authority == AgentStateAuthority::None);
+    CHECK(unsupported.fallback_reason == "no_bundled_manifest");
+}
+
+TEST_CASE("agent semantic state is generation-cached and attention is acknowledged",
+    "[agent_controller][agent][agent_status]")
+{
+    SpaceHostHarness harness;
+    SpaceController spaces;
+    Space* active = spaces.find_space(kDefaultSpaceId);
+    REQUIRE(active != nullptr);
+    REQUIRE(harness.create_initial_tab(*active));
+    const LeafId active_leaf =
+        active->tab_controller.active_pane_manager().focused_leaf();
+    active->tab_controller.active_pane_manager().set_agent_identity(active_leaf, {
+        .kind = "codex",
+        .display_name = "Codex active",
+        .instance_id = "agent-active",
+    });
+
+    const SpaceId worker_id = spaces.create_space("worker");
+    Space* worker = spaces.find_space(worker_id);
+    REQUIRE(worker != nullptr);
+    REQUIRE(harness.create_initial_tab(*worker));
+    const LeafId worker_leaf =
+        worker->tab_controller.active_pane_manager().focused_leaf();
+    worker->tab_controller.active_pane_manager().set_agent_identity(worker_leaf, {
+        .kind = "codex",
+        .display_name = "Codex worker",
+        .instance_id = "agent-worker-status",
+    });
+
+    harness.hosts[0]->fake_agent_observation = AgentObservation{
+        .output_generation = 1,
+        .bottom_rows = { "Enter a prompt" },
+        .process_running = true,
+    };
+    harness.hosts[1]->fake_agent_observation = AgentObservation{
+        .output_generation = 1,
+        .bottom_rows = { "Approval required" },
+        .process_running = true,
+    };
+
+    AgentController agents;
+    auto rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[0].status == AgentStatus::Idle);
+    CHECK_FALSE(rows[0].attention);
+    CHECK(rows[1].status == AgentStatus::Blocked);
+    CHECK(rows[1].attention);
+    CHECK(harness.hosts[1]->last_observation_max_rows == 12);
+    CHECK(harness.hosts[1]->last_observation_max_bytes == 8 * 1024);
+
+    REQUIRE(agents.focus(spaces, "agent-worker-status"));
+    rows = agents.query(spaces);
+    CHECK(rows[1].focused);
+    CHECK_FALSE(rows[1].attention);
+
+    REQUIRE(agents.focus(spaces, "agent-active"));
+    harness.hosts[1]->fake_agent_observation = AgentObservation{
+        .output_generation = 2,
+        .captured_at = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(200),
+        .bottom_rows = { "Task complete" },
+        .process_running = true,
+    };
+    rows = agents.query(spaces);
+    CHECK(rows[1].status == AgentStatus::Done);
+    CHECK(rows[1].attention);
+
+    // An observation from an older generation cannot roll semantic state back.
+    harness.hosts[1]->fake_agent_observation = AgentObservation{
+        .output_generation = 1,
+        .bottom_rows = { "Enter a prompt" },
+        .process_running = true,
+    };
+    rows = agents.query(spaces);
+    CHECK(rows[1].status == AgentStatus::Done);
+    CHECK(rows[1].attention);
+
+    spaces.shutdown_all();
 }
 
 TEST_CASE("agent definition registry provides built-ins and replaceable profiles",

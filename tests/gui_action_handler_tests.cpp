@@ -347,11 +347,19 @@ TEST_CASE("gui action handler: Space lifecycle actions invoke their callbacks", 
     int rename_count = 0;
     int close_count = 0;
     int launch_agent_count = 0;
+    int focus_agent_count = 0;
+    int restart_agent_count = 0;
+    int clear_agent_count = 0;
+    int explain_agent_count = 0;
     deps.on_new_space = [&new_count]() { ++new_count; };
     deps.on_switch_space = [&switch_count]() { ++switch_count; };
     deps.on_rename_space = [&rename_count]() { ++rename_count; };
     deps.on_close_space = [&close_count]() { ++close_count; };
     deps.on_launch_agent = [&launch_agent_count]() { ++launch_agent_count; };
+    deps.on_focus_agent = [&focus_agent_count]() { ++focus_agent_count; };
+    deps.on_restart_agent = [&restart_agent_count]() { ++restart_agent_count; };
+    deps.on_clear_agent_identity = [&clear_agent_count]() { ++clear_agent_count; };
+    deps.on_explain_agent_state = [&explain_agent_count]() { ++explain_agent_count; };
     GuiActionHandler handler(std::move(deps));
 
     REQUIRE(handler.execute("new_space"));
@@ -359,12 +367,20 @@ TEST_CASE("gui action handler: Space lifecycle actions invoke their callbacks", 
     REQUIRE(handler.execute("rename_space"));
     REQUIRE(handler.execute("close_space"));
     REQUIRE(handler.execute("launch_agent"));
+    REQUIRE(handler.execute("focus_agent"));
+    REQUIRE(handler.execute("restart_agent"));
+    REQUIRE(handler.execute("clear_agent_identity"));
+    REQUIRE(handler.execute("explain_agent_state"));
 
     CHECK(new_count == 1);
     CHECK(switch_count == 1);
     CHECK(rename_count == 1);
     CHECK(close_count == 1);
     CHECK(launch_agent_count == 1);
+    CHECK(focus_agent_count == 1);
+    CHECK(restart_agent_count == 1);
+    CHECK(clear_agent_count == 1);
+    CHECK(explain_agent_count == 1);
 }
 
 TEST_CASE("gui action handler: quit invokes application callback", "[gui_actions][lifecycle]")

@@ -30,6 +30,7 @@ endif()
 target_include_directories(draxul-host PUBLIC include)
 
 target_link_libraries(draxul-host PUBLIC
+    draxul-agent
     draxul-grid
     draxul-host-identity
     draxul-nvim

@@ -54,6 +54,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"focus_agent",        [](auto& h, auto) { if (h.deps_.on_focus_agent) h.deps_.on_focus_agent(); }},
         {"restart_agent",      [](auto& h, auto) { if (h.deps_.on_restart_agent) h.deps_.on_restart_agent(); }},
         {"clear_agent_identity", [](auto& h, auto) { if (h.deps_.on_clear_agent_identity) h.deps_.on_clear_agent_identity(); }},
+        {"explain_agent_state", [](auto& h, auto) { if (h.deps_.on_explain_agent_state) h.deps_.on_explain_agent_state(); }},
         {"edit_config",        [](auto& h, auto) { if (h.deps_.on_edit_config) h.deps_.on_edit_config(); }},
         {"reload_config",      [](auto& h, auto) { if (h.deps_.on_reload_config) h.deps_.on_reload_config(); }},
         {"toggle_zoom",        [](auto& h, auto) { h.toggle_zoom(); }},

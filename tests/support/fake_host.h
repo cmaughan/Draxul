@@ -107,6 +107,20 @@ public:
         return fake_exit_code;
     }
 
+    std::optional<AgentObservation> capture_agent_observation(
+        int max_rows, size_t max_bytes) const override
+    {
+        last_observation_max_rows = max_rows;
+        last_observation_max_bytes = max_bytes;
+        return fake_agent_observation;
+    }
+
+    bool send_agent_input(std::string_view bytes) override
+    {
+        sent_agent_input.emplace_back(bytes);
+        return send_agent_input_result;
+    }
+
     std::string init_error() const override
     {
         return init_error_message;
@@ -235,6 +249,10 @@ public:
     // simulate an action the host does not recognise.
     bool dispatch_action_result = true;
     std::optional<int> fake_exit_code;
+    std::optional<AgentObservation> fake_agent_observation;
+    bool send_agent_input_result = true;
+    mutable int last_observation_max_rows = 0;
+    mutable size_t last_observation_max_bytes = 0;
 
     // Recorded state.
     int initialize_calls = 0;
@@ -257,6 +275,7 @@ public:
     std::vector<MouseMoveEvent> mouse_move_events;
     std::vector<MouseWheelEvent> mouse_wheel_events;
     std::vector<std::string> dispatched_actions;
+    std::vector<std::string> sent_agent_input;
 
 protected:
     IHostCallbacks* callbacks_ = nullptr;

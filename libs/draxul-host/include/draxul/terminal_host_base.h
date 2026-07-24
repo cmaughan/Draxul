@@ -90,6 +90,10 @@ protected:
     {
         return vt_;
     }
+    const std::string& terminal_title() const
+    {
+        return terminal_title_;
+    }
     void set_logical_cursor_position(
         int col,
         int row,
@@ -264,6 +268,7 @@ private:
     void send_paste(std::string_view text);
 
     std::string init_error_;
+    std::string terminal_title_;
 };
 
 } // namespace draxul

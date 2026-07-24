@@ -1,6 +1,7 @@
 #pragma once
 
 #include "split_tree.h"
+#include <chrono>
 #include <draxul/agent_model.h>
 #include <draxul/host.h>
 #include <draxul/host_kind.h>
@@ -189,6 +190,7 @@ public:
     const AgentIdentity* agent_identity(LeafId id) const;
     bool clear_agent_identity(LeafId id);
     AgentRuntimeGeneration agent_runtime_generation(LeafId id) const;
+    std::chrono::steady_clock::time_point agent_runtime_started_at(LeafId id) const;
 
     // Hit-test a point (physical pixels). Updates focus if a new leaf is hit.
     // Returns the host under the point, or null.
@@ -264,6 +266,8 @@ private:
     std::unordered_map<LeafId, std::string> pane_ids_;
     std::unordered_map<LeafId, AgentIdentity> agent_identities_;
     std::unordered_map<LeafId, AgentRuntimeGeneration> runtime_generations_;
+    std::unordered_map<LeafId, std::chrono::steady_clock::time_point>
+        runtime_started_at_;
     uint64_t next_runtime_generation_ = 1;
     std::string error_;
     uint64_t next_pane_serial_ = 1;
