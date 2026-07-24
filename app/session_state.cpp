@@ -15,6 +15,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 namespace draxul
 {
 
@@ -741,7 +746,35 @@ bool has_saved_session_state(std::string_view session_id, std::string* error)
     return exists;
 }
 
-bool save_session_state(const SessionSnapshot& state, std::string* error)
+static bool replace_session_state_file(const std::filesystem::path& temporary,
+    const std::filesystem::path& destination, std::string* error)
+{
+#ifdef _WIN32
+    if (MoveFileExW(temporary.c_str(), destination.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        return true;
+    }
+    const DWORD replace_error = GetLastError();
+    if (error)
+    {
+        *error = "Unable to replace session state: "
+            + std::system_category().message(static_cast<int>(replace_error));
+    }
+    return false;
+#else
+    std::error_code ec;
+    std::filesystem::rename(temporary, destination, ec);
+    if (!ec)
+        return true;
+    if (error)
+        *error = "Unable to replace session state: " + ec.message();
+    return false;
+#endif
+}
+
+bool save_session_state_to_path(const SessionSnapshot& state,
+    const std::filesystem::path& path, std::string* error)
 {
     PERF_MEASURE();
     try
@@ -750,22 +783,33 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
         if (!encoded)
             return false;
 
-        const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
-
-        const auto path = session_state_path(normalized_id);
-        std::filesystem::create_directories(path.parent_path());
-        std::ofstream out(path, std::ios::trunc);
+        if (!path.parent_path().empty())
+            std::filesystem::create_directories(path.parent_path());
+        std::filesystem::path temporary = path;
+        temporary += ".tmp";
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
         if (!out)
         {
             if (error)
-                *error = "Unable to open session state for writing.";
+                *error = "Unable to open temporary session state for writing.";
             return false;
         }
         out << *encoded;
+        out.flush();
         if (!out)
         {
             if (error)
                 *error = "Failed writing session state.";
+            out.close();
+            std::error_code cleanup_error;
+            std::filesystem::remove(temporary, cleanup_error);
+            return false;
+        }
+        out.close();
+        if (!replace_session_state_file(temporary, path, error))
+        {
+            std::error_code cleanup_error;
+            std::filesystem::remove(temporary, cleanup_error);
             return false;
         }
         if (error)
@@ -778,6 +822,13 @@ bool save_session_state(const SessionSnapshot& state, std::string* error)
             *error = ex.what();
         return false;
     }
+}
+
+bool save_session_state(const SessionSnapshot& state, std::string* error)
+{
+    const std::string normalized_id = state.session_id.empty() ? "default" : state.session_id;
+    return save_session_state_to_path(
+        state, session_state_path(normalized_id), error);
 }
 
 bool delete_session_state(std::string_view session_id, std::string* error)

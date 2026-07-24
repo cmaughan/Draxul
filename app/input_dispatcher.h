@@ -91,6 +91,7 @@ public:
         PixelScale pixel_scale;
 
         std::function<void()> request_frame;
+        std::function<void()> on_layout_changed;
         std::function<void(int, int)> on_resize;
         std::function<void(float)> on_display_scale_changed;
     };

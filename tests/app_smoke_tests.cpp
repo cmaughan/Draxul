@@ -1071,6 +1071,45 @@ TEST_CASE("app smoke: save_session_as persists a named session and switches acti
     app.shutdown();
 }
 
+TEST_CASE("app smoke: save_session_as captures active and inactive Spaces",
+    "[app_smoke][session][space]")
+{
+    TempDir temp("draxul-save-multi-space");
+    HomeDirRedirect redir(temp.path);
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_session_restore = true;
+    opts.session_id = "default";
+    opts.session_name = "default";
+    opts.host_kind = HostKind::PowerShell;
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    auto worker = app.create_space("worker", "D:/work/worker");
+    REQUIRE(worker);
+    REQUIRE(app.space_controller().count() == 2);
+    REQUIRE(app.space_controller().active_space_id() == *worker);
+
+    auto saved = app.save_session_as("Multi Space");
+    if (!saved)
+        INFO(saved.error().message);
+    REQUIRE(saved);
+
+    auto state = load_session_state(*saved);
+    REQUIRE(state);
+    CHECK(state->active_space_id == *worker);
+    REQUIRE(state->spaces.size() == 2);
+    CHECK(state->spaces[0].id == kDefaultSpaceId);
+    CHECK(state->spaces[0].name == "default");
+    CHECK(state->spaces[1].id == *worker);
+    CHECK(state->spaces[1].name == "worker");
+    CHECK(state->spaces[1].root_directory == std::filesystem::path("D:/work/worker"));
+    REQUIRE(state->spaces[0].tabs.size() == 1);
+    REQUIRE(state->spaces[1].tabs.size() == 1);
+
+    app.shutdown();
+}
+
 TEST_CASE("app smoke: load_session restores a selected saved session in the current window",
     "[app_smoke][session]")
 {

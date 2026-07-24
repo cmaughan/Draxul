@@ -155,7 +155,7 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - `new_space`, `switch_space`, `rename_space`, and `close_space` are available in the command palette. They are unbound by default.
 - A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
 - Closing a Space terminates the hosts it owns. The final Space cannot be closed.
-- Spaces are currently local and in-memory. Session snapshots now use a version-2 Space envelope and transparently migrate version-1 files in memory, but checkpointing remains disabled while multiple Spaces exist until all-Space capture and restore land. Suspend/resume, background ownership, SSH, and remote Spaces remain future work.
+- Spaces are currently local. Session snapshots use a version-2 Space envelope, transparently migrate version-1 files in memory, and atomically checkpoint the complete ordered Space collection, including inactive Spaces. Restoring a version-2 multi-Space collection is the next persistence stage; suspend/resume, background ownership, SSH, and remote Spaces remain future work.
 
 ---
 

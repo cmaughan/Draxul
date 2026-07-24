@@ -358,6 +358,19 @@ Implementation notes:
 **Exit:** creating two or more Spaces produces one valid v2 Session file containing
 all of them, and an interrupted write preserves the last good file.
 
+Implementation notes:
+
+- `SpaceController::snapshot_spaces()` captures every Space in stable display order,
+  including inactive Spaces and their independent tab counters.
+- Checkpointing is mutation-driven and debounced; a failed or concurrent save leaves
+  the dirty generation pending for a later retry.
+- Saves are written to a sibling temporary file, flushed and closed, then atomically
+  replace the destination. A failed temporary write leaves the previous snapshot
+  intact.
+- Startup no longer immediately rewrites the snapshot it just decoded.
+- Multi-Space named saves and normal checkpoints now write the complete live
+  collection. Loading those snapshots becomes available in Phase 3.
+
 ### Phase 3: restore every Space
 
 - Add a restore-oriented `SpaceController` factory or candidate-builder API that can

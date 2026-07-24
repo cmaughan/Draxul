@@ -36,6 +36,8 @@ public:
     bool set_space_root_directory(SpaceId id, std::filesystem::path root_directory);
     bool close_space(SpaceId id);
 
+    bool all_spaces_restorable() const;
+    std::optional<std::vector<SpaceSnapshot>> snapshot_spaces() const;
     void shutdown_all();
 
     const Spaces& spaces() const noexcept

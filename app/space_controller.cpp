@@ -159,6 +159,37 @@ bool SpaceController::close_space(SpaceId id)
     return true;
 }
 
+bool SpaceController::all_spaces_restorable() const
+{
+    if (spaces_.empty())
+        return false;
+    return std::all_of(spaces_.begin(), spaces_.end(), [](const auto& space) {
+        return space->tab_controller.all_tabs_restorable();
+    });
+}
+
+std::optional<std::vector<SpaceSnapshot>> SpaceController::snapshot_spaces() const
+{
+    std::vector<SpaceSnapshot> snapshots;
+    snapshots.reserve(spaces_.size());
+    for (const auto& space : spaces_)
+    {
+        auto tabs = space->tab_controller.snapshot_tabs();
+        if (!tabs)
+            return std::nullopt;
+
+        SpaceSnapshot snapshot;
+        snapshot.id = space->id;
+        snapshot.name = space->name;
+        snapshot.root_directory = space->root_directory;
+        snapshot.active_tab_id = space->tab_controller.active_tab_id();
+        snapshot.next_tab_id = space->tab_controller.next_tab_id();
+        snapshot.tabs = std::move(*tabs);
+        snapshots.push_back(std::move(snapshot));
+    }
+    return snapshots;
+}
+
 void SpaceController::shutdown_all()
 {
     for (auto& space : spaces_)

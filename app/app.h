@@ -168,7 +168,8 @@ private:
     void refresh_tab_default_names();
     bool can_snapshot_session_state() const;
     std::optional<SessionSnapshot> snapshot_session_state() const;
-    void persist_session_state();
+    void mark_session_dirty();
+    bool persist_session_state();
     void maybe_checkpoint_session(std::chrono::steady_clock::time_point now);
     bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
 
@@ -252,6 +253,9 @@ private:
     DiagnosticsCollector diagnostics_collector_;
     std::string session_name_;
     bool discard_session_state_on_shutdown_ = false;
+    bool session_dirty_ = false;
+    uint64_t session_dirty_generation_ = 0;
+    std::chrono::steady_clock::time_point last_session_mutation_time_{};
     std::chrono::steady_clock::time_point last_session_checkpoint_time_{};
     std::unordered_set<std::string> announced_dead_panes_;
     std::optional<std::pair<int, int>> pending_window_resize_;

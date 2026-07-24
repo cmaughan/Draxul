@@ -670,6 +670,8 @@ void InputDispatcher::on_mouse_move_event(const MouseMoveEvent& event)
                 ch = cs.second;
             }
             hm->update_divider_from_pixel(drag_divider_id_, phys_x_mv, phys_y_mv, cw, ch);
+            if (deps_.on_layout_changed)
+                deps_.on_layout_changed();
             if (deps_.request_frame)
                 deps_.request_frame();
         }

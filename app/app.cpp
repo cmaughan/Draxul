@@ -475,12 +475,6 @@ bool App::initialize()
     // redraws on state changes do not start on a blank window.
     request_frame();
     rebuild_render_tree();
-    if (options_.enable_session_restore)
-    {
-        persist_session_state();
-        last_session_checkpoint_time_ = std::chrono::steady_clock::now();
-    }
-
     init_completed_ = true;
     rollback.armed = false;
     return true;
@@ -671,6 +665,7 @@ bool App::initialize_chrome_host()
             {
                 tab->name = std::move(name);
                 tab->name_user_set = true;
+                mark_session_dirty();
                 break;
             }
         }
@@ -680,6 +675,7 @@ bool App::initialize_chrome_host()
         // Apply to whichever tab currently owns the leaf — pane edits
         // are always against the active tab.
         active_pane_manager().set_pane_name(leaf, std::move(name));
+        mark_session_dirty();
         request_frame();
     };
     chrome_deps.get_pane_name = [this](LeafId leaf) {
@@ -803,6 +799,7 @@ void App::wire_gui_actions()
         if (new_leaf != kInvalidLeaf)
         {
             input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
             request_frame();
         }
         else
@@ -818,6 +815,7 @@ void App::wire_gui_actions()
         if (new_leaf != kInvalidLeaf)
         {
             input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
             request_frame();
         }
         else
@@ -861,6 +859,7 @@ void App::wire_gui_actions()
         if (new_leaf != kInvalidLeaf)
         {
             input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
             request_frame();
         }
         else
@@ -878,6 +877,7 @@ void App::wire_gui_actions()
     gui_deps.on_toggle_zoom = [this]() {
         active_pane_manager().toggle_zoom(
             shell_layout_.work_area.w, shell_layout_.work_area.h);
+        mark_session_dirty();
         refresh_app_shell_layout();
         input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
@@ -892,6 +892,7 @@ void App::wire_gui_actions()
                 if (space_controller_.count() > 1
                     && space_controller_.close_space(closing_space_id))
                 {
+                    mark_session_dirty();
                     refresh_app_shell_layout();
                     input_dispatcher_.set_host(active_pane_manager().focused_host());
                     request_frame();
@@ -917,6 +918,7 @@ void App::wire_gui_actions()
         }
         input_dispatcher_.set_host(nullptr);
         active_pane_manager().close_focused();
+        mark_session_dirty();
         input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
@@ -936,6 +938,7 @@ void App::wire_gui_actions()
         if (active_pane_manager().swap_focused_with_next())
         {
             input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
             request_frame();
         }
     };
@@ -943,6 +946,7 @@ void App::wire_gui_actions()
         if (active_pane_manager().focus_direction(dir))
         {
             input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
             request_frame();
         }
     };
@@ -963,6 +967,7 @@ void App::wire_gui_actions()
             = (dir == FocusDirection::Right || dir == FocusDirection::Down) ? step : -step;
         const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
         hm.nudge_divider(id, delta, cw, ch);
+        mark_session_dirty();
         request_frame();
     };
     gui_deps.on_resize_pane_left = [resize_pane]() { resize_pane(FocusDirection::Left); };
@@ -1035,11 +1040,13 @@ void App::wire_gui_actions()
                 launch.working_dir = cwd;
             active_pane_manager().split_focused(SplitDirection::Vertical, std::move(launch), *this);
             input_dispatcher_.set_host(active_pane_manager().focused_host());
+            mark_session_dirty();
             request_frame();
         }
     };
     gui_deps.on_equalize_panes = [this]() {
         active_pane_manager().equalize_splits(*this);
+        mark_session_dirty();
         request_frame();
     };
     gui_deps.on_print_pane = [this]() { start_print_focused_pane(); };
@@ -1252,6 +1259,7 @@ void App::wire_window_callbacks()
     disp_deps.scroll_speed = config_.scroll_speed;
     disp_deps.pixel_scale = PixelScale::from_window(window_->width_pixels(), window_->width_logical());
     disp_deps.request_frame = [this]() { request_frame(); };
+    disp_deps.on_layout_changed = [this]() { mark_session_dirty(); };
     disp_deps.on_resize = [this](int w, int h) { on_resize(w, h); };
     disp_deps.on_display_scale_changed = [this](float ppi) { on_display_scale_changed(ppi); };
     router->hit_test_tab_fn = [this](int px, int py) { return chrome_host_ ? chrome_host_->hit_test_tab(px, py) : 0; };
@@ -1563,6 +1571,7 @@ bool App::close_dead_panes()
                 if (space_controller_.count() > 1
                     && space_controller_.close_space(closing_space_id))
                 {
+                    mark_session_dirty();
                     refresh_app_shell_layout();
                     input_dispatcher_.set_host(active_pane_manager().focused_host());
                     request_frame();
@@ -1589,6 +1598,8 @@ bool App::close_dead_panes()
         }
         active_pane_manager().close_leaf(id);
     }
+    if (!dead.empty())
+        mark_session_dirty();
     return active_pane_manager().host() != nullptr;
 }
 
@@ -1927,6 +1938,8 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
     {
         nvim_host->dispatch_action(action);
         active_pane_manager().set_focused(keep_focus ? origin_leaf : nvim_leaf);
+        if (!keep_focus && nvim_leaf != origin_leaf)
+            mark_session_dirty();
         request_frame();
         return true;
     }
@@ -1945,6 +1958,7 @@ bool App::dispatch_to_nvim_host(std::string_view action, bool keep_focus)
     if (keep_focus && origin_leaf != kInvalidLeaf)
         active_pane_manager().set_focused(origin_leaf);
 
+    mark_session_dirty();
     refresh_window_layout();
     request_frame();
 
@@ -1974,7 +1988,10 @@ bool App::show_markdown_preview(std::string_view path)
     // Only the first call changes the split layout; refreshing per keystroke as
     // the selection moves would be wasteful (the pane is merely reloaded).
     if (!existed)
+    {
+        mark_session_dirty();
         refresh_window_layout();
+    }
     request_frame();
     return true;
 }
@@ -1985,6 +2002,7 @@ void App::hide_markdown_preview()
     if (!hm.has_markdown_preview())
         return;
     hm.hide_markdown_preview();
+    mark_session_dirty();
     refresh_window_layout();
     request_frame();
 }
@@ -2306,6 +2324,7 @@ void App::refresh_tab_default_names()
             if (tab->name == new_name)
                 continue;
             tab->name = std::move(new_name);
+            mark_session_dirty();
             request_frame();
         }
     }
@@ -2313,10 +2332,8 @@ void App::refresh_tab_default_names()
 
 bool App::can_snapshot_session_state() const
 {
-    // Version 1 stores one tab collection and has no Space envelope. Refuse
-    // to silently discard inactive Spaces until the version-2 format lands.
-    return options_.enable_session_restore && space_controller_.count() == 1
-        && active_tab_controller().all_tabs_restorable();
+    return options_.enable_session_restore
+        && space_controller_.all_spaces_restorable();
 }
 
 Result<SpaceId, Error> App::create_space(
@@ -2373,12 +2390,14 @@ Result<SpaceId, Error> App::create_space(
 
     refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
+    mark_session_dirty();
     request_frame();
     return id;
 }
 
 Result<void, Error> App::activate_space(SpaceId id)
 {
+    const SpaceId previous = space_controller_.active_space_id();
     if (!space_controller_.find_space(id))
         return Result<void, Error>::err(Error::not_found("Space was not found."));
     if (!space_controller_.activate_space(id))
@@ -2387,6 +2406,8 @@ Result<void, Error> App::activate_space(SpaceId id)
     if (window_ && chrome_host_ && diagnostics_host_)
         refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
+    if (space_controller_.active_space_id() != previous)
+        mark_session_dirty();
     request_frame();
     return Result<void, Error>::ok();
 }
@@ -2398,6 +2419,7 @@ Result<void, Error> App::rename_space(SpaceId id, std::string_view raw_name)
         return Result<void, Error>::err(Error::invalid_argument("Enter a Space name."));
     if (!space_controller_.rename_space(id, name))
         return Result<void, Error>::err(Error::not_found("Space was not found."));
+    mark_session_dirty();
     request_frame();
     return Result<void, Error>::ok();
 }
@@ -2424,6 +2446,7 @@ Result<void, Error> App::close_space(SpaceId id)
         refresh_app_shell_layout();
     if (closing_active)
         input_dispatcher_.set_host(active_pane_manager().focused_host());
+    mark_session_dirty();
     request_frame();
     return Result<void, Error>::ok();
 }
@@ -2575,6 +2598,8 @@ Result<std::string, Error> App::save_session_as(std::string_view raw_name)
             Error::io(save_error.empty() ? "Failed to save named session." : save_error));
     }
 
+    session_dirty_ = false;
+    last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     request_frame();
     return new_id;
 }
@@ -2590,33 +2615,31 @@ std::optional<SessionSnapshot> App::snapshot_session_state() const
     state.session_name = session_name_.empty() ? options_.session_id : session_name_;
     state.active_space_id = space_controller_.active_space_id();
     state.next_space_id = space_controller_.next_space_id();
-
-    const Space& active_space = space_controller_.require_active_space(
-        "snapshot_session_state");
-    SpaceSnapshot space;
-    space.id = active_space.id;
-    space.name = active_space.name;
-    space.root_directory = active_space.root_directory;
-    space.active_tab_id = active_space.tab_controller.active_tab_id();
-    space.next_tab_id = active_space.tab_controller.next_tab_id();
-    auto tabs = active_tab_controller().snapshot_tabs();
-    if (!tabs)
+    auto spaces = space_controller_.snapshot_spaces();
+    if (!spaces)
         return std::nullopt;
-    space.tabs = std::move(*tabs);
-    state.spaces.push_back(std::move(space));
+    state.spaces = std::move(*spaces);
 
     return state;
 }
 
-void App::persist_session_state()
+void App::mark_session_dirty()
+{
+    session_dirty_ = true;
+    ++session_dirty_generation_;
+    last_session_mutation_time_ = std::chrono::steady_clock::now();
+}
+
+bool App::persist_session_state()
 {
     PERF_MEASURE();
     if (!options_.enable_session_restore || discard_session_state_on_shutdown_)
-        return;
+        return false;
 
+    const uint64_t captured_generation = session_dirty_generation_;
     auto state = snapshot_session_state();
     if (!state)
-        return;
+        return false;
 
     std::string error;
     if (!save_session_state(*state, &error))
@@ -2624,20 +2647,24 @@ void App::persist_session_state()
         DRAXUL_LOG_WARN(LogCategory::App,
             "Failed to save shell session state: %s",
             error.empty() ? "unknown error" : error.c_str());
+        return false;
     }
+    if (session_dirty_generation_ == captured_generation)
+        session_dirty_ = false;
+    return true;
 }
 
 void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
 {
     if (!options_.enable_session_restore || discard_session_state_on_shutdown_
-        || !can_snapshot_session_state())
+        || !session_dirty_ || !can_snapshot_session_state())
         return;
-    if (last_session_checkpoint_time_.time_since_epoch().count() != 0
-        && now - last_session_checkpoint_time_ < options_.session_checkpoint_interval)
+    if (last_session_mutation_time_.time_since_epoch().count() != 0
+        && now - last_session_mutation_time_ < options_.session_checkpoint_interval)
         return;
 
-    persist_session_state();
-    last_session_checkpoint_time_ = now;
+    if (persist_session_state())
+        last_session_checkpoint_time_ = now;
 }
 
 bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state)
@@ -2671,6 +2698,7 @@ bool App::create_initial_tab(int pixel_w, int pixel_h)
         last_init_error_ = active_tab_controller().last_error();
         return false;
     }
+    mark_session_dirty();
     return true;
 }
 
@@ -2680,40 +2708,58 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
         *this, pixel_w, pixel_h, make_pane_manager_deps(), host_kind);
     if (id < 0)
         last_init_error_ = active_tab_controller().last_error();
+    else
+        mark_session_dirty();
     return id;
 }
 
 bool App::close_tab(int tab_id)
 {
-    return active_tab_controller().close_tab(tab_id);
+    if (!active_tab_controller().close_tab(tab_id))
+        return false;
+    mark_session_dirty();
+    return true;
 }
 
 void App::activate_tab(int tab_id)
 {
+    const int previous = active_tab_controller().active_tab_id();
     active_tab_controller().activate_tab(tab_id);
+    if (active_tab_controller().active_tab_id() != previous)
+        mark_session_dirty();
     refresh_app_shell_layout();
 }
 
 void App::next_tab()
 {
+    const int previous = active_tab_controller().active_tab_id();
     active_tab_controller().next_tab();
+    if (active_tab_controller().active_tab_id() != previous)
+        mark_session_dirty();
     refresh_app_shell_layout();
 }
 
 void App::prev_tab()
 {
+    const int previous = active_tab_controller().active_tab_id();
     active_tab_controller().prev_tab();
+    if (active_tab_controller().active_tab_id() != previous)
+        mark_session_dirty();
     refresh_app_shell_layout();
 }
 
 void App::move_tab(int direction)
 {
     active_tab_controller().move_tab(direction);
+    mark_session_dirty();
 }
 
 void App::activate_tab_by_index(int one_based_index)
 {
+    const int previous = active_tab_controller().active_tab_id();
     active_tab_controller().activate_tab_by_index(one_based_index);
+    if (active_tab_controller().active_tab_id() != previous)
+        mark_session_dirty();
     refresh_app_shell_layout();
 }
 
@@ -2733,7 +2779,10 @@ void App::activate_pane_by_index(int one_based_index)
     });
 
     if (target != kInvalidLeaf)
+    {
         active_pane_manager().set_focused(target);
+        mark_session_dirty();
+    }
 }
 
 PaneManager& App::active_pane_manager()

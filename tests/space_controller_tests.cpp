@@ -29,7 +29,7 @@ struct SpaceHostHarness
 
     PaneManager::Deps make_deps()
     {
-        options.host_kind = HostKind::Nvim;
+        options.host_kind = HostKind::PowerShell;
         options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
             auto shutdown_count = std::make_shared<int>(0);
             auto host = std::make_unique<FakeHost>("space-host");
@@ -164,6 +164,40 @@ TEST_CASE("space switching transfers focus and preserves inactive hosts",
     CHECK(controller.find_space(worker) == nullptr);
     CHECK(*harness.shutdown_counts[1] == 1);
     CHECK_FALSE(controller.close_space(kDefaultSpaceId));
+}
+
+TEST_CASE("space controller snapshots every Space in display order",
+    "[space_controller][space][session]")
+{
+    SpaceHostHarness harness;
+    SpaceController controller("D:/work/default");
+    Space* default_space = controller.find_space(kDefaultSpaceId);
+    REQUIRE(default_space != nullptr);
+    REQUIRE(harness.create_initial_tab(*default_space));
+    default_space->tab_controller.tabs().front()->name = "default-tab";
+
+    const SpaceId worker_id = controller.create_space("worker", "D:/work/worker");
+    Space* worker = controller.find_space(worker_id);
+    REQUIRE(worker != nullptr);
+    REQUIRE(harness.create_initial_tab(*worker));
+    worker->tab_controller.tabs().front()->name = "worker-tab";
+    REQUIRE(controller.activate_space(worker_id));
+
+    REQUIRE(controller.all_spaces_restorable());
+    auto snapshots = controller.snapshot_spaces();
+    REQUIRE(snapshots);
+    REQUIRE(snapshots->size() == 2);
+    CHECK((*snapshots)[0].id == kDefaultSpaceId);
+    CHECK((*snapshots)[0].root_directory == std::filesystem::path("D:/work/default"));
+    REQUIRE((*snapshots)[0].tabs.size() == 1);
+    CHECK((*snapshots)[0].tabs[0].name == "default-tab");
+    CHECK((*snapshots)[1].id == worker_id);
+    CHECK((*snapshots)[1].name == "worker");
+    CHECK((*snapshots)[1].root_directory == std::filesystem::path("D:/work/worker"));
+    REQUIRE((*snapshots)[1].tabs.size() == 1);
+    CHECK((*snapshots)[1].tabs[0].name == "worker-tab");
+
+    controller.shutdown_all();
 }
 
 TEST_CASE("closing the active space focuses a populated replacement before shutdown",

@@ -409,6 +409,48 @@ TEST_CASE("session state: distinct session ids persist separately", "[session_st
     CHECK(sessions[1].session_id == "beta/dev");
 }
 
+TEST_CASE("session state: failed temporary write preserves the last good snapshot",
+    "[session_state][filesystem]")
+{
+    TempDir temp_dir("session-state-replace-safe");
+    const std::filesystem::path path = temp_dir.path / "session.toml";
+
+    SessionSnapshot original;
+    original.session_id = "replace-safe";
+    original.session_name = "Original";
+    std::string error;
+    REQUIRE(save_session_state_to_path(original, path, &error));
+    REQUIRE(error.empty());
+
+    std::ifstream original_file(path, std::ios::binary);
+    REQUIRE(original_file.is_open());
+    const std::string original_text{
+        std::istreambuf_iterator<char>(original_file), std::istreambuf_iterator<char>()
+    };
+    original_file.close();
+
+    std::filesystem::path blocked_temporary = path;
+    blocked_temporary += ".tmp";
+    REQUIRE(std::filesystem::create_directory(blocked_temporary));
+
+    SessionSnapshot replacement;
+    replacement.session_id = "replace-safe";
+    replacement.session_name = "Replacement";
+    CHECK_FALSE(save_session_state_to_path(replacement, path, &error));
+    CHECK_FALSE(error.empty());
+
+    std::ifstream preserved_file(path, std::ios::binary);
+    REQUIRE(preserved_file.is_open());
+    const std::string preserved_text{
+        std::istreambuf_iterator<char>(preserved_file), std::istreambuf_iterator<char>()
+    };
+    CHECK(preserved_text == original_text);
+
+    auto decoded = decode_session_state(preserved_text, &error);
+    REQUIRE(decoded);
+    CHECK(decoded->session_name == "Original");
+}
+
 TEST_CASE("session state: delete removes saved session state", "[session_state]")
 {
     TempDir temp_dir("session-state-delete");
