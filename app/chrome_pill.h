@@ -17,6 +17,7 @@ struct ChromeRect
 enum class ChromePillRole
 {
     Space,
+    Agent,
     Tab,
     Pane,
 };

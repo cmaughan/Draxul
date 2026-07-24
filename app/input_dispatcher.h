@@ -34,6 +34,7 @@ public:
     virtual IHost* overlay_host() = 0;
     virtual PaneManager* pane_manager() = 0;
     virtual int hit_test_space(int phys_x, int phys_y) = 0;
+    virtual int hit_test_agent(int phys_x, int phys_y) = 0;
     virtual int hit_test_tab(int phys_x, int phys_y) = 0;
     virtual LeafId hit_test_pane_pill(int phys_x, int phys_y) = 0;
     virtual bool hit_test_app_chrome(int phys_x, int phys_y) = 0;
@@ -42,6 +43,7 @@ public:
     virtual std::pair<int, int> cell_size_phys() = 0;
     virtual void activate_tab(int one_based_index) = 0;
     virtual void activate_space(int space_id) = 0;
+    virtual void activate_agent(int one_based_index) = 0;
     virtual void activate_pane(int one_based_index) = 0;
     virtual void begin_tab_rename(int one_based_index) = 0;
     virtual void begin_pane_rename(LeafId leaf) = 0;

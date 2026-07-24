@@ -413,6 +413,22 @@ Implementation notes:
 **Exit:** explicitly launched agents reappear as identities after restart and the
 Agents section derives its rows from restored pane occupants without duplicated state.
 
+Implementation notes:
+
+- `AgentIdentity` is optional pane-owned metadata containing kind, display name, and
+  a stable per-Session instance ID. It round-trips inside the pane snapshot.
+- `AgentController` walks the authoritative Space -> tab -> pane hierarchy to derive
+  ordered rows with stable routing fields and live `running` / `focused` state.
+  Runtime state is not serialized.
+- Clicking an Agent row resolves its instance ID and activates the owning Space, tab,
+  and pane. No sidebar lookup table is persisted.
+- `launch_agent` prompts for a local command, creates a shell split rooted in the
+  current Space, starts the command through shell startup input, and attaches the
+  durable identity. Restoring the topology launches a fresh command; it does not
+  claim native process or conversation resume.
+- The Agents rail uses the shared segmented pill layout. Its accent follows the
+  pane-green role when focused, and an unavailable host is labeled `[exited]`.
+
 ### Phase 5: hardening and later resume hooks
 
 - Add optional `.bak` recovery only if field evidence shows temp replacement is

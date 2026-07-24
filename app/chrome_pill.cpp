@@ -59,6 +59,13 @@ ChromePillPalette chrome_pill_palette(const ChromeTheme& theme,
         palette.accent_bg = emphasized ? theme.space_active_bg : theme.tab_inactive_bg;
         palette.body_fg = emphasized ? theme.tab_active_fg : theme.tab_inactive_fg;
         break;
+    case ChromePillRole::Agent:
+        palette.body_bg = theme.tab_inactive_bg;
+        palette.accent_bg = emphasized
+            ? theme.status_focused_accent_bg
+            : theme.tab_inactive_bg;
+        palette.body_fg = emphasized ? theme.tab_active_fg : theme.tab_inactive_fg;
+        break;
     case ChromePillRole::Tab:
         palette.body_bg = editing ? theme.tab_editing_bg : theme.tab_inactive_bg;
         palette.accent_bg = emphasized ? theme.tab_active_bg : theme.tab_inactive_bg;

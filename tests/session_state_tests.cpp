@@ -119,6 +119,11 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
         },
         .pane_name = "right",
         .pane_id = "pane-right",
+        .agent = AgentIdentity{
+            .kind = "codex",
+            .display_name = "Codex",
+            .instance_id = "agent-4-7-pane-right",
+        },
     });
 
     TabSnapshot tab;
@@ -183,6 +188,9 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(saved_text.find("[[spaces]]") != std::string::npos);
     CHECK(saved_text.find("[[spaces.tabs]]") != std::string::npos);
     CHECK(saved_text.find("[spaces.tabs.pane_layout]") != std::string::npos);
+    CHECK(saved_text.find("instance_id = 'agent-4-7-pane-right'")
+        != std::string::npos);
+    CHECK(saved_text.find("running =") == std::string::npos);
     CHECK(saved_text.find("active_workspace_id") == std::string::npos);
     CHECK(saved_text.find("host_manager") == std::string::npos);
 
@@ -225,6 +233,11 @@ TEST_CASE("session state: save/load round-trip preserves tab topology", "[sessio
     CHECK(loaded_tab.pane_layout.panes[1].pane_name == "right");
     CHECK(loaded_tab.pane_layout.panes[1].pane_id == "pane-right");
     CHECK(loaded_tab.pane_layout.panes[1].launch.args == (std::vector<std::string>{ "-NoProfile" }));
+    REQUIRE(loaded_tab.pane_layout.panes[1].agent);
+    CHECK(loaded_tab.pane_layout.panes[1].agent->kind == "codex");
+    CHECK(loaded_tab.pane_layout.panes[1].agent->display_name == "Codex");
+    CHECK(loaded_tab.pane_layout.panes[1].agent->instance_id
+        == "agent-4-7-pane-right");
 
     const SpaceSnapshot& loaded_second_space = loaded->spaces[1];
     CHECK(loaded_second_space.id == 11);

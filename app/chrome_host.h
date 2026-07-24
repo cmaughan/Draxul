@@ -102,6 +102,7 @@ public:
     // Returns the 1-based tab index if hit, or 0 if not in the tab bar.
     int hit_test_tab(int px, int py) const;
     SpaceId hit_test_space(int px, int py) const;
+    int hit_test_agent(int px, int py) const;
 
     // ----- Inline tab/pane rename (WI 128) -----------------------------
     // A single edit session can target either a tab or a pane

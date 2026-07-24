@@ -162,6 +162,7 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     launch_options_.clear();
     pane_user_names_.clear();
     pane_ids_.clear();
+    agent_identities_.clear();
     next_pane_serial_ = 1;
 
     LeafId root_id = tree_.reset(pixel_w, pixel_h);
@@ -306,6 +307,7 @@ bool PaneManager::close_leaf(LeafId id)
     launch_options_.erase(id);
     pane_user_names_.erase(id);
     pane_ids_.erase(id);
+    agent_identities_.erase(id);
 
     // Collapse the tree (this also updates focus if needed)
     LeafId old_focus = tree_.focused();
@@ -519,6 +521,7 @@ void PaneManager::shutdown()
     launch_options_.clear();
     pane_user_names_.clear();
     pane_ids_.clear();
+    agent_identities_.clear();
     next_pane_serial_ = 1;
     markdown_preview_leaf_ = kInvalidLeaf;
     markdown_preview_owner_ = kInvalidLeaf;
@@ -592,6 +595,8 @@ std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::snapshot_layout() co
             pane.launch.working_dir = current_cwd;
         pane.pane_name = pane_name(id);
         pane.pane_id = pane_id(id);
+        if (const AgentIdentity* agent = agent_identity(id))
+            pane.agent = *agent;
         state.panes.push_back(std::move(pane));
     });
 
@@ -655,6 +660,8 @@ bool PaneManager::restore_layout(
 
         if (!pane.pane_name.empty())
             pane_user_names_[pane.leaf_id] = pane.pane_name;
+        if (pane.agent)
+            agent_identities_[pane.leaf_id] = *pane.agent;
     }
 
     zoomed_leaf_ = state.zoomed && leaf_exists(state.zoomed_leaf)
@@ -694,6 +701,27 @@ const std::string& PaneManager::pane_id(LeafId id) const
     static const std::string empty;
     auto it = pane_ids_.find(id);
     return it == pane_ids_.end() ? empty : it->second;
+}
+
+void PaneManager::set_agent_identity(LeafId id, AgentIdentity identity)
+{
+    if (!hosts_.contains(id) || identity.kind.empty()
+        || identity.display_name.empty() || identity.instance_id.empty())
+    {
+        return;
+    }
+    agent_identities_[id] = std::move(identity);
+}
+
+const AgentIdentity* PaneManager::agent_identity(LeafId id) const
+{
+    const auto it = agent_identities_.find(id);
+    return it == agent_identities_.end() ? nullptr : &it->second;
+}
+
+bool PaneManager::clear_agent_identity(LeafId id)
+{
+    return agent_identities_.erase(id) != 0;
 }
 
 IHost* PaneManager::focused_host() const

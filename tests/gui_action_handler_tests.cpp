@@ -346,21 +346,25 @@ TEST_CASE("gui action handler: Space lifecycle actions invoke their callbacks", 
     int switch_count = 0;
     int rename_count = 0;
     int close_count = 0;
+    int launch_agent_count = 0;
     deps.on_new_space = [&new_count]() { ++new_count; };
     deps.on_switch_space = [&switch_count]() { ++switch_count; };
     deps.on_rename_space = [&rename_count]() { ++rename_count; };
     deps.on_close_space = [&close_count]() { ++close_count; };
+    deps.on_launch_agent = [&launch_agent_count]() { ++launch_agent_count; };
     GuiActionHandler handler(std::move(deps));
 
     REQUIRE(handler.execute("new_space"));
     REQUIRE(handler.execute("switch_space"));
     REQUIRE(handler.execute("rename_space"));
     REQUIRE(handler.execute("close_space"));
+    REQUIRE(handler.execute("launch_agent"));
 
     CHECK(new_count == 1);
     CHECK(switch_count == 1);
     CHECK(rename_count == 1);
     CHECK(close_count == 1);
+    CHECK(launch_agent_count == 1);
 }
 
 TEST_CASE("gui action handler: quit invokes application callback", "[gui_actions][lifecycle]")

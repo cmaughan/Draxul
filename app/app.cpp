@@ -72,12 +72,44 @@ bool text_service_config_changed(const AppConfig& lhs, const AppConfig& rhs)
         || lhs.fallback_paths != rhs.fallback_paths;
 }
 
+std::string agent_kind_from_command(std::string_view command)
+{
+    while (!command.empty() && std::isspace(static_cast<unsigned char>(command.front())))
+        command.remove_prefix(1);
+    size_t end = 0;
+    while (end < command.size()
+        && !std::isspace(static_cast<unsigned char>(command[end])))
+    {
+        ++end;
+    }
+    std::filesystem::path executable(std::string(command.substr(0, end)));
+    std::string kind = executable.stem().string();
+    std::transform(kind.begin(), kind.end(), kind.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return kind.empty() ? "agent" : kind;
+}
+
+std::string agent_display_name(std::string_view kind)
+{
+    if (kind == "codex")
+        return "Codex";
+    if (kind == "claude")
+        return "Claude";
+    if (kind == "gemini")
+        return "Gemini";
+    std::string name(kind);
+    if (!name.empty())
+        name.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(name.front())));
+    return name.empty() ? "Agent" : name;
+}
+
 class CallbackInputRouter final : public IInputRouter
 {
 public:
     std::function<IHost*()> overlay_host_fn;
     std::function<PaneManager*()> pane_manager_fn;
     std::function<int(int, int)> hit_test_space_fn;
+    std::function<int(int, int)> hit_test_agent_fn;
     std::function<int(int, int)> hit_test_tab_fn;
     std::function<LeafId(int, int)> hit_test_pane_pill_fn;
     std::function<bool(int, int)> hit_test_app_chrome_fn;
@@ -86,6 +118,7 @@ public:
     std::function<std::pair<int, int>()> cell_size_phys_fn;
     std::function<void(int)> activate_tab_fn;
     std::function<void(int)> activate_space_fn;
+    std::function<void(int)> activate_agent_fn;
     std::function<void(int)> activate_pane_fn;
     std::function<void(int)> begin_tab_rename_fn;
     std::function<void(LeafId)> begin_pane_rename_fn;
@@ -107,6 +140,11 @@ public:
     int hit_test_space(int phys_x, int phys_y) override
     {
         return hit_test_space_fn ? hit_test_space_fn(phys_x, phys_y) : kInvalidSpaceId;
+    }
+
+    int hit_test_agent(int phys_x, int phys_y) override
+    {
+        return hit_test_agent_fn ? hit_test_agent_fn(phys_x, phys_y) : 0;
     }
 
     int hit_test_tab(int phys_x, int phys_y) override
@@ -150,6 +188,12 @@ public:
     {
         if (activate_space_fn)
             activate_space_fn(space_id);
+    }
+
+    void activate_agent(int one_based_index) override
+    {
+        if (activate_agent_fn)
+            activate_agent_fn(one_based_index);
     }
 
     void activate_pane(int one_based_index) override
@@ -852,6 +896,7 @@ void App::wire_gui_actions()
         else
             push_toast(0, "Closed Space '" + name + "'.");
     };
+    gui_deps.on_launch_agent = [this]() { open_launch_agent_prompt(); };
     gui_deps.on_edit_config = [this]() {
         HostLaunchOptions launch;
         launch.kind = HostKind::Nvim;
@@ -918,8 +963,12 @@ void App::wire_gui_actions()
             return;
         }
         input_dispatcher_.set_host(nullptr);
+        const bool closing_agent = active_pane_manager().agent_identity(
+            active_pane_manager().focused_leaf()) != nullptr;
         active_pane_manager().close_focused();
         mark_session_dirty();
+        if (closing_agent)
+            refresh_app_shell_layout();
         input_dispatcher_.set_host(active_pane_manager().focused_host());
         request_frame();
     };
@@ -1242,6 +1291,29 @@ void App::open_rename_space_prompt()
         push_toast(2, "Unable to open Space rename prompt.");
 }
 
+void App::open_launch_agent_prompt()
+{
+    if (!palette_host_)
+        return;
+
+    CommandPalette::PromptRequest request;
+    request.title = "Launch Agent";
+    request.prompt = "Command";
+    request.initial_value = "codex";
+    request.empty_message = "Enter a local agent command";
+    request.on_submit = [this](std::string command) {
+        auto launched = launch_agent(command);
+        if (!launched)
+        {
+            push_toast(2, launched.error().message);
+            return;
+        }
+        push_toast(0, "Launched agent '" + agent_kind_from_command(command) + "'.");
+    };
+    if (!palette_host_->open_prompt(std::move(request)))
+        push_toast(2, "Unable to open agent command prompt.");
+}
+
 void App::wire_window_callbacks()
 {
     PERF_MEASURE();
@@ -1267,6 +1339,9 @@ void App::wire_window_callbacks()
     router->hit_test_space_fn = [this](int px, int py) {
         return chrome_host_ ? chrome_host_->hit_test_space(px, py) : kInvalidSpaceId;
     };
+    router->hit_test_agent_fn = [this](int px, int py) {
+        return chrome_host_ ? chrome_host_->hit_test_agent(px, py) : 0;
+    };
     router->hit_test_app_chrome_fn = [this](int px, int py) {
         return hit_test_app_chrome(px, py);
     };
@@ -1287,6 +1362,17 @@ void App::wire_window_callbacks()
     router->activate_space_fn = [this](int id) {
         if (auto activated = activate_space(static_cast<SpaceId>(id)); !activated)
             push_toast(2, activated.error().message);
+    };
+    router->activate_agent_fn = [this](int index) {
+        if (!agent_controller_.focus_by_index(space_controller_, index))
+        {
+            push_toast(2, "Agent is no longer available.");
+            return;
+        }
+        refresh_app_shell_layout();
+        input_dispatcher_.set_host(active_pane_manager().focused_host());
+        mark_session_dirty();
+        request_frame();
     };
     router->activate_pane_fn = [this](int index) {
         activate_pane_by_index(index);
@@ -2104,6 +2190,7 @@ void App::refresh_app_shell_layout()
         : window_height;
     const Tab* active_tab = find_active_tab();
     const bool zoomed = active_tab && active_tab->pane_manager.is_zoomed();
+    const bool have_agents = !agent_controller_.query(space_controller_).empty();
     shell_layout_ = compute_app_shell_layout({
         .window_width = window_width,
         .window_height = window_height,
@@ -2112,7 +2199,7 @@ void App::refresh_app_shell_layout()
         .cell_height = cell_height,
         .preferred_sidebar_columns = config_.space_sidebar_columns,
         .space_count = space_controller_.count(),
-        .show_sidebar = space_controller_.count() > 1,
+        .show_sidebar = space_controller_.count() > 1 || have_agents,
         .show_tab_bar = true,
         .zoomed = zoomed,
     });
@@ -2450,6 +2537,54 @@ Result<void, Error> App::close_space(SpaceId id)
     mark_session_dirty();
     request_frame();
     return Result<void, Error>::ok();
+}
+
+Result<std::string, Error> App::launch_agent(std::string_view raw_command)
+{
+    const std::string command = trim_session_name(raw_command);
+    if (command.empty())
+        return Result<std::string, Error>::err(
+            Error::invalid_argument("Enter a local agent command."));
+    if (command.find_first_of("\r\n") != std::string::npos)
+        return Result<std::string, Error>::err(
+            Error::invalid_argument("Agent command must be a single line."));
+    if (!window_ || !chrome_host_ || !diagnostics_host_)
+        return Result<std::string, Error>::err(
+            Error::init("Draxul is not ready to launch an agent."));
+
+    HostLaunchOptions launch;
+    launch.kind = PaneManager::platform_default_split_host_kind();
+    launch.startup_commands = { command };
+    if (IHost* host = active_pane_manager().focused_host())
+        launch.working_dir = host->current_working_directory();
+
+    PaneManager& panes = active_pane_manager();
+    const LeafId leaf = panes.split_focused(
+        SplitDirection::Vertical, std::move(launch), *this);
+    if (leaf == kInvalidLeaf)
+    {
+        const std::string detail = panes.error();
+        return Result<std::string, Error>::err(Error::init(detail.empty()
+                ? "Failed to create an agent pane."
+                : detail));
+    }
+
+    const std::string kind = agent_kind_from_command(command);
+    const std::string instance_id = "agent-"
+        + std::to_string(space_controller_.active_space_id()) + "-"
+        + std::to_string(active_tab_controller().active_tab_id()) + "-"
+        + panes.pane_id(leaf);
+    panes.set_agent_identity(leaf, {
+        .kind = kind,
+        .display_name = agent_display_name(kind),
+        .instance_id = instance_id,
+    });
+
+    mark_session_dirty();
+    refresh_app_shell_layout();
+    input_dispatcher_.set_host(panes.focused_host());
+    request_frame();
+    return instance_id;
 }
 
 Result<void, Error> App::load_session(std::string_view raw_session_id)

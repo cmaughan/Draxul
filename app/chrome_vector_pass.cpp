@@ -99,6 +99,11 @@ void ChromeVectorPass::record(IFrameContext& frame, const ChromeLayoutOutput& la
                 draw_segmented_pill(vg, space.rect, space.clip, space.accent_w,
                     space.palette.body_bg, space.palette.accent_bg);
             }
+            for (const auto& agent : layout.agents)
+            {
+                draw_segmented_pill(vg, agent.rect, agent.clip, agent.accent_w,
+                    agent.palette.body_bg, agent.palette.accent_bg);
+            }
 
             if (layout.sidebar_section_divider.h > 0.0f)
             {

@@ -1127,6 +1127,68 @@ TEST_CASE("app smoke: save_session_as captures active and inactive Spaces",
     restored.shutdown();
 }
 
+TEST_CASE("app smoke: launched agent identity drives the sidebar and survives restore",
+    "[app_smoke][session][agent]")
+{
+    TempDir temp("draxul-agent-identity");
+    HomeDirRedirect redir(temp.path);
+
+    AppOptions opts = make_smoke_options();
+    opts.enable_session_restore = true;
+    opts.session_id = "agent-session";
+    opts.host_kind = HostKind::PowerShell;
+
+    App app(std::move(opts));
+    REQUIRE(app.initialize());
+    auto launched = app.launch_agent("codex --ask-for-approval never");
+    if (!launched)
+        INFO(launched.error().message);
+    REQUIRE(launched);
+    CHECK(app.shell_layout().sidebar_visible);
+
+    AgentController agents;
+    auto rows = agents.query(app.space_controller());
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].identity.kind == "codex");
+    CHECK(rows[0].identity.display_name == "Codex");
+    CHECK(rows[0].identity.instance_id == *launched);
+    CHECK(rows[0].focused);
+
+    auto saved = app.save_session_as("Agent Session");
+    REQUIRE(saved);
+    auto state = load_session_state(*saved);
+    REQUIRE(state);
+    REQUIRE(state->spaces.size() == 1);
+    REQUIRE(state->spaces[0].tabs.size() == 1);
+    REQUIRE(state->spaces[0].tabs[0].pane_layout.panes.size() == 2);
+    const auto agent_pane = std::find_if(
+        state->spaces[0].tabs[0].pane_layout.panes.begin(),
+        state->spaces[0].tabs[0].pane_layout.panes.end(),
+        [](const PaneManager::PaneSnapshot& pane) { return pane.agent.has_value(); });
+    REQUIRE(agent_pane != state->spaces[0].tabs[0].pane_layout.panes.end());
+    REQUIRE(agent_pane->agent);
+    CHECK(agent_pane->agent->instance_id == *launched);
+    CHECK(agent_pane->launch.startup_commands
+        == (std::vector<std::string>{ "codex --ask-for-approval never" }));
+
+    const std::string saved_id = *saved;
+    const std::string agent_id = *launched;
+    app.shutdown();
+
+    AppOptions restored_opts = make_smoke_options();
+    restored_opts.enable_session_restore = true;
+    restored_opts.session_id = saved_id;
+    restored_opts.host_kind = HostKind::PowerShell;
+    App restored(std::move(restored_opts));
+    REQUIRE(restored.initialize());
+    rows = agents.query(restored.space_controller());
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0].identity.instance_id == agent_id);
+    CHECK(rows[0].running);
+    CHECK(restored.shell_layout().sidebar_visible);
+    restored.shutdown();
+}
+
 TEST_CASE("app smoke: load_session restores a selected saved session in the current window",
     "[app_smoke][session]")
 {

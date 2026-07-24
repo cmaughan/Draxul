@@ -8,6 +8,7 @@
 #include <draxul/app_config.h>
 #include <draxul/app_options.h>
 
+#include "agent_controller.h"
 #include "space_controller.h"
 
 using namespace draxul;
@@ -335,6 +336,59 @@ TEST_CASE("space controller recovery skips a failed tab and keeps usable topolog
         != std::string::npos);
 
     controller.shutdown_all();
+}
+
+TEST_CASE("agent controller derives pane occupants and focuses their stable route",
+    "[agent_controller][space_controller][agent]")
+{
+    SpaceHostHarness harness;
+    SpaceController spaces;
+    Space* default_space = spaces.find_space(kDefaultSpaceId);
+    REQUIRE(default_space != nullptr);
+    REQUIRE(harness.create_initial_tab(*default_space));
+    const LeafId default_leaf = default_space->tab_controller.active_pane_manager().focused_leaf();
+    default_space->tab_controller.active_pane_manager().set_agent_identity(default_leaf, {
+        .kind = "codex",
+        .display_name = "Codex",
+        .instance_id = "agent-default",
+    });
+
+    const SpaceId worker_id = spaces.create_space("worker");
+    Space* worker = spaces.find_space(worker_id);
+    REQUIRE(worker != nullptr);
+    REQUIRE(harness.create_initial_tab(*worker));
+    const LeafId worker_leaf = worker->tab_controller.active_pane_manager().focused_leaf();
+    worker->tab_controller.active_pane_manager().set_agent_identity(worker_leaf, {
+        .kind = "claude",
+        .display_name = "Claude",
+        .instance_id = "agent-worker",
+    });
+
+    AgentController agents;
+    auto rows = agents.query(spaces);
+    REQUIRE(rows.size() == 2);
+    CHECK(rows[0].space_id == kDefaultSpaceId);
+    CHECK(rows[0].identity.instance_id == "agent-default");
+    CHECK(rows[0].pane_id
+        == default_space->tab_controller.active_pane_manager().pane_id(default_leaf));
+    CHECK(rows[0].running);
+    CHECK(rows[0].focused);
+    CHECK(rows[1].space_id == worker_id);
+    CHECK(rows[1].identity.instance_id == "agent-worker");
+    CHECK_FALSE(rows[1].focused);
+
+    REQUIRE(agents.focus(spaces, "agent-worker"));
+    CHECK(spaces.active_space_id() == worker_id);
+    CHECK(worker->tab_controller.active_pane_manager().focused_leaf() == worker_leaf);
+    rows = agents.query(spaces);
+    CHECK_FALSE(rows[0].focused);
+    CHECK(rows[1].focused);
+
+    REQUIRE(agents.focus_by_index(spaces, 1));
+    CHECK(spaces.active_space_id() == kDefaultSpaceId);
+    CHECK_FALSE(agents.focus(spaces, "missing-agent"));
+
+    spaces.shutdown_all();
 }
 
 TEST_CASE("closing the active space focuses a populated replacement before shutdown",

@@ -103,6 +103,7 @@ TEST_CASE("CommandPalette lists Space lifecycle actions", "[palette][spaces]")
     };
 
     CHECK(has_action("new_space"));
+    CHECK(has_action("launch_agent"));
     CHECK(has_action("switch_space"));
     CHECK(has_action("rename_space"));
     CHECK(has_action("close_space"));

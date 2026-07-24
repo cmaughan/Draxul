@@ -73,6 +73,10 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
         { 0, "default", true },
         { 7, "renderer", false },
     };
+    input.agents = {
+        { "agent-0-1-pane-2", "Codex", true, true },
+        { "agent-7-3-pane-4", "Claude", false, false },
+    };
     refresh_shell(input, true);
 
     const auto layout = compute_chrome_layout(input);
@@ -122,6 +126,15 @@ TEST_CASE("ChromeLayout reserves a clickable Space sidebar", "[chrome][layout][s
     CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 70) == 0);
     CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 10, 90) == 7);
     CHECK(hit_test_chrome(layout, ChromeHitKind::Space, 210, 70) == -1);
+    REQUIRE(layout.agents.size() == 2);
+    CHECK(layout.agents[0].agent_index == 1);
+    CHECK(layout.agents[0].instance_id == "agent-0-1-pane-2");
+    CHECK(layout.agents[0].label == "1: Codex");
+    CHECK(layout.agents[0].focused);
+    CHECK(layout.agents[1].label == "2: Clau… [exited]");
+    CHECK_FALSE(layout.agents[1].running);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent, 10, 135) == 1);
+    CHECK(hit_test_chrome(layout, ChromeHitKind::Agent, 10, 155) == 2);
 
     REQUIRE(layout.tabs.size() == 2);
     CHECK(layout.tabs[0].rect.x == Catch::Approx(210.5f));

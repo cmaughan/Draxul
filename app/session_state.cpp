@@ -222,6 +222,14 @@ toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
             pane_table.insert_or_assign("pane_name", pane.pane_name);
         if (!pane.pane_id.empty())
             pane_table.insert_or_assign("pane_id", pane.pane_id);
+        if (pane.agent)
+        {
+            toml::table agent;
+            agent.insert_or_assign("kind", pane.agent->kind);
+            agent.insert_or_assign("display_name", pane.agent->display_name);
+            agent.insert_or_assign("instance_id", pane.agent->instance_id);
+            pane_table.insert_or_assign("agent", std::move(agent));
+        }
         panes.push_back(std::move(pane_table));
     }
     table.insert_or_assign("panes", std::move(panes));
@@ -295,6 +303,24 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
         pane.pane_name = toml_support::get_string(*pane_table, "pane_name").value_or("");
         pane.pane_id = toml_support::get_string(*pane_table, "pane_id").value_or(
             "pane-" + std::to_string(static_cast<int>(pane.leaf_id)));
+        if (const toml::table* agent = (*pane_table)["agent"].as_table())
+        {
+            const auto kind = toml_support::get_string(*agent, "kind");
+            const auto display_name = toml_support::get_string(*agent, "display_name");
+            const auto instance_id = toml_support::get_string(*agent, "instance_id");
+            if (!kind || kind->empty() || !display_name || display_name->empty()
+                || !instance_id || instance_id->empty())
+            {
+                if (error)
+                    *error = "Session state agent identity is incomplete.";
+                return std::nullopt;
+            }
+            pane.agent = AgentIdentity{
+                .kind = *kind,
+                .display_name = *display_name,
+                .instance_id = *instance_id,
+            };
+        }
         state.panes.push_back(std::move(pane));
     }
 
@@ -398,6 +424,14 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
         std::unordered_set<std::string> stable_pane_ids;
         for (const PaneManager::PaneSnapshot& pane : tab.pane_layout.panes)
         {
+            if (pane.agent
+                && (pane.agent->kind.empty() || pane.agent->display_name.empty()
+                    || pane.agent->instance_id.empty()))
+            {
+                if (error)
+                    *error = "Session state agent identity is incomplete.";
+                return false;
+            }
             if (pane.leaf_id == kInvalidLeaf || !pane_leaf_ids.insert(pane.leaf_id).second)
             {
                 if (error)
@@ -432,6 +466,7 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
     }
 
     std::unordered_set<SpaceId> space_ids;
+    std::unordered_set<std::string> agent_instance_ids;
     for (const SpaceSnapshot& space : state.spaces)
     {
         if (space.id == kInvalidSpaceId || !space_ids.insert(space.id).second)
@@ -442,6 +477,19 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
         }
         if (!validate_tab_snapshots(space.tabs, error))
             return false;
+        for (const TabSnapshot& tab : space.tabs)
+        {
+            for (const PaneManager::PaneSnapshot& pane : tab.pane_layout.panes)
+            {
+                if (pane.agent
+                    && !agent_instance_ids.insert(pane.agent->instance_id).second)
+                {
+                    if (error)
+                        *error = "Session state contains a duplicate agent instance id.";
+                    return false;
+                }
+            }
+        }
     }
 
     if (error)

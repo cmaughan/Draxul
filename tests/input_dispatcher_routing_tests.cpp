@@ -37,10 +37,12 @@ class TestInputRouter final : public IInputRouter
 public:
     std::function<IHost*()> overlay_host_fn;
     std::function<int(int, int)> hit_test_space_fn;
+    std::function<int(int, int)> hit_test_agent_fn;
     std::function<int()> app_chrome_width_fn;
     std::function<bool(int, int)> hit_test_shell_divider_fn;
     std::function<void(int)> resize_space_sidebar_fn;
     std::function<void(int)> activate_space_fn;
+    std::function<void(int)> activate_agent_fn;
     std::function<void(int)> activate_pane_fn;
 
     IHost* overlay_host() override
@@ -61,6 +63,10 @@ public:
     int hit_test_space(int x, int y) override
     {
         return hit_test_space_fn ? hit_test_space_fn(x, y) : -1;
+    }
+    int hit_test_agent(int x, int y) override
+    {
+        return hit_test_agent_fn ? hit_test_agent_fn(x, y) : 0;
     }
 
     LeafId hit_test_pane_pill(int, int) override
@@ -95,6 +101,11 @@ public:
     {
         if (activate_space_fn)
             activate_space_fn(id);
+    }
+    void activate_agent(int index) override
+    {
+        if (activate_agent_fn)
+            activate_agent_fn(index);
     }
 
     void activate_pane(int one_based_index) override
@@ -799,6 +810,26 @@ TEST_CASE("Space sidebar background consumes pointer events", "[input_dispatcher
     CHECK(setup.host.mouse_button_events.empty());
     CHECK(setup.host.mouse_move_events.empty());
     CHECK(setup.host.mouse_wheel_events.empty());
+}
+
+TEST_CASE("Agents sidebar clicks focus the derived agent row",
+    "[input_dispatcher][agents]")
+{
+    OverlayE2ESetup setup;
+    setup.overlay_active = false;
+    int activated_agent = 0;
+    setup.router.app_chrome_width_fn = []() { return 200; };
+    setup.router.hit_test_agent_fn = [](int x, int y) {
+        return x < 200 && y >= 130 && y < 150 ? 2 : 0;
+    };
+    setup.router.activate_agent_fn = [&activated_agent](int index) {
+        activated_agent = index;
+    };
+
+    setup.window.on_mouse_button(make_click(10, 140));
+
+    CHECK(activated_agent == 2);
+    CHECK(setup.host.mouse_button_events.empty());
 }
 
 TEST_CASE("Space sidebar divider drag captures motion until release",

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "agent_identity.h"
 #include "split_tree.h"
 #include <draxul/host.h>
 #include <draxul/host_kind.h>
@@ -46,6 +47,7 @@ public:
         SavedLaunchOptions launch;
         std::string pane_name;
         std::string pane_id;
+        std::optional<AgentIdentity> agent;
     };
 
     struct PaneLayoutSnapshot
@@ -183,6 +185,9 @@ public:
     const std::string& pane_name(LeafId id) const;
     bool has_pane_name(LeafId id) const;
     const std::string& pane_id(LeafId id) const;
+    void set_agent_identity(LeafId id, AgentIdentity identity);
+    const AgentIdentity* agent_identity(LeafId id) const;
+    bool clear_agent_identity(LeafId id);
 
     // Hit-test a point (physical pixels). Updates focus if a new leaf is hit.
     // Returns the host under the point, or null.
@@ -256,6 +261,7 @@ private:
     std::unordered_map<LeafId, HostLaunchOptions> launch_options_;
     std::unordered_map<LeafId, std::string> pane_user_names_;
     std::unordered_map<LeafId, std::string> pane_ids_;
+    std::unordered_map<LeafId, AgentIdentity> agent_identities_;
     std::string error_;
     uint64_t next_pane_serial_ = 1;
 

@@ -21,6 +21,7 @@ constexpr int kPaneWindowEdgeExtraInset = 2;
 enum class ChromeHitKind
 {
     Space,
+    Agent,
     Tab,
     PaneStatus,
 };
@@ -51,6 +52,14 @@ struct ChromeSpaceInput
     int space_id = -1;
     std::string name;
     bool active = false;
+};
+
+struct ChromeAgentInput
+{
+    std::string instance_id;
+    std::string display_name;
+    bool running = false;
+    bool focused = false;
 };
 
 struct ChromePaneInput
@@ -96,6 +105,7 @@ struct ChromeLayoutInput
     ChromeTheme theme{};
     std::vector<ChromeTabInput> tabs;
     std::vector<ChromeSpaceInput> spaces;
+    std::vector<ChromeAgentInput> agents;
     std::optional<SystemResourceSnapshot> resources;
     std::string weather_emoji;
     std::string weather_temperature;
@@ -122,6 +132,15 @@ struct ChromeSpaceLayout : ChromePillLayout
     int space_index = 0;
     int row = 0;
     bool active = false;
+};
+
+struct ChromeAgentLayout : ChromePillLayout
+{
+    std::string instance_id;
+    int agent_index = 0;
+    int row = 0;
+    bool running = false;
+    bool focused = false;
 };
 
 struct ChromeRightPillLayout
@@ -169,6 +188,7 @@ struct ChromeLayoutOutput
     int sidebar_height = 0;
     int sidebar_cols = 0;
     int sidebar_rows = 0;
+    int sidebar_agent_rows = 0;
     ChromeRect sidebar_rect{};
     ChromeRect sidebar_frame{};
     ChromeRect sidebar_spaces_header{};
@@ -178,6 +198,7 @@ struct ChromeLayoutOutput
     ChromeRect sidebar_agents_rect{};
     ChromeRect sidebar_divider{};
     std::vector<ChromeSpaceLayout> spaces;
+    std::vector<ChromeAgentLayout> agents;
     ChromeRect top_bar_clip{};
     std::vector<ChromeTabLayout> tabs;
     std::vector<ChromeRightPillLayout> right_pills;

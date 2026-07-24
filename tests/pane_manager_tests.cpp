@@ -598,6 +598,11 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
 
     harness.manager.set_pane_name(root, "left");
     harness.manager.set_pane_name(split, "right");
+    harness.manager.set_agent_identity(split, {
+        .kind = "codex",
+        .display_name = "Codex",
+        .instance_id = "agent-4-7-pane-right",
+    });
     harness.manager.set_focused(split);
     harness.manager.toggle_zoom(800, 600);
 
@@ -615,6 +620,11 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     CHECK(restored_harness.manager.focused_leaf() == split);
     CHECK(restored_harness.manager.pane_name(root) == "left");
     CHECK(restored_harness.manager.pane_name(split) == "right");
+    REQUIRE(restored_harness.manager.agent_identity(split) != nullptr);
+    CHECK(restored_harness.manager.agent_identity(split)->kind == "codex");
+    CHECK(restored_harness.manager.agent_identity(split)->display_name == "Codex");
+    CHECK(restored_harness.manager.agent_identity(split)->instance_id
+        == "agent-4-7-pane-right");
     CHECK(restored_harness.manager.is_zoomed());
     CHECK(restored_harness.manager.zoomed_leaf() == split);
 
@@ -634,6 +644,8 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     CHECK(restored_split->launch.args == (std::vector<std::string>{ "-NoLogo" }));
     CHECK(restored_split->launch.working_dir == "D:/dev/Draxul");
     CHECK(restored_split->launch.startup_commands == (std::vector<std::string>{ "echo ready" }));
+    REQUIRE(restored_split->agent);
+    CHECK(restored_split->agent->instance_id == "agent-4-7-pane-right");
 }
 
 TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",

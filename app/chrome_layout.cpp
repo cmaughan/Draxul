@@ -319,6 +319,9 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
             static_cast<float>(shell.sidebar_agents.w),
             static_cast<float>(shell.sidebar_agents.h)
         };
+        out.sidebar_agent_rows = ch > 0
+            ? std::max(0, shell.sidebar_agents.h / ch)
+            : 0;
         out.sidebar_agents_header = section_header(
             out.sidebar_section_divider.y + out.sidebar_section_divider.h);
         out.sidebar_divider = {
@@ -366,6 +369,52 @@ ChromeLayoutOutput compute_chrome_layout(const ChromeLayoutInput& input)
                     static_cast<float>(shell.sidebar.y + row * ch),
                     static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });
             out.spaces.push_back(std::move(space));
+        }
+        for (size_t i = 0; i < input.agents.size(); ++i)
+        {
+            const int row = static_cast<int>(i) + 1;
+            const int row_y = shell.sidebar_agents.y + row * ch;
+            if (row >= out.sidebar_agent_rows
+                || row_y + ch > shell.sidebar_agents.y + shell.sidebar_agents.h)
+            {
+                break;
+            }
+            const auto& source = input.agents[i];
+            const std::string prefix = std::to_string(i + 1) + ": ";
+            const int digits = static_cast<int>(std::to_string(i + 1).size());
+            const std::string suffix = source.running ? "" : " [exited]";
+            const int max_label_cols = std::max(
+                1, out.sidebar_cols - kTabPadCols * 2 - 1);
+            ChromeAgentLayout agent;
+            agent.instance_id = source.instance_id;
+            agent.agent_index = static_cast<int>(i) + 1;
+            agent.row = row;
+            agent.running = source.running;
+            agent.focused = source.focused;
+            agent.label = prefix + truncate_to_columns(source.display_name,
+                std::max(1, max_label_cols
+                        - display_columns(prefix) - display_columns(suffix)))
+                + suffix;
+            const int total = std::min(out.sidebar_cols - 1,
+                display_columns(agent.label) + kTabPadCols * 2);
+            static_cast<ChromePillLayout&>(agent) = layout_chrome_pill({
+                .grid_x = static_cast<float>(shell.sidebar_agents.x),
+                .grid_y = static_cast<float>(row_y),
+                .columns = total,
+                .text_col = kTabPadCols,
+                .prefix_cols = digits + 1,
+                .cell_width = cw,
+                .cell_height = ch,
+                .left_inset = static_cast<float>(input.grid_padding),
+                .label = agent.label,
+                .palette = chrome_pill_palette(
+                    input.theme, ChromePillRole::Agent, agent.focused),
+            });
+            out.hit_regions.push_back({ ChromeHitKind::Agent, agent.agent_index,
+                { static_cast<float>(shell.sidebar_agents.x),
+                    static_cast<float>(row_y),
+                    static_cast<float>(out.sidebar_width), static_cast<float>(ch) } });
+            out.agents.push_back(std::move(agent));
         }
     }
     if (input.show_top_bar && cw > 0 && ch > 0)

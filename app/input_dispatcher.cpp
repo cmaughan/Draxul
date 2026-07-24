@@ -536,6 +536,17 @@ void InputDispatcher::on_mouse_button_event(const MouseButtonEvent& event)
         }
     }
 
+    // Agents sidebar click — resolve the derived row back to its pane owner.
+    if (event.pressed && deps_.router)
+    {
+        const int agent_index = deps_.router->hit_test_agent(phys_x, phys_y);
+        if (agent_index > 0)
+        {
+            deps_.router->activate_agent(agent_index);
+            return;
+        }
+    }
+
     // Tab bar click — check before anything else.
     if (event.pressed && deps_.router)
     {

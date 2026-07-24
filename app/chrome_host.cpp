@@ -1,5 +1,6 @@
 #include "chrome_host.h"
 
+#include "agent_controller.h"
 #include "pane_manager.h"
 
 #include <SDL3/SDL_keycode.h>
@@ -99,6 +100,15 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
             input.spaces.push_back(
                 { space->id, space->name, space->id == deps_.space_controller->active_space_id() });
         }
+        for (const AgentProjection& agent : AgentController{}.query(*deps_.space_controller))
+        {
+            input.agents.push_back({
+                .instance_id = agent.identity.instance_id,
+                .display_name = agent.identity.display_name,
+                .running = agent.running,
+                .focused = agent.focused,
+            });
+        }
     }
 
     const TabController* controller = active_tabs();
@@ -195,6 +205,14 @@ SpaceId ChromeHost::hit_test_space(int px, int py) const
         return kInvalidSpaceId;
     return static_cast<SpaceId>(hit_test_chrome(
         compute_chrome_layout(build_layout_input()), ChromeHitKind::Space, px, py));
+}
+
+int ChromeHost::hit_test_agent(int px, int py) const
+{
+    if (!deps_.space_controller || !deps_.grid_renderer)
+        return 0;
+    return hit_test_chrome(
+        compute_chrome_layout(build_layout_input()), ChromeHitKind::Agent, px, py);
 }
 
 LeafId ChromeHost::hit_test_pane_status_pill(int px, int py) const

@@ -75,6 +75,7 @@ void ChromeTextLayer::shutdown()
 {
     top_bar_handle_.reset();
     sidebar_handle_.reset();
+    agents_handle_.reset();
     spaces_header_handle_.reset();
     agents_header_handle_.reset();
     pane_handles_.clear();
@@ -93,6 +94,8 @@ void ChromeTextLayer::draw(IFrameContext& frame, const ChromeLayoutOutput& layou
         frame.draw_grid_handle(*top_bar_handle_);
     if (layout.sidebar_width > 0 && sidebar_handle_)
         frame.draw_grid_handle(*sidebar_handle_);
+    if (layout.sidebar_width > 0 && agents_handle_)
+        frame.draw_grid_handle(*agents_handle_);
     if (layout.sidebar_width > 0 && spaces_header_handle_)
         frame.draw_grid_handle(*spaces_header_handle_);
     if (layout.sidebar_width > 0 && agents_header_handle_)
@@ -158,6 +161,7 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
     if (layout.sidebar_width <= 0 || layout.sidebar_cols <= 0 || layout.sidebar_rows <= 0)
     {
         sidebar_handle_.reset();
+        agents_handle_.reset();
         spaces_header_handle_.reset();
         agents_header_handle_.reset();
         return;
@@ -195,6 +199,52 @@ void ChromeTextLayer::update_sidebar(const ChromeLayoutOutput& layout, const Chr
             *text_service_, space.palette.accent_fg, space.palette.body_fg);
     }
     sidebar_handle_->update_cells(cells);
+
+    if (layout.sidebar_agent_rows <= 0 || layout.agents.empty())
+    {
+        agents_handle_.reset();
+    }
+    else
+    {
+        if (!agents_handle_)
+        {
+            agents_handle_ = renderer_->create_grid_handle();
+            if (!agents_handle_)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::App,
+                    "ChromeTextLayer: agents create_grid_handle() returned null");
+            }
+            else
+            {
+                agents_handle_->set_default_background({ 0, 0, 0, 0 });
+                agents_handle_->set_cursor(-1, -1, CursorStyle{});
+                agents_handle_->set_cursor_visible(false);
+            }
+        }
+        if (agents_handle_)
+        {
+            PaneDescriptor agent_desc;
+            agent_desc.pixel_pos = {
+                static_cast<int>(layout.sidebar_agents_rect.x),
+                static_cast<int>(layout.sidebar_agents_rect.y) - layout.grid_padding
+            };
+            agent_desc.pixel_size = {
+                layout.sidebar_width,
+                static_cast<int>(layout.sidebar_agents_rect.h) + layout.grid_padding
+            };
+            agents_handle_->set_viewport(agent_desc);
+            agents_handle_->set_grid_size(layout.sidebar_cols, layout.sidebar_agent_rows);
+            auto agent_cells = transparent_cells(
+                layout.sidebar_cols, layout.sidebar_agent_rows);
+            for (const auto& agent : layout.agents)
+            {
+                write_pill_text(agent_cells, layout.sidebar_cols, agent.row, agent,
+                    *text_service_, agent.palette.accent_fg, agent.palette.body_fg);
+            }
+            agents_handle_->update_cells(agent_cells);
+        }
+    }
+
     update_section_header(spaces_header_handle_, layout,
         layout.sidebar_spaces_header, "SPACES", theme.tab_inactive_fg);
     update_section_header(agents_header_handle_, layout,

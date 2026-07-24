@@ -1,4 +1,5 @@
 #pragma once
+#include "agent_controller.h"
 #include "app_shell_layout.h"
 #include "command_palette_host.h"
 #include "diagnostics_panel_host.h"
@@ -96,6 +97,7 @@ public:
     Result<void, Error> activate_space(SpaceId id);
     Result<void, Error> rename_space(SpaceId id, std::string_view name);
     Result<void, Error> close_space(SpaceId id);
+    Result<std::string, Error> launch_agent(std::string_view command);
     const SpaceController& space_controller() const noexcept
     {
         return space_controller_;
@@ -153,6 +155,7 @@ private:
     void open_new_space_prompt();
     void open_switch_space_picker();
     void open_rename_space_prompt();
+    void open_launch_agent_prompt();
     bool close_dead_panes();
     void rebuild_render_tree();
     bool render_frame();
@@ -248,6 +251,7 @@ private:
     std::unique_ptr<class ChromeHost> chrome_host_;
     AppShellLayout shell_layout_{};
     SpaceController space_controller_;
+    AgentController agent_controller_;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;
     DiagnosticsCollector diagnostics_collector_;

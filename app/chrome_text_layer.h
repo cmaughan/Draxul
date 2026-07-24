@@ -31,6 +31,7 @@ private:
     TextService* text_service_ = nullptr;
     std::unique_ptr<IGridHandle> top_bar_handle_;
     std::unique_ptr<IGridHandle> sidebar_handle_;
+    std::unique_ptr<IGridHandle> agents_handle_;
     std::unique_ptr<IGridHandle> spaces_header_handle_;
     std::unique_ptr<IGridHandle> agents_header_handle_;
     std::unordered_map<LeafId, std::unique_ptr<IGridHandle>> pane_handles_;
