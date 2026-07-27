@@ -59,6 +59,36 @@ std::optional<AgentDiscoveryMatch> kind_from_name(std::string_view value)
     return std::nullopt;
 }
 
+// Native installs put the real binary in a VERSIONED file and expose it through
+// a name-bearing symlink — `~/.local/bin/claude` ->
+// `~/.local/share/claude/versions/2.1.220`. exec() resolves the symlink, so the
+// kernel reports the target: the executable's basename is "2.1.220", which
+// carries no product identity at all. Recover it from the install layout, where
+// the directory above `versions/` is the product name.
+std::optional<AgentDiscoveryMatch> kind_from_versioned_install(std::string_view value)
+{
+    const std::filesystem::path path(value);
+    const std::filesystem::path parent = path.parent_path();
+    if (lowercase(parent.filename().string()) != "versions")
+        return std::nullopt;
+    const std::string product = lowercase(parent.parent_path().filename().string());
+    if (product == "codex")
+        return AgentDiscoveryMatch{
+            .kind = "codex",
+            .display_name = "Codex",
+            .evidence_category = "versioned_install",
+            .high_confidence = true,
+        };
+    if (product == "claude" || product == "claude-code")
+        return AgentDiscoveryMatch{
+            .kind = "claude",
+            .display_name = "Claude",
+            .evidence_category = "versioned_install",
+            .high_confidence = true,
+        };
+    return std::nullopt;
+}
+
 std::optional<AgentDiscoveryMatch> kind_from_hint(std::string_view hint)
 {
     const std::string normalized = lowercase(std::string(hint));
@@ -231,8 +261,12 @@ std::optional<AgentDiscoveryMatch> discover_agent_process(
         auto candidate = kind_from_hint(process.agent_hint);
         if (!candidate)
             candidate = kind_from_name(process.executable);
+        // argv[0] preserves the name the user invoked when exec() resolves a
+        // symlink to a version-numbered binary.
         if (!candidate && !process.arguments.empty())
             candidate = kind_from_name(process.arguments.front());
+        if (!candidate)
+            candidate = kind_from_versioned_install(process.executable);
         if (!candidate)
             candidate = kind_from_wrapper(process);
         if (!candidate)
@@ -275,8 +309,7 @@ std::optional<AgentDiscoveryMatch> discover_agent_process(
         }
     }
     if (result)
-        result->high_confidence =
-            result->high_confidence && observation.foreground_reliable;
+        result->high_confidence = result->high_confidence && observation.foreground_reliable;
     return result;
 }
 

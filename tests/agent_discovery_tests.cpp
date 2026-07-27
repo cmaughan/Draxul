@@ -83,6 +83,74 @@ TEST_CASE("agent discovery recognizes direct and structured wrapper processes",
     CHECK_FALSE(discover_agent_process(wrapper));
 }
 
+TEST_CASE("agent discovery survives a symlinked versioned install",
+    "[agent][discovery]")
+{
+    // The real-world native install: `~/.local/bin/claude` is a symlink to
+    // `~/.local/share/claude/versions/<version>`. exec() resolves it, so the
+    // kernel reports the versioned target and the executable's basename is a
+    // version number carrying no product identity. This is what stopped a
+    // hand-started `claude` from ever being detected.
+    AgentProcessObservation typed_by_name{
+        .processes = {
+            {
+                .process_id = 4242,
+                .executable = "/Users/dev/.local/share/claude/versions/2.1.220",
+                .arguments = { "claude" },
+            },
+        },
+        .foreground_reliable = true,
+    };
+    auto match = discover_agent_process(typed_by_name);
+    REQUIRE(match);
+    CHECK(match->kind == "claude");
+    CHECK(match->high_confidence);
+
+    // Same install, but invoked by absolute path so argv[0] is the resolved
+    // target too — the install layout still identifies the product.
+    AgentProcessObservation by_path{
+        .processes = {
+            {
+                .process_id = 4243,
+                .executable = "/Users/dev/.local/share/claude/versions/2.1.220",
+                .arguments = { "/Users/dev/.local/share/claude/versions/2.1.220" },
+            },
+        },
+        .foreground_reliable = true,
+    };
+    auto path_match = discover_agent_process(by_path);
+    REQUIRE(path_match);
+    CHECK(path_match->kind == "claude");
+    CHECK(path_match->evidence_category == "versioned_install");
+
+    AgentProcessObservation codex_install{
+        .processes = {
+            {
+                .process_id = 4244,
+                .executable = "/Users/dev/.local/share/codex/versions/0.9.1",
+                .arguments = { "/Users/dev/.local/share/codex/versions/0.9.1" },
+            },
+        },
+        .foreground_reliable = true,
+    };
+    auto codex_match = discover_agent_process(codex_install);
+    REQUIRE(codex_match);
+    CHECK(codex_match->kind == "codex");
+
+    // A versioned path that is not an agent install stays unmatched.
+    AgentProcessObservation unrelated{
+        .processes = {
+            {
+                .process_id = 4245,
+                .executable = "/opt/tooling/ripgrep/versions/14.1.0",
+                .arguments = { "rg" },
+            },
+        },
+        .foreground_reliable = true,
+    };
+    CHECK_FALSE(discover_agent_process(unrelated));
+}
+
 TEST_CASE("agent discovery accepts explicit hints and rejects competing agents",
     "[agent][discovery]")
 {
