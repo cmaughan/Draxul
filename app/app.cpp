@@ -2860,7 +2860,6 @@ Result<void, Error> App::load_session(std::string_view raw_session_id)
     refresh_app_shell_layout();
     input_dispatcher_.set_host(active_pane_manager().focused_host());
     session_dirty_ = false;
-    last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     request_frame();
     return Result<void, Error>::ok();
 }
@@ -2930,7 +2929,6 @@ Result<std::string, Error> App::save_session_as(std::string_view raw_name)
     }
 
     session_dirty_ = false;
-    last_session_checkpoint_time_ = std::chrono::steady_clock::now();
     request_frame();
     return new_id;
 }
@@ -2987,15 +2985,42 @@ bool App::persist_session_state()
 
 void App::maybe_checkpoint_session(std::chrono::steady_clock::time_point now)
 {
-    if (!options_.enable_session_restore || discard_session_state_on_shutdown_
-        || !session_dirty_ || !can_snapshot_session_state())
+    if (!options_.enable_session_restore || discard_session_state_on_shutdown_)
         return;
+
+    // Saved layouts cover shell panes only, so a single nvim/markdown/kanban/
+    // score/megacity pane anywhere disables every checkpoint AND the shutdown
+    // save. That is deliberate, but it used to be completely silent: the user
+    // simply stopped getting their layout back. Report the transition once —
+    // never the steady state, and never on the very first evaluation, so an
+    // explicit non-shell launch does not open with a warning.
+    const bool blocked = !can_snapshot_session_state();
+    if (session_persistence_blocked_ && *session_persistence_blocked_ != blocked)
+    {
+        if (blocked)
+        {
+            DRAXUL_LOG_INFO(LogCategory::App,
+                "Session checkpointing paused: saved layouts cover shell panes only.");
+            push_toast(1, "Session saving paused while a non-shell pane is open.");
+        }
+        else
+        {
+            DRAXUL_LOG_INFO(LogCategory::App, "Session checkpointing resumed.");
+        }
+    }
+    session_persistence_blocked_ = blocked;
+
+    if (!session_dirty_ || blocked)
+        return;
+    // Trailing edge: this waits for the session to go QUIET for the interval
+    // rather than firing on a fixed period. There is deliberately no maximum
+    // staleness — mutations come from discrete user actions, so a session that
+    // never settles for 2s is not a shape we have seen.
     if (last_session_mutation_time_.time_since_epoch().count() != 0
         && now - last_session_mutation_time_ < options_.session_checkpoint_interval)
         return;
 
-    if (persist_session_state())
-        last_session_checkpoint_time_ = now;
+    persist_session_state();
 }
 
 bool App::restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state)

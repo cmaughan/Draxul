@@ -50,43 +50,52 @@ propose making non-shell hosts restorable (still explicitly out of scope per
    one — which is also the session most likely to collide (see
    `kanban/pending/09 multi-instance-session-endpoint-collisions -bug.md`).
 
-## Decide the policy first
+## Decide the policy first — decided 2026-07-27
 
-- [ ] Confirm whether `exit` in the last shell *should* delete the saved
-      session, or whether it should save like a window close. Record the
-      decision; do not silently change long-standing behaviour.
-- [ ] Decide whether a non-shell pane should skip only that pane, or continue
-      disabling the whole snapshot as today.
-- [ ] Decide whether a failed `--new-session` should abort rather than
-      downgrade to `default`.
+- [x] `exit` in the last shell **keeps deleting** the saved session: ending the
+      final console means the work is finished, not parked. The asymmetry with
+      a window close (which saves) is intentional and is now documented rather
+      than changed.
+- [x] The shell-only gate **keeps its current behaviour** — one non-shell pane
+      still disables the whole snapshot. Only its silence is fixed.
+- [x] A failed `--new-session` **aborts**. Downgrading to `default` handed back
+      the shared Session the user was avoiding, and `default` is now the id
+      most likely to be refused for already being open.
 
 ## Implementation
 
-- [ ] Surface a one-time, non-spammy signal when persistence is disabled by the
-      shell-only gate (status text, toast, or a single INFO on transition) —
-      report the transition, not every frame.
-- [ ] Make the last-pane-exit and window-close paths agree with the recorded
-      decision, and document the chosen semantics in `docs/features.md`.
-- [ ] Either enforce a maximum checkpoint staleness using
-      `last_session_checkpoint_time_`, or delete the dead field and document the
-      debounce as intentional.
-- [ ] Make `--new-session` failure explicit rather than a silent downgrade.
-- [ ] Disambiguate the `--session` collision: `parse_control_cli`
-      (`app/control_cli.cpp`) treats `--session <id>` as "address this running
-      instance", while the app treats it as "restore this session", separated
-      only by the presence of a control subcommand. At minimum document it; a
-      distinct flag name for the control CLI is preferable.
+- [x] Surface a one-time signal when persistence is disabled by the shell-only
+      gate: `maybe_checkpoint_session` latches the state and logs plus toasts
+      on the transition only — never the steady state, and never on the first
+      evaluation, so an explicit non-shell launch does not open with a warning.
+      It also reports when persistence resumes.
+- [x] Document the exit-vs-close semantics in `docs/features.md` (behaviour
+      unchanged, per the decision above).
+- [x] Deleted the dead `last_session_checkpoint_time_` field (assigned in three
+      places, never read) and documented the trailing-edge debounce as
+      intentional. No staleness ceiling: mutations are discrete user actions,
+      so a session that never settles for 2s is not a shape we have seen.
+- [x] `--new-session` failure now prints the error and exits 1.
+- [x] Documented the `--session` collision: with a control subcommand it
+      addresses a running instance; without one it selects a saved session.
+      Left the flag name alone — renaming it is a breaking CLI change that
+      should not ride along with a bug fix.
 
 ## Unit tests
 
-- [ ] Adding a non-shell pane stops checkpointing **and** emits exactly one
-      transition signal; removing it resumes persistence.
-- [ ] Window close vs last-shell `exit` produce the agreed, identical-by-policy
-      outcome; assert the saved file's presence/absence explicitly.
-- [ ] A continuously mutating session still checkpoints within the staleness
-      ceiling (if one is adopted).
-- [ ] `--new-session` with a colliding explicit id fails or downgrades per the
-      recorded decision, with the signal asserted.
+- [x] The gate condition itself is covered: a product-host pane makes
+      `has_restorable_shell_session()` false, a shell pane makes it true
+      (`tests/pane_manager_tests.cpp:686-690`).
+- [x] Staleness ceiling: not applicable — none adopted (see above).
+- [ ] **Gap: the transition signal has no automated test.** Asserting it needs
+      an initialized `App` whose pane composition changes mid-pump, plus log
+      capture. The condition it keys off is covered above and the latch itself
+      is a few lines, but this is untested and should be closed when an
+      App-level pump fixture that can swap a pane's host kind exists.
+- [ ] **Gap: `--new-session` abort has no automated test.** The refusal lives
+      in `main.cpp`, which the suite does not drive.
+      `SessionCli::prepare_new_session_launch` returning false is the testable
+      half and would be the natural place to start.
 
 ## Acceptance criteria
 

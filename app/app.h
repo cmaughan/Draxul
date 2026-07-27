@@ -285,7 +285,10 @@ private:
     bool session_dirty_ = false;
     uint64_t session_dirty_generation_ = 0;
     std::chrono::steady_clock::time_point last_session_mutation_time_{};
-    std::chrono::steady_clock::time_point last_session_checkpoint_time_{};
+    // Latched so the shell-only persistence gate reports its transitions once
+    // instead of silently dropping every checkpoint. Unset until the first
+    // evaluation, so an explicit non-shell launch does not warn at startup.
+    std::optional<bool> session_persistence_blocked_;
     std::unordered_set<std::string> announced_dead_panes_;
     std::optional<std::pair<int, int>> pending_window_resize_;
 };
