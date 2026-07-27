@@ -2,9 +2,9 @@
 
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
-#include <cctype>
 #include <cstdint>
 #include <deque>
 #include <fstream>
@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <thread>
@@ -21,8 +22,11 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+// sddl.h depends on Windows API family declarations from windows.h.
+// clang-format off
 #include <windows.h>
 #include <sddl.h>
+// clang-format on
 #else
 #include <cerrno>
 #include <cstring>
@@ -170,8 +174,7 @@ ControlMethodResult parse_request(std::string_view bytes,
             "invalid_message", "Control message is empty or exceeds structural limits.");
     }
 
-    const nlohmann::json envelope =
-        nlohmann::json::parse(bytes, nullptr, false, true);
+    const nlohmann::json envelope = nlohmann::json::parse(bytes, nullptr, false, true);
     if (envelope.is_discarded() || !envelope.is_object())
         return ControlMethodResult::error("invalid_json", "Control message is not valid JSON.");
     if (envelope.value("version", 0) != kControlProtocolVersion)
@@ -248,8 +251,7 @@ bool write_owner_only_file(
     size_t offset = 0;
     while (offset < contents.size())
     {
-        const ssize_t written =
-            ::write(fd, contents.data() + offset, contents.size() - offset);
+        const ssize_t written = ::write(fd, contents.data() + offset, contents.size() - offset);
         if (written <= 0)
         {
             ::close(fd);
@@ -451,6 +453,10 @@ public:
     void run(std::stop_token stop_token);
     void process_pending(const Handler& handler);
     ControlMethodResult dispatch(ControlRequest request);
+    // The listener is only established on the worker thread, so start() waits
+    // for this before reporting. Empty string = listening; non-empty = the
+    // reason it could not. First report wins; later calls are ignored.
+    void report_startup(std::string result);
 
     std::string session_id;
     std::filesystem::path runtime_directory;
@@ -462,7 +468,23 @@ public:
     std::atomic<bool> active = false;
     std::mutex queue_mutex;
     std::deque<std::shared_ptr<Pending>> queue;
+    std::mutex startup_mutex;
+    std::condition_variable startup_changed;
+    std::optional<std::string> startup_result;
+    bool owns_endpoint = false;
+    std::atomic<bool> endpoint_in_use = false;
 };
+
+void ControlServer::Impl::report_startup(std::string result)
+{
+    {
+        std::lock_guard<std::mutex> guard(startup_mutex);
+        if (startup_result)
+            return;
+        startup_result = std::move(result);
+    }
+    startup_changed.notify_all();
+}
 
 bool ControlServer::Impl::start(std::string new_session_id,
     std::filesystem::path new_runtime_directory,
@@ -505,22 +527,52 @@ bool ControlServer::Impl::start(std::string new_session_id,
     ::chmod(runtime_directory.c_str(), 0700);
 #endif
 
+    active = true;
+    endpoint_in_use = false;
+    {
+        std::lock_guard<std::mutex> guard(startup_mutex);
+        startup_result.reset();
+    }
+    thread = std::jthread([this](std::stop_token stop_token) { run(stop_token); });
+
+    // Wait for the worker to actually claim the endpoint. Returning true
+    // before bind()/CreateNamedPipeW meant a failed listener was silent and
+    // the app ran on with a dead control plane.
+    std::string startup_error;
+    {
+        std::unique_lock<std::mutex> lock(startup_mutex);
+        startup_changed.wait(lock, [this] { return startup_result.has_value(); });
+        startup_error = *startup_result;
+    }
+    if (!startup_error.empty())
+    {
+        if (error)
+            *error = startup_error;
+        // The endpoint was never ours: join the worker without touching the
+        // other instance's socket or metadata (owns_endpoint is still false).
+        stop();
+        return false;
+    }
+    owns_endpoint = true;
+
+    // Publish the token only now. Writing it before the listener was claimed
+    // meant a second instance overwrote a live server's credentials, and every
+    // CLI request then authenticated against the wrong process.
     const std::string metadata_bytes = nlohmann::json{
         { "version", kControlProtocolVersion },
         { "session_id", session_id },
         { "endpoint", endpoint },
         { "token", token },
-    }.dump();
+    }
+                                           .dump();
     std::string write_error;
     if (!write_owner_only_file(metadata, metadata_bytes, write_error))
     {
         if (error)
             *error = std::move(write_error);
+        stop();
         return false;
     }
-
-    active = true;
-    thread = std::jthread([this](std::stop_token stop_token) { run(stop_token); });
     return true;
 }
 
@@ -532,12 +584,19 @@ void ControlServer::Impl::stop()
         thread.join();
     }
     active = false;
-    std::error_code ignored;
-    std::filesystem::remove(metadata, ignored);
+    // Only tear down what this process actually claimed. A start() that lost
+    // the endpoint to another live instance must never remove that instance's
+    // socket or overwrite its metadata.
+    if (owns_endpoint)
+    {
+        std::error_code ignored;
+        std::filesystem::remove(metadata, ignored);
 #ifndef _WIN32
-    if (!endpoint.empty())
-        std::filesystem::remove(endpoint, ignored);
+        if (!endpoint.empty())
+            std::filesystem::remove(endpoint, ignored);
 #endif
+        owns_endpoint = false;
+    }
     std::lock_guard lock(queue_mutex);
     for (auto& pending : queue)
     {
@@ -596,6 +655,7 @@ void ControlServer::Impl::run(std::stop_token stop_token)
             L"D:P(A;;GA;;;SY)(A;;GA;;;OW)",
             SDDL_REVISION_1, &descriptor, nullptr))
     {
+        report_startup("Unable to build the control pipe security descriptor.");
         active = false;
         return;
     }
@@ -603,16 +663,39 @@ void ControlServer::Impl::run(std::stop_token stop_token)
         sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE
     };
     const std::wstring pipe_name(endpoint.begin(), endpoint.end());
+    bool first_instance = true;
 
     while (!stop_token.stop_requested())
     {
-        HANDLE pipe = CreateNamedPipeW(pipe_name.c_str(),
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+        // FILE_FLAG_FIRST_PIPE_INSTANCE on the initial create makes a second
+        // Draxul fail deterministically instead of quietly adding an instance
+        // of the same pipe name and racing the first for clients. Later
+        // iterations re-create the listener after a connection is serviced, by
+        // which point this process already owns the name.
+        const DWORD open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
+            | (first_instance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0u);
+        HANDLE pipe = CreateNamedPipeW(pipe_name.c_str(), open_mode,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             4, static_cast<DWORD>(kControlMaxMessageBytes),
             static_cast<DWORD>(kControlMaxMessageBytes), 0, &attributes);
         if (pipe == INVALID_HANDLE_VALUE)
+        {
+            if (first_instance)
+            {
+                const bool taken = GetLastError() == ERROR_ACCESS_DENIED;
+                endpoint_in_use = taken;
+                report_startup(taken
+                        ? "Control endpoint is already in use by another Draxul instance."
+                        : "Unable to create the control pipe.");
+                active = false;
+            }
             break;
+        }
+        if (first_instance)
+        {
+            report_startup({});
+            first_instance = false;
+        }
 
         OVERLAPPED connect{};
         connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -656,6 +739,9 @@ void ControlServer::Impl::run(std::stop_token stop_token)
         CancelIoEx(pipe, nullptr);
         CloseHandle(pipe);
     }
+    // Safety net: a stop requested before the first create would otherwise
+    // leave start() waiting on a report that never comes.
+    report_startup({});
     LocalFree(descriptor);
     active = false;
 }
@@ -667,21 +753,48 @@ void ControlServer::Impl::run(std::stop_token stop_token)
     const int server = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (server < 0)
     {
+        report_startup("Unable to create the control socket.");
         active = false;
         return;
     }
-    ::unlink(endpoint.c_str());
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
     std::memcpy(address.sun_path, endpoint.c_str(), endpoint.size() + 1);
+
+    // Reclaim the path only when nothing is listening on it. Unlinking
+    // unconditionally let a second instance silently steal a LIVE server's
+    // endpoint: the first process kept polling a socket that no client could
+    // reach, and every CLI request routed to the newcomer instead.
+    if (::access(endpoint.c_str(), F_OK) == 0)
+    {
+        bool in_use = false;
+        const int probe = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe >= 0)
+        {
+            in_use = ::connect(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+            ::close(probe);
+        }
+        if (in_use)
+        {
+            ::close(server);
+            endpoint_in_use = true;
+            report_startup("Control endpoint is already in use by another Draxul instance.");
+            active = false;
+            return;
+        }
+        ::unlink(endpoint.c_str()); // stale: the owner is gone
+    }
+
     if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0
         || ::chmod(endpoint.c_str(), 0600) != 0
         || ::listen(server, 4) != 0)
     {
         ::close(server);
+        report_startup("Unable to bind the control socket.");
         active = false;
         return;
     }
+    report_startup({});
     const int flags = ::fcntl(server, F_GETFL, 0);
     ::fcntl(server, F_SETFL, flags | O_NONBLOCK);
 
@@ -751,6 +864,11 @@ bool ControlServer::running() const
     return impl_->active;
 }
 
+bool ControlServer::endpoint_in_use() const
+{
+    return impl_->endpoint_in_use;
+}
+
 void ControlServer::process_pending(const Handler& handler)
 {
     impl_->process_pending(handler);
@@ -787,7 +905,8 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         { "id", id },
         { "method", method },
         { "params", std::move(params) },
-    }.dump();
+    }
+                                    .dump();
 
     std::string response_bytes;
 #ifdef _WIN32
@@ -825,8 +944,7 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         return { false, nullptr, "endpoint_unavailable", "Control socket path is too long." };
     }
     std::memcpy(address.sun_path, endpoint.c_str(), endpoint.size() + 1);
-    const bool connected =
-        ::connect(socket_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+    const bool connected = ::connect(socket_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
     const bool io_ok = connected && write_frame(socket_fd, request)
         && read_frame(socket_fd, response_bytes);
     ::close(socket_fd);
@@ -837,8 +955,7 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         return { false, nullptr, "invalid_response",
             "Control response exceeds the JSON nesting limit." };
 
-    const auto response =
-        nlohmann::json::parse(response_bytes, nullptr, false, true);
+    const auto response = nlohmann::json::parse(response_bytes, nullptr, false, true);
     if (response.is_discarded() || !response.is_object())
         return { false, nullptr, "invalid_response",
             "Control response is not a JSON object." };

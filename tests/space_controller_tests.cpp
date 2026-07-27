@@ -350,10 +350,10 @@ TEST_CASE("agent controller derives pane occupants and focuses their stable rout
     REQUIRE(harness.create_initial_tab(*default_space));
     const LeafId default_leaf = default_space->tab_controller.active_pane_manager().focused_leaf();
     default_space->tab_controller.active_pane_manager().set_agent_identity(default_leaf, {
-        .kind = "codex",
-        .display_name = "Codex",
-        .instance_id = "agent-default",
-    });
+                                                                                             .kind = "codex",
+                                                                                             .display_name = "Codex",
+                                                                                             .instance_id = "agent-default",
+                                                                                         });
 
     const SpaceId worker_id = spaces.create_space("worker");
     Space* worker = spaces.find_space(worker_id);
@@ -361,10 +361,10 @@ TEST_CASE("agent controller derives pane occupants and focuses their stable rout
     REQUIRE(harness.create_initial_tab(*worker));
     const LeafId worker_leaf = worker->tab_controller.active_pane_manager().focused_leaf();
     worker->tab_controller.active_pane_manager().set_agent_identity(worker_leaf, {
-        .kind = "claude",
-        .display_name = "Claude",
-        .instance_id = "agent-worker",
-    });
+                                                                                     .kind = "claude",
+                                                                                     .display_name = "Claude",
+                                                                                     .instance_id = "agent-worker",
+                                                                                 });
 
     AgentController agents;
     auto rows = agents.query(spaces);
@@ -413,6 +413,47 @@ TEST_CASE("agent controller derives pane occupants and focuses their stable rout
     spaces.shutdown_all();
 }
 
+TEST_CASE("the frame projection is shared per frame while query stays fresh",
+    "[agent_controller][agent]")
+{
+    // The chrome layout and its hit tests all ask for the Agents projection
+    // within one frame; they must share a single evaluation. query() keeps the
+    // always-fresh contract the control plane and mutations rely on.
+    SpaceHostHarness harness;
+    SpaceController spaces;
+    Space* space = spaces.find_space(kDefaultSpaceId);
+    REQUIRE(space != nullptr);
+    REQUIRE(harness.create_initial_tab(*space));
+    PaneManager& panes = space->tab_controller.active_pane_manager();
+    const LeafId leaf = panes.focused_leaf();
+
+    AgentController agents;
+    agents.begin_frame();
+    CHECK(agents.frame_agents(spaces).empty());
+
+    panes.set_agent_identity(leaf, {
+                                       .kind = "claude",
+                                       .display_name = "Claude",
+                                       .instance_id = "agent-frame",
+                                   });
+
+    // Still the frame's answer...
+    CHECK(agents.frame_agents(spaces).empty());
+    // ...while query() reports the change immediately.
+    CHECK(agents.query(spaces).size() == 1);
+
+    // An explicit invalidate publishes it within the same frame.
+    agents.invalidate();
+    REQUIRE(agents.frame_agents(spaces).size() == 1);
+    CHECK(agents.frame_agents(spaces)[0].identity.instance_id == "agent-frame");
+
+    // ...and so does the next frame.
+    agents.begin_frame();
+    CHECK(agents.frame_agents(spaces).size() == 1);
+
+    spaces.shutdown_all();
+}
+
 TEST_CASE("agent controller discovers manual agents without persisting identity",
     "[agent_controller][agent][discovery]")
 {
@@ -422,15 +463,14 @@ TEST_CASE("agent controller discovers manual agents without persisting identity"
     REQUIRE(space != nullptr);
     REQUIRE(harness.create_initial_tab(*space));
     REQUIRE(harness.hosts.size() == 1);
-    harness.hosts[0]->fake_agent_process_observation =
-        AgentProcessObservation{
-            .processes = { {
-                .process_id = 81,
-                .parent_process_id = 80,
-                .executable = "C:/tools/codex.exe",
-            } },
-            .foreground_reliable = false,
-        };
+    harness.hosts[0]->fake_agent_process_observation = AgentProcessObservation{
+        .processes = { {
+            .process_id = 81,
+            .parent_process_id = 80,
+            .executable = "C:/tools/codex.exe",
+        } },
+        .foreground_reliable = false,
+    };
 
     AgentController agents;
     const auto rows = agents.query(spaces);
@@ -648,25 +688,23 @@ TEST_CASE("agent semantic state is generation-cached and attention is acknowledg
     Space* active = spaces.find_space(kDefaultSpaceId);
     REQUIRE(active != nullptr);
     REQUIRE(harness.create_initial_tab(*active));
-    const LeafId active_leaf =
-        active->tab_controller.active_pane_manager().focused_leaf();
+    const LeafId active_leaf = active->tab_controller.active_pane_manager().focused_leaf();
     active->tab_controller.active_pane_manager().set_agent_identity(active_leaf, {
-        .kind = "codex",
-        .display_name = "Codex active",
-        .instance_id = "agent-active",
-    });
+                                                                                     .kind = "codex",
+                                                                                     .display_name = "Codex active",
+                                                                                     .instance_id = "agent-active",
+                                                                                 });
 
     const SpaceId worker_id = spaces.create_space("worker");
     Space* worker = spaces.find_space(worker_id);
     REQUIRE(worker != nullptr);
     REQUIRE(harness.create_initial_tab(*worker));
-    const LeafId worker_leaf =
-        worker->tab_controller.active_pane_manager().focused_leaf();
+    const LeafId worker_leaf = worker->tab_controller.active_pane_manager().focused_leaf();
     worker->tab_controller.active_pane_manager().set_agent_identity(worker_leaf, {
-        .kind = "codex",
-        .display_name = "Codex worker",
-        .instance_id = "agent-worker-status",
-    });
+                                                                                     .kind = "codex",
+                                                                                     .display_name = "Codex worker",
+                                                                                     .instance_id = "agent-worker-status",
+                                                                                 });
 
     harness.hosts[0]->fake_agent_observation = AgentObservation{
         .output_generation = 1,

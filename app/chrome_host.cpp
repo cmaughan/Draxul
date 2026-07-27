@@ -100,9 +100,12 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
             input.spaces.push_back(
                 { space->id, space->name, space->id == deps_.space_controller->active_space_id() });
         }
-        const auto agents = deps_.agent_controller
-            ? deps_.agent_controller->query(*deps_.space_controller)
-            : std::vector<AgentProjection>{};
+        // Frame-scoped: draw() and the sidebar/tab hit tests all land here in
+        // the same frame, so they share one evaluation.
+        static const std::vector<AgentProjection> kNoAgents;
+        const std::vector<AgentProjection>& agents = deps_.agent_controller
+            ? deps_.agent_controller->frame_agents(*deps_.space_controller)
+            : kNoAgents;
         for (const AgentProjection& agent : agents)
         {
             std::string suffix;
@@ -160,9 +163,8 @@ ChromeLayoutInput ChromeHost::build_layout_input() const
     if (tree.leaf_count() >= 2)
     {
         tree.for_each_divider([&](const SplitTree::DividerRect& rect) {
-            input.dividers.push_back({
-                { static_cast<float>(rect.x), static_cast<float>(rect.y),
-                    static_cast<float>(rect.w), static_cast<float>(rect.h) },
+            input.dividers.push_back({ { static_cast<float>(rect.x), static_cast<float>(rect.y),
+                                           static_cast<float>(rect.w), static_cast<float>(rect.h) },
                 rect.direction });
         });
     }

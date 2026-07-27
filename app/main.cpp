@@ -1,5 +1,5 @@
-#include "app.h"
 #include "agent_integration.h"
+#include "app.h"
 #include "cli_args.h"
 #include "control_cli.h"
 #include "session_cli.h"
@@ -172,12 +172,17 @@ static int draxul_main(std::vector<std::string> args)
     std::string new_session_error;
     if (!session_cli.prepare_new_session_launch(parsed, &new_session_error))
     {
-        // Don't exit — fall back to a default session. The window must appear.
-        DRAXUL_LOG_WARN(draxul::LogCategory::App,
-            "Session launch preparation failed: %s — using default session",
-            new_session_error.empty() ? "unknown error" : new_session_error.c_str());
-        parsed.session_id = "default";
-        parsed.new_session = false;
+        // Refuse rather than silently downgrade. Falling back to "default"
+        // handed the user the shared Session they had explicitly asked to
+        // avoid — and "default" is the id most likely to already be open,
+        // which is now a hard refusal at startup.
+#ifdef _WIN32
+        ensure_console_io(true);
+#endif
+        std::fprintf(stderr, "%s\n",
+            new_session_error.empty() ? "Could not prepare the requested session."
+                                      : new_session_error.c_str());
+        return 1;
     }
 
     draxul::configure_default_logging();

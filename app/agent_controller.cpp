@@ -8,7 +8,32 @@
 namespace draxul
 {
 
+void AgentController::begin_frame()
+{
+    cache_valid_ = false;
+}
+
+void AgentController::invalidate()
+{
+    cache_valid_ = false;
+}
+
 std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
+{
+    return compute(spaces);
+}
+
+const std::vector<AgentProjection>& AgentController::frame_agents(SpaceController& spaces)
+{
+    if (!cache_valid_)
+    {
+        cached_agents_ = compute(spaces);
+        cache_valid_ = true;
+    }
+    return cached_agents_;
+}
+
+std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
 {
     std::vector<AgentProjection> agents;
     std::unordered_set<std::string> live_instances;
@@ -24,8 +49,7 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
             PaneManager& panes = tab->pane_manager;
             panes.tree().for_each_leaf([&](LeafId leaf, const PaneDescriptor&) {
                 IHost* host = panes.host_for(leaf);
-                const AgentRuntimeGeneration generation =
-                    panes.agent_runtime_generation(leaf);
+                const AgentRuntimeGeneration generation = panes.agent_runtime_generation(leaf);
                 const std::string route = std::to_string(space->id) + ":"
                     + std::to_string(tab->id) + ":" + panes.pane_id(leaf);
                 live_routes.insert(route);
@@ -33,8 +57,7 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                 const AgentIdentity* identity = panes.agent_identity(leaf);
                 if (discovery.runtime_generation != generation)
                 {
-                    const bool expired_manual_override =
-                        discovery.manual_override && identity
+                    const bool expired_manual_override = discovery.manual_override && identity
                         && identity->origin == AgentIdentityOrigin::Discovered;
                     discovery = {};
                     discovery.runtime_generation = generation;
@@ -45,8 +68,7 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                     }
                 }
 
-                const bool discovery_owned =
-                    identity
+                const bool discovery_owned = identity
                     && identity->origin == AgentIdentityOrigin::Discovered;
                 const bool probe_due = discovery.last_probe_at
                         == std::chrono::steady_clock::time_point{}
@@ -56,8 +78,7 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                     && host && host->is_running() && probe_due)
                 {
                     discovery.last_probe_at = now;
-                    const auto observation =
-                        host->capture_agent_process_observation();
+                    const auto observation = host->capture_agent_process_observation();
                     const auto match = observation
                         ? discover_agent_process(*observation)
                         : std::nullopt;
@@ -91,11 +112,11 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                                      << tab->id << '-' << panes.pane_id(leaf)
                                      << '-' << next_discovered_instance_++;
                             panes.set_agent_identity(leaf, {
-                                .kind = match->kind,
-                                .display_name = match->display_name,
-                                .instance_id = instance.str(),
-                                .origin = AgentIdentityOrigin::Discovered,
-                            });
+                                                               .kind = match->kind,
+                                                               .display_name = match->display_name,
+                                                               .instance_id = instance.str(),
+                                                               .origin = AgentIdentityOrigin::Discovered,
+                                                           });
                             identity = panes.agent_identity(leaf);
                         }
                     }
@@ -124,8 +145,7 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                 identity = panes.agent_identity(leaf);
                 if (!identity)
                     return;
-                const bool discovered =
-                    identity->origin == AgentIdentityOrigin::Discovered;
+                const bool discovered = identity->origin == AgentIdentityOrigin::Discovered;
                 const bool host_running = host && host->is_running();
                 const bool running = discovered
                     ? host_running
@@ -147,30 +167,25 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                 {
                     semantic = {};
                     semantic.runtime_generation = generation;
-                    semantic.lifecycle_transition_at =
-                        panes.agent_runtime_started_at(leaf);
+                    semantic.lifecycle_transition_at = panes.agent_runtime_started_at(leaf);
                 }
                 if (semantic.lifecycle != lifecycle)
                 {
                     semantic.lifecycle = lifecycle;
-                    semantic.lifecycle_transition_at =
-                        std::chrono::steady_clock::now();
+                    semantic.lifecycle_transition_at = std::chrono::steady_clock::now();
                 }
 
                 const bool startup_grace_elapsed = !discovered
                     || discovery.detected_at
-                            == std::chrono::steady_clock::time_point{}
+                        == std::chrono::steady_clock::time_point{}
                     || now - discovery.detected_at >= discovered_startup_grace;
                 if (host && startup_grace_elapsed)
                 {
-                    if (const auto observation =
-                            host->capture_agent_observation(12, 8 * 1024))
+                    if (const auto observation = host->capture_agent_observation(12, 8 * 1024))
                     {
-                        const uint64_t cached_generation =
-                            semantic.explanation.observation_generation;
+                        const uint64_t cached_generation = semantic.explanation.observation_generation;
                         const auto debounce = std::chrono::milliseconds(100);
-                        const auto observation_time =
-                            observation->captured_at
+                        const auto observation_time = observation->captured_at
                                 == std::chrono::steady_clock::time_point{}
                             ? std::chrono::steady_clock::now()
                             : observation->captured_at;
@@ -178,22 +193,19 @@ std::vector<AgentProjection> AgentController::query(SpaceController& spaces)
                             || !observation->process_running
                             || observation_time - *observation->last_output_at
                                 >= debounce;
-                        const bool rate_limit_elapsed =
-                            semantic.explanation.evaluated_at
+                        const bool rate_limit_elapsed = semantic.explanation.evaluated_at
                                 == std::chrono::steady_clock::time_point{}
                             || observation_time
                                     - semantic.explanation.evaluated_at
                                 >= debounce;
-                        const bool observation_changed =
-                            semantic.explanation.evaluated_at
+                        const bool observation_changed = semantic.explanation.evaluated_at
                                 == std::chrono::steady_clock::time_point{}
                             || observation->output_generation > cached_generation;
                         if (observation_changed && output_stable
                             && rate_limit_elapsed)
                         {
                             const AgentStatus previous = semantic.explanation.status;
-                            auto explanation =
-                                evaluate_agent_observation(identity->kind, *observation);
+                            auto explanation = evaluate_agent_observation(identity->kind, *observation);
                             if (explanation.status != previous)
                             {
                                 semantic.last_transition_at = explanation.evaluated_at;
@@ -290,11 +302,16 @@ bool AgentController::focus_by_index(
 {
     if (one_based_index <= 0)
         return false;
-    const auto agents = query(spaces);
+    // Copy: focus() moves the active Space/tab/pane, which changes the
+    // projection's focused/attention fields.
+    const std::vector<AgentProjection> agents = query(spaces);
     const size_t index = static_cast<size_t>(one_based_index - 1);
     if (index >= agents.size())
         return false;
-    return focus(spaces, agents[index].identity.instance_id);
+    const bool focused = focus(spaces, agents[index].identity.instance_id);
+    if (focused)
+        invalidate();
+    return focused;
 }
 
 bool AgentController::attach_focused(
@@ -321,8 +338,7 @@ bool AgentController::attach_focused(
     discovery.last_probe_at = std::chrono::steady_clock::now();
     discovery.detected_at = discovery.last_probe_at;
     discovery.kind = definition.kind;
-    discovery.evidence_category =
-        correcting ? "manual_correction" : "manual_attach";
+    discovery.evidence_category = correcting ? "manual_correction" : "manual_attach";
     discovery.high_confidence = true;
     discovery.process_present = true;
     discovery.manual_override = true;
@@ -331,12 +347,13 @@ bool AgentController::attach_focused(
     instance << "attached-" << space->id << '-' << tab->id << '-'
              << panes.pane_id(leaf) << '-' << next_discovered_instance_++;
     panes.set_agent_identity(leaf, {
-        .profile_id = definition.profile_id,
-        .kind = definition.kind,
-        .display_name = definition.display_name,
-        .instance_id = instance.str(),
-        .origin = AgentIdentityOrigin::Discovered,
-    });
+                                       .profile_id = definition.profile_id,
+                                       .kind = definition.kind,
+                                       .display_name = definition.display_name,
+                                       .instance_id = instance.str(),
+                                       .origin = AgentIdentityOrigin::Discovered,
+                                   });
+    invalidate();
     return true;
 }
 
@@ -362,7 +379,10 @@ bool AgentController::dismiss_focused(SpaceController& spaces)
     discovery.dismissed_absent_probes = 0;
     discovery.process_present = false;
     discovery.manual_override = false;
-    return panes.clear_agent_identity(leaf);
+    const bool cleared = panes.clear_agent_identity(leaf);
+    if (cleared)
+        invalidate();
+    return cleared;
 }
 
 } // namespace draxul

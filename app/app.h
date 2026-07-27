@@ -5,8 +5,8 @@
 #include "diagnostics_panel_host.h"
 #include "frame_timer.h"
 #include "gui_action_handler.h"
-#include "pane_manager.h"
 #include "input_dispatcher.h"
+#include "pane_manager.h"
 #include "render_tree.h"
 #include "session_state.h"
 #include "space_controller.h"
@@ -269,6 +269,10 @@ private:
     AppShellLayout shell_layout_{};
     SpaceController space_controller_;
     AgentController agent_controller_;
+    // Drives the Agents rail's visibility. An agent started by hand inside an
+    // existing pane produces no pane/tab/Space event, so nothing else would
+    // re-run the shell layout to reveal the rail (see pump_once).
+    bool last_have_agents_ = false;
     AgentDefinitionRegistry agent_definitions_;
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
@@ -281,7 +285,10 @@ private:
     bool session_dirty_ = false;
     uint64_t session_dirty_generation_ = 0;
     std::chrono::steady_clock::time_point last_session_mutation_time_{};
-    std::chrono::steady_clock::time_point last_session_checkpoint_time_{};
+    // Latched so the shell-only persistence gate reports its transitions once
+    // instead of silently dropping every checkpoint. Unset until the first
+    // evaluation, so an explicit non-shell launch does not warn at startup.
+    std::optional<bool> session_persistence_blocked_;
     std::unordered_set<std::string> announced_dead_panes_;
     std::optional<std::pair<int, int>> pending_window_resize_;
 };

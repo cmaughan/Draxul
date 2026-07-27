@@ -1,8 +1,8 @@
 #include <catch2/catch_all.hpp>
 
-#include "app.h"
-#include "agent_integration.h"
 #include "agent_controller.h"
+#include "agent_integration.h"
+#include "app.h"
 #include "control_cli.h"
 #include "control_event_journal.h"
 #include "control_request_router.h"
@@ -15,12 +15,19 @@
 
 #include <draxul/control_plane.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
-#include <future>
 #include <fstream>
+#include <future>
 #include <optional>
 #include <thread>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -30,11 +37,28 @@ namespace
 
 std::filesystem::path unique_runtime_directory()
 {
-    return std::filesystem::temp_directory_path()
-        / ("draxul-control-test-"
-            + std::to_string(std::chrono::steady_clock::now()
-                                 .time_since_epoch()
-                                 .count()));
+    // sockaddr_un::sun_path is 104 bytes on macOS, and the per-user $TMPDIR
+    // (/var/folders/<..>/T/) already spends ~49 of them. A timestamped
+    // directory under it pushed the endpoint past the limit, so bind() was
+    // refused and every transport test failed before it started. Keep the base
+    // shallow and the unique part short; Windows named pipes have no such
+    // limit and keep using the standard temp directory.
+#ifdef _WIN32
+    const std::filesystem::path base = std::filesystem::temp_directory_path();
+#else
+    const std::filesystem::path base = "/tmp";
+#endif
+    // pid + a process-local counter: short enough for sun_path and genuinely
+    // unique. (A truncated nanosecond clock is not — modulo 1e6 wraps every
+    // millisecond, so two tests starting back to back share a directory and
+    // one clobbers the other's endpoint metadata.)
+    static std::atomic<unsigned> counter{ 0 };
+#ifdef _WIN32
+    const auto pid = static_cast<long long>(_getpid());
+#else
+    const auto pid = static_cast<long long>(::getpid());
+#endif
+    return base / ("dxl-ctl-" + std::to_string(pid) + "-" + std::to_string(counter.fetch_add(1)));
 }
 
 std::string test_font_path()
@@ -83,8 +107,7 @@ ControlClientResult request_while_pumping(App& app,
 {
     auto future = std::async(std::launch::async,
         [=] { return ControlClient::request(session_id, runtime, method, params); });
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (future.wait_for(std::chrono::milliseconds(0))
             != std::future_status::ready
         && std::chrono::steady_clock::now() < deadline)
@@ -108,15 +131,13 @@ TEST_CASE("control CLI recognizes read-only Space and pane commands", "[control]
     CHECK(spaces.command->session_id == "work");
     CHECK(spaces.command->json);
 
-    auto pane =
-        parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "25" });
+    auto pane = parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "25" });
     REQUIRE(pane.command);
     CHECK(pane.command->method == "pane.read");
     CHECK(pane.command->value == "pane-4");
     CHECK(pane.command->lines == 25);
 
-    auto invalid =
-        parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "201" });
+    auto invalid = parse_control_cli({ "draxul", "pane", "read", "pane-4", "--lines", "201" });
     CHECK(invalid.recognized);
     CHECK(invalid.error);
 }
@@ -164,8 +185,8 @@ TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks
         CHECK(hooks["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
         REQUIRE(hooks["hooks"]["SessionStart"].size() == 1);
         CHECK(hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-            .get<std::string>()
-            .find("draxul-agent-session")
+                  .get<std::string>()
+                  .find("draxul-agent-session")
             != std::string::npos);
         std::ifstream config_input(config_path);
         const std::string config((std::istreambuf_iterator<char>(config_input)),
@@ -185,19 +206,16 @@ TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks
 TEST_CASE("integration CLI supports both official native session hooks",
     "[control][integration]")
 {
-    auto status =
-        parse_integration_cli({ "draxul", "integration", "status", "--json" });
+    auto status = parse_integration_cli({ "draxul", "integration", "status", "--json" });
     REQUIRE(status.command);
     CHECK(status.command->target.empty());
     CHECK(status.command->json);
 
-    auto claude =
-        parse_integration_cli({ "draxul", "integration", "install", "claude" });
+    auto claude = parse_integration_cli({ "draxul", "integration", "install", "claude" });
     REQUIRE(claude.command);
     CHECK(claude.command->target == "claude");
 
-    auto invalid =
-        parse_integration_cli({ "draxul", "integration", "install", "other" });
+    auto invalid = parse_integration_cli({ "draxul", "integration", "install", "other" });
     CHECK(invalid.recognized);
     CHECK(invalid.error);
 }
@@ -223,8 +241,7 @@ TEST_CASE("Claude integration install is idempotent and preserves unrelated sett
     REQUIRE(run_integration_cli(install) == 0);
 
 #ifdef _WIN32
-    const auto hook_path =
-        claude.path / "hooks" / "draxul-agent-session.ps1";
+    const auto hook_path = claude.path / "hooks" / "draxul-agent-session.ps1";
 #else
     const auto hook_path = claude.path / "hooks" / "draxul-agent-session.sh";
 #endif
@@ -245,8 +262,8 @@ TEST_CASE("Claude integration install is idempotent and preserves unrelated sett
         const auto& group = settings["hooks"]["SessionStart"][0];
         CHECK(group["matcher"] == "*");
         CHECK(group["hooks"][0]["command"]
-            .get<std::string>()
-            .find("draxul-agent-session")
+                  .get<std::string>()
+                  .find("draxul-agent-session")
             != std::string::npos);
     }
 
@@ -299,6 +316,81 @@ TEST_CASE("control router projects Spaces without exposing mutable state", "[con
     CHECK(missing.error_code == "not_found");
 }
 
+TEST_CASE("a second server refuses a live endpoint and leaves the incumbent intact",
+    "[control]")
+{
+    // Sessions are single-owner. The second server must report the endpoint as
+    // taken rather than unlinking the live socket and overwriting the token,
+    // which silently rerouted every CLI request to the newcomer.
+    const auto runtime = unique_runtime_directory();
+    ControlServer first;
+    std::string first_error;
+    REQUIRE(first.start("dup-session", runtime, [] {}, &first_error));
+    REQUIRE(first.running());
+    const auto metadata = first.metadata_path();
+    REQUIRE(std::filesystem::exists(metadata));
+
+    std::ifstream metadata_input(metadata);
+    const auto original = nlohmann::json::parse(metadata_input);
+
+    ControlServer second;
+    std::string second_error;
+    CHECK_FALSE(second.start("dup-session", runtime, [] {}, &second_error));
+    CHECK(second.endpoint_in_use());
+    CHECK_FALSE(second.running());
+    CHECK_FALSE(second_error.empty());
+
+    // The incumbent still owns its endpoint, and its credentials are unchanged.
+    CHECK(first.running());
+    REQUIRE(std::filesystem::exists(metadata));
+    std::ifstream after_input(metadata);
+    const auto after = nlohmann::json::parse(after_input);
+    CHECK(after.at("token") == original.at("token"));
+    metadata_input.close();
+    after_input.close();
+#ifndef _WIN32
+    CHECK(std::filesystem::exists(first.endpoint()));
+#endif
+
+    first.stop();
+    CHECK_FALSE(std::filesystem::exists(metadata));
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+#ifndef _WIN32
+TEST_CASE("a stale endpoint from a dead owner is reclaimed", "[control]")
+{
+    // The flip side of refusing a live endpoint: one left behind by a process
+    // that crashed must not lock the Session out forever. (POSIX only —
+    // Windows named pipes leave no filesystem residue to go stale.)
+    const auto runtime = unique_runtime_directory();
+    std::string endpoint_path;
+    {
+        ControlServer previous;
+        std::string error;
+        REQUIRE(previous.start("stale-session", runtime, [] {}, &error));
+        endpoint_path = previous.endpoint();
+        previous.stop();
+    }
+    // Nothing is listening, but the path exists — exactly a crashed owner.
+    {
+        std::ofstream stale(endpoint_path);
+        stale << "stale";
+    }
+    REQUIRE(std::filesystem::exists(endpoint_path));
+
+    ControlServer fresh;
+    std::string error;
+    CHECK(fresh.start("stale-session", runtime, [] {}, &error));
+    CHECK(fresh.running());
+    CHECK_FALSE(fresh.endpoint_in_use());
+    fresh.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+#endif
+
 TEST_CASE("control transport authenticates and dispatches on the caller thread", "[control]")
 {
     const auto runtime = unique_runtime_directory();
@@ -312,8 +404,7 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
             "transport-test", runtime, "system.hello", { { "probe", true } });
     });
 
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (client.wait_for(std::chrono::milliseconds(1))
             != std::future_status::ready
         && std::chrono::steady_clock::now() < deadline)
@@ -343,7 +434,7 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
 
 TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[control][app]")
 {
-    TempDir home("draxul-control-app");
+    TempDir home("dxl-ctl");
     HomeDirRedirect redirect(home.path);
     std::vector<FakeHost*> hosts;
 
@@ -363,7 +454,7 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
         hosts.push_back(host.get());
         return host;
     };
-    options.session_id = "control-app-test";
+    options.session_id = "ctl-app";
     options.enable_control_server = true;
 
     App app(std::move(options));
@@ -371,16 +462,15 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     const auto runtime = control_runtime_directory(
         ConfigDocument::default_path().parent_path());
 
-    auto started = request_while_pumping(app, "control-app-test", runtime,
+    auto started = request_while_pumping(app, "ctl-app", runtime,
         "agent.start", { { "profile_id", "codex" }, { "args", nlohmann::json::array() } });
     REQUIRE(started.ok);
     const std::string instance_id = started.result.value("instance_id", "");
-    const std::string pane_id =
-        started.result["route"].value("pane_id", "");
+    const std::string pane_id = started.result["route"].value("pane_id", "");
     REQUIRE_FALSE(instance_id.empty());
     REQUIRE(hosts.size() == 2);
 
-    auto reported = request_while_pumping(app, "control-app-test", runtime,
+    auto reported = request_while_pumping(app, "ctl-app", runtime,
         "pane.report_agent_session",
         { { "pane_id", pane_id }, { "agent_instance_id", instance_id },
             { "source", "draxul:codex" }, { "agent", "codex" },
@@ -389,14 +479,14 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     REQUIRE(reported.ok);
     CHECK(reported.result["native_session"]["source"] == "draxul:codex");
 
-    auto sent = request_while_pumping(app, "control-app-test", runtime,
+    auto sent = request_while_pumping(app, "ctl-app", runtime,
         "agent.send_text",
         { { "instance_id", instance_id }, { "text", "Review this" } });
     REQUIRE(sent.ok);
     REQUIRE(hosts.back()->sent_agent_input.size() == 1);
     CHECK(hosts.back()->sent_agent_input.back() == "Review this");
 
-    auto waiting = request_while_pumping(app, "control-app-test", runtime,
+    auto waiting = request_while_pumping(app, "ctl-app", runtime,
         "agent.wait",
         { { "instance_id", instance_id }, { "until", { "done" } } });
     REQUIRE(waiting.ok);
@@ -404,7 +494,7 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
     CHECK(waiting.result["agent"]["runtime_generation"].get<uint64_t>() > 0);
 
     auto events = request_while_pumping(
-        app, "control-app-test", runtime, "event.subscribe",
+        app, "ctl-app", runtime, "event.subscribe",
         nlohmann::json::object());
     INFO(events.error_code << ": " << events.error_message);
     REQUIRE(events.ok);
@@ -412,5 +502,5 @@ TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[con
 
     app.shutdown();
     CHECK_FALSE(std::filesystem::exists(
-        control_metadata_path(runtime, "control-app-test")));
+        control_metadata_path(runtime, "ctl-app")));
 }

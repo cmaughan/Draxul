@@ -4,10 +4,10 @@
 #include "split_tree.h"
 #include <draxul/agent_model.h>
 
+#include <chrono>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <optional>
-#include <chrono>
 #include <unordered_map>
 #include <vector>
 
@@ -45,7 +45,21 @@ struct AgentProjection
 class AgentController
 {
 public:
+    // Always recomputes. Use this when the caller needs current truth and is
+    // not on the frame path: the control plane, and any mutation that must
+    // observe its own effect.
     std::vector<AgentProjection> query(SpaceController& spaces);
+
+    // The frame-scoped view of the same projection. Recomputing walks every
+    // pane, captures a bounded terminal observation, and (rate-limited) probes
+    // the pane's process tree, so the chrome layout and its hit tests share
+    // ONE evaluation per frame instead of repeating it 2-4 times.
+    // begin_frame() drops it; a mutation that must appear within the current
+    // frame calls invalidate(). A missed invalidate costs one frame of
+    // staleness, never a wrong steady state.
+    void begin_frame();
+    void invalidate();
+    const std::vector<AgentProjection>& frame_agents(SpaceController& spaces);
     bool focus(SpaceController& spaces, std::string_view instance_id) const;
     bool focus_by_index(SpaceController& spaces, int one_based_index);
     bool attach_focused(
@@ -53,6 +67,8 @@ public:
     bool dismiss_focused(SpaceController& spaces);
 
 private:
+    std::vector<AgentProjection> compute(SpaceController& spaces);
+
     struct CachedSemanticState
     {
         AgentRuntimeGeneration runtime_generation{};
@@ -81,6 +97,8 @@ private:
     std::unordered_map<std::string, CachedSemanticState> semantic_state_;
     std::unordered_map<std::string, CachedDiscoveryState> discovery_state_;
     uint64_t next_discovered_instance_ = 1;
+    std::vector<AgentProjection> cached_agents_;
+    bool cache_valid_ = false;
 };
 
 } // namespace draxul
