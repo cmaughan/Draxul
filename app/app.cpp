@@ -7,8 +7,8 @@
 #include "control_event_journal.h"
 #include "control_request_router.h"
 #include "gui_action_handler.h"
-#include "pane_manager.h"
 #include "input_dispatcher.h"
+#include "pane_manager.h"
 #include "session_id.h"
 #include "session_listing.h"
 #include <SDL3/SDL.h>
@@ -429,6 +429,40 @@ bool App::initialize()
         }))
         return false;
 
+    // Claim the Session BEFORE restoring it. initialize_chrome_host() respawns
+    // the saved topology, so a second instance that only discovered the clash
+    // afterwards would have already started duplicate shells for a Session it
+    // is about to refuse.
+    if (options_.enable_control_server)
+    {
+        control_server_ = std::make_unique<ControlServer>();
+        std::string control_error;
+        const auto runtime_directory = control_runtime_directory(
+            ConfigDocument::default_path().parent_path());
+        if (!control_server_->start(options_.session_id, runtime_directory, [this]() { wake_window(); }, &control_error))
+        {
+            if (control_server_->endpoint_in_use())
+            {
+                // Sessions are single-owner: two processes on one id restore
+                // the same topology twice and then overwrite each other's
+                // checkpoint, last writer winning. Refuse rather than corrupt.
+                last_init_error_ = "Session '" + options_.session_id
+                    + "' is already open in another Draxul window. Use "
+                      "--session <id> to open a different one, or "
+                      "--new-session to start a fresh one.";
+                return false;
+            }
+            // Any other failure (an over-long endpoint path, an unwritable
+            // runtime directory) costs only the automation surface. The
+            // control plane is optional tooling and must never veto startup.
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Session control endpoint unavailable (%s); continuing without it",
+                control_error.c_str());
+            push_toast(1, "Automation endpoint unavailable: " + control_error);
+            control_server_.reset();
+        }
+    }
+
     if (!time_step("Host", [this]() { return initialize_chrome_host(); }))
         return false;
 
@@ -488,20 +522,6 @@ bool App::initialize()
 
     saw_frame_ = false;
     running_ = true;
-    if (options_.enable_control_server)
-    {
-        control_server_ = std::make_unique<ControlServer>();
-        std::string control_error;
-        const auto runtime_directory = control_runtime_directory(
-            ConfigDocument::default_path().parent_path());
-        if (!control_server_->start(options_.session_id, runtime_directory,
-                [this]() { wake_window(); }, &control_error))
-        {
-            last_init_error_ = "Failed to start the Session control endpoint: "
-                + control_error;
-            return false;
-        }
-    }
     // Render one initial composite frame after init so hosts that only request
     // redraws on state changes do not start on a blank window.
     request_frame();
@@ -1018,7 +1038,8 @@ void App::wire_gui_actions()
         }
         input_dispatcher_.set_host(nullptr);
         const bool closing_agent = active_pane_manager().agent_identity(
-            active_pane_manager().focused_leaf()) != nullptr;
+                                       active_pane_manager().focused_leaf())
+            != nullptr;
         active_pane_manager().close_focused();
         mark_session_dirty();
         if (closing_agent)
@@ -1370,8 +1391,7 @@ void App::open_launch_agent_prompt()
             push_toast(2, launched.error().message);
             return;
         }
-        push_toast(0, "Launched agent '"
-                + (definition ? definition->display_name : profile_id) + "'.");
+        push_toast(0, "Launched agent '" + (definition ? definition->display_name : profile_id) + "'.");
     };
     if (!palette_host_->open_choices(std::move(request)))
         push_toast(2, "Unable to open agent profile picker.");
@@ -1925,6 +1945,9 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
             request_quit();
             return false;
         }
+        // One Agents evaluation per frame, shared by the chrome layout, the
+        // hit tests, and every control request below.
+        agent_controller_.begin_frame();
         process_control_requests();
 
         // Safety net: detect window size changes that SDL may not deliver as
@@ -1960,6 +1983,19 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         walk_pump(render_root_);
         pump_background_hosts();
         refresh_tab_default_names();
+        // An agent launched by hand into an existing pane (rather than through
+        // launch_agent) mutates no pane, tab, or Space, so no existing event
+        // re-runs the shell layout. Discovery is what notices it, so drive the
+        // rail's visibility off the projection itself. The query is the
+        // frame's cached one; per-pane process probes stay rate-limited
+        // inside AgentController.
+        const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty();
+        if (have_agents != last_have_agents_)
+        {
+            last_have_agents_ = have_agents;
+            refresh_app_shell_layout();
+            request_frame();
+        }
         const auto now = std::chrono::steady_clock::now();
         maybe_checkpoint_session(now);
         refresh_system_resource_snapshot(now);
@@ -2323,7 +2359,10 @@ void App::refresh_app_shell_layout()
         : window_height;
     const Tab* active_tab = find_active_tab();
     const bool zoomed = active_tab && active_tab->pane_manager.is_zoomed();
-    const bool have_agents = !agent_controller_.query(space_controller_).empty();
+    const bool have_agents = !agent_controller_.frame_agents(space_controller_).empty();
+    // Keep the pump's transition check in step with whatever the layout just
+    // decided, so an unrelated refresh cannot leave the two disagreeing.
+    last_have_agents_ = have_agents;
     shell_layout_ = compute_app_shell_layout({
         .window_width = window_width,
         .window_height = window_height,
@@ -2677,8 +2716,7 @@ void App::rebuild_agent_definitions()
     agent_definitions_ = AgentDefinitionRegistry{};
     for (const AgentProfileConfig& profile : config_.agent_profiles)
     {
-        const auto restore_policy =
-            parse_agent_restore_policy(profile.restore_policy);
+        const auto restore_policy = parse_agent_restore_policy(profile.restore_policy);
         agent_definitions_.register_definition({
             .profile_id = profile.id,
             .kind = profile.kind,
@@ -2742,12 +2780,16 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
     }
 
     panes.set_agent_identity(leaf, {
-        .profile_id = definition->profile_id,
-        .kind = definition->kind,
-        .display_name = definition->display_name,
-        .instance_id = instance_id,
-    }, definition->restore_policy);
+                                       .profile_id = definition->profile_id,
+                                       .kind = definition->kind,
+                                       .display_name = definition->display_name,
+                                       .instance_id = instance_id,
+                                   },
+        definition->restore_policy);
 
+    // The new agent must reach the rail on this frame, not on the next
+    // projection refresh.
+    agent_controller_.invalidate();
     mark_session_dirty();
     refresh_app_shell_layout();
     input_dispatcher_.set_host(panes.focused_host());
@@ -3177,8 +3219,7 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
                 "pane.report_agent_session requires complete routing, source, "
                 "version, sequence, and reference fields.");
         }
-        const auto ref_kind =
-            parse_agent_session_ref_kind(*ref_kind_text);
+        const auto ref_kind = parse_agent_session_ref_kind(*ref_kind_text);
         if (!ref_kind)
             return ControlMethodResult::error(
                 "invalid_params", "Unknown native session reference kind.");
@@ -3192,8 +3233,7 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
             {
                 tab->pane_manager.tree().for_each_leaf(
                     [&](LeafId leaf, const PaneDescriptor&) {
-                        const AgentIdentity* candidate =
-                            tab->pane_manager.agent_identity(leaf);
+                        const AgentIdentity* candidate = tab->pane_manager.agent_identity(leaf);
                         if (tab->pane_manager.pane_id(leaf) == *pane_id
                             && candidate
                             && candidate->instance_id == *instance_id)
@@ -3233,11 +3273,9 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
                 bool duplicate = false;
                 tab->pane_manager.tree().for_each_leaf(
                     [&](LeafId leaf, const PaneDescriptor&) {
-                        const AgentSessionRef* existing =
-                            tab->pane_manager.agent_session_ref(leaf);
+                        const AgentSessionRef* existing = tab->pane_manager.agent_session_ref(leaf);
                         duplicate = duplicate
-                            || (existing && (&tab->pane_manager != target_panes
-                                               || leaf != target_leaf)
+                            || (existing && (&tab->pane_manager != target_panes || leaf != target_leaf)
                                 && existing->source == session_ref.source
                                 && existing->agent_kind == session_ref.agent_kind
                                 && existing->kind == session_ref.kind
@@ -3290,8 +3328,7 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
             if (!request.params["space_id"].is_number_integer())
                 return ControlMethodResult::error(
                     "invalid_params", "'space_id' must be an integer.");
-            const auto activated =
-                activate_space(request.params["space_id"].get<SpaceId>());
+            const auto activated = activate_space(request.params["space_id"].get<SpaceId>());
             if (!activated)
                 return ControlMethodResult::error(
                     "not_found", activated.error().message);
@@ -3340,8 +3377,7 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
             return ControlMethodResult::error(
                 "invalid_params", request.method + " requires 'instance_id'.");
         }
-        const std::string instance_id =
-            request.params["instance_id"].get<std::string>();
+        const std::string instance_id = request.params["instance_id"].get<std::string>();
         const auto agent = find_agent(instance_id);
         if (!agent)
             return ControlMethodResult::error("not_found", "Agent not found.");
@@ -3457,18 +3493,31 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
                     "invalid_params", "agent.send_keys requires at most 64 keys.");
             }
             static const std::unordered_map<std::string, std::string> keys{
-                { "enter", "\r" }, { "tab", "\t" }, { "escape", "\x1b" },
-                { "backspace", "\x7f" }, { "up", "\x1b[A" },
-                { "down", "\x1b[B" }, { "right", "\x1b[C" },
-                { "left", "\x1b[D" }, { "home", "\x1b[H" },
-                { "end", "\x1b[F" }, { "delete", "\x1b[3~" },
-                { "insert", "\x1b[2~" }, { "pageup", "\x1b[5~" },
-                { "pagedown", "\x1b[6~" }, { "f1", "\x1bOP" },
-                { "f2", "\x1bOQ" }, { "f3", "\x1bOR" },
-                { "f4", "\x1bOS" }, { "f5", "\x1b[15~" },
-                { "f6", "\x1b[17~" }, { "f7", "\x1b[18~" },
-                { "f8", "\x1b[19~" }, { "f9", "\x1b[20~" },
-                { "f10", "\x1b[21~" }, { "f11", "\x1b[23~" },
+                { "enter", "\r" },
+                { "tab", "\t" },
+                { "escape", "\x1b" },
+                { "backspace", "\x7f" },
+                { "up", "\x1b[A" },
+                { "down", "\x1b[B" },
+                { "right", "\x1b[C" },
+                { "left", "\x1b[D" },
+                { "home", "\x1b[H" },
+                { "end", "\x1b[F" },
+                { "delete", "\x1b[3~" },
+                { "insert", "\x1b[2~" },
+                { "pageup", "\x1b[5~" },
+                { "pagedown", "\x1b[6~" },
+                { "f1", "\x1bOP" },
+                { "f2", "\x1bOQ" },
+                { "f3", "\x1bOR" },
+                { "f4", "\x1bOS" },
+                { "f5", "\x1b[15~" },
+                { "f6", "\x1b[17~" },
+                { "f7", "\x1b[18~" },
+                { "f8", "\x1b[19~" },
+                { "f9", "\x1b[20~" },
+                { "f10", "\x1b[21~" },
+                { "f11", "\x1b[23~" },
                 { "f12", "\x1b[24~" },
             };
             for (const auto& value : request.params["keys"])

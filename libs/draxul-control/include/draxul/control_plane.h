@@ -61,6 +61,11 @@ public:
         std::string* error = nullptr);
     void stop();
     bool running() const;
+    // True when the last start() failed specifically because another live
+    // process already owns this Session's endpoint — the signal a caller needs
+    // to tell "someone else is running this Session" apart from "the endpoint
+    // could not be created here". Cleared by a successful start().
+    bool endpoint_in_use() const;
     void process_pending(const Handler& handler);
 
     const std::string& endpoint() const;
