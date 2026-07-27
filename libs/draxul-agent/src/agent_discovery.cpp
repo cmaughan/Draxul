@@ -20,8 +20,7 @@ std::string lowercase(std::string value)
 
 std::string executable_name(std::string_view value)
 {
-    std::string name =
-        lowercase(std::filesystem::path(value).filename().string());
+    std::string name = lowercase(std::filesystem::path(value).filename().string());
     if (name.ends_with(".exe"))
         name.resize(name.size() - 4);
     return name;
@@ -42,6 +41,36 @@ std::optional<AgentDiscoveryMatch> kind_from_name(std::string_view value)
             .kind = "claude",
             .display_name = "Claude",
             .evidence_category = "direct_executable",
+            .high_confidence = true,
+        };
+    return std::nullopt;
+}
+
+// Native installs put the real binary in a VERSIONED file and expose it through
+// a name-bearing symlink — `~/.local/bin/claude` ->
+// `~/.local/share/claude/versions/2.1.220`. exec() resolves the symlink, so the
+// kernel reports the target: the executable's basename is "2.1.220", which
+// carries no product identity at all. Recover it from the install layout, where
+// the directory above `versions/` is the product name.
+std::optional<AgentDiscoveryMatch> kind_from_versioned_install(std::string_view value)
+{
+    const std::filesystem::path path(value);
+    const std::filesystem::path parent = path.parent_path();
+    if (lowercase(parent.filename().string()) != "versions")
+        return std::nullopt;
+    const std::string product = lowercase(parent.parent_path().filename().string());
+    if (product == "codex")
+        return AgentDiscoveryMatch{
+            .kind = "codex",
+            .display_name = "Codex",
+            .evidence_category = "versioned_install",
+            .high_confidence = true,
+        };
+    if (product == "claude" || product == "claude-code")
+        return AgentDiscoveryMatch{
+            .kind = "claude",
+            .display_name = "Claude",
+            .evidence_category = "versioned_install",
             .high_confidence = true,
         };
     return std::nullopt;
@@ -106,6 +135,16 @@ std::optional<AgentDiscoveryMatch> discover_agent_process(
         if (!candidate)
             candidate = kind_from_name(process.executable);
         if (!candidate)
+        {
+            // argv[0] is the name the user actually invoked ("claude"), which
+            // survives when exec() resolved a symlink to a version-numbered
+            // file and the executable path no longer names the product.
+            if (!process.arguments.empty())
+                candidate = kind_from_name(process.arguments.front());
+        }
+        if (!candidate)
+            candidate = kind_from_versioned_install(process.executable);
+        if (!candidate)
             candidate = kind_from_wrapper(process);
         if (!candidate)
             continue;
@@ -147,8 +186,7 @@ std::optional<AgentDiscoveryMatch> discover_agent_process(
         }
     }
     if (result)
-        result->high_confidence =
-            result->high_confidence && observation.foreground_reliable;
+        result->high_confidence = result->high_confidence && observation.foreground_reliable;
     return result;
 }
 

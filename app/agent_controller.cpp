@@ -2,6 +2,8 @@
 
 #include "space_controller.h"
 
+#include <draxul/log.h>
+
 #include <sstream>
 #include <unordered_set>
 
@@ -118,6 +120,15 @@ std::vector<AgentProjection> AgentController::compute(SpaceController& spaces)
                                                                .origin = AgentIdentityOrigin::Discovered,
                                                            });
                             identity = panes.agent_identity(leaf);
+                            // Discovery is heuristic, so make its conclusions
+                            // visible: without this the only signal that it
+                            // worked is a row silently appearing in the rail,
+                            // and the only signal that it did not is silence.
+                            DRAXUL_LOG_INFO(LogCategory::App,
+                                "agent discovered in pane %s: kind=%s evidence=%s confidence=%s",
+                                panes.pane_id(leaf).c_str(), match->kind.c_str(),
+                                match->evidence_category.c_str(),
+                                match->high_confidence ? "high" : "low");
                         }
                     }
                     else if (!identity && !discovery.dismissed_kind.empty())
