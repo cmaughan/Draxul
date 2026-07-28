@@ -18,6 +18,7 @@ enum class HostKind
     Bash,
     Zsh,
     Wsl,
+    RemoteTerminal,
     MegaCity,
     BioView,
     SatView,
@@ -33,6 +34,7 @@ inline constexpr std::array kAllHostKinds = {
     HostKind::Bash,
     HostKind::Zsh,
     HostKind::Wsl,
+    HostKind::RemoteTerminal,
     HostKind::MegaCity,
     HostKind::BioView,
     HostKind::SatView,
@@ -56,6 +58,8 @@ inline const char* to_string(HostKind kind)
         return "zsh";
     case HostKind::Wsl:
         return "wsl";
+    case HostKind::RemoteTerminal:
+        return "remote-terminal";
     case HostKind::MegaCity:
         return "megacity";
     case HostKind::BioView:
@@ -78,6 +82,7 @@ inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
 {
     static constexpr std::array<std::string_view, 0> none = {};
     static constexpr std::array powershell = { std::string_view("pwsh") };
+    static constexpr std::array remote_terminal = { std::string_view("remote") };
     static constexpr std::array bioview = { std::string_view("bio") };
     static constexpr std::array satview = { std::string_view("sat") };
     static constexpr std::array nanovg = { std::string_view("nanovg") };
@@ -88,6 +93,8 @@ inline std::span<const std::string_view> host_kind_aliases(HostKind kind)
     {
     case HostKind::PowerShell:
         return powershell;
+    case HostKind::RemoteTerminal:
+        return remote_terminal;
     case HostKind::BioView:
         return bioview;
     case HostKind::SatView:

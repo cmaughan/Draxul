@@ -39,6 +39,11 @@ HostProviderMetadata default_metadata(HostKind kind)
         metadata.display_name = "WSL";
         metadata.platforms = { .windows = true, .macos = false, .other_unix = false };
         break;
+    case HostKind::RemoteTerminal:
+        metadata.display_name = "Remote Terminal";
+        metadata.palette_visible = false;
+        metadata.launch_contexts = HostLaunchContext::None;
+        break;
     case HostKind::MegaCity:
         metadata.display_name = "MegaCity";
         break;

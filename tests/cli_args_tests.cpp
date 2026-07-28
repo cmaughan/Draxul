@@ -199,3 +199,21 @@ TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][serve
         { "--experimental-server-client", "--no-server" });
     REQUIRE_FALSE(should_bootstrap_experimental_server(opted_out.args));
 }
+
+TEST_CASE("cli: fake remote terminal opts into server bootstrap",
+    "[cli][server][remote-terminal]")
+{
+    auto remote = parse({ "--experimental-remote-terminal" });
+    REQUIRE_FALSE(remote.error.has_value());
+    REQUIRE(remote.args.experimental_remote_terminal);
+    REQUIRE(remote.args.experimental_server_client);
+    REQUIRE(should_bootstrap_experimental_server(remote.args));
+
+    REQUIRE(parse({ "--experimental-remote-terminal", "--no-server" })
+            .error.has_value());
+    REQUIRE(parse({ "--experimental-remote-terminal",
+                       "--host", "powershell" })
+            .error.has_value());
+    REQUIRE(parse({ "--experimental-remote-terminal", "--smoke-test" })
+            .error.has_value());
+}

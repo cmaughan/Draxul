@@ -40,6 +40,11 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.shutdown_server = true;
         else if (args[i] == "--experimental-server-client")
             parsed.experimental_server_client = true;
+        else if (args[i] == "--experimental-remote-terminal")
+        {
+            parsed.experimental_remote_terminal = true;
+            parsed.experimental_server_client = true;
+        }
         else if (args[i] == "--no-server")
             parsed.no_server = true;
         else if (args[i] == "--json")
@@ -231,6 +236,25 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         result.error = "error: server control modes cannot be combined with --host";
         return result;
     }
+    if (parsed.experimental_remote_terminal
+        && (parsed.no_server || server_mode_count > 0
+            || parsed.host_kind.has_value() || parsed.smoke_test
+            || session_mode_count > 0 || !parsed.screenshot_path.empty()))
+    {
+        result.error
+            = "error: --experimental-remote-terminal cannot be combined with standalone, server-control, Session-control, smoke, or screenshot modes";
+        return result;
+    }
+#ifdef DRAXUL_ENABLE_RENDER_TESTS
+    if (parsed.experimental_remote_terminal
+        && (!parsed.render_test_path.empty()
+            || !parsed.export_render_test_path.empty()))
+    {
+        result.error
+            = "error: --experimental-remote-terminal cannot be combined with render-test modes";
+        return result;
+    }
+#endif
     return result;
 }
 

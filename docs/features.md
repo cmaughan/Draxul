@@ -25,6 +25,27 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
 
 ---
 
+## Experimental Shared Terminal Server
+
+- `draxul --server` runs the renderer-free per-user server, while
+  `--server-status` and `--shutdown-server` inspect or stop it.
+  `--server-runtime-dir <path>` isolates an endpoint for testing.
+- `--experimental-server-client` discovers or starts that singleton and records its
+  negotiated PID/epoch in diagnostics without changing ordinary local host ownership.
+- `--experimental-remote-terminal` is the Slice 3 test path. It discovers or starts
+  the singleton, disables file-backed Session restore for that UI, and renders one
+  deterministic server-owned fake terminal through `RemoteTerminalHost`. Multiple
+  windows using the flag see the same terminal cells, title, cursor, dimensions, and
+  controller lease. The first attached window controls input and resize; observers
+  can run `take_terminal_control` from the command palette to take over.
+- Remote terminal clients receive a complete versioned snapshot followed by ordered
+  dirty-cell and controller events. Each client has a bounded server queue; a slow
+  client receives a fresh snapshot rather than delaying the terminal or another
+  client. Reconnect restores the current server state. This remains explicitly
+  experimental: no real shell process or saved Space is server-owned yet.
+
+---
+
 ## Rendering
 
 - **Backends**: Vulkan (Windows), Metal (macOS)

@@ -942,18 +942,37 @@ ControlClientResult ControlClient::request(std::string_view session_id,
     std::string response_bytes;
 #ifdef _WIN32
     const std::wstring pipe_name(endpoint.begin(), endpoint.end());
-    if (!WaitNamedPipeW(pipe_name.c_str(),
-            static_cast<DWORD>(kIoTimeout.count() * 1000)))
+    // The server services one connection per named-pipe instance and
+    // immediately creates the next. A concurrent client can arrive in the
+    // small close/recreate gap and see ERROR_FILE_NOT_FOUND even though the
+    // server is healthy. Retry only that gap briefly; WaitNamedPipe retains
+    // the longer I/O timeout for a live but occupied instance.
+    const auto recreate_deadline
+        = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    do
     {
-        return { false, nullptr, "endpoint_unavailable",
-            "The Draxul Session control pipe is unavailable." };
-    }
-    HANDLE pipe = CreateFileW(pipe_name.c_str(), GENERIC_READ | GENERIC_WRITE,
-        0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        if (WaitNamedPipeW(pipe_name.c_str(),
+                static_cast<DWORD>(kIoTimeout.count() * 1000)))
+        {
+            pipe = CreateFileW(pipe_name.c_str(),
+                GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED, nullptr);
+            if (pipe != INVALID_HANDLE_VALUE)
+                break;
+        }
+        const DWORD connect_error = GetLastError();
+        if (connect_error != ERROR_FILE_NOT_FOUND
+            && connect_error != ERROR_PIPE_BUSY)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (std::chrono::steady_clock::now() < recreate_deadline);
     if (pipe == INVALID_HANDLE_VALUE)
     {
         return { false, nullptr, "endpoint_unavailable",
-            "Unable to connect to the Draxul Session." };
+            "The Draxul Session control pipe is unavailable." };
     }
     const bool io_ok = write_frame(pipe, request)
         && read_frame(pipe, response_bytes);

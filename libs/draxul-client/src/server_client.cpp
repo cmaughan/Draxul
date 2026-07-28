@@ -227,7 +227,10 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             : options.client_id,
         .capabilities = {
             "client-registration",
+            "controller-lease",
+            "fake-remote-terminal",
             "graceful-shutdown",
+            "ordered-terminal-events",
             "status",
         },
     };

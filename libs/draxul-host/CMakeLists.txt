@@ -5,6 +5,7 @@ add_library(draxul-host
     src/local_terminal_host.cpp
     src/mouse_reporter.cpp
     src/nvim_host.cpp
+    src/remote_terminal_host.cpp
     src/selection_manager.cpp
     src/terminal_host_base.cpp
     src/terminal_key_encoder.cpp
@@ -36,6 +37,7 @@ target_link_libraries(draxul-host PUBLIC
     draxul-types
 )
 target_link_libraries(draxul-host PRIVATE
+    draxul-client
     draxul-font
     draxul-performance
     draxul-window

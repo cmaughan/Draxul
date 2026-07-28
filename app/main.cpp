@@ -15,6 +15,7 @@
 #include <draxul/markdown/markdown_host.h>
 #include <draxul/nanovg_demo_host.h>
 #include <draxul/perf_timing.h>
+#include <draxul/remote_terminal_host.h>
 #include <draxul/runtime_path.h>
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
@@ -31,6 +32,7 @@
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
 #include <draxul/render_test.h>
 #endif
+#include <algorithm>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -349,15 +351,19 @@ static int draxul_main(std::vector<std::string> args)
     }
 
     std::optional<draxul::ServerWelcome> server_connection;
+    std::filesystem::path connected_server_runtime;
+    std::string connected_server_client_id;
     if (draxul::should_bootstrap_experimental_server(parsed))
     {
 #ifdef _WIN32
         ensure_console_io(true);
 #endif
+        connected_server_runtime = server_runtime_dir(parsed);
+        connected_server_client_id = draxul::make_server_client_id();
         draxul::ServerEnsureOptions server_options{
-            .runtime_directory = server_runtime_dir(parsed),
+            .runtime_directory = connected_server_runtime,
             .executable_path = executable_path(args),
-            .client_id = draxul::make_server_client_id(),
+            .client_id = connected_server_client_id,
         };
         auto server_result = draxul::ServerClient::ensure(server_options);
         if (!server_result.ready())
@@ -366,6 +372,16 @@ static int draxul_main(std::vector<std::string> args)
                 "Could not connect to the experimental Draxul server (%s): %s\n",
                 std::string(draxul::to_string(server_result.state)).c_str(),
                 server_result.error_message.c_str());
+            draxul::shutdown_logging();
+            return 1;
+        }
+        if (parsed.experimental_remote_terminal
+            && std::ranges::find(server_result.welcome->capabilities,
+                   "fake-remote-terminal")
+                == server_result.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "The running Draxul server does not support the experimental remote terminal. Stop it and retry.\n");
             draxul::shutdown_logging();
             return 1;
         }
@@ -415,6 +431,27 @@ static int draxul_main(std::vector<std::string> args)
         options.no_vblank = true;
     if (parsed.no_ui)
         options.hide_host_ui_panels = true;
+    if (parsed.experimental_remote_terminal)
+    {
+        options.host_kind = draxul::HostKind::RemoteTerminal;
+        options.host_kind_explicit = true;
+        draxul::RemoteTerminalHostOptions remote_options{
+            .runtime_directory = connected_server_runtime,
+            .client_id = connected_server_client_id,
+            .server_epoch = options.server_connection
+                ? options.server_connection->server_epoch
+                : std::string{},
+        };
+        options.host_factory = [remote_options](draxul::HostKind kind) {
+            if (kind == draxul::HostKind::RemoteTerminal)
+            {
+                return std::unique_ptr<draxul::IHost>(
+                    std::make_unique<draxul::RemoteTerminalHost>(
+                        remote_options));
+            }
+            return draxul::create_host(kind);
+        };
+    }
     if (!parsed.screenshot_path.empty())
     {
         if (parsed.screenshot_width > 0 && parsed.screenshot_height > 0)
@@ -446,8 +483,10 @@ static int draxul_main(std::vector<std::string> args)
     const bool allow_session_restore = !parsed.smoke_test
         && parsed.screenshot_path.empty();
 #endif
-    options.enable_session_restore = allow_session_restore;
-    options.enable_control_server = allow_session_restore;
+    options.enable_session_restore
+        = allow_session_restore && !parsed.experimental_remote_terminal;
+    options.enable_control_server
+        = allow_session_restore && !parsed.experimental_remote_terminal;
 
     draxul::App app(std::move(options));
 

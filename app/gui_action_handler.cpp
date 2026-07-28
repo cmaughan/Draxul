@@ -35,6 +35,7 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"confirm_paste",      [](auto& h, auto) { h.confirm_paste(); }},
         {"cancel_paste",       [](auto& h, auto) { h.cancel_paste(); }},
         {"toggle_copy_mode",   [](auto& h, auto) { h.toggle_copy_mode(); }},
+        {"take_terminal_control", [](auto& h, auto) { h.dispatch_to_focused_host("take_terminal_control"); }},
         {"font_increase",      [](auto& h, auto) { h.font_increase(); }},
         {"font_decrease",      [](auto& h, auto) { h.font_decrease(); }},
         {"font_reset",         [](auto& h, auto) { h.font_reset(); }},

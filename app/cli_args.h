@@ -26,6 +26,7 @@ struct ParsedArgs
     bool server_status = false;
     bool shutdown_server = false;
     bool experimental_server_client = false;
+    bool experimental_remote_terminal = false;
     bool no_server = false;
     bool json_output = false;
     std::filesystem::path server_runtime_dir;

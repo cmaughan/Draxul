@@ -889,8 +889,28 @@ Rollback:
 
 ### Slice 3: deterministic fake remote terminal with two clients
 
+**Status:** complete (2026-07-28)
+
+**Work item:** [11 fake-remote-terminal-two-client -feature.md](../kanban/done/11%20fake-remote-terminal-two-client%20-feature.md)
+
 **Outcome:** the complete client/server/render boundary works before a real shell is
 entrusted to it.
+
+Implementation record:
+
+- the headless server owns one deterministic `TerminalCore` and pane descriptor;
+- renderer-neutral protocol values encode complete semantic snapshots, dirty deltas,
+  controller changes, server epoch, terminal generation, and sequence;
+- the shared client projection rejects stale identity/version/order and supplies both
+  headless probes and `RemoteTerminalHost`;
+- per-client event queues are bounded at 32 entries and saturate into a current
+  snapshot without blocking the controller;
+- a background UI adapter polls off the render thread, coalesces immutable projection
+  snapshots, wakes the window, and mutates grid/GPU-facing state only in `pump()`;
+- `--experimental-remote-terminal` starts or discovers the singleton and disables
+  local Session restore for that window; and
+- `take_terminal_control` is available from the command palette for explicit
+  observer takeover.
 
 Work:
 

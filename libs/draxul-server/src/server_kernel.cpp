@@ -643,6 +643,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .build_version = options.build_version,
         .uptime_ms = uptime_ms,
         .connected_clients = connected_clients,
+        .terminals = 1,
     };
 }
 

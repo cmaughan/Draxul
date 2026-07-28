@@ -28,6 +28,7 @@ bool is_terminal_shell_host(HostKind kind)
     case Bash:
     case Zsh:
     case Wsl:
+    case RemoteTerminal:
         return true;
     case Nvim:
     case MegaCity:

@@ -104,7 +104,7 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
     REQUIRE(status.status->connected_clients == 1);
-    REQUIRE(status.status->terminals == 0);
+    REQUIRE(status.status->terminals == 1);
 
     ServerKernel duplicate({
         .runtime_directory = temp.path,
@@ -373,7 +373,7 @@ TEST_CASE("ten concurrent clients converge on one detached server epoch", "[serv
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
     REQUIRE(status.status->connected_clients == 10);
-    REQUIRE(status.status->terminals == 0);
+    REQUIRE(status.status->terminals == 1);
     REQUIRE(status.status->spaces == 0);
 
     std::string shutdown_error;
