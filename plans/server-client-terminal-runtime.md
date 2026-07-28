@@ -971,6 +971,79 @@ Implementation record:
 - Slice 4 preserves a bounded current screen; server-owned scrollback remains a
   deliberate Slice 5 addition.
 
+#### Manual retest: two UIs, detach, and reconnect
+
+Use an isolated runtime so this test does not touch the normal Draxul server. Run
+these setup commands from the repository root:
+
+```powershell
+py do.py build release
+$exe = (Resolve-Path .\build-ninja-release\draxul.exe).Path
+$runtime = Join-Path $env:TEMP "draxul-slice4-manual"
+& $exe --shutdown-server --server-runtime-dir $runtime 2>$null
+```
+
+The initial shutdown can report that no server exists; that is harmless. Keep the
+same `$exe` and `$runtime` values in each PowerShell window below.
+
+1. Start client A:
+
+   ```powershell
+   & $exe --experimental-remote-shell --server-runtime-dir $runtime
+   ```
+
+2. Start client B from a second PowerShell window with the same command. Both Draxul
+   windows should show the same PowerShell screen. Client A initially owns input.
+
+3. In the shared shell, run:
+
+   ```powershell
+   $PID
+   Write-Output "__DRAXUL_SHARED__"
+   ```
+
+   Record `$PID`; the command and output should appear in both Draxul windows. In
+   client B, run `take_terminal_control` from the command palette, then type another
+   command to verify that control moved without closing client A.
+
+4. In whichever client owns control, start delayed output:
+
+   ```powershell
+   Start-Sleep -Seconds 3; Write-Output "__DRAXUL_DETACHED__"
+   ```
+
+   Immediately close both Draxul windows, wait at least five seconds, then start a
+   third client with the same command from step 1.
+
+5. The reopened UI should already contain `__DRAXUL_DETACHED__`. Run `$PID` again;
+   it should match the value recorded before both UIs closed. Keep this output short:
+   Slice 4 preserves the current terminal screen, while server-owned scrollback is a
+   Slice 5 feature.
+
+6. Optional status check from another PowerShell window:
+
+   ```powershell
+   & $exe --server-status --server-runtime-dir $runtime --json
+   ```
+
+   Expect `"state":"ready"` and `"terminals":2` (the always-present fake diagnostic
+   terminal plus the real shell). `connected_clients` is cumulative registration
+   data in this slice, so it is not a live attached-window count.
+
+7. Shut down the isolated server when finished; this also ends its shell:
+
+   ```powershell
+   & $exe --shutdown-server --server-runtime-dir $runtime
+   ```
+
+For an exact automated check of process parentage, PID/generation continuity,
+zero-client output draining, resize propagation, and shell recreation, run:
+
+```powershell
+cmake --build build --config Release --target draxul-test-core
+.\build\tests\Release\draxul-test-core.exe "[server][remote-terminal][process]"
+```
+
 Work:
 
 - compose `TerminalRuntime` from the extracted core and platform process adapter;
