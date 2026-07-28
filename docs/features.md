@@ -37,7 +37,9 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   deterministic server-owned fake terminal through `RemoteTerminalHost`. Multiple
   windows using the flag see the same terminal cells, title, cursor, dimensions, and
   controller lease. The first attached window controls input and resize; observers
-  can run `take_terminal_control` from the command palette to take over.
+  can run `take_terminal_control` from the command palette to take over. Brief local
+  transport interruptions are retried for five seconds before a remote pane is
+  considered dead.
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another

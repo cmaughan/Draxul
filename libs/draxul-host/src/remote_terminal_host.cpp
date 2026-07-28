@@ -1,5 +1,6 @@
 #include <draxul/remote_terminal_host.h>
 
+#include <draxul/log.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/terminal_key_encoder.h>
 
@@ -20,6 +21,20 @@ namespace
 
 constexpr size_t kRemoteHostCommandLimit = 128;
 constexpr auto kRemotePollInterval = std::chrono::milliseconds(25);
+constexpr auto kRemoteTransientFailureGrace = std::chrono::seconds(5);
+
+bool is_expected_command_error(std::string_view code)
+{
+    return code == "not_controller" || code == "invalid_resize";
+}
+
+bool is_transient_remote_error(std::string_view code)
+{
+    return code == "endpoint_unavailable"
+        || code == "io_error"
+        || code == "main_thread_timeout"
+        || code == "server_stopping";
+}
 
 struct RemoteHostCommand
 {
@@ -122,6 +137,8 @@ private:
     void worker_main()
     {
         bool fatal_error = false;
+        std::optional<std::chrono::steady_clock::time_point>
+            transient_failure_since;
         while (!stopping_ && !fatal_error)
         {
             std::deque<RemoteHostCommand> commands;
@@ -152,14 +169,33 @@ private:
                 }
                 if (!ok)
                 {
-                    publish_error(std::move(error));
-                    if (client_->last_error_code() != "not_controller"
-                        && client_->last_error_code() != "invalid_resize")
+                    const std::string error_code
+                        = client_->last_error_code();
+                    if (is_expected_command_error(error_code))
                     {
-                        fatal_error = true;
-                        break;
+                        publish_error(std::move(error));
+                        continue;
                     }
+                    if (is_transient_remote_error(error_code))
+                    {
+                        note_transient_failure(transient_failure_since,
+                            error_code, error);
+                        if (std::chrono::steady_clock::now()
+                                - *transient_failure_since
+                            < kRemoteTransientFailureGrace)
+                        {
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        publish_error(error);
+                    }
+                    log_fatal_failure(error_code, error);
+                    fatal_error = true;
+                    break;
                 }
+                transient_failure_since.reset();
             }
             if (fatal_error)
                 break;
@@ -168,10 +204,27 @@ private:
             std::string error;
             if (!client_->poll(changed, error))
             {
-                publish_error(std::move(error));
+                const std::string error_code = client_->last_error_code();
+                if (is_transient_remote_error(error_code))
+                {
+                    note_transient_failure(transient_failure_since,
+                        error_code, error);
+                    if (std::chrono::steady_clock::now()
+                            - *transient_failure_since
+                        < kRemoteTransientFailureGrace)
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    publish_error(error);
+                }
+                log_fatal_failure(error_code, error);
                 fatal_error = true;
                 break;
             }
+            transient_failure_since.reset();
             if (changed)
                 publish_projection();
         }
@@ -179,6 +232,30 @@ private:
         std::string disconnect_error;
         client_->disconnect(disconnect_error);
         running_ = false;
+    }
+
+    void note_transient_failure(
+        std::optional<std::chrono::steady_clock::time_point>& failure_since,
+        std::string_view error_code, const std::string& error)
+    {
+        if (failure_since)
+            return;
+        failure_since = std::chrono::steady_clock::now();
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "Remote terminal transport interruption (%.*s); retrying for %lld ms: %s",
+            static_cast<int>(error_code.size()), error_code.data(),
+            static_cast<long long>(kRemoteTransientFailureGrace.count() * 1000),
+            error.c_str());
+        publish_error(error);
+    }
+
+    void log_fatal_failure(
+        std::string_view error_code, const std::string& error)
+    {
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            "Remote terminal host stopped (%.*s): %s",
+            static_cast<int>(error_code.size()), error_code.data(),
+            error.c_str());
     }
 
     void publish_projection()
@@ -303,9 +380,22 @@ void RemoteTerminalHost::pump()
         set_cursor_style(style, timing, !metadata.cursor.visible);
         if (!metadata.title.empty())
             callbacks().set_window_title(metadata.title);
+        const bool became_controller
+            = controller_client_id_ != impl_->options().client_id
+            && state->controller_client_id == impl_->options().client_id;
         controller_client_id_ = std::move(state->controller_client_id);
         metadata_ = metadata;
         flush_grid();
+        if (became_controller
+            && desired_cols_ > 0 && desired_rows_ > 0
+            && (desired_cols_ != grid_cols() || desired_rows_ != grid_rows()))
+        {
+            impl_->enqueue({
+                .kind = RemoteHostCommand::Kind::Resize,
+                .cols = desired_cols_,
+                .rows = desired_rows_,
+            });
+        }
     }
 
     if (std::string error = impl_->take_error(); !error.empty())
@@ -351,14 +441,6 @@ bool RemoteTerminalHost::dispatch_action(std::string_view action)
     const bool queued = impl_->enqueue({
         .kind = RemoteHostCommand::Kind::TakeControl,
     });
-    if (queued && desired_cols_ > 0 && desired_rows_ > 0)
-    {
-        impl_->enqueue({
-            .kind = RemoteHostCommand::Kind::Resize,
-            .cols = desired_cols_,
-            .rows = desired_rows_,
-        });
-    }
     return queued;
 }
 
