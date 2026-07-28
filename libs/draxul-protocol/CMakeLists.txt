@@ -1,4 +1,5 @@
 add_library(draxul-protocol
+    src/remote_terminal_protocol.cpp
     src/server_protocol.cpp
 )
 
@@ -9,5 +10,6 @@ target_compile_definitions(draxul-protocol PRIVATE
 )
 
 target_link_libraries(draxul-protocol PUBLIC
+    draxul-terminal-core
     nlohmann_json::nlohmann_json
 )

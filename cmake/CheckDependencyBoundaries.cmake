@@ -32,6 +32,7 @@ function(draxul_check_dependency_boundaries)
     draxul_check_direct_link(draxul-client draxul-protocol)
     draxul_check_direct_link(draxul-server draxul-control)
     draxul_check_direct_link(draxul-server draxul-protocol)
+    draxul_check_direct_link(draxul-protocol draxul-terminal-core)
     draxul_reject_direct_links(draxul-terminal-core
         draxul-host
         draxul-window

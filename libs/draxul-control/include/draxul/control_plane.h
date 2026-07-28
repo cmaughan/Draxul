@@ -11,7 +11,9 @@ namespace draxul
 {
 
 inline constexpr int kControlProtocolVersion = 1;
-inline constexpr size_t kControlMaxMessageBytes = 256 * 1024;
+// Terminal snapshots also travel over this endpoint in the experimental
+// server/client path. Individual methods apply tighter semantic limits.
+inline constexpr size_t kControlMaxMessageBytes = 8 * 1024 * 1024;
 inline constexpr size_t kControlMaxJsonDepth = 32;
 
 struct ControlRequest

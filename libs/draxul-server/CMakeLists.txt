@@ -1,4 +1,5 @@
 add_library(draxul-server
+    src/fake_terminal_runtime.cpp
     src/server_kernel.cpp
 )
 

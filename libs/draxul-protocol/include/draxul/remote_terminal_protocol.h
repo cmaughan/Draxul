@@ -1,0 +1,90 @@
+#pragma once
+
+#include <draxul/terminal_snapshot.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <nlohmann/json_fwd.hpp>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace draxul
+{
+
+inline constexpr std::string_view kFakeRemotePaneId = "fake-pane-1";
+inline constexpr std::string_view kFakeRemoteTerminalId = "fake-terminal-1";
+inline constexpr size_t kRemoteTerminalQueueLimit = 32;
+inline constexpr size_t kRemoteTerminalMaxEventsPerPoll = 64;
+
+struct RemotePaneDescriptor
+{
+    std::string pane_id;
+    std::string terminal_id;
+    std::string name;
+    std::string execution_domain;
+
+    bool operator==(const RemotePaneDescriptor&) const = default;
+};
+
+struct RemoteTerminalVersion
+{
+    std::string server_epoch;
+    std::string terminal_id;
+    uint64_t generation = 0;
+    uint64_t sequence = 0;
+
+    bool operator==(const RemoteTerminalVersion&) const = default;
+};
+
+enum class RemoteTerminalEventKind
+{
+    Snapshot,
+    Delta,
+    Controller,
+};
+
+struct RemoteTerminalEvent
+{
+    RemoteTerminalEventKind kind = RemoteTerminalEventKind::Snapshot;
+    RemoteTerminalVersion version;
+    std::string controller_client_id;
+    std::optional<TerminalSemanticSnapshot> snapshot;
+    std::optional<TerminalDirtySnapshot> delta;
+
+    bool operator==(const RemoteTerminalEvent&) const = default;
+};
+
+struct RemoteTerminalAttach
+{
+    RemotePaneDescriptor pane;
+    RemoteTerminalEvent state;
+
+    bool operator==(const RemoteTerminalAttach&) const = default;
+};
+
+std::string_view to_string(RemoteTerminalEventKind kind);
+std::optional<RemoteTerminalEventKind> parse_remote_terminal_event_kind(
+    std::string_view value);
+
+nlohmann::json terminal_semantic_snapshot_to_json(
+    const TerminalSemanticSnapshot& snapshot);
+std::optional<TerminalSemanticSnapshot>
+terminal_semantic_snapshot_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json terminal_dirty_snapshot_to_json(
+    const TerminalDirtySnapshot& snapshot);
+std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
+    const nlohmann::json& value, std::string& error);
+
+nlohmann::json remote_terminal_event_to_json(
+    const RemoteTerminalEvent& event);
+std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
+    const nlohmann::json& value, std::string& error);
+nlohmann::json remote_terminal_attach_to_json(
+    const RemoteTerminalAttach& attach);
+std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
+    const nlohmann::json& value, std::string& error);
+
+} // namespace draxul

@@ -1,10 +1,14 @@
 #include <draxul/server_kernel.h>
 
+#include "fake_terminal_runtime.h"
+
 #include <draxul/control_plane.h>
 #include <draxul/log.h>
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
 
 #include <algorithm>
+#include <deque>
 #include <fstream>
 #include <iomanip>
 #include <nlohmann/json.hpp>
@@ -57,7 +61,10 @@ const std::vector<std::string>& server_capabilities()
 {
     static const std::vector<std::string> capabilities{
         "client-registration",
+        "controller-lease",
+        "fake-remote-terminal",
         "graceful-shutdown",
+        "ordered-terminal-events",
         "status",
     };
     return capabilities;
@@ -102,6 +109,12 @@ public:
     void request_stop();
     void stop();
     ControlMethodResult handle_request(const ControlRequest& request);
+    ControlMethodResult attach_fake_terminal(const nlohmann::json& params);
+    ControlMethodResult poll_fake_terminal(const nlohmann::json& params);
+    ControlMethodResult input_fake_terminal(const nlohmann::json& params);
+    ControlMethodResult resize_fake_terminal(const nlohmann::json& params);
+    ControlMethodResult take_fake_terminal_control(const nlohmann::json& params);
+    ControlMethodResult disconnect_fake_terminal(const nlohmann::json& params);
     ServerStatusSnapshot status_snapshot() const;
     void publish_starting_marker();
     void remove_starting_marker();
@@ -118,6 +131,28 @@ public:
     std::condition_variable wake;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> clients;
     std::filesystem::path starting_marker;
+
+    struct FakeSubscriber
+    {
+        std::deque<RemoteTerminalEvent> events;
+        bool needs_resync = false;
+    };
+
+    bool read_fake_client_id(
+        const nlohmann::json& params, std::string& client_id) const;
+    bool read_fake_version(
+        const nlohmann::json& params, RemoteTerminalVersion& version) const;
+    RemoteTerminalVersion fake_version() const;
+    RemoteTerminalEvent fake_snapshot_event() const;
+    RemoteTerminalEvent make_fake_delta_event();
+    RemoteTerminalEvent make_fake_controller_event();
+    void broadcast_fake_event(const RemoteTerminalEvent& event);
+
+    FakeTerminalRuntime fake_terminal;
+    uint64_t fake_generation = 1;
+    uint64_t fake_sequence = 0;
+    std::string fake_controller_client_id;
+    std::unordered_map<std::string, FakeSubscriber> fake_subscribers;
 };
 
 void ServerKernel::Impl::publish_starting_marker()
@@ -247,6 +282,18 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
+    if (request.method == "fake.attach")
+        return attach_fake_terminal(request.params);
+    if (request.method == "fake.poll")
+        return poll_fake_terminal(request.params);
+    if (request.method == "fake.input")
+        return input_fake_terminal(request.params);
+    if (request.method == "fake.resize")
+        return resize_fake_terminal(request.params);
+    if (request.method == "fake.take_control")
+        return take_fake_terminal_control(request.params);
+    if (request.method == "fake.disconnect")
+        return disconnect_fake_terminal(request.params);
     if (request.method == "server.shutdown")
     {
         request_stop();
@@ -258,6 +305,319 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     return ControlMethodResult::error(
         "unknown_method", "Unknown Draxul server method.");
+}
+
+bool ServerKernel::Impl::read_fake_client_id(
+    const nlohmann::json& params, std::string& client_id) const
+{
+    if (!params.is_object()
+        || !params.contains("client_id")
+        || !params["client_id"].is_string())
+    {
+        return false;
+    }
+    client_id = params["client_id"].get<std::string>();
+    return !client_id.empty() && client_id.size() <= 128;
+}
+
+bool ServerKernel::Impl::read_fake_version(
+    const nlohmann::json& params, RemoteTerminalVersion& version) const
+{
+    if (!params.is_object()
+        || !params.contains("server_epoch")
+        || !params["server_epoch"].is_string()
+        || !params.contains("terminal_id")
+        || !params["terminal_id"].is_string()
+        || !params.contains("generation")
+        || !params["generation"].is_number_unsigned()
+        || !params.contains("after_sequence")
+        || !params["after_sequence"].is_number_unsigned())
+    {
+        return false;
+    }
+    version.server_epoch = params["server_epoch"].get<std::string>();
+    version.terminal_id = params["terminal_id"].get<std::string>();
+    version.generation = params["generation"].get<uint64_t>();
+    version.sequence = params["after_sequence"].get<uint64_t>();
+    return true;
+}
+
+RemoteTerminalVersion ServerKernel::Impl::fake_version() const
+{
+    return {
+        .server_epoch = epoch_value,
+        .terminal_id = std::string(kFakeRemoteTerminalId),
+        .generation = fake_generation,
+        .sequence = fake_sequence,
+    };
+}
+
+RemoteTerminalEvent ServerKernel::Impl::fake_snapshot_event() const
+{
+    return {
+        .kind = RemoteTerminalEventKind::Snapshot,
+        .version = fake_version(),
+        .controller_client_id = fake_controller_client_id,
+        .snapshot = fake_terminal.snapshot(),
+    };
+}
+
+RemoteTerminalEvent ServerKernel::Impl::make_fake_delta_event()
+{
+    ++fake_sequence;
+    return {
+        .kind = RemoteTerminalEventKind::Delta,
+        .version = fake_version(),
+        .controller_client_id = fake_controller_client_id,
+        .delta = fake_terminal.take_delta(),
+    };
+}
+
+RemoteTerminalEvent ServerKernel::Impl::make_fake_controller_event()
+{
+    ++fake_sequence;
+    return {
+        .kind = RemoteTerminalEventKind::Controller,
+        .version = fake_version(),
+        .controller_client_id = fake_controller_client_id,
+    };
+}
+
+void ServerKernel::Impl::broadcast_fake_event(
+    const RemoteTerminalEvent& event)
+{
+    for (auto& [client_id, subscriber] : fake_subscribers)
+    {
+        (void)client_id;
+        if (subscriber.needs_resync)
+            continue;
+        if (subscriber.events.size() >= kRemoteTerminalQueueLimit)
+        {
+            subscriber.events.clear();
+            subscriber.needs_resync = true;
+            continue;
+        }
+        subscriber.events.push_back(event);
+    }
+}
+
+ControlMethodResult ServerKernel::Impl::attach_fake_terminal(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_fake_client_id(params, client_id))
+    {
+        return ControlMethodResult::error(
+            "invalid_client", "A valid client_id is required.");
+    }
+
+    fake_subscribers[client_id] = {};
+    if (fake_controller_client_id.empty())
+    {
+        fake_controller_client_id = client_id;
+        broadcast_fake_event(make_fake_controller_event());
+        fake_subscribers[client_id].events.clear();
+    }
+    RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Fake Remote",
+            .execution_domain = "server_terminal",
+        },
+        .state = fake_snapshot_event(),
+    };
+    return ControlMethodResult::success(
+        remote_terminal_attach_to_json(attach));
+}
+
+ControlMethodResult ServerKernel::Impl::poll_fake_terminal(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    RemoteTerminalVersion requested;
+    if (!read_fake_client_id(params, client_id)
+        || !read_fake_version(params, requested))
+    {
+        return ControlMethodResult::error(
+            "invalid_poll", "A valid client and terminal version are required.");
+    }
+    auto subscriber = fake_subscribers.find(client_id);
+    if (subscriber == fake_subscribers.end())
+    {
+        return ControlMethodResult::error(
+            "not_attached", "Attach to the fake terminal before polling.");
+    }
+    if (requested.server_epoch != epoch_value)
+    {
+        return ControlMethodResult::error(
+            "stale_epoch", "The terminal server epoch has changed.");
+    }
+    if (requested.terminal_id != kFakeRemoteTerminalId)
+    {
+        return ControlMethodResult::error(
+            "stale_terminal", "The terminal identity has changed.");
+    }
+    if (requested.generation != fake_generation)
+    {
+        return ControlMethodResult::error(
+            "stale_generation", "The terminal generation has changed.");
+    }
+    if (requested.sequence > fake_sequence)
+    {
+        return ControlMethodResult::error(
+            "stale_sequence", "The client sequence is ahead of the server.");
+    }
+
+    auto& delivery = subscriber->second;
+    while (!delivery.events.empty()
+        && delivery.events.front().version.sequence <= requested.sequence)
+    {
+        delivery.events.pop_front();
+    }
+
+    nlohmann::json events = nlohmann::json::array();
+    if (delivery.needs_resync)
+    {
+        events.push_back(remote_terminal_event_to_json(fake_snapshot_event()));
+        delivery.events.clear();
+        delivery.needs_resync = false;
+    }
+    else
+    {
+        size_t count = 0;
+        for (const auto& event : delivery.events)
+        {
+            if (count++ >= kRemoteTerminalMaxEventsPerPoll)
+                break;
+            events.push_back(remote_terminal_event_to_json(event));
+        }
+    }
+    return ControlMethodResult::success({
+        { "events", std::move(events) },
+        { "server_sequence", fake_sequence },
+    });
+}
+
+ControlMethodResult ServerKernel::Impl::input_fake_terminal(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_fake_client_id(params, client_id)
+        || !params.contains("text") || !params["text"].is_string())
+    {
+        return ControlMethodResult::error(
+            "invalid_input", "A valid client_id and text are required.");
+    }
+    if (!fake_subscribers.contains(client_id))
+    {
+        return ControlMethodResult::error(
+            "not_attached", "Attach to the fake terminal before sending input.");
+    }
+    if (client_id != fake_controller_client_id)
+    {
+        return ControlMethodResult::error(
+            "not_controller", "This client is observing the terminal.");
+    }
+    const std::string text = params["text"].get<std::string>();
+    if (text.empty() || text.size() > 64 * 1024)
+    {
+        return ControlMethodResult::error(
+            "invalid_input", "Terminal input must be between 1 and 65536 bytes.");
+    }
+    fake_terminal.echo_input(text);
+    const auto event = make_fake_delta_event();
+    broadcast_fake_event(event);
+    return ControlMethodResult::success({
+        { "accepted", true },
+        { "sequence", event.version.sequence },
+    });
+}
+
+ControlMethodResult ServerKernel::Impl::resize_fake_terminal(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_fake_client_id(params, client_id)
+        || !params.contains("cols") || !params["cols"].is_number_integer()
+        || !params.contains("rows") || !params["rows"].is_number_integer())
+    {
+        return ControlMethodResult::error(
+            "invalid_resize", "A valid client_id, cols, and rows are required.");
+    }
+    if (!fake_subscribers.contains(client_id))
+    {
+        return ControlMethodResult::error(
+            "not_attached", "Attach to the fake terminal before resizing.");
+    }
+    if (client_id != fake_controller_client_id)
+    {
+        return ControlMethodResult::error(
+            "not_controller", "This client is observing the terminal.");
+    }
+    const int cols = params["cols"].get<int>();
+    const int rows = params["rows"].get<int>();
+    if (cols <= 0 || rows <= 0
+        || cols > TerminalStateLimits::kMaxColumns
+        || rows > TerminalStateLimits::kMaxRows
+        || static_cast<size_t>(cols) * static_cast<size_t>(rows)
+            > TerminalStateLimits::kMaxCells)
+    {
+        return ControlMethodResult::error(
+            "invalid_resize", "Terminal dimensions are out of range.");
+    }
+    fake_terminal.resize(cols, rows);
+    const auto event = make_fake_delta_event();
+    broadcast_fake_event(event);
+    return ControlMethodResult::success({
+        { "accepted", true },
+        { "sequence", event.version.sequence },
+    });
+}
+
+ControlMethodResult ServerKernel::Impl::take_fake_terminal_control(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_fake_client_id(params, client_id))
+    {
+        return ControlMethodResult::error(
+            "invalid_client", "A valid client_id is required.");
+    }
+    if (!fake_subscribers.contains(client_id))
+    {
+        return ControlMethodResult::error(
+            "not_attached", "Attach to the fake terminal before taking control.");
+    }
+    if (fake_controller_client_id != client_id)
+    {
+        fake_controller_client_id = client_id;
+        const auto event = make_fake_controller_event();
+        broadcast_fake_event(event);
+    }
+    return ControlMethodResult::success({
+        { "controller_client_id", fake_controller_client_id },
+        { "sequence", fake_sequence },
+    });
+}
+
+ControlMethodResult ServerKernel::Impl::disconnect_fake_terminal(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    if (!read_fake_client_id(params, client_id))
+    {
+        return ControlMethodResult::error(
+            "invalid_client", "A valid client_id is required.");
+    }
+    const bool was_controller = fake_controller_client_id == client_id;
+    fake_subscribers.erase(client_id);
+    if (was_controller)
+    {
+        fake_controller_client_id.clear();
+        broadcast_fake_event(make_fake_controller_event());
+    }
+    return ControlMethodResult::success({ { "disconnected", true } });
 }
 
 ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const

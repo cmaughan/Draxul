@@ -1,4 +1,5 @@
 add_library(draxul-client
+    src/remote_terminal_client.cpp
     src/server_client.cpp
 )
 

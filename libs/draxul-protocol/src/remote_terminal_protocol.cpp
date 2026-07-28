@@ -1,0 +1,564 @@
+#include <draxul/remote_terminal_protocol.h>
+
+#include <cmath>
+#include <nlohmann/json.hpp>
+
+namespace draxul
+{
+
+namespace
+{
+
+nlohmann::json color_to_json(const Color& color)
+{
+    return nlohmann::json::array({ color.r, color.g, color.b, color.a });
+}
+
+bool read_color(const nlohmann::json& value, Color& color)
+{
+    if (!value.is_array() || value.size() != 4)
+        return false;
+    for (const auto& component : value)
+    {
+        if (!component.is_number())
+            return false;
+    }
+    color = Color(value[0].get<float>(), value[1].get<float>(),
+        value[2].get<float>(), value[3].get<float>());
+    return std::isfinite(color.r) && std::isfinite(color.g)
+        && std::isfinite(color.b) && std::isfinite(color.a);
+}
+
+nlohmann::json attr_to_json(const HlAttr& attr)
+{
+    return {
+        { "fg", color_to_json(attr.fg) },
+        { "bg", color_to_json(attr.bg) },
+        { "sp", color_to_json(attr.sp) },
+        { "has_fg", attr.has_fg },
+        { "has_bg", attr.has_bg },
+        { "has_sp", attr.has_sp },
+        { "bold", attr.bold },
+        { "italic", attr.italic },
+        { "underline", attr.underline },
+        { "undercurl", attr.undercurl },
+        { "strikethrough", attr.strikethrough },
+        { "reverse", attr.reverse },
+    };
+}
+
+bool read_bool(const nlohmann::json& value, std::string_view key, bool& target)
+{
+    if (!value.contains(key) || !value[key].is_boolean())
+        return false;
+    target = value[key].get<bool>();
+    return true;
+}
+
+bool read_attr(const nlohmann::json& value, HlAttr& attr)
+{
+    return value.is_object()
+        && value.contains("fg") && read_color(value["fg"], attr.fg)
+        && value.contains("bg") && read_color(value["bg"], attr.bg)
+        && value.contains("sp") && read_color(value["sp"], attr.sp)
+        && read_bool(value, "has_fg", attr.has_fg)
+        && read_bool(value, "has_bg", attr.has_bg)
+        && read_bool(value, "has_sp", attr.has_sp)
+        && read_bool(value, "bold", attr.bold)
+        && read_bool(value, "italic", attr.italic)
+        && read_bool(value, "underline", attr.underline)
+        && read_bool(value, "undercurl", attr.undercurl)
+        && read_bool(value, "strikethrough", attr.strikethrough)
+        && read_bool(value, "reverse", attr.reverse);
+}
+
+nlohmann::json cell_to_json(const TerminalCellSnapshot& cell)
+{
+    return {
+        { "text", cell.text },
+        { "attr", attr_to_json(cell.attr) },
+        { "double_width", cell.double_width },
+        { "double_width_continuation", cell.double_width_continuation },
+        { "hyperlink", cell.hyperlink },
+    };
+}
+
+bool read_cell(const nlohmann::json& value, TerminalCellSnapshot& cell)
+{
+    if (!value.is_object()
+        || !value.contains("text") || !value["text"].is_string()
+        || !value.contains("attr") || !read_attr(value["attr"], cell.attr)
+        || !read_bool(value, "double_width", cell.double_width)
+        || !read_bool(value, "double_width_continuation",
+            cell.double_width_continuation)
+        || !value.contains("hyperlink") || !value["hyperlink"].is_string())
+    {
+        return false;
+    }
+    cell.text = value["text"].get<std::string>();
+    cell.hyperlink = value["hyperlink"].get<std::string>();
+    return cell.text.size() <= TerminalStateLimits::kMaxCellTextBytes
+        && cell.hyperlink.size() <= TerminalStateLimits::kMaxHyperlinkBytes;
+}
+
+nlohmann::json metadata_to_json(const TerminalSnapshotMetadata& metadata)
+{
+    nlohmann::json marks = nlohmann::json::array();
+    for (const auto& mark : metadata.shell_marks)
+    {
+        marks.push_back({
+            { "kind", static_cast<int>(mark.kind) },
+            { "row", mark.row },
+            { "exit_code", mark.exit_code },
+        });
+    }
+    return {
+        { "cursor", {
+              { "col", metadata.cursor.col },
+              { "row", metadata.cursor.row },
+              { "visible", metadata.cursor.visible },
+              { "shape", static_cast<int>(metadata.cursor.shape) },
+              { "blink", metadata.cursor.blink },
+          } },
+        { "modes", {
+              { "alternate_screen", metadata.modes.alternate_screen },
+              { "auto_wrap", metadata.modes.auto_wrap },
+              { "origin", metadata.modes.origin },
+              { "cursor_application", metadata.modes.cursor_application },
+              { "bracketed_paste", metadata.modes.bracketed_paste },
+              { "focus_reporting", metadata.modes.focus_reporting },
+              { "synchronized_output", metadata.modes.synchronized_output },
+              { "mouse", {
+                    { "normal_tracking", metadata.modes.mouse.normal_tracking },
+                    { "button_motion", metadata.modes.mouse.button_motion },
+                    { "any_motion", metadata.modes.mouse.any_motion },
+                    { "sgr_coordinates", metadata.modes.mouse.sgr_coordinates },
+                } },
+          } },
+        { "title", metadata.title },
+        { "working_directory", metadata.working_directory },
+        { "shell_marks", std::move(marks) },
+    };
+}
+
+bool read_metadata(const nlohmann::json& value,
+    TerminalSnapshotMetadata& metadata)
+{
+    if (!value.is_object()
+        || !value.contains("cursor") || !value["cursor"].is_object()
+        || !value.contains("modes") || !value["modes"].is_object()
+        || !value.contains("title") || !value["title"].is_string()
+        || !value.contains("working_directory")
+        || !value["working_directory"].is_string()
+        || !value.contains("shell_marks") || !value["shell_marks"].is_array())
+    {
+        return false;
+    }
+    const auto& cursor = value["cursor"];
+    const auto& modes = value["modes"];
+    if (!cursor.contains("col") || !cursor["col"].is_number_integer()
+        || !cursor.contains("row") || !cursor["row"].is_number_integer()
+        || !cursor.contains("shape") || !cursor["shape"].is_number_integer()
+        || !read_bool(cursor, "visible", metadata.cursor.visible)
+        || !read_bool(cursor, "blink", metadata.cursor.blink)
+        || !modes.contains("mouse") || !modes["mouse"].is_object()
+        || !read_bool(modes, "alternate_screen",
+            metadata.modes.alternate_screen)
+        || !read_bool(modes, "auto_wrap", metadata.modes.auto_wrap)
+        || !read_bool(modes, "origin", metadata.modes.origin)
+        || !read_bool(modes, "cursor_application",
+            metadata.modes.cursor_application)
+        || !read_bool(modes, "bracketed_paste",
+            metadata.modes.bracketed_paste)
+        || !read_bool(modes, "focus_reporting",
+            metadata.modes.focus_reporting)
+        || !read_bool(modes, "synchronized_output",
+            metadata.modes.synchronized_output)
+        || !read_bool(modes["mouse"], "normal_tracking",
+            metadata.modes.mouse.normal_tracking)
+        || !read_bool(modes["mouse"], "button_motion",
+            metadata.modes.mouse.button_motion)
+        || !read_bool(modes["mouse"], "any_motion",
+            metadata.modes.mouse.any_motion)
+        || !read_bool(modes["mouse"], "sgr_coordinates",
+            metadata.modes.mouse.sgr_coordinates))
+    {
+        return false;
+    }
+
+    metadata.cursor.col = cursor["col"].get<int>();
+    metadata.cursor.row = cursor["row"].get<int>();
+    const int shape = cursor["shape"].get<int>();
+    if (shape < static_cast<int>(CursorShape::Block)
+        || shape > static_cast<int>(CursorShape::Vertical))
+    {
+        return false;
+    }
+    metadata.cursor.shape = static_cast<CursorShape>(shape);
+    metadata.title = value["title"].get<std::string>();
+    metadata.working_directory
+        = value["working_directory"].get<std::string>();
+    if (metadata.title.size() > TerminalStateLimits::kMaxTitleBytes
+        || metadata.working_directory.size()
+            > TerminalStateLimits::kMaxWorkingDirectoryBytes
+        || value["shell_marks"].size()
+            > TerminalStateLimits::kMaxScrollbackRows)
+    {
+        return false;
+    }
+    for (const auto& item : value["shell_marks"])
+    {
+        if (!item.is_object()
+            || !item.contains("kind") || !item["kind"].is_number_integer()
+            || !item.contains("row") || !item["row"].is_number_integer()
+            || !item.contains("exit_code")
+            || !item["exit_code"].is_number_integer())
+        {
+            return false;
+        }
+        const int kind = item["kind"].get<int>();
+        if (kind < static_cast<int>(TerminalShellMarkKind::PromptStart)
+            || kind > static_cast<int>(TerminalShellMarkKind::OutputEnd))
+        {
+            return false;
+        }
+        metadata.shell_marks.push_back({
+            .kind = static_cast<TerminalShellMarkKind>(kind),
+            .row = item["row"].get<int>(),
+            .exit_code = item["exit_code"].get<int>(),
+        });
+    }
+    return true;
+}
+
+bool valid_dimensions(int cols, int rows)
+{
+    if (cols <= 0 || rows <= 0
+        || cols > TerminalStateLimits::kMaxColumns
+        || rows > TerminalStateLimits::kMaxRows)
+    {
+        return false;
+    }
+    return static_cast<size_t>(cols) * static_cast<size_t>(rows)
+        <= TerminalStateLimits::kMaxCells;
+}
+
+nlohmann::json version_to_json(const RemoteTerminalVersion& version)
+{
+    return {
+        { "server_epoch", version.server_epoch },
+        { "terminal_id", version.terminal_id },
+        { "generation", version.generation },
+        { "sequence", version.sequence },
+    };
+}
+
+bool read_version(const nlohmann::json& value,
+    RemoteTerminalVersion& version)
+{
+    if (!value.is_object()
+        || !value.contains("server_epoch")
+        || !value["server_epoch"].is_string()
+        || !value.contains("terminal_id")
+        || !value["terminal_id"].is_string()
+        || !value.contains("generation")
+        || !value["generation"].is_number_unsigned()
+        || !value.contains("sequence")
+        || !value["sequence"].is_number_unsigned())
+    {
+        return false;
+    }
+    version.server_epoch = value["server_epoch"].get<std::string>();
+    version.terminal_id = value["terminal_id"].get<std::string>();
+    version.generation = value["generation"].get<uint64_t>();
+    version.sequence = value["sequence"].get<uint64_t>();
+    return !version.server_epoch.empty() && !version.terminal_id.empty()
+        && version.server_epoch.size() <= 128
+        && version.terminal_id.size() <= 128
+        && version.generation > 0;
+}
+
+} // namespace
+
+std::string_view to_string(RemoteTerminalEventKind kind)
+{
+    switch (kind)
+    {
+    case RemoteTerminalEventKind::Snapshot:
+        return "snapshot";
+    case RemoteTerminalEventKind::Delta:
+        return "delta";
+    case RemoteTerminalEventKind::Controller:
+        return "controller";
+    }
+    return "unknown";
+}
+
+std::optional<RemoteTerminalEventKind> parse_remote_terminal_event_kind(
+    std::string_view value)
+{
+    if (value == "snapshot")
+        return RemoteTerminalEventKind::Snapshot;
+    if (value == "delta")
+        return RemoteTerminalEventKind::Delta;
+    if (value == "controller")
+        return RemoteTerminalEventKind::Controller;
+    return std::nullopt;
+}
+
+nlohmann::json terminal_semantic_snapshot_to_json(
+    const TerminalSemanticSnapshot& snapshot)
+{
+    nlohmann::json cells = nlohmann::json::array();
+    for (const auto& cell : snapshot.cells)
+        cells.push_back(cell_to_json(cell));
+    return {
+        { "cols", snapshot.cols },
+        { "rows", snapshot.rows },
+        { "cells", std::move(cells) },
+        { "metadata", metadata_to_json(snapshot.metadata) },
+    };
+}
+
+std::optional<TerminalSemanticSnapshot>
+terminal_semantic_snapshot_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object()
+        || !value.contains("cols") || !value["cols"].is_number_integer()
+        || !value.contains("rows") || !value["rows"].is_number_integer()
+        || !value.contains("cells") || !value["cells"].is_array()
+        || !value.contains("metadata"))
+    {
+        error = "Terminal snapshot is invalid.";
+        return std::nullopt;
+    }
+    TerminalSemanticSnapshot snapshot;
+    snapshot.cols = value["cols"].get<int>();
+    snapshot.rows = value["rows"].get<int>();
+    if (!valid_dimensions(snapshot.cols, snapshot.rows)
+        || value["cells"].size()
+            != static_cast<size_t>(snapshot.cols) * snapshot.rows
+        || !read_metadata(value["metadata"], snapshot.metadata))
+    {
+        error = "Terminal snapshot values are out of range.";
+        return std::nullopt;
+    }
+    snapshot.cells.reserve(value["cells"].size());
+    for (const auto& item : value["cells"])
+    {
+        TerminalCellSnapshot cell;
+        if (!read_cell(item, cell))
+        {
+            error = "Terminal snapshot contains an invalid cell.";
+            return std::nullopt;
+        }
+        snapshot.cells.push_back(std::move(cell));
+    }
+    return snapshot;
+}
+
+nlohmann::json terminal_dirty_snapshot_to_json(
+    const TerminalDirtySnapshot& snapshot)
+{
+    nlohmann::json cells = nlohmann::json::array();
+    for (const auto& item : snapshot.cells)
+    {
+        cells.push_back({
+            { "col", item.col },
+            { "row", item.row },
+            { "cell", cell_to_json(item.cell) },
+        });
+    }
+    return {
+        { "cols", snapshot.cols },
+        { "rows", snapshot.rows },
+        { "full", snapshot.full },
+        { "cells", std::move(cells) },
+        { "metadata", metadata_to_json(snapshot.metadata) },
+    };
+}
+
+std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object()
+        || !value.contains("cols") || !value["cols"].is_number_integer()
+        || !value.contains("rows") || !value["rows"].is_number_integer()
+        || !value.contains("full") || !value["full"].is_boolean()
+        || !value.contains("cells") || !value["cells"].is_array()
+        || !value.contains("metadata"))
+    {
+        error = "Terminal delta is invalid.";
+        return std::nullopt;
+    }
+    TerminalDirtySnapshot snapshot;
+    snapshot.cols = value["cols"].get<int>();
+    snapshot.rows = value["rows"].get<int>();
+    snapshot.full = value["full"].get<bool>();
+    if (!valid_dimensions(snapshot.cols, snapshot.rows)
+        || value["cells"].size() > TerminalStateLimits::kMaxCells
+        || !read_metadata(value["metadata"], snapshot.metadata))
+    {
+        error = "Terminal delta values are out of range.";
+        return std::nullopt;
+    }
+    snapshot.cells.reserve(value["cells"].size());
+    for (const auto& item : value["cells"])
+    {
+        if (!item.is_object()
+            || !item.contains("col") || !item["col"].is_number_integer()
+            || !item.contains("row") || !item["row"].is_number_integer()
+            || !item.contains("cell"))
+        {
+            error = "Terminal delta contains an invalid cell.";
+            return std::nullopt;
+        }
+        TerminalDirtyCellSnapshot dirty;
+        dirty.col = item["col"].get<int>();
+        dirty.row = item["row"].get<int>();
+        if (dirty.col < 0 || dirty.col >= snapshot.cols
+            || dirty.row < 0 || dirty.row >= snapshot.rows
+            || !read_cell(item["cell"], dirty.cell))
+        {
+            error = "Terminal delta cell is out of range.";
+            return std::nullopt;
+        }
+        snapshot.cells.push_back(std::move(dirty));
+    }
+    if (snapshot.full
+        && snapshot.cells.size()
+            != static_cast<size_t>(snapshot.cols) * snapshot.rows)
+    {
+        error = "Full terminal delta does not contain every cell.";
+        return std::nullopt;
+    }
+    return snapshot;
+}
+
+nlohmann::json remote_terminal_event_to_json(
+    const RemoteTerminalEvent& event)
+{
+    nlohmann::json value{
+        { "kind", to_string(event.kind) },
+        { "version", version_to_json(event.version) },
+        { "controller_client_id", event.controller_client_id },
+    };
+    if (event.snapshot)
+        value["snapshot"] = terminal_semantic_snapshot_to_json(*event.snapshot);
+    if (event.delta)
+        value["delta"] = terminal_dirty_snapshot_to_json(*event.delta);
+    return value;
+}
+
+std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object()
+        || !value.contains("kind") || !value["kind"].is_string()
+        || !value.contains("version")
+        || !value.contains("controller_client_id")
+        || !value["controller_client_id"].is_string())
+    {
+        error = "Remote terminal event is invalid.";
+        return std::nullopt;
+    }
+    const auto kind = parse_remote_terminal_event_kind(
+        value["kind"].get_ref<const std::string&>());
+    RemoteTerminalEvent event;
+    if (!kind || !read_version(value["version"], event.version))
+    {
+        error = "Remote terminal event version is invalid.";
+        return std::nullopt;
+    }
+    event.kind = *kind;
+    event.controller_client_id
+        = value["controller_client_id"].get<std::string>();
+    if (event.controller_client_id.size() > 128)
+    {
+        error = "Remote terminal controller id is invalid.";
+        return std::nullopt;
+    }
+    if (event.kind == RemoteTerminalEventKind::Snapshot)
+    {
+        if (!value.contains("snapshot"))
+        {
+            error = "Remote terminal snapshot event has no snapshot.";
+            return std::nullopt;
+        }
+        event.snapshot = terminal_semantic_snapshot_from_json(
+            value["snapshot"], error);
+        if (!event.snapshot)
+            return std::nullopt;
+    }
+    else if (event.kind == RemoteTerminalEventKind::Delta)
+    {
+        if (!value.contains("delta"))
+        {
+            error = "Remote terminal delta event has no delta.";
+            return std::nullopt;
+        }
+        event.delta = terminal_dirty_snapshot_from_json(
+            value["delta"], error);
+        if (!event.delta)
+            return std::nullopt;
+    }
+    return event;
+}
+
+nlohmann::json remote_terminal_attach_to_json(
+    const RemoteTerminalAttach& attach)
+{
+    return {
+        { "pane", {
+              { "pane_id", attach.pane.pane_id },
+              { "terminal_id", attach.pane.terminal_id },
+              { "name", attach.pane.name },
+              { "execution_domain", attach.pane.execution_domain },
+          } },
+        { "state", remote_terminal_event_to_json(attach.state) },
+    };
+}
+
+std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    if (!value.is_object() || !value.contains("pane")
+        || !value["pane"].is_object() || !value.contains("state"))
+    {
+        error = "Remote terminal attach response is invalid.";
+        return std::nullopt;
+    }
+    const auto& pane = value["pane"];
+    for (std::string_view key :
+        { "pane_id", "terminal_id", "name", "execution_domain" })
+    {
+        if (!pane.contains(key) || !pane[key].is_string())
+        {
+            error = "Remote pane descriptor is invalid.";
+            return std::nullopt;
+        }
+    }
+    RemoteTerminalAttach attach;
+    attach.pane.pane_id = pane["pane_id"].get<std::string>();
+    attach.pane.terminal_id = pane["terminal_id"].get<std::string>();
+    attach.pane.name = pane["name"].get<std::string>();
+    attach.pane.execution_domain
+        = pane["execution_domain"].get<std::string>();
+    if (attach.pane.pane_id.empty() || attach.pane.terminal_id.empty()
+        || attach.pane.pane_id.size() > 128
+        || attach.pane.terminal_id.size() > 128
+        || attach.pane.name.size() > 256
+        || attach.pane.execution_domain != "server_terminal")
+    {
+        error = "Remote pane descriptor values are invalid.";
+        return std::nullopt;
+    }
+    auto event = remote_terminal_event_from_json(value["state"], error);
+    if (!event || event->kind != RemoteTerminalEventKind::Snapshot)
+        return std::nullopt;
+    attach.state = std::move(*event);
+    return attach;
+}
+
+} // namespace draxul

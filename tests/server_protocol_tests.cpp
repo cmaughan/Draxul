@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
 
 #include <nlohmann/json.hpp>
@@ -71,4 +72,83 @@ TEST_CASE("server probe states have stable diagnostic names", "[server][protocol
     REQUIRE(to_string(ServerProbeState::Crashed) == "crashed");
     REQUIRE(to_string(ServerProbeState::Stale) == "stale");
     REQUIRE(to_string(ServerProbeState::LaunchFailed) == "launch_failed");
+}
+
+TEST_CASE("remote terminal protocol round-trips snapshots and deltas",
+    "[server][protocol][remote-terminal]")
+{
+    TerminalSemanticSnapshot snapshot{
+        .cols = 2,
+        .rows = 1,
+        .cells = {
+            { .text = "A", .attr = { .bold = true } },
+            { .text = "B", .hyperlink = "https://draxul.dev" },
+        },
+        .metadata = {
+            .cursor = { .col = 1, .shape = CursorShape::Vertical },
+            .title = "remote",
+            .working_directory = "/tmp",
+        },
+    };
+    RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = "pane",
+            .terminal_id = "terminal",
+            .name = "Fake Remote",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "epoch",
+                .terminal_id = "terminal",
+                .generation = 2,
+                .sequence = 7,
+            },
+            .controller_client_id = "client-a",
+            .snapshot = snapshot,
+        },
+    };
+
+    std::string error;
+    const auto decoded_attach = remote_terminal_attach_from_json(
+        remote_terminal_attach_to_json(attach), error);
+    INFO(error);
+    REQUIRE(decoded_attach == attach);
+
+    RemoteTerminalEvent delta{
+        .kind = RemoteTerminalEventKind::Delta,
+        .version = {
+            .server_epoch = "epoch",
+            .terminal_id = "terminal",
+            .generation = 2,
+            .sequence = 8,
+        },
+        .controller_client_id = "client-a",
+        .delta = TerminalDirtySnapshot{
+            .cols = 2,
+            .rows = 1,
+            .cells = {
+                { .col = 1, .row = 0, .cell = { .text = "C" } },
+            },
+            .metadata = snapshot.metadata,
+        },
+    };
+    const auto decoded_delta = remote_terminal_event_from_json(
+        remote_terminal_event_to_json(delta), error);
+    INFO(error);
+    REQUIRE(decoded_delta == delta);
+}
+
+TEST_CASE("remote terminal protocol rejects incomplete full snapshots",
+    "[server][protocol][remote-terminal]")
+{
+    TerminalSemanticSnapshot snapshot{
+        .cols = 2,
+        .rows = 2,
+        .cells = { { .text = "only-one" } },
+    };
+    std::string error;
+    REQUIRE_FALSE(terminal_semantic_snapshot_from_json(
+        terminal_semantic_snapshot_to_json(snapshot), error));
 }

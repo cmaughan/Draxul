@@ -3,6 +3,7 @@
 #include "support/temp_dir.h"
 
 #include <draxul/control_plane.h>
+#include <draxul/remote_terminal_client.h>
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
 #include <draxul/server_protocol.h>
@@ -45,6 +46,43 @@ ServerEnsureOptions probe_options(const std::filesystem::path& runtime)
     };
 }
 
+RemoteTerminalClient remote_client(
+    const std::filesystem::path& runtime,
+    std::string client_id,
+    std::string epoch = "fixed-epoch")
+{
+    return RemoteTerminalClient({
+        .runtime_directory = runtime,
+        .client_id = std::move(client_id),
+        .expected_server_epoch = std::move(epoch),
+    });
+}
+
+class ServerRunGuard
+{
+public:
+    explicit ServerRunGuard(ServerKernel& server)
+        : server_(server)
+        , thread_([&server] { server.run_until_stopped(); })
+    {
+    }
+
+    ~ServerRunGuard()
+    {
+        server_.request_stop();
+    }
+
+    void join()
+    {
+        server_.request_stop();
+        thread_.join();
+    }
+
+private:
+    ServerKernel& server_;
+    std::jthread thread_;
+};
+
 }
 
 TEST_CASE("server kernel publishes one identity and stops gracefully", "[server][kernel]")
@@ -57,7 +95,7 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     });
     REQUIRE(server.start().disposition == ServerStartDisposition::Started);
 
-    std::jthread run_thread([&server] { server.run_until_stopped(); });
+    ServerRunGuard run_guard(server);
     const auto probe = ServerClient::probe(probe_options(temp.path));
     REQUIRE(probe.ready());
     REQUIRE(probe.welcome->server_pid == server.process_id());
@@ -76,7 +114,7 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
 
     std::string shutdown_error;
     REQUIRE(ServerClient::shutdown(temp.path, shutdown_error));
-    run_thread.join();
+    run_guard.join();
     REQUIRE_FALSE(server.running());
     REQUIRE_FALSE(std::filesystem::exists(server_metadata_path(temp.path)));
 }
@@ -135,12 +173,11 @@ TEST_CASE("server rejects an incompatible protocol major", "[server][protocol]")
         .protocol_major = 7,
     });
     REQUIRE(server.start().disposition == ServerStartDisposition::Started);
-    std::jthread run_thread([&server] { server.run_until_stopped(); });
+    ServerRunGuard run_guard(server);
 
     REQUIRE(ServerClient::probe(probe_options(temp.path)).state
         == ServerProbeState::Incompatible);
-    server.request_stop();
-    run_thread.join();
+    run_guard.join();
 }
 
 TEST_CASE("server client distinguishes a live but unresponsive listener", "[server][discovery]")
@@ -156,6 +193,149 @@ TEST_CASE("server client distinguishes a live but unresponsive listener", "[serv
     REQUIRE(ServerClient::probe(probe_options(temp.path)).state
         == ServerProbeState::Busy);
     unresponsive.stop();
+}
+
+TEST_CASE("two remote terminal clients converge through control takeover and reconnect",
+    "[server][remote-terminal]")
+{
+    TempDir temp("draxul-fake-remote-terminal");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto client_a = remote_client(temp.path, "client-a");
+    auto client_b = remote_client(temp.path, "client-b");
+    std::string error;
+    REQUIRE(client_a.attach(error));
+    INFO(error);
+    REQUIRE(client_b.attach(error));
+    INFO(error);
+    REQUIRE(client_a.projection().is_controller("client-a"));
+    REQUIRE_FALSE(client_b.projection().is_controller("client-b"));
+    REQUIRE(terminal_semantic_digest(client_a.projection().snapshot())
+        == terminal_semantic_digest(client_b.projection().snapshot()));
+
+    REQUIRE(client_a.send_input("shared", error));
+    bool changed = false;
+    REQUIRE(client_a.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE(client_b.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE(terminal_semantic_digest(client_a.projection().snapshot())
+        == terminal_semantic_digest(client_b.projection().snapshot()));
+
+    REQUIRE_FALSE(client_b.send_input("denied", error));
+    REQUIRE(client_b.last_error_code() == "not_controller");
+    REQUIRE(client_b.take_control(error));
+    REQUIRE(client_a.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE(client_b.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE_FALSE(client_a.projection().is_controller("client-a"));
+    REQUIRE(client_b.projection().is_controller("client-b"));
+
+    REQUIRE(client_b.resize(48, 14, error));
+    REQUIRE(client_a.poll(changed, error));
+    REQUIRE(client_b.poll(changed, error));
+    REQUIRE(client_a.projection().snapshot().cols == 48);
+    REQUIRE(client_a.projection().snapshot().rows == 14);
+    REQUIRE(terminal_semantic_digest(client_a.projection().snapshot())
+        == terminal_semantic_digest(client_b.projection().snapshot()));
+
+    REQUIRE(client_a.disconnect(error));
+    REQUIRE(client_b.send_input("\rreconnected", error));
+    REQUIRE(client_b.poll(changed, error));
+
+    auto reconnected_a = remote_client(temp.path, "client-a");
+    REQUIRE(reconnected_a.attach(error));
+    INFO(error);
+    REQUIRE(terminal_semantic_digest(reconnected_a.projection().snapshot())
+        == terminal_semantic_digest(client_b.projection().snapshot()));
+    REQUIRE(reconnected_a.projection().version()
+        == client_b.projection().version());
+
+    run_guard.join();
+}
+
+TEST_CASE("slow remote observer resyncs without delaying the controller",
+    "[server][remote-terminal]")
+{
+    TempDir temp("draxul-fake-remote-saturation");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto controller = remote_client(temp.path, "controller");
+    auto observer = remote_client(temp.path, "observer");
+    std::string error;
+    REQUIRE(controller.attach(error));
+    REQUIRE(observer.attach(error));
+    bool changed = false;
+    for (size_t index = 0; index < kRemoteTerminalQueueLimit + 8; ++index)
+    {
+        REQUIRE(controller.send_input("x", error));
+        REQUIRE(controller.poll(changed, error));
+        REQUIRE(changed);
+    }
+
+    REQUIRE(observer.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE(observer.projection().version()
+        == controller.projection().version());
+    REQUIRE(terminal_semantic_digest(observer.projection().snapshot())
+        == terminal_semantic_digest(controller.projection().snapshot()));
+
+    run_guard.join();
+}
+
+TEST_CASE("remote terminal projection rejects stale identity and sequence",
+    "[client][remote-terminal]")
+{
+    TerminalSemanticSnapshot snapshot{
+        .cols = 1,
+        .rows = 1,
+        .cells = { { .text = "A" } },
+    };
+    RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = "pane",
+            .terminal_id = "terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "epoch",
+                .terminal_id = "terminal",
+                .generation = 1,
+                .sequence = 5,
+            },
+            .snapshot = snapshot,
+        },
+    };
+    RemoteTerminalProjection projection;
+    std::string error;
+    REQUIRE(projection.attach(attach, error));
+
+    auto event = attach.state;
+    event.kind = RemoteTerminalEventKind::Controller;
+    event.snapshot.reset();
+    event.version.sequence = 7;
+    REQUIRE_FALSE(projection.apply(event, error));
+
+    event.version.sequence = 6;
+    event.version.server_epoch = "old-epoch";
+    REQUIRE_FALSE(projection.apply(event, error));
+
+    event.version.server_epoch = "epoch";
+    event.version.generation = 2;
+    REQUIRE_FALSE(projection.apply(event, error));
 }
 
 #ifdef DRAXUL_EXECUTABLE_PATH
