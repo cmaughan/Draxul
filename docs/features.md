@@ -43,10 +43,13 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another
-  client. Client input is batched and command work is bounded between projection
-  polls so sustained typing cannot starve observers. Reconnect restores the current
-  server state. This remains explicitly experimental: no real shell process or saved
-  Space is server-owned yet.
+  client. Cell frames use a compact shared-attribute table, and poll responses are
+  bounded by encoded bytes as well as event count so large resize snapshots stay
+  within the control frame. Client input is batched and command work is bounded
+  between projection polls so sustained typing cannot starve observers. Windows
+  serves four named-pipe clients concurrently. Reconnect restores the current server
+  state. This remains explicitly experimental: no real shell process or saved Space
+  is server-owned yet.
 
 ---
 

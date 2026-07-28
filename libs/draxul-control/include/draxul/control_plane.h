@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -74,6 +75,10 @@ public:
     // to tell "someone else is running this Session" apart from "the endpoint
     // could not be created here". Cleared by a successful start().
     bool endpoint_in_use() const;
+    // Returns and clears the most recent listener recreation error. This lets
+    // callers surface transient platform failures without coupling the
+    // transport library to logging.
+    uint32_t take_listener_error();
     void process_pending(const Handler& handler);
 
     const std::string& endpoint() const;

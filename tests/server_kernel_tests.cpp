@@ -295,6 +295,50 @@ TEST_CASE("slow remote observer resyncs without delaying the controller",
     run_guard.join();
 }
 
+TEST_CASE("remote observer receives a burst of large resize events in bounded frames",
+    "[server][remote-terminal]")
+{
+    TempDir temp("draxul-fake-remote-resize-burst");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto controller = remote_client(temp.path, "controller");
+    auto observer = remote_client(temp.path, "observer");
+    std::string error;
+    REQUIRE(controller.attach(error));
+    REQUIRE(observer.attach(error));
+    bool changed = false;
+    for (int index = 0; index < 8; ++index)
+    {
+        const int cols = index % 2 == 0 ? 240 : 80;
+        const int rows = index % 2 == 0 ? 45 : 24;
+        REQUIRE(controller.resize(cols, rows, error));
+        REQUIRE(controller.poll(changed, error));
+        REQUIRE(changed);
+    }
+
+    for (int attempt = 0;
+         attempt < 16
+         && observer.projection().version()
+             != controller.projection().version();
+         ++attempt)
+    {
+        REQUIRE(observer.poll(changed, error));
+        INFO(error);
+        REQUIRE(changed);
+    }
+    REQUIRE(observer.projection().version()
+        == controller.projection().version());
+    REQUIRE(terminal_semantic_digest(observer.projection().snapshot())
+        == terminal_semantic_digest(controller.projection().snapshot()));
+
+    run_guard.join();
+}
+
 TEST_CASE("remote terminal projection rejects stale identity and sequence",
     "[client][remote-terminal]")
 {

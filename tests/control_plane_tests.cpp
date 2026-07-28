@@ -24,6 +24,9 @@
 #include <thread>
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 #include <process.h>
 #else
 #include <unistd.h>
@@ -431,6 +434,53 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
 }
+
+#ifdef _WIN32
+TEST_CASE("a stalled Windows control client does not starve another client",
+    "[control][windows]")
+{
+    const auto runtime = unique_runtime_directory();
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start("concurrent-transport-test", runtime, [] {},
+        &start_error));
+
+    const std::string endpoint = server.endpoint();
+    const std::wstring pipe_name(endpoint.begin(), endpoint.end());
+    HANDLE stalled = CreateFileW(pipe_name.c_str(),
+        GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OVERLAPPED, nullptr);
+    REQUIRE(stalled != INVALID_HANDLE_VALUE);
+
+    auto client = std::async(std::launch::async, [&] {
+        return ControlClient::request("concurrent-transport-test", runtime,
+            "system.hello", { { "probe", true } });
+    });
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (client.wait_for(std::chrono::milliseconds(1))
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline)
+    {
+        server.process_pending([](const ControlRequest& request) {
+            return ControlMethodResult::success({
+                { "method", request.method },
+                { "probe", request.params.value("probe", false) },
+            });
+        });
+    }
+
+    REQUIRE(client.wait_for(std::chrono::milliseconds(0))
+        == std::future_status::ready);
+    const auto response = client.get();
+    REQUIRE(response.ok);
+    CHECK(response.result["method"] == "system.hello");
+    CloseHandle(stalled);
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+#endif
 
 TEST_CASE("app control endpoint starts, prompts, waits, and emits events", "[control][app]")
 {

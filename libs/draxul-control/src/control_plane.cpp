@@ -321,6 +321,33 @@ bool read_metadata(const std::filesystem::path& path,
 
 #ifdef _WIN32
 
+bool await_overlapped_io(HANDLE handle, OVERLAPPED& overlapped,
+    DWORD& transferred, DWORD initial_error)
+{
+    if (initial_error != ERROR_IO_PENDING)
+    {
+        SetLastError(initial_error);
+        return false;
+    }
+    const DWORD wait = WaitForSingleObject(overlapped.hEvent,
+        static_cast<DWORD>(kIoTimeout.count() * 1000));
+    if (wait == WAIT_OBJECT_0)
+        return GetOverlappedResult(
+            handle, &overlapped, &transferred, FALSE);
+
+    // The OVERLAPPED structure and caller's data buffer must outlive the I/O.
+    // Returning directly on timeout left both stack objects available for
+    // reuse while the kernel could still complete the pending operation.
+    const DWORD error
+        = wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
+    CancelIoEx(handle, &overlapped);
+    WaitForSingleObject(overlapped.hEvent, INFINITE);
+    DWORD ignored = 0;
+    GetOverlappedResult(handle, &overlapped, &ignored, FALSE);
+    SetLastError(error);
+    return false;
+}
+
 bool read_exact(HANDLE handle, void* data, size_t size)
 {
     size_t offset = 0;
@@ -333,16 +360,16 @@ bool read_exact(HANDLE handle, void* data, size_t size)
         DWORD read = 0;
         BOOL ok = ReadFile(handle, static_cast<char*>(data) + offset,
             static_cast<DWORD>(size - offset), &read, &overlapped);
-        if (!ok && GetLastError() == ERROR_IO_PENDING)
-        {
-            ok = WaitForSingleObject(overlapped.hEvent,
-                     static_cast<DWORD>(kIoTimeout.count() * 1000))
-                    == WAIT_OBJECT_0
-                && GetOverlappedResult(handle, &overlapped, &read, FALSE);
-        }
+        if (!ok)
+            ok = await_overlapped_io(
+                handle, overlapped, read, GetLastError());
+        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
         CloseHandle(overlapped.hEvent);
         if (!ok || read == 0)
+        {
+            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
             return false;
+        }
         offset += read;
     }
     return true;
@@ -360,16 +387,16 @@ bool write_exact(HANDLE handle, const void* data, size_t size)
         DWORD written = 0;
         BOOL ok = WriteFile(handle, static_cast<const char*>(data) + offset,
             static_cast<DWORD>(size - offset), &written, &overlapped);
-        if (!ok && GetLastError() == ERROR_IO_PENDING)
-        {
-            ok = WaitForSingleObject(overlapped.hEvent,
-                     static_cast<DWORD>(kIoTimeout.count() * 1000))
-                    == WAIT_OBJECT_0
-                && GetOverlappedResult(handle, &overlapped, &written, FALSE);
-        }
+        if (!ok)
+            ok = await_overlapped_io(
+                handle, overlapped, written, GetLastError());
+        const DWORD io_error = ok ? ERROR_SUCCESS : GetLastError();
         CloseHandle(overlapped.hEvent);
         if (!ok || written == 0)
+        {
+            SetLastError(ok ? ERROR_BROKEN_PIPE : io_error);
             return false;
+        }
         offset += written;
     }
     return true;
@@ -493,6 +520,7 @@ public:
     std::optional<std::string> startup_result;
     bool owns_endpoint = false;
     std::atomic<bool> endpoint_in_use = false;
+    std::atomic<uint32_t> listener_error = 0;
 };
 
 void ControlServer::Impl::report_startup(std::string result)
@@ -550,6 +578,7 @@ bool ControlServer::Impl::start(std::string new_session_id,
 
     active = true;
     endpoint_in_use = false;
+    listener_error = 0;
     {
         std::lock_guard<std::mutex> guard(startup_mutex);
         startup_result.reset();
@@ -684,82 +713,131 @@ void ControlServer::Impl::run(std::stop_token stop_token)
         sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE
     };
     const std::wstring pipe_name(endpoint.begin(), endpoint.end());
-    bool first_instance = true;
-
-    while (!stop_token.stop_requested())
+    // Claim the name before starting the listener pool. Without
+    // FILE_FLAG_FIRST_PIPE_INSTANCE, a second Draxul process can quietly add
+    // an instance with the same name and race this process for clients.
+    HANDLE initial_pipe = CreateNamedPipeW(pipe_name.c_str(),
+        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
+            | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        4, static_cast<DWORD>(kControlMaxMessageBytes),
+        static_cast<DWORD>(kControlMaxMessageBytes), 0, &attributes);
+    if (initial_pipe == INVALID_HANDLE_VALUE)
     {
-        // FILE_FLAG_FIRST_PIPE_INSTANCE on the initial create makes a second
-        // Draxul fail deterministically instead of quietly adding an instance
-        // of the same pipe name and racing the first for clients. Later
-        // iterations re-create the listener after a connection is serviced, by
-        // which point this process already owns the name.
-        const DWORD open_mode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
-            | (first_instance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0u);
-        HANDLE pipe = CreateNamedPipeW(pipe_name.c_str(), open_mode,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-            4, static_cast<DWORD>(kControlMaxMessageBytes),
-            static_cast<DWORD>(kControlMaxMessageBytes), 0, &attributes);
-        if (pipe == INVALID_HANDLE_VALUE)
-        {
-            if (first_instance)
-            {
-                const bool taken = GetLastError() == ERROR_ACCESS_DENIED;
-                endpoint_in_use = taken;
-                report_startup(taken
-                        ? "Control endpoint is already in use by another Draxul instance."
-                        : "Unable to create the control pipe.");
-                active = false;
-            }
-            break;
-        }
-        if (first_instance)
-        {
-            report_startup({});
-            first_instance = false;
-        }
-
-        OVERLAPPED connect{};
-        connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        BOOL connected = ConnectNamedPipe(pipe, &connect);
-        if (!connected && GetLastError() == ERROR_PIPE_CONNECTED)
-            connected = TRUE;
-        else if (!connected && GetLastError() == ERROR_IO_PENDING)
-        {
-            while (!stop_token.stop_requested())
-            {
-                const DWORD wait = WaitForSingleObject(connect.hEvent, 100);
-                if (wait == WAIT_OBJECT_0)
-                {
-                    DWORD ignored = 0;
-                    connected = GetOverlappedResult(pipe, &connect, &ignored, FALSE);
-                    break;
-                }
-                if (wait != WAIT_TIMEOUT)
-                    break;
-            }
-        }
-        CloseHandle(connect.hEvent);
-        if (connected && !stop_token.stop_requested())
-        {
-            std::string bytes;
-            ControlRequest request;
-            ControlMethodResult result;
-            if (!read_frame(pipe, bytes))
-                result = ControlMethodResult::error("invalid_frame", "Invalid control frame.");
-            else
-            {
-                result = parse_request(bytes, token, request);
-                if (result.ok)
-                    result = dispatch(request);
-            }
-            const std::string response = response_json(request.id, result).dump();
-            write_frame(pipe, response);
-            FlushFileBuffers(pipe);
-            DisconnectNamedPipe(pipe);
-        }
-        CancelIoEx(pipe, nullptr);
-        CloseHandle(pipe);
+        const DWORD create_error = GetLastError();
+        // ERROR_PIPE_BUSY is returned when the incumbent has already created
+        // every advertised listener instance; it is the same ownership
+        // outcome as ERROR_ACCESS_DENIED from FIRST_PIPE_INSTANCE.
+        const bool taken = create_error == ERROR_ACCESS_DENIED
+            || create_error == ERROR_PIPE_BUSY;
+        endpoint_in_use = taken;
+        report_startup(taken
+                ? "Control endpoint is already in use by another Draxul instance."
+                : "Unable to create the control pipe.");
+        LocalFree(descriptor);
+        active = false;
+        return;
     }
+    report_startup({});
+
+    // A remote terminal client holds its pipe instance while the request is
+    // dispatched to the server's main loop and the response is transferred.
+    // Keeping only one live instance therefore lets a slow poll or a stalled
+    // client starve every other UI. Four independent listeners match the pipe's
+    // advertised instance count and keep observers responsive while another
+    // client is resizing, polling, or disconnecting.
+    auto serve_connections
+        = [this, &attributes, &pipe_name](std::stop_token shared_stop,
+              HANDLE first_pipe) {
+              HANDLE pipe = first_pipe;
+              while (!shared_stop.stop_requested())
+              {
+                  if (pipe == INVALID_HANDLE_VALUE)
+                  {
+                      pipe = CreateNamedPipeW(pipe_name.c_str(),
+                          PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                          PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                          4, static_cast<DWORD>(kControlMaxMessageBytes),
+                          static_cast<DWORD>(kControlMaxMessageBytes),
+                          0, &attributes);
+                      if (pipe == INVALID_HANDLE_VALUE)
+                      {
+                          listener_error = GetLastError();
+                          std::this_thread::sleep_for(
+                              std::chrono::milliseconds(25));
+                          continue;
+                      }
+                  }
+
+                  OVERLAPPED connect{};
+                  connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                  BOOL connected = ConnectNamedPipe(pipe, &connect);
+                  if (!connected && GetLastError() == ERROR_PIPE_CONNECTED)
+                      connected = TRUE;
+                  else if (!connected && GetLastError() == ERROR_IO_PENDING)
+                  {
+                      while (!shared_stop.stop_requested())
+                      {
+                          const DWORD wait
+                              = WaitForSingleObject(connect.hEvent, 100);
+                          if (wait == WAIT_OBJECT_0)
+                          {
+                              DWORD ignored = 0;
+                              connected = GetOverlappedResult(
+                                  pipe, &connect, &ignored, FALSE);
+                              break;
+                          }
+                          if (wait != WAIT_TIMEOUT)
+                              break;
+                      }
+                  }
+                  CloseHandle(connect.hEvent);
+                  if (connected && !shared_stop.stop_requested())
+                  {
+                      std::string bytes;
+                      ControlRequest request;
+                      ControlMethodResult result;
+                      if (!read_frame(pipe, bytes))
+                      {
+                          result = ControlMethodResult::error(
+                              "invalid_frame", "Invalid control frame.");
+                      }
+                      else
+                      {
+                          result = parse_request(bytes, token, request);
+                          if (result.ok)
+                              result = dispatch(request);
+                      }
+                      const std::string response
+                          = response_json(request.id, result).dump();
+                      write_frame(pipe, response);
+                      FlushFileBuffers(pipe);
+                      DisconnectNamedPipe(pipe);
+                  }
+                  CancelIoEx(pipe, nullptr);
+                  CloseHandle(pipe);
+                  pipe = INVALID_HANDLE_VALUE;
+              }
+              if (pipe != INVALID_HANDLE_VALUE)
+              {
+                  CancelIoEx(pipe, nullptr);
+                  CloseHandle(pipe);
+              }
+          };
+
+    std::vector<std::jthread> additional_listeners;
+    additional_listeners.reserve(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        additional_listeners.emplace_back(
+            [serve_connections, stop_token](std::stop_token) {
+                serve_connections(stop_token, INVALID_HANDLE_VALUE);
+            });
+    }
+    serve_connections(stop_token, initial_pipe);
+    // The listener closures reference the shared security descriptor. Join
+    // them before releasing it.
+    additional_listeners.clear();
     // Safety net: a stop requested before the first create would otherwise
     // leave start() waiting on a report that never comes.
     report_startup({});
@@ -898,6 +976,11 @@ bool ControlServer::running() const
 bool ControlServer::endpoint_in_use() const
 {
     return impl_->endpoint_in_use;
+}
+
+uint32_t ControlServer::take_listener_error()
+{
+    return impl_->listener_error.exchange(0);
 }
 
 void ControlServer::process_pending(const Handler& handler)

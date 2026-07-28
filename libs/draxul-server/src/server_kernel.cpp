@@ -32,6 +32,12 @@ namespace draxul
 namespace
 {
 
+// Leave room for the control response envelope and JSON framing. Resize
+// deltas contain a complete grid and can be several MiB apiece, so an event
+// count alone is not a safe batching limit.
+constexpr size_t kRemoteTerminalPollPayloadBudget
+    = kControlMaxMessageBytes - 64 * 1024;
+
 uint64_t current_process_id()
 {
 #ifdef _WIN32
@@ -486,11 +492,21 @@ ControlMethodResult ServerKernel::Impl::poll_fake_terminal(
     else
     {
         size_t count = 0;
+        size_t payload_bytes = 0;
         for (const auto& event : delivery.events)
         {
             if (count++ >= kRemoteTerminalMaxEventsPerPoll)
                 break;
-            events.push_back(remote_terminal_event_to_json(event));
+            auto encoded = remote_terminal_event_to_json(event);
+            const size_t encoded_bytes = encoded.dump().size();
+            if (!events.empty()
+                && payload_bytes + encoded_bytes
+                    > kRemoteTerminalPollPayloadBudget)
+            {
+                break;
+            }
+            events.push_back(std::move(encoded));
+            payload_bytes += encoded_bytes;
         }
     }
     return ControlMethodResult::success({
@@ -653,6 +669,13 @@ int ServerKernel::Impl::run_until_stopped()
         return 1;
     while (!stop_requested)
     {
+        if (const uint32_t listener_error = control.take_listener_error();
+            listener_error != 0)
+        {
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Draxul server control listener recreation failed with Windows error %u; retrying",
+                listener_error);
+        }
         control.process_pending(
             [this](const ControlRequest& request) {
                 return handle_request(request);

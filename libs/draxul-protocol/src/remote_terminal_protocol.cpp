@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <nlohmann/json.hpp>
+#include <unordered_map>
+#include <vector>
 
 namespace draxul
 {
@@ -97,6 +99,77 @@ bool read_cell(const nlohmann::json& value, TerminalCellSnapshot& cell)
     }
     cell.text = value["text"].get<std::string>();
     cell.hyperlink = value["hyperlink"].get<std::string>();
+    return cell.text.size() <= TerminalStateLimits::kMaxCellTextBytes
+        && cell.hyperlink.size() <= TerminalStateLimits::kMaxHyperlinkBytes;
+}
+
+class CompactCellEncoder
+{
+public:
+    nlohmann::json encode(const TerminalCellSnapshot& cell)
+    {
+        auto [it, inserted] = attr_ids_.try_emplace(
+            cell.attr, attr_ids_.size());
+        if (inserted)
+            attrs_.push_back(attr_to_json(cell.attr));
+        return nlohmann::json::array({
+            cell.text,
+            it->second,
+            cell.double_width,
+            cell.double_width_continuation,
+            cell.hyperlink,
+        });
+    }
+
+    nlohmann::json take_attrs()
+    {
+        return std::move(attrs_);
+    }
+
+private:
+    std::unordered_map<HlAttr, size_t, HlAttrHash> attr_ids_;
+    nlohmann::json attrs_ = nlohmann::json::array();
+};
+
+bool read_attr_table(const nlohmann::json& value,
+    std::vector<HlAttr>& attrs)
+{
+    if (!value.is_array()
+        || value.size() > TerminalStateLimits::kMaxCells)
+    {
+        return false;
+    }
+    attrs.reserve(value.size());
+    for (const auto& item : value)
+    {
+        HlAttr attr;
+        if (!read_attr(item, attr))
+            return false;
+        attrs.push_back(attr);
+    }
+    return true;
+}
+
+bool read_compact_cell(const nlohmann::json& value, size_t offset,
+    const std::vector<HlAttr>& attrs, TerminalCellSnapshot& cell)
+{
+    if (!value.is_array() || value.size() != offset + 5
+        || !value[offset].is_string()
+        || !value[offset + 1].is_number_integer()
+        || !value[offset + 2].is_boolean()
+        || !value[offset + 3].is_boolean()
+        || !value[offset + 4].is_string())
+    {
+        return false;
+    }
+    const int64_t attr_id = value[offset + 1].get<int64_t>();
+    if (attr_id < 0 || static_cast<size_t>(attr_id) >= attrs.size())
+        return false;
+    cell.text = value[offset].get<std::string>();
+    cell.attr = attrs[static_cast<size_t>(attr_id)];
+    cell.double_width = value[offset + 2].get<bool>();
+    cell.double_width_continuation = value[offset + 3].get<bool>();
+    cell.hyperlink = value[offset + 4].get<std::string>();
     return cell.text.size() <= TerminalStateLimits::kMaxCellTextBytes
         && cell.hyperlink.size() <= TerminalStateLimits::kMaxHyperlinkBytes;
 }
@@ -309,12 +382,14 @@ std::optional<RemoteTerminalEventKind> parse_remote_terminal_event_kind(
 nlohmann::json terminal_semantic_snapshot_to_json(
     const TerminalSemanticSnapshot& snapshot)
 {
+    CompactCellEncoder encoder;
     nlohmann::json cells = nlohmann::json::array();
     for (const auto& cell : snapshot.cells)
-        cells.push_back(cell_to_json(cell));
+        cells.push_back(encoder.encode(cell));
     return {
         { "cols", snapshot.cols },
         { "rows", snapshot.rows },
+        { "attrs", encoder.take_attrs() },
         { "cells", std::move(cells) },
         { "metadata", metadata_to_json(snapshot.metadata) },
     };
@@ -336,9 +411,12 @@ terminal_semantic_snapshot_from_json(
     TerminalSemanticSnapshot snapshot;
     snapshot.cols = value["cols"].get<int>();
     snapshot.rows = value["rows"].get<int>();
+    std::vector<HlAttr> attrs;
+    const bool compact = value.contains("attrs");
     if (!valid_dimensions(snapshot.cols, snapshot.rows)
         || value["cells"].size()
             != static_cast<size_t>(snapshot.cols) * snapshot.rows
+        || (compact && !read_attr_table(value["attrs"], attrs))
         || !read_metadata(value["metadata"], snapshot.metadata))
     {
         error = "Terminal snapshot values are out of range.";
@@ -348,7 +426,9 @@ terminal_semantic_snapshot_from_json(
     for (const auto& item : value["cells"])
     {
         TerminalCellSnapshot cell;
-        if (!read_cell(item, cell))
+        if (!(compact
+                ? read_compact_cell(item, 0, attrs, cell)
+                : read_cell(item, cell)))
         {
             error = "Terminal snapshot contains an invalid cell.";
             return std::nullopt;
@@ -361,19 +441,20 @@ terminal_semantic_snapshot_from_json(
 nlohmann::json terminal_dirty_snapshot_to_json(
     const TerminalDirtySnapshot& snapshot)
 {
+    CompactCellEncoder encoder;
     nlohmann::json cells = nlohmann::json::array();
     for (const auto& item : snapshot.cells)
     {
-        cells.push_back({
-            { "col", item.col },
-            { "row", item.row },
-            { "cell", cell_to_json(item.cell) },
-        });
+        auto cell = encoder.encode(item.cell);
+        cell.insert(cell.begin(), item.row);
+        cell.insert(cell.begin(), item.col);
+        cells.push_back(std::move(cell));
     }
     return {
         { "cols", snapshot.cols },
         { "rows", snapshot.rows },
         { "full", snapshot.full },
+        { "attrs", encoder.take_attrs() },
         { "cells", std::move(cells) },
         { "metadata", metadata_to_json(snapshot.metadata) },
     };
@@ -396,8 +477,11 @@ std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
     snapshot.cols = value["cols"].get<int>();
     snapshot.rows = value["rows"].get<int>();
     snapshot.full = value["full"].get<bool>();
+    std::vector<HlAttr> attrs;
+    const bool compact = value.contains("attrs");
     if (!valid_dimensions(snapshot.cols, snapshot.rows)
         || value["cells"].size() > TerminalStateLimits::kMaxCells
+        || (compact && !read_attr_table(value["attrs"], attrs))
         || !read_metadata(value["metadata"], snapshot.metadata))
     {
         error = "Terminal delta values are out of range.";
@@ -406,20 +490,39 @@ std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
     snapshot.cells.reserve(value["cells"].size());
     for (const auto& item : value["cells"])
     {
-        if (!item.is_object()
-            || !item.contains("col") || !item["col"].is_number_integer()
-            || !item.contains("row") || !item["row"].is_number_integer()
-            || !item.contains("cell"))
-        {
-            error = "Terminal delta contains an invalid cell.";
-            return std::nullopt;
-        }
         TerminalDirtyCellSnapshot dirty;
-        dirty.col = item["col"].get<int>();
-        dirty.row = item["row"].get<int>();
+        if (compact)
+        {
+            if (!item.is_array() || item.size() != 7
+                || !item[0].is_number_integer()
+                || !item[1].is_number_integer())
+            {
+                error = "Terminal delta contains an invalid cell.";
+                return std::nullopt;
+            }
+            dirty.col = item[0].get<int>();
+            dirty.row = item[1].get<int>();
+        }
+        else
+        {
+            if (!item.is_object()
+                || !item.contains("col")
+                || !item["col"].is_number_integer()
+                || !item.contains("row")
+                || !item["row"].is_number_integer()
+                || !item.contains("cell"))
+            {
+                error = "Terminal delta contains an invalid cell.";
+                return std::nullopt;
+            }
+            dirty.col = item["col"].get<int>();
+            dirty.row = item["row"].get<int>();
+        }
         if (dirty.col < 0 || dirty.col >= snapshot.cols
             || dirty.row < 0 || dirty.row >= snapshot.rows
-            || !read_cell(item["cell"], dirty.cell))
+            || !(compact
+                    ? read_compact_cell(item, 2, attrs, dirty.cell)
+                    : read_cell(item["cell"], dirty.cell)))
         {
             error = "Terminal delta cell is out of range.";
             return std::nullopt;
