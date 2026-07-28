@@ -151,6 +151,7 @@ add_subdirectory(libs/draxul-renderer)
 add_subdirectory(libs/draxul-ui)
 add_subdirectory(libs/draxul-font)
 add_subdirectory(libs/draxul-grid)
+add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
@@ -180,6 +181,7 @@ draxul_check_dependency_boundaries()
 foreach(_draxul_lib
     draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
+    draxul-terminal-core
     draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
     draxul_apply_sanitizers(${_draxul_lib})

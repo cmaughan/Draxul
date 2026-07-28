@@ -10,7 +10,7 @@ namespace draxul
 // Manages main-screen / alt-screen switching for a terminal emulator.
 // On enter() the current grid is snapshotted; on leave() the snapshot is
 // restored.  The manager also handles resize-aware snapshot re-dimensioning
-// (called by TerminalHostBase::on_viewport_changed before apply_grid_size).
+// (called by the terminal runtime before resizing its live grid).
 class AltScreenManager
 {
 public:

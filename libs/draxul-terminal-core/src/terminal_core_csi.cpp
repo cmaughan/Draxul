@@ -1,11 +1,9 @@
-#include <draxul/terminal_host_base.h>
+#include <draxul/terminal_core.h>
 
 #include <draxul/base64.h>
 #include <draxul/log.h>
 #include <draxul/perf_timing.h>
 #include <draxul/terminal_sgr.h>
-#include <draxul/window.h>
-
 #include <algorithm>
 #include <charconv>
 #include <string>
@@ -27,7 +25,7 @@ static int param_or(const std::vector<int>& params, size_t index, int fallback)
 namespace draxul
 {
 
-void TerminalHostBase::handle_control(char ch)
+void TerminalCore::handle_control(char ch)
 {
     PERF_MEASURE();
     if (ch == '\r')
@@ -61,7 +59,7 @@ void TerminalHostBase::handle_control(char ch)
     }
 }
 
-void TerminalHostBase::handle_esc(char ch)
+void TerminalCore::handle_esc(char ch)
 {
     PERF_MEASURE();
     if (ch == '7') // DECSC - Save Cursor
@@ -118,7 +116,7 @@ void TerminalHostBase::handle_esc(char ch)
     }
 }
 
-void TerminalHostBase::handle_csi(char final_char, std::string_view body)
+void TerminalCore::handle_csi(char final_char, std::string_view body)
 {
     PERF_MEASURE();
     DRAXUL_LOG_DEBUG(LogCategory::App, "terminal: CSI %.*s %c",
@@ -238,7 +236,7 @@ void TerminalHostBase::handle_csi(char final_char, std::string_view body)
     }
 }
 
-void TerminalHostBase::csi_cursor_move(char final_char, const std::vector<int>& params)
+void TerminalCore::csi_cursor_move(char final_char, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
@@ -334,7 +332,7 @@ void TerminalHostBase::csi_cursor_move(char final_char, const std::vector<int>& 
     }
 }
 
-void TerminalHostBase::csi_erase(char final_char, const std::vector<int>& params)
+void TerminalCore::csi_erase(char final_char, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
@@ -359,7 +357,7 @@ void TerminalHostBase::csi_erase(char final_char, const std::vector<int>& params
     }
 }
 
-void TerminalHostBase::csi_scroll(char final_char, bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_scroll(char final_char, bool private_mode, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
@@ -394,7 +392,7 @@ void TerminalHostBase::csi_scroll(char final_char, bool private_mode, const std:
     }
 }
 
-void TerminalHostBase::csi_insert_delete(char final_char, const std::vector<int>& params)
+void TerminalCore::csi_insert_delete(char final_char, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
@@ -444,13 +442,13 @@ void TerminalHostBase::csi_insert_delete(char final_char, const std::vector<int>
     }
 }
 
-void TerminalHostBase::csi_sgr(const std::vector<int>& params)
+void TerminalCore::csi_sgr(const std::vector<int>& params)
 {
     PERF_MEASURE();
     apply_sgr(current_attr_, params);
 }
 
-void TerminalHostBase::csi_mode(char final_char, bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_mode(char final_char, bool private_mode, const std::vector<int>& params)
 {
     PERF_MEASURE();
     if (!private_mode)
@@ -520,7 +518,26 @@ void TerminalHostBase::csi_mode(char final_char, bool private_mode, const std::v
             if (mode == 1004)
                 focus_reporting_mode_ = enable;
             else
+            {
+                switch (mode)
+                {
+                case 1000:
+                    mouse_modes_.normal_tracking = enable;
+                    break;
+                case 1002:
+                    mouse_modes_.button_motion = enable;
+                    break;
+                case 1003:
+                    mouse_modes_.any_motion = enable;
+                    break;
+                case 1006:
+                    mouse_modes_.sgr_coordinates = enable;
+                    break;
+                default:
+                    break;
+                }
                 on_mouse_mode_changed(mode, enable);
+            }
             break;
         case 2004: // Bracketed paste mode
             bracketed_paste_mode_ = enable;
@@ -537,7 +554,7 @@ void TerminalHostBase::csi_mode(char final_char, bool private_mode, const std::v
     }
 }
 
-void TerminalHostBase::csi_dsr(bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_dsr(bool private_mode, const std::vector<int>& params)
 {
     PERF_MEASURE();
     if (private_mode)
@@ -549,32 +566,33 @@ void TerminalHostBase::csi_dsr(bool private_mode, const std::vector<int>& params
         std::string response(32, '\0');
         const int n = std::snprintf(response.data(), response.size(), "\x1B[%d;%dR", vt_.row + 1, vt_.col + 1);
         if (n > 0)
-            do_process_write(std::string_view(response.data(), static_cast<size_t>(n)));
+            host_.terminal_write_process(
+                std::string_view(response.data(), static_cast<size_t>(n)));
     }
     else if (code == 5)
     {
         // DSR — Device Status Report: reply "OK"
-        do_process_write("\x1B[0n");
+        host_.terminal_write_process("\x1B[0n");
     }
 }
 
-void TerminalHostBase::csi_da(bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_da(bool private_mode, const std::vector<int>& params)
 {
     PERF_MEASURE();
     const int code = params.empty() ? 0 : params[0];
     if (!private_mode && code == 0)
     {
         // DA1 — Primary Device Attributes: claim VT220 with ANSI color
-        do_process_write("\x1B[?62;22c");
+        host_.terminal_write_process("\x1B[?62;22c");
     }
     else if (private_mode && code == 0)
     {
         // DA2 — Secondary Device Attributes: "VT220, firmware 1.0"
-        do_process_write("\x1B[>1;10;0c");
+        host_.terminal_write_process("\x1B[>1;10;0c");
     }
 }
 
-void TerminalHostBase::csi_margins(bool private_mode, const std::vector<int>& params)
+void TerminalCore::csi_margins(bool private_mode, const std::vector<int>& params)
 {
     PERF_MEASURE();
 
@@ -660,7 +678,7 @@ static std::string extract_osc7_path(std::string_view uri)
     return percent_decode(uri);
 }
 
-void TerminalHostBase::handle_osc(std::string_view body)
+void TerminalCore::handle_osc(std::string_view body)
 {
     PERF_MEASURE();
     const size_t semi = body.find(';');
@@ -673,7 +691,7 @@ void TerminalHostBase::handle_osc(std::string_view body)
     if (code == "0" || code == "2")
     {
         terminal_title_ = std::string(payload);
-        callbacks().set_window_title(std::string(payload));
+        host_.terminal_set_title(payload);
     }
     else if (code == "8")
     {
@@ -697,7 +715,7 @@ void TerminalHostBase::handle_osc(std::string_view body)
         {
             // Read query — base64-encode the system clipboard and write it
             // back to the host with the same selection prefix.
-            const std::string clip = window().clipboard_text();
+            const std::string clip = host_.terminal_read_clipboard();
             const std::string encoded = base64_encode(clip);
             std::string response;
             response.reserve(8 + (inner + 1) + encoded.size() + 2);
@@ -705,7 +723,7 @@ void TerminalHostBase::handle_osc(std::string_view body)
             response += payload.substr(0, inner + 1);
             response += encoded;
             response += "\x1B\\";
-            do_process_write(response);
+            host_.terminal_write_process(response);
             DRAXUL_LOG_DEBUG(LogCategory::App, "OSC 52: replied with %zu bytes of clipboard data",
                 clip.size());
             return;
@@ -720,10 +738,10 @@ void TerminalHostBase::handle_osc(std::string_view body)
         if (decoded->empty())
         {
             // Some applications send an empty payload to clear the clipboard.
-            window().set_clipboard_text("");
+            host_.terminal_write_clipboard("");
             return;
         }
-        window().set_clipboard_text(*decoded);
+        host_.terminal_write_clipboard(*decoded);
         DRAXUL_LOG_DEBUG(LogCategory::App, "OSC 52: clipboard set (%zu bytes)", decoded->size());
     }
     else if (code == "7")
@@ -751,10 +769,10 @@ void TerminalHostBase::handle_osc(std::string_view body)
     }
 }
 
-void TerminalHostBase::handle_osc8(std::string_view payload)
+void TerminalCore::handle_osc8(std::string_view payload)
 {
     PERF_MEASURE();
-    if (!launch_options().enable_osc8_hyperlinks)
+    if (!config_.enable_osc8_hyperlinks)
     {
         current_hyperlink_id_ = 0;
         return;
@@ -771,10 +789,10 @@ void TerminalHostBase::handle_osc8(std::string_view payload)
     current_hyperlink_id_ = grid().link_id_for_uri(uri);
 }
 
-void TerminalHostBase::handle_osc133(std::string_view payload)
+void TerminalCore::handle_osc133(std::string_view payload)
 {
     PERF_MEASURE();
-    if (!launch_options().enable_shell_integration_marks || payload.empty())
+    if (!config_.enable_shell_integration_marks || payload.empty())
         return;
 
     ShellMark mark;
@@ -809,7 +827,7 @@ void TerminalHostBase::handle_osc133(std::string_view payload)
     shell_marks_.push_back(mark);
 }
 
-void TerminalHostBase::consume_output(std::string_view bytes)
+void TerminalCore::feed(std::string_view bytes)
 {
     PERF_MEASURE();
     if (bytes.empty())
@@ -818,7 +836,7 @@ void TerminalHostBase::consume_output(std::string_view bytes)
     const bool scoped_batch = !output_cursor_batch_active_;
     if (scoped_batch)
         begin_output_cursor_batch();
-    mark_activity();
+    host_.terminal_mark_activity();
     vt_parser_.feed(bytes);
     if (log_would_emit(LogLevel::Trace, LogCategory::Input))
     {

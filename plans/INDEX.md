@@ -25,6 +25,7 @@ is (design docs, research, and review output — **not** work items; those live 
 
 | Plan | Status | Notes |
 |------|--------|-------|
+| [server-client-terminal-runtime.md](server-client-terminal-runtime.md) | active | Comprehensive vertical-slice plan for one server-owned terminal/agent runtime, reconnectable GPU clients, deterministic two-client reflection, optional tray/menu-bar status, and a future SSH bridge. |
 | [herdr-agent-harness-research.md](herdr-agent-harness-research.md) | active | Herdr concept research and phased local agent-harness direction; vocabulary, TabController, the in-memory multi-Space lifecycle, app actions, and Spaces rail are implemented. Multi-Space persistence is refined in the focused plan below. |
 | [multi-space-session-persistence.md](multi-space-session-persistence.md) | active | Source-backed v2 plan: save and restore every loaded Space, retain TOML, use transactional partial restore, and derive the Agents list from pane-owned identity. |
 | [app-shell-layout.md](app-shell-layout.md) | implemented | One authoritative root shell layout, a draggable persisted Spaces/sidebar splitter, and Chrome ownership cleanup without putting app chrome into per-tab pane trees. |

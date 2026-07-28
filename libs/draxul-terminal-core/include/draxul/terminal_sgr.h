@@ -8,7 +8,7 @@ namespace draxul
 {
 
 // Free function that applies a parsed SGR (Select Graphic Rendition) parameter
-// list to a highlight attribute. Called from TerminalHostBase::csi_sgr().
+// list to a highlight attribute. Called from TerminalCore::csi_sgr().
 void apply_sgr(HlAttr& attr, const std::vector<int>& params);
 
 } // namespace draxul

@@ -15,7 +15,7 @@
 
 ## Implementation Plan
 
-- [ ] Read `libs/draxul-host/include/draxul/scrollback_buffer.h` and its implementation to understand the stored row format and existing API.
+- [ ] Read `libs/draxul-terminal-core/include/draxul/scrollback_buffer.h` and its implementation to understand the stored row format and existing API.
 - [ ] Read how scrollback mode is currently entered and displayed (keyboard shortcut, viewport offset, etc.).
 - [ ] Design the search interaction:
   - Scrollback mode is activated (existing behavior).

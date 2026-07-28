@@ -103,6 +103,11 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
 - **Copy on select**: `copy_on_select` automatically copies completed mouse selections (drag, double-click, or triple-click) to the system clipboard; enabled by default
 - **Keyboard copy mode**: `toggle_copy_mode` (default `Ctrl+S, Return`) enters a vim/tmux-style cursor: `h/j/k/l` and arrows move, `0/Home/End` jump to line bounds, `g/Shift+G` jump to top/bottom, `v`/`V` start char/line selection, `y` yanks to clipboard and exits, `Esc`/`q` exits without copy. Available on shell hosts only (Neovim panes already provide their own visual mode)
 - **Terminal colors**: Configurable foreground/background via `[terminal]` config section
+- **Renderer-free terminal state**: Local PowerShell, Bash, and Zsh hosts all compose
+  the same platform-neutral terminal core for VT parsing, grid/mode state,
+  alternate-screen handling, reusable scrollback storage, and complete or dirty
+  semantic snapshots. The current process, selection, clipboard, and rendering path
+  remains local; this is the compatibility boundary for the planned server runtime.
 
 ---
 

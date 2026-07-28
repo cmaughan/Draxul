@@ -603,18 +603,19 @@ std::string LocalTerminalHost::status_text() const
     std::string result(host_name());
     if (!is_running())
         result += " [exited]";
-    if (!current_cwd_.empty())
+    const std::string& cwd = current_working_directory();
+    if (!cwd.empty())
     {
         result += " | ";
         constexpr size_t kMaxCwdLen = 30;
-        if (current_cwd_.size() > kMaxCwdLen)
+        if (cwd.size() > kMaxCwdLen)
         {
             result += "…";
-            result += current_cwd_.substr(current_cwd_.size() - (kMaxCwdLen - 1));
+            result += cwd.substr(cwd.size() - (kMaxCwdLen - 1));
         }
         else
         {
-            result += current_cwd_;
+            result += cwd;
         }
     }
     if (scrollback_.is_scrolled_back())

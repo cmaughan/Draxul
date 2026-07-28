@@ -8,9 +8,9 @@
 namespace draxul
 {
 
-// Ring-buffer that stores scrolled-off terminal rows and manages the scrollback
-// viewport offset.  TerminalHostBase feeds rows into it via next_write_slot() /
-// commit_push() and delegates all scrollback-view management here.
+// Renderer-free ring buffer that stores scrolled-off terminal rows and manages
+// a projected scrollback viewport. TerminalCore consumers feed rows into it via
+// next_write_slot() / commit_push().
 //
 // Storage is pre-allocated once (kCapacity * cols cells).  No per-row heap
 // allocation occurs in the hot path.
@@ -28,7 +28,7 @@ public:
         std::function<void(int col, int row, const Cell& c)> set_cell;
         // Mark all grid cells dirty and request a full atlas re-upload.
         std::function<void()> force_full_redraw;
-        // Flush the grid to the renderer and request a frame.
+        // Publish the updated projected grid to the consumer.
         std::function<void()> flush_grid;
     };
 

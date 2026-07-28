@@ -42,6 +42,11 @@ public:
         return std::string(grid().link_uri(grid().effective_link_id(col, row)));
     }
 
+    TerminalSemanticSnapshot snapshot() const
+    {
+        return semantic_snapshot();
+    }
+
     int col() const
     {
         return vt_state().col;

@@ -42,7 +42,8 @@ draxul executable
                     draxul-renderer / draxul-window
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
-                                draxul-agent / draxul-bmp / draxul-host-identity
+                                draxul-agent / draxul-bmp / draxul-host-identity /
+                                draxul-terminal-core
 ```
 
 This is a dependency shape, not a promise that every target in one row links every
@@ -98,6 +99,7 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
+| `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
 
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
@@ -193,7 +195,7 @@ Good place for:
 | `libs/draxul-gui/` | GPU-grid-native overlays such as palettes, tooltips, and toasts; no ImGui frame loop |
 | `libs/draxul-ui/` | ImGui diagnostics and developer-facing UI |
 | `libs/draxul-runtime-support/` | Shared grid-render pipeline, printing, resource monitoring, and background UI requests |
-| `libs/draxul-host/` | Host interfaces/base classes, terminal/Neovim hosts, PTY/ConPTY behavior, and terminal emulation |
+| `libs/draxul-host/` | UI/process host adapters, terminal/Neovim hosts, PTY/ConPTY behavior, selection, copy mode, and client-side terminal presentation |
 | `libs/draxul-nanovg/` | Cross-platform NanoVG render-pass integration |
 | `libs/draxul-render-test/` | Render-test driver and reusable render-test hosts |
 | `libs/draxul-app-support/` | Interface target bundling reusable config/runtime/render-test dependencies |
@@ -273,7 +275,10 @@ Use this when:
 - If the issue is about glyph choice, shaping, emoji, tofu, or atlas behavior, start in `draxul-font`.
 - If the issue is about DPI, focus, clipboard, IME, or visible window behavior, start in `draxul-window`.
 - If the issue is about config parsing/validation, start in `draxul-config`.
-- If the issue is about terminal/shell behavior or pane host lifecycle, start in `draxul-host`.
+- If the issue is about VT parsing, terminal modes, semantic cells, alternate-screen
+  behavior, or reusable scrollback storage, start in `draxul-terminal-core`.
+- If it is about a shell process, PTY/ConPTY lifecycle, selection, copy mode, or
+  client presentation, start in `draxul-host`.
 - If the issue belongs only to Markdown, Kanban, Megacity, SatView, or ScoreView, start in that product's `modules/` directory.
 - If the issue crosses several modules, start in `app/` to trace orchestration, then move reusable logic downward.
 

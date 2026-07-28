@@ -388,8 +388,12 @@ target_link_libraries(draxul-performance-link-isolation PRIVATE draxul-performan
 add_executable(draxul-host-link-isolation link_isolation/host_public_header.cpp)
 target_link_libraries(draxul-host-link-isolation PRIVATE draxul-host)
 
+add_executable(draxul-terminal-core-link-isolation link_isolation/terminal_core_public_header.cpp)
+target_link_libraries(draxul-terminal-core-link-isolation PRIVATE draxul-terminal-core)
+
 add_dependencies(draxul-tests
     draxul-bmp-link-isolation
     draxul-performance-link-isolation
     draxul-host-link-isolation
+    draxul-terminal-core-link-isolation
 )
