@@ -167,3 +167,35 @@ TEST_CASE("cli: session control modes are mutually exclusive", "[cli]")
     REQUIRE(r.error.has_value());
     REQUIRE(r.error->find("choose only one") != std::string::npos);
 }
+
+TEST_CASE("cli: server control modes are mutually exclusive", "[cli][server]")
+{
+    auto r = parse({ "--server", "--server-status" });
+    REQUIRE(r.error.has_value());
+}
+
+TEST_CASE("cli: server runtime override is parsed", "[cli][server]")
+{
+    auto r = parse({ "--server", "--server-runtime-dir", "D:/tmp/draxul-server" });
+    REQUIRE_FALSE(r.error.has_value());
+    REQUIRE(r.args.server);
+    REQUIRE(r.args.server_runtime_dir == "D:/tmp/draxul-server");
+}
+
+TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][server]")
+{
+    auto normal = parse({ "--experimental-server-client" });
+    REQUIRE(should_bootstrap_experimental_server(normal.args));
+
+    auto explicit_host = parse(
+        { "--experimental-server-client", "--host", "powershell" });
+    REQUIRE_FALSE(should_bootstrap_experimental_server(explicit_host.args));
+
+    auto smoke = parse(
+        { "--experimental-server-client", "--smoke-test" });
+    REQUIRE_FALSE(should_bootstrap_experimental_server(smoke.args));
+
+    auto opted_out = parse(
+        { "--experimental-server-client", "--no-server" });
+    REQUIRE_FALSE(should_bootstrap_experimental_server(opted_out.args));
+}

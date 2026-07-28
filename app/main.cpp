@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <draxul/bmp.h>
+#include <draxul/config_document.h>
 #include <draxul/host_registry.h>
 #include <draxul/kanban/kanban_host.h>
 #include <draxul/log.h>
@@ -15,6 +16,9 @@
 #include <draxul/nanovg_demo_host.h>
 #include <draxul/perf_timing.h>
 #include <draxul/runtime_path.h>
+#include <draxul/server_client.h>
+#include <draxul/server_kernel.h>
+#include <draxul/server_protocol.h>
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
@@ -28,8 +32,10 @@
 #include <draxul/render_test.h>
 #endif
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #ifdef _WIN32
@@ -120,11 +126,128 @@ std::filesystem::path executable_dir()
     return draxul::executable_directory();
 }
 
+std::filesystem::path server_runtime_dir(const draxul::ParsedArgs& parsed)
+{
+    if (!parsed.server_runtime_dir.empty())
+        return parsed.server_runtime_dir;
+    return draxul::server_runtime_directory(
+        draxul::ConfigDocument::default_path().parent_path());
+}
+
+std::filesystem::path executable_path(
+    const std::vector<std::string>& args)
+{
+    std::error_code path_error;
+    if (!args.empty() && !args.front().empty())
+    {
+        auto path = std::filesystem::absolute(args.front(), path_error);
+        if (!path_error && std::filesystem::exists(path))
+            return path;
+    }
+#ifdef _WIN32
+    constexpr std::string_view executable_name = "draxul.exe";
+#else
+    constexpr std::string_view executable_name = "draxul";
+#endif
+    return executable_dir() / executable_name;
+}
+
+int run_server_mode(const draxul::ParsedArgs& parsed)
+{
+    const auto runtime_dir = server_runtime_dir(parsed);
+    if (parsed.server)
+    {
+        draxul::configure_default_logging("draxul-server.log", true);
+        draxul::ServerKernel kernel({
+            .runtime_directory = runtime_dir,
+            .protocol_major = draxul::kServerProtocolMajor,
+            .protocol_minor = draxul::kServerProtocolMinor,
+            .build_version = draxul::server_build_version(),
+        });
+        const auto result = kernel.start();
+        if (result.disposition == draxul::ServerStartDisposition::AlreadyRunning)
+        {
+            draxul::shutdown_logging();
+            return 0;
+        }
+        if (result.disposition == draxul::ServerStartDisposition::Failed)
+        {
+            std::fprintf(stderr, "Draxul server failed to start: %s\n",
+                result.error.c_str());
+            draxul::shutdown_logging();
+            return 1;
+        }
+        const int status = kernel.run_until_stopped();
+        draxul::shutdown_logging();
+        return status;
+    }
+
+    if (parsed.server_status)
+    {
+        const auto result = draxul::ServerClient::status(runtime_dir);
+        if (!result.ok || !result.status)
+        {
+            std::fprintf(stderr, "Draxul server is unavailable: %s\n",
+                result.error_message.c_str());
+            return 1;
+        }
+        if (parsed.json_output)
+        {
+            std::printf("%s\n",
+                draxul::server_status_to_json(*result.status).dump().c_str());
+        }
+        else
+        {
+            std::printf(
+                "Draxul server: %s\nPID: %llu\nEpoch: %s\nProtocol: %d.%d\n"
+                "Clients: %zu\n",
+                result.status->state.c_str(),
+                static_cast<unsigned long long>(result.status->server_pid),
+                result.status->server_epoch.c_str(),
+                result.status->protocol_major,
+                result.status->protocol_minor,
+                result.status->connected_clients);
+        }
+        return 0;
+    }
+
+    std::string error;
+    if (!draxul::ServerClient::shutdown(runtime_dir, error))
+    {
+        std::fprintf(stderr, "Could not stop the Draxul server: %s\n",
+            error.c_str());
+        return 1;
+    }
+    std::printf("Draxul server shutdown requested.\n");
+    return 0;
+}
+
 } // namespace
 
 static int draxul_main(std::vector<std::string> args)
 {
     PERF_MEASURE();
+    auto parse_result = draxul::parse_args(args);
+#ifdef _WIN32
+    const bool needs_console_output = parse_result.error.has_value()
+        || parse_result.args.want_console
+        || parse_result.args.list_sessions
+        || parse_result.args.rename_session
+        || parse_result.args.delete_session
+        || parse_result.args.server_status
+        || parse_result.args.shutdown_server;
+    if (needs_console_output)
+        ensure_console_io(true);
+#endif
+    if (parse_result.error)
+    {
+        std::fprintf(stderr, "%s\n", parse_result.error->c_str());
+        return 1;
+    }
+    draxul::ParsedArgs& parsed = parse_result.args;
+    if (parsed.server || parsed.server_status || parsed.shutdown_server)
+        return run_server_mode(parsed);
+
     const auto integration_cli = draxul::parse_integration_cli(args);
 #ifdef _WIN32
     if (integration_cli.recognized)
@@ -151,22 +274,6 @@ static int draxul_main(std::vector<std::string> args)
     if (control_cli.command)
         return draxul::run_control_cli(*control_cli.command);
 
-    auto parse_result = draxul::parse_args(args);
-#ifdef _WIN32
-    const bool needs_console_output = parse_result.error.has_value()
-        || parse_result.args.want_console
-        || parse_result.args.list_sessions
-        || parse_result.args.rename_session
-        || parse_result.args.delete_session;
-    if (needs_console_output)
-        ensure_console_io(true);
-#endif
-    if (parse_result.error)
-    {
-        std::fprintf(stderr, "%s\n", parse_result.error->c_str());
-        return 1;
-    }
-    draxul::ParsedArgs& parsed = parse_result.args;
     draxul::SessionCli session_cli;
 
     std::string new_session_error;
@@ -241,10 +348,35 @@ static int draxul_main(std::vector<std::string> args)
         return session_cli_result.disposition == draxul::SessionCliDisposition::Handled ? 0 : 1;
     }
 
+    std::optional<draxul::ServerWelcome> server_connection;
+    if (draxul::should_bootstrap_experimental_server(parsed))
+    {
+#ifdef _WIN32
+        ensure_console_io(true);
+#endif
+        draxul::ServerEnsureOptions server_options{
+            .runtime_directory = server_runtime_dir(parsed),
+            .executable_path = executable_path(args),
+            .client_id = draxul::make_server_client_id(),
+        };
+        auto server_result = draxul::ServerClient::ensure(server_options);
+        if (!server_result.ready())
+        {
+            std::fprintf(stderr,
+                "Could not connect to the experimental Draxul server (%s): %s\n",
+                std::string(draxul::to_string(server_result.state)).c_str(),
+                server_result.error_message.c_str());
+            draxul::shutdown_logging();
+            return 1;
+        }
+        server_connection = std::move(server_result.welcome);
+    }
+
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     std::optional<draxul::RenderTestScenario> render_test;
 #endif
     draxul::AppOptions options;
+    options.server_connection = std::move(server_connection);
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     if (!parsed.render_test_path.empty())
     {

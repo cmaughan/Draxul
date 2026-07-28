@@ -32,6 +32,33 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.rename_session = true;
         else if (args[i] == "--delete-session")
             parsed.delete_session = true;
+        else if (args[i] == "--server")
+            parsed.server = true;
+        else if (args[i] == "--server-status")
+            parsed.server_status = true;
+        else if (args[i] == "--shutdown-server")
+            parsed.shutdown_server = true;
+        else if (args[i] == "--experimental-server-client")
+            parsed.experimental_server_client = true;
+        else if (args[i] == "--no-server")
+            parsed.no_server = true;
+        else if (args[i] == "--json")
+            parsed.json_output = true;
+        else if (args[i] == "--server-runtime-dir" && i + 1 < args.size())
+        {
+            ++i;
+            parsed.server_runtime_dir = args[i];
+            if (parsed.server_runtime_dir.empty())
+            {
+                result.error = "error: --server-runtime-dir requires a non-empty path";
+                return result;
+            }
+        }
+        else if (args[i] == "--server-runtime-dir")
+        {
+            result.error = "error: --server-runtime-dir requires a path";
+            return result;
+        }
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
         else if (args[i] == "--bless-render-test")
             parsed.bless_render_test = true;
@@ -190,7 +217,38 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             = "error: choose only one of --list-sessions, --new-session, --rename-session, or --delete-session";
         return result;
     }
+    const int server_mode_count = (parsed.server ? 1 : 0)
+        + (parsed.server_status ? 1 : 0)
+        + (parsed.shutdown_server ? 1 : 0);
+    if (server_mode_count > 1)
+    {
+        result.error
+            = "error: choose only one of --server, --server-status, or --shutdown-server";
+        return result;
+    }
+    if (server_mode_count > 0 && parsed.host_kind)
+    {
+        result.error = "error: server control modes cannot be combined with --host";
+        return result;
+    }
     return result;
+}
+
+bool should_bootstrap_experimental_server(const ParsedArgs& args)
+{
+    if (!args.experimental_server_client || args.no_server
+        || args.server || args.server_status || args.shutdown_server
+        || args.host_kind.has_value() || args.smoke_test
+        || args.list_sessions || args.new_session || args.rename_session
+        || args.delete_session || !args.screenshot_path.empty())
+    {
+        return false;
+    }
+#ifdef DRAXUL_ENABLE_RENDER_TESTS
+    if (!args.render_test_path.empty() || !args.export_render_test_path.empty())
+        return false;
+#endif
+    return true;
 }
 
 std::optional<std::string> validate_host_provider_availability(

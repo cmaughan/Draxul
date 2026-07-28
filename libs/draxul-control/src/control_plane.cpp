@@ -1,5 +1,6 @@
 #include <draxul/control_plane.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -75,6 +76,24 @@ std::string session_key(std::string_view session_id)
     std::ostringstream out;
     out << std::hex << fnv1a(session_id) << "-" << slug;
     return out.str();
+}
+
+std::string normalized_runtime_key(
+    const std::filesystem::path& runtime_directory)
+{
+    std::error_code path_error;
+    auto normalized = std::filesystem::absolute(
+        runtime_directory, path_error);
+    if (path_error)
+        normalized = runtime_directory;
+    std::string value = normalized.lexically_normal().generic_string();
+#ifdef _WIN32
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+#endif
+    return value;
 }
 
 std::string random_token()
@@ -448,7 +467,8 @@ public:
     bool start(std::string new_session_id,
         std::filesystem::path new_runtime_directory,
         std::function<void()> wake,
-        std::string* error);
+        std::string* error,
+        nlohmann::json metadata_extra);
     void stop();
     void run(std::stop_token stop_token);
     void process_pending(const Handler& handler);
@@ -489,7 +509,8 @@ void ControlServer::Impl::report_startup(std::string result)
 bool ControlServer::Impl::start(std::string new_session_id,
     std::filesystem::path new_runtime_directory,
     std::function<void()> wake,
-    std::string* error)
+    std::string* error,
+    nlohmann::json metadata_extra)
 {
     if (active)
     {
@@ -558,13 +579,13 @@ bool ControlServer::Impl::start(std::string new_session_id,
     // Publish the token only now. Writing it before the listener was claimed
     // meant a second instance overwrote a live server's credentials, and every
     // CLI request then authenticated against the wrong process.
-    const std::string metadata_bytes = nlohmann::json{
-        { "version", kControlProtocolVersion },
-        { "session_id", session_id },
-        { "endpoint", endpoint },
-        { "token", token },
-    }
-                                           .dump();
+    if (!metadata_extra.is_object())
+        metadata_extra = nlohmann::json::object();
+    metadata_extra["version"] = kControlProtocolVersion;
+    metadata_extra["session_id"] = session_id;
+    metadata_extra["endpoint"] = endpoint;
+    metadata_extra["token"] = token;
+    const std::string metadata_bytes = metadata_extra.dump();
     std::string write_error;
     if (!write_owner_only_file(metadata, metadata_bytes, write_error))
     {
@@ -848,10 +869,20 @@ ControlServer::~ControlServer()
 bool ControlServer::start(std::string session_id,
     std::filesystem::path runtime_directory,
     std::function<void()> wake_main_thread,
-    std::string* error)
+    std::string* error,
+    nlohmann::json metadata_extra)
 {
     return impl_->start(std::move(session_id), std::move(runtime_directory),
-        std::move(wake_main_thread), error);
+        std::move(wake_main_thread), error, std::move(metadata_extra));
+}
+
+std::string namespaced_control_id(std::string_view base_id,
+    const std::filesystem::path& runtime_directory)
+{
+    std::ostringstream id;
+    id << base_id << '-' << std::hex
+       << fnv1a(normalized_runtime_key(runtime_directory));
+    return id.str();
 }
 
 void ControlServer::stop()

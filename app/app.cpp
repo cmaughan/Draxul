@@ -2304,6 +2304,18 @@ void App::update_diagnostics_panel()
     panel.atlas_reset_count = text_service_.atlas_reset_count();
     panel.startup_steps = diagnostics_collector_.startup_steps();
     panel.startup_total_ms = diagnostics_collector_.startup_total_ms();
+    if (options_.server_connection)
+    {
+        panel.server_connected = true;
+        panel.server_pid = options_.server_connection->server_pid;
+        panel.server_epoch = options_.server_connection->server_epoch;
+        panel.server_build_version = options_.server_connection->build_version;
+        panel.server_protocol_major
+            = options_.server_connection->protocol_major;
+        panel.server_protocol_minor
+            = options_.server_connection->protocol_minor;
+        panel.server_capabilities = options_.server_connection->capabilities;
+    }
 
     const Tab* tab = find_active_tab();
     if (tab != nullptr && tab->pane_manager.host())

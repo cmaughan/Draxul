@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,6 +43,13 @@ struct DiagnosticPanelState
     std::vector<StartupStep> startup_steps;
     double startup_total_ms = 0.0;
     std::vector<HostPaneDimensions> host_panes;
+    bool server_connected = false;
+    uint64_t server_pid = 0;
+    std::string server_epoch;
+    std::string server_build_version;
+    int server_protocol_major = 0;
+    int server_protocol_minor = 0;
+    std::vector<std::string> server_capabilities;
 };
 
 struct PanelLayout

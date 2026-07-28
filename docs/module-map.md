@@ -99,6 +99,9 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
+| `libs/draxul-protocol/` | Renderer- and transport-neutral server hello, identity, status, capability, and diagnostic values |
+| `libs/draxul-client/` | Experimental singleton discovery, compatibility probing, detached server launch, status, and graceful-stop client |
+| `libs/draxul-server/` | Headless server kernel and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
 
 These targets must not depend on product modules. Configure-time checks in

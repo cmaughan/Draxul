@@ -44,6 +44,11 @@ std::filesystem::path control_runtime_directory(
     const std::filesystem::path& config_directory);
 std::filesystem::path control_metadata_path(
     const std::filesystem::path& runtime_directory, std::string_view session_id);
+// Builds a stable per-runtime namespace for global services. This matters on
+// Windows, where the named-pipe namespace is not scoped by the metadata
+// directory, and keeps test runtime overrides isolated from production.
+std::string namespaced_control_id(std::string_view base_id,
+    const std::filesystem::path& runtime_directory);
 
 class ControlServer
 {
@@ -58,7 +63,8 @@ public:
     bool start(std::string session_id,
         std::filesystem::path runtime_directory,
         std::function<void()> wake_main_thread,
-        std::string* error = nullptr);
+        std::string* error = nullptr,
+        nlohmann::json metadata_extra = nlohmann::json::object());
     void stop();
     bool running() const;
     // True when the last start() failed specifically because another live

@@ -155,7 +155,10 @@ add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-protocol)
 add_subdirectory(libs/draxul-control)
+add_subdirectory(libs/draxul-client)
+add_subdirectory(libs/draxul-server)
 add_subdirectory(libs/draxul-gui)
 add_subdirectory(modules/markdown)
 add_subdirectory(libs/draxul-runtime-support)
@@ -182,7 +185,8 @@ foreach(_draxul_lib
     draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core
-    draxul-config draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
+    draxul-config draxul-protocol draxul-control draxul-client draxul-server
+    draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
     draxul_apply_sanitizers(${_draxul_lib})
     draxul_apply_coverage(${_draxul_lib})
@@ -361,9 +365,11 @@ draxul_apply_msvc_parallel_pdb_fix(draxul)
 target_link_libraries(draxul PRIVATE
     draxul-app
     draxul-bmp
+    draxul-client
     draxul-markdown-host
     draxul-kanban
     draxul-performance
+    draxul-server
 )
 if(DRAXUL_ENABLE_MEGACITY)
     target_link_libraries(draxul PRIVATE draxul-megacity)
@@ -379,6 +385,9 @@ if(DRAXUL_ENABLE_SCOREVIEW)
 endif()
 if(DRAXUL_ENABLE_RENDER_TESTS)
     target_compile_definitions(draxul PRIVATE DRAXUL_ENABLE_RENDER_TESTS)
+endif()
+if(TARGET draxul-test-core)
+    add_dependencies(draxul-test-core draxul)
 endif()
 
 if(APPLE)

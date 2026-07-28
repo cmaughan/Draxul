@@ -831,8 +831,32 @@ Rollback:
 
 ### Slice 2: real singleton server bootstrap, no remote shells
 
+**Status:** complete (2026-07-28)
+
+**Work item:** [11 singleton-server-bootstrap -feature.md](../kanban/done/11%20singleton-server-bootstrap%20-feature.md)
+
 **Outcome:** `draxul --server` and client discovery work end to end while terminals
 remain local.
+
+Implementation record:
+
+- added renderer-neutral `draxul-protocol`, `draxul-client`, and `draxul-server`
+  targets with configure-time dependency guards against UI, renderer, host, Neovim,
+  SDL, and product modules;
+- added early `--server`, `--server-status`, and `--shutdown-server` dispatch before
+  logging/host registration/application initialization, plus isolated
+  `--server-runtime-dir` namespaces;
+- reused the owner-restricted authenticated control transport for hello/welcome,
+  capability/version negotiation, status, readiness, client registration, and
+  graceful shutdown;
+- added detached launch and concurrent-start arbitration behind
+  `--experimental-server-client`; ordinary startup, explicit hosts, smoke, and render
+  paths remain local and do not auto-start a server;
+- diagnostics report the server PID, epoch, build, and protocol while explicitly
+  labelling terminals as local; and
+- process coverage proves ten concurrent clients converge on one server epoch,
+  alongside absent, starting, ready, stale, busy, incompatible, crashed, isolated
+  namespace, and graceful-stop coverage.
 
 Work:
 

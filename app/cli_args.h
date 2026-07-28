@@ -22,6 +22,13 @@ struct ParsedArgs
     bool new_session = false;
     bool rename_session = false;
     bool delete_session = false;
+    bool server = false;
+    bool server_status = false;
+    bool shutdown_server = false;
+    bool experimental_server_client = false;
+    bool no_server = false;
+    bool json_output = false;
+    std::filesystem::path server_runtime_dir;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     bool bless_render_test = false;
     bool show_render_test_window = false;
@@ -59,6 +66,7 @@ struct ParseArgsResult
 // without spawning a subprocess. The first element of `args` (program name)
 // is ignored, mirroring argv[0].
 ParseArgsResult parse_args(const std::vector<std::string>& args);
+bool should_bootstrap_experimental_server(const ParsedArgs& args);
 std::optional<std::string> validate_host_provider_availability(
     const ParsedArgs& args, const HostProviderRegistry& registry);
 

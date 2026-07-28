@@ -7,6 +7,7 @@
 #include <draxul/app_config_types.h>
 #include <draxul/host_kind.h>
 #include <draxul/renderer.h>
+#include <draxul/server_protocol.h>
 #include <draxul/window.h>
 #include <chrono>
 #include <functional>
@@ -42,6 +43,9 @@ struct AppOptions
     // desktop launches enable this alongside file-backed Session restore;
     // tests and embedded front-ends opt in explicitly.
     bool enable_control_server = false;
+    // Slice 2 only records the experimental server connection. Terminal
+    // ownership remains local until the later terminal-runtime slices.
+    std::optional<ServerWelcome> server_connection;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind
     // doesn't matter — any host that wants to render every frame can opt in.

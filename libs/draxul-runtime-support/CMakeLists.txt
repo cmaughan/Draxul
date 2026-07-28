@@ -17,6 +17,7 @@ target_link_libraries(draxul-runtime-support PUBLIC
     draxul-host-identity
     draxul-nvim
     draxul-renderer
+    draxul-protocol
     draxul-window
 )
 target_link_libraries(draxul-runtime-support PRIVATE draxul-performance)

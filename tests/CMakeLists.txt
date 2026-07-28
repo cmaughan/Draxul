@@ -257,6 +257,9 @@ target_link_libraries(draxul-test-core PRIVATE
     draxul-grid
     draxul-nvim
     draxul-config
+    draxul-client
+    draxul-protocol
+    draxul-server
     draxul-gui
     draxul-runtime-support
     draxul-render-test
@@ -391,9 +394,24 @@ target_link_libraries(draxul-host-link-isolation PRIVATE draxul-host)
 add_executable(draxul-terminal-core-link-isolation link_isolation/terminal_core_public_header.cpp)
 target_link_libraries(draxul-terminal-core-link-isolation PRIVATE draxul-terminal-core)
 
+add_executable(draxul-protocol-link-isolation link_isolation/protocol_public_header.cpp)
+target_link_libraries(draxul-protocol-link-isolation PRIVATE draxul-protocol)
+
+add_executable(draxul-client-link-isolation link_isolation/client_public_header.cpp)
+target_link_libraries(draxul-client-link-isolation PRIVATE draxul-client)
+
+add_executable(draxul-server-link-isolation link_isolation/server_public_header.cpp)
+target_link_libraries(draxul-server-link-isolation PRIVATE draxul-server)
+
 add_dependencies(draxul-tests
     draxul-bmp-link-isolation
     draxul-performance-link-isolation
     draxul-host-link-isolation
     draxul-terminal-core-link-isolation
+    draxul-protocol-link-isolation
+    draxul-client-link-isolation
+    draxul-server-link-isolation
+)
+target_compile_definitions(draxul-test-core PRIVATE
+    DRAXUL_EXECUTABLE_PATH="$<TARGET_FILE:draxul>"
 )
