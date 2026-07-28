@@ -45,7 +45,7 @@ draxul executable
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
                                 draxul-agent / draxul-bmp / draxul-host-identity /
-                                draxul-terminal-core
+                                draxul-terminal-core / draxul-terminal-process
 ```
 
 This is a dependency shape, not a promise that every target in one row links every
@@ -105,13 +105,15 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-client/` | Experimental singleton discovery/launch/status plus the renderer-free remote-terminal client projection and headless probe API |
 | `libs/draxul-server/` | Headless server kernel, deterministic fake `TerminalCore`, controller lease, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
+| `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters shared by local terminal hosts and server-owned terminal runtimes |
 
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
 `draxul-host` dependencies needed by its public and implementation headers.
-`draxul-host` privately consumes `draxul-client` only for the
-`RemoteTerminalHost` renderer adapter; the client and server libraries remain free of
-host, window, renderer, font, SDL, and product dependencies.
+`draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
+renderer adapter and `draxul-terminal-process` for local shells. The process adapter,
+client, and server libraries remain free of host, window, renderer, font, SDL, and
+product dependencies.
 
 ### libs/draxul-window/
 

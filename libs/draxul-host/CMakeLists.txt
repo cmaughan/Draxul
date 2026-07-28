@@ -13,13 +13,10 @@ add_library(draxul-host
 
 if(WIN32)
     target_sources(draxul-host PRIVATE
-        src/conpty_process.cpp
         src/shell_host_win.cpp
     )
-    target_link_libraries(draxul-host PRIVATE shell32)
 else()
     target_sources(draxul-host PRIVATE
-        src/unix_pty_process.cpp
         src/shell_host_unix.cpp
     )
 endif()
@@ -34,6 +31,7 @@ target_link_libraries(draxul-host PUBLIC
     draxul-renderer
     draxul-runtime-support
     draxul-terminal-core
+    draxul-terminal-process
     draxul-types
 )
 target_link_libraries(draxul-host PRIVATE

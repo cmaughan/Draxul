@@ -1,4 +1,4 @@
-#include "conpty_process.h"
+#include <draxul/conpty_process.h>
 
 #include <algorithm>
 #include <atomic>

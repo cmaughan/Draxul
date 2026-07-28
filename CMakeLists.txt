@@ -155,6 +155,7 @@ add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-terminal-process)
 add_subdirectory(libs/draxul-protocol)
 add_subdirectory(libs/draxul-control)
 add_subdirectory(libs/draxul-client)
@@ -184,7 +185,7 @@ draxul_check_dependency_boundaries()
 foreach(_draxul_lib
     draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
-    draxul-terminal-core
+    draxul-terminal-core draxul-terminal-process
     draxul-config draxul-protocol draxul-control draxul-client draxul-server
     draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)

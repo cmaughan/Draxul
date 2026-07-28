@@ -2,7 +2,7 @@
 
 #include <catch2/catch_all.hpp>
 
-#include "../libs/draxul-host/src/unix_pty_process.h"
+#include <draxul/unix_pty_process.h>
 
 #include <draxul/agent_model.h>
 

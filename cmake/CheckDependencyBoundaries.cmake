@@ -25,16 +25,27 @@ function(draxul_check_dependency_boundaries)
     draxul_check_direct_link(draxul-terminal-core draxul-grid)
     draxul_check_direct_link(draxul-terminal-core draxul-types)
     draxul_check_direct_link(draxul-terminal-core draxul-performance)
+    draxul_check_direct_link(draxul-terminal-process draxul-agent)
     draxul_check_direct_link(draxul-runtime-support draxul-host-identity)
     draxul_check_direct_link(draxul-host draxul-host-identity)
     draxul_check_direct_link(draxul-host draxul-client)
     draxul_check_direct_link(draxul-host draxul-nvim)
+    draxul_check_direct_link(draxul-host draxul-terminal-process)
     draxul_check_direct_link(draxul-client draxul-control)
     draxul_check_direct_link(draxul-client draxul-protocol)
     draxul_check_direct_link(draxul-server draxul-control)
     draxul_check_direct_link(draxul-server draxul-protocol)
     draxul_check_direct_link(draxul-protocol draxul-terminal-core)
     draxul_reject_direct_links(draxul-terminal-core
+        draxul-host
+        draxul-window
+        draxul-renderer
+        draxul-runtime-support
+        draxul-font
+        draxul-gui
+        draxul-ui
+        SDL3::SDL3)
+    draxul_reject_direct_links(draxul-terminal-process
         draxul-host
         draxul-window
         draxul-renderer
@@ -61,6 +72,7 @@ function(draxul_check_dependency_boundaries)
         draxul-types
         draxul-bmp
         draxul-terminal-core
+        draxul-terminal-process
         draxul-protocol
         draxul-client
         draxul-server)

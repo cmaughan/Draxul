@@ -50,7 +50,7 @@ TEST_CASE("quote_windows_arg applies CreateProcess-compatible quoting", "[proces
 TEST_CASE("Unix fork child paths do not allocate or mutate process environment", "[process_util]")
 {
     const std::string unix_pty
-        = read_project_file("libs/draxul-host/src/unix_pty_process.cpp");
+        = read_project_file("libs/draxul-terminal-process/src/unix_pty_process.cpp");
     const std::string unix_child = between_markers(
         unix_pty, "if (pid_ == 0)", "// Parent process.");
     CHECK(unix_child.find("std::string") == std::string::npos);
@@ -73,7 +73,7 @@ TEST_CASE("Unix fork child paths do not allocate or mutate process environment",
 TEST_CASE("UnixPtyProcess shutdown joins the reader before detached child reaping", "[process_util]")
 {
     const std::string unix_pty
-        = read_project_file("libs/draxul-host/src/unix_pty_process.cpp");
+        = read_project_file("libs/draxul-terminal-process/src/unix_pty_process.cpp");
     const std::string shutdown = between_markers(
         unix_pty, "void UnixPtyProcess::shutdown()", "void UnixPtyProcess::request_close()");
 
