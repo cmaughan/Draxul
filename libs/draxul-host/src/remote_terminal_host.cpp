@@ -20,6 +20,8 @@ namespace
 {
 
 constexpr size_t kRemoteHostCommandLimit = 128;
+constexpr size_t kRemoteCommandsPerPoll = 8;
+constexpr size_t kRemoteInputBatchBytes = 64 * 1024;
 constexpr auto kRemotePollInterval = std::chrono::milliseconds(25);
 constexpr auto kRemoteTransientFailureGrace = std::chrono::seconds(5);
 
@@ -102,7 +104,27 @@ public:
     bool enqueue(RemoteHostCommand command)
     {
         std::lock_guard guard(mutex_);
-        if (stopping_ || commands_.size() >= kRemoteHostCommandLimit)
+        if (stopping_)
+            return false;
+        if (!commands_.empty()
+            && command.kind == RemoteHostCommand::Kind::Input
+            && commands_.back().kind == RemoteHostCommand::Kind::Input
+            && command.text.size()
+                <= kRemoteInputBatchBytes - commands_.back().text.size())
+        {
+            commands_.back().text.append(command.text);
+            command_wake_.notify_one();
+            return true;
+        }
+        if (!commands_.empty()
+            && command.kind == RemoteHostCommand::Kind::Resize
+            && commands_.back().kind == RemoteHostCommand::Kind::Resize)
+        {
+            commands_.back() = std::move(command);
+            command_wake_.notify_one();
+            return true;
+        }
+        if (commands_.size() >= kRemoteHostCommandLimit)
             return false;
         commands_.push_back(std::move(command));
         command_wake_.notify_one();
@@ -146,7 +168,13 @@ private:
                 std::unique_lock lock(mutex_);
                 command_wake_.wait_for(lock, kRemotePollInterval,
                     [this] { return stopping_ || !commands_.empty(); });
-                commands.swap(commands_);
+                for (size_t count = 0;
+                     count < kRemoteCommandsPerPoll && !commands_.empty();
+                     ++count)
+                {
+                    commands.push_back(std::move(commands_.front()));
+                    commands_.pop_front();
+                }
             }
             if (stopping_)
                 break;
@@ -323,7 +351,11 @@ void RemoteTerminalHost::pump()
 {
     if (auto state = impl_->take_published_state())
     {
-        apply_grid_size(state->snapshot.cols, state->snapshot.rows);
+        if (state->snapshot.cols != grid_cols()
+            || state->snapshot.rows != grid_rows())
+        {
+            apply_grid_size(state->snapshot.cols, state->snapshot.rows);
+        }
         highlights().clear();
         highlights().set_default_fg(
             launch_options().terminal_fg.value_or(

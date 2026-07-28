@@ -74,6 +74,18 @@ bool rename_with_retry(const std::filesystem::path& from,
     return false;
 }
 
+void pump_for(RemoteTerminalHost& first, RemoteTerminalHost& second,
+    std::chrono::steady_clock::duration duration)
+{
+    const auto deadline = std::chrono::steady_clock::now() + duration;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        first.pump();
+        second.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
 } // namespace
 
 TEST_CASE("remote terminal host renders shared state and can take control",
@@ -234,6 +246,21 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
         = first.is_running() && second.is_running();
     REQUIRE(rename_with_retry(held_metadata_path, metadata_path));
     REQUIRE(survived_transport_gap);
+
+    const auto input_deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < input_deadline)
+    {
+        first.on_text_input({
+            .text = "abcdefghijklmnopqrstuvwxyz0123456789",
+        });
+        first.pump();
+        second.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    pump_for(first, second, std::chrono::seconds(6));
+    REQUIRE(first.is_running());
+    REQUIRE(second.is_running());
 
     for (int transfer = 0; transfer < 20; ++transfer)
     {
