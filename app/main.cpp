@@ -385,6 +385,16 @@ static int draxul_main(std::vector<std::string> args)
             draxul::shutdown_logging();
             return 1;
         }
+        if (parsed.experimental_remote_shell
+            && std::ranges::find(server_result.welcome->capabilities,
+                   "real-remote-terminal")
+                == server_result.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "The running Draxul server does not support the experimental remote shell. Stop it and retry.\n");
+            draxul::shutdown_logging();
+            return 1;
+        }
         server_connection = std::move(server_result.welcome);
     }
 
@@ -431,7 +441,7 @@ static int draxul_main(std::vector<std::string> args)
         options.no_vblank = true;
     if (parsed.no_ui)
         options.hide_host_ui_panels = true;
-    if (parsed.experimental_remote_terminal)
+    if (parsed.experimental_remote_terminal || parsed.experimental_remote_shell)
     {
         options.host_kind = draxul::HostKind::RemoteTerminal;
         options.host_kind_explicit = true;
@@ -441,6 +451,9 @@ static int draxul_main(std::vector<std::string> args)
             .server_epoch = options.server_connection
                 ? options.server_connection->server_epoch
                 : std::string{},
+            .method_prefix = parsed.experimental_remote_shell
+                ? "terminal"
+                : "fake",
         };
         options.host_factory = [remote_options](draxul::HostKind kind) {
             if (kind == draxul::HostKind::RemoteTerminal)
@@ -484,9 +497,11 @@ static int draxul_main(std::vector<std::string> args)
         && parsed.screenshot_path.empty();
 #endif
     options.enable_session_restore
-        = allow_session_restore && !parsed.experimental_remote_terminal;
+        = allow_session_restore && !parsed.experimental_remote_terminal
+        && !parsed.experimental_remote_shell;
     options.enable_control_server
-        = allow_session_restore && !parsed.experimental_remote_terminal;
+        = allow_session_restore && !parsed.experimental_remote_terminal
+        && !parsed.experimental_remote_shell;
 
     draxul::App app(std::move(options));
 

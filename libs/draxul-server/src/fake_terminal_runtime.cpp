@@ -31,6 +31,37 @@ TerminalDirtySnapshot FakeTerminalRuntime::take_delta()
     return delta;
 }
 
+bool FakeTerminalRuntime::ensure_started(std::string&)
+{
+    return true;
+}
+
+bool FakeTerminalRuntime::restart(std::string&)
+{
+    return true;
+}
+
+bool FakeTerminalRuntime::pump()
+{
+    return false;
+}
+
+bool FakeTerminalRuntime::send_input(std::string_view bytes)
+{
+    echo_input(bytes);
+    return true;
+}
+
+bool FakeTerminalRuntime::is_running() const
+{
+    return true;
+}
+
+uint64_t FakeTerminalRuntime::process_id() const
+{
+    return 0;
+}
+
 void FakeTerminalRuntime::echo_input(std::string_view bytes)
 {
     std::string echo;
@@ -45,9 +76,10 @@ void FakeTerminalRuntime::echo_input(std::string_view bytes)
     core_.feed(echo);
 }
 
-void FakeTerminalRuntime::resize(int cols, int rows)
+bool FakeTerminalRuntime::resize(int cols, int rows)
 {
     core_.resize(cols, rows);
+    return true;
 }
 
 Grid& FakeTerminalRuntime::terminal_grid()

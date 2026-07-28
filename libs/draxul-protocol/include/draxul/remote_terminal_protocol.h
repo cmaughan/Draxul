@@ -15,6 +15,8 @@ namespace draxul
 
 inline constexpr std::string_view kFakeRemotePaneId = "fake-pane-1";
 inline constexpr std::string_view kFakeRemoteTerminalId = "fake-terminal-1";
+inline constexpr std::string_view kServerShellPaneId = "server-shell-pane-1";
+inline constexpr std::string_view kServerShellTerminalId = "server-shell-terminal-1";
 inline constexpr size_t kRemoteTerminalQueueLimit = 32;
 inline constexpr size_t kRemoteTerminalMaxEventsPerPoll = 64;
 
@@ -24,6 +26,7 @@ struct RemotePaneDescriptor
     std::string terminal_id;
     std::string name;
     std::string execution_domain;
+    uint64_t process_id = 0;
 
     bool operator==(const RemotePaneDescriptor&) const = default;
 };

@@ -103,7 +103,7 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
 | `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status plus versioned terminal pane, snapshot, delta, controller, and diagnostic values |
 | `libs/draxul-client/` | Experimental singleton discovery/launch/status plus the renderer-free remote-terminal client projection and headless probe API |
-| `libs/draxul-server/` | Headless server kernel, deterministic fake `TerminalCore`, controller lease, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
+| `libs/draxul-server/` | Headless server kernel, deterministic fake terminal plus opt-in real server-owned shell runtime, controller leases, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
 | `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters shared by local terminal hosts and server-owned terminal runtimes |
 

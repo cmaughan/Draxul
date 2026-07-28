@@ -947,7 +947,29 @@ Rollback:
 
 ### Slice 4: one real server-owned shell behind an opt-in flag
 
+**Status:** complete (2026-07-28)
+
+**Work item:** [11 server-owned-shell-runtime -feature.md](../kanban/done/11%20server-owned-shell-runtime%20-feature.md)
+
 **Outcome:** a single shell pane survives UI detach and reconnect.
+
+Implementation record:
+
+- PTY/ConPTY ownership moved into the UI-free `draxul-terminal-process` target,
+  shared by local hosts and the server runtime.
+- `--experimental-remote-shell` selects a real `terminal.*` endpoint while the
+  existing fake endpoint and local terminal defaults remain unchanged.
+- The server lazily owns the shell process, `TerminalCore`, controller lease,
+  event queues, process ID, terminal generation, and zero-client output draining.
+- A generation-resync snapshot lets attached projections recover after process
+  restart without changing the server epoch.
+- Windows integration coverage proves server parentage, shared input/resize,
+  zero-client delayed output, same-PID reconnect, and a new generation after the
+  shell exits and is recreated.
+- Two actual Release UI processes attached to one isolated server, exited, and a
+  third UI reattached while the same server epoch and real terminal remained live.
+- Slice 4 preserves a bounded current screen; server-owned scrollback remains a
+  deliberate Slice 5 addition.
 
 Work:
 
@@ -974,7 +996,7 @@ Automated exit gate:
 - process parentage proves the shell belongs to the server;
 - killing a UI does not end the shell;
 - killing/restarting the shell changes only its runtime generation;
-- detached output and scrollback remain bounded and available;
+- detached output and the bounded current screen remain available;
 - Windows and macOS process/PTY integration tests pass.
 
 Rollback:

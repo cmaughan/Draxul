@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <draxul/agent_model.h>
 #include <functional>
 #include <mutex>
@@ -44,6 +45,7 @@ public:
     void shutdown();
     void request_close();
     bool is_running() const;
+    uint64_t process_id() const;
     std::optional<int> exit_code() const;
     std::string current_working_directory() const;
     std::optional<AgentProcessObservation> foreground_process_observation() const;

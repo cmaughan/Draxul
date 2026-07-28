@@ -217,3 +217,24 @@ TEST_CASE("cli: fake remote terminal opts into server bootstrap",
     REQUIRE(parse({ "--experimental-remote-terminal", "--smoke-test" })
             .error.has_value());
 }
+
+TEST_CASE("cli: real remote shell opts into server bootstrap",
+    "[cli][server][remote-terminal]")
+{
+    auto remote = parse({ "--experimental-remote-shell" });
+    REQUIRE_FALSE(remote.error.has_value());
+    REQUIRE(remote.args.experimental_remote_shell);
+    REQUIRE(remote.args.experimental_server_client);
+    REQUIRE(should_bootstrap_experimental_server(remote.args));
+
+    REQUIRE(parse({ "--experimental-remote-shell", "--no-server" })
+            .error.has_value());
+    REQUIRE(parse({ "--experimental-remote-shell",
+                       "--host", "powershell" })
+            .error.has_value());
+    REQUIRE(parse({ "--experimental-remote-shell", "--smoke-test" })
+            .error.has_value());
+    REQUIRE(parse({ "--experimental-remote-shell",
+                       "--experimental-remote-terminal" })
+            .error.has_value());
+}

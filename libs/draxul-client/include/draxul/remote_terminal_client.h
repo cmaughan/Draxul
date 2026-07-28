@@ -14,6 +14,7 @@ struct RemoteTerminalClientOptions
     std::filesystem::path runtime_directory;
     std::string client_id;
     std::string expected_server_epoch;
+    std::string method_prefix = "fake";
 };
 
 class RemoteTerminalProjection
@@ -53,6 +54,7 @@ public:
     bool resize(int cols, int rows, std::string& error);
     bool take_control(std::string& error);
     bool disconnect(std::string& error);
+    bool restart(std::string& error);
 
     const RemoteTerminalClientOptions& options() const;
     const RemoteTerminalProjection& projection() const;
@@ -62,6 +64,7 @@ private:
     bool request(std::string_view method, nlohmann::json params,
         nlohmann::json& result, std::string& error);
     nlohmann::json client_params() const;
+    std::string method(std::string_view operation) const;
 
     RemoteTerminalClientOptions options_;
     RemoteTerminalProjection projection_;

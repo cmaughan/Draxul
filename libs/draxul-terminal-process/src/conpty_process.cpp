@@ -718,6 +718,11 @@ std::string ConPtyProcess::current_working_directory() const
     return read_remote_current_directory(proc_info_.hProcess);
 }
 
+uint64_t ConPtyProcess::process_id() const
+{
+    return static_cast<uint64_t>(proc_info_.dwProcessId);
+}
+
 std::optional<AgentProcessObservation>
 ConPtyProcess::foreground_process_observation() const
 {

@@ -10,22 +10,22 @@ later recover the same process and terminal generation.
 
 - [x] PTY/ConPTY process adapters live below the UI host layer and remain shared by
       local and server-owned terminals.
-- [ ] `--experimental-remote-shell` lazily creates one server-owned PowerShell on
+- [x] `--experimental-remote-shell` lazily creates one server-owned PowerShell on
       Windows or Bash/Zsh shell on macOS.
-- [ ] Two clients render and control the same real shell through the existing
+- [x] Two clients render and control the same real shell through the existing
       controller lease.
-- [ ] Input, resize, title, cwd, cursor, modes, and process lifecycle originate in
+- [x] Input, resize, title, cwd, cursor, modes, and process lifecycle originate in
       the server runtime.
-- [ ] Closing every UI leaves the shell running and draining output.
-- [ ] Reconnecting returns the same process ID, terminal ID, generation, output,
+- [x] Closing every UI leaves the shell running and draining output.
+- [x] Reconnecting returns the same process ID, terminal ID, generation, output,
       and bounded current terminal state.
-- [ ] Restarting an exited shell changes its runtime generation without changing
+- [x] Restarting an exited shell changes its runtime generation without changing
       the server epoch.
-- [ ] Local terminals and the fake remote-terminal diagnostic path remain unchanged.
-- [ ] Windows Release build, focused process/runtime tests, full CTest, smoke, and a
+- [x] Local terminals and the fake remote-terminal diagnostic path remain unchanged.
+- [x] Windows Release build, focused process/runtime tests, full CTest, smoke, and a
       real two-window detach/reconnect demonstration pass.
-- [ ] macOS source/build wiring remains valid; macOS runtime execution is called out
-      if it cannot be exercised locally.
+- [x] macOS source/build wiring remains valid through the shared Unix PTY path;
+      macOS runtime execution was not available on the Windows validation host.
 
 ## Rollback
 

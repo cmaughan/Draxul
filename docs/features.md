@@ -40,6 +40,12 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   can run `take_terminal_control` from the command palette to take over. Brief local
   transport interruptions are retried for five seconds before a remote pane is
   considered dead.
+- `--experimental-remote-shell` is the Slice 4 path. It uses the same renderer and
+  controller lease, but lazily starts a real server-owned PowerShell on Windows or
+  the configured login shell on macOS/Linux. Closing every attached window leaves
+  the process and terminal state alive in the server; reconnecting recovers the same
+  terminal ID, process ID, generation, and current cells. The diagnostic fake path
+  and ordinary client-owned terminals remain unchanged.
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another
@@ -48,8 +54,8 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   within the control frame. Client input is batched and command work is bounded
   between projection polls so sustained typing cannot starve observers. Windows
   serves four named-pipe clients concurrently. Reconnect restores the current server
-  state. This remains explicitly experimental: no real shell process or saved Space
-  is server-owned yet.
+  state. This remains explicitly experimental: one real shell can now be
+  server-owned, but saved Spaces and general pane creation are not server-owned yet.
 
 ---
 

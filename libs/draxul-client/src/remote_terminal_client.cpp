@@ -54,7 +54,8 @@ bool RemoteTerminalProjection::apply(
         error = "Remote terminal event has a stale terminal identity.";
         return false;
     }
-    if (event.version.generation != version_.generation)
+    if (event.version.generation != version_.generation
+        && event.kind != RemoteTerminalEventKind::Snapshot)
     {
         error = "Remote terminal event has a stale generation.";
         return false;
@@ -136,7 +137,15 @@ bool RemoteTerminalProjection::apply_snapshot(
         error = "Remote terminal snapshot version is invalid.";
         return false;
     }
-    if (allow_resync && event.version.sequence < version_.sequence)
+    if (allow_resync
+        && event.version.generation < version_.generation)
+    {
+        error = "Remote terminal resync snapshot has a stale generation.";
+        return false;
+    }
+    if (allow_resync
+        && event.version.generation == version_.generation
+        && event.version.sequence < version_.sequence)
     {
         error = "Remote terminal resync snapshot is stale.";
         return false;
@@ -214,7 +223,7 @@ RemoteTerminalClient::RemoteTerminalClient(
 bool RemoteTerminalClient::attach(std::string& error)
 {
     nlohmann::json result;
-    if (!request("fake.attach", client_params(), result, error))
+    if (!request(method("attach"), client_params(), result, error))
         return false;
     std::string parse_error;
     auto attach = remote_terminal_attach_from_json(result, parse_error);
@@ -255,7 +264,7 @@ bool RemoteTerminalClient::poll(bool& changed, std::string& error)
     params["generation"] = projection_.version().generation;
     params["after_sequence"] = projection_.version().sequence;
     nlohmann::json result;
-    if (!request("fake.poll", std::move(params), result, error))
+    if (!request(method("poll"), std::move(params), result, error))
         return false;
     if (!result.is_object()
         || !result.contains("events") || !result["events"].is_array()
@@ -291,7 +300,7 @@ bool RemoteTerminalClient::send_input(
     nlohmann::json params = client_params();
     params["text"] = text;
     nlohmann::json result;
-    return request("fake.input", std::move(params), result, error);
+    return request(method("input"), std::move(params), result, error);
 }
 
 bool RemoteTerminalClient::resize(
@@ -301,20 +310,26 @@ bool RemoteTerminalClient::resize(
     params["cols"] = cols;
     params["rows"] = rows;
     nlohmann::json result;
-    return request("fake.resize", std::move(params), result, error);
+    return request(method("resize"), std::move(params), result, error);
 }
 
 bool RemoteTerminalClient::take_control(std::string& error)
 {
     nlohmann::json result;
     return request(
-        "fake.take_control", client_params(), result, error);
+        method("take_control"), client_params(), result, error);
 }
 
 bool RemoteTerminalClient::disconnect(std::string& error)
 {
     nlohmann::json result;
-    return request("fake.disconnect", client_params(), result, error);
+    return request(method("disconnect"), client_params(), result, error);
+}
+
+bool RemoteTerminalClient::restart(std::string& error)
+{
+    nlohmann::json result;
+    return request(method("restart"), client_params(), result, error);
 }
 
 const RemoteTerminalClientOptions& RemoteTerminalClient::options() const
@@ -353,6 +368,11 @@ bool RemoteTerminalClient::request(
 nlohmann::json RemoteTerminalClient::client_params() const
 {
     return { { "client_id", options_.client_id } };
+}
+
+std::string RemoteTerminalClient::method(std::string_view operation) const
+{
+    return options_.method_prefix + "." + std::string(operation);
 }
 
 } // namespace draxul

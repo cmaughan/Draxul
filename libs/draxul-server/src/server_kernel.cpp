@@ -1,6 +1,8 @@
 #include <draxul/server_kernel.h>
 
 #include "fake_terminal_runtime.h"
+#include "remote_terminal_service.h"
+#include "server_terminal_runtime.h"
 
 #include <draxul/control_plane.h>
 #include <draxul/log.h>
@@ -71,6 +73,7 @@ const std::vector<std::string>& server_capabilities()
         "fake-remote-terminal",
         "graceful-shutdown",
         "ordered-terminal-events",
+        "real-remote-terminal",
         "status",
     };
     return capabilities;
@@ -108,6 +111,15 @@ public:
             ? random_epoch()
             : options.epoch_override;
         pid = current_process_id();
+        terminal_service = std::make_unique<RemoteTerminalService>(
+            RemoteTerminalServiceOptions{
+                .method_prefix = "terminal",
+                .server_epoch = epoch_value,
+                .pane_id = std::string(kServerShellPaneId),
+                .terminal_id = std::string(kServerShellTerminalId),
+                .name = "Server Shell",
+            },
+            server_terminal);
     }
 
     ServerStartResult start();
@@ -159,6 +171,8 @@ public:
     uint64_t fake_sequence = 0;
     std::string fake_controller_client_id;
     std::unordered_map<std::string, FakeSubscriber> fake_subscribers;
+    ServerTerminalRuntime server_terminal;
+    std::unique_ptr<RemoteTerminalService> terminal_service;
 };
 
 void ServerKernel::Impl::publish_starting_marker()
@@ -300,6 +314,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return take_fake_terminal_control(request.params);
     if (request.method == "fake.disconnect")
         return disconnect_fake_terminal(request.params);
+    if (terminal_service->handles(request.method))
+        return terminal_service->handle(request.method, request.params);
     if (request.method == "server.shutdown")
     {
         request_stop();
@@ -659,7 +675,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .build_version = options.build_version,
         .uptime_ms = uptime_ms,
         .connected_clients = connected_clients,
-        .terminals = 1,
+        .terminals = 1 + (terminal_service->started() ? 1u : 0u),
     };
 }
 
@@ -669,6 +685,7 @@ int ServerKernel::Impl::run_until_stopped()
         return 1;
     while (!stop_requested)
     {
+        terminal_service->pump();
         if (const uint32_t listener_error = control.take_listener_error();
             listener_error != 0)
         {

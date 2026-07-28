@@ -82,6 +82,7 @@ public:
                 .runtime_directory = options_.runtime_directory,
                 .client_id = options_.client_id,
                 .expected_server_epoch = options_.server_epoch,
+                .method_prefix = options_.method_prefix,
             });
         if (!client_->attach(error))
             return false;

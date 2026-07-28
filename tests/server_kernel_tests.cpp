@@ -17,6 +17,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <tlhelp32.h>
 #else
 #include <unistd.h>
 #endif
@@ -49,14 +50,75 @@ ServerEnsureOptions probe_options(const std::filesystem::path& runtime)
 RemoteTerminalClient remote_client(
     const std::filesystem::path& runtime,
     std::string client_id,
-    std::string epoch = "fixed-epoch")
+    std::string epoch = "fixed-epoch",
+    std::string method_prefix = "fake")
 {
     return RemoteTerminalClient({
         .runtime_directory = runtime,
         .client_id = std::move(client_id),
         .expected_server_epoch = std::move(epoch),
+        .method_prefix = std::move(method_prefix),
     });
 }
+
+std::string snapshot_text(const TerminalSemanticSnapshot& snapshot)
+{
+    std::string text;
+    for (int row = 0; row < snapshot.rows; ++row)
+    {
+        for (int col = 0; col < snapshot.cols; ++col)
+        {
+            text += snapshot.cells[
+                static_cast<size_t>(row) * snapshot.cols + col]
+                        .text;
+        }
+        text.push_back('\n');
+    }
+    return text;
+}
+
+bool wait_for_text(
+    RemoteTerminalClient& client, std::string_view expected,
+    std::string& error)
+{
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        bool changed = false;
+        if (!client.poll(changed, error))
+            return false;
+        if (snapshot_text(client.projection().snapshot()).find(expected)
+            != std::string::npos)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    error = "Timed out waiting for terminal text.";
+    return false;
+}
+
+#ifdef _WIN32
+uint64_t parent_process_id(uint64_t process_id)
+{
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return 0;
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    uint64_t result = 0;
+    if (Process32FirstW(snapshot, &entry))
+    {
+        do
+        {
+            if (entry.th32ProcessID == process_id)
+            {
+                result = entry.th32ParentProcessID;
+                break;
+            }
+        } while (Process32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return result;
+}
+#endif
 
 class ServerRunGuard
 {
@@ -100,6 +162,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(probe.ready());
     REQUIRE(probe.welcome->server_pid == server.process_id());
     REQUIRE(probe.welcome->server_epoch == "fixed-epoch");
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "real-remote-terminal")
+        != probe.welcome->capabilities.end());
 
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
@@ -291,6 +356,89 @@ TEST_CASE("slow remote observer resyncs without delaying the controller",
         == controller.projection().version());
     REQUIRE(terminal_semantic_digest(observer.projection().snapshot())
         == terminal_semantic_digest(controller.projection().snapshot()));
+
+    run_guard.join();
+}
+
+TEST_CASE("server-owned shell survives every client detaching and reconnecting",
+    "[server][remote-terminal][process]")
+{
+    TempDir temp("draxul-real-remote-terminal");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto controller
+        = remote_client(temp.path, "real-a", "fixed-epoch", "terminal");
+    auto observer
+        = remote_client(temp.path, "real-b", "fixed-epoch", "terminal");
+    std::string error;
+    REQUIRE(controller.attach(error));
+    INFO(error);
+    REQUIRE(observer.attach(error));
+    INFO(error);
+
+    const uint64_t process_id = controller.projection().pane().process_id;
+    const uint64_t generation
+        = controller.projection().version().generation;
+    REQUIRE(process_id != 0);
+    REQUIRE(observer.projection().pane().process_id == process_id);
+    REQUIRE(observer.projection().version().generation == generation);
+#ifdef _WIN32
+    REQUIRE(parent_process_id(process_id) == server.process_id());
+    const std::string shared_command
+        = "Write-Output '__DRAXUL_SHARED__'\r";
+    const std::string delayed_command
+        = "Start-Sleep -Milliseconds 250; Write-Output '__DRAXUL_DETACHED__'\r";
+#else
+    const std::string shared_command
+        = "printf '__DRAXUL_SHARED__\\n'\r";
+    const std::string delayed_command
+        = "sleep 0.25; printf '__DRAXUL_DETACHED__\\n'\r";
+#endif
+
+    REQUIRE(controller.send_input(shared_command, error));
+    REQUIRE(wait_for_text(observer, "__DRAXUL_SHARED__", error));
+    INFO(error);
+    REQUIRE(controller.resize(72, 20, error));
+    bool resized = false;
+    for (int attempt = 0; attempt < 50 && !resized; ++attempt)
+    {
+        bool changed = false;
+        REQUIRE(observer.poll(changed, error));
+        resized = observer.projection().snapshot().cols == 72
+            && observer.projection().snapshot().rows == 20;
+        if (!resized)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(resized);
+
+    REQUIRE(controller.send_input(delayed_command, error));
+    REQUIRE(controller.disconnect(error));
+    REQUIRE(observer.disconnect(error));
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    auto reconnected
+        = remote_client(temp.path, "real-c", "fixed-epoch", "terminal");
+    REQUIRE(reconnected.attach(error));
+    INFO(error);
+    REQUIRE(reconnected.projection().pane().process_id == process_id);
+    REQUIRE(reconnected.projection().version().generation == generation);
+    REQUIRE(wait_for_text(reconnected, "__DRAXUL_DETACHED__", error));
+    INFO(error);
+
+    REQUIRE(reconnected.send_input("exit\r", error));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    auto after_restart
+        = remote_client(temp.path, "real-d", "fixed-epoch", "terminal");
+    REQUIRE(after_restart.attach(error));
+    REQUIRE(after_restart.projection().version().generation == generation + 1);
+    REQUIRE(after_restart.projection().pane().process_id != 0);
+    REQUIRE(server.epoch() == "fixed-epoch");
 
     run_guard.join();
 }

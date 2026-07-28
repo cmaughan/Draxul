@@ -481,6 +481,12 @@ std::string UnixPtyProcess::current_working_directory() const
     return process_working_directory(pid_);
 }
 
+uint64_t UnixPtyProcess::process_id() const
+{
+    update_exit_status();
+    return pid_ > 0 ? static_cast<uint64_t>(pid_) : 0;
+}
+
 std::optional<AgentProcessObservation>
 UnixPtyProcess::foreground_process_observation() const
 {

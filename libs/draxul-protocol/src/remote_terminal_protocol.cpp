@@ -618,6 +618,7 @@ nlohmann::json remote_terminal_attach_to_json(
               { "terminal_id", attach.pane.terminal_id },
               { "name", attach.pane.name },
               { "execution_domain", attach.pane.execution_domain },
+              { "process_id", attach.pane.process_id },
           } },
         { "state", remote_terminal_event_to_json(attach.state) },
     };
@@ -648,6 +649,15 @@ std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
     attach.pane.name = pane["name"].get<std::string>();
     attach.pane.execution_domain
         = pane["execution_domain"].get<std::string>();
+    if (pane.contains("process_id"))
+    {
+        if (!pane["process_id"].is_number_unsigned())
+        {
+            error = "Remote pane process identity is invalid.";
+            return std::nullopt;
+        }
+        attach.pane.process_id = pane["process_id"].get<uint64_t>();
+    }
     if (attach.pane.pane_id.empty() || attach.pane.terminal_id.empty()
         || attach.pane.pane_id.size() > 128
         || attach.pane.terminal_id.size() > 128

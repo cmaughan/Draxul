@@ -1,0 +1,28 @@
+#pragma once
+
+#include <draxul/remote_terminal_protocol.h>
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+namespace draxul
+{
+
+class IRemoteTerminalRuntime
+{
+public:
+    virtual ~IRemoteTerminalRuntime() = default;
+
+    virtual bool ensure_started(std::string& error) = 0;
+    virtual bool restart(std::string& error) = 0;
+    virtual bool pump() = 0;
+    virtual bool send_input(std::string_view bytes) = 0;
+    virtual bool resize(int cols, int rows) = 0;
+    virtual bool is_running() const = 0;
+    virtual uint64_t process_id() const = 0;
+    virtual TerminalSemanticSnapshot snapshot() const = 0;
+    virtual TerminalDirtySnapshot take_delta() = 0;
+};
+
+} // namespace draxul

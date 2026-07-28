@@ -4,20 +4,26 @@
 
 #include <draxul/terminal_core.h>
 
+#ifdef _WIN32
+#include <draxul/conpty_process.h>
+#else
+#include <draxul/unix_pty_process.h>
+#endif
+
 #include <optional>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 
 namespace draxul
 {
 
-class FakeTerminalRuntime final
+class ServerTerminalRuntime final
     : public IRemoteTerminalRuntime
     , private ITerminalCoreHost
 {
 public:
-    FakeTerminalRuntime();
+    ServerTerminalRuntime();
+    ~ServerTerminalRuntime() override;
 
     bool ensure_started(std::string& error) override;
     bool restart(std::string& error) override;
@@ -29,9 +35,9 @@ public:
     TerminalSemanticSnapshot snapshot() const override;
     TerminalDirtySnapshot take_delta() override;
 
-    void echo_input(std::string_view bytes);
-
 private:
+    bool start_process(std::string& error);
+
     Grid& terminal_grid() override;
     const Grid& terminal_grid() const override;
     HighlightTable& terminal_highlights() override;
@@ -61,7 +67,11 @@ private:
     Grid grid_;
     HighlightTable highlights_;
     TerminalCore core_;
-    std::string process_responses_;
+#ifdef _WIN32
+    ConPtyProcess process_;
+#else
+    UnixPtyProcess process_;
+#endif
     std::string clipboard_;
     std::string published_title_;
     std::pair<int, int> published_cursor_{ 0, 0 };
