@@ -567,6 +567,9 @@ Markdown and Kanban are product modules under `modules/markdown/` and `modules/k
 ScoreView builds as five libraries inside the `DRAXUL_ENABLE_SCOREVIEW` gate — `draxul-score-learn`, `draxul-score-input`, `draxul-score-audio`, `draxul-scoreview`, `draxul-scoreview-host`; the per-library layering and dependency-isolation rationale is documented in [docs/features/scoreview.md](features/scoreview.md#build-structure).
 
 CTest also registers `tests/do_py_tests.py` under the `unit` label. App smoke and render-snapshot tests use a shared CTest resource lock so full parallel test runs never overlap GPU/application processes.
+On Windows, every test executable that links ScoreView stages `verovio.dll`
+beside itself, so Debug and Release CTest runs do not depend on a stale DLL or
+the developer's `PATH`.
 
 ### Dependencies (FetchContent, automatic)
 SDL3, FreeType, HarfBuzz, MPack, ImGui, GLM, Catch2, vk-bootstrap (Windows), VMA (Windows)

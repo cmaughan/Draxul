@@ -334,7 +334,10 @@ if(DRAXUL_ENABLE_SCOREVIEW)
         draxul-scoreview-host-test-internals
     )
 
-    foreach(scoreview_target draxul-test-scoreview draxul-test-scoreview-host)
+    foreach(scoreview_target
+        draxul-test-app
+        draxul-test-scoreview
+        draxul-test-scoreview-host)
         target_compile_definitions(${scoreview_target} PRIVATE
             DRAXUL_ENABLE_SCOREVIEW
             DRAXUL_VEROVIO_DATA_DIR="${verovio_SOURCE_DIR}/data"
