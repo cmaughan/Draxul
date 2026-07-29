@@ -363,6 +363,8 @@ std::string_view to_string(RemoteTerminalEventKind kind)
         return "delta";
     case RemoteTerminalEventKind::Controller:
         return "controller";
+    case RemoteTerminalEventKind::Clipboard:
+        return "clipboard";
     }
     return "unknown";
 }
@@ -376,6 +378,8 @@ std::optional<RemoteTerminalEventKind> parse_remote_terminal_event_kind(
         return RemoteTerminalEventKind::Delta;
     if (value == "controller")
         return RemoteTerminalEventKind::Controller;
+    if (value == "clipboard")
+        return RemoteTerminalEventKind::Clipboard;
     return std::nullopt;
 }
 
@@ -551,6 +555,8 @@ nlohmann::json remote_terminal_event_to_json(
         value["snapshot"] = terminal_semantic_snapshot_to_json(*event.snapshot);
     if (event.delta)
         value["delta"] = terminal_dirty_snapshot_to_json(*event.delta);
+    if (event.clipboard)
+        value["clipboard"] = *event.clipboard;
     return value;
 }
 
@@ -584,7 +590,8 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
     }
     if (event.kind == RemoteTerminalEventKind::Snapshot)
     {
-        if (!value.contains("snapshot"))
+        if (!value.contains("snapshot")
+            || value.contains("delta") || value.contains("clipboard"))
         {
             error = "Remote terminal snapshot event has no snapshot.";
             return std::nullopt;
@@ -596,7 +603,8 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
     }
     else if (event.kind == RemoteTerminalEventKind::Delta)
     {
-        if (!value.contains("delta"))
+        if (!value.contains("delta")
+            || value.contains("snapshot") || value.contains("clipboard"))
         {
             error = "Remote terminal delta event has no delta.";
             return std::nullopt;
@@ -605,6 +613,28 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
             value["delta"], error);
         if (!event.delta)
             return std::nullopt;
+    }
+    else if (event.kind == RemoteTerminalEventKind::Clipboard)
+    {
+        if (!value.contains("clipboard")
+            || value.contains("snapshot") || value.contains("delta")
+            || !value["clipboard"].is_string())
+        {
+            error = "Remote terminal clipboard event has no clipboard value.";
+            return std::nullopt;
+        }
+        event.clipboard = value["clipboard"].get<std::string>();
+        if (event.clipboard->size() > TerminalStateLimits::kMaxInputBytes)
+        {
+            error = "Remote terminal clipboard event is too large.";
+            return std::nullopt;
+        }
+    }
+    else if (value.contains("snapshot") || value.contains("delta")
+        || value.contains("clipboard"))
+    {
+        error = "Remote terminal controller event contains state.";
+        return std::nullopt;
     }
     return event;
 }
@@ -672,6 +702,66 @@ std::optional<RemoteTerminalAttach> remote_terminal_attach_from_json(
         return std::nullopt;
     attach.state = std::move(*event);
     return attach;
+}
+
+nlohmann::json remote_terminal_scrollback_page_to_json(
+    const RemoteTerminalScrollbackPage& page)
+{
+    nlohmann::json value{
+        { "version", version_to_json(page.version) },
+        { "total_rows", page.total_rows },
+        { "offset_from_live", page.offset_from_live },
+        { "cols", page.cols },
+    };
+    if (page.snapshot)
+        value["snapshot"] = terminal_semantic_snapshot_to_json(*page.snapshot);
+    return value;
+}
+
+std::optional<RemoteTerminalScrollbackPage>
+remote_terminal_scrollback_page_from_json(
+    const nlohmann::json& value, std::string& error)
+{
+    RemoteTerminalScrollbackPage page;
+    if (!value.is_object()
+        || !value.contains("version")
+        || !read_version(value["version"], page.version)
+        || !value.contains("total_rows")
+        || !value["total_rows"].is_number_unsigned()
+        || !value.contains("offset_from_live")
+        || !value["offset_from_live"].is_number_unsigned()
+        || !value.contains("cols")
+        || !value["cols"].is_number_integer())
+    {
+        error = "Remote terminal scrollback page is invalid.";
+        return std::nullopt;
+    }
+    page.total_rows = value["total_rows"].get<uint64_t>();
+    page.offset_from_live = value["offset_from_live"].get<uint64_t>();
+    page.cols = value["cols"].get<int>();
+    if (page.total_rows > TerminalStateLimits::kMaxScrollbackRows
+        || page.offset_from_live > page.total_rows
+        || page.cols <= 0
+        || page.cols > TerminalStateLimits::kMaxColumns)
+    {
+        error = "Remote terminal scrollback page values are out of range.";
+        return std::nullopt;
+    }
+    if (value.contains("snapshot"))
+    {
+        page.snapshot = terminal_semantic_snapshot_from_json(
+            value["snapshot"], error);
+        if (!page.snapshot
+            || page.snapshot->cols != page.cols
+            || page.snapshot->rows
+                > static_cast<int>(kRemoteTerminalMaxScrollbackPageRows))
+        {
+            if (error.empty())
+                error = "Remote terminal scrollback snapshot is invalid.";
+            return std::nullopt;
+        }
+    }
+    return page;
 }
 
 } // namespace draxul

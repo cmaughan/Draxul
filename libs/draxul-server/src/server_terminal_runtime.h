@@ -2,6 +2,7 @@
 
 #include "remote_terminal_runtime.h"
 
+#include <draxul/scrollback_buffer.h>
 #include <draxul/terminal_core.h>
 
 #ifdef _WIN32
@@ -13,16 +14,29 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace draxul
 {
+
+struct ServerTerminalRuntimeOptions
+{
+    std::string shell_kind;
+    std::string command;
+    std::vector<std::string> args;
+    std::string working_directory;
+    std::vector<std::pair<std::string, std::string>> environment;
+    int scrollback_capacity = ScrollbackBuffer::kDefaultCapacity;
+};
 
 class ServerTerminalRuntime final
     : public IRemoteTerminalRuntime
     , private ITerminalCoreHost
 {
 public:
-    ServerTerminalRuntime();
+    explicit ServerTerminalRuntime(
+        ServerTerminalRuntimeOptions options = {});
     ~ServerTerminalRuntime() override;
 
     bool ensure_started(std::string& error) override;
@@ -32,6 +46,10 @@ public:
     bool resize(int cols, int rows) override;
     bool is_running() const override;
     uint64_t process_id() const override;
+    uint64_t scrollback_rows() const override;
+    std::optional<TerminalSemanticSnapshot> scrollback_page(
+        uint64_t offset_from_live, size_t max_rows) const override;
+    std::optional<std::string> take_clipboard_write() override;
     TerminalSemanticSnapshot snapshot() const override;
     TerminalDirtySnapshot take_delta() override;
 
@@ -67,12 +85,15 @@ private:
     Grid grid_;
     HighlightTable highlights_;
     TerminalCore core_;
+    ScrollbackBuffer scrollback_;
+    ServerTerminalRuntimeOptions options_;
 #ifdef _WIN32
     ConPtyProcess process_;
 #else
     UnixPtyProcess process_;
 #endif
     std::string clipboard_;
+    std::optional<std::string> pending_clipboard_write_;
     std::string published_title_;
     std::pair<int, int> published_cursor_{ 0, 0 };
     std::optional<std::pair<int, int>> cursor_override_;

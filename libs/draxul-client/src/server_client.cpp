@@ -233,6 +233,9 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "ordered-terminal-events",
             "real-remote-terminal",
             "status",
+            "terminal-metrics-v1",
+            "terminal-scrollback-v1",
+            "terminal-uncompressed-v1",
         },
     };
     const auto response = ControlClient::request(
@@ -301,8 +304,7 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
         || current.state == ServerProbeState::Stale)
     {
         std::string launch_error;
-        if (!launch_detached(
-                options.executable_path, options.runtime_directory, launch_error))
+        if (!launch_detached(options, launch_error))
         {
             return {
                 .state = ServerProbeState::LaunchFailed,
@@ -329,8 +331,7 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
                 || current.state == ServerProbeState::Stale))
         {
             std::string launch_error;
-            if (!launch_detached(options.executable_path,
-                    options.runtime_directory, launch_error))
+            if (!launch_detached(options, launch_error))
             {
                 return {
                     .state = ServerProbeState::LaunchFailed,
@@ -389,10 +390,10 @@ bool ServerClient::shutdown(
 }
 
 bool ServerClient::launch_detached(
-    const std::filesystem::path& executable_path,
-    const std::filesystem::path& runtime_directory,
-    std::string& error)
+    const ServerEnsureOptions& options, std::string& error)
 {
+    const auto& executable_path = options.executable_path;
+    const auto& runtime_directory = options.runtime_directory;
     if (executable_path.empty() || !std::filesystem::exists(executable_path))
     {
         error = "Draxul executable path does not exist.";
@@ -403,6 +404,21 @@ bool ServerClient::launch_detached(
     std::wstring command = quote_windows_argument(executable)
         + L" --server --server-runtime-dir "
         + quote_windows_argument(runtime_directory.wstring());
+    if (!options.terminal_shell_kind.empty())
+    {
+        command += L" --server-shell "
+            + quote_windows_argument(std::filesystem::path(
+                  options.terminal_shell_kind)
+                                         .wstring());
+    }
+    if (!options.terminal_working_directory.empty())
+    {
+        command += L" --server-working-dir "
+            + quote_windows_argument(
+                options.terminal_working_directory.wstring());
+    }
+    command += L" --server-scrollback-lines "
+        + std::to_wstring(options.terminal_scrollback_lines);
     std::vector<wchar_t> mutable_command(command.begin(), command.end());
     mutable_command.push_back(L'\0');
 
@@ -445,9 +461,33 @@ bool ServerClient::launch_detached(
         }
         const std::string executable = executable_path.string();
         const std::string runtime = runtime_directory.string();
-        ::execl(executable.c_str(), executable.c_str(),
-            "--server", "--server-runtime-dir", runtime.c_str(),
-            static_cast<char*>(nullptr));
+        const std::string scrollback
+            = std::to_string(options.terminal_scrollback_lines);
+        std::vector<std::string> arguments{
+            executable,
+            "--server",
+            "--server-runtime-dir",
+            runtime,
+        };
+        if (!options.terminal_shell_kind.empty())
+        {
+            arguments.push_back("--server-shell");
+            arguments.push_back(options.terminal_shell_kind);
+        }
+        if (!options.terminal_working_directory.empty())
+        {
+            arguments.push_back("--server-working-dir");
+            arguments.push_back(
+                options.terminal_working_directory.string());
+        }
+        arguments.push_back("--server-scrollback-lines");
+        arguments.push_back(scrollback);
+        std::vector<char*> argv;
+        argv.reserve(arguments.size() + 1);
+        for (std::string& argument : arguments)
+            argv.push_back(argument.data());
+        argv.push_back(nullptr);
+        ::execv(executable.c_str(), argv.data());
         _exit(127);
     }
     return true;

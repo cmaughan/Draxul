@@ -182,6 +182,31 @@ TEST_CASE("cli: server runtime override is parsed", "[cli][server]")
     REQUIRE(r.args.server_runtime_dir == "D:/tmp/draxul-server");
 }
 
+TEST_CASE("cli: server owns remote shell launch and history settings",
+    "[cli][server][remote-terminal]")
+{
+    auto r = parse({
+        "--experimental-remote-shell",
+        "--server-shell",
+        "zsh",
+        "--server-working-dir",
+        "D:/work/project",
+        "--server-scrollback-lines",
+        "25000",
+    });
+    REQUIRE_FALSE(r.error.has_value());
+    REQUIRE(r.args.server_shell_kind == "zsh");
+    REQUIRE(r.args.server_working_dir == "D:/work/project");
+    REQUIRE(r.args.server_scrollback_lines == 25000);
+
+    REQUIRE(parse({ "--server", "--server-shell", "fish" })
+            .error.has_value());
+    REQUIRE(parse({ "--server", "--server-scrollback-lines", "-1" })
+            .error.has_value());
+    REQUIRE(parse({ "--server", "--server-scrollback-lines", "many" })
+            .error.has_value());
+}
+
 TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][server]")
 {
     auto normal = parse({ "--experimental-server-client" });

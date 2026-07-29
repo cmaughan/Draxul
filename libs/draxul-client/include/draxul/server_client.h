@@ -40,6 +40,9 @@ struct ServerEnsureOptions
     int protocol_minor = kServerProtocolMinor;
     std::chrono::milliseconds timeout = std::chrono::seconds(10);
     bool launch_if_missing = true;
+    std::string terminal_shell_kind;
+    std::filesystem::path terminal_working_directory;
+    int terminal_scrollback_lines = 10000;
 };
 
 std::filesystem::path server_runtime_directory(
@@ -57,9 +60,8 @@ public:
         const std::filesystem::path& runtime_directory);
     static bool shutdown(const std::filesystem::path& runtime_directory,
         std::string& error);
-    static bool launch_detached(const std::filesystem::path& executable_path,
-        const std::filesystem::path& runtime_directory,
-        std::string& error);
+    static bool launch_detached(
+        const ServerEnsureOptions& options, std::string& error);
 };
 
 } // namespace draxul

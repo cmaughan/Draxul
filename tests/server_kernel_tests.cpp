@@ -11,6 +11,7 @@
 #include <fstream>
 #include <future>
 #include <nlohmann/json.hpp>
+#include <random>
 #include <thread>
 
 #ifdef _WIN32
@@ -443,6 +444,154 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     run_guard.join();
 }
 
+TEST_CASE("server-owned shell exposes bounded client-independent scrollback pages",
+    "[server][remote-terminal][process][scrollback]")
+{
+    TempDir temp("draxul-real-remote-scrollback");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto first
+        = remote_client(temp.path, "scroll-a", "fixed-epoch", "terminal");
+    auto second
+        = remote_client(temp.path, "scroll-b", "fixed-epoch", "terminal");
+    std::string error;
+    REQUIRE(first.attach(error));
+    REQUIRE(second.attach(error));
+    REQUIRE(first.resize(40, 8, error));
+#ifdef _WIN32
+    const std::string command
+        = "1..40 | ForEach-Object { Write-Output (\"__SB_{0:D2}__\" -f $_) }\r";
+#else
+    const std::string command
+        = "for i in $(seq 1 40); do printf '__SB_%02d__\\n' \"$i\"; done\r";
+#endif
+    REQUIRE(first.send_input(command, error));
+    REQUIRE(wait_for_text(first, "__SB_40__", error));
+    INFO(error);
+
+    bool changed = false;
+    REQUIRE(second.poll(changed, error));
+    const uint64_t live_digest
+        = terminal_semantic_digest(second.projection().snapshot());
+
+    RemoteTerminalScrollbackPage near_live;
+    REQUIRE(first.read_scrollback(5, 8, near_live, error));
+    INFO(error);
+    REQUIRE(near_live.total_rows >= 5);
+    REQUIRE(near_live.offset_from_live == 5);
+    REQUIRE(near_live.snapshot.has_value());
+    REQUIRE(near_live.snapshot->rows == 5);
+    REQUIRE(near_live.snapshot->cols == 40);
+
+    RemoteTerminalScrollbackPage farther_back;
+    REQUIRE(second.read_scrollback(10, 8, farther_back, error));
+    INFO(error);
+    REQUIRE(farther_back.total_rows == near_live.total_rows);
+    REQUIRE(farther_back.offset_from_live == 10);
+    REQUIRE(farther_back.snapshot.has_value());
+    REQUIRE(farther_back.snapshot->rows == 8);
+    REQUIRE(terminal_semantic_digest(second.projection().snapshot())
+        == live_digest);
+
+    const auto metrics = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path), temp.path,
+        "terminal.metrics");
+    REQUIRE(metrics.ok);
+    REQUIRE(metrics.result["sanitized"] == true);
+    REQUIRE(metrics.result["delta_frames"].get<uint64_t>() > 0);
+    REQUIRE(metrics.result["delta_cells"].get<uint64_t>() > 0);
+    REQUIRE(metrics.result["full_frame_cells"].get<uint64_t>()
+        >= metrics.result["delta_cells"].get<uint64_t>());
+    REQUIRE(metrics.result["scrollback_requests"].get<uint64_t>() >= 2);
+    REQUIRE(metrics.result["scrollback_rows_served"].get<uint64_t>() >= 13);
+    REQUIRE_FALSE(metrics.result.contains("text"));
+    REQUIRE_FALSE(metrics.result.contains("cells"));
+
+    run_guard.join();
+}
+
+TEST_CASE("server-owned shell rejects unsupported launch kinds clearly",
+    "[server][remote-terminal][process][config]")
+{
+    TempDir temp("draxul-real-remote-invalid-shell");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+        .terminal_shell_kind = "unsupported-shell",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto client
+        = remote_client(temp.path, "invalid-shell", "fixed-epoch", "terminal");
+    std::string error;
+    REQUIRE_FALSE(client.attach(error));
+    REQUIRE(client.last_error_code() == "process_start_failed");
+    REQUIRE(error.find("Unsupported Draxul server shell kind")
+        != std::string::npos);
+
+    run_guard.join();
+}
+
+TEST_CASE("remote alternate screen preserves Unicode and resize semantics",
+    "[server][remote-terminal][process][alternate-screen][unicode]")
+{
+    TempDir temp("draxul-real-remote-alternate");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto client
+        = remote_client(temp.path, "alternate-a", "fixed-epoch", "terminal");
+    std::string error;
+    REQUIRE(client.attach(error));
+#ifdef _WIN32
+    const std::string enter
+        = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); [Console]::Write([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('G1s/MTA0OWhfX0FMVF/Ou1/nlYxfXw==')))\r";
+    const std::string leave
+        = "[Console]::Write([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('G1s/MTA0OWw=')))\r";
+#else
+    const std::string enter
+        = "printf 'G1s/MTA0OWhfX0FMVF/Ou1/nlYxfXw==' | base64 -d\r";
+    const std::string leave
+        = "printf 'G1s/MTA0OWw=' | base64 -d\r";
+#endif
+    REQUIRE(client.send_input(enter, error));
+    const bool saw_alternate_text
+        = wait_for_text(client, "__ALT_\xCE\xBB_\xE7\x95\x8C__", error);
+    INFO(error);
+    INFO(snapshot_text(client.projection().snapshot()));
+    REQUIRE(saw_alternate_text);
+    REQUIRE(client.projection().snapshot().metadata.modes.alternate_screen);
+    REQUIRE(client.resize(52, 11, error));
+    bool changed = false;
+    REQUIRE(client.poll(changed, error));
+    REQUIRE(client.projection().snapshot().cols == 52);
+    REQUIRE(client.projection().snapshot().rows == 11);
+    REQUIRE(client.projection().snapshot().metadata.modes.alternate_screen);
+
+    REQUIRE(client.send_input(leave, error));
+    for (int attempt = 0; attempt < 200
+         && client.projection().snapshot().metadata.modes.alternate_screen;
+         ++attempt)
+    {
+        REQUIRE(client.poll(changed, error));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE_FALSE(
+        client.projection().snapshot().metadata.modes.alternate_screen);
+
+    run_guard.join();
+}
+
 TEST_CASE("remote observer receives a burst of large resize events in bounded frames",
     "[server][remote-terminal]")
 {
@@ -528,6 +677,135 @@ TEST_CASE("remote terminal projection rejects stale identity and sequence",
     event.version.server_epoch = "epoch";
     event.version.generation = 2;
     REQUIRE_FALSE(projection.apply(event, error));
+}
+
+TEST_CASE("remote terminal forwards OSC 52 clipboard writes without tracing content",
+    "[server][remote-terminal][clipboard]")
+{
+    TempDir temp("draxul-remote-clipboard");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "clipboard-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto client = remote_client(
+        temp.path, "clipboard-client", "clipboard-epoch", "terminal");
+    std::string error;
+    REQUIRE(client.attach(error));
+#ifdef _WIN32
+    const std::string command
+        = "[Console]::Write([char]27 + ']52;c;cmVtb3RlIGNsaXBib2FyZA==' + [char]7)\r";
+#else
+    const std::string command
+        = "printf '\\033]52;c;cmVtb3RlIGNsaXBib2FyZA==\\007'\r";
+#endif
+    REQUIRE(client.send_input(command, error));
+    std::optional<std::string> clipboard;
+    for (int attempt = 0; attempt < 300 && !clipboard; ++attempt)
+    {
+        bool changed = false;
+        REQUIRE(client.poll(changed, error));
+        clipboard = client.take_clipboard_write();
+        if (!clipboard)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    INFO("clipboard: "
+        << (clipboard ? *clipboard : "<no clipboard event>"));
+    REQUIRE(clipboard.has_value());
+    REQUIRE(*clipboard == "remote clipboard");
+
+    run_guard.join();
+}
+
+TEST_CASE("seeded remote terminal deltas converge or require snapshot resync",
+    "[client][remote-terminal][delta][random]")
+{
+    constexpr int cols = 16;
+    constexpr int rows = 8;
+    TerminalSemanticSnapshot initial{
+        .cols = cols,
+        .rows = rows,
+        .cells = std::vector<TerminalCellSnapshot>(
+            static_cast<size_t>(cols) * rows),
+    };
+    RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = "pane",
+            .terminal_id = "terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "epoch",
+                .terminal_id = "terminal",
+                .generation = 1,
+                .sequence = 0,
+            },
+            .snapshot = initial,
+        },
+    };
+    RemoteTerminalProjection complete;
+    RemoteTerminalProjection interrupted;
+    std::string error;
+    REQUIRE(complete.attach(attach, error));
+    REQUIRE(interrupted.attach(attach, error));
+
+    std::mt19937 random(0xD4A5u);
+    std::uniform_int_distribution<int> cell_count(1, 20);
+    std::uniform_int_distribution<int> col_dist(0, cols - 1);
+    std::uniform_int_distribution<int> row_dist(0, rows - 1);
+    std::uniform_int_distribution<int> glyph_dist(0, 25);
+    bool resync_requested = false;
+    for (uint64_t sequence = 1; sequence <= 200; ++sequence)
+    {
+        TerminalDirtySnapshot delta{
+            .cols = cols,
+            .rows = rows,
+        };
+        for (int index = 0; index < cell_count(random); ++index)
+        {
+            delta.cells.push_back({
+                .col = col_dist(random),
+                .row = row_dist(random),
+                .cell = {
+                    .text = std::string(
+                        1, static_cast<char>('A' + glyph_dist(random))),
+                },
+            });
+        }
+        RemoteTerminalEvent event{
+            .kind = RemoteTerminalEventKind::Delta,
+            .version = {
+                .server_epoch = "epoch",
+                .terminal_id = "terminal",
+                .generation = 1,
+                .sequence = sequence,
+            },
+            .delta = std::move(delta),
+        };
+        REQUIRE(complete.apply(event, error));
+
+        if (sequence == 80)
+            continue;
+        if (sequence == 81)
+        {
+            REQUIRE_FALSE(interrupted.apply(event, error));
+            resync_requested = true;
+            RemoteTerminalEvent snapshot{
+                .kind = RemoteTerminalEventKind::Snapshot,
+                .version = event.version,
+                .snapshot = complete.snapshot(),
+            };
+            REQUIRE(interrupted.apply(snapshot, error));
+            continue;
+        }
+        REQUIRE(interrupted.apply(event, error));
+        REQUIRE(terminal_semantic_digest(interrupted.snapshot())
+            == terminal_semantic_digest(complete.snapshot()));
+    }
+    REQUIRE(resync_requested);
 }
 
 #ifdef DRAXUL_EXECUTABLE_PATH

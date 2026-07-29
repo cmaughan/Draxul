@@ -76,22 +76,30 @@ void append_attr(DigestWriter& writer, const HlAttr& attr)
     writer.boolean(attr.reverse);
 }
 
-TerminalCellSnapshot capture_cell(
+TerminalCellSnapshot capture_grid_cell(
     const Grid& grid, const HighlightTable& highlights, int col, int row)
 {
     const Cell& source = grid.get_cell(col, row);
+    const uint16_t link_id = grid.effective_link_id(col, row);
+    return capture_terminal_cell_snapshot(source, highlights,
+        link_id != 0 ? grid.link_uri(link_id) : std::string_view{});
+}
+
+} // namespace
+
+TerminalCellSnapshot capture_terminal_cell_snapshot(
+    const Cell& source,
+    const HighlightTable& highlights,
+    std::string_view hyperlink)
+{
     TerminalCellSnapshot cell;
     cell.text = source.text.view();
     cell.attr = highlights.get(source.hl_attr_id);
     cell.double_width = source.double_width;
     cell.double_width_continuation = source.double_width_cont;
-    const uint16_t link_id = grid.effective_link_id(col, row);
-    if (link_id != 0)
-        cell.hyperlink = grid.link_uri(link_id);
+    cell.hyperlink = hyperlink;
     return cell;
 }
-
-} // namespace
 
 TerminalSemanticSnapshot capture_terminal_semantic_snapshot(
     const Grid& grid,
@@ -108,7 +116,8 @@ TerminalSemanticSnapshot capture_terminal_semantic_snapshot(
     for (int row = 0; row < snapshot.rows; ++row)
     {
         for (int col = 0; col < snapshot.cols; ++col)
-            snapshot.cells.push_back(capture_cell(grid, highlights, col, row));
+            snapshot.cells.push_back(
+                capture_grid_cell(grid, highlights, col, row));
     }
     return snapshot;
 }
@@ -136,7 +145,7 @@ TerminalDirtySnapshot capture_terminal_dirty_snapshot(
                 snapshot.cells.push_back(TerminalDirtyCellSnapshot{
                     .col = col,
                     .row = row,
-                    .cell = capture_cell(grid, highlights, col, row),
+                    .cell = capture_grid_cell(grid, highlights, col, row),
                 });
             }
         }
@@ -150,7 +159,8 @@ TerminalDirtySnapshot capture_terminal_dirty_snapshot(
         snapshot.cells.push_back(TerminalDirtyCellSnapshot{
             .col = position.col,
             .row = position.row,
-            .cell = capture_cell(grid, highlights, position.col, position.row),
+            .cell = capture_grid_cell(
+                grid, highlights, position.col, position.row),
         });
     }
     return snapshot;

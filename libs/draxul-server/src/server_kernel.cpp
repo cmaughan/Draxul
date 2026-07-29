@@ -75,6 +75,9 @@ const std::vector<std::string>& server_capabilities()
         "ordered-terminal-events",
         "real-remote-terminal",
         "status",
+        "terminal-metrics-v1",
+        "terminal-scrollback-v1",
+        "terminal-uncompressed-v1",
     };
     return capabilities;
 }
@@ -111,15 +114,6 @@ public:
             ? random_epoch()
             : options.epoch_override;
         pid = current_process_id();
-        terminal_service = std::make_unique<RemoteTerminalService>(
-            RemoteTerminalServiceOptions{
-                .method_prefix = "terminal",
-                .server_epoch = epoch_value,
-                .pane_id = std::string(kServerShellPaneId),
-                .terminal_id = std::string(kServerShellTerminalId),
-                .name = "Server Shell",
-            },
-            server_terminal);
     }
 
     ServerStartResult start();
@@ -166,12 +160,12 @@ public:
     RemoteTerminalEvent make_fake_controller_event();
     void broadcast_fake_event(const RemoteTerminalEvent& event);
 
-    FakeTerminalRuntime fake_terminal;
+    std::unique_ptr<FakeTerminalRuntime> fake_terminal;
     uint64_t fake_generation = 1;
     uint64_t fake_sequence = 0;
     std::string fake_controller_client_id;
     std::unordered_map<std::string, FakeSubscriber> fake_subscribers;
-    ServerTerminalRuntime server_terminal;
+    std::unique_ptr<ServerTerminalRuntime> server_terminal;
     std::unique_ptr<RemoteTerminalService> terminal_service;
 };
 
@@ -314,7 +308,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return take_fake_terminal_control(request.params);
     if (request.method == "fake.disconnect")
         return disconnect_fake_terminal(request.params);
-    if (terminal_service->handles(request.method))
+    if (terminal_service && terminal_service->handles(request.method))
         return terminal_service->handle(request.method, request.params);
     if (request.method == "server.shutdown")
     {
@@ -380,7 +374,7 @@ RemoteTerminalEvent ServerKernel::Impl::fake_snapshot_event() const
         .kind = RemoteTerminalEventKind::Snapshot,
         .version = fake_version(),
         .controller_client_id = fake_controller_client_id,
-        .snapshot = fake_terminal.snapshot(),
+        .snapshot = fake_terminal->snapshot(),
     };
 }
 
@@ -391,7 +385,7 @@ RemoteTerminalEvent ServerKernel::Impl::make_fake_delta_event()
         .kind = RemoteTerminalEventKind::Delta,
         .version = fake_version(),
         .controller_client_id = fake_controller_client_id,
-        .delta = fake_terminal.take_delta(),
+        .delta = fake_terminal->take_delta(),
     };
 }
 
@@ -557,7 +551,7 @@ ControlMethodResult ServerKernel::Impl::input_fake_terminal(
         return ControlMethodResult::error(
             "invalid_input", "Terminal input must be between 1 and 65536 bytes.");
     }
-    fake_terminal.echo_input(text);
+    fake_terminal->echo_input(text);
     const auto event = make_fake_delta_event();
     broadcast_fake_event(event);
     return ControlMethodResult::success({
@@ -598,7 +592,7 @@ ControlMethodResult ServerKernel::Impl::resize_fake_terminal(
         return ControlMethodResult::error(
             "invalid_resize", "Terminal dimensions are out of range.");
     }
-    fake_terminal.resize(cols, rows);
+    fake_terminal->resize(cols, rows);
     const auto event = make_fake_delta_event();
     broadcast_fake_event(event);
     return ControlMethodResult::success({
@@ -675,7 +669,8 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .build_version = options.build_version,
         .uptime_ms = uptime_ms,
         .connected_clients = connected_clients,
-        .terminals = 1 + (terminal_service->started() ? 1u : 0u),
+        .terminals = 1
+            + (terminal_service && terminal_service->started() ? 1u : 0u),
     };
 }
 
@@ -683,6 +678,25 @@ int ServerKernel::Impl::run_until_stopped()
 {
     if (!started)
         return 1;
+    fake_terminal = std::make_unique<FakeTerminalRuntime>();
+    server_terminal = std::make_unique<ServerTerminalRuntime>(
+        ServerTerminalRuntimeOptions{
+            .shell_kind = options.terminal_shell_kind,
+            .command = options.terminal_command,
+            .args = options.terminal_args,
+            .working_directory = options.terminal_working_directory,
+            .environment = options.terminal_environment,
+            .scrollback_capacity = options.terminal_scrollback_lines,
+        });
+    terminal_service = std::make_unique<RemoteTerminalService>(
+        RemoteTerminalServiceOptions{
+            .method_prefix = "terminal",
+            .server_epoch = epoch_value,
+            .pane_id = std::string(kServerShellPaneId),
+            .terminal_id = std::string(kServerShellTerminalId),
+            .name = "Server Shell",
+        },
+        *server_terminal);
     while (!stop_requested)
     {
         terminal_service->pump();

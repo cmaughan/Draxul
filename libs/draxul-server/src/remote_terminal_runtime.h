@@ -2,7 +2,9 @@
 
 #include <draxul/remote_terminal_protocol.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -21,6 +23,10 @@ public:
     virtual bool resize(int cols, int rows) = 0;
     virtual bool is_running() const = 0;
     virtual uint64_t process_id() const = 0;
+    virtual uint64_t scrollback_rows() const = 0;
+    virtual std::optional<TerminalSemanticSnapshot> scrollback_page(
+        uint64_t offset_from_live, size_t max_rows) const = 0;
+    virtual std::optional<std::string> take_clipboard_write() = 0;
     virtual TerminalSemanticSnapshot snapshot() const = 0;
     virtual TerminalDirtySnapshot take_delta() = 0;
 };

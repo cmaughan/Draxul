@@ -165,6 +165,11 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
             .protocol_major = draxul::kServerProtocolMajor,
             .protocol_minor = draxul::kServerProtocolMinor,
             .build_version = draxul::server_build_version(),
+            .terminal_shell_kind = parsed.server_shell_kind,
+            .terminal_working_directory
+                = parsed.server_working_dir.string(),
+            .terminal_scrollback_lines
+                = parsed.server_scrollback_lines,
         });
         const auto result = kernel.start();
         if (result.disposition == draxul::ServerStartDisposition::AlreadyRunning)
@@ -364,6 +369,13 @@ static int draxul_main(std::vector<std::string> args)
             .runtime_directory = connected_server_runtime,
             .executable_path = executable_path(args),
             .client_id = connected_server_client_id,
+            .terminal_shell_kind = parsed.server_shell_kind,
+            .terminal_working_directory
+                = parsed.server_working_dir.empty()
+                ? std::filesystem::current_path()
+                : parsed.server_working_dir,
+            .terminal_scrollback_lines
+                = parsed.server_scrollback_lines,
         };
         auto server_result = draxul::ServerClient::ensure(server_options);
         if (!server_result.ready())

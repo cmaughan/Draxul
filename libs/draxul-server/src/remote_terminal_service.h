@@ -45,10 +45,12 @@ private:
         const nlohmann::json& params, RemoteTerminalVersion& version) const;
     bool ensure_runtime_started(std::string& error);
     RemoteTerminalVersion version() const;
-    RemoteTerminalEvent snapshot_event() const;
+    RemoteTerminalEvent snapshot_event();
     RemoteTerminalEvent make_delta_event();
     RemoteTerminalEvent make_controller_event();
+    RemoteTerminalEvent make_clipboard_event(std::string text);
     void broadcast(const RemoteTerminalEvent& event);
+    void publish_runtime_updates(bool terminal_changed);
 
     ControlMethodResult attach(const nlohmann::json& params);
     ControlMethodResult poll(const nlohmann::json& params);
@@ -57,6 +59,8 @@ private:
     ControlMethodResult take_control(const nlohmann::json& params);
     ControlMethodResult disconnect(const nlohmann::json& params);
     ControlMethodResult restart(const nlohmann::json& params);
+    ControlMethodResult read_scrollback(const nlohmann::json& params);
+    ControlMethodResult metrics() const;
 
     RemoteTerminalServiceOptions options_;
     IRemoteTerminalRuntime& runtime_;
@@ -65,6 +69,16 @@ private:
     bool started_ = false;
     std::string controller_client_id_;
     std::unordered_map<std::string, Subscriber> subscribers_;
+    uint64_t snapshot_frames_ = 0;
+    uint64_t snapshot_bytes_ = 0;
+    uint64_t delta_frames_ = 0;
+    uint64_t delta_bytes_ = 0;
+    uint64_t delta_cells_ = 0;
+    uint64_t full_frame_cells_ = 0;
+    uint64_t resyncs_ = 0;
+    uint64_t scrollback_requests_ = 0;
+    uint64_t scrollback_rows_served_ = 0;
+    size_t max_queue_depth_ = 0;
 };
 
 } // namespace draxul

@@ -1,6 +1,7 @@
 #include "fake_terminal_runtime.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace draxul
 {
@@ -60,6 +61,23 @@ bool FakeTerminalRuntime::is_running() const
 uint64_t FakeTerminalRuntime::process_id() const
 {
     return 0;
+}
+
+uint64_t FakeTerminalRuntime::scrollback_rows() const
+{
+    return 0;
+}
+
+std::optional<TerminalSemanticSnapshot>
+FakeTerminalRuntime::scrollback_page(uint64_t, size_t) const
+{
+    return std::nullopt;
+}
+
+std::optional<std::string>
+FakeTerminalRuntime::take_clipboard_write()
+{
+    return std::exchange(pending_clipboard_write_, std::nullopt);
 }
 
 void FakeTerminalRuntime::echo_input(std::string_view bytes)
@@ -130,6 +148,7 @@ std::string FakeTerminalRuntime::terminal_read_clipboard() const
 void FakeTerminalRuntime::terminal_write_clipboard(std::string_view text)
 {
     clipboard_ = text;
+    pending_clipboard_write_ = clipboard_;
 }
 
 void FakeTerminalRuntime::terminal_set_cursor_position(

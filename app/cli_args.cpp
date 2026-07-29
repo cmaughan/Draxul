@@ -69,6 +69,66 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             result.error = "error: --server-runtime-dir requires a path";
             return result;
         }
+        else if (args[i] == "--server-shell" && i + 1 < args.size())
+        {
+            parsed.server_shell_kind = args[++i];
+            if (parsed.server_shell_kind != "powershell"
+                && parsed.server_shell_kind != "bash"
+                && parsed.server_shell_kind != "zsh"
+                && parsed.server_shell_kind != "wsl")
+            {
+                result.error
+                    = "error: --server-shell must be powershell, bash, zsh, or wsl";
+                return result;
+            }
+        }
+        else if (args[i] == "--server-shell")
+        {
+            result.error = "error: --server-shell requires a shell kind";
+            return result;
+        }
+        else if (args[i] == "--server-working-dir" && i + 1 < args.size())
+        {
+            parsed.server_working_dir = args[++i];
+            if (parsed.server_working_dir.empty())
+            {
+                result.error
+                    = "error: --server-working-dir requires a non-empty path";
+                return result;
+            }
+        }
+        else if (args[i] == "--server-working-dir")
+        {
+            result.error = "error: --server-working-dir requires a path";
+            return result;
+        }
+        else if (args[i] == "--server-scrollback-lines"
+            && i + 1 < args.size())
+        {
+            try
+            {
+                parsed.server_scrollback_lines = std::stoi(args[++i]);
+            }
+            catch (const std::exception&)
+            {
+                result.error
+                    = "error: --server-scrollback-lines requires an integer";
+                return result;
+            }
+            if (parsed.server_scrollback_lines < 0
+                || parsed.server_scrollback_lines > 1000000)
+            {
+                result.error
+                    = "error: --server-scrollback-lines must be between 0 and 1000000";
+                return result;
+            }
+        }
+        else if (args[i] == "--server-scrollback-lines")
+        {
+            result.error
+                = "error: --server-scrollback-lines requires an integer";
+            return result;
+        }
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
         else if (args[i] == "--bless-render-test")
             parsed.bless_render_test = true;

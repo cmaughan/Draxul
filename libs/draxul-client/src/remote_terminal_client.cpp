@@ -4,6 +4,7 @@
 #include <draxul/server_protocol.h>
 
 #include <nlohmann/json.hpp>
+#include <utility>
 
 namespace draxul
 {
@@ -30,6 +31,7 @@ bool RemoteTerminalProjection::attach(
     version_ = {};
     snapshot_ = {};
     controller_client_id_.clear();
+    pending_clipboard_write_.reset();
     if (!apply_snapshot(attach.state, false, error))
         return false;
     attached_ = true;
@@ -75,11 +77,20 @@ bool RemoteTerminalProjection::apply(
     }
     else if (event.kind == RemoteTerminalEventKind::Controller)
     {
-        if (event.snapshot || event.delta)
+        if (event.snapshot || event.delta || event.clipboard)
         {
             error = "Controller event contains terminal cell state.";
             return false;
         }
+    }
+    else if (event.kind == RemoteTerminalEventKind::Clipboard)
+    {
+        if (!event.clipboard || event.snapshot || event.delta)
+        {
+            error = "Clipboard event contains invalid terminal state.";
+            return false;
+        }
+        pending_clipboard_write_ = event.clipboard;
     }
     else
     {
@@ -120,6 +131,12 @@ bool RemoteTerminalProjection::is_controller(
     std::string_view client_id) const
 {
     return attached_ && controller_client_id_ == client_id;
+}
+
+std::optional<std::string>
+RemoteTerminalProjection::take_clipboard_write()
+{
+    return std::exchange(pending_clipboard_write_, std::nullopt);
 }
 
 bool RemoteTerminalProjection::apply_snapshot(
@@ -222,6 +239,7 @@ RemoteTerminalClient::RemoteTerminalClient(
 
 bool RemoteTerminalClient::attach(std::string& error)
 {
+    const auto started_at = std::chrono::steady_clock::now();
     nlohmann::json result;
     if (!request(method("attach"), client_params(), result, error))
         return false;
@@ -246,6 +264,9 @@ bool RemoteTerminalClient::attach(std::string& error)
         last_error_code_ = "invalid_attach";
         return false;
     }
+    last_attach_latency_
+        = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started_at);
     return true;
 }
 
@@ -332,6 +353,44 @@ bool RemoteTerminalClient::restart(std::string& error)
     return request(method("restart"), client_params(), result, error);
 }
 
+bool RemoteTerminalClient::read_scrollback(
+    uint64_t offset_from_live, size_t max_rows,
+    RemoteTerminalScrollbackPage& page, std::string& error)
+{
+    if (!projection_.attached())
+    {
+        last_error_code_ = "not_attached";
+        error = "Attach before reading remote terminal scrollback.";
+        return false;
+    }
+    nlohmann::json params = client_params();
+    params["server_epoch"] = projection_.version().server_epoch;
+    params["terminal_id"] = projection_.version().terminal_id;
+    params["generation"] = projection_.version().generation;
+    params["after_sequence"] = projection_.version().sequence;
+    params["offset_from_live"] = offset_from_live;
+    params["max_rows"] = max_rows;
+    nlohmann::json result;
+    if (!request(method("scrollback"), std::move(params), result, error))
+        return false;
+    auto parsed = remote_terminal_scrollback_page_from_json(result, error);
+    if (!parsed)
+    {
+        last_error_code_ = "invalid_scrollback";
+        return false;
+    }
+    if (parsed->version.server_epoch != projection_.version().server_epoch
+        || parsed->version.terminal_id != projection_.version().terminal_id
+        || parsed->version.generation != projection_.version().generation)
+    {
+        last_error_code_ = "stale_scrollback";
+        error = "Remote terminal scrollback identity is stale.";
+        return false;
+    }
+    page = std::move(*parsed);
+    return true;
+}
+
 const RemoteTerminalClientOptions& RemoteTerminalClient::options() const
 {
     return options_;
@@ -340,6 +399,18 @@ const RemoteTerminalClientOptions& RemoteTerminalClient::options() const
 const RemoteTerminalProjection& RemoteTerminalClient::projection() const
 {
     return projection_;
+}
+
+std::optional<std::string>
+RemoteTerminalClient::take_clipboard_write()
+{
+    return projection_.take_clipboard_write();
+}
+
+std::chrono::microseconds
+RemoteTerminalClient::last_attach_latency() const
+{
+    return last_attach_latency_;
 }
 
 const std::string& RemoteTerminalClient::last_error_code() const

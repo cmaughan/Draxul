@@ -86,6 +86,25 @@ void pump_for(RemoteTerminalHost& first, RemoteTerminalHost& second,
     }
 }
 
+bool wait_for_scrollback(RemoteTerminalClient& client, uint64_t minimum_rows,
+    std::string& error)
+{
+    for (int attempt = 0; attempt < 300; ++attempt)
+    {
+        bool changed = false;
+        if (!client.poll(changed, error))
+            return false;
+        RemoteTerminalScrollbackPage page;
+        if (!client.read_scrollback(1, 1, page, error))
+            return false;
+        if (page.total_rows >= minimum_rows)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    error = "Timed out waiting for server-owned scrollback.";
+    return false;
+}
+
 } // namespace
 
 TEST_CASE("remote terminal host renders shared state and can take control",
@@ -284,6 +303,121 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
         REQUIRE(first.is_running());
         REQUIRE(second.is_running());
     }
+
+    first.shutdown();
+    second.shutdown();
+}
+
+TEST_CASE("remote terminal hosts scroll and select server history independently",
+    "[host][remote-terminal][scrollback][selection]")
+{
+    TempDir temp("draxul-remote-host-scrollback");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "host-scrollback-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard server_run(server);
+
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+
+    FakeWindow first_window;
+    FakeWindow second_window;
+    FakeTermRenderer first_renderer;
+    FakeTermRenderer second_renderer;
+    TestHostCallbacks first_callbacks;
+    TestHostCallbacks second_callbacks;
+    RemoteTerminalHost first({
+        .runtime_directory = temp.path,
+        .client_id = "scroll-host-a",
+        .server_epoch = "host-scrollback-epoch",
+        .method_prefix = "terminal",
+    });
+    RemoteTerminalHost second({
+        .runtime_directory = temp.path,
+        .client_id = "scroll-host-b",
+        .server_epoch = "host-scrollback-epoch",
+        .method_prefix = "terminal",
+    });
+    HostContext first_context{
+        .window = &first_window,
+        .grid_renderer = &first_renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+            .copy_on_select = false,
+        },
+        .initial_viewport = {
+            .pixel_size = { 320, 128 },
+            .grid_size = { 40, 8 },
+        },
+        .display_ppi = 96.0f,
+    };
+    HostContext second_context = first_context;
+    second_context.window = &second_window;
+    second_context.grid_renderer = &second_renderer;
+
+    REQUIRE(first.initialize(first_context, first_callbacks));
+    REQUIRE(second.initialize(second_context, second_callbacks));
+    REQUIRE(pump_until(first, [&] {
+        second.pump();
+        return first.status_text().find("controller") != std::string::npos
+            && second.status_text().find("observer") != std::string::npos;
+    }));
+
+    RemoteTerminalClient monitor({
+        .runtime_directory = temp.path,
+        .client_id = "scroll-monitor",
+        .expected_server_epoch = "host-scrollback-epoch",
+        .method_prefix = "terminal",
+    });
+    std::string error;
+    REQUIRE(monitor.attach(error));
+#ifdef _WIN32
+    const std::string command
+        = "1..40 | % { Write-Output (\"__VIEW_{0:D2}__\" -f $_) }\r";
+#else
+    const std::string command
+        = "for i in $(seq 1 40); do printf '__VIEW_%02d__\\n' \"$i\"; done\r";
+#endif
+    first.on_text_input({ .text = command });
+    REQUIRE(wait_for_scrollback(monitor, 8, error));
+    INFO(error);
+    pump_for(first, second, std::chrono::milliseconds(250));
+
+    first.on_mouse_wheel({
+        .delta = { 0.0f, 3.0f },
+        .mod = kModNone,
+        .pos = { 8, 16 },
+    });
+    REQUIRE(pump_until(first, [&] {
+        second.pump();
+        return first.status_text().find("[") != std::string::npos;
+    }));
+    REQUIRE(second.status_text().find("[") == std::string::npos);
+    REQUIRE(first_renderer.last_handle != nullptr);
+    REQUIRE(first_renderer.last_handle->last_cursor.y == -1);
+
+    first.on_mouse_button({
+        .button = 1,
+        .pressed = true,
+        .mod = kModNone,
+        .pos = { 8, 16 },
+        .clicks = 2,
+    });
+    REQUIRE(first.dispatch_action("copy"));
+    REQUIRE_FALSE(first_window.clipboard_.empty());
+
+    first.on_text_input({ .text = "\r" });
+    REQUIRE(pump_until(first, [&] {
+        second.pump();
+        return first.status_text().find("[") == std::string::npos;
+    }));
+    REQUIRE(second.status_text().find("[") == std::string::npos);
 
     first.shutdown();
     second.shutdown();

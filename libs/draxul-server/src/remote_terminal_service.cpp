@@ -2,6 +2,7 @@
 
 #include <draxul/remote_terminal_protocol.h>
 
+#include <algorithm>
 #include <nlohmann/json.hpp>
 
 namespace draxul
@@ -45,6 +46,10 @@ ControlMethodResult RemoteTerminalService::handle(
         return disconnect(params);
     if (suffix == "restart")
         return restart(params);
+    if (suffix == "scrollback")
+        return read_scrollback(params);
+    if (suffix == "metrics")
+        return metrics();
     return ControlMethodResult::error(
         "unknown_method", "Unknown remote terminal method.");
 }
@@ -118,25 +123,37 @@ RemoteTerminalVersion RemoteTerminalService::version() const
     };
 }
 
-RemoteTerminalEvent RemoteTerminalService::snapshot_event() const
+RemoteTerminalEvent RemoteTerminalService::snapshot_event()
 {
-    return {
+    RemoteTerminalEvent event{
         .kind = RemoteTerminalEventKind::Snapshot,
         .version = version(),
         .controller_client_id = controller_client_id_,
         .snapshot = runtime_.snapshot(),
     };
+    ++snapshot_frames_;
+    snapshot_bytes_ += remote_terminal_event_to_json(event).dump().size();
+    return event;
 }
 
 RemoteTerminalEvent RemoteTerminalService::make_delta_event()
 {
     ++sequence_;
-    return {
+    RemoteTerminalEvent event{
         .kind = RemoteTerminalEventKind::Delta,
         .version = version(),
         .controller_client_id = controller_client_id_,
         .delta = runtime_.take_delta(),
     };
+    ++delta_frames_;
+    delta_bytes_ += remote_terminal_event_to_json(event).dump().size();
+    if (event.delta)
+    {
+        delta_cells_ += event.delta->cells.size();
+        full_frame_cells_ += static_cast<uint64_t>(event.delta->cols)
+            * static_cast<uint64_t>(event.delta->rows);
+    }
+    return event;
 }
 
 RemoteTerminalEvent RemoteTerminalService::make_controller_event()
@@ -146,6 +163,18 @@ RemoteTerminalEvent RemoteTerminalService::make_controller_event()
         .kind = RemoteTerminalEventKind::Controller,
         .version = version(),
         .controller_client_id = controller_client_id_,
+    };
+}
+
+RemoteTerminalEvent RemoteTerminalService::make_clipboard_event(
+    std::string text)
+{
+    ++sequence_;
+    return {
+        .kind = RemoteTerminalEventKind::Clipboard,
+        .version = version(),
+        .controller_client_id = controller_client_id_,
+        .clipboard = std::move(text),
     };
 }
 
@@ -160,10 +189,21 @@ void RemoteTerminalService::broadcast(const RemoteTerminalEvent& event)
         {
             subscriber.events.clear();
             subscriber.needs_resync = true;
+            ++resyncs_;
             continue;
         }
         subscriber.events.push_back(event);
+        max_queue_depth_
+            = std::max(max_queue_depth_, subscriber.events.size());
     }
+}
+
+void RemoteTerminalService::publish_runtime_updates(bool terminal_changed)
+{
+    if (terminal_changed)
+        broadcast(make_delta_event());
+    if (auto clipboard = runtime_.take_clipboard_write())
+        broadcast(make_clipboard_event(std::move(*clipboard)));
 }
 
 ControlMethodResult RemoteTerminalService::attach(
@@ -300,8 +340,7 @@ ControlMethodResult RemoteTerminalService::input(
         return ControlMethodResult::error(
             "process_write_failed", "The terminal process rejected input.");
     }
-    if (runtime_.pump())
-        broadcast(make_delta_event());
+    publish_runtime_updates(runtime_.pump());
     return ControlMethodResult::success({
         { "accepted", true },
         { "sequence", sequence_ },
@@ -430,10 +469,87 @@ ControlMethodResult RemoteTerminalService::restart(
     });
 }
 
+ControlMethodResult RemoteTerminalService::read_scrollback(
+    const nlohmann::json& params)
+{
+    std::string client_id;
+    RemoteTerminalVersion requested;
+    if (!read_client_id(params, client_id)
+        || !read_version(params, requested)
+        || !params.contains("offset_from_live")
+        || !params["offset_from_live"].is_number_unsigned()
+        || !params.contains("max_rows")
+        || !params["max_rows"].is_number_unsigned())
+    {
+        return ControlMethodResult::error(
+            "invalid_scrollback",
+            "A valid client, terminal version, offset, and row count are required.");
+    }
+    if (!subscribers_.contains(client_id))
+    {
+        return ControlMethodResult::error(
+            "not_attached", "Attach to the terminal before reading scrollback.");
+    }
+    if (requested.server_epoch != options_.server_epoch)
+    {
+        return ControlMethodResult::error(
+            "stale_epoch", "The terminal server epoch has changed.");
+    }
+    if (requested.terminal_id != options_.terminal_id)
+    {
+        return ControlMethodResult::error(
+            "stale_terminal", "The terminal identity has changed.");
+    }
+    if (requested.generation != generation_)
+    {
+        return ControlMethodResult::error(
+            "stale_generation", "The terminal generation has changed.");
+    }
+
+    const uint64_t requested_offset
+        = params["offset_from_live"].get<uint64_t>();
+    const uint64_t total_rows = runtime_.scrollback_rows();
+    const uint64_t offset = std::min(requested_offset, total_rows);
+    const size_t max_rows = std::min(
+        params["max_rows"].get<size_t>(),
+        kRemoteTerminalMaxScrollbackPageRows);
+    RemoteTerminalScrollbackPage page{
+        .version = version(),
+        .total_rows = total_rows,
+        .offset_from_live = offset,
+        .cols = runtime_.snapshot().cols,
+        .snapshot = runtime_.scrollback_page(offset, max_rows),
+    };
+    ++scrollback_requests_;
+    if (page.snapshot)
+        scrollback_rows_served_ += page.snapshot->rows;
+    return ControlMethodResult::success(
+        remote_terminal_scrollback_page_to_json(page));
+}
+
+ControlMethodResult RemoteTerminalService::metrics() const
+{
+    return ControlMethodResult::success({
+        { "sanitized", true },
+        { "snapshot_frames", snapshot_frames_ },
+        { "snapshot_bytes", snapshot_bytes_ },
+        { "delta_frames", delta_frames_ },
+        { "delta_bytes", delta_bytes_ },
+        { "delta_cells", delta_cells_ },
+        { "full_frame_cells", full_frame_cells_ },
+        { "max_queue_depth", max_queue_depth_ },
+        { "queue_limit", kRemoteTerminalQueueLimit },
+        { "resyncs", resyncs_ },
+        { "subscribers", subscribers_.size() },
+        { "scrollback_requests", scrollback_requests_ },
+        { "scrollback_rows_served", scrollback_rows_served_ },
+    });
+}
+
 void RemoteTerminalService::pump()
 {
-    if (started_ && runtime_.pump())
-        broadcast(make_delta_event());
+    if (started_)
+        publish_runtime_updates(runtime_.pump());
 }
 
 bool RemoteTerminalService::started() const

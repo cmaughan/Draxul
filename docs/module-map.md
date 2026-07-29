@@ -101,17 +101,18 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
-| `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status plus versioned terminal pane, snapshot, delta, controller, and diagnostic values |
-| `libs/draxul-client/` | Experimental singleton discovery/launch/status plus the renderer-free remote-terminal client projection and headless probe API |
-| `libs/draxul-server/` | Headless server kernel, deterministic fake terminal plus opt-in real server-owned shell runtime, controller leases, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
-| `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
+| `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status plus versioned terminal pane, snapshot, delta, controller, clipboard, paged-scrollback, and diagnostic values |
+| `libs/draxul-client/` | Experimental singleton discovery/launch/status plus the renderer-free remote-terminal projection, scrollback-page client, attach-latency metric, and headless probe API |
+| `libs/draxul-server/` | Headless server kernel, deterministic fake terminal plus opt-in real server-owned shell/runtime configuration, semantic scrollback, controller leases, sanitized transport metrics, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
+| `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty/cell snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
 | `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters shared by local terminal hosts and server-owned terminal runtimes |
 
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
 `draxul-host` dependencies needed by its public and implementation headers.
 `draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
-renderer adapter and `draxul-terminal-process` for local shells. The process adapter,
+renderer adapter, including client-local viewport/selection/mouse/paste behavior, and
+`draxul-terminal-process` for local shells. The process adapter,
 client, and server libraries remain free of host, window, renderer, font, SDL, and
 product dependencies.
 

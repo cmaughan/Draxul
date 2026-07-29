@@ -26,6 +26,10 @@ public:
     bool resize(int cols, int rows) override;
     bool is_running() const override;
     uint64_t process_id() const override;
+    uint64_t scrollback_rows() const override;
+    std::optional<TerminalSemanticSnapshot> scrollback_page(
+        uint64_t offset_from_live, size_t max_rows) const override;
+    std::optional<std::string> take_clipboard_write() override;
     TerminalSemanticSnapshot snapshot() const override;
     TerminalDirtySnapshot take_delta() override;
 
@@ -63,6 +67,7 @@ private:
     TerminalCore core_;
     std::string process_responses_;
     std::string clipboard_;
+    std::optional<std::string> pending_clipboard_write_;
     std::string published_title_;
     std::pair<int, int> published_cursor_{ 0, 0 };
     std::optional<std::pair<int, int>> cursor_override_;

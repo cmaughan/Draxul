@@ -6,6 +6,7 @@
 #include <draxul/highlight.h>
 #include <draxul/types.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace draxul
@@ -128,6 +129,11 @@ struct TerminalDirtySnapshot
 
     bool operator==(const TerminalDirtySnapshot&) const = default;
 };
+
+TerminalCellSnapshot capture_terminal_cell_snapshot(
+    const Cell& cell,
+    const HighlightTable& highlights,
+    std::string_view hyperlink = {});
 
 TerminalSemanticSnapshot capture_terminal_semantic_snapshot(
     const Grid& grid,

@@ -10,6 +10,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace draxul
 {
@@ -34,6 +36,13 @@ struct ServerKernelOptions
     int protocol_minor = kServerProtocolMinor;
     std::string build_version;
     std::string epoch_override;
+    std::string terminal_shell_kind;
+    std::string terminal_command;
+    std::vector<std::string> terminal_args;
+    std::string terminal_working_directory;
+    std::vector<std::pair<std::string, std::string>>
+        terminal_environment;
+    int terminal_scrollback_lines = 10000;
 };
 
 class ServerKernel

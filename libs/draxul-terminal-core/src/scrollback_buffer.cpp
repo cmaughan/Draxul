@@ -169,6 +169,13 @@ std::span<const Cell> ScrollbackBuffer::row(int i) const
     return std::span<const Cell>(&storage_[(size_t)slot * cols_], (size_t)cols_);
 }
 
+std::span<const Cell> ScrollbackBuffer::row_at(int index) const
+{
+    if (index < 0 || index >= count_)
+        return {};
+    return row(index);
+}
+
 void ScrollbackBuffer::scroll(int rows_delta)
 {
     PERF_MEASURE();

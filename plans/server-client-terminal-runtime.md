@@ -1081,6 +1081,13 @@ Rollback:
 
 **Outcome:** every supported shell behavior is practical through the remote path.
 
+**Implementation status (2026-07-29):** implemented on
+`codex/server-client-runtime`; the experimental path remains the rollback boundary.
+The local transport advertises an explicit uncompressed fallback rather than paying
+compression CPU/latency before measurements justify it.
+
+**Work item:** [11 remote-terminal-parity-scrollback -feature.md](../kanban/pending/11%20remote-terminal-parity-scrollback%20-feature.md)
+
 Work:
 
 - add dirty row/cell deltas with sequence numbers and snapshot fallback;
@@ -1111,6 +1118,55 @@ Rollback:
 
 - the complete-snapshot remote mode remains available for diagnosis; local mode remains
   available until Slice 9.
+
+Implementation notes:
+
+- `ScrollbackBuffer` remains the one renderer-neutral history store. The real server
+  runtime captures rows once; `terminal.scrollback` returns bounded semantic pages.
+- `RemoteTerminalHost` composes a history page with the live screen without mutating
+  the server projection. Scroll offset, selection, copy/paste confirmation, pointer
+  state, and renderer palette remain client-local.
+- Remote mode now forwards keyboard, focus, DEC mouse modes, bracketed paste, OSC 8
+  links, controller-directed OSC 52 writes, cursor/mode/title/cwd/shell-mark state,
+  and withholds synchronized-output deltas until the batch ends.
+- First server launch owns shell kind/command/arguments/environment/cwd/history limits;
+  the controller continues to own terminal dimensions. UI fonts, palette, selection,
+  and rendering options never enter the server library.
+- `terminal.metrics` is intentionally content-free. It reports frame counts/bytes,
+  delta density, queue depth/resyncs, subscriber count, and scrollback request volume;
+  each client separately records attach/reconnect latency.
+- Server terminal runtimes are constructed on the server state thread. A Debug
+  thread-affinity assertion caught the earlier construction on the caller/test thread;
+  the focused host regression and Release remote-terminal gate pass after the fix.
+
+Validation checkpoint (2026-07-29):
+
+- affected Release libraries build;
+- Release `[remote-terminal]` tests pass (1,051 assertions, 16 cases);
+- Release `[cli][server][remote-terminal]` tests pass (22 assertions, 3 cases);
+- an alternate-output Release executable links and its smoke test passes;
+- the initial Debug CTest run passed 21 of 22 entries, then the focused Debug
+  thread-affinity regression passed after the server-thread ownership fix; and
+- a clean full CTest rerun plus the live two-client gate below remain outstanding.
+
+Windows two-client manual gate:
+
+```powershell
+$exe = Resolve-Path .\build\Release\draxul.exe
+$runtime = Join-Path $env:TEMP 'draxul-slice5-manual'
+& $exe --shutdown-server --server-runtime-dir $runtime 2>$null
+& $exe --experimental-remote-shell --server-runtime-dir $runtime `
+  --server-shell powershell --server-scrollback-lines 25000
+```
+
+1. Launch the final command twice. Confirm one controller and one observer.
+2. Produce more than a screen of output. Scroll/select/copy in A and confirm B remains
+   live; type in A and confirm only A returns to live.
+3. Run a full-screen program and a Unicode-producing command; resize both windows and
+   transfer control repeatedly.
+4. Close both windows, launch the command once more, and confirm the same shell/history
+   returns.
+5. Run `& $exe --shutdown-server --server-runtime-dir $runtime` when finished.
 
 ### Slice 6: server-authoritative shared topology
 

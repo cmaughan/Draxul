@@ -4,15 +4,36 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <utility>
 #include <vector>
 
 namespace draxul
 {
 
-ServerTerminalRuntime::ServerTerminalRuntime()
+ServerTerminalRuntime::ServerTerminalRuntime(
+    ServerTerminalRuntimeOptions options)
     : core_(*this)
+    , scrollback_([this] {
+        ScrollbackBuffer::Callbacks callbacks;
+        callbacks.grid_cols = [this] { return grid_.cols(); };
+        callbacks.grid_rows = [this] { return grid_.rows(); };
+        callbacks.get_cell = [this](int col, int row) {
+            return grid_.get_cell(col, row);
+        };
+        callbacks.set_cell = [this](
+                                 int col, int row, const Cell& cell) {
+            grid_.set_cell(col, row, std::string(cell.text.view()),
+                cell.hl_attr_id, cell.double_width);
+        };
+        callbacks.force_full_redraw = [this] { grid_.mark_all_dirty(); };
+        callbacks.flush_grid = [] {};
+        return callbacks;
+    }(),
+          options.scrollback_capacity)
+    , options_(std::move(options))
 {
     grid_.resize(80, 24);
+    scrollback_.resize(80);
     highlights_.set_default_fg(Color(0.92f, 0.92f, 0.92f, 1.0f));
     highlights_.set_default_bg(Color(0.08f, 0.09f, 0.10f, 1.0f));
     core_.reset();
@@ -34,6 +55,7 @@ bool ServerTerminalRuntime::ensure_started(std::string& error)
 bool ServerTerminalRuntime::restart(std::string& error)
 {
     process_.shutdown();
+    scrollback_.reset();
     core_.reset();
     grid_.clear_dirty();
     return start_process(error);
@@ -42,13 +64,46 @@ bool ServerTerminalRuntime::restart(std::string& error)
 bool ServerTerminalRuntime::start_process(std::string& error)
 {
     const std::string working_directory
-        = std::filesystem::current_path().string();
+        = options_.working_directory.empty()
+        ? std::filesystem::current_path().string()
+        : options_.working_directory;
 #ifdef _WIN32
-    const std::vector<std::string> args{ "-NoLogo" };
-    for (const std::string command : { "pwsh.exe", "powershell.exe" })
+    std::vector<std::pair<std::string, std::vector<std::string>>> candidates;
+    if (!options_.command.empty())
+    {
+        candidates = { { options_.command, options_.args } };
+    }
+    else if (options_.shell_kind.empty()
+        || options_.shell_kind == "powershell")
+    {
+        candidates = {
+            { "pwsh.exe", { "-NoLogo" } },
+            { "powershell.exe", { "-NoLogo" } },
+        };
+    }
+    else if (options_.shell_kind == "wsl")
+    {
+        candidates = { { "wsl.exe", {} } };
+    }
+    else if (options_.shell_kind == "bash")
+    {
+        candidates = { { "bash.exe", {} } };
+    }
+    else if (options_.shell_kind == "zsh")
+    {
+        candidates = { { "zsh.exe", {} } };
+    }
+    else
+    {
+        error = "Unsupported Draxul server shell kind: "
+            + options_.shell_kind;
+        return false;
+    }
+    for (const auto& [command, args] : candidates)
     {
         if (process_.spawn(command, args, working_directory,
-                grid_.cols(), grid_.rows(), [] {}))
+                grid_.cols(), grid_.rows(), [] {},
+                options_.environment))
         {
             DRAXUL_LOG_INFO(LogCategory::App,
                 "Started server-owned shell pid=%llu command=%s",
@@ -57,13 +112,43 @@ bool ServerTerminalRuntime::start_process(std::string& error)
             return true;
         }
     }
-    error = "Could not start PowerShell in the Draxul server.";
+    error = "Could not start the configured shell in the Draxul server.";
 #else
-    const char* configured_shell = std::getenv("SHELL");
-    const std::string command
-        = configured_shell && *configured_shell ? configured_shell : "bash";
-    if (process_.spawn(command, {}, working_directory, [] {},
-            grid_.cols(), grid_.rows(), true))
+    std::string command = options_.command;
+    std::vector<std::string> args = options_.args;
+    if (command.empty())
+    {
+        if (options_.shell_kind.empty())
+        {
+            const char* configured_shell = std::getenv("SHELL");
+            command = configured_shell && *configured_shell
+                ? configured_shell
+                : "bash";
+        }
+        else if (options_.shell_kind == "powershell")
+        {
+            command = "pwsh";
+        }
+        else if (options_.shell_kind == "bash"
+            || options_.shell_kind == "zsh")
+        {
+            command = options_.shell_kind;
+        }
+        else if (options_.shell_kind == "wsl")
+        {
+            error
+                = "WSL remote shells are supported only by the Windows server.";
+            return false;
+        }
+        else
+        {
+            error = "Unsupported Draxul server shell kind: "
+                + options_.shell_kind;
+            return false;
+        }
+    }
+    if (process_.spawn(command, args, working_directory, [] {},
+            grid_.cols(), grid_.rows(), true, options_.environment))
     {
         DRAXUL_LOG_INFO(LogCategory::App,
             "Started server-owned shell pid=%llu command=%s",
@@ -86,7 +171,10 @@ bool ServerTerminalRuntime::pump()
         core_.feed(chunk);
     core_.end_output_cursor_batch();
     core_.reconcile_provisional_cursor_after_pump(true);
-    return true;
+    // Keep dirty state server-side until DEC synchronized output ends. This
+    // preserves the same atomic presentation guarantee as a local terminal:
+    // clients see the completed frame, never its intermediate mutations.
+    return !core_.synchronized_output_active();
 }
 
 bool ServerTerminalRuntime::send_input(std::string_view bytes)
@@ -110,6 +198,55 @@ bool ServerTerminalRuntime::is_running() const
 uint64_t ServerTerminalRuntime::process_id() const
 {
     return process_.process_id();
+}
+
+uint64_t ServerTerminalRuntime::scrollback_rows() const
+{
+    return static_cast<uint64_t>(scrollback_.size());
+}
+
+std::optional<TerminalSemanticSnapshot>
+ServerTerminalRuntime::scrollback_page(
+    uint64_t offset_from_live, size_t max_rows) const
+{
+    const uint64_t total = scrollback_rows();
+    const uint64_t offset = std::min(offset_from_live, total);
+    const size_t count = std::min({
+        max_rows,
+        static_cast<size_t>(offset),
+        kRemoteTerminalMaxScrollbackPageRows,
+    });
+    if (count == 0 || scrollback_.cols() <= 0)
+        return std::nullopt;
+
+    const uint64_t start = total - offset;
+    TerminalSemanticSnapshot page;
+    page.cols = scrollback_.cols();
+    page.rows = static_cast<int>(count);
+    page.metadata.cursor.visible = false;
+    page.cells.reserve(count * static_cast<size_t>(page.cols));
+    for (size_t row_index = 0; row_index < count; ++row_index)
+    {
+        const auto row = scrollback_.row_at(
+            static_cast<int>(start + row_index));
+        for (const Cell& cell : row)
+        {
+            const uint16_t link_id = cell.hyperlink_id != 0
+                ? cell.hyperlink_id
+                : cell.detected_url_id;
+            page.cells.push_back(capture_terminal_cell_snapshot(
+                cell, highlights_,
+                link_id != 0 ? grid_.link_uri(link_id)
+                             : std::string_view{}));
+        }
+    }
+    return page;
+}
+
+std::optional<std::string>
+ServerTerminalRuntime::take_clipboard_write()
+{
+    return std::exchange(pending_clipboard_write_, std::nullopt);
 }
 
 TerminalSemanticSnapshot ServerTerminalRuntime::snapshot() const
@@ -146,6 +283,8 @@ const HighlightTable& ServerTerminalRuntime::terminal_highlights() const
 
 void ServerTerminalRuntime::terminal_resize_grid(int cols, int rows)
 {
+    if (cols != grid_.cols())
+        scrollback_.resize(cols);
     grid_.resize(cols, rows);
 }
 
@@ -171,6 +310,7 @@ std::string ServerTerminalRuntime::terminal_read_clipboard() const
 void ServerTerminalRuntime::terminal_write_clipboard(std::string_view text)
 {
     clipboard_ = text;
+    pending_clipboard_write_ = clipboard_;
 }
 
 void ServerTerminalRuntime::terminal_set_cursor_position(
@@ -207,8 +347,14 @@ void ServerTerminalRuntime::terminal_end_cursor_publish_batch()
 {
 }
 
-void ServerTerminalRuntime::terminal_line_scrolled_off(int)
+void ServerTerminalRuntime::terminal_line_scrolled_off(int row)
 {
+    Cell* slot = scrollback_.next_write_slot();
+    if (!slot)
+        return;
+    for (int col = 0; col < grid_.cols(); ++col)
+        slot[col] = grid_.get_cell(col, row);
+    scrollback_.commit_push();
 }
 
 void ServerTerminalRuntime::terminal_mouse_mode_changed(int, bool)
@@ -216,13 +362,21 @@ void ServerTerminalRuntime::terminal_mouse_mode_changed(int, bool)
 }
 
 void ServerTerminalRuntime::terminal_collect_extra_attr_ids(
-    std::unordered_map<uint16_t, HlAttr>&)
+    std::unordered_map<uint16_t, HlAttr>& active_attrs)
 {
+    scrollback_.for_each_cell([this, &active_attrs](const Cell& cell) {
+        if (cell.hl_attr_id != 0)
+        {
+            active_attrs.try_emplace(
+                cell.hl_attr_id, highlights_.get(cell.hl_attr_id));
+        }
+    });
 }
 
 void ServerTerminalRuntime::terminal_remap_extra_highlight_ids(
-    const std::function<uint16_t(uint16_t)>&)
+    const std::function<uint16_t(uint16_t)>& remap_fn)
 {
+    scrollback_.remap_highlight_ids(remap_fn);
 }
 
 } // namespace draxul

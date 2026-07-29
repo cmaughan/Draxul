@@ -31,6 +31,9 @@ struct ParsedArgs
     bool no_server = false;
     bool json_output = false;
     std::filesystem::path server_runtime_dir;
+    std::string server_shell_kind;
+    std::filesystem::path server_working_dir;
+    int server_scrollback_lines = 10000;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     bool bless_render_test = false;
     bool show_render_test_window = false;

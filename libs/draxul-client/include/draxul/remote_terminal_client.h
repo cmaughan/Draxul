@@ -2,6 +2,7 @@
 
 #include <draxul/remote_terminal_protocol.h>
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -29,6 +30,7 @@ public:
     const TerminalSemanticSnapshot& snapshot() const;
     const std::string& controller_client_id() const;
     bool is_controller(std::string_view client_id) const;
+    std::optional<std::string> take_clipboard_write();
 
 private:
     bool apply_snapshot(
@@ -41,6 +43,7 @@ private:
     RemoteTerminalVersion version_;
     TerminalSemanticSnapshot snapshot_;
     std::string controller_client_id_;
+    std::optional<std::string> pending_clipboard_write_;
 };
 
 class RemoteTerminalClient
@@ -55,9 +58,13 @@ public:
     bool take_control(std::string& error);
     bool disconnect(std::string& error);
     bool restart(std::string& error);
+    bool read_scrollback(uint64_t offset_from_live, size_t max_rows,
+        RemoteTerminalScrollbackPage& page, std::string& error);
 
     const RemoteTerminalClientOptions& options() const;
     const RemoteTerminalProjection& projection() const;
+    std::optional<std::string> take_clipboard_write();
+    std::chrono::microseconds last_attach_latency() const;
     const std::string& last_error_code() const;
 
 private:
@@ -69,6 +76,7 @@ private:
     RemoteTerminalClientOptions options_;
     RemoteTerminalProjection projection_;
     std::string last_error_code_;
+    std::chrono::microseconds last_attach_latency_{ 0 };
 };
 
 } // namespace draxul

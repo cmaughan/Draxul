@@ -138,6 +138,22 @@ TEST_CASE("remote terminal protocol round-trips snapshots and deltas",
         remote_terminal_event_to_json(delta), error);
     INFO(error);
     REQUIRE(decoded_delta == delta);
+
+    RemoteTerminalEvent clipboard{
+        .kind = RemoteTerminalEventKind::Clipboard,
+        .version = {
+            .server_epoch = "epoch",
+            .terminal_id = "terminal",
+            .generation = 2,
+            .sequence = 9,
+        },
+        .controller_client_id = "client-a",
+        .clipboard = "remote clipboard",
+    };
+    const auto decoded_clipboard = remote_terminal_event_from_json(
+        remote_terminal_event_to_json(clipboard), error);
+    INFO(error);
+    REQUIRE(decoded_clipboard == clipboard);
 }
 
 TEST_CASE("remote terminal protocol rejects incomplete full snapshots",
@@ -151,4 +167,35 @@ TEST_CASE("remote terminal protocol rejects incomplete full snapshots",
     std::string error;
     REQUIRE_FALSE(terminal_semantic_snapshot_from_json(
         terminal_semantic_snapshot_to_json(snapshot), error));
+}
+
+TEST_CASE("remote terminal protocol round-trips a scrollback page",
+    "[server][protocol][remote-terminal][scrollback]")
+{
+    RemoteTerminalScrollbackPage page{
+        .version = {
+            .server_epoch = "epoch",
+            .terminal_id = "terminal",
+            .generation = 3,
+            .sequence = 9,
+        },
+        .total_rows = 42,
+        .offset_from_live = 2,
+        .cols = 2,
+        .snapshot = TerminalSemanticSnapshot{
+            .cols = 2,
+            .rows = 2,
+            .cells = {
+                { .text = "A" },
+                { .text = "B" },
+                { .text = "C" },
+                { .text = "D" },
+            },
+        },
+    };
+    std::string error;
+    const auto decoded = remote_terminal_scrollback_page_from_json(
+        remote_terminal_scrollback_page_to_json(page), error);
+    INFO(error);
+    REQUIRE(decoded == page);
 }

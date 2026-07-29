@@ -40,12 +40,16 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   can run `take_terminal_control` from the command palette to take over. Brief local
   transport interruptions are retried for five seconds before a remote pane is
   considered dead.
-- `--experimental-remote-shell` is the Slice 4 path. It uses the same renderer and
+- `--experimental-remote-shell` is the Slice 5 path. It uses the same renderer and
   controller lease, but lazily starts a real server-owned PowerShell on Windows or
   the configured login shell on macOS/Linux. Closing every attached window leaves
   the process and terminal state alive in the server; reconnecting recovers the same
   terminal ID, process ID, generation, and current cells. The diagnostic fake path
-  and ordinary client-owned terminals remain unchanged.
+  and ordinary client-owned terminals remain unchanged. On first server launch,
+  `--server-shell <powershell|bash|zsh|wsl>`,
+  `--server-working-dir <path>`, and `--server-scrollback-lines <count>` define
+  server-owned process/history settings. Stop an already-running isolated server
+  before changing them; client fonts, palette, selection, and rendering remain local.
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another
@@ -54,8 +58,19 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   within the control frame. Client input is batched and command work is bounded
   between projection polls so sustained typing cannot starve observers. Windows
   serves four named-pipe clients concurrently. Reconnect restores the current server
-  state. This remains explicitly experimental: one real shell can now be
-  server-owned, but saved Spaces and general pane creation are not server-owned yet.
+  state.
+- The real endpoint retains bounded semantic scrollback and serves versioned pages.
+  Each window owns its scroll offset, selection, clipboard copy, and cursor
+  presentation, so scrolling one client does not disturb another. Keyboard, focus,
+  terminal mouse reporting, bracketed paste, OSC 8 links, OSC 52 clipboard writes,
+  alternate-screen state, synchronized output, shell marks, title, and cwd travel
+  through the remote path. Input while scrolled returns only that client to live.
+- Hello negotiation explicitly advertises scrollback, sanitized metrics, and the
+  current uncompressed frame fallback. `terminal.metrics` reports counts, encoded
+  bytes, delta density, queue pressure/resyncs, and scrollback service volume without
+  terminal text; the client records its attach/reconnect latency. This remains
+  explicitly experimental: one real shell can now be server-owned, but saved Spaces
+  and general pane creation are not server-owned yet.
 
 ---
 

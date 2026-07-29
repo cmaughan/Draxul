@@ -76,6 +76,11 @@ public:
         return offset_;
     }
 
+    // Read one retained row by oldest-first index without changing the projected
+    // viewport. Server runtimes use this to publish semantic, paged history while
+    // leaving viewport ownership with each client.
+    std::span<const Cell> row_at(int index) const;
+
     bool is_scrolled_back() const
     {
         return offset_ > 0;
