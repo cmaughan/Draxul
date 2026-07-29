@@ -51,7 +51,9 @@ Sessions keep the existing app-owned `AgentController`.
   complete route/epoch/generation environment, updates generation on restart,
   and cold-restores the managed runtime. Version-2 Codex/Claude hooks route
   pinned reports directly to the global server, including isolated runtime
-  directories.
+  directories. Managed launch reserves the new terminal's initial controller
+  lease for the requesting UI, eliminating the observer-first attachment race
+  without persisting client identity.
 - Automated Slice 8 acceptance passes all Debug core/app shards, all Release
   core/app shards, exact Release link/smoke, two projection clients, no-UI
   launch/report/restart, cold restore, and executable-level

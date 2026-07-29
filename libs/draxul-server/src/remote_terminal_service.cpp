@@ -20,6 +20,8 @@ RemoteTerminalService::RemoteTerminalService(
     RemoteTerminalServiceOptions options, IRemoteTerminalRuntime& runtime)
     : options_(std::move(options))
     , runtime_(runtime)
+    , preferred_controller_client_id_(
+          options_.preferred_controller_client_id)
 {
 }
 
@@ -235,9 +237,12 @@ ControlMethodResult RemoteTerminalService::attach(
         return ControlMethodResult::error("process_start_failed", std::move(error));
 
     subscribers_[client_id] = {};
-    if (controller_client_id_.empty())
+    if (controller_client_id_.empty()
+        && (preferred_controller_client_id_.empty()
+            || preferred_controller_client_id_ == client_id))
     {
         controller_client_id_ = client_id;
+        preferred_controller_client_id_.clear();
         broadcast(make_controller_event());
         subscribers_[client_id].events.clear();
     }
@@ -424,6 +429,7 @@ ControlMethodResult RemoteTerminalService::take_control(
     if (controller_client_id_ != client_id)
     {
         controller_client_id_ = client_id;
+        preferred_controller_client_id_.clear();
         broadcast(make_controller_event());
     }
     return ControlMethodResult::success({

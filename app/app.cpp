@@ -4149,6 +4149,7 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
 
         nlohmann::json params{
             { "session_id", options_.session_id },
+            { "client_id", options_.server_client_id },
             { "profile_id", request.profile_id },
             { "space_id", *space_id },
             { "tab_id", *tab_id },

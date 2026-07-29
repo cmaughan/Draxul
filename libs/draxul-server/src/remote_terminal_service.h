@@ -19,6 +19,7 @@ struct RemoteTerminalServiceOptions
     std::string pane_id;
     std::string terminal_id;
     std::string name;
+    std::string preferred_controller_client_id;
     std::function<void(uint64_t)> prepare_restart_generation;
 };
 
@@ -75,6 +76,7 @@ private:
     uint64_t sequence_ = 0;
     bool started_ = false;
     std::string controller_client_id_;
+    std::string preferred_controller_client_id_;
     std::unordered_map<std::string, Subscriber> subscribers_;
     uint64_t snapshot_frames_ = 0;
     uint64_t snapshot_bytes_ = 0;

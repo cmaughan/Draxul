@@ -679,6 +679,7 @@ TEST_CASE("managed agents launch and restart without a UI",
     const auto started = request("agent.start",
         {
             { "profile_id", "test-managed" },
+            { "client_id", "managed-agent-a" },
             { "cwd", temp.path.string() },
             { "args", nlohmann::json::array() },
         });
@@ -693,6 +694,47 @@ TEST_CASE("managed agents launch and restart without a UI",
     const std::string pane_id
         = started.result["route"]["pane_id"]
               .get<std::string>();
+    const std::string terminal_id
+        = started.result["route"]["terminal_id"]
+              .get<std::string>();
+
+    RemoteTerminalClient observer({
+        .runtime_directory = temp.path,
+        .client_id = "managed-agent-b",
+        .expected_server_epoch = "managed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = terminal_id,
+    });
+    std::string terminal_error;
+    REQUIRE(observer.attach(terminal_error));
+    INFO(terminal_error);
+    CHECK(observer.projection()
+              .controller_client_id()
+        .empty());
+    CHECK_FALSE(observer.send_input("x", terminal_error));
+    CHECK(observer.last_error_code()
+        == "not_controller");
+
+    RemoteTerminalClient launcher({
+        .runtime_directory = temp.path,
+        .client_id = "managed-agent-a",
+        .expected_server_epoch = "managed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = terminal_id,
+    });
+    REQUIRE(launcher.attach(terminal_error));
+    INFO(terminal_error);
+    CHECK(launcher.projection()
+              .controller_client_id()
+        == "managed-agent-a");
+    bool controller_changed = false;
+    REQUIRE(observer.poll(
+        controller_changed, terminal_error));
+    CHECK(controller_changed);
+    CHECK(observer.projection()
+              .controller_client_id()
+        == "managed-agent-a");
+    REQUIRE(launcher.send_input("x", terminal_error));
 
     AgentClient first({
         .runtime_directory = temp.path,

@@ -18,6 +18,9 @@ struct ManagedAgentTopologyLaunch
     AgentIdentity identity;
     AgentRestorePolicy restore_policy
         = AgentRestorePolicy::ResumeIfAvailable;
+    // Ephemeral ownership hint for a newly created terminal. This is never
+    // copied into the durable topology or Session checkpoint.
+    std::string preferred_controller_client_id;
     std::vector<std::string> additional_args;
     bool replace_default_args = false;
     std::string working_directory;

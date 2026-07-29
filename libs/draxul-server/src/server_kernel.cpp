@@ -223,7 +223,8 @@ public:
         std::string& error,
         std::optional<ServerTerminalRuntimeOptions>
             runtime_options = std::nullopt,
-        bool start_immediately = false);
+        bool start_immediately = false,
+        std::string preferred_controller_client_id = {});
     std::optional<std::string>
     create_managed_agent_terminal(
         std::string_view session_id,
@@ -371,7 +372,8 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
     std::string& error,
     std::optional<ServerTerminalRuntimeOptions>
         runtime_options,
-    bool start_immediately)
+    bool start_immediately,
+    std::string preferred_controller_client_id)
 {
     const auto found = sessions.find(std::string(session_id));
     if (found == sessions.end())
@@ -408,6 +410,8 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .name = name.empty()
                 ? "Server Shell"
                 : std::string(name),
+            .preferred_controller_client_id
+            = std::move(preferred_controller_client_id),
             .prepare_restart_generation
             = [runtime_ptr](uint64_t generation) {
                   runtime_ptr->set_environment_value(
@@ -1111,6 +1115,25 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 .restore_policy
                 = definition->restore_policy,
             };
+            if (request.params.contains("client_id"))
+            {
+                if (!request.params["client_id"].is_string()
+                    || request.params["client_id"]
+                           .get_ref<const std::string&>()
+                           .empty()
+                    || request.params["client_id"]
+                           .get_ref<const std::string&>()
+                           .size()
+                        > 128)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "'client_id' must be a non-empty bounded string.");
+                }
+                launch.preferred_controller_client_id
+                    = request.params["client_id"]
+                          .get<std::string>();
+            }
             if (request.params.contains("args"))
             {
                 if (!request.params["args"].is_array()
@@ -2139,7 +2162,8 @@ ServerKernel::Impl::create_managed_agent_terminal(
         return std::nullopt;
     if (!create_server_terminal_with_id(
             session_id, terminal_id, pane_id, name,
-            error, std::move(*runtime_options), true))
+            error, std::move(*runtime_options), true,
+            launch.preferred_controller_client_id))
     {
         return std::nullopt;
     }
