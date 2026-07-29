@@ -39,3 +39,5 @@ the migration. No schema bump is allowed without explicit migration fixtures.
 - Dirty topology is checkpointed every 30 seconds without any UI attached; status
   and `--server-status` expose the path, state, last success, bounded failure, and
   partial-restore warnings. Failed or disabled checkpoints retain the previous bytes.
+- The 2026-07-29 manual gate passed with two live UIs, detach/reconnect, periodic
+  checkpointing, graceful shutdown, and cold restore from `build-ninja-release`.

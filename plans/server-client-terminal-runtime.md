@@ -1370,6 +1370,11 @@ server when finished:
 & $exe --shutdown-server --server-runtime-dir $runtime
 ```
 
+**Manual result (2026-07-29):** passed against `build-ninja-release`. Two live UIs
+converged, detach/reconnect retained the topology, the UI-free periodic checkpoint
+was present, and graceful shutdown plus cold restart restored the ordered
+Spaces/tabs/panes with fresh shell processes.
+
 ### Slice 8: agent runtime and control migration
 
 **Outcome:** agents continue to be detected and controlled with no UI attached.
