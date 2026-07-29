@@ -357,6 +357,71 @@ ControlMethodResult TopologyService::launch_agent(
     });
 }
 
+ControlMethodResult TopologyService::close_exited_terminal(
+    std::string_view terminal_id)
+{
+    if (terminal_id.empty())
+    {
+        return ControlMethodResult::error(
+            "invalid_terminal",
+            "Exited terminal identity is required.");
+    }
+
+    for (const TopologySpace& space : snapshot_.spaces)
+    {
+        for (const TopologyTab& tab : space.tabs)
+        {
+            const auto pane = std::ranges::find(
+                tab.panes, terminal_id,
+                &TopologyPane::terminal_id);
+            if (pane == tab.panes.end())
+                continue;
+
+            TopologyCommand command{
+                .kind = TopologyCommandKind::ClosePane,
+                .space_id = space.space_id,
+                .tab_id = tab.tab_id,
+                .pane_id = pane->pane_id,
+            };
+            if (tab.panes.size() <= 1)
+            {
+                if (space.tabs.size() > 1)
+                {
+                    command.kind
+                        = TopologyCommandKind::CloseTab;
+                }
+                else if (snapshot_.spaces.size() > 1)
+                {
+                    command.kind
+                        = TopologyCommandKind::CloseSpace;
+                }
+                else
+                {
+                    return ControlMethodResult::error(
+                        "last_pane",
+                        "The final server pane cannot be removed yet.");
+                }
+            }
+
+            std::string error_code;
+            std::string error;
+            if (!apply(command, error_code, error))
+            {
+                return ControlMethodResult::error(
+                    std::move(error_code), std::move(error));
+            }
+            ++snapshot_.revision;
+            return ControlMethodResult::success({
+                { "terminal_id", terminal_id },
+                { "topology_revision", snapshot_.revision },
+            });
+        }
+    }
+    return ControlMethodResult::error(
+        "terminal_not_found",
+        "Exited terminal is not present in shared topology.");
+}
+
 ControlMethodResult TopologyService::read_snapshot(
     const nlohmann::json&) const
 {

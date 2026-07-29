@@ -507,6 +507,129 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     run_guard.join();
 }
 
+TEST_CASE("clean server shell exit removes its shared pane for every client",
+    "[server][remote-terminal][topology][process]")
+{
+    TempDir temp("draxul-remote-terminal-clean-exit");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient controller({
+        .runtime_directory = temp.path,
+        .client_id = "clean-exit-controller",
+    });
+    TopologyClient observer({
+        .runtime_directory = temp.path,
+        .client_id = "clean-exit-observer",
+    });
+    std::string error;
+    REQUIRE(controller.refresh(error));
+    REQUIRE(observer.refresh(error));
+    const TopologySpace& initial_space
+        = controller.snapshot().spaces.front();
+    const TopologyTab& initial_tab
+        = initial_space.tabs.front();
+    TopologyCommand split{
+        .command_id = "clean-exit-split",
+        .expected_revision
+        = controller.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .pane_id = initial_tab.panes.front().pane_id,
+        .name = "Disposable shell",
+        .direction = TopologySplitDirection::Vertical,
+        .pane_domain
+        = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult split_result;
+    REQUIRE(controller.execute(
+        split, split_result, error));
+    const TopologyPane& disposable
+        = split_result.snapshot.spaces.front()
+              .tabs.front()
+              .panes.back();
+    const std::string pane_id = disposable.pane_id;
+    const std::string terminal_id
+        = disposable.terminal_id;
+
+    RemoteTerminalClient terminal({
+        .runtime_directory = temp.path,
+        .client_id = "clean-exit-controller",
+        .expected_server_epoch = "fixed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = terminal_id,
+    });
+    REQUIRE(terminal.attach(error));
+    REQUIRE(terminal.send_input("exit\r", error));
+
+    const auto contains_pane
+        = [&](const TopologySnapshot& snapshot) {
+              for (const TopologySpace& space
+                  : snapshot.spaces)
+              {
+                  for (const TopologyTab& tab
+                      : space.tabs)
+                  {
+                      if (std::ranges::any_of(
+                              tab.panes,
+                              [&](const TopologyPane& pane) {
+                                  return pane.pane_id
+                                      == pane_id;
+                              }))
+                      {
+                          return true;
+                      }
+                  }
+              }
+              return false;
+          };
+    bool removed = false;
+    for (int attempt = 0;
+         attempt < 200 && !removed; ++attempt)
+    {
+        bool controller_changed = false;
+        bool observer_changed = false;
+        REQUIRE(controller.poll(
+            controller_changed, error));
+        REQUIRE(observer.poll(
+            observer_changed, error));
+        removed = !contains_pane(
+                      controller.snapshot())
+            && !contains_pane(observer.snapshot());
+        if (!removed)
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(25));
+        }
+    }
+    REQUIRE(removed);
+    CHECK(controller.snapshot()
+        == observer.snapshot());
+    CHECK(controller.snapshot().spaces.front()
+              .tabs.front()
+              .panes.size()
+        == 1);
+
+    RemoteTerminalClient removed_terminal({
+        .runtime_directory = temp.path,
+        .client_id = "clean-exit-reconnect",
+        .expected_server_epoch = "fixed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = terminal_id,
+    });
+    CHECK_FALSE(removed_terminal.attach(error));
+    CHECK(removed_terminal.last_error_code()
+        == "terminal_not_found");
+    run_guard.join();
+}
+
 TEST_CASE("server-owned shell discovery converges in two agent clients",
     "[server][agent][process]")
 {

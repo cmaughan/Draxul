@@ -66,6 +66,8 @@ public:
         std::string_view target_pane_id,
         std::string_view name,
         const ManagedAgentTopologyLaunch& launch);
+    ControlMethodResult close_exited_terminal(
+        std::string_view terminal_id);
 
     const TopologySnapshot& snapshot() const noexcept
     {

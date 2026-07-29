@@ -288,6 +288,9 @@ public:
     {
         std::unique_ptr<ServerTerminalRuntime> runtime;
         std::unique_ptr<RemoteTerminalService> service;
+        bool exit_cleanup_attempted = false;
+        uint64_t exit_cleanup_generation = 0;
+        uint64_t exit_cleanup_topology_revision = 0;
     };
     struct ServerSession
     {
@@ -2364,11 +2367,82 @@ int ServerKernel::Impl::run_until_stopped()
         for (auto& [session_id, session] : sessions)
         {
             (void)session_id;
+            struct CleanExit
+            {
+                std::string terminal_id;
+                uint64_t generation = 0;
+                uint64_t topology_revision = 0;
+            };
+            std::vector<CleanExit> clean_exits;
+            const uint64_t topology_revision
+                = session->topology_service
+                ? session->topology_service
+                      ->snapshot()
+                      .revision
+                : 0;
             for (auto& [terminal_id, endpoint]
                 : session->terminals)
             {
-                (void)terminal_id;
                 endpoint.service->pump();
+                if (endpoint.runtime->is_running())
+                {
+                    endpoint.exit_cleanup_attempted = false;
+                    continue;
+                }
+                if (!endpoint.service->started())
+                    continue;
+                const std::optional<int> exit_code
+                    = endpoint.runtime->exit_code();
+                if (exit_code && *exit_code != 0)
+                    continue;
+                const uint64_t generation
+                    = endpoint.service->generation();
+                if (endpoint.exit_cleanup_attempted
+                    && endpoint.exit_cleanup_generation
+                        == generation
+                    && endpoint.exit_cleanup_topology_revision
+                        == topology_revision)
+                {
+                    continue;
+                }
+                clean_exits.push_back({
+                    .terminal_id = terminal_id,
+                    .generation = generation,
+                    .topology_revision = topology_revision,
+                });
+            }
+            for (const CleanExit& exited : clean_exits)
+            {
+                const auto closed
+                    = session->topology_service
+                    ? session->topology_service
+                          ->close_exited_terminal(
+                              exited.terminal_id)
+                    : ControlMethodResult::error(
+                          "topology_unavailable",
+                          "Session topology is unavailable.");
+                if (closed.ok)
+                {
+                    refresh_agents(
+                        *session,
+                        std::chrono::steady_clock::now());
+                    continue;
+                }
+                const auto retained
+                    = session->terminals.find(
+                        exited.terminal_id);
+                if (retained
+                    != session->terminals.end())
+                {
+                    retained->second
+                        .exit_cleanup_attempted = true;
+                    retained->second
+                        .exit_cleanup_generation
+                        = exited.generation;
+                    retained->second
+                        .exit_cleanup_topology_revision
+                        = exited.topology_revision;
+                }
             }
         }
         if (const uint32_t listener_error = control.take_listener_error();

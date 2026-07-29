@@ -53,7 +53,9 @@ Sessions keep the existing app-owned `AgentController`.
   pinned reports directly to the global server, including isolated runtime
   directories. Managed launch reserves the new terminal's initial controller
   lease for the requesting UI, eliminating the observer-first attachment race
-  without persisting client identity.
+  without persisting client identity. Clean server-process exits now remove
+  their non-final pane/tab/Space from authoritative topology, so every attached
+  UI drops the dead pane together; abnormal exits remain restartable.
 - Automated Slice 8 acceptance passes all Debug core/app shards, all Release
   core/app shards, exact Release link/smoke, two projection clients, no-UI
   launch/report/restart, cold restore, and executable-level

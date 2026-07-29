@@ -44,8 +44,11 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   controller lease, but lazily starts a real server-owned PowerShell on Windows or
   the configured login shell on macOS/Linux. Closing every attached window leaves
   the process and terminal state alive in the server; reconnecting recovers the same
-  terminal ID, process ID, generation, and current cells. The diagnostic fake path
-  and ordinary client-owned terminals remain unchanged. On first server launch,
+  terminal ID, process ID, generation, and current cells. A clean process exit removes
+  its shared pane, or its now-empty tab/Space, when another pane remains in the Session;
+  abnormal exits and the final pane remain available for explicit restart. The
+  diagnostic fake path and ordinary client-owned terminals remain unchanged. On first
+  server launch,
   `--server-shell <powershell|bash|zsh|wsl>`,
   `--server-working-dir <path>`, and `--server-scrollback-lines <count>` define
   server-owned process/history settings. Stop an already-running isolated server
