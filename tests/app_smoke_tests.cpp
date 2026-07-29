@@ -323,6 +323,29 @@ TEST_CASE("app smoke: initialize succeeds with all fakes", "[app_smoke]")
     app.shutdown();
 }
 
+TEST_CASE("app smoke: remote topology does not create a legacy placeholder host",
+    "[app_smoke][topology]")
+{
+    TempDir temp("draxul-app-remote-placeholder");
+    int host_creations = 0;
+    AppOptions opts = make_smoke_options();
+    opts.enable_control_server = false;
+    opts.enable_session_restore = false;
+    opts.enable_remote_topology = true;
+    opts.server_runtime_directory = temp.path;
+    opts.server_client_id = "missing-server-client";
+    opts.host_factory = [&host_creations](HostKind)
+        -> std::unique_ptr<IHost> {
+        ++host_creations;
+        return std::make_unique<SmokeTestHost>();
+    };
+
+    App app(std::move(opts));
+    CHECK_FALSE(app.initialize());
+    CHECK(host_creations == 0);
+    CHECK_FALSE(app.init_error().empty());
+}
+
 TEST_CASE("app smoke: Space lifecycle creates rooted hosts and switches in memory",
     "[app_smoke][spaces]")
 {

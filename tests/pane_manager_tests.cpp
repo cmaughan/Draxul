@@ -16,6 +16,7 @@
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
+#include <utility>
 
 using namespace draxul;
 using namespace draxul::tests;
@@ -91,6 +92,8 @@ struct PaneManagerHarness
     std::vector<LifetimeTestHost*> created_hosts;
     std::vector<std::shared_ptr<int>> shutdown_counters;
     int before_host_destroyed_calls = 0;
+    bool fail_next_initialize = false;
+    std::string next_init_error_code;
     bool allow_local_layout_mutation = true;
     std::function<void(DividerId, float)>
         request_projected_divider_ratio;
@@ -117,6 +120,10 @@ struct PaneManagerHarness
         options.host_factory = [this](HostKind) -> std::unique_ptr<IHost> {
             auto counter = std::make_shared<int>(0);
             auto host = std::make_unique<LifetimeTestHost>("lifetime-test");
+            host->fail_initialize
+                = std::exchange(fail_next_initialize, false);
+            host->init_error_code_message
+                = std::exchange(next_init_error_code, {});
             host->on_shutdown_callback = [counter] { ++(*counter); };
             shutdown_counters.push_back(counter);
             created_hosts.push_back(host.get());
@@ -754,6 +761,43 @@ TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
     REQUIRE(harness.shutdown_counters.size() == 2);
     CHECK(*harness.shutdown_counters[1] == 1);
     CHECK(harness.before_host_destroyed_calls == 1);
+}
+
+TEST_CASE("pane manager: projected host preserves typed initialization failure",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    REQUIRE(added != kInvalidLeaf);
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = {
+                .kind = HostKind::RemoteTerminal,
+                .remote_terminal_id = "already-removed",
+            },
+            .pane_id = "shared-pane-2",
+        },
+    };
+    harness.fail_next_initialize = true;
+    harness.next_init_error_code = "terminal_not_found";
+
+    CHECK_FALSE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.manager.error_code() == "terminal_not_found");
+    CHECK(harness.manager.host_count() == 1);
 }
 
 TEST_CASE("pane manager: identifies only server-owned remote terminals",

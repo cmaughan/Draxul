@@ -60,6 +60,10 @@ Sessions keep the existing app-owned `AgentController`.
   destroying that projected host. A dead remote pane waits for the server's
   topology update rather than attempting a client-local close, preventing the
   controller-only stale-pointer crash when `exit` removes its focused pane.
+- Restored server-owned Sessions no longer create a placeholder for the legacy
+  default terminal before reading topology. Startup projects the surviving
+  stable terminal IDs directly and refreshes a newer server revision when an
+  agent exits between topology snapshot and terminal attach.
 - Automated Slice 8 acceptance passes all Debug core/app shards, all Release
   core/app shards, exact Release link/smoke, two projection clients, no-UI
   launch/report/restart, cold restore, and executable-level

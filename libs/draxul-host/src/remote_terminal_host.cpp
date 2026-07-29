@@ -33,6 +33,11 @@ bool is_expected_command_error(std::string_view code)
     return code == "not_controller" || code == "invalid_resize";
 }
 
+bool is_removed_remote_terminal(std::string_view code)
+{
+    return code == "terminal_not_found";
+}
+
 bool is_transient_remote_error(std::string_view code)
 {
     return code == "endpoint_unavailable"
@@ -215,6 +220,11 @@ public:
         return options_;
     }
 
+    std::string init_error_code() const
+    {
+        return client_ ? client_->last_error_code() : std::string{};
+    }
+
     void set_terminal_id(std::string terminal_id)
     {
         options_.terminal_id = std::move(terminal_id);
@@ -273,6 +283,11 @@ private:
                 {
                     const std::string error_code
                         = client_->last_error_code();
+                    if (is_removed_remote_terminal(error_code))
+                    {
+                        fatal_error = true;
+                        break;
+                    }
                     if (is_expected_command_error(error_code))
                     {
                         publish_error(std::move(error));
@@ -307,6 +322,8 @@ private:
             if (!client_->poll(changed, error))
             {
                 const std::string error_code = client_->last_error_code();
+                if (is_removed_remote_terminal(error_code))
+                    break;
                 if (is_transient_remote_error(error_code))
                 {
                     note_transient_failure(transient_failure_since,
@@ -517,6 +534,11 @@ bool RemoteTerminalHost::is_running() const
 std::string RemoteTerminalHost::init_error() const
 {
     return init_error_;
+}
+
+std::string RemoteTerminalHost::init_error_code() const
+{
+    return impl_->init_error_code();
 }
 
 void RemoteTerminalHost::pump()

@@ -254,6 +254,10 @@ public:
     {
         return error_;
     }
+    const std::string& error_code() const
+    {
+        return error_code_;
+    }
 
 private:
     bool create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
@@ -275,6 +279,7 @@ private:
         runtime_started_at_;
     uint64_t next_runtime_generation_ = 1;
     std::string error_;
+    std::string error_code_;
     uint64_t next_pane_serial_ = 1;
 
     // Zoom state: when zoomed, the focused pane fills the full window.

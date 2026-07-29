@@ -51,6 +51,7 @@ public:
     // When true, initialize() returns false and sets init_error.
     bool fail_initialize = false;
     std::string init_error_message;
+    std::string init_error_code_message;
 
     // Reported by is_nvim_host().
     bool is_nvim = false;
@@ -131,6 +132,11 @@ public:
     std::string init_error() const override
     {
         return init_error_message;
+    }
+
+    std::string init_error_code() const override
+    {
+        return init_error_code_message;
     }
 
     void set_viewport(const HostViewport& viewport) override

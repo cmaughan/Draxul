@@ -339,6 +339,7 @@ private:
     std::chrono::steady_clock::time_point next_agent_poll_{};
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
+    std::string remote_topology_projection_error_code_;
     uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;

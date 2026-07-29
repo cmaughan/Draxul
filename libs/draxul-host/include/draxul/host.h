@@ -182,6 +182,12 @@ public:
     virtual void shutdown() = 0;
     virtual bool is_running() const = 0;
     virtual std::string init_error() const = 0;
+    // Optional stable error identity for callers that can recover from a
+    // particular initialization race without matching human-readable text.
+    virtual std::string init_error_code() const
+    {
+        return {};
+    }
 
     virtual void set_viewport(const HostViewport& viewport) = 0;
     virtual void on_font_metrics_changed()

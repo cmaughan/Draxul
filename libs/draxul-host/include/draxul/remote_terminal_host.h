@@ -32,6 +32,7 @@ public:
     void shutdown() override;
     bool is_running() const override;
     std::string init_error() const override;
+    std::string init_error_code() const override;
     void pump() override;
     void on_config_reloaded(const HostReloadConfig& config) override;
     void on_focus_gained() override;

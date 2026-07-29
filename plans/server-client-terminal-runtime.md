@@ -1521,7 +1521,12 @@ Automated validation checkpoint (2026-07-29):
   executable, removing a previously stale-DLL-dependent pass; and
 - projected host teardown releases the focused input route while the host is
   still alive, and dead remote panes wait for the server's topology update
-  instead of attempting a rejected client-local close.
+  instead of attempting a rejected client-local close; and
+- server-owned startup projects its first panes directly from authoritative
+  topology rather than attaching a temporary legacy `terminal-1` host.
+  A typed `terminal_not_found` initialization result triggers a bounded refresh
+  while the server revision advances, so an agent exiting between snapshot and
+  attach cannot veto the whole UI.
 
 The manual two-window managed-agent sequence above remains the final Slice 8
 acceptance item.

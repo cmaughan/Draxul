@@ -279,8 +279,35 @@ TEST_CASE("remote terminal host attaches to its projected terminal identity",
         return host.grid_cols() == 13
             && host.grid_rows() == 4;
     }));
+
+    TopologyCommandResult closed;
+    REQUIRE(topology.execute({
+            .command_id = "close-host-dynamic-terminal",
+            .expected_revision = split.snapshot.revision,
+            .kind = TopologyCommandKind::ClosePane,
+            .space_id = initial_space.space_id,
+            .tab_id = initial_tab.tab_id,
+            .pane_id = projected.pane_id,
+        },
+        closed, error));
+    REQUIRE(pump_until(host, [&] {
+        return !host.is_running();
+    }));
+    CHECK(callbacks.last_toast_message.empty());
     host.shutdown();
-    REQUIRE(controller.disconnect(error));
+
+    RemoteTerminalHost missing({
+        .runtime_directory = temp.path,
+        .client_id = "stale-topology-client",
+        .server_epoch = "host-topology-epoch",
+        .method_prefix = "terminal",
+    });
+    HostContext missing_context = context;
+    missing_context.launch_options.remote_terminal_id
+        = projected.terminal_id;
+    CHECK_FALSE(missing.initialize(
+        missing_context, callbacks));
+    CHECK(missing.init_error_code() == "terminal_not_found");
 }
 
 TEST_CASE("two rendered remote terminal hosts survive repeated control transfer",

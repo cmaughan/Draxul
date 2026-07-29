@@ -801,6 +801,7 @@ bool PaneManager::reconcile_projected_layout(
 {
     PERF_MEASURE();
     error_.clear();
+    error_code_.clear();
     if (!state.tree.root || state.panes.empty())
     {
         error_ = "Projected layout has no panes.";
@@ -899,6 +900,7 @@ bool PaneManager::reconcile_projected_layout(
                 leaf, callbacks, std::move(launch), hosts_.empty()))
         {
             const std::string projection_error = error_;
+            const std::string projection_error_code = error_code_;
             if (backup)
             {
                 restore_layout(
@@ -907,6 +909,7 @@ bool PaneManager::reconcile_projected_layout(
             error_ = projection_error.empty()
                 ? "Failed to create a projected pane host."
                 : projection_error;
+            error_code_ = projection_error_code;
             return false;
         }
     }
@@ -1152,6 +1155,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     HostLaunchOptions launch, bool is_primary)
 {
     PERF_MEASURE();
+    error_code_.clear();
     if (!pane_ids_.contains(id))
     {
         for (;;)
@@ -1228,6 +1232,7 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
     {
         pane_ids_.erase(id);
         error_ = new_host->init_error();
+        error_code_ = new_host->init_error_code();
         if (error_.empty())
             error_ = "Failed to initialize the selected host.";
         return false;

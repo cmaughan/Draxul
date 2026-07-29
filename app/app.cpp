@@ -877,7 +877,13 @@ bool App::initialize_chrome_host()
         }
     }
 
+    // A server-owned Session must create its first panes directly from the
+    // authoritative topology. Creating a temporary RemoteTerminalHost here
+    // would attach to the legacy default terminal identity before topology is
+    // known, which fails for restored Sessions whose surviving terminals have
+    // different stable IDs.
     if (!restored_session
+        && !options_.enable_remote_topology
         && !create_initial_tab(window_->width_pixels(), diagnostics_host_->layout().terminal_height))
     {
         // Clean up stale session state that may have contributed to the failure,
@@ -2868,9 +2874,37 @@ bool App::initialize_remote_topology()
             .session_id = options_.session_id,
         });
     std::string error;
-    if (!topology_client_->refresh(error)
-        || !apply_remote_topology_spaces(
-            topology_client_->snapshot(), &error))
+    bool topology_applied = false;
+    uint64_t failed_revision = 0;
+    constexpr int kMaximumProjectionAttempts = 4;
+    for (int attempt = 0;
+         attempt < kMaximumProjectionAttempts;
+         ++attempt)
+    {
+        if (!topology_client_->refresh(error))
+            break;
+        const uint64_t revision
+            = topology_client_->snapshot().revision;
+        if (attempt > 0 && revision <= failed_revision)
+        {
+            error = "Server topology still references a terminal "
+                    "which no longer exists.";
+            break;
+        }
+        if (apply_remote_topology_spaces(
+                topology_client_->snapshot(), &error))
+        {
+            topology_applied = true;
+            break;
+        }
+        if (remote_topology_projection_error_code_
+            != "terminal_not_found")
+        {
+            break;
+        }
+        failed_revision = revision;
+    }
+    if (!topology_applied)
     {
         last_init_error_ = error.empty()
             ? "Failed to initialize shared server topology."
@@ -3049,6 +3083,7 @@ bool App::apply_remote_agents(
 bool App::apply_remote_topology_spaces(
     const TopologySnapshot& snapshot, std::string* error)
 {
+    remote_topology_projection_error_code_.clear();
     if (snapshot.spaces.empty())
     {
         if (error)
@@ -3509,6 +3544,8 @@ bool App::project_remote_tab(const TopologyTab& remote,
     {
         const std::string restore_error
             = local_tab->pane_manager.error();
+        remote_topology_projection_error_code_
+            = local_tab->pane_manager.error_code();
         if (error)
         {
             *error = restore_error.empty()
