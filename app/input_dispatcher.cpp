@@ -815,6 +815,12 @@ void InputDispatcher::set_host(IHost* host)
     deps_.host = host;
 }
 
+void InputDispatcher::clear_host_if(const IHost* host)
+{
+    if (deps_.host == host)
+        set_host(nullptr);
+}
+
 void InputDispatcher::connect(IWindow& window)
 {
     PERF_MEASURE();

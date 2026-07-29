@@ -1973,6 +1973,15 @@ bool App::close_dead_panes()
                 announced_dead_panes_.erase(pane_id);
             return;
         }
+        if (active_pane_manager()
+                .is_server_owned_remote_terminal_leaf(id))
+        {
+            // The server publishes terminal exit as a topology update. Keep
+            // this projection intact until that authoritative update arrives
+            // instead of attempting a local close which the projected layout
+            // deliberately rejects.
+            return;
+        }
         if (active_pane_manager().should_preserve_dead_leaf(id))
         {
             if (!pane_id.empty() && announced_dead_panes_.insert(pane_id).second)
@@ -2795,6 +2804,9 @@ PaneManager::Deps App::make_pane_manager_deps(const Space* space)
                   queue_remote_split_ratio(divider_id, ratio);
               };
     }
+    deps.before_host_destroyed = [this](IHost* host) {
+        input_dispatcher_.clear_host_if(host);
+    };
     deps.compute_viewport = [this](const PaneDescriptor& desc) {
         return viewport_from_descriptor(desc);
     };

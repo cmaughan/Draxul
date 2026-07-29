@@ -56,6 +56,10 @@ Sessions keep the existing app-owned `AgentController`.
   without persisting client identity. Clean server-process exits now remove
   their non-final pane/tab/Space from authoritative topology, so every attached
   UI drops the dead pane together; abnormal exits remain restartable.
+- Client reconciliation now releases a focused pane's input route before
+  destroying that projected host. A dead remote pane waits for the server's
+  topology update rather than attempting a client-local close, preventing the
+  controller-only stale-pointer crash when `exit` removes its focused pane.
 - Automated Slice 8 acceptance passes all Debug core/app shards, all Release
   core/app shards, exact Release link/smoke, two projection clients, no-UI
   launch/report/restart, cold restore, and executable-level

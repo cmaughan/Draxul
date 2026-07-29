@@ -58,6 +58,10 @@ public:
         // ratio to App so the server can publish the authoritative tree.
         std::function<void(DividerId, float)>
             request_projected_divider_ratio;
+        // Called while a host is still alive, immediately before PaneManager
+        // destroys it. This lets non-owning routes such as InputDispatcher
+        // release their pointer safely.
+        std::function<void(IHost*)> before_host_destroyed;
 
         // Converts a PaneDescriptor (pixel region) to a full HostViewport (with cols/rows/padding).
         // Provided by App since it owns the font metrics and UI panel layout.
@@ -229,6 +233,7 @@ public:
     }
     bool has_restorable_shell_session() const;
     bool should_preserve_dead_leaf(LeafId id) const;
+    bool is_server_owned_remote_terminal_leaf(LeafId id) const;
     std::optional<PaneLayoutSnapshot> snapshot_layout() const;
     bool restore_layout(
         IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state);

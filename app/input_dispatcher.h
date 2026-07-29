@@ -114,6 +114,10 @@ public:
 
     // Updates the host pointer (used when focus changes between panes).
     void set_host(IHost* host);
+    // Releases the input route only when it still points at the supplied
+    // host. Owners call this while the host is alive, immediately before
+    // destroying it.
+    void clear_host_if(const IHost* host);
 
     // Updates the pixel scale (called when the display DPI changes).
     void set_pixel_scale(PixelScale scale)

@@ -224,6 +224,26 @@ TEST_CASE("input dispatcher: null keybindings pointer returns no action", "[inpu
     REQUIRE_FALSE(action.has_value());
 }
 
+TEST_CASE("input dispatcher: owner can release only the host being destroyed",
+    "[input_dispatcher][lifetime]")
+{
+    tests::FakeHost selected("selected");
+    tests::FakeHost unrelated("unrelated");
+    InputDispatcher::Deps deps;
+    deps.host = &selected;
+    InputDispatcher dispatcher(std::move(deps));
+
+    dispatcher.clear_host_if(&unrelated);
+    CHECK(selected.focus_lost_calls == 0);
+
+    dispatcher.clear_host_if(&selected);
+    CHECK(selected.focus_lost_calls == 1);
+
+    // The selected host is no longer touched when a replacement is bound.
+    dispatcher.set_host(&unrelated);
+    CHECK(selected.focus_lost_calls == 1);
+}
+
 // ---------------------------------------------------------------------------
 // Chord (tmux-style prefix) regression tests
 // ---------------------------------------------------------------------------

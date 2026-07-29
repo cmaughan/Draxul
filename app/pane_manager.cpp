@@ -161,6 +161,14 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
 {
     PERF_MEASURE();
     error_.clear();
+    if (deps_.before_host_destroyed)
+    {
+        for (const auto& [id, host] : hosts_)
+        {
+            if (host)
+                deps_.before_host_destroyed(host.get());
+        }
+    }
     hosts_.clear();
     launch_options_.clear();
     pane_user_names_.clear();
@@ -325,7 +333,11 @@ bool PaneManager::close_leaf(LeafId id)
 
     // Shut down the host
     if (it->second)
+    {
+        if (deps_.before_host_destroyed)
+            deps_.before_host_destroyed(it->second.get());
         it->second->shutdown();
+    }
     hosts_.erase(it);
     launch_options_.erase(id);
     pane_user_names_.erase(id);
@@ -386,7 +398,11 @@ bool PaneManager::restart_leaf(LeafId id, IHostCallbacks& callbacks)
 
     // Shut down the current host.
     if (it->second)
+    {
+        if (deps_.before_host_destroyed)
+            deps_.before_host_destroyed(it->second.get());
         it->second->shutdown();
+    }
     hosts_.erase(it);
 
     // Relaunch the same host in the same pane slot.
@@ -556,6 +572,8 @@ void PaneManager::shutdown()
     {
         if (host)
         {
+            if (deps_.before_host_destroyed)
+                deps_.before_host_destroyed(host.get());
             host->shutdown();
             host.reset();
         }
@@ -607,6 +625,15 @@ bool PaneManager::should_preserve_dead_leaf(LeafId id) const
     }
     // Non-shell hosts (nvim, megacity) are always preserved when they die.
     return true;
+}
+
+bool PaneManager::is_server_owned_remote_terminal_leaf(LeafId id) const
+{
+    if (deps_.allow_local_layout_mutation)
+        return false;
+    const auto launch = launch_options_.find(id);
+    return launch != launch_options_.end()
+        && launch->second.kind == HostKind::RemoteTerminal;
 }
 
 std::optional<PaneManager::PaneLayoutSnapshot> PaneManager::snapshot_layout() const
@@ -833,6 +860,8 @@ bool PaneManager::reconcile_projected_layout(
         if (auto host = hosts_.find(leaf);
             host != hosts_.end() && host->second)
         {
+            if (deps_.before_host_destroyed)
+                deps_.before_host_destroyed(host->second.get());
             host->second->shutdown();
         }
         hosts_.erase(leaf);

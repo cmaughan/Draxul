@@ -1489,8 +1489,11 @@ $runtime = Join-Path $env:TEMP 'draxul-slice8-agent'
 
 Open a second UI with the final command, then run `launch_agent` from the
 command palette and choose Codex. Both windows must show the same managed row
-and terminal while retaining independent focus. Close both windows and inspect
-the still-running agent without a GPU client:
+and terminal while retaining independent focus. Before detaching, focus the
+managed pane in whichever window owns its controller and type `exit`. The pane
+must disappear from both windows, neither window may exit or crash, and input
+must continue in the surviving pane. Launch Codex again, close both windows,
+and inspect the still-running agent without a GPU client:
 
 ```powershell
 & $exe agent list --session default --server-runtime-dir $runtime
@@ -1515,7 +1518,10 @@ Automated validation checkpoint (2026-07-29):
   generation-aware restart environment, stale-report rejection, durable
   native reference/working directory, and cold restore under a new epoch; and
 - Windows app-test CMake now stages `verovio.dll` beside the Release test
-  executable, removing a previously stale-DLL-dependent pass.
+  executable, removing a previously stale-DLL-dependent pass; and
+- projected host teardown releases the focused input route while the host is
+  still alive, and dead remote panes wait for the server's topology update
+  instead of attempting a rejected client-local close.
 
 The manual two-window managed-agent sequence above remains the final Slice 8
 acceptance item.

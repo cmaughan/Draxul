@@ -90,6 +90,7 @@ struct PaneManagerHarness
     float display_ppi = 96.0f;
     std::vector<LifetimeTestHost*> created_hosts;
     std::vector<std::shared_ptr<int>> shutdown_counters;
+    int before_host_destroyed_calls = 0;
     bool allow_local_layout_mutation = true;
     std::function<void(DividerId, float)>
         request_projected_divider_ratio;
@@ -133,6 +134,9 @@ struct PaneManagerHarness
             = allow_local_layout_mutation;
         deps.request_projected_divider_ratio
             = request_projected_divider_ratio;
+        deps.before_host_destroyed = [this](IHost*) {
+            ++before_host_destroyed_calls;
+        };
         deps.compute_viewport = [](const PaneDescriptor& desc) {
             HostViewport viewport;
             viewport.pixel_pos = desc.pixel_pos;
@@ -735,6 +739,7 @@ TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
     CHECK(harness.created_hosts.size() == 2);
     CHECK(harness.manager.host_for(root) == original_host);
     CHECK(*original_shutdown == 0);
+    CHECK(harness.before_host_destroyed_calls == 0);
 
     SplitTree single_tree;
     REQUIRE(single_tree.reset(800, 600) == root);
@@ -748,6 +753,53 @@ TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
     CHECK(*original_shutdown == 0);
     REQUIRE(harness.shutdown_counters.size() == 2);
     CHECK(*harness.shutdown_counters[1] == 1);
+    CHECK(harness.before_host_destroyed_calls == 1);
+}
+
+TEST_CASE("pane manager: identifies only server-owned remote terminals",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness(false);
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId remote
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    REQUIRE(remote != kInvalidLeaf);
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::PowerShell },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = remote,
+            .launch = {
+                .kind = HostKind::RemoteTerminal,
+                .remote_terminal_id = "terminal-2",
+            },
+            .pane_id = "shared-pane-2",
+        },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+
+    CHECK_FALSE(harness.manager
+                    .is_server_owned_remote_terminal_leaf(root));
+    CHECK(harness.manager
+              .is_server_owned_remote_terminal_leaf(remote));
+
+    PaneManagerHarness local_harness;
+    REQUIRE(local_harness.manager.create(
+        local_harness.callbacks, 800, 600,
+        HostKind::RemoteTerminal));
+    CHECK_FALSE(local_harness.manager
+                    .is_server_owned_remote_terminal_leaf(
+                        local_harness.manager.focused_leaf()));
 }
 
 TEST_CASE("pane manager: projected divider drag reports without local mutation",
