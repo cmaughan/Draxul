@@ -1323,6 +1323,53 @@ Rollback:
 - original snapshots remain readable by the recovery path; schema version changes
   require explicit migration fixtures and are not automatic.
 
+Implementation checkpoint (2026-07-29):
+
+- The renderer-free v3 model/codec is shared by app and server.
+- The experimental server owns
+  `<server-runtime-dir>/sessions/default.toml`, restores every usable Space before
+  processing queued requests, and checkpoints dirty topology every 30 seconds plus
+  graceful shutdown.
+- Stable pane/terminal descriptors, client-local host descriptors, and managed
+  agent restore/session metadata survive cold start. Terminal text and live process
+  identity do not; restored server terminals launch a new process lazily.
+- `--server-status` and JSON status expose checkpoint path/state/last success/error
+  and restore warnings. Invalid, partial, and interrupted writes preserve the
+  previous file.
+- The current transport still exposes one authoritative remote Session (`default`).
+  Named Session routing needs a Session selector on topology requests plus
+  Session-scoped terminal identity/diagnostics; that remains the final Slice 7
+  increment rather than being hidden inside terminal IDs.
+
+Repeatable Slice 7a manual test (use `build-ninja-release`):
+
+```powershell
+$exe = Resolve-Path .\build-ninja-release\draxul.exe
+$runtime = Join-Path $env:TEMP 'draxul-slice7-manual'
+& $exe --shutdown-server --server-runtime-dir $runtime 2>$null
+& $exe --experimental-remote-shell --server-runtime-dir $runtime
+```
+
+Launch the final line in a second PowerShell window. Create and rename a Space,
+add/rename a tab, and add a server-shell split. Close both UIs, then wait at least
+30 seconds and inspect the UI-free checkpoint:
+
+```powershell
+& $exe --server-status --server-runtime-dir $runtime
+Get-Content (Join-Path $runtime 'sessions\default.toml')
+& $exe --shutdown-server --server-runtime-dir $runtime
+& $exe --experimental-remote-shell --server-runtime-dir $runtime
+```
+
+The last launch should restore all ordered Spaces/tabs/panes. The split should keep
+its pane and terminal descriptor but attach to a new process under the new server
+epoch. A second UI should project the same restored topology. Stop the isolated
+server when finished:
+
+```powershell
+& $exe --shutdown-server --server-runtime-dir $runtime
+```
+
 ### Slice 8: agent runtime and control migration
 
 **Outcome:** agents continue to be detected and controlled with no UI attached.
