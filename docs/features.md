@@ -81,8 +81,11 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   split reconciliation preserves unchanged hosts instead of restarting them.
   `multi-terminal-v1` gives every `server_terminal` pane a distinct lazy server
   runtime and stable TerminalId; the real host adapter targets that identity, and
-  closing the shared pane removes its endpoint and process. Reorder, ratio, and
-  restart command routing remain pending behind the experimental server path.
+  closing the shared pane removes its endpoint and process. Tab moves, pane swaps,
+  keyboard resize, cell-snapped divider drag, and split equalization now submit
+  authoritative server commands and project back into every UI without moving
+  client-local focus. Terminal restart routing remains pending behind the
+  experimental server path.
 
 ---
 

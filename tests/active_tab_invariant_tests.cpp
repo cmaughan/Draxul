@@ -211,6 +211,14 @@ TEST_CASE("tab controller cycles, activates by index, and reorders the active ta
     CHECK(controller.active_tab_id() == 3);
     controller.activate_tab_by_index(0);
     CHECK(controller.active_tab_id() == 3);
+
+    REQUIRE(controller.reorder_projected_tabs({ 3, 1, 2 }));
+    CHECK(controller.active_tab_id() == 3);
+    CHECK(controller.tabs()[0]->id == 3);
+    CHECK(controller.tabs()[1]->id == 1);
+    CHECK(controller.tabs()[2]->id == 2);
+    CHECK_FALSE(controller.reorder_projected_tabs({ 3, 1 }));
+    CHECK_FALSE(controller.reorder_projected_tabs({ 3, 3, 2 }));
 }
 
 TEST_CASE("failed restore preserves the current tab collection", "[app][tab][session]")

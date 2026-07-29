@@ -1172,7 +1172,7 @@ $runtime = Join-Path $env:TEMP 'draxul-slice5-manual'
 
 **Outcome:** both UIs reflect Space, tab, pane, and split mutations.
 
-**Implementation status (2026-07-29):** first four vertical checkpoints implemented on
+**Implementation status (2026-07-29):** first five vertical checkpoints implemented on
 `codex/server-client-runtime`. `topology-v1` now supplies renderer-neutral snapshots,
 revision-checked/idempotent commands, server authority, and a polling client
 projection. Two headless clients converge in focused tests. Experimental remote UIs
@@ -1183,8 +1183,10 @@ each UI. Live projection reconciles stable pane identities so a split, close, or
 update does not restart unchanged client-local hosts. `multi-terminal-v1` now gives
 every `server_terminal` descriptor its own lazy server runtime and routes each
 `RemoteTerminalHost` by stable `TerminalId`; removing the descriptor removes the
-endpoint and process. Tab/pane reorder, UI-originated ratio commands, terminal restart
-routing, and the complete live two-window mutation demonstration remain.
+endpoint and process. Tab moves, pane swaps, keyboard/mouse ratio changes, and
+equalization now route through the server and project without changing client-local
+focus. Terminal restart routing and the complete live two-window mutation
+demonstration remain.
 
 **Work item:** [12 server-authoritative-topology -feature.md](../kanban/pending/12%20server-authoritative-topology%20-feature.md)
 
@@ -1213,8 +1215,9 @@ Checkpoint notes:
   retries; a repeated `(client_id, command_id)` is idempotent and returns the latest
   snapshot rather than rolling the caller backward.
 - Current automated gate in `build-ninja-release`: `[server][topology]` passes
-  57 assertions in 3 cases, `[host][remote-terminal][topology]` passes 10 assertions,
-  the app suite passes 4,096 assertions in 477 cases, and smoke passes.
+  68 assertions in 3 cases, `[host][remote-terminal][topology]` passes 10 assertions,
+  the core suite passes 30,712 assertions, the app suite passes 4,115 assertions in
+  478 cases, and smoke passes.
 - The app polls topology at 100 ms. It maps opaque server Space IDs to its existing
   local controller IDs, routes structural Space mutations back to the server, and
   deliberately never serializes the active Space into shared state.
@@ -1225,6 +1228,13 @@ Checkpoint notes:
 - Projected tabs are created without a placeholder host, so a new dynamic terminal
   never briefly attaches to the compatibility/default terminal. The descriptor's
   stable terminal identity is part of the saved launch value and host-reconcile key.
+- Server tab order is projected as an exact stable-ID permutation while each window
+  keeps its active tab. Pane swaps move stable pane/host identity through the split
+  tree rather than restarting the host.
+- Local divider IDs are reconstructed deterministically in pre-order and mapped to
+  opaque server node IDs. Keyboard resize and equalization submit immediately;
+  mouse movement is coalesced per SDL event batch and publishes the accepted ratio
+  back through the same snapshot path.
 
 Demonstration:
 

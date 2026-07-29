@@ -1196,8 +1196,9 @@ void App::wire_gui_actions()
     gui_deps.on_swap_pane = [this]() {
         if (topology_client_)
         {
-            push_toast(1,
-                "Pane reorder is not enabled for shared topology yet.");
+            std::string error;
+            if (!swap_remote_focused_pane(error))
+                push_toast(2, error);
             return;
         }
         if (active_pane_manager().swap_focused_with_next())
@@ -1220,12 +1221,6 @@ void App::wire_gui_actions()
     gui_deps.on_focus_up = [focus_pane]() { focus_pane(FocusDirection::Up); };
     gui_deps.on_focus_down = [focus_pane]() { focus_pane(FocusDirection::Down); };
     auto resize_pane = [this](FocusDirection dir) {
-        if (topology_client_)
-        {
-            push_toast(1,
-                "Shared split-ratio changes are not enabled yet.");
-            return;
-        }
         PaneManager& hm = active_pane_manager();
         DividerId id = hm.find_focused_ancestor_divider(dir);
         if (id == kInvalidDivider)
@@ -1236,6 +1231,20 @@ void App::wire_gui_actions()
         const float step = 0.05f;
         const float delta
             = (dir == FocusDirection::Right || dir == FocusDirection::Down) ? step : -step;
+        if (topology_client_)
+        {
+            const auto current = hm.divider_ratio(id);
+            if (!current)
+                return;
+            std::string error;
+            if (!set_remote_split_ratio(
+                    id, std::clamp(*current + delta, 0.1f, 0.9f),
+                    error))
+            {
+                push_toast(2, error);
+            }
+            return;
+        }
         const auto [cw, ch] = renderer_.grid()->cell_size_pixels();
         hm.nudge_divider(id, delta, cw, ch);
         mark_session_dirty();
@@ -1293,22 +1302,10 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_move_tab_left = [this]() {
-        if (topology_client_)
-        {
-            push_toast(1,
-                "Tab reorder is not enabled for shared topology yet.");
-            return;
-        }
         move_tab(-1);
         request_frame();
     };
     gui_deps.on_move_tab_right = [this]() {
-        if (topology_client_)
-        {
-            push_toast(1,
-                "Tab reorder is not enabled for shared topology yet.");
-            return;
-        }
         move_tab(1);
         request_frame();
     };
@@ -1342,8 +1339,9 @@ void App::wire_gui_actions()
     gui_deps.on_equalize_panes = [this]() {
         if (topology_client_)
         {
-            push_toast(1,
-                "Shared split-ratio changes are not enabled yet.");
+            std::string error;
+            if (!equalize_remote_splits(error))
+                push_toast(2, error);
             return;
         }
         active_pane_manager().equalize_splits(*this);
@@ -2125,6 +2123,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // hit tests, and every control request below.
         agent_controller_.begin_frame();
         process_control_requests();
+        flush_pending_remote_split_ratio();
         poll_remote_topology();
 
         // Safety net: detect window size changes that SDL may not deliver as
@@ -2767,6 +2766,13 @@ PaneManager::Deps App::make_pane_manager_deps(const Space* space)
     deps.owner_lifetime = host_owner_lifetime_;
     deps.allow_local_layout_mutation
         = !options_.enable_remote_topology;
+    if (options_.enable_remote_topology)
+    {
+        deps.request_projected_divider_ratio
+            = [this](DividerId divider_id, float ratio) {
+                  queue_remote_split_ratio(divider_id, ratio);
+              };
+    }
     deps.compute_viewport = [this](const PaneDescriptor& desc) {
         return viewport_from_descriptor(desc);
     };
@@ -2976,14 +2982,17 @@ bool App::apply_remote_topology_tabs(
 
         TabController& tabs = local_space->tab_controller;
         const int previously_active = tabs.active_tab_id();
+        std::unordered_set<int> reserved_local_tabs;
         std::unordered_set<int> claimed_local_tabs;
         for (const auto& [remote_tab_id, mapping]
             : topology_tab_to_local_)
         {
             if (mapping.first == local_space->id)
-                claimed_local_tabs.insert(mapping.second);
+                reserved_local_tabs.insert(mapping.second);
         }
 
+        std::vector<int> ordered_local_tabs;
+        ordered_local_tabs.reserve(remote_space.tabs.size());
         for (const TopologyTab& remote_tab : remote_space.tabs)
         {
             live_tab_ids.insert(remote_tab.tab_id);
@@ -2997,7 +3006,7 @@ bool App::apply_remote_topology_tabs(
                 int local_tab_id = -1;
                 for (const auto& local_tab : tabs.tabs())
                 {
-                    if (!claimed_local_tabs.contains(local_tab->id))
+                    if (!reserved_local_tabs.contains(local_tab->id))
                     {
                         local_tab_id = local_tab->id;
                         break;
@@ -3020,7 +3029,7 @@ bool App::apply_remote_topology_tabs(
                 }
                 topology_tab_to_local_[remote_tab.tab_id]
                     = { local_space->id, local_tab_id };
-                claimed_local_tabs.insert(local_tab_id);
+                reserved_local_tabs.insert(local_tab_id);
                 mapping = topology_tab_to_local_.find(
                     remote_tab.tab_id);
             }
@@ -3031,12 +3040,14 @@ bool App::apply_remote_topology_tabs(
                     *error = "Server tab identity moved between Spaces.";
                 return false;
             }
+            claimed_local_tabs.insert(mapping->second.second);
             if (!project_remote_tab(
                     remote_tab, local_space->id,
                     mapping->second.second, error))
             {
                 return false;
             }
+            ordered_local_tabs.push_back(mapping->second.second);
         }
 
         // The server owns the tab collection. Remove any locally restored
@@ -3049,6 +3060,12 @@ bool App::apply_remote_topology_tabs(
         }
         for (const int tab_id : unclaimed)
             tabs.close_tab(tab_id);
+        if (!tabs.reorder_projected_tabs(ordered_local_tabs))
+        {
+            if (error)
+                *error = "Could not apply authoritative tab order.";
+            return false;
+        }
 
         if (previously_active >= 0
             && claimed_local_tabs.contains(previously_active))
@@ -3081,6 +3098,7 @@ bool App::apply_remote_topology_tabs(
     {
         topology_tab_to_local_.erase(remote_tab_id);
         topology_tab_layout_signatures_.erase(remote_tab_id);
+        topology_tab_divider_nodes_.erase(remote_tab_id);
     }
 
     std::erase_if(topology_pane_to_leaf_,
@@ -3170,6 +3188,8 @@ bool App::project_remote_tab(const TopologyTab& remote,
     PaneManager::PaneLayoutSnapshot layout;
     std::unordered_set<std::string> visiting;
     std::unordered_set<std::string> projected_panes;
+    std::unordered_map<DividerId, std::string> divider_nodes;
+    DividerId next_divider_id = 0;
     LeafId maximum_leaf = kInvalidLeaf;
     std::function<std::unique_ptr<SplitTree::SnapshotNode>(
         const std::string&, size_t)>
@@ -3210,6 +3230,7 @@ bool App::project_remote_tab(const TopologyTab& remote,
         }
         else
         {
+            divider_nodes.emplace(next_divider_id++, source.node_id);
             result->direction
                 = source.direction
                     == TopologySplitDirection::Vertical
@@ -3319,6 +3340,8 @@ bool App::project_remote_tab(const TopologyTab& remote,
     }
     topology_tab_layout_signatures_[remote.tab_id]
         = structural_signature;
+    topology_tab_divider_nodes_[remote.tab_id]
+        = std::move(divider_nodes);
     local_tab->initialized = true;
     return true;
 }
@@ -3464,6 +3487,142 @@ bool App::close_remote_focused_pane(std::string& error)
             .pane_id = pane_id,
         },
         error);
+}
+
+bool App::swap_remote_focused_pane(std::string& error)
+{
+    const SpaceId local_space_id
+        = space_controller_.active_space_id();
+    const auto space_id = remote_space_id(local_space_id);
+    const auto tab_id = remote_tab_id(
+        local_space_id, active_tab_id());
+    PaneManager& panes = active_pane_manager();
+    const LeafId focused = panes.focused_leaf();
+    const LeafId target = active_tree().next_leaf_after(focused);
+    const std::string pane_id = panes.pane_id(focused);
+    const std::string target_pane_id = panes.pane_id(target);
+    if (!space_id || !tab_id || pane_id.empty()
+        || target_pane_id.empty())
+    {
+        error = "Shared panes could not be resolved for reordering.";
+        return false;
+    }
+    return execute_remote_topology_command({
+            .kind = TopologyCommandKind::SwapPane,
+            .space_id = *space_id,
+            .tab_id = *tab_id,
+            .pane_id = pane_id,
+            .target_pane_id = target_pane_id,
+        },
+        error);
+}
+
+bool App::set_remote_split_ratio(
+    DividerId divider_id, float ratio, std::string& error)
+{
+    const SpaceId local_space_id
+        = space_controller_.active_space_id();
+    const auto space_id = remote_space_id(local_space_id);
+    const auto tab_id = remote_tab_id(
+        local_space_id, active_tab_id());
+    if (!space_id || !tab_id)
+    {
+        error = "Shared split could not be resolved.";
+        return false;
+    }
+    const auto tab_nodes
+        = topology_tab_divider_nodes_.find(*tab_id);
+    if (tab_nodes == topology_tab_divider_nodes_.end())
+    {
+        error = "Shared split mapping is unavailable.";
+        return false;
+    }
+    const auto node = tab_nodes->second.find(divider_id);
+    if (node == tab_nodes->second.end())
+    {
+        error = "Shared split could not be resolved.";
+        return false;
+    }
+    return execute_remote_topology_command({
+            .kind = TopologyCommandKind::SetSplitRatio,
+            .space_id = *space_id,
+            .tab_id = *tab_id,
+            .node_id = node->second,
+            .ratio = std::clamp(ratio, 0.1f, 0.9f),
+        },
+        error);
+}
+
+bool App::equalize_remote_splits(std::string& error)
+{
+    const SpaceId local_space_id
+        = space_controller_.active_space_id();
+    const auto space_id = remote_space_id(local_space_id);
+    const auto tab_id = remote_tab_id(
+        local_space_id, active_tab_id());
+    if (!space_id || !tab_id)
+    {
+        error = "Shared tab could not be resolved.";
+        return false;
+    }
+    return execute_remote_topology_command({
+            .kind = TopologyCommandKind::EqualizeSplits,
+            .space_id = *space_id,
+            .tab_id = *tab_id,
+        },
+        error);
+}
+
+void App::queue_remote_split_ratio(
+    DividerId divider_id, float ratio)
+{
+    if (!topology_client_)
+        return;
+    const auto current
+        = active_pane_manager().divider_ratio(divider_id);
+    if (current && std::abs(*current - ratio) < 0.0001f)
+        return;
+    const SpaceId local_space_id
+        = space_controller_.active_space_id();
+    const auto space_id = remote_space_id(local_space_id);
+    const auto tab_id = remote_tab_id(
+        local_space_id, active_tab_id());
+    if (!space_id || !tab_id)
+        return;
+    const auto tab_nodes
+        = topology_tab_divider_nodes_.find(*tab_id);
+    if (tab_nodes == topology_tab_divider_nodes_.end())
+        return;
+    const auto node = tab_nodes->second.find(divider_id);
+    if (node == tab_nodes->second.end())
+        return;
+    pending_topology_ratio_ = PendingTopologyRatio{
+        .space_id = *space_id,
+        .tab_id = *tab_id,
+        .node_id = node->second,
+        .ratio = std::clamp(ratio, 0.1f, 0.9f),
+    };
+}
+
+void App::flush_pending_remote_split_ratio()
+{
+    if (!pending_topology_ratio_)
+        return;
+    PendingTopologyRatio pending
+        = std::move(*pending_topology_ratio_);
+    pending_topology_ratio_.reset();
+    std::string error;
+    if (!execute_remote_topology_command({
+            .kind = TopologyCommandKind::SetSplitRatio,
+            .space_id = std::move(pending.space_id),
+            .tab_id = std::move(pending.tab_id),
+            .node_id = std::move(pending.node_id),
+            .ratio = pending.ratio,
+        },
+            error))
+    {
+        push_toast(2, error);
+    }
 }
 
 std::optional<std::string> App::remote_space_id(
@@ -4177,6 +4336,31 @@ void App::prev_tab()
 
 void App::move_tab(int direction)
 {
+    if (topology_client_)
+    {
+        const SpaceId local_space_id
+            = space_controller_.active_space_id();
+        const auto space_id = remote_space_id(local_space_id);
+        const auto tab_id = remote_tab_id(
+            local_space_id, active_tab_id());
+        if (!space_id || !tab_id)
+        {
+            push_toast(2, "Shared tab could not be resolved.");
+            return;
+        }
+        std::string error;
+        if (!execute_remote_topology_command({
+                .kind = TopologyCommandKind::MoveTab,
+                .space_id = *space_id,
+                .tab_id = *tab_id,
+                .move_delta = direction,
+            },
+                error))
+        {
+            push_toast(2, error);
+        }
+        return;
+    }
     active_tab_controller().move_tab(direction);
     mark_session_dirty();
 }

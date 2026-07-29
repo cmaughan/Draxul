@@ -110,6 +110,12 @@ public:
     // Ratio is clamped to [0.1, 0.9].
     void set_divider_ratio(DividerId id, float ratio);
 
+    // Read or calculate a divider ratio without mutating the tree. The pixel
+    // variant uses the same clamping and optional cell snapping as a drag.
+    std::optional<float> divider_ratio(DividerId id) const;
+    std::optional<float> divider_ratio_from_pixel(
+        DividerId id, int px, int py, int snap_step = 0) const;
+
     // Update a divider's ratio from a mouse pixel position. The pixel is mapped
     // to a position within the divider's parent rect along the split axis.
     // If snap_step > 0, the resulting first-child dimension is quantized to a

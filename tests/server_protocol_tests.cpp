@@ -277,6 +277,22 @@ TEST_CASE("topology protocol round-trips neutral split and pane values",
         topology_command_to_json(command), error);
     INFO(error);
     REQUIRE(decoded_command == command);
+
+    TopologyCommand reorder{
+        .client_id = "client-a",
+        .command_id = "command-2",
+        .expected_revision = 8,
+        .kind = TopologyCommandKind::SwapPane,
+        .space_id = "space-1",
+        .tab_id = "tab-1",
+        .pane_id = "pane-1",
+        .target_pane_id = "pane-2",
+        .move_delta = -1,
+    };
+    const auto decoded_reorder = topology_command_from_json(
+        topology_command_to_json(reorder), error);
+    INFO(error);
+    REQUIRE(decoded_reorder == reorder);
 }
 
 TEST_CASE("topology protocol rejects dangling split children",

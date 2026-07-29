@@ -42,9 +42,13 @@ presentation state.
 - Added `multi-terminal-v1`: lazy per-pane server runtimes, stable TerminalId routing
   through the real host adapter, endpoint cleanup on topology removal, and
   placeholder-free projected-tab construction.
-- Ninja Release `[server][topology]`: 57 assertions in 3 cases.
+- Added server-routed tab moves, pane swaps, keyboard/mouse split ratios, and
+  equalization. Projection preserves local active routes and stable live hosts;
+  divider drags report desired state without mutating the client-owned tree.
+- Ninja Release `[server][topology]`: 68 assertions in 3 cases.
 - Ninja Release `[host][remote-terminal][topology]`: 10 assertions in 1 case.
-- Ninja Release app suite: 4,096 assertions in 477 cases; smoke passed.
+- Ninja Release core suite: 30,712 assertions; app suite: 4,115 assertions in
+  478 cases; smoke passed.
 
 ## Rollback
 

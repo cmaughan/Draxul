@@ -90,10 +90,13 @@ enum class TopologyCommandKind
     CreateTab,
     RenameTab,
     CloseTab,
+    MoveTab,
     SplitPane,
     ClosePane,
     RenamePane,
+    SwapPane,
     SetSplitRatio,
+    EqualizeSplits,
 };
 
 struct TopologyCommand
@@ -105,11 +108,13 @@ struct TopologyCommand
     std::string space_id;
     std::string tab_id;
     std::string pane_id;
+    std::string target_pane_id;
     std::string node_id;
     std::string name;
     std::string root_directory;
     TopologySplitDirection direction = TopologySplitDirection::Vertical;
     float ratio = 0.5f;
+    int move_delta = 0;
     TopologyPaneDomain pane_domain = TopologyPaneDomain::ClientLocal;
     std::string terminal_id;
     std::string client_host_kind;

@@ -1048,7 +1048,8 @@ IHost* PaneManager::host_at_point(int px, int py)
 std::optional<PaneManager::DividerHitInfo> PaneManager::divider_at_point(int px, int py) const
 {
     PERF_MEASURE();
-    if (!deps_.allow_local_layout_mutation)
+    if (!deps_.allow_local_layout_mutation
+        && !deps_.request_projected_divider_ratio)
         return std::nullopt;
     auto result = tree_.hit_test(px, py);
     if (const auto* div_hit = std::get_if<SplitTree::DividerHit>(&result))
@@ -1072,8 +1073,6 @@ int snap_step_for_divider(const SplitTree& tree, DividerId id, int cell_w, int c
 void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int cell_w, int cell_h)
 {
     PERF_MEASURE();
-    if (!deps_.allow_local_layout_mutation)
-        return;
     if (zoomed_)
         return;
     // SplitTree preserves its own origin_x/origin_y/total_w/total_h from the
@@ -1081,6 +1080,18 @@ void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int ce
     // through the tree directly rather than recompute_viewports() — the latter
     // would override the chrome reservation with (0, 0) and hide the tab bar.
     const int snap = snap_step_for_divider(tree_, id, cell_w, cell_h);
+    if (!deps_.allow_local_layout_mutation)
+    {
+        if (deps_.request_projected_divider_ratio)
+        {
+            if (const auto ratio
+                = tree_.divider_ratio_from_pixel(id, px, py, snap))
+            {
+                deps_.request_projected_divider_ratio(id, *ratio);
+            }
+        }
+        return;
+    }
     tree_.update_divider_from_pixel(id, px, py, snap);
     update_all_viewports();
 }
@@ -1095,6 +1106,12 @@ void PaneManager::nudge_divider(DividerId id, float delta, int cell_w, int cell_
     const int snap = snap_step_for_divider(tree_, id, cell_w, cell_h);
     tree_.nudge_divider(id, delta, snap);
     update_all_viewports();
+}
+
+std::optional<float> PaneManager::divider_ratio(
+    DividerId id) const
+{
+    return tree_.divider_ratio(id);
 }
 
 DividerId PaneManager::find_focused_ancestor_divider(FocusDirection direction) const

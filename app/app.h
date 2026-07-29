@@ -211,6 +211,12 @@ private:
     bool split_remote_focused(TopologySplitDirection direction,
         std::optional<HostKind> host_kind, std::string& error);
     bool close_remote_focused_pane(std::string& error);
+    bool swap_remote_focused_pane(std::string& error);
+    bool set_remote_split_ratio(
+        DividerId divider_id, float ratio, std::string& error);
+    bool equalize_remote_splits(std::string& error);
+    void queue_remote_split_ratio(DividerId divider_id, float ratio);
+    void flush_pending_remote_split_ratio();
     std::optional<std::string> remote_space_id(SpaceId local_id) const;
     std::optional<std::string> remote_tab_id(
         SpaceId local_space_id, int local_tab_id) const;
@@ -306,6 +312,17 @@ private:
     std::unordered_map<std::string, LeafId> topology_pane_to_leaf_;
     std::unordered_map<std::string, std::string>
         topology_tab_layout_signatures_;
+    std::unordered_map<std::string,
+        std::unordered_map<DividerId, std::string>>
+        topology_tab_divider_nodes_;
+    struct PendingTopologyRatio
+    {
+        std::string space_id;
+        std::string tab_id;
+        std::string node_id;
+        float ratio = 0.5f;
+    };
+    std::optional<PendingTopologyRatio> pending_topology_ratio_;
     LeafId next_topology_leaf_id_ = 0;
     uint64_t next_topology_command_serial_ = 1;
     std::chrono::steady_clock::time_point next_topology_poll_{};

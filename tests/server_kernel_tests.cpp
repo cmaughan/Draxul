@@ -627,6 +627,63 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(removed_terminal.last_error_code()
         == "terminal_not_found");
 
+    const auto& two_pane_tab
+        = first.snapshot().spaces.front().tabs.front();
+    REQUIRE(two_pane_tab.panes.size() == 2);
+    const std::string root_node_id = two_pane_tab.root_node_id;
+    const std::string first_leaf_pane_id
+        = two_pane_tab.nodes[1].pane_id;
+    const std::string second_leaf_pane_id
+        = two_pane_tab.nodes[2].pane_id;
+
+    TopologyCommand resize_split{
+        .command_id = "resize-split-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::SetSplitRatio,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+        .node_id = root_node_id,
+        .ratio = 0.7f,
+    };
+    TopologyCommandResult resized;
+    REQUIRE(first.execute(resize_split, resized, error));
+    REQUIRE(resized.snapshot.spaces.front()
+                .tabs.front()
+                .nodes.front()
+                .ratio
+        == Catch::Approx(0.7f));
+
+    TopologyCommand swap_panes{
+        .command_id = "swap-panes-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::SwapPane,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+        .pane_id = first_leaf_pane_id,
+        .target_pane_id = second_leaf_pane_id,
+    };
+    TopologyCommandResult swapped;
+    REQUIRE(first.execute(swap_panes, swapped, error));
+    const auto& swapped_nodes
+        = swapped.snapshot.spaces.front().tabs.front().nodes;
+    REQUIRE(swapped_nodes[1].pane_id == second_leaf_pane_id);
+    REQUIRE(swapped_nodes[2].pane_id == first_leaf_pane_id);
+
+    TopologyCommand equalize{
+        .command_id = "equalize-splits-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::EqualizeSplits,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+    };
+    TopologyCommandResult equalized;
+    REQUIRE(first.execute(equalize, equalized, error));
+    REQUIRE(equalized.snapshot.spaces.front()
+                .tabs.front()
+                .nodes.front()
+                .ratio
+        == Catch::Approx(0.5f));
+
     TopologyCommand create_tab{
         .command_id = "create-tab-1",
         .expected_revision = first.snapshot().revision,
@@ -658,6 +715,19 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(first.execute(rename_tab, renamed_tab, error));
     REQUIRE(renamed_tab.snapshot.spaces.front().tabs.back().name
         == "Shared PowerShell");
+
+    TopologyCommand move_tab{
+        .command_id = "move-tab-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::MoveTab,
+        .space_id = initial_space_id,
+        .tab_id = created_tab.tab_id,
+        .move_delta = -1,
+    };
+    TopologyCommandResult moved_tab;
+    REQUIRE(first.execute(move_tab, moved_tab, error));
+    REQUIRE(moved_tab.snapshot.spaces.front().tabs.front().tab_id
+        == created_tab.tab_id);
 
     REQUIRE(second.poll(changed, error));
     REQUIRE(changed);

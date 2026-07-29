@@ -284,14 +284,20 @@ std::string_view to_string(TopologyCommandKind kind)
         return "rename_tab";
     case TopologyCommandKind::CloseTab:
         return "close_tab";
+    case TopologyCommandKind::MoveTab:
+        return "move_tab";
     case TopologyCommandKind::SplitPane:
         return "split_pane";
     case TopologyCommandKind::ClosePane:
         return "close_pane";
     case TopologyCommandKind::RenamePane:
         return "rename_pane";
+    case TopologyCommandKind::SwapPane:
+        return "swap_pane";
     case TopologyCommandKind::SetSplitRatio:
         return "set_split_ratio";
+    case TopologyCommandKind::EqualizeSplits:
+        return "equalize_splits";
     }
     return "create_space";
 }
@@ -311,14 +317,20 @@ std::optional<TopologyCommandKind> parse_topology_command_kind(
         return TopologyCommandKind::RenameTab;
     if (value == "close_tab")
         return TopologyCommandKind::CloseTab;
+    if (value == "move_tab")
+        return TopologyCommandKind::MoveTab;
     if (value == "split_pane")
         return TopologyCommandKind::SplitPane;
     if (value == "close_pane")
         return TopologyCommandKind::ClosePane;
     if (value == "rename_pane")
         return TopologyCommandKind::RenamePane;
+    if (value == "swap_pane")
+        return TopologyCommandKind::SwapPane;
     if (value == "set_split_ratio")
         return TopologyCommandKind::SetSplitRatio;
+    if (value == "equalize_splits")
+        return TopologyCommandKind::EqualizeSplits;
     return std::nullopt;
 }
 
@@ -377,11 +389,13 @@ nlohmann::json topology_command_to_json(
         { "space_id", command.space_id },
         { "tab_id", command.tab_id },
         { "pane_id", command.pane_id },
+        { "target_pane_id", command.target_pane_id },
         { "node_id", command.node_id },
         { "name", command.name },
         { "root_directory", command.root_directory },
         { "direction", to_string(command.direction) },
         { "ratio", command.ratio },
+        { "move_delta", command.move_delta },
         { "pane_domain", to_string(command.pane_domain) },
         { "terminal_id", command.terminal_id },
         { "client_host_kind", command.client_host_kind },
@@ -418,6 +432,22 @@ std::optional<TopologyCommand> topology_command_from_json(
     {
         error = "Invalid topology command.";
         return std::nullopt;
+    }
+    if (value.contains("target_pane_id")
+        && !read_string(value, "target_pane_id",
+            command.target_pane_id, true))
+    {
+        error = "Invalid topology command target pane.";
+        return std::nullopt;
+    }
+    if (value.contains("move_delta"))
+    {
+        if (!value["move_delta"].is_number_integer())
+        {
+            error = "Invalid topology command move delta.";
+            return std::nullopt;
+        }
+        command.move_delta = value["move_delta"].get<int>();
     }
     const auto parsed_kind = parse_topology_command_kind(kind);
     const auto parsed_direction

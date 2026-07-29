@@ -339,12 +339,46 @@ bool TopologyService::apply(const TopologyCommand& command,
             });
         return true;
     }
+    if (command.kind == TopologyCommandKind::MoveTab)
+    {
+        if (command.move_delta != -1 && command.move_delta != 1)
+            return reject("invalid_move", "Tab move must be -1 or 1.");
+        const auto current = std::find_if(
+            space->tabs.begin(), space->tabs.end(),
+            [&](const TopologyTab& candidate) {
+                return candidate.tab_id == command.tab_id;
+            });
+        if (current == space->tabs.end())
+            return reject("tab_not_found", "Topology tab was not found.");
+        if (space->tabs.size() <= 1)
+            return true;
+        const auto index = static_cast<size_t>(
+            std::distance(space->tabs.begin(), current));
+        const auto count = static_cast<int>(space->tabs.size());
+        const auto target = static_cast<size_t>(
+            (static_cast<int>(index) + command.move_delta + count) % count);
+        std::swap(space->tabs[index], space->tabs[target]);
+        return true;
+    }
     if (command.kind == TopologyCommandKind::RenamePane)
     {
         TopologyPane* pane = find_pane(*tab, command.pane_id);
         if (!pane)
             return reject("pane_not_found", "Topology pane was not found.");
         pane->name = command.name;
+        return true;
+    }
+    if (command.kind == TopologyCommandKind::SwapPane)
+    {
+        if (command.pane_id == command.target_pane_id)
+            return reject("invalid_swap", "Pane swap requires two panes.");
+        TopologyNode* first
+            = find_leaf_for_pane(*tab, command.pane_id);
+        TopologyNode* second
+            = find_leaf_for_pane(*tab, command.target_pane_id);
+        if (!first || !second)
+            return reject("pane_not_found", "Topology pane was not found.");
+        std::swap(first->pane_id, second->pane_id);
         return true;
     }
     if (command.kind == TopologyCommandKind::SetSplitRatio)
@@ -359,6 +393,15 @@ bool TopologyService::apply(const TopologyCommand& command,
                 "invalid_ratio", "Split ratio must be between 0.1 and 0.9.");
         }
         node->ratio = command.ratio;
+        return true;
+    }
+    if (command.kind == TopologyCommandKind::EqualizeSplits)
+    {
+        for (TopologyNode& node : tab->nodes)
+        {
+            if (!node.is_leaf)
+                node.ratio = 0.5f;
+        }
         return true;
     }
     if (command.kind == TopologyCommandKind::SplitPane)

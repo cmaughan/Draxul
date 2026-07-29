@@ -44,6 +44,10 @@ public:
     void next_tab();
     void prev_tab();
     void move_tab(int direction);
+    // Reorder projected tabs to an authoritative stable-ID sequence without
+    // changing the local active tab. Returns false unless the IDs are an
+    // exact permutation of the current collection.
+    bool reorder_projected_tabs(const std::vector<int>& ordered_ids);
     void activate_tab_by_index(int one_based_index);
 
     Tab* find_active_tab() noexcept;

@@ -196,6 +196,36 @@ void TabController::move_tab(int direction)
     }
 }
 
+bool TabController::reorder_projected_tabs(
+    const std::vector<int>& ordered_ids)
+{
+    if (ordered_ids.size() != tabs_.size())
+        return false;
+
+    std::unordered_set<int> current_ids;
+    for (const auto& tab : tabs_)
+        current_ids.insert(tab->id);
+    std::unordered_set<int> requested_ids(
+        ordered_ids.begin(), ordered_ids.end());
+    if (current_ids != requested_ids
+        || requested_ids.size() != ordered_ids.size())
+    {
+        return false;
+    }
+
+    Tabs reordered;
+    reordered.reserve(tabs_.size());
+    for (const int id : ordered_ids)
+    {
+        const auto found = std::find_if(
+            tabs_.begin(), tabs_.end(),
+            [id](const auto& tab) { return tab && tab->id == id; });
+        reordered.push_back(std::move(*found));
+    }
+    tabs_ = std::move(reordered);
+    return true;
+}
+
 void TabController::activate_tab_by_index(int one_based_index)
 {
     const int index = one_based_index - 1;

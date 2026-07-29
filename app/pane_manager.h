@@ -80,6 +80,10 @@ public:
         // topology. Projection reconciliation can still change the tree,
         // while local split commands and divider drags cannot diverge it.
         bool allow_local_layout_mutation = true;
+        // A projected manager remains interactive, but reports the desired
+        // ratio to App so the server can publish the authoritative tree.
+        std::function<void(DividerId, float)>
+            request_projected_divider_ratio;
 
         // Converts a PaneDescriptor (pixel region) to a full HostViewport (with cols/rows/padding).
         // Provided by App since it owns the font metrics and UI panel layout.
@@ -229,6 +233,7 @@ public:
     // Nudge a divider by a fixed delta (positive grows the first child).
     // cell_w/cell_h quantize the resulting divider position to cell boundaries.
     void nudge_divider(DividerId id, float delta, int cell_w = 0, int cell_h = 0);
+    std::optional<float> divider_ratio(DividerId id) const;
 
     // Find an ancestor divider above the focused leaf in the given direction.
     DividerId find_focused_ancestor_divider(FocusDirection direction) const;

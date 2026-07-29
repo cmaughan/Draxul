@@ -90,10 +90,17 @@ struct PaneManagerHarness
     float display_ppi = 96.0f;
     std::vector<LifetimeTestHost*> created_hosts;
     std::vector<std::shared_ptr<int>> shutdown_counters;
+    bool allow_local_layout_mutation = true;
+    std::function<void(DividerId, float)>
+        request_projected_divider_ratio;
     PaneManager manager;
 
-    PaneManagerHarness()
-        : manager(make_deps())
+    explicit PaneManagerHarness(
+        bool allow_mutation = true,
+        std::function<void(DividerId, float)> ratio_callback = {})
+        : allow_local_layout_mutation(allow_mutation)
+        , request_projected_divider_ratio(std::move(ratio_callback))
+        , manager(make_deps())
     {
         TextServiceConfig ts_cfg;
         ts_cfg.font_path = bundled_font_path();
@@ -122,6 +129,10 @@ struct PaneManagerHarness
         deps.grid_renderer = &renderer;
         deps.text_service = &text_service;
         deps.display_ppi = &display_ppi;
+        deps.allow_local_layout_mutation
+            = allow_local_layout_mutation;
+        deps.request_projected_divider_ratio
+            = request_projected_divider_ratio;
         deps.compute_viewport = [](const PaneDescriptor& desc) {
             HostViewport viewport;
             viewport.pixel_pos = desc.pixel_pos;
@@ -737,6 +748,48 @@ TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
     CHECK(*original_shutdown == 0);
     REQUIRE(harness.shutdown_counters.size() == 2);
     CHECK(*harness.shutdown_counters[1] == 1);
+}
+
+TEST_CASE("pane manager: projected divider drag reports without local mutation",
+    "[pane_manager][topology]")
+{
+    std::optional<std::pair<DividerId, float>> requested;
+    PaneManagerHarness harness(false,
+        [&](DividerId id, float ratio) {
+            requested = { id, ratio };
+        });
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = { .kind = HostKind::PowerShell },
+            .pane_id = "shared-pane-2",
+        },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    REQUIRE(harness.manager.divider_ratio(0)
+        == Catch::Approx(0.5f));
+
+    harness.manager.update_divider_from_pixel(
+        0, 600, 300, 0, 0);
+    REQUIRE(requested);
+    CHECK(requested->first == 0);
+    CHECK(requested->second > 0.7f);
+    CHECK(harness.manager.divider_ratio(0)
+        == Catch::Approx(0.5f));
 }
 
 TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",
