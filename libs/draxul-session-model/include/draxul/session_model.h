@@ -53,6 +53,9 @@ struct SessionSavedLaunchOptions
     std::string source_path;
     std::vector<std::string> startup_commands;
     std::string remote_terminal_id;
+    // Preserves a server topology's client-local host descriptor when it is
+    // more specific than, or intentionally aliases, HostKind.
+    std::string client_host_kind;
     std::string pty_capture_file;
 };
 

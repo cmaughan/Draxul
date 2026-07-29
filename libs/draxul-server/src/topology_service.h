@@ -31,6 +31,8 @@ class TopologyService
 public:
     explicit TopologyService(std::string session_id = "default",
         TopologyServiceCallbacks callbacks = {});
+    TopologyService(TopologySnapshot snapshot,
+        TopologyServiceCallbacks callbacks);
 
     bool handles(std::string_view method) const;
     ControlMethodResult handle(

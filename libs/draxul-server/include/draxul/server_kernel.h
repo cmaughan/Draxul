@@ -32,6 +32,7 @@ struct ServerStartResult
 struct ServerKernelOptions
 {
     std::filesystem::path runtime_directory;
+    std::filesystem::path session_state_file;
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::string build_version;
@@ -44,6 +45,9 @@ struct ServerKernelOptions
         terminal_environment;
     int terminal_scrollback_lines = 10000;
 };
+
+std::filesystem::path server_session_state_path(
+    const std::filesystem::path& runtime_directory);
 
 class ServerKernel
 {

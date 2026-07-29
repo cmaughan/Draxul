@@ -25,6 +25,8 @@ bool save_session_state(
     const SessionSnapshot& state, std::string* error = nullptr);
 bool save_session_state_to_path(const SessionSnapshot& state,
     const std::filesystem::path& path, std::string* error = nullptr);
+std::optional<SessionSnapshot> load_session_state_from_path(
+    const std::filesystem::path& path, std::string* error = nullptr);
 bool delete_session_state(
     std::string_view session_id, std::string* error = nullptr);
 std::optional<SessionSnapshot> load_session_state(

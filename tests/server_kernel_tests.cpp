@@ -7,6 +7,7 @@
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_state.h>
 #include <draxul/topology_client.h>
 
 #include <fstream>
@@ -899,6 +900,176 @@ TEST_CASE("server-owned shell rejects unsupported launch kinds clearly",
         != std::string::npos);
 
     run_guard.join();
+}
+
+TEST_CASE("server topology checkpoints and cold-restores stable terminal descriptors",
+    "[server][topology][persistence]")
+{
+    TempDir temp("draxul-server-persistence");
+    const auto checkpoint = server_session_state_path(temp.path);
+    std::string dynamic_terminal_id;
+    std::string dynamic_pane_id;
+    uint64_t original_process_id = 0;
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .epoch_override = "persistence-first",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        TopologyClient client({
+            .runtime_directory = temp.path,
+            .client_id = "persistence-writer",
+        });
+        std::string error;
+        REQUIRE(client.refresh(error));
+
+        TopologyCommand create_space{
+            .command_id = "persist-space",
+            .expected_revision = client.snapshot().revision,
+            .kind = TopologyCommandKind::CreateSpace,
+            .name = "Restored Space",
+            .root_directory = "D:/restored",
+        };
+        TopologyCommandResult created;
+        REQUIRE(client.execute(create_space, created, error));
+
+        const auto& first_space = client.snapshot().spaces.front();
+        const auto& first_tab = first_space.tabs.front();
+        TopologyCommand split{
+            .command_id = "persist-terminal",
+            .expected_revision = client.snapshot().revision,
+            .kind = TopologyCommandKind::SplitPane,
+            .space_id = first_space.space_id,
+            .tab_id = first_tab.tab_id,
+            .pane_id = first_tab.panes.front().pane_id,
+            .name = "Persistent Shell",
+            .direction = TopologySplitDirection::Horizontal,
+            .pane_domain = TopologyPaneDomain::ServerTerminal,
+        };
+        TopologyCommandResult split_result;
+        REQUIRE(client.execute(split, split_result, error));
+        const TopologyPane& dynamic
+            = split_result.snapshot.spaces.front()
+                  .tabs.front()
+                  .panes.back();
+        dynamic_terminal_id = dynamic.terminal_id;
+        dynamic_pane_id = dynamic.pane_id;
+
+        RemoteTerminalClient terminal({
+            .runtime_directory = temp.path,
+            .client_id = "persistence-terminal-first",
+            .expected_server_epoch = "persistence-first",
+            .method_prefix = "terminal",
+            .terminal_id = dynamic_terminal_id,
+        });
+        REQUIRE(terminal.attach(error));
+        original_process_id = terminal.projection().pane().process_id;
+        REQUIRE(original_process_id != 0);
+        run_guard.join();
+    }
+
+    REQUIRE(std::filesystem::exists(checkpoint));
+    std::string load_error;
+    auto saved = load_session_state_from_path(
+        checkpoint, &load_error);
+    INFO(load_error);
+    REQUIRE(saved);
+    REQUIRE(saved->spaces.size() == 2);
+    REQUIRE(saved->spaces.back().name == "Restored Space");
+    auto& saved_panes
+        = saved->spaces.front().tabs.front().pane_layout.panes;
+    const auto saved_dynamic = std::ranges::find(
+        saved_panes, dynamic_pane_id,
+        &SessionPaneSnapshot::pane_id);
+    REQUIRE(saved_dynamic != saved_panes.end());
+    saved_dynamic->agent = AgentIdentity{
+        .profile_id = "codex",
+        .kind = "codex",
+        .display_name = "Codex",
+        .instance_id = "persisted-agent",
+    };
+    saved_dynamic->agent_session = AgentSessionRef{
+        .source = "draxul:codex",
+        .agent_kind = "codex",
+        .integration_version = 1,
+        .sequence = 1,
+        .kind = AgentSessionRefKind::Id,
+        .value = "persisted-session",
+    };
+    saved_dynamic->restore_policy
+        = AgentRestorePolicy::ResumeIfAvailable;
+    REQUIRE(save_session_state_to_path(
+        *saved, checkpoint, &load_error));
+    const auto checkpoint_time
+        = std::filesystem::last_write_time(checkpoint);
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .epoch_override = "persistence-second",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        REQUIRE(std::filesystem::last_write_time(checkpoint)
+            == checkpoint_time);
+        ServerRunGuard run_guard(server);
+        TopologyClient client({
+            .runtime_directory = temp.path,
+            .client_id = "persistence-reader",
+        });
+        std::string error;
+        REQUIRE(client.refresh(error));
+        REQUIRE(client.snapshot().spaces.size() == 2);
+        REQUIRE(client.snapshot().spaces.back().name
+            == "Restored Space");
+        REQUIRE(client.snapshot().spaces.back().root_directory
+            == "D:/restored");
+        REQUIRE(client.snapshot().spaces.back()
+                    .tabs.front()
+                    .panes.front()
+                    .domain
+            == TopologyPaneDomain::ClientLocal);
+        REQUIRE(client.snapshot().spaces.back()
+                    .tabs.front()
+                    .panes.front()
+                    .client_host_kind
+            == "platform_default");
+
+        const auto& restored_panes
+            = client.snapshot().spaces.front()
+                  .tabs.front()
+                  .panes;
+        const auto dynamic = std::ranges::find(
+            restored_panes, dynamic_terminal_id,
+            &TopologyPane::terminal_id);
+        REQUIRE(dynamic != restored_panes.end());
+        REQUIRE(dynamic->pane_id == dynamic_pane_id);
+        REQUIRE(dynamic->agent);
+        REQUIRE(dynamic->agent->instance_id
+            == "persisted-agent");
+        REQUIRE(dynamic->agent_session);
+        REQUIRE(dynamic->agent_session->value
+            == "persisted-session");
+        REQUIRE(dynamic->restore_policy
+            == AgentRestorePolicy::ResumeIfAvailable);
+
+        RemoteTerminalClient terminal({
+            .runtime_directory = temp.path,
+            .client_id = "persistence-terminal-second",
+            .expected_server_epoch = "persistence-second",
+            .method_prefix = "terminal",
+            .terminal_id = dynamic_terminal_id,
+        });
+        REQUIRE(terminal.attach(error));
+        REQUIRE(terminal.projection().pane().process_id != 0);
+        REQUIRE(terminal.projection().pane().process_id
+            != original_process_id);
+        REQUIRE(terminal.projection().version().generation == 1);
+        run_guard.join();
+    }
 }
 
 TEST_CASE("remote alternate screen preserves Unicode and resize semantics",

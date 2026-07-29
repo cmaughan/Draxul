@@ -25,15 +25,102 @@ bool read_string(const nlohmann::json& value, std::string_view key,
     return valid_text(target, allow_empty);
 }
 
+nlohmann::json agent_to_json(const TopologyPane& pane)
+{
+    nlohmann::json agent{
+        { "profile_id", pane.agent->profile_id },
+        { "kind", pane.agent->kind },
+        { "display_name", pane.agent->display_name },
+        { "instance_id", pane.agent->instance_id },
+        { "origin", to_string(pane.agent->origin) },
+        { "restore_policy", to_string(pane.restore_policy) },
+    };
+    if (pane.agent_session)
+    {
+        agent["session"] = {
+            { "source", pane.agent_session->source },
+            { "agent_kind", pane.agent_session->agent_kind },
+            { "integration_version",
+                pane.agent_session->integration_version },
+            { "sequence", pane.agent_session->sequence },
+            { "kind", to_string(pane.agent_session->kind) },
+            { "value", pane.agent_session->value },
+        };
+    }
+    return agent;
+}
+
+bool read_agent(const nlohmann::json& value, TopologyPane& pane)
+{
+    if (!value.is_object())
+        return false;
+    AgentIdentity identity;
+    std::string origin;
+    std::string policy;
+    if (!read_string(value, "profile_id", identity.profile_id, true)
+        || !read_string(value, "kind", identity.kind)
+        || !read_string(value, "display_name", identity.display_name)
+        || !read_string(value, "instance_id", identity.instance_id)
+        || !read_string(value, "origin", origin)
+        || !read_string(value, "restore_policy", policy))
+    {
+        return false;
+    }
+    if (origin == "managed")
+        identity.origin = AgentIdentityOrigin::Managed;
+    else if (origin == "discovered")
+        identity.origin = AgentIdentityOrigin::Discovered;
+    else
+        return false;
+    const auto restore_policy = parse_agent_restore_policy(policy);
+    if (!restore_policy)
+        return false;
+    pane.agent = std::move(identity);
+    pane.restore_policy = *restore_policy;
+
+    if (!value.contains("session"))
+        return true;
+    const auto& session_value = value["session"];
+    AgentSessionRef session;
+    std::string kind;
+    if (!session_value.is_object()
+        || !read_string(session_value, "source", session.source)
+        || !read_string(
+            session_value, "agent_kind", session.agent_kind)
+        || !session_value.contains("integration_version")
+        || !session_value["integration_version"].is_number_unsigned()
+        || !session_value.contains("sequence")
+        || !session_value["sequence"].is_number_unsigned()
+        || !read_string(session_value, "kind", kind)
+        || !read_string(session_value, "value", session.value))
+    {
+        return false;
+    }
+    session.integration_version
+        = session_value["integration_version"].get<uint32_t>();
+    session.sequence = session_value["sequence"].get<uint64_t>();
+    const auto ref_kind = parse_agent_session_ref_kind(kind);
+    if (!ref_kind)
+        return false;
+    session.kind = *ref_kind;
+    if (!validate_agent_session_ref(session))
+        return false;
+    pane.agent_session = std::move(session);
+    return true;
+}
+
 nlohmann::json pane_to_json(const TopologyPane& pane)
 {
-    return {
+    nlohmann::json result{
         { "pane_id", pane.pane_id },
         { "name", pane.name },
         { "domain", to_string(pane.domain) },
         { "terminal_id", pane.terminal_id },
         { "client_host_kind", pane.client_host_kind },
     };
+    if (pane.agent)
+        result["agent"] = agent_to_json(pane);
+    return result;
 }
 
 bool read_pane(const nlohmann::json& value, TopologyPane& pane)
@@ -53,9 +140,18 @@ bool read_pane(const nlohmann::json& value, TopologyPane& pane)
     if (!parsed_domain)
         return false;
     pane.domain = *parsed_domain;
-    return pane.domain == TopologyPaneDomain::ServerTerminal
+    const bool valid_domain
+        = pane.domain == TopologyPaneDomain::ServerTerminal
         ? !pane.terminal_id.empty() && pane.client_host_kind.empty()
         : pane.terminal_id.empty() && !pane.client_host_kind.empty();
+    if (!valid_domain)
+        return false;
+    if (value.contains("agent")
+        && !read_agent(value["agent"], pane))
+    {
+        return false;
+    }
+    return !pane.agent_session || pane.agent.has_value();
 }
 
 nlohmann::json node_to_json(const TopologyNode& node)

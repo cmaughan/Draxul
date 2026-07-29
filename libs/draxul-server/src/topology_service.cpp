@@ -3,6 +3,7 @@
 #include <draxul/remote_terminal_protocol.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <nlohmann/json.hpp>
 
@@ -78,6 +79,45 @@ std::string command_key(const TopologyCommand& command)
     return command.client_id + '\n' + command.command_id;
 }
 
+uint64_t numeric_suffix(std::string_view value)
+{
+    const size_t separator = value.find_last_of('-');
+    if (separator == std::string_view::npos
+        || separator + 1 >= value.size())
+    {
+        return 0;
+    }
+    uint64_t parsed = 0;
+    const char* begin = value.data() + separator + 1;
+    const char* end = value.data() + value.size();
+    const auto result = std::from_chars(begin, end, parsed);
+    return result.ec == std::errc{} && result.ptr == end
+        ? parsed
+        : 0;
+}
+
+uint64_t next_serial_for(const TopologySnapshot& snapshot)
+{
+    uint64_t maximum = 0;
+    for (const auto& space : snapshot.spaces)
+    {
+        maximum = std::max(maximum, numeric_suffix(space.space_id));
+        for (const auto& tab : space.tabs)
+        {
+            maximum = std::max(maximum, numeric_suffix(tab.tab_id));
+            for (const auto& node : tab.nodes)
+                maximum = std::max(maximum, numeric_suffix(node.node_id));
+            for (const auto& pane : tab.panes)
+            {
+                maximum = std::max(maximum, numeric_suffix(pane.pane_id));
+                maximum = std::max(
+                    maximum, numeric_suffix(pane.terminal_id));
+            }
+        }
+    }
+    return maximum + 1;
+}
+
 } // namespace
 
 TopologyService::TopologyService(std::string session_id,
@@ -93,6 +133,14 @@ TopologyService::TopologyService(std::string session_id,
     };
     initial.tabs.push_back(make_initial_server_tab());
     snapshot_.spaces.push_back(std::move(initial));
+}
+
+TopologyService::TopologyService(TopologySnapshot snapshot,
+    TopologyServiceCallbacks callbacks)
+    : snapshot_(std::move(snapshot))
+    , callbacks_(std::move(callbacks))
+    , next_serial_(next_serial_for(snapshot_))
+{
 }
 
 bool TopologyService::handles(std::string_view method) const

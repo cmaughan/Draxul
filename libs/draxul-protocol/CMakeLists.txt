@@ -11,6 +11,7 @@ target_compile_definitions(draxul-protocol PRIVATE
 )
 
 target_link_libraries(draxul-protocol PUBLIC
+    draxul-agent
     draxul-terminal-core
     nlohmann_json::nlohmann_json
 )

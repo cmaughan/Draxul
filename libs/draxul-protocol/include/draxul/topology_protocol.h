@@ -1,5 +1,7 @@
 #pragma once
 
+#include <draxul/agent_model.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <nlohmann/json_fwd.hpp>
@@ -35,6 +37,10 @@ struct TopologyPane
     TopologyPaneDomain domain = TopologyPaneDomain::ClientLocal;
     std::string terminal_id;
     std::string client_host_kind;
+    std::optional<AgentIdentity> agent;
+    std::optional<AgentSessionRef> agent_session;
+    AgentRestorePolicy restore_policy
+        = AgentRestorePolicy::ResumeIfAvailable;
 
     bool operator==(const TopologyPane&) const = default;
 };

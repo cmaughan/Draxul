@@ -239,6 +239,9 @@ toml::table serialize_pane_layout(const SessionPaneLayoutSnapshot& state)
         if (!pane.launch.remote_terminal_id.empty())
             pane_table.insert_or_assign(
                 "remote_terminal_id", pane.launch.remote_terminal_id);
+        if (!pane.launch.client_host_kind.empty())
+            pane_table.insert_or_assign(
+                "client_host_kind", pane.launch.client_host_kind);
         if (!pane.pane_name.empty())
             pane_table.insert_or_assign("pane_name", pane.pane_name);
         if (!pane.pane_id.empty())
@@ -352,6 +355,10 @@ std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
         pane.launch.remote_terminal_id
             = toml_support::get_string(
                   *pane_table, "remote_terminal_id")
+                  .value_or("");
+        pane.launch.client_host_kind
+            = toml_support::get_string(
+                  *pane_table, "client_host_kind")
                   .value_or("");
         pane.pane_name = toml_support::get_string(*pane_table, "pane_name").value_or("");
         pane.pane_id = toml_support::get_string(*pane_table, "pane_id").value_or(
@@ -594,6 +601,9 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                 || !validate_text_limit(
                     pane.launch.remote_terminal_id,
                     kMaxCommandTextBytes, "remote terminal id", error)
+                || !validate_text_limit(
+                    pane.launch.client_host_kind,
+                    kMaxShortTextBytes, "client host kind", error)
                 || !validate_text_limit(
                     pane.launch.pty_capture_file, kMaxCommandTextBytes, "capture path", error)
                 || !validate_string_list(pane.launch.args, "host arguments", error)
@@ -904,7 +914,7 @@ std::optional<SessionSnapshot> decode_v2_document(
     return state;
 }
 
-std::optional<SessionSnapshot> load_session_state_from_path(
+std::optional<SessionSnapshot> load_session_state_file(
     const std::filesystem::path& path, std::string* error)
 {
     if (!std::filesystem::exists(path))
@@ -955,6 +965,13 @@ SessionSummary summarize_session_state(const SessionSnapshot& state)
 }
 
 } // namespace
+
+std::optional<SessionSnapshot> load_session_state_from_path(
+    const std::filesystem::path& path, std::string* error)
+{
+    PERF_MEASURE();
+    return load_session_state_file(path, error);
+}
 
 bool validate_session_snapshot(const SessionSnapshot& state, std::string* error)
 {

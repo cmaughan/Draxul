@@ -2,6 +2,7 @@
 
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
+#include "session_topology_bridge.h"
 #include "server_terminal_runtime.h"
 #include "topology_service.h"
 
@@ -9,8 +10,10 @@
 #include <draxul/log.h>
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
+#include <draxul/session_state.h>
 
 #include <algorithm>
+#include <charconv>
 #include <deque>
 #include <fstream>
 #include <iomanip>
@@ -66,6 +69,23 @@ std::filesystem::path starting_marker_path(
     return runtime_directory / ("server-starting-" + std::to_string(pid) + ".json");
 }
 
+uint64_t numeric_suffix(std::string_view value)
+{
+    const size_t separator = value.find_last_of('-');
+    if (separator == std::string_view::npos
+        || separator + 1 >= value.size())
+    {
+        return 0;
+    }
+    uint64_t parsed = 0;
+    const char* begin = value.data() + separator + 1;
+    const char* end = value.data() + value.size();
+    const auto result = std::from_chars(begin, end, parsed);
+    return result.ec == std::errc{} && result.ptr == end
+        ? parsed
+        : 0;
+}
+
 const std::vector<std::string>& server_capabilities()
 {
     static const std::vector<std::string> capabilities{
@@ -76,6 +96,7 @@ const std::vector<std::string>& server_capabilities()
         "multi-terminal-v1",
         "ordered-terminal-events",
         "real-remote-terminal",
+        "session-persistence-v1",
         "status",
         "terminal-metrics-v1",
         "terminal-scrollback-v1",
@@ -100,6 +121,12 @@ std::vector<std::string> negotiate_capabilities(
 }
 
 } // namespace
+
+std::filesystem::path server_session_state_path(
+    const std::filesystem::path& runtime_directory)
+{
+    return runtime_directory / "sessions" / "default.toml";
+}
 
 class ServerKernel::Impl
 {
@@ -134,7 +161,14 @@ public:
     void publish_starting_marker();
     void remove_starting_marker();
     void remove_all_starting_markers();
+    bool prepare_session_restore(std::string& error);
+    bool initialize_services(std::string& error);
+    void reset_services();
+    bool checkpoint_session(std::string& error);
     std::optional<std::string> create_server_terminal(
+        std::string_view pane_id, std::string_view name,
+        std::string& error);
+    bool create_server_terminal_with_id(std::string terminal_id,
         std::string_view pane_id, std::string_view name,
         std::string& error);
     void destroy_server_terminal(std::string_view terminal_id);
@@ -183,6 +217,10 @@ public:
         server_terminals;
     uint64_t next_terminal_serial = 2;
     std::unique_ptr<TopologyService> topology_service;
+    std::filesystem::path persistence_path;
+    bool checkpoint_enabled = true;
+    std::vector<std::string> restore_warnings;
+    std::optional<TopologySnapshot> restored_topology;
 };
 
 void ServerKernel::Impl::publish_starting_marker()
@@ -236,6 +274,183 @@ void ServerKernel::Impl::remove_all_starting_markers()
     starting_marker.clear();
 }
 
+bool ServerKernel::Impl::create_server_terminal_with_id(
+    std::string terminal_id, std::string_view pane_id,
+    std::string_view name, std::string& error)
+{
+    if (terminal_id.empty() || pane_id.empty())
+    {
+        error = "Server terminal identity is incomplete.";
+        return false;
+    }
+    auto runtime = std::make_unique<ServerTerminalRuntime>(
+        ServerTerminalRuntimeOptions{
+            .shell_kind = options.terminal_shell_kind,
+            .command = options.terminal_command,
+            .args = options.terminal_args,
+            .working_directory = options.terminal_working_directory,
+            .environment = options.terminal_environment,
+            .scrollback_capacity = options.terminal_scrollback_lines,
+        });
+    auto service = std::make_unique<RemoteTerminalService>(
+        RemoteTerminalServiceOptions{
+            .method_prefix = "terminal",
+            .server_epoch = epoch_value,
+            .pane_id = std::string(pane_id),
+            .terminal_id = terminal_id,
+            .name = name.empty()
+                ? "Server Shell"
+                : std::string(name),
+        },
+        *runtime);
+    if (!server_terminals.emplace(
+            terminal_id,
+            ServerTerminalEndpoint{
+                .runtime = std::move(runtime),
+                .service = std::move(service),
+            })
+             .second)
+    {
+        error = "Saved Session contains a duplicate server terminal identity.";
+        return false;
+    }
+    next_terminal_serial = std::max(
+        next_terminal_serial, numeric_suffix(terminal_id) + 1);
+    return true;
+}
+
+void ServerKernel::Impl::reset_services()
+{
+    topology_service.reset();
+    server_terminals.clear();
+    fake_terminal.reset();
+    next_terminal_serial = 2;
+}
+
+bool ServerKernel::Impl::prepare_session_restore(std::string&)
+{
+    persistence_path = options.session_state_file.empty()
+        ? server_session_state_path(options.runtime_directory)
+        : options.session_state_file;
+    checkpoint_enabled = true;
+    restore_warnings.clear();
+    restored_topology.reset();
+
+    if (std::filesystem::exists(persistence_path))
+    {
+        std::string load_error;
+        auto session = load_session_state_from_path(
+            persistence_path, &load_error);
+        std::optional<SessionTopologyRestore> restored;
+        if (session)
+            restored = restore_session_topology(*session, load_error);
+        if (!restored)
+        {
+            checkpoint_enabled = false;
+            restore_warnings.push_back(
+                load_error.empty()
+                    ? "Saved Session could not be restored."
+                    : load_error);
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Draxul server retained unreadable Session checkpoint %s: %s",
+                persistence_path.string().c_str(),
+                restore_warnings.back().c_str());
+        }
+        else
+        {
+            restore_warnings = std::move(restored->warnings);
+            if (!restore_warnings.empty())
+                checkpoint_enabled = false;
+            restored_topology = std::move(restored->topology);
+        }
+    }
+    return true;
+}
+
+bool ServerKernel::Impl::initialize_services(std::string& error)
+{
+    reset_services();
+    fake_terminal = std::make_unique<FakeTerminalRuntime>();
+
+    TopologyServiceCallbacks callbacks{
+        .create_server_terminal
+        = [this](std::string_view pane_id,
+              std::string_view name, std::string& callback_error) {
+              return create_server_terminal(
+                  pane_id, name, callback_error);
+          },
+        .destroy_server_terminal
+        = [this](std::string_view terminal_id) {
+              destroy_server_terminal(terminal_id);
+          },
+        .restart_server_terminal
+        = [this](std::string_view terminal_id,
+              std::string& callback_error) {
+              return restart_server_terminal(
+                  terminal_id, callback_error);
+          },
+    };
+
+    if (restored_topology)
+    {
+        for (const auto& space : restored_topology->spaces)
+        {
+            for (const auto& tab : space.tabs)
+            {
+                for (const auto& pane : tab.panes)
+                {
+                    if (pane.domain
+                        != TopologyPaneDomain::ServerTerminal)
+                    {
+                        continue;
+                    }
+                    if (!create_server_terminal_with_id(
+                            pane.terminal_id, pane.pane_id,
+                            pane.name, error))
+                    {
+                        reset_services();
+                        return false;
+                    }
+                }
+            }
+        }
+        topology_service = std::make_unique<TopologyService>(
+            *restored_topology, std::move(callbacks));
+        return true;
+    }
+
+    if (!create_server_terminal_with_id(
+            std::string(kServerShellTerminalId),
+            kServerShellPaneId, "Server Shell", error))
+    {
+        reset_services();
+        return false;
+    }
+    topology_service = std::make_unique<TopologyService>(
+        "default", std::move(callbacks));
+    return true;
+}
+
+bool ServerKernel::Impl::checkpoint_session(std::string& error)
+{
+    if (!topology_service)
+    {
+        error = "Server topology is unavailable.";
+        return false;
+    }
+    if (!checkpoint_enabled)
+    {
+        error = "Checkpoint disabled to preserve the previous Session file after restore warnings.";
+        return false;
+    }
+    auto session = capture_session_topology(
+        topology_service->snapshot(), error);
+    if (!session)
+        return false;
+    return save_session_state_to_path(
+        *session, persistence_path, &error);
+}
+
 ServerStartResult ServerKernel::Impl::start()
 {
     if (started)
@@ -246,6 +461,11 @@ ServerStartResult ServerKernel::Impl::start()
     stop_requested = false;
     publish_starting_marker();
     std::string error;
+    if (!prepare_session_restore(error))
+    {
+        remove_starting_marker();
+        return { ServerStartDisposition::Failed, std::move(error) };
+    }
     const nlohmann::json metadata{
         { "server_pid", pid },
         { "server_epoch", epoch_value },
@@ -727,35 +947,9 @@ ServerKernel::Impl::create_server_terminal(
 {
     const std::string terminal_id
         = "terminal-" + std::to_string(next_terminal_serial++);
-    auto runtime = std::make_unique<ServerTerminalRuntime>(
-        ServerTerminalRuntimeOptions{
-            .shell_kind = options.terminal_shell_kind,
-            .command = options.terminal_command,
-            .args = options.terminal_args,
-            .working_directory = options.terminal_working_directory,
-            .environment = options.terminal_environment,
-            .scrollback_capacity = options.terminal_scrollback_lines,
-        });
-    auto service = std::make_unique<RemoteTerminalService>(
-        RemoteTerminalServiceOptions{
-            .method_prefix = "terminal",
-            .server_epoch = epoch_value,
-            .pane_id = std::string(pane_id),
-            .terminal_id = terminal_id,
-            .name = name.empty()
-                ? "Server Shell"
-                : std::string(name),
-        },
-        *runtime);
-    if (!server_terminals.emplace(
-            terminal_id,
-            ServerTerminalEndpoint{
-                .runtime = std::move(runtime),
-                .service = std::move(service),
-            })
-             .second)
+    if (!create_server_terminal_with_id(
+            terminal_id, pane_id, name, error))
     {
-        error = "A duplicate server terminal identity was allocated.";
         return std::nullopt;
     }
     return terminal_id;
@@ -784,53 +978,15 @@ int ServerKernel::Impl::run_until_stopped()
 {
     if (!started)
         return 1;
-    fake_terminal = std::make_unique<FakeTerminalRuntime>();
+    std::string initialization_error;
+    if (!initialize_services(initialization_error))
     {
-        auto runtime = std::make_unique<ServerTerminalRuntime>(
-            ServerTerminalRuntimeOptions{
-                .shell_kind = options.terminal_shell_kind,
-                .command = options.terminal_command,
-                .args = options.terminal_args,
-                .working_directory = options.terminal_working_directory,
-                .environment = options.terminal_environment,
-                .scrollback_capacity = options.terminal_scrollback_lines,
-            });
-        auto service = std::make_unique<RemoteTerminalService>(
-            RemoteTerminalServiceOptions{
-                .method_prefix = "terminal",
-                .server_epoch = epoch_value,
-                .pane_id = std::string(kServerShellPaneId),
-                .terminal_id = std::string(kServerShellTerminalId),
-                .name = "Server Shell",
-            },
-            *runtime);
-        server_terminals.emplace(
-            std::string(kServerShellTerminalId),
-            ServerTerminalEndpoint{
-                .runtime = std::move(runtime),
-                .service = std::move(service),
-            });
+        DRAXUL_LOG_ERROR(LogCategory::App,
+            "Draxul server could not initialize restored Session services: %s",
+            initialization_error.c_str());
+        stop();
+        return 1;
     }
-    topology_service = std::make_unique<TopologyService>(
-        "default",
-        TopologyServiceCallbacks{
-            .create_server_terminal
-            = [this](std::string_view pane_id,
-                  std::string_view name, std::string& error) {
-                  return create_server_terminal(
-                      pane_id, name, error);
-              },
-            .destroy_server_terminal
-            = [this](std::string_view terminal_id) {
-                  destroy_server_terminal(terminal_id);
-              },
-            .restart_server_terminal
-            = [this](std::string_view terminal_id,
-                  std::string& error) {
-                  return restart_server_terminal(
-                      terminal_id, error);
-              },
-        });
     while (!stop_requested)
     {
         for (auto& [terminal_id, endpoint]
@@ -858,8 +1014,14 @@ int ServerKernel::Impl::run_until_stopped()
         [this](const ControlRequest& request) {
             return handle_request(request);
         });
-    topology_service.reset();
-    server_terminals.clear();
+    std::string checkpoint_error;
+    if (!checkpoint_session(checkpoint_error))
+    {
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "Draxul server Session checkpoint was not written: %s",
+            checkpoint_error.c_str());
+    }
+    reset_services();
     stop();
     return 0;
 }

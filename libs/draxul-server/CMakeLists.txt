@@ -1,6 +1,7 @@
 add_library(draxul-server
     src/fake_terminal_runtime.cpp
     src/remote_terminal_service.cpp
+    src/session_topology_bridge.cpp
     src/server_kernel.cpp
     src/server_terminal_runtime.cpp
     src/topology_service.cpp
@@ -11,6 +12,7 @@ target_include_directories(draxul-server PUBLIC include)
 target_link_libraries(draxul-server PUBLIC
     draxul-control
     draxul-protocol
+    draxul-session-model
     draxul-terminal-process
     draxul-types
 )
