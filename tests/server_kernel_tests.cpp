@@ -171,6 +171,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "multi-terminal-v1")
         != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "named-sessions-v1")
+        != probe.welcome->capabilities.end());
 
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);

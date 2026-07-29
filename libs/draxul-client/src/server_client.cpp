@@ -231,6 +231,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "fake-remote-terminal",
             "graceful-shutdown",
             "multi-terminal-v1",
+            "named-sessions-v1",
             "ordered-terminal-events",
             "real-remote-terminal",
             "status",
