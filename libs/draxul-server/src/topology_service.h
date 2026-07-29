@@ -37,6 +37,10 @@ public:
     bool handles(std::string_view method) const;
     ControlMethodResult handle(
         std::string_view method, const nlohmann::json& params);
+    ControlMethodResult report_agent_session(
+        std::string_view pane_id,
+        std::string_view agent_instance_id,
+        const AgentSessionRef& session_ref);
 
     const TopologySnapshot& snapshot() const noexcept
     {

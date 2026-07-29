@@ -248,6 +248,12 @@ A standalone GUI library for rendering UI items that do not depend on ImGui. It 
   negotiated as `agent-control-v1`; terminal text is returned only by the
   explicit bounded pane-read operation and is never included in the Agents
   projection.
+- Official native-session reports for remote managed agents are owned by the
+  global server. A report must match the current server epoch, Session, pane,
+  declared agent instance, kind, and runtime generation; stale, duplicate, or
+  out-of-order reports are rejected. Accepted references update shared topology,
+  the Agents projection, and the durable Session checkpoint even when no UI is
+  attached.
 - A new Space inherits the focused host's current working directory when possible. Its root directory becomes the fallback working directory for new hosts in that Space.
 - Closing a Space terminates the hosts it owns. The final Space cannot be closed.
 - Spaces are currently local. Session snapshots use a version-3 Space envelope, transparently migrate version-1 and version-2 files in memory, atomically checkpoint the complete ordered Space collection, and transactionally restore all usable Spaces with the saved active Space selected. Version 3 adds official native agent-session references and per-pane restore policy. Suspend/resume, background ownership, SSH, and remote Spaces remain future work.

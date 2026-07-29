@@ -162,6 +162,24 @@ TEST_CASE("control CLI keeps agent argv structured and parses wait policy", "[co
     CHECK(wait.command->timeout_ms == 10 * 60 * 1000);
     CHECK(wait.command->values
         == std::vector<std::string>{ "blocked", "done" });
+
+    auto report = parse_control_cli({
+        "draxul", "pane", "report-agent-session", "pane-7",
+        "--agent-instance", "agent-7",
+        "--source", "draxul:codex",
+        "--agent", "codex",
+        "--integration-version", "1",
+        "--sequence", "9",
+        "--session-ref", "native-7",
+        "--server-epoch", "epoch-7",
+        "--runtime-generation", "3",
+        "--server-runtime-dir", "D:/runtime",
+    });
+    REQUIRE(report.command);
+    CHECK(report.command->server_epoch == "epoch-7");
+    CHECK(report.command->runtime_generation == 3);
+    CHECK(report.command->server_runtime_directory
+        == "D:/runtime");
 }
 
 TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks",

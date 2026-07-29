@@ -7,6 +7,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -206,6 +207,46 @@ ParseControlCliResult parse_control_cli(const std::vector<std::string>& args)
                 return parsed;
             }
             command.session_id = args[position++];
+        }
+        else if (args[position] == "--server-runtime-dir")
+        {
+            if (++position >= args.size()
+                || args[position].empty())
+            {
+                parsed.error
+                    = "--server-runtime-dir requires a path.";
+                return parsed;
+            }
+            command.server_runtime_directory
+                = args[position++];
+        }
+        else if (args[position] == "--server-epoch")
+        {
+            if (++position >= args.size()
+                || args[position].empty())
+            {
+                parsed.error = "--server-epoch requires an id.";
+                return parsed;
+            }
+            command.server_epoch = args[position++];
+        }
+        else if (args[position] == "--runtime-generation")
+        {
+            if (++position >= args.size())
+            {
+                parsed.error
+                    = "--runtime-generation requires an integer.";
+                return parsed;
+            }
+            const auto generation
+                = parse_uint64(args[position++]);
+            if (!generation || *generation == 0)
+            {
+                parsed.error
+                    = "--runtime-generation is invalid.";
+                return parsed;
+            }
+            command.runtime_generation = *generation;
         }
         else if (args[position] == "--lines")
         {
@@ -468,12 +509,23 @@ int run_control_cli(const ControlCliCommand& command)
         params["sequence"] = command.sequence;
         params["ref_kind"] = command.reference_kind;
         params["ref_value"] = command.reference_value;
+        if (!command.server_epoch.empty())
+            params["server_epoch"] = command.server_epoch;
+        if (command.runtime_generation != 0)
+        {
+            params["runtime_generation"]
+                = command.runtime_generation;
+        }
     }
 
     const auto runtime =
         control_runtime_directory(ConfigDocument::default_path().parent_path());
-    const auto server_runtime = server_runtime_directory(
-        ConfigDocument::default_path().parent_path());
+    const auto server_runtime
+        = command.server_runtime_directory.empty()
+        ? server_runtime_directory(
+              ConfigDocument::default_path().parent_path())
+        : std::filesystem::path(
+              command.server_runtime_directory);
     const bool supports_headless_server
         = command.method == "agent.list"
         || command.method == "agent.get"
@@ -482,7 +534,9 @@ int run_control_cli(const ControlCliCommand& command)
         || command.method == "agent.send_text"
         || command.method == "agent.send_keys"
         || command.method == "agent.wait"
-        || command.method == "pane.read";
+        || command.method == "pane.read"
+        || command.method
+            == "pane.report_agent_session";
     bool using_global_server = false;
     const auto request
         = [&](const nlohmann::json& request_params) {

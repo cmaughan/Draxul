@@ -21,9 +21,12 @@ struct ControlCliCommand
     int timeout_ms = 0;
     uint32_t integration_version = 0;
     uint64_t sequence = 0;
+    uint64_t runtime_generation = 0;
     std::string source;
     std::string agent_kind;
     std::string agent_instance_id;
+    std::string server_epoch;
+    std::string server_runtime_directory;
     std::string reference_kind = "id";
     std::string reference_value;
     std::optional<int> space_id;

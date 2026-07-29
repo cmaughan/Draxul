@@ -1056,6 +1056,150 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return session->agent_service->handle(
             request.method, request.params);
     }
+    if (request.method == "pane.report_agent_session")
+    {
+        std::string session_id;
+        std::string session_error;
+        if (!read_session_id(
+                request.params, session_id, session_error))
+        {
+            return ControlMethodResult::error(
+                "invalid_session", std::move(session_error));
+        }
+        ServerSession* session
+            = ensure_session(session_id, session_error);
+        if (!session || !session->topology_service
+            || !session->agent_service)
+        {
+            return ControlMethodResult::error(
+                "session_unavailable",
+                session_error.empty()
+                    ? "Server Session is unavailable."
+                    : std::move(session_error));
+        }
+        const auto required_string
+            = [&](const char* name)
+            -> std::optional<std::string> {
+            if (!request.params.is_object()
+                || !request.params.contains(name)
+                || !request.params[name].is_string()
+                || request.params[name]
+                       .get_ref<const std::string&>()
+                       .empty())
+            {
+                return std::nullopt;
+            }
+            return request.params[name].get<std::string>();
+        };
+        const auto read_unsigned
+            = [&](const char* name)
+            -> std::optional<uint64_t> {
+            if (!request.params.contains(name))
+                return std::nullopt;
+            const auto& value = request.params[name];
+            if (value.is_number_unsigned())
+                return value.get<uint64_t>();
+            if (value.is_number_integer()
+                && value.get<int64_t>() >= 0)
+            {
+                return static_cast<uint64_t>(
+                    value.get<int64_t>());
+            }
+            return std::nullopt;
+        };
+        const auto server_epoch
+            = required_string("server_epoch");
+        const auto pane_id = required_string("pane_id");
+        const auto instance_id
+            = required_string("agent_instance_id");
+        const auto source = required_string("source");
+        const auto agent_kind = required_string("agent");
+        const auto ref_kind_text
+            = required_string("ref_kind");
+        const auto ref_value = required_string("ref_value");
+        const auto integration_version
+            = read_unsigned("integration_version");
+        const auto sequence = read_unsigned("sequence");
+        const auto runtime_generation
+            = read_unsigned("runtime_generation");
+        if (!server_epoch || !pane_id || !instance_id
+            || !source || !agent_kind || !ref_kind_text
+            || !ref_value || !integration_version
+            || *integration_version == 0
+            || *integration_version > UINT32_MAX
+            || !sequence || *sequence == 0
+            || !runtime_generation
+            || *runtime_generation == 0)
+        {
+            return ControlMethodResult::error(
+                "invalid_params",
+                "pane.report_agent_session requires server epoch, "
+                "runtime generation, complete routing, source, "
+                "version, sequence, and reference fields.");
+        }
+        if (*server_epoch != epoch_value)
+        {
+            return ControlMethodResult::error(
+                "server_replaced",
+                "The session report targets an old server epoch.");
+        }
+        const auto ref_kind
+            = parse_agent_session_ref_kind(*ref_kind_text);
+        if (!ref_kind)
+        {
+            return ControlMethodResult::error(
+                "invalid_params",
+                "Unknown native session reference kind.");
+        }
+
+        refresh_agents(
+            *session, std::chrono::steady_clock::now());
+        const auto& agents
+            = session->agent_service->snapshot().agents;
+        const auto agent = std::ranges::find_if(
+            agents,
+            [&](const ServerAgentProjection& value) {
+                return value.identity.instance_id
+                    == *instance_id;
+            });
+        if (agent == agents.end()
+            || agent->pane_id != *pane_id
+            || agent->identity.kind != *agent_kind)
+        {
+            return ControlMethodResult::error(
+                "routing_mismatch",
+                "Agent routing identity does not match the pane.");
+        }
+        if (agent->generation.value
+            != *runtime_generation)
+        {
+            return ControlMethodResult::error(
+                "agent_replaced",
+                "The session report targets an old agent runtime generation.");
+        }
+
+        AgentSessionRef session_ref{
+            .source = *source,
+            .agent_kind = *agent_kind,
+            .integration_version
+            = static_cast<uint32_t>(*integration_version),
+            .sequence = *sequence,
+            .kind = *ref_kind,
+            .value = *ref_value,
+        };
+        auto reported
+            = session->topology_service
+                  ->report_agent_session(
+                      *pane_id, *instance_id,
+                      session_ref);
+        if (!reported.ok)
+            return reported;
+        refresh_agents(
+            *session, std::chrono::steady_clock::now());
+        return session->agent_service->handle(
+            "agent.get",
+            { { "instance_id", *instance_id } });
+    }
     if (request.method == "pane.read")
     {
         std::string session_id;

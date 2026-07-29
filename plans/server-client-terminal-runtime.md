@@ -1424,7 +1424,7 @@ Validation checkpoint (2026-07-29):
 
 **Outcome:** agents continue to be detected and controlled with no UI attached.
 
-**Implementation status (2026-07-29):** checkpoints 8a-8c implemented on
+**Implementation status (2026-07-29):** checkpoints 8a-8d implemented on
 `codex/server-client-runtime`. The headless server now owns a Session-scoped
 agent tracker, observes server terminal process trees and bounded screen state,
 and publishes a revisioned `agent.snapshot`/`agent.poll` projection. The wire
@@ -1435,7 +1435,11 @@ windows, and keep focus/attention acknowledgement client-local. The global
 server also exposes `agent.list/get/explain/wait`, bounded `pane.read`, and
 agent input/restart routes under the negotiated `agent-control-v1` capability.
 Those operations continue after the final GPU client disconnects. Official
-integration-hook and native-session-reference migration remain.
+native-session reports now update server topology, projection, and persistence
+only when their server epoch, Session, pane, managed identity, and runtime
+generation all match; stale epochs, replaced runtimes, duplicate references,
+and out-of-order reports are rejected. Managed remote launch and integration
+hook environment migration remain.
 
 Work:
 

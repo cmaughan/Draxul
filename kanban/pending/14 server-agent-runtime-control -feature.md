@@ -16,7 +16,7 @@ available while every Draxul UI is detached from a remote Session.
       generation.
 - [x] Agent waits, bounded pane reads, input, and restart work with no GPU client
       attached.
-- [ ] Official session-reference updates work with no GPU client attached.
+- [x] Official session-reference updates work with no GPU client attached.
 - [ ] The two-client detach/status/reconnect demonstration and focused automated
       gates pass.
 
@@ -39,3 +39,8 @@ Sessions keep the existing app-owned `AgentController`.
   list/get/explain/wait, bounded pane reads, input, and restart. The real
   server-owned shell test now disconnects its terminal client before exercising
   those routes, proving they do not depend on a GPU client or controller lease.
+- Checkpoint 8d moved official native-session report mutation into server
+  topology. Reports are pinned to server epoch, Session, pane, managed identity,
+  and runtime generation; a cold-restore test rejects stale epochs/generations
+  and proves the accepted reference survives the next checkpoint with no UI
+  attached.

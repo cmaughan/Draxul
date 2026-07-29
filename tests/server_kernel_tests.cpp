@@ -1427,8 +1427,87 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         REQUIRE(terminal.projection().pane().process_id
             != original_process_id);
         REQUIRE(terminal.projection().version().generation == 1);
+        REQUIRE(terminal.disconnect(error));
+
+        const auto report
+            = [&](std::string_view epoch,
+                  uint64_t generation,
+                  uint64_t sequence) {
+                  return ControlClient::request(
+                      namespaced_control_id(
+                          kServerControlId, temp.path),
+                      temp.path,
+                      "pane.report_agent_session",
+                      {
+                          { "session_id", "default" },
+                          { "server_epoch", epoch },
+                          { "runtime_generation", generation },
+                          { "pane_id", dynamic_pane_id },
+                          { "agent_instance_id",
+                              "persisted-agent" },
+                          { "source", "draxul:codex" },
+                          { "agent", "codex" },
+                          { "integration_version", 1 },
+                          { "sequence", sequence },
+                          { "ref_kind", "id" },
+                          { "ref_value",
+                              "persisted-session-2" },
+                      });
+              };
+        const auto old_epoch = report(
+            "persistence-first", 1, 2);
+        CHECK_FALSE(old_epoch.ok);
+        CHECK(old_epoch.error_code == "server_replaced");
+
+        const auto old_runtime = report(
+            "persistence-second", 2, 2);
+        CHECK_FALSE(old_runtime.ok);
+        CHECK(old_runtime.error_code == "agent_replaced");
+
+        const auto reported = report(
+            "persistence-second", 1, 2);
+        INFO(reported.error_code << ": "
+            << reported.error_message);
+        REQUIRE(reported.ok);
+        REQUIRE(reported.result.contains("session_ref"));
+        CHECK(reported.result["session_ref"]["value"]
+            == "persisted-session-2");
+        const auto stale = report(
+            "persistence-second", 1, 2);
+        CHECK_FALSE(stale.ok);
+        CHECK(stale.error_code == "stale_report");
+
+        REQUIRE(client.refresh(error));
+        const auto& updated_panes
+            = client.snapshot().spaces.front()
+                  .tabs.front()
+                  .panes;
+        const auto updated = std::ranges::find(
+            updated_panes, dynamic_pane_id,
+            &TopologyPane::pane_id);
+        REQUIRE(updated != updated_panes.end());
+        REQUIRE(updated->agent_session);
+        CHECK(updated->agent_session->sequence == 2);
+        CHECK(updated->agent_session->value
+            == "persisted-session-2");
         run_guard.join();
     }
+
+    auto updated = load_session_state_from_path(
+        checkpoint, &load_error);
+    INFO(load_error);
+    REQUIRE(updated);
+    const auto& updated_panes
+        = updated->spaces.front().tabs.front()
+              .pane_layout.panes;
+    const auto updated_dynamic = std::ranges::find(
+        updated_panes, dynamic_pane_id,
+        &SessionPaneSnapshot::pane_id);
+    REQUIRE(updated_dynamic != updated_panes.end());
+    REQUIRE(updated_dynamic->agent_session);
+    CHECK(updated_dynamic->agent_session->sequence == 2);
+    CHECK(updated_dynamic->agent_session->value
+        == "persisted-session-2");
 }
 
 TEST_CASE("server periodically checkpoints topology without a UI",

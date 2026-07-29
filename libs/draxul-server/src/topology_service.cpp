@@ -163,6 +163,93 @@ ControlMethodResult TopologyService::handle(
         "unknown_method", "Unknown topology method.");
 }
 
+ControlMethodResult TopologyService::report_agent_session(
+    std::string_view pane_id,
+    std::string_view agent_instance_id,
+    const AgentSessionRef& session_ref)
+{
+    std::string validation_error;
+    if (!validate_agent_session_ref(
+            session_ref, &validation_error))
+    {
+        return ControlMethodResult::error(
+            "invalid_session_ref", std::move(validation_error));
+    }
+
+    TopologyPane* target = nullptr;
+    size_t matching_routes = 0;
+    for (TopologySpace& space : snapshot_.spaces)
+    {
+        for (TopologyTab& tab : space.tabs)
+        {
+            for (TopologyPane& pane : tab.panes)
+            {
+                if (pane.pane_id != pane_id
+                    || !pane.agent
+                    || pane.agent->instance_id
+                        != agent_instance_id)
+                {
+                    continue;
+                }
+                target = &pane;
+                ++matching_routes;
+            }
+        }
+    }
+    if (matching_routes != 1 || !target
+        || target->agent->kind != session_ref.agent_kind
+        || target->agent->origin
+            != AgentIdentityOrigin::Managed)
+    {
+        return ControlMethodResult::error(
+            "routing_mismatch",
+            "Agent routing identity does not match one managed pane.");
+    }
+
+    for (const TopologySpace& space : snapshot_.spaces)
+    {
+        for (const TopologyTab& tab : space.tabs)
+        {
+            for (const TopologyPane& pane : tab.panes)
+            {
+                const AgentSessionRef* existing
+                    = pane.agent_session
+                    ? &*pane.agent_session
+                    : nullptr;
+                if (&pane == target || !existing)
+                    continue;
+                if (existing->source == session_ref.source
+                    && existing->agent_kind
+                        == session_ref.agent_kind
+                    && existing->kind == session_ref.kind
+                    && existing->value == session_ref.value)
+                {
+                    return ControlMethodResult::error(
+                        "duplicate_session_ref",
+                        "Native agent session is already owned by another pane.");
+                }
+            }
+        }
+    }
+    if (target->agent_session
+        && session_ref.sequence
+            <= target->agent_session->sequence)
+    {
+        return ControlMethodResult::error(
+            "stale_report",
+            "Native session report is stale or was rejected.");
+    }
+
+    target->agent_session = session_ref;
+    ++snapshot_.revision;
+    return ControlMethodResult::success({
+        { "pane_id", target->pane_id },
+        { "agent_instance_id",
+            target->agent->instance_id },
+        { "topology_revision", snapshot_.revision },
+    });
+}
+
 ControlMethodResult TopologyService::read_snapshot(
     const nlohmann::json&) const
 {
