@@ -1172,11 +1172,14 @@ $runtime = Join-Path $env:TEMP 'draxul-slice5-manual'
 
 **Outcome:** both UIs reflect Space, tab, pane, and split mutations.
 
-**Implementation status (2026-07-29):** first vertical checkpoint implemented on
+**Implementation status (2026-07-29):** first two vertical checkpoints implemented on
 `codex/server-client-runtime`. `topology-v1` now supplies renderer-neutral snapshots,
 revision-checked/idempotent commands, server authority, and a polling client
-projection. Two headless clients converge in focused tests. App controller projection,
-dynamic per-pane server terminals, and the live two-window demonstration remain.
+projection. Two headless clients converge in focused tests. Experimental remote UIs
+also project Space create/rename/close changes while retaining an independent active
+Space and creating independent hosts for `client_local` Spaces. Tab/pane/split
+projection, dynamic per-pane server terminals, and the live two-window demonstration
+remain.
 
 **Work item:** [12 server-authoritative-topology -feature.md](../kanban/pending/12%20server-authoritative-topology%20-feature.md)
 
@@ -1205,7 +1208,11 @@ Checkpoint notes:
   retries; a repeated `(client_id, command_id)` is idempotent and returns the latest
   snapshot rather than rolling the caller backward.
 - Current automated gate in `build-ninja-release`: `[topology]` passes 38 assertions
-  in 3 cases and `[server]` passes 419 assertions in 23 cases.
+  in 3 cases, `[server]` passes 419 assertions in 23 cases, the app suite passes
+  4,074 assertions in 476 cases, and smoke passes.
+- The app polls topology at 100 ms. It maps opaque server Space IDs to its existing
+  local controller IDs, routes structural Space mutations back to the server, and
+  deliberately never serializes the active Space into shared state.
 
 Demonstration:
 

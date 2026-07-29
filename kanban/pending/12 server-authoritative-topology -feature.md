@@ -14,6 +14,8 @@ presentation state.
       idempotent commands with explicit revision conflicts.
 - [x] Two headless clients can refresh/poll and converge after a mutation without
       sharing active Space, tab, focused pane, viewport, or window state.
+- [x] Experimental remote UIs project server Space create/rename/close mutations;
+      newly projected client-local Spaces launch an independent local host per UI.
 - [ ] The experimental remote UI projects the server snapshot into its Space,
       tab, pane, and split chrome.
 - [ ] Create, close, rename, reorder, split, ratio, and restart mutations route
@@ -29,8 +31,12 @@ presentation state.
 
 - Added `topology-v1` capability, protocol JSON, server mutation service, client
   polling projection, idempotency cache, and optimistic revision conflicts.
+- Added the first app projection: Space identity mapping, 100 ms topology polling,
+  conflict refresh/retry, server-routed Space mutations, and client-local active
+  Space routing.
 - Ninja Release `[topology]`: 38 assertions in 3 cases.
 - Ninja Release `[server]`: 419 assertions in 23 cases.
+- Ninja Release app suite: 4,074 assertions in 476 cases; smoke passed.
 
 ## Rollback
 

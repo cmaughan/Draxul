@@ -318,6 +318,7 @@ draxul_apply_msvc_parallel_pdb_fix(draxul-app)
 target_link_libraries(draxul-app PUBLIC
     draxul-agent
     draxul-control
+    draxul-client
     draxul-http
     nlohmann_json::nlohmann_json
     draxul-config

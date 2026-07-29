@@ -10,6 +10,7 @@
 #include <draxul/server_protocol.h>
 #include <draxul/window.h>
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -46,6 +47,11 @@ struct AppOptions
     // Slice 2 only records the experimental server connection. Terminal
     // ownership remains local until the later terminal-runtime slices.
     std::optional<ServerWelcome> server_connection;
+    // Slice 6 experimental topology projection. The server owns structural
+    // Space/tab/pane values; the UI keeps its active route and presentation.
+    bool enable_remote_topology = false;
+    std::filesystem::path server_runtime_directory;
+    std::string server_client_id;
     // Request that the renderer skip vblank waiting so a host can drive
     // continuous refresh (3D scenes, animation-heavy hosts). The host kind
     // doesn't matter — any host that wants to render every frame can opt in.

@@ -27,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace draxul
@@ -35,6 +36,9 @@ namespace draxul
 class MacOsMenu;
 class ControlServer;
 class ControlEventJournal;
+class TopologyClient;
+struct TopologyCommand;
+struct TopologySnapshot;
 struct ControlMethodResult;
 struct ControlRequest;
 
@@ -192,6 +196,13 @@ private:
     bool restore_session_state(int pixel_w, int pixel_h, const SessionSnapshot& state);
     void process_control_requests();
     ControlMethodResult handle_control_request(const ControlRequest& request);
+    bool initialize_remote_topology();
+    void poll_remote_topology();
+    bool apply_remote_topology_spaces(
+        const TopologySnapshot& snapshot, std::string* error = nullptr);
+    bool execute_remote_topology_command(
+        TopologyCommand command, std::string& error);
+    std::optional<std::string> remote_space_id(SpaceId local_id) const;
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();
@@ -276,6 +287,12 @@ private:
     AgentDefinitionRegistry agent_definitions_;
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
+    std::unique_ptr<TopologyClient> topology_client_;
+    std::unordered_map<std::string, SpaceId> topology_space_to_local_;
+    std::unordered_map<SpaceId, std::string> local_space_to_topology_;
+    uint64_t next_topology_command_serial_ = 1;
+    std::chrono::steady_clock::time_point next_topology_poll_{};
+    bool topology_poll_error_announced_ = false;
     uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;

@@ -27,6 +27,7 @@
 #include <draxul/pixel_scale.h>
 #include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
+#include <draxul/topology_client.h>
 #include <filesystem>
 #include <imgui.h>
 #include <stdexcept>
@@ -817,6 +818,12 @@ bool App::initialize_chrome_host()
         // but don't retry — if the host can't be created (e.g. nvim not on PATH),
         // retrying won't help and makes CI smoke tests fail harder.
         delete_session_state(options_.session_id);
+        return false;
+    }
+
+    if (options_.enable_remote_topology
+        && !initialize_remote_topology())
+    {
         return false;
     }
 
@@ -1949,6 +1956,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         // hit tests, and every control request below.
         agent_controller_.begin_frame();
         process_control_requests();
+        poll_remote_topology();
 
         // Safety net: detect window size changes that SDL may not deliver as
         // events (e.g. during a Windows modal resize drag).
@@ -2608,6 +2616,247 @@ bool App::can_snapshot_session_state() const
         && space_controller_.all_spaces_restorable();
 }
 
+bool App::initialize_remote_topology()
+{
+    if (options_.server_runtime_directory.empty()
+        || options_.server_client_id.empty())
+    {
+        last_init_error_
+            = "Remote topology requires a server runtime and client identity.";
+        return false;
+    }
+    topology_client_ = std::make_unique<TopologyClient>(
+        TopologyClientOptions{
+            .runtime_directory = options_.server_runtime_directory,
+            .client_id = options_.server_client_id,
+        });
+    std::string error;
+    if (!topology_client_->refresh(error)
+        || !apply_remote_topology_spaces(
+            topology_client_->snapshot(), &error))
+    {
+        last_init_error_ = error.empty()
+            ? "Failed to initialize shared server topology."
+            : "Failed to initialize shared server topology: " + error;
+        topology_client_.reset();
+        return false;
+    }
+    next_topology_poll_
+        = std::chrono::steady_clock::now()
+        + std::chrono::milliseconds(100);
+    return true;
+}
+
+void App::poll_remote_topology()
+{
+    if (!topology_client_)
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next_topology_poll_)
+        return;
+    next_topology_poll_ = now + std::chrono::milliseconds(100);
+
+    bool changed = false;
+    std::string error;
+    if (!topology_client_->poll(changed, error))
+    {
+        if (!topology_poll_error_announced_)
+        {
+            topology_poll_error_announced_ = true;
+            push_toast(1, "Shared topology unavailable: " + error);
+        }
+        return;
+    }
+    topology_poll_error_announced_ = false;
+    if (changed
+        && !apply_remote_topology_spaces(
+            topology_client_->snapshot(), &error))
+    {
+        push_toast(2, "Could not apply shared topology: " + error);
+    }
+}
+
+bool App::apply_remote_topology_spaces(
+    const TopologySnapshot& snapshot, std::string* error)
+{
+    if (snapshot.spaces.empty())
+    {
+        if (error)
+            *error = "Server topology contains no Spaces.";
+        return false;
+    }
+
+    bool structure_changed = false;
+    if (topology_space_to_local_.empty())
+    {
+        const SpaceId local_id = space_controller_.active_space_id();
+        topology_space_to_local_[snapshot.spaces.front().space_id]
+            = local_id;
+        local_space_to_topology_[local_id]
+            = snapshot.spaces.front().space_id;
+    }
+
+    refresh_app_shell_layout();
+    const int pixel_w = std::max(1, shell_layout_.pane_root.w);
+    const int pixel_h = std::max(1, shell_layout_.pane_root.h);
+
+    for (const auto& remote : snapshot.spaces)
+    {
+        if (topology_space_to_local_.contains(remote.space_id))
+            continue;
+
+        const SpaceId local_id = space_controller_.create_space(
+            remote.name, remote.root_directory);
+        Space* local = space_controller_.find_space(local_id);
+        if (!local)
+        {
+            if (error)
+                *error = "Could not create a projected Space.";
+            return false;
+        }
+
+        HostKind host_kind
+            = PaneManager::platform_default_split_host_kind();
+        if (!remote.tabs.empty() && !remote.tabs.front().panes.empty())
+        {
+            const TopologyPane& pane
+                = remote.tabs.front().panes.front();
+            if (pane.domain == TopologyPaneDomain::ServerTerminal)
+            {
+                host_kind = HostKind::RemoteTerminal;
+            }
+            else if (pane.client_host_kind != "platform_default")
+            {
+                if (const auto parsed
+                    = parse_host_kind(pane.client_host_kind))
+                {
+                    host_kind = *parsed;
+                }
+            }
+        }
+
+        const int tab_id = local->tab_controller.add_tab(
+            *this, pixel_w, pixel_h,
+            make_pane_manager_deps(local), host_kind);
+        if (tab_id < 0)
+        {
+            const std::string detail
+                = local->tab_controller.last_error();
+            space_controller_.close_space(local_id);
+            if (error)
+            {
+                *error = detail.empty()
+                    ? "Could not create a projected Space host."
+                    : detail;
+            }
+            return false;
+        }
+        if (!remote.tabs.empty())
+        {
+            if (Tab* tab = local->tab_controller.find_active_tab())
+            {
+                tab->name = remote.tabs.front().name;
+                tab->name_user_set = true;
+            }
+        }
+        topology_space_to_local_[remote.space_id] = local_id;
+        local_space_to_topology_[local_id] = remote.space_id;
+        structure_changed = true;
+    }
+
+    std::unordered_set<std::string> live_remote_ids;
+    for (const auto& remote : snapshot.spaces)
+        live_remote_ids.insert(remote.space_id);
+    std::vector<std::string> removed;
+    for (const auto& [remote_id, local_id] : topology_space_to_local_)
+    {
+        if (live_remote_ids.contains(remote_id))
+            continue;
+        if (space_controller_.close_space(local_id))
+        {
+            local_space_to_topology_.erase(local_id);
+            removed.push_back(remote_id);
+            structure_changed = true;
+        }
+    }
+    for (const auto& remote_id : removed)
+        topology_space_to_local_.erase(remote_id);
+
+    for (const auto& remote : snapshot.spaces)
+    {
+        const auto mapped
+            = topology_space_to_local_.find(remote.space_id);
+        if (mapped == topology_space_to_local_.end())
+            continue;
+        space_controller_.rename_space(mapped->second, remote.name);
+        space_controller_.set_space_root_directory(
+            mapped->second, remote.root_directory);
+        Space* local = space_controller_.find_space(mapped->second);
+        if (local && !remote.tabs.empty())
+        {
+            if (Tab* tab = local->tab_controller.find_active_tab())
+            {
+                tab->name = remote.tabs.front().name;
+                tab->name_user_set = true;
+            }
+        }
+    }
+
+    if (structure_changed)
+    {
+        refresh_app_shell_layout();
+        input_dispatcher_.set_host(
+            active_pane_manager().focused_host());
+    }
+    request_frame();
+    return true;
+}
+
+bool App::execute_remote_topology_command(
+    TopologyCommand command, std::string& error)
+{
+    if (!topology_client_)
+    {
+        error = "Shared topology is not connected.";
+        return false;
+    }
+    if (command.command_id.empty())
+    {
+        command.command_id = options_.server_client_id + "-"
+            + std::to_string(next_topology_command_serial_++);
+    }
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        command.expected_revision
+            = topology_client_->snapshot().revision;
+        TopologyCommandResult result;
+        if (topology_client_->execute(command, result, error))
+            return apply_remote_topology_spaces(result.snapshot, &error);
+        if (topology_client_->last_error_code()
+            != "revision_conflict")
+        {
+            return false;
+        }
+        if (!topology_client_->refresh(error)
+            || !apply_remote_topology_spaces(
+                topology_client_->snapshot(), &error))
+        {
+            return false;
+        }
+    }
+    error = "Shared topology changed repeatedly; retry the action.";
+    return false;
+}
+
+std::optional<std::string> App::remote_space_id(
+    SpaceId local_id) const
+{
+    const auto found = local_space_to_topology_.find(local_id);
+    if (found == local_space_to_topology_.end())
+        return std::nullopt;
+    return found->second;
+}
+
 Result<SpaceId, Error> App::create_space(
     std::string_view raw_name, std::filesystem::path root_directory)
 {
@@ -2632,6 +2881,48 @@ Result<SpaceId, Error> App::create_space(
         }
         if (root_directory.empty())
             root_directory = options_.host_working_dir;
+    }
+
+    if (topology_client_)
+    {
+        std::unordered_set<std::string> previous;
+        for (const auto& remote
+            : topology_client_->snapshot().spaces)
+        {
+            previous.insert(remote.space_id);
+        }
+        TopologyCommand command{
+            .kind = TopologyCommandKind::CreateSpace,
+            .name = name,
+            .root_directory = root_directory.string(),
+        };
+        std::string error;
+        if (!execute_remote_topology_command(
+                std::move(command), error))
+        {
+            return Result<SpaceId, Error>::err(
+                Error::invalid_argument(error));
+        }
+        for (const auto& remote
+            : topology_client_->snapshot().spaces)
+        {
+            if (previous.contains(remote.space_id))
+                continue;
+            const auto mapped
+                = topology_space_to_local_.find(remote.space_id);
+            if (mapped != topology_space_to_local_.end())
+            {
+                if (auto activated = activate_space(mapped->second);
+                    !activated)
+                {
+                    return Result<SpaceId, Error>::err(
+                        activated.error());
+                }
+                return mapped->second;
+            }
+        }
+        return Result<SpaceId, Error>::err(
+            Error::init("Created server Space was not projected."));
     }
 
     const SpaceId id = space_controller_.create_space(name, std::move(root_directory));
@@ -2689,6 +2980,25 @@ Result<void, Error> App::rename_space(SpaceId id, std::string_view raw_name)
     const std::string name = trim_session_name(raw_name);
     if (name.empty())
         return Result<void, Error>::err(Error::invalid_argument("Enter a Space name."));
+    if (topology_client_)
+    {
+        const auto remote_id = remote_space_id(id);
+        if (!remote_id)
+            return Result<void, Error>::err(
+                Error::not_found("Server Space was not found."));
+        std::string error;
+        if (!execute_remote_topology_command({
+                .kind = TopologyCommandKind::RenameSpace,
+                .space_id = *remote_id,
+                .name = name,
+            },
+                error))
+        {
+            return Result<void, Error>::err(
+                Error::invalid_argument(error));
+        }
+        return Result<void, Error>::ok();
+    }
     if (!space_controller_.rename_space(id, name))
         return Result<void, Error>::err(Error::not_found("Space was not found."));
     mark_session_dirty();
@@ -2703,6 +3013,25 @@ Result<void, Error> App::close_space(SpaceId id)
         return Result<void, Error>::err(Error::not_found("Space was not found."));
     if (space_controller_.count() <= 1)
         return Result<void, Error>::err(Error::invalid_argument("The final Space cannot be closed."));
+
+    if (topology_client_)
+    {
+        const auto remote_id = remote_space_id(id);
+        if (!remote_id)
+            return Result<void, Error>::err(
+                Error::not_found("Server Space was not found."));
+        std::string error;
+        if (!execute_remote_topology_command({
+                .kind = TopologyCommandKind::CloseSpace,
+                .space_id = *remote_id,
+            },
+                error))
+        {
+            return Result<void, Error>::err(
+                Error::invalid_argument(error));
+        }
+        return Result<void, Error>::ok();
+    }
 
     if (closing_active)
         input_dispatcher_.set_host(nullptr);
