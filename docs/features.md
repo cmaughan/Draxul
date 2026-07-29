@@ -50,6 +50,13 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   `--server-working-dir <path>`, and `--server-scrollback-lines <count>` define
   server-owned process/history settings. Stop an already-running isolated server
   before changing them; client fonts, palette, selection, and rendering remain local.
+- The experimental server owns the durable default Session checkpoint at
+  `<server-runtime-dir>/sessions/default.toml`. It restores every usable Space before
+  processing client requests, checkpoints changed topology every 30 seconds without
+  a UI, and checkpoints again on graceful shutdown. It preserves stable pane and
+  terminal descriptors but launches honest new shell processes after a cold server
+  restart. `--server-status` (or `--server-status --json`) reports the checkpoint
+  path, state, last-success timestamp, bounded error, and restore warnings.
 - Remote terminal clients receive a complete versioned snapshot followed by ordered
   dirty-cell and controller events. Each client has a bounded server queue; a slow
   client receives a fresh snapshot rather than delaying the terminal or another

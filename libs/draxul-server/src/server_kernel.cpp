@@ -2,8 +2,8 @@
 
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
-#include "session_topology_bridge.h"
 #include "server_terminal_runtime.h"
+#include "session_topology_bridge.h"
 #include "topology_service.h"
 
 #include <draxul/control_plane.h>
@@ -51,6 +51,14 @@ uint64_t current_process_id()
 #else
     return static_cast<uint64_t>(::getpid());
 #endif
+}
+
+uint64_t current_unix_time_ms()
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
 }
 
 std::string random_epoch()
@@ -221,6 +229,12 @@ public:
     bool checkpoint_enabled = true;
     std::vector<std::string> restore_warnings;
     std::optional<TopologySnapshot> restored_topology;
+    std::string checkpoint_state = "pending";
+    std::string checkpoint_error;
+    uint64_t last_checkpoint_unix_ms = 0;
+    uint64_t last_checkpoint_revision = 0;
+    bool checkpoint_file_present = false;
+    std::chrono::steady_clock::time_point next_checkpoint_at{};
 };
 
 void ServerKernel::Impl::publish_starting_marker()
@@ -304,11 +318,11 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
         },
         *runtime);
     if (!server_terminals.emplace(
-            terminal_id,
-            ServerTerminalEndpoint{
-                .runtime = std::move(runtime),
-                .service = std::move(service),
-            })
+                             terminal_id,
+                             ServerTerminalEndpoint{
+                                 .runtime = std::move(runtime),
+                                 .service = std::move(service),
+                             })
              .second)
     {
         error = "Saved Session contains a duplicate server terminal identity.";
@@ -333,10 +347,18 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
         ? server_session_state_path(options.runtime_directory)
         : options.session_state_file;
     checkpoint_enabled = true;
+    checkpoint_file_present
+        = std::filesystem::exists(persistence_path);
+    checkpoint_state = checkpoint_file_present
+        ? "restoring"
+        : "pending";
+    checkpoint_error.clear();
+    last_checkpoint_unix_ms = 0;
+    last_checkpoint_revision = 0;
     restore_warnings.clear();
     restored_topology.reset();
 
-    if (std::filesystem::exists(persistence_path))
+    if (checkpoint_file_present)
     {
         std::string load_error;
         auto session = load_session_state_from_path(
@@ -347,10 +369,12 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
         if (!restored)
         {
             checkpoint_enabled = false;
+            checkpoint_state = "disabled";
+            checkpoint_error = load_error.empty()
+                ? "Saved Session could not be restored."
+                : load_error;
             restore_warnings.push_back(
-                load_error.empty()
-                    ? "Saved Session could not be restored."
-                    : load_error);
+                checkpoint_error);
             DRAXUL_LOG_WARN(LogCategory::App,
                 "Draxul server retained unreadable Session checkpoint %s: %s",
                 persistence_path.string().c_str(),
@@ -360,7 +384,16 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
         {
             restore_warnings = std::move(restored->warnings);
             if (!restore_warnings.empty())
+            {
                 checkpoint_enabled = false;
+                checkpoint_state = "disabled";
+                checkpoint_error
+                    = "Checkpoint disabled after partial restore.";
+            }
+            else
+            {
+                checkpoint_state = "restored";
+            }
             restored_topology = std::move(restored->topology);
         }
     }
@@ -375,20 +408,14 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
     TopologyServiceCallbacks callbacks{
         .create_server_terminal
         = [this](std::string_view pane_id,
-              std::string_view name, std::string& callback_error) {
-              return create_server_terminal(
-                  pane_id, name, callback_error);
-          },
+              std::string_view name, std::string& callback_error) { return create_server_terminal(
+                                                                        pane_id, name, callback_error); },
         .destroy_server_terminal
-        = [this](std::string_view terminal_id) {
-              destroy_server_terminal(terminal_id);
-          },
+        = [this](std::string_view terminal_id) { destroy_server_terminal(terminal_id); },
         .restart_server_terminal
         = [this](std::string_view terminal_id,
-              std::string& callback_error) {
-              return restart_server_terminal(
-                  terminal_id, callback_error);
-          },
+              std::string& callback_error) { return restart_server_terminal(
+                                                 terminal_id, callback_error); },
     };
 
     if (restored_topology)
@@ -416,6 +443,10 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
         }
         topology_service = std::make_unique<TopologyService>(
             *restored_topology, std::move(callbacks));
+        last_checkpoint_revision
+            = topology_service->snapshot().revision;
+        next_checkpoint_at = std::chrono::steady_clock::now()
+            + options.session_checkpoint_interval;
         return true;
     }
 
@@ -428,27 +459,46 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
     }
     topology_service = std::make_unique<TopologyService>(
         "default", std::move(callbacks));
+    next_checkpoint_at = std::chrono::steady_clock::now()
+        + options.session_checkpoint_interval;
     return true;
 }
 
 bool ServerKernel::Impl::checkpoint_session(std::string& error)
 {
+    auto fail = [&](std::string message, std::string state = "failed") {
+        checkpoint_state = std::move(state);
+        checkpoint_error = message.size() > 4096
+            ? message.substr(0, 4096)
+            : message;
+        error = checkpoint_error;
+        return false;
+    };
     if (!topology_service)
-    {
-        error = "Server topology is unavailable.";
-        return false;
-    }
+        return fail("Server topology is unavailable.");
     if (!checkpoint_enabled)
-    {
-        error = "Checkpoint disabled to preserve the previous Session file after restore warnings.";
-        return false;
-    }
+        return fail(
+            "Checkpoint disabled to preserve the previous Session file after restore warnings.",
+            "disabled");
     auto session = capture_session_topology(
         topology_service->snapshot(), error);
     if (!session)
-        return false;
-    return save_session_state_to_path(
-        *session, persistence_path, &error);
+        return fail(error);
+    if (!save_session_state_to_path(
+            *session, persistence_path, &error))
+    {
+        return fail(error.empty()
+                ? "Unable to save Session checkpoint."
+                : error);
+    }
+    checkpoint_state = "ok";
+    checkpoint_error.clear();
+    last_checkpoint_unix_ms = current_unix_time_ms();
+    last_checkpoint_revision
+        = topology_service->snapshot().revision;
+    checkpoint_file_present = true;
+    error.clear();
+    return true;
 }
 
 ServerStartResult ServerKernel::Impl::start()
@@ -937,6 +987,12 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
                 [](const auto& item) {
                     return item.second.service->started();
                 })),
+        .checkpoint_path = persistence_path.string(),
+        .checkpoint_state = checkpoint_state,
+        .last_checkpoint_unix_ms
+        = last_checkpoint_unix_ms,
+        .checkpoint_error = checkpoint_error,
+        .restore_warnings = restore_warnings,
     };
 }
 
@@ -989,8 +1045,7 @@ int ServerKernel::Impl::run_until_stopped()
     }
     while (!stop_requested)
     {
-        for (auto& [terminal_id, endpoint]
-            : server_terminals)
+        for (auto& [terminal_id, endpoint] : server_terminals)
         {
             (void)terminal_id;
             endpoint.service->pump();
@@ -1006,6 +1061,27 @@ int ServerKernel::Impl::run_until_stopped()
             [this](const ControlRequest& request) {
                 return handle_request(request);
             });
+        const auto now = std::chrono::steady_clock::now();
+        if (checkpoint_enabled
+            && options.session_checkpoint_interval.count() > 0
+            && now >= next_checkpoint_at)
+        {
+            if (topology_service
+                && (!checkpoint_file_present
+                    || topology_service->snapshot().revision
+                        != last_checkpoint_revision))
+            {
+                std::string periodic_error;
+                if (!checkpoint_session(periodic_error))
+                {
+                    DRAXUL_LOG_WARN(LogCategory::App,
+                        "Draxul server periodic Session checkpoint failed: %s",
+                        periodic_error.c_str());
+                }
+            }
+            next_checkpoint_at
+                = now + options.session_checkpoint_interval;
+        }
         std::unique_lock lock(mutex);
         wake.wait_for(lock, std::chrono::milliseconds(25),
             [this] { return stop_requested.load(); });

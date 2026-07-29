@@ -53,6 +53,11 @@ struct ServerStatusSnapshot
     size_t spaces = 0;
     size_t terminals = 0;
     size_t agents = 0;
+    std::string checkpoint_path;
+    std::string checkpoint_state;
+    uint64_t last_checkpoint_unix_ms = 0;
+    std::string checkpoint_error;
+    std::vector<std::string> restore_warnings;
 
     bool operator==(const ServerStatusSnapshot&) const = default;
 };

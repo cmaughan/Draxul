@@ -167,9 +167,9 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
             .build_version = draxul::server_build_version(),
             .terminal_shell_kind = parsed.server_shell_kind,
             .terminal_working_directory
-                = parsed.server_working_dir.string(),
+            = parsed.server_working_dir.string(),
             .terminal_scrollback_lines
-                = parsed.server_scrollback_lines,
+            = parsed.server_scrollback_lines,
         });
         const auto result = kernel.start();
         if (result.disposition == draxul::ServerStartDisposition::AlreadyRunning)
@@ -207,13 +207,29 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
         {
             std::printf(
                 "Draxul server: %s\nPID: %llu\nEpoch: %s\nProtocol: %d.%d\n"
-                "Clients: %zu\n",
+                "Clients: %zu\nSessions: %zu\nSpaces: %zu\nTerminals: %zu\n"
+                "Checkpoint: %s\nCheckpoint path: %s\n",
                 result.status->state.c_str(),
                 static_cast<unsigned long long>(result.status->server_pid),
                 result.status->server_epoch.c_str(),
                 result.status->protocol_major,
                 result.status->protocol_minor,
-                result.status->connected_clients);
+                result.status->connected_clients,
+                result.status->sessions,
+                result.status->spaces,
+                result.status->terminals,
+                result.status->checkpoint_state.c_str(),
+                result.status->checkpoint_path.c_str());
+            if (!result.status->checkpoint_error.empty())
+            {
+                std::printf("Checkpoint error: %s\n",
+                    result.status->checkpoint_error.c_str());
+            }
+            for (const auto& warning : result.status->restore_warnings)
+            {
+                std::printf("Restore warning: %s\n",
+                    warning.c_str());
+            }
         }
         return 0;
     }
@@ -371,11 +387,11 @@ static int draxul_main(std::vector<std::string> args)
             .client_id = connected_server_client_id,
             .terminal_shell_kind = parsed.server_shell_kind,
             .terminal_working_directory
-                = parsed.server_working_dir.empty()
+            = parsed.server_working_dir.empty()
                 ? std::filesystem::current_path()
                 : parsed.server_working_dir,
             .terminal_scrollback_lines
-                = parsed.server_scrollback_lines,
+            = parsed.server_scrollback_lines,
         };
         auto server_result = draxul::ServerClient::ensure(server_options);
         if (!server_result.ready())

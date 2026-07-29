@@ -33,6 +33,9 @@ struct ServerKernelOptions
 {
     std::filesystem::path runtime_directory;
     std::filesystem::path session_state_file;
+    std::chrono::milliseconds session_checkpoint_interval{
+        std::chrono::seconds(30)
+    };
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::string build_version;

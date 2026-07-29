@@ -181,6 +181,12 @@ nlohmann::json server_status_to_json(const ServerStatusSnapshot& status)
         { "spaces", status.spaces },
         { "terminals", status.terminals },
         { "agents", status.agents },
+        { "checkpoint_path", status.checkpoint_path },
+        { "checkpoint_state", status.checkpoint_state },
+        { "last_checkpoint_unix_ms",
+            status.last_checkpoint_unix_ms },
+        { "checkpoint_error", status.checkpoint_error },
+        { "restore_warnings", status.restore_warnings },
     };
 }
 
@@ -207,8 +213,26 @@ std::optional<ServerStatusSnapshot> server_status_from_json(
         status.spaces = value.at("spaces").get<size_t>();
         status.terminals = value.at("terminals").get<size_t>();
         status.agents = value.at("agents").get<size_t>();
+        status.checkpoint_path
+            = value.value("checkpoint_path", std::string{});
+        status.checkpoint_state
+            = value.value("checkpoint_state", std::string{});
+        status.last_checkpoint_unix_ms
+            = value.value("last_checkpoint_unix_ms", uint64_t{ 0 });
+        status.checkpoint_error
+            = value.value("checkpoint_error", std::string{});
+        status.restore_warnings = value.value(
+            "restore_warnings", std::vector<std::string>{});
         if (status.state.empty() || status.server_pid == 0
-            || status.server_epoch.empty())
+            || status.server_epoch.empty()
+            || status.checkpoint_path.size() > 4096
+            || status.checkpoint_state.size() > 64
+            || status.checkpoint_error.size() > 4096
+            || status.restore_warnings.size() > 64
+            || std::ranges::any_of(status.restore_warnings,
+                [](const std::string& warning) {
+                    return warning.size() > 4096;
+                }))
         {
             error = "Server status values are out of range.";
             return std::nullopt;

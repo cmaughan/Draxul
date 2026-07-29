@@ -40,6 +40,10 @@ TEST_CASE("server protocol round-trips hello welcome and status", "[server][prot
         .build_version = "test",
         .uptime_ms = 123,
         .connected_clients = 2,
+        .checkpoint_path = "sessions/default.toml",
+        .checkpoint_state = "ok",
+        .last_checkpoint_unix_ms = 456,
+        .restore_warnings = { "one pane was skipped" },
     };
     const auto decoded_status = server_status_from_json(
         server_status_to_json(status), error);
