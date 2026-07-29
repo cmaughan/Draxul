@@ -59,6 +59,9 @@ public:
     // staleness, never a wrong steady state.
     void begin_frame();
     void invalidate();
+    void set_server_agents(
+        std::vector<AgentProjection> agents);
+    void clear_server_agents();
     const std::vector<AgentProjection>& frame_agents(SpaceController& spaces);
     bool focus(SpaceController& spaces, std::string_view instance_id) const;
     bool focus_by_index(SpaceController& spaces, int one_based_index);
@@ -68,6 +71,8 @@ public:
 
 private:
     std::vector<AgentProjection> compute(SpaceController& spaces);
+    std::vector<AgentProjection> compute_server_agents(
+        SpaceController& spaces);
 
     struct CachedSemanticState
     {
@@ -97,6 +102,10 @@ private:
     std::unordered_map<std::string, CachedSemanticState> semantic_state_;
     std::unordered_map<std::string, CachedDiscoveryState> discovery_state_;
     uint64_t next_discovered_instance_ = 1;
+    std::vector<AgentProjection> server_agents_;
+    mutable std::unordered_map<std::string, uint64_t>
+        server_attention_acknowledged_;
+    bool server_agents_authoritative_ = false;
     std::vector<AgentProjection> cached_agents_;
     bool cache_valid_ = false;
 };

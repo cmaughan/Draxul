@@ -36,7 +36,9 @@ namespace draxul
 class MacOsMenu;
 class ControlServer;
 class ControlEventJournal;
+class AgentClient;
 class TopologyClient;
+struct ServerAgentSnapshot;
 struct TopologyCommand;
 struct TopologySnapshot;
 struct TopologyTab;
@@ -200,6 +202,10 @@ private:
     ControlMethodResult handle_control_request(const ControlRequest& request);
     bool initialize_remote_topology();
     void poll_remote_topology();
+    void poll_remote_agents();
+    bool apply_remote_agents(
+        const ServerAgentSnapshot& snapshot,
+        std::string* error = nullptr);
     bool apply_remote_topology_spaces(
         const TopologySnapshot& snapshot, std::string* error = nullptr);
     bool apply_remote_topology_tabs(
@@ -307,6 +313,7 @@ private:
     AgentDefinitionRegistry agent_definitions_;
     std::unique_ptr<ControlServer> control_server_;
     std::unique_ptr<ControlEventJournal> control_events_;
+    std::unique_ptr<AgentClient> agent_client_;
     std::unique_ptr<TopologyClient> topology_client_;
     std::unordered_map<std::string, SpaceId> topology_space_to_local_;
     std::unordered_map<SpaceId, std::string> local_space_to_topology_;
@@ -329,7 +336,9 @@ private:
     LeafId next_topology_leaf_id_ = 0;
     uint64_t next_topology_command_serial_ = 1;
     std::chrono::steady_clock::time_point next_topology_poll_{};
+    std::chrono::steady_clock::time_point next_agent_poll_{};
     bool topology_poll_error_announced_ = false;
+    bool agent_poll_error_announced_ = false;
     uint64_t next_agent_instance_serial_ = 1;
     RenderNode render_root_;
     std::vector<uint8_t> atlas_upload_scratch_;

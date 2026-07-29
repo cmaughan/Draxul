@@ -2,6 +2,7 @@
 
 #include "support/temp_dir.h"
 
+#include <draxul/agent_client.h>
 #include <draxul/agent_protocol.h>
 #include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
@@ -13,6 +14,7 @@
 
 #include <fstream>
 #include <future>
+#include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <thread>
@@ -99,6 +101,29 @@ bool wait_for_text(
     return false;
 }
 
+bool wait_for_agent(AgentClient& client,
+    std::string_view kind, std::string& error)
+{
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        bool changed = false;
+        if (!client.poll(changed, error))
+            return false;
+        if (std::ranges::any_of(
+                client.snapshot().agents,
+                [kind](const ServerAgentProjection& agent) {
+                    return agent.identity.kind == kind;
+                }))
+        {
+            return true;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(25));
+    }
+    error = "Timed out waiting for the shared agent projection.";
+    return false;
+}
+
 #ifdef _WIN32
 uint64_t parent_process_id(uint64_t process_id)
 {
@@ -167,6 +192,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(probe.welcome->server_pid == server.process_id());
     REQUIRE(probe.welcome->server_epoch == "fixed-epoch");
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "agent-projection-v1")
+        != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "real-remote-terminal")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
@@ -189,6 +217,12 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(agent_snapshot);
     CHECK(agent_snapshot->session_id == "default");
     CHECK(agent_snapshot->agents.empty());
+    AgentClient second_agents({
+        .runtime_directory = temp.path,
+        .client_id = "unit-agent-observer",
+    });
+    REQUIRE(second_agents.refresh(agent_error));
+    CHECK(second_agents.snapshot() == *agent_snapshot);
 
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
@@ -464,6 +498,78 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     REQUIRE(after_restart.projection().pane().process_id != 0);
     REQUIRE(server.epoch() == "fixed-epoch");
 
+    run_guard.join();
+}
+
+TEST_CASE("server-owned shell discovery converges in two agent clients",
+    "[server][agent][process]")
+{
+    TempDir temp("draxul-server-agent");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto terminal = remote_client(
+        temp.path, "agent-terminal", "fixed-epoch",
+        "terminal");
+    std::string error;
+    REQUIRE(terminal.attach(error));
+    INFO(error);
+
+#ifdef _WIN32
+    const auto source
+        = std::filesystem::path(
+              std::getenv("SystemRoot"))
+        / "System32" / "ping.exe";
+    const auto fake_agent = temp.path / "codex.exe";
+    std::filesystem::copy_file(source, fake_agent);
+    const std::string command = "& '"
+        + fake_agent.string()
+        + "' -t 127.0.0.1\r";
+#else
+    const auto fake_agent = temp.path / "codex";
+    std::filesystem::create_symlink(
+        "/bin/sleep", fake_agent);
+    const std::string command = "'"
+        + fake_agent.string() + "' 30\r";
+#endif
+    REQUIRE(terminal.send_input(command, error));
+
+    AgentClient first({
+        .runtime_directory = temp.path,
+        .client_id = "agent-a",
+    });
+    AgentClient second({
+        .runtime_directory = temp.path,
+        .client_id = "agent-b",
+    });
+    REQUIRE(first.refresh(error));
+    REQUIRE(second.refresh(error));
+    REQUIRE(wait_for_agent(first, "codex", error));
+    INFO(error);
+    bool changed = false;
+    for (int attempt = 0;
+         attempt < 100
+         && second.snapshot() != first.snapshot();
+         ++attempt)
+    {
+        REQUIRE(second.poll(changed, error));
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(25));
+    }
+    REQUIRE(second.snapshot() == first.snapshot());
+    REQUIRE(first.snapshot().agents.size() == 1);
+    CHECK(first.snapshot().agents[0].pane_id
+        == kServerShellPaneId);
+    CHECK(first.snapshot().agents[0].identity.origin
+        == AgentIdentityOrigin::Discovered);
+
+    REQUIRE(terminal.send_input("\x03", error));
     run_guard.join();
 }
 

@@ -10,8 +10,8 @@ available while every Draxul UI is detached from a remote Session.
 - [x] The server observes its own terminal process trees and bounded screen state.
 - [x] A revisioned, sanitized agent projection excludes terminal text and process
       command lines from the wire contract.
-- [ ] Every UI attached to one Session converges on the same Agents projection.
-- [ ] Agent focus remains client-local and does not reroute another UI.
+- [x] Every UI attached to one Session converges on the same Agents projection.
+- [x] Agent focus remains client-local and does not reroute another UI.
 - [ ] Official integration hooks target server epoch, Session, pane, and runtime
       generation.
 - [ ] Agent waits, input, restart, and session-reference updates work with no GPU
@@ -30,3 +30,7 @@ Sessions keep the existing app-owned `AgentController`.
   `agent.snapshot`/`agent.poll` protocol.
 - Server discovery/status fixtures cover appearance, stable identity, semantic
   evaluation, retirement, revision polling, and the no-terminal-text boundary.
+- Checkpoint 8b added the client poller and projected server routes into the
+  existing Agents rail. A real server-owned shell test launches a manually
+  discovered Codex-named process and proves two independent clients converge;
+  app tests pin local focus and attention acknowledgement.

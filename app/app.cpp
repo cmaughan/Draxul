@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <draxul/atlas_upload.h>
+#include <draxul/agent_client.h>
 #include <draxul/control_plane.h>
 #include <draxul/grid_host_base.h>
 #include <draxul/log.h>
@@ -2144,6 +2145,7 @@ bool App::pump_once(std::optional<std::chrono::steady_clock::time_point> wait_de
         process_control_requests();
         flush_pending_remote_split_ratio();
         poll_remote_topology();
+        poll_remote_agents();
 
         // Safety net: detect window size changes that SDL may not deliver as
         // events (e.g. during a Windows modal resize drag).
@@ -2863,7 +2865,30 @@ bool App::initialize_remote_topology()
         topology_client_.reset();
         return false;
     }
+    agent_client_ = std::make_unique<AgentClient>(
+        AgentClientOptions{
+            .runtime_directory
+            = options_.server_runtime_directory,
+            .client_id = options_.server_client_id,
+            .session_id = options_.session_id,
+        });
+    if (!agent_client_->refresh(error)
+        || !apply_remote_agents(
+            agent_client_->snapshot(), &error))
+    {
+        last_init_error_ = error.empty()
+            ? "Failed to initialize shared server agents."
+            : "Failed to initialize shared server agents: "
+                + error;
+        agent_client_.reset();
+        agent_controller_.clear_server_agents();
+        topology_client_.reset();
+        return false;
+    }
     next_topology_poll_
+        = std::chrono::steady_clock::now()
+        + std::chrono::milliseconds(100);
+    next_agent_poll_
         = std::chrono::steady_clock::now()
         + std::chrono::milliseconds(100);
     return true;
@@ -2896,6 +2921,116 @@ void App::poll_remote_topology()
     {
         push_toast(2, "Could not apply shared topology: " + error);
     }
+}
+
+void App::poll_remote_agents()
+{
+    if (!agent_client_)
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next_agent_poll_)
+        return;
+    next_agent_poll_
+        = now + std::chrono::milliseconds(100);
+
+    bool changed = false;
+    std::string error;
+    if (!agent_client_->poll(changed, error))
+    {
+        if (!agent_poll_error_announced_)
+        {
+            agent_poll_error_announced_ = true;
+            push_toast(
+                1, "Shared agents unavailable: " + error);
+        }
+        return;
+    }
+    agent_poll_error_announced_ = false;
+    if (changed
+        && !apply_remote_agents(
+            agent_client_->snapshot(), &error))
+    {
+        push_toast(
+            2, "Could not apply shared agents: " + error);
+    }
+}
+
+bool App::apply_remote_agents(
+    const ServerAgentSnapshot& snapshot, std::string* error)
+{
+    if (snapshot.session_id
+        != (options_.session_id.empty()
+                ? "default"
+                : options_.session_id))
+    {
+        if (error)
+            *error = "Server agent projection targets another Session.";
+        return false;
+    }
+
+    std::vector<AgentProjection> projected;
+    projected.reserve(snapshot.agents.size());
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& remote : snapshot.agents)
+    {
+        const auto space_mapping
+            = topology_space_to_local_.find(remote.space_id);
+        const auto tab_mapping
+            = topology_tab_to_local_.find(remote.tab_id);
+        const auto pane_mapping
+            = topology_pane_to_leaf_.find(remote.pane_id);
+        if (space_mapping == topology_space_to_local_.end()
+            || tab_mapping == topology_tab_to_local_.end()
+            || pane_mapping == topology_pane_to_leaf_.end()
+            || tab_mapping->second.first
+                != space_mapping->second)
+        {
+            continue;
+        }
+        projected.push_back({
+            .space_id = space_mapping->second,
+            .tab_id = tab_mapping->second.second,
+            .leaf_id = pane_mapping->second,
+            .pane_id = remote.pane_id,
+            .identity = remote.identity,
+            .identity_evidence_category
+            = remote.identity_evidence_category,
+            .identity_high_confidence
+            = remote.identity_high_confidence,
+            .session_ref = remote.session_ref,
+            .lifecycle = remote.lifecycle,
+            .generation = remote.generation,
+            .runtime_started_at = {},
+            .lifecycle_transition_at = now,
+            .exit_code = remote.exit_code,
+            .status = remote.status,
+            .status_authority = remote.status_authority,
+            .status_explanation = {
+                .status = remote.status,
+                .authority = remote.status_authority,
+                .manifest_id = remote.manifest_id,
+                .manifest_version
+                = remote.manifest_version,
+                .rule_id = remote.rule_id,
+                .evidence_category
+                = remote.status_evidence_category,
+                .fallback_reason = remote.fallback_reason,
+                .observation_generation
+                = remote.observation_generation,
+                .evaluated_at = now,
+            },
+            .attention = remote.attention,
+            .last_status_transition_at = now,
+            .running = remote.running,
+            .focused = false,
+        });
+    }
+    agent_controller_.set_server_agents(
+        std::move(projected));
+    if (error)
+        error->clear();
+    request_frame();
+    return true;
 }
 
 bool App::apply_remote_topology_spaces(
@@ -2975,6 +3110,17 @@ bool App::apply_remote_topology_spaces(
         refresh_app_shell_layout();
         input_dispatcher_.set_host(
             active_pane_manager().focused_host());
+    }
+    if (agent_client_)
+    {
+        std::string agent_error;
+        if (!apply_remote_agents(
+                agent_client_->snapshot(), &agent_error)
+            && error)
+        {
+            *error = std::move(agent_error);
+            return false;
+        }
     }
     request_frame();
     return true;
