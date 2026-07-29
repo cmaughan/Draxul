@@ -226,6 +226,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             ? make_server_client_id()
             : options.client_id,
         .capabilities = {
+            "agent-control-v1",
             "agent-projection-v1",
             "client-registration",
             "controller-lease",

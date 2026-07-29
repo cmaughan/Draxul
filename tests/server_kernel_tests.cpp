@@ -195,6 +195,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
                 "agent-projection-v1")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "agent-control-v1")
+        != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "real-remote-terminal")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
@@ -569,7 +572,57 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     CHECK(first.snapshot().agents[0].identity.origin
         == AgentIdentityOrigin::Discovered);
 
-    REQUIRE(terminal.send_input("\x03", error));
+    const std::string instance_id
+        = first.snapshot().agents[0].identity.instance_id;
+    REQUIRE(terminal.disconnect(error));
+    const auto server_request
+        = [&](std::string_view method,
+              nlohmann::json params) {
+              params["session_id"] = "default";
+              return ControlClient::request(
+                  namespaced_control_id(
+                      kServerControlId, temp.path),
+                  temp.path, method, std::move(params));
+          };
+    const auto listed = server_request(
+        "agent.list", nlohmann::json::object());
+    REQUIRE(listed.ok);
+    REQUIRE(listed.result.size() == 1);
+    CHECK(listed.result[0]["instance_id"] == instance_id);
+
+    const auto waited = server_request("agent.wait",
+        {
+            { "instance_id", instance_id },
+            { "until", { "running" } },
+        });
+    REQUIRE(waited.ok);
+    CHECK(waited.result["complete"].get<bool>());
+
+    const auto read = server_request("pane.read",
+        {
+            { "pane_id", kServerShellPaneId },
+            { "lines", 20 },
+        });
+    REQUIRE(read.ok);
+    CHECK(read.result["lines"].is_array());
+
+    const auto sent = server_request("agent.send_text",
+        {
+            { "instance_id", instance_id },
+            { "text", "x" },
+        });
+    REQUIRE(sent.ok);
+    const auto keyed = server_request("agent.send_keys",
+        {
+            { "instance_id", instance_id },
+            { "keys", { "tab" } },
+        });
+    REQUIRE(keyed.ok);
+
+    const auto restarted = server_request("agent.restart",
+        { { "instance_id", instance_id } });
+    REQUIRE(restarted.ok);
+    CHECK(restarted.result["accepted"].get<bool>());
     run_guard.join();
 }
 

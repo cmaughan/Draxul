@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <unordered_map>
 
 namespace draxul
 {
@@ -163,6 +164,70 @@ bool validate_agent_session_ref(const AgentSessionRef& value, std::string* error
     if (error)
         error->clear();
     return true;
+}
+
+std::optional<std::string> encode_agent_keys(
+    const std::vector<std::string>& keys, std::string& error)
+{
+    if (keys.size() > 64)
+    {
+        error = "Agent input accepts at most 64 keys.";
+        return std::nullopt;
+    }
+    static const std::unordered_map<std::string, std::string>
+        known_keys{
+            { "enter", "\r" },
+            { "tab", "\t" },
+            { "escape", "\x1b" },
+            { "backspace", "\x7f" },
+            { "up", "\x1b[A" },
+            { "down", "\x1b[B" },
+            { "right", "\x1b[C" },
+            { "left", "\x1b[D" },
+            { "home", "\x1b[H" },
+            { "end", "\x1b[F" },
+            { "delete", "\x1b[3~" },
+            { "insert", "\x1b[2~" },
+            { "pageup", "\x1b[5~" },
+            { "pagedown", "\x1b[6~" },
+            { "f1", "\x1bOP" },
+            { "f2", "\x1bOQ" },
+            { "f3", "\x1bOR" },
+            { "f4", "\x1bOS" },
+            { "f5", "\x1b[15~" },
+            { "f6", "\x1b[17~" },
+            { "f7", "\x1b[18~" },
+            { "f8", "\x1b[19~" },
+            { "f9", "\x1b[20~" },
+            { "f10", "\x1b[21~" },
+            { "f11", "\x1b[23~" },
+            { "f12", "\x1b[24~" },
+        };
+    std::string bytes;
+    for (std::string key : keys)
+    {
+        std::ranges::transform(key, key.begin(),
+            [](unsigned char ch) {
+                return static_cast<char>(std::tolower(ch));
+            });
+        const auto known = known_keys.find(key);
+        if (known != known_keys.end())
+            bytes += known->second;
+        else if (key.size() == 6
+            && key.starts_with("ctrl+")
+            && key[5] >= 'a' && key[5] <= 'z')
+        {
+            bytes.push_back(
+                static_cast<char>(key[5] - 'a' + 1));
+        }
+        else
+        {
+            error = "Unsupported key: " + key;
+            return std::nullopt;
+        }
+    }
+    error.clear();
+    return bytes;
 }
 
 } // namespace draxul

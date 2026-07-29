@@ -2,6 +2,7 @@
 
 #include <draxul/config_document.h>
 #include <draxul/control_plane.h>
+#include <draxul/server_client.h>
 
 #include <charconv>
 #include <chrono>
@@ -82,13 +83,29 @@ void print_human(const ControlCliCommand& command, const nlohmann::json& result)
         for (const auto& agent : result)
         {
             const auto& route = agent["route"];
-            std::printf("%c %-20s %-10s %-8s space=%d tab=%d pane=%s\n",
+            const auto route_text
+                = [&route](const char* name) {
+                      const auto value = route.find(name);
+                      if (value == route.end())
+                          return std::string("?");
+                      if (value->is_string())
+                          return value->get<std::string>();
+                      if (value->is_number_integer())
+                          return std::to_string(
+                              value->get<int64_t>());
+                      return std::string("?");
+                  };
+            const std::string space
+                = route_text("space_id");
+            const std::string tab
+                = route_text("tab_id");
+            std::printf("%c %-20s %-10s %-8s space=%s tab=%s pane=%s\n",
                 agent.value("focused", false) ? '*' : ' ',
                 agent.value("instance_id", "").c_str(),
                 agent.value("kind", "").c_str(),
                 agent.value("status", "").c_str(),
-                route.value("space_id", -1),
-                route.value("tab_id", -1),
+                space.c_str(),
+                tab.c_str(),
                 route.value("pane_id", "").c_str());
         }
         return;
@@ -455,8 +472,48 @@ int run_control_cli(const ControlCliCommand& command)
 
     const auto runtime =
         control_runtime_directory(ConfigDocument::default_path().parent_path());
-    auto result = ControlClient::request(
-        command.session_id, runtime, command.method, params);
+    const auto server_runtime = server_runtime_directory(
+        ConfigDocument::default_path().parent_path());
+    const bool supports_headless_server
+        = command.method == "agent.list"
+        || command.method == "agent.get"
+        || command.method == "agent.explain"
+        || command.method == "agent.restart"
+        || command.method == "agent.send_text"
+        || command.method == "agent.send_keys"
+        || command.method == "agent.wait"
+        || command.method == "pane.read";
+    bool using_global_server = false;
+    const auto request
+        = [&](const nlohmann::json& request_params) {
+              if (!using_global_server)
+              {
+                  auto local = ControlClient::request(
+                      command.session_id, runtime,
+                      command.method, request_params);
+                  if (local.ok
+                      || !supports_headless_server
+                      || (local.error_code
+                              != "endpoint_unavailable"
+                          && local.error_code != "io_error"))
+                  {
+                      return local;
+                  }
+                  using_global_server = true;
+              }
+              nlohmann::json global_params
+                  = request_params;
+              global_params["session_id"]
+                  = command.session_id.empty()
+                  ? "default"
+                  : command.session_id;
+              return ControlClient::request(
+                  namespaced_control_id(
+                      kServerControlId, server_runtime),
+                  server_runtime, command.method,
+                  std::move(global_params));
+          };
+    auto result = request(params);
     if (result.ok && command.method == "agent.wait")
     {
         const auto deadline = command.timeout_ms > 0
@@ -472,8 +529,7 @@ int run_control_cli(const ControlCliCommand& command)
             && std::chrono::steady_clock::now() < deadline)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            result = ControlClient::request(
-                command.session_id, runtime, command.method, params);
+            result = request(params);
         }
         if (result.ok && !result.result.value("complete", false))
         {

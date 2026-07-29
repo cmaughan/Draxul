@@ -110,6 +110,7 @@ const std::vector<std::string>& server_capabilities()
     static const std::vector<std::string> capabilities{
         "client-registration",
         "controller-lease",
+        "agent-control-v1",
         "agent-projection-v1",
         "fake-remote-terminal",
         "graceful-shutdown",
@@ -901,7 +902,14 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             request.method, request.params);
     }
     if (request.method == "agent.snapshot"
-        || request.method == "agent.poll")
+        || request.method == "agent.poll"
+        || request.method == "agent.list"
+        || request.method == "agent.get"
+        || request.method == "agent.explain"
+        || request.method == "agent.wait"
+        || request.method == "agent.restart"
+        || request.method == "agent.send_text"
+        || request.method == "agent.send_keys")
     {
         std::string session_id;
         std::string session_error;
@@ -921,8 +929,222 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     ? "Server Session agents are unavailable."
                     : std::move(session_error));
         }
+        if (request.method == "agent.restart"
+            || request.method == "agent.send_text"
+            || request.method == "agent.send_keys")
+        {
+            if (!request.params.is_object()
+                || !request.params.contains("instance_id")
+                || !request.params["instance_id"].is_string())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    request.method
+                        + " requires 'instance_id'.");
+            }
+            const std::string instance_id
+                = request.params["instance_id"]
+                      .get<std::string>();
+            const auto& agents
+                = session->agent_service->snapshot().agents;
+            const auto agent = std::ranges::find_if(
+                agents,
+                [&instance_id](
+                    const ServerAgentProjection& value) {
+                    return value.identity.instance_id
+                        == instance_id;
+                });
+            if (agent == agents.end())
+            {
+                return ControlMethodResult::error(
+                    "not_found", "Agent not found.");
+            }
+            const std::string terminal_id
+                = agent->terminal_id;
+            const auto terminal
+                = session->terminals.find(terminal_id);
+            if (terminal == session->terminals.end())
+            {
+                return ControlMethodResult::error(
+                    "agent_replaced",
+                    "The agent terminal no longer exists.");
+            }
+            if (request.method == "agent.restart")
+            {
+                std::string restart_error;
+                if (!terminal->second.service
+                         ->restart_runtime(restart_error))
+                {
+                    return ControlMethodResult::error(
+                        "restart_failed",
+                        std::move(restart_error));
+                }
+                refresh_agents(*session,
+                    std::chrono::steady_clock::now());
+                return ControlMethodResult::success({
+                    { "accepted", true },
+                    { "terminal_id", terminal_id },
+                    { "runtime_generation",
+                        terminal->second.service
+                            ->generation() },
+                });
+            }
+
+            std::string bytes;
+            if (request.method == "agent.send_text")
+            {
+                if (!request.params.contains("text")
+                    || !request.params["text"].is_string())
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "agent.send_text requires string 'text'.");
+                }
+                bytes = request.params["text"].get<std::string>();
+                if (bytes.size() > 64 * 1024)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "Agent text exceeds 64 KiB.");
+                }
+            }
+            else
+            {
+                if (!request.params.contains("keys")
+                    || !request.params["keys"].is_array()
+                    || request.params["keys"].size() > 64)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "agent.send_keys requires at most 64 keys.");
+                }
+                std::vector<std::string> keys;
+                keys.reserve(
+                    request.params["keys"].size());
+                for (const auto& value
+                    : request.params["keys"])
+                {
+                    if (!value.is_string())
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_params",
+                            "Every key must be a string.");
+                    }
+                    keys.push_back(value.get<std::string>());
+                }
+                std::string key_error;
+                auto encoded
+                    = encode_agent_keys(keys, key_error);
+                if (!encoded)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        std::move(key_error));
+                }
+                bytes = std::move(*encoded);
+            }
+            if (!terminal->second.runtime->send_input(bytes))
+            {
+                return ControlMethodResult::error(
+                    "input_failed",
+                    "The agent terminal rejected input.");
+            }
+            return session->agent_service->handle(
+                "agent.get",
+                { { "instance_id", instance_id } });
+        }
         return session->agent_service->handle(
             request.method, request.params);
+    }
+    if (request.method == "pane.read")
+    {
+        std::string session_id;
+        std::string session_error;
+        if (!read_session_id(
+                request.params, session_id, session_error))
+        {
+            return ControlMethodResult::error(
+                "invalid_session", std::move(session_error));
+        }
+        ServerSession* session
+            = ensure_session(session_id, session_error);
+        if (!session || !session->topology_service)
+        {
+            return ControlMethodResult::error(
+                "session_unavailable",
+                session_error.empty()
+                    ? "Server Session is unavailable."
+                    : std::move(session_error));
+        }
+        if (!request.params.contains("pane_id")
+            || !request.params["pane_id"].is_string())
+        {
+            return ControlMethodResult::error(
+                "invalid_params",
+                "pane.read requires a non-empty 'pane_id'.");
+        }
+        int max_lines = 50;
+        if (request.params.contains("lines"))
+        {
+            if (!request.params["lines"].is_number_integer())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    "'lines' must be between 1 and 200.");
+            }
+            max_lines = request.params["lines"].get<int>();
+        }
+        if (max_lines < 1 || max_lines > 200)
+        {
+            return ControlMethodResult::error(
+                "invalid_params",
+                "'lines' must be between 1 and 200.");
+        }
+        const std::string pane_id
+            = request.params["pane_id"].get<std::string>();
+        for (const auto& [terminal_id, endpoint]
+            : session->terminals)
+        {
+            const TopologySnapshot& topology
+                = session->topology_service->snapshot();
+            for (const auto& space : topology.spaces)
+            {
+                for (const auto& tab : space.tabs)
+                {
+                    const auto pane = std::ranges::find_if(
+                        tab.panes,
+                        [&](const TopologyPane& value) {
+                            return value.pane_id == pane_id
+                                && value.terminal_id
+                                    == terminal_id;
+                        });
+                    if (pane == tab.panes.end())
+                        continue;
+                    const auto observation
+                        = endpoint.runtime
+                              ->capture_agent_observation(
+                                  max_lines, 64 * 1024);
+                    if (!observation)
+                    {
+                        return ControlMethodResult::error(
+                            "unsupported",
+                            "Pane does not expose readable terminal text.");
+                    }
+                    return ControlMethodResult::success({
+                        { "pane_id", pane_id },
+                        { "space_id", space.space_id },
+                        { "tab_id", tab.tab_id },
+                        { "lines",
+                            observation->bottom_rows },
+                        { "output_generation",
+                            observation
+                                ->output_generation },
+                    });
+                }
+            }
+        }
+        return ControlMethodResult::error(
+            "not_found", "Pane not found.");
     }
     if (request.method == "server.shutdown")
     {

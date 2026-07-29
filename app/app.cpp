@@ -5006,52 +5006,21 @@ ControlMethodResult App::handle_control_request(const ControlRequest& request)
                 return ControlMethodResult::error(
                     "invalid_params", "agent.send_keys requires at most 64 keys.");
             }
-            static const std::unordered_map<std::string, std::string> keys{
-                { "enter", "\r" },
-                { "tab", "\t" },
-                { "escape", "\x1b" },
-                { "backspace", "\x7f" },
-                { "up", "\x1b[A" },
-                { "down", "\x1b[B" },
-                { "right", "\x1b[C" },
-                { "left", "\x1b[D" },
-                { "home", "\x1b[H" },
-                { "end", "\x1b[F" },
-                { "delete", "\x1b[3~" },
-                { "insert", "\x1b[2~" },
-                { "pageup", "\x1b[5~" },
-                { "pagedown", "\x1b[6~" },
-                { "f1", "\x1bOP" },
-                { "f2", "\x1bOQ" },
-                { "f3", "\x1bOR" },
-                { "f4", "\x1bOS" },
-                { "f5", "\x1b[15~" },
-                { "f6", "\x1b[17~" },
-                { "f7", "\x1b[18~" },
-                { "f8", "\x1b[19~" },
-                { "f9", "\x1b[20~" },
-                { "f10", "\x1b[21~" },
-                { "f11", "\x1b[23~" },
-                { "f12", "\x1b[24~" },
-            };
+            std::vector<std::string> keys;
+            keys.reserve(request.params["keys"].size());
             for (const auto& value : request.params["keys"])
             {
                 if (!value.is_string())
                     return ControlMethodResult::error(
                         "invalid_params", "Every key must be a string.");
-                std::string key = value.get<std::string>();
-                std::transform(key.begin(), key.end(), key.begin(),
-                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-                const auto known = keys.find(key);
-                if (known != keys.end())
-                    bytes += known->second;
-                else if (key.size() == 6 && key.starts_with("ctrl+")
-                    && key[5] >= 'a' && key[5] <= 'z')
-                    bytes.push_back(static_cast<char>(key[5] - 'a' + 1));
-                else
-                    return ControlMethodResult::error(
-                        "invalid_params", "Unsupported key: " + key);
+                keys.push_back(value.get<std::string>());
             }
+            std::string key_error;
+            auto encoded = encode_agent_keys(keys, key_error);
+            if (!encoded)
+                return ControlMethodResult::error(
+                    "invalid_params", std::move(key_error));
+            bytes = std::move(*encoded);
         }
         if (!host->send_agent_input(bytes))
             return ControlMethodResult::error(

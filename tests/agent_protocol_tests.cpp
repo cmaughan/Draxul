@@ -120,6 +120,43 @@ TEST_CASE("server agent service discovers evaluates and retires a runtime",
     CHECK(service.snapshot().agents[0].status
         == AgentStatus::Idle);
 
+    const auto listed = service.handle(
+        "agent.list", nlohmann::json::object());
+    REQUIRE(listed.ok);
+    REQUIRE(listed.value.size() == 1);
+    CHECK(listed.value[0]["instance_id"] == instance_id);
+    CHECK(listed.value[0]["route"]["terminal_id"]
+        == "terminal-1");
+
+    const auto fetched = service.handle(
+        "agent.get", { { "instance_id", instance_id } });
+    REQUIRE(fetched.ok);
+    CHECK(fetched.value["runtime_generation"] == 4);
+
+    const auto explained = service.handle(
+        "agent.explain", { { "instance_id", instance_id } });
+    REQUIRE(explained.ok);
+    CHECK(explained.value["identity_explanation"]
+        ["evidence_category"] == "direct_executable");
+
+    const auto waiting = service.handle("agent.wait",
+        {
+            { "instance_id", instance_id },
+            { "until", { "working" } },
+            { "runtime_generation", 4 },
+        });
+    REQUIRE(waiting.ok);
+    CHECK_FALSE(waiting.value["complete"].get<bool>());
+
+    const auto replaced = service.handle("agent.wait",
+        {
+            { "instance_id", instance_id },
+            { "runtime_generation", 3 },
+        });
+    REQUIRE(replaced.ok);
+    CHECK(replaced.value["complete"].get<bool>());
+    CHECK(replaced.value["outcome"] == "agent_replaced");
+
     const uint64_t revision = service.snapshot().revision;
     const auto unchanged = service.handle("agent.poll",
         { { "after_revision", revision } });
@@ -140,4 +177,20 @@ TEST_CASE("server agent service discovers evaluates and retires a runtime",
     REQUIRE(changed.ok);
     CHECK(changed.value["changed"].get<bool>());
     CHECK(changed.value["snapshot"]["agents"].empty());
+}
+
+TEST_CASE("agent key encoding is shared by UI and server control",
+    "[agent][input]")
+{
+    std::string error;
+    const auto encoded = encode_agent_keys(
+        { "Enter", "CTRL+C", "left", "f12" }, error);
+    INFO(error);
+    REQUIRE(encoded);
+    CHECK(*encoded == "\r\x03\x1b[D\x1b[24~");
+
+    const auto unsupported = encode_agent_keys(
+        { "ctrl+shift+x" }, error);
+    CHECK_FALSE(unsupported);
+    CHECK(error == "Unsupported key: ctrl+shift+x");
 }

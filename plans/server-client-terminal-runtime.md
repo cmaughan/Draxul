@@ -1424,15 +1424,18 @@ Validation checkpoint (2026-07-29):
 
 **Outcome:** agents continue to be detected and controlled with no UI attached.
 
-**Implementation status (2026-07-29):** checkpoints 8a-8b implemented on
+**Implementation status (2026-07-29):** checkpoints 8a-8c implemented on
 `codex/server-client-runtime`. The headless server now owns a Session-scoped
 agent tracker, observes server terminal process trees and bounded screen state,
 and publishes a revisioned `agent.snapshot`/`agent.poll` projection. The wire
 contract contains only route, identity, lifecycle, status, and sanitized rule
 metadata; terminal text and process command lines remain server-local. Remote
 clients map that projection into the existing Agents rail, converge across
-windows, and keep focus/attention acknowledgement client-local. Global control
-and integration-hook migration remain.
+windows, and keep focus/attention acknowledgement client-local. The global
+server also exposes `agent.list/get/explain/wait`, bounded `pane.read`, and
+agent input/restart routes under the negotiated `agent-control-v1` capability.
+Those operations continue after the final GPU client disconnects. Official
+integration-hook and native-session-reference migration remain.
 
 Work:
 

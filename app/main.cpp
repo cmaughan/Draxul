@@ -489,6 +489,17 @@ static int draxul_main(std::vector<std::string> args)
             draxul::shutdown_logging();
             return 1;
         }
+        if (parsed.experimental_remote_shell
+            && std::ranges::find(
+                   server_result.welcome->capabilities,
+                   "agent-control-v1")
+                == server_result.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "The running Draxul server does not support headless Agent control. Stop it and retry.\n");
+            draxul::shutdown_logging();
+            return 1;
+        }
         server_connection = std::move(server_result.welcome);
     }
 
