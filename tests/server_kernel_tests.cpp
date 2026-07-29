@@ -559,6 +559,19 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     const std::string split_target_pane_id
         = split_tab.panes.back().pane_id;
 
+    TopologyCommand restart_client_local{
+        .command_id = "restart-client-local-pane-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::RestartPane,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+        .pane_id = split_target_pane_id,
+    };
+    TopologyCommandResult rejected_restart;
+    REQUIRE_FALSE(first.execute(
+        restart_client_local, rejected_restart, error));
+    REQUIRE(first.last_error_code() == "client_local_pane");
+
     TopologyCommand split_server_terminal{
         .command_id = "split-server-pane-1",
         .expected_revision = first.snapshot().revision,
@@ -598,6 +611,38 @@ TEST_CASE("two topology clients converge through idempotent server commands",
         == dynamic_pane_id);
     REQUIRE(dynamic_terminal.projection().pane().terminal_id
         == dynamic_terminal_id);
+    const uint64_t dynamic_generation
+        = dynamic_terminal.projection().version().generation;
+    const uint64_t dynamic_process_id
+        = dynamic_terminal.projection().pane().process_id;
+
+    TopologyCommand restart_server_terminal{
+        .command_id = "restart-server-pane-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::RestartPane,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+        .pane_id = dynamic_pane_id,
+    };
+    TopologyCommandResult restarted_server_terminal;
+    REQUIRE(first.execute(restart_server_terminal,
+        restarted_server_terminal, error));
+    bool terminal_changed = false;
+    REQUIRE(dynamic_terminal.poll(terminal_changed, error));
+    REQUIRE(terminal_changed);
+    REQUIRE(dynamic_terminal.projection().version().generation
+        == dynamic_generation + 1);
+    REQUIRE(dynamic_terminal.projection().pane().process_id != 0);
+    REQUIRE(dynamic_terminal.projection().pane().process_id
+        != dynamic_process_id);
+
+    TopologyCommandResult duplicate_restart;
+    REQUIRE(first.execute(restart_server_terminal,
+        duplicate_restart, error));
+    REQUIRE(duplicate_restart.duplicate);
+    REQUIRE(dynamic_terminal.poll(terminal_changed, error));
+    REQUIRE(dynamic_terminal.projection().version().generation
+        == dynamic_generation + 1);
     REQUIRE(dynamic_terminal.disconnect(error));
 
     TopologyCommand close_server_terminal{

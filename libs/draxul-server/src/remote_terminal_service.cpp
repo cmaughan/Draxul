@@ -128,6 +128,7 @@ RemoteTerminalEvent RemoteTerminalService::snapshot_event()
     RemoteTerminalEvent event{
         .kind = RemoteTerminalEventKind::Snapshot,
         .version = version(),
+        .process_id = runtime_.process_id(),
         .controller_client_id = controller_client_id_,
         .snapshot = runtime_.snapshot(),
     };
@@ -461,8 +462,18 @@ ControlMethodResult RemoteTerminalService::restart(
             "not_controller", "This client is observing the terminal.");
     }
     std::string error;
-    if (!runtime_.restart(error))
+    if (!restart_runtime(error))
         return ControlMethodResult::error("process_start_failed", std::move(error));
+    return ControlMethodResult::success({
+        { "generation", generation_ },
+        { "process_id", runtime_.process_id() },
+    });
+}
+
+bool RemoteTerminalService::restart_runtime(std::string& error)
+{
+    if (!runtime_.restart(error))
+        return false;
     started_ = true;
     ++generation_;
     sequence_ = 0;
@@ -472,10 +483,7 @@ ControlMethodResult RemoteTerminalService::restart(
         subscriber.events.clear();
         subscriber.needs_resync = true;
     }
-    return ControlMethodResult::success({
-        { "generation", generation_ },
-        { "process_id", runtime_.process_id() },
-    });
+    return true;
 }
 
 ControlMethodResult RemoteTerminalService::read_scrollback(

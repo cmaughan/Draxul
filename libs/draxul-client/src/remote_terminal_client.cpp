@@ -177,6 +177,8 @@ bool RemoteTerminalProjection::apply_snapshot(
     }
     snapshot_ = *event.snapshot;
     version_ = event.version;
+    if (event.process_id != 0)
+        pane_.process_id = event.process_id;
     controller_client_id_ = event.controller_client_id;
     return true;
 }

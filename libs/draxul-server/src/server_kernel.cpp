@@ -138,6 +138,8 @@ public:
         std::string_view pane_id, std::string_view name,
         std::string& error);
     void destroy_server_terminal(std::string_view terminal_id);
+    bool restart_server_terminal(
+        std::string_view terminal_id, std::string& error);
 
     ServerKernelOptions options;
     ControlServer control;
@@ -765,6 +767,19 @@ void ServerKernel::Impl::destroy_server_terminal(
     server_terminals.erase(std::string(terminal_id));
 }
 
+bool ServerKernel::Impl::restart_server_terminal(
+    std::string_view terminal_id, std::string& error)
+{
+    const auto terminal
+        = server_terminals.find(std::string(terminal_id));
+    if (terminal == server_terminals.end())
+    {
+        error = "The requested server terminal does not exist.";
+        return false;
+    }
+    return terminal->second.service->restart_runtime(error);
+}
+
 int ServerKernel::Impl::run_until_stopped()
 {
     if (!started)
@@ -808,6 +823,12 @@ int ServerKernel::Impl::run_until_stopped()
             .destroy_server_terminal
             = [this](std::string_view terminal_id) {
                   destroy_server_terminal(terminal_id);
+              },
+            .restart_server_terminal
+            = [this](std::string_view terminal_id,
+                  std::string& error) {
+                  return restart_server_terminal(
+                      terminal_id, error);
               },
         });
     while (!stop_requested)

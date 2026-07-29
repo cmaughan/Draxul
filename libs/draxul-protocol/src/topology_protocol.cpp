@@ -294,6 +294,8 @@ std::string_view to_string(TopologyCommandKind kind)
         return "rename_pane";
     case TopologyCommandKind::SwapPane:
         return "swap_pane";
+    case TopologyCommandKind::RestartPane:
+        return "restart_pane";
     case TopologyCommandKind::SetSplitRatio:
         return "set_split_ratio";
     case TopologyCommandKind::EqualizeSplits:
@@ -327,6 +329,8 @@ std::optional<TopologyCommandKind> parse_topology_command_kind(
         return TopologyCommandKind::RenamePane;
     if (value == "swap_pane")
         return TopologyCommandKind::SwapPane;
+    if (value == "restart_pane")
+        return TopologyCommandKind::RestartPane;
     if (value == "set_split_ratio")
         return TopologyCommandKind::SetSplitRatio;
     if (value == "equalize_splits")

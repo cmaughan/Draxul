@@ -95,6 +95,7 @@ enum class TopologyCommandKind
     ClosePane,
     RenamePane,
     SwapPane,
+    RestartPane,
     SetSplitRatio,
     EqualizeSplits,
 };

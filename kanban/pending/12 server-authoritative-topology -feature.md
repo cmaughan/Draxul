@@ -18,7 +18,7 @@ presentation state.
       newly projected client-local Spaces launch an independent local host per UI.
 - [x] The experimental remote UI projects the server snapshot into its Space,
       tab, pane, and split chrome.
-- [ ] Create, close, rename, reorder, split, ratio, and restart mutations route
+- [x] Create, close, rename, reorder, split, ratio, and restart mutations route
       through server commands and appear in a second UI.
 - [x] Every server-terminal pane has its own server runtime and stable TerminalId.
 - [x] Every client-local pane descriptor creates an independent local host in each
@@ -45,9 +45,12 @@ presentation state.
 - Added server-routed tab moves, pane swaps, keyboard/mouse split ratios, and
   equalization. Projection preserves local active routes and stable live hosts;
   divider drags report desired state without mutating the client-owned tree.
-- Ninja Release `[server][topology]`: 68 assertions in 3 cases.
+- Added idempotent shared-pane restart. The selected server runtime advances
+  generation once, all subscribers resync, and the resync snapshot refreshes process
+  identity; projected client-local pane restart remains local to each UI.
+- Ninja Release `[server][topology]`: 80 assertions in 3 cases.
 - Ninja Release `[host][remote-terminal][topology]`: 10 assertions in 1 case.
-- Ninja Release core suite: 30,712 assertions; app suite: 4,115 assertions in
+- Ninja Release core suite: 30,742 assertions; app suite: 4,115 assertions in
   478 cases; smoke passed.
 
 ## Rollback

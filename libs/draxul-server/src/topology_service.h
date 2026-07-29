@@ -21,6 +21,9 @@ struct TopologyServiceCallbacks
         create_server_terminal;
     std::function<void(std::string_view terminal_id)>
         destroy_server_terminal;
+    std::function<bool(std::string_view terminal_id,
+        std::string& error)>
+        restart_server_terminal;
 };
 
 class TopologyService

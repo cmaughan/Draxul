@@ -551,6 +551,8 @@ nlohmann::json remote_terminal_event_to_json(
         { "version", version_to_json(event.version) },
         { "controller_client_id", event.controller_client_id },
     };
+    if (event.process_id != 0)
+        value["process_id"] = event.process_id;
     if (event.snapshot)
         value["snapshot"] = terminal_semantic_snapshot_to_json(*event.snapshot);
     if (event.delta)
@@ -581,6 +583,15 @@ std::optional<RemoteTerminalEvent> remote_terminal_event_from_json(
         return std::nullopt;
     }
     event.kind = *kind;
+    if (value.contains("process_id"))
+    {
+        if (!value["process_id"].is_number_unsigned())
+        {
+            error = "Remote terminal event process identity is invalid.";
+            return std::nullopt;
+        }
+        event.process_id = value["process_id"].get<uint64_t>();
+    }
     event.controller_client_id
         = value["controller_client_id"].get<std::string>();
     if (event.controller_client_id.size() > 128)

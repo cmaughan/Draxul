@@ -1182,6 +1182,25 @@ void App::wire_gui_actions()
         request_frame();
     };
     gui_deps.on_restart_host = [this]() {
+        if (topology_client_)
+        {
+            const auto server_terminal
+                = remote_focused_pane_is_server_terminal();
+            if (!server_terminal)
+            {
+                push_toast(
+                    2, "Focused shared pane could not be resolved.");
+                return;
+            }
+            if (*server_terminal)
+            {
+                std::string error;
+                if (!restart_remote_focused_pane(error))
+                    push_toast(2, error);
+                request_frame();
+                return;
+            }
+        }
         input_dispatcher_.set_host(nullptr);
         if (active_pane_manager().restart_focused(*this))
         {
@@ -3515,6 +3534,65 @@ bool App::swap_remote_focused_pane(std::string& error)
             .target_pane_id = target_pane_id,
         },
         error);
+}
+
+bool App::restart_remote_focused_pane(std::string& error)
+{
+    const SpaceId local_space_id
+        = space_controller_.active_space_id();
+    const auto space_id = remote_space_id(local_space_id);
+    const auto tab_id = remote_tab_id(
+        local_space_id, active_tab_id());
+    const std::string pane_id = active_pane_manager().pane_id(
+        active_pane_manager().focused_leaf());
+    if (!space_id || !tab_id || pane_id.empty())
+    {
+        error = "Focused shared pane could not be resolved.";
+        return false;
+    }
+    return execute_remote_topology_command({
+            .kind = TopologyCommandKind::RestartPane,
+            .space_id = *space_id,
+            .tab_id = *tab_id,
+            .pane_id = pane_id,
+        },
+        error);
+}
+
+std::optional<bool>
+App::remote_focused_pane_is_server_terminal() const
+{
+    if (!topology_client_)
+        return std::nullopt;
+    const SpaceId local_space_id
+        = space_controller_.active_space_id();
+    const auto space_id = remote_space_id(local_space_id);
+    const auto tab_id = remote_tab_id(
+        local_space_id, active_tab_id());
+    const std::string pane_id = active_pane_manager().pane_id(
+        active_pane_manager().focused_leaf());
+    if (!space_id || !tab_id || pane_id.empty())
+        return std::nullopt;
+    for (const TopologySpace& space
+        : topology_client_->snapshot().spaces)
+    {
+        if (space.space_id != *space_id)
+            continue;
+        for (const TopologyTab& tab : space.tabs)
+        {
+            if (tab.tab_id != *tab_id)
+                continue;
+            for (const TopologyPane& pane : tab.panes)
+            {
+                if (pane.pane_id == pane_id)
+                {
+                    return pane.domain
+                        == TopologyPaneDomain::ServerTerminal;
+                }
+            }
+        }
+    }
+    return std::nullopt;
 }
 
 bool App::set_remote_split_ratio(

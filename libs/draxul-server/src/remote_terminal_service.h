@@ -31,6 +31,7 @@ public:
         std::string_view method, const nlohmann::json& params);
     void pump();
     bool started() const;
+    bool restart_runtime(std::string& error);
 
 private:
     struct Subscriber

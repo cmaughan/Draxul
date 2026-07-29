@@ -381,6 +381,33 @@ bool TopologyService::apply(const TopologyCommand& command,
         std::swap(first->pane_id, second->pane_id);
         return true;
     }
+    if (command.kind == TopologyCommandKind::RestartPane)
+    {
+        const TopologyPane* pane
+            = find_pane(*tab, command.pane_id);
+        if (!pane)
+            return reject("pane_not_found", "Topology pane was not found.");
+        if (pane->domain != TopologyPaneDomain::ServerTerminal)
+        {
+            return reject("client_local_pane",
+                "Client-local panes restart in their owning UI.");
+        }
+        if (!callbacks_.restart_server_terminal)
+        {
+            return reject("terminal_unavailable",
+                "The server cannot restart this terminal.");
+        }
+        std::string restart_error;
+        if (!callbacks_.restart_server_terminal(
+                pane->terminal_id, restart_error))
+        {
+            return reject("terminal_restart_failed",
+                restart_error.empty()
+                    ? "The server terminal could not be restarted."
+                    : std::move(restart_error));
+        }
+        return true;
+    }
     if (command.kind == TopologyCommandKind::SetSplitRatio)
     {
         TopologyNode* node = find_node(*tab, command.node_id);

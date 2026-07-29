@@ -54,6 +54,7 @@ struct RemoteTerminalEvent
 {
     RemoteTerminalEventKind kind = RemoteTerminalEventKind::Snapshot;
     RemoteTerminalVersion version;
+    uint64_t process_id = 0;
     std::string controller_client_id;
     std::optional<TerminalSemanticSnapshot> snapshot;
     std::optional<TerminalDirtySnapshot> delta;

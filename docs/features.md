@@ -84,8 +84,9 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   closing the shared pane removes its endpoint and process. Tab moves, pane swaps,
   keyboard resize, cell-snapped divider drag, and split equalization now submit
   authoritative server commands and project back into every UI without moving
-  client-local focus. Terminal restart routing remains pending behind the
-  experimental server path.
+  client-local focus. Restarting a shared terminal pane restarts its server runtime
+  exactly once, advances its runtime generation, and resynchronizes every attached
+  client with the new process identity. Client-local pane restart remains local.
 
 ---
 

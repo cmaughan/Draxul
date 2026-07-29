@@ -212,6 +212,9 @@ private:
         std::optional<HostKind> host_kind, std::string& error);
     bool close_remote_focused_pane(std::string& error);
     bool swap_remote_focused_pane(std::string& error);
+    bool restart_remote_focused_pane(std::string& error);
+    std::optional<bool>
+        remote_focused_pane_is_server_terminal() const;
     bool set_remote_split_ratio(
         DividerId divider_id, float ratio, std::string& error);
     bool equalize_remote_splits(std::string& error);
