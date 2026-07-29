@@ -17,8 +17,10 @@ available while every Draxul UI is detached from a remote Session.
 - [x] Agent waits, bounded pane reads, input, and restart work with no GPU client
       attached.
 - [x] Official session-reference updates work with no GPU client attached.
-- [ ] The two-client detach/status/reconnect demonstration and focused automated
-      gates pass.
+- [x] Focused automated, full Debug, Release core/app, Release link/smoke, and
+      executable-level headless gates pass.
+- [ ] The manual two-client managed-agent detach/status/reconnect demonstration
+      passes.
 
 ## Rollback
 
@@ -50,3 +52,7 @@ Sessions keep the existing app-owned `AgentController`.
   and cold-restores the managed runtime. Version-2 Codex/Claude hooks route
   pinned reports directly to the global server, including isolated runtime
   directories.
+- Automated Slice 8 acceptance passes all Debug core/app shards, all Release
+  core/app shards, exact Release link/smoke, two projection clients, no-UI
+  launch/report/restart, cold restore, and executable-level
+  status/list/shutdown. The manual two-window managed-agent script remains.

@@ -1502,6 +1502,24 @@ shutdown followed by one more launch must cold-restore the managed pane under a
 new server epoch; when `[agents].resume_on_restore = true` and an official
 native reference was reported, Codex uses that reference for resume.
 
+Automated validation checkpoint (2026-07-29):
+
+- all Debug core/app CTest shards and repository smoke pass;
+- all Release core/app CTest shards pass;
+- the exact Release object graph links and passes smoke under an acceptance
+  executable name while the user's existing `build-ninja-release\draxul.exe`
+  server remains live;
+- an executable-level isolated server reaches ready, serves global
+  `agent list` with no UI, and shuts down cleanly;
+- real managed-process coverage proves two projection clients converge,
+  generation-aware restart environment, stale-report rejection, durable
+  native reference/working directory, and cold restore under a new epoch; and
+- Windows app-test CMake now stages `verovio.dll` beside the Release test
+  executable, removing a previously stale-DLL-dependent pass.
+
+The manual two-window managed-agent sequence above remains the final Slice 8
+acceptance item.
+
 Rollback:
 
 - remote agent behavior remains gated with remote terminal Sessions; the existing local
