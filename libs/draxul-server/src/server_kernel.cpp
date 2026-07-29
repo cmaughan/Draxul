@@ -114,6 +114,7 @@ const std::vector<std::string>& server_capabilities()
         "agent-projection-v1",
         "fake-remote-terminal",
         "graceful-shutdown",
+        "managed-agent-v1",
         "multi-terminal-v1",
         "named-sessions-v1",
         "ordered-terminal-events",
@@ -174,6 +175,12 @@ public:
             options.protocol_minor = kServerProtocolMinor;
         if (options.build_version.empty())
             options.build_version = server_build_version();
+        for (const AgentDefinition& definition
+            : options.agent_definitions)
+        {
+            agent_definitions.register_definition(
+                definition);
+        }
         epoch_value = options.epoch_override.empty()
             ? random_epoch()
             : options.epoch_override;
@@ -213,7 +220,28 @@ public:
     bool create_server_terminal_with_id(std::string_view session_id,
         std::string terminal_id,
         std::string_view pane_id, std::string_view name,
+        std::string& error,
+        std::optional<ServerTerminalRuntimeOptions>
+            runtime_options = std::nullopt,
+        bool start_immediately = false);
+    std::optional<std::string>
+    create_managed_agent_terminal(
+        std::string_view session_id,
+        std::string_view space_id,
+        std::string_view tab_id,
+        std::string_view pane_id,
+        std::string_view name,
+        const ManagedAgentTopologyLaunch& launch,
         std::string& error);
+    std::optional<ServerTerminalRuntimeOptions>
+    managed_agent_runtime_options(
+        std::string_view session_id,
+        std::string_view space_id,
+        std::string_view tab_id,
+        std::string_view pane_id,
+        std::string_view terminal_id,
+        const ManagedAgentTopologyLaunch& launch,
+        std::string& error) const;
     void destroy_server_terminal(std::string_view session_id,
         std::string_view terminal_id);
     bool restart_server_terminal(std::string_view session_id,
@@ -222,6 +250,7 @@ public:
         std::chrono::steady_clock::time_point now);
 
     ServerKernelOptions options;
+    AgentDefinitionRegistry agent_definitions;
     ControlServer control;
     std::string epoch_value;
     uint64_t pid = 0;
@@ -267,6 +296,7 @@ public:
         std::unordered_map<std::string, ServerTerminalEndpoint>
             terminals;
         uint64_t next_terminal_serial = 2;
+        uint64_t next_agent_serial = 1;
         std::filesystem::path persistence_path;
         bool checkpoint_enabled = true;
         std::vector<std::string> restore_warnings;
@@ -338,7 +368,10 @@ void ServerKernel::Impl::remove_all_starting_markers()
 bool ServerKernel::Impl::create_server_terminal_with_id(
     std::string_view session_id, std::string terminal_id,
     std::string_view pane_id, std::string_view name,
-    std::string& error)
+    std::string& error,
+    std::optional<ServerTerminalRuntimeOptions>
+        runtime_options,
+    bool start_immediately)
 {
     const auto found = sessions.find(std::string(session_id));
     if (found == sessions.end())
@@ -352,15 +385,20 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
         error = "Server terminal identity is incomplete.";
         return false;
     }
-    auto runtime = std::make_unique<ServerTerminalRuntime>(
-        ServerTerminalRuntimeOptions{
+    if (!runtime_options)
+    {
+        runtime_options = ServerTerminalRuntimeOptions{
             .shell_kind = options.terminal_shell_kind,
             .command = options.terminal_command,
             .args = options.terminal_args,
             .working_directory = options.terminal_working_directory,
             .environment = options.terminal_environment,
             .scrollback_capacity = options.terminal_scrollback_lines,
-        });
+        };
+    }
+    auto runtime = std::make_unique<ServerTerminalRuntime>(
+        std::move(*runtime_options));
+    ServerTerminalRuntime* runtime_ptr = runtime.get();
     auto service = std::make_unique<RemoteTerminalService>(
         RemoteTerminalServiceOptions{
             .method_prefix = "terminal",
@@ -370,8 +408,19 @@ bool ServerKernel::Impl::create_server_terminal_with_id(
             .name = name.empty()
                 ? "Server Shell"
                 : std::string(name),
+            .prepare_restart_generation
+            = [runtime_ptr](uint64_t generation) {
+                  runtime_ptr->set_environment_value(
+                      "DRAXUL_RUNTIME_GENERATION",
+                      std::to_string(generation));
+              },
         },
         *runtime);
+    if (start_immediately
+        && !service->ensure_runtime_started(error))
+    {
+        return false;
+    }
     if (!session.terminals.emplace(
                               terminal_id,
                               ServerTerminalEndpoint{
@@ -550,6 +599,7 @@ bool ServerKernel::Impl::initialize_session(
     session.agent_service.reset();
     session.terminals.clear();
     session.next_terminal_serial = 2;
+    session.next_agent_serial = 1;
 
     const std::string stable_session_id = session.session_id;
     TopologyServiceCallbacks callbacks{
@@ -570,6 +620,19 @@ bool ServerKernel::Impl::initialize_session(
               return restart_server_terminal(stable_session_id,
                   terminal_id, callback_error);
           },
+        .create_managed_agent_terminal
+        = [this, stable_session_id](
+              std::string_view space_id,
+              std::string_view tab_id,
+              std::string_view pane_id,
+              std::string_view name,
+              const ManagedAgentTopologyLaunch& launch,
+              std::string& callback_error) {
+              return create_managed_agent_terminal(
+                  stable_session_id, space_id, tab_id,
+                  pane_id, name, launch,
+                  callback_error);
+          },
     };
 
     if (session.restored_topology)
@@ -585,9 +648,101 @@ bool ServerKernel::Impl::initialize_session(
                     {
                         continue;
                     }
-                    if (!create_server_terminal_with_id(
-                            stable_session_id, pane.terminal_id,
-                            pane.pane_id, pane.name, error))
+                    std::optional<
+                        ServerTerminalRuntimeOptions>
+                        runtime_options;
+                    bool start_immediately = false;
+                    if (pane.agent)
+                    {
+                        session.next_agent_serial = std::max(
+                            session.next_agent_serial,
+                            numeric_suffix(
+                                pane.agent->instance_id)
+                                + 1);
+                    }
+                    if (pane.agent
+                        && pane.agent->origin
+                            == AgentIdentityOrigin::Managed
+                        && pane.restore_policy
+                            != AgentRestorePolicy::ShellOnly)
+                    {
+                        ManagedAgentTopologyLaunch launch{
+                            .identity = *pane.agent,
+                            .restore_policy
+                            = pane.restore_policy,
+                            .working_directory
+                            = pane.server_working_directory
+                                  .empty()
+                            ? space.root_directory
+                            : pane.server_working_directory,
+                        };
+                        if (options.agents_resume_on_restore
+                            && pane.restore_policy
+                                == AgentRestorePolicy::
+                                    ResumeIfAvailable
+                            && pane.agent_session
+                            && pane.agent_session->kind
+                                == AgentSessionRefKind::Id
+                            && is_official_agent_session_source(
+                                pane.agent_session->source,
+                                pane.agent->kind))
+                        {
+                            launch.replace_default_args = true;
+                            launch.additional_args
+                                = pane.agent->kind == "codex"
+                                ? std::vector<std::string>{
+                                    "resume",
+                                    pane.agent_session->value
+                                }
+                                : std::vector<std::string>{
+                                    "--resume",
+                                    pane.agent_session->value
+                                };
+                        }
+                        runtime_options
+                            = managed_agent_runtime_options(
+                                stable_session_id,
+                                space.space_id,
+                                tab.tab_id,
+                                pane.pane_id,
+                                pane.terminal_id,
+                                launch, error);
+                        if (runtime_options)
+                        {
+                            start_immediately = true;
+                        }
+                        else
+                        {
+                            session.restore_warnings.push_back(
+                                "Restored agent pane '"
+                                + pane.pane_id
+                                + "' as a shell: " + error);
+                            error.clear();
+                        }
+                    }
+                    bool created
+                        = create_server_terminal_with_id(
+                            stable_session_id,
+                            pane.terminal_id,
+                            pane.pane_id, pane.name, error,
+                            std::move(runtime_options),
+                            start_immediately);
+                    if (!created && start_immediately)
+                    {
+                        session.restore_warnings.push_back(
+                            "Restored agent pane '"
+                            + pane.pane_id
+                            + "' as a shell after its agent failed to start: "
+                            + error);
+                        error.clear();
+                        created
+                            = create_server_terminal_with_id(
+                                stable_session_id,
+                                pane.terminal_id,
+                                pane.pane_id, pane.name,
+                                error);
+                    }
+                    if (!created)
                     {
                         session.terminals.clear();
                         return false;
@@ -907,6 +1062,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         || request.method == "agent.get"
         || request.method == "agent.explain"
         || request.method == "agent.wait"
+        || request.method == "agent.start"
         || request.method == "agent.restart"
         || request.method == "agent.send_text"
         || request.method == "agent.send_keys")
@@ -928,6 +1084,221 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 session_error.empty()
                     ? "Server Session agents are unavailable."
                     : std::move(session_error));
+        }
+        if (request.method == "agent.start")
+        {
+            if (!request.params.is_object()
+                || !request.params.contains("profile_id")
+                || !request.params["profile_id"].is_string())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    "agent.start requires a string 'profile_id'.");
+            }
+            const std::string profile_id
+                = request.params["profile_id"]
+                      .get<std::string>();
+            const AgentDefinition* definition
+                = agent_definitions.find(profile_id);
+            if (!definition)
+            {
+                return ControlMethodResult::error(
+                    "unknown_profile",
+                    "Managed agent profile is unavailable in the server.");
+            }
+
+            ManagedAgentTopologyLaunch launch{
+                .restore_policy
+                = definition->restore_policy,
+            };
+            if (request.params.contains("args"))
+            {
+                if (!request.params["args"].is_array()
+                    || request.params["args"].size() > 64)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "'args' must be an array of at most 64 strings.");
+                }
+                if (!request.params["args"].empty())
+                {
+                    return ControlMethodResult::error(
+                        "unsupported",
+                        "Additional arguments for remote managed agents "
+                        "are not durable yet; put stable arguments in "
+                        "the agent profile.");
+                }
+                for (const auto& value
+                    : request.params["args"])
+                {
+                    if (!value.is_string()
+                        || value
+                               .get_ref<const std::string&>()
+                               .size()
+                            > 4096)
+                    {
+                        return ControlMethodResult::error(
+                            "invalid_params",
+                            "Every agent argument must be a bounded string.");
+                    }
+                    launch.additional_args.push_back(
+                        value.get<std::string>());
+                }
+            }
+            if (request.params.contains("cwd"))
+            {
+                if (!request.params["cwd"].is_string()
+                    || request.params["cwd"]
+                           .get_ref<const std::string&>()
+                           .size()
+                        > kTopologyMaxTextBytes)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_params",
+                        "'cwd' must be a bounded string.");
+                }
+                launch.working_directory
+                    = request.params["cwd"]
+                          .get<std::string>();
+            }
+
+            const TopologySnapshot& topology
+                = session->topology_service->snapshot();
+            if (topology.spaces.empty())
+            {
+                return ControlMethodResult::error(
+                    "topology_unavailable",
+                    "Server Session has no Space.");
+            }
+            const auto read_route_id
+                = [&](const char* name,
+                      std::string_view prefix)
+                -> std::optional<std::string> {
+                if (!request.params.contains(name))
+                    return std::nullopt;
+                const auto& value
+                    = request.params[name];
+                if (value.is_string()
+                    && !value
+                            .get_ref<const std::string&>()
+                            .empty())
+                {
+                    return value.get<std::string>();
+                }
+                if (value.is_number_integer()
+                    && value.get<int64_t>() >= 0)
+                {
+                    return std::string(prefix)
+                        + std::to_string(
+                            value.get<int64_t>());
+                }
+                return std::string{};
+            };
+            auto space_id = read_route_id(
+                "space_id", "space-");
+            if (space_id && space_id->empty())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    "'space_id' must be a route id.");
+            }
+            if (!space_id)
+                space_id = topology.spaces.front().space_id;
+            const auto space = std::ranges::find(
+                topology.spaces, *space_id,
+                &TopologySpace::space_id);
+            if (space == topology.spaces.end()
+                || space->tabs.empty())
+            {
+                return ControlMethodResult::error(
+                    "space_not_found",
+                    "Topology Space was not found.");
+            }
+
+            auto tab_id = read_route_id(
+                "tab_id", "tab-");
+            if (tab_id && tab_id->empty())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    "'tab_id' must be a route id.");
+            }
+            if (!tab_id)
+                tab_id = space->tabs.front().tab_id;
+            const auto tab = std::ranges::find(
+                space->tabs, *tab_id,
+                &TopologyTab::tab_id);
+            if (tab == space->tabs.end()
+                || tab->panes.empty())
+            {
+                return ControlMethodResult::error(
+                    "tab_not_found",
+                    "Topology tab was not found.");
+            }
+
+            auto pane_id = read_route_id(
+                "pane_id", "pane-");
+            if (pane_id && pane_id->empty())
+            {
+                return ControlMethodResult::error(
+                    "invalid_params",
+                    "'pane_id' must be a route id.");
+            }
+            if (!pane_id)
+                pane_id = tab->panes.front().pane_id;
+
+            std::string instance_id;
+            for (;;)
+            {
+                instance_id = "server-agent-"
+                    + session_id + "-"
+                    + std::to_string(
+                        session->next_agent_serial++);
+                bool used = false;
+                for (const auto& candidate_space
+                    : topology.spaces)
+                {
+                    for (const auto& candidate_tab
+                        : candidate_space.tabs)
+                    {
+                        used = used
+                            || std::ranges::any_of(
+                                candidate_tab.panes,
+                                [&](const TopologyPane& pane) {
+                                    return pane.agent
+                                        && pane.agent
+                                               ->instance_id
+                                            == instance_id;
+                                });
+                    }
+                }
+                if (!used)
+                    break;
+            }
+            launch.identity = {
+                .profile_id = definition->profile_id,
+                .kind = definition->kind,
+                .display_name = definition->display_name,
+                .instance_id = instance_id,
+                .origin = AgentIdentityOrigin::Managed,
+            };
+            if (launch.working_directory.empty())
+            {
+                launch.working_directory
+                    = space->root_directory;
+            }
+            auto started
+                = session->topology_service->launch_agent(
+                    *space_id, *tab_id, *pane_id,
+                    definition->display_name, launch);
+            if (!started.ok)
+                return started;
+            refresh_agents(
+                *session,
+                std::chrono::steady_clock::now());
+            return session->agent_service->handle(
+                "agent.get",
+                { { "instance_id", instance_id } });
         }
         if (request.method == "agent.restart"
             || request.method == "agent.send_text"
@@ -1738,6 +2109,133 @@ ServerKernel::Impl::create_server_terminal(
         return std::nullopt;
     }
     return terminal_id;
+}
+
+std::optional<std::string>
+ServerKernel::Impl::create_managed_agent_terminal(
+    std::string_view session_id,
+    std::string_view space_id,
+    std::string_view tab_id,
+    std::string_view pane_id,
+    std::string_view name,
+    const ManagedAgentTopologyLaunch& launch,
+    std::string& error)
+{
+    const auto found = sessions.find(
+        std::string(session_id));
+    if (found == sessions.end())
+    {
+        error = "The requested server Session does not exist.";
+        return std::nullopt;
+    }
+    ServerSession& session = *found->second;
+    const std::string terminal_id
+        = "terminal-"
+        + std::to_string(session.next_terminal_serial++);
+    auto runtime_options = managed_agent_runtime_options(
+        session_id, space_id, tab_id, pane_id,
+        terminal_id, launch, error);
+    if (!runtime_options)
+        return std::nullopt;
+    if (!create_server_terminal_with_id(
+            session_id, terminal_id, pane_id, name,
+            error, std::move(*runtime_options), true))
+    {
+        return std::nullopt;
+    }
+    return terminal_id;
+}
+
+std::optional<ServerTerminalRuntimeOptions>
+ServerKernel::Impl::managed_agent_runtime_options(
+    std::string_view session_id,
+    std::string_view space_id,
+    std::string_view tab_id,
+    std::string_view pane_id,
+    std::string_view terminal_id,
+    const ManagedAgentTopologyLaunch& launch,
+    std::string& error) const
+{
+    const AgentDefinition* definition
+        = agent_definitions.find(
+            launch.identity.profile_id);
+    if (!definition
+        || definition->kind != launch.identity.kind)
+    {
+        error = "Managed agent profile is unavailable in the server.";
+        return std::nullopt;
+    }
+    if (launch.additional_args.size() > 64
+        || std::ranges::any_of(
+            launch.additional_args,
+            [](const std::string& value) {
+                return value.size() > 4096;
+            }))
+    {
+        error = "Managed agent arguments exceed server limits.";
+        return std::nullopt;
+    }
+
+    std::vector<std::string> args
+        = launch.replace_default_args
+        ? std::vector<std::string>{}
+        : definition->default_args;
+    args.insert(args.end(),
+        launch.additional_args.begin(),
+        launch.additional_args.end());
+
+    auto environment = options.terminal_environment;
+    const auto set_environment
+        = [&environment](
+              std::string key, std::string value) {
+              const auto existing = std::ranges::find(
+                  environment, key,
+                  &std::pair<std::string,
+                      std::string>::first);
+              if (existing == environment.end())
+              {
+                  environment.emplace_back(
+                      std::move(key), std::move(value));
+              }
+              else
+              {
+                  existing->second = std::move(value);
+              }
+          };
+    set_environment("DRAXUL_ENV", "1");
+    set_environment(
+        "DRAXUL_SESSION_ID", std::string(session_id));
+    set_environment(
+        "DRAXUL_SPACE_ID", std::string(space_id));
+    set_environment(
+        "DRAXUL_TAB_ID", std::string(tab_id));
+    set_environment(
+        "DRAXUL_PANE_ID", std::string(pane_id));
+    set_environment(
+        "DRAXUL_TERMINAL_ID",
+        std::string(terminal_id));
+    set_environment("DRAXUL_AGENT_INSTANCE_ID",
+        launch.identity.instance_id);
+    set_environment(
+        "DRAXUL_AGENT", launch.identity.kind);
+    set_environment(
+        "DRAXUL_SERVER_EPOCH", epoch_value);
+    set_environment(
+        "DRAXUL_RUNTIME_GENERATION", "1");
+    set_environment("DRAXUL_SERVER_RUNTIME_DIR",
+        options.runtime_directory.string());
+
+    return ServerTerminalRuntimeOptions{
+        .command = definition->executable,
+        .args = std::move(args),
+        .working_directory
+        = launch.working_directory.empty()
+        ? options.terminal_working_directory
+        : launch.working_directory,
+        .environment = std::move(environment),
+        .scrollback_capacity
+        = options.terminal_scrollback_lines,
+    };
 }
 
 void ServerKernel::Impl::destroy_server_terminal(

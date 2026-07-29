@@ -143,6 +143,8 @@ std::optional<TabSnapshot> capture_tab(
         {
             saved.launch.kind = HostKind::RemoteTerminal;
             saved.launch.remote_terminal_id = pane.terminal_id;
+            saved.launch.working_dir
+                = pane.server_working_directory;
         }
         else
         {
@@ -265,6 +267,8 @@ std::optional<TopologyTab> restore_tab(
             }
             restored.domain = TopologyPaneDomain::ServerTerminal;
             restored.terminal_id = pane.launch.remote_terminal_id;
+            restored.server_working_directory
+                = pane.launch.working_dir;
         }
         else
         {

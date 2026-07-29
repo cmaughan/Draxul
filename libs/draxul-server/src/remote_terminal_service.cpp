@@ -100,6 +100,11 @@ bool RemoteTerminalService::ensure_runtime_started(std::string& error)
         started_ = true;
         return true;
     }
+    if (options_.prepare_restart_generation)
+    {
+        options_.prepare_restart_generation(
+            generation_ + 1);
+    }
     if (!runtime_.restart(error))
         return false;
     ++generation_;
@@ -472,6 +477,11 @@ ControlMethodResult RemoteTerminalService::restart(
 
 bool RemoteTerminalService::restart_runtime(std::string& error)
 {
+    if (options_.prepare_restart_generation)
+    {
+        options_.prepare_restart_generation(
+            generation_ + 1);
+    }
     if (!runtime_.restart(error))
         return false;
     started_ = true;

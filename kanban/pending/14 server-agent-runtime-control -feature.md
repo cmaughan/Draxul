@@ -12,7 +12,7 @@ available while every Draxul UI is detached from a remote Session.
       command lines from the wire contract.
 - [x] Every UI attached to one Session converges on the same Agents projection.
 - [x] Agent focus remains client-local and does not reroute another UI.
-- [ ] Official integration hooks target server epoch, Session, pane, and runtime
+- [x] Official integration hooks target server epoch, Session, pane, and runtime
       generation.
 - [x] Agent waits, bounded pane reads, input, and restart work with no GPU client
       attached.
@@ -44,3 +44,9 @@ Sessions keep the existing app-owned `AgentController`.
   and runtime generation; a cold-restore test rejects stale epochs/generations
   and proves the accepted reference survives the next checkpoint with no UI
   attached.
+- Checkpoint 8e added negotiated `managed-agent-v1` launch. The server resolves
+  built-in/custom profiles, creates and persists the shared agent pane, injects
+  complete route/epoch/generation environment, updates generation on restart,
+  and cold-restores the managed runtime. Version-2 Codex/Claude hooks route
+  pinned reports directly to the global server, including isolated runtime
+  directories.

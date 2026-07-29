@@ -160,6 +160,29 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
     if (parsed.server)
     {
         draxul::configure_default_logging("draxul-server.log", true);
+        const draxul::AppConfig config
+            = draxul::AppConfig::load();
+        std::vector<draxul::AgentDefinition>
+            agent_definitions;
+        agent_definitions.reserve(
+            config.agent_profiles.size());
+        for (const draxul::AgentProfileConfig& profile
+            : config.agent_profiles)
+        {
+            agent_definitions.push_back({
+                .profile_id = profile.id,
+                .kind = profile.kind,
+                .display_name = profile.display_name,
+                .executable = profile.executable,
+                .default_args = profile.args,
+                .restore_policy
+                = draxul::parse_agent_restore_policy(
+                      profile.restore_policy)
+                      .value_or(
+                          draxul::AgentRestorePolicy::
+                              ResumeIfAvailable),
+            });
+        }
         draxul::ServerKernel kernel({
             .runtime_directory = runtime_dir,
             .protocol_major = draxul::kServerProtocolMajor,
@@ -170,6 +193,10 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
             = parsed.server_working_dir.string(),
             .terminal_scrollback_lines
             = parsed.server_scrollback_lines,
+            .agent_definitions
+            = std::move(agent_definitions),
+            .agents_resume_on_restore
+            = config.agents_resume_on_restore,
         });
         const auto result = kernel.start();
         if (result.disposition == draxul::ServerStartDisposition::AlreadyRunning)
@@ -497,6 +524,17 @@ static int draxul_main(std::vector<std::string> args)
         {
             std::fprintf(stderr,
                 "The running Draxul server does not support headless Agent control. Stop it and retry.\n");
+            draxul::shutdown_logging();
+            return 1;
+        }
+        if (parsed.experimental_remote_shell
+            && std::ranges::find(
+                   server_result.welcome->capabilities,
+                   "managed-agent-v1")
+                == server_result.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "The running Draxul server does not support managed Agents. Stop it and retry.\n");
             draxul::shutdown_logging();
             return 1;
         }

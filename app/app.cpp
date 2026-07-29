@@ -28,6 +28,7 @@
 #include <draxul/pixel_scale.h>
 #include <draxul/render_test_driver.h>
 #include <draxul/sdl_window.h>
+#include <draxul/server_client.h>
 #include <draxul/topology_client.h>
 #include <filesystem>
 #include <imgui.h>
@@ -4099,8 +4100,132 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
             Error::init("Draxul is not ready to launch an agent."));
     if (topology_client_)
     {
-        return Result<std::string, Error>::err(Error::invalid_argument(
-            "Managed agent launch descriptors are not in shared topology yet."));
+        const SpaceId local_space_id
+            = space_controller_.active_space_id();
+        const int local_tab_id
+            = active_tab_controller().active_tab_id();
+        const LeafId local_leaf
+            = active_pane_manager().focused_leaf();
+        const auto space_id
+            = remote_space_id(local_space_id);
+        const auto tab_id
+            = remote_tab_id(local_space_id, local_tab_id);
+        std::optional<std::string> pane_id;
+        if (space_id && tab_id)
+        {
+            for (const TopologySpace& space
+                : topology_client_->snapshot().spaces)
+            {
+                if (space.space_id != *space_id)
+                    continue;
+                const auto tab = std::ranges::find(
+                    space.tabs, *tab_id,
+                    &TopologyTab::tab_id);
+                if (tab == space.tabs.end())
+                    break;
+                for (const TopologyPane& pane
+                    : tab->panes)
+                {
+                    const auto mapped
+                        = topology_pane_to_leaf_.find(
+                            pane.pane_id);
+                    if (mapped
+                            != topology_pane_to_leaf_.end()
+                        && mapped->second == local_leaf)
+                    {
+                        pane_id = pane.pane_id;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        if (!space_id || !tab_id || !pane_id)
+        {
+            return Result<std::string, Error>::err(
+                Error::invalid_argument(
+                    "Focused pane has no shared server route."));
+        }
+
+        nlohmann::json params{
+            { "session_id", options_.session_id },
+            { "profile_id", request.profile_id },
+            { "space_id", *space_id },
+            { "tab_id", *tab_id },
+            { "pane_id", *pane_id },
+            { "args", request.additional_args },
+        };
+        if (!request.working_directory.empty())
+        {
+            params["cwd"]
+                = request.working_directory;
+        }
+        else if (IHost* host
+            = active_pane_manager().focused_host())
+        {
+            const std::string cwd
+                = host->current_working_directory();
+            if (!cwd.empty())
+                params["cwd"] = cwd;
+        }
+        const auto started = ControlClient::request(
+            namespaced_control_id(
+                kServerControlId,
+                options_.server_runtime_directory),
+            options_.server_runtime_directory,
+            "agent.start", std::move(params));
+        if (!started.ok)
+        {
+            return Result<std::string, Error>::err(
+                Error::init(
+                    started.error_message.empty()
+                        ? "Server failed to launch the agent."
+                        : started.error_message));
+        }
+        std::string refresh_error;
+        if (!topology_client_->refresh(refresh_error)
+            || !apply_remote_topology_spaces(
+                topology_client_->snapshot(),
+                &refresh_error)
+            || !agent_client_
+            || !agent_client_->refresh(refresh_error)
+            || !apply_remote_agents(
+                agent_client_->snapshot(),
+                &refresh_error))
+        {
+            return Result<std::string, Error>::err(
+                Error::init(
+                    refresh_error.empty()
+                        ? "Agent started, but the shared view did not refresh."
+                        : refresh_error));
+        }
+        if (started.result.contains("route")
+            && started.result["route"].is_object())
+        {
+            const std::string started_pane
+                = started.result["route"].value(
+                    "pane_id", std::string{});
+            const auto mapped
+                = topology_pane_to_leaf_.find(
+                    started_pane);
+            if (mapped != topology_pane_to_leaf_.end())
+            {
+                active_pane_manager().set_focused(
+                    mapped->second);
+                input_dispatcher_.set_host(
+                    active_pane_manager().focused_host());
+            }
+        }
+        const std::string instance_id
+            = started.result.value(
+                "instance_id", std::string{});
+        if (instance_id.empty())
+        {
+            return Result<std::string, Error>::err(
+                Error::init(
+                    "Server launched an agent without returning its identity."));
+        }
+        return instance_id;
     }
 
     HostLaunchOptions launch;

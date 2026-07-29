@@ -5,6 +5,7 @@
 #include <draxul/control_plane.h>
 
 #include <deque>
+#include <functional>
 #include <string>
 #include <unordered_map>
 
@@ -18,6 +19,7 @@ struct RemoteTerminalServiceOptions
     std::string pane_id;
     std::string terminal_id;
     std::string name;
+    std::function<void(uint64_t)> prepare_restart_generation;
 };
 
 class RemoteTerminalService
@@ -31,6 +33,7 @@ public:
         std::string_view method, const nlohmann::json& params);
     void pump();
     bool started() const;
+    bool ensure_runtime_started(std::string& error);
     bool restart_runtime(std::string& error);
     uint64_t generation() const noexcept
     {
@@ -48,7 +51,6 @@ private:
         const nlohmann::json& params, std::string& client_id) const;
     bool read_version(
         const nlohmann::json& params, RemoteTerminalVersion& version) const;
-    bool ensure_runtime_started(std::string& error);
     RemoteTerminalVersion version() const;
     RemoteTerminalEvent snapshot_event();
     RemoteTerminalEvent make_delta_event();

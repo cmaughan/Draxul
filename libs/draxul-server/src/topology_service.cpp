@@ -250,6 +250,113 @@ ControlMethodResult TopologyService::report_agent_session(
     });
 }
 
+ControlMethodResult TopologyService::launch_agent(
+    std::string_view space_id,
+    std::string_view tab_id,
+    std::string_view target_pane_id,
+    std::string_view name,
+    const ManagedAgentTopologyLaunch& launch)
+{
+    TopologySpace* space = find_space(snapshot_, space_id);
+    if (!space)
+    {
+        return ControlMethodResult::error(
+            "space_not_found", "Topology Space was not found.");
+    }
+    TopologyTab* tab = find_tab(*space, tab_id);
+    if (!tab)
+    {
+        return ControlMethodResult::error(
+            "tab_not_found", "Topology tab was not found.");
+    }
+    TopologyNode* leaf
+        = find_leaf_for_pane(*tab, target_pane_id);
+    if (!leaf)
+    {
+        return ControlMethodResult::error(
+            "pane_not_found", "Topology pane was not found.");
+    }
+    if (tab->panes.size() >= kTopologyMaxPanesPerTab)
+    {
+        return ControlMethodResult::error(
+            "limit_reached", "Topology pane limit reached.");
+    }
+    if (!valid_name(name)
+        || launch.identity.profile_id.empty()
+        || launch.identity.kind.empty()
+        || launch.identity.display_name.empty()
+        || launch.identity.instance_id.empty()
+        || launch.identity.origin
+            != AgentIdentityOrigin::Managed
+        || launch.working_directory.size()
+            > kTopologyMaxTextBytes)
+    {
+        return ControlMethodResult::error(
+            "invalid_agent",
+            "Managed agent identity or launch route is invalid.");
+    }
+    if (!callbacks_.create_managed_agent_terminal)
+    {
+        return ControlMethodResult::error(
+            "terminal_unavailable",
+            "The server cannot allocate a managed agent terminal.");
+    }
+
+    const std::string pane_id = next_id("pane");
+    std::string allocation_error;
+    auto terminal_id
+        = callbacks_.create_managed_agent_terminal(
+            space->space_id, tab->tab_id, pane_id, name,
+            launch, allocation_error);
+    if (!terminal_id)
+    {
+        return ControlMethodResult::error(
+            "agent_start_failed",
+            allocation_error.empty()
+                ? "The server could not start the managed agent."
+                : std::move(allocation_error));
+    }
+
+    const std::string old_pane_id = leaf->pane_id;
+    const std::string first_node_id = next_id("node");
+    const std::string second_node_id = next_id("node");
+    leaf->is_leaf = false;
+    leaf->pane_id.clear();
+    leaf->direction = TopologySplitDirection::Vertical;
+    leaf->ratio = 0.5f;
+    leaf->first_node_id = first_node_id;
+    leaf->second_node_id = second_node_id;
+    tab->nodes.push_back({
+        .node_id = first_node_id,
+        .is_leaf = true,
+        .pane_id = old_pane_id,
+    });
+    tab->nodes.push_back({
+        .node_id = second_node_id,
+        .is_leaf = true,
+        .pane_id = pane_id,
+    });
+    tab->panes.push_back({
+        .pane_id = pane_id,
+        .name = std::string(name),
+        .domain = TopologyPaneDomain::ServerTerminal,
+        .terminal_id = std::move(*terminal_id),
+        .server_working_directory
+        = launch.working_directory,
+        .agent = launch.identity,
+        .restore_policy = launch.restore_policy,
+    });
+    ++snapshot_.revision;
+    return ControlMethodResult::success({
+        { "space_id", space->space_id },
+        { "tab_id", tab->tab_id },
+        { "pane_id", pane_id },
+        { "terminal_id", tab->panes.back().terminal_id },
+        { "instance_id", launch.identity.instance_id },
+        { "topology_revision", snapshot_.revision },
+    });
+}
+
 ControlMethodResult TopologyService::read_snapshot(
     const nlohmann::json&) const
 {

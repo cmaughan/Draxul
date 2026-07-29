@@ -117,6 +117,8 @@ nlohmann::json pane_to_json(const TopologyPane& pane)
         { "domain", to_string(pane.domain) },
         { "terminal_id", pane.terminal_id },
         { "client_host_kind", pane.client_host_kind },
+        { "server_working_directory",
+            pane.server_working_directory },
     };
     if (pane.agent)
         result["agent"] = agent_to_json(pane);
@@ -133,6 +135,12 @@ bool read_pane(const nlohmann::json& value, TopologyPane& pane)
         || !read_string(value, "terminal_id", pane.terminal_id, true)
         || !read_string(value, "client_host_kind",
             pane.client_host_kind, true))
+    {
+        return false;
+    }
+    if (value.contains("server_working_directory")
+        && !read_string(value, "server_working_directory",
+            pane.server_working_directory, true))
     {
         return false;
     }

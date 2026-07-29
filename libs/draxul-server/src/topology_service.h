@@ -13,6 +13,16 @@
 namespace draxul
 {
 
+struct ManagedAgentTopologyLaunch
+{
+    AgentIdentity identity;
+    AgentRestorePolicy restore_policy
+        = AgentRestorePolicy::ResumeIfAvailable;
+    std::vector<std::string> additional_args;
+    bool replace_default_args = false;
+    std::string working_directory;
+};
+
 struct TopologyServiceCallbacks
 {
     std::function<std::optional<std::string>(
@@ -24,6 +34,12 @@ struct TopologyServiceCallbacks
     std::function<bool(std::string_view terminal_id,
         std::string& error)>
         restart_server_terminal;
+    std::function<std::optional<std::string>(
+        std::string_view space_id, std::string_view tab_id,
+        std::string_view pane_id, std::string_view name,
+        const ManagedAgentTopologyLaunch& launch,
+        std::string& error)>
+        create_managed_agent_terminal;
 };
 
 class TopologyService
@@ -41,6 +57,12 @@ public:
         std::string_view pane_id,
         std::string_view agent_instance_id,
         const AgentSessionRef& session_ref);
+    ControlMethodResult launch_agent(
+        std::string_view space_id,
+        std::string_view tab_id,
+        std::string_view target_pane_id,
+        std::string_view name,
+        const ManagedAgentTopologyLaunch& launch);
 
     const TopologySnapshot& snapshot() const noexcept
     {

@@ -17,13 +17,13 @@ namespace draxul
 namespace
 {
 
-constexpr uint32_t kCodexIntegrationVersion = 1;
-constexpr uint32_t kClaudeIntegrationVersion = 1;
+constexpr uint32_t kCodexIntegrationVersion = 2;
+constexpr uint32_t kClaudeIntegrationVersion = 2;
 #ifdef _WIN32
 constexpr std::string_view kHookFileName = "draxul-agent-session.ps1";
 constexpr std::string_view kCodexHook = R"HOOK(# managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=codex
-# DRAXUL_INTEGRATION_VERSION=1
+# DRAXUL_INTEGRATION_VERSION=2
 param([string]$Action = "")
 if ($Action -ne "session" -or $env:DRAXUL_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:DRAXUL_PANE_ID) -or
@@ -35,15 +35,23 @@ $sessionRef = $payload.session_id
 if ([string]::IsNullOrWhiteSpace($sessionRef)) { exit 0 }
 $sequence = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
-  & draxul pane report-agent-session $env:DRAXUL_PANE_ID `
-    --agent-instance $env:DRAXUL_AGENT_INSTANCE_ID --source draxul:codex `
-    --agent codex --integration-version 1 --sequence $sequence `
-    --session-ref $sessionRef --session $env:DRAXUL_SESSION_ID 2>$null | Out-Null
+  $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID,
+    "--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID, "--source", "draxul:codex",
+    "--agent", "codex", "--integration-version", "2", "--sequence", "$sequence",
+    "--session-ref", $sessionRef, "--session", $env:DRAXUL_SESSION_ID)
+  if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_EPOCH) -and
+      -not [string]::IsNullOrWhiteSpace($env:DRAXUL_RUNTIME_GENERATION) -and
+      -not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_RUNTIME_DIR)) {
+    $reportArgs += @("--server-epoch", $env:DRAXUL_SERVER_EPOCH,
+      "--runtime-generation", $env:DRAXUL_RUNTIME_GENERATION,
+      "--server-runtime-dir", $env:DRAXUL_SERVER_RUNTIME_DIR)
+  }
+  & draxul @reportArgs 2>$null | Out-Null
 } catch {}
 )HOOK";
 constexpr std::string_view kClaudeHook = R"HOOK(# managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=claude
-# DRAXUL_INTEGRATION_VERSION=1
+# DRAXUL_INTEGRATION_VERSION=2
 param([string]$Action = "")
 if ($Action -ne "session" -or $env:DRAXUL_ENV -ne "1") { exit 0 }
 if ([string]::IsNullOrWhiteSpace($env:DRAXUL_PANE_ID) -or
@@ -58,11 +66,19 @@ $sessionRef = $payload.session_id
 if ([string]::IsNullOrWhiteSpace($sessionRef)) { exit 0 }
 $sequence = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 try {
-  & draxul pane report-agent-session $env:DRAXUL_PANE_ID `
-    --agent-instance $env:DRAXUL_AGENT_INSTANCE_ID --source draxul:claude `
-    --agent claude --integration-version 1 --sequence $sequence `
-    --session-ref $sessionRef --ref-kind id --session $env:DRAXUL_SESSION_ID `
-    2>$null | Out-Null
+  $reportArgs = @("pane", "report-agent-session", $env:DRAXUL_PANE_ID,
+    "--agent-instance", $env:DRAXUL_AGENT_INSTANCE_ID, "--source", "draxul:claude",
+    "--agent", "claude", "--integration-version", "2", "--sequence", "$sequence",
+    "--session-ref", $sessionRef, "--ref-kind", "id",
+    "--session", $env:DRAXUL_SESSION_ID)
+  if (-not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_EPOCH) -and
+      -not [string]::IsNullOrWhiteSpace($env:DRAXUL_RUNTIME_GENERATION) -and
+      -not [string]::IsNullOrWhiteSpace($env:DRAXUL_SERVER_RUNTIME_DIR)) {
+    $reportArgs += @("--server-epoch", $env:DRAXUL_SERVER_EPOCH,
+      "--runtime-generation", $env:DRAXUL_RUNTIME_GENERATION,
+      "--server-runtime-dir", $env:DRAXUL_SERVER_RUNTIME_DIR)
+  }
+  & draxul @reportArgs 2>$null | Out-Null
 } catch {}
 )HOOK";
 #else
@@ -70,7 +86,7 @@ constexpr std::string_view kHookFileName = "draxul-agent-session.sh";
 constexpr std::string_view kCodexHook = R"HOOK(#!/bin/sh
 # managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=codex
-# DRAXUL_INTEGRATION_VERSION=1
+# DRAXUL_INTEGRATION_VERSION=2
 [ "${1:-}" = "session" ] || exit 0
 [ "${DRAXUL_ENV:-}" = "1" ] || exit 0
 [ -n "${DRAXUL_PANE_ID:-}" ] || exit 0
@@ -81,7 +97,7 @@ input_file="$(mktemp "${TMPDIR:-/tmp}/draxul-codex-hook.XXXXXX")" || exit 0
 trap 'rm -f "$input_file"' EXIT HUP INT TERM
 cat >"$input_file" 2>/dev/null || exit 0
 python3 - "$DRAXUL_PANE_ID" "$DRAXUL_AGENT_INSTANCE_ID" "$DRAXUL_SESSION_ID" "$input_file" <<'PY'
-import json, subprocess, sys, time
+import json, os, subprocess, sys, time
 try:
     with open(sys.argv[4], encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -92,18 +108,25 @@ if payload.get("hook_event_name") not in (None, "SessionStart"):
 session_ref = payload.get("session_id")
 if not isinstance(session_ref, str) or not session_ref:
     raise SystemExit(0)
-subprocess.run(["draxul", "pane", "report-agent-session", sys.argv[1],
+command = ["draxul", "pane", "report-agent-session", sys.argv[1],
     "--agent-instance", sys.argv[2], "--source", "draxul:codex",
-    "--agent", "codex", "--integration-version", "1",
+    "--agent", "codex", "--integration-version", "2",
     "--sequence", str(time.time_ns()), "--session-ref", session_ref,
-    "--session", sys.argv[3]], stdout=subprocess.DEVNULL,
+    "--session", sys.argv[3]]
+if all(os.environ.get(name) for name in (
+    "DRAXUL_SERVER_EPOCH", "DRAXUL_RUNTIME_GENERATION",
+    "DRAXUL_SERVER_RUNTIME_DIR")):
+    command.extend(["--server-epoch", os.environ["DRAXUL_SERVER_EPOCH"],
+        "--runtime-generation", os.environ["DRAXUL_RUNTIME_GENERATION"],
+        "--server-runtime-dir", os.environ["DRAXUL_SERVER_RUNTIME_DIR"]])
+subprocess.run(command, stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL, check=False)
 PY
 )HOOK";
 constexpr std::string_view kClaudeHook = R"HOOK(#!/bin/sh
 # managed by Draxul; reinstalling updates this file.
 # DRAXUL_INTEGRATION_ID=claude
-# DRAXUL_INTEGRATION_VERSION=1
+# DRAXUL_INTEGRATION_VERSION=2
 [ "${1:-}" = "session" ] || exit 0
 [ "${DRAXUL_ENV:-}" = "1" ] || exit 0
 [ -n "${DRAXUL_PANE_ID:-}" ] || exit 0
@@ -114,7 +137,7 @@ input_file="$(mktemp "${TMPDIR:-/tmp}/draxul-claude-hook.XXXXXX")" || exit 0
 trap 'rm -f "$input_file"' EXIT HUP INT TERM
 cat >"$input_file" 2>/dev/null || exit 0
 python3 - "$DRAXUL_PANE_ID" "$DRAXUL_AGENT_INSTANCE_ID" "$DRAXUL_SESSION_ID" "$input_file" <<'PY'
-import json, subprocess, sys, time
+import json, os, subprocess, sys, time
 try:
     with open(sys.argv[4], encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -125,11 +148,18 @@ if payload.get("agent_id") or payload.get("hook_event_name") not in (None, "Sess
 session_ref = payload.get("session_id")
 if not isinstance(session_ref, str) or not session_ref:
     raise SystemExit(0)
-subprocess.run(["draxul", "pane", "report-agent-session", sys.argv[1],
+command = ["draxul", "pane", "report-agent-session", sys.argv[1],
     "--agent-instance", sys.argv[2], "--source", "draxul:claude",
-    "--agent", "claude", "--integration-version", "1",
+    "--agent", "claude", "--integration-version", "2",
     "--sequence", str(time.time_ns()), "--session-ref", session_ref,
-    "--ref-kind", "id", "--session", sys.argv[3]],
+    "--ref-kind", "id", "--session", sys.argv[3]]
+if all(os.environ.get(name) for name in (
+    "DRAXUL_SERVER_EPOCH", "DRAXUL_RUNTIME_GENERATION",
+    "DRAXUL_SERVER_RUNTIME_DIR")):
+    command.extend(["--server-epoch", os.environ["DRAXUL_SERVER_EPOCH"],
+        "--runtime-generation", os.environ["DRAXUL_RUNTIME_GENERATION"],
+        "--server-runtime-dir", os.environ["DRAXUL_SERVER_RUNTIME_DIR"]])
+subprocess.run(command,
     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 PY
 )HOOK";

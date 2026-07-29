@@ -232,6 +232,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "controller-lease",
             "fake-remote-terminal",
             "graceful-shutdown",
+            "managed-agent-v1",
             "multi-terminal-v1",
             "named-sessions-v1",
             "ordered-terminal-events",

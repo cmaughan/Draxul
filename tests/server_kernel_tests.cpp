@@ -198,6 +198,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
                 "agent-control-v1")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "managed-agent-v1")
+        != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "real-remote-terminal")
         != probe.welcome->capabilities.end());
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
@@ -624,6 +627,257 @@ TEST_CASE("server-owned shell discovery converges in two agent clients",
     REQUIRE(restarted.ok);
     CHECK(restarted.result["accepted"].get<bool>());
     run_guard.join();
+}
+
+TEST_CASE("managed agents launch and restart without a UI",
+    "[server][agent][managed][process]")
+{
+    TempDir temp("draxul-server-managed-agent");
+    AgentDefinition test_agent{
+        .profile_id = "test-managed",
+        .kind = "codex",
+        .display_name = "Managed Codex",
+#ifdef _WIN32
+        .executable = "powershell.exe",
+        .default_args = {
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "Write-Output ('__DRAXUL_AGENT_ENV__' + "
+            "$env:DRAXUL_SERVER_EPOCH + ':' + "
+            "$env:DRAXUL_RUNTIME_GENERATION); "
+            "while ($true) { Start-Sleep -Seconds 1 }",
+        },
+#else
+        .executable = "/bin/sh",
+        .default_args = {
+            "-c",
+            "echo \"__DRAXUL_AGENT_ENV__"
+            "$DRAXUL_SERVER_EPOCH:$DRAXUL_RUNTIME_GENERATION\"; "
+            "while true; do sleep 1; done",
+        },
+#endif
+    };
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "managed-epoch",
+        .agent_definitions = { test_agent },
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    const auto request
+        = [&](std::string_view method,
+              nlohmann::json params) {
+              params["session_id"] = "default";
+              return ControlClient::request(
+                  namespaced_control_id(
+                      kServerControlId, temp.path),
+                  temp.path, method, std::move(params));
+          };
+    const auto started = request("agent.start",
+        {
+            { "profile_id", "test-managed" },
+            { "cwd", temp.path.string() },
+            { "args", nlohmann::json::array() },
+        });
+    INFO(started.error_code << ": "
+        << started.error_message);
+    REQUIRE(started.ok);
+    CHECK(started.result["origin"] == "managed");
+    CHECK(started.result["running"].get<bool>());
+    CHECK(started.result["runtime_generation"] == 1);
+    const std::string instance_id
+        = started.result["instance_id"].get<std::string>();
+    const std::string pane_id
+        = started.result["route"]["pane_id"]
+              .get<std::string>();
+
+    AgentClient first({
+        .runtime_directory = temp.path,
+        .client_id = "managed-agent-a",
+    });
+    AgentClient second({
+        .runtime_directory = temp.path,
+        .client_id = "managed-agent-b",
+    });
+    std::string agent_error;
+    REQUIRE(first.refresh(agent_error));
+    REQUIRE(second.refresh(agent_error));
+    REQUIRE(first.snapshot() == second.snapshot());
+    REQUIRE(first.snapshot().agents.size() == 1);
+    CHECK(first.snapshot().agents[0]
+        .identity.instance_id == instance_id);
+
+    auto wait_for_environment
+        = [&](std::string_view expected) {
+              for (int attempt = 0; attempt < 200; ++attempt)
+              {
+                  const auto read = request("pane.read",
+                      {
+                          { "pane_id", pane_id },
+                          { "lines", 24 },
+                      });
+                  if (read.ok)
+                  {
+                      for (const auto& line
+                          : read.result["lines"])
+                      {
+                          if (line.get<std::string>()
+                                  .find(expected)
+                              != std::string::npos)
+                          {
+                              return true;
+                          }
+                      }
+                  }
+                  std::this_thread::sleep_for(
+                      std::chrono::milliseconds(25));
+              }
+              return false;
+          };
+    REQUIRE(wait_for_environment(
+        "__DRAXUL_AGENT_ENV__managed-epoch:1"));
+
+    const auto reported = request(
+        "pane.report_agent_session",
+        {
+            { "server_epoch", "managed-epoch" },
+            { "runtime_generation", 1 },
+            { "pane_id", pane_id },
+            { "agent_instance_id", instance_id },
+            { "source", "draxul:codex" },
+            { "agent", "codex" },
+            { "integration_version", 2 },
+            { "sequence", 1 },
+            { "ref_kind", "id" },
+            { "ref_value", "managed-native-session" },
+        });
+    REQUIRE(reported.ok);
+
+    const auto restarted = request(
+        "agent.restart",
+        { { "instance_id", instance_id } });
+    REQUIRE(restarted.ok);
+    CHECK(restarted.result["runtime_generation"] == 2);
+    REQUIRE(wait_for_environment(
+        "__DRAXUL_AGENT_ENV__managed-epoch:2"));
+
+    const auto stale_report = request(
+        "pane.report_agent_session",
+        {
+            { "server_epoch", "managed-epoch" },
+            { "runtime_generation", 1 },
+            { "pane_id", pane_id },
+            { "agent_instance_id", instance_id },
+            { "source", "draxul:codex" },
+            { "agent", "codex" },
+            { "integration_version", 2 },
+            { "sequence", 2 },
+            { "ref_kind", "id" },
+            { "ref_value", "stale-native-session" },
+        });
+    CHECK_FALSE(stale_report.ok);
+    CHECK(stale_report.error_code == "agent_replaced");
+
+    const auto topology = request(
+        "topology.snapshot", nlohmann::json::object());
+    REQUIRE(topology.ok);
+    const auto& panes = topology.result["spaces"][0]
+                             ["tabs"][0]["panes"];
+    REQUIRE(panes.size() == 2);
+    CHECK(panes[1]["agent"]["instance_id"]
+        == instance_id);
+    CHECK(panes[1]["server_working_directory"]
+        == temp.path.string());
+    run_guard.join();
+
+    std::string load_error;
+    const auto saved = load_session_state_from_path(
+        server_session_state_path(temp.path),
+        &load_error);
+    INFO(load_error);
+    REQUIRE(saved);
+    const auto& saved_panes
+        = saved->spaces.front().tabs.front()
+              .pane_layout.panes;
+    const auto saved_agent = std::ranges::find(
+        saved_panes, pane_id,
+        &SessionPaneSnapshot::pane_id);
+    REQUIRE(saved_agent != saved_panes.end());
+    REQUIRE(saved_agent->agent);
+    CHECK(saved_agent->agent->instance_id
+        == instance_id);
+    CHECK(saved_agent->launch.working_dir
+        == temp.path.string());
+
+    ServerKernel restored({
+        .runtime_directory = temp.path,
+        .epoch_override = "managed-restored",
+        .agent_definitions = { test_agent },
+    });
+    REQUIRE(restored.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard restored_guard(restored);
+    const auto restored_request
+        = [&](std::string_view method,
+              nlohmann::json params) {
+              params["session_id"] = "default";
+              return ControlClient::request(
+                  namespaced_control_id(
+                      kServerControlId, temp.path),
+                  temp.path, method, std::move(params));
+          };
+    ControlClientResult restored_agent;
+    for (int attempt = 0;
+         attempt < 200 && !restored_agent.ok;
+         ++attempt)
+    {
+        restored_agent = restored_request(
+            "agent.get",
+            { { "instance_id", instance_id } });
+        if (!restored_agent.ok)
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(25));
+        }
+    }
+    REQUIRE(restored_agent.ok);
+    CHECK(restored_agent.result["running"].get<bool>());
+    CHECK(restored_agent.result["runtime_generation"] == 1);
+
+    bool restored_environment = false;
+    for (int attempt = 0;
+         attempt < 200 && !restored_environment;
+         ++attempt)
+    {
+        const auto read = restored_request(
+            "pane.read",
+            {
+                { "pane_id", pane_id },
+                { "lines", 24 },
+            });
+        if (read.ok)
+        {
+            for (const auto& line : read.result["lines"])
+            {
+                restored_environment
+                    = restored_environment
+                    || line.get<std::string>().find(
+                           "__DRAXUL_AGENT_ENV__"
+                           "managed-restored:1")
+                        != std::string::npos;
+            }
+        }
+        if (!restored_environment)
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(25));
+        }
+    }
+    CHECK(restored_environment);
+    restored_guard.join();
 }
 
 TEST_CASE("two topology clients converge through idempotent server commands",
@@ -1367,7 +1621,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         .value = "persisted-session",
     };
     saved_dynamic->restore_policy
-        = AgentRestorePolicy::ResumeIfAvailable;
+        = AgentRestorePolicy::ShellOnly;
     REQUIRE(save_session_state_to_path(
         *saved, checkpoint, &load_error));
     const auto checkpoint_time
@@ -1413,7 +1667,7 @@ TEST_CASE("server topology checkpoints and cold-restores stable terminal descrip
         REQUIRE(dynamic->agent_session->value
             == "persisted-session");
         REQUIRE(dynamic->restore_policy
-            == AgentRestorePolicy::ResumeIfAvailable);
+            == AgentRestorePolicy::ShellOnly);
 
         RemoteTerminalClient terminal({
             .runtime_directory = temp.path,

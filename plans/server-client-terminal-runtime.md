@@ -1424,7 +1424,7 @@ Validation checkpoint (2026-07-29):
 
 **Outcome:** agents continue to be detected and controlled with no UI attached.
 
-**Implementation status (2026-07-29):** checkpoints 8a-8d implemented on
+**Implementation status (2026-07-29):** checkpoints 8a-8e implemented on
 `codex/server-client-runtime`. The headless server now owns a Session-scoped
 agent tracker, observes server terminal process trees and bounded screen state,
 and publishes a revisioned `agent.snapshot`/`agent.poll` projection. The wire
@@ -1438,8 +1438,16 @@ Those operations continue after the final GPU client disconnects. Official
 native-session reports now update server topology, projection, and persistence
 only when their server epoch, Session, pane, managed identity, and runtime
 generation all match; stale epochs, replaced runtimes, duplicate references,
-and out-of-order reports are rejected. Managed remote launch and integration
-hook environment migration remain.
+and out-of-order reports are rejected. Managed agent launch now resolves the
+server's built-in/custom profile registry, splits a server-owned terminal into
+shared topology, eagerly starts it, and persists its identity, working
+directory, restore policy, and official native reference. Every launch and
+restart supplies server epoch, Session/Space/tab/pane/terminal identity, and
+runtime generation to the child. Version-2 Codex and Claude hooks forward those
+pins directly to the global server, including isolated runtime-directory
+overrides. Stable arguments belong in the profile; one-off extra arguments are
+rejected on remote launch until a server-private durable launch descriptor
+exists.
 
 Work:
 
@@ -1468,6 +1476,31 @@ Automated exit gate:
 - waits and restart operations work with zero GPU clients;
 - both clients converge on the same agent projection;
 - terminal text is absent from persistence, control events, status, and logs.
+
+Repeatable Slice 8 managed-agent gate:
+
+```powershell
+$exe = Resolve-Path .\build-ninja-release\draxul.exe
+$runtime = Join-Path $env:TEMP 'draxul-slice8-agent'
+& $exe --shutdown-server --server-runtime-dir $runtime 2>$null
+& $exe integration install codex
+& $exe --experimental-remote-shell --server-runtime-dir $runtime
+```
+
+Open a second UI with the final command, then run `launch_agent` from the
+command palette and choose Codex. Both windows must show the same managed row
+and terminal while retaining independent focus. Close both windows and inspect
+the still-running agent without a GPU client:
+
+```powershell
+& $exe agent list --session default --server-runtime-dir $runtime
+& $exe --experimental-remote-shell --server-runtime-dir $runtime
+```
+
+After reconnect, the same pane/agent identity must remain. A graceful server
+shutdown followed by one more launch must cold-restore the managed pane under a
+new server epoch; when `[agents].resume_on_restore = true` and an official
+native reference was reported, Codex uses that reference for resume.
 
 Rollback:
 

@@ -2,6 +2,7 @@
 
 #include <draxul/log.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <utility>
@@ -323,6 +324,23 @@ ServerTerminalRuntime::capture_agent_process_observation() const
 std::optional<int> ServerTerminalRuntime::exit_code() const
 {
     return process_.exit_code();
+}
+
+void ServerTerminalRuntime::set_environment_value(
+    std::string key, std::string value)
+{
+    const auto existing = std::ranges::find(
+        options_.environment, key,
+        &std::pair<std::string, std::string>::first);
+    if (existing == options_.environment.end())
+    {
+        options_.environment.emplace_back(
+            std::move(key), std::move(value));
+    }
+    else
+    {
+        existing->second = std::move(value);
+    }
 }
 
 Grid& ServerTerminalRuntime::terminal_grid()

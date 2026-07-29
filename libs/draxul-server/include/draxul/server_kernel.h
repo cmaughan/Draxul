@@ -1,5 +1,6 @@
 #pragma once
 
+#include <draxul/agent_model.h>
 #include <draxul/server_protocol.h>
 
 #include <atomic>
@@ -48,6 +49,8 @@ struct ServerKernelOptions
     std::vector<std::pair<std::string, std::string>>
         terminal_environment;
     int terminal_scrollback_lines = 10000;
+    std::vector<AgentDefinition> agent_definitions;
+    bool agents_resume_on_restore = false;
 };
 
 std::filesystem::path server_session_state_path(

@@ -37,6 +37,7 @@ struct TopologyPane
     TopologyPaneDomain domain = TopologyPaneDomain::ClientLocal;
     std::string terminal_id;
     std::string client_host_kind;
+    std::string server_working_directory;
     std::optional<AgentIdentity> agent;
     std::optional<AgentSessionRef> agent_session;
     AgentRestorePolicy restore_policy

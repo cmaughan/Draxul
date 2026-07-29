@@ -58,6 +58,8 @@ public:
     std::optional<AgentProcessObservation>
     capture_agent_process_observation() const;
     std::optional<int> exit_code() const;
+    void set_environment_value(
+        std::string key, std::string value);
 
 private:
     bool start_process(std::string& error);

@@ -201,6 +201,24 @@ TEST_CASE("Codex integration install is idempotent and preserves unrelated hooks
     REQUIRE(run_integration_cli(install) == 0);
 
     {
+#ifdef _WIN32
+        const auto hook_path
+            = codex.path / "draxul-agent-session.ps1";
+#else
+        const auto hook_path
+            = codex.path / "draxul-agent-session.sh";
+#endif
+        std::ifstream hook_input(hook_path);
+        const std::string hook(
+            (std::istreambuf_iterator<char>(hook_input)),
+            std::istreambuf_iterator<char>());
+        CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=2")
+            != std::string::npos);
+        CHECK(hook.find("DRAXUL_SERVER_EPOCH")
+            != std::string::npos);
+        CHECK(hook.find("runtime-generation")
+            != std::string::npos);
+
         std::ifstream hooks_input(hooks_path);
         const auto hooks = nlohmann::json::parse(hooks_input);
         CHECK(hooks["hooks"]["Stop"][0]["hooks"][0]["command"] == "keep-me");
@@ -272,8 +290,14 @@ TEST_CASE("Claude integration install is idempotent and preserves unrelated sett
         const std::string hook((std::istreambuf_iterator<char>(hook_input)),
             std::istreambuf_iterator<char>());
         CHECK(hook.find("DRAXUL_INTEGRATION_ID=claude") != std::string::npos);
+        CHECK(hook.find("DRAXUL_INTEGRATION_VERSION=2")
+            != std::string::npos);
         CHECK(hook.find("draxul:claude") != std::string::npos);
         CHECK(hook.find("agent_id") != std::string::npos);
+        CHECK(hook.find("DRAXUL_SERVER_EPOCH")
+            != std::string::npos);
+        CHECK(hook.find("runtime-generation")
+            != std::string::npos);
 
         std::ifstream settings_input(settings_path);
         const auto settings = nlohmann::json::parse(settings_input);

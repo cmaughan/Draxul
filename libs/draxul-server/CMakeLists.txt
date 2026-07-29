@@ -11,6 +11,7 @@ add_library(draxul-server
 target_include_directories(draxul-server PUBLIC include)
 
 target_link_libraries(draxul-server PUBLIC
+    draxul-agent
     draxul-control
     draxul-protocol
     draxul-session-model

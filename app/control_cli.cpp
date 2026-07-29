@@ -530,6 +530,7 @@ int run_control_cli(const ControlCliCommand& command)
         = command.method == "agent.list"
         || command.method == "agent.get"
         || command.method == "agent.explain"
+        || command.method == "agent.start"
         || command.method == "agent.restart"
         || command.method == "agent.send_text"
         || command.method == "agent.send_keys"
@@ -537,7 +538,9 @@ int run_control_cli(const ControlCliCommand& command)
         || command.method == "pane.read"
         || command.method
             == "pane.report_agent_session";
-    bool using_global_server = false;
+    bool using_global_server
+        = supports_headless_server
+        && !command.server_runtime_directory.empty();
     const auto request
         = [&](const nlohmann::json& request_params) {
               if (!using_global_server)
