@@ -3,6 +3,7 @@
 #include "fake_terminal_runtime.h"
 #include "remote_terminal_service.h"
 #include "server_terminal_runtime.h"
+#include "topology_service.h"
 
 #include <draxul/control_plane.h>
 #include <draxul/log.h>
@@ -78,6 +79,7 @@ const std::vector<std::string>& server_capabilities()
         "terminal-metrics-v1",
         "terminal-scrollback-v1",
         "terminal-uncompressed-v1",
+        "topology-v1",
     };
     return capabilities;
 }
@@ -167,6 +169,7 @@ public:
     std::unordered_map<std::string, FakeSubscriber> fake_subscribers;
     std::unique_ptr<ServerTerminalRuntime> server_terminal;
     std::unique_ptr<RemoteTerminalService> terminal_service;
+    std::unique_ptr<TopologyService> topology_service;
 };
 
 void ServerKernel::Impl::publish_starting_marker()
@@ -310,6 +313,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return disconnect_fake_terminal(request.params);
     if (terminal_service && terminal_service->handles(request.method))
         return terminal_service->handle(request.method, request.params);
+    if (topology_service && topology_service->handles(request.method))
+        return topology_service->handle(request.method, request.params);
     if (request.method == "server.shutdown")
     {
         request_stop();
@@ -669,6 +674,10 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .build_version = options.build_version,
         .uptime_ms = uptime_ms,
         .connected_clients = connected_clients,
+        .sessions = topology_service ? 1u : 0u,
+        .spaces = topology_service
+            ? topology_service->snapshot().spaces.size()
+            : 0u,
         .terminals = 1
             + (terminal_service && terminal_service->started() ? 1u : 0u),
     };
@@ -697,6 +706,7 @@ int ServerKernel::Impl::run_until_stopped()
             .name = "Server Shell",
         },
         *server_terminal);
+    topology_service = std::make_unique<TopologyService>("default");
     while (!stop_requested)
     {
         terminal_service->pump();

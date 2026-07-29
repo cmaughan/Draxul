@@ -1172,6 +1172,14 @@ $runtime = Join-Path $env:TEMP 'draxul-slice5-manual'
 
 **Outcome:** both UIs reflect Space, tab, pane, and split mutations.
 
+**Implementation status (2026-07-29):** first vertical checkpoint implemented on
+`codex/server-client-runtime`. `topology-v1` now supplies renderer-neutral snapshots,
+revision-checked/idempotent commands, server authority, and a polling client
+projection. Two headless clients converge in focused tests. App controller projection,
+dynamic per-pane server terminals, and the live two-window demonstration remain.
+
+**Work item:** [12 server-authoritative-topology -feature.md](../kanban/pending/12%20server-authoritative-topology%20-feature.md)
+
 Work:
 
 - move neutral Session/Space/tab/pane/split values below `app/`;
@@ -1185,6 +1193,19 @@ Work:
 - keep client route, window geometry, selection, and viewport local;
 - implement split, close, rename, reorder, ratio, and terminal restart operations; and
 - define conflicts and server rejection UI.
+
+Checkpoint notes:
+
+- Active Space/tab/focused-pane selection is deliberately absent from
+  `TopologySnapshot`; those are per-window routes, not shared topology.
+- Pane descriptors explicitly choose `server_terminal` with a stable TerminalId or
+  `client_local` with a host kind. The initial topology points at the existing
+  server-owned shell; dynamic terminal allocation follows with UI projection.
+- Mutations require the caller's expected revision. A stale caller refreshes and
+  retries; a repeated `(client_id, command_id)` is idempotent and returns the latest
+  snapshot rather than rolling the caller backward.
+- Current automated gate in `build-ninja-release`: `[topology]` passes 38 assertions
+  in 3 cases and `[server]` passes 419 assertions in 23 cases.
 
 Demonstration:
 

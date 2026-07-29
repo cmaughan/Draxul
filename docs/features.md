@@ -71,6 +71,12 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   terminal text; the client records its attach/reconnect latency. This remains
   explicitly experimental: one real shell can now be server-owned, but saved Spaces
   and general pane creation are not server-owned yet.
+- `topology-v1` is the first Slice 6 checkpoint. The headless server now owns a
+  renderer-neutral Session/Space/tab/pane/split snapshot with monotonic revisions.
+  Mutations are optimistic and idempotent, and multiple clients can poll to the same
+  accepted snapshot. Active Space/tab/focus, viewport, selection, and window geometry
+  remain client-local. Live app-controller projection and per-pane terminal allocation
+  are still pending behind the experimental server path.
 
 ---
 

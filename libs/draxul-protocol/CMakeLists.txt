@@ -1,6 +1,7 @@
 add_library(draxul-protocol
     src/remote_terminal_protocol.cpp
     src/server_protocol.cpp
+    src/topology_protocol.cpp
 )
 
 target_include_directories(draxul-protocol PUBLIC include)

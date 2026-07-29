@@ -2,6 +2,7 @@
 
 #include <draxul/remote_terminal_protocol.h>
 #include <draxul/server_protocol.h>
+#include <draxul/topology_protocol.h>
 
 #include <nlohmann/json.hpp>
 
@@ -198,4 +199,122 @@ TEST_CASE("remote terminal protocol round-trips a scrollback page",
         remote_terminal_scrollback_page_to_json(page), error);
     INFO(error);
     REQUIRE(decoded == page);
+}
+
+TEST_CASE("topology protocol round-trips neutral split and pane values",
+    "[server][protocol][topology]")
+{
+    TopologySnapshot snapshot{
+        .revision = 7,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Draxul",
+                .root_directory = "D:/dev/Draxul",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Shells",
+                        .root_node_id = "split-1",
+                        .nodes = {
+                            {
+                                .node_id = "split-1",
+                                .is_leaf = false,
+                                .direction = TopologySplitDirection::Vertical,
+                                .ratio = 0.6f,
+                                .first_node_id = "leaf-1",
+                                .second_node_id = "leaf-2",
+                            },
+                            {
+                                .node_id = "leaf-1",
+                                .pane_id = "pane-1",
+                            },
+                            {
+                                .node_id = "leaf-2",
+                                .pane_id = "pane-2",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-1",
+                                .name = "Server",
+                                .domain = TopologyPaneDomain::ServerTerminal,
+                                .terminal_id = "terminal-1",
+                            },
+                            {
+                                .pane_id = "pane-2",
+                                .name = "Editor",
+                                .domain = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind = "nvim",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+    std::string error;
+    const auto decoded = topology_snapshot_from_json(
+        topology_snapshot_to_json(snapshot), error);
+    INFO(error);
+    REQUIRE(decoded == snapshot);
+
+    TopologyCommand command{
+        .client_id = "client-a",
+        .command_id = "command-1",
+        .expected_revision = 7,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = "space-1",
+        .tab_id = "tab-1",
+        .pane_id = "pane-1",
+        .name = "Local shell",
+        .direction = TopologySplitDirection::Horizontal,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "platform_default",
+    };
+    const auto decoded_command = topology_command_from_json(
+        topology_command_to_json(command), error);
+    INFO(error);
+    REQUIRE(decoded_command == command);
+}
+
+TEST_CASE("topology protocol rejects dangling split children",
+    "[server][protocol][topology]")
+{
+    TopologySnapshot snapshot{
+        .revision = 1,
+        .session_id = "default",
+        .spaces = {
+            {
+                .space_id = "space-1",
+                .name = "Broken",
+                .tabs = {
+                    {
+                        .tab_id = "tab-1",
+                        .name = "Tab",
+                        .root_node_id = "split-1",
+                        .nodes = {
+                            {
+                                .node_id = "split-1",
+                                .is_leaf = false,
+                                .first_node_id = "missing",
+                                .second_node_id = "also-missing",
+                            },
+                        },
+                        .panes = {
+                            {
+                                .pane_id = "pane-1",
+                                .domain = TopologyPaneDomain::ClientLocal,
+                                .client_host_kind = "nvim",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    };
+    std::string error;
+    REQUIRE_FALSE(topology_snapshot_from_json(
+        topology_snapshot_to_json(snapshot), error));
 }

@@ -236,6 +236,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "terminal-metrics-v1",
             "terminal-scrollback-v1",
             "terminal-uncompressed-v1",
+            "topology-v1",
         },
     };
     const auto response = ControlClient::request(

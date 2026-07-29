@@ -7,6 +7,7 @@
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
 #include <draxul/server_protocol.h>
+#include <draxul/topology_client.h>
 
 #include <fstream>
 #include <future>
@@ -444,6 +445,120 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     run_guard.join();
 }
 
+TEST_CASE("two topology clients converge through idempotent server commands",
+    "[server][topology]")
+{
+    TempDir temp("draxul-topology");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    TopologyClient first({
+        .runtime_directory = temp.path,
+        .client_id = "topology-a",
+    });
+    TopologyClient second({
+        .runtime_directory = temp.path,
+        .client_id = "topology-b",
+    });
+    std::string error;
+    REQUIRE(first.refresh(error));
+    REQUIRE(second.refresh(error));
+    REQUIRE(first.snapshot().revision == 1);
+    REQUIRE(first.snapshot().spaces.size() == 1);
+    REQUIRE(first.snapshot().spaces[0].tabs[0].panes[0].domain
+        == TopologyPaneDomain::ServerTerminal);
+
+    TopologyCommand create{
+        .command_id = "create-space-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::CreateSpace,
+        .name = "Second",
+        .root_directory = "D:/work/second",
+    };
+    TopologyCommandResult created;
+    REQUIRE(first.execute(create, created, error));
+    REQUIRE(created.applied);
+    REQUIRE_FALSE(created.duplicate);
+    REQUIRE(created.snapshot.revision == 2);
+    REQUIRE(created.snapshot.spaces.size() == 2);
+    const std::string second_space_id
+        = created.snapshot.spaces.back().space_id;
+
+    TopologyCommandResult duplicate;
+    REQUIRE(first.execute(create, duplicate, error));
+    REQUIRE(duplicate.applied);
+    REQUIRE(duplicate.duplicate);
+    REQUIRE(duplicate.snapshot.revision == 2);
+
+    bool changed = false;
+    REQUIRE(second.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE(second.snapshot() == first.snapshot());
+
+    TopologyCommand rename{
+        .command_id = "rename-space-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::RenameSpace,
+        .space_id = second_space_id,
+        .name = "Renamed",
+    };
+    TopologyCommandResult renamed;
+    REQUIRE(first.execute(rename, renamed, error));
+    REQUIRE(renamed.snapshot.revision == 3);
+    REQUIRE(renamed.snapshot.spaces.back().name == "Renamed");
+
+    REQUIRE(first.execute(create, duplicate, error));
+    REQUIRE(duplicate.duplicate);
+    REQUIRE(duplicate.snapshot.revision == 3);
+    REQUIRE(first.snapshot().spaces.back().name == "Renamed");
+
+    TopologyCommand stale{
+        .command_id = "stale-rename",
+        .expected_revision = 2,
+        .kind = TopologyCommandKind::RenameSpace,
+        .space_id = second_space_id,
+        .name = "Stale",
+    };
+    TopologyCommandResult ignored;
+    REQUIRE_FALSE(second.execute(stale, ignored, error));
+    REQUIRE(second.last_error_code() == "revision_conflict");
+
+    const auto& initial_space = first.snapshot().spaces.front();
+    const auto& initial_tab = initial_space.tabs.front();
+    TopologyCommand split{
+        .command_id = "split-pane-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = initial_space.space_id,
+        .tab_id = initial_tab.tab_id,
+        .pane_id = initial_tab.panes.front().pane_id,
+        .name = "Local editor",
+        .direction = TopologySplitDirection::Horizontal,
+        .pane_domain = TopologyPaneDomain::ClientLocal,
+        .client_host_kind = "nvim",
+    };
+    TopologyCommandResult split_result;
+    REQUIRE(first.execute(split, split_result, error));
+    const auto& split_tab
+        = split_result.snapshot.spaces.front().tabs.front();
+    REQUIRE(split_tab.panes.size() == 2);
+    REQUIRE(split_tab.nodes.size() == 3);
+    REQUIRE(split_tab.panes.back().domain
+        == TopologyPaneDomain::ClientLocal);
+    REQUIRE(split_tab.panes.back().client_host_kind == "nvim");
+
+    REQUIRE(second.poll(changed, error));
+    REQUIRE(changed);
+    REQUIRE(second.snapshot() == first.snapshot());
+
+    run_guard.join();
+}
+
 TEST_CASE("server-owned shell exposes bounded client-independent scrollback pages",
     "[server][remote-terminal][process][scrollback]")
 {
@@ -844,7 +959,8 @@ TEST_CASE("ten concurrent clients converge on one detached server epoch", "[serv
     REQUIRE(status.ok);
     REQUIRE(status.status->connected_clients == 10);
     REQUIRE(status.status->terminals == 1);
-    REQUIRE(status.status->spaces == 0);
+    REQUIRE(status.status->sessions == 1);
+    REQUIRE(status.status->spaces == 1);
 
     std::string shutdown_error;
     REQUIRE(ServerClient::shutdown(temp.path, shutdown_error));
