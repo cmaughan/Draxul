@@ -197,6 +197,11 @@ bool PaneManager::create(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
 LeafId PaneManager::split_focused(SplitDirection dir, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "This layout is owned by the Draxul server.";
+        return kInvalidLeaf;
+    }
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
         return kInvalidLeaf;
@@ -253,6 +258,11 @@ LeafId PaneManager::split_focused(SplitDirection dir, HostKind kind, IHostCallba
 LeafId PaneManager::split_focused(SplitDirection dir, HostLaunchOptions launch, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "This layout is owned by the Draxul server.";
+        return kInvalidLeaf;
+    }
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
         return kInvalidLeaf;
@@ -284,6 +294,11 @@ LeafId PaneManager::split_focused(SplitDirection dir, HostLaunchOptions launch, 
 bool PaneManager::close_leaf(LeafId id)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "This layout is owned by the Draxul server.";
+        return false;
+    }
     if (tree_.leaf_count() <= 1)
         return false;
 
@@ -383,6 +398,11 @@ bool PaneManager::restart_leaf(LeafId id, IHostCallbacks& callbacks)
 bool PaneManager::swap_focused_with_next()
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "Pane reorder is not enabled for shared topology yet.";
+        return false;
+    }
     LeafId focused = tree_.focused();
     if (focused == kInvalidLeaf)
         return false;
@@ -453,6 +473,11 @@ LeafId PaneManager::show_markdown_preview(
     LeafId owner, float top_ratio, std::string_view path, IHostCallbacks& callbacks)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+    {
+        error_ = "Markdown preview splits are not enabled for shared topology yet.";
+        return kInvalidLeaf;
+    }
 
     // Already open: just reload the source in place, leaving the split alone.
     if (markdown_preview_leaf_ != kInvalidLeaf)
@@ -505,6 +530,8 @@ LeafId PaneManager::show_markdown_preview(
 void PaneManager::hide_markdown_preview()
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     if (markdown_preview_leaf_ == kInvalidLeaf)
         return;
 
@@ -739,6 +766,127 @@ bool PaneManager::restore_layout(
     return true;
 }
 
+bool PaneManager::reconcile_projected_layout(
+    IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+    const PaneLayoutSnapshot& state)
+{
+    PERF_MEASURE();
+    error_.clear();
+    if (!state.tree.root || state.panes.empty())
+    {
+        error_ = "Projected layout has no panes.";
+        return false;
+    }
+
+    SplitTree candidate;
+    if (!candidate.restore(state.tree, pixel_w, pixel_h))
+    {
+        error_ = "Failed to validate the projected split layout.";
+        return false;
+    }
+
+    std::unordered_map<LeafId, const PaneSnapshot*> projected;
+    for (const PaneSnapshot& pane : state.panes)
+    {
+        if (pane.leaf_id == kInvalidLeaf
+            || !projected.emplace(pane.leaf_id, &pane).second)
+        {
+            error_ = "Projected layout contains duplicate pane identities.";
+            return false;
+        }
+    }
+    bool complete = true;
+    candidate.for_each_leaf(
+        [&](LeafId id, const PaneDescriptor&) {
+            if (!projected.contains(id))
+                complete = false;
+        });
+    if (!complete
+        || candidate.leaf_count()
+            != static_cast<int>(projected.size()))
+    {
+        error_ = "Projected layout panes do not match its split tree.";
+        return false;
+    }
+
+    const auto backup = snapshot_layout();
+    const LeafId old_focus = tree_.focused();
+    std::vector<LeafId> removed;
+    for (const auto& [leaf, host] : hosts_)
+    {
+        const auto pane = projected.find(leaf);
+        if (pane == projected.end()
+            || launch_options_[leaf].kind
+                != pane->second->launch.kind)
+        {
+            removed.push_back(leaf);
+        }
+    }
+    for (const LeafId leaf : removed)
+    {
+        if (auto host = hosts_.find(leaf);
+            host != hosts_.end() && host->second)
+        {
+            host->second->shutdown();
+        }
+        hosts_.erase(leaf);
+        launch_options_.erase(leaf);
+        pane_user_names_.erase(leaf);
+        pane_ids_.erase(leaf);
+        agent_identities_.erase(leaf);
+        agent_restore_policies_.erase(leaf);
+        agent_session_refs_.erase(leaf);
+        runtime_generations_.erase(leaf);
+        runtime_started_at_.erase(leaf);
+    }
+
+    tree_ = std::move(candidate);
+    zoomed_ = false;
+    zoomed_leaf_ = kInvalidLeaf;
+    markdown_preview_leaf_ = kInvalidLeaf;
+    markdown_preview_owner_ = kInvalidLeaf;
+
+    for (const auto& [leaf, pane] : projected)
+    {
+        pane_ids_[leaf] = pane->pane_id.empty()
+            ? legacy_pane_id_for_leaf(leaf)
+            : pane->pane_id;
+        if (pane->pane_name.empty())
+            pane_user_names_.erase(leaf);
+        else
+            pane_user_names_[leaf] = pane->pane_name;
+
+        if (hosts_.contains(leaf))
+            continue;
+        HostLaunchOptions launch
+            = restore_launch_options(pane->launch, deps_);
+        if (!create_host_for_leaf(
+                leaf, callbacks, std::move(launch), hosts_.empty()))
+        {
+            const std::string projection_error = error_;
+            if (backup)
+            {
+                restore_layout(
+                    callbacks, pixel_w, pixel_h, *backup);
+            }
+            error_ = projection_error.empty()
+                ? "Failed to create a projected pane host."
+                : projection_error;
+            return false;
+        }
+    }
+
+    if (old_focus != tree_.focused())
+    {
+        if (IHost* old_host = host_for(old_focus))
+            old_host->on_focus_lost();
+        if (IHost* new_host = focused_host())
+            new_host->on_focus_gained();
+    }
+    update_all_viewports();
+    return true;
+}
+
 void PaneManager::set_pane_name(LeafId id, std::string name)
 {
     if (name.empty())
@@ -894,6 +1042,8 @@ IHost* PaneManager::host_at_point(int px, int py)
 std::optional<PaneManager::DividerHitInfo> PaneManager::divider_at_point(int px, int py) const
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return std::nullopt;
     auto result = tree_.hit_test(px, py);
     if (const auto* div_hit = std::get_if<SplitTree::DividerHit>(&result))
         return DividerHitInfo{ div_hit->id, div_hit->direction };
@@ -916,6 +1066,8 @@ int snap_step_for_divider(const SplitTree& tree, DividerId id, int cell_w, int c
 void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int cell_w, int cell_h)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     if (zoomed_)
         return;
     // SplitTree preserves its own origin_x/origin_y/total_w/total_h from the
@@ -930,6 +1082,8 @@ void PaneManager::update_divider_from_pixel(DividerId id, int px, int py, int ce
 void PaneManager::nudge_divider(DividerId id, float delta, int cell_w, int cell_h)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     if (zoomed_)
         return;
     const int snap = snap_step_for_divider(tree_, id, cell_w, cell_h);
@@ -1049,6 +1203,8 @@ bool PaneManager::create_host_for_leaf(LeafId id, IHostCallbacks& callbacks,
 void PaneManager::equalize_splits(IHostCallbacks& /*callbacks*/)
 {
     PERF_MEASURE();
+    if (!deps_.allow_local_layout_mutation)
+        return;
     tree_.equalize_splits();
     update_all_viewports();
 }

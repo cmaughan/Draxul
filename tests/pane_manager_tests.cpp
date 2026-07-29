@@ -678,6 +678,67 @@ TEST_CASE("pane manager: layout snapshot round-trips pane metadata", "[pane_mana
     CHECK(restored_split->agent_session->value == "codex-native-session");
 }
 
+TEST_CASE("pane manager: projected layout preserves unchanged live hosts",
+    "[pane_manager][topology]")
+{
+    PaneManagerHarness harness;
+    REQUIRE(harness.manager.create(harness.callbacks, 800, 600));
+    REQUIRE(harness.created_hosts.size() == 1);
+    LifetimeTestHost* original_host = harness.created_hosts.front();
+    const auto original_shutdown = harness.shutdown_counters.front();
+
+    SplitTree split_tree;
+    const LeafId root = split_tree.reset(800, 600);
+    const LeafId added
+        = split_tree.split_leaf(root, SplitDirection::Vertical);
+    REQUIRE(added != kInvalidLeaf);
+    split_tree.set_focused(added);
+
+    PaneManager::PaneLayoutSnapshot projected;
+    projected.tree = split_tree.snapshot();
+    projected.panes = {
+        {
+            .leaf_id = root,
+            .launch = { .kind = HostKind::Nvim },
+            .pane_name = "kept",
+            .pane_id = "shared-pane-1",
+        },
+        {
+            .leaf_id = added,
+            .launch = { .kind = HostKind::PowerShell },
+            .pane_name = "new",
+            .pane_id = "shared-pane-2",
+        },
+    };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    REQUIRE(harness.created_hosts.size() == 2);
+    CHECK(harness.manager.host_for(root) == original_host);
+    CHECK(*original_shutdown == 0);
+    CHECK(harness.manager.pane_name(root) == "kept");
+    CHECK(harness.manager.pane_id(added) == "shared-pane-2");
+
+    projected.tree.root->ratio = 0.7f;
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, projected));
+    CHECK(harness.created_hosts.size() == 2);
+    CHECK(harness.manager.host_for(root) == original_host);
+    CHECK(*original_shutdown == 0);
+
+    SplitTree single_tree;
+    REQUIRE(single_tree.reset(800, 600) == root);
+    PaneManager::PaneLayoutSnapshot collapsed;
+    collapsed.tree = single_tree.snapshot();
+    collapsed.panes = { projected.panes.front() };
+    REQUIRE(harness.manager.reconcile_projected_layout(
+        harness.callbacks, 800, 600, collapsed));
+    CHECK(harness.manager.host_count() == 1);
+    CHECK(harness.manager.host_for(root) == original_host);
+    CHECK(*original_shutdown == 0);
+    REQUIRE(harness.shutdown_counters.size() == 2);
+    CHECK(*harness.shutdown_counters[1] == 1);
+}
+
 TEST_CASE("pane manager: only terminal shell layouts are checkpoint-restorable",
     "[pane_manager][session]")
 {

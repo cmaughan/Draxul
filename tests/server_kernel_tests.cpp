@@ -530,11 +530,12 @@ TEST_CASE("two topology clients converge through idempotent server commands",
 
     const auto& initial_space = first.snapshot().spaces.front();
     const auto& initial_tab = initial_space.tabs.front();
+    const std::string initial_space_id = initial_space.space_id;
     TopologyCommand split{
         .command_id = "split-pane-1",
         .expected_revision = first.snapshot().revision,
         .kind = TopologyCommandKind::SplitPane,
-        .space_id = initial_space.space_id,
+        .space_id = initial_space_id,
         .tab_id = initial_tab.tab_id,
         .pane_id = initial_tab.panes.front().pane_id,
         .name = "Local editor",
@@ -551,6 +552,38 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(split_tab.panes.back().domain
         == TopologyPaneDomain::ClientLocal);
     REQUIRE(split_tab.panes.back().client_host_kind == "nvim");
+
+    TopologyCommand create_tab{
+        .command_id = "create-tab-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::CreateTab,
+        .space_id = initial_space_id,
+        .name = "PowerShell",
+        .client_host_kind = "powershell",
+    };
+    TopologyCommandResult tab_result;
+    REQUIRE(first.execute(create_tab, tab_result, error));
+    const auto& created_tab
+        = tab_result.snapshot.spaces.front().tabs.back();
+    REQUIRE(created_tab.name == "PowerShell");
+    REQUIRE(created_tab.panes.size() == 1);
+    REQUIRE(created_tab.panes.front().domain
+        == TopologyPaneDomain::ClientLocal);
+    REQUIRE(created_tab.panes.front().client_host_kind
+        == "powershell");
+
+    TopologyCommand rename_tab{
+        .command_id = "rename-tab-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::RenameTab,
+        .space_id = initial_space_id,
+        .tab_id = created_tab.tab_id,
+        .name = "Shared PowerShell",
+    };
+    TopologyCommandResult renamed_tab;
+    REQUIRE(first.execute(rename_tab, renamed_tab, error));
+    REQUIRE(renamed_tab.snapshot.spaces.front().tabs.back().name
+        == "Shared PowerShell");
 
     REQUIRE(second.poll(changed, error));
     REQUIRE(changed);

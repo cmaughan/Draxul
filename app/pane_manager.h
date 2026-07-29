@@ -75,6 +75,10 @@ public:
         TextService* text_service = nullptr;
         const float* display_ppi = nullptr;
         std::weak_ptr<void> owner_lifetime;
+        // False when this manager is a projection of server-authoritative
+        // topology. Projection reconciliation can still change the tree,
+        // while local split commands and divider drags cannot diverge it.
+        bool allow_local_layout_mutation = true;
 
         // Converts a PaneDescriptor (pixel region) to a full HostViewport (with cols/rows/padding).
         // Provided by App since it owns the font metrics and UI panel layout.
@@ -248,6 +252,14 @@ public:
     std::optional<PaneLayoutSnapshot> snapshot_layout() const;
     bool restore_layout(
         IHostCallbacks& callbacks, int pixel_w, int pixel_h, const PaneLayoutSnapshot& state);
+    // Apply an authoritative projected tree while preserving hosts whose
+    // stable leaf identity and launch kind are unchanged. Unlike
+    // restore_layout(), this is suitable for live server topology updates:
+    // splitting or resizing one pane must not restart every surviving
+    // client-local host.
+    bool reconcile_projected_layout(
+        IHostCallbacks& callbacks, int pixel_w, int pixel_h,
+        const PaneLayoutSnapshot& state);
     const SplitTree& tree() const
     {
         return tree_;

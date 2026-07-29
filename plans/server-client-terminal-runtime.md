@@ -1152,7 +1152,7 @@ Validation checkpoint (2026-07-29):
 Windows two-client manual gate:
 
 ```powershell
-$exe = Resolve-Path .\build\Release\draxul.exe
+$exe = Resolve-Path .\build-ninja-release\draxul.exe
 $runtime = Join-Path $env:TEMP 'draxul-slice5-manual'
 & $exe --shutdown-server --server-runtime-dir $runtime 2>$null
 & $exe --experimental-remote-shell --server-runtime-dir $runtime `
@@ -1172,14 +1172,17 @@ $runtime = Join-Path $env:TEMP 'draxul-slice5-manual'
 
 **Outcome:** both UIs reflect Space, tab, pane, and split mutations.
 
-**Implementation status (2026-07-29):** first two vertical checkpoints implemented on
+**Implementation status (2026-07-29):** first three vertical checkpoints implemented on
 `codex/server-client-runtime`. `topology-v1` now supplies renderer-neutral snapshots,
 revision-checked/idempotent commands, server authority, and a polling client
 projection. Two headless clients converge in focused tests. Experimental remote UIs
-also project Space create/rename/close changes while retaining an independent active
-Space and creating independent hosts for `client_local` Spaces. Tab/pane/split
-projection, dynamic per-pane server terminals, and the live two-window demonstration
-remain.
+project Space, tab, pane, name, and split-tree changes while retaining independent
+active Space/tab/pane routes. Standard create/close/rename tab and pane actions now
+submit server commands, and `client_local` descriptors instantiate a local host in
+each UI. Live projection reconciles stable pane identities so a split, close, or ratio
+update does not restart unchanged client-local hosts. Tab/pane reorder, UI-originated
+ratio commands, dynamic per-pane server terminals, terminal restart routing, and the
+live two-window demonstration remain.
 
 **Work item:** [12 server-authoritative-topology -feature.md](../kanban/pending/12%20server-authoritative-topology%20-feature.md)
 
@@ -1207,12 +1210,16 @@ Checkpoint notes:
 - Mutations require the caller's expected revision. A stale caller refreshes and
   retries; a repeated `(client_id, command_id)` is idempotent and returns the latest
   snapshot rather than rolling the caller backward.
-- Current automated gate in `build-ninja-release`: `[topology]` passes 38 assertions
-  in 3 cases, `[server]` passes 419 assertions in 23 cases, the app suite passes
-  4,074 assertions in 476 cases, and smoke passes.
+- Current automated gate in `build-ninja-release`: `[topology]` passes 45 assertions
+  in 3 cases, `[server]` passes 420 assertions in 23 cases, the app suite passes
+  4,095 assertions in 477 cases, and smoke passes.
 - The app polls topology at 100 ms. It maps opaque server Space IDs to its existing
   local controller IDs, routes structural Space mutations back to the server, and
   deliberately never serializes the active Space into shared state.
+- Opaque tab and pane IDs map to stable local controller and leaf identities.
+  `PaneManager::reconcile_projected_layout` validates a candidate split tree before
+  applying it and preserves every existing host whose pane identity and launch kind
+  are unchanged.
 
 Demonstration:
 
@@ -1224,6 +1231,25 @@ Demonstration:
 5. B renames and resizes the split; A reflects the accepted mutation.
 6. B closes a pane while A observes one authoritative removal and each relevant local
    runtime shuts down independently.
+
+Windows two-client checkpoint gate:
+
+```powershell
+$exe = Resolve-Path .\build-ninja-release\draxul.exe
+$runtime = Join-Path $env:TEMP 'draxul-slice6-manual'
+& $exe --shutdown-server --server-runtime-dir $runtime 2>$null
+& $exe --experimental-remote-shell --server-runtime-dir $runtime
+```
+
+Run the final line in two PowerShell windows. In either Draxul window, create and
+rename a Space, add and rename a tab, then create a vertical or horizontal split.
+The other UI should reflect each accepted mutation within roughly 100 ms without
+changing its active Space, active tab, or focused pane. Client-local split contents
+are intentionally independent. Close both UIs and stop the shared server with:
+
+```powershell
+& $exe --shutdown-server --server-runtime-dir $runtime
+```
 
 Automated exit gate:
 

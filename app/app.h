@@ -39,6 +39,8 @@ class ControlEventJournal;
 class TopologyClient;
 struct TopologyCommand;
 struct TopologySnapshot;
+struct TopologyTab;
+enum class TopologySplitDirection;
 struct ControlMethodResult;
 struct ControlRequest;
 
@@ -200,9 +202,18 @@ private:
     void poll_remote_topology();
     bool apply_remote_topology_spaces(
         const TopologySnapshot& snapshot, std::string* error = nullptr);
+    bool apply_remote_topology_tabs(
+        const TopologySnapshot& snapshot, std::string* error);
+    bool project_remote_tab(const TopologyTab& remote,
+        SpaceId local_space_id, int local_tab_id, std::string* error);
     bool execute_remote_topology_command(
         TopologyCommand command, std::string& error);
+    bool split_remote_focused(TopologySplitDirection direction,
+        std::optional<HostKind> host_kind, std::string& error);
+    bool close_remote_focused_pane(std::string& error);
     std::optional<std::string> remote_space_id(SpaceId local_id) const;
+    std::optional<std::string> remote_tab_id(
+        SpaceId local_space_id, int local_tab_id) const;
 
     // --- Tab orchestration (collection ownership lives in TabController) ---
     TabController& active_tab_controller();
@@ -290,6 +301,12 @@ private:
     std::unique_ptr<TopologyClient> topology_client_;
     std::unordered_map<std::string, SpaceId> topology_space_to_local_;
     std::unordered_map<SpaceId, std::string> local_space_to_topology_;
+    std::unordered_map<std::string, std::pair<SpaceId, int>>
+        topology_tab_to_local_;
+    std::unordered_map<std::string, LeafId> topology_pane_to_leaf_;
+    std::unordered_map<std::string, std::string>
+        topology_tab_layout_signatures_;
+    LeafId next_topology_leaf_id_ = 0;
     uint64_t next_topology_command_serial_ = 1;
     std::chrono::steady_clock::time_point next_topology_poll_{};
     bool topology_poll_error_announced_ = false;

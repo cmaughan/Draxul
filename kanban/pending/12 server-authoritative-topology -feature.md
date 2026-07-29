@@ -16,7 +16,7 @@ presentation state.
       sharing active Space, tab, focused pane, viewport, or window state.
 - [x] Experimental remote UIs project server Space create/rename/close mutations;
       newly projected client-local Spaces launch an independent local host per UI.
-- [ ] The experimental remote UI projects the server snapshot into its Space,
+- [x] The experimental remote UI projects the server snapshot into its Space,
       tab, pane, and split chrome.
 - [ ] Create, close, rename, reorder, split, ratio, and restart mutations route
       through server commands and appear in a second UI.
@@ -34,9 +34,14 @@ presentation state.
 - Added the first app projection: Space identity mapping, 100 ms topology polling,
   conflict refresh/retry, server-routed Space mutations, and client-local active
   Space routing.
-- Ninja Release `[topology]`: 38 assertions in 3 cases.
-- Ninja Release `[server]`: 419 assertions in 23 cases.
-- Ninja Release app suite: 4,074 assertions in 476 cases; smoke passed.
+- Added tab/pane identity projection, shared names and split trees, server-routed
+  create/close/rename actions, and a live layout reconcile path which preserves
+  unchanged local hosts.
+- Live Ninja Release boundary check: two UIs attached to one fresh server runtime,
+  remained alive concurrently, detached, and the server shut down cleanly.
+- Ninja Release `[topology]`: 45 assertions in 3 cases.
+- Ninja Release `[server]`: 420 assertions in 23 cases.
+- Ninja Release app suite: 4,095 assertions in 477 cases; smoke passed.
 
 ## Rollback
 

@@ -75,10 +75,12 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   renderer-neutral Session/Space/tab/pane/split snapshot with monotonic revisions.
   Mutations are optimistic and idempotent, and multiple clients can poll to the same
   accepted snapshot. Active Space/tab/focus, viewport, selection, and window geometry
-  remain client-local. Experimental remote UIs now project server Space
-  create/rename/close changes and create independent local hosts for `client_local`
-  Space descriptors. Tab/pane/split projection and per-pane terminal allocation are
-  still pending behind the experimental server path.
+  remain client-local. Experimental remote UIs now project server Spaces, tabs,
+  panes, names, and split trees; create/close/rename actions use server commands.
+  Each `client_local` descriptor creates an independent host in each UI, and live
+  split reconciliation preserves unchanged hosts instead of restarting them.
+  Reorder and ratio command routing plus per-pane server-terminal allocation remain
+  pending behind the experimental server path.
 
 ---
 

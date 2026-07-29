@@ -240,8 +240,11 @@ bool TopologyService::apply(const TopologyCommand& command,
     {
         if (space->tabs.size() >= kTopologyMaxTabsPerSpace)
             return reject("limit_reached", "Topology tab limit reached.");
-        space->tabs.push_back(make_client_local_tab(
-            valid_name(command.name) ? command.name : "Tab"));
+        TopologyTab tab = make_client_local_tab(
+            valid_name(command.name) ? command.name : "Tab");
+        if (!command.client_host_kind.empty())
+            tab.panes.front().client_host_kind = command.client_host_kind;
+        space->tabs.push_back(std::move(tab));
         return true;
     }
 
