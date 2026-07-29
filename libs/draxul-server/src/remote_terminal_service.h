@@ -32,6 +32,10 @@ public:
     void pump();
     bool started() const;
     bool restart_runtime(std::string& error);
+    uint64_t generation() const noexcept
+    {
+        return generation_;
+    }
 
 private:
     struct Subscriber

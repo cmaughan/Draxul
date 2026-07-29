@@ -2,6 +2,7 @@
 
 #include "remote_terminal_runtime.h"
 
+#include <draxul/agent_model.h>
 #include <draxul/scrollback_buffer.h>
 #include <draxul/terminal_core.h>
 
@@ -52,6 +53,11 @@ public:
     std::optional<std::string> take_clipboard_write() override;
     TerminalSemanticSnapshot snapshot() const override;
     TerminalDirtySnapshot take_delta() override;
+    std::optional<AgentObservation> capture_agent_observation(
+        int max_rows, size_t max_bytes) const;
+    std::optional<AgentProcessObservation>
+    capture_agent_process_observation() const;
+    std::optional<int> exit_code() const;
 
 private:
     bool start_process(std::string& error);
@@ -100,6 +106,9 @@ private:
     CursorShape cursor_shape_ = CursorShape::Block;
     bool cursor_blink_ = false;
     bool cursor_visible_ = true;
+    uint64_t agent_output_generation_ = 0;
+    std::optional<std::chrono::steady_clock::time_point>
+        agent_last_output_at_;
 };
 
 } // namespace draxul

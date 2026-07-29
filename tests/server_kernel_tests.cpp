@@ -2,6 +2,7 @@
 
 #include "support/temp_dir.h"
 
+#include <draxul/agent_protocol.h>
 #include <draxul/control_plane.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/server_client.h>
@@ -174,6 +175,20 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "named-sessions-v1")
         != probe.welcome->capabilities.end());
+
+    const auto agents = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "agent.snapshot",
+        { { "session_id", "default" } });
+    REQUIRE(agents.ok);
+    std::string agent_error;
+    const auto agent_snapshot
+        = server_agent_snapshot_from_json(
+            agents.result, agent_error);
+    INFO(agent_error);
+    REQUIRE(agent_snapshot);
+    CHECK(agent_snapshot->session_id == "default");
+    CHECK(agent_snapshot->agents.empty());
 
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);

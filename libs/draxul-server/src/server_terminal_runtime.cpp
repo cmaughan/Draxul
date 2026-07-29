@@ -166,6 +166,9 @@ bool ServerTerminalRuntime::pump()
     auto chunks = process_.drain_output();
     if (chunks.empty())
         return false;
+    ++agent_output_generation_;
+    agent_last_output_at_
+        = std::chrono::steady_clock::now();
     core_.begin_output_cursor_batch();
     for (const auto& chunk : chunks)
         core_.feed(chunk);
@@ -259,6 +262,67 @@ TerminalDirtySnapshot ServerTerminalRuntime::take_delta()
     auto delta = core_.dirty_snapshot();
     grid_.clear_dirty();
     return delta;
+}
+
+std::optional<AgentObservation>
+ServerTerminalRuntime::capture_agent_observation(
+    int max_rows, size_t max_bytes) const
+{
+    AgentObservation observation;
+    observation.output_generation
+        = agent_output_generation_;
+    observation.captured_at
+        = std::chrono::steady_clock::now();
+    observation.last_output_at = agent_last_output_at_;
+    observation.terminal_title = published_title_;
+    observation.cursor_visible = cursor_visible_;
+    observation.cursor_col = published_cursor_.first;
+    observation.cursor_row = published_cursor_.second;
+    observation.process_running = process_.is_running();
+    observation.exit_code = process_.exit_code();
+
+    if (max_rows <= 0 || max_bytes == 0
+        || grid_.cols() <= 0 || grid_.rows() <= 0)
+    {
+        return observation;
+    }
+
+    const int first_row
+        = std::max(0, grid_.rows() - max_rows);
+    size_t remaining = max_bytes;
+    observation.bottom_rows.reserve(
+        static_cast<size_t>(grid_.rows() - first_row));
+    for (int row = first_row;
+         row < grid_.rows() && remaining > 0; ++row)
+    {
+        std::string text;
+        for (int col = 0; col < grid_.cols(); ++col)
+        {
+            const Cell& cell = grid_.get_cell(col, row);
+            if (cell.double_width_cont)
+                continue;
+            const std::string_view cluster = cell.text.view();
+            if (cluster.size() > remaining)
+                break;
+            text.append(cluster);
+            remaining -= cluster.size();
+        }
+        while (!text.empty() && text.back() == ' ')
+            text.pop_back();
+        observation.bottom_rows.push_back(std::move(text));
+    }
+    return observation;
+}
+
+std::optional<AgentProcessObservation>
+ServerTerminalRuntime::capture_agent_process_observation() const
+{
+    return process_.foreground_process_observation();
+}
+
+std::optional<int> ServerTerminalRuntime::exit_code() const
+{
+    return process_.exit_code();
 }
 
 Grid& ServerTerminalRuntime::terminal_grid()

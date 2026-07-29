@@ -1,4 +1,5 @@
 add_library(draxul-protocol
+    src/agent_protocol.cpp
     src/remote_terminal_protocol.cpp
     src/server_protocol.cpp
     src/topology_protocol.cpp

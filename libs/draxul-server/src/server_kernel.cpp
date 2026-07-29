@@ -9,6 +9,7 @@
 #include <draxul/control_plane.h>
 #include <draxul/log.h>
 #include <draxul/remote_terminal_protocol.h>
+#include <draxul/server_agent_service.h>
 #include <draxul/server_protocol.h>
 #include <draxul/session_state.h>
 
@@ -109,6 +110,7 @@ const std::vector<std::string>& server_capabilities()
     static const std::vector<std::string> capabilities{
         "client-registration",
         "controller-lease",
+        "agent-projection-v1",
         "fake-remote-terminal",
         "graceful-shutdown",
         "multi-terminal-v1",
@@ -215,6 +217,8 @@ public:
         std::string_view terminal_id);
     bool restart_server_terminal(std::string_view session_id,
         std::string_view terminal_id, std::string& error);
+    void refresh_agents(ServerSession& session,
+        std::chrono::steady_clock::time_point now);
 
     ServerKernelOptions options;
     ControlServer control;
@@ -258,6 +262,7 @@ public:
     {
         std::string session_id;
         std::unique_ptr<TopologyService> topology_service;
+        std::unique_ptr<ServerAgentService> agent_service;
         std::unordered_map<std::string, ServerTerminalEndpoint>
             terminals;
         uint64_t next_terminal_serial = 2;
@@ -271,6 +276,7 @@ public:
         uint64_t last_checkpoint_revision = 0;
         bool checkpoint_file_present = false;
         std::chrono::steady_clock::time_point next_checkpoint_at{};
+        std::chrono::steady_clock::time_point next_agent_refresh_at{};
     };
     std::unordered_map<std::string, std::unique_ptr<ServerSession>>
         sessions;
@@ -387,6 +393,7 @@ void ServerKernel::Impl::reset_services()
     {
         (void)session_id;
         session->topology_service.reset();
+        session->agent_service.reset();
         session->terminals.clear();
         session->next_terminal_serial = 2;
     }
@@ -539,6 +546,7 @@ bool ServerKernel::Impl::initialize_session(
     }
     ServerSession& session = *found->second;
     session.topology_service.reset();
+    session.agent_service.reset();
     session.terminals.clear();
     session.next_terminal_serial = 2;
 
@@ -608,6 +616,11 @@ bool ServerKernel::Impl::initialize_session(
     }
     session.next_checkpoint_at = std::chrono::steady_clock::now()
         + options.session_checkpoint_interval;
+    session.agent_service
+        = std::make_unique<ServerAgentService>(
+            stable_session_id);
+    session.next_agent_refresh_at
+        = std::chrono::steady_clock::now();
     return true;
 }
 
@@ -885,6 +898,30 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     : std::move(session_error));
         }
         return session->topology_service->handle(
+            request.method, request.params);
+    }
+    if (request.method == "agent.snapshot"
+        || request.method == "agent.poll")
+    {
+        std::string session_id;
+        std::string session_error;
+        if (!read_session_id(
+                request.params, session_id, session_error))
+        {
+            return ControlMethodResult::error(
+                "invalid_session", std::move(session_error));
+        }
+        ServerSession* session
+            = ensure_session(session_id, session_error);
+        if (!session || !session->agent_service)
+        {
+            return ControlMethodResult::error(
+                "session_unavailable",
+                session_error.empty()
+                    ? "Server Session agents are unavailable."
+                    : std::move(session_error));
+        }
+        return session->agent_service->handle(
             request.method, request.params);
     }
     if (request.method == "server.shutdown")
@@ -1365,6 +1402,62 @@ bool ServerKernel::Impl::restart_server_terminal(
     return terminal->second.service->restart_runtime(error);
 }
 
+void ServerKernel::Impl::refresh_agents(
+    ServerSession& session,
+    std::chrono::steady_clock::time_point now)
+{
+    if (!session.topology_service || !session.agent_service)
+        return;
+    std::vector<ServerAgentRuntimeView> runtimes;
+    const TopologySnapshot& topology
+        = session.topology_service->snapshot();
+    for (const auto& space : topology.spaces)
+    {
+        for (const auto& tab : space.tabs)
+        {
+            for (const auto& pane : tab.panes)
+            {
+                if (pane.domain
+                    != TopologyPaneDomain::ServerTerminal)
+                {
+                    continue;
+                }
+                const auto terminal
+                    = session.terminals.find(pane.terminal_id);
+                if (terminal == session.terminals.end())
+                    continue;
+                const auto& endpoint = terminal->second;
+                const bool running
+                    = endpoint.runtime->is_running();
+                runtimes.push_back({
+                    .space_id = space.space_id,
+                    .tab_id = tab.tab_id,
+                    .pane_id = pane.pane_id,
+                    .terminal_id = pane.terminal_id,
+                    .declared_identity = pane.agent,
+                    .session_ref = pane.agent_session,
+                    .generation = {
+                        endpoint.service->generation(),
+                    },
+                    .runtime_running = running,
+                    .exit_code
+                    = endpoint.runtime->exit_code(),
+                    .process_observation = running
+                        ? endpoint.runtime
+                              ->capture_agent_process_observation()
+                        : std::nullopt,
+                    .terminal_observation = running
+                        ? endpoint.runtime
+                              ->capture_agent_observation(
+                                  12, 8 * 1024)
+                        : std::nullopt,
+                });
+            }
+        }
+    }
+    session.agent_service->update(runtimes, now);
+}
+
 int ServerKernel::Impl::run_until_stopped()
 {
     if (!started)
@@ -1402,6 +1495,16 @@ int ServerKernel::Impl::run_until_stopped()
                 return handle_request(request);
             });
         const auto now = std::chrono::steady_clock::now();
+        for (auto& [session_id, session] : sessions)
+        {
+            (void)session_id;
+            if (now >= session->next_agent_refresh_at)
+            {
+                refresh_agents(*session, now);
+                session->next_agent_refresh_at
+                    = now + std::chrono::milliseconds(500);
+            }
+        }
         if (options.session_checkpoint_interval.count() > 0)
         {
             for (auto& [session_id, session] : sessions)
