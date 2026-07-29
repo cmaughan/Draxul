@@ -16,6 +16,7 @@ inline constexpr int kServerProtocolMinor = 0;
 inline constexpr std::string_view kServerControlId = "__draxul_server_v1__";
 inline constexpr size_t kServerMaxCapabilities = 32;
 inline constexpr size_t kServerMaxClientIdBytes = 128;
+inline constexpr size_t kServerMaxSessionIdBytes = 512;
 
 struct ServerHello
 {
@@ -39,6 +40,21 @@ struct ServerWelcome
     bool operator==(const ServerWelcome&) const = default;
 };
 
+struct ServerSessionStatusSnapshot
+{
+    std::string session_id;
+    size_t spaces = 0;
+    size_t terminals = 0;
+    size_t live_terminals = 0;
+    std::string checkpoint_path;
+    std::string checkpoint_state;
+    uint64_t last_checkpoint_unix_ms = 0;
+    std::string checkpoint_error;
+    std::vector<std::string> restore_warnings;
+
+    bool operator==(const ServerSessionStatusSnapshot&) const = default;
+};
+
 struct ServerStatusSnapshot
 {
     std::string state;
@@ -58,6 +74,7 @@ struct ServerStatusSnapshot
     uint64_t last_checkpoint_unix_ms = 0;
     std::string checkpoint_error;
     std::vector<std::string> restore_warnings;
+    std::vector<ServerSessionStatusSnapshot> session_statuses;
 
     bool operator==(const ServerStatusSnapshot&) const = default;
 };

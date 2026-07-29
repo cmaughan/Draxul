@@ -124,6 +124,7 @@ public:
             RemoteTerminalClientOptions{
                 .runtime_directory = options_.runtime_directory,
                 .client_id = options_.client_id,
+                .session_id = options_.session_id,
                 .expected_server_epoch = options_.server_epoch,
                 .method_prefix = options_.method_prefix,
                 .terminal_id = options_.terminal_id,

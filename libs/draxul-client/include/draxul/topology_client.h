@@ -12,6 +12,7 @@ struct TopologyClientOptions
 {
     std::filesystem::path runtime_directory;
     std::string client_id;
+    std::string session_id = "default";
 };
 
 class TopologyClient

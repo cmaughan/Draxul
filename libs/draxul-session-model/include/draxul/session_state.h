@@ -12,6 +12,7 @@ namespace draxul
 {
 
 std::filesystem::path session_state_directory();
+std::string session_state_file_name(std::string_view session_id);
 std::filesystem::path session_state_path(std::string_view session_id);
 bool has_saved_session_state(
     std::string_view session_id, std::string* error = nullptr);

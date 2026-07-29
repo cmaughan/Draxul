@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -51,6 +52,9 @@ struct ServerKernelOptions
 
 std::filesystem::path server_session_state_path(
     const std::filesystem::path& runtime_directory);
+std::filesystem::path server_session_state_path(
+    const std::filesystem::path& runtime_directory,
+    std::string_view session_id);
 
 class ServerKernel
 {

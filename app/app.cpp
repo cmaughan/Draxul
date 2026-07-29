@@ -2850,6 +2850,7 @@ bool App::initialize_remote_topology()
         TopologyClientOptions{
             .runtime_directory = options_.server_runtime_directory,
             .client_id = options_.server_client_id,
+            .session_id = options_.session_id,
         });
     std::string error;
     if (!topology_client_->refresh(error)

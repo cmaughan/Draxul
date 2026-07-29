@@ -86,6 +86,9 @@ bool TopologyClient::request(std::string_view method,
     nlohmann::json params, nlohmann::json& result,
     std::string& error)
 {
+    params["session_id"] = options_.session_id.empty()
+        ? "default"
+        : options_.session_id;
     const auto response = ControlClient::request(
         namespaced_control_id(
             kServerControlId, options_.runtime_directory),

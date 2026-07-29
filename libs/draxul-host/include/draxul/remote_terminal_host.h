@@ -17,6 +17,7 @@ struct RemoteTerminalHostOptions
 {
     std::filesystem::path runtime_directory;
     std::string client_id;
+    std::string session_id = "default";
     std::string server_epoch;
     std::string method_prefix = "fake";
     std::string terminal_id;

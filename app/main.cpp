@@ -230,6 +230,30 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
                 std::printf("Restore warning: %s\n",
                     warning.c_str());
             }
+            for (const auto& session
+                : result.status->session_statuses)
+            {
+                std::printf(
+                    "Session %s: Spaces=%zu Terminals=%zu Live=%zu "
+                    "Checkpoint=%s\n  Path: %s\n",
+                    session.session_id.c_str(),
+                    session.spaces,
+                    session.terminals,
+                    session.live_terminals,
+                    session.checkpoint_state.c_str(),
+                    session.checkpoint_path.c_str());
+                if (!session.checkpoint_error.empty())
+                {
+                    std::printf("  Checkpoint error: %s\n",
+                        session.checkpoint_error.c_str());
+                }
+                for (const auto& warning
+                    : session.restore_warnings)
+                {
+                    std::printf("  Restore warning: %s\n",
+                        warning.c_str());
+                }
+            }
         }
         return 0;
     }
@@ -443,6 +467,17 @@ static int draxul_main(std::vector<std::string> args)
             draxul::shutdown_logging();
             return 1;
         }
+        if (parsed.experimental_remote_shell
+            && parsed.session_id != "default"
+            && std::ranges::find(server_result.welcome->capabilities,
+                   "named-sessions-v1")
+                == server_result.welcome->capabilities.end())
+        {
+            std::fprintf(stderr,
+                "The running Draxul server does not support named Sessions. Stop it and retry.\n");
+            draxul::shutdown_logging();
+            return 1;
+        }
         server_connection = std::move(server_result.welcome);
     }
 
@@ -499,6 +534,7 @@ static int draxul_main(std::vector<std::string> args)
         draxul::RemoteTerminalHostOptions remote_options{
             .runtime_directory = connected_server_runtime,
             .client_id = connected_server_client_id,
+            .session_id = parsed.session_id,
             .server_epoch = options.server_connection
                 ? options.server_connection->server_epoch
                 : std::string{},

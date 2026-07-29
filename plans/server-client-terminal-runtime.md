@@ -1326,20 +1326,27 @@ Rollback:
 Implementation checkpoint (2026-07-29):
 
 - The renderer-free v3 model/codec is shared by app and server.
-- The experimental server owns
-  `<server-runtime-dir>/sessions/default.toml`, restores every usable Space before
-  processing queued requests, and checkpoints dirty topology every 30 seconds plus
-  graceful shutdown.
+- The experimental server owns every checkpoint under
+  `<server-runtime-dir>/sessions/`, restores every usable Session and Space before
+  processing queued requests, and checkpoints each dirty Session every 30 seconds
+  plus graceful shutdown. `default` retains the readable `default.toml` path;
+  named files use the existing collision-safe Session filename scheme.
 - Stable pane/terminal descriptors, client-local host descriptors, and managed
   agent restore/session metadata survive cold start. Terminal text and live process
   identity do not; restored server terminals launch a new process lazily.
-- `--server-status` and JSON status expose checkpoint path/state/last success/error
-  and restore warnings. Invalid, partial, and interrupted writes preserve the
-  previous file.
-- The current transport still exposes one authoritative remote Session (`default`).
-  Named Session routing needs a Session selector on topology requests plus
-  Session-scoped terminal identity/diagnostics; that remains the final Slice 7
-  increment rather than being hidden inside terminal IDs.
+- Topology and terminal requests carry an explicit `session_id`. Each Session owns
+  an independent topology service, terminal registry, ID allocator, checkpoint
+  lifecycle, and status row. Terminal identity is therefore the explicit
+  `(session_id, terminal_id)` pair; ordinary terminal IDs may safely repeat.
+- `--server-status` and JSON status expose aggregate counts plus checkpoint
+  path/state/last success/error and restore warnings for every Session. Invalid,
+  partial, and interrupted writes preserve the affected previous file without
+  blocking other usable Sessions.
+- Selecting an unknown valid Session lazily creates it. Selecting `--session alpha`
+  in two UIs shares `alpha`; selecting `--session beta` projects a separate Session.
+- In-window switching remains intentionally out of scope for this slice: launch a
+  UI with `--session <id>`. Moving the existing Session picker onto server Session
+  discovery/routing can be added as a later UI slice without changing the protocol.
 
 Repeatable Slice 7a manual test (use `build-ninja-release`):
 
@@ -1374,6 +1381,44 @@ server when finished:
 converged, detach/reconnect retained the topology, the UI-free periodic checkpoint
 was present, and graceful shutdown plus cold restart restored the ordered
 Spaces/tabs/panes with fresh shell processes.
+
+Repeatable Slice 7b named-Session gate:
+
+```powershell
+$exe = Resolve-Path .\build-ninja-release\draxul.exe
+$runtime = Join-Path $env:TEMP 'draxul-slice7-named'
+& $exe --shutdown-server --server-runtime-dir $runtime 2>$null
+& $exe --experimental-remote-shell --session alpha --server-runtime-dir $runtime
+```
+
+Launch the final line again in a second PowerShell window; both `alpha` windows
+must reflect the same Space/tab/pane mutations. In a third window launch:
+
+```powershell
+& $exe --experimental-remote-shell --session beta --server-runtime-dir $runtime
+```
+
+Mutations in `beta` must remain isolated from `alpha`. Close all three UIs, inspect
+the per-Session rows and paths, then cold-restart both named Sessions:
+
+```powershell
+& $exe --server-status --server-runtime-dir $runtime
+& $exe --shutdown-server --server-runtime-dir $runtime
+& $exe --experimental-remote-shell --session alpha --server-runtime-dir $runtime
+& $exe --experimental-remote-shell --session beta --server-runtime-dir $runtime
+```
+
+Both named topologies must restore independently. The status command supplies the
+exact hashed checkpoint path for each named Session; do not infer it from the ID.
+
+Validation checkpoint (2026-07-29):
+
+- focused named-Session cold restore: 41 assertions/1 case;
+- all server-tagged Debug coverage: 565 assertions/29 cases;
+- full Debug core and app executables pass (app: 4,115 assertions/478 cases);
+- full Release core and app executables pass (app: 4,115 assertions/478 cases);
+- `build-ninja-release\draxul.exe` builds, repository smoke passes, and an isolated
+  Release server reports its per-Session status row before graceful shutdown.
 
 ### Slice 8: agent runtime and control migration
 

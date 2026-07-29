@@ -442,6 +442,9 @@ nlohmann::json RemoteTerminalClient::client_params() const
 {
     nlohmann::json params{
         { "client_id", options_.client_id },
+        { "session_id", options_.session_id.empty()
+                ? "default"
+                : options_.session_id },
     };
     if (!options_.terminal_id.empty())
         params["terminal_id"] = options_.terminal_id;

@@ -902,6 +902,196 @@ TEST_CASE("server-owned shell rejects unsupported launch kinds clearly",
     run_guard.join();
 }
 
+TEST_CASE("named server Sessions isolate topology and terminal identity across cold restore",
+    "[server][topology][persistence][sessions]")
+{
+    TempDir temp("draxul-server-named-sessions");
+    uint64_t alpha_process_id = 0;
+    uint64_t beta_process_id = 0;
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .session_checkpoint_interval
+            = std::chrono::milliseconds(20),
+            .build_version = "unit-test",
+            .epoch_override = "named-epoch-1",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+
+        TopologyClient alpha({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-client",
+            .session_id = "alpha",
+        });
+        TopologyClient beta({
+            .runtime_directory = temp.path,
+            .client_id = "beta-client",
+            .session_id = "beta",
+        });
+        std::string error;
+        REQUIRE(alpha.refresh(error));
+        REQUIRE(beta.refresh(error));
+        REQUIRE(alpha.snapshot().session_id == "alpha");
+        REQUIRE(beta.snapshot().session_id == "beta");
+        REQUIRE(alpha.snapshot().spaces.front()
+                    .tabs.front()
+                    .panes.front()
+                    .terminal_id
+            == beta.snapshot().spaces.front()
+                   .tabs.front()
+                   .panes.front()
+                   .terminal_id);
+
+        TopologyCommand rename_alpha{
+            .command_id = "rename-alpha",
+            .expected_revision = alpha.snapshot().revision,
+            .kind = TopologyCommandKind::RenameSpace,
+            .space_id = alpha.snapshot().spaces.front().space_id,
+            .name = "Alpha Work",
+        };
+        TopologyCommandResult renamed_alpha;
+        REQUIRE(alpha.execute(
+            rename_alpha, renamed_alpha, error));
+        REQUIRE(beta.snapshot().spaces.front().name == "Space 1");
+
+        TopologyCommand rename_beta{
+            .command_id = "rename-beta",
+            .expected_revision = beta.snapshot().revision,
+            .kind = TopologyCommandKind::RenameSpace,
+            .space_id = beta.snapshot().spaces.front().space_id,
+            .name = "Beta Work",
+        };
+        TopologyCommandResult renamed_beta;
+        REQUIRE(beta.execute(rename_beta, renamed_beta, error));
+        REQUIRE(alpha.snapshot().spaces.front().name
+            == "Alpha Work");
+
+        RemoteTerminalClient alpha_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-terminal-client",
+            .session_id = "alpha",
+            .expected_server_epoch = "named-epoch-1",
+            .method_prefix = "terminal",
+            .terminal_id = std::string(kServerShellTerminalId),
+        });
+        RemoteTerminalClient beta_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "beta-terminal-client",
+            .session_id = "beta",
+            .expected_server_epoch = "named-epoch-1",
+            .method_prefix = "terminal",
+            .terminal_id = std::string(kServerShellTerminalId),
+        });
+        REQUIRE(alpha_terminal.attach(error));
+        REQUIRE(beta_terminal.attach(error));
+        alpha_process_id
+            = alpha_terminal.projection().pane().process_id;
+        beta_process_id
+            = beta_terminal.projection().pane().process_id;
+        REQUIRE(alpha_process_id != 0);
+        REQUIRE(beta_process_id != 0);
+        REQUIRE(alpha_process_id != beta_process_id);
+
+        const auto status = ServerClient::status(temp.path);
+        REQUIRE(status.ok);
+        REQUIRE(status.status->sessions == 3);
+        REQUIRE(status.status->spaces == 3);
+        REQUIRE(status.status->session_statuses.size() == 3);
+        const auto alpha_status = std::ranges::find(
+            status.status->session_statuses, "alpha",
+            &ServerSessionStatusSnapshot::session_id);
+        REQUIRE(alpha_status
+            != status.status->session_statuses.end());
+        REQUIRE(alpha_status->terminals == 1);
+        REQUIRE(alpha_status->live_terminals == 1);
+
+        run_guard.join();
+    }
+
+    const auto alpha_path
+        = server_session_state_path(temp.path, "alpha");
+    const auto beta_path
+        = server_session_state_path(temp.path, "beta");
+    REQUIRE(alpha_path != beta_path);
+    REQUIRE(std::filesystem::exists(alpha_path));
+    REQUIRE(std::filesystem::exists(beta_path));
+    std::string error;
+    const auto saved_alpha
+        = load_session_state_from_path(alpha_path, &error);
+    INFO(error);
+    REQUIRE(saved_alpha);
+    REQUIRE(saved_alpha->session_id == "alpha");
+    const auto saved_beta
+        = load_session_state_from_path(beta_path, &error);
+    INFO(error);
+    REQUIRE(saved_beta);
+    REQUIRE(saved_beta->session_id == "beta");
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .build_version = "unit-test",
+            .epoch_override = "named-epoch-2",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        TopologyClient alpha({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-restored",
+            .session_id = "alpha",
+        });
+        TopologyClient beta({
+            .runtime_directory = temp.path,
+            .client_id = "beta-restored",
+            .session_id = "beta",
+        });
+        REQUIRE(alpha.refresh(error));
+        REQUIRE(beta.refresh(error));
+        REQUIRE(alpha.snapshot().spaces.front().name
+            == "Alpha Work");
+        REQUIRE(beta.snapshot().spaces.front().name
+            == "Beta Work");
+
+        RemoteTerminalClient alpha_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-terminal-restored",
+            .session_id = "alpha",
+            .expected_server_epoch = "named-epoch-2",
+            .method_prefix = "terminal",
+            .terminal_id = std::string(kServerShellTerminalId),
+        });
+        RemoteTerminalClient beta_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "beta-terminal-restored",
+            .session_id = "beta",
+            .expected_server_epoch = "named-epoch-2",
+            .method_prefix = "terminal",
+            .terminal_id = std::string(kServerShellTerminalId),
+        });
+        REQUIRE(alpha_terminal.attach(error));
+        REQUIRE(beta_terminal.attach(error));
+        REQUIRE(alpha_terminal.projection().pane().process_id
+            != alpha_process_id);
+        REQUIRE(beta_terminal.projection().pane().process_id
+            != beta_process_id);
+        REQUIRE(alpha_terminal.projection().pane().process_id
+            != beta_terminal.projection().pane().process_id);
+
+        TopologyClient invalid({
+            .runtime_directory = temp.path,
+            .client_id = "invalid-session",
+            .session_id = "invalid\nidentity",
+        });
+        REQUIRE_FALSE(invalid.refresh(error));
+        REQUIRE(invalid.last_error_code() == "invalid_session");
+        run_guard.join();
+    }
+}
+
 TEST_CASE("server topology checkpoints and cold-restores stable terminal descriptors",
     "[server][topology][persistence]")
 {

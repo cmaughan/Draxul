@@ -78,7 +78,7 @@ std::string session_slug(std::string_view session_id)
     return slug;
 }
 
-std::string session_file_name(std::string_view session_id)
+std::string make_session_state_file_name(std::string_view session_id)
 {
     std::ostringstream out;
     out << std::hex << fnv1a_hash(session_id) << "-" << session_slug(session_id) << ".toml";
@@ -1087,11 +1087,19 @@ std::filesystem::path session_state_directory()
     return ConfigDocument::default_path().parent_path() / "sessions";
 }
 
+std::string session_state_file_name(std::string_view session_id)
+{
+    const std::string normalized_id
+        = session_id.empty() ? "default" : std::string(session_id);
+    return make_session_state_file_name(normalized_id);
+}
+
 std::filesystem::path session_state_path(std::string_view session_id)
 {
     PERF_MEASURE();
     const std::string normalized_id = session_id.empty() ? "default" : std::string(session_id);
-    return session_state_directory() / session_file_name(normalized_id);
+    return session_state_directory()
+        / session_state_file_name(normalized_id);
 }
 
 bool has_saved_session_state(std::string_view session_id, std::string* error)
