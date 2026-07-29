@@ -234,6 +234,13 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(status.ok);
     REQUIRE(status.status->connected_clients == 1);
     REQUIRE(status.status->terminals == 1);
+    std::string disconnect_error;
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "unit-client", disconnect_error));
+    const auto disconnected_status
+        = ServerClient::status(temp.path);
+    REQUIRE(disconnected_status.ok);
+    CHECK(disconnected_status.status->connected_clients == 0);
 
     ServerKernel duplicate({
         .runtime_directory = temp.path,
@@ -242,7 +249,8 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
         == ServerStartDisposition::AlreadyRunning);
 
     std::string shutdown_error;
-    REQUIRE(ServerClient::shutdown(temp.path, shutdown_error));
+    REQUIRE(ServerClient::shutdown(temp.path,
+        { .confirm_live_terminals = true }, shutdown_error));
     run_guard.join();
     REQUIRE_FALSE(server.running());
     REQUIRE_FALSE(std::filesystem::exists(server_metadata_path(temp.path)));
@@ -504,6 +512,14 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     REQUIRE(after_restart.projection().pane().process_id != 0);
     REQUIRE(server.epoch() == "fixed-epoch");
 
+    std::string shutdown_error;
+    REQUIRE_FALSE(ServerClient::shutdown(
+        temp.path, {}, shutdown_error));
+    CHECK(shutdown_error.find("live terminal")
+        != std::string::npos);
+    CHECK(server.running());
+    REQUIRE(ServerClient::shutdown(temp.path,
+        { .confirm_live_terminals = true }, shutdown_error));
     run_guard.join();
 }
 
@@ -2481,7 +2497,8 @@ TEST_CASE("ten concurrent clients converge on one detached server epoch", "[serv
     REQUIRE(status.status->spaces == 1);
 
     std::string shutdown_error;
-    REQUIRE(ServerClient::shutdown(temp.path, shutdown_error));
+    REQUIRE(ServerClient::shutdown(temp.path,
+        { .confirm_live_terminals = true }, shutdown_error));
     for (int attempt = 0;
          attempt < 200
          && std::filesystem::exists(server_metadata_path(temp.path));

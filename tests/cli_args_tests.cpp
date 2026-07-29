@@ -96,6 +96,7 @@ TEST_CASE("cli: no args produces default ParsedArgs without error", "[cli]")
     REQUIRE(r.args.screenshot_width == 0);
     REQUIRE(r.args.screenshot_height == 0);
     REQUIRE_FALSE(r.args.smoke_test);
+    REQUIRE(should_use_shared_server(r.args));
 }
 
 TEST_CASE("cli: --smoke-test sets the flag", "[cli]")
@@ -214,7 +215,7 @@ TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][serve
 
     auto explicit_host = parse(
         { "--experimental-server-client", "--host", "powershell" });
-    REQUIRE_FALSE(should_bootstrap_experimental_server(explicit_host.args));
+    REQUIRE(should_bootstrap_experimental_server(explicit_host.args));
 
     auto smoke = parse(
         { "--experimental-server-client", "--smoke-test" });
@@ -223,6 +224,64 @@ TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][serve
     auto opted_out = parse(
         { "--experimental-server-client", "--no-server" });
     REQUIRE_FALSE(should_bootstrap_experimental_server(opted_out.args));
+}
+
+TEST_CASE("cli: normal shell startup uses the shared server by default",
+    "[cli][server][slice9]")
+{
+    REQUIRE(should_use_shared_server(parse({}).args));
+    REQUIRE(should_use_shared_server(
+        parse({ "--host", "powershell" }).args));
+    REQUIRE(should_use_shared_server(
+        parse({ "--host", "zsh" }).args));
+
+    REQUIRE_FALSE(should_use_shared_server(
+        parse({ "--no-server" }).args));
+    REQUIRE_FALSE(should_use_shared_server(
+        parse({ "--host", "nvim" }).args));
+    REQUIRE_FALSE(should_use_shared_server(
+        parse({ "--host", "satview" }).args));
+    REQUIRE_FALSE(should_use_shared_server(
+        parse({ "--smoke-test" }).args));
+}
+
+TEST_CASE("cli: server stop confirmation is explicit",
+    "[cli][server][slice9]")
+{
+    auto graceful = parse({ "--shutdown-server" });
+    REQUIRE_FALSE(graceful.error);
+    REQUIRE_FALSE(graceful.args.confirmed);
+
+    auto confirmed
+        = parse({ "--shutdown-server", "--yes" });
+    REQUIRE_FALSE(confirmed.error);
+    REQUIRE(confirmed.args.confirmed);
+
+    REQUIRE(parse({ "--force-stop-server" }).error);
+    auto forced
+        = parse({ "--force-stop-server", "--yes" });
+    REQUIRE_FALSE(forced.error);
+    REQUIRE(forced.args.force_stop_server);
+    REQUIRE(forced.args.confirmed);
+    REQUIRE(parse({ "--yes" }).error);
+}
+
+TEST_CASE("cli: help and server command are parsed",
+    "[cli][server][slice9]")
+{
+    auto help = parse({ "--help" });
+    REQUIRE_FALSE(help.error);
+    REQUIRE(help.args.help);
+    REQUIRE_FALSE(should_use_shared_server(help.args));
+
+    auto command = parse({
+        "--server",
+        "--server-command",
+        "D:/tools/pwsh.exe",
+    });
+    REQUIRE_FALSE(command.error);
+    REQUIRE(command.args.server_command
+        == "D:/tools/pwsh.exe");
 }
 
 TEST_CASE("cli: fake remote terminal opts into server bootstrap",

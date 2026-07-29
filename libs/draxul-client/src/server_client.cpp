@@ -382,16 +382,101 @@ ServerStatusResult ServerClient::status(
 }
 
 bool ServerClient::shutdown(
-    const std::filesystem::path& runtime_directory, std::string& error)
+    const std::filesystem::path& runtime_directory,
+    const ServerShutdownOptions& options, std::string& error)
 {
     const auto response = ControlClient::request(
         namespaced_control_id(kServerControlId, runtime_directory),
-        runtime_directory, "server.shutdown");
+        runtime_directory, "server.shutdown",
+        { { "confirm_live_terminals",
+            options.confirm_live_terminals } });
     if (!response.ok)
     {
         error = response.error_message;
         return false;
     }
+    return true;
+}
+
+bool ServerClient::disconnect(
+    const std::filesystem::path& runtime_directory,
+    std::string_view client_id, std::string& error)
+{
+    if (client_id.empty() || client_id.size() > kServerMaxClientIdBytes)
+    {
+        error = "A valid client identity is required.";
+        return false;
+    }
+    const auto response = ControlClient::request(
+        namespaced_control_id(kServerControlId, runtime_directory),
+        runtime_directory, "server.goodbye",
+        { { "client_id", client_id } });
+    if (!response.ok)
+    {
+        error = response.error_message;
+        return false;
+    }
+    return true;
+}
+
+bool ServerClient::force_stop(
+    const std::filesystem::path& runtime_directory,
+    bool confirmed, std::string& error)
+{
+    if (!confirmed)
+    {
+        error = "Force stop requires explicit confirmation.";
+        return false;
+    }
+    const auto initial = status(runtime_directory);
+    if (!initial.ok || !initial.status)
+    {
+        error = initial.error_message.empty()
+            ? "The Draxul server is unavailable."
+            : initial.error_message;
+        return false;
+    }
+    const uint64_t pid = initial.status->server_pid;
+    const std::string epoch = initial.status->server_epoch;
+
+    // Re-read immediately before terminating. This narrows the PID-reuse
+    // window and refuses to kill a replacement server.
+    const auto current = status(runtime_directory);
+    if (!current.ok || !current.status
+        || current.status->server_pid != pid
+        || current.status->server_epoch != epoch)
+    {
+        error = "The Draxul server changed while force stop was being confirmed.";
+        return false;
+    }
+#ifdef _WIN32
+    HANDLE process = OpenProcess(
+        PROCESS_TERMINATE | SYNCHRONIZE, FALSE,
+        static_cast<DWORD>(pid));
+    if (!process)
+    {
+        error = "Unable to open the Draxul server process (error "
+            + std::to_string(GetLastError()) + ").";
+        return false;
+    }
+    const bool stopped = TerminateProcess(process, 2) != FALSE;
+    const DWORD terminate_error = stopped ? ERROR_SUCCESS : GetLastError();
+    if (stopped)
+        WaitForSingleObject(process, 2000);
+    CloseHandle(process);
+    if (!stopped)
+    {
+        error = "Unable to force stop the Draxul server (error "
+            + std::to_string(terminate_error) + ").";
+        return false;
+    }
+#else
+    if (::kill(static_cast<pid_t>(pid), SIGKILL) != 0)
+    {
+        error = "Unable to force stop the Draxul server.";
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -416,6 +501,13 @@ bool ServerClient::launch_detached(
             + quote_windows_argument(std::filesystem::path(
                   options.terminal_shell_kind)
                                          .wstring());
+    }
+    if (!options.terminal_command.empty())
+    {
+        command += L" --server-command "
+            + quote_windows_argument(
+                std::filesystem::path(options.terminal_command)
+                    .wstring());
     }
     if (!options.terminal_working_directory.empty())
     {
@@ -479,6 +571,11 @@ bool ServerClient::launch_detached(
         {
             arguments.push_back("--server-shell");
             arguments.push_back(options.terminal_shell_kind);
+        }
+        if (!options.terminal_command.empty())
+        {
+            arguments.push_back("--server-command");
+            arguments.push_back(options.terminal_command);
         }
         if (!options.terminal_working_directory.empty())
         {

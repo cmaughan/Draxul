@@ -288,6 +288,7 @@ add_library(draxul-app
     app/rename_editor.cpp
     app/cli_args.cpp
     app/session_cli.cpp
+    app/server_status_surface.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
     app/control_cli.cpp

@@ -49,6 +49,7 @@ set(DRAXUL_APP_TEST_SOURCES
     pane_status_pill_tests.cpp
     session_cli_tests.cpp
     session_listing_tests.cpp
+    server_status_surface_tests.cpp
     session_state_tests.cpp
     space_controller_tests.cpp
     split_tree_tests.cpp

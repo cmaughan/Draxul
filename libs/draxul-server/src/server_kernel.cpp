@@ -44,6 +44,7 @@ namespace
 // count alone is not a safe batching limit.
 constexpr size_t kRemoteTerminalPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
+constexpr auto kClientActivityTimeout = std::chrono::seconds(10);
 
 uint64_t current_process_id()
 {
@@ -988,6 +989,47 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         };
         return ControlMethodResult::success(server_welcome_to_json(welcome));
     }
+    if (request.params.is_object())
+    {
+        const auto client_id = request.params.find("client_id");
+        if (client_id != request.params.end()
+            && client_id->is_string()
+            && !client_id->get_ref<const std::string&>().empty()
+            && client_id->get_ref<const std::string&>().size()
+                <= kServerMaxClientIdBytes)
+        {
+            std::lock_guard guard(mutex);
+            clients[client_id->get<std::string>()]
+                = std::chrono::steady_clock::now();
+        }
+    }
+    if (request.method == "server.goodbye")
+    {
+        if (!request.params.is_object()
+            || !request.params.contains("client_id")
+            || !request.params["client_id"].is_string()
+            || request.params["client_id"]
+                   .get_ref<const std::string&>()
+                   .empty()
+            || request.params["client_id"]
+                   .get_ref<const std::string&>()
+                   .size()
+                > kServerMaxClientIdBytes)
+        {
+            return ControlMethodResult::error(
+                "invalid_client",
+                "A valid client_id is required.");
+        }
+        const std::string client_id
+            = request.params["client_id"].get<std::string>();
+        {
+            std::lock_guard guard(mutex);
+            clients.erase(client_id);
+        }
+        return ControlMethodResult::success({
+            { "disconnected", true },
+        });
+    }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
     if (request.method == "fake.attach")
@@ -1689,6 +1731,46 @@ ControlMethodResult ServerKernel::Impl::handle_request(
     }
     if (request.method == "server.shutdown")
     {
+        if (!request.params.is_object())
+        {
+            return ControlMethodResult::error(
+                "invalid_params",
+                "Server shutdown parameters must be an object.");
+        }
+        const auto confirmation
+            = request.params.find("confirm_live_terminals");
+        if (confirmation != request.params.end()
+            && !confirmation->is_boolean())
+        {
+            return ControlMethodResult::error(
+                "invalid_params",
+                "confirm_live_terminals must be a boolean.");
+        }
+        const bool confirmed
+            = confirmation != request.params.end()
+            && confirmation->get<bool>();
+        size_t live_terminals = 0;
+        for (const auto& [session_id, session] : sessions)
+        {
+            (void)session_id;
+            live_terminals += static_cast<size_t>(
+                std::ranges::count_if(
+                    session->terminals,
+                    [](const auto& item) {
+                        return item.second.runtime
+                            ->is_running();
+                    }));
+        }
+        if (live_terminals > 0 && !confirmed)
+        {
+            return ControlMethodResult::error(
+                "confirmation_required",
+                "The Draxul server has "
+                    + std::to_string(live_terminals)
+                    + " live terminal"
+                    + (live_terminals == 1 ? "" : "s")
+                    + ". Confirm shutdown to stop them.");
+        }
         request_stop();
         return ControlMethodResult::success({
             { "stopping", true },
@@ -2026,11 +2108,16 @@ ControlMethodResult ServerKernel::Impl::disconnect_fake_terminal(
 ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
 {
     size_t connected_clients = 0;
+    const auto now = std::chrono::steady_clock::now();
     {
         std::lock_guard guard(mutex);
-        connected_clients = clients.size();
+        connected_clients = static_cast<size_t>(
+            std::ranges::count_if(
+                clients, [now](const auto& item) {
+                    return now - item.second
+                        <= kClientActivityTimeout;
+                }));
     }
-    const auto now = std::chrono::steady_clock::now();
     const uint64_t uptime_ms = started
         ? static_cast<uint64_t>(
               std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2041,6 +2128,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
     session_statuses.reserve(sessions.size());
     size_t space_count = 0;
     size_t terminal_count = 0;
+    size_t agent_count = 0;
     for (const auto& [session_id, session] : sessions)
     {
         const size_t spaces = session->topology_service
@@ -2056,6 +2144,12 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
                 }));
         space_count += spaces;
         terminal_count += session->terminals.size();
+        if (session->agent_service)
+        {
+            agent_count += session->agent_service
+                               ->snapshot()
+                               .agents.size();
+        }
         session_statuses.push_back({
             .session_id = session_id,
             .spaces = spaces,
@@ -2103,6 +2197,7 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         .sessions = sessions.size(),
         .spaces = space_count,
         .terminals = terminal_count,
+        .agents = agent_count,
         .checkpoint_path = std::move(checkpoint_path),
         .checkpoint_state = std::move(checkpoint_state),
         .last_checkpoint_unix_ms
@@ -2457,6 +2552,14 @@ int ServerKernel::Impl::run_until_stopped()
                 return handle_request(request);
             });
         const auto now = std::chrono::steady_clock::now();
+        {
+            std::lock_guard guard(mutex);
+            std::erase_if(clients,
+                [now](const auto& item) {
+                    return now - item.second
+                        > kClientActivityTimeout;
+                });
+        }
         for (auto& [session_id, session] : sessions)
         {
             (void)session_id;

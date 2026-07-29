@@ -175,6 +175,7 @@ private:
     void open_new_space_prompt();
     void open_switch_space_picker();
     void open_rename_space_prompt();
+    void open_stop_server_prompt();
     void open_launch_agent_prompt();
     void open_attach_agent_picker();
     void open_focus_agent_picker();
@@ -346,6 +347,7 @@ private:
     DiagnosticsCollector diagnostics_collector_;
     std::string session_name_;
     bool discard_session_state_on_shutdown_ = false;
+    bool server_disconnect_sent_ = false;
     bool session_dirty_ = false;
     uint64_t session_dirty_generation_ = 0;
     std::chrono::steady_clock::time_point last_session_mutation_time_{};

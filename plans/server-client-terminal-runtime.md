@@ -1572,6 +1572,53 @@ Rollback:
 - `--no-server` remains documented and tested; old snapshots are not rewritten into an
   incompatible format merely by launching the new client.
 
+Implementation status (2026-07-29):
+
+- ordinary shell startup now discovers or launches the shared server; explicit
+  standalone product hosts and `--no-server` remain client-owned;
+- the server process owns an SDL notification-area/menu-bar surface with live counts,
+  Open Draxul, Open Log, refresh, guarded graceful stop, and confirmed force stop;
+- server status includes active clients, Sessions, Spaces, terminals, live terminals,
+  agents, persistence health, and the server log path;
+- UIs unregister explicitly on clean detach and the server expires stale client
+  presence after transport loss;
+- an incompatible server is never killed or silently replaced;
+- command-palette status/log/stop actions and CLI help/control routes are available;
+- focused app/core tests and an isolated executable gate cover ordinary auto-launch,
+  detach with a live terminal, status, refusal of unconfirmed shutdown, confirmed
+  shutdown, and server exit.
+
+Repeatable Windows acceptance (`build-ninja-release`):
+
+1. Stop any current test server explicitly, then create an empty isolated runtime:
+   `$runtime = Join-Path $env:TEMP ("draxul-slice9-" + [guid]::NewGuid())`.
+2. Start `.\build-ninja-release\draxul.exe --server-runtime-dir $runtime`.
+3. Start a second copy with the same arguments. Confirm one tray icon, two clients,
+   matching Spaces/panes/output, and explicit controller takeover.
+4. Close both UIs, run
+   `.\build-ninja-release\draxul.exe --server-status --json --server-runtime-dir $runtime`,
+   and confirm zero clients with the shell still live.
+5. Reopen two copies and confirm the same Session/terminal identity, current cells,
+   scrollback, and agent state.
+6. Confirm plain `--shutdown-server` refuses while a terminal is live, then use
+   `--shutdown-server --yes` and confirm the tray icon/server exit.
+7. Launch `--host nvim` and one built standalone product host; confirm neither depends
+   on nor starts the isolated server.
+
+Windows validation (2026-07-30):
+
+- `build-ninja-release` linked the production executable and both focused test
+  binaries;
+- all four Release core shards and both Release app shards passed;
+- the Debug Vulkan smoke passed;
+- `basic-view` render comparison passed (1.69638% changed pixels against a 2.1%
+  threshold);
+- an isolated ordinary UI detached and a new UI reconnected to the same server epoch,
+  terminal count, and Space count with zero stale clients;
+- unconfirmed live-terminal shutdown was refused and confirmed shutdown stopped the
+  server; and
+- an explicit Neovim product host opened without starting the isolated server.
+
 ### Slice 10: SSH bridge and remote hardening
 
 **Outcome:** a local GPU client can attach to a Draxul server on another machine through

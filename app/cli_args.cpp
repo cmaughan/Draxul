@@ -14,7 +14,9 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
 
     for (size_t i = 1; i < args.size(); ++i)
     {
-        if (args[i] == "--console")
+        if (args[i] == "--help" || args[i] == "-h")
+            parsed.help = true;
+        else if (args[i] == "--console")
             parsed.want_console = true;
         else if (args[i] == "--smoke-test")
             parsed.smoke_test = true;
@@ -38,6 +40,10 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.server_status = true;
         else if (args[i] == "--shutdown-server")
             parsed.shutdown_server = true;
+        else if (args[i] == "--force-stop-server")
+            parsed.force_stop_server = true;
+        else if (args[i] == "--yes")
+            parsed.confirmed = true;
         else if (args[i] == "--experimental-server-client")
             parsed.experimental_server_client = true;
         else if (args[i] == "--experimental-remote-terminal")
@@ -85,6 +91,22 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         else if (args[i] == "--server-shell")
         {
             result.error = "error: --server-shell requires a shell kind";
+            return result;
+        }
+        else if (args[i] == "--server-command" && i + 1 < args.size())
+        {
+            parsed.server_command = args[++i];
+            if (parsed.server_command.empty())
+            {
+                result.error
+                    = "error: --server-command requires a non-empty command";
+                return result;
+            }
+        }
+        else if (args[i] == "--server-command")
+        {
+            result.error
+                = "error: --server-command requires a command";
             return result;
         }
         else if (args[i] == "--server-working-dir" && i + 1 < args.size())
@@ -289,11 +311,12 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     }
     const int server_mode_count = (parsed.server ? 1 : 0)
         + (parsed.server_status ? 1 : 0)
-        + (parsed.shutdown_server ? 1 : 0);
+        + (parsed.shutdown_server ? 1 : 0)
+        + (parsed.force_stop_server ? 1 : 0);
     if (server_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --server, --server-status, or --shutdown-server";
+            = "error: choose only one of --server, --server-status, --shutdown-server, or --force-stop-server";
         return result;
     }
     if (server_mode_count > 0 && parsed.host_kind)
@@ -318,6 +341,20 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             = "error: remote terminal modes cannot be combined with standalone, server-control, Session-control, smoke, or screenshot modes";
         return result;
     }
+    if (parsed.confirmed
+        && !parsed.shutdown_server
+        && !parsed.force_stop_server)
+    {
+        result.error
+            = "error: --yes is only valid with --shutdown-server or --force-stop-server";
+        return result;
+    }
+    if (parsed.force_stop_server && !parsed.confirmed)
+    {
+        result.error
+            = "error: --force-stop-server requires --yes";
+        return result;
+    }
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     if (remote_terminal_mode
         && (!parsed.render_test_path.empty()
@@ -331,21 +368,61 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     return result;
 }
 
-bool should_bootstrap_experimental_server(const ParsedArgs& args)
+bool is_server_owned_shell_kind(HostKind kind)
 {
-    if (!args.experimental_server_client || args.no_server
-        || args.server || args.server_status || args.shutdown_server
-        || args.host_kind.has_value() || args.smoke_test
-        || args.list_sessions || args.new_session || args.rename_session
-        || args.delete_session || !args.screenshot_path.empty())
+    switch (kind)
+    {
+    case HostKind::PowerShell:
+    case HostKind::Bash:
+    case HostKind::Zsh:
+    case HostKind::Wsl:
+    case HostKind::RemoteTerminal:
+        return true;
+    case HostKind::Nvim:
+    case HostKind::MegaCity:
+    case HostKind::BioView:
+    case HostKind::SatView:
+    case HostKind::NanoVGDemo:
+    case HostKind::Markdown:
+    case HostKind::Kanban:
+    case HostKind::Score:
+        return false;
+    }
+    return false;
+}
+
+bool should_use_shared_server(const ParsedArgs& args)
+{
+    if (args.help || args.no_server
+        || args.server || args.server_status
+        || args.shutdown_server || args.force_stop_server
+        || args.smoke_test || args.list_sessions
+        || args.rename_session || args.delete_session
+        || !args.screenshot_path.empty()
+        || !args.host_source_path.empty())
     {
         return false;
     }
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
-    if (!args.render_test_path.empty() || !args.export_render_test_path.empty())
+    if (!args.render_test_path.empty()
+        || !args.export_render_test_path.empty())
+    {
         return false;
+    }
 #endif
-    return true;
+    if (args.experimental_remote_terminal
+        || args.experimental_remote_shell)
+    {
+        return true;
+    }
+    return !args.host_kind
+        || is_server_owned_shell_kind(*args.host_kind);
+}
+
+bool should_bootstrap_experimental_server(const ParsedArgs& args)
+{
+    return args.experimental_server_client
+        && should_use_shared_server(args);
 }
 
 std::optional<std::string> validate_host_provider_availability(

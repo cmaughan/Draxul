@@ -2,6 +2,7 @@
 #include "app.h"
 #include "cli_args.h"
 #include "control_cli.h"
+#include "server_status_surface.h"
 #include "session_cli.h"
 #include <SDL3/SDL.h>
 #include <chrono>
@@ -33,11 +34,13 @@
 #include <draxul/render_test.h>
 #endif
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -154,12 +157,49 @@ std::filesystem::path executable_path(
     return executable_dir() / executable_name;
 }
 
-int run_server_mode(const draxul::ParsedArgs& parsed)
+const char* help_text()
+{
+    return
+        "Draxul terminal and agent harness\n\n"
+        "Usage:\n"
+        "  draxul [--session <id>] [--host <kind>]\n"
+        "  draxul --no-server [local options]\n"
+        "  draxul --server | --server-status [--json]\n"
+        "  draxul --shutdown-server [--yes]\n"
+        "  draxul --force-stop-server --yes\n\n"
+        "Normal shell launches attach to the per-user Draxul server. "
+        "Use --no-server for the legacy local terminal runtime.\n"
+        "Explicit Neovim and product hosts remain client-local.\n\n"
+        "Server options:\n"
+        "  --server-runtime-dir <path>   Isolate or select a server runtime\n"
+        "  --server-shell <kind>         powershell, bash, zsh, or wsl\n"
+        "  --server-command <path>       Override the server shell executable\n"
+        "  --server-working-dir <path>  Initial server shell directory\n"
+        "  --server-scrollback-lines N  Retained rows (0..1000000)\n"
+        "  --yes                         Confirm stopping live terminals\n";
+}
+
+int report_server_startup_failure(
+    const std::string& message)
+{
+    std::fprintf(stderr, "%s\n", message.c_str());
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+        "Draxul server unavailable", message.c_str(), nullptr);
+    draxul::shutdown_logging();
+    return 1;
+}
+
+int run_server_mode(const draxul::ParsedArgs& parsed,
+    const std::filesystem::path& current_executable)
 {
     const auto runtime_dir = server_runtime_dir(parsed);
     if (parsed.server)
     {
-        draxul::configure_default_logging("draxul-server.log", true);
+        const auto server_log
+            = draxul::default_server_log_path(runtime_dir);
+        const std::string server_log_text = server_log.string();
+        draxul::configure_default_logging(
+            server_log_text.c_str(), true);
         const draxul::AppConfig config
             = draxul::AppConfig::load();
         std::vector<draxul::AgentDefinition>
@@ -189,6 +229,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
             .protocol_minor = draxul::kServerProtocolMinor,
             .build_version = draxul::server_build_version(),
             .terminal_shell_kind = parsed.server_shell_kind,
+            .terminal_command = parsed.server_command,
             .terminal_working_directory
             = parsed.server_working_dir.string(),
             .terminal_scrollback_lines
@@ -211,9 +252,36 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
             draxul::shutdown_logging();
             return 1;
         }
-        const int status = kernel.run_until_stopped();
+        std::atomic<int> status{ 1 };
+        std::jthread server_thread([&]() {
+            status.store(kernel.run_until_stopped());
+        });
+        draxul::ServerStatusSurface surface({
+            .runtime_directory = runtime_dir,
+            .executable_path = current_executable,
+            .log_path = server_log,
+        });
+        std::string surface_error;
+        if (!surface.initialize(surface_error))
+        {
+            DRAXUL_LOG_WARN(draxul::LogCategory::App,
+                "Draxul server status surface is unavailable; continuing headless: %s",
+                surface_error.c_str());
+        }
+        while (kernel.running())
+        {
+            if (surface.available())
+                surface.pump();
+            else
+            {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(50));
+            }
+        }
+        server_thread.join();
+        surface.shutdown();
         draxul::shutdown_logging();
-        return status;
+        return status.load();
     }
 
     if (parsed.server_status)
@@ -235,7 +303,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
             std::printf(
                 "Draxul server: %s\nPID: %llu\nEpoch: %s\nProtocol: %d.%d\n"
                 "Clients: %zu\nSessions: %zu\nSpaces: %zu\nTerminals: %zu\n"
-                "Checkpoint: %s\nCheckpoint path: %s\n",
+                "Agents: %zu\nCheckpoint: %s\nCheckpoint path: %s\n",
                 result.status->state.c_str(),
                 static_cast<unsigned long long>(result.status->server_pid),
                 result.status->server_epoch.c_str(),
@@ -245,6 +313,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
                 result.status->sessions,
                 result.status->spaces,
                 result.status->terminals,
+                result.status->agents,
                 result.status->checkpoint_state.c_str(),
                 result.status->checkpoint_path.c_str());
             if (!result.status->checkpoint_error.empty())
@@ -286,7 +355,21 @@ int run_server_mode(const draxul::ParsedArgs& parsed)
     }
 
     std::string error;
-    if (!draxul::ServerClient::shutdown(runtime_dir, error))
+    if (parsed.force_stop_server)
+    {
+        if (!draxul::ServerClient::force_stop(
+                runtime_dir, parsed.confirmed, error))
+        {
+            std::fprintf(stderr,
+                "Could not force stop the Draxul server: %s\n",
+                error.c_str());
+            return 1;
+        }
+        std::printf("Draxul server force stopped.\n");
+        return 0;
+    }
+    if (!draxul::ServerClient::shutdown(runtime_dir,
+            { .confirm_live_terminals = parsed.confirmed }, error))
     {
         std::fprintf(stderr, "Could not stop the Draxul server: %s\n",
             error.c_str());
@@ -304,12 +387,14 @@ static int draxul_main(std::vector<std::string> args)
     auto parse_result = draxul::parse_args(args);
 #ifdef _WIN32
     const bool needs_console_output = parse_result.error.has_value()
+        || parse_result.args.help
         || parse_result.args.want_console
         || parse_result.args.list_sessions
         || parse_result.args.rename_session
         || parse_result.args.delete_session
         || parse_result.args.server_status
-        || parse_result.args.shutdown_server;
+        || parse_result.args.shutdown_server
+        || parse_result.args.force_stop_server;
     if (needs_console_output)
         ensure_console_io(true);
 #endif
@@ -319,8 +404,18 @@ static int draxul_main(std::vector<std::string> args)
         return 1;
     }
     draxul::ParsedArgs& parsed = parse_result.args;
-    if (parsed.server || parsed.server_status || parsed.shutdown_server)
-        return run_server_mode(parsed);
+    if (parsed.help)
+    {
+        std::fputs(help_text(), stdout);
+        return 0;
+    }
+    const auto current_executable = executable_path(args);
+    if (parsed.server || parsed.server_status
+        || parsed.shutdown_server
+        || parsed.force_stop_server)
+    {
+        return run_server_mode(parsed, current_executable);
+    }
 
     const auto integration_cli = draxul::parse_integration_cli(args);
 #ifdef _WIN32
@@ -425,18 +520,34 @@ static int draxul_main(std::vector<std::string> args)
     std::optional<draxul::ServerWelcome> server_connection;
     std::filesystem::path connected_server_runtime;
     std::string connected_server_client_id;
-    if (draxul::should_bootstrap_experimental_server(parsed))
+    const bool shared_server
+        = draxul::should_use_shared_server(parsed);
+    const bool fake_remote_terminal
+        = parsed.experimental_remote_terminal;
+    const bool real_remote_terminal
+        = shared_server && !fake_remote_terminal;
+    if (shared_server)
     {
-#ifdef _WIN32
-        ensure_console_io(true);
-#endif
         connected_server_runtime = server_runtime_dir(parsed);
         connected_server_client_id = draxul::make_server_client_id();
+        std::string selected_server_shell
+            = parsed.server_shell_kind;
+        if (selected_server_shell.empty()
+            && parsed.host_kind
+            && draxul::is_server_owned_shell_kind(
+                *parsed.host_kind)
+            && *parsed.host_kind
+                != draxul::HostKind::RemoteTerminal)
+        {
+            selected_server_shell
+                = draxul::to_string(*parsed.host_kind);
+        }
         draxul::ServerEnsureOptions server_options{
             .runtime_directory = connected_server_runtime,
-            .executable_path = executable_path(args),
+            .executable_path = current_executable,
             .client_id = connected_server_client_id,
-            .terminal_shell_kind = parsed.server_shell_kind,
+            .terminal_shell_kind = selected_server_shell,
+            .terminal_command = parsed.host_command,
             .terminal_working_directory
             = parsed.server_working_dir.empty()
                 ? std::filesystem::current_path()
@@ -447,96 +558,89 @@ static int draxul_main(std::vector<std::string> args)
         auto server_result = draxul::ServerClient::ensure(server_options);
         if (!server_result.ready())
         {
-            std::fprintf(stderr,
-                "Could not connect to the experimental Draxul server (%s): %s\n",
-                std::string(draxul::to_string(server_result.state)).c_str(),
-                server_result.error_message.c_str());
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "Could not connect to the Draxul server ("
+                + std::string(
+                    draxul::to_string(server_result.state))
+                + "): " + server_result.error_message
+                + "\n\nThe existing server was left running. "
+                  "Use --no-server for recovery or stop it explicitly.");
         }
-        if (parsed.experimental_remote_terminal
+        if (fake_remote_terminal
             && std::ranges::find(server_result.welcome->capabilities,
                    "fake-remote-terminal")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support the experimental remote terminal. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "the diagnostic fake terminal. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && std::ranges::find(server_result.welcome->capabilities,
                    "real-remote-terminal")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support the experimental remote shell. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "shared shells. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && std::ranges::find(server_result.welcome->capabilities,
                    "topology-v1")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support shared topology. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "shared topology. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && std::ranges::find(server_result.welcome->capabilities,
                    "multi-terminal-v1")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support multiple shared terminals. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "multiple shared terminals. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && parsed.session_id != "default"
             && std::ranges::find(server_result.welcome->capabilities,
                    "named-sessions-v1")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support named Sessions. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "named Sessions. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && std::ranges::find(
                    server_result.welcome->capabilities,
                    "agent-projection-v1")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support shared Agents. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "shared Agents. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && std::ranges::find(
                    server_result.welcome->capabilities,
                    "agent-control-v1")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support headless Agent control. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "headless Agent control. Stop it and retry.");
         }
-        if (parsed.experimental_remote_shell
+        if (real_remote_terminal
             && std::ranges::find(
                    server_result.welcome->capabilities,
                    "managed-agent-v1")
                 == server_result.welcome->capabilities.end())
         {
-            std::fprintf(stderr,
-                "The running Draxul server does not support managed Agents. Stop it and retry.\n");
-            draxul::shutdown_logging();
-            return 1;
+            return report_server_startup_failure(
+                "The running Draxul server does not support "
+                "managed Agents. Stop it and retry.");
         }
         server_connection = std::move(server_result.welcome);
     }
@@ -546,7 +650,7 @@ static int draxul_main(std::vector<std::string> args)
 #endif
     draxul::AppOptions options;
     options.server_connection = std::move(server_connection);
-    options.enable_remote_topology = parsed.experimental_remote_shell;
+    options.enable_remote_topology = real_remote_terminal;
     options.server_runtime_directory = connected_server_runtime;
     options.server_client_id = connected_server_client_id;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
@@ -587,7 +691,7 @@ static int draxul_main(std::vector<std::string> args)
         options.no_vblank = true;
     if (parsed.no_ui)
         options.hide_host_ui_panels = true;
-    if (parsed.experimental_remote_terminal || parsed.experimental_remote_shell)
+    if (shared_server)
     {
         options.host_kind = draxul::HostKind::RemoteTerminal;
         options.host_kind_explicit = true;
@@ -598,7 +702,7 @@ static int draxul_main(std::vector<std::string> args)
             .server_epoch = options.server_connection
                 ? options.server_connection->server_epoch
                 : std::string{},
-            .method_prefix = parsed.experimental_remote_shell
+            .method_prefix = real_remote_terminal
                 ? "terminal"
                 : "fake",
         };
@@ -644,11 +748,9 @@ static int draxul_main(std::vector<std::string> args)
         && parsed.screenshot_path.empty();
 #endif
     options.enable_session_restore
-        = allow_session_restore && !parsed.experimental_remote_terminal
-        && !parsed.experimental_remote_shell;
+        = allow_session_restore && !shared_server;
     options.enable_control_server
-        = allow_session_restore && !parsed.experimental_remote_terminal
-        && !parsed.experimental_remote_shell;
+        = allow_session_restore && !shared_server;
 
     draxul::App app(std::move(options));
 

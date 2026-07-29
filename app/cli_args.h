@@ -13,6 +13,7 @@ class HostProviderRegistry;
 
 struct ParsedArgs
 {
+    bool help = false;
     bool want_console = false;
     bool smoke_test = false;
     bool continuous_refresh = false;
@@ -25,6 +26,8 @@ struct ParsedArgs
     bool server = false;
     bool server_status = false;
     bool shutdown_server = false;
+    bool force_stop_server = false;
+    bool confirmed = false;
     bool experimental_server_client = false;
     bool experimental_remote_terminal = false;
     bool experimental_remote_shell = false;
@@ -32,6 +35,7 @@ struct ParsedArgs
     bool json_output = false;
     std::filesystem::path server_runtime_dir;
     std::string server_shell_kind;
+    std::string server_command;
     std::filesystem::path server_working_dir;
     int server_scrollback_lines = 10000;
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
@@ -71,7 +75,9 @@ struct ParseArgsResult
 // without spawning a subprocess. The first element of `args` (program name)
 // is ignored, mirroring argv[0].
 ParseArgsResult parse_args(const std::vector<std::string>& args);
+bool should_use_shared_server(const ParsedArgs& args);
 bool should_bootstrap_experimental_server(const ParsedArgs& args);
+bool is_server_owned_shell_kind(HostKind kind);
 std::optional<std::string> validate_host_provider_availability(
     const ParsedArgs& args, const HostProviderRegistry& registry);
 

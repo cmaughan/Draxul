@@ -1,4 +1,5 @@
 #include "app.h"
+#include "server_status_surface.h"
 
 #ifdef __APPLE__
 #include "macos_menu.h"
@@ -987,6 +988,46 @@ void App::wire_gui_actions()
             palette_host_->dispatch_action("toggle");
     };
     gui_deps.on_quit = [this]() { request_quit(); };
+    gui_deps.on_server_status = [this]() {
+        if (!options_.server_connection
+            || options_.server_runtime_directory.empty())
+        {
+            push_toast(1,
+                "This window is using the local terminal runtime.");
+            return;
+        }
+        const auto status = ServerClient::status(
+            options_.server_runtime_directory);
+        if (!status.ok || !status.status)
+        {
+            push_toast(2,
+                status.error_message.empty()
+                    ? "Draxul server status is unavailable."
+                    : status.error_message);
+            return;
+        }
+        push_toast(0,
+            format_server_status_summary(*status.status));
+    };
+    gui_deps.on_open_server_log = [this]() {
+        if (options_.server_runtime_directory.empty())
+        {
+            push_toast(1,
+                "This window has no shared server log.");
+            return;
+        }
+        std::string error;
+        if (!open_server_log(
+                default_server_log_path(
+                    options_.server_runtime_directory),
+                error))
+        {
+            push_toast(2, error);
+        }
+    };
+    gui_deps.on_stop_server = [this]() {
+        open_stop_server_prompt();
+    };
     gui_deps.on_save_session_as = [this]() {
         open_save_session_prompt();
     };
@@ -1565,6 +1606,68 @@ void App::open_rename_space_prompt()
     };
     if (!palette_host_->open_prompt(std::move(request)))
         push_toast(2, "Unable to open Space rename prompt.");
+}
+
+void App::open_stop_server_prompt()
+{
+    if (!palette_host_
+        || !options_.server_connection
+        || options_.server_runtime_directory.empty())
+    {
+        push_toast(1,
+            "This window is not attached to the shared server.");
+        return;
+    }
+    const auto status = ServerClient::status(
+        options_.server_runtime_directory);
+    if (!status.ok || !status.status)
+    {
+        push_toast(2,
+            status.error_message.empty()
+                ? "Draxul server status is unavailable."
+                : status.error_message);
+        return;
+    }
+    size_t live_terminals = 0;
+    for (const auto& session
+        : status.status->session_statuses)
+    {
+        live_terminals += session.live_terminals;
+    }
+
+    CommandPalette::ChoiceRequest request;
+    request.title = "Stop Draxul Server?";
+    request.entries.push_back({
+        .id = "cancel",
+        .name = "Cancel",
+        .shortcut_hint = "keep terminals running",
+        .search_text = "cancel keep running",
+    });
+    request.entries.push_back({
+        .id = "stop",
+        .name = "Stop Server",
+        .shortcut_hint = live_terminals == 0
+            ? "no live terminals"
+            : "closes " + std::to_string(live_terminals)
+                + " live terminal"
+                + (live_terminals == 1 ? "" : "s"),
+        .search_text = "stop shutdown server terminals",
+    });
+    request.on_submit = [this](std::string choice) {
+        if (choice != "stop")
+            return;
+        std::string error;
+        if (!ServerClient::shutdown(
+                options_.server_runtime_directory,
+                { .confirm_live_terminals = true }, error))
+        {
+            push_toast(2, error);
+            return;
+        }
+        request_quit();
+    };
+    if (!palette_host_->open_choices(std::move(request)))
+        push_toast(2, "Unable to open server shutdown confirmation.");
 }
 
 void App::open_launch_agent_prompt()
@@ -5253,6 +5356,24 @@ void App::shutdown()
         persist_session_state();
 
     space_controller_.shutdown_all();
+    if (!server_disconnect_sent_
+        && options_.enable_remote_topology
+        && !options_.server_runtime_directory.empty()
+        && !options_.server_client_id.empty())
+    {
+        server_disconnect_sent_ = true;
+        std::string disconnect_error;
+        if (!ServerClient::disconnect(
+                options_.server_runtime_directory,
+                options_.server_client_id,
+                disconnect_error))
+        {
+            DRAXUL_LOG_DEBUG(LogCategory::App,
+                "Could not unregister Draxul UI client %s: %s",
+                options_.server_client_id.c_str(),
+                disconnect_error.c_str());
+        }
+    }
     render_root_ = RenderNode{};
 
     if (chrome_host_)
