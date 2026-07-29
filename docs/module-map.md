@@ -44,7 +44,7 @@ draxul executable
                     draxul-renderer / draxul-window
                             │
                             └── narrow foundations: draxul-types / draxul-performance /
-                                draxul-agent / draxul-bmp / draxul-host-identity /
+                                draxul-agent / draxul-session-model / draxul-bmp / draxul-host-identity /
                                 draxul-terminal-core / draxul-terminal-process
 ```
 
@@ -100,6 +100,7 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-bmp/` | RGBA frame BMP read/write only; depends on frame value types and performance support |
 | `libs/draxul-host-identity/` | Neutral `HostKind` identity/parsing contract shared by host and runtime APIs |
 | `libs/draxul-agent/` | Neutral agent identity/profile/runtime values plus bundled, versioned terminal-status and process-discovery evaluators |
+| `libs/draxul-session-model/` | Renderer-free durable Session/Space/tab/pane snapshot values, validation, versioned TOML codec, and transactional file replacement shared by the app and server |
 | `libs/draxul-control/` | Versioned, authenticated local Session control transport and client (Windows named pipe; Unix-domain socket elsewhere) |
 | `libs/draxul-protocol/` | Renderer- and transport-neutral server hello/status, versioned topology values/commands, plus terminal pane, snapshot, delta, controller, clipboard, paged-scrollback, and diagnostic values |
 | `libs/draxul-client/` | Experimental singleton discovery/launch/status plus renderer-free remote-terminal and revisioned topology polling projections consumed by the app's live Space/tab/pane adapters, scrollback-page client, attach-latency metric, and headless probe API |

@@ -5,6 +5,7 @@
 #include <draxul/agent_model.h>
 #include <draxul/host.h>
 #include <draxul/host_kind.h>
+#include <draxul/session_model.h>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -31,36 +32,9 @@ public:
     static HostKind platform_default_split_host_kind();
     static HostKind split_host_kind_for(HostKind primary_kind);
 
-    struct SavedLaunchOptions
-    {
-        HostKind kind = HostKind::Nvim;
-        std::string command;
-        std::vector<std::string> args;
-        std::string working_dir;
-        std::string source_path;
-        std::vector<std::string> startup_commands;
-        std::string remote_terminal_id;
-        std::string pty_capture_file;
-    };
-
-    struct PaneSnapshot
-    {
-        LeafId leaf_id = kInvalidLeaf;
-        SavedLaunchOptions launch;
-        std::string pane_name;
-        std::string pane_id;
-        std::optional<AgentIdentity> agent;
-        std::optional<AgentSessionRef> agent_session;
-        AgentRestorePolicy restore_policy = AgentRestorePolicy::ResumeIfAvailable;
-    };
-
-    struct PaneLayoutSnapshot
-    {
-        SplitTree::Snapshot tree;
-        std::vector<PaneSnapshot> panes;
-        bool zoomed = false;
-        LeafId zoomed_leaf = kInvalidLeaf;
-    };
+    using SavedLaunchOptions = SessionSavedLaunchOptions;
+    using PaneSnapshot = SessionPaneSnapshot;
+    using PaneLayoutSnapshot = SessionPaneLayoutSnapshot;
 
     struct Deps
     {

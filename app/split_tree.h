@@ -1,6 +1,7 @@
 #pragma once
 
 #include <draxul/pane_descriptor.h>
+#include <draxul/session_model.h>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -8,17 +9,6 @@
 
 namespace draxul
 {
-
-using LeafId = int;
-using DividerId = int;
-constexpr LeafId kInvalidLeaf = -1;
-constexpr DividerId kInvalidDivider = -1;
-
-enum class SplitDirection
-{
-    Vertical,
-    Horizontal
-};
 
 enum class FocusDirection
 {
@@ -42,22 +32,8 @@ public:
         SplitDirection direction = SplitDirection::Vertical;
     };
 
-    struct SnapshotNode
-    {
-        bool is_leaf = true;
-        LeafId leaf_id = kInvalidLeaf;
-        SplitDirection direction = SplitDirection::Vertical;
-        float ratio = 0.5f;
-        std::unique_ptr<SnapshotNode> first;
-        std::unique_ptr<SnapshotNode> second;
-    };
-
-    struct Snapshot
-    {
-        std::unique_ptr<SnapshotNode> root;
-        LeafId focused_id = kInvalidLeaf;
-        LeafId next_leaf_id = 0;
-    };
+    using SnapshotNode = SessionSplitNode;
+    using Snapshot = SessionSplitTreeSnapshot;
 
     struct LeafHit
     {

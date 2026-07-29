@@ -155,6 +155,7 @@ add_subdirectory(libs/draxul-terminal-core)
 add_subdirectory(libs/draxul-nvim)
 add_subdirectory(libs/draxul-config)
 add_subdirectory(libs/draxul-agent)
+add_subdirectory(libs/draxul-session-model)
 add_subdirectory(libs/draxul-terminal-process)
 add_subdirectory(libs/draxul-protocol)
 add_subdirectory(libs/draxul-control)
@@ -186,7 +187,7 @@ foreach(_draxul_lib
     draxul-performance draxul-types draxul-bmp draxul-http draxul-window draxul-renderer draxul-ui
     draxul-font draxul-grid draxul-nvim
     draxul-terminal-core draxul-terminal-process
-    draxul-config draxul-protocol draxul-control draxul-client draxul-server
+    draxul-config draxul-session-model draxul-protocol draxul-control draxul-client draxul-server
     draxul-gui draxul-markdown draxul-markdown-host draxul-kanban draxul-runtime-support draxul-render-test
     draxul-host)
     draxul_apply_sanitizers(${_draxul_lib})
@@ -302,7 +303,6 @@ add_library(draxul-app
     app/pane_manager.cpp
     app/render_tree.cpp
     app/session_id.cpp
-    app/session_state.cpp
     app/space_controller.cpp
     app/split_tree.cpp
     app/tab_controller.cpp
@@ -317,6 +317,7 @@ draxul_apply_msvc_parallel_pdb_fix(draxul-app)
 
 target_link_libraries(draxul-app PUBLIC
     draxul-agent
+    draxul-session-model
     draxul-control
     draxul-client
     draxul-http

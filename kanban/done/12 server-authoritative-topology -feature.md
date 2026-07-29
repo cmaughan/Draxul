@@ -24,7 +24,7 @@ presentation state.
 - [x] Every client-local pane descriptor creates an independent local host in each
       UI, or an explicit unavailable placeholder.
 - [x] Detach/reconnect preserves the topology and server terminal runtimes.
-- [ ] Two live UIs pass the Slice 6 demonstration and focused/full automated gates
+- [x] Two live UIs pass the Slice 6 demonstration and focused/full automated gates
       in `build-ninja-release`.
 
 ## Checkpoint (2026-07-29)

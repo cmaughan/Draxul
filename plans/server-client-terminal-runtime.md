@@ -1189,7 +1189,7 @@ focus. Shared-pane restart now advances the server terminal generation and resyn
 every attached UI with the new process identity; client-local restart stays local.
 The complete live two-window mutation demonstration remains.
 
-**Work item:** [12 server-authoritative-topology -feature.md](../kanban/pending/12%20server-authoritative-topology%20-feature.md)
+**Work item:** [12 server-authoritative-topology -feature.md](../kanban/done/12%20server-authoritative-topology%20-feature.md)
 
 Work:
 

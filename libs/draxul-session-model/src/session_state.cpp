@@ -1,4 +1,4 @@
-#include "session_state.h"
+#include <draxul/session_state.h>
 
 #include <draxul/config_document.h>
 #include <draxul/log.h>
@@ -119,7 +119,7 @@ toml::array make_string_array(const std::vector<std::string>& values)
     return array;
 }
 
-toml::table serialize_tree_node(const SplitTree::SnapshotNode& node)
+toml::table serialize_tree_node(const SessionSplitNode& node)
 {
     toml::table table;
     if (node.is_leaf)
@@ -139,7 +139,7 @@ toml::table serialize_tree_node(const SplitTree::SnapshotNode& node)
     return table;
 }
 
-std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
+std::unique_ptr<SessionSplitNode> parse_tree_node(
     const toml::table& table, std::string* error, size_t depth, size_t& node_count)
 {
     if (depth > kMaxTreeDepth
@@ -158,7 +158,7 @@ std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
         return nullptr;
     }
 
-    auto node = std::make_unique<SplitTree::SnapshotNode>();
+    auto node = std::make_unique<SessionSplitNode>();
     if (*type == "leaf")
     {
         const auto leaf_id = toml_support::get_int(table, "leaf_id");
@@ -209,7 +209,7 @@ std::unique_ptr<SplitTree::SnapshotNode> parse_tree_node(
     return node;
 }
 
-toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
+toml::table serialize_pane_layout(const SessionPaneLayoutSnapshot& state)
 {
     toml::table table;
     table.insert_or_assign("focused_leaf", state.tree.focused_id);
@@ -220,7 +220,7 @@ toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
         table.insert_or_assign("layout", serialize_tree_node(*state.tree.root));
 
     toml::array panes;
-    for (const PaneManager::PaneSnapshot& pane : state.panes)
+    for (const SessionPaneSnapshot& pane : state.panes)
     {
         toml::table pane_table;
         pane_table.insert_or_assign("leaf_id", pane.leaf_id);
@@ -277,10 +277,10 @@ toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
     return table;
 }
 
-std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
+std::optional<SessionPaneLayoutSnapshot> parse_pane_layout(
     const toml::table& table, std::string* error)
 {
-    PaneManager::PaneLayoutSnapshot state;
+    SessionPaneLayoutSnapshot state;
     const auto focused_leaf = toml_support::get_int(table, "focused_leaf");
     const auto next_leaf_id = toml_support::get_int(table, "next_leaf_id");
     const auto zoomed = toml_support::get_bool(table, "zoomed");
@@ -338,7 +338,7 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
             return std::nullopt;
         }
 
-        PaneManager::PaneSnapshot pane;
+        SessionPaneSnapshot pane;
         pane.leaf_id = static_cast<LeafId>(*leaf_id);
         pane.launch.kind = *kind;
         pane.launch.command = toml_support::get_string(*pane_table, "command").value_or("");
@@ -466,7 +466,7 @@ std::optional<TabSnapshot> parse_tab(
     return tab;
 }
 
-bool collect_tree_leaf_ids(const SplitTree::SnapshotNode& node,
+bool collect_tree_leaf_ids(const SessionSplitNode& node,
     std::unordered_set<LeafId>& leaf_ids, std::string* error,
     size_t depth, size_t& node_count)
 {
@@ -579,7 +579,7 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
 
         std::unordered_set<LeafId> pane_leaf_ids;
         std::unordered_set<std::string> stable_pane_ids;
-        for (const PaneManager::PaneSnapshot& pane : tab.pane_layout.panes)
+        for (const SessionPaneSnapshot& pane : tab.pane_layout.panes)
         {
             if (!validate_text_limit(
                     pane.pane_name, kMaxShortTextBytes, "pane name", error)
@@ -716,7 +716,7 @@ bool validate_session_snapshot_impl(const SessionSnapshot& state, std::string* e
             return false;
         for (const TabSnapshot& tab : space.tabs)
         {
-            for (const PaneManager::PaneSnapshot& pane : tab.pane_layout.panes)
+            for (const SessionPaneSnapshot& pane : tab.pane_layout.panes)
             {
                 if (pane.agent
                     && !agent_instance_ids.insert(pane.agent->instance_id).second)
