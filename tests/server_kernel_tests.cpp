@@ -645,6 +645,32 @@ TEST_CASE("two topology clients converge through idempotent server commands",
         == dynamic_generation + 1);
     REQUIRE(dynamic_terminal.disconnect(error));
 
+    TopologyClient reconnected_topology({
+        .runtime_directory = temp.path,
+        .client_id = "topology-reconnected",
+    });
+    REQUIRE(reconnected_topology.refresh(error));
+    REQUIRE(reconnected_topology.snapshot()
+        == first.snapshot());
+
+    RemoteTerminalClient reconnected_dynamic_terminal({
+        .runtime_directory = temp.path,
+        .client_id = "dynamic-terminal-reconnected",
+        .expected_server_epoch = "fixed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = dynamic_terminal_id,
+    });
+    REQUIRE(reconnected_dynamic_terminal.attach(error));
+    REQUIRE(reconnected_dynamic_terminal.projection()
+                .version()
+                .generation
+        == dynamic_generation + 1);
+    REQUIRE(reconnected_dynamic_terminal.projection()
+                .pane()
+                .process_id
+        == dynamic_terminal.projection().pane().process_id);
+    REQUIRE(reconnected_dynamic_terminal.disconnect(error));
+
     TopologyCommand close_server_terminal{
         .command_id = "close-server-pane-1",
         .expected_revision = first.snapshot().revision,

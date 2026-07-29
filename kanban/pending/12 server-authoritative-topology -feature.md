@@ -23,7 +23,7 @@ presentation state.
 - [x] Every server-terminal pane has its own server runtime and stable TerminalId.
 - [x] Every client-local pane descriptor creates an independent local host in each
       UI, or an explicit unavailable placeholder.
-- [ ] Detach/reconnect preserves the topology and server terminal runtimes.
+- [x] Detach/reconnect preserves the topology and server terminal runtimes.
 - [ ] Two live UIs pass the Slice 6 demonstration and focused/full automated gates
       in `build-ninja-release`.
 
@@ -48,9 +48,12 @@ presentation state.
 - Added idempotent shared-pane restart. The selected server runtime advances
   generation once, all subscribers resync, and the resync snapshot refreshes process
   identity; projected client-local pane restart remains local to each UI.
-- Ninja Release `[server][topology]`: 80 assertions in 3 cases.
+- Added a late-client recovery gate: a new topology client reconstructs the complete
+  mutated snapshot and a new terminal client attaches to the same dynamic TerminalId,
+  PID, and runtime generation after the original clients disconnect.
+- Ninja Release `[server][topology]`: 86 assertions in 3 cases.
 - Ninja Release `[host][remote-terminal][topology]`: 10 assertions in 1 case.
-- Ninja Release core suite: 30,742 assertions; app suite: 4,115 assertions in
+- Ninja Release core suite: 30,726 assertions; app suite: 4,115 assertions in
   478 cases; smoke passed.
 
 ## Rollback

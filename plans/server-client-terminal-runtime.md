@@ -1216,8 +1216,8 @@ Checkpoint notes:
   retries; a repeated `(client_id, command_id)` is idempotent and returns the latest
   snapshot rather than rolling the caller backward.
 - Current automated gate in `build-ninja-release`: `[server][topology]` passes
-  80 assertions in 3 cases, `[host][remote-terminal][topology]` passes 10 assertions,
-  the core suite passes 30,742 assertions, the app suite passes 4,115 assertions in
+  86 assertions in 3 cases, `[host][remote-terminal][topology]` passes 10 assertions,
+  the core suite passes 30,726 assertions, the app suite passes 4,115 assertions in
   478 cases, and smoke passes.
 - The app polls topology at 100 ms. It maps opaque server Space IDs to its existing
   local controller IDs, routes structural Space mutations back to the server, and
@@ -1240,6 +1240,9 @@ Checkpoint notes:
   selected stable TerminalId, advances its runtime generation, and marks all
   subscribers for resync. Snapshot events include the current process ID so agent
   discovery and diagnostics do not retain the previous process identity.
+- A late-client recovery test disconnects the original topology and terminal clients,
+  reconstructs the full mutated snapshot in a new topology client, and reattaches a
+  new terminal client to the same dynamic TerminalId, PID, and runtime generation.
 
 Demonstration:
 
