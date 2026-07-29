@@ -236,6 +236,9 @@ toml::table serialize_pane_layout(const PaneManager::PaneLayoutSnapshot& state)
         if (!pane.launch.startup_commands.empty())
             pane_table.insert_or_assign(
                 "startup_commands", make_string_array(pane.launch.startup_commands));
+        if (!pane.launch.remote_terminal_id.empty())
+            pane_table.insert_or_assign(
+                "remote_terminal_id", pane.launch.remote_terminal_id);
         if (!pane.pane_name.empty())
             pane_table.insert_or_assign("pane_name", pane.pane_name);
         if (!pane.pane_id.empty())
@@ -346,6 +349,10 @@ std::optional<PaneManager::PaneLayoutSnapshot> parse_pane_layout(
         pane.launch.startup_commands = toml_support::get_string_array(
             *pane_table, "startup_commands")
                                          .value_or(std::vector<std::string>{});
+        pane.launch.remote_terminal_id
+            = toml_support::get_string(
+                  *pane_table, "remote_terminal_id")
+                  .value_or("");
         pane.pane_name = toml_support::get_string(*pane_table, "pane_name").value_or("");
         pane.pane_id = toml_support::get_string(*pane_table, "pane_id").value_or(
             "pane-" + std::to_string(static_cast<int>(pane.leaf_id)));
@@ -584,6 +591,9 @@ bool validate_tab_snapshots(const std::vector<TabSnapshot>& tabs, std::string* e
                     pane.launch.working_dir, kMaxCommandTextBytes, "working directory", error)
                 || !validate_text_limit(
                     pane.launch.source_path, kMaxCommandTextBytes, "source path", error)
+                || !validate_text_limit(
+                    pane.launch.remote_terminal_id,
+                    kMaxCommandTextBytes, "remote terminal id", error)
                 || !validate_text_limit(
                     pane.launch.pty_capture_file, kMaxCommandTextBytes, "capture path", error)
                 || !validate_string_list(pane.launch.args, "host arguments", error)

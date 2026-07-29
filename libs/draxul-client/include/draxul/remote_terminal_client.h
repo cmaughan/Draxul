@@ -16,6 +16,7 @@ struct RemoteTerminalClientOptions
     std::string client_id;
     std::string expected_server_epoch;
     std::string method_prefix = "fake";
+    std::string terminal_id;
 };
 
 class RemoteTerminalProjection

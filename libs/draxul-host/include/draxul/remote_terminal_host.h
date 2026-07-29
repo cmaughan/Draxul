@@ -19,6 +19,7 @@ struct RemoteTerminalHostOptions
     std::string client_id;
     std::string server_epoch;
     std::string method_prefix = "fake";
+    std::string terminal_id;
 };
 
 class RemoteTerminalHost final : public GridHostBase

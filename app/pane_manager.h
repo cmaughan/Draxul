@@ -39,6 +39,7 @@ public:
         std::string working_dir;
         std::string source_path;
         std::vector<std::string> startup_commands;
+        std::string remote_terminal_id;
         std::string pty_capture_file;
     };
 

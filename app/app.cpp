@@ -77,6 +77,21 @@ bool text_service_config_changed(const AppConfig& lhs, const AppConfig& rhs)
         || lhs.fallback_paths != rhs.fallback_paths;
 }
 
+bool is_remote_server_shell_kind(HostKind kind)
+{
+    switch (kind)
+    {
+    case HostKind::PowerShell:
+    case HostKind::Bash:
+    case HostKind::Zsh:
+    case HostKind::Wsl:
+    case HostKind::RemoteTerminal:
+        return true;
+    default:
+        return false;
+    }
+}
+
 class CallbackInputRouter final : public IInputRouter
 {
 public:
@@ -2877,10 +2892,6 @@ bool App::apply_remote_topology_spaces(
             = snapshot.spaces.front().space_id;
     }
 
-    refresh_app_shell_layout();
-    const int pixel_w = std::max(1, shell_layout_.pane_root.w);
-    const int pixel_h = std::max(1, shell_layout_.pane_root.h);
-
     for (const auto& remote : snapshot.spaces)
     {
         if (topology_space_to_local_.contains(remote.space_id))
@@ -2896,50 +2907,6 @@ bool App::apply_remote_topology_spaces(
             return false;
         }
 
-        HostKind host_kind
-            = PaneManager::platform_default_split_host_kind();
-        if (!remote.tabs.empty() && !remote.tabs.front().panes.empty())
-        {
-            const TopologyPane& pane
-                = remote.tabs.front().panes.front();
-            if (pane.domain == TopologyPaneDomain::ServerTerminal)
-            {
-                host_kind = HostKind::RemoteTerminal;
-            }
-            else if (pane.client_host_kind != "platform_default")
-            {
-                if (const auto parsed
-                    = parse_host_kind(pane.client_host_kind))
-                {
-                    host_kind = *parsed;
-                }
-            }
-        }
-
-        const int tab_id = local->tab_controller.add_tab(
-            *this, pixel_w, pixel_h,
-            make_pane_manager_deps(local), host_kind);
-        if (tab_id < 0)
-        {
-            const std::string detail
-                = local->tab_controller.last_error();
-            space_controller_.close_space(local_id);
-            if (error)
-            {
-                *error = detail.empty()
-                    ? "Could not create a projected Space host."
-                    : detail;
-            }
-            return false;
-        }
-        if (!remote.tabs.empty())
-        {
-            if (Tab* tab = local->tab_controller.find_active_tab())
-            {
-                tab->name = remote.tabs.front().name;
-                tab->name_user_set = true;
-            }
-        }
         topology_space_to_local_[remote.space_id] = local_id;
         local_space_to_topology_[local_id] = remote.space_id;
         structure_changed = true;
@@ -2972,15 +2939,6 @@ bool App::apply_remote_topology_spaces(
         space_controller_.rename_space(mapped->second, remote.name);
         space_controller_.set_space_root_directory(
             mapped->second, remote.root_directory);
-        Space* local = space_controller_.find_space(mapped->second);
-        if (local && !remote.tabs.empty())
-        {
-            if (Tab* tab = local->tab_controller.find_active_tab())
-            {
-                tab->name = remote.tabs.front().name;
-                tab->name_user_set = true;
-            }
-        }
     }
 
     if (!apply_remote_topology_tabs(snapshot, error))
@@ -2999,10 +2957,6 @@ bool App::apply_remote_topology_spaces(
 bool App::apply_remote_topology_tabs(
     const TopologySnapshot& snapshot, std::string* error)
 {
-    refresh_app_shell_layout();
-    const int pixel_w = std::max(1, shell_layout_.pane_root.w);
-    const int pixel_h = std::max(1, shell_layout_.pane_root.h);
-
     std::unordered_set<std::string> live_tab_ids;
     std::unordered_set<std::string> live_pane_ids;
     for (const TopologySpace& remote_space : snapshot.spaces)
@@ -3051,39 +3005,8 @@ bool App::apply_remote_topology_tabs(
                 }
                 if (local_tab_id < 0)
                 {
-                    HostKind host_kind
-                        = PaneManager::platform_default_split_host_kind();
-                    if (!remote_tab.panes.empty())
-                    {
-                        const TopologyPane& pane
-                            = remote_tab.panes.front();
-                        if (pane.domain
-                            == TopologyPaneDomain::ServerTerminal)
-                        {
-                            host_kind = HostKind::RemoteTerminal;
-                        }
-                        else if (pane.client_host_kind
-                            != "platform_default")
-                        {
-                            const auto parsed
-                                = parse_host_kind(
-                                    pane.client_host_kind);
-                            if (!parsed)
-                            {
-                                if (error)
-                                {
-                                    *error = "Unsupported projected host kind '"
-                                        + pane.client_host_kind + "'.";
-                                }
-                                return false;
-                            }
-                            host_kind = *parsed;
-                        }
-                    }
-                    local_tab_id = tabs.add_tab(
-                        *this, pixel_w, pixel_h,
-                        make_pane_manager_deps(local_space),
-                        host_kind);
+                    local_tab_id = tabs.add_projected_tab(
+                        make_pane_manager_deps(local_space));
                     if (local_tab_id < 0)
                     {
                         if (error)
@@ -3131,6 +3054,13 @@ bool App::apply_remote_topology_tabs(
             && claimed_local_tabs.contains(previously_active))
         {
             tabs.activate_tab(previously_active);
+        }
+        else if (!remote_space.tabs.empty())
+        {
+            const auto first = topology_tab_to_local_.find(
+                remote_space.tabs.front().tab_id);
+            if (first != topology_tab_to_local_.end())
+                tabs.activate_tab(first->second.second);
         }
     }
 
@@ -3363,6 +3293,7 @@ bool App::project_remote_tab(const TopologyTab& remote,
             .leaf_id = leaf->second,
             .launch = {
                 .kind = host_kind,
+                .remote_terminal_id = pane.terminal_id,
             },
             .pane_name = pane.name,
             .pane_id = pane.pane_id,
@@ -3388,6 +3319,7 @@ bool App::project_remote_tab(const TopologyTab& remote,
     }
     topology_tab_layout_signatures_[remote.tab_id]
         = structural_signature;
+    local_tab->initialized = true;
     return true;
 }
 
@@ -3447,11 +3379,8 @@ bool App::split_remote_focused(
 
     const HostKind kind = host_kind.value_or(
         PaneManager::platform_default_split_host_kind());
-    if (kind == HostKind::RemoteTerminal)
-    {
-        error = "Additional server terminals are not enabled in this slice.";
-        return false;
-    }
+    const bool server_terminal
+        = !host_kind || is_remote_server_shell_kind(kind);
 
     std::unordered_set<std::string> previous_panes;
     for (const TopologySpace& space
@@ -3474,8 +3403,12 @@ bool App::split_remote_focused(
             .tab_id = *tab_id,
             .pane_id = pane_id,
             .direction = direction,
-            .pane_domain = TopologyPaneDomain::ClientLocal,
-            .client_host_kind = to_string(kind),
+            .pane_domain = server_terminal
+                ? TopologyPaneDomain::ServerTerminal
+                : TopologyPaneDomain::ClientLocal,
+            .client_host_kind = server_terminal
+                ? std::string{}
+                : std::string(to_string(kind)),
         },
             error))
     {
@@ -3595,6 +3528,7 @@ Result<SpaceId, Error> App::create_space(
             .kind = TopologyCommandKind::CreateSpace,
             .name = name,
             .root_directory = root_directory.string(),
+            .pane_domain = TopologyPaneDomain::ServerTerminal,
         };
         std::string error;
         if (!execute_remote_topology_command(
@@ -4117,12 +4051,8 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
         }
         const HostKind kind = host_kind.value_or(
             PaneManager::platform_default_split_host_kind());
-        if (kind == HostKind::RemoteTerminal)
-        {
-            last_init_error_
-                = "Additional server terminals are not enabled in this slice.";
-            return -1;
-        }
+        const bool server_terminal
+            = !host_kind || is_remote_server_shell_kind(kind);
 
         std::unordered_set<std::string> previous_tabs;
         for (const TopologySpace& space
@@ -4139,7 +4069,12 @@ int App::add_tab(int pixel_w, int pixel_h, std::optional<HostKind> host_kind)
                 .kind = TopologyCommandKind::CreateTab,
                 .space_id = *space_id,
                 .name = "Tab",
-                .client_host_kind = to_string(kind),
+                .pane_domain = server_terminal
+                    ? TopologyPaneDomain::ServerTerminal
+                    : TopologyPaneDomain::ClientLocal,
+                .client_host_kind = server_terminal
+                    ? std::string{}
+                    : std::string(to_string(kind)),
             },
                 error))
         {

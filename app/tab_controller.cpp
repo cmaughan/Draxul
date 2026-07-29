@@ -61,6 +61,18 @@ int TabController::add_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
     return id;
 }
 
+int TabController::add_projected_tab(
+    PaneManager::Deps pane_manager_deps)
+{
+    auto tab = std::make_unique<Tab>(
+        next_tab_id_++, std::move(pane_manager_deps));
+    tab->name = "tab";
+    const int id = tab->id;
+    tabs_.push_back(std::move(tab));
+    last_error_.clear();
+    return id;
+}
+
 bool TabController::close_tab(int tab_id)
 {
     if (tabs_.size() <= 1)

@@ -33,6 +33,9 @@ struct HostLaunchOptions
     std::string source_path;
     std::vector<std::string> startup_commands;
     std::vector<std::pair<std::string, std::string>> environment;
+    // Stable server-owned terminal identity used by RemoteTerminalHost.
+    // Empty selects the server's compatibility/default terminal.
+    std::string remote_terminal_id;
     bool enable_ligatures = true;
     std::string pty_capture_file;
 

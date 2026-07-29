@@ -80,7 +80,9 @@ std::string command_key(const TopologyCommand& command)
 
 } // namespace
 
-TopologyService::TopologyService(std::string session_id)
+TopologyService::TopologyService(std::string session_id,
+    TopologyServiceCallbacks callbacks)
+    : callbacks_(std::move(callbacks))
 {
     snapshot_.revision = 1;
     snapshot_.session_id = std::move(session_id);
@@ -212,6 +214,32 @@ bool TopologyService::apply(const TopologyCommand& command,
             .tabs = {},
         };
         space.tabs.push_back(make_client_local_tab("Tab 1"));
+        TopologyPane& pane = space.tabs.front().panes.front();
+        if (command.pane_domain
+            == TopologyPaneDomain::ServerTerminal)
+        {
+            if (!callbacks_.create_server_terminal)
+                return reject("terminal_unavailable",
+                    "The server cannot allocate another terminal.");
+            std::string allocation_error;
+            const auto terminal_id
+                = callbacks_.create_server_terminal(
+                    pane.pane_id, pane.name, allocation_error);
+            if (!terminal_id)
+            {
+                return reject("terminal_start_failed",
+                    allocation_error.empty()
+                        ? "The server could not allocate a terminal."
+                        : std::move(allocation_error));
+            }
+            pane.domain = TopologyPaneDomain::ServerTerminal;
+            pane.terminal_id = *terminal_id;
+            pane.client_host_kind.clear();
+        }
+        else if (!command.client_host_kind.empty())
+        {
+            pane.client_host_kind = command.client_host_kind;
+        }
         snapshot_.spaces.push_back(std::move(space));
         return true;
     }
@@ -230,6 +258,18 @@ bool TopologyService::apply(const TopologyCommand& command,
     {
         if (snapshot_.spaces.size() <= 1)
             return reject("last_space", "Cannot close the final Space.");
+        for (const TopologyTab& tab : space->tabs)
+        {
+            for (const TopologyPane& pane : tab.panes)
+            {
+                if (pane.domain == TopologyPaneDomain::ServerTerminal
+                    && callbacks_.destroy_server_terminal)
+                {
+                    callbacks_.destroy_server_terminal(
+                        pane.terminal_id);
+                }
+            }
+        }
         std::erase_if(snapshot_.spaces,
             [&](const TopologySpace& candidate) {
                 return candidate.space_id == command.space_id;
@@ -242,7 +282,29 @@ bool TopologyService::apply(const TopologyCommand& command,
             return reject("limit_reached", "Topology tab limit reached.");
         TopologyTab tab = make_client_local_tab(
             valid_name(command.name) ? command.name : "Tab");
-        if (!command.client_host_kind.empty())
+        TopologyPane& pane = tab.panes.front();
+        if (command.pane_domain
+            == TopologyPaneDomain::ServerTerminal)
+        {
+            if (!callbacks_.create_server_terminal)
+                return reject("terminal_unavailable",
+                    "The server cannot allocate another terminal.");
+            std::string allocation_error;
+            const auto terminal_id
+                = callbacks_.create_server_terminal(
+                    pane.pane_id, pane.name, allocation_error);
+            if (!terminal_id)
+            {
+                return reject("terminal_start_failed",
+                    allocation_error.empty()
+                        ? "The server could not allocate a terminal."
+                        : std::move(allocation_error));
+            }
+            pane.domain = TopologyPaneDomain::ServerTerminal;
+            pane.terminal_id = *terminal_id;
+            pane.client_host_kind.clear();
+        }
+        else if (!command.client_host_kind.empty())
             tab.panes.front().client_host_kind = command.client_host_kind;
         space->tabs.push_back(std::move(tab));
         return true;
@@ -262,6 +324,15 @@ bool TopologyService::apply(const TopologyCommand& command,
     {
         if (space->tabs.size() <= 1)
             return reject("last_tab", "Cannot close the final tab.");
+        for (const TopologyPane& pane : tab->panes)
+        {
+            if (pane.domain == TopologyPaneDomain::ServerTerminal
+                && callbacks_.destroy_server_terminal)
+            {
+                callbacks_.destroy_server_terminal(
+                    pane.terminal_id);
+            }
+        }
         std::erase_if(space->tabs,
             [&](const TopologyTab& candidate) {
                 return candidate.tab_id == command.tab_id;
@@ -297,8 +368,9 @@ bool TopologyService::apply(const TopologyCommand& command,
         TopologyNode* leaf = find_leaf_for_pane(*tab, command.pane_id);
         if (!leaf)
             return reject("pane_not_found", "Topology pane was not found.");
+        const std::string pane_id = next_id("pane");
         TopologyPane pane{
-            .pane_id = next_id("pane"),
+            .pane_id = pane_id,
             .name = command.name,
             .domain = command.pane_domain,
             .terminal_id = command.terminal_id,
@@ -306,11 +378,28 @@ bool TopologyService::apply(const TopologyCommand& command,
         };
         if (pane.domain == TopologyPaneDomain::ServerTerminal)
         {
-            if (pane.terminal_id != kServerShellTerminalId)
+            if (!pane.terminal_id.empty())
             {
-                return reject("terminal_not_found",
-                    "Only the existing server terminal is available in this topology checkpoint.");
+                return reject("invalid_terminal",
+                    "Clients cannot assign an existing server terminal.");
             }
+            if (!callbacks_.create_server_terminal)
+            {
+                return reject("terminal_unavailable",
+                    "The server cannot allocate another terminal.");
+            }
+            std::string allocation_error;
+            const auto terminal_id
+                = callbacks_.create_server_terminal(
+                    pane_id, pane.name, allocation_error);
+            if (!terminal_id)
+            {
+                return reject("terminal_start_failed",
+                    allocation_error.empty()
+                        ? "The server could not allocate a terminal."
+                        : std::move(allocation_error));
+            }
+            pane.terminal_id = *terminal_id;
             pane.client_host_kind.clear();
         }
         else
@@ -349,6 +438,15 @@ bool TopologyService::apply(const TopologyCommand& command,
         TopologyNode* leaf = find_leaf_for_pane(*tab, command.pane_id);
         if (!leaf)
             return reject("pane_not_found", "Topology pane was not found.");
+        const TopologyPane* closing_pane
+            = find_pane(*tab, command.pane_id);
+        if (!closing_pane)
+            return reject("pane_not_found", "Topology pane was not found.");
+        const std::string closing_terminal_id
+            = closing_pane->domain
+                == TopologyPaneDomain::ServerTerminal
+            ? closing_pane->terminal_id
+            : std::string{};
         TopologyNode* parent = find_parent(*tab, leaf->node_id);
         if (!parent)
             return reject("invalid_topology", "Topology pane has no parent.");
@@ -371,6 +469,12 @@ bool TopologyService::apply(const TopologyCommand& command,
         std::erase_if(tab->panes, [&](const TopologyPane& pane) {
             return pane.pane_id == command.pane_id;
         });
+        if (!closing_terminal_id.empty()
+            && callbacks_.destroy_server_terminal)
+        {
+            callbacks_.destroy_server_terminal(
+                closing_terminal_id);
+        }
         return true;
     }
     return reject(

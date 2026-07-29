@@ -10,6 +10,7 @@
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
 #include <draxul/text_service.h>
+#include <draxul/topology_client.h>
 
 #include <thread>
 
@@ -194,6 +195,92 @@ TEST_CASE("remote terminal host renders shared state and can take control",
     REQUIRE(changed);
 
     host.shutdown();
+}
+
+TEST_CASE("remote terminal host attaches to its projected terminal identity",
+    "[host][remote-terminal][topology]")
+{
+    TempDir temp("draxul-remote-host-topology");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "host-topology-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard server_run(server);
+
+    TopologyClient topology({
+        .runtime_directory = temp.path,
+        .client_id = "topology-host-client",
+    });
+    std::string error;
+    REQUIRE(topology.refresh(error));
+    const TopologySpace& initial_space
+        = topology.snapshot().spaces.front();
+    const TopologyTab& initial_tab
+        = initial_space.tabs.front();
+    TopologyCommandResult split;
+    REQUIRE(topology.execute({
+            .command_id = "host-dynamic-terminal",
+            .expected_revision = topology.snapshot().revision,
+            .kind = TopologyCommandKind::SplitPane,
+            .space_id = initial_space.space_id,
+            .tab_id = initial_tab.tab_id,
+            .pane_id = initial_tab.panes.front().pane_id,
+            .name = "Projected terminal",
+            .direction = TopologySplitDirection::Vertical,
+            .pane_domain = TopologyPaneDomain::ServerTerminal,
+        },
+        split, error));
+    const TopologyPane& projected
+        = split.snapshot.spaces.front().tabs.front().panes.back();
+    REQUIRE_FALSE(projected.terminal_id.empty());
+
+    RemoteTerminalClient controller({
+        .runtime_directory = temp.path,
+        .client_id = "dynamic-controller",
+        .expected_server_epoch = "host-topology-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = projected.terminal_id,
+    });
+    REQUIRE(controller.attach(error));
+    REQUIRE(controller.resize(13, 4, error));
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "dynamic-observer",
+        .server_epoch = "host-topology-epoch",
+        .method_prefix = "terminal",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+            .remote_terminal_id = projected.terminal_id,
+        },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 20, 5 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.grid_cols() == 13
+            && host.grid_rows() == 4;
+    }));
+    host.shutdown();
+    REQUIRE(controller.disconnect(error));
 }
 
 TEST_CASE("two rendered remote terminal hosts survive repeated control transfer",

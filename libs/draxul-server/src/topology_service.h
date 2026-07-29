@@ -4,6 +4,8 @@
 #include <draxul/topology_protocol.h>
 
 #include <deque>
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -11,10 +13,21 @@
 namespace draxul
 {
 
+struct TopologyServiceCallbacks
+{
+    std::function<std::optional<std::string>(
+        std::string_view pane_id, std::string_view name,
+        std::string& error)>
+        create_server_terminal;
+    std::function<void(std::string_view terminal_id)>
+        destroy_server_terminal;
+};
+
 class TopologyService
 {
 public:
-    explicit TopologyService(std::string session_id = "default");
+    explicit TopologyService(std::string session_id = "default",
+        TopologyServiceCallbacks callbacks = {});
 
     bool handles(std::string_view method) const;
     ControlMethodResult handle(
@@ -39,6 +52,7 @@ private:
     void remember(std::string key, TopologyCommandResult result);
 
     TopologySnapshot snapshot_;
+    TopologyServiceCallbacks callbacks_;
     uint64_t next_serial_ = 1;
     std::unordered_map<std::string, TopologyCommandResult> completed_;
     std::deque<std::string> completed_order_;

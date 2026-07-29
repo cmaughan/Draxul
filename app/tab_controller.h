@@ -33,6 +33,10 @@ public:
     int add_tab(IHostCallbacks& callbacks, int pixel_w, int pixel_h,
         PaneManager::Deps pane_manager_deps,
         std::optional<HostKind> host_kind = std::nullopt);
+    // Reserve a tab identity for an authoritative projection without
+    // launching a placeholder host. The projection must populate its
+    // PaneManager before the tab can be activated by the user.
+    int add_projected_tab(PaneManager::Deps pane_manager_deps);
 
     bool close_tab(int tab_id);
     bool activate_tab(int tab_id);

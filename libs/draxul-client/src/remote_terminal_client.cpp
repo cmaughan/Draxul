@@ -438,7 +438,12 @@ bool RemoteTerminalClient::request(
 
 nlohmann::json RemoteTerminalClient::client_params() const
 {
-    return { { "client_id", options_.client_id } };
+    nlohmann::json params{
+        { "client_id", options_.client_id },
+    };
+    if (!options_.terminal_id.empty())
+        params["terminal_id"] = options_.terminal_id;
+    return params;
 }
 
 std::string RemoteTerminalClient::method(std::string_view operation) const

@@ -126,6 +126,7 @@ public:
                 .client_id = options_.client_id,
                 .expected_server_epoch = options_.server_epoch,
                 .method_prefix = options_.method_prefix,
+                .terminal_id = options_.terminal_id,
             });
         if (!client_->attach(error))
             return false;
@@ -211,6 +212,11 @@ public:
     const RemoteTerminalHostOptions& options() const
     {
         return options_;
+    }
+
+    void set_terminal_id(std::string terminal_id)
+    {
+        options_.terminal_id = std::move(terminal_id);
     }
 
 private:
@@ -1021,6 +1027,9 @@ RemoteTerminalHost::next_deadline() const
 
 bool RemoteTerminalHost::initialize_host()
 {
+    if (!launch_options().remote_terminal_id.empty())
+        impl_->set_terminal_id(
+            launch_options().remote_terminal_id);
     highlights().set_default_fg(
         launch_options().terminal_fg.value_or(
             Color(0.92f, 0.92f, 0.92f, 1.0f)));

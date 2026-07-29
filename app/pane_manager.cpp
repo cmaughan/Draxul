@@ -83,6 +83,7 @@ PaneManager::SavedLaunchOptions save_launch_options(const HostLaunchOptions& lau
     saved.working_dir = launch.working_dir;
     saved.source_path = launch.source_path;
     saved.startup_commands = launch.startup_commands;
+    saved.remote_terminal_id = launch.remote_terminal_id;
     saved.pty_capture_file = launch.pty_capture_file;
     return saved;
 }
@@ -97,6 +98,7 @@ HostLaunchOptions restore_launch_options(const PaneManager::SavedLaunchOptions& 
     launch.working_dir = saved.working_dir;
     launch.source_path = saved.source_path;
     launch.startup_commands = saved.startup_commands;
+    launch.remote_terminal_id = saved.remote_terminal_id;
     launch.pty_capture_file = saved.pty_capture_file;
     launch.enable_ligatures = deps.config ? deps.config->enable_ligatures : true;
     if (deps.config)
@@ -815,9 +817,13 @@ bool PaneManager::reconcile_projected_layout(
     for (const auto& [leaf, host] : hosts_)
     {
         const auto pane = projected.find(leaf);
+        const auto launch = launch_options_.find(leaf);
         if (pane == projected.end()
-            || launch_options_[leaf].kind
-                != pane->second->launch.kind)
+            || launch == launch_options_.end()
+            || launch->second.kind
+                != pane->second->launch.kind
+            || launch->second.remote_terminal_id
+                != pane->second->launch.remote_terminal_id)
         {
             removed.push_back(leaf);
         }

@@ -215,6 +215,15 @@ ControlMethodResult RemoteTerminalService::attach(
         return ControlMethodResult::error(
             "invalid_client", "A valid client_id is required.");
     }
+    if (params.contains("terminal_id")
+        && (!params["terminal_id"].is_string()
+            || params["terminal_id"].get<std::string>()
+                != options_.terminal_id))
+    {
+        return ControlMethodResult::error(
+            "terminal_not_found",
+            "The requested server terminal does not exist.");
+    }
     std::string error;
     if (!ensure_runtime_started(error))
         return ControlMethodResult::error("process_start_failed", std::move(error));

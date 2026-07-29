@@ -73,6 +73,7 @@ const std::vector<std::string>& server_capabilities()
         "controller-lease",
         "fake-remote-terminal",
         "graceful-shutdown",
+        "multi-terminal-v1",
         "ordered-terminal-events",
         "real-remote-terminal",
         "status",
@@ -133,6 +134,10 @@ public:
     void publish_starting_marker();
     void remove_starting_marker();
     void remove_all_starting_markers();
+    std::optional<std::string> create_server_terminal(
+        std::string_view pane_id, std::string_view name,
+        std::string& error);
+    void destroy_server_terminal(std::string_view terminal_id);
 
     ServerKernelOptions options;
     ControlServer control;
@@ -167,8 +172,14 @@ public:
     uint64_t fake_sequence = 0;
     std::string fake_controller_client_id;
     std::unordered_map<std::string, FakeSubscriber> fake_subscribers;
-    std::unique_ptr<ServerTerminalRuntime> server_terminal;
-    std::unique_ptr<RemoteTerminalService> terminal_service;
+    struct ServerTerminalEndpoint
+    {
+        std::unique_ptr<ServerTerminalRuntime> runtime;
+        std::unique_ptr<RemoteTerminalService> service;
+    };
+    std::unordered_map<std::string, ServerTerminalEndpoint>
+        server_terminals;
+    uint64_t next_terminal_serial = 2;
     std::unique_ptr<TopologyService> topology_service;
 };
 
@@ -311,8 +322,28 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return take_fake_terminal_control(request.params);
     if (request.method == "fake.disconnect")
         return disconnect_fake_terminal(request.params);
-    if (terminal_service && terminal_service->handles(request.method))
-        return terminal_service->handle(request.method, request.params);
+    if (request.method.starts_with("terminal."))
+    {
+        std::string terminal_id
+            = std::string(kServerShellTerminalId);
+        if (request.params.is_object()
+            && request.params.contains("terminal_id")
+            && request.params["terminal_id"].is_string())
+        {
+            terminal_id
+                = request.params["terminal_id"].get<std::string>();
+        }
+        const auto terminal
+            = server_terminals.find(terminal_id);
+        if (terminal == server_terminals.end())
+        {
+            return ControlMethodResult::error(
+                "terminal_not_found",
+                "The requested server terminal does not exist.");
+        }
+        return terminal->second.service->handle(
+            request.method, request.params);
+    }
     if (topology_service && topology_service->handles(request.method))
         return topology_service->handle(request.method, request.params);
     if (request.method == "server.shutdown")
@@ -679,16 +710,22 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
             ? topology_service->snapshot().spaces.size()
             : 0u,
         .terminals = 1
-            + (terminal_service && terminal_service->started() ? 1u : 0u),
+            + static_cast<size_t>(std::ranges::count_if(
+                server_terminals,
+                [](const auto& item) {
+                    return item.second.service->started();
+                })),
     };
 }
 
-int ServerKernel::Impl::run_until_stopped()
+std::optional<std::string>
+ServerKernel::Impl::create_server_terminal(
+    std::string_view pane_id, std::string_view name,
+    std::string& error)
 {
-    if (!started)
-        return 1;
-    fake_terminal = std::make_unique<FakeTerminalRuntime>();
-    server_terminal = std::make_unique<ServerTerminalRuntime>(
+    const std::string terminal_id
+        = "terminal-" + std::to_string(next_terminal_serial++);
+    auto runtime = std::make_unique<ServerTerminalRuntime>(
         ServerTerminalRuntimeOptions{
             .shell_kind = options.terminal_shell_kind,
             .command = options.terminal_command,
@@ -697,19 +734,90 @@ int ServerKernel::Impl::run_until_stopped()
             .environment = options.terminal_environment,
             .scrollback_capacity = options.terminal_scrollback_lines,
         });
-    terminal_service = std::make_unique<RemoteTerminalService>(
+    auto service = std::make_unique<RemoteTerminalService>(
         RemoteTerminalServiceOptions{
             .method_prefix = "terminal",
             .server_epoch = epoch_value,
-            .pane_id = std::string(kServerShellPaneId),
-            .terminal_id = std::string(kServerShellTerminalId),
-            .name = "Server Shell",
+            .pane_id = std::string(pane_id),
+            .terminal_id = terminal_id,
+            .name = name.empty()
+                ? "Server Shell"
+                : std::string(name),
         },
-        *server_terminal);
-    topology_service = std::make_unique<TopologyService>("default");
+        *runtime);
+    if (!server_terminals.emplace(
+            terminal_id,
+            ServerTerminalEndpoint{
+                .runtime = std::move(runtime),
+                .service = std::move(service),
+            })
+             .second)
+    {
+        error = "A duplicate server terminal identity was allocated.";
+        return std::nullopt;
+    }
+    return terminal_id;
+}
+
+void ServerKernel::Impl::destroy_server_terminal(
+    std::string_view terminal_id)
+{
+    server_terminals.erase(std::string(terminal_id));
+}
+
+int ServerKernel::Impl::run_until_stopped()
+{
+    if (!started)
+        return 1;
+    fake_terminal = std::make_unique<FakeTerminalRuntime>();
+    {
+        auto runtime = std::make_unique<ServerTerminalRuntime>(
+            ServerTerminalRuntimeOptions{
+                .shell_kind = options.terminal_shell_kind,
+                .command = options.terminal_command,
+                .args = options.terminal_args,
+                .working_directory = options.terminal_working_directory,
+                .environment = options.terminal_environment,
+                .scrollback_capacity = options.terminal_scrollback_lines,
+            });
+        auto service = std::make_unique<RemoteTerminalService>(
+            RemoteTerminalServiceOptions{
+                .method_prefix = "terminal",
+                .server_epoch = epoch_value,
+                .pane_id = std::string(kServerShellPaneId),
+                .terminal_id = std::string(kServerShellTerminalId),
+                .name = "Server Shell",
+            },
+            *runtime);
+        server_terminals.emplace(
+            std::string(kServerShellTerminalId),
+            ServerTerminalEndpoint{
+                .runtime = std::move(runtime),
+                .service = std::move(service),
+            });
+    }
+    topology_service = std::make_unique<TopologyService>(
+        "default",
+        TopologyServiceCallbacks{
+            .create_server_terminal
+            = [this](std::string_view pane_id,
+                  std::string_view name, std::string& error) {
+                  return create_server_terminal(
+                      pane_id, name, error);
+              },
+            .destroy_server_terminal
+            = [this](std::string_view terminal_id) {
+                  destroy_server_terminal(terminal_id);
+              },
+        });
     while (!stop_requested)
     {
-        terminal_service->pump();
+        for (auto& [terminal_id, endpoint]
+            : server_terminals)
+        {
+            (void)terminal_id;
+            endpoint.service->pump();
+        }
         if (const uint32_t listener_error = control.take_listener_error();
             listener_error != 0)
         {
@@ -729,6 +837,8 @@ int ServerKernel::Impl::run_until_stopped()
         [this](const ControlRequest& request) {
             return handle_request(request);
         });
+    topology_service.reset();
+    server_terminals.clear();
     stop();
     return 0;
 }

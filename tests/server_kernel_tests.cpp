@@ -167,6 +167,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "real-remote-terminal")
         != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "multi-terminal-v1")
+        != probe.welcome->capabilities.end());
 
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
@@ -552,6 +555,77 @@ TEST_CASE("two topology clients converge through idempotent server commands",
     REQUIRE(split_tab.panes.back().domain
         == TopologyPaneDomain::ClientLocal);
     REQUIRE(split_tab.panes.back().client_host_kind == "nvim");
+    const std::string split_tab_id = split_tab.tab_id;
+    const std::string split_target_pane_id
+        = split_tab.panes.back().pane_id;
+
+    TopologyCommand split_server_terminal{
+        .command_id = "split-server-pane-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::SplitPane,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+        .pane_id = split_target_pane_id,
+        .name = "Second server shell",
+        .direction = TopologySplitDirection::Vertical,
+        .pane_domain = TopologyPaneDomain::ServerTerminal,
+    };
+    TopologyCommandResult server_split_result;
+    REQUIRE(first.execute(
+        split_server_terminal, server_split_result, error));
+    const TopologyPane& server_pane
+        = server_split_result.snapshot.spaces.front()
+              .tabs.front()
+              .panes.back();
+    REQUIRE(server_pane.domain
+        == TopologyPaneDomain::ServerTerminal);
+    REQUIRE_FALSE(server_pane.terminal_id.empty());
+    REQUIRE(server_pane.terminal_id
+        != kServerShellTerminalId);
+    const std::string dynamic_pane_id = server_pane.pane_id;
+    const std::string dynamic_terminal_id
+        = server_pane.terminal_id;
+
+    RemoteTerminalClient dynamic_terminal({
+        .runtime_directory = temp.path,
+        .client_id = "dynamic-terminal-client",
+        .expected_server_epoch = "fixed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = dynamic_terminal_id,
+    });
+    REQUIRE(dynamic_terminal.attach(error));
+    REQUIRE(dynamic_terminal.projection().pane().pane_id
+        == dynamic_pane_id);
+    REQUIRE(dynamic_terminal.projection().pane().terminal_id
+        == dynamic_terminal_id);
+    REQUIRE(dynamic_terminal.disconnect(error));
+
+    TopologyCommand close_server_terminal{
+        .command_id = "close-server-pane-1",
+        .expected_revision = first.snapshot().revision,
+        .kind = TopologyCommandKind::ClosePane,
+        .space_id = initial_space_id,
+        .tab_id = split_tab_id,
+        .pane_id = dynamic_pane_id,
+    };
+    TopologyCommandResult closed_server_terminal;
+    REQUIRE(first.execute(close_server_terminal,
+        closed_server_terminal, error));
+    REQUIRE(closed_server_terminal.snapshot.spaces.front()
+                .tabs.front()
+                .panes.size()
+        == 2);
+
+    RemoteTerminalClient removed_terminal({
+        .runtime_directory = temp.path,
+        .client_id = "removed-terminal-client",
+        .expected_server_epoch = "fixed-epoch",
+        .method_prefix = "terminal",
+        .terminal_id = dynamic_terminal_id,
+    });
+    REQUIRE_FALSE(removed_terminal.attach(error));
+    REQUIRE(removed_terminal.last_error_code()
+        == "terminal_not_found");
 
     TopologyCommand create_tab{
         .command_id = "create-tab-1",

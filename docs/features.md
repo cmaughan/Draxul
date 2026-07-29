@@ -79,8 +79,10 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   panes, names, and split trees; create/close/rename actions use server commands.
   Each `client_local` descriptor creates an independent host in each UI, and live
   split reconciliation preserves unchanged hosts instead of restarting them.
-  Reorder and ratio command routing plus per-pane server-terminal allocation remain
-  pending behind the experimental server path.
+  `multi-terminal-v1` gives every `server_terminal` pane a distinct lazy server
+  runtime and stable TerminalId; the real host adapter targets that identity, and
+  closing the shared pane removes its endpoint and process. Reorder, ratio, and
+  restart command routing remain pending behind the experimental server path.
 
 ---
 

@@ -20,8 +20,8 @@ presentation state.
       tab, pane, and split chrome.
 - [ ] Create, close, rename, reorder, split, ratio, and restart mutations route
       through server commands and appear in a second UI.
-- [ ] Every server-terminal pane has its own server runtime and stable TerminalId.
-- [ ] Every client-local pane descriptor creates an independent local host in each
+- [x] Every server-terminal pane has its own server runtime and stable TerminalId.
+- [x] Every client-local pane descriptor creates an independent local host in each
       UI, or an explicit unavailable placeholder.
 - [ ] Detach/reconnect preserves the topology and server terminal runtimes.
 - [ ] Two live UIs pass the Slice 6 demonstration and focused/full automated gates
@@ -39,9 +39,12 @@ presentation state.
   unchanged local hosts.
 - Live Ninja Release boundary check: two UIs attached to one fresh server runtime,
   remained alive concurrently, detached, and the server shut down cleanly.
-- Ninja Release `[topology]`: 45 assertions in 3 cases.
-- Ninja Release `[server]`: 420 assertions in 23 cases.
-- Ninja Release app suite: 4,095 assertions in 477 cases; smoke passed.
+- Added `multi-terminal-v1`: lazy per-pane server runtimes, stable TerminalId routing
+  through the real host adapter, endpoint cleanup on topology removal, and
+  placeholder-free projected-tab construction.
+- Ninja Release `[server][topology]`: 57 assertions in 3 cases.
+- Ninja Release `[host][remote-terminal][topology]`: 10 assertions in 1 case.
+- Ninja Release app suite: 4,096 assertions in 477 cases; smoke passed.
 
 ## Rollback
 
