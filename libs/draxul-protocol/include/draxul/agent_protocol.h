@@ -14,6 +14,8 @@ namespace draxul
 
 inline constexpr size_t kServerAgentMaxRows = 1024;
 inline constexpr size_t kServerAgentMaxTextBytes = 4096;
+inline constexpr size_t kServerAgentMaxWaitStates = 16;
+inline constexpr size_t kServerAgentMaxWaitStateBytes = 64;
 
 // Sanitized, renderer-free agent state published by the server. Raw terminal
 // observations and process command lines deliberately never cross this

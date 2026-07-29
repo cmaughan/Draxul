@@ -20,6 +20,14 @@ inline constexpr std::string_view kServerShellTerminalId = "server-shell-termina
 inline constexpr size_t kRemoteTerminalQueueLimit = 32;
 inline constexpr size_t kRemoteTerminalMaxEventsPerPoll = 64;
 inline constexpr size_t kRemoteTerminalMaxScrollbackPageRows = 256;
+// The PTY/ConPTY adapters use the same bounds. Keeping the wire dimensions
+// aligned avoids reporting a grid larger than the child process actually owns
+// and keeps a complete compact snapshot comfortably inside the IPC frame.
+inline constexpr int kRemoteTerminalMaxColumns = 320;
+inline constexpr int kRemoteTerminalMaxRows = 200;
+inline constexpr size_t kRemoteTerminalMaxCells
+    = static_cast<size_t>(kRemoteTerminalMaxColumns)
+    * static_cast<size_t>(kRemoteTerminalMaxRows);
 
 struct RemotePaneDescriptor
 {

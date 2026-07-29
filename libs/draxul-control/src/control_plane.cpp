@@ -897,36 +897,58 @@ void ControlServer::Impl::run(std::stop_token stop_token)
     const int flags = ::fcntl(server, F_GETFL, 0);
     ::fcntl(server, F_SETFL, flags | O_NONBLOCK);
 
-    while (!stop_token.stop_requested())
-    {
-        pollfd descriptor{ server, POLLIN, 0 };
-        const int ready = ::poll(&descriptor, 1, 100);
-        if (ready <= 0)
-            continue;
-        const int client = ::accept(server, nullptr, nullptr);
-        if (client < 0)
-            continue;
-        timeval timeout{
-            static_cast<long>(kIoTimeout.count()), 0
-        };
-        ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-
-        std::string bytes;
-        ControlRequest request;
-        ControlMethodResult result;
-        if (!read_frame(client, bytes))
-            result = ControlMethodResult::error("invalid_frame", "Invalid control frame.");
-        else
+    // Match the Windows listener pool. A client can occupy a connection for
+    // the full I/O timeout, so one serial accept/read loop lets a stalled UI
+    // starve every observer of the shared server.
+    auto serve_connections = [this, server](std::stop_token shared_stop) {
+        while (!shared_stop.stop_requested())
         {
-            result = parse_request(bytes, token, request);
-            if (result.ok)
-                result = dispatch(request);
+            pollfd descriptor{ server, POLLIN, 0 };
+            const int ready = ::poll(&descriptor, 1, 100);
+            if (ready <= 0)
+                continue;
+            const int client = ::accept(server, nullptr, nullptr);
+            if (client < 0)
+                continue;
+            timeval timeout{
+                static_cast<long>(kIoTimeout.count()), 0
+            };
+            ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO,
+                &timeout, sizeof(timeout));
+            ::setsockopt(client, SOL_SOCKET, SO_SNDTIMEO,
+                &timeout, sizeof(timeout));
+
+            std::string bytes;
+            ControlRequest request;
+            ControlMethodResult result;
+            if (!read_frame(client, bytes))
+            {
+                result = ControlMethodResult::error(
+                    "invalid_frame", "Invalid control frame.");
+            }
+            else
+            {
+                result = parse_request(bytes, token, request);
+                if (result.ok)
+                    result = dispatch(request);
+            }
+            const std::string response
+                = response_json(request.id, result).dump();
+            write_frame(client, response);
+            ::close(client);
         }
-        const std::string response = response_json(request.id, result).dump();
-        write_frame(client, response);
-        ::close(client);
+    };
+    std::vector<std::jthread> additional_listeners;
+    additional_listeners.reserve(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        additional_listeners.emplace_back(
+            [serve_connections, stop_token](std::stop_token) {
+                serve_connections(stop_token);
+            });
     }
+    serve_connections(stop_token);
+    additional_listeners.clear();
     ::close(server);
     ::unlink(endpoint.c_str());
     active = false;

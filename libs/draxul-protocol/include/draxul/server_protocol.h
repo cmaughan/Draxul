@@ -17,6 +17,8 @@ inline constexpr std::string_view kServerControlId = "__draxul_server_v1__";
 inline constexpr size_t kServerMaxCapabilities = 32;
 inline constexpr size_t kServerMaxClientIdBytes = 128;
 inline constexpr size_t kServerMaxSessionIdBytes = 512;
+inline constexpr size_t kServerMaxConnectedClients = 128;
+inline constexpr size_t kServerMaxSessions = 128;
 
 struct ServerHello
 {

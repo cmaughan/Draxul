@@ -417,19 +417,23 @@ ControlMethodResult ServerAgentService::handle(
         std::vector<std::string> desired;
         if (params.contains("until"))
         {
-            if (!params["until"].is_array())
+            if (!params["until"].is_array()
+                || params["until"].size()
+                    > kServerAgentMaxWaitStates)
             {
                 return ControlMethodResult::error(
                     "invalid_params",
-                    "'until' must be an array.");
+                    "'until' must be an array of at most 16 states.");
             }
             for (const auto& value : params["until"])
             {
-                if (!value.is_string())
+                if (!value.is_string()
+                    || value.get_ref<const std::string&>().size()
+                        > kServerAgentMaxWaitStateBytes)
                 {
                     return ControlMethodResult::error(
                         "invalid_params",
-                        "'until' values must be strings.");
+                        "'until' values must be strings of at most 64 bytes.");
                 }
                 desired.push_back(value.get<std::string>());
             }

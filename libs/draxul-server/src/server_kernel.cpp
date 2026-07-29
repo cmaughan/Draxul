@@ -44,7 +44,6 @@ namespace
 // count alone is not a safe batching limit.
 constexpr size_t kRemoteTerminalPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
-constexpr auto kClientActivityTimeout = std::chrono::seconds(10);
 
 uint64_t current_process_id()
 {
@@ -174,6 +173,8 @@ public:
             options.protocol_major = kServerProtocolMajor;
         if (options.protocol_minor < 0)
             options.protocol_minor = kServerProtocolMinor;
+        if (options.client_activity_timeout.count() <= 0)
+            options.client_activity_timeout = std::chrono::seconds(10);
         if (options.build_version.empty())
             options.build_version = server_build_version();
         for (const AgentDefinition& definition
@@ -249,6 +250,11 @@ public:
     bool restart_server_terminal(std::string_view session_id,
         std::string_view terminal_id, std::string& error);
     void refresh_agents(ServerSession& session,
+        std::chrono::steady_clock::time_point now);
+    bool register_or_touch_client(std::string_view client_id);
+    void disconnect_client(std::string_view client_id);
+    void detach_client_from_services(std::string_view client_id);
+    void prune_inactive_clients(
         std::chrono::steady_clock::time_point now);
 
     ServerKernelOptions options;
@@ -588,6 +594,19 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
         }
     }
     std::ranges::sort(saved_paths);
+    const size_t named_session_limit
+        = kServerMaxSessions > 0
+        ? kServerMaxSessions - 1
+        : 0;
+    if (saved_paths.size() > named_session_limit)
+    {
+        unassigned_restore_warnings.push_back(
+            "Skipped "
+            + std::to_string(
+                saved_paths.size() - named_session_limit)
+            + " Session checkpoints beyond the server limit.");
+        saved_paths.resize(named_session_limit);
+    }
     for (const auto& path : saved_paths)
         prepare(path, std::nullopt);
     return true;
@@ -795,6 +814,11 @@ ServerKernel::Impl::ensure_session(
     const auto found = sessions.find(std::string(session_id));
     if (found != sessions.end())
         return found->second.get();
+    if (sessions.size() >= kServerMaxSessions)
+    {
+        error = "The Draxul server Session limit has been reached.";
+        return nullptr;
+    }
 
     auto session = std::make_unique<ServerSession>();
     session->session_id = std::string(session_id);
@@ -831,6 +855,78 @@ bool ServerKernel::Impl::initialize_services(std::string& error)
         }
     }
     return true;
+}
+
+bool ServerKernel::Impl::register_or_touch_client(
+    std::string_view client_id)
+{
+    const auto now = std::chrono::steady_clock::now();
+    prune_inactive_clients(now);
+    std::lock_guard guard(mutex);
+    const std::string key(client_id);
+    const auto found = clients.find(key);
+    if (found == clients.end()
+        && clients.size() >= kServerMaxConnectedClients)
+    {
+        return false;
+    }
+    clients[key] = now;
+    return true;
+}
+
+void ServerKernel::Impl::detach_client_from_services(
+    std::string_view client_id)
+{
+    const bool was_fake_controller
+        = fake_controller_client_id == client_id;
+    fake_subscribers.erase(std::string(client_id));
+    if (was_fake_controller)
+    {
+        fake_controller_client_id.clear();
+        broadcast_fake_event(make_fake_controller_event());
+    }
+    for (auto& [session_id, session] : sessions)
+    {
+        (void)session_id;
+        for (auto& [terminal_id, endpoint] : session->terminals)
+        {
+            (void)terminal_id;
+            endpoint.service->disconnect_client(client_id);
+        }
+    }
+}
+
+void ServerKernel::Impl::disconnect_client(
+    std::string_view client_id)
+{
+    {
+        std::lock_guard guard(mutex);
+        clients.erase(std::string(client_id));
+    }
+    detach_client_from_services(client_id);
+}
+
+void ServerKernel::Impl::prune_inactive_clients(
+    std::chrono::steady_clock::time_point now)
+{
+    std::vector<std::string> expired;
+    {
+        std::lock_guard guard(mutex);
+        for (auto it = clients.begin(); it != clients.end();)
+        {
+            if (now - it->second > options.client_activity_timeout)
+            {
+                expired.push_back(it->first);
+                it = clients.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+    for (const auto& client_id : expired)
+        detach_client_from_services(client_id);
 }
 
 bool ServerKernel::Impl::checkpoint_session(
@@ -974,9 +1070,11 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 "Client/server protocol major versions do not match.");
         }
 
+        if (!register_or_touch_client(hello->client_id))
         {
-            std::lock_guard guard(mutex);
-            clients[hello->client_id] = std::chrono::steady_clock::now();
+            return ControlMethodResult::error(
+                "client_limit_reached",
+                "The Draxul server client limit has been reached.");
         }
         ServerWelcome welcome{
             .protocol_major = options.protocol_major,
@@ -988,20 +1086,6 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             .capabilities = negotiate_capabilities(hello->capabilities),
         };
         return ControlMethodResult::success(server_welcome_to_json(welcome));
-    }
-    if (request.params.is_object())
-    {
-        const auto client_id = request.params.find("client_id");
-        if (client_id != request.params.end()
-            && client_id->is_string()
-            && !client_id->get_ref<const std::string&>().empty()
-            && client_id->get_ref<const std::string&>().size()
-                <= kServerMaxClientIdBytes)
-        {
-            std::lock_guard guard(mutex);
-            clients[client_id->get<std::string>()]
-                = std::chrono::steady_clock::now();
-        }
     }
     if (request.method == "server.goodbye")
     {
@@ -1022,13 +1106,26 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         }
         const std::string client_id
             = request.params["client_id"].get<std::string>();
-        {
-            std::lock_guard guard(mutex);
-            clients.erase(client_id);
-        }
+        disconnect_client(client_id);
         return ControlMethodResult::success({
             { "disconnected", true },
         });
+    }
+    if (request.params.is_object())
+    {
+        const auto client_id = request.params.find("client_id");
+        if (client_id != request.params.end()
+            && client_id->is_string()
+            && !client_id->get_ref<const std::string&>().empty()
+            && client_id->get_ref<const std::string&>().size()
+                <= kServerMaxClientIdBytes
+            && !register_or_touch_client(
+                client_id->get_ref<const std::string&>()))
+        {
+            return ControlMethodResult::error(
+                "client_limit_reached",
+                "The Draxul server client limit has been reached.");
+        }
     }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
@@ -2043,10 +2140,10 @@ ControlMethodResult ServerKernel::Impl::resize_fake_terminal(
     const int cols = params["cols"].get<int>();
     const int rows = params["rows"].get<int>();
     if (cols <= 0 || rows <= 0
-        || cols > TerminalStateLimits::kMaxColumns
-        || rows > TerminalStateLimits::kMaxRows
+        || cols > kRemoteTerminalMaxColumns
+        || rows > kRemoteTerminalMaxRows
         || static_cast<size_t>(cols) * static_cast<size_t>(rows)
-            > TerminalStateLimits::kMaxCells)
+            > kRemoteTerminalMaxCells)
     {
         return ControlMethodResult::error(
             "invalid_resize", "Terminal dimensions are out of range.");
@@ -2113,9 +2210,9 @@ ServerStatusSnapshot ServerKernel::Impl::status_snapshot() const
         std::lock_guard guard(mutex);
         connected_clients = static_cast<size_t>(
             std::ranges::count_if(
-                clients, [now](const auto& item) {
+                clients, [this, now](const auto& item) {
                     return now - item.second
-                        <= kClientActivityTimeout;
+                        <= options.client_activity_timeout;
                 }));
     }
     const uint64_t uptime_ms = started
@@ -2552,14 +2649,7 @@ int ServerKernel::Impl::run_until_stopped()
                 return handle_request(request);
             });
         const auto now = std::chrono::steady_clock::now();
-        {
-            std::lock_guard guard(mutex);
-            std::erase_if(clients,
-                [now](const auto& item) {
-                    return now - item.second
-                        > kClientActivityTimeout;
-                });
-        }
+        prune_inactive_clients(now);
         for (auto& [session_id, session] : sessions)
         {
             (void)session_id;

@@ -1619,6 +1619,60 @@ Windows validation (2026-07-30):
   server; and
 - an explicit Neovim product host opened without starting the isolated server.
 
+### Post-Slice 9 robustness review (2026-07-30)
+
+The completed local client/server path was reviewed across startup/discovery, IPC
+framing and listener concurrency, server ownership, terminal processes, topology and
+agent projection, UI teardown, persistence, status/tray control, and forced shutdown.
+
+Hardening completed:
+
+- connected clients and restored/runtime-created Sessions now have explicit limits;
+- client goodbye and inactivity expiry remove fake and real terminal subscriptions,
+  release controller claims, and bound queued terminal state;
+- remote hosts reattach after lease expiry and retry only commands the server
+  explicitly rejected as `not_attached`;
+- topology and agent clients include their UI identity on polling and automatically
+  refresh after a server revision rollback;
+- both Windows named pipes and Unix-domain sockets use four concurrent listeners, so
+  one stalled client cannot occupy the only IPC reader;
+- remote terminal dimensions match the PTY/ConPTY 320x200 bounds rather than allowing
+  an inconsistent, potentially oversized million-cell grid;
+- agent wait filters, client identities, Sessions, event queues, protocol frames, and
+  scrollback pages are bounded; and
+- Windows force-stop holds the original process handle across the final PID/epoch
+  check, while every platform rejects unrepresentable process IDs.
+
+Focused regression coverage proves client-limit release, inactivity cleanup,
+reattachment after a transport gap, repeated two-client controller transfer,
+goodbye cleanup, topology/agent revision rollback recovery, stale-revision errors,
+dimension rejection, and bounded agent waits.
+
+Validation after hardening:
+
+- `py do.py build release --ninja` rebuilt the production executable;
+- both focused Release test executables rebuilt and all six core/app CTest shards
+  passed;
+- the updated Debug executable passed `--console --smoke-test`; and
+- an isolated Release server accepted a normal shared-client smoke, retained its live
+  terminal with zero clients after detach, reported a stable epoch, and exited cleanly
+  through confirmed shutdown.
+
+Known boundaries retained for later work:
+
+- a UI attached to a server that actually exits does not migrate its live remote
+  terminal hosts to a new server epoch in place; the honest recovery is currently to
+  reopen the UI;
+- topology commands and projection polling still use bounded synchronous IPC on the
+  UI thread, so a live but completely wedged server can pause those UI operations for
+  the five-second transport deadline;
+- individual pathological cell payloads (for example, a hyperlink repeated across a
+  whole maximum-size grid) can still exceed the uncompressed 8 MiB frame even though
+  dimensions and normal poll batches are bounded; compression/table deduplication is
+  intentionally left with Slice 10; and
+- Unix/macOS code was reviewed for ownership and compilation consistency but was not
+  executed by this Windows validation run.
+
 ### Slice 10: SSH bridge and remote hardening
 
 **Outcome:** a local GPU client can attach to a Draxul server on another machine through

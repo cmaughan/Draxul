@@ -15,6 +15,7 @@
 #include <fstream>
 #include <future>
 #include <cstdlib>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <thread>
@@ -230,9 +231,35 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(second_agents.refresh(agent_error));
     CHECK(second_agents.snapshot() == *agent_snapshot);
 
+    auto attached_client = remote_client(temp.path, "unit-client");
+    REQUIRE(attached_client.attach(agent_error));
+    const auto stale_topology = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "topology.poll",
+        {
+            { "session_id", "default" },
+            { "client_id", "unit-client" },
+            { "after_revision",
+                std::numeric_limits<uint64_t>::max() },
+        });
+    CHECK_FALSE(stale_topology.ok);
+    CHECK(stale_topology.error_code
+        == "stale_topology_revision");
+    const auto stale_agents = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "agent.poll",
+        {
+            { "session_id", "default" },
+            { "client_id", "unit-client" },
+            { "after_revision",
+                std::numeric_limits<uint64_t>::max() },
+        });
+    CHECK_FALSE(stale_agents.ok);
+    CHECK(stale_agents.error_code == "stale_agent_revision");
+
     const auto status = ServerClient::status(temp.path);
     REQUIRE(status.ok);
-    REQUIRE(status.status->connected_clients == 1);
+    REQUIRE(status.status->connected_clients == 2);
     REQUIRE(status.status->terminals == 1);
     std::string disconnect_error;
     REQUIRE(ServerClient::disconnect(
@@ -240,7 +267,18 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     const auto disconnected_status
         = ServerClient::status(temp.path);
     REQUIRE(disconnected_status.ok);
-    CHECK(disconnected_status.status->connected_clients == 0);
+    CHECK(disconnected_status.status->connected_clients == 1);
+    bool changed = false;
+    CHECK_FALSE(attached_client.poll(changed, disconnect_error));
+    CHECK(attached_client.last_error_code() == "not_attached");
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "unit-client", disconnect_error));
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "unit-agent-observer", disconnect_error));
+    const auto fully_disconnected_status
+        = ServerClient::status(temp.path);
+    REQUIRE(fully_disconnected_status.ok);
+    CHECK(fully_disconnected_status.status->connected_clients == 0);
 
     ServerKernel duplicate({
         .runtime_directory = temp.path,
@@ -254,6 +292,87 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     run_guard.join();
     REQUIRE_FALSE(server.running());
     REQUIRE_FALSE(std::filesystem::exists(server_metadata_path(temp.path)));
+}
+
+TEST_CASE("server releases expired terminal leases",
+    "[server][kernel][clients]")
+{
+    TempDir temp("draxul-server-client-leases");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .client_activity_timeout = std::chrono::milliseconds(75),
+        .build_version = "unit-test",
+        .epoch_override = "lease-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto terminal = remote_client(
+        temp.path, "expiring-client", "lease-epoch");
+    std::string error;
+    REQUIRE(terminal.attach(error));
+    CHECK_FALSE(terminal.resize(
+        kRemoteTerminalMaxColumns + 1, 10, error));
+    CHECK(terminal.last_error_code() == "invalid_resize");
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    bool changed = false;
+    CHECK_FALSE(terminal.poll(changed, error));
+    CHECK(terminal.last_error_code() == "not_attached");
+    REQUIRE(terminal.attach(error));
+    REQUIRE(terminal.send_input("reattached", error));
+
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "expiring-client", error));
+}
+
+TEST_CASE("server bounds the connected client registry",
+    "[server][kernel][clients]")
+{
+    TempDir temp("draxul-server-client-limit");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "client-limit-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    for (size_t index = 0;
+         index < kServerMaxConnectedClients;
+         ++index)
+    {
+        const auto hello = ControlClient::request(
+            namespaced_control_id(
+                kServerControlId, temp.path),
+            temp.path, "server.hello",
+            server_hello_to_json({
+                .client_id = "bounded-client-"
+                    + std::to_string(index),
+            }));
+        INFO(index);
+        REQUIRE(hello.ok);
+    }
+    const auto rejected = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "server.hello",
+        server_hello_to_json({
+            .client_id = "one-client-too-many",
+        }));
+    CHECK_FALSE(rejected.ok);
+    CHECK(rejected.error_code == "client_limit_reached");
+
+    std::string error;
+    REQUIRE(ServerClient::disconnect(
+        temp.path, "bounded-client-0", error));
+    const auto admitted = ControlClient::request(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, "server.hello",
+        server_hello_to_json({
+            .client_id = "replacement-client",
+        }));
+    REQUIRE(admitted.ok);
 }
 
 TEST_CASE("server client classifies absent starting stale and crashed runtimes", "[server][discovery]")

@@ -32,6 +32,7 @@ public:
     bool handles(std::string_view method) const;
     ControlMethodResult handle(
         std::string_view method, const nlohmann::json& params);
+    void disconnect_client(std::string_view client_id);
     void pump();
     bool started() const;
     bool ensure_runtime_started(std::string& error);

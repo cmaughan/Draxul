@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
@@ -52,6 +53,8 @@ bool process_is_alive(uint64_t pid)
     if (pid == 0)
         return false;
 #ifdef _WIN32
+    if (pid > std::numeric_limits<DWORD>::max())
+        return false;
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
         static_cast<DWORD>(pid));
     if (!process)
@@ -62,6 +65,11 @@ bool process_is_alive(uint64_t pid)
     CloseHandle(process);
     return alive;
 #else
+    if (pid > static_cast<uint64_t>(
+                  std::numeric_limits<pid_t>::max()))
+    {
+        return false;
+    }
     const int result = ::kill(static_cast<pid_t>(pid), 0);
     return result == 0 || errno == EPERM;
 #endif
@@ -439,17 +447,14 @@ bool ServerClient::force_stop(
     const uint64_t pid = initial.status->server_pid;
     const std::string epoch = initial.status->server_epoch;
 
-    // Re-read immediately before terminating. This narrows the PID-reuse
-    // window and refuses to kill a replacement server.
-    const auto current = status(runtime_directory);
-    if (!current.ok || !current.status
-        || current.status->server_pid != pid
-        || current.status->server_epoch != epoch)
+#ifdef _WIN32
+    if (pid == 0 || pid > std::numeric_limits<DWORD>::max())
     {
-        error = "The Draxul server changed while force stop was being confirmed.";
+        error = "The Draxul server reported an invalid process identity.";
         return false;
     }
-#ifdef _WIN32
+    // Hold the process object across the final status check. A Windows handle
+    // continues to name the same process even if its numeric PID is reused.
     HANDLE process = OpenProcess(
         PROCESS_TERMINATE | SYNCHRONIZE, FALSE,
         static_cast<DWORD>(pid));
@@ -459,6 +464,29 @@ bool ServerClient::force_stop(
             + std::to_string(GetLastError()) + ").";
         return false;
     }
+#else
+    if (pid == 0 || pid > static_cast<uint64_t>(
+                              std::numeric_limits<pid_t>::max()))
+    {
+        error = "The Draxul server reported an invalid process identity.";
+        return false;
+    }
+#endif
+
+    // Re-read immediately before terminating. This narrows the PID-reuse
+    // window and refuses to kill a replacement server.
+    const auto current = status(runtime_directory);
+    if (!current.ok || !current.status
+        || current.status->server_pid != pid
+        || current.status->server_epoch != epoch)
+    {
+        error = "The Draxul server changed while force stop was being confirmed.";
+#ifdef _WIN32
+        CloseHandle(process);
+#endif
+        return false;
+    }
+#ifdef _WIN32
     const bool stopped = TerminateProcess(process, 2) != FALSE;
     const DWORD terminate_error = stopped ? ERROR_SUCCESS : GetLastError();
     if (stopped)

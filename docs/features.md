@@ -84,8 +84,12 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   bounded by encoded bytes as well as event count so large resize snapshots stay
   within the control frame. Client input is batched and command work is bounded
   between projection polls so sustained typing cannot starve observers. Windows
-  serves four named-pipe clients concurrently. Reconnect restores the current server
-  state.
+  named pipes and Unix-domain sockets both serve four clients concurrently.
+  Client presence, Sessions, terminal dimensions, agent wait filters, and stale
+  delivery queues are bounded. Clean goodbye or lease expiry releases every terminal
+  subscription and controller claim; a paused UI reattaches and retries safely.
+  Topology and agent projections refresh automatically if a restarted server reports
+  an earlier revision. Reconnect restores the current server state.
 - The real endpoint retains bounded semantic scrollback and serves versioned pages.
   Each window owns its scroll offset, selection, clipboard copy, and cursor
   presentation, so scrolling one client does not disturb another. Keyboard, focus,

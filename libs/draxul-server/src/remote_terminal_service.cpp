@@ -391,10 +391,10 @@ ControlMethodResult RemoteTerminalService::resize(
     const int cols = params["cols"].get<int>();
     const int rows = params["rows"].get<int>();
     if (cols <= 0 || rows <= 0
-        || cols > TerminalStateLimits::kMaxColumns
-        || rows > TerminalStateLimits::kMaxRows
+        || cols > kRemoteTerminalMaxColumns
+        || rows > kRemoteTerminalMaxRows
         || static_cast<size_t>(cols) * static_cast<size_t>(rows)
-            > TerminalStateLimits::kMaxCells)
+            > kRemoteTerminalMaxCells)
     {
         return ControlMethodResult::error(
             "invalid_resize", "Terminal dimensions are out of range.");
@@ -447,14 +447,19 @@ ControlMethodResult RemoteTerminalService::disconnect(
         return ControlMethodResult::error(
             "invalid_client", "A valid client_id is required.");
     }
+    disconnect_client(client_id);
+    return ControlMethodResult::success({ { "disconnected", true } });
+}
+
+void RemoteTerminalService::disconnect_client(std::string_view client_id)
+{
     const bool was_controller = controller_client_id_ == client_id;
-    subscribers_.erase(client_id);
+    subscribers_.erase(std::string(client_id));
     if (was_controller)
     {
         controller_client_id_.clear();
         broadcast(make_controller_event());
     }
-    return ControlMethodResult::success({ { "disconnected", true } });
 }
 
 ControlMethodResult RemoteTerminalService::restart(

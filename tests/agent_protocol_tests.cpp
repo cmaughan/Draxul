@@ -148,6 +148,32 @@ TEST_CASE("server agent service discovers evaluates and retires a runtime",
     REQUIRE(waiting.ok);
     CHECK_FALSE(waiting.value["complete"].get<bool>());
 
+    nlohmann::json excessive_wait_states
+        = nlohmann::json::array();
+    for (size_t index = 0;
+         index <= kServerAgentMaxWaitStates; ++index)
+    {
+        excessive_wait_states.push_back("working");
+    }
+    const auto too_many_wait_states = service.handle(
+        "agent.wait",
+        {
+            { "instance_id", instance_id },
+            { "until", excessive_wait_states },
+        });
+    CHECK_FALSE(too_many_wait_states.ok);
+    CHECK(too_many_wait_states.error_code == "invalid_params");
+    const auto oversized_wait_state = service.handle(
+        "agent.wait",
+        {
+            { "instance_id", instance_id },
+            { "until", {
+                  std::string(
+                      kServerAgentMaxWaitStateBytes + 1, 'x') } },
+        });
+    CHECK_FALSE(oversized_wait_state.ok);
+    CHECK(oversized_wait_state.error_code == "invalid_params");
+
     const auto replaced = service.handle("agent.wait",
         {
             { "instance_id", instance_id },

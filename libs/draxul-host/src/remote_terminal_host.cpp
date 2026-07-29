@@ -231,6 +231,42 @@ public:
     }
 
 private:
+    bool execute_command(
+        const RemoteHostCommand& command, std::string& error)
+    {
+        switch (command.kind)
+        {
+        case RemoteHostCommand::Kind::Input:
+            return client_->send_input(command.text, error);
+        case RemoteHostCommand::Kind::Resize:
+            return client_->resize(command.cols, command.rows, error);
+        case RemoteHostCommand::Kind::TakeControl:
+            return client_->take_control(error);
+        case RemoteHostCommand::Kind::Scroll:
+            return scroll_by(command.scroll_rows, error);
+        case RemoteHostCommand::Kind::ScrollToLive:
+            scroll_offset_ = 0;
+            scrollback_page_.reset();
+            publish_projection();
+            return true;
+        }
+        return false;
+    }
+
+    bool recover_attachment(std::string& error)
+    {
+        if (!client_->attach(error))
+            return false;
+        scroll_offset_ = 0;
+        scrollback_total_ = 0;
+        scrollback_page_.reset();
+        publish_projection();
+        DRAXUL_LOG_INFO(LogCategory::App,
+            "Remote terminal client %s reattached after its server lease expired",
+            options_.client_id.c_str());
+        return true;
+    }
+
     void worker_main()
     {
         bool fatal_error = false;
@@ -257,32 +293,31 @@ private:
             for (const auto& command : commands)
             {
                 std::string error;
-                bool ok = false;
-                switch (command.kind)
-                {
-                case RemoteHostCommand::Kind::Input:
-                    ok = client_->send_input(command.text, error);
-                    break;
-                case RemoteHostCommand::Kind::Resize:
-                    ok = client_->resize(command.cols, command.rows, error);
-                    break;
-                case RemoteHostCommand::Kind::TakeControl:
-                    ok = client_->take_control(error);
-                    break;
-                case RemoteHostCommand::Kind::Scroll:
-                    ok = scroll_by(command.scroll_rows, error);
-                    break;
-                case RemoteHostCommand::Kind::ScrollToLive:
-                    scroll_offset_ = 0;
-                    scrollback_page_.reset();
-                    publish_projection();
-                    ok = true;
-                    break;
-                }
+                bool ok = execute_command(command, error);
                 if (!ok)
                 {
-                    const std::string error_code
+                    std::string error_code
                         = client_->last_error_code();
+                    if (error_code == "not_attached")
+                    {
+                        std::string attach_error;
+                        if (recover_attachment(attach_error))
+                        {
+                            error.clear();
+                            ok = execute_command(command, error);
+                            if (ok)
+                            {
+                                transient_failure_since.reset();
+                                continue;
+                            }
+                            error_code = client_->last_error_code();
+                        }
+                        else
+                        {
+                            error = std::move(attach_error);
+                            error_code = client_->last_error_code();
+                        }
+                    }
                     if (is_removed_remote_terminal(error_code))
                     {
                         fatal_error = true;
@@ -321,7 +356,18 @@ private:
             std::string error;
             if (!client_->poll(changed, error))
             {
-                const std::string error_code = client_->last_error_code();
+                std::string error_code = client_->last_error_code();
+                if (error_code == "not_attached")
+                {
+                    std::string attach_error;
+                    if (recover_attachment(attach_error))
+                    {
+                        transient_failure_since.reset();
+                        continue;
+                    }
+                    error = std::move(attach_error);
+                    error_code = client_->last_error_code();
+                }
                 if (is_removed_remote_terminal(error_code))
                     break;
                 if (is_transient_remote_error(error_code))

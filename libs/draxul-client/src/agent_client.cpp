@@ -39,6 +39,13 @@ bool AgentClient::poll(bool& changed, std::string& error)
             { { "after_revision", snapshot_.revision } },
             result, error))
     {
+        if (last_error_code_ == "stale_agent_revision")
+        {
+            if (!refresh(error))
+                return false;
+            changed = true;
+            return true;
+        }
         return false;
     }
     if (!result.is_object()
@@ -73,6 +80,8 @@ bool AgentClient::request(std::string_view method,
     params["session_id"] = options_.session_id.empty()
         ? "default"
         : options_.session_id;
+    if (!options_.client_id.empty())
+        params["client_id"] = options_.client_id;
     const auto response = ControlClient::request(
         namespaced_control_id(
             kServerControlId, options_.runtime_directory),

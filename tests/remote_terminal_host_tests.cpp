@@ -316,6 +316,8 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
     TempDir temp("draxul-remote-host-takeover");
     ServerKernel server({
         .runtime_directory = temp.path,
+        .client_activity_timeout
+        = std::chrono::milliseconds(150),
         .epoch_override = "takeover-test-epoch",
     });
     REQUIRE(server.start().disposition == ServerStartDisposition::Started);
@@ -379,6 +381,9 @@ TEST_CASE("two rendered remote terminal hosts survive repeated control transfer"
         = first.is_running() && second.is_running();
     REQUIRE(rename_with_retry(held_metadata_path, metadata_path));
     REQUIRE(survived_transport_gap);
+    pump_for(first, second, std::chrono::milliseconds(500));
+    REQUIRE(first.is_running());
+    REQUIRE(second.is_running());
 
     const auto input_deadline
         = std::chrono::steady_clock::now() + std::chrono::seconds(3);

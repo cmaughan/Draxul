@@ -135,7 +135,7 @@ bool read_attr_table(const nlohmann::json& value,
     std::vector<HlAttr>& attrs)
 {
     if (!value.is_array()
-        || value.size() > TerminalStateLimits::kMaxCells)
+        || value.size() > kRemoteTerminalMaxCells)
     {
         return false;
     }
@@ -307,13 +307,13 @@ bool read_metadata(const nlohmann::json& value,
 bool valid_dimensions(int cols, int rows)
 {
     if (cols <= 0 || rows <= 0
-        || cols > TerminalStateLimits::kMaxColumns
-        || rows > TerminalStateLimits::kMaxRows)
+        || cols > kRemoteTerminalMaxColumns
+        || rows > kRemoteTerminalMaxRows)
     {
         return false;
     }
     return static_cast<size_t>(cols) * static_cast<size_t>(rows)
-        <= TerminalStateLimits::kMaxCells;
+        <= kRemoteTerminalMaxCells;
 }
 
 nlohmann::json version_to_json(const RemoteTerminalVersion& version)
@@ -484,7 +484,7 @@ std::optional<TerminalDirtySnapshot> terminal_dirty_snapshot_from_json(
     std::vector<HlAttr> attrs;
     const bool compact = value.contains("attrs");
     if (!valid_dimensions(snapshot.cols, snapshot.rows)
-        || value["cells"].size() > TerminalStateLimits::kMaxCells
+        || value["cells"].size() > kRemoteTerminalMaxCells
         || (compact && !read_attr_table(value["attrs"], attrs))
         || !read_metadata(value["metadata"], snapshot.metadata))
     {

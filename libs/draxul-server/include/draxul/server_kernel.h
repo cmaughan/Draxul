@@ -38,6 +38,9 @@ struct ServerKernelOptions
     std::chrono::milliseconds session_checkpoint_interval{
         std::chrono::seconds(30)
     };
+    std::chrono::milliseconds client_activity_timeout{
+        std::chrono::seconds(10)
+    };
     int protocol_major = kServerProtocolMajor;
     int protocol_minor = kServerProtocolMinor;
     std::string build_version;

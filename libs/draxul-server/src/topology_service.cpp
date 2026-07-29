@@ -442,7 +442,13 @@ ControlMethodResult TopologyService::poll(
     }
     const uint64_t after
         = params["after_revision"].get<uint64_t>();
-    if (after >= snapshot_.revision)
+    if (after > snapshot_.revision)
+    {
+        return ControlMethodResult::error(
+            "stale_topology_revision",
+            "The client topology revision is ahead of the server.");
+    }
+    if (after == snapshot_.revision)
     {
         return ControlMethodResult::success({
             { "changed", false },
