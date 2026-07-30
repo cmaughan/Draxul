@@ -24,8 +24,10 @@ available while every Draxul UI is detached from a remote Session.
 
 ## Rollback
 
-Remote agent authority remains gated by experimental remote Sessions. Local
-Sessions keep the existing app-owned `AgentController`.
+Agent runtime authority is part of the production shared-server Session model.
+The client keeps only projection, focus, and presentation state; rollback means
+reverting the managed-agent feature while retaining server-owned terminals, not
+falling back to an app-owned shell/agent runtime.
 
 ## Progress
 

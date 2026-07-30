@@ -3,7 +3,7 @@
 #include "cli_args.h"
 #include "control_cli.h"
 #include "server_status_surface.h"
-#include "session_cli.h"
+#include "session_id.h"
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <cstdio>
@@ -22,6 +22,7 @@
 #include <draxul/server_client.h>
 #include <draxul/server_kernel.h>
 #include <draxul/server_protocol.h>
+#include <draxul/topology_client.h>
 #ifdef DRAXUL_ENABLE_MEGACITY
 #include <draxul/megacity_host.h>
 #endif
@@ -164,7 +165,6 @@ const char* help_text()
         "Draxul terminal and agent harness\n\n"
         "Usage:\n"
         "  draxul [--session <id>] [--host <kind>]\n"
-        "  draxul --no-server [local options]\n"
         "  draxul --server | --server-status [--json]\n"
         "  draxul --list-sessions [--json]\n"
         "  draxul --rename-session --session <id> --session-name <name>\n"
@@ -172,8 +172,7 @@ const char* help_text()
         "  draxul --delete-all-sessions --yes\n"
         "  draxul --shutdown-server [--yes]\n"
         "  draxul --force-stop-server --yes\n\n"
-        "Normal shell launches attach to the per-user Draxul server. "
-        "Use --no-server for the legacy local terminal runtime.\n"
+        "Shell launches attach to the per-user Draxul server.\n"
         "List, rename, and delete operate on the shared server Session store.\n"
         "Explicit Neovim and product hosts remain client-local.\n\n"
         "Server options:\n"
@@ -233,15 +232,6 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         }
         draxul::ServerKernel kernel({
             .runtime_directory = runtime_dir,
-            .legacy_session_directory
-            = runtime_dir.lexically_normal()
-                == draxul::server_runtime_directory(
-                       draxul::ConfigDocument::default_path()
-                           .parent_path())
-                       .lexically_normal()
-            ? draxul::ConfigDocument::default_path().parent_path()
-                / "sessions"
-            : std::filesystem::path{},
             .protocol_major = draxul::kServerProtocolMajor,
             .protocol_minor = draxul::kServerProtocolMinor,
             .build_version = draxul::server_build_version(),
@@ -545,23 +535,8 @@ static int draxul_main(std::vector<std::string> args)
     if (control_cli.command)
         return draxul::run_control_cli(*control_cli.command);
 
-    draxul::SessionCli session_cli;
-
-    std::string new_session_error;
-    if (!session_cli.prepare_new_session_launch(parsed, &new_session_error))
-    {
-        // Refuse rather than silently downgrade. Falling back to "default"
-        // handed the user the shared Session they had explicitly asked to
-        // avoid — and "default" is the id most likely to already be open,
-        // which is now a hard refusal at startup.
-#ifdef _WIN32
-        ensure_console_io(true);
-#endif
-        std::fprintf(stderr, "%s\n",
-            new_session_error.empty() ? "Could not prepare the requested session."
-                                      : new_session_error.c_str());
-        return 1;
-    }
+    const bool shared_server
+        = draxul::should_use_shared_server(parsed);
 
     draxul::configure_default_logging();
 
@@ -573,6 +548,11 @@ static int draxul_main(std::vector<std::string> args)
     auto& host_registry = draxul::HostProviderRegistry::global();
     host_registry.clear();
     draxul::register_builtin_host_providers(host_registry);
+    if (shared_server)
+    {
+        draxul::register_server_shell_host_metadata(
+            host_registry);
+    }
     draxul::register_nanovg_demo_host_provider(host_registry);
     draxul::markdown::register_markdown_host_provider(host_registry);
     draxul::kanban::register_kanban_host_provider(host_registry);
@@ -607,25 +587,11 @@ static int draxul_main(std::vector<std::string> args)
         draxul::configure_logging(log_overrides);
     }
 
-    const auto session_cli_result = session_cli.run(
-        draxul::SessionCliRequest::from_parsed_args(parsed));
-    if (session_cli_result.disposition != draxul::SessionCliDisposition::Continue)
-    {
-        if (!session_cli_result.output.empty())
-            std::fputs(session_cli_result.output.c_str(), stdout);
-        if (!session_cli_result.error.empty())
-            std::fputs(session_cli_result.error.c_str(), stderr);
-        draxul::shutdown_logging();
-        return session_cli_result.disposition == draxul::SessionCliDisposition::Handled ? 0 : 1;
-    }
-
     std::optional<draxul::ServerWelcome> server_connection;
     std::filesystem::path connected_server_runtime;
     std::string connected_server_client_id;
     std::shared_ptr<draxul::ClientRecoveryState>
         connected_client_recovery;
-    const bool shared_server
-        = draxul::should_use_shared_server(parsed);
     const bool fake_remote_terminal
         = parsed.experimental_remote_terminal;
     const bool real_remote_terminal
@@ -674,7 +640,7 @@ static int draxul_main(std::vector<std::string> args)
                     draxul::to_string(server_result.state))
                 + "): " + server_result.error_message
                 + "\n\nThe existing server was left running. "
-                  "Use --no-server for recovery or stop it explicitly.");
+                  "Stop it explicitly before retrying.");
         }
         if (fake_remote_terminal
             && std::ranges::find(server_result.welcome->capabilities,
@@ -753,6 +719,84 @@ static int draxul_main(std::vector<std::string> args)
                 "managed Agents. Stop it and retry.");
         }
         server_connection = std::move(server_result.welcome);
+        connected_client_recovery->set_server_identity(
+            server_connection->server_epoch,
+            server_connection->connection_token);
+
+        if (parsed.new_session)
+        {
+            const auto status = draxul::ServerClient::status(
+                connected_server_runtime);
+            if (!status.ok || !status.status)
+            {
+                return report_server_startup_failure(
+                    "Could not inspect existing server Sessions: "
+                    + status.error_message);
+            }
+            const auto session_exists
+                = [&status](std::string_view id) {
+                      return std::ranges::any_of(
+                          status.status->session_statuses,
+                          [id](const auto& session) {
+                              return session.session_id == id;
+                          });
+                  };
+            if (parsed.session_id_explicit)
+            {
+                if (session_exists(parsed.session_id))
+                {
+                    return report_server_startup_failure(
+                        "Session '" + parsed.session_id
+                        + "' already exists. Choose another id.");
+                }
+            }
+            else
+            {
+                const int64_t unix_seconds
+                    = std::chrono::duration_cast<
+                        std::chrono::seconds>(
+                        std::chrono::system_clock::now()
+                            .time_since_epoch())
+                          .count();
+                const std::string base
+                    = draxul::make_session_id_base(
+                        parsed.session_name, unix_seconds);
+                int suffix = 1;
+                do
+                {
+                    parsed.session_id
+                        = draxul::make_session_id_candidate(
+                            base, suffix++);
+                } while (session_exists(parsed.session_id));
+            }
+
+            draxul::TopologyClient creator({
+                .runtime_directory = connected_server_runtime,
+                .client_id = connected_server_client_id,
+                .session_id = parsed.session_id,
+                .recovery = connected_client_recovery,
+            });
+            std::string create_error;
+            if (!creator.refresh(create_error))
+            {
+                return report_server_startup_failure(
+                    "Could not create Session '"
+                    + parsed.session_id + "': "
+                    + create_error);
+            }
+            if (!parsed.session_name.empty()
+                && !draxul::ServerClient::rename_session(
+                    connected_server_runtime,
+                    parsed.session_id,
+                    parsed.session_name,
+                    create_error))
+            {
+                return report_server_startup_failure(
+                    "Created Session '" + parsed.session_id
+                    + "' but could not set its name: "
+                    + create_error);
+            }
+        }
     }
 
 #ifdef DRAXUL_ENABLE_RENDER_TESTS

@@ -6,14 +6,19 @@
 
 ## Problem
 
-`app/session_state.cpp` writes topology and runtime metadata directly to their final paths with `std::ios::trunc`. A crash, full disk, or power loss can destroy the last valid session.
+Server checkpoints already use the shared session-state codec's sibling
+temporary file, durable flush, and atomic replacement path. The remaining work
+is to turn that implementation into a reusable runtime-support primitive and
+strengthen interrupted/corrupt-file recovery without changing server ownership.
 
 ## Implementation plan
 
 - [ ] Add a reusable atomic-file writer in `draxul-runtime-support` with a sibling temporary file, write/flush/close checks, and platform-correct replace semantics.
 - [ ] Flush file contents before replacement and, where available, flush the containing directory; document the durability guarantee on Windows and macOS.
 - [ ] Preserve file permissions and remove abandoned temporary files on the next load.
-- [ ] Convert both session topology and metadata writers to the helper.
+- [x] Server Session topology checkpoints avoid in-place `std::ios::trunc`
+  replacement and preserve the prior file on pre-replace failure.
+- [ ] Convert remaining checkpoint/metadata writers to the reusable helper.
 - [ ] On load, distinguish missing, corrupt, and interrupted files; quarantine corrupt files and prefer a verified backup only when one exists.
 - [ ] Keep serialization pure so fault tests can inject failures between stages.
 
@@ -22,7 +27,9 @@
 - [ ] Inject failure at create, write, flush, close, replace, and directory-flush stages.
 - [ ] Prove the previous valid file survives every pre-replace failure.
 - [ ] Prove a successful replace yields complete parseable TOML for topology and metadata.
-- [ ] Cover abandoned temp/backup recovery and concurrent attempts for the same session id.
+- [ ] Cover abandoned temp/backup recovery. Concurrent writes for one Session
+  are serialized by the single server owner; test that invariant rather than
+  recreating multiple file writers.
 
 ## Acceptance criteria
 

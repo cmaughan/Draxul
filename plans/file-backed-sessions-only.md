@@ -1,5 +1,12 @@
 # File-backed sessions only
 
+**Status:** superseded by
+[`server-client-terminal-runtime.md`](server-client-terminal-runtime.md).
+
+This document records the short-lived client-owned design before the shared
+server became authoritative. Its local shell backend, named save/load commands,
+and file-backed CLI are no longer production behavior.
+
 ## Outcome
 
 Draxul keeps automatic last-state restore and named session save/load, but the

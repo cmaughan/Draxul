@@ -9,15 +9,15 @@
 
 ## Problem
 
-CSI cursor-movement sequences (`CUP`, `CUU`, `CUD`, `CUF`, `CUB`) at grid edges have no explicit unit tests. A cursor at row 0, col 0 receiving CUB (cursor back) should stay at (0,0) — not wrap or underflow. A cursor at the last row/col receiving CUD/CUF should clamp. These edge cases are easy to regress when modifying `TerminalHostBase` CSI handling.
+CSI cursor-movement sequences (`CUP`, `CUU`, `CUD`, `CUF`, `CUB`) at grid edges have no explicit unit tests. A cursor at row 0, col 0 receiving CUB (cursor back) should stay at (0,0) — not wrap or underflow. A cursor at the last row/col receiving CUD/CUF should clamp. These edge cases are easy to regress when modifying renderer-neutral `TerminalCore` CSI handling.
 
 ---
 
 ## Steps
 
-- [ ] Read `libs/draxul-host/src/terminal_host_base_csi.cpp` (or equivalent) to find CSI cursor movement dispatch.
+- [ ] Read `libs/draxul-terminal-core/` to find CSI cursor movement dispatch.
 - [ ] Read existing CSI tests in `tests/` (search for `CUP`, `CUU`, `CUD`).
-- [ ] Add test cases using `replay_fixture.h` or a direct `TerminalHostBase` test harness:
+- [ ] Add test cases using `replay_fixture.h` or a direct `TerminalCore` harness:
   - `CUB` at col 0 → cursor stays at col 0.
   - `CUU` at row 0 → cursor stays at row 0.
   - `CUF` at last col → cursor clamps to last col.

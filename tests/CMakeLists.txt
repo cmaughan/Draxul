@@ -47,8 +47,6 @@ set(DRAXUL_APP_TEST_SOURCES
     input_dispatcher_routing_tests.cpp
     overlay_allocation_failure_tests.cpp
     pane_status_pill_tests.cpp
-    session_cli_tests.cpp
-    session_listing_tests.cpp
     server_status_surface_tests.cpp
     session_state_tests.cpp
     space_controller_tests.cpp

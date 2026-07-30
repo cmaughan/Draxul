@@ -143,20 +143,18 @@ TEST_CASE("CommandPalette: action visibility filters unavailable commands",
 {
     CommandPalette palette(CommandPalette::Deps{
         .action_visible = [](std::string_view action) {
-            return action != "save_session_as"
-                && action != "load_session";
+            return action != "new_space";
         },
     });
     palette.open();
     const auto state = palette.view_state(120, 40);
     CHECK(std::ranges::none_of(state.entries,
         [](const gui::PaletteEntry& entry) {
-            return entry.name == "save_session_as"
-                || entry.name == "load_session";
+            return entry.name == "new_space";
         }));
     CHECK(std::ranges::any_of(state.entries,
         [](const gui::PaletteEntry& entry) {
-            return entry.name == "new_space";
+            return entry.name == "switch_space";
         }));
 }
 

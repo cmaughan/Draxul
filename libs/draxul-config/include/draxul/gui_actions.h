@@ -48,8 +48,6 @@ inline constexpr std::array<GuiActionInfo, 58> kGuiActions = { {
     { "server_status" },
     { "open_server_log" },
     { "stop_server" },
-    { "save_session_as" },
-    { "load_session" },
     { "new_space" },
     { "switch_space" },
     { "rename_space" },

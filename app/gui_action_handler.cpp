@@ -48,8 +48,6 @@ const std::unordered_map<std::string_view, GuiActionHandler::ActionFn>& GuiActio
         {"server_status",      [](auto& h, auto) { if (h.deps_.on_server_status) h.deps_.on_server_status(); }},
         {"open_server_log",    [](auto& h, auto) { if (h.deps_.on_open_server_log) h.deps_.on_open_server_log(); }},
         {"stop_server",        [](auto& h, auto) { if (h.deps_.on_stop_server) h.deps_.on_stop_server(); }},
-        {"save_session_as",    [](auto& h, auto) { if (h.deps_.on_save_session_as) h.deps_.on_save_session_as(); }},
-        {"load_session",       [](auto& h, auto) { if (h.deps_.on_load_session) h.deps_.on_load_session(); }},
         {"new_space",          [](auto& h, auto) { if (h.deps_.on_new_space) h.deps_.on_new_space(); }},
         {"switch_space",       [](auto& h, auto) { if (h.deps_.on_switch_space) h.deps_.on_switch_space(); }},
         {"rename_space",       [](auto& h, auto) { if (h.deps_.on_rename_space) h.deps_.on_rename_space(); }},

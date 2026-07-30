@@ -4,6 +4,18 @@
 **Priority:** P2 / sequence 10
 **Raised by:** Claude (architecture review, 2026-07-27)
 
+## Resolution (2026-07-30)
+
+Superseded by server-owned Sessions and durable server checkpoints. Shell
+topology is no longer conditionally saved by each UI, a window disconnect does
+not end the Session, and a shell process exit is reconciled by the authoritative
+server topology. `--new-session` is also resolved against the live server
+registry and fails instead of falling back to another Session.
+
+The historical client-side observations and fixes below are retained for
+context, but their app-owned persistence path, `SessionCli`, and `--no-server`
+route have now been removed.
+
 ## Goal
 
 Four separate paths currently discard, skip, or redirect a user's saved session

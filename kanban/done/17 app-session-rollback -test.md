@@ -4,6 +4,13 @@
 **Priority:** 17
 **Raised by:** Claude
 
+## Resolution (2026-07-30)
+
+Superseded by server-authoritative topology transactions and checkpoint tests.
+The client `App::load_session` / `App::save_session_as` operations no longer
+exist; Session create, switch, rename, delete, recovery, and checkpoint failure
+behavior is exercised through the server protocol and `ServerKernel` fixtures.
+
 ## Gap
 
 `App::load_session` and `save_session_as` coordinate file-backed state,

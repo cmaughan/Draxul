@@ -108,16 +108,15 @@ does not rebuild or extend the universal value-type archive.
 | `libs/draxul-client/` | Singleton discovery/launch/status/shutdown plus renderer-free remote-terminal and sanitized-agent polling, acknowledged/coalesced Session delivery, and `TopologyProjection`, which owns remote/local Space-tab-pane identities, stable leaf/split projection, structural signatures, divider-node mapping, and topology command activation bookkeeping behind the app's thin controller/PaneManager adapters; also owns the scrollback-page client, attach-latency metric, and headless probe API |
 | `libs/draxul-server/` | Headless server kernel, authoritative revisioned/idempotent topology service, Session-scoped agent discovery, sanitized status projection, profile-resolved managed-agent launch/restore, headless agent inspection/input/restart control, and epoch/runtime-pinned native-session reporting, server-owned periodic/graceful v3 Session checkpoint and cold restore, deterministic fake terminal plus a stable-ID registry of lazy real server-owned shell runtimes, semantic scrollback, per-terminal controller leases, sanitized transport metrics, bounded per-client terminal event queues, and serialized control event loop; deliberately has no window, renderer, host, or product dependency |
 | `libs/draxul-terminal-core/` | Renderer-, window-, and process-free VT state machine, semantic full/dirty/cell snapshots, terminal identity/limits, alternate-screen state, attributes, and reusable scrollback storage |
-| `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters shared by local terminal hosts and server-owned terminal runtimes |
+| `libs/draxul-terminal-process/` | UI-free PTY/ConPTY process adapters owned by server terminal runtimes |
 
 These targets must not depend on product modules. Configure-time checks in
 `cmake/CheckDependencyBoundaries.cmake` enforce that direction and the direct
 `draxul-host` dependencies needed by its public and implementation headers.
 `draxul-host` privately consumes `draxul-client` for the `RemoteTerminalHost`
-renderer adapter, including client-local viewport/selection/mouse/paste behavior, and
-`draxul-terminal-process` for local shells. The process adapter,
-client, and server libraries remain free of host, window, renderer, font, SDL, and
-product dependencies.
+renderer adapter, including client-local viewport/selection/mouse/paste behavior.
+The process adapter, client, and server libraries remain free of host, window,
+renderer, font, SDL, and product dependencies.
 
 ### libs/draxul-window/
 

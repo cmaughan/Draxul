@@ -54,9 +54,8 @@ executable.
 7. A shared pane descriptor records whether its runtime is `server_terminal` or
    `client_local`. Neovim remains client-local even when its pane participates in a
    shared split tree.
-8. Local IPC is implemented first, behind an experimental path until it is proven.
-   The protocol and data model must nevertheless remain suitable for a future SSH
-   transport.
+8. Local IPC is the production shell path. The protocol and data model remain
+   suitable for a future SSH transport.
 9. The server kernel may expose an optional Windows notification-area or macOS
    menu-bar status surface. It must still run without a graphical login session.
 10. A server crash is initially a process-loss boundary. UI reconnect preserves live
@@ -81,8 +80,8 @@ The project is ready to make server mode the default when all of these are true:
 - server persistence restores every saved Session and Space transactionally;
 - Windows and macOS use the same protocol and ownership model;
 - standalone product hosts and Neovim retain their current local behavior; and
-- the legacy local terminal path remains available as a temporary recovery mechanism
-  until the new path has completed a confidence period.
+- no client-local shell backend or alternate Session owner remains in the
+  production executable.
 
 ## Non-goals for the local-first implementation
 
@@ -239,8 +238,8 @@ terminal host:
 - bounded observations used by agent detection; and
 - semantic snapshots and dirty-state extraction.
 
-The existing local terminal path and the new server runtime both compose this same
-core during migration.
+During migration both paths composed this core. Production shells now compose it
+only through the server runtime; client-side terminal bases remain test adapters.
 
 #### `draxul-terminal-runtime`
 
@@ -353,7 +352,6 @@ Add link-isolation tests for the public headers and keep the CMake graph in
 |---|---|
 | `draxul --server` | Run the server kernel; show a status surface when available |
 | `draxul` | Discover or launch the server, then run a GPU UI client |
-| `draxul --no-server` | Temporary legacy/recovery path using local terminals |
 | `draxul --host satview` and other standalone products | Existing local single-process path |
 | `draxul --server-status` | Query server status without launching a UI |
 | `draxul --shutdown-server` | Request graceful server shutdown |
@@ -668,9 +666,9 @@ Two restore cases remain distinct:
 Do not persist terminal grids merely to make cold restart look like live reconnect.
 Screen-history persistence can be a separate, bounded format later.
 
-The first server migration should read the current snapshot path and schema without
-rewriting it at startup. Only bump the snapshot version if durable fields actually
-change. Preserve a tested `--no-server` reader during the migration period.
+Server checkpoints reuse the versioned snapshot codec. Only bump the snapshot
+version if durable fields actually change; old schema versions may be decoded
+without retaining an alternate client-owned store or runtime.
 
 ## Agent ownership after migration
 
@@ -791,11 +789,11 @@ Implementation record:
 - `draxul-terminal-core` now owns VT parsing/state, grid mutation, attributes,
   hyperlinks, alternate-screen behavior, modes, metadata, semantic snapshots, and
   reusable scrollback storage;
-- `TerminalHostBase` is now a composition adapter over `TerminalCore`; it retains
-  process lifecycle, window/clipboard integration, renderer publication, and input
-  routing, while `LocalTerminalHost` retains selection, copy mode, mouse projection,
-  agent observation, and the client scrollback viewport;
-- both existing ConPTY and Unix PTY hosts continue through that same adapter;
+- `TerminalHostBase` and `LocalTerminalHost` became composition/test adapters
+  over `TerminalCore` during extraction; production process lifecycle later
+  moved to `draxul-terminal-process` in the server, while
+  `RemoteTerminalHost` owns client presentation;
+- ConPTY and Unix PTY implementations now live only behind the server runtime;
 - CMake dependency checks and a standalone public-header/link test enforce a core
   boundary with no window, renderer, SDL, `IHost`, or process dependency; and
 - the semantic digests, full test inventory, app smoke, and terminal render checks
@@ -826,8 +824,8 @@ Automated exit gate:
 
 Rollback:
 
-- the composed local adapter remains the production path and can be retained as
-  `--no-server`.
+- the extracted core was proven before ownership moved; the concrete
+  client-local shell factories have since been retired.
 
 ### Slice 2: real singleton server bootstrap, no remote shells
 
@@ -1541,8 +1539,8 @@ acceptance item.
 
 Rollback:
 
-- remote agent behavior remains gated with remote terminal Sessions; the existing local
-  harness still serves `--no-server`.
+- revert the agent-runtime feature while retaining server-owned shell Sessions;
+  do not restore a second app-owned shell authority.
 
 ### Slice 9: make remote terminals the default and add server status surfaces
 
@@ -1551,15 +1549,14 @@ Rollback:
 Work:
 
 - flip normal terminal startup to server/client mode;
-- retain `--no-server` for one documented confidence/recovery period;
 - add Windows notification-area and macOS menu-bar status surfaces;
 - expose Open Draxul, status, diagnostics/log, connected clients, running terminals,
   and one guarded stop flow with a conditional force-stop fallback;
 - update user documentation, command palette, help, packaging, and logs;
 - ensure app updates detect incompatible live servers without killing them;
 - run extended Windows/macOS soak and sanitizer coverage; and
-- decide, from field evidence, whether the local terminal backend should remain
-  permanently as a diagnostic mode.
+- retain fake transports and protocol snapshots as diagnostic seams without a
+  second production shell backend.
 
 Demonstration:
 
@@ -1577,13 +1574,13 @@ Automated exit gate:
 
 Rollback:
 
-- `--no-server` remains documented and tested; old snapshots are not rewritten into an
-  incompatible format merely by launching the new client.
+- revert the Slice 9 commit set as a unit. There is no runtime switch to a
+  competing local Session owner.
 
 Implementation status (2026-07-29):
 
 - ordinary shell startup now discovers or launches the shared server; explicit
-  standalone product hosts and `--no-server` remain client-owned;
+  standalone product hosts remain client-owned;
 - the server process owns an SDL notification-area/menu-bar surface with live counts,
   Open Draxul, Open Log, refresh, and one guarded Stop Server action; its modal
   confirmation runs in a short-lived helper process, and Force Stop is offered only
@@ -1601,11 +1598,8 @@ Implementation status (2026-07-29):
   and deletes its checkpoint so it stays gone after restart;
 - `--rename-session` is also server-owned, so list/rename/delete now address the
   same live Session registry and report the shared-server store in their output;
-- ordinary first startup performs a one-time, read-only import from
-  `<config>/sessions/` (and the older single default snapshot) into the server
-  store. It validates each source, copies its original bytes without rewriting,
-  leaves the legacy store untouched, and records a durable marker. Bad sources
-  are warnings, not a reason to repeat or abandon the migration;
+- the temporary one-time legacy-store importer has been removed. The server
+  restores only its authoritative checkpoint store;
 - checkpoint writes are durable and asynchronous. Corrupt files are archived,
   partial restores keep checkpointing, attaching UIs see one-time warnings, and
   graceful shutdown uses a bounded persistence budget while still capturing a
@@ -1614,16 +1608,13 @@ Implementation status (2026-07-29):
   detach with a live terminal, status, refusal of unconfirmed shutdown, confirmed
   shutdown, and server exit.
 
-Legacy-store retirement:
+Legacy-store retirement (completed 2026-07-30):
 
-- The legacy store is intentionally a confidence-period fallback for
-  `--no-server`, not a permanent read-through second home. The shared server only
-  imports it once and never writes it.
-- Retire the importer and legacy local store only after the shared-server default
-  has shipped with migration telemetry/manual recovery confidence and
-  `--no-server` no longer needs to preserve old layouts. Until then, schema
-  compatibility remains one-way: validate and byte-copy old snapshots, then let
-  normal server checkpoints evolve the imported copies.
+- concrete client-local shell factories, `SessionCli`, the one-time importer,
+  the old default snapshot read-through, client save/load palette actions, and
+  `--no-server` have been removed;
+- the shared snapshot codec remains because it is the server checkpoint format
+  and still supports explicit schema-version migration.
 
 Repeatable Windows acceptance (`build-ninja-release`):
 
@@ -1925,11 +1916,10 @@ agent prompts, or native conversation contents.
 3. Slices 6-8 apply server authority only to experimental remote Sessions.
 4. Slice 9 flips the default only after Windows and macOS gates, the two-client script,
    detach/reconnect soak, and snapshot migration tests pass.
-5. Keep `--no-server` through at least one confidence period and while any unsupported
-   shell-host gap exists.
-6. Do not delete the local adapter in the same change that flips the default.
-7. Do not rewrite or delete current Session files merely because server mode starts.
-8. Keep commits cohesive by slice; each commit must build, pass its focused tests, and
+5. Once the shared path is accepted, remove the alternate local owner rather
+   than maintaining two authorities indefinitely. Completed 2026-07-30.
+6. Do not rewrite or delete server Session checkpoints merely because server mode starts.
+7. Keep commits cohesive by slice; each commit must build, pass its focused tests, and
    preserve an operable application.
 
 Implementation work items belong in `kanban/pending/`, normally one cohesive item per

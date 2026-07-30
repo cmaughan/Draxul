@@ -12,16 +12,6 @@ add_library(draxul-host
     src/unavailable_host.cpp
 )
 
-if(WIN32)
-    target_sources(draxul-host PRIVATE
-        src/shell_host_win.cpp
-    )
-else()
-    target_sources(draxul-host PRIVATE
-        src/shell_host_unix.cpp
-    )
-endif()
-
 target_include_directories(draxul-host PUBLIC include)
 
 target_link_libraries(draxul-host PUBLIC
@@ -32,7 +22,6 @@ target_link_libraries(draxul-host PUBLIC
     draxul-renderer
     draxul-runtime-support
     draxul-terminal-core
-    draxul-terminal-process
     draxul-types
 )
 target_link_libraries(draxul-host PRIVATE

@@ -301,40 +301,6 @@ TEST_CASE("gui action handler: reload_config invokes on_reload_config", "[config
     REQUIRE(reload_count == 1);
 }
 
-TEST_CASE("gui action handler: save_session_as invokes callback", "[gui_actions]")
-{
-    TextService ts;
-    AppConfig config;
-    GuiActionHandler::Deps deps;
-    deps.text_service = &ts;
-    deps.config = &config;
-    int save_as_count = 0;
-    deps.on_save_session_as = [&save_as_count]() { ++save_as_count; };
-    GuiActionHandler handler(std::move(deps));
-
-    const bool handled = handler.execute("save_session_as");
-
-    REQUIRE(handled);
-    CHECK(save_as_count == 1);
-}
-
-TEST_CASE("gui action handler: load_session invokes callback", "[gui_actions]")
-{
-    TextService ts;
-    AppConfig config;
-    GuiActionHandler::Deps deps;
-    deps.text_service = &ts;
-    deps.config = &config;
-    int load_count = 0;
-    deps.on_load_session = [&load_count]() { ++load_count; };
-    GuiActionHandler handler(std::move(deps));
-
-    const bool handled = handler.execute("load_session");
-
-    REQUIRE(handled);
-    CHECK(load_count == 1);
-}
-
 TEST_CASE("gui action handler: Space lifecycle actions invoke their callbacks", "[gui_actions][spaces]")
 {
     TextService ts;

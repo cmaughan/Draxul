@@ -2,8 +2,8 @@
 
 ## Outcome
 
-Make the experimental server-owned terminal practical for ordinary shell, agent,
-and full-screen terminal use while preserving independent client view state.
+Keep the server-owned terminal practical for ordinary shell, agent, and
+full-screen terminal use while preserving independent client view state.
 
 ## Already delivered by Slices 3-4
 
@@ -32,9 +32,9 @@ and full-screen terminal use while preserving independent client view state.
       retained scrollback rows, and reconnect time without terminal content.
 - [x] Local and remote replay/randomized convergence, high-output/slow-client stress,
       alternate-screen/Unicode/scrollback tests, and a remote render scenario pass.
-- [ ] Release build, full CTest, smoke, and a live two-client full-screen/agent-style
-      demonstration pass on Windows; macOS source wiring remains valid and any runtime
-      execution gap is recorded.
+- [x] Release build, full CTest, and smoke pass on Windows.
+- [ ] A live two-client full-screen/agent-style demonstration passes on Windows;
+      macOS source wiring remains valid and any runtime execution gap is recorded.
 
 ## Validation checkpoint (2026-07-29)
 
@@ -45,10 +45,12 @@ and full-screen terminal use while preserving independent client view state.
 - The first Debug CTest run passed 21 of 22 entries and exposed a server runtime
   thread-affinity assertion. Runtime construction was moved onto the server state
   thread; the focused Debug host regression then passed (142 assertions in 3 cases).
-- A clean full CTest rerun and the live two-window manual gate remain before moving
-  this card to `done`. macOS runtime execution is not available in this workspace.
+- Subsequent clean full CTest and smoke gates passed. The live two-window manual
+  gate remains before moving this card to `done`. macOS runtime execution is not
+  available in this workspace.
 
 ## Rollback
 
-All new behavior stays behind `--experimental-remote-shell`. The fake endpoint,
-complete snapshots, and ordinary local terminal hosts remain available.
+The fake endpoint and complete-snapshot protocol fallback remain diagnostic
+seams. Production shell terminals are server-owned; rollback means reverting
+the server/client change, not selecting a second local runtime path.

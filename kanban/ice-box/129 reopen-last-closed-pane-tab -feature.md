@@ -38,8 +38,11 @@ When a user accidentally closes a pane or tab there is no way to reopen it. Mode
 
 ## Implementation Notes
 
-- `ClosedPaneRecord` stack lives in `App` (or `PaneManager`) — small, bounded, no persistence required for MVP
-- For session persistence integration, the record format can be reused by **WI 25** (session restore)
+- The bounded undo record belongs to the authoritative server Session so all
+  clients observe the same reopen result.
+- Reopen is a version-checked topology mutation that creates a fresh
+  server-owned process from the saved launch descriptor; it does not resurrect
+  the exited process.
 - CWD only available if the pane reported OSC 7; gracefully fall back to default CWD otherwise
 - Shell host reopens a fresh shell in the last CWD (not a replay of the session)
 - NvimHost reopens nvim in the last CWD

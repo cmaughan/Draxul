@@ -266,7 +266,7 @@ TEST_CASE("cli: server owns remote shell launch and history settings",
             .error.has_value());
 }
 
-TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][server]")
+TEST_CASE("cli: experimental bootstrap follows shared-server startup modes", "[cli][server]")
 {
     auto normal = parse({ "--experimental-server-client" });
     REQUIRE(should_bootstrap_experimental_server(normal.args));
@@ -277,11 +277,8 @@ TEST_CASE("cli: experimental bootstrap preserves standalone modes", "[cli][serve
 
     auto smoke = parse(
         { "--experimental-server-client", "--smoke-test" });
-    REQUIRE_FALSE(should_bootstrap_experimental_server(smoke.args));
+    REQUIRE(should_bootstrap_experimental_server(smoke.args));
 
-    auto opted_out = parse(
-        { "--experimental-server-client", "--no-server" });
-    REQUIRE_FALSE(should_bootstrap_experimental_server(opted_out.args));
 }
 
 TEST_CASE("cli: normal shell startup uses the shared server by default",
@@ -293,13 +290,12 @@ TEST_CASE("cli: normal shell startup uses the shared server by default",
     REQUIRE(should_use_shared_server(
         parse({ "--host", "zsh" }).args));
 
-    REQUIRE_FALSE(should_use_shared_server(
-        parse({ "--no-server" }).args));
+    REQUIRE(parse({ "--no-server" }).error);
     REQUIRE_FALSE(should_use_shared_server(
         parse({ "--host", "nvim" }).args));
     REQUIRE_FALSE(should_use_shared_server(
         parse({ "--host", "satview" }).args));
-    REQUIRE_FALSE(should_use_shared_server(
+    REQUIRE(should_use_shared_server(
         parse({ "--smoke-test" }).args));
 }
 
@@ -369,8 +365,6 @@ TEST_CASE("cli: fake remote terminal opts into server bootstrap",
     REQUIRE(remote.args.experimental_server_client);
     REQUIRE(should_bootstrap_experimental_server(remote.args));
 
-    REQUIRE(parse({ "--experimental-remote-terminal", "--no-server" })
-            .error.has_value());
     REQUIRE(parse({ "--experimental-remote-terminal",
                        "--host", "powershell" })
             .error.has_value());
@@ -387,8 +381,6 @@ TEST_CASE("cli: real remote shell opts into server bootstrap",
     REQUIRE(remote.args.experimental_server_client);
     REQUIRE(should_bootstrap_experimental_server(remote.args));
 
-    REQUIRE(parse({ "--experimental-remote-shell", "--no-server" })
-            .error.has_value());
     REQUIRE(parse({ "--experimental-remote-shell",
                        "--host", "powershell" })
             .error.has_value());

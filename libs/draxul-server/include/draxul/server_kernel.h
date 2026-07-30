@@ -41,9 +41,6 @@ struct ServerKernelOptions
 {
     std::filesystem::path runtime_directory;
     std::filesystem::path session_state_file;
-    // Empty disables legacy import. Production startup explicitly supplies
-    // the configured legacy Sessions directory.
-    std::filesystem::path legacy_session_directory;
     std::chrono::milliseconds session_checkpoint_interval{
         std::chrono::seconds(30)
     };

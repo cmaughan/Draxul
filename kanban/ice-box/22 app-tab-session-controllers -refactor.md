@@ -6,7 +6,10 @@
 
 ## Goal
 
-Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiActionHandler`, or `PaneManager` extraction. The remaining growth is tab ownership and file-backed session orchestration.
+Reduce `App` without recreating the already-completed `InputDispatcher`,
+`GuiActionHandler`, or `PaneManager` extraction. The remaining growth is
+client-side tab/topology projection and Session navigation; authoritative
+Session mutation and persistence belong to the server.
 
 ## Implementation plan
 
@@ -14,7 +17,9 @@ Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiAct
 - [ ] Catalogue `App` fields/methods into bootstrap/frame/overlay, tab, and session responsibilities.
 - [ ] Extract `TabController` to own tab records, active id, create/close/activate/reorder, split-tree access, focus transitions, and viewport recomputation.
 - [ ] Give it narrow callbacks for host construction/frame requests; do not make it own window/renderer/overlays.
-- [ ] Extract `SessionController` for file-backed state load/save, list/rename/delete, checkpointing, and load/save rollback; do not reintroduce live-process state.
+- [ ] Extract a client `SessionProjectionController` for server registry
+  refresh, create/switch/rename/delete requests, revision reconciliation, and
+  selection. It must not write checkpoints or own shell processes.
 - [ ] Replace repeated layout-refresh rituals with one controller operation returning the state App must refresh.
 - [ ] Keep `App` responsible for top-level subsystem ownership and the main event/frame loop.
 - [ ] Land tab and session extraction as separate commits/PRs.
@@ -22,7 +27,8 @@ Reduce `App` without recreating the already-completed `InputDispatcher`, `GuiAct
 ## Tests and acceptance
 
 - [ ] Move existing tab/session tests to controller-level fixtures and retain App integration tests.
-- [ ] Test multi-tab focus, last-pane/last-tab transitions, restore rollback, and shutdown ordering.
+- [ ] Test multi-tab focus, authoritative revision replacement, rejected
+  topology mutations, reconnect/resync, and shutdown ordering.
 - [ ] `App` no longer owns tab vectors or session transaction details.
 - [ ] No behavior/keybinding/session-format change occurs.
 - [ ] Full build, `ctest`, render suite, and smoke pass.

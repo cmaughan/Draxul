@@ -669,37 +669,6 @@ bool ServerKernel::Impl::prepare_session_restore(std::string&)
     sessions.clear();
     unassigned_restore_warnings.clear();
 
-    if (!options.legacy_session_directory.empty())
-    {
-        SessionStoreImportResult import_result;
-        std::string import_error;
-        if (!import_legacy_session_store(
-                options.legacy_session_directory,
-                options.runtime_directory / "sessions",
-                import_result, &import_error))
-        {
-            unassigned_restore_warnings.push_back(
-                "Legacy Session import failed: "
-                + import_error);
-        }
-        else
-        {
-            unassigned_restore_warnings.insert(
-                unassigned_restore_warnings.end(),
-                import_result.warnings.begin(),
-                import_result.warnings.end());
-            if (import_result.imported > 0)
-            {
-                unassigned_restore_warnings.push_back(
-                    "Imported "
-                    + std::to_string(import_result.imported)
-                    + " legacy Session"
-                    + (import_result.imported == 1 ? "" : "s")
-                    + " into the shared server store.");
-            }
-        }
-    }
-
     auto prepare = [this](std::filesystem::path path,
                        std::optional<std::string> expected_session_id) {
         auto prepared = std::make_unique<ServerSession>();

@@ -35,7 +35,6 @@ struct ParsedArgs
     bool experimental_server_client = false;
     bool experimental_remote_terminal = false;
     bool experimental_remote_shell = false;
-    bool no_server = false;
     bool json_output = false;
     std::filesystem::path server_runtime_dir;
     std::string server_shell_kind;

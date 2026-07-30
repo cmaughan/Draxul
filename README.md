@@ -128,14 +128,13 @@ cmake --build build --parallel
 
 With no arguments, Draxul discovers or starts the per-user Draxul server and opens
 its shared default shell Session. Closing the UI leaves the server, shells, Spaces,
-and agents running; the next UI reconnects to them. Use `--no-server` for a
-client-owned recovery shell, or select a standalone product explicitly with `--host`.
+and agents running; the next UI reconnects to them. Select a standalone product
+explicitly with `--host`.
 
 ### Windows
 
 ```powershell
 .\build-ninja-release\draxul.exe                         # shared PowerShell Session
-.\build-ninja-release\draxul.exe --no-server             # client-owned recovery shell
 .\build-ninja-release\draxul.exe --host nvim             # embedded Neovim
 .\build-ninja-release\draxul.exe --host powershell       # shared PowerShell Session
 .\build-ninja-release\draxul.exe --host megacity --source C:\dev\linux
@@ -152,7 +151,6 @@ status counts, log access, and guarded stop actions.
 
 ```bash
 ./build/draxul.app/Contents/MacOS/draxul                # shared login-shell Session
-./build/draxul.app/Contents/MacOS/draxul --no-server    # client-owned recovery shell
 ./build/draxul.app/Contents/MacOS/draxul --host nvim    # embedded Neovim
 ./build/draxul.app/Contents/MacOS/draxul --host zsh     # shared Zsh Session
 ./build/draxul.app/Contents/MacOS/draxul --host megacity --source ~/dev/linux  # MegaCity scan root override

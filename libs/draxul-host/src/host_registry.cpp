@@ -112,6 +112,26 @@ void HostProviderRegistry::register_provider(HostProviderMetadata metadata, Host
     providers_.push_back(Entry{ std::move(metadata), std::move(factory) });
 }
 
+void HostProviderRegistry::register_metadata(HostKind kind)
+{
+    HostProviderMetadata metadata = default_metadata(kind);
+    if (!host_provider_available_on_current_platform(
+            metadata.platforms))
+    {
+        return;
+    }
+    for (auto& entry : providers_)
+    {
+        if (entry.metadata.kind == kind)
+        {
+            entry.metadata = std::move(metadata);
+            return;
+        }
+    }
+    providers_.push_back(
+        Entry{ std::move(metadata), {} });
+}
+
 bool HostProviderRegistry::has(HostKind kind) const
 {
     for (const auto& entry : providers_)

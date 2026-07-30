@@ -4,6 +4,19 @@
 **Priority:** P1 / sequence 09
 **Raised by:** Claude (architecture review, 2026-07-27)
 
+## Resolution (2026-07-30)
+
+Superseded by the shared-server architecture. A single `ServerKernel` now owns
+the runtime directory, Session registry, topology checkpoints, control endpoint,
+and all shell processes. Multiple Draxul windows attach as clients instead of
+starting competing Session owners, so the file-writer and endpoint collision
+described below no longer exists in the production path.
+
+The server singleton, authenticated endpoint, startup handshake, and
+controller/observer tests cover the replacement policy. The concrete local
+shell backend, client control endpoint, and `--no-server` escape path were
+removed on the server-client branch.
+
 ## Goal
 
 Two Draxul processes sharing a session id currently corrupt each other's saved

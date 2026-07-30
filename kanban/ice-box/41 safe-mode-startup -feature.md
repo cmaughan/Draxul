@@ -11,7 +11,9 @@ When config, fonts, modules, session state, or network services break startup, u
 ## Implementation plan
 
 - [ ] Add `--safe-mode` to `CliArgs`, help, tests, and docs.
-- [ ] Define safe-mode policy: default config/theme/font, fresh shell tab, optional modules not auto-launched, network services disabled, saved session not mutated, diagnostics/log file enabled.
+- [ ] Define safe-mode policy: default config/theme/font, isolated server Session
+  or explicit diagnostic host, optional modules not auto-launched, remote
+  transports disabled, authoritative checkpoints not mutated, and diagnostics/log enabled.
 - [ ] Detect repeated/previous startup failure with a small atomic marker cleared after successful initialization.
 - [ ] On the next normal launch offer Retry, Start Safe Mode, or Open Config/Log without entering a restart loop.
 - [ ] Keep user config/session files read-only in safe mode unless the user explicitly chooses a repair action.

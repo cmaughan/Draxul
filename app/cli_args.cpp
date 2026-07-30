@@ -60,8 +60,6 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.experimental_remote_shell = true;
             parsed.experimental_server_client = true;
         }
-        else if (args[i] == "--no-server")
-            parsed.no_server = true;
         else if (args[i] == "--json")
             parsed.json_output = true;
         else if (args[i] == "--server-runtime-dir" && i + 1 < args.size())
@@ -297,6 +295,11 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
                 return result;
             }
         }
+        else
+        {
+            result.error = "error: unknown option '" + args[i] + "'";
+            return result;
+        }
     }
     if (parsed.rename_session && parsed.session_name.empty())
     {
@@ -325,6 +328,16 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     {
         result.error
             = "error: choose only one of --new-session or --rename-session";
+        return result;
+    }
+    if (parsed.new_session
+        && (parsed.smoke_test
+            || (parsed.host_kind
+                && !is_server_owned_shell_host(
+                    *parsed.host_kind))))
+    {
+        result.error
+            = "error: --new-session is only valid for server-owned shell sessions";
         return result;
     }
     const int session_mode_count = parsed.new_session ? 1 : 0;
@@ -366,7 +379,7 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         return result;
     }
     if (remote_terminal_mode
-        && (parsed.no_server || server_mode_count > 0
+        && (server_mode_count > 0
             || parsed.host_kind.has_value() || parsed.smoke_test
             || session_mode_count > 0 || !parsed.screenshot_path.empty()))
     {
@@ -405,11 +418,10 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
 
 bool should_use_shared_server(const ParsedArgs& args)
 {
-    if (args.help || args.no_server
-        || args.server || args.server_status
+    if (args.help || args.server || args.server_status
         || args.shutdown_server || args.force_stop_server
         || args.server_stop_dialog
-        || args.smoke_test || args.list_sessions
+        || args.list_sessions
         || args.rename_session || args.delete_session
         || args.delete_all_sessions
         || !args.screenshot_path.empty()

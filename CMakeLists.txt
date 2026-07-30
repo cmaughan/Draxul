@@ -287,14 +287,12 @@ add_library(draxul-app
     app/chrome_vector_pass.cpp
     app/rename_editor.cpp
     app/cli_args.cpp
-    app/session_cli.cpp
     app/server_status_surface.cpp
     app/command_palette.cpp
     app/command_palette_host.cpp
     app/control_cli.cpp
     app/control_event_journal.cpp
     app/control_request_router.cpp
-    app/session_listing.cpp
     app/toast_host.cpp
     app/weather_service.cpp
     app/diagnostics_panel_host.cpp

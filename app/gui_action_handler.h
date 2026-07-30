@@ -42,8 +42,6 @@ public:
         std::function<void()> on_server_status; // show shared server status
         std::function<void()> on_open_server_log; // open the server log
         std::function<void()> on_stop_server; // guarded shared-server stop
-        std::function<void()> on_save_session_as; // prompt for a named saved session
-        std::function<void()> on_load_session; // pick and load a saved session
         std::function<void()> on_new_space; // prompt for and create a Space
         std::function<void()> on_switch_space; // pick and activate a Space
         std::function<void()> on_rename_space; // rename the active Space

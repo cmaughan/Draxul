@@ -10,8 +10,6 @@
 #include "gui_action_handler.h"
 #include "input_dispatcher.h"
 #include "pane_manager.h"
-#include "session_id.h"
-#include "session_listing.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cctype>
@@ -505,12 +503,6 @@ bool App::initialize()
         palette_host_deps.gui_action_handler = &gui_action_handler_;
         palette_host_deps.keybindings = &config_.keybindings;
         palette_host_deps.palette_bg_alpha = &config_.palette_bg_alpha;
-        palette_host_deps.action_visible
-            = [this](std::string_view action) {
-                  return !options_.enable_remote_topology
-                      || (action != "save_session_as"
-                          && action != "load_session");
-              };
         palette_host_ = std::make_unique<CommandPaletteHost>(std::move(palette_host_deps));
 
         HostContext palette_ctx;
@@ -990,12 +982,6 @@ void App::wire_gui_actions()
     gui_deps.on_stop_server = [this]() {
         open_stop_server_prompt();
     };
-    gui_deps.on_save_session_as = [this]() {
-        open_save_session_prompt();
-    };
-    gui_deps.on_load_session = [this]() {
-        open_load_session_picker();
-    };
     gui_deps.on_new_space = [this]() { open_new_space_prompt(); };
     gui_deps.on_switch_space = [this]() { open_switch_space_picker(); };
     gui_deps.on_rename_space = [this]() { open_rename_space_prompt(); };
@@ -1368,77 +1354,6 @@ void App::wire_gui_actions()
     gui_action_handler_ = GuiActionHandler(std::move(gui_deps));
 
     // CommandPalette deps are now wired inside CommandPaletteHost::initialize().
-}
-
-void App::open_save_session_prompt()
-{
-    if (!palette_host_)
-        return;
-
-    CommandPalette::PromptRequest request;
-    request.title = "Save Session As";
-    request.prompt = "Name";
-    request.initial_value = !session_name_.empty()
-        ? session_name_
-        : (!options_.session_name.empty() ? options_.session_name : options_.session_id);
-    request.on_submit = [this](std::string name) {
-        auto saved = save_session_as(name);
-        if (!saved)
-        {
-            push_toast(2, saved.error().message);
-            return;
-        }
-        push_toast(0, "Saved session '" + name + "'.");
-    };
-
-    if (!palette_host_->open_prompt(std::move(request)))
-        push_toast(2, "Unable to open session name prompt.");
-}
-
-void App::open_load_session_picker()
-{
-    if (!palette_host_)
-        return;
-
-    std::string list_error;
-    auto sessions = list_known_sessions(&list_error);
-    if (!list_error.empty())
-    {
-        push_toast(2, list_error);
-        return;
-    }
-    if (sessions.empty())
-    {
-        push_toast(0, "No saved sessions found.");
-        return;
-    }
-
-    CommandPalette::ChoiceRequest request;
-    request.title = "Load Session";
-    request.entries.reserve(sessions.size());
-    for (const auto& session : sessions)
-    {
-        const std::string name = session_entry_name(session);
-        const std::string hint = session_entry_hint(session);
-        request.entries.push_back({
-            .id = session.session_id,
-            .name = name,
-            .shortcut_hint = hint,
-            .search_text = name + " " + session.session_id + " " + hint,
-        });
-    }
-    request.on_submit = [this](std::string session_id) {
-        auto loaded = load_session(session_id);
-        if (!loaded)
-        {
-            push_toast(2, loaded.error().message);
-            return;
-        }
-        push_toast(0, "Loaded session '" + session_id + "'.");
-    };
-
-    if (!palette_host_->open_choices(std::move(request)))
-        push_toast(2, "Unable to open session picker.");
 }
 
 void App::open_new_space_prompt()
@@ -4619,142 +4534,6 @@ Result<void, Error> App::restart_agent_runtime(
     agent_controller_.invalidate();
     request_frame();
     return Result<void, Error>::ok();
-}
-
-Result<void, Error> App::load_session(std::string_view raw_session_id)
-{
-    PERF_MEASURE();
-    const std::string target_id = trim_session_name(raw_session_id);
-    if (target_id.empty())
-        return Result<void, Error>::err(Error::invalid_argument("Select a session to load."));
-    if (!options_.enable_session_restore)
-    {
-        return Result<void, Error>::err(
-            Error::invalid_argument("Session restore is not enabled for this launch."));
-    }
-    if (target_id == options_.session_id)
-        return Result<void, Error>::ok();
-    if (!can_snapshot_session_state())
-    {
-        return Result<void, Error>::err(
-            Error::invalid_argument("Current panes cannot be saved before loading another session."));
-    }
-
-    std::string load_error;
-    auto target_state = load_session_state(target_id, &load_error);
-    if (!target_state)
-    {
-        return Result<void, Error>::err(load_error.empty()
-                ? Error::not_found("Saved session '" + target_id + "' was not found.")
-                : Error::io(load_error));
-    }
-    if (target_state->spaces.empty()
-        || std::none_of(target_state->spaces.begin(), target_state->spaces.end(),
-            [](const SpaceSnapshot& space) { return !space.tabs.empty(); }))
-        return Result<void, Error>::err(Error::invalid_argument("Saved session has no tabs."));
-
-    auto previous_state = snapshot_session_state();
-    if (!previous_state)
-    {
-        return Result<void, Error>::err(
-            Error::invalid_argument("Current session could not be snapshotted before loading another session."));
-    }
-
-    std::string save_error;
-    if (!save_session_state(*previous_state, &save_error))
-    {
-        return Result<void, Error>::err(
-            Error::io(save_error.empty() ? "Failed to save the current session before loading." : save_error));
-    }
-    const int pw = window_ ? window_->width_pixels() : last_pixel_w_;
-    const int host_h = std::max(1, shell_layout_.pane_root.h);
-    input_dispatcher_.set_host(nullptr);
-    if (!restore_session_state(pw, host_h, *target_state))
-    {
-        input_dispatcher_.set_host(active_pane_manager().focused_host());
-        const std::string detail = space_controller_.last_restore_error();
-        return Result<void, Error>::err(Error::io(detail.empty()
-                ? "Failed to restore the selected session."
-                : "Failed to restore the selected session: " + detail));
-    }
-
-    options_.session_id = target_id;
-    options_.session_name = target_state->session_name.empty() ? target_id : target_state->session_name;
-    session_name_ = options_.session_name;
-    refresh_app_shell_layout();
-    input_dispatcher_.set_host(active_pane_manager().focused_host());
-    session_dirty_ = false;
-    request_frame();
-    return Result<void, Error>::ok();
-}
-
-Result<std::string, Error> App::save_session_as(std::string_view raw_name)
-{
-    PERF_MEASURE();
-    const std::string display_name = trim_session_name(raw_name);
-    if (display_name.empty())
-        return Result<std::string, Error>::err(Error::invalid_argument("Enter a session name."));
-    if (!options_.enable_session_restore)
-    {
-        return Result<std::string, Error>::err(
-            Error::invalid_argument("Session restore is not enabled for this launch."));
-    }
-    if (!can_snapshot_session_state())
-    {
-        return Result<std::string, Error>::err(
-            Error::invalid_argument("Current panes cannot be saved as a restorable shell session."));
-    }
-
-    auto new_id_result = make_unique_session_id(display_name, unix_now_seconds());
-    if (!new_id_result)
-        return Result<std::string, Error>::err(new_id_result.error());
-    const std::string new_id = *new_id_result;
-
-    const std::string old_id = options_.session_id;
-    const std::string old_option_name = options_.session_name;
-    const std::string old_session_name = session_name_;
-
-    auto delete_new_files = [&]() {
-        std::string delete_error;
-        if (!delete_session_state(new_id, &delete_error) && !delete_error.empty())
-        {
-            DRAXUL_LOG_WARN(LogCategory::App,
-                "Failed to delete rolled-back session state for %s: %s",
-                new_id.c_str(),
-                delete_error.c_str());
-        }
-    };
-
-    auto rollback = [&]() {
-        options_.session_id = old_id;
-        options_.session_name = old_option_name;
-        session_name_ = old_session_name;
-        delete_new_files();
-    };
-
-    options_.session_id = new_id;
-    options_.session_name = display_name;
-    session_name_ = display_name;
-
-    auto state = snapshot_session_state();
-    if (!state)
-    {
-        rollback();
-        return Result<std::string, Error>::err(
-            Error::invalid_argument("Current session could not be snapshotted."));
-    }
-
-    std::string save_error;
-    if (!save_session_state(*state, &save_error))
-    {
-        rollback();
-        return Result<std::string, Error>::err(
-            Error::io(save_error.empty() ? "Failed to save named session." : save_error));
-    }
-
-    session_dirty_ = false;
-    request_frame();
-    return new_id;
 }
 
 std::optional<SessionSnapshot> App::snapshot_session_state() const

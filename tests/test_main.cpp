@@ -59,6 +59,7 @@ int main(int argc, char* argv[])
     auto& registry = draxul::HostProviderRegistry::global();
     registry.clear();
     draxul::register_builtin_host_providers(registry);
+    draxul::register_server_shell_host_metadata(registry);
     draxul::register_nanovg_demo_host_provider(registry);
     draxul::markdown::register_markdown_host_provider(registry);
     draxul::kanban::register_kanban_host_provider(registry);
