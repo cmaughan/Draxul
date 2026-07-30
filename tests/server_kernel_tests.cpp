@@ -210,6 +210,9 @@ TEST_CASE("server kernel publishes one identity and stops gracefully", "[server]
     REQUIRE(std::ranges::find(probe.welcome->capabilities,
                 "named-sessions-v1")
         != probe.welcome->capabilities.end());
+    REQUIRE(std::ranges::find(probe.welcome->capabilities,
+                "session-delete-v1")
+        != probe.welcome->capabilities.end());
 
     const auto agents = ControlClient::request(
         namespaced_control_id(kServerControlId, temp.path),
@@ -1819,6 +1822,109 @@ TEST_CASE("named server Sessions isolate topology and terminal identity across c
         });
         REQUIRE_FALSE(invalid.refresh(error));
         REQUIRE(invalid.last_error_code() == "invalid_session");
+        run_guard.join();
+    }
+}
+
+TEST_CASE("server deletes a detached Session and its checkpoint",
+    "[server][topology][persistence][sessions][delete]")
+{
+    TempDir temp("draxul-server-delete-session");
+    const auto alpha_checkpoint
+        = server_session_state_path(temp.path, "alpha");
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .session_checkpoint_interval
+            = std::chrono::milliseconds(20),
+            .build_version = "unit-test",
+            .epoch_override = "delete-session-1",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+
+        TopologyClient alpha({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-ui",
+            .session_id = "alpha",
+        });
+        std::string error;
+        REQUIRE(alpha.refresh(error));
+
+        RemoteTerminalClient alpha_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-ui",
+            .session_id = "alpha",
+            .expected_server_epoch = "delete-session-1",
+            .method_prefix = "terminal",
+            .terminal_id
+            = std::string(kServerShellTerminalId),
+        });
+        REQUIRE(alpha_terminal.attach(error));
+
+        for (int attempt = 0;
+             attempt < 100
+             && !std::filesystem::exists(alpha_checkpoint);
+             ++attempt)
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(10));
+        }
+        REQUIRE(std::filesystem::exists(alpha_checkpoint));
+
+        REQUIRE_FALSE(ServerClient::delete_session(
+            temp.path, "alpha",
+            { .confirm_live_terminals = true }, error));
+        CHECK(error.find("still attached")
+            != std::string::npos);
+
+        REQUIRE(ServerClient::disconnect(
+            temp.path, "alpha-ui", error));
+        REQUIRE_FALSE(ServerClient::delete_session(
+            temp.path, "alpha", {}, error));
+        CHECK(error.find("Retry with --yes")
+            != std::string::npos);
+
+        REQUIRE(ServerClient::delete_session(
+            temp.path, "alpha",
+            { .confirm_live_terminals = true }, error));
+        CHECK(error.empty());
+        CHECK_FALSE(std::filesystem::exists(alpha_checkpoint));
+
+        const auto status = ServerClient::status(temp.path);
+        REQUIRE(status.ok);
+        CHECK(status.status->sessions == 1);
+        CHECK(std::ranges::none_of(
+            status.status->session_statuses,
+            [](const auto& session) {
+                return session.session_id == "alpha";
+            }));
+
+        REQUIRE_FALSE(ServerClient::delete_session(
+            temp.path, "alpha",
+            { .confirm_live_terminals = true }, error));
+        CHECK(error.find("does not exist")
+            != std::string::npos);
+        run_guard.join();
+    }
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .build_version = "unit-test",
+            .epoch_override = "delete-session-2",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        const auto status = ServerClient::status(temp.path);
+        REQUIRE(status.ok);
+        CHECK(status.status->sessions == 1);
+        CHECK(status.status->session_statuses.front()
+                  .session_id
+            == "default");
         run_guard.join();
     }
 }

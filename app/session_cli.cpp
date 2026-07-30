@@ -54,21 +54,8 @@ SessionCliRequest SessionCliRequest::from_parsed_args(const ParsedArgs& args)
     request.session_id = args.session_id;
     request.session_name = args.session_name;
 
-    const SessionCliMode modes[] = {
-        args.rename_session ? SessionCliMode::Rename : SessionCliMode::Continue,
-        args.delete_session ? SessionCliMode::Delete : SessionCliMode::Continue,
-    };
-    int selected = 0;
-    for (const auto mode : modes)
-    {
-        if (mode != SessionCliMode::Continue)
-        {
-            request.mode = mode;
-            ++selected;
-        }
-    }
-    if (selected > 1)
-        request.mode = SessionCliMode::Invalid;
+    if (args.rename_session)
+        request.mode = SessionCliMode::Rename;
     return request;
 }
 
@@ -76,9 +63,6 @@ SessionCliServices make_default_session_cli_services()
 {
     return {
         .rename_saved_session = rename_saved_session_record,
-        .delete_saved_state = [](std::string_view id, std::string* error) {
-            return delete_session_state(id, error);
-        },
     };
 }
 
@@ -93,8 +77,6 @@ SessionCliResult SessionCli::run(const SessionCliRequest& request) const
     {
     case SessionCliMode::Continue:
         return {};
-    case SessionCliMode::Invalid:
-        return failed("error: multiple session CLI modes were requested\n");
     case SessionCliMode::Rename:
     {
         std::string rename_error;
@@ -105,14 +87,6 @@ SessionCliResult SessionCli::run(const SessionCliRequest& request) const
         }
         return failed("Failed to rename saved session '" + request.session_id + "': "
             + (rename_error.empty() ? "unknown error" : rename_error) + "\n");
-    }
-    case SessionCliMode::Delete:
-    {
-        std::string delete_error;
-        if (services_.delete_saved_state(request.session_id, &delete_error))
-            return handled("Deleted saved session '" + request.session_id + "'.\n");
-        return failed("Failed to delete saved session '" + request.session_id + "': "
-            + (delete_error.empty() ? "session not found" : delete_error) + "\n");
     }
     }
     return failed("error: invalid session CLI mode\n");

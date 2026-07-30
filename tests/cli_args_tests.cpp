@@ -157,14 +157,26 @@ TEST_CASE("cli: --rename-session without --session-name reports an error", "[cli
 
 TEST_CASE("cli: --delete-session sets the flag", "[cli]")
 {
-    auto r = parse({ "--delete-session" });
+    auto r = parse({
+        "--delete-session", "--session", "work",
+    });
     REQUIRE_FALSE(r.error.has_value());
     REQUIRE(r.args.delete_session);
+    REQUIRE(r.args.session_id == "work");
+}
+
+TEST_CASE("cli: --delete-session requires an explicit Session",
+    "[cli][server]")
+{
+    auto r = parse({ "--delete-session" });
+    REQUIRE(r.error.has_value());
+    REQUIRE(r.error->find("--session <id>")
+        != std::string::npos);
 }
 
 TEST_CASE("cli: session control modes are mutually exclusive", "[cli]")
 {
-    auto r = parse({ "--delete-session", "--rename-session",
+    auto r = parse({ "--new-session", "--rename-session",
         "--session-name", "Renamed" });
     REQUIRE(r.error.has_value());
     REQUIRE(r.error->find("choose only one") != std::string::npos);
@@ -185,6 +197,12 @@ TEST_CASE("cli: Session listing is a server control mode",
 TEST_CASE("cli: server control modes are mutually exclusive", "[cli][server]")
 {
     auto r = parse({ "--server", "--server-status" });
+    REQUIRE(r.error.has_value());
+
+    r = parse({
+        "--list-sessions", "--delete-session",
+        "--session", "work",
+    });
     REQUIRE(r.error.has_value());
 }
 
@@ -276,6 +294,13 @@ TEST_CASE("cli: server stop confirmation is explicit",
     REQUIRE_FALSE(forced.error);
     REQUIRE(forced.args.force_stop_server);
     REQUIRE(forced.args.confirmed);
+
+    auto delete_session = parse({
+        "--delete-session", "--session", "work", "--yes",
+    });
+    REQUIRE_FALSE(delete_session.error);
+    REQUIRE(delete_session.args.delete_session);
+    REQUIRE(delete_session.args.confirmed);
     REQUIRE(parse({ "--yes" }).error);
 }
 

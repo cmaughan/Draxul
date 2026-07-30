@@ -13,8 +13,6 @@ enum class SessionCliMode
 {
     Continue,
     Rename,
-    Delete,
-    Invalid,
 };
 
 struct SessionCliRequest
@@ -43,7 +41,6 @@ struct SessionCliResult
 struct SessionCliServices
 {
     std::function<bool(std::string_view, std::string_view, std::string*)> rename_saved_session;
-    std::function<bool(std::string_view, std::string*)> delete_saved_state;
 };
 
 SessionCliServices make_default_session_cli_services();

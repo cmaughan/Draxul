@@ -166,6 +166,7 @@ const char* help_text()
         "  draxul --no-server [local options]\n"
         "  draxul --server | --server-status [--json]\n"
         "  draxul --list-sessions [--json]\n"
+        "  draxul --delete-session --session <id> [--yes]\n"
         "  draxul --shutdown-server [--yes]\n"
         "  draxul --force-stop-server --yes\n\n"
         "Normal shell launches attach to the per-user Draxul server. "
@@ -377,6 +378,25 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
     }
 
     std::string error;
+    if (parsed.delete_session)
+    {
+        if (!draxul::ServerClient::delete_session(
+                runtime_dir, parsed.session_id,
+                {
+                    .confirm_live_terminals
+                    = parsed.confirmed,
+                },
+                error))
+        {
+            std::fprintf(stderr,
+                "Could not delete server Session '%s': %s\n",
+                parsed.session_id.c_str(), error.c_str());
+            return 1;
+        }
+        std::printf("Deleted server Session '%s'.\n",
+            parsed.session_id.c_str());
+        return 0;
+    }
     if (parsed.force_stop_server)
     {
         if (!draxul::ServerClient::force_stop(
@@ -434,6 +454,7 @@ static int draxul_main(std::vector<std::string> args)
     const auto current_executable = executable_path(args);
     if (parsed.server || parsed.server_status
         || parsed.list_sessions
+        || parsed.delete_session
         || parsed.shutdown_server
         || parsed.force_stop_server)
     {

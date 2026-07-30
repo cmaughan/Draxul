@@ -299,24 +299,30 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         result.error = "error: --rename-session requires --session-name <name>";
         return result;
     }
+    if (parsed.delete_session && !parsed.session_id_explicit)
+    {
+        result.error
+            = "error: --delete-session requires --session <id>";
+        return result;
+    }
     const int session_mode_count = (parsed.new_session ? 1 : 0)
-        + (parsed.rename_session ? 1 : 0)
-        + (parsed.delete_session ? 1 : 0);
+        + (parsed.rename_session ? 1 : 0);
     if (session_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --new-session, --rename-session, or --delete-session";
+            = "error: choose only one of --new-session or --rename-session";
         return result;
     }
     const int server_mode_count = (parsed.server ? 1 : 0)
         + (parsed.server_status ? 1 : 0)
         + (parsed.list_sessions ? 1 : 0)
+        + (parsed.delete_session ? 1 : 0)
         + (parsed.shutdown_server ? 1 : 0)
         + (parsed.force_stop_server ? 1 : 0);
     if (server_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --server, --server-status, --list-sessions, --shutdown-server, or --force-stop-server";
+            = "error: choose only one of --server, --server-status, --list-sessions, --delete-session, --shutdown-server, or --force-stop-server";
         return result;
     }
     if (server_mode_count > 0 && session_mode_count > 0)
@@ -349,10 +355,11 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     }
     if (parsed.confirmed
         && !parsed.shutdown_server
+        && !parsed.delete_session
         && !parsed.force_stop_server)
     {
         result.error
-            = "error: --yes is only valid with --shutdown-server or --force-stop-server";
+            = "error: --yes is only valid with --delete-session, --shutdown-server, or --force-stop-server";
         return result;
     }
     if (parsed.force_stop_server && !parsed.confirmed)

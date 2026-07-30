@@ -1586,6 +1586,9 @@ Implementation status (2026-07-29):
 - command-palette status/log/stop actions and CLI help/control routes are available;
 - `--list-sessions` reads the running server's Session status rows instead of the
   legacy client-side saved Session files, with a Session-only JSON form;
+- `--delete-session --session <id>` is server-owned: it refuses attached UIs,
+  requires `--yes` before stopping live terminals, removes the in-memory Session,
+  and deletes its checkpoint so it stays gone after restart;
 - focused app/core tests and an isolated executable gate cover ordinary auto-launch,
   detach with a live terminal, status, refusal of unconfirmed shutdown, confirmed
   shutdown, and server exit.

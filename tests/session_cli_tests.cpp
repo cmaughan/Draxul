@@ -11,48 +11,21 @@ SessionCliServices fake_services()
 {
     return {
         .rename_saved_session = [](std::string_view, std::string_view, std::string*) { return false; },
-        .delete_saved_state = [](std::string_view, std::string*) { return false; },
     };
 }
 
 } // namespace
 
-TEST_CASE("session cli request selects one file-backed mode", "[session][cli]")
-{
-    struct Case
-    {
-        SessionCliMode expected;
-        void (*select)(ParsedArgs&);
-    };
-    const Case cases[] = {
-        { SessionCliMode::Rename, [](ParsedArgs& args) { args.rename_session = true; } },
-        { SessionCliMode::Delete, [](ParsedArgs& args) { args.delete_session = true; } },
-    };
-
-    for (const auto& test : cases)
-    {
-        ParsedArgs args;
-        args.session_id = "named";
-        args.session_name = "Display Name";
-        test.select(args);
-        const auto request = SessionCliRequest::from_parsed_args(args);
-        CHECK(request.mode == test.expected);
-        CHECK(request.session_id == "named");
-        CHECK(request.session_name == "Display Name");
-    }
-}
-
-TEST_CASE("session cli request rejects conflicting modes", "[session][cli]")
+TEST_CASE("session cli request selects the file-backed rename mode", "[session][cli]")
 {
     ParsedArgs args;
     args.rename_session = true;
-    args.delete_session = true;
+    args.session_id = "named";
+    args.session_name = "Display Name";
     const auto request = SessionCliRequest::from_parsed_args(args);
-    REQUIRE(request.mode == SessionCliMode::Invalid);
-
-    const auto result = SessionCli(fake_services()).run(request);
-    CHECK(result.disposition == SessionCliDisposition::Error);
-    CHECK(result.error == "error: multiple session CLI modes were requested\n");
+    CHECK(request.mode == SessionCliMode::Rename);
+    CHECK(request.session_id == "named");
+    CHECK(request.session_name == "Display Name");
 }
 
 TEST_CASE("session cli continue mode leaves startup untouched", "[session][cli]")
@@ -73,28 +46,4 @@ TEST_CASE("session cli renames a saved session", "[session][cli]")
         { .mode = SessionCliMode::Rename, .session_id = "work", .session_name = "Renamed" });
     CHECK(result.disposition == SessionCliDisposition::Handled);
     CHECK(result.output == "Renamed saved session 'work' to 'Renamed'.\n");
-}
-
-TEST_CASE("session cli deletes saved sessions and reports missing records", "[session][cli]")
-{
-    SECTION("deleted")
-    {
-        auto services = fake_services();
-        services.delete_saved_state = [](std::string_view id, std::string*) {
-            CHECK(id == "work");
-            return true;
-        };
-        const auto result = SessionCli(std::move(services)).run(
-            { .mode = SessionCliMode::Delete, .session_id = "work" });
-        CHECK(result.disposition == SessionCliDisposition::Handled);
-        CHECK(result.output == "Deleted saved session 'work'.\n");
-    }
-
-    SECTION("missing")
-    {
-        const auto result = SessionCli(fake_services()).run(
-            { .mode = SessionCliMode::Delete, .session_id = "work" });
-        CHECK(result.disposition == SessionCliDisposition::Error);
-        CHECK(result.error == "Failed to delete saved session 'work': session not found\n");
-    }
 }

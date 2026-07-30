@@ -105,6 +105,14 @@ bool valid_server_session_id(std::string_view value)
             });
 }
 
+bool is_session_scoped_method(std::string_view method)
+{
+    return method.starts_with("terminal.")
+        || method.starts_with("topology.")
+        || method.starts_with("agent.")
+        || method.starts_with("pane.");
+}
+
 const std::vector<std::string>& server_capabilities()
 {
     static const std::vector<std::string> capabilities{
@@ -119,6 +127,7 @@ const std::vector<std::string>& server_capabilities()
         "named-sessions-v1",
         "ordered-terminal-events",
         "real-remote-terminal",
+        "session-delete-v1",
         "session-persistence-v1",
         "status",
         "terminal-metrics-v1",
@@ -210,6 +219,8 @@ public:
         std::string_view session_id, std::string& error);
     ServerSession* ensure_session(
         std::string_view session_id, std::string& error);
+    ControlMethodResult delete_session(
+        const nlohmann::json& params);
     void reset_services();
     bool checkpoint_session(
         std::string_view session_id, std::string& error);
@@ -254,6 +265,13 @@ public:
     bool register_or_touch_client(std::string_view client_id);
     void disconnect_client(std::string_view client_id);
     void detach_client_from_services(std::string_view client_id);
+    void remember_client_session(
+        std::string_view client_id,
+        std::string_view session_id);
+    size_t active_clients_for_session(
+        std::string_view session_id);
+    void forget_session_clients(
+        std::string_view session_id);
     void prune_inactive_clients(
         std::chrono::steady_clock::time_point now);
 
@@ -268,6 +286,9 @@ public:
     mutable std::mutex mutex;
     std::condition_variable wake;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> clients;
+    std::unordered_map<std::string,
+        std::unordered_set<std::string>>
+        client_sessions;
     std::filesystem::path starting_marker;
 
     struct FakeSubscriber
@@ -834,6 +855,102 @@ ServerKernel::Impl::ensure_session(
     return sessions.at(key).get();
 }
 
+ControlMethodResult ServerKernel::Impl::delete_session(
+    const nlohmann::json& params)
+{
+    if (!params.is_object()
+        || !params.contains("session_id")
+        || !params["session_id"].is_string())
+    {
+        return ControlMethodResult::error(
+            "invalid_session",
+            "Session deletion requires a string session_id.");
+    }
+    const std::string session_id
+        = params["session_id"].get<std::string>();
+    if (!valid_server_session_id(session_id))
+    {
+        return ControlMethodResult::error(
+            "invalid_session",
+            "The requested server Session identity is invalid.");
+    }
+    const auto confirmation
+        = params.find("confirm_live_terminals");
+    if (confirmation != params.end()
+        && !confirmation->is_boolean())
+    {
+        return ControlMethodResult::error(
+            "invalid_params",
+            "confirm_live_terminals must be a boolean.");
+    }
+    const auto found = sessions.find(session_id);
+    if (found == sessions.end())
+    {
+        return ControlMethodResult::error(
+            "session_not_found",
+            "The requested server Session does not exist.");
+    }
+
+    const size_t attached_clients
+        = active_clients_for_session(session_id);
+    if (attached_clients > 0)
+    {
+        return ControlMethodResult::error(
+            "session_attached",
+            "The Session is still attached to "
+                + std::to_string(attached_clients)
+                + " Draxul UI"
+                + (attached_clients == 1 ? "" : "s")
+                + ". Close "
+                + (attached_clients == 1 ? "it" : "them")
+                + " and retry.");
+    }
+
+    const size_t live_terminals
+        = static_cast<size_t>(std::ranges::count_if(
+            found->second->terminals,
+            [](const auto& item) {
+                return item.second.runtime->is_running();
+            }));
+    const bool confirmed
+        = confirmation != params.end()
+        && confirmation->get<bool>();
+    if (live_terminals > 0 && !confirmed)
+    {
+        return ControlMethodResult::error(
+            "confirmation_required",
+            "The Session has "
+                + std::to_string(live_terminals)
+                + " live terminal"
+                + (live_terminals == 1 ? "" : "s")
+                + ". Retry with --yes to stop "
+                  "them and delete the Session.");
+    }
+
+    const std::filesystem::path checkpoint_path
+        = found->second->persistence_path;
+    std::error_code remove_error;
+    const bool checkpoint_removed
+        = std::filesystem::remove(
+            checkpoint_path, remove_error);
+    if (remove_error)
+    {
+        return ControlMethodResult::error(
+            "checkpoint_delete_failed",
+            "Unable to delete the Session checkpoint: "
+                + remove_error.message());
+    }
+
+    sessions.erase(found);
+    forget_session_clients(session_id);
+    return ControlMethodResult::success({
+        { "deleted", true },
+        { "session_id", session_id },
+        { "stopped_live_terminals", live_terminals },
+        { "checkpoint_removed", checkpoint_removed },
+    });
+}
+
 bool ServerKernel::Impl::initialize_services(std::string& error)
 {
     reset_services();
@@ -896,12 +1013,56 @@ void ServerKernel::Impl::detach_client_from_services(
     }
 }
 
+void ServerKernel::Impl::remember_client_session(
+    std::string_view client_id,
+    std::string_view session_id)
+{
+    std::lock_guard guard(mutex);
+    if (clients.contains(std::string(client_id)))
+    {
+        client_sessions[std::string(client_id)]
+            .insert(std::string(session_id));
+    }
+}
+
+size_t ServerKernel::Impl::active_clients_for_session(
+    std::string_view session_id)
+{
+    prune_inactive_clients(
+        std::chrono::steady_clock::now());
+    std::lock_guard guard(mutex);
+    return static_cast<size_t>(
+        std::ranges::count_if(
+            client_sessions,
+            [&](const auto& item) {
+                return clients.contains(item.first)
+                    && item.second.contains(
+                        std::string(session_id));
+            }));
+}
+
+void ServerKernel::Impl::forget_session_clients(
+    std::string_view session_id)
+{
+    std::lock_guard guard(mutex);
+    for (auto it = client_sessions.begin();
+         it != client_sessions.end();)
+    {
+        it->second.erase(std::string(session_id));
+        if (it->second.empty())
+            it = client_sessions.erase(it);
+        else
+            ++it;
+    }
+}
+
 void ServerKernel::Impl::disconnect_client(
     std::string_view client_id)
 {
     {
         std::lock_guard guard(mutex);
         clients.erase(std::string(client_id));
+        client_sessions.erase(std::string(client_id));
     }
     detach_client_from_services(client_id);
 }
@@ -917,6 +1078,7 @@ void ServerKernel::Impl::prune_inactive_clients(
             if (now - it->second > options.client_activity_timeout)
             {
                 expired.push_back(it->first);
+                client_sessions.erase(it->first);
                 it = clients.erase(it);
             }
             else
@@ -1111,6 +1273,7 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             { "disconnected", true },
         });
     }
+    std::string request_client_id;
     if (request.params.is_object())
     {
         const auto client_id = request.params.find("client_id");
@@ -1118,17 +1281,34 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             && client_id->is_string()
             && !client_id->get_ref<const std::string&>().empty()
             && client_id->get_ref<const std::string&>().size()
-                <= kServerMaxClientIdBytes
-            && !register_or_touch_client(
-                client_id->get_ref<const std::string&>()))
+                <= kServerMaxClientIdBytes)
         {
-            return ControlMethodResult::error(
-                "client_limit_reached",
-                "The Draxul server client limit has been reached.");
+            request_client_id
+                = client_id->get<std::string>();
+            if (!register_or_touch_client(request_client_id))
+            {
+                return ControlMethodResult::error(
+                    "client_limit_reached",
+                    "The Draxul server client limit has been reached.");
+            }
+        }
+    }
+    if (!request_client_id.empty()
+        && is_session_scoped_method(request.method))
+    {
+        std::string session_id;
+        std::string session_error;
+        if (read_session_id(
+                request.params, session_id, session_error))
+        {
+            remember_client_session(
+                request_client_id, session_id);
         }
     }
     if (request.method == "server.status")
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
+    if (request.method == "server.delete_session")
+        return delete_session(request.params);
     if (request.method == "fake.attach")
         return attach_fake_terminal(request.params);
     if (request.method == "fake.poll")

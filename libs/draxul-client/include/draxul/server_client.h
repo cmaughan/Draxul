@@ -54,6 +54,13 @@ struct ServerShutdownOptions
     bool confirm_live_terminals = false;
 };
 
+struct ServerDeleteSessionOptions
+{
+    // Deleting a Session destroys every terminal process it owns. Callers
+    // must obtain confirmation from the user first when any are still live.
+    bool confirm_live_terminals = false;
+};
+
 std::filesystem::path server_runtime_directory(
     const std::filesystem::path& config_directory);
 std::filesystem::path server_metadata_path(
@@ -67,6 +74,11 @@ public:
     static ServerProbeResult ensure(const ServerEnsureOptions& options);
     static ServerStatusResult status(
         const std::filesystem::path& runtime_directory);
+    static bool delete_session(
+        const std::filesystem::path& runtime_directory,
+        std::string_view session_id,
+        const ServerDeleteSessionOptions& options,
+        std::string& error);
     static bool shutdown(const std::filesystem::path& runtime_directory,
         const ServerShutdownOptions& options, std::string& error);
     static bool disconnect(const std::filesystem::path& runtime_directory,

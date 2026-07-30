@@ -245,6 +245,7 @@ ServerProbeResult ServerClient::probe(const ServerEnsureOptions& options)
             "named-sessions-v1",
             "ordered-terminal-events",
             "real-remote-terminal",
+            "session-delete-v1",
             "status",
             "terminal-metrics-v1",
             "terminal-scrollback-v1",
@@ -387,6 +388,33 @@ ServerStatusResult ServerClient::status(
         };
     }
     return { .ok = true, .status = std::move(status) };
+}
+
+bool ServerClient::delete_session(
+    const std::filesystem::path& runtime_directory,
+    std::string_view session_id,
+    const ServerDeleteSessionOptions& options,
+    std::string& error)
+{
+    const auto response = ControlClient::request(
+        namespaced_control_id(
+            kServerControlId, runtime_directory),
+        runtime_directory, "server.delete_session",
+        {
+            { "session_id", session_id },
+            { "confirm_live_terminals",
+                options.confirm_live_terminals },
+        });
+    if (!response.ok)
+    {
+        error = response.error_code == "unknown_method"
+            ? "The running Draxul server does not support "
+              "Session deletion. Stop it and retry."
+            : response.error_message;
+        return false;
+    }
+    error.clear();
+    return true;
 }
 
 bool ServerClient::shutdown(

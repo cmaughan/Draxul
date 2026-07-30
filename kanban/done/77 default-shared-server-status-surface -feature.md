@@ -17,6 +17,8 @@ product hosts and `--no-server` remain independent.
 - [x] Server status/log/stop actions are available from the command palette.
 - [x] `--list-sessions` reports the running server's Session registry instead of
       legacy client-side saved Session files.
+- [x] `--delete-session --session <id>` deletes a detached server Session and
+      checkpoint, refusing attached UIs and requiring confirmation for live terminals.
 - [x] `--no-server` and explicit standalone product-host startup stay client-owned.
 - [x] Focused parser, app, server-kernel, and isolated executable gates pass.
 
