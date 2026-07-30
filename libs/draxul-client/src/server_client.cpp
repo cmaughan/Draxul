@@ -618,6 +618,44 @@ bool ServerClient::delete_session(
     return true;
 }
 
+bool ServerClient::delete_all_sessions(
+    const std::filesystem::path& runtime_directory,
+    const ServerDeleteSessionOptions& options,
+    std::string& error)
+{
+    ControlClientResult response;
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(2);
+    do
+    {
+        response = ControlClient::request(
+            namespaced_control_id(
+                kServerControlId, runtime_directory),
+            runtime_directory, "server.delete_all_sessions",
+            {
+                { "confirm_live_terminals",
+                    options.confirm_live_terminals },
+            });
+        if (response.ok
+            || response.error_code != "checkpoint_busy")
+        {
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(25));
+    } while (std::chrono::steady_clock::now() < deadline);
+    if (!response.ok)
+    {
+        error = response.error_code == "unknown_method"
+            ? "The running Draxul server does not support "
+              "bulk Session deletion. Stop it and retry."
+            : response.error_message;
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
 bool ServerClient::rename_session(
     const std::filesystem::path& runtime_directory,
     std::string_view session_id,

@@ -34,6 +34,8 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.rename_session = true;
         else if (args[i] == "--delete-session")
             parsed.delete_session = true;
+        else if (args[i] == "--delete-all-sessions")
+            parsed.delete_all_sessions = true;
         else if (args[i] == "--server")
             parsed.server = true;
         else if (args[i] == "--server-status")
@@ -305,6 +307,18 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             = "error: --delete-session requires --session <id>";
         return result;
     }
+    if (parsed.delete_all_sessions && !parsed.confirmed)
+    {
+        result.error
+            = "error: --delete-all-sessions requires --yes";
+        return result;
+    }
+    if (parsed.delete_all_sessions && parsed.session_id_explicit)
+    {
+        result.error
+            = "error: --delete-all-sessions cannot be combined with --session";
+        return result;
+    }
     if (parsed.new_session && parsed.rename_session)
     {
         result.error
@@ -317,12 +331,13 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         + (parsed.list_sessions ? 1 : 0)
         + (parsed.rename_session ? 1 : 0)
         + (parsed.delete_session ? 1 : 0)
+        + (parsed.delete_all_sessions ? 1 : 0)
         + (parsed.shutdown_server ? 1 : 0)
         + (parsed.force_stop_server ? 1 : 0);
     if (server_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --server, --server-status, --list-sessions, --rename-session, --delete-session, --shutdown-server, or --force-stop-server";
+            = "error: choose only one of --server, --server-status, --list-sessions, --rename-session, --delete-session, --delete-all-sessions, --shutdown-server, or --force-stop-server";
         return result;
     }
     if (server_mode_count > 0 && session_mode_count > 0)
@@ -356,10 +371,11 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
     if (parsed.confirmed
         && !parsed.shutdown_server
         && !parsed.delete_session
+        && !parsed.delete_all_sessions
         && !parsed.force_stop_server)
     {
         result.error
-            = "error: --yes is only valid with --delete-session, --shutdown-server, or --force-stop-server";
+            = "error: --yes is only valid with --delete-session, --delete-all-sessions, --shutdown-server, or --force-stop-server";
         return result;
     }
     if (parsed.force_stop_server && !parsed.confirmed)
@@ -388,6 +404,7 @@ bool should_use_shared_server(const ParsedArgs& args)
         || args.shutdown_server || args.force_stop_server
         || args.smoke_test || args.list_sessions
         || args.rename_session || args.delete_session
+        || args.delete_all_sessions
         || !args.screenshot_path.empty()
         || !args.host_source_path.empty())
     {

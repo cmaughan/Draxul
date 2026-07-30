@@ -3200,6 +3200,119 @@ TEST_CASE("server deletes a detached Session and its checkpoint",
     }
 }
 
+TEST_CASE("server deletes all detached Sessions and stops their terminals",
+    "[server][topology][persistence][sessions][delete-all]")
+{
+    TempDir temp("draxul-server-delete-all-sessions");
+    const auto alpha_checkpoint
+        = server_session_state_path(temp.path, "alpha");
+    const auto beta_checkpoint
+        = server_session_state_path(temp.path, "beta");
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .session_checkpoint_interval
+            = std::chrono::milliseconds(20),
+            .build_version = "unit-test",
+            .epoch_override = "delete-all-sessions-1",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+
+        std::string error;
+        TopologyClient alpha({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-ui",
+            .session_id = "alpha",
+        });
+        TopologyClient beta({
+            .runtime_directory = temp.path,
+            .client_id = "beta-ui",
+            .session_id = "beta",
+        });
+        REQUIRE(alpha.refresh(error));
+        REQUIRE(beta.refresh(error));
+
+        RemoteTerminalClient alpha_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "alpha-ui",
+            .session_id = "alpha",
+            .expected_server_epoch
+            = "delete-all-sessions-1",
+            .method_prefix = "terminal",
+            .terminal_id
+            = std::string(kServerShellTerminalId),
+        });
+        RemoteTerminalClient beta_terminal({
+            .runtime_directory = temp.path,
+            .client_id = "beta-ui",
+            .session_id = "beta",
+            .expected_server_epoch
+            = "delete-all-sessions-1",
+            .method_prefix = "terminal",
+            .terminal_id
+            = std::string(kServerShellTerminalId),
+        });
+        REQUIRE(alpha_terminal.attach(error));
+        REQUIRE(beta_terminal.attach(error));
+        REQUIRE(ServerClient::rename_session(
+            temp.path, "alpha", "Alpha", error));
+        REQUIRE(ServerClient::rename_session(
+            temp.path, "beta", "Beta", error));
+        REQUIRE(std::filesystem::exists(alpha_checkpoint));
+        REQUIRE(std::filesystem::exists(beta_checkpoint));
+
+        REQUIRE_FALSE(ServerClient::delete_all_sessions(
+            temp.path,
+            { .confirm_live_terminals = true }, error));
+        CHECK(error.find("still attached")
+            != std::string::npos);
+
+        REQUIRE(ServerClient::disconnect(
+            temp.path, "alpha-ui", error));
+        REQUIRE(ServerClient::disconnect(
+            temp.path, "beta-ui", error));
+        REQUIRE_FALSE(ServerClient::delete_all_sessions(
+            temp.path, {}, error));
+        CHECK(error.find("--yes") != std::string::npos);
+
+        REQUIRE(ServerClient::delete_all_sessions(
+            temp.path,
+            { .confirm_live_terminals = true }, error));
+        CHECK(error.empty());
+        CHECK_FALSE(std::filesystem::exists(alpha_checkpoint));
+        CHECK_FALSE(std::filesystem::exists(beta_checkpoint));
+
+        const auto status = ServerClient::status(temp.path);
+        REQUIRE(status.ok);
+        CHECK(status.status->sessions == 0);
+        CHECK(status.status->terminals == 0);
+        CHECK(status.status->session_statuses.empty());
+        run_guard.join();
+    }
+
+    {
+        ServerKernel server({
+            .runtime_directory = temp.path,
+            .build_version = "unit-test",
+            .epoch_override = "delete-all-sessions-2",
+        });
+        REQUIRE(server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard run_guard(server);
+        const auto status = ServerClient::status(temp.path);
+        REQUIRE(status.ok);
+        CHECK(status.status->sessions == 1);
+        REQUIRE(status.status->session_statuses.size() == 1);
+        CHECK(status.status->session_statuses.front()
+                  .session_id
+            == "default");
+        run_guard.join();
+    }
+}
+
 TEST_CASE("server imports the legacy Session store once without modifying it",
     "[server][topology][persistence][migration]")
 {

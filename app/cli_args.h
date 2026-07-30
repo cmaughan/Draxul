@@ -23,6 +23,7 @@ struct ParsedArgs
     bool new_session = false;
     bool rename_session = false;
     bool delete_session = false;
+    bool delete_all_sessions = false;
     bool server = false;
     bool server_status = false;
     bool shutdown_server = false;

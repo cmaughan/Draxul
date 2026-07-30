@@ -174,6 +174,27 @@ TEST_CASE("cli: --delete-session requires an explicit Session",
         != std::string::npos);
 }
 
+TEST_CASE("cli: --delete-all-sessions requires confirmation",
+    "[cli][server]")
+{
+    auto r = parse({ "--delete-all-sessions" });
+    REQUIRE(r.error.has_value());
+    REQUIRE(r.error->find("--yes") != std::string::npos);
+
+    r = parse({ "--delete-all-sessions", "--yes" });
+    REQUIRE_FALSE(r.error.has_value());
+    REQUIRE(r.args.delete_all_sessions);
+    REQUIRE(r.args.confirmed);
+
+    r = parse({
+        "--delete-all-sessions", "--yes",
+        "--session", "work",
+    });
+    REQUIRE(r.error.has_value());
+    REQUIRE(r.error->find("--session")
+        != std::string::npos);
+}
+
 TEST_CASE("cli: session control modes are mutually exclusive", "[cli]")
 {
     auto r = parse({ "--new-session", "--rename-session",
@@ -202,6 +223,12 @@ TEST_CASE("cli: server control modes are mutually exclusive", "[cli][server]")
     r = parse({
         "--list-sessions", "--delete-session",
         "--session", "work",
+    });
+    REQUIRE(r.error.has_value());
+
+    r = parse({
+        "--delete-session", "--delete-all-sessions",
+        "--session", "work", "--yes",
     });
     REQUIRE(r.error.has_value());
 }

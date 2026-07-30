@@ -169,6 +169,7 @@ const char* help_text()
         "  draxul --list-sessions [--json]\n"
         "  draxul --rename-session --session <id> --session-name <name>\n"
         "  draxul --delete-session --session <id> [--yes]\n"
+        "  draxul --delete-all-sessions --yes\n"
         "  draxul --shutdown-server [--yes]\n"
         "  draxul --force-stop-server --yes\n\n"
         "Normal shell launches attach to the per-user Draxul server. "
@@ -430,6 +431,24 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
             parsed.session_id.c_str());
         return 0;
     }
+    if (parsed.delete_all_sessions)
+    {
+        if (!draxul::ServerClient::delete_all_sessions(
+                runtime_dir,
+                {
+                    .confirm_live_terminals
+                    = parsed.confirmed,
+                },
+                error))
+        {
+            std::fprintf(stderr,
+                "Could not delete all server Sessions: %s\n",
+                error.c_str());
+            return 1;
+        }
+        std::printf("Deleted all shared server Sessions.\n");
+        return 0;
+    }
     if (parsed.force_stop_server)
     {
         if (!draxul::ServerClient::force_stop(
@@ -467,6 +486,7 @@ static int draxul_main(std::vector<std::string> args)
         || parse_result.args.list_sessions
         || parse_result.args.rename_session
         || parse_result.args.delete_session
+        || parse_result.args.delete_all_sessions
         || parse_result.args.server_status
         || parse_result.args.shutdown_server
         || parse_result.args.force_stop_server;
@@ -489,6 +509,7 @@ static int draxul_main(std::vector<std::string> args)
         || parsed.list_sessions
         || parsed.rename_session
         || parsed.delete_session
+        || parsed.delete_all_sessions
         || parsed.shutdown_server
         || parsed.force_stop_server)
     {

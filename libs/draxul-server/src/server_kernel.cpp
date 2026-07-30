@@ -362,6 +362,8 @@ public:
         std::string_view session_id, std::string& error);
     ControlMethodResult delete_session(
         const nlohmann::json& params);
+    ControlMethodResult delete_all_sessions(
+        const nlohmann::json& params);
     ControlMethodResult rename_session(
         const nlohmann::json& params);
     void reset_services();
@@ -1232,6 +1234,88 @@ ControlMethodResult ServerKernel::Impl::delete_session(
     });
 }
 
+ControlMethodResult ServerKernel::Impl::delete_all_sessions(
+    const nlohmann::json& params)
+{
+    if (!params.is_object())
+    {
+        return ControlMethodResult::error(
+            "invalid_params",
+            "Bulk Session deletion requires an object.");
+    }
+    const auto confirmation
+        = params.find("confirm_live_terminals");
+    if (confirmation == params.end()
+        || !confirmation->is_boolean())
+    {
+        return ControlMethodResult::error(
+            "invalid_params",
+            "confirm_live_terminals must be a boolean.");
+    }
+    if (!confirmation->get<bool>())
+    {
+        return ControlMethodResult::error(
+            "confirmation_required",
+            "Bulk Session deletion requires --yes.");
+    }
+
+    size_t attached_clients = 0;
+    size_t live_terminals = 0;
+    std::vector<std::string> session_ids;
+    session_ids.reserve(sessions.size());
+    for (const auto& [session_id, session] : sessions)
+    {
+        if (session->checkpoint_task)
+        {
+            return ControlMethodResult::error(
+                "checkpoint_busy",
+                "A Session checkpoint is still being written. Retry shortly.");
+        }
+        attached_clients += active_clients_for_session(
+            session_id);
+        live_terminals += static_cast<size_t>(
+            std::ranges::count_if(
+                session->terminals,
+                [](const auto& item) {
+                    return item.second.runtime->is_running();
+                }));
+        session_ids.push_back(session_id);
+    }
+    if (attached_clients > 0)
+    {
+        return ControlMethodResult::error(
+            "session_attached",
+            std::to_string(attached_clients)
+                + " Draxul UI"
+                + (attached_clients == 1 ? " is" : "s are")
+                + " still attached. Close "
+                + (attached_clients == 1 ? "it" : "them")
+                + " and retry.");
+    }
+
+    size_t checkpoints_removed = 0;
+    for (const std::string& session_id : session_ids)
+    {
+        ControlMethodResult result = delete_session({
+            { "session_id", session_id },
+            { "confirm_live_terminals", true },
+        });
+        if (!result.ok)
+            return result;
+        if (result.value.value(
+                "checkpoint_removed", false))
+        {
+            ++checkpoints_removed;
+        }
+    }
+    return ControlMethodResult::success({
+        { "deleted", true },
+        { "deleted_sessions", session_ids.size() },
+        { "stopped_live_terminals", live_terminals },
+        { "checkpoints_removed", checkpoints_removed },
+    });
+}
+
 ControlMethodResult ServerKernel::Impl::rename_session(
     const nlohmann::json& params)
 {
@@ -1868,6 +1952,8 @@ ControlMethodResult ServerKernel::Impl::handle_request(
         return ControlMethodResult::success(server_status_to_json(status_snapshot()));
     if (request.method == "server.delete_session")
         return delete_session(request.params);
+    if (request.method == "server.delete_all_sessions")
+        return delete_all_sessions(request.params);
     if (request.method == "server.rename_session")
         return rename_session(request.params);
     if (request.method.starts_with("fake."))

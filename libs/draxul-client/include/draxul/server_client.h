@@ -87,6 +87,10 @@ public:
         std::string_view session_id,
         const ServerDeleteSessionOptions& options,
         std::string& error);
+    static bool delete_all_sessions(
+        const std::filesystem::path& runtime_directory,
+        const ServerDeleteSessionOptions& options,
+        std::string& error);
     static bool rename_session(
         const std::filesystem::path& runtime_directory,
         std::string_view session_id,
