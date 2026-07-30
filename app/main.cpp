@@ -199,6 +199,8 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
     const std::filesystem::path& current_executable)
 {
     const auto runtime_dir = server_runtime_dir(parsed);
+    if (parsed.server_stop_dialog)
+        return draxul::run_server_stop_dialog(runtime_dir);
     if (parsed.server)
     {
         const auto server_log
@@ -511,7 +513,8 @@ static int draxul_main(std::vector<std::string> args)
         || parsed.delete_session
         || parsed.delete_all_sessions
         || parsed.shutdown_server
-        || parsed.force_stop_server)
+        || parsed.force_stop_server
+        || parsed.server_stop_dialog)
     {
         return run_server_mode(parsed, current_executable);
     }

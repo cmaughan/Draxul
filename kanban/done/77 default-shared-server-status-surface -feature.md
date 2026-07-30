@@ -11,7 +11,8 @@ product hosts and `--no-server` remain independent.
 - [x] Closing every UI leaves server-owned terminals and topology alive.
 - [x] Cleanly detached and stale clients disappear from the status count.
 - [x] Windows notification-area and macOS menu-bar code expose status, Open Draxul,
-      Open Log, graceful stop, and guarded force stop.
+      Open Log, and one guarded Stop Server flow that offers Force Stop only after
+      graceful shutdown fails.
 - [x] Graceful stop refuses live terminals without explicit confirmation.
 - [x] Incompatible servers are reported and left running.
 - [x] Server status/log/stop actions are available from the command palette.

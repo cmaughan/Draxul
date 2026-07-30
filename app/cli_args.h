@@ -28,6 +28,9 @@ struct ParsedArgs
     bool server_status = false;
     bool shutdown_server = false;
     bool force_stop_server = false;
+    // Internal helper launched by the server tray. It owns native modal UI so
+    // the headless server's event loop can never be blocked by confirmation.
+    bool server_stop_dialog = false;
     bool confirmed = false;
     bool experimental_server_client = false;
     bool experimental_remote_terminal = false;

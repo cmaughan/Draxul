@@ -418,8 +418,8 @@ Initial menu:
 - show server status;
 - open diagnostics or log;
 - list connected clients and running Sessions;
-- graceful Stop Server; and
-- optional Force Stop behind a second confirmation.
+- one guarded Stop Server action, with Force Stop offered only if graceful
+  shutdown fails.
 
 Windows uses a notification-area icon backed by a minimal hidden message window.
 macOS uses a menu-bar status item. This surface is optional: `--no-tray`, an SSH
@@ -1554,7 +1554,7 @@ Work:
 - retain `--no-server` for one documented confidence/recovery period;
 - add Windows notification-area and macOS menu-bar status surfaces;
 - expose Open Draxul, status, diagnostics/log, connected clients, running terminals,
-  graceful stop, and guarded force stop;
+  and one guarded stop flow with a conditional force-stop fallback;
 - update user documentation, command palette, help, packaging, and logs;
 - ensure app updates detect incompatible live servers without killing them;
 - run extended Windows/macOS soak and sanitizer coverage; and
@@ -1585,7 +1585,9 @@ Implementation status (2026-07-29):
 - ordinary shell startup now discovers or launches the shared server; explicit
   standalone product hosts and `--no-server` remain client-owned;
 - the server process owns an SDL notification-area/menu-bar surface with live counts,
-  Open Draxul, Open Log, refresh, guarded graceful stop, and confirmed force stop;
+  Open Draxul, Open Log, refresh, and one guarded Stop Server action; its modal
+  confirmation runs in a short-lived helper process, and Force Stop is offered only
+  after graceful shutdown fails;
 - server status includes active clients, Sessions, Spaces, terminals, live terminals,
   agents, persistence health, and the server log path;
 - UIs unregister explicitly on clean detach and the server expires stale client

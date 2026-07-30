@@ -1588,13 +1588,58 @@ void App::show_stop_server_prompt(
                 },
                 error))
         {
-            push_toast(2, error);
+            show_force_stop_server_prompt(
+                std::move(error));
             return;
         }
         request_quit();
     };
     if (!palette_host_->open_choices(std::move(request)))
         push_toast(2, "Unable to open server shutdown confirmation.");
+}
+
+void App::show_force_stop_server_prompt(
+    std::string graceful_error)
+{
+    if (!palette_host_)
+        return;
+
+    CommandPalette::ChoiceRequest request;
+    request.title = "Graceful Stop Failed";
+    request.entries.push_back({
+        .id = "cancel",
+        .name = "Cancel",
+        .shortcut_hint = graceful_error.empty()
+            ? "keep the server running"
+            : graceful_error.substr(0, 120),
+        .search_text = "cancel keep running",
+    });
+    request.entries.push_back({
+        .id = "force",
+        .name = "Force Stop Server",
+        .shortcut_hint = "immediately destroys terminal processes",
+        .search_text = "force stop server terminals",
+    });
+    request.on_submit = [this](std::string choice) {
+        if (choice != "force")
+            return;
+        std::string error;
+        if (!ServerClient::force_stop(
+                options_.server_runtime_directory,
+                true, error))
+        {
+            push_toast(2, error);
+            return;
+        }
+        request_quit();
+    };
+    if (!palette_host_->open_choices(std::move(request)))
+    {
+        push_toast(2,
+            graceful_error.empty()
+                ? "Unable to open force-stop confirmation."
+                : graceful_error);
+    }
 }
 
 void App::handle_remote_status_completion(

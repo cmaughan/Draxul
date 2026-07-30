@@ -80,38 +80,11 @@ TEST_CASE("server status surface formats live Session rows",
     CHECK(table == expected);
 }
 
-TEST_CASE("server status confirmation never blocks the tray event pump",
+TEST_CASE("server stop dialog launch rejects a missing executable",
     "[server][status-surface][lifecycle]")
 {
-    ServerStatusConfirmation confirmation;
-    const auto start
-        = std::chrono::steady_clock::time_point{}
-        + std::chrono::seconds(100);
-
-    CHECK_FALSE(confirmation.request(
-        ServerStatusAction::Stop, start));
-    REQUIRE(confirmation.pending());
-    CHECK(*confirmation.pending()
-        == ServerStatusAction::Stop);
-
-    CHECK_FALSE(confirmation.request(
-        ServerStatusAction::ForceStop,
-        start + std::chrono::seconds(1)));
-    REQUIRE(confirmation.pending());
-    CHECK(*confirmation.pending()
-        == ServerStatusAction::ForceStop);
-
-    CHECK(confirmation.request(
-        ServerStatusAction::ForceStop,
-        start + std::chrono::seconds(2)));
-    CHECK_FALSE(confirmation.pending());
-
-    CHECK_FALSE(confirmation.request(
-        ServerStatusAction::Stop,
-        start + std::chrono::seconds(3)));
-    CHECK_FALSE(confirmation.expire(
-        start + std::chrono::seconds(12)));
-    CHECK(confirmation.expire(
-        start + std::chrono::seconds(13)));
-    CHECK_FALSE(confirmation.pending());
+    std::string error;
+    CHECK_FALSE(launch_server_stop_dialog(
+        "Z:/missing/draxul.exe", "D:/runtime", error));
+    CHECK(error == "The Draxul executable is unavailable.");
 }

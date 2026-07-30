@@ -44,6 +44,8 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
             parsed.shutdown_server = true;
         else if (args[i] == "--force-stop-server")
             parsed.force_stop_server = true;
+        else if (args[i] == "--server-stop-dialog")
+            parsed.server_stop_dialog = true;
         else if (args[i] == "--yes")
             parsed.confirmed = true;
         else if (args[i] == "--experimental-server-client")
@@ -333,11 +335,15 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         + (parsed.delete_session ? 1 : 0)
         + (parsed.delete_all_sessions ? 1 : 0)
         + (parsed.shutdown_server ? 1 : 0)
-        + (parsed.force_stop_server ? 1 : 0);
+        + (parsed.force_stop_server ? 1 : 0)
+        + (parsed.server_stop_dialog ? 1 : 0);
     if (server_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --server, --server-status, --list-sessions, --rename-session, --delete-session, --delete-all-sessions, --shutdown-server, or --force-stop-server";
+            = "error: choose only one of --server, --server-status, "
+              "--list-sessions, --rename-session, --delete-session, "
+              "--delete-all-sessions, --shutdown-server, "
+              "--force-stop-server, or --server-stop-dialog";
         return result;
     }
     if (server_mode_count > 0 && session_mode_count > 0)
@@ -402,6 +408,7 @@ bool should_use_shared_server(const ParsedArgs& args)
     if (args.help || args.no_server
         || args.server || args.server_status
         || args.shutdown_server || args.force_stop_server
+        || args.server_stop_dialog
         || args.smoke_test || args.list_sessions
         || args.rename_session || args.delete_session
         || args.delete_all_sessions

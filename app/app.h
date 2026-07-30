@@ -181,6 +181,8 @@ private:
     void open_stop_server_prompt();
     void show_stop_server_prompt(
         const struct ServerStatusSnapshot& status);
+    void show_force_stop_server_prompt(
+        std::string graceful_error);
     void open_launch_agent_prompt();
     void open_attach_agent_picker();
     void open_focus_agent_picker();

@@ -322,6 +322,17 @@ TEST_CASE("cli: server stop confirmation is explicit",
     REQUIRE(forced.args.force_stop_server);
     REQUIRE(forced.args.confirmed);
 
+    auto dialog = parse({
+        "--server-stop-dialog",
+        "--server-runtime-dir", "D:/runtime",
+    });
+    REQUIRE_FALSE(dialog.error);
+    REQUIRE(dialog.args.server_stop_dialog);
+    REQUIRE_FALSE(should_use_shared_server(dialog.args));
+    REQUIRE(parse({
+        "--server-stop-dialog", "--server-status",
+    }).error);
+
     auto delete_session = parse({
         "--delete-session", "--session", "work", "--yes",
     });
