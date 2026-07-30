@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace draxul
 {
@@ -20,6 +21,8 @@ ServerStatusText format_server_status_text(
     const ServerStatusSnapshot& status);
 std::string format_server_status_summary(
     const ServerStatusSnapshot& status);
+std::string format_server_session_listing_table(
+    const std::vector<ServerSessionStatusSnapshot>& sessions);
 std::filesystem::path default_server_log_path(
     const std::filesystem::path& runtime_directory);
 

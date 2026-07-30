@@ -66,30 +66,3 @@ TEST_CASE("session listing reports saved session topology", "[session_listing]")
     CHECK(session_entry_name(sessions[0]) == "Alpha Session (alpha)");
     CHECK(session_entry_hint(sessions[0]) == "saved 1s/1t/1p");
 }
-
-TEST_CASE("session listing formatter prints aligned saved-session table", "[session_listing]")
-{
-    SessionSummary alpha;
-    alpha.session_id = "alpha";
-    alpha.session_name = "Alpha Session";
-    alpha.space_count = 2;
-    alpha.tab_count = 3;
-    alpha.pane_count = 12;
-    alpha.has_saved_state = true;
-
-    SessionSummary beta;
-    beta.session_id = "beta";
-    beta.session_name = "beta";
-    beta.space_count = 1;
-    beta.tab_count = 1;
-    beta.pane_count = 2;
-    beta.has_saved_state = true;
-
-    const std::string table = format_session_listing_table({ alpha, beta });
-    const std::string expected
-        = "SESSION ID  SPACES  TABS  PANES  NAME\n"
-          "----------  ------  ----  -----  ----\n"
-          "alpha            2     3     12  Alpha Session\n"
-          "beta             1     1      2  \n";
-    CHECK(table == expected);
-}

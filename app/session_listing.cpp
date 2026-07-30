@@ -1,23 +1,7 @@
 #include "session_listing.h"
 
-#include <algorithm>
-#include <iomanip>
-#include <sstream>
-
 namespace draxul
 {
-
-namespace
-{
-
-std::string display_name_text(const SessionSummary& session)
-{
-    if (!session.session_name.empty() && session.session_name != session.session_id)
-        return session.session_name;
-    return {};
-}
-
-} // namespace
 
 std::string session_entry_name(const SessionSummary& session)
 {
@@ -36,41 +20,6 @@ std::string session_entry_hint(const SessionSummary& session)
 std::vector<SessionSummary> list_known_sessions(std::string* error)
 {
     return list_saved_sessions(error);
-}
-
-std::string format_session_listing_table(const std::vector<SessionSummary>& sessions)
-{
-    size_t id_width = std::string_view("SESSION ID").size();
-    size_t space_width = std::string_view("SPACES").size();
-    size_t tab_width = std::string_view("TABS").size();
-    size_t pane_width = std::string_view("PANES").size();
-
-    for (const auto& session : sessions)
-        id_width = std::max(id_width, session.session_id.size());
-
-    std::ostringstream out;
-    out << std::left << std::setw(static_cast<int>(id_width)) << "SESSION ID"
-        << "  " << std::left << std::setw(static_cast<int>(space_width)) << "SPACES"
-        << "  " << std::left << std::setw(static_cast<int>(tab_width)) << "TABS"
-        << "  " << std::left << std::setw(static_cast<int>(pane_width)) << "PANES"
-        << "  NAME\n";
-
-    out << std::string(id_width, '-')
-        << "  " << std::string(space_width, '-')
-        << "  " << std::string(tab_width, '-')
-        << "  " << std::string(pane_width, '-')
-        << "  ----\n";
-
-    for (const auto& session : sessions)
-    {
-        out << std::left << std::setw(static_cast<int>(id_width)) << session.session_id
-            << "  " << std::right << std::setw(static_cast<int>(space_width)) << session.space_count
-            << "  " << std::right << std::setw(static_cast<int>(tab_width)) << session.tab_count
-            << "  " << std::right << std::setw(static_cast<int>(pane_width)) << session.pane_count
-            << "  " << display_name_text(session) << '\n';
-    }
-
-    return out.str();
 }
 
 } // namespace draxul

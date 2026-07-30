@@ -10,7 +10,6 @@ namespace
 SessionCliServices fake_services()
 {
     return {
-        .list_sessions = [](std::string*) { return std::vector<SessionSummary>{}; },
         .rename_saved_session = [](std::string_view, std::string_view, std::string*) { return false; },
         .delete_saved_state = [](std::string_view, std::string*) { return false; },
     };
@@ -26,7 +25,6 @@ TEST_CASE("session cli request selects one file-backed mode", "[session][cli]")
         void (*select)(ParsedArgs&);
     };
     const Case cases[] = {
-        { SessionCliMode::List, [](ParsedArgs& args) { args.list_sessions = true; } },
         { SessionCliMode::Rename, [](ParsedArgs& args) { args.rename_session = true; } },
         { SessionCliMode::Delete, [](ParsedArgs& args) { args.delete_session = true; } },
     };
@@ -57,14 +55,10 @@ TEST_CASE("session cli request rejects conflicting modes", "[session][cli]")
     CHECK(result.error == "error: multiple session CLI modes were requested\n");
 }
 
-TEST_CASE("session cli continue and list modes preserve output", "[session][cli]")
+TEST_CASE("session cli continue mode leaves startup untouched", "[session][cli]")
 {
     SessionCli cli(fake_services());
     CHECK(cli.run({}).disposition == SessionCliDisposition::Continue);
-
-    const auto result = cli.run({ .mode = SessionCliMode::List });
-    CHECK(result.disposition == SessionCliDisposition::Handled);
-    CHECK(result.output == "No saved sessions.\n");
 }
 
 TEST_CASE("session cli renames a saved session", "[session][cli]")

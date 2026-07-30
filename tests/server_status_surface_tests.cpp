@@ -47,3 +47,33 @@ TEST_CASE("server status surface keeps its log inside the runtime",
     CHECK(default_server_log_path(runtime)
         == runtime / "draxul-server.log");
 }
+
+TEST_CASE("server status surface formats live Session rows",
+    "[server][status-surface][slice9]")
+{
+    const std::vector<ServerSessionStatusSnapshot> sessions{
+        {
+            .session_id = "default",
+            .spaces = 2,
+            .terminals = 3,
+            .live_terminals = 2,
+            .checkpoint_state = "saved",
+        },
+        {
+            .session_id = "long-work-session",
+            .spaces = 1,
+            .terminals = 12,
+            .live_terminals = 0,
+            .checkpoint_state = "restored",
+        },
+    };
+
+    const std::string table
+        = format_server_session_listing_table(sessions);
+    const std::string expected
+        = "SESSION ID         SPACES  TERMINALS  LIVE  CHECKPOINT\n"
+          "-----------------  ------  ---------  ----  ----------\n"
+          "default                 2          3     2  saved\n"
+          "long-work-session       1         12     0  restored\n";
+    CHECK(table == expected);
+}

@@ -165,6 +165,7 @@ const char* help_text()
         "  draxul [--session <id>] [--host <kind>]\n"
         "  draxul --no-server [local options]\n"
         "  draxul --server | --server-status [--json]\n"
+        "  draxul --list-sessions [--json]\n"
         "  draxul --shutdown-server [--yes]\n"
         "  draxul --force-stop-server --yes\n\n"
         "Normal shell launches attach to the per-user Draxul server. "
@@ -284,7 +285,7 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
         return status.load();
     }
 
-    if (parsed.server_status)
+    if (parsed.server_status || parsed.list_sessions)
     {
         const auto result = draxul::ServerClient::status(runtime_dir);
         if (!result.ok || !result.status)
@@ -293,7 +294,28 @@ int run_server_mode(const draxul::ParsedArgs& parsed,
                 result.error_message.c_str());
             return 1;
         }
-        if (parsed.json_output)
+        if (parsed.list_sessions)
+        {
+            if (parsed.json_output)
+            {
+                const auto status_json
+                    = draxul::server_status_to_json(*result.status);
+                std::printf("%s\n",
+                    status_json.at("session_statuses").dump().c_str());
+            }
+            else if (result.status->session_statuses.empty())
+            {
+                std::printf("No server Sessions.\n");
+            }
+            else
+            {
+                std::printf("%s",
+                    draxul::format_server_session_listing_table(
+                        result.status->session_statuses)
+                        .c_str());
+            }
+        }
+        else if (parsed.json_output)
         {
             std::printf("%s\n",
                 draxul::server_status_to_json(*result.status).dump().c_str());
@@ -411,6 +433,7 @@ static int draxul_main(std::vector<std::string> args)
     }
     const auto current_executable = executable_path(args);
     if (parsed.server || parsed.server_status
+        || parsed.list_sessions
         || parsed.shutdown_server
         || parsed.force_stop_server)
     {

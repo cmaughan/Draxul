@@ -164,9 +164,22 @@ TEST_CASE("cli: --delete-session sets the flag", "[cli]")
 
 TEST_CASE("cli: session control modes are mutually exclusive", "[cli]")
 {
-    auto r = parse({ "--delete-session", "--list-sessions" });
+    auto r = parse({ "--delete-session", "--rename-session",
+        "--session-name", "Renamed" });
     REQUIRE(r.error.has_value());
     REQUIRE(r.error->find("choose only one") != std::string::npos);
+}
+
+TEST_CASE("cli: Session listing is a server control mode",
+    "[cli][server]")
+{
+    auto r = parse({ "--list-sessions", "--server-status" });
+    REQUIRE(r.error.has_value());
+    REQUIRE(r.error->find("choose only one") != std::string::npos);
+
+    r = parse({ "--list-sessions", "--new-session" });
+    REQUIRE(r.error.has_value());
+    REQUIRE(r.error->find("Session-control") != std::string::npos);
 }
 
 TEST_CASE("cli: server control modes are mutually exclusive", "[cli][server]")

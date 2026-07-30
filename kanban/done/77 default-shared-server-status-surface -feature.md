@@ -15,6 +15,8 @@ product hosts and `--no-server` remain independent.
 - [x] Graceful stop refuses live terminals without explicit confirmation.
 - [x] Incompatible servers are reported and left running.
 - [x] Server status/log/stop actions are available from the command palette.
+- [x] `--list-sessions` reports the running server's Session registry instead of
+      legacy client-side saved Session files.
 - [x] `--no-server` and explicit standalone product-host startup stay client-owned.
 - [x] Focused parser, app, server-kernel, and isolated executable gates pass.
 

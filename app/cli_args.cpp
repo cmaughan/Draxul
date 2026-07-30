@@ -299,24 +299,30 @@ ParseArgsResult parse_args(const std::vector<std::string>& args)
         result.error = "error: --rename-session requires --session-name <name>";
         return result;
     }
-    const int session_mode_count = (parsed.list_sessions ? 1 : 0)
-        + (parsed.new_session ? 1 : 0)
+    const int session_mode_count = (parsed.new_session ? 1 : 0)
         + (parsed.rename_session ? 1 : 0)
         + (parsed.delete_session ? 1 : 0);
     if (session_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --list-sessions, --new-session, --rename-session, or --delete-session";
+            = "error: choose only one of --new-session, --rename-session, or --delete-session";
         return result;
     }
     const int server_mode_count = (parsed.server ? 1 : 0)
         + (parsed.server_status ? 1 : 0)
+        + (parsed.list_sessions ? 1 : 0)
         + (parsed.shutdown_server ? 1 : 0)
         + (parsed.force_stop_server ? 1 : 0);
     if (server_mode_count > 1)
     {
         result.error
-            = "error: choose only one of --server, --server-status, --shutdown-server, or --force-stop-server";
+            = "error: choose only one of --server, --server-status, --list-sessions, --shutdown-server, or --force-stop-server";
+        return result;
+    }
+    if (server_mode_count > 0 && session_mode_count > 0)
+    {
+        result.error
+            = "error: server control modes cannot be combined with Session-control modes";
         return result;
     }
     if (server_mode_count > 0 && parsed.host_kind)

@@ -1,7 +1,7 @@
 #include "session_cli.h"
 
 #include "session_id.h"
-#include "session_listing.h"
+#include "session_state.h"
 
 #include <chrono>
 #include <utility>
@@ -55,7 +55,6 @@ SessionCliRequest SessionCliRequest::from_parsed_args(const ParsedArgs& args)
     request.session_name = args.session_name;
 
     const SessionCliMode modes[] = {
-        args.list_sessions ? SessionCliMode::List : SessionCliMode::Continue,
         args.rename_session ? SessionCliMode::Rename : SessionCliMode::Continue,
         args.delete_session ? SessionCliMode::Delete : SessionCliMode::Continue,
     };
@@ -76,7 +75,6 @@ SessionCliRequest SessionCliRequest::from_parsed_args(const ParsedArgs& args)
 SessionCliServices make_default_session_cli_services()
 {
     return {
-        .list_sessions = [](std::string* error) { return list_known_sessions(error); },
         .rename_saved_session = rename_saved_session_record,
         .delete_saved_state = [](std::string_view id, std::string* error) {
             return delete_session_state(id, error);
@@ -97,16 +95,6 @@ SessionCliResult SessionCli::run(const SessionCliRequest& request) const
         return {};
     case SessionCliMode::Invalid:
         return failed("error: multiple session CLI modes were requested\n");
-    case SessionCliMode::List:
-    {
-        std::string list_error;
-        const auto sessions = services_.list_sessions(&list_error);
-        if (!list_error.empty())
-            return failed("Failed to list sessions: " + list_error + "\n");
-        if (sessions.empty())
-            return handled("No saved sessions.\n");
-        return handled(format_session_listing_table(sessions));
-    }
     case SessionCliMode::Rename:
     {
         std::string rename_error;

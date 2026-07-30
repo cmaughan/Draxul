@@ -1,12 +1,10 @@
 #pragma once
 
 #include "cli_args.h"
-#include "session_state.h"
 
 #include <functional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace draxul
 {
@@ -14,7 +12,6 @@ namespace draxul
 enum class SessionCliMode
 {
     Continue,
-    List,
     Rename,
     Delete,
     Invalid,
@@ -45,7 +42,6 @@ struct SessionCliResult
 
 struct SessionCliServices
 {
-    std::function<std::vector<SessionSummary>(std::string*)> list_sessions;
     std::function<bool(std::string_view, std::string_view, std::string*)> rename_saved_session;
     std::function<bool(std::string_view, std::string*)> delete_saved_state;
 };

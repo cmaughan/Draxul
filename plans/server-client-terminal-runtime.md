@@ -1584,6 +1584,8 @@ Implementation status (2026-07-29):
   presence after transport loss;
 - an incompatible server is never killed or silently replaced;
 - command-palette status/log/stop actions and CLI help/control routes are available;
+- `--list-sessions` reads the running server's Session status rows instead of the
+  legacy client-side saved Session files, with a Session-only JSON form;
 - focused app/core tests and an isolated executable gate cover ordinary auto-launch,
   detach with a live terminal, status, refusal of unconfirmed shutdown, confirmed
   shutdown, and server exit.

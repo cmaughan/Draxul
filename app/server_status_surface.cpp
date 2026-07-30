@@ -2,9 +2,12 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_tray.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <draxul/server_client.h>
+#include <iomanip>
+#include <sstream>
 #include <string_view>
 #include <vector>
 
@@ -170,6 +173,62 @@ std::string format_server_status_summary(
     const auto text = format_server_status_text(status);
     return text.state + "; " + text.clients_and_terminals
         + "; " + text.sessions_spaces_and_agents;
+}
+
+std::string format_server_session_listing_table(
+    const std::vector<ServerSessionStatusSnapshot>& sessions)
+{
+    size_t id_width = std::string_view("SESSION ID").size();
+    const size_t space_width
+        = std::string_view("SPACES").size();
+    const size_t terminal_width
+        = std::string_view("TERMINALS").size();
+    const size_t live_width = std::string_view("LIVE").size();
+    const size_t checkpoint_width
+        = std::string_view("CHECKPOINT").size();
+
+    for (const auto& session : sessions)
+        id_width = std::max(id_width, session.session_id.size());
+
+    std::ostringstream out;
+    out << std::left
+        << std::setw(static_cast<int>(id_width))
+        << "SESSION ID"
+        << "  " << std::left
+        << std::setw(static_cast<int>(space_width))
+        << "SPACES"
+        << "  " << std::left
+        << std::setw(static_cast<int>(terminal_width))
+        << "TERMINALS"
+        << "  " << std::left
+        << std::setw(static_cast<int>(live_width))
+        << "LIVE"
+        << "  CHECKPOINT\n";
+
+    out << std::string(id_width, '-')
+        << "  " << std::string(space_width, '-')
+        << "  " << std::string(terminal_width, '-')
+        << "  " << std::string(live_width, '-')
+        << "  " << std::string(checkpoint_width, '-')
+        << '\n';
+
+    for (const auto& session : sessions)
+    {
+        out << std::left
+            << std::setw(static_cast<int>(id_width))
+            << session.session_id
+            << "  " << std::right
+            << std::setw(static_cast<int>(space_width))
+            << session.spaces
+            << "  " << std::right
+            << std::setw(static_cast<int>(terminal_width))
+            << session.terminals
+            << "  " << std::right
+            << std::setw(static_cast<int>(live_width))
+            << session.live_terminals
+            << "  " << session.checkpoint_state << '\n';
+    }
+    return out.str();
 }
 
 std::filesystem::path default_server_log_path(

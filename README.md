@@ -140,6 +140,7 @@ client-owned recovery shell, or select a standalone product explicitly with `--h
 .\build-ninja-release\draxul.exe --host powershell       # shared PowerShell Session
 .\build-ninja-release\draxul.exe --host megacity --source C:\dev\linux
 .\build-ninja-release\draxul.exe --server-status
+.\build-ninja-release\draxul.exe --list-sessions          # live server Sessions
 .\build-ninja-release\draxul.exe --shutdown-server --yes # confirms live-shell shutdown
 ```
 
