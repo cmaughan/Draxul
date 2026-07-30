@@ -1759,11 +1759,20 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 }
                 bytes = std::move(*encoded);
             }
-            if (!terminal->second.runtime->send_input(bytes))
+            const RemoteTerminalInputResult input_result
+                = terminal->second.runtime->send_input(bytes);
+            if (input_result
+                != RemoteTerminalInputResult::Accepted)
             {
                 return ControlMethodResult::error(
-                    "input_failed",
-                    "The agent terminal rejected input.");
+                    input_result
+                            == RemoteTerminalInputResult::Backpressure
+                        ? "backpressure"
+                        : "input_failed",
+                    input_result
+                            == RemoteTerminalInputResult::Backpressure
+                        ? "The agent terminal input queue is full."
+                        : "The agent terminal rejected input.");
             }
             return session->agent_service->handle(
                 "agent.get",
@@ -2738,83 +2747,97 @@ int ServerKernel::Impl::run_until_stopped()
     {
         for (auto& [session_id, session] : sessions)
         {
-            (void)session_id;
-            struct CleanExit
+            try
             {
-                std::string terminal_id;
-                uint64_t generation = 0;
-                uint64_t topology_revision = 0;
-            };
-            std::vector<CleanExit> clean_exits;
-            const uint64_t topology_revision
-                = session->topology_service
-                ? session->topology_service
-                      ->snapshot()
-                      .revision
-                : 0;
-            for (auto& [terminal_id, endpoint]
-                : session->terminals)
-            {
-                endpoint.service->pump();
-                if (endpoint.runtime->is_running())
+                struct CleanExit
                 {
-                    endpoint.exit_cleanup_attempted = false;
-                    continue;
-                }
-                if (!endpoint.service->started())
-                    continue;
-                const std::optional<int> exit_code
-                    = endpoint.runtime->exit_code();
-                if (exit_code && *exit_code != 0)
-                    continue;
-                const uint64_t generation
-                    = endpoint.service->generation();
-                if (endpoint.exit_cleanup_attempted
-                    && endpoint.exit_cleanup_generation
-                        == generation
-                    && endpoint.exit_cleanup_topology_revision
-                        == topology_revision)
-                {
-                    continue;
-                }
-                clean_exits.push_back({
-                    .terminal_id = terminal_id,
-                    .generation = generation,
-                    .topology_revision = topology_revision,
-                });
-            }
-            for (const CleanExit& exited : clean_exits)
-            {
-                const auto closed
+                    std::string terminal_id;
+                    uint64_t generation = 0;
+                    uint64_t topology_revision = 0;
+                };
+                std::vector<CleanExit> clean_exits;
+                const uint64_t topology_revision
                     = session->topology_service
                     ? session->topology_service
-                          ->close_exited_terminal(
-                              exited.terminal_id)
-                    : ControlMethodResult::error(
-                          "topology_unavailable",
-                          "Session topology is unavailable.");
-                if (closed.ok)
+                          ->snapshot()
+                          .revision
+                    : 0;
+                for (auto& [terminal_id, endpoint]
+                    : session->terminals)
                 {
-                    refresh_agents(
-                        *session,
-                        std::chrono::steady_clock::now());
-                    continue;
+                    endpoint.service->pump();
+                    if (endpoint.runtime->is_running())
+                    {
+                        endpoint.exit_cleanup_attempted = false;
+                        continue;
+                    }
+                    if (!endpoint.service->started())
+                        continue;
+                    const std::optional<int> exit_code
+                        = endpoint.runtime->exit_code();
+                    if (exit_code && *exit_code != 0)
+                        continue;
+                    const uint64_t generation
+                        = endpoint.service->generation();
+                    if (endpoint.exit_cleanup_attempted
+                        && endpoint.exit_cleanup_generation
+                            == generation
+                        && endpoint.exit_cleanup_topology_revision
+                            == topology_revision)
+                    {
+                        continue;
+                    }
+                    clean_exits.push_back({
+                        .terminal_id = terminal_id,
+                        .generation = generation,
+                        .topology_revision = topology_revision,
+                    });
                 }
-                const auto retained
-                    = session->terminals.find(
-                        exited.terminal_id);
-                if (retained
-                    != session->terminals.end())
+                for (const CleanExit& exited : clean_exits)
                 {
-                    retained->second
-                        .exit_cleanup_attempted = true;
-                    retained->second
-                        .exit_cleanup_generation
-                        = exited.generation;
-                    retained->second
-                        .exit_cleanup_topology_revision
-                        = exited.topology_revision;
+                    const auto closed
+                        = session->topology_service
+                        ? session->topology_service
+                              ->close_exited_terminal(
+                                  exited.terminal_id)
+                        : ControlMethodResult::error(
+                              "topology_unavailable",
+                              "Session topology is unavailable.");
+                    if (closed.ok)
+                    {
+                        refresh_agents(
+                            *session,
+                            std::chrono::steady_clock::now());
+                        continue;
+                    }
+                    const auto retained
+                        = session->terminals.find(
+                            exited.terminal_id);
+                    if (retained
+                        != session->terminals.end())
+                    {
+                        retained->second
+                            .exit_cleanup_attempted = true;
+                        retained->second
+                            .exit_cleanup_generation
+                            = exited.generation;
+                        retained->second
+                            .exit_cleanup_topology_revision
+                            = exited.topology_revision;
+                    }
                 }
+            }
+            catch (const std::exception& error)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::App,
+                    "Draxul server Session '%s' runtime pump failed; other Sessions remain available: %s",
+                    session_id.c_str(), error.what());
+            }
+            catch (...)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::App,
+                    "Draxul server Session '%s' runtime pump failed with an unknown error; other Sessions remain available",
+                    session_id.c_str());
             }
         }
         if (const uint32_t listener_error = control.take_listener_error();
@@ -2832,10 +2855,24 @@ int ServerKernel::Impl::run_until_stopped()
         prune_inactive_clients(now);
         for (auto& [session_id, session] : sessions)
         {
-            (void)session_id;
             if (now >= session->next_agent_refresh_at)
             {
-                refresh_agents(*session, now);
+                try
+                {
+                    refresh_agents(*session, now);
+                }
+                catch (const std::exception& error)
+                {
+                    DRAXUL_LOG_ERROR(LogCategory::App,
+                        "Draxul server Session '%s' agent refresh failed; other Sessions remain available: %s",
+                        session_id.c_str(), error.what());
+                }
+                catch (...)
+                {
+                    DRAXUL_LOG_ERROR(LogCategory::App,
+                        "Draxul server Session '%s' agent refresh failed with an unknown error; other Sessions remain available",
+                        session_id.c_str());
+                }
                 session->next_agent_refresh_at
                     = now + std::chrono::milliseconds(500);
             }

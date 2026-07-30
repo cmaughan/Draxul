@@ -24,13 +24,16 @@ namespace
 
 constexpr size_t kRemoteHostCommandLimit = 128;
 constexpr size_t kRemoteCommandsPerPoll = 8;
-constexpr size_t kRemoteInputBatchBytes = 64 * 1024;
+constexpr size_t kRemoteInputBatchBytes = 48 * 1024;
 constexpr auto kRemotePollInterval = std::chrono::milliseconds(25);
 constexpr auto kRemoteTransientFailureGrace = std::chrono::seconds(5);
 
 bool is_expected_command_error(std::string_view code)
 {
-    return code == "not_controller" || code == "invalid_resize";
+    return code == "not_controller"
+        || code == "invalid_resize"
+        || code == "invalid_input"
+        || code == "backpressure";
 }
 
 bool is_removed_remote_terminal(std::string_view code)
@@ -160,8 +163,10 @@ public:
         if (!commands_.empty()
             && command.kind == RemoteHostCommand::Kind::Input
             && commands_.back().kind == RemoteHostCommand::Kind::Input
-            && command.text.size()
-                <= kRemoteInputBatchBytes - commands_.back().text.size())
+            && commands_.back().text.size() <= kRemoteInputBatchBytes
+            && command.text.size() <= kRemoteInputBatchBytes
+            && commands_.back().text.size() + command.text.size()
+                <= kRemoteInputBatchBytes)
         {
             commands_.back().text.append(command.text);
             command_wake_.notify_one();
@@ -192,6 +197,61 @@ public:
         if (commands_.size() >= kRemoteHostCommandLimit)
             return false;
         commands_.push_back(std::move(command));
+        command_wake_.notify_one();
+        return true;
+    }
+
+    bool enqueue_input(std::string_view text)
+    {
+        if (text.empty())
+            return true;
+
+        std::lock_guard guard(mutex_);
+        if (stopping_)
+            return false;
+
+        const size_t maximum_new_commands
+            = (text.size() + kRemoteInputBatchBytes - 1)
+            / kRemoteInputBatchBytes;
+        if (maximum_new_commands
+            > kRemoteHostCommandLimit - std::min(
+                  commands_.size(), kRemoteHostCommandLimit))
+        {
+            return false;
+        }
+
+        // Stage the complete input so a full queue cannot leave a bracketed
+        // paste half-enqueued (and therefore leave the shell in paste mode).
+        auto staged = commands_;
+        size_t offset = 0;
+        while (offset < text.size())
+        {
+            const size_t count = std::min(
+                kRemoteInputBatchBytes, text.size() - offset);
+            const std::string_view chunk = text.substr(offset, count);
+            if (!staged.empty()
+                && staged.back().kind
+                    == RemoteHostCommand::Kind::Input
+                && staged.back().text.size()
+                    <= kRemoteInputBatchBytes
+                && chunk.size() <= kRemoteInputBatchBytes
+                && staged.back().text.size() + chunk.size()
+                    <= kRemoteInputBatchBytes)
+            {
+                staged.back().text.append(chunk);
+            }
+            else
+            {
+                if (staged.size() >= kRemoteHostCommandLimit)
+                    return false;
+                staged.push_back({
+                    .kind = RemoteHostCommand::Kind::Input,
+                    .text = std::string(chunk),
+                });
+            }
+            offset += count;
+        }
+        commands_.swap(staged);
         command_wake_.notify_one();
         return true;
     }
@@ -1008,10 +1068,11 @@ void RemoteTerminalHost::send_remote_input(std::string text)
     {
         return;
     }
-    impl_->enqueue({
-        .kind = RemoteHostCommand::Kind::Input,
-        .text = std::move(text),
-    });
+    if (!impl_->enqueue_input(text))
+    {
+        callbacks().push_toast(
+            1, "Terminal input queue is full; input was not sent.");
+    }
 }
 
 void RemoteTerminalHost::send_paste(std::string_view text)

@@ -35,14 +35,14 @@ That makes service code lock-free by construction, which is right — but it cre
 
 ## Implementation
 
-- [ ] Give each terminal a bounded input queue drained with non-blocking or timed writes;
+- [x] Give each terminal a bounded input queue drained with non-blocking or timed writes;
       return an explicit backpressure error to the controller when it is full rather than
       blocking. Keep the 64 KiB per-request cap as an admission check, not as the write size.
-- [ ] Cap queued reader bytes per process. On overflow, pause reads or drop with an overflow
+- [x] Cap queued reader bytes per process. On overflow, pause reads or drop with an overflow
       flag that forces a core resync, so a detached chatty shell cannot grow without bound.
-- [ ] Move process teardown waits off the state thread (reap asynchronously), so destroying a
+- [x] Move process teardown waits off the state thread (reap asynchronously), so destroying a
       pane with a live process does not stall other Sessions.
-- [ ] Add a loop-latency metric and a warning threshold, so the "no service call may block"
+- [x] Add a loop-latency metric and a warning threshold, so the "no service call may block"
       invariant is observable rather than implicit. Surface it through the existing sanitized
       metrics rather than a new endpoint.
 
@@ -60,7 +60,7 @@ That makes service code lock-free by construction, which is right — but it cre
 
 - [ ] Ctrl-S in one server-owned shell leaves every other shell and client responsive.
 - [ ] A detached shell producing continuous output has bounded server memory.
-- [ ] Loop latency is measurable and logged when it exceeds the threshold.
+- [x] Loop latency is measurable and logged when it exceeds the threshold.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
 
 ## Dependencies and ownership

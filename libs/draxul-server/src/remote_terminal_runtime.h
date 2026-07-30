@@ -11,6 +11,13 @@
 namespace draxul
 {
 
+enum class RemoteTerminalInputResult
+{
+    Accepted,
+    Backpressure,
+    Failed,
+};
+
 class IRemoteTerminalRuntime
 {
 public:
@@ -19,7 +26,8 @@ public:
     virtual bool ensure_started(std::string& error) = 0;
     virtual bool restart(std::string& error) = 0;
     virtual bool pump() = 0;
-    virtual bool send_input(std::string_view bytes) = 0;
+    virtual RemoteTerminalInputResult send_input(
+        std::string_view bytes) = 0;
     virtual bool resize(int cols, int rows) = 0;
     virtual bool is_running() const = 0;
     virtual uint64_t process_id() const = 0;

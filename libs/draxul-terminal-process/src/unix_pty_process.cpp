@@ -447,6 +447,8 @@ void UnixPtyProcess::shutdown()
 
     std::scoped_lock lock(output_mutex_);
     output_chunks_.clear();
+    output_bytes_ = 0;
+    output_overflowed_ = false;
 }
 
 void UnixPtyProcess::request_close()
@@ -634,12 +636,16 @@ bool UnixPtyProcess::write(std::string_view text) const
     return true;
 }
 
-std::vector<std::string> UnixPtyProcess::drain_output()
+std::vector<std::string> UnixPtyProcess::drain_output(
+    bool* overflowed)
 {
     PERF_MEASURE();
     std::scoped_lock lock(output_mutex_);
     std::vector<std::string> drained;
     drained.swap(output_chunks_);
+    output_bytes_ = 0;
+    if (overflowed)
+        *overflowed = std::exchange(output_overflowed_, false);
     return drained;
 }
 
@@ -679,7 +685,15 @@ void UnixPtyProcess::reader_main()
 
             {
                 std::scoped_lock lock(output_mutex_);
+                if (output_bytes_ + static_cast<size_t>(bytes_read)
+                    > kMaxQueuedOutputBytes)
+                {
+                    output_chunks_.clear();
+                    output_bytes_ = 0;
+                    output_overflowed_ = true;
+                }
                 output_chunks_.emplace_back(buffer.data(), buffer.data() + bytes_read);
+                output_bytes_ += static_cast<size_t>(bytes_read);
             }
 
             if (on_output_available_)

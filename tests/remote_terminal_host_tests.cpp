@@ -106,7 +106,90 @@ bool wait_for_scrollback(RemoteTerminalClient& client, uint64_t minimum_rows,
     return false;
 }
 
+bool snapshot_contains(
+    const TerminalSemanticSnapshot& snapshot, std::string_view needle)
+{
+    std::string text;
+    for (const auto& cell : snapshot.cells)
+        text += cell.text;
+    return text.find(needle) != std::string::npos;
+}
+
 } // namespace
+
+TEST_CASE("remote terminal host chunks a large paste without stopping",
+    "[host][remote-terminal][paste][backpressure]")
+{
+    TempDir temp("draxul-remote-host-large-paste");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .epoch_override = "large-paste-epoch",
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+    ServerRunGuard server_run(server);
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "large-paste-controller",
+        .server_epoch = "large-paste-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+        },
+        .initial_viewport = {
+            .pixel_size = { 640, 240 },
+            .grid_size = { 80, 12 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return host.status_text().find("controller")
+            != std::string::npos;
+    }));
+
+    RemoteTerminalClient observer({
+        .runtime_directory = temp.path,
+        .client_id = "large-paste-observer",
+        .expected_server_epoch = "large-paste-epoch",
+    });
+    std::string error;
+    REQUIRE(observer.attach(error));
+
+    window.clipboard_ = std::string(200 * 1024, 'x')
+        + "__LARGE_PASTE_COMPLETE__";
+    REQUIRE(host.dispatch_action("paste"));
+    bool received_tail = false;
+    for (int attempt = 0; attempt < 1000 && !received_tail; ++attempt)
+    {
+        host.pump();
+        bool changed = false;
+        REQUIRE(observer.poll(changed, error));
+        received_tail = snapshot_contains(
+            observer.projection().snapshot(),
+            "__LARGE_PASTE_COMPLETE__");
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    INFO(error);
+    REQUIRE(received_tail);
+    CHECK(host.is_running());
+    CHECK(callbacks.last_toast_message.empty());
+    host.shutdown();
+}
 
 TEST_CASE("remote terminal host renders shared state and can take control",
     "[host][remote-terminal]")

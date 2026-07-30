@@ -39,7 +39,7 @@ The local terminal path never JSON-encodes cells, so this is new to this branch.
 
 ## Decide the policy first
 
-- [ ] Sanitize at cell write (grid never holds invalid UTF-8, matching what a terminal
+- [x] Sanitize at cell write (grid never holds invalid UTF-8, matching what a terminal
       actually displays) or at snapshot capture (grid keeps raw bytes, wire stays clean).
       Cell-write is preferred: it makes the invariant hold for every consumer, including
       future ones, and matches the U+FFFD that `utf8_decode_next` already computes and
@@ -47,36 +47,36 @@ The local terminal path never JSON-encodes cells, so this is new to this branch.
 
 ## Implementation
 
-- [ ] Emit U+FFFD for invalid sequences in `consume_cluster` rather than returning the raw
+- [x] Emit U+FFFD for invalid sequences in `consume_cluster` rather than returning the raw
       bytes — `utf8_decode_next` already produces the replacement codepoint at
       `unicode.h:124-126` and the result is thrown away.
-- [ ] Belt and braces on the wire: use
+- [x] Belt and braces on the wire: use
       `dump(-1, ' ', false, nlohmann::detail::error_handler_t::replace)` for every JSON
       carrying terminal content, including the control-plane response at
       `control_plane.cpp:812`.
-- [ ] Delete the metrics-only `.dump()` calls in `make_delta_event` and `snapshot_event`
+- [x] Delete the metrics-only `.dump()` calls in `make_delta_event` and `snapshot_event`
       (`remote_terminal_service.cpp:143`, `:157`); count bytes when an event is actually
       encoded into a poll response instead. This removes a full serialize-and-discard per
       delta per tick and one of the two throw sites.
-- [ ] Add an exception barrier around the kernel loop body in `run_until_stopped` that logs
+- [x] Add an exception barrier around the kernel loop body in `run_until_stopped` that logs
       and degrades one Session rather than terminating the process.
 
 ## Unit tests
 
-- [ ] Feed `0x80`, `0xFF`, a truncated multi-byte sequence, and a valid multi-byte sequence
+- [x] Feed `0x80`, `0xFF`, a truncated multi-byte sequence, and a valid multi-byte sequence
       through `TerminalCore` and assert the captured snapshot round-trips through
       `remote_terminal_event_to_json(...).dump()` without throwing.
-- [ ] `ServerTerminalRuntime` pump with binary output and **no subscribers** completes and
+- [x] `ServerTerminalRuntime` pump with binary output and **no subscribers** completes and
       leaves the kernel loop running.
-- [ ] Existing Unicode/grapheme tests still pass — U+FFFD substitution must not disturb valid
+- [x] Existing Unicode/grapheme tests still pass — U+FFFD substitution must not disturb valid
       cluster handling or double-width accounting.
 
 ## Acceptance criteria
 
-- [ ] `cat` on a binary file in a server-owned shell leaves the server and all other shells
+- [x] `cat` on a binary file in a server-owned shell leaves the server and all other shells
       running.
-- [ ] No JSON `dump()` on a path carrying terminal content can throw.
-- [ ] The kernel loop survives an exception from any single Session's pump.
+- [x] No JSON `dump()` on a path carrying terminal content can throw.
+- [x] The kernel loop survives an exception from any single Session's pump.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
 
 ## Dependencies and ownership

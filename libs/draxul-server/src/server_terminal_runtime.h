@@ -13,7 +13,9 @@
 #endif
 
 #include <optional>
+#include <memory>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -43,7 +45,8 @@ public:
     bool ensure_started(std::string& error) override;
     bool restart(std::string& error) override;
     bool pump() override;
-    bool send_input(std::string_view bytes) override;
+    RemoteTerminalInputResult send_input(
+        std::string_view bytes) override;
     bool resize(int cols, int rows) override;
     bool is_running() const override;
     uint64_t process_id() const override;
@@ -63,6 +66,8 @@ public:
 
 private:
     bool start_process(std::string& error);
+    void retire_process_async();
+    void start_input_writer();
 
     Grid& terminal_grid() override;
     const Grid& terminal_grid() const override;
@@ -96,10 +101,14 @@ private:
     ScrollbackBuffer scrollback_;
     ServerTerminalRuntimeOptions options_;
 #ifdef _WIN32
-    ConPtyProcess process_;
+    using Process = ConPtyProcess;
 #else
-    UnixPtyProcess process_;
+    using Process = UnixPtyProcess;
 #endif
+    struct InputQueueState;
+    std::unique_ptr<Process> process_;
+    std::shared_ptr<InputQueueState> input_queue_;
+    std::thread input_writer_;
     std::string clipboard_;
     std::optional<std::string> pending_clipboard_write_;
     std::string published_title_;

@@ -3,13 +3,35 @@
 #include <draxul/log.h>
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
+#include <mutex>
+#include <thread>
 #include <utility>
 #include <vector>
 
 namespace draxul
 {
+
+namespace
+{
+
+constexpr size_t kMaxQueuedInputBytes = 256 * 1024;
+
+} // namespace
+
+struct ServerTerminalRuntime::InputQueueState
+{
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<std::string> commands;
+    size_t queued_bytes = 0;
+    size_t in_flight_bytes = 0;
+    bool stopping = false;
+    bool write_failed = false;
+};
 
 ServerTerminalRuntime::ServerTerminalRuntime(
     ServerTerminalRuntimeOptions options)
@@ -32,6 +54,7 @@ ServerTerminalRuntime::ServerTerminalRuntime(
     }(),
           options.scrollback_capacity)
     , options_(std::move(options))
+    , process_(std::make_unique<Process>())
 {
     grid_.resize(80, 24);
     scrollback_.resize(80);
@@ -43,19 +66,90 @@ ServerTerminalRuntime::ServerTerminalRuntime(
 
 ServerTerminalRuntime::~ServerTerminalRuntime()
 {
-    process_.shutdown();
+    retire_process_async();
+}
+
+void ServerTerminalRuntime::start_input_writer()
+{
+    input_queue_ = std::make_shared<InputQueueState>();
+    const auto queue = input_queue_;
+    Process* const process = process_.get();
+    input_writer_ = std::thread([queue, process] {
+        for (;;)
+        {
+            std::string command;
+            {
+                std::unique_lock lock(queue->mutex);
+                queue->wake.wait(lock, [&] {
+                    return queue->stopping
+                        || !queue->commands.empty();
+                });
+                if (queue->stopping && queue->commands.empty())
+                    break;
+                command = std::move(queue->commands.front());
+                queue->commands.pop_front();
+                queue->in_flight_bytes = command.size();
+            }
+
+            const bool written = process->write(command);
+
+            {
+                std::lock_guard lock(queue->mutex);
+                queue->queued_bytes -= std::min(
+                    queue->queued_bytes, command.size());
+                queue->in_flight_bytes = 0;
+                if (!written)
+                {
+                    queue->write_failed = true;
+                    queue->commands.clear();
+                    queue->queued_bytes = 0;
+                    break;
+                }
+            }
+        }
+    });
+}
+
+void ServerTerminalRuntime::retire_process_async()
+{
+    if (!process_)
+        return;
+
+    if (input_queue_)
+    {
+        std::lock_guard lock(input_queue_->mutex);
+        input_queue_->stopping = true;
+        input_queue_->commands.clear();
+        input_queue_->queued_bytes
+            = input_queue_->in_flight_bytes;
+        input_queue_->wake.notify_all();
+    }
+
+    auto process = std::move(process_);
+    auto writer = std::move(input_writer_);
+    input_queue_.reset();
+    std::thread(
+        [process = std::move(process),
+            writer = std::move(writer)]() mutable {
+            process->request_close();
+            process->shutdown();
+            if (writer.joinable())
+                writer.join();
+        })
+        .detach();
 }
 
 bool ServerTerminalRuntime::ensure_started(std::string& error)
 {
-    if (process_.is_running())
+    if (process_ && process_->is_running())
         return true;
     return start_process(error);
 }
 
 bool ServerTerminalRuntime::restart(std::string& error)
 {
-    process_.shutdown();
+    retire_process_async();
+    process_ = std::make_unique<Process>();
     scrollback_.reset();
     core_.reset();
     grid_.clear_dirty();
@@ -102,13 +196,14 @@ bool ServerTerminalRuntime::start_process(std::string& error)
     }
     for (const auto& [command, args] : candidates)
     {
-        if (process_.spawn(command, args, working_directory,
+        if (process_->spawn(command, args, working_directory,
                 grid_.cols(), grid_.rows(), [] {},
                 options_.environment))
         {
+            start_input_writer();
             DRAXUL_LOG_INFO(LogCategory::App,
                 "Started server-owned shell pid=%llu command=%s",
-                static_cast<unsigned long long>(process_.process_id()),
+                static_cast<unsigned long long>(process_->process_id()),
                 command.c_str());
             return true;
         }
@@ -148,12 +243,13 @@ bool ServerTerminalRuntime::start_process(std::string& error)
             return false;
         }
     }
-    if (process_.spawn(command, args, working_directory, [] {},
+    if (process_->spawn(command, args, working_directory, [] {},
             grid_.cols(), grid_.rows(), true, options_.environment))
     {
+        start_input_writer();
         DRAXUL_LOG_INFO(LogCategory::App,
             "Started server-owned shell pid=%llu command=%s",
-            static_cast<unsigned long long>(process_.process_id()),
+            static_cast<unsigned long long>(process_->process_id()),
             command.c_str());
         return true;
     }
@@ -164,8 +260,11 @@ bool ServerTerminalRuntime::start_process(std::string& error)
 
 bool ServerTerminalRuntime::pump()
 {
-    auto chunks = process_.drain_output();
-    if (chunks.empty())
+    if (!process_)
+        return false;
+    bool overflowed = false;
+    auto chunks = process_->drain_output(&overflowed);
+    if (chunks.empty() && !overflowed)
         return false;
     ++agent_output_generation_;
     agent_last_output_at_
@@ -175,20 +274,43 @@ bool ServerTerminalRuntime::pump()
         core_.feed(chunk);
     core_.end_output_cursor_batch();
     core_.reconcile_provisional_cursor_after_pump(true);
+    if (overflowed)
+    {
+        grid_.mark_all_dirty();
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "Server terminal output exceeded the %zu-byte reader queue; dropped stale output and forced a full-grid resync",
+            Process::kMaxQueuedOutputBytes);
+    }
     // Keep dirty state server-side until DEC synchronized output ends. This
     // preserves the same atomic presentation guarantee as a local terminal:
     // clients see the completed frame, never its intermediate mutations.
     return !core_.synchronized_output_active();
 }
 
-bool ServerTerminalRuntime::send_input(std::string_view bytes)
+RemoteTerminalInputResult ServerTerminalRuntime::send_input(
+    std::string_view bytes)
 {
-    return process_.write(bytes);
+    const auto queue = input_queue_;
+    if (!queue || bytes.empty())
+        return RemoteTerminalInputResult::Failed;
+    std::lock_guard lock(queue->mutex);
+    if (queue->stopping || queue->write_failed)
+        return RemoteTerminalInputResult::Failed;
+    if (bytes.size() > kMaxQueuedInputBytes
+        || queue->queued_bytes
+                > kMaxQueuedInputBytes - bytes.size())
+    {
+        return RemoteTerminalInputResult::Backpressure;
+    }
+    queue->commands.emplace_back(bytes);
+    queue->queued_bytes += bytes.size();
+    queue->wake.notify_one();
+    return RemoteTerminalInputResult::Accepted;
 }
 
 bool ServerTerminalRuntime::resize(int cols, int rows)
 {
-    if (!process_.resize(cols, rows))
+    if (!process_ || !process_->resize(cols, rows))
         return false;
     core_.resize(cols, rows);
     return true;
@@ -196,12 +318,12 @@ bool ServerTerminalRuntime::resize(int cols, int rows)
 
 bool ServerTerminalRuntime::is_running() const
 {
-    return process_.is_running();
+    return process_ && process_->is_running();
 }
 
 uint64_t ServerTerminalRuntime::process_id() const
 {
-    return process_.process_id();
+    return process_ ? process_->process_id() : 0;
 }
 
 uint64_t ServerTerminalRuntime::scrollback_rows() const
@@ -279,8 +401,8 @@ ServerTerminalRuntime::capture_agent_observation(
     observation.cursor_visible = cursor_visible_;
     observation.cursor_col = published_cursor_.first;
     observation.cursor_row = published_cursor_.second;
-    observation.process_running = process_.is_running();
-    observation.exit_code = process_.exit_code();
+    observation.process_running = process_ && process_->is_running();
+    observation.exit_code = process_ ? process_->exit_code() : std::nullopt;
 
     if (max_rows <= 0 || max_bytes == 0
         || grid_.cols() <= 0 || grid_.rows() <= 0)
@@ -318,12 +440,14 @@ ServerTerminalRuntime::capture_agent_observation(
 std::optional<AgentProcessObservation>
 ServerTerminalRuntime::capture_agent_process_observation() const
 {
-    return process_.foreground_process_observation();
+    return process_
+        ? process_->foreground_process_observation()
+        : std::nullopt;
 }
 
 std::optional<int> ServerTerminalRuntime::exit_code() const
 {
-    return process_.exit_code();
+    return process_ ? process_->exit_code() : std::nullopt;
 }
 
 void ServerTerminalRuntime::set_environment_value(
@@ -372,7 +496,7 @@ void ServerTerminalRuntime::terminal_resize_grid(int cols, int rows)
 
 bool ServerTerminalRuntime::terminal_write_process(std::string_view bytes)
 {
-    return process_.write(bytes);
+    return send_input(bytes) == RemoteTerminalInputResult::Accepted;
 }
 
 void ServerTerminalRuntime::terminal_mark_activity()

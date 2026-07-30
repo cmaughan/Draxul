@@ -37,22 +37,22 @@ Two aggravators:
 
 ## Implementation
 
-- [ ] Chunk paste and input at a safe size below the server limit in `send_paste`/`enqueue`,
+- [x] Chunk paste and input at a safe size below the server limit in `send_paste`/`enqueue`,
       preserving bracketed-paste framing across chunks.
-- [ ] Fix the batching guard to compare against the limit directly rather than subtracting
+- [x] Fix the batching guard to compare against the limit directly rather than subtracting
       (`back.size() >= limit` means start a new command).
-- [ ] Reclassify `invalid_input` — and the backpressure code introduced by
+- [x] Reclassify `invalid_input` — and the backpressure code introduced by
       `kanban/pending/13` — as expected: toast and drop, never fatal.
 - [ ] Give a fatal worker exit a recovery path. A remote host that dies must either be
       recreated by the app or present an explicit "reconnect" affordance; a live server
       terminal must never be orphaned behind a dead pane. Coordinate with
       `kanban/pending/19 client-recovery-state-machine -refactor.md`, which owns the general
       policy.
-- [ ] Surface `enqueue` failure to the user instead of dropping silently.
+- [x] Surface `enqueue` failure to the user instead of dropping silently.
 
 ## Unit tests
 
-- [ ] A paste larger than the server limit reaches the shell intact via chunking.
+- [x] A paste larger than the server limit reaches the shell intact via chunking.
 - [ ] A rejected input command toasts and leaves the worker running and the pane usable.
 - [ ] Enqueueing an oversized command followed by keystrokes does not merge them (regression
       test for the underflow).
@@ -60,9 +60,9 @@ Two aggravators:
 
 ## Acceptance criteria
 
-- [ ] Pasting a multi-hundred-KB buffer into a shared terminal works.
+- [x] Pasting a multi-hundred-KB buffer into a shared terminal works.
 - [ ] No single rejected command can permanently freeze a pane whose shell is alive.
-- [ ] Dropped input is always visible to the user.
+- [x] Dropped input is always visible to the user.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
 
 ## Dependencies and ownership

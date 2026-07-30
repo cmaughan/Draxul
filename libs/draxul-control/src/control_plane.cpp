@@ -33,6 +33,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -82,10 +83,16 @@ std::string normalized_runtime_key(
     const std::filesystem::path& runtime_directory)
 {
     std::error_code path_error;
-    auto normalized = std::filesystem::absolute(
+    auto normalized = std::filesystem::weakly_canonical(
         runtime_directory, path_error);
     if (path_error)
-        normalized = runtime_directory;
+    {
+        path_error.clear();
+        normalized = std::filesystem::absolute(
+            runtime_directory, path_error);
+        if (path_error)
+            normalized = runtime_directory;
+    }
     std::string value = normalized.lexically_normal().generic_string();
 #ifdef _WIN32
     std::transform(value.begin(), value.end(), value.begin(),
@@ -180,6 +187,15 @@ nlohmann::json response_json(
         };
     }
     return response;
+}
+
+std::string dump_wire_json(const nlohmann::json& value)
+{
+    // Terminal cell text ultimately comes from arbitrary PTY bytes. The
+    // terminal core sanitizes it, but replacement mode keeps a malformed
+    // payload from escaping a subsystem and terminating a listener thread.
+    return value.dump(-1, ' ', false,
+        nlohmann::detail::error_handler_t::replace);
 }
 
 ControlMethodResult parse_request(std::string_view bytes,
@@ -500,6 +516,10 @@ public:
     void run(std::stop_token stop_token);
     void process_pending(const Handler& handler);
     ControlMethodResult dispatch(ControlRequest request);
+#ifndef _WIN32
+    bool acquire_endpoint_lock(std::string* error);
+    void release_endpoint_lock();
+#endif
     // The listener is only established on the worker thread, so start() waits
     // for this before reporting. Empty string = listening; non-empty = the
     // reason it could not. First report wins; later calls are ignored.
@@ -521,6 +541,10 @@ public:
     bool owns_endpoint = false;
     std::atomic<bool> endpoint_in_use = false;
     std::atomic<uint32_t> listener_error = 0;
+#ifndef _WIN32
+    std::filesystem::path endpoint_lock_path;
+    int endpoint_lock = -1;
+#endif
 };
 
 void ControlServer::Impl::report_startup(std::string result)
@@ -533,6 +557,74 @@ void ControlServer::Impl::report_startup(std::string result)
     }
     startup_changed.notify_all();
 }
+
+#ifndef _WIN32
+bool ControlServer::Impl::acquire_endpoint_lock(std::string* error)
+{
+    endpoint_lock_path
+        = runtime_directory / (session_key(session_id) + ".control.lock");
+
+    int descriptor = -1;
+    do
+    {
+        descriptor = ::open(endpoint_lock_path.c_str(),
+            O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    } while (descriptor < 0 && errno == EINTR);
+
+    if (descriptor < 0 && errno == EEXIST)
+    {
+        do
+        {
+            descriptor = ::open(
+                endpoint_lock_path.c_str(), O_RDWR | O_CLOEXEC);
+        } while (descriptor < 0 && errno == EINTR);
+    }
+    if (descriptor < 0)
+    {
+        if (error)
+            *error = "Unable to open the control endpoint lock.";
+        return false;
+    }
+
+    // The lock file is deliberately persistent. Removing it during shutdown
+    // would let a contender lock a newly-created inode while the incumbent
+    // still held the old one. A crashed process releases flock automatically,
+    // so the next launcher can safely reuse the same file.
+    ::fchmod(descriptor, 0600);
+    int lock_result = -1;
+    do
+    {
+        lock_result = ::flock(descriptor, LOCK_EX | LOCK_NB);
+    } while (lock_result != 0 && errno == EINTR);
+    if (lock_result != 0)
+    {
+        const int lock_error = errno;
+        ::close(descriptor);
+        const bool taken = lock_error == EWOULDBLOCK
+            || lock_error == EAGAIN;
+        endpoint_in_use = taken;
+        if (error)
+        {
+            *error = taken
+                ? "Control endpoint is already in use by another Draxul instance."
+                : "Unable to lock the control endpoint.";
+        }
+        return false;
+    }
+
+    endpoint_lock = descriptor;
+    return true;
+}
+
+void ControlServer::Impl::release_endpoint_lock()
+{
+    if (endpoint_lock < 0)
+        return;
+    ::flock(endpoint_lock, LOCK_UN);
+    ::close(endpoint_lock);
+    endpoint_lock = -1;
+}
+#endif
 
 bool ControlServer::Impl::start(std::string new_session_id,
     std::filesystem::path new_runtime_directory,
@@ -576,9 +668,15 @@ bool ControlServer::Impl::start(std::string new_session_id,
     ::chmod(runtime_directory.c_str(), 0700);
 #endif
 
-    active = true;
     endpoint_in_use = false;
     listener_error = 0;
+    owns_endpoint = false;
+#ifndef _WIN32
+    if (!acquire_endpoint_lock(error))
+        return false;
+#endif
+
+    active = true;
     {
         std::lock_guard<std::mutex> guard(startup_mutex);
         startup_result.reset();
@@ -647,6 +745,9 @@ void ControlServer::Impl::stop()
 #endif
         owns_endpoint = false;
     }
+#ifndef _WIN32
+    release_endpoint_lock();
+#endif
     std::lock_guard lock(queue_mutex);
     for (auto& pending : queue)
     {
@@ -809,7 +910,8 @@ void ControlServer::Impl::run(std::stop_token stop_token)
                               result = dispatch(request);
                       }
                       const std::string response
-                          = response_json(request.id, result).dump();
+                          = dump_wire_json(
+                              response_json(request.id, result));
                       write_frame(pipe, response);
                       FlushFileBuffers(pipe);
                       DisconnectNamedPipe(pipe);
@@ -884,12 +986,24 @@ void ControlServer::Impl::run(std::stop_token stop_token)
         ::unlink(endpoint.c_str()); // stale: the owner is gone
     }
 
-    if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0
-        || ::chmod(endpoint.c_str(), 0600) != 0
+    if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0)
+    {
+        const int bind_error = errno;
+        ::close(server);
+        const bool taken = bind_error == EADDRINUSE;
+        endpoint_in_use = taken;
+        report_startup(taken
+                ? "Control endpoint is already in use by another Draxul instance."
+                : "Unable to bind the control socket.");
+        active = false;
+        return;
+    }
+    if (::chmod(endpoint.c_str(), 0600) != 0
         || ::listen(server, 4) != 0)
     {
         ::close(server);
-        report_startup("Unable to bind the control socket.");
+        ::unlink(endpoint.c_str());
+        report_startup("Unable to prepare the control socket.");
         active = false;
         return;
     }
@@ -933,7 +1047,7 @@ void ControlServer::Impl::run(std::stop_token stop_token)
                     result = dispatch(request);
             }
             const std::string response
-                = response_json(request.id, result).dump();
+                = dump_wire_json(response_json(request.id, result));
             write_frame(client, response);
             ::close(client);
         }

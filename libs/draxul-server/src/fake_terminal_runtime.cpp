@@ -47,10 +47,25 @@ bool FakeTerminalRuntime::pump()
     return false;
 }
 
-bool FakeTerminalRuntime::send_input(std::string_view bytes)
+RemoteTerminalInputResult FakeTerminalRuntime::send_input(
+    std::string_view bytes)
 {
+    if (input_result_ != RemoteTerminalInputResult::Accepted)
+        return input_result_;
+    received_input_.append(bytes);
     echo_input(bytes);
-    return true;
+    return RemoteTerminalInputResult::Accepted;
+}
+
+void FakeTerminalRuntime::set_input_result(
+    RemoteTerminalInputResult result)
+{
+    input_result_ = result;
+}
+
+std::string_view FakeTerminalRuntime::received_input() const
+{
+    return received_input_;
 }
 
 bool FakeTerminalRuntime::is_running() const

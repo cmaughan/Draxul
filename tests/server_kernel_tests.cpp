@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "support/temp_dir.h"
+#include "../libs/draxul-server/src/fake_terminal_runtime.h"
+#include "../libs/draxul-server/src/remote_terminal_service.h"
 
 #include <draxul/agent_client.h>
 #include <draxul/agent_protocol.h>
@@ -32,6 +34,60 @@
 
 using namespace draxul;
 using draxul::tests::TempDir;
+
+TEST_CASE("remote terminal input backpressure is nonfatal and observable",
+    "[server][remote-terminal][backpressure]")
+{
+    FakeTerminalRuntime runtime;
+    RemoteTerminalService service(
+        {
+            .method_prefix = "bounded",
+            .server_epoch = "bounded-epoch",
+            .pane_id = "bounded-pane",
+            .terminal_id = "bounded-terminal",
+            .name = "Bounded",
+        },
+        runtime);
+
+    const auto attached = service.handle(
+        "bounded.attach", { { "client_id", "controller" } });
+    REQUIRE(attached.ok);
+
+    runtime.set_input_result(
+        RemoteTerminalInputResult::Backpressure);
+    const auto rejected = service.handle(
+        "bounded.input",
+        {
+            { "client_id", "controller" },
+            { "text", "queued" },
+        });
+    REQUIRE_FALSE(rejected.ok);
+    CHECK(rejected.error_code == "backpressure");
+
+    runtime.set_input_result(
+        RemoteTerminalInputResult::Accepted);
+    const auto accepted = service.handle(
+        "bounded.input",
+        {
+            { "client_id", "controller" },
+            { "text", "after-backpressure" },
+        });
+    REQUIRE(accepted.ok);
+    CHECK(runtime.received_input() == "after-backpressure");
+
+    service.pump();
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(110));
+    service.pump();
+    const auto metrics = service.handle(
+        "bounded.metrics", nlohmann::json::object());
+    REQUIRE(metrics.ok);
+    CHECK(metrics.value["sanitized"] == true);
+    CHECK(metrics.value["max_loop_interval_ms"].get<uint64_t>()
+        >= 100);
+    CHECK(metrics.value["loop_latency_warnings"].get<uint64_t>()
+        >= 1);
+}
 
 namespace
 {
@@ -642,6 +698,56 @@ TEST_CASE("server-owned shell survives every client detaching and reconnecting",
     CHECK(server.running());
     REQUIRE(ServerClient::shutdown(temp.path,
         { .confirm_live_terminals = true }, shutdown_error));
+    run_guard.join();
+}
+
+TEST_CASE("binary shell output without subscribers leaves the server running",
+    "[server][remote-terminal][process][unicode]")
+{
+    TempDir temp("draxul-real-remote-binary");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .epoch_override = "fixed-epoch",
+    });
+    REQUIRE(server.start().disposition == ServerStartDisposition::Started);
+    ServerRunGuard run_guard(server);
+
+    auto client
+        = remote_client(temp.path, "binary-a", "fixed-epoch", "terminal");
+    std::string error;
+    REQUIRE(client.attach(error));
+    const auto completed = temp.path / "binary-output-complete";
+#ifdef _WIN32
+    const std::string binary_command
+        = "Start-Sleep -Milliseconds 200; $b=[byte[]](0x80,0xFF); [Console]::OpenStandardOutput().Write($b,0,$b.Length); [IO.File]::WriteAllText('"
+        + completed.string() + "','ok')\r";
+#else
+    const std::string binary_command
+        = "sleep 0.2; printf '\\200\\377'; : > '"
+        + completed.string() + "'\r";
+#endif
+    REQUIRE(client.send_input(binary_command, error));
+    REQUIRE(client.disconnect(error));
+    for (int attempt = 0;
+         attempt < 100 && !std::filesystem::exists(completed);
+         ++attempt)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    REQUIRE(std::filesystem::exists(completed));
+
+    const auto probe = ServerClient::probe(probe_options(temp.path));
+    INFO(probe.error_code);
+    INFO(probe.error_message);
+    REQUIRE(probe.ready());
+    REQUIRE(server.running());
+
+    auto reconnected
+        = remote_client(temp.path, "binary-b", "fixed-epoch", "terminal");
+    REQUIRE(reconnected.attach(error));
+    INFO(error);
+
     run_guard.join();
 }
 

@@ -4,8 +4,10 @@
 
 #include <draxul/control_plane.h>
 
+#include <chrono>
 #include <deque>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -88,7 +90,11 @@ private:
     uint64_t resyncs_ = 0;
     uint64_t scrollback_requests_ = 0;
     uint64_t scrollback_rows_served_ = 0;
+    uint64_t loop_latency_warnings_ = 0;
+    uint64_t max_loop_interval_ms_ = 0;
     size_t max_queue_depth_ = 0;
+    std::optional<std::chrono::steady_clock::time_point>
+        last_pump_at_;
 };
 
 } // namespace draxul

@@ -51,7 +51,10 @@ public:
     std::optional<AgentProcessObservation> foreground_process_observation() const;
     bool resize(int cols, int rows);
     bool write(std::string_view text);
-    std::vector<std::string> drain_output();
+    std::vector<std::string> drain_output(
+        bool* overflowed = nullptr);
+
+    static constexpr size_t kMaxQueuedOutputBytes = 1024 * 1024;
 
 private:
     void reader_main();
@@ -66,6 +69,8 @@ private:
     std::atomic<bool> reader_running_{ false };
     std::mutex output_mutex_;
     std::vector<std::string> output_chunks_;
+    size_t output_bytes_ = 0;
+    bool output_overflowed_ = false;
     std::function<void()> on_output_available_;
     mutable std::optional<int> last_exit_code_;
 };

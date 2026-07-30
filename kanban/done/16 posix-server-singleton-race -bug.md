@@ -42,37 +42,37 @@ misreported but benign outcome.
 
 ## Implementation
 
-- [ ] Replace probe-then-unlink with a real lock: `O_CREAT|O_EXCL` lock file plus
+- [x] Replace probe-then-unlink with a real lock: `O_CREAT|O_EXCL` lock file plus
       `flock`/`fcntl`, held for the process lifetime, covering the stale-socket reclaim, the
       bind, and the metadata publish. Only unlink a stale path while holding the lock.
-- [ ] Map "another process holds the lock" to `endpoint_in_use` so `ServerKernel::start`
+- [x] Map "another process holds the lock" to `endpoint_in_use` so `ServerKernel::start`
       reports `AlreadyRunning`, matching Windows.
-- [ ] Make `EADDRINUSE` from `bind` set `endpoint_in_use` as well, so the narrow variant is
+- [x] Make `EADDRINUSE` from `bind` set `endpoint_in_use` as well, so the narrow variant is
       reported honestly.
 - [ ] Consider the same lock file on Windows for symmetry. `FILE_FLAG_FIRST_PIPE_INSTANCE`
       already gives the guarantee there, so this is optional — but one mechanism is easier to
       reason about than two with different strengths.
-- [ ] Use `weakly_canonical` in `normalized_runtime_key` (`control_plane.cpp:81-97`). Today a
+- [x] Use `weakly_canonical` in `normalized_runtime_key` (`control_plane.cpp:81-97`). Today a
       symlinked or differently-spelled `--server-runtime-dir` hashes differently and yields a
       second "singleton" with its own endpoint and metadata in the same directory.
 
 ## Unit tests
 
-- [ ] Two `ensure()` calls racing against a stale socket produce exactly one server; the loser
+- [x] Two `ensure()` calls racing against a stale socket produce exactly one server; the loser
       reports `AlreadyRunning` and attaches to the winner.
-- [ ] A stale socket with no live owner is still reclaimed by a single launcher (must not
+- [x] A stale socket with no live owner is still reclaimed by a single launcher (must not
       regress `09`'s stale-endpoint recovery test).
-- [ ] A live server's socket and metadata are never removed or overwritten by a losing
+- [x] A live server's socket and metadata are never removed or overwritten by a losing
       launcher (extends `09`'s incumbent-intact test to the concurrent case).
-- [ ] A symlinked runtime directory resolves to the same endpoint as its target.
+- [x] A symlinked runtime directory resolves to the same endpoint as its target.
 
 ## Acceptance criteria
 
 - [ ] Launching two UIs simultaneously against a crashed server yields one server and no
       orphaned PTY owner.
-- [ ] Every "someone else owns this" outcome reports `AlreadyRunning`, never `Failed`.
-- [ ] macOS: socket path, `0600`/`0700` permissions, and `sun_path` length handling preserved.
-- [ ] Windows: named-pipe first-instance semantics and SDDL unchanged.
+- [x] Every "someone else owns this" outcome reports `AlreadyRunning`, never `Failed`.
+- [x] macOS: socket path, `0600`/`0700` permissions, and `sun_path` length handling preserved.
+- [x] Windows: named-pipe first-instance semantics and SDDL unchanged.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
 
 ## Dependencies and ownership

@@ -1,5 +1,6 @@
 #include "remote_terminal_service.h"
 
+#include <draxul/log.h>
 #include <draxul/remote_terminal_protocol.h>
 
 #include <algorithm>
@@ -13,6 +14,16 @@ namespace
 
 constexpr size_t kPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
+constexpr auto kLoopLatencyWarningThreshold
+    = std::chrono::milliseconds(100);
+
+size_t replace_safe_json_size(const nlohmann::json& value)
+{
+    return value
+        .dump(-1, ' ', false,
+            nlohmann::detail::error_handler_t::replace)
+        .size();
+}
 
 } // namespace
 
@@ -140,7 +151,6 @@ RemoteTerminalEvent RemoteTerminalService::snapshot_event()
         .snapshot = runtime_.snapshot(),
     };
     ++snapshot_frames_;
-    snapshot_bytes_ += remote_terminal_event_to_json(event).dump().size();
     return event;
 }
 
@@ -154,7 +164,6 @@ RemoteTerminalEvent RemoteTerminalService::make_delta_event()
         .delta = runtime_.take_delta(),
     };
     ++delta_frames_;
-    delta_bytes_ += remote_terminal_event_to_json(event).dump().size();
     if (event.delta)
     {
         delta_cells_ += event.delta->cells.size();
@@ -290,7 +299,9 @@ ControlMethodResult RemoteTerminalService::poll(
     nlohmann::json events = nlohmann::json::array();
     if (requested.generation != generation_ || delivery.needs_resync)
     {
-        events.push_back(remote_terminal_event_to_json(snapshot_event()));
+        auto encoded = remote_terminal_event_to_json(snapshot_event());
+        snapshot_bytes_ += replace_safe_json_size(encoded);
+        events.push_back(std::move(encoded));
         delivery.events.clear();
         delivery.needs_resync = false;
     }
@@ -313,7 +324,7 @@ ControlMethodResult RemoteTerminalService::poll(
             if (count++ >= kRemoteTerminalMaxEventsPerPoll)
                 break;
             auto encoded = remote_terminal_event_to_json(event);
-            const size_t encoded_bytes = encoded.dump().size();
+            const size_t encoded_bytes = replace_safe_json_size(encoded);
             if (!events.empty()
                 && payload_bytes + encoded_bytes > kPollPayloadBudget)
             {
@@ -321,6 +332,10 @@ ControlMethodResult RemoteTerminalService::poll(
             }
             events.push_back(std::move(encoded));
             payload_bytes += encoded_bytes;
+            if (event.kind == RemoteTerminalEventKind::Snapshot)
+                snapshot_bytes_ += encoded_bytes;
+            else if (event.kind == RemoteTerminalEventKind::Delta)
+                delta_bytes_ += encoded_bytes;
         }
     }
     return ControlMethodResult::success({
@@ -355,7 +370,15 @@ ControlMethodResult RemoteTerminalService::input(
         return ControlMethodResult::error(
             "invalid_input", "Terminal input must be between 1 and 65536 bytes.");
     }
-    if (!runtime_.send_input(text))
+    const RemoteTerminalInputResult input_result
+        = runtime_.send_input(text);
+    if (input_result == RemoteTerminalInputResult::Backpressure)
+    {
+        return ControlMethodResult::error(
+            "backpressure",
+            "The terminal input queue is full; retry after the shell drains input.");
+    }
+    if (input_result == RemoteTerminalInputResult::Failed)
     {
         return ControlMethodResult::error(
             "process_write_failed", "The terminal process rejected input.");
@@ -581,11 +604,34 @@ ControlMethodResult RemoteTerminalService::metrics() const
         { "subscribers", subscribers_.size() },
         { "scrollback_requests", scrollback_requests_ },
         { "scrollback_rows_served", scrollback_rows_served_ },
+        { "max_loop_interval_ms", max_loop_interval_ms_ },
+        { "loop_latency_warnings", loop_latency_warnings_ },
     });
 }
 
 void RemoteTerminalService::pump()
 {
+    const auto now = std::chrono::steady_clock::now();
+    if (last_pump_at_)
+    {
+        const auto interval
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - *last_pump_at_);
+        max_loop_interval_ms_ = std::max<uint64_t>(
+            max_loop_interval_ms_,
+            static_cast<uint64_t>(std::max<int64_t>(
+                0, interval.count())));
+        if (interval > kLoopLatencyWarningThreshold)
+        {
+            ++loop_latency_warnings_;
+            DRAXUL_LOG_WARN(LogCategory::App,
+                "Server terminal loop interval was %lld ms (threshold %lld ms)",
+                static_cast<long long>(interval.count()),
+                static_cast<long long>(
+                    kLoopLatencyWarningThreshold.count()));
+        }
+    }
+    last_pump_at_ = now;
     if (started_)
         publish_runtime_updates(runtime_.pump());
 }

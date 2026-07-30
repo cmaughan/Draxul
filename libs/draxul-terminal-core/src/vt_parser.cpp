@@ -10,44 +10,92 @@ namespace draxul
 namespace
 {
 
-bool has_complete_codepoint(std::string_view text, size_t offset)
+enum class CodepointState
 {
-    PERF_MEASURE();
+    Valid,
+    Invalid,
+    Incomplete,
+};
+
+CodepointState codepoint_state(std::string_view text, size_t offset)
+{
     if (offset >= text.size())
-        return false;
+        return CodepointState::Incomplete;
 
+    const auto lead = static_cast<uint8_t>(text[offset]);
     const int length = utf8_sequence_length(static_cast<uint8_t>(text[offset]));
-    if (offset + static_cast<size_t>(length) > text.size())
-        return false;
+    if (length == 1)
+        return lead < 0x80 ? CodepointState::Valid : CodepointState::Invalid;
 
-    for (int i = 1; i < length; ++i)
+    if (offset + static_cast<size_t>(length) > text.size())
     {
-        const auto byte = static_cast<uint8_t>(text[offset + static_cast<size_t>(i)]);
-        if ((byte & 0xC0) != 0x80)
-            return false;
+        // Preserve a valid prefix so a codepoint split across PTY reads can be
+        // completed by the next feed. A non-continuation byte proves the
+        // sequence invalid immediately.
+        for (size_t i = offset + 1; i < text.size(); ++i)
+        {
+            if ((static_cast<uint8_t>(text[i]) & 0xC0) != 0x80)
+                return CodepointState::Invalid;
+        }
+        return CodepointState::Incomplete;
     }
-    return true;
+
+    size_t next_offset = offset;
+    return utf8_codepoint_at_is_valid(text, offset, next_offset)
+            && next_offset == offset + static_cast<size_t>(length)
+        ? CodepointState::Valid
+        : CodepointState::Invalid;
+}
+
+struct DecodedCodepoint
+{
+    uint32_t value = 0;
+    std::string text;
+};
+
+std::optional<DecodedCodepoint> consume_codepoint(
+    std::string_view text, size_t& offset)
+{
+    static constexpr std::string_view kReplacement = "\xEF\xBF\xBD";
+
+    const CodepointState state = codepoint_state(text, offset);
+    if (state == CodepointState::Incomplete)
+        return std::nullopt;
+    if (state == CodepointState::Invalid)
+    {
+        ++offset;
+        return DecodedCodepoint{
+            .value = 0xFFFD,
+            .text = std::string(kReplacement),
+        };
+    }
+
+    const size_t start = offset;
+    uint32_t cp = 0;
+    utf8_decode_next(text, offset, cp);
+    return DecodedCodepoint{
+        .value = cp,
+        .text = std::string(text.substr(start, offset - start)),
+    };
 }
 
 std::optional<std::string> consume_cluster(std::string_view text, size_t& offset)
 {
     PERF_MEASURE();
-    if (!has_complete_codepoint(text, offset))
+    auto decoded = consume_codepoint(text, offset);
+    if (!decoded)
         return std::nullopt;
 
-    const size_t start = offset;
-    uint32_t cp = 0;
-    utf8_decode_next(text, offset, cp);
+    std::string cluster = std::move(decoded->text);
     bool expect_joined = false;
 
     while (offset < text.size())
     {
-        if (!has_complete_codepoint(text, offset))
-            break;
-
         const size_t next_start = offset;
-        uint32_t next = 0;
-        utf8_decode_next(text, offset, next);
+        auto next_codepoint = consume_codepoint(text, offset);
+        if (!next_codepoint)
+            break;
+        const uint32_t next = next_codepoint->value;
         const bool keep = next == 0x200D || next == 0xFE0F || is_width_ignorable(next) || is_emoji_modifier(next) || expect_joined;
         expect_joined = next == 0x200D;
         if (!keep)
@@ -55,9 +103,10 @@ std::optional<std::string> consume_cluster(std::string_view text, size_t& offset
             offset = next_start;
             break;
         }
+        cluster += next_codepoint->text;
     }
 
-    return std::string(text.substr(start, offset - start));
+    return cluster;
 }
 
 } // namespace

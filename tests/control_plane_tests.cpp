@@ -17,9 +17,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <fstream>
 #include <future>
+#include <mutex>
 #include <optional>
 #include <thread>
 
@@ -477,6 +479,45 @@ TEST_CASE("control transport authenticates and dispatches on the caller thread",
     std::filesystem::remove_all(runtime, ignored);
 }
 
+TEST_CASE("control transport replaces invalid UTF-8 in response payloads",
+    "[control][unicode]")
+{
+    const auto runtime = unique_runtime_directory();
+    ControlServer server;
+    std::string start_error;
+    REQUIRE(server.start(
+        "invalid-utf8-response", runtime, [] {}, &start_error));
+
+    auto client = std::async(std::launch::async, [&] {
+        return ControlClient::request(
+            "invalid-utf8-response", runtime, "test.invalid_utf8",
+            nlohmann::json::object());
+    });
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (client.wait_for(std::chrono::milliseconds(1))
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline)
+    {
+        server.process_pending([](const ControlRequest&) {
+            return ControlMethodResult::success({
+                { "text", std::string(1, static_cast<char>(0xFF)) },
+            });
+        });
+    }
+
+    REQUIRE(client.wait_for(std::chrono::milliseconds(0))
+        == std::future_status::ready);
+    const auto response = client.get();
+    INFO(response.error_code << ": " << response.error_message);
+    REQUIRE(response.ok);
+    CHECK(response.result["text"] == "\xEF\xBF\xBD");
+
+    server.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
 #ifdef _WIN32
 TEST_CASE("a stalled Windows control client does not starve another client",
     "[control][windows]")
@@ -521,6 +562,131 @@ TEST_CASE("a stalled Windows control client does not starve another client",
     server.stop();
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
+}
+#endif
+
+#ifndef _WIN32
+TEST_CASE("concurrent launchers serialize stale endpoint recovery", "[control]")
+{
+    const auto runtime = unique_runtime_directory();
+    std::string endpoint_path;
+    {
+        ControlServer previous;
+        std::string error;
+        REQUIRE(previous.start("racing-stale-session", runtime, [] {}, &error));
+        endpoint_path = previous.endpoint();
+        previous.stop();
+    }
+    {
+        std::ofstream stale(endpoint_path);
+        stale << "stale";
+    }
+    REQUIRE(std::filesystem::exists(endpoint_path));
+
+    ControlServer first;
+    ControlServer second;
+    std::string first_error;
+    std::string second_error;
+    std::mutex gate_mutex;
+    std::condition_variable gate_changed;
+    int ready = 0;
+    bool launch = false;
+    auto start = [&](ControlServer& server, std::string& error) {
+        {
+            std::unique_lock lock(gate_mutex);
+            ++ready;
+            gate_changed.notify_all();
+            gate_changed.wait(lock, [&] { return launch; });
+        }
+        return server.start(
+            "racing-stale-session", runtime, [] {}, &error);
+    };
+
+    auto first_result = std::async(
+        std::launch::async, [&] { return start(first, first_error); });
+    auto second_result = std::async(
+        std::launch::async, [&] { return start(second, second_error); });
+    {
+        std::unique_lock lock(gate_mutex);
+        gate_changed.wait(lock, [&] { return ready == 2; });
+        launch = true;
+    }
+    gate_changed.notify_all();
+
+    const bool first_started = first_result.get();
+    const bool second_started = second_result.get();
+    CHECK(first_started != second_started);
+    ControlServer& winner = first_started ? first : second;
+    ControlServer& loser = first_started ? second : first;
+    CHECK(winner.running());
+    CHECK_FALSE(loser.running());
+    CHECK(loser.endpoint_in_use());
+    REQUIRE(std::filesystem::exists(winner.metadata_path()));
+    REQUIRE(std::filesystem::exists(winner.endpoint()));
+
+    auto client = std::async(std::launch::async, [&] {
+        return ControlClient::request("racing-stale-session", runtime,
+            "system.hello", { { "probe", true } });
+    });
+    const auto deadline
+        = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (client.wait_for(std::chrono::milliseconds(1))
+            != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline)
+    {
+        winner.process_pending([](const ControlRequest& request) {
+            return ControlMethodResult::success({
+                { "method", request.method },
+                { "probe", request.params.value("probe", false) },
+            });
+        });
+    }
+    REQUIRE(client.wait_for(std::chrono::milliseconds(0))
+        == std::future_status::ready);
+    const auto response = client.get();
+    REQUIRE(response.ok);
+    CHECK(response.result["method"] == "system.hello");
+
+    winner.stop();
+    std::error_code ignored;
+    std::filesystem::remove_all(runtime, ignored);
+}
+
+TEST_CASE("symlinked runtime directories share one control endpoint", "[control]")
+{
+    const auto runtime = unique_runtime_directory();
+    auto alias = runtime;
+    alias += "-alias";
+    std::error_code path_error;
+    std::filesystem::create_directories(runtime, path_error);
+    REQUIRE_FALSE(path_error);
+    std::filesystem::create_directory_symlink(runtime, alias, path_error);
+    REQUIRE_FALSE(path_error);
+
+    CHECK(namespaced_control_id("draxul-server", runtime)
+        == namespaced_control_id("draxul-server", alias));
+
+    ControlServer first;
+    std::string first_error;
+    REQUIRE(first.start(
+        "symlink-session", runtime, [] {}, &first_error));
+    std::ifstream metadata_input(first.metadata_path());
+    const auto original = nlohmann::json::parse(metadata_input);
+    metadata_input.close();
+
+    ControlServer second;
+    std::string second_error;
+    CHECK_FALSE(second.start(
+        "symlink-session", alias, [] {}, &second_error));
+    CHECK(second.endpoint_in_use());
+    REQUIRE(std::filesystem::exists(first.metadata_path()));
+    std::ifstream after_input(first.metadata_path());
+    const auto after = nlohmann::json::parse(after_input);
+    CHECK(after.at("token") == original.at("token"));
+
+    first.stop();
+    std::filesystem::remove(alias, path_error);
+    std::filesystem::remove_all(runtime, path_error);
 }
 #endif
 

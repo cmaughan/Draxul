@@ -22,7 +22,8 @@ public:
     bool ensure_started(std::string& error) override;
     bool restart(std::string& error) override;
     bool pump() override;
-    bool send_input(std::string_view bytes) override;
+    RemoteTerminalInputResult send_input(
+        std::string_view bytes) override;
     bool resize(int cols, int rows) override;
     bool is_running() const override;
     uint64_t process_id() const override;
@@ -34,6 +35,8 @@ public:
     TerminalDirtySnapshot take_delta() override;
 
     void echo_input(std::string_view bytes);
+    void set_input_result(RemoteTerminalInputResult result);
+    std::string_view received_input() const;
 
 private:
     Grid& terminal_grid() override;
@@ -74,6 +77,9 @@ private:
     CursorShape cursor_shape_ = CursorShape::Block;
     bool cursor_blink_ = false;
     bool cursor_visible_ = true;
+    RemoteTerminalInputResult input_result_
+        = RemoteTerminalInputResult::Accepted;
+    std::string received_input_;
 };
 
 } // namespace draxul

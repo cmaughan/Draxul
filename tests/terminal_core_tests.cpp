@@ -1,6 +1,8 @@
 #include <catch2/catch_all.hpp>
+#include <draxul/remote_terminal_protocol.h>
 #include <draxul/terminal_core.h>
 
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -159,4 +161,38 @@ TEST_CASE("terminal core owns resize, responses, and clipboard semantics",
     CHECK(harness.grid.rows() == 5);
     const TerminalCursorSnapshot expected_cursor{ .col = 0, .row = 0 };
     CHECK(harness.core.semantic_snapshot().metadata.cursor == expected_cursor);
+}
+
+TEST_CASE("terminal core replaces invalid UTF-8 before snapshots reach the wire",
+    "[terminal-core][unicode][server]")
+{
+    CoreHarness harness(12, 2);
+    std::string output;
+    output.push_back(static_cast<char>(0x80));
+    output.push_back(static_cast<char>(0xFF));
+    output += "\xE2\x82X"; // Truncated U+20AC followed by printable text.
+    output += "\xC3\xA9"; // Valid U+00E9.
+    harness.core.feed(output);
+
+    const auto snapshot = harness.core.semantic_snapshot();
+    static constexpr std::string_view kReplacement = "\xEF\xBF\xBD";
+    REQUIRE(snapshot.cells.size() >= 6);
+    CHECK(snapshot.cells[0].text == kReplacement);
+    CHECK(snapshot.cells[1].text == kReplacement);
+    CHECK(snapshot.cells[2].text == kReplacement);
+    CHECK(snapshot.cells[3].text == kReplacement);
+    CHECK(snapshot.cells[4].text == "X");
+    CHECK(snapshot.cells[5].text == "\xC3\xA9");
+
+    const RemoteTerminalEvent event{
+        .kind = RemoteTerminalEventKind::Snapshot,
+        .version = {
+            .server_epoch = "utf8-test",
+            .terminal_id = "terminal",
+            .generation = 1,
+            .sequence = 0,
+        },
+        .snapshot = snapshot,
+    };
+    CHECK_NOTHROW(remote_terminal_event_to_json(event).dump());
 }
