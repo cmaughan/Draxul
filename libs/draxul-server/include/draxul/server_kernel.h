@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -54,6 +55,9 @@ struct ServerKernelOptions
     int terminal_scrollback_lines = 10000;
     std::vector<AgentDefinition> agent_definitions;
     bool agents_resume_on_restore = false;
+    // Optional transport-health source used by deterministic tests. Production
+    // kernels read listener failures directly from ControlServer.
+    std::function<uint32_t()> listener_error_source;
 };
 
 std::filesystem::path server_session_state_path(

@@ -44,39 +44,48 @@ mixed-version rollout reports the wrong problem.
 
 ## Implementation
 
-- [ ] Record process start time (or a boot-relative token) in the server metadata alongside
+- [x] Record process start time (or a boot-relative token) in the server metadata alongside
       `server_pid`, and compare it in `process_is_alive`. This is the single change that makes
       `Busy`/`Crashed`/`Starting` classification sound.
-- [ ] Treat an unreachable endpoint as authoritative over PID liveness after a short grace
+- [x] Treat an unreachable endpoint as authoritative over PID liveness after a short grace
       period, so a `Busy` classification cannot persist against a dead endpoint.
-- [ ] Stamp starting markers with a creation time and expire them after a few seconds; delete
+- [x] Stamp starting markers with a creation time and expire them after a few seconds; delete
       markers whose PID is dead during `inspect_runtime` rather than only classifying them.
-- [ ] Give `force_stop` a filesystem-only fallback: when `status()` fails, use the metadata
+- [x] Give `force_stop` a filesystem-only fallback: when `status()` fails, use the metadata
       `server_pid` plus the recorded start time, and keep requiring the explicit confirmation
       the caller already passes.
-- [ ] Map `unsupported_version` and a metadata version mismatch to
+- [x] Map `unsupported_version` and a metadata version mismatch to
       `ServerProbeState::Incompatible` in `unavailable_result`, so version problems report as
       version problems.
-- [ ] Treat repeated listener recreation failure as fatal rather than warning forever: today
+- [x] Treat repeated listener recreation failure as fatal rather than warning forever: today
       `take_listener_error()` only logs (`server_kernel.cpp:2640-2646`) while `running()` stays
       true and the metadata stays published, so a server whose listeners all fail still reports
       "ready" while every client sees `endpoint_unavailable`.
 
 ## Unit tests
 
-- [ ] Metadata naming a live PID that is *not* a Draxul server classifies as `Crashed` and
+- [x] Metadata naming a live PID that is *not* a Draxul server classifies as `Crashed` and
       `ensure()` relaunches.
-- [ ] A starting marker older than the expiry no longer wedges `ensure()` in `Starting`.
-- [ ] `force_stop` succeeds against a server whose control loop does not respond.
-- [ ] A protocol-version mismatch reports `Incompatible` rather than timing out as `Busy`.
-- [ ] Repeated listener failure stops the kernel so a client can classify it as `Crashed`.
+- [x] A starting marker older than the expiry no longer wedges `ensure()` in `Starting`.
+- [x] `force_stop` succeeds against a server whose control loop does not respond.
+- [x] A protocol-version mismatch reports `Incompatible` rather than timing out as `Busy`.
+- [x] Repeated listener failure stops the kernel and removes its misleading ready metadata,
+      leaving the client-visible state `Absent` and immediately relaunchable.
 
 ## Acceptance criteria
 
-- [ ] No crashed-server state requires the user to delete files by hand to start Draxul.
-- [ ] `--force-stop-server --yes` works against a wedged server.
-- [ ] Version skew produces an accurate message immediately, not a 10 s hang.
+- [x] No crashed-server state requires the user to delete files by hand to start Draxul.
+- [x] `--force-stop-server --yes` works against a wedged server.
+- [x] Version skew produces an accurate message immediately, not a 10 s hang.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
+
+## Validation
+
+- [x] Windows Release/Ninja production build and all six core/app CTest shards pass.
+- [x] Debug/Ninja smoke passes.
+- [x] Focused discovery, process-incarnation, incompatible-protocol, force-stop, and
+      listener-failure lifecycle tests pass.
+- [ ] macOS/POSIX build and runtime validation.
 
 ## Dependencies and ownership
 

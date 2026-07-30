@@ -18,7 +18,9 @@
 #include <deque>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <unordered_map>
@@ -29,6 +31,10 @@
 #define NOMINMAX
 #include <windows.h>
 #else
+#include <sys/types.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -44,6 +50,8 @@ namespace
 // count alone is not a safe batching limit.
 constexpr size_t kRemoteTerminalPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
+constexpr size_t kFatalListenerFailureCount = 8;
+constexpr size_t kCompletedAgentMutationLimit = 1024;
 
 uint64_t current_process_id()
 {
@@ -60,6 +68,82 @@ uint64_t current_unix_time_ms()
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
             .count());
+}
+
+#ifdef _WIN32
+std::optional<std::string> process_start_token(HANDLE process)
+{
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetProcessTimes(process, &created, &exited, &kernel, &user))
+        return std::nullopt;
+    const uint64_t value
+        = (static_cast<uint64_t>(created.dwHighDateTime) << 32)
+        | created.dwLowDateTime;
+    return std::to_string(value);
+}
+#endif
+
+std::optional<std::string> process_start_token(uint64_t pid)
+{
+    if (pid == 0)
+        return std::nullopt;
+#ifdef _WIN32
+    if (pid > std::numeric_limits<DWORD>::max())
+        return std::nullopt;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+        FALSE, static_cast<DWORD>(pid));
+    if (!process)
+        return std::nullopt;
+    const auto token = process_start_token(process);
+    CloseHandle(process);
+    return token;
+#elif defined(__APPLE__)
+    if (pid > static_cast<uint64_t>(
+                  std::numeric_limits<pid_t>::max()))
+    {
+        return std::nullopt;
+    }
+    kinfo_proc process{};
+    size_t size = sizeof(process);
+    int query[] = {
+        CTL_KERN,
+        KERN_PROC,
+        KERN_PROC_PID,
+        static_cast<int>(pid),
+    };
+    if (::sysctl(query, 4, &process, &size, nullptr, 0) != 0
+        || size == 0)
+    {
+        return std::nullopt;
+    }
+    return std::to_string(process.kp_proc.p_starttime.tv_sec)
+        + ":" + std::to_string(
+              process.kp_proc.p_starttime.tv_usec);
+#else
+    std::ifstream stat(
+        "/proc/" + std::to_string(pid) + "/stat");
+    std::string line;
+    if (!std::getline(stat, line))
+        return std::nullopt;
+    const size_t command_end = line.rfind(')');
+    if (command_end == std::string::npos
+        || command_end + 2 >= line.size())
+    {
+        return std::nullopt;
+    }
+    std::istringstream fields(line.substr(command_end + 2));
+    std::string field;
+    for (int index = 0; index < 20; ++index)
+    {
+        if (!(fields >> field))
+            return std::nullopt;
+    }
+    std::ifstream boot_id("/proc/sys/kernel/random/boot_id");
+    std::string boot;
+    if (!std::getline(boot_id, boot) || boot.empty())
+        return std::nullopt;
+    return boot + ":" + field;
+#endif
 }
 
 std::string random_epoch()
@@ -196,6 +280,8 @@ public:
             ? random_epoch()
             : options.epoch_override;
         pid = current_process_id();
+        process_start_identity
+            = process_start_token(pid).value_or("");
     }
 
     ServerStartResult start();
@@ -280,6 +366,7 @@ public:
     ControlServer control;
     std::string epoch_value;
     uint64_t pid = 0;
+    std::string process_start_identity;
     std::chrono::steady_clock::time_point started_at{};
     std::atomic<bool> started = false;
     std::atomic<bool> stop_requested = false;
@@ -340,6 +427,9 @@ public:
         bool checkpoint_file_present = false;
         std::chrono::steady_clock::time_point next_checkpoint_at{};
         std::chrono::steady_clock::time_point next_agent_refresh_at{};
+        std::unordered_map<std::string, ControlMethodResult>
+            completed_agent_mutations;
+        std::deque<std::string> completed_agent_mutation_order;
     };
     std::unordered_map<std::string, std::unique_ptr<ServerSession>>
         sessions;
@@ -361,6 +451,10 @@ void ServerKernel::Impl::publish_starting_marker()
         output << nlohmann::json{
             { "pid", pid },
             { "epoch", epoch_value },
+            { "process_start_token",
+                process_start_identity },
+            { "created_unix_ms",
+                current_unix_time_ms() },
             { "protocol_major", options.protocol_major },
         }
                       .dump();
@@ -1174,6 +1268,13 @@ ServerStartResult ServerKernel::Impl::start()
         return { ServerStartDisposition::Started, {} };
     if (options.runtime_directory.empty())
         return { ServerStartDisposition::Failed, "Server runtime directory is empty." };
+    if (process_start_identity.empty())
+    {
+        return {
+            ServerStartDisposition::Failed,
+            "Unable to determine the Draxul server process start identity.",
+        };
+    }
 
     stop_requested = false;
     publish_starting_marker();
@@ -1186,6 +1287,9 @@ ServerStartResult ServerKernel::Impl::start()
     const nlohmann::json metadata{
         { "server_pid", pid },
         { "server_epoch", epoch_value },
+        { "server_process_start_token",
+            process_start_identity },
+        { "published_unix_ms", current_unix_time_ms() },
         { "server_protocol_major", options.protocol_major },
         { "server_protocol_minor", options.protocol_minor },
         { "build_version", options.build_version },
@@ -1411,6 +1515,85 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                     ? "Server Session agents are unavailable."
                     : std::move(session_error));
         }
+        const bool mutating_agent_request
+            = request.method == "agent.start"
+            || request.method == "agent.restart"
+            || request.method == "agent.send_text"
+            || request.method == "agent.send_keys";
+        std::string agent_mutation_key;
+        if (mutating_agent_request
+            && request.params.contains("request_id"))
+        {
+            const auto& request_id
+                = request.params["request_id"];
+            if (request_id.is_number_unsigned())
+            {
+                const uint64_t value
+                    = request_id.get<uint64_t>();
+                if (value == 0)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_request_id",
+                        "Agent request_id must be non-zero.");
+                }
+                agent_mutation_key
+                    = request.method + ":"
+                    + std::to_string(value);
+            }
+            else if (request_id.is_string())
+            {
+                const auto& value
+                    = request_id.get_ref<const std::string&>();
+                if (value.empty() || value.size() > 256)
+                {
+                    return ControlMethodResult::error(
+                        "invalid_request_id",
+                        "Agent request_id must be a non-empty bounded string.");
+                }
+                agent_mutation_key
+                    = request.method + ":" + value;
+            }
+            else
+            {
+                return ControlMethodResult::error(
+                    "invalid_request_id",
+                    "Agent request_id must be an unsigned integer or string.");
+            }
+            const auto cached
+                = session->completed_agent_mutations.find(
+                    agent_mutation_key);
+            if (cached
+                != session->completed_agent_mutations.end())
+            {
+                return cached->second;
+            }
+        }
+        const auto remember_agent_mutation
+            = [&](ControlMethodResult result) {
+                  if (agent_mutation_key.empty()
+                      || !result.ok)
+                  {
+                      return result;
+                  }
+                  session->completed_agent_mutation_order
+                      .push_back(agent_mutation_key);
+                  session->completed_agent_mutations[
+                      agent_mutation_key]
+                      = result;
+                  while (session
+                             ->completed_agent_mutation_order
+                             .size()
+                      > kCompletedAgentMutationLimit)
+                  {
+                      session->completed_agent_mutations
+                          .erase(session
+                                  ->completed_agent_mutation_order
+                                  .front());
+                      session->completed_agent_mutation_order
+                          .pop_front();
+                  }
+                  return result;
+              };
         if (request.method == "agent.start")
         {
             if (!request.params.is_object()
@@ -1641,9 +1824,10 @@ ControlMethodResult ServerKernel::Impl::handle_request(
             refresh_agents(
                 *session,
                 std::chrono::steady_clock::now());
-            return session->agent_service->handle(
-                "agent.get",
-                { { "instance_id", instance_id } });
+            return remember_agent_mutation(
+                session->agent_service->handle(
+                    "agent.get",
+                    { { "instance_id", instance_id } }));
         }
         if (request.method == "agent.restart"
             || request.method == "agent.send_text"
@@ -1697,13 +1881,14 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                 }
                 refresh_agents(*session,
                     std::chrono::steady_clock::now());
-                return ControlMethodResult::success({
-                    { "accepted", true },
-                    { "terminal_id", terminal_id },
-                    { "runtime_generation",
-                        terminal->second.service
-                            ->generation() },
-                });
+                return remember_agent_mutation(
+                    ControlMethodResult::success({
+                        { "accepted", true },
+                        { "terminal_id", terminal_id },
+                        { "runtime_generation",
+                            terminal->second.service
+                                ->generation() },
+                    }));
             }
 
             std::string bytes;
@@ -1774,9 +1959,10 @@ ControlMethodResult ServerKernel::Impl::handle_request(
                         ? "The agent terminal input queue is full."
                         : "The agent terminal rejected input.");
             }
-            return session->agent_service->handle(
-                "agent.get",
-                { { "instance_id", instance_id } });
+            return remember_agent_mutation(
+                session->agent_service->handle(
+                    "agent.get",
+                    { { "instance_id", instance_id } }));
         }
         return session->agent_service->handle(
             request.method, request.params);
@@ -2743,6 +2929,10 @@ int ServerKernel::Impl::run_until_stopped()
         stop();
         return 1;
     }
+    size_t recent_listener_failures = 0;
+    auto last_listener_failure
+        = std::chrono::steady_clock::time_point{};
+    bool fatal_listener_failure = false;
     while (!stop_requested)
     {
         for (auto& [session_id, session] : sessions)
@@ -2840,12 +3030,45 @@ int ServerKernel::Impl::run_until_stopped()
                     session_id.c_str());
             }
         }
-        if (const uint32_t listener_error = control.take_listener_error();
-            listener_error != 0)
+        const uint32_t listener_error
+            = options.listener_error_source
+            ? options.listener_error_source()
+            : control.take_listener_error();
+        if (listener_error != 0)
         {
+            const auto failure_time
+                = std::chrono::steady_clock::now();
+            if (last_listener_failure
+                    != std::chrono::steady_clock::time_point{}
+                && failure_time - last_listener_failure
+                    > std::chrono::seconds(1))
+            {
+                recent_listener_failures = 0;
+            }
+            last_listener_failure = failure_time;
+            ++recent_listener_failures;
             DRAXUL_LOG_WARN(LogCategory::App,
-                "Draxul server control listener recreation failed with Windows error %u; retrying",
-                listener_error);
+                "Draxul server control listener recreation failed with platform error %u (%zu/%zu)",
+                listener_error,
+                recent_listener_failures,
+                kFatalListenerFailureCount);
+            if (recent_listener_failures
+                >= kFatalListenerFailureCount)
+            {
+                DRAXUL_LOG_ERROR(LogCategory::App,
+                    "Draxul server control listener repeatedly failed; stopping the server so discovery can recover");
+                fatal_listener_failure = true;
+                request_stop();
+                break;
+            }
+        }
+        else if (last_listener_failure
+                != std::chrono::steady_clock::time_point{}
+            && std::chrono::steady_clock::now()
+                    - last_listener_failure
+                > std::chrono::seconds(1))
+        {
+            recent_listener_failures = 0;
         }
         control.process_pending(
             [this](const ControlRequest& request) {
@@ -2929,7 +3152,7 @@ int ServerKernel::Impl::run_until_stopped()
     }
     reset_services();
     stop();
-    return 0;
+    return fatal_listener_failure ? 1 : 0;
 }
 
 void ServerKernel::Impl::request_stop()

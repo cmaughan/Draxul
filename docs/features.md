@@ -55,8 +55,10 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   windows using the flag see the same terminal cells, title, cursor, dimensions, and
   controller lease. The first attached window controls input and resize; observers
   can run `take_terminal_control` from the command palette to take over. Brief local
-  transport interruptions are retried for five seconds before a remote pane is
-  considered dead.
+  transport interruptions and full server restarts use per-channel, jittered
+  exponential backoff capped at five seconds. A pane remains alive while reconnecting,
+  refreshes the shared server epoch, and reattaches in place unless the server
+  authoritatively reports that its terminal was removed.
 - `--experimental-remote-shell` is the Slice 5 path. It uses the same renderer and
   controller lease, but lazily starts a real server-owned PowerShell on Windows or
   the configured login shell on macOS/Linux. Closing every attached window leaves
@@ -89,7 +91,10 @@ Host names, aliases, platform support, test-only status, and split/new-tab visib
   delivery queues are bounded. Clean goodbye or lease expiry releases every terminal
   subscription and controller claim; a paused UI reattaches and retries safely.
   Topology and agent projections refresh automatically if a restarted server reports
-  an earlier revision. Reconnect restores the current server state. Topology, agent,
+  an earlier revision. Reconnect restores the current server state. Queued terminal
+  input is retained in order across transient failures, expired control requests are
+  cancelled before dispatch, and bounded request-ID caches make topology, terminal,
+  and agent mutations safe to replay. Topology, agent,
   status, and terminal attachment work runs away from the render thread; projected
   panes remain responsive placeholders until their first snapshot arrives. Divider
   drags preview locally and send one trailing authoritative update rather than

@@ -16,6 +16,7 @@ constexpr size_t kPollPayloadBudget
     = kControlMaxMessageBytes - 64 * 1024;
 constexpr auto kLoopLatencyWarningThreshold
     = std::chrono::milliseconds(100);
+constexpr size_t kCompletedMutationLimit = 1024;
 
 size_t replace_safe_json_size(const nlohmann::json& value)
 {
@@ -100,6 +101,56 @@ bool RemoteTerminalService::read_version(
     requested.generation = params["generation"].get<uint64_t>();
     requested.sequence = params["after_sequence"].get<uint64_t>();
     return true;
+}
+
+bool RemoteTerminalService::mutation_key(
+    const nlohmann::json& params, std::string_view operation,
+    std::string& key) const
+{
+    key.clear();
+    if (!params.contains("request_id"))
+        return true;
+    if (!params["request_id"].is_number_unsigned())
+        return false;
+    const uint64_t request_id = params["request_id"].get<uint64_t>();
+    if (request_id == 0)
+        return false;
+    std::string client_id;
+    if (!read_client_id(params, client_id))
+        return false;
+    key = client_id + ":" + std::string(operation)
+        + ":" + std::to_string(request_id);
+    return true;
+}
+
+std::optional<ControlMethodResult>
+RemoteTerminalService::cached_mutation(const std::string& key) const
+{
+    if (key.empty())
+        return std::nullopt;
+    const auto found = completed_mutations_.find(key);
+    if (found == completed_mutations_.end())
+        return std::nullopt;
+    return found->second;
+}
+
+ControlMethodResult RemoteTerminalService::remember_mutation(
+    std::string key, ControlMethodResult result)
+{
+    if (!key.empty() && result.ok)
+    {
+        if (!completed_mutations_.contains(key))
+            completed_mutation_order_.push_back(key);
+        completed_mutations_[key] = result;
+        while (completed_mutation_order_.size()
+            > kCompletedMutationLimit)
+        {
+            completed_mutations_.erase(
+                completed_mutation_order_.front());
+            completed_mutation_order_.pop_front();
+        }
+    }
+    return result;
 }
 
 bool RemoteTerminalService::ensure_runtime_started(std::string& error)
@@ -354,6 +405,14 @@ ControlMethodResult RemoteTerminalService::input(
         return ControlMethodResult::error(
             "invalid_input", "A valid client_id and text are required.");
     }
+    std::string mutation;
+    if (!mutation_key(params, "input", mutation))
+    {
+        return ControlMethodResult::error(
+            "invalid_request_id", "A valid request_id is required.");
+    }
+    if (auto cached = cached_mutation(mutation))
+        return *cached;
     if (!subscribers_.contains(client_id))
     {
         return ControlMethodResult::error(
@@ -384,10 +443,11 @@ ControlMethodResult RemoteTerminalService::input(
             "process_write_failed", "The terminal process rejected input.");
     }
     publish_runtime_updates(runtime_.pump());
-    return ControlMethodResult::success({
+    return remember_mutation(std::move(mutation),
+        ControlMethodResult::success({
         { "accepted", true },
         { "sequence", sequence_ },
-    });
+    }));
 }
 
 ControlMethodResult RemoteTerminalService::resize(
@@ -401,6 +461,14 @@ ControlMethodResult RemoteTerminalService::resize(
         return ControlMethodResult::error(
             "invalid_resize", "A valid client_id, cols, and rows are required.");
     }
+    std::string mutation;
+    if (!mutation_key(params, "resize", mutation))
+    {
+        return ControlMethodResult::error(
+            "invalid_request_id", "A valid request_id is required.");
+    }
+    if (auto cached = cached_mutation(mutation))
+        return *cached;
     if (!subscribers_.contains(client_id))
     {
         return ControlMethodResult::error(
@@ -429,10 +497,11 @@ ControlMethodResult RemoteTerminalService::resize(
     }
     const auto event = make_delta_event();
     broadcast(event);
-    return ControlMethodResult::success({
+    return remember_mutation(std::move(mutation),
+        ControlMethodResult::success({
         { "accepted", true },
         { "sequence", event.version.sequence },
-    });
+    }));
 }
 
 ControlMethodResult RemoteTerminalService::take_control(
@@ -444,6 +513,14 @@ ControlMethodResult RemoteTerminalService::take_control(
         return ControlMethodResult::error(
             "invalid_client", "A valid client_id is required.");
     }
+    std::string mutation;
+    if (!mutation_key(params, "take_control", mutation))
+    {
+        return ControlMethodResult::error(
+            "invalid_request_id", "A valid request_id is required.");
+    }
+    if (auto cached = cached_mutation(mutation))
+        return *cached;
     if (!subscribers_.contains(client_id))
     {
         return ControlMethodResult::error(
@@ -455,10 +532,11 @@ ControlMethodResult RemoteTerminalService::take_control(
         preferred_controller_client_id_.clear();
         broadcast(make_controller_event());
     }
-    return ControlMethodResult::success({
+    return remember_mutation(std::move(mutation),
+        ControlMethodResult::success({
         { "controller_client_id", controller_client_id_ },
         { "sequence", sequence_ },
-    });
+    }));
 }
 
 ControlMethodResult RemoteTerminalService::disconnect(
@@ -470,8 +548,17 @@ ControlMethodResult RemoteTerminalService::disconnect(
         return ControlMethodResult::error(
             "invalid_client", "A valid client_id is required.");
     }
+    std::string mutation;
+    if (!mutation_key(params, "disconnect", mutation))
+    {
+        return ControlMethodResult::error(
+            "invalid_request_id", "A valid request_id is required.");
+    }
+    if (auto cached = cached_mutation(mutation))
+        return *cached;
     disconnect_client(client_id);
-    return ControlMethodResult::success({ { "disconnected", true } });
+    return remember_mutation(std::move(mutation),
+        ControlMethodResult::success({ { "disconnected", true } }));
 }
 
 void RemoteTerminalService::disconnect_client(std::string_view client_id)
@@ -495,6 +582,14 @@ ControlMethodResult RemoteTerminalService::restart(
         return ControlMethodResult::error(
             "not_attached", "Attach to the terminal before restarting it.");
     }
+    std::string mutation;
+    if (!mutation_key(params, "restart", mutation))
+    {
+        return ControlMethodResult::error(
+            "invalid_request_id", "A valid request_id is required.");
+    }
+    if (auto cached = cached_mutation(mutation))
+        return *cached;
     if (controller_client_id_ != client_id)
     {
         return ControlMethodResult::error(
@@ -503,10 +598,11 @@ ControlMethodResult RemoteTerminalService::restart(
     std::string error;
     if (!restart_runtime(error))
         return ControlMethodResult::error("process_start_failed", std::move(error));
-    return ControlMethodResult::success({
+    return remember_mutation(std::move(mutation),
+        ControlMethodResult::success({
         { "generation", generation_ },
         { "process_id", runtime_.process_id() },
-    });
+    }));
 }
 
 bool RemoteTerminalService::restart_runtime(std::string& error)

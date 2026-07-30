@@ -47,44 +47,54 @@ lockstep.
 
 ## Implementation
 
-- [ ] Introduce one client connection state machine owning: connected/degraded/reconnecting
+- [x] Introduce one client connection state machine owning: connected/degraded/reconnecting
       states, exponential backoff with jitter, epoch refresh, and reattach by `terminal_id`.
-- [ ] Source the expected epoch from mutable, App-owned connection state refreshed via
+- [x] Source the expected epoch from mutable, App-owned connection state refreshed via
       `ServerClient::probe` when `stale_epoch` is observed, instead of a value captured at
       process start.
-- [ ] Count retry *attempts* rather than wall time, so the grace is not consumed by the
+- [x] Count retry *attempts* rather than wall time, so the grace is not consumed by the
       timeouts it is meant to survive.
-- [ ] Route `refresh_scrollback_after_output` failures through the same classification as
+- [x] Route `refresh_scrollback_after_output` failures through the same classification as
       `poll`.
-- [ ] Attempt one `recover_attachment()` on `invalid_event`/`stale_sequence` before declaring
+- [x] Attempt one `recover_attachment()` on `invalid_event`/`stale_sequence` before declaring
       fatal — `attach()` fully resynchronizes, so a single bad event should not be terminal.
-- [ ] Requeue unexecuted commands on transient failure instead of dropping them, and retry
+- [x] Requeue unexecuted commands on transient failure instead of dropping them, and retry
       after backoff.
-- [ ] Add cancellation to the transport: carry a flag in `Pending`, set it on timeout, and
+- [x] Add cancellation to the transport: carry a flag in `Pending`, set it on timeout, and
       have `process_pending` skip cancelled entries. Make mutating methods idempotent via the
       request id — `topology.command` already has `command_key` (`client_id` + `command_id`,
       `libs/draxul-server/src/topology_service.cpp:77-80`); terminal and agent methods need the
       same treatment.
-- [ ] Map `unknown_method` to a gentle failure rather than pane death, so a capability the
+- [x] Map `unknown_method` to a gentle failure rather than pane death, so a capability the
       server lacks does not kill a pane on a mere scroll.
 
 ## Unit tests
 
-- [ ] A server restart with a new epoch is recovered in place: existing panes reattach and
+- [x] A server restart with a new epoch is recovered in place: existing panes reattach and
       newly projected panes work, without reopening the UI.
-- [ ] A >10 s server stall followed by recovery leaves every pane alive.
-- [ ] Commands queued during a transient failure are delivered after recovery, in order.
-- [ ] A request that times out at the transport is not executed server-side.
-- [ ] A single malformed event triggers reattach, not a dead pane.
-- [ ] Backoff grows and includes jitter; failing clients do not poll in lockstep.
+- [x] A >10 s server stall followed by recovery leaves every pane alive.
+- [x] Commands queued during a transient failure are delivered after recovery, in order.
+- [x] A request that times out at the transport is not executed server-side.
+- [x] A single malformed event triggers reattach, not a dead pane.
+- [x] Backoff grows and includes jitter; failing clients do not poll in lockstep.
 
 ## Acceptance criteria
 
-- [ ] One documented recovery policy applies to terminals, topology, and agents.
-- [ ] No user keystroke is dropped without either delivery or a visible message.
-- [ ] Server restart is recoverable without reopening the UI, closing the plan's known
+- [x] One documented recovery policy applies to terminals, topology, and agents.
+- [x] No user keystroke is dropped without either delivery or a visible message.
+- [x] Server restart is recoverable without reopening the UI, closing the plan's known
       boundary on epoch migration.
 - [ ] Full build, `ctest`, and smoke pass on both platforms.
+
+## Validation
+
+- [x] Windows Release/Ninja production build and all six core/app CTest shards pass.
+- [x] Debug/Ninja smoke passes.
+- [x] Focused coverage passes for an actual 10.25-second server outage and new-epoch
+      restart, existing/new pane attachment, ordered input retry, transport cancellation,
+      terminal and agent mutation deduplication, malformed-event reattach, and bounded
+      jittered backoff.
+- [ ] macOS/POSIX build and runtime validation.
 
 ## Dependencies and ownership
 

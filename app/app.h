@@ -345,6 +345,8 @@ private:
     bool topology_poll_error_announced_ = false;
     bool agent_poll_error_announced_ = false;
     bool topology_command_error_announced_ = false;
+    bool accept_next_remote_topology_revision_ = false;
+    uint64_t next_server_agent_mutation_id_ = 1;
     enum class PendingServerStatusAction
     {
         ShowStatus,

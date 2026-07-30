@@ -26,7 +26,10 @@ bool AgentClient::refresh(std::string& error)
     auto parsed
         = server_agent_snapshot_from_json(result, error);
     if (!parsed)
+    {
+        last_error_code_ = "invalid_response";
         return false;
+    }
     snapshot_ = std::move(*parsed);
     return true;
 }
@@ -54,6 +57,7 @@ bool AgentClient::poll(bool& changed, std::string& error)
         || !result.contains("revision")
         || !result["revision"].is_number_unsigned())
     {
+        last_error_code_ = "invalid_response";
         error = "Invalid agent poll result.";
         return false;
     }
@@ -62,13 +66,17 @@ bool AgentClient::poll(bool& changed, std::string& error)
         return true;
     if (!result.contains("snapshot"))
     {
+        last_error_code_ = "invalid_response";
         error = "Changed agent poll has no snapshot.";
         return false;
     }
     auto parsed = server_agent_snapshot_from_json(
         result["snapshot"], error);
     if (!parsed)
+    {
+        last_error_code_ = "invalid_response";
         return false;
+    }
     snapshot_ = std::move(*parsed);
     return true;
 }

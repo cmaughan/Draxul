@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <draxul/bmp.h>
+#include <draxul/client_recovery.h>
 #include <draxul/config_document.h>
 #include <draxul/host_registry.h>
 #include <draxul/kanban/kanban_host.h>
@@ -698,6 +699,17 @@ static int draxul_main(std::vector<std::string> args)
     options.enable_remote_topology = real_remote_terminal;
     options.server_runtime_directory = connected_server_runtime;
     options.server_client_id = connected_server_client_id;
+    if (shared_server)
+    {
+        options.client_recovery
+            = std::make_shared<draxul::ClientRecoveryState>(
+                connected_server_client_id);
+        if (options.server_connection)
+        {
+            options.client_recovery->set_server_epoch(
+                options.server_connection->server_epoch);
+        }
+    }
 #ifdef DRAXUL_ENABLE_RENDER_TESTS
     if (!parsed.render_test_path.empty())
     {
@@ -750,6 +762,7 @@ static int draxul_main(std::vector<std::string> args)
             .method_prefix = real_remote_terminal
                 ? "terminal"
                 : "fake",
+            .recovery = options.client_recovery,
         };
         options.host_factory = [remote_options](draxul::HostKind kind) {
             if (kind == draxul::HostKind::RemoteTerminal)

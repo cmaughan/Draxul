@@ -23,6 +23,10 @@ struct ControlRequest
     std::string id;
     std::string method;
     nlohmann::json params = nlohmann::json::object();
+    // Set from the caller's remaining request budget when decoded. Handlers
+    // do not need to inspect it; ControlServer skips expired queued work.
+    std::chrono::steady_clock::time_point expires_at
+        = std::chrono::steady_clock::time_point::max();
 };
 
 struct ControlMethodResult

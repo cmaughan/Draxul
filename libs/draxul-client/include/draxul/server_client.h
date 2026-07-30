@@ -77,7 +77,9 @@ public:
     static ServerProbeResult probe(const ServerEnsureOptions& options);
     static ServerProbeResult ensure(const ServerEnsureOptions& options);
     static ServerStatusResult status(
-        const std::filesystem::path& runtime_directory);
+        const std::filesystem::path& runtime_directory,
+        std::chrono::milliseconds request_timeout
+        = std::chrono::seconds(5));
     static bool delete_session(
         const std::filesystem::path& runtime_directory,
         std::string_view session_id,

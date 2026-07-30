@@ -253,9 +253,12 @@ bool RemoteTerminalClient::attach(std::string& error)
         error = std::move(parse_error);
         return false;
     }
-    if (!options_.expected_server_epoch.empty()
+    const std::string expected_epoch = options_.recovery
+        ? options_.recovery->server_epoch()
+        : options_.expected_server_epoch;
+    if (!expected_epoch.empty()
         && attach->state.version.server_epoch
-            != options_.expected_server_epoch)
+            != expected_epoch)
     {
         last_error_code_ = "stale_epoch";
         error = "Attached server epoch does not match the negotiated server.";
@@ -318,41 +321,56 @@ bool RemoteTerminalClient::poll(bool& changed, std::string& error)
 }
 
 bool RemoteTerminalClient::send_input(
-    std::string_view text, std::string& error)
+    std::string_view text, std::string& error, uint64_t request_id)
 {
     nlohmann::json params = client_params();
     params["text"] = text;
+    if (request_id != 0)
+        params["request_id"] = request_id;
     nlohmann::json result;
     return request(method("input"), std::move(params), result, error);
 }
 
 bool RemoteTerminalClient::resize(
-    int cols, int rows, std::string& error)
+    int cols, int rows, std::string& error, uint64_t request_id)
 {
     nlohmann::json params = client_params();
     params["cols"] = cols;
     params["rows"] = rows;
+    if (request_id != 0)
+        params["request_id"] = request_id;
     nlohmann::json result;
     return request(method("resize"), std::move(params), result, error);
 }
 
-bool RemoteTerminalClient::take_control(std::string& error)
+bool RemoteTerminalClient::take_control(
+    std::string& error, uint64_t request_id)
 {
+    auto params = client_params();
+    if (request_id != 0)
+        params["request_id"] = request_id;
     nlohmann::json result;
-    return request(
-        method("take_control"), client_params(), result, error);
+    return request(method("take_control"), std::move(params), result, error);
 }
 
-bool RemoteTerminalClient::disconnect(std::string& error)
+bool RemoteTerminalClient::disconnect(
+    std::string& error, uint64_t request_id)
 {
+    auto params = client_params();
+    if (request_id != 0)
+        params["request_id"] = request_id;
     nlohmann::json result;
-    return request(method("disconnect"), client_params(), result, error);
+    return request(method("disconnect"), std::move(params), result, error);
 }
 
-bool RemoteTerminalClient::restart(std::string& error)
+bool RemoteTerminalClient::restart(
+    std::string& error, uint64_t request_id)
 {
+    auto params = client_params();
+    if (request_id != 0)
+        params["request_id"] = request_id;
     nlohmann::json result;
-    return request(method("restart"), client_params(), result, error);
+    return request(method("restart"), std::move(params), result, error);
 }
 
 bool RemoteTerminalClient::read_scrollback(

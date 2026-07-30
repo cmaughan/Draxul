@@ -3,6 +3,7 @@
 #include "support/temp_dir.h"
 
 #include <draxul/agent_client.h>
+#include <draxul/client_recovery.h>
 #include <draxul/control_plane.h>
 #include <draxul/server_client.h>
 #include <draxul/topology_client.h>
@@ -46,6 +47,34 @@ TopologySnapshot topology_snapshot(uint64_t revision)
 }
 
 } // namespace
+
+TEST_CASE("client recovery backoff is bounded, jittered, and channel isolated",
+    "[client][recovery][backoff]")
+{
+    const auto first_a
+        = ClientRecoveryState::retry_delay_for(1, 1);
+    const auto first_b
+        = ClientRecoveryState::retry_delay_for(1, 40);
+    CHECK(first_a != first_b);
+    CHECK(first_a >= std::chrono::milliseconds(80));
+    CHECK(first_b <= std::chrono::milliseconds(120));
+    for (uint32_t attempt = 1; attempt <= 20; ++attempt)
+    {
+        CHECK(ClientRecoveryState::retry_delay_for(
+                  attempt, UINT64_MAX)
+            <= std::chrono::seconds(5));
+    }
+
+    ClientRecoveryState recovery("recovery-client");
+    const auto first_terminal
+        = recovery.note_failure("terminal:one");
+    const auto second_terminal
+        = recovery.note_failure("terminal:one");
+    recovery.note_connected("terminal:two");
+    CHECK(recovery.snapshot("terminal:one").attempts == 2);
+    CHECK(recovery.snapshot("terminal:two").attempts == 0);
+    CHECK(second_terminal > first_terminal);
+}
 
 TEST_CASE("projection clients refresh after a server revision rollback",
     "[client][server][recovery]")

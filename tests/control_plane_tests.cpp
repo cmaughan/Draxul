@@ -515,6 +515,17 @@ TEST_CASE("control requests obey one absolute deadline",
     CHECK(std::chrono::steady_clock::now() - started_at
         < std::chrono::milliseconds(500));
 
+    // The caller's remaining budget travels with the request. Once it expires,
+    // process_pending must discard the cancelled work instead of applying it
+    // after the caller has given up.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::atomic<int> handler_calls = 0;
+    server.process_pending([&](const ControlRequest&) {
+        ++handler_calls;
+        return ControlMethodResult::success(true);
+    });
+    CHECK(handler_calls == 0);
+
     server.stop();
     std::error_code ignored;
     std::filesystem::remove_all(runtime, ignored);
@@ -613,6 +624,8 @@ TEST_CASE("remote Session client publishes topology and command results",
         .session_id = "default",
     };
     std::atomic<int> command_count = 0;
+    std::vector<std::chrono::steady_clock::time_point>
+        command_attempts;
     auto dispatch = [&](const ControlRequest& request) {
         if (request.method == "topology.snapshot")
             return ControlMethodResult::success(
@@ -636,7 +649,15 @@ TEST_CASE("remote Session client publishes topology and command results",
         }
         if (request.method == "topology.command")
         {
-            ++command_count;
+            const int attempt = ++command_count;
+            command_attempts.push_back(
+                std::chrono::steady_clock::now());
+            if (attempt == 1)
+            {
+                return ControlMethodResult::error(
+                    "io_error",
+                    "Synthetic topology transport interruption.");
+            }
             topology.spaces.front().name
                 = request.params.value("name", "Renamed");
             ++topology.revision;
@@ -704,7 +725,10 @@ TEST_CASE("remote Session client publishes topology and command results",
             std::chrono::milliseconds(1));
     }
     CHECK(completed);
-    CHECK(command_count == 1);
+    CHECK(command_count == 2);
+    REQUIRE(command_attempts.size() == 2);
+    CHECK(command_attempts[1] - command_attempts[0]
+        >= std::chrono::milliseconds(75));
 
     client.stop();
     server.stop();

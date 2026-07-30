@@ -1,5 +1,6 @@
 #include <draxul/remote_terminal_host.h>
 
+#include <draxul/client_recovery.h>
 #include <draxul/log.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/terminal_key_encoder.h>
@@ -27,15 +28,23 @@ constexpr size_t kRemoteHostCommandLimit = 128;
 constexpr size_t kRemoteCommandsPerPoll = 8;
 constexpr size_t kRemoteInputBatchBytes = 48 * 1024;
 constexpr auto kRemotePollInterval = std::chrono::milliseconds(25);
-constexpr auto kRemoteTransientFailureGrace = std::chrono::seconds(5);
 constexpr auto kRemoteShutdownJoinBudget = std::chrono::milliseconds(250);
+std::atomic<uint64_t> g_next_remote_request_id{ 1 };
+
+uint64_t next_remote_request_id()
+{
+    uint64_t result
+        = g_next_remote_request_id.fetch_add(1);
+    if (result == 0)
+        result = g_next_remote_request_id.fetch_add(1);
+    return result;
+}
 
 bool is_expected_command_error(std::string_view code)
 {
     return code == "not_controller"
         || code == "invalid_resize"
-        || code == "invalid_input"
-        || code == "backpressure";
+        || code == "invalid_input";
 }
 
 bool is_removed_remote_terminal(std::string_view code)
@@ -45,11 +54,7 @@ bool is_removed_remote_terminal(std::string_view code)
 
 bool is_transient_remote_error(std::string_view code)
 {
-    return code == "endpoint_unavailable"
-        || code == "io_error"
-        || code == "deadline_exceeded"
-        || code == "main_thread_timeout"
-        || code == "server_stopping";
+    return is_transient_client_error(code) || code == "backpressure";
 }
 
 struct RemoteHostCommand
@@ -68,6 +73,8 @@ struct RemoteHostCommand
     int cols = 0;
     int rows = 0;
     int scroll_rows = 0;
+    uint64_t request_id = 0;
+    bool attempted = false;
 };
 
 struct RemotePublishedState
@@ -133,6 +140,12 @@ public:
 
     bool start(std::string&)
     {
+        if (!options_.recovery)
+        {
+            options_.recovery = std::make_shared<ClientRecoveryState>(
+                options_.client_id);
+            options_.recovery->set_server_epoch(options_.server_epoch);
+        }
         client_ = std::make_unique<RemoteTerminalClient>(
             RemoteTerminalClientOptions{
                 .runtime_directory = options_.runtime_directory,
@@ -141,6 +154,7 @@ public:
                 .expected_server_epoch = options_.server_epoch,
                 .method_prefix = options_.method_prefix,
                 .terminal_id = options_.terminal_id,
+                .recovery = options_.recovery,
             });
         running_ = true;
         {
@@ -203,9 +217,12 @@ public:
         std::lock_guard guard(mutex_);
         if (stopping_)
             return false;
+        if (command.request_id == 0)
+            command.request_id = next_remote_request_id();
         if (!commands_.empty()
             && command.kind == RemoteHostCommand::Kind::Input
             && commands_.back().kind == RemoteHostCommand::Kind::Input
+            && !commands_.back().attempted
             && commands_.back().text.size() <= kRemoteInputBatchBytes
             && command.text.size() <= kRemoteInputBatchBytes
             && commands_.back().text.size() + command.text.size()
@@ -217,7 +234,8 @@ public:
         }
         if (!commands_.empty()
             && command.kind == RemoteHostCommand::Kind::Resize
-            && commands_.back().kind == RemoteHostCommand::Kind::Resize)
+            && commands_.back().kind == RemoteHostCommand::Kind::Resize
+            && !commands_.back().attempted)
         {
             commands_.back() = std::move(command);
             command_wake_.notify_one();
@@ -275,6 +293,7 @@ public:
             if (!staged.empty()
                 && staged.back().kind
                     == RemoteHostCommand::Kind::Input
+                && !staged.back().attempted
                 && staged.back().text.size()
                     <= kRemoteInputBatchBytes
                 && chunk.size() <= kRemoteInputBatchBytes
@@ -290,6 +309,7 @@ public:
                 staged.push_back({
                     .kind = RemoteHostCommand::Kind::Input,
                     .text = std::string(chunk),
+                    .request_id = next_remote_request_id(),
                 });
             }
             offset += count;
@@ -325,6 +345,7 @@ public:
             staged.push_back({
                 .kind = RemoteHostCommand::Kind::Input,
                 .text = std::move(chunk),
+                .request_id = next_remote_request_id(),
             });
         }
         commands_.swap(staged);
@@ -373,11 +394,13 @@ private:
         switch (command.kind)
         {
         case RemoteHostCommand::Kind::Input:
-            return client_->send_input(command.text, error);
+            return client_->send_input(
+                command.text, error, command.request_id);
         case RemoteHostCommand::Kind::Resize:
-            return client_->resize(command.cols, command.rows, error);
+            return client_->resize(
+                command.cols, command.rows, error, command.request_id);
         case RemoteHostCommand::Kind::TakeControl:
-            return client_->take_control(error);
+            return client_->take_control(error, command.request_id);
         case RemoteHostCommand::Kind::Scroll:
             return scroll_by(command.scroll_rows, error);
         case RemoteHostCommand::Kind::ScrollToLive:
@@ -393,6 +416,11 @@ private:
     {
         if (!client_->attach(error))
             return false;
+        options_.terminal_id
+            = client_->projection().version().terminal_id;
+        options_.recovery->set_server_epoch(
+            client_->projection().version().server_epoch);
+        options_.recovery->note_connected(recovery_channel());
         scroll_offset_ = 0;
         scrollback_total_ = 0;
         scrollback_page_.reset();
@@ -403,12 +431,57 @@ private:
         return true;
     }
 
+    void wait_for_retry(std::chrono::milliseconds delay)
+    {
+        std::unique_lock lock(mutex_);
+        command_wake_.wait_for(lock, delay,
+            [this] { return stopping_.load(); });
+    }
+
+    std::chrono::milliseconds note_recoverable_failure(
+        std::string_view error_code, const std::string& error)
+    {
+        const auto delay
+            = options_.recovery->note_failure(recovery_channel());
+        const auto recovery
+            = options_.recovery->snapshot(recovery_channel());
+        DRAXUL_LOG_WARN(LogCategory::App,
+            "Remote terminal interruption (%.*s), recovery attempt %u in %lld ms: %s",
+            static_cast<int>(error_code.size()), error_code.data(),
+            recovery.attempts,
+            static_cast<long long>(delay.count()), error.c_str());
+        if (recovery.attempts == 1)
+            publish_error(error);
+        return delay;
+    }
+
+    void requeue_commands(
+        std::deque<RemoteHostCommand>& batch, size_t from)
+    {
+        std::lock_guard guard(mutex_);
+        for (size_t index = batch.size(); index > from; --index)
+            commands_.push_front(std::move(batch[index - 1]));
+        command_wake_.notify_one();
+    }
+
+    bool refresh_epoch(std::string& error)
+    {
+        return options_.recovery->refresh_server_epoch(
+            options_.runtime_directory, options_.client_id, error);
+    }
+
+    std::string recovery_channel() const
+    {
+        return "terminal:"
+            + (options_.terminal_id.empty()
+                    ? options_.method_prefix
+                    : options_.terminal_id);
+    }
+
     void worker_main()
     {
         bool fatal_error = false;
         bool attached = false;
-        std::optional<std::chrono::steady_clock::time_point>
-            transient_failure_since;
         while (!stopping_ && !fatal_error)
         {
             if (!attached)
@@ -417,24 +490,26 @@ private:
                 if (recover_attachment(error))
                 {
                     attached = true;
-                    transient_failure_since.reset();
                 }
                 else
                 {
-                    const std::string error_code
-                        = client_->last_error_code();
+                    std::string error_code = client_->last_error_code();
                     if (is_removed_remote_terminal(error_code))
                     {
                         publish_error(std::move(error));
                         fatal_error = true;
                         break;
                     }
-                    note_transient_failure(transient_failure_since,
-                        error_code, error);
-                    std::unique_lock lock(mutex_);
-                    command_wake_.wait_for(
-                        lock, kRemotePollInterval,
-                        [this] { return stopping_.load(); });
+                    if (error_code == "stale_epoch")
+                    {
+                        std::string refresh_error;
+                        if (refresh_epoch(refresh_error))
+                            continue;
+                        error = std::move(refresh_error);
+                    }
+                    const auto delay
+                        = note_recoverable_failure(error_code, error);
+                    wait_for_retry(delay);
                     continue;
                 }
             }
@@ -455,11 +530,15 @@ private:
             if (stopping_)
                 break;
 
-            for (const auto& command : commands)
+            bool retry_batch = false;
+            for (size_t command_index = 0;
+                 command_index < commands.size(); ++command_index)
             {
+                auto& command = commands[command_index];
                 if (stopping_)
                     break;
                 std::string error;
+                command.attempted = true;
                 bool ok = execute_command(command, error);
                 if (stopping_)
                     break;
@@ -477,7 +556,8 @@ private:
                             ok = execute_command(command, error);
                             if (ok)
                             {
-                                transient_failure_since.reset();
+                                options_.recovery->note_connected(
+                                    recovery_channel());
                                 continue;
                             }
                             error_code = client_->last_error_code();
@@ -498,29 +578,43 @@ private:
                         publish_error(std::move(error));
                         continue;
                     }
-                    if (is_transient_remote_error(error_code))
+                    if (error_code == "unknown_method")
                     {
-                        note_transient_failure(transient_failure_since,
-                            error_code, error);
-                        if (std::chrono::steady_clock::now()
-                                - *transient_failure_since
-                            < kRemoteTransientFailureGrace)
-                        {
-                            break;
-                        }
+                        // Optional capabilities (notably scrollback on an
+                        // older server) degrade gently rather than killing
+                        // the pane.
+                        publish_error(std::move(error));
+                        continue;
                     }
-                    else
+                    if (error_code == "stale_epoch")
                     {
-                        publish_error(error);
+                        std::string refresh_error;
+                        if (!refresh_epoch(refresh_error))
+                            error = std::move(refresh_error);
+                        attached = false;
                     }
+                    if (is_transient_remote_error(error_code)
+                        || is_resynchronizing_client_error(error_code))
+                    {
+                        requeue_commands(commands, command_index);
+                        const auto delay
+                            = note_recoverable_failure(error_code, error);
+                        wait_for_retry(delay);
+                        retry_batch = true;
+                        break;
+                    }
+                    publish_error(error);
                     log_fatal_failure(error_code, error);
                     fatal_error = true;
                     break;
                 }
-                transient_failure_since.reset();
+                options_.recovery->note_connected(
+                    recovery_channel());
             }
             if (stopping_ || fatal_error)
                 break;
+            if (retry_batch)
+                continue;
 
             bool changed = false;
             std::string error;
@@ -529,14 +623,27 @@ private:
                 if (stopping_)
                     break;
                 std::string error_code = client_->last_error_code();
-                if (error_code == "not_attached")
+                if (error_code == "stale_epoch")
+                {
+                    std::string refresh_error;
+                    if (refresh_epoch(refresh_error))
+                    {
+                        attached = false;
+                        continue;
+                    }
+                    error = std::move(refresh_error);
+                    attached = false;
+                }
+                if (error_code == "not_attached"
+                    || is_resynchronizing_client_error(error_code))
                 {
                     attached = false;
                     std::string attach_error;
                     if (recover_attachment(attach_error))
                     {
                         attached = true;
-                        transient_failure_since.reset();
+                        options_.recovery->note_connected(
+                            recovery_channel());
                         continue;
                     }
                     error = std::move(attach_error);
@@ -544,36 +651,66 @@ private:
                 }
                 if (is_removed_remote_terminal(error_code))
                     break;
-                if (is_transient_remote_error(error_code))
+                if (error_code == "unknown_method")
                 {
-                    note_transient_failure(transient_failure_since,
-                        error_code, error);
-                    if (std::chrono::steady_clock::now()
-                            - *transient_failure_since
-                        < kRemoteTransientFailureGrace)
-                    {
-                        continue;
-                    }
+                    publish_error(std::move(error));
+                    wait_for_retry(
+                        options_.recovery->note_failure(
+                            recovery_channel()));
+                    continue;
                 }
-                else
+                if (is_transient_remote_error(error_code)
+                    || is_resynchronizing_client_error(error_code))
                 {
-                    publish_error(error);
+                    const auto delay
+                        = note_recoverable_failure(error_code, error);
+                    wait_for_retry(delay);
+                    continue;
                 }
+                publish_error(error);
                 log_fatal_failure(error_code, error);
                 fatal_error = true;
                 break;
             }
             if (stopping_)
                 break;
-            transient_failure_since.reset();
+            options_.recovery->note_connected(
+                recovery_channel());
             if (changed)
             {
                 if (scroll_offset_ > 0
                     && !refresh_scrollback_after_output(error))
                 {
-                    publish_error(error);
-                    fatal_error = true;
-                    break;
+                    const std::string error_code
+                        = client_->last_error_code();
+                    if (error_code == "unknown_method")
+                    {
+                        scroll_offset_ = 0;
+                        scrollback_page_.reset();
+                        publish_error(std::move(error));
+                    }
+                    else if (is_transient_remote_error(error_code)
+                        || is_resynchronizing_client_error(error_code))
+                    {
+                        if (is_resynchronizing_client_error(error_code))
+                        {
+                            std::string attach_error;
+                            if (recover_attachment(attach_error))
+                                continue;
+                            error = std::move(attach_error);
+                        }
+                        const auto delay
+                            = note_recoverable_failure(
+                                error_code, error);
+                        wait_for_retry(delay);
+                        continue;
+                    }
+                    else
+                    {
+                        publish_error(error);
+                        fatal_error = true;
+                        break;
+                    }
                 }
                 publish_projection();
             }
@@ -600,21 +737,6 @@ private:
         std::lock_guard lock(worker_join_mutex_);
         if (worker_.joinable())
             worker_.join();
-    }
-
-    void note_transient_failure(
-        std::optional<std::chrono::steady_clock::time_point>& failure_since,
-        std::string_view error_code, const std::string& error)
-    {
-        if (failure_since)
-            return;
-        failure_since = std::chrono::steady_clock::now();
-        DRAXUL_LOG_WARN(LogCategory::App,
-            "Remote terminal transport interruption (%.*s); retrying for %lld ms: %s",
-            static_cast<int>(error_code.size()), error_code.data(),
-            static_cast<long long>(kRemoteTransientFailureGrace.count() * 1000),
-            error.c_str());
-        publish_error(error);
     }
 
     void log_fatal_failure(

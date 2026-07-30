@@ -20,6 +20,7 @@
 namespace draxul
 {
 
+class ClientRecoveryState;
 class IHost;
 
 struct AppOptions
@@ -47,6 +48,9 @@ struct AppOptions
     // Slice 2 only records the experimental server connection. Terminal
     // ownership remains local until the later terminal-runtime slices.
     std::optional<ServerWelcome> server_connection;
+    // Shared mutable epoch and per-channel recovery policy for the Session
+    // worker and every projected remote terminal in this UI.
+    std::shared_ptr<ClientRecoveryState> client_recovery;
     // Slice 6 experimental topology projection. The server owns structural
     // Space/tab/pane values; the UI keeps its active route and presentation.
     bool enable_remote_topology = false;

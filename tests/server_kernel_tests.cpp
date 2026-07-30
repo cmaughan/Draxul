@@ -91,6 +91,41 @@ TEST_CASE("remote terminal input backpressure is nonfatal and observable",
         >= 1);
 }
 
+TEST_CASE("remote terminal mutation request ids are idempotent",
+    "[server][remote-terminal][idempotency]")
+{
+    FakeTerminalRuntime runtime;
+    RemoteTerminalService service(
+        {
+            .method_prefix = "idempotent",
+            .server_epoch = "idempotent-epoch",
+            .pane_id = "idempotent-pane",
+            .terminal_id = "idempotent-terminal",
+            .name = "Idempotent",
+        },
+        runtime);
+    REQUIRE(service.handle("idempotent.attach",
+                { { "client_id", "controller" } })
+                .ok);
+
+    const auto first = service.handle("idempotent.input",
+        {
+            { "client_id", "controller" },
+            { "request_id", uint64_t{ 42 } },
+            { "text", "delivered-once" },
+        });
+    REQUIRE(first.ok);
+    const auto replay = service.handle("idempotent.input",
+        {
+            { "client_id", "controller" },
+            { "request_id", uint64_t{ 42 } },
+            { "text", "must-not-be-delivered" },
+        });
+    REQUIRE(replay.ok);
+    CHECK(replay.value == first.value);
+    CHECK(runtime.received_input() == "delivered-once");
+}
+
 TEST_CASE("server terminal teardown stays off the kernel thread under input backpressure",
     "[server][remote-terminal][backpressure][shutdown]")
 {
@@ -175,6 +210,37 @@ uint64_t test_process_id()
 #else
     return static_cast<uint64_t>(::getpid());
 #endif
+}
+
+std::string test_process_start_token()
+{
+    static const std::string token = [] {
+        TempDir identity_runtime(
+            "draxul-server-process-identity");
+        ServerKernel identity_server({
+            .runtime_directory = identity_runtime.path,
+            .build_version = "identity-test",
+        });
+        if (identity_server.start().disposition
+            != ServerStartDisposition::Started)
+        {
+            return std::string{};
+        }
+        std::ifstream input(
+            server_metadata_path(identity_runtime.path));
+        const auto metadata
+            = nlohmann::json::parse(input, nullptr, false);
+        identity_server.stop();
+        return metadata.is_object()
+                && metadata.contains(
+                    "server_process_start_token")
+                && metadata["server_process_start_token"]
+                       .is_string()
+            ? metadata["server_process_start_token"]
+                  .get<std::string>()
+            : std::string{};
+    }();
+    return token;
 }
 
 ServerEnsureOptions probe_options(const std::filesystem::path& runtime)
@@ -520,7 +586,19 @@ TEST_CASE("server client classifies absent starting stale and crashed runtimes",
         / ("server-starting-" + std::to_string(test_process_id()) + ".json");
     {
         std::ofstream output(marker);
-        output << nlohmann::json{ { "pid", test_process_id() } }.dump();
+        output << nlohmann::json{
+            { "pid", test_process_id() },
+            { "process_start_token",
+                test_process_start_token() },
+            { "created_unix_ms",
+                static_cast<uint64_t>(
+                    std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                        std::chrono::system_clock::now()
+                            .time_since_epoch())
+                        .count()) },
+        }
+                      .dump();
     }
     REQUIRE(ServerClient::probe(options).state == ServerProbeState::Starting);
     std::filesystem::remove(marker);
@@ -538,10 +616,105 @@ TEST_CASE("server client classifies absent starting stale and crashed runtimes",
             { "endpoint", R"(\\.\pipe\draxul-definitely-absent)" },
             { "token", std::string(64, 'a') },
             { "server_pid", uint64_t{ 999999999 } },
+            { "server_process_start_token", "dead-process" },
+            { "published_unix_ms", uint64_t{ 1 } },
         }
                       .dump();
     }
     REQUIRE(ServerClient::probe(options).state == ServerProbeState::Crashed);
+}
+
+TEST_CASE("server discovery rejects recycled process identities and expires starting markers",
+    "[server][discovery][recovery]")
+{
+    TempDir temp("draxul-server-identity-recovery");
+    auto options = probe_options(temp.path);
+    const auto metadata = server_metadata_path(temp.path);
+    {
+        std::ofstream output(metadata);
+        output << nlohmann::json{
+            { "version", kControlProtocolVersion },
+            { "endpoint",
+                R"(\\.\pipe\draxul-definitely-absent)" },
+            { "token", std::string(64, 'a') },
+            { "server_pid", test_process_id() },
+            { "server_process_start_token",
+                "a-different-process-incarnation" },
+            { "published_unix_ms",
+                static_cast<uint64_t>(
+                    std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                        std::chrono::system_clock::now()
+                            .time_since_epoch())
+                        .count()) },
+        }
+                      .dump();
+    }
+    CHECK(ServerClient::probe(options).state
+        == ServerProbeState::Crashed);
+
+    std::filesystem::remove(metadata);
+    const auto expired_marker = temp.path
+        / ("server-starting-"
+            + std::to_string(test_process_id())
+            + ".json");
+    {
+        std::ofstream output(expired_marker);
+        output << nlohmann::json{
+            { "pid", test_process_id() },
+            { "process_start_token",
+                test_process_start_token() },
+            { "created_unix_ms", uint64_t{ 1 } },
+        }
+                      .dump();
+    }
+    const auto expired = ServerClient::probe(options);
+    CHECK(expired.state != ServerProbeState::Starting);
+    CHECK_FALSE(std::filesystem::exists(expired_marker));
+}
+
+TEST_CASE("server discovery maps endpoint metadata version skew immediately",
+    "[server][discovery][protocol]")
+{
+    TempDir temp("draxul-server-control-version");
+    {
+        std::ofstream output(server_metadata_path(temp.path));
+        output << nlohmann::json{
+            { "version", kControlProtocolVersion + 1 },
+            { "endpoint",
+                R"(\\.\pipe\draxul-version-skew)" },
+            { "token", std::string(64, 'a') },
+            { "server_pid", test_process_id() },
+            { "server_process_start_token",
+                test_process_start_token() },
+            { "published_unix_ms", uint64_t{ 1 } },
+        }
+                      .dump();
+    }
+    const auto probe = ServerClient::probe(
+        probe_options(temp.path));
+    CHECK(probe.state == ServerProbeState::Incompatible);
+    CHECK(probe.error_code == "incompatible_protocol");
+}
+
+TEST_CASE("repeated control listener recreation failure stops the server kernel",
+    "[server][kernel][discovery][recovery]")
+{
+    TempDir temp("draxul-server-listener-failure");
+    ServerKernel server({
+        .runtime_directory = temp.path,
+        .build_version = "unit-test",
+        .listener_error_source = [] { return uint32_t{ 5 }; },
+    });
+    REQUIRE(server.start().disposition
+        == ServerStartDisposition::Started);
+
+    CHECK(server.run_until_stopped() == 1);
+    CHECK_FALSE(server.running());
+    CHECK_FALSE(std::filesystem::exists(
+        server_metadata_path(temp.path)));
+    CHECK(ServerClient::probe(probe_options(temp.path)).state
+        == ServerProbeState::Absent);
 }
 
 TEST_CASE("server endpoint namespaces follow the runtime directory", "[server][discovery]")
@@ -579,7 +752,18 @@ TEST_CASE("server client distinguishes a live but unresponsive listener", "[serv
     REQUIRE(unresponsive.start(
         namespaced_control_id(kServerControlId, temp.path), temp.path,
         [] {}, &start_error,
-        { { "server_pid", test_process_id() } }));
+        {
+            { "server_pid", test_process_id() },
+            { "server_process_start_token",
+                test_process_start_token() },
+            { "published_unix_ms",
+                static_cast<uint64_t>(
+                    std::chrono::duration_cast<
+                        std::chrono::milliseconds>(
+                        std::chrono::system_clock::now()
+                            .time_since_epoch())
+                        .count()) },
+        }));
 
     REQUIRE(ServerClient::probe(probe_options(temp.path)).state
         == ServerProbeState::Busy);
@@ -1123,12 +1307,24 @@ TEST_CASE("managed agents launch and restart without a UI",
         {
             { "profile_id", "test-managed" },
             { "client_id", "managed-agent-a" },
+            { "request_id", "managed-start-1" },
             { "cwd", temp.path.string() },
             { "args", nlohmann::json::array() },
         });
     INFO(started.error_code << ": "
         << started.error_message);
     REQUIRE(started.ok);
+    const auto replayed_start = request("agent.start",
+        {
+            { "profile_id", "test-managed" },
+            { "client_id", "managed-agent-a" },
+            { "request_id", "managed-start-1" },
+            { "cwd", temp.path.string() },
+            { "args", nlohmann::json::array() },
+        });
+    REQUIRE(replayed_start.ok);
+    CHECK(replayed_start.result["instance_id"]
+        == started.result["instance_id"]);
     CHECK(started.result["origin"] == "managed");
     CHECK(started.result["running"].get<bool>());
     CHECK(started.result["runtime_generation"] == 1);
@@ -1243,9 +1439,20 @@ TEST_CASE("managed agents launch and restart without a UI",
 
     const auto restarted = request(
         "agent.restart",
-        { { "instance_id", instance_id } });
+        {
+            { "instance_id", instance_id },
+            { "request_id", "managed-restart-1" },
+        });
     REQUIRE(restarted.ok);
     CHECK(restarted.result["runtime_generation"] == 2);
+    const auto replayed_restart = request(
+        "agent.restart",
+        {
+            { "instance_id", instance_id },
+            { "request_id", "managed-restart-1" },
+        });
+    REQUIRE(replayed_restart.ok);
+    CHECK(replayed_restart.result["runtime_generation"] == 2);
     REQUIRE(wait_for_environment(
         "__DRAXUL_AGENT_ENV__managed-epoch:2"));
 
@@ -2865,6 +3072,176 @@ TEST_CASE("seeded remote terminal deltas converge or require snapshot resync",
 }
 
 #ifdef DRAXUL_EXECUTABLE_PATH
+#ifdef _WIN32
+bool set_process_suspended(
+    uint64_t process_id, bool suspend)
+{
+    HANDLE snapshot = CreateToolhelp32Snapshot(
+        TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return false;
+    THREADENTRY32 entry{};
+    entry.dwSize = sizeof(entry);
+    bool changed = false;
+    if (Thread32First(snapshot, &entry))
+    {
+        do
+        {
+            if (entry.th32OwnerProcessID
+                != static_cast<DWORD>(process_id))
+            {
+                continue;
+            }
+            HANDLE thread = OpenThread(
+                THREAD_SUSPEND_RESUME, FALSE,
+                entry.th32ThreadID);
+            if (!thread)
+                continue;
+            const DWORD result = suspend
+                ? SuspendThread(thread)
+                : ResumeThread(thread);
+            changed = changed || result != static_cast<DWORD>(-1);
+            CloseHandle(thread);
+        } while (Thread32Next(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return changed;
+}
+#endif
+
+TEST_CASE("ensure relaunches past a recycled PID and an expired startup marker",
+    "[server][process][discovery][recovery]")
+{
+    const std::filesystem::path executable
+        = DRAXUL_EXECUTABLE_PATH;
+
+    auto ensure_and_stop
+        = [&executable](const std::filesystem::path& runtime) {
+              ServerEnsureOptions options{
+                  .runtime_directory = runtime,
+                  .executable_path = executable,
+                  .client_id = "recovery-client",
+                  .timeout = std::chrono::seconds(15),
+              };
+              const auto recovered
+                  = ServerClient::ensure(options);
+              INFO(recovered.error_message);
+              REQUIRE(recovered.ready());
+              std::string shutdown_error;
+              REQUIRE(ServerClient::shutdown(runtime,
+                  { .confirm_live_terminals = true },
+                  shutdown_error));
+              for (int attempt = 0;
+                   attempt < 200
+                   && std::filesystem::exists(
+                       server_metadata_path(runtime));
+                   ++attempt)
+              {
+                  std::this_thread::sleep_for(
+                      std::chrono::milliseconds(10));
+              }
+              REQUIRE_FALSE(std::filesystem::exists(
+                  server_metadata_path(runtime)));
+          };
+
+    TempDir recycled("draxul-server-recycled-pid");
+    {
+        std::ofstream output(
+            server_metadata_path(recycled.path));
+        output << nlohmann::json{
+            { "version", kControlProtocolVersion },
+            { "endpoint",
+                R"(\\.\pipe\draxul-recycled-pid)" },
+            { "token", std::string(64, 'a') },
+            { "server_pid", test_process_id() },
+            { "server_process_start_token",
+                "a-different-process-incarnation" },
+            { "published_unix_ms", uint64_t{ 1 } },
+        }
+                      .dump();
+    }
+    ensure_and_stop(recycled.path);
+
+    TempDir expired("draxul-server-expired-start");
+    const auto marker = expired.path
+        / ("server-starting-"
+            + std::to_string(test_process_id())
+            + ".json");
+    {
+        std::ofstream output(marker);
+        output << nlohmann::json{
+            { "pid", test_process_id() },
+            { "process_start_token",
+                test_process_start_token() },
+            { "created_unix_ms", uint64_t{ 1 } },
+        }
+                      .dump();
+    }
+    ensure_and_stop(expired.path);
+    CHECK_FALSE(std::filesystem::exists(marker));
+}
+
+TEST_CASE("force stop uses published process identity when the server is unresponsive",
+    "[server][process][discovery][recovery]")
+{
+    TempDir temp("draxul-server-force-stop-wedged");
+    auto options = probe_options(temp.path);
+    options.executable_path = DRAXUL_EXECUTABLE_PATH;
+    options.launch_if_missing = true;
+    options.timeout = std::chrono::seconds(15);
+    const auto running = ServerClient::ensure(options);
+    INFO(running.error_message);
+    REQUIRE(running.ready());
+    const uint64_t server_pid = running.welcome->server_pid;
+
+#ifdef _WIN32
+    REQUIRE(set_process_suspended(server_pid, true));
+#else
+    REQUIRE(::kill(static_cast<pid_t>(server_pid), SIGSTOP) == 0);
+#endif
+    std::string stop_error;
+    const bool stopped = ServerClient::force_stop(
+        temp.path, true, stop_error);
+    if (!stopped)
+    {
+#ifdef _WIN32
+        set_process_suspended(server_pid, false);
+#else
+        ::kill(static_cast<pid_t>(server_pid), SIGCONT);
+#endif
+    }
+    INFO(stop_error);
+    REQUIRE(stopped);
+
+    bool alive = true;
+    for (int attempt = 0; attempt < 200 && alive;
+         ++attempt)
+    {
+#ifdef _WIN32
+        HANDLE process = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION,
+            FALSE, static_cast<DWORD>(server_pid));
+        if (!process)
+            alive = false;
+        else
+        {
+            DWORD exit_code = STILL_ACTIVE;
+            alive = GetExitCodeProcess(process, &exit_code)
+                && exit_code == STILL_ACTIVE;
+            CloseHandle(process);
+        }
+#else
+        alive = ::kill(static_cast<pid_t>(server_pid), 0) == 0;
+#endif
+        if (alive)
+        {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(10));
+        }
+    }
+    CHECK_FALSE(alive);
+}
+
 TEST_CASE("ten concurrent clients converge on one detached server epoch", "[server][process]")
 {
     TempDir temp("draxul-server-process");

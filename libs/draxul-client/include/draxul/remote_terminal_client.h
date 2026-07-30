@@ -1,9 +1,11 @@
 #pragma once
 
+#include <draxul/client_recovery.h>
 #include <draxul/remote_terminal_protocol.h>
 
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -18,6 +20,7 @@ struct RemoteTerminalClientOptions
     std::string expected_server_epoch;
     std::string method_prefix = "fake";
     std::string terminal_id;
+    std::shared_ptr<ClientRecoveryState> recovery;
 };
 
 class RemoteTerminalProjection
@@ -55,11 +58,13 @@ public:
 
     bool attach(std::string& error);
     bool poll(bool& changed, std::string& error);
-    bool send_input(std::string_view text, std::string& error);
-    bool resize(int cols, int rows, std::string& error);
-    bool take_control(std::string& error);
-    bool disconnect(std::string& error);
-    bool restart(std::string& error);
+    bool send_input(std::string_view text, std::string& error,
+        uint64_t request_id = 0);
+    bool resize(int cols, int rows, std::string& error,
+        uint64_t request_id = 0);
+    bool take_control(std::string& error, uint64_t request_id = 0);
+    bool disconnect(std::string& error, uint64_t request_id = 0);
+    bool restart(std::string& error, uint64_t request_id = 0);
     bool read_scrollback(uint64_t offset_from_live, size_t max_rows,
         RemoteTerminalScrollbackPage& page, std::string& error);
 

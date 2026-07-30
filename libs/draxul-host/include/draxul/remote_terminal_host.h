@@ -13,6 +13,8 @@
 namespace draxul
 {
 
+class ClientRecoveryState;
+
 struct RemoteTerminalHostOptions
 {
     std::filesystem::path runtime_directory;
@@ -21,6 +23,7 @@ struct RemoteTerminalHostOptions
     std::string server_epoch;
     std::string method_prefix = "fake";
     std::string terminal_id;
+    std::shared_ptr<ClientRecoveryState> recovery;
 };
 
 class RemoteTerminalHost final : public GridHostBase

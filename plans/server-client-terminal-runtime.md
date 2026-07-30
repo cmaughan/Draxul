@@ -1663,14 +1663,23 @@ Validation after hardening:
   terminal with zero clients after detach, reported a stable epoch, and exited cleanly
   through confirmed shutdown.
 
+Follow-up recovery hardening completed on 2026-07-30:
+
+- one App-owned recovery state now supplies a mutable server epoch plus isolated
+  terminal, topology, and agent retry channels;
+- terminal hosts survive long outages, refresh a replaced server epoch, and reattach
+  in place; newly projected panes consume the same refreshed epoch;
+- terminal, topology, agent, status, and attachment work runs off the render thread;
+- jittered exponential backoff is attempt-based and capped at five seconds; and
+- expired queued control work is cancelled, while topology, terminal, and agent
+  mutations carry bounded request-ID deduplication contracts.
+
+Windows validation includes a real 10.25-second outage followed by a new-epoch server
+restart, attachment of both the existing pane and a newly projected pane, all six
+Release/Ninja core and app shards, and Debug/Ninja smoke.
+
 Known boundaries retained for later work:
 
-- a UI attached to a server that actually exits does not migrate its live remote
-  terminal hosts to a new server epoch in place; the honest recovery is currently to
-  reopen the UI;
-- topology commands and projection polling still use bounded synchronous IPC on the
-  UI thread, so a live but completely wedged server can pause those UI operations for
-  the five-second transport deadline;
 - individual pathological cell payloads (for example, a hyperlink repeated across a
   whole maximum-size grid) can still exceed the uncompressed 8 MiB frame even though
   dimensions and normal poll batches are bounded; compression/table deduplication is

@@ -55,6 +55,12 @@ private:
         const nlohmann::json& params, std::string& client_id) const;
     bool read_version(
         const nlohmann::json& params, RemoteTerminalVersion& version) const;
+    bool mutation_key(const nlohmann::json& params,
+        std::string_view operation, std::string& key) const;
+    std::optional<ControlMethodResult> cached_mutation(
+        const std::string& key) const;
+    ControlMethodResult remember_mutation(
+        std::string key, ControlMethodResult result);
     RemoteTerminalVersion version() const;
     RemoteTerminalEvent snapshot_event();
     RemoteTerminalEvent make_delta_event();
@@ -81,6 +87,9 @@ private:
     std::string controller_client_id_;
     std::string preferred_controller_client_id_;
     std::unordered_map<std::string, Subscriber> subscribers_;
+    std::unordered_map<std::string, ControlMethodResult>
+        completed_mutations_;
+    std::deque<std::string> completed_mutation_order_;
     uint64_t snapshot_frames_ = 0;
     uint64_t snapshot_bytes_ = 0;
     uint64_t delta_frames_ = 0;

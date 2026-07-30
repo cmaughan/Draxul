@@ -5,6 +5,7 @@
 #include "support/temp_dir.h"
 #include "support/test_host_callbacks.h"
 
+#include <draxul/client_recovery.h>
 #include <draxul/remote_terminal_client.h>
 #include <draxul/remote_terminal_host.h>
 #include <draxul/control_plane.h>
@@ -134,6 +135,8 @@ TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
     std::condition_variable input_changed;
     bool release_first_input = false;
     std::atomic<int> input_calls = 0;
+    std::atomic<uint64_t> first_request_id = 0;
+    std::atomic<uint64_t> second_request_id = 0;
     std::atomic<bool> first_input_started = false;
     std::atomic<bool> first_input_fully_framed = false;
     TerminalSemanticSnapshot snapshot{
@@ -181,6 +184,16 @@ TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
                 if (request.method == "fake.input")
                 {
                     const int call = ++input_calls;
+                    if (call == 1)
+                    {
+                        first_request_id = request.params.value(
+                            "request_id", uint64_t{ 0 });
+                    }
+                    else if (call == 2)
+                    {
+                        second_request_id = request.params.value(
+                            "request_id", uint64_t{ 0 });
+                    }
                     if (call == 1)
                     {
                         const std::string text
@@ -278,6 +291,27 @@ TEST_CASE("remote terminal host shutdown is bounded and stops between commands",
     CHECK(input_calls == 1);
     CHECK(first_input_fully_framed);
 
+    // Recreating a host for the same client must not reuse an id still held
+    // in the server's deduplication cache.
+    RemoteTerminalHost replacement({
+        .runtime_directory = temp.path,
+        .client_id = "bounded-shutdown-client",
+        .server_epoch = "bounded-shutdown-epoch",
+    });
+    REQUIRE(replacement.initialize(context, callbacks));
+    REQUIRE(pump_until(replacement, [&] {
+        return replacement.status_text().find("remote controller")
+            != std::string::npos;
+    }));
+    replacement.on_text_input({ .text = "replacement-input" });
+    REQUIRE(pump_until(replacement, [&] {
+        return input_calls.load() >= 2;
+    }));
+    REQUIRE(first_request_id != 0);
+    REQUIRE(second_request_id != 0);
+    CHECK(second_request_id != first_request_id);
+    replacement.shutdown();
+
     dispatcher.request_stop();
     input_changed.notify_all();
     dispatcher.join();
@@ -356,6 +390,273 @@ TEST_CASE("remote terminal host chunks a large paste without stopping",
     CHECK(host.is_running());
     CHECK(callbacks.last_toast_message.empty());
     host.shutdown();
+}
+
+TEST_CASE("remote terminal host reattaches after one malformed event",
+    "[host][remote-terminal][recovery]")
+{
+    TempDir temp("draxul-remote-host-event-recovery");
+    ControlServer control;
+    std::string control_error;
+    REQUIRE(control.start(
+        namespaced_control_id(kServerControlId, temp.path),
+        temp.path, [] {}, &control_error));
+
+    TerminalSemanticSnapshot snapshot{
+        .cols = 20,
+        .rows = 5,
+        .cells = std::vector<TerminalCellSnapshot>(
+            20 * 5, TerminalCellSnapshot{ .text = " " }),
+    };
+    RemoteTerminalAttach attach{
+        .pane = {
+            .pane_id = std::string(kFakeRemotePaneId),
+            .terminal_id = std::string(kFakeRemoteTerminalId),
+            .name = "Recovery Test",
+            .execution_domain = "server_terminal",
+        },
+        .state = {
+            .kind = RemoteTerminalEventKind::Snapshot,
+            .version = {
+                .server_epoch = "event-recovery-epoch",
+                .terminal_id = std::string(kFakeRemoteTerminalId),
+                .generation = 1,
+            },
+            .controller_client_id = "event-recovery-client",
+            .snapshot = snapshot,
+        },
+    };
+    std::atomic<int> attach_calls = 0;
+    std::atomic<int> poll_calls = 0;
+    std::atomic<int> input_calls = 0;
+    std::atomic<int> scrollback_calls = 0;
+    std::mutex accepted_mutex;
+    std::vector<std::string> accepted_input;
+    std::jthread dispatcher([&](std::stop_token stop) {
+        while (!stop.stop_requested())
+        {
+            control.process_pending([&](const ControlRequest& request) {
+                if (request.method == "fake.attach")
+                {
+                    ++attach_calls;
+                    return ControlMethodResult::success(
+                        remote_terminal_attach_to_json(attach));
+                }
+                if (request.method == "fake.poll")
+                {
+                    if (++poll_calls == 1)
+                    {
+                        return ControlMethodResult::success({
+                            { "events", nlohmann::json::array(
+                                  { { { "kind", "malformed" } } }) },
+                        });
+                    }
+                    return ControlMethodResult::success({
+                        { "events", nlohmann::json::array() },
+                    });
+                }
+                if (request.method == "fake.input")
+                {
+                    if (++input_calls == 1)
+                    {
+                        return ControlMethodResult::error(
+                            "io_error", "Synthetic transport interruption.");
+                    }
+                    std::lock_guard lock(accepted_mutex);
+                    accepted_input.push_back(
+                        request.params.value("text", ""));
+                    return ControlMethodResult::success(
+                        nlohmann::json::object());
+                }
+                if (request.method == "fake.scrollback")
+                {
+                    ++scrollback_calls;
+                    return ControlMethodResult::error(
+                        "unknown_method",
+                        "This server has no scrollback capability.");
+                }
+                return ControlMethodResult::success(
+                    nlohmann::json::object());
+            });
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(1));
+        }
+    });
+
+    FakeWindow window;
+    FakeTermRenderer renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks callbacks;
+    RemoteTerminalHost host({
+        .runtime_directory = temp.path,
+        .client_id = "event-recovery-client",
+        .server_epoch = "event-recovery-epoch",
+    });
+    HostContext context{
+        .window = &window,
+        .grid_renderer = &renderer,
+        .text_service = &text_service,
+        .launch_options = { .kind = HostKind::RemoteTerminal },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 20, 5 },
+        },
+        .display_ppi = 96.0f,
+    };
+    REQUIRE(host.initialize(context, callbacks));
+    REQUIRE(pump_until(host, [&] {
+        return attach_calls.load() >= 2;
+    }));
+    CHECK(host.is_running());
+
+    host.on_text_input({ .text = "first" });
+    REQUIRE(pump_until(host, [&] {
+        return input_calls.load() >= 1;
+    }));
+    host.on_text_input({ .text = "second" });
+    REQUIRE(pump_until(host, [&] {
+        std::lock_guard lock(accepted_mutex);
+        return accepted_input.size() == 2;
+    }));
+    {
+        std::lock_guard lock(accepted_mutex);
+        CHECK(accepted_input
+            == std::vector<std::string>{ "first", "second" });
+    }
+    host.on_mouse_wheel({ .delta = { 0.0f, 1.0f } });
+    REQUIRE(pump_until(host, [&] {
+        return scrollback_calls.load() >= 1;
+    }));
+    CHECK(host.is_running());
+    host.shutdown();
+    dispatcher.request_stop();
+    dispatcher.join();
+    control.stop();
+}
+
+TEST_CASE("remote terminal hosts recover in place after a long server restart",
+    "[host][remote-terminal][recovery][server-restart]")
+{
+    TempDir temp("draxul-remote-host-server-restart");
+    auto recovery
+        = std::make_shared<ClientRecoveryState>(
+            "restart-client");
+    recovery->set_server_epoch("restart-first");
+
+    FakeWindow window;
+    FakeTermRenderer first_renderer;
+    TextService text_service;
+    TextServiceConfig text_config;
+    text_config.font_path = bundled_font_path();
+    REQUIRE(text_service.initialize(
+        text_config, TextService::DEFAULT_POINT_SIZE, 96.0f));
+    TestHostCallbacks first_callbacks;
+    HostContext first_context{
+        .window = &window,
+        .grid_renderer = &first_renderer,
+        .text_service = &text_service,
+        .launch_options = {
+            .kind = HostKind::RemoteTerminal,
+        },
+        .initial_viewport = {
+            .pixel_size = { 320, 160 },
+            .grid_size = { 20, 5 },
+        },
+        .display_ppi = 96.0f,
+    };
+    auto first_host
+        = std::make_unique<RemoteTerminalHost>(
+            RemoteTerminalHostOptions{
+                .runtime_directory = temp.path,
+                .client_id = "restart-client",
+                .server_epoch = "restart-first",
+                .method_prefix = "terminal",
+                .terminal_id = std::string(
+                    kServerShellTerminalId),
+                .recovery = recovery,
+            });
+
+    {
+        ServerKernel first_server({
+            .runtime_directory = temp.path,
+            .epoch_override = "restart-first",
+        });
+        REQUIRE(first_server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard first_run(first_server);
+        REQUIRE(first_host->initialize(
+            first_context, first_callbacks));
+        REQUIRE(pump_until(*first_host, [&] {
+            return first_host->status_text().find(
+                       "remote controller")
+                != std::string::npos;
+        }));
+        first_server.request_stop();
+    }
+
+    // The old wall-clock grace killed a pane after roughly one failed
+    // request. Keep this pane disconnected longer than ten seconds to prove
+    // recovery is attempt-based and remains alive during a real outage.
+    const auto stalled_until
+        = std::chrono::steady_clock::now()
+        + std::chrono::milliseconds(10250);
+    while (std::chrono::steady_clock::now()
+        < stalled_until)
+    {
+        first_host->pump();
+        REQUIRE(first_host->is_running());
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(10));
+    }
+
+    {
+        ServerKernel second_server({
+            .runtime_directory = temp.path,
+            .epoch_override = "restart-second",
+        });
+        REQUIRE(second_server.start().disposition
+            == ServerStartDisposition::Started);
+        ServerRunGuard second_run(second_server);
+        REQUIRE(pump_until(*first_host, [&] {
+            return recovery->server_epoch()
+                    == "restart-second"
+                && first_host->status_text().find(
+                       "remote controller")
+                    != std::string::npos;
+        }));
+
+        FakeTermRenderer second_renderer;
+        TestHostCallbacks second_callbacks;
+        HostContext second_context = first_context;
+        second_context.grid_renderer = &second_renderer;
+        RemoteTerminalHost projected_host({
+            .runtime_directory = temp.path,
+            .client_id = "new-projection-client",
+            // Deliberately stale: the shared mutable recovery state is now
+            // authoritative for hosts projected after the restart.
+            .server_epoch = "restart-first",
+            .method_prefix = "terminal",
+            .terminal_id = std::string(
+                kServerShellTerminalId),
+            .recovery = recovery,
+        });
+        REQUIRE(projected_host.initialize(
+            second_context, second_callbacks));
+        REQUIRE(pump_until(projected_host, [&] {
+            return projected_host.status_text().find(
+                       "remote observer")
+                != std::string::npos;
+        }));
+        CHECK(first_host->is_running());
+        CHECK(projected_host.is_running());
+
+        projected_host.shutdown();
+        first_host->shutdown();
+    }
 }
 
 TEST_CASE("remote terminal host renders shared state and can take control",

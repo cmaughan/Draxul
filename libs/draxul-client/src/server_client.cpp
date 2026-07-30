@@ -7,6 +7,7 @@
 #include <iterator>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <thread>
@@ -21,6 +22,9 @@
 #include <csignal>
 #include <fcntl.h>
 #include <sys/types.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -31,6 +35,8 @@ namespace
 {
 
 constexpr std::string_view kStartingMarkerPrefix = "server-starting-";
+constexpr auto kStartingMarkerLifetime = std::chrono::seconds(5);
+constexpr auto kEndpointPublicationGrace = std::chrono::seconds(2);
 
 std::optional<nlohmann::json> read_bounded_json(
     const std::filesystem::path& path)
@@ -48,38 +54,121 @@ std::optional<nlohmann::json> read_bounded_json(
     return value;
 }
 
-bool process_is_alive(uint64_t pid)
+uint64_t current_unix_time_ms()
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
+#ifdef _WIN32
+std::optional<std::string> process_start_token(HANDLE process)
+{
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetProcessTimes(process, &created, &exited, &kernel, &user))
+        return std::nullopt;
+    const uint64_t value
+        = (static_cast<uint64_t>(created.dwHighDateTime) << 32)
+        | created.dwLowDateTime;
+    return std::to_string(value);
+}
+#endif
+
+std::optional<std::string> process_start_token(uint64_t pid)
 {
     if (pid == 0)
-        return false;
+        return std::nullopt;
 #ifdef _WIN32
     if (pid > std::numeric_limits<DWORD>::max())
-        return false;
+        return std::nullopt;
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
         static_cast<DWORD>(pid));
     if (!process)
-        return false;
+        return std::nullopt;
     DWORD code = 0;
     const bool alive = GetExitCodeProcess(process, &code)
         && code == STILL_ACTIVE;
+    const auto token = alive
+        ? process_start_token(process)
+        : std::nullopt;
     CloseHandle(process);
-    return alive;
+    return token;
+#elif defined(__APPLE__)
+    if (pid > static_cast<uint64_t>(
+                  std::numeric_limits<pid_t>::max()))
+    {
+        return std::nullopt;
+    }
+    kinfo_proc process{};
+    size_t size = sizeof(process);
+    int query[] = {
+        CTL_KERN,
+        KERN_PROC,
+        KERN_PROC_PID,
+        static_cast<int>(pid),
+    };
+    if (::sysctl(query, 4, &process, &size, nullptr, 0) != 0
+        || size == 0)
+    {
+        return std::nullopt;
+    }
+    return std::to_string(process.kp_proc.p_starttime.tv_sec)
+        + ":" + std::to_string(
+              process.kp_proc.p_starttime.tv_usec);
 #else
     if (pid > static_cast<uint64_t>(
                   std::numeric_limits<pid_t>::max()))
     {
-        return false;
+        return std::nullopt;
     }
-    const int result = ::kill(static_cast<pid_t>(pid), 0);
-    return result == 0 || errno == EPERM;
+    std::ifstream stat(
+        "/proc/" + std::to_string(pid) + "/stat");
+    std::string line;
+    if (!std::getline(stat, line))
+        return std::nullopt;
+    const size_t command_end = line.rfind(')');
+    if (command_end == std::string::npos
+        || command_end + 2 >= line.size())
+    {
+        return std::nullopt;
+    }
+    std::istringstream fields(line.substr(command_end + 2));
+    std::string field;
+    // /proc/<pid>/stat field 22 is the process start time. The substring
+    // starts at field 3, so consume through the twentieth value.
+    for (int index = 0; index < 20; ++index)
+    {
+        if (!(fields >> field))
+            return std::nullopt;
+    }
+    std::ifstream boot_id("/proc/sys/kernel/random/boot_id");
+    std::string boot;
+    if (!std::getline(boot_id, boot) || boot.empty())
+        return std::nullopt;
+    return boot + ":" + field;
 #endif
+}
+
+bool process_identity_matches(
+    uint64_t pid, std::string_view expected_start_token)
+{
+    if (expected_start_token.empty())
+        return false;
+    const auto actual = process_start_token(pid);
+    return actual && *actual == expected_start_token;
 }
 
 struct RuntimeEvidence
 {
     bool metadata_exists = false;
     bool metadata_valid = false;
+    bool metadata_version_mismatch = false;
     uint64_t metadata_pid = 0;
+    std::string metadata_start_token;
+    std::string metadata_epoch;
+    uint64_t metadata_published_unix_ms = 0;
+    bool metadata_process_matches = false;
     bool live_starting_process = false;
     bool stale_starting_marker = false;
 };
@@ -91,12 +180,43 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
     evidence.metadata_exists = std::filesystem::exists(metadata_path);
     if (const auto metadata = read_bounded_json(metadata_path))
     {
+        evidence.metadata_version_mismatch
+            = metadata->contains("version")
+            && (*metadata)["version"].is_number_integer()
+            && (*metadata)["version"].get<int>()
+                != kControlProtocolVersion;
         evidence.metadata_valid = metadata->contains("server_pid")
-            && (*metadata)["server_pid"].is_number_unsigned();
+            && (*metadata)["server_pid"].is_number_unsigned()
+            && metadata->contains("server_process_start_token")
+            && (*metadata)["server_process_start_token"].is_string()
+            && !(*metadata)["server_process_start_token"]
+                    .get_ref<const std::string&>()
+                    .empty();
         if (evidence.metadata_valid)
+        {
             evidence.metadata_pid = (*metadata)["server_pid"].get<uint64_t>();
+            evidence.metadata_start_token
+                = (*metadata)["server_process_start_token"]
+                      .get<std::string>();
+            evidence.metadata_process_matches
+                = process_identity_matches(evidence.metadata_pid,
+                    evidence.metadata_start_token);
+        }
+        if (metadata->contains("server_epoch")
+            && (*metadata)["server_epoch"].is_string())
+        {
+            evidence.metadata_epoch
+                = (*metadata)["server_epoch"].get<std::string>();
+        }
+        if (metadata->contains("published_unix_ms")
+            && (*metadata)["published_unix_ms"].is_number_unsigned())
+        {
+            evidence.metadata_published_unix_ms
+                = (*metadata)["published_unix_ms"].get<uint64_t>();
+        }
     }
 
+    const uint64_t now = current_unix_time_ms();
     std::error_code iteration_error;
     if (!std::filesystem::is_directory(runtime_directory, iteration_error)
         || iteration_error)
@@ -116,10 +236,38 @@ RuntimeEvidence inspect_runtime(const std::filesystem::path& runtime_directory)
                 && (*marker)["pid"].is_number_unsigned()
             ? (*marker)["pid"].get<uint64_t>()
             : 0;
-        if (process_is_alive(marker_pid))
+        const std::string marker_start_token
+            = marker && marker->contains("process_start_token")
+                && (*marker)["process_start_token"].is_string()
+            ? (*marker)["process_start_token"].get<std::string>()
+            : std::string{};
+        const uint64_t created_unix_ms
+            = marker && marker->contains("created_unix_ms")
+                && (*marker)["created_unix_ms"].is_number_unsigned()
+            ? (*marker)["created_unix_ms"].get<uint64_t>()
+            : 0;
+        const uint64_t lifetime_ms = static_cast<uint64_t>(
+            std::chrono::duration_cast<
+                std::chrono::milliseconds>(
+                kStartingMarkerLifetime)
+                .count());
+        const bool expired = created_unix_ms == 0
+            || (created_unix_ms > now
+                && created_unix_ms - now > lifetime_ms)
+            || (now >= created_unix_ms
+                && now - created_unix_ms > lifetime_ms);
+        if (!expired
+            && process_identity_matches(
+                marker_pid, marker_start_token))
+        {
             evidence.live_starting_process = true;
+        }
         else
+        {
             evidence.stale_starting_marker = true;
+            std::error_code remove_error;
+            std::filesystem::remove(it->path(), remove_error);
+        }
     }
     return evidence;
 }
@@ -129,6 +277,17 @@ ServerProbeResult unavailable_result(
     std::string error_code,
     std::string error_message)
 {
+    if (evidence.metadata_version_mismatch
+        || error_code == "unsupported_version")
+    {
+        return {
+            .state = ServerProbeState::Incompatible,
+            .error_code = "incompatible_protocol",
+            .error_message = evidence.metadata_version_mismatch
+                ? "Client/server control protocol versions do not match."
+                : std::move(error_message),
+        };
+    }
     if (evidence.live_starting_process)
     {
         return {
@@ -139,8 +298,18 @@ ServerProbeResult unavailable_result(
     }
     if (evidence.metadata_valid)
     {
+        const uint64_t now = current_unix_time_ms();
+        const uint64_t grace_ms = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                kEndpointPublicationGrace)
+                .count());
+        const bool publication_in_grace
+            = evidence.metadata_published_unix_ms != 0
+            && now >= evidence.metadata_published_unix_ms
+            && now - evidence.metadata_published_unix_ms <= grace_ms;
         return {
-            .state = process_is_alive(evidence.metadata_pid)
+            .state = evidence.metadata_process_matches
+                    && publication_in_grace
                 ? ServerProbeState::Busy
                 : ServerProbeState::Crashed,
             .error_code = std::move(error_code),
@@ -367,11 +536,14 @@ ServerProbeResult ServerClient::ensure(const ServerEnsureOptions& options)
 }
 
 ServerStatusResult ServerClient::status(
-    const std::filesystem::path& runtime_directory)
+    const std::filesystem::path& runtime_directory,
+    std::chrono::milliseconds request_timeout)
 {
     const auto response = ControlClient::request(
         namespaced_control_id(kServerControlId, runtime_directory),
-        runtime_directory, "server.status");
+        runtime_directory, "server.status",
+        nlohmann::json::object(),
+        { .timeout = request_timeout });
     if (!response.ok)
     {
         return {
@@ -466,16 +638,32 @@ bool ServerClient::force_stop(
         error = "Force stop requires explicit confirmation.";
         return false;
     }
-    const auto initial = status(runtime_directory);
-    if (!initial.ok || !initial.status)
+    RuntimeEvidence identity = inspect_runtime(runtime_directory);
+    if (!identity.metadata_valid
+        || !identity.metadata_process_matches)
     {
-        error = initial.error_message.empty()
-            ? "The Draxul server is unavailable."
-            : initial.error_message;
+        error = "No live Draxul server process identity is published.";
         return false;
     }
-    const uint64_t pid = initial.status->server_pid;
-    const std::string epoch = initial.status->server_epoch;
+
+    // Prefer a live status response, but never make emergency recovery depend
+    // on the main loop it exists to recover. The filesystem identity is
+    // sufficient when the bounded health check cannot complete.
+    const auto initial = status(
+        runtime_directory, std::chrono::milliseconds(250));
+    if (initial.ok && initial.status
+        && (initial.status->server_pid != identity.metadata_pid
+            || (!identity.metadata_epoch.empty()
+                && initial.status->server_epoch
+                    != identity.metadata_epoch)))
+    {
+        error = "The Draxul server identity does not match its published metadata.";
+        return false;
+    }
+    const uint64_t pid = identity.metadata_pid;
+    const std::string start_token
+        = identity.metadata_start_token;
+    const std::string epoch = identity.metadata_epoch;
 
 #ifdef _WIN32
     if (pid == 0 || pid > std::numeric_limits<DWORD>::max())
@@ -483,15 +671,27 @@ bool ServerClient::force_stop(
         error = "The Draxul server reported an invalid process identity.";
         return false;
     }
-    // Hold the process object across the final status check. A Windows handle
-    // continues to name the same process even if its numeric PID is reused.
+    // Hold the process object across the final identity check. A Windows
+    // handle continues to name the same process even if its numeric PID is
+    // reused.
     HANDLE process = OpenProcess(
-        PROCESS_TERMINATE | SYNCHRONIZE, FALSE,
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE
+            | SYNCHRONIZE,
+        FALSE,
         static_cast<DWORD>(pid));
     if (!process)
     {
         error = "Unable to open the Draxul server process (error "
             + std::to_string(GetLastError()) + ").";
+        return false;
+    }
+    const auto handle_start_token
+        = process_start_token(process);
+    if (!handle_start_token
+        || *handle_start_token != start_token)
+    {
+        CloseHandle(process);
+        error = "The Draxul server process identity changed before force stop.";
         return false;
     }
 #else
@@ -503,12 +703,15 @@ bool ServerClient::force_stop(
     }
 #endif
 
-    // Re-read immediately before terminating. This narrows the PID-reuse
-    // window and refuses to kill a replacement server.
-    const auto current = status(runtime_directory);
-    if (!current.ok || !current.status
-        || current.status->server_pid != pid
-        || current.status->server_epoch != epoch)
+    // Re-read the filesystem identity immediately before terminating. Unlike
+    // status(), this remains available when the server main loop is wedged.
+    const RuntimeEvidence current
+        = inspect_runtime(runtime_directory);
+    if (!current.metadata_valid
+        || current.metadata_pid != pid
+        || current.metadata_start_token != start_token
+        || (!epoch.empty() && current.metadata_epoch != epoch)
+        || !current.metadata_process_matches)
     {
         error = "The Draxul server changed while force stop was being confirmed.";
 #ifdef _WIN32

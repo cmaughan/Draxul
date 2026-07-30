@@ -517,6 +517,15 @@ int run_control_cli(const ControlCliCommand& command)
                 = command.runtime_generation;
         }
     }
+    if (command.method == "agent.start"
+        || command.method == "agent.restart"
+        || command.method == "agent.send_text"
+        || command.method == "agent.send_keys")
+    {
+        // The same params object is retained across endpoint fallback, so a
+        // server can safely deduplicate a mutation whose response was lost.
+        params["request_id"] = make_server_client_id();
+    }
 
     const auto runtime =
         control_runtime_directory(ConfigDocument::default_path().parent_path());

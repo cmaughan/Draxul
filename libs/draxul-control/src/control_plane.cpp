@@ -243,6 +243,28 @@ ControlMethodResult parse_request(std::string_view bytes,
         return ControlMethodResult::error("invalid_request", "Request params must be an object.");
 
     request.params = envelope.value("params", nlohmann::json::object());
+    if (envelope.contains("timeout_ms"))
+    {
+        if (!envelope["timeout_ms"].is_number_integer())
+        {
+            return ControlMethodResult::error(
+                "invalid_request", "Request timeout is invalid.");
+        }
+        const int64_t timeout_ms
+            = envelope["timeout_ms"].get<int64_t>();
+        constexpr int64_t maximum_timeout_ms
+            = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::hours(1))
+                  .count();
+        if (timeout_ms <= 0
+            || timeout_ms > maximum_timeout_ms)
+        {
+            return ControlMethodResult::error(
+                "invalid_request", "Request timeout is out of range.");
+        }
+        request.expires_at = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(timeout_ms);
+    }
     return ControlMethodResult::success(nullptr);
 }
 
@@ -792,6 +814,7 @@ public:
         ControlRequest request;
         std::promise<ControlMethodResult> response;
         std::atomic<bool> completed = false;
+        std::atomic<bool> cancelled = false;
 
         bool complete(ControlMethodResult result)
         {
@@ -1079,6 +1102,14 @@ ControlMethodResult ControlServer::Impl::dispatch(ControlRequest request)
     }
     auto pending = std::make_shared<Pending>();
     pending->request = std::move(request);
+    if (std::chrono::steady_clock::now()
+        >= pending->request.expires_at)
+    {
+        pending->cancelled = true;
+        return ControlMethodResult::error(
+            "deadline_exceeded",
+            "The control request expired before dispatch.");
+    }
     auto response = pending->response.get_future();
     {
         std::lock_guard lock(queue_mutex);
@@ -1092,8 +1123,22 @@ ControlMethodResult ControlServer::Impl::dispatch(ControlRequest request)
     }
     if (wake_main_thread)
         wake_main_thread();
-    if (response.wait_for(kIoTimeout) != std::future_status::ready)
+    auto wait_budget
+        = std::chrono::duration_cast<std::chrono::milliseconds>(
+            kIoTimeout);
+    if (pending->request.expires_at
+        != std::chrono::steady_clock::time_point::max())
     {
+        wait_budget = std::min(wait_budget,
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                pending->request.expires_at
+                - std::chrono::steady_clock::now()));
+    }
+    if (wait_budget <= std::chrono::milliseconds::zero()
+        || response.wait_for(wait_budget)
+            != std::future_status::ready)
+    {
+        pending->cancelled = true;
         auto timeout = ControlMethodResult::error(
             "main_thread_timeout", "Draxul did not process the request in time.");
         complete_pending(pending, timeout);
@@ -1119,6 +1164,16 @@ void ControlServer::Impl::process_pending(const Handler& handler)
     }
     for (auto& item : pending)
     {
+        if (item->cancelled
+            || std::chrono::steady_clock::now()
+                >= item->request.expires_at)
+        {
+            item->cancelled = true;
+            complete_pending(item, ControlMethodResult::error(
+                "main_thread_timeout",
+                "The timed-out control request was cancelled."));
+            continue;
+        }
         if (stopping || item->completed)
         {
             complete_pending(item, ControlMethodResult::error(
@@ -1499,6 +1554,12 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         return { false, nullptr, "endpoint_unavailable", std::move(metadata_error) };
     }
 
+    const auto wire_timeout = remaining_time(deadline);
+    if (wire_timeout.count() == 0)
+    {
+        return { false, nullptr, "deadline_exceeded",
+            "The Draxul control request exceeded its deadline." };
+    }
     const std::string id = random_token().substr(0, 16);
     const std::string request_bytes = nlohmann::json{
         { "version", kControlProtocolVersion },
@@ -1506,6 +1567,7 @@ ControlClientResult ControlClient::request(std::string_view session_id,
         { "id", id },
         { "method", method },
         { "params", params },
+        { "timeout_ms", wire_timeout.count() },
     }
                                     .dump();
 

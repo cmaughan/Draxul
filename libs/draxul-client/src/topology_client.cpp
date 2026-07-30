@@ -23,7 +23,10 @@ bool TopologyClient::refresh(std::string& error)
     }
     auto parsed = topology_snapshot_from_json(result, error);
     if (!parsed)
+    {
+        last_error_code_ = "invalid_response";
         return false;
+    }
     snapshot_ = std::move(*parsed);
     return true;
 }
@@ -51,6 +54,7 @@ bool TopologyClient::poll(bool& changed, std::string& error)
         || !result.contains("revision")
         || !result["revision"].is_number_unsigned())
     {
+        last_error_code_ = "invalid_response";
         error = "Invalid topology poll result.";
         return false;
     }
@@ -59,13 +63,17 @@ bool TopologyClient::poll(bool& changed, std::string& error)
         return true;
     if (!result.contains("snapshot"))
     {
+        last_error_code_ = "invalid_response";
         error = "Changed topology poll has no snapshot.";
         return false;
     }
     auto parsed
         = topology_snapshot_from_json(result["snapshot"], error);
     if (!parsed)
+    {
+        last_error_code_ = "invalid_response";
         return false;
+    }
     snapshot_ = std::move(*parsed);
     return true;
 }
@@ -83,7 +91,10 @@ bool TopologyClient::execute(TopologyCommand command,
     }
     auto parsed = topology_command_result_from_json(response, error);
     if (!parsed)
+    {
+        last_error_code_ = "invalid_response";
         return false;
+    }
     result = std::move(*parsed);
     snapshot_ = result.snapshot;
     return true;

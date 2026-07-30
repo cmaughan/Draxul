@@ -3043,6 +3043,7 @@ bool App::initialize_remote_topology()
             .client_id = options_.server_client_id,
             .session_id = options_.session_id,
             .wake_consumer = [this] { wake_window(); },
+            .recovery = options_.client_recovery,
         });
     if (!remote_session_client_->start())
     {
@@ -3063,6 +3064,17 @@ void App::consume_remote_session_state()
         = remote_session_client_->take_published_state();
     if (!published)
         return;
+
+    if (published->server_epoch_changed)
+    {
+        accept_next_remote_topology_revision_ = true;
+        if (published->recovery
+            && options_.server_connection)
+        {
+            options_.server_connection->server_epoch
+                = published->recovery->server_epoch;
+        }
+    }
 
     if (published->topology_error)
     {
@@ -3097,13 +3109,20 @@ void App::consume_remote_session_state()
 
     std::string error;
     if (published->topology
-        && published->topology->revision
-            > remote_topology_snapshot_.revision
-        && !apply_remote_topology_spaces(
-            *published->topology, &error))
+        && (accept_next_remote_topology_revision_
+            || published->topology->revision
+                > remote_topology_snapshot_.revision))
     {
-        push_toast(2,
-            "Could not apply shared topology: " + error);
+        if (!apply_remote_topology_spaces(
+                *published->topology, &error))
+        {
+            push_toast(2,
+                "Could not apply shared topology: " + error);
+        }
+        else
+        {
+            accept_next_remote_topology_revision_ = false;
+        }
     }
     error.clear();
     if (published->agents
@@ -4351,6 +4370,10 @@ Result<std::string, Error> App::launch_agent(AgentLaunchRequest request)
         nlohmann::json params{
             { "session_id", options_.session_id },
             { "client_id", options_.server_client_id },
+            { "request_id",
+                options_.server_client_id + ":"
+                    + std::to_string(
+                        next_server_agent_mutation_id_++) },
             { "profile_id", request.profile_id },
             { "space_id", *space_id },
             { "tab_id", *tab_id },
