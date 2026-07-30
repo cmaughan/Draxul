@@ -98,3 +98,9 @@ work that has since shipped; kept for provenance.
 |------|--------|-------|
 | [prompts/](prompts/) | active | Reusable prompt templates (consensus/review/architecture-diagram); wired into the workflow — e.g. CLAUDE.md's `come to consensus` runs `prompts/consensus_review.md`. |
 | [reviews/](reviews/) | research | Point-in-time multi-model review outputs and consensus snapshots. Historical evidence — do not treat as current state. |
+
+## Reviews
+
+| Review | Status | Notes |
+|--------|--------|-------|
+| [reviews/2026-07-30-server-client-runtime-review.md](reviews/2026-07-30-server-client-runtime-review.md) | research | Full review of the `codex/server-client-runtime` branch — protocol, server services, clients, transport/bootstrap, and app integration. Evidence behind `kanban/pending/12`-`27`, with severity reasoning and a recommended fix order. |
