@@ -70,44 +70,6 @@ std::wstring quote_windows_argument(
 }
 #endif
 
-bool confirm_action(
-    const char* title, const std::string& message,
-    const char* action_label)
-{
-    const std::array<SDL_MessageBoxButtonData, 2> buttons{ {
-        {
-            SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
-            0,
-            "Cancel",
-        },
-        {
-            SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT,
-            1,
-            action_label,
-        },
-    } };
-    const SDL_MessageBoxData data{
-        .flags = SDL_MESSAGEBOX_WARNING
-            | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT,
-        .window = nullptr,
-        .title = title,
-        .message = message.c_str(),
-        .numbuttons = static_cast<int>(buttons.size()),
-        .buttons = buttons.data(),
-        .colorScheme = nullptr,
-    };
-    int selected = 0;
-    return SDL_ShowMessageBox(&data, &selected)
-        && selected == 1;
-}
-
-void show_error(
-    const char* title, const std::string& message)
-{
-    SDL_ShowSimpleMessageBox(
-        SDL_MESSAGEBOX_ERROR, title, message.c_str(), nullptr);
-}
-
 SDL_Surface* make_status_icon()
 {
     SDL_Surface* icon = SDL_CreateSurface(
@@ -252,6 +214,41 @@ std::filesystem::path default_server_log_path(
     const std::filesystem::path& runtime_directory)
 {
     return runtime_directory / "draxul-server.log";
+}
+
+bool ServerStatusConfirmation::request(
+    ServerStatusAction action,
+    std::chrono::steady_clock::time_point now)
+{
+    if (pending_ == action && now < expires_at_)
+    {
+        clear();
+        return true;
+    }
+    pending_ = action;
+    expires_at_ = now + std::chrono::seconds(10);
+    return false;
+}
+
+bool ServerStatusConfirmation::expire(
+    std::chrono::steady_clock::time_point now)
+{
+    if (!pending_ || now < expires_at_)
+        return false;
+    clear();
+    return true;
+}
+
+void ServerStatusConfirmation::clear()
+{
+    pending_.reset();
+    expires_at_ = {};
+}
+
+std::optional<ServerStatusAction>
+ServerStatusConfirmation::pending() const
+{
+    return pending_;
 }
 
 bool launch_draxul_ui(const std::filesystem::path& executable,
@@ -406,8 +403,10 @@ public:
         add_action(menu, "Refresh Status", &Impl::refresh_callback);
         add_action(menu, "Open Server Log", &Impl::log_callback);
         SDL_InsertTrayEntryAt(menu, -1, nullptr, 0);
-        add_action(menu, "Stop Server...", &Impl::stop_callback);
-        add_action(menu, "Force Stop Server...",
+        stop_entry = add_action(
+            menu, "Stop Server...", &Impl::stop_callback);
+        force_stop_entry = add_action(
+            menu, "Force Stop Server...",
             &Impl::force_stop_callback);
         if (!state_entry || !clients_entry
             || !topology_entry)
@@ -432,6 +431,8 @@ public:
             // interpreted as permission to destroy live terminals.
         }
         const auto now = std::chrono::steady_clock::now();
+        if (confirmation.expire(now))
+            reset_action_labels();
         if (now >= next_refresh)
             refresh();
         SDL_Delay(20);
@@ -447,6 +448,9 @@ public:
         state_entry = nullptr;
         clients_entry = nullptr;
         topology_entry = nullptr;
+        stop_entry = nullptr;
+        force_stop_entry = nullptr;
+        confirmation.clear();
         if (video_initialized)
         {
             SDL_QuitSubSystem(SDL_INIT_VIDEO);
@@ -486,7 +490,7 @@ public:
         if (!launch_draxul_ui(options.executable_path,
                 options.runtime_directory, error))
         {
-            show_error("Draxul Server", error);
+            report_error(error);
         }
     }
 
@@ -494,75 +498,93 @@ public:
     {
         std::string error;
         if (!open_server_log(options.log_path, error))
-            show_error("Draxul Server Log", error);
+            report_error(error);
     }
 
     void stop()
     {
-        const auto status
-            = ServerClient::status(options.runtime_directory);
-        if (!status.ok || !status.status)
-        {
-            show_error("Stop Draxul Server",
-                status.error_message.empty()
-                    ? "The Draxul server status is unavailable."
-                    : status.error_message);
+        if (!request_confirmation(ServerStatusAction::Stop,
+                stop_entry, "Confirm Stop Server"))
             return;
-        }
-        size_t live_terminals = 0;
-        for (const auto& session
-            : status.status->session_statuses)
-        {
-            live_terminals += session.live_terminals;
-        }
-        std::string message
-            = "Stop the Draxul server?";
-        if (live_terminals > 0)
-        {
-            message = "This will close "
-                + count_label(live_terminals,
-                    "live terminal", "live terminals")
-                + " and their processes. Continue?";
-        }
-        if (!confirm_action(
-                "Stop Draxul Server", message, "Stop Server"))
-        {
-            return;
-        }
         std::string error;
         if (!ServerClient::shutdown(
                 options.runtime_directory,
                 { .confirm_live_terminals = true }, error))
         {
-            show_error("Stop Draxul Server", error);
+            report_error(error);
         }
     }
 
     void force_stop()
     {
-        if (!confirm_action("Force Stop Draxul Server",
-                "Force stop bypasses the final checkpoint and immediately "
-                "destroys all terminal processes. Use it only when graceful "
-                "stop is not working.",
-                "Force Stop"))
-        {
+        if (!request_confirmation(
+                ServerStatusAction::ForceStop,
+                force_stop_entry,
+                "Confirm Force Stop Server"))
             return;
-        }
         std::string error;
         if (!ServerClient::force_stop(
                 options.runtime_directory, true, error))
         {
-            show_error("Force Stop Draxul Server", error);
+            report_error(error);
         }
     }
 
-    void add_action(SDL_TrayMenu* menu, const char* label,
+    bool request_confirmation(ServerStatusAction action,
+        SDL_TrayEntry* entry, const char* confirmation_label)
+    {
+        const bool confirmed = confirmation.request(
+            action, std::chrono::steady_clock::now());
+        reset_action_labels();
+        if (confirmed)
+            return true;
+        if (entry)
+            SDL_SetTrayEntryLabel(entry, confirmation_label);
+        report_status(
+            "Select the confirmation action again within 10 seconds.",
+            std::chrono::seconds(10));
+        return false;
+    }
+
+    void reset_action_labels()
+    {
+        if (stop_entry)
+            SDL_SetTrayEntryLabel(
+                stop_entry, "Stop Server...");
+        if (force_stop_entry)
+            SDL_SetTrayEntryLabel(
+                force_stop_entry, "Force Stop Server...");
+    }
+
+    void report_error(const std::string& message)
+    {
+        std::string bounded = message.empty()
+            ? "The requested server action failed."
+            : message.substr(0, 160);
+        report_status(
+            "Draxul Server - " + bounded,
+            std::chrono::seconds(5));
+    }
+
+    void report_status(const std::string& message,
+        std::chrono::seconds duration)
+    {
+        if (state_entry)
+            SDL_SetTrayEntryLabel(
+                state_entry, message.c_str());
+        next_refresh
+            = std::chrono::steady_clock::now() + duration;
+    }
+
+    SDL_TrayEntry* add_action(
+        SDL_TrayMenu* menu, const char* label,
         SDL_TrayCallback callback)
     {
         SDL_TrayEntry* entry = SDL_InsertTrayEntryAt(
             menu, -1, label, SDL_TRAYENTRY_BUTTON);
         if (entry)
             SDL_SetTrayEntryCallback(entry, callback, this);
+        return entry;
     }
 
     static void SDLCALL open_callback(
@@ -600,6 +622,9 @@ public:
     SDL_TrayEntry* state_entry = nullptr;
     SDL_TrayEntry* clients_entry = nullptr;
     SDL_TrayEntry* topology_entry = nullptr;
+    SDL_TrayEntry* stop_entry = nullptr;
+    SDL_TrayEntry* force_stop_entry = nullptr;
+    ServerStatusConfirmation confirmation;
     bool video_initialized = false;
     std::chrono::steady_clock::time_point next_refresh{};
 };
